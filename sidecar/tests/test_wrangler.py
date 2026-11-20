@@ -143,7 +143,7 @@ def test_each_source_is_read_with_code_that_also_runs_in_fabric_and_databricks()
     from duckdb.experimental.spark.sql import SparkSession
     spark = SparkSession.builder.getOrCreate()
     assert wrangler.reader(spark.createDataFrame([(1,)], ["a"]), "x") == "pl.from_pandas(x.toPandas())"
-    assert wrangler.reader(duckdb.sql("SELECT 1"), "x") == "x.pl()"
+    assert wrangler.reader(duckdb.connect().sql("SELECT 1"), "x") == "x.pl()"
     assert wrangler.reader(pl.DataFrame().lazy(), "x") == "x.collect()"
     pd = pytest.importorskip("pandas")
     assert wrangler.reader(pd.DataFrame(), "x") == "pl.from_pandas(x)"

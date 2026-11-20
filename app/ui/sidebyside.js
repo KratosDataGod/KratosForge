@@ -64,7 +64,10 @@ async function followSideBySide(nb, id) {
   const end = await pollRun(() => rpc("side_by_side_status", { id }), { onStatus: (now) => sbsUpdate(sbsFollows.get(id), now) });
   nb = sbsFollows.get(id);
   sbsFollows.delete(id);
-  if (end.stopped === "lost") nb.sbs = { ...nb.sbs, state: "failed", message: `Lost track of the run: ${end.message}` };
+  if (end.stopped === "lost") {
+    nb.sbs = { ...nb.sbs, state: "failed", message: `Lost track of the run: ${end.message}` };
+    drawSbs(nb);  // no status ended it, so the card still shows the run's last step
+  }
   (nb.sbsCells || []).forEach((c) => { if (c.status === "queued") { c.status = null; if (state.notebook === nb) updateResults(c); } });
   if (state.notebook === nb) setKernel("idle");
   const s = nb.sbs;

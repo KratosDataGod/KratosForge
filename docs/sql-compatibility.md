@@ -18,7 +18,7 @@ The dialect list next to **Run** is also the engine the SQL is checked against:
 | **Fabric SQL database (T-SQL)** | What the SQL database limitations page lists: EXECUTE AS, BACKUP, change data capture, SQL Agent, Service Broker, in-memory and ledger tables, logins, distributed transactions, column names, cross-database and linked-server names |
 | **DuckDB (this PC)** | T-SQL syntax, and that DuckDB SQL runs only on this PC |
 
-T-SQL is checked and formatted here but never run on this PC.
+The check only checks and formats T-SQL; it never runs it. A local data project runs T-SQL on this PC: see [Local T-SQL changes](#local-t-sql-changes) and the sections after it.
 
 ## Findings
 
@@ -54,6 +54,17 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 - Know your tables' column types, your warehouse's collation or your Fabric runtime version; findings that depend on them are warnings or unverified.
 - Check every construct. Statements the engine treats as commands (GRANT, DBCC, SHOW, OPTIMIZE and similar) are checked only by the rules that read their words.
 - Put SQL text or findings in the security audit log, or put string literals in findings: a password in the SQL never shows in a message.
+
+## Queries this PC refuses to read
+
+Spark SQL that runs on this PC is read first, and a query that can't be read is refused with a message that
+says why, and nothing runs. Besides SQL with a mistake in it, that is:
+
+- A query nested too deeply: brackets, operators or calls inside one another a few dozen levels deep, or
+  more than 12 calls named like a type (`string(`, `int(`, `struct(`, `decimal(`...) inside one another, which
+  would take the reader minutes. Split it into smaller parts, such as a WITH clause or a view.
+- A call missing an argument it needs, such as `datediff('2024-02-01')`, which Spark refuses too.
+- A number Spark SQL can't read, such as `1e10.5BD`.
 
 ## ANSI mode on this PC
 
@@ -95,6 +106,26 @@ These cases can still differ, and LOC-005 notes them:
 | `div` whose quotient is past the BIGINT range | Wraps around (ANSI off) | NULL |
 | `spark.sql.ansi.enabled` set to true in a notebook | A division by zero is an error | NULL |
 | On the DuckDB engine, a statement that reads a table made earlier in the same cell | Spark's decimal types | DuckDB's types: the table isn't there yet when the cell is read. Make the table in its own cell |
+
+## Rounding a double on this PC
+
+Spark SQL run on this PC, and the DataFrame API's `round` and `bround`, round a `double` or `float` as Spark does: the value's shortest decimal text is rounded half up (`round`) or half even (`bround`) and turned back into a `double` (a `float` stays a `float`). For example, `round(0.285D, 2)` is 0.29 and `round(1.005D, 2)` is 1.01, as in Spark, where rounding the binary value gives 0.28 and 1.0. NaN and infinity are kept. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_double_rounding.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| More than 20 places, or fewer than -20, such as `round(x, 25)` | Rounds | Refused by name: cast the value to a decimal first |
+| A number of places that isn't written in the query, such as `round(x, n)` | Rounds the decimal text | Rounds the binary value, as DuckDB does |
+| A statement whose types can't be worked out | Rounds the decimal text | Rounds the binary value, as DuckDB does |
+
+## Text compared with a number on this PC
+
+Spark SQL run on this PC, and the DataFrame API's filters and columns, compare text with a number as Spark does with ANSI mode off: the text is cast to the number's type, as Spark's `CAST` reads it. So `'1.5' = 1` is true, and `0 = ''`, `'abc' = 1` and `'1e2' = 100` are NULL, where DuckDB rounded `'1.5'` to 2, read `'1e2'` as 100 and stopped on `''`. Text and a decimal are compared as doubles, so `'1.55' = 1.6` is false. `IN` with text and numbers compares them all as text, so `'1.0' IN (1, 2)` is false. `BETWEEN` and `CASE x WHEN ...` compare each pair the same way. `CAST('.5' AS INT)` is 0, as in Spark. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_text_comparisons.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A statement whose types can't be worked out | Casts the text to the number's type | DuckDB's own comparison, which can round the text or stop on it |
+| `IN` with a subquery | Casts to the wider type | DuckDB's own comparison |
+| `CASE x WHEN ...` whose values mix text and numbers, or numbers of two types | Casts each pair | DuckDB's own comparison |
 
 ## Whole-number arithmetic on this PC
 
@@ -231,7 +262,7 @@ Spark SQL run on this PC gives Spark's values and types for its array, map and s
 | `reverse`, `concat` | Work on arrays as well as text |
 | `map_concat`, `map` | A key that repeats stops the query, as with Spark's default `spark.sql.mapKeyDedupPolicy` (EXCEPTION) |
 | `explode`, `explode_outer`, `inline` | One row per element; a map gives `key` and `value` columns. `explode` of an empty or NULL array gives no rows, `explode_outer` one row of NULLs |
-| `LATERAL VIEW explode(...)`, `LATERAL VIEW OUTER` | One row per element or map entry, joined to its row. `OUTER` keeps a row whose array or map is empty or NULL, with NULLs |
+| `LATERAL VIEW explode(...)`, `LATERAL VIEW OUTER` | One row per element or map entry, joined to its row. `OUTER` keeps a row whose array or map is empty or NULL, with NULLs. `stack`, `json_tuple` and `inline` after `LATERAL VIEW` give one column per name, as in Spark |
 | Struct fields | `s.a`, `named_struct`, `struct(1 AS a)`; written to a Delta table as Spark's `struct<a:int,b:string>`, with arrays and maps keeping their element types |
 
 These cases still differ:
@@ -247,7 +278,7 @@ These cases still differ:
 
 ## JSON functions on this PC (WR-118)
 
-Spark SQL run on this PC gives Spark's answers for its JSON functions, with ANSI mode off as Fabric runs it. 232 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_json_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC gives Spark's answers for its JSON functions, with ANSI mode off as Fabric runs it. 260 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_json_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
 
 | Function | On this PC, as in Spark |
 | --- | --- |
@@ -332,6 +363,54 @@ These cases still differ:
 | Case | Spark | This PC |
 | --- | --- | --- |
 | Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
+
+## Math functions on this PC (WR-116)
+
+Spark SQL run on this PC gives Spark's answers for its math functions at the edges where DuckDB stops with an error or answers as C does, with ANSI mode off as Fabric runs it. 28 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_math_values.py`, on DuckDB 1.5 and 2.0. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `log`, `ln`, `log10`, `log2` | NULL for 0 or a negative number, and for a base of 0 or a negative base. A base of 1 gives `inf` (`log(1, 8)`) |
+| `pow`, `power` | As Java's `Math.pow` does, NaN for a NaN exponent, and for 1 or -1 to an infinite power |
+| `hypot` | `inf` when either side is infinite, even beside NaN. Very large or very small sides don't overflow (`hypot(1e200, 1e200)`) |
+| `factorial` | A `bigint`, and NULL outside 0 to 20. A `bigint` or decimal argument is cast to an `int` first, so `factorial(3.7)` is 6 |
+| `acos`, `asin`, `cot` | NaN outside -1 to 1 for `acos` and `asin`, and `cot(0)` is `inf` |
+| `atan2` | -0.0 counts as 0.0, so `atan2(0.0D, -0.0D)` is 0.0 |
+| `try_add`, `try_subtract`, `try_multiply` | `-2147483648` is an `int`, so `try_subtract(-2147483648, 1)` is NULL |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `abs(-2147483648)` and `round(2147483647, -1)` | Wraps around (ANSI off) | Widens the type, or stops on DuckDB 2.0 |
+
+To get the same answer from both, cast the argument to `bigint` first.
+
+## Session, reflection and error functions on this PC (WR-122)
+
+Spark SQL run on this PC answers as Spark does for `raise_error`, or refuses the function by name, with ANSI mode off as Fabric runs it. 42 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_functions_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `raise_error` | Stops the query only when a row reaches it, so a `CASE`, `if` or `coalesce` that doesn't reach it gives its other value. A NULL message stops it too. `typeof(raise_error(...))` is `void` |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `aes_encrypt`, `aes_decrypt`, `try_aes_encrypt`, `try_aes_decrypt` | AES isn't available in the engine on this PC |
+| `java_method`, `reflect` | They call a Java method by reflection, and this PC runs no Java |
+| `input_file_name`, `input_file_block_start`, `input_file_block_length` | This PC doesn't track the file each row was read from. Spark gives `''`, `-1` and `-1` for a row that wasn't read from a file |
+| `sql_keywords()` | This PC doesn't have Spark's list of SQL keywords and which of them are reserved |
+| `current_user()`, `user()`, `session_user()` | In Fabric they name the identity running the notebook. DuckDB would name itself |
+| `version()` | In Fabric it gives Fabric's Spark build and its git revision. DuckDB would give its own version |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `raise_error`'s error | `[USER_RAISED_EXCEPTION]` with the message | DuckDB's `Invalid Input Error:` with the message |
+| `user` written without brackets | The identity running the notebook, when no column is named `user` | `duckdb` |
 
 ## Local T-SQL changes
 
@@ -678,6 +757,12 @@ On this PC:
 | Two sessions in the app (two SQL tabs, a tab and a pipeline step) changing one table at once | They take turns: a project runs one statement at a time, so every change lands and none is lost. A read sees a change whole or not at all |
 | Another writer (a notebook, another tool) commits to a project Delta table between this statement's read and its commit, with an `UPDATE`, `DELETE` or `MERGE` | This statement stops with "Nothing was committed to …, because another writer changed it after this statement read it" (a Fabric Warehouse reports this as error 24556). The table then shows the other writer's change, and running it again applies it on top |
 | Another writer's `INSERT` beside this statement's `UPDATE` | Both commit, as in a warehouse |
+| Another writer commits to a project Delta table (adds or deletes rows, adds a column, replaces it, runs `VACUUM`), makes one in `Tables` or deletes one | The next statement reads the table as that writer left it, without a refresh, as a warehouse's next snapshot would |
+| Another writer changes a project Delta table's columns, properties or constraints while this statement's `UPDATE`, `DELETE` or `MERGE` runs | Stopped as above, with "Nothing was committed to …" (error 24556), and the table keeps the other writer's change |
+| Another writer deletes a project Delta table's folder while this statement changes it | Stops with "… was dropped by another writer while this statement ran", nothing of it kept, and the table is gone from the list. A warehouse then says `Invalid object name` |
+| Two sessions in the app: one adding, dropping or replacing a table or its columns, the other reading or changing it | They take turns, so every statement sees the table whole, before or after the change. A read after a `DROP TABLE` says the table doesn't exist |
+| `ALTER TABLE … ADD`, `DROP` or `ALTER COLUMN` on a project Delta table | Refused by name. Write the table again with the columns you want: `CREATE OR REPLACE TABLE … USING DELTA AS SELECT … FROM …`, which keeps every version before it |
+| `TRUNCATE TABLE` on a project Delta table | Refused by name. `DELETE FROM` the table removes every row the same way, as a new version |
 
 What can still differ:
 
@@ -685,7 +770,7 @@ What can still differ:
 - `BEGIN TRAN`, `COMMIT`, `ROLLBACK` and `SET TRANSACTION` are refused here (see Local T-SQL scripts), so a conflict here is always about one statement.
 - A commit delta-rs refuses for another reason, such as a change to a table with `delta.appendOnly`, isn't called a conflict. It stops with delta-rs's own reason and says nothing was committed.
 
-## Local T-SQL errors for a missing name
+## Local T-SQL errors
 
 When a T-SQL statement on this PC names a column or table that isn't there, the error uses SQL Server's own words, as a Fabric Warehouse does:
 
@@ -695,7 +780,11 @@ When a T-SQL statement on this PC names a column or table that isn't there, the 
 | `Invalid object name 'dbo.x'.` (error 208) | A table or view that isn't there, with its schema as the statement wrote it, and a `#temp` table after it's dropped |
 | `Ambiguous column name 'x'.` (error 209) | A column two of the tables the statement reads both have |
 
-Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full. The error number isn't shown yet.
+Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full.
+
+Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name and `Msg 8134` for `Divide by zero error encountered.`. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
+
+`@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 
 ## Local T-SQL wide tables and long values
 
@@ -904,6 +993,7 @@ When a project runs a T-SQL script on this PC, it runs as a batch does in a Fabr
 | What | Here, as in a warehouse |
 | --- | --- |
 | Several statements, or `GO` on a line of its own | Run in order. `GO` splits the script into batches |
+| A statement that fails part way, or is stopped | Changes no rows. An `INSERT`, `UPDATE`, `DELETE` or `SELECT ... INTO` that fails part way through its rows, or is stopped in the middle, leaves the table as it was, as a warehouse rolls back a statement that fails |
 | An error part way through | The script stops at that statement. The error names it and says what ran: "Statement 2 of 3 (SELECT) failed: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run." |
 | `UPDATE ... SET v = v + 'x'` | The `SET` values and the `WHERE` of an `UPDATE` or `DELETE` follow T-SQL's types, as a `SELECT` does: two texts are joined, and text compares without its trailing spaces (`WHERE v = 'b'` finds `'b  '`) |
 
@@ -931,7 +1021,7 @@ In a Fabric Warehouse, `OPTION (FOR TIMESTAMP AS OF '2026-11-01T09:30:00')` at t
 | A time more than 120 days ago | Outside any warehouse's retention | Refused |
 | A time 30 to 120 days ago | Answered only if the warehouse's retention was raised | Runs, with a note that a warehouse with the default retention doesn't answer |
 
-Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE TABLE AS` (Microsoft's pages disagree on whether a warehouse runs these), the hint beside another hint (`OPTION (MAXDOP 1, FOR TIMESTAMP AS OF ...)`), a batch with more than one statement beside a `SELECT` with the hint (put `GO` before and after it), and the hint twice in one batch. Other `OPTION (...)` hints are still refused.
+Refused by name: the hint on `INSERT ... SELECT`, `SELECT ... INTO` or `CREATE TABLE AS` (Microsoft's pages disagree on whether a warehouse runs these), the hint beside another hint (`OPTION (MAXDOP 1, FOR TIMESTAMP AS OF ...)`), a batch with more than one statement beside a `SELECT` with the hint (put `GO` before and after it), and the hint twice in one batch. Other `OPTION (...)` hints are left out or refused as [Local T-SQL hints, labels and statistics](#local-t-sql-hints-labels-and-statistics) says.
 
 On a warehouse, from the SQL page, a `SELECT` ending in the hint is sent as written, and the warehouse answers for its own retention.
 
@@ -982,9 +1072,9 @@ Besides the hand-picked cases above, three tests generate queries from a fixed s
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 
-Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). A shift whose value isn't an `int` literal is typed `bigint` here when the value's type is only known as the query runs.
-
 | Engine | What differs here | How |
 | --- | --- | --- |
 | Spark SQL | `date_add` by about 2^31 days (past DuckDB's timestamp range) | This stops here with an error, where Spark gives a date millions of years away |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
+
+Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). A shift whose value isn't an `int` literal is typed `bigint` here when the value's type is only known as the query runs. Later fixes: `initcap`, `soundex` of a cast, `trunc` and `make_date` inside another call, `sqrt` below 0 (NaN), `sign` of NaN and of -0.0 (themselves, as in Spark), and `div` by 0 (NULL), tested in `test_spark_error_edges.py` and `test_spark_make_date_div_zero.py`.

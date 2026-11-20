@@ -60,6 +60,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [finops/placement-advice.md](finops/placement-advice.md) | Engineers, FinOps | Where to run a notebook, on this PC or in Fabric, and the evidence the advice uses |
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The central lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
+| [optimize/excellence-assessment.md](optimize/excellence-assessment.md) | Engineers, platform owners | Fabric Excellence Assessment methodology: controls, outcomes, evidence, profiles, scores and their limits (on Optimize > Assessment > Excellence, Preview) |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
 | [notebook-resources.md](notebook-resources.md) | Engineers, analysts | Notebook resources: files beside a notebook, read in cells as `builtin/<file>`, and where they go |
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
@@ -134,6 +135,8 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [orchestration/data-factory.md](orchestration/data-factory.md) | Contributors | Data Factory beyond pipelines: Fabric pipeline runs in Monitor, copy jobs, Dataflow Gen2 and connections, DF-1 to DF-10 (Preview) |
 | [workloads/plan.md](workloads/plan.md) | Contributors, platform owners | The workload operations program: managing workloads on PCs, agents and Fabric; stages and all 100 backlog items ([continuation note](workloads/continuation.md)) |
 | [optimize/plan.md](optimize/plan.md) | Contributors, platform owners | The Optimize program (PR-OPT-001 to 009): audit, risks, data model, PRs in order |
+| [product/fabric-excellence-assessment-plan.md](product/fabric-excellence-assessment-plan.md) | Contributors, platform owners | The Fabric Excellence Assessment program (FEA): reuse, gaps, risks and phased stories |
+| [product/enterprise-savings-intelligence-plan.md](product/enterprise-savings-intelligence-plan.md) | Contributors, platform owners, FinOps | The Enterprise Savings Intelligence program (ESI): the shared savings ledger, attribution and sync, phased stories |
 | [finops/plan.md](finops/plan.md) | Contributors, platform owners | The administration and FinOps program (FINOPS-001 to 005): audit, overlaps, PRs |
 | [product/enterprise-gap-analysis.md](product/enterprise-gap-analysis.md) | Platform owners, contributors | The enterprise product program: what exists for each capability FD-101 to FD-140, what's missing and who owns it ([backlog](product/enterprise-backlog.md), [decisions](product/implementation-decisions.md)) |
 | [product/release-readiness.md](product/release-readiness.md) | Platform owners | What must be true before an enterprise pilot, the capability matrix and the pilot checklist |
@@ -228,7 +231,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Notebook widgets | Notebook > a cell that shows ipywidgets controls ([notebooks.md](notebooks.md)) |
 | Altair charts in notebooks | Notebook > a cell that shows an Altair chart ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
-| Column lineage | Entity page, Columns |
+| Column lineage | Entity page, Lineage card: Columns, and Impact for what a column change breaks ([metadata-guide.md](metadata-guide.md#impact-of-a-column-change-preview)) |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
 | Create workspace | Data mesh > Environments and Domains, Platform > Settings: Create workspace, Create platform and Finish setup (always shown) |

@@ -147,8 +147,9 @@ def text(a: pd.Series) -> pd.Series:
 df.select(text("id")).collect()
 """)
     assert out["status"] == "error"
-    assert "returned values that aren't bigint" in str(out["outputs"])
-    assert "pandas.Series (object) to Arrow Array (int64)" in str(out["outputs"])
+    said = " ".join(str(o.get("evalue") or o.get("text") or "") for o in out["outputs"])
+    assert "returned values that aren't bigint" in said
+    assert 'as it does in Fabric ("Exception thrown when converting pandas.Series (object) to Arrow Array (int64)")' in said
 
 
 def test_a_pandas_udf_returning_the_wrong_length_is_refused(kernel):

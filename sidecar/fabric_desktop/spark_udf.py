@@ -174,8 +174,8 @@ class UserDefinedFunction:
                     # Spark stops on values Arrow won't convert (text, for one); it doesn't null them
                     raise RuntimeError(
                         f"The pandas_udf {self.__name__} returned values that aren't {cast(Any, dt).simpleString()}, so the "
-                        f"cell stopped, as it does in Fabric: Exception thrown when converting pandas.Series "
-                        f"({series.dtype}) to Arrow Array ({_arrow_type(dt)}). Return "
+                        f"cell stopped, as it does in Fabric (\"Exception thrown when converting pandas.Series "
+                        f"({series.dtype}) to Arrow Array ({_arrow_type(dt)})\"). Return "
                         f"numbers, or change the pandas_udf's return type.") from exc
             values = [_fits(None if _isnull(v) else _plain(v), dt) for v in list(out)]
             return pa.array(values, type=_arrow_type(dt))

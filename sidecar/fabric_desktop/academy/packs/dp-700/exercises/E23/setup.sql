@@ -1,12 +1,13 @@
 -- Staging copy of the CRM's customers. Customer 102 was loaded twice; regions are typed three ways;
--- customer 104 has no region.
+-- customer 104 has no region. Customer 105 joined last, though their name sorts first.
 CREATE TABLE stg_customers AS
 SELECT * FROM (VALUES
     (101, 'Ana Ruiz',   'north', TIMESTAMP '2026-05-01 02:00:00'),
     (102, 'Ben Okafor', 'South', TIMESTAMP '2026-05-01 02:00:00'),
     (103, 'Chen Wei',   'EAST',  TIMESTAMP '2026-05-01 02:00:00'),
     (102, 'Ben Okafor', 'South', TIMESTAMP '2026-05-02 02:00:00'),
-    (104, 'Dee Patel',  NULL,    TIMESTAMP '2026-05-02 02:00:00')
+    (104, 'Dee Patel',  NULL,    TIMESTAMP '2026-05-02 02:00:00'),
+    (105, 'Ali Haddad', 'West',  TIMESTAMP '2026-05-02 02:00:00')
 ) AS t(customer_id, name, region, loaded_at);
 
 -- The agreed region names.

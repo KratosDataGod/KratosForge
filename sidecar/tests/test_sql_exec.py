@@ -427,6 +427,14 @@ def test_excel_export_refuses_more_rows_than_a_sheet_holds(runs, lake, monkeypat
         runs.export(run["id"], "xlsx")
 
 
+def test_excel_export_refuses_more_columns_than_a_sheet_holds(runs, lake, monkeypatch):
+    run = wait(runs, runs.start("SELECT id, amount, country FROM sales", lake)["id"])
+    monkeypatch.setattr(sql_exec, "EXCEL_MAX_COLUMNS", 2)
+    with pytest.raises(ValueError, match="Excel holds at most 2 columns and this result has 3"):
+        runs.export(run["id"], "xlsx")
+    assert wait_export(runs, runs.export(run["id"], "csv")["id"])["state"] == "completed"  # CSV holds them
+
+
 def test_json_export_is_an_array_of_rows_with_unique_keys(runs, lake):
     run = wait(runs, runs.start("SELECT id, amount, country, id, DATE '2026-01-02' AS d, CAST('NaN' AS DOUBLE) AS bad, "
                                 "CAST(1.10 AS DECIMAL(5,2)) AS money, unhex('0001') AS raw FROM sales ORDER BY id", lake)["id"])
@@ -1014,3 +1022,12 @@ def test_sorting_a_result_over_the_grid_s_limit_is_refused(runs, lake, monkeypat
     with pytest.raises(ValueError, match="Column statistics works"):
         runs.column_stats(status["id"], 0)
     assert runs.page(status["id"])["total"] == 3, "plain paging still works"
+
+
+def test_a_spark_run_gives_sha2_at_each_length_spark_has(runs, lake):
+    import hashlib
+    run = wait(runs, runs.start("SELECT sha2('abc', 224) AS a, sha2('abc', 384) AS b, sha2('abc', 512) AS c, "
+                                "sha2('abc', 1) AS d", lake, dialect="spark")["id"])
+    assert run["state"] == "completed", run
+    assert runs.page(run["id"])["rows"] == [[hashlib.sha224(b"abc").hexdigest(), hashlib.sha384(b"abc").hexdigest(),
+                                            hashlib.sha512(b"abc").hexdigest(), None]]

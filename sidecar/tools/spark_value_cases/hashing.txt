@@ -1,0 +1,103 @@
+# WR-119: Spark 3.5's hashing and encoding functions, each case one query. Spark's answers:
+# tests/fixtures/spark_3_5_3_hashing.json (tools/capture_spark_values.py hashing). Checked by
+# tests/test_spark_hashing_values.py. hash and xxhash64 are what people bucket and join on, so each type.
+
+# hash (Murmur3, seed 42): each type
+SELECT hash('Spark', array(123), 2)
+SELECT hash(1), hash(0), hash(-1), hash(2147483647), hash(-2147483648)
+SELECT hash(1L), hash(0L), hash(-1L), hash(9223372036854775807L), hash(-9223372036854775808L)
+SELECT hash(CAST(1 AS TINYINT)), hash(CAST(1 AS SMALLINT)), hash(CAST(-1 AS TINYINT))
+SELECT hash(1.5D), hash(0.0D), hash(-0.0D), hash(CAST('NaN' AS DOUBLE)), hash(1.0E300D)
+SELECT hash(CAST(1.5 AS FLOAT)), hash(CAST(0.0 AS FLOAT)), hash(CAST(-0.0 AS FLOAT))
+SELECT hash(true), hash(false)
+SELECT hash(''), hash('a'), hash('abc'), hash('ÄÖü'), hash('a b'), hash('😀')
+SELECT hash(repeat('x', 1000))
+SELECT hash(X''), hash(X'00'), hash(X'0102030405')
+SELECT hash(1.5BD), hash(CAST(1.5 AS DECIMAL(10,2))), hash(CAST(1.5 AS DECIMAL(20,2))), hash(CAST(1.5 AS DECIMAL(38,10)))
+SELECT hash(CAST(123456789012345678 AS DECIMAL(18,0))), hash(CAST(1234567890123456789 AS DECIMAL(19,0)))
+SELECT hash(DATE'2024-02-29'), hash(DATE'1970-01-01'), hash(DATE'1900-01-01')
+SELECT hash(TIMESTAMP'2024-02-29 10:11:12.345'), hash(TIMESTAMP'1970-01-01 00:00:00')
+SELECT hash(TIMESTAMP_NTZ'2024-02-29 10:11:12.345')
+SELECT hash(NULL), hash(CAST(NULL AS INT)), hash(CAST(NULL AS STRING))
+SELECT hash(1, 2), hash(2, 1), hash(1, NULL), hash(NULL, 1), hash('a', 'b')
+SELECT hash(array(1, 2, 3)), hash(array()), hash(array(CAST(NULL AS INT))), hash(array('a', 'b'))
+SELECT hash(map('a', 1)), hash(map('a', 1, 'b', 2))
+SELECT hash(named_struct('a', 1, 'b', 'x')), hash(named_struct('a', CAST(NULL AS INT)))
+SELECT hash(1) = hash(1L), hash(1) = hash(CAST(1 AS TINYINT)), hash(1) = hash(1.0D)
+SELECT pmod(hash('customer-42'), 200), pmod(hash(12345L), 200), pmod(hash(DATE'2024-02-29'), 16)
+SELECT hash(id) FROM range(5) ORDER BY id
+SELECT typeof(hash(1))
+
+# xxhash64 (seed 42): each type
+SELECT xxhash64('Spark', array(123), 2)
+SELECT xxhash64(1), xxhash64(0), xxhash64(-1), xxhash64(2147483647), xxhash64(-2147483648)
+SELECT xxhash64(1L), xxhash64(0L), xxhash64(-1L), xxhash64(9223372036854775807L)
+SELECT xxhash64(CAST(1 AS TINYINT)), xxhash64(CAST(1 AS SMALLINT))
+SELECT xxhash64(1.5D), xxhash64(0.0D), xxhash64(-0.0D), xxhash64(CAST('NaN' AS DOUBLE))
+SELECT xxhash64(CAST(1.5 AS FLOAT))
+SELECT xxhash64(true), xxhash64(false)
+SELECT xxhash64(''), xxhash64('a'), xxhash64('abc'), xxhash64('ÄÖü'), xxhash64('😀'), xxhash64('abcdefghijklmnopqrstuvwxyz0123456789')
+SELECT xxhash64(repeat('x', 1000))
+SELECT xxhash64(X''), xxhash64(X'0102030405')
+SELECT xxhash64(1.5BD), xxhash64(CAST(1.5 AS DECIMAL(20,2))), xxhash64(CAST(1.5 AS DECIMAL(38,10)))
+SELECT xxhash64(DATE'2024-02-29'), xxhash64(TIMESTAMP'2024-02-29 10:11:12.345')
+SELECT xxhash64(NULL), xxhash64(CAST(NULL AS STRING))
+SELECT xxhash64(1, 2), xxhash64(2, 1), xxhash64(1, NULL), xxhash64('a', 'b')
+SELECT xxhash64(array(1, 2, 3)), xxhash64(map('a', 1)), xxhash64(named_struct('a', 1, 'b', 'x'))
+SELECT pmod(xxhash64('customer-42'), 200), pmod(xxhash64(12345L), 200)
+SELECT xxhash64(id) FROM range(5) ORDER BY id
+SELECT typeof(xxhash64(1))
+
+# md5, sha1, sha, sha2
+SELECT md5('Spark'), md5(''), md5('ÄÖü'), md5(X'0102'), md5(NULL)
+SELECT md5(CAST(123 AS STRING)), md5(CAST(123 AS BINARY))
+SELECT sha1('Spark'), sha1(''), sha('ÄÖü'), sha1(X'0102'), sha1(NULL)
+SELECT sha2('Spark', 0), sha2('Spark', 224), sha2('Spark', 256), sha2('Spark', 384), sha2('Spark', 512)
+SELECT sha2('Spark', 1), sha2('Spark', 128), sha2('Spark', -1), sha2('Spark', NULL)
+SELECT sha2('', 256), sha2('ÄÖü', 512), sha2(X'0102', 384), sha2(NULL, 256)
+SELECT typeof(md5('a')), typeof(sha1('a')), typeof(sha2('a', 256))
+
+# crc32
+SELECT crc32('Spark'), crc32(''), crc32('ÄÖü'), crc32(X'0102'), crc32(NULL)
+SELECT crc32(repeat('x', 1000)), typeof(crc32('a'))
+
+# base64 and unbase64
+SELECT base64('Spark SQL'), base64(''), base64('ÄÖü'), base64(X'00FF'), base64(NULL)
+SELECT base64(repeat('x', 100))
+SELECT unbase64('U3BhcmsgU1FM'), unbase64(''), unbase64(NULL)
+SELECT unbase64('U3BhcmsgU1FM\n'), unbase64('U3Bhc msgU1FM'), unbase64('U3BhcmsgU1F'), unbase64('!!!!')
+SELECT unbase64('YQ'), unbase64('YQ='), unbase64('YQ=='), unbase64('YQ===')
+SELECT CAST(unbase64(base64('ÄÖü')) AS STRING), typeof(base64('a')), typeof(unbase64('YQ=='))
+
+# hex and unhex
+SELECT hex(17), hex(0), hex(-1), hex(255L), hex(-9223372036854775808L)
+SELECT hex('Spark SQL'), hex(''), hex('ÄÖü'), hex(X'00FF'), hex(NULL)
+SELECT hex(1.5D), hex(CAST(17 AS TINYINT))
+SELECT unhex('537061726B2053514C'), unhex('537061726b2053514c'), unhex(''), unhex(NULL)
+SELECT unhex('A'), unhex('ABC'), unhex('GG'), unhex('0x41'), unhex(' 41')
+SELECT decode(unhex('537061726B2053514C'), 'UTF-8'), typeof(hex(1)), typeof(unhex('41'))
+
+# conv
+SELECT conv('100', 2, 10), conv(-10, 16, -10), conv('255', 10, 16), conv('ff', 16, 10), conv('FF', 16, 2)
+SELECT conv('-1', 10, 16), conv('-1', 10, -16), conv('-255', 10, -16), conv('18446744073709551615', 10, 16)
+SELECT conv('18446744073709551616', 10, 16), conv('99999999999999999999', 10, 10), conv('-99999999999999999999', 10, 10)
+SELECT conv('z', 36, 10), conv('Z', 36, 10), conv('10', 36, 36), conv('10', 37, 10), conv('10', 10, 1)
+SELECT conv('12x', 10, 16), conv('x12', 10, 16), conv('', 10, 16), conv(' 12', 10, 16), conv('1.5', 10, 16)
+SELECT conv('7', 8, 2), conv('8', 8, 10), conv(NULL, 10, 2), conv('10', NULL, 2), conv('10', 10, NULL)
+SELECT conv(255, 10, 16), conv(-255, 10, 16), typeof(conv('1', 10, 2))
+
+# Second capture: cases the first one didn't reach, and what its fixes read without a Spark answer yet
+SELECT xxhash64(array(1, 2, 3)), xxhash64(named_struct('a', 1, 'b', 'x')), hash(named_struct('a', named_struct('b', 1)))
+SELECT hash(array(named_struct('a', 1))), xxhash64(array(array(1)))
+SELECT sha2('Spark', b) FROM VALUES (0), (224), (256), (384), (512), (1), (NULL) AS t(b)
+SELECT sha2(CAST(NULL AS STRING), 512), sha2('', 224), sha2(X'', 384)
+SELECT unbase64('YQ==\nYQ=='), unbase64('=YQ'), unbase64('Y=Q='), unbase64('YQ==!'), unbase64('YWJj'), unbase64('Y')
+SELECT unbase64('YW Jj ZA'), unbase64('YWJjZA=\n='), unbase64('YWJjZA=x=')
+SELECT CAST(CAST(-1 AS TINYINT) AS BINARY), CAST(CAST(-2 AS SMALLINT) AS BINARY), CAST(1L AS BINARY), CAST(-1 AS BINARY)
+SELECT CAST(X'C384' AS STRING), CAST(X'FF' AS STRING), CAST(X'' AS STRING), concat(X'41', X'42')
+SELECT hex(CAST(1.9 AS DECIMAL(5,1))), hex(-1.5D), hex(CAST('NaN' AS DOUBLE)), hex(1.0E20D), hex(CAST(2.5 AS FLOAT))
+SELECT conv(' -12 ', 10, 16), conv('\t12', 10, 16), conv('  ', 10, 16), conv('12 ', 10, -16)
+SELECT -128Y, -32768S, -2147483648, -9223372036854775808L, typeof(-128Y), typeof(-2147483648)
+SELECT -CAST(200 AS TINYINT), -CAST(9223372036854775807 AS BIGINT)
+SELECT base64(repeat('x', 57)), base64(repeat('x', 58)), base64(repeat('ab', 120))
+SELECT unbase64(base64(repeat('x', 100))), length(base64(repeat('x', 100)))

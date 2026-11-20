@@ -218,9 +218,14 @@ class _Finder:
                         self.found.append((*at, "definition"))
         elif isinstance(node, ast.Global) and name in node.names and not shadowed:
             text = self.lines[node.lineno - 1] if 0 < node.lineno <= len(self.lines) else ""
-            col = _word_col(self.lines, node.lineno, _char_col(text, node.col_offset) + 6, name)
-            if col is not None:
-                self.found.append((node.lineno, col, "reference"))
+            # The names can go on past a backslash, so look on every line the statement spans.
+            start = _char_col(text, node.col_offset) + 6
+            for line in range(node.lineno, (node.end_lineno or node.lineno) + 1):
+                col = _word_col(self.lines, line, start, name)
+                if col is not None:
+                    self.found.append((line, col, "reference"))
+                    break
+                start = 0
         elif isinstance(node, ast.ExceptHandler) and node.name == name and not shadowed:
             text = self.lines[node.lineno - 1] if 0 < node.lineno <= len(self.lines) else ""
             m = re.compile(r"\bas\s+(" + re.escape(name) + r")\b").search(text, _char_col(text, node.col_offset))

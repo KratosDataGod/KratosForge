@@ -162,9 +162,10 @@ def _percent(limit: exp.Limit, ties: bool) -> None:
     number = _literal(share)
     if number is not None and not 0 <= number <= 100:
         raise ValueError("Percent values must be between 0 and 100.")
-    if number is None and not isinstance(share, (exp.Literal, exp.Paren, exp.Neg)):
-        share = exp.Case(ifs=[exp.If(this=exp.or_(exp.LT(this=share.copy(), expression=exp.Literal.number(0)),
-                                                   exp.GT(this=share.copy(), expression=exp.Literal.number(100))),
+    if number is None:  # anything but a number written out (text such as '150', an expression) is checked as it runs
+        value = exp.cast(share.copy(), "DOUBLE")  # as a number: text compared with 0 would compare as text
+        share = exp.Case(ifs=[exp.If(this=exp.or_(exp.LT(this=value.copy(), expression=exp.Literal.number(0)),
+                                                   exp.GT(this=value.copy(), expression=exp.Literal.number(100))),
                                      true=exp.Anonymous(this="ERROR", expressions=[
                                          exp.Literal.string("Percent values must be between 0 and 100.")]))],
                          default=share.copy())

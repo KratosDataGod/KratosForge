@@ -27,7 +27,7 @@ from typing import Any, cast
 
 from sqlglot import exp
 
-from . import spark_json, sql_dialects
+from . import spark_json, spark_sql_names, sql_dialects
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +134,9 @@ def spark_complex_results(statement: exp.Expression) -> exp.Expression:
             _put(node, _once(f"CASE WHEN {nulls} THEN NULL WHEN ARRAY_LENGTH(MAP_KEYS({joined})) < {keys} "
                              f"THEN ERROR({stop}) ELSE {joined} END", **maps))
     for node in _mine(list(statement.find_all(exp.ArraySize))):
+        if node.meta.get(spark_sql_names._NAME) == "array_size":  # NULL for NULL, and arrays only, as in Spark
+            _put(node, _once("CASE WHEN {a} IS NULL THEN NULL ELSE CAST(ARRAY_LENGTH({a}) AS INT) END", a=node.this))
+            continue
         literal_map = isinstance(node.this, (exp.Map, exp.VarMap, exp.MapFromEntries))
         new = _put(node, _size_sql(node.this, is_map=literal_map))
         _mark(new, "size", _once_arg(new) or cast(exp.Is, new.find(exp.Is)).this)
@@ -202,11 +205,15 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
             continue
         kind = node.meta.pop(_KEY)
         source = node.meta.pop("kf_complex_source", None)
-        found = next((a for a in node.walk() if a.meta.get(_ARG)), None)
+        # a shift's own argument, not the shift itself when it is in turn another fix's argument (typeof)
+        found = next((a for a in node.walk() if a.meta.get(_ARG) and not (kind == "int_shift" and a is node)), None)
         if found is None:
             continue
         arg = found
         dtype = types.get(arg.meta.get(_ID, -1))
+        if kind == "typeof" and _int_shift_type(arg, types) is not None:
+            node.replace(exp.Literal.string("int"))  # a shift of an int is an int, though its SQL is a long
+            continue
         if dtype is None or dtype.is_type(exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL):
             continue
         is_map = dtype.is_type(exp.DataType.Type.MAP)
@@ -228,11 +235,32 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
             _explode_map(node, a)
         elif kind == "lateral" and is_map:
             _lateral_map(node, value)
+        elif kind == "int_shift" and dtype.is_type(*_INT_SHIFTED):
+            # spark_builtins_sql._int_when_int: the int path's value, typed as the int Spark gives
+            new = exp.Cast(this=node.copy(), to=exp.DataType.build("INT"))
+            new.meta[TYPED] = True
+            new.type = exp.DataType.build("INT")
+            node.replace(new)
         elif kind == "typeof" and (name := spark_json.type_name(dtype)) is not None:
             node.replace(exp.Literal.string(name))
     for node, json_type in reversed(json_types):
         _to_json(node, json_type)
     return _unmark(statement)
+
+
+_INT_SHIFTED = (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT)
+
+
+def _int_shift_type(value: exp.Expr, types: dict[int, Any]) -> exp.DataType | None:
+    """INT when ``value`` is a shift of a tinyint, smallint or int not yet cast to one (an "int_shift" mark
+    written after the typeof around it), else None."""
+    while isinstance(value, exp.Paren) and value.meta.get(_KEY) != "int_shift":
+        value = value.this
+    if value.meta.get(_KEY) != "int_shift":
+        return None
+    arg = next((a for a in value.walk() if a is not value and a.meta.get(_ARG)), None)
+    dtype = types.get(arg.meta.get(_ID, -1)) if arg is not None else None
+    return exp.DataType.build("INT") if dtype is not None and dtype.is_type(*_INT_SHIFTED) else None
 
 
 def _to_json(node: exp.Expr, dtype: exp.DataType | None) -> None:

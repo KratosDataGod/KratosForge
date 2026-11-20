@@ -52,7 +52,7 @@
   "impact": "Reliability. After promotion, Test or Prod reads and writes the Dev lakehouse.",
   "check": "No path in the notebook holds a workspace or lakehouse id. After you promote it and run it once, the write shows in the Test lakehouse's table history, not Dev's.",
   "language": "python",
-  "before": "df = spark.read.load(\"abfss://3f2a...@onelake.dfs.fabric.microsoft.com/9c1d.../Tables/sales\")",
+  "before": "df = spark.read.load(\"abfss://3f2a6c1e-8b4d-4e2a-9f7c-5d1b0a6e3c48@onelake.dfs.fabric.microsoft.com/\"\n                     \"9c1d7e52-0a3f-4b6c-8d2e-7f4a1b9c0e63/Tables/sales\")",
   "after": "df = spark.read.table(\"sales\")          # or the default lakehouse's \"Tables/sales\""
  },
  "NB003": {
@@ -169,8 +169,8 @@
   "impact": "Performance. Each `count()` reads the data again.",
   "check": "The cell starts one count job for the DataFrame instead of several (the Spark jobs listed under the cell).",
   "language": "python",
-  "before": "if df.count() > 0: print(df.count())",
-  "after": "n = df.count()\nif n > 0: print(n)"
+  "before": "if df.count() > 0:\n    print(f\"Loading {df.count():,} rows\")\n    assert df.count() < 10_000_000",
+  "after": "n = df.count()\nif n > 0:\n    print(f\"Loading {n:,} rows\")\n    assert n < 10_000_000"
  },
  "NB012": {
   "importance": "Recommended",

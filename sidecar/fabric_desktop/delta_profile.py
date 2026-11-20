@@ -313,9 +313,16 @@ def confirm_choice(name: str, old: dict[str, Any], new: dict[str, Any], confirm_
         return None
     choice, readers = new.get("delta_features"), table_readers(new)
     broken = broken_readers(choice, readers)
-    if not broken:
+    # A reader taken out of delta_readers in this save still counts: narrowing the readers to the ones a choice
+    # doesn't break is a way past the typed name otherwise. One already confirmed for this same choice isn't
+    # asked about again.
+    confirmed = set(old.get("delta_accepted") or []) if old.get("delta_features") == choice else set()
+    dropped = [] if value_problems(old) else [
+        r for r in table_readers(old) if r not in readers and r not in confirmed]
+    asked = list(readers) + [r for r in dropped if r in broken_readers(choice, dropped)]
+    if not broken and len(asked) == len(readers):
         return []
-    reasons = choice_reasons(choice, readers)
+    reasons = choice_reasons(choice, asked)
     typed = (confirm_name or "").strip()
     if not typed:
         raise ConfirmNeeded(f"{name} wasn't saved, because its Delta table features would break one of its readers. "

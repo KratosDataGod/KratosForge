@@ -177,6 +177,47 @@ def test_the_default_breaks_a_python_notebook_reader_so_it_asks_too(svc):
     svc.meta_set_delta_features(NAME, "every_reader", ["python_notebooks"])  # every reader reads it: no confirm
 
 
+def test_taking_out_a_reader_the_choice_breaks_still_needs_the_name_typed(svc):
+    path = _file(svc)
+    svc.meta_set_delta_features(NAME, "every_reader", ["sql_endpoint", "pipelines"])
+    before = path.read_text(encoding="utf-8")
+    # One save that both allows deletion vectors and drops the reader they break.
+    with pytest.raises(P.ConfirmNeeded, match="deletion vectors, which Fabric pipelines can't read"):
+        svc.meta_set_delta_features(NAME, "deletion_vectors", ["sql_endpoint"])
+    assert path.read_text(encoding="utf-8") == before
+    # The entity editor is held to the same rule.
+    narrowed = before.replace('delta_features = "every_reader"', 'delta_features = "deletion_vectors"').replace(
+        '["sql_endpoint", "pipelines"]', '["sql_endpoint"]')
+    assert narrowed != before
+    with pytest.raises(P.ConfirmNeeded, match="Fabric pipelines can't read"):
+        svc.meta_save_entity(NAME, narrowed)
+    assert path.read_text(encoding="utf-8") == before
+    svc.meta_set_delta_features(NAME, "deletion_vectors", ["sql_endpoint"], confirm_name=NAME)
+    spec = svc._project().entities[NAME].spec
+    assert (spec["delta_features"], spec["delta_readers"], spec.get("delta_accepted") or []) == (
+        "deletion_vectors", ["sql_endpoint"], [])
+
+
+def test_dropping_a_reader_already_confirmed_for_the_choice_asks_nothing_more(svc):
+    svc.meta_set_delta_features(NAME, "deletion_vectors", ["sql_endpoint", "pipelines"], confirm_name=NAME)
+    svc.meta_set_delta_features(NAME, "deletion_vectors", ["sql_endpoint"])
+    assert svc._project().entities[NAME].spec["delta_readers"] == ["sql_endpoint"]
+
+
+def test_dropping_a_reader_a_new_choice_breaks_asks_even_if_an_old_choice_was_confirmed(svc):
+    svc.meta_set_delta_features(NAME, "deletion_vectors", ["sql_endpoint", "eventstreams"], confirm_name=NAME)
+    before = _file(svc).read_text(encoding="utf-8")
+    with pytest.raises(P.ConfirmNeeded, match="column mapping by name, which Fabric eventstreams can't read"):
+        svc.meta_set_delta_features(NAME, "column_mapping", ["sql_endpoint"])
+    assert _file(svc).read_text(encoding="utf-8") == before
+
+
+def test_dropping_a_reader_no_choice_breaks_asks_nothing(svc):
+    svc.meta_set_delta_features(NAME, "every_reader", ["sql_endpoint", "pipelines"])
+    svc.meta_set_delta_features(NAME, "every_reader", ["sql_endpoint"])
+    assert svc._project().entities[NAME].spec["delta_readers"] == ["sql_endpoint"]
+
+
 def test_the_entity_editor_save_is_held_to_the_same_rules(svc):
     path = _file(svc)
     before = path.read_text(encoding="utf-8")

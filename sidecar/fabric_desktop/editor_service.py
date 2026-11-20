@@ -64,11 +64,21 @@ def _folder_problem(folder: Any) -> str | None:
     if win_paths.is_share(folder.replace("/", "\\")):
         return (f"{folder} is a network folder. KratosForge runs notebooks from folders on this PC's drives: "
                 "clone or copy the notebooks to this PC, or open them from the drive letter the share is mapped to.")
+    if folder.startswith(("\\", "//", "/\\")) and not _drive_path(win_paths.plain(folder.replace("/", "\\"))):
+        # A device path (\\.\pipe, \\?\GLOBALROOT, \??\) or one on whichever drive is current: not a folder
+        # on a drive. Only C:\... is, or its long-path form \\?\C:\...
+        return (f"{folder} isn't a folder on one of this PC's drives. Open the notebooks folder or repository "
+                "in VS Code from its drive letter, such as C:, then pair again.")
     odd = next((c for c in folder if unicodedata.category(c) == "Cc" or c in _DIRECTION_MARKS), None)
     if odd is not None:
         return (f"This folder's path has a control or text-direction character (U+{ord(odd):04X}), so it would show "
                 "differently from the folder itself. Rename the folder, then pair again.")
     return None
+
+
+def _drive_path(path: str) -> bool:
+    """A full path on a drive letter: C:\\... or C:/..."""
+    return len(path) > 2 and path[0].isascii() and path[0].isalpha() and path[1] == ":" and path[2] in "\\/"
 
 
 def _is_root(folder: str) -> bool:

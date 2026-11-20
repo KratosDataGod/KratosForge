@@ -99,12 +99,20 @@ WRITER = """
     done, errors = 0, []
     for b in range(batches):
         start = first + b * size
-        try:
-            write_deltalake(uri, pa.table({"id": list(range(start, start + size)),
-                                           "region": ["EU"] * size, "amount": [0.0] * size}), mode="append")
-            done += 1
-        except Exception as e:
-            errors.append(repr(e)[:300])
+        for attempt in range(10):
+            try:
+                write_deltalake(uri, pa.table({"id": list(range(start, start + size)),
+                                               "region": ["EU"] * size, "amount": [0.0] * size}), mode="append")
+                done += 1
+                break
+            except Exception as e:
+                # Windows: losing the same next version to Z-Order's commit, or a log file another process holds,
+                # is "Access is denied" on _delta_log, and nothing was committed; the app's writes try again too.
+                text = str(e)
+                if attempt < 9 and "_delta_log" in text and ("os error 5)" in text or "os error 32)" in text):
+                    continue
+                errors.append(repr(e)[:300])
+                break
     print(json.dumps({"done": done, "errors": errors[:5]}), flush=True)
     os._exit(0)
 """
@@ -221,3 +229,35 @@ def test_time_travel_to_the_version_before_zorder_reads_the_same_rows(allowed):
     history = DeltaTable(uri).history(2)
     assert [h["operation"] for h in history] == ["OPTIMIZE", "OPTIMIZE"]
     assert all(h["operationMetrics"]["plannerStrategy"] == "zOrder" for h in history)
+
+
+@pytest.mark.parametrize("op", ["zorder", "compact"])
+def test_notebook_optimize_tries_again_when_a_writer_wins_the_same_commit_on_windows(allowed, monkeypatch, op):
+    """Windows: a writer committing the same next version leaves OPTIMIZE unable to open its staged log file
+    (os error 5). Nothing was committed, so it runs again on the latest version and keeps every row."""
+    from deltalake.table import TableOptimizer
+    uri = events(allowed, 3)
+    before = sorted(ids(uri))
+    name = "z_order" if op == "zorder" else "compact"
+    real, calls = getattr(TableOptimizer, name), []
+
+    def racing(self, *a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError(f"Generic LocalFileSystem error: Unable to open file {uri}\\\\_delta_log\\\\"
+                          "00000000000000000009.json#1: Access is denied. (os error 5)")
+        return real(self, *a, **k)
+    monkeypatch.setattr(TableOptimizer, name, racing)
+    zorder() if op == "zorder" else lakehouse.maintain_table("dbo.events", "optimize")
+    assert len(calls) == 2 and sorted(ids(uri)) == before
+
+
+def test_notebook_optimize_doesnt_repeat_any_other_failure(allowed, monkeypatch):
+    from deltalake.table import TableOptimizer
+    events(allowed, 2)
+    calls = []
+    monkeypatch.setattr(TableOptimizer, "z_order", lambda self, *a, **k: calls.append(1) or (_ for _ in ()).throw(
+        OSError("Generic LocalFileSystem error: disk full (os error 112)")))
+    with pytest.raises(OSError, match="disk full"):
+        zorder()
+    assert calls == [1]

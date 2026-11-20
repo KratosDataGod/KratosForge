@@ -1525,7 +1525,9 @@ def _negative_literals(statement: exp.Expression) -> None:
         cast_ = neg.this
         if isinstance(cast_, exp.Literal) and not cast_.is_string and cast_.name.isdigit():
             negative: exp.Expression = exp.Literal.number(f"-{cast_.name}")
-            if int(cast_.name) == 2 ** 31:  # an int, as in Spark: DuckDB reads it as minus a bigint
+            # an int, as in Spark: DuckDB reads it as minus a bigint. Compared as text, since a literal
+            # may have more digits than Python's int() reads
+            if cast_.name.lstrip("0") == str(2 ** 31):
                 negative = exp.Cast(this=negative, to=exp.DataType.build("INT"))
             neg.replace(negative)
             continue

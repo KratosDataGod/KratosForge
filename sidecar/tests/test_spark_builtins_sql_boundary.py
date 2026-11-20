@@ -43,3 +43,10 @@ def test_typeof_a_shift_of_an_int_column_in_spark_sql_is_int():
                        "(CAST(1 AS INT), CAST(1 AS BIGINT)) v(i, l)\").collect())")
     text = "".join(o.get("text", "") for o in out["outputs"])
     assert "Row(t='int', u='bigint')" in text, out
+
+
+def test_a_negative_literal_past_pythons_digit_limit_reads_as_spark_reads_it():
+    # Spark reads a literal past decimal(38) as a double: -1e5000 is -inf, and cast to an int its smallest
+    nines = "9" * 5000
+    got = sql.run(f"SELECT -{nines} a, CAST(-{nines} AS INT) b").to_pylist()
+    assert got == [{"a": float("-inf"), "b": -2147483648}]

@@ -85,17 +85,28 @@ def _text(value: Any, where: str, problems: list[str], required: bool = False, l
         problems.append(f"{where} has control characters.")
 
 
+def _is(value: Any, choices: Any) -> bool:
+    """``value`` is one of ``choices``: text only, so a list or an object from a file is refused, not a crash."""
+    return isinstance(value, str) and value in choices
+
+
+def _id(value: Any) -> str:
+    """An entry's id, or "" (which fails ID) when it is missing or isn't text: None and True aren't ids."""
+    return value if isinstance(value, str) else ""
+
+
 def _ids(spec: dict[str, Any]) -> list[tuple[str, str, str]]:
     """Every (id, kind, where) in document order."""
     out = [(str(spec.get("id")), "app", "id")]
     for key, kind in COLLECTIONS:
         for i, entry in enumerate(spec.get(key) or []):
             if isinstance(entry, dict):
-                out.append((str(entry.get("id")), kind, f"{key}[{i}]"))
-                if kind == "page":
-                    for j, comp in enumerate(entry.get("components") or []):
+                out.append((_id(entry.get("id")), kind, f"{key}[{i}]"))
+                comps = entry.get("components")
+                if kind == "page" and isinstance(comps, list):
+                    for j, comp in enumerate(comps):
                         if isinstance(comp, dict):
-                            out.append((str(comp.get("id")), "component", f"{key}[{i}].components[{j}]"))
+                            out.append((_id(comp.get("id")), "component", f"{key}[{i}].components[{j}]"))
     return out
 
 
@@ -117,7 +128,7 @@ def validate(spec: Any) -> list[str]:
     if not isinstance(audience, list) or not all(isinstance(a, str) and 0 < len(a) <= 120 for a in audience):
         p.append("audience must be a list of short texts.")
     target = spec.get("target")
-    if target not in TARGETS:
+    if not _is(target, TARGETS):
         p.append(f"target must be one of: {', '.join(sorted(TARGETS))}.")
     caps = TARGETS.get(str(target), {"components": set(), "interactions": set(), "writeback": False})
     for key, _kind in COLLECTIONS:
@@ -137,11 +148,11 @@ def validate(spec: Any) -> list[str]:
     kinds = {id_: kind for id_, kind, _ in _ids(spec)}
 
     def ref(value: Any, kind: str, where: str) -> None:
-        if kinds.get(str(value)) != kind:
+        if not isinstance(value, str) or kinds.get(value) != kind:
             p.append(f"{where} must name a {kind} in this specification.")
 
     for i, s in enumerate(spec["sources"]):
-        if s.get("kind") not in SOURCE_KINDS:
+        if not _is(s.get("kind"), SOURCE_KINDS):
             p.append(f"sources[{i}].kind must be one of: {', '.join(sorted(SOURCE_KINDS))}.")
         _text(s.get("name"), f"sources[{i}].name", p, required=True, limit=256)
         for k in ("workspace_id", "item_id", "table"):
@@ -166,7 +177,7 @@ def validate(spec: Any) -> list[str]:
         total += len(comps)
         for j, c in enumerate(comps):
             where = f"pages[{i}].components[{j}]"
-            if c.get("type") not in caps["components"]:
+            if not _is(c.get("type"), caps["components"]):
                 p.append(f"{where}.type {c.get('type')!r} isn't available for a {caps.get('label', 'this target')}.")
             _text(c.get("title"), f"{where}.title", p, limit=200)
             fields = c.get("fields", [])
@@ -199,7 +210,7 @@ def validate(spec: Any) -> list[str]:
                 for n, pid in enumerate(scope):
                     ref(pid, "page", f"filters[{i}].pages[{n}]")
     for i, it in enumerate(spec["interactions"]):
-        if it.get("kind") not in caps["interactions"]:
+        if not _is(it.get("kind"), caps["interactions"]):
             p.append(f"interactions[{i}].kind {it.get('kind')!r} isn't available for a {caps.get('label', 'this target')}.")
         ref(it.get("from"), "component", f"interactions[{i}].from")
         ref(it.get("to"), "page" if it.get("kind") == "drillthrough" else "component", f"interactions[{i}].to")
@@ -217,7 +228,7 @@ def validate(spec: Any) -> list[str]:
     elif perms.get("writeback") and not caps["writeback"]:
         p.append("Writeback isn't available for this target yet.")
     refresh = spec.get("refresh", {})
-    if not isinstance(refresh, dict) or refresh.get("mode") not in REFRESH_MODES:
+    if not isinstance(refresh, dict) or not _is(refresh.get("mode"), REFRESH_MODES):
         p.append(f"refresh.mode must be one of: {', '.join(sorted(REFRESH_MODES))}.")
     if not isinstance(spec.get("tests", []), list):
         p.append("tests must be a list.")

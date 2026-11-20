@@ -211,7 +211,8 @@ def _on_duckdb(case: dict[str, Any], dialect: str) -> tuple[str, Any]:
     try:
         made = session.execute(CellRequest(";\n".join(dataset_sql(case["dataset"])), "sql", "duckdb"))
         if made.status != "ok":
-            return "error", f"The dataset wasn't made: {_error(made.outputs)[1]}"
+            reason = _error(made.outputs)[1].rstrip()
+            return "error", f"The dataset wasn't made. {reason}" + ("" if reason.endswith(".") else ".")
         res = session.execute(CellRequest(case["dialects"][dialect]["statement"], "sql", dialect, result_rows=10_000))
         if res.status == "ok" and res.table is not None:
             return "ok", res.table

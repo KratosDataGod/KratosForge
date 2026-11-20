@@ -180,8 +180,8 @@ Each case and dialect gets one outcome.
 | refused | The local engine refused the statement and said why. |
 | error | The statement failed on this PC. |
 
-Results are compared with the rules of [comparing two engines](engines.md#comparing-two-engines-answers-engine-only-no-screen-yet) (`verify.py`): exact numbers and timestamps to the
-microsecond. A case may name a normalization from a fixed list (`row_order`, `column_name_case`,
+Results are compared with the rules of [comparing two engines](engines.md#comparing-two-engines-answers-engine-only-no-screen-yet) (`verify.py`). Numbers are compared exactly, and
+timestamps to the microsecond. A case may name a normalization from a fixed list (`row_order`, `column_name_case`,
 `integer_width`, `decimal_scale_display`). Nothing else is ever smoothed over, so a decimal with the
 wrong scale or a NULL where a value belongs is reported as differs.
 

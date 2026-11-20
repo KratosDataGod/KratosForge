@@ -122,11 +122,17 @@ CLAIMS: list[Claim] = [
     _ts("1.50", query="SELECT JSON_VALUE('{\"a\": 1.50}', '$.a')", note="JSON_VALUE's number"),
     _ts("1.50", query="SELECT JSON_ARRAY(1.50)", want="[1.5]", note="JSON_ARRAY's decimal"),
     _ts("1e2", query="SELECT JSON_VALUE('{\"a\": 1e2}', '$.a')"),
+    _ts("9223372036854775807 + 1"),  # WR-247: a whole number past an int is a decimal of its digits
+    _ts("ABS(-2147483648)"),
+    _ts("CONCAT('a', NULL)"),
+    _ts("CONCAT(NULL, NULL)"),
+    _ts("CONCAT_WS('-', 'a', NULL, 'b')"),
 ]
 
 # (page, expression) -> why it isn't run here
 ILLUSTRATIVE: dict[tuple[str, str], str] = {
     (P, "SELECT *"): "a fragment: a view made with SELECT *, not a statement",
+    (P, "SELECT 2147483647 + 1"): "an error example: it stops with Msg 8115 (test_tsql_arithmetic_errors)",
 }
 
 # Inline `SELECT ...` statements run as written (see Statement)

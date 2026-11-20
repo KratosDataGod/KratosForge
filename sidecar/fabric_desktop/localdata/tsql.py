@@ -2532,12 +2532,15 @@ def _big_integers(tree: exp.Expression) -> None:
     for node in list(tree.find_all(exp.Literal)):
         text = node.name
         # the length first: int() refuses more than 4,300 digits, which DuckDB answers as too big
-        if node.is_string or not text.isdigit() or len(text.lstrip("0")) > 38 or int(text) < 2 ** 31:
+        digits = text.lstrip("0")
+        if node.is_string or not text.isdigit() or len(digits) > 38 or len(digits) < 10 or int(digits) < 2 ** 31:
             continue
         if any(isinstance(up, (exp.Limit, exp.Offset, exp.Fetch, exp.DataType, exp.DataTypeParam, exp.ColumnDef,
                                 exp.GenerateSeries))
                for up in _ancestors(node)):
             continue
+        if isinstance(node.parent, (exp.Left, exp.Right, exp.Repeat, exp.Substring)) and node.arg_key != "this":
+            continue  # a bigint count or length, which those functions check against a bigint themselves
         node.replace(exp.Cast(this=node.copy(), to=exp.DataType.build(f"DECIMAL({len(text.lstrip('0'))}, 0)")))
 
 

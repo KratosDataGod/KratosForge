@@ -176,6 +176,6 @@ def onedrive_refusal(path: str | Path, what: str) -> str | None:
     root = onedrive_root(path)
     if root is None:
         return None
-    return (f"{path} is in OneDrive ({root}), so {what} can't be kept there: OneDrive would upload the same files "
+    return (f"{path} is in OneDrive ({root}), so {what} can't be kept there. OneDrive would upload the same files "
             f"the app reads and writes, and its sync can lock them. Pick a folder on this PC outside OneDrive, "
             f"such as {local_folder()}.")

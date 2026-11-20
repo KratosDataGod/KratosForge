@@ -81,10 +81,11 @@ def onedrive_check(folders: dict[str, str]) -> dict[str, Any]:
     found = [f"{what} ({path})" for what, path in folders.items() if path and known_folders.in_onedrive(path)]
     if not found:
         return _check("onedrive", title, "ok", "None of the folders KratosForge keeps files in are in OneDrive.")
+    listed = found[0] if len(found) == 1 else f"{', '.join(found[:-1])} and {found[-1]}"
     return _check("onedrive", title, "warn",
-                  f"These are in OneDrive, which uploads the same files KratosForge reads and writes, and its "
-                  f"sync can lock them: {'; '.join(found)}. Move each to a folder on this PC outside OneDrive, "
-                  f"such as {known_folders.local_folder()}, then open it from there.", "", "troubleshooting.md#files-in-onedrive")
+                  f"These folders are in OneDrive: {listed}. OneDrive uploads the same files KratosForge reads and "
+                  f"writes, and its sync can lock them. Move each to a folder on this PC outside OneDrive, such as "
+                  f"{known_folders.local_folder()}, then open it from there.", "", "troubleshooting.md#files-in-onedrive")
 
 
 def _on_network(folder: Path) -> bool:

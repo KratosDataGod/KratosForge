@@ -162,7 +162,7 @@ KratosForge keeps the files it stores or works on out of OneDrive, so OneDrive i
 | --- | --- | --- |
 | **Ready to work** says folders "are in OneDrive" | A metadata project, a local data project, a repository or the SQL page's temp folder is in a folder OneDrive syncs. Windows can move Documents and Desktop into OneDrive (known folder move). | Move each one to a folder on this PC outside OneDrive, such as `C:\Users\<you>\KratosForge`, then open it from there. |
 | "... is in OneDrive (...), so ... can't be kept there" | A new metadata project, local data project or repository, the SQL page's temp folder, or the support bundle was given a folder in OneDrive. | Pick a folder outside OneDrive. |
-| The metadata project is now in `KratosForge\metadata` | Earlier versions put a new project in `Documents\FabricDesktop\metadata`, which OneDrive can move into OneDrive. On first use the app copied it to `KratosForge\metadata` in your profile and opens the copy. The original is left as it was. | Check the copy, then delete the original in OneDrive. **Ready to work** lists it until you do. |
+| The metadata project is now in `KratosForge\metadata` | Earlier versions put a new project in `Documents\FabricDesktop\metadata`, which Windows can move into OneDrive. On first use the app copied it to `KratosForge\metadata` in your profile and opens the copy. The original is left as it was. | Check the copy, then delete the original in OneDrive. **Ready to work** lists it until you do. |
 | Exports go to `KratosForge\Exports` | Windows has moved your Downloads folder into OneDrive, so exports are written to `KratosForge\Exports` in your profile instead. | Nothing. Open the file from the path the app shows. |
 
 ## This PC's clock is wrong

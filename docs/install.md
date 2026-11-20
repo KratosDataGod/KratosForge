@@ -106,7 +106,7 @@ These prove where a file came from; they don't replace code signing, which is st
 | `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. The run histories (`history.jsonl`, `schedule_runs.jsonl`) keep their newest rows: past 8 MB the older ones are dropped. |
 | `%LOCALAPPDATA%\FabricDesktop\replays` | The app's copy of each replay bundle you opened. A bundle can hold a sample of the tables its notebook read, so a copy unused for 30 days (your organization can change that) is deleted like the local copies above; the bundle you opened stays where it was. |
 | `%ProgramData%\FabricDesktop\policy.json` | Settings your organization fixed, if any. |
-| `%USERPROFILE%\KratosForge\metadata` | The default folder for a new metadata project. You can pick another, outside OneDrive, and you should keep it in Git. Earlier versions used `Documents\FabricDesktop\metadata`: one still there in OneDrive is copied here on first use ([Files in OneDrive](troubleshooting.md#files-in-onedrive)). |
+| `%USERPROFILE%\KratosForge\metadata` | The default folder for a new metadata project. You can pick another, outside OneDrive, and you should keep it in Git. Earlier versions used `Documents\FabricDesktop\metadata`, and a project still there in OneDrive is copied here on first use ([Files in OneDrive](troubleshooting.md#files-in-onedrive)). |
 | `%USERPROFILE%\KratosForge\Exports` | Exports, only when Windows has moved Downloads into OneDrive. Otherwise they go to Downloads. |
 
 ## Uninstall

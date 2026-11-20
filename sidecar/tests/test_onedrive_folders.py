@@ -47,7 +47,7 @@ def test_new_folders_in_onedrive_are_refused_with_where_to_put_them(home, tmp_pa
     from fabric_desktop.app_settings import _sql_folder
     from fabric_desktop.localdata.projects import ProjectStore
     inside = str(home / "OneDrive - Contoso" / "Documents" / "x")
-    with pytest.raises(ValueError, match=r"is in OneDrive .* Pick a folder on this PC outside OneDrive"):
+    with pytest.raises(ValueError, match=r"is in OneDrive .*can.t be kept there\. OneDrive would upload .* Pick a folder on this PC outside OneDrive"):
         _sql_folder(inside)
     assert _sql_folder(str(home / "temp")) == str(home / "temp")
     with pytest.raises(ValueError, match="a local data project can't be kept there"):
@@ -97,7 +97,8 @@ def test_the_old_default_metadata_project_is_copied_out_and_the_original_kept(ho
     assert svc._out_of_onedrive(str(old)) == new  # once per run
     folders = svc._local_folders()
     row = readiness.onedrive_check(folders)
-    assert row["status"] == "warn" and "old copy, which you can delete" in row["text"] and str(old) in row["text"]
+    assert row["status"] == "warn" and row["text"].startswith("These folders are in OneDrive: ")
+    assert "old copy, which you can delete" in row["text"] and str(old) in row["text"]
 
 
 def test_another_project_in_onedrive_is_left_where_the_person_put_it(home, tmp_path, monkeypatch):

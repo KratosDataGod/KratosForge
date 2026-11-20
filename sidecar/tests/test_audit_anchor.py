@@ -117,8 +117,11 @@ def test_an_event_log_that_fails_never_fails_a_write_and_is_noted_not_reported(t
     assert len([r for r in caplog.records if r.name == audit_anchor.__name__]) == 1  # warned once
     check = log.verify()
     assert check["ok"] and check["problems"] == []
-    assert check["notes"] == [("event log: the Windows Application event log couldn't be read, so the end of the "
-                              "trail is checked against head.json only")]
+    missed, unread = check["notes"]  # the ends that went unrecorded are said, with what IT can do (WR-411)
+    assert missed.startswith(f"event log: the trail's end wasn't recorded in the Windows Application event log "
+                             f"for the last {COUNT} writes")
+    assert unread == ("event log: the Windows Application event log couldn't be read, so the end of the "
+                      "trail is checked against head.json only")
 
 
 def test_no_record_for_this_trail_is_a_note_not_a_problem(tmp_path, event_log):

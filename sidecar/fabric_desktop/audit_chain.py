@@ -189,14 +189,31 @@ def write(folder: Path, entry: dict[str, Any], line: str) -> None:
         new["lost"] = head["lost"]
     if head.get("base"):  # where a pruned trail starts
         new["base"] = head["base"]
+    if head.get("anchor_missed"):  # ends the event log hasn't recorded yet (_anchor)
+        new["anchor_missed"] = head["anchor_missed"]
     jsonfile.write_json(folder / HEAD, new)
     _anchor(folder, new)
 
 
 def _anchor(folder: Path, head: dict[str, Any]) -> None:
-    """The head, also in the Windows event log (audit_anchor.py), counting lines a prune deleted."""
-    if isinstance(head.get("lines"), int):
-        audit_anchor.record(folder, str(head.get("hash") or ""), head["lines"] + _base_lines(head))
+    """The head, also in the Windows event log (audit_anchor.py), counting lines a prune deleted. A record
+    that couldn't be written is kept in ``head.json`` as ``anchor_missed`` (how many writes, since when, and
+    why the last one wasn't), so ``verify()`` says the end went unrecorded rather than skipping it; the next
+    record written clears it, since it covers every line before it."""
+    if not isinstance(head.get("lines"), int):
+        return
+    why = audit_anchor.record(folder, str(head.get("hash") or ""), head["lines"] + _base_lines(head))
+    missed = head.get("anchor_missed") if isinstance(head.get("anchor_missed"), dict) else None
+    if why is None and missed is None:
+        return
+    new = dict(head)
+    if why is None:
+        new.pop("anchor_missed", None)
+    else:
+        new["anchor_missed"] = {"writes": int((missed or {}).get("writes") or 0) + 1,
+                                "since": (missed or {}).get("since") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "why": why}
+    jsonfile.write_json(folder / HEAD, new)
 
 
 def _base_lines(head: dict[str, Any]) -> int:
@@ -329,17 +346,29 @@ def verify(folder: Path) -> dict[str, Any]:
         key: object = (stat.st_size, stat.st_mtime_ns, count)
     except OSError:
         key = ("no head", count)
+    missed = head.get("anchor_missed")
+    if isinstance(missed, dict):
+        notes.append(_missed_note(missed))
     anchor, note = audit_anchor.newest(folder, key)
     if note:
         notes.append(note)
     if anchor is not None:
         problems.extend(_against(anchor, head, seen, count, missing=not (Path(folder) / HEAD).exists()))
     result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
-    if notes:  # only when the clock went back: the usual result keeps its shape
+    if notes:  # only when there is something to say: the usual result keeps its shape
         result["notes"] = notes
     if base.get("through"):
         result["pruned"] = {"through": base["through"], "lines": base.get("lines")}
     return result
+
+
+def _missed_note(missed: dict[str, Any]) -> str:
+    why = str(missed.get("why") or audit_anchor.UNAVAILABLE)
+    fix = audit_anchor.FIX.get(why, audit_anchor.FIX[audit_anchor.UNAVAILABLE])
+    n = missed.get("writes")
+    return (f"event log: the trail's end wasn't recorded in the Windows Application event log for the last "
+            f"{n} write{'' if n == 1 else 's'} (since {missed.get('since') or 'an earlier write'}), so the newest lines "
+            f"are checked against head.json only. Why: {fix}. The trail itself is complete")
 
 
 def _against(anchor: audit_anchor.Anchor, head: dict[str, Any], seen: dict[int, str], count: int,

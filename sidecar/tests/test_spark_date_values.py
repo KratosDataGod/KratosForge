@@ -85,6 +85,13 @@ def test_nested_hour_minute_and_second_read_their_argument_once():
     assert got == [{"n": None, "h": 13}, {"n": None, "h": None}]
 
 
+@pytest.mark.parametrize("zone", ["+18:01", "-19", "UTC+18:00:01", "GMT+05:60"])
+def test_an_offset_past_18_hours_is_refused_with_that_reason(zone):
+    from fabric_desktop import sql
+    with pytest.raises(Exception, match="within 18 hours of UTC"):
+        sql.run(f"SELECT from_utc_timestamp(TIMESTAMP'2024-05-17 12:00:00', '{zone}')")
+
+
 def test_from_and_to_utc_timestamp_take_a_zone_written_as_an_offset(spark):
     assert one(spark, "SELECT to_utc_timestamp(TIMESTAMP'2024-05-17 12:00:00', 'GMT+2'), "
                       "from_utc_timestamp(TIMESTAMP'2024-05-17 12:00:00', 'UTC+05:30'), "

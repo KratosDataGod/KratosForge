@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import re
 import tomllib
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
@@ -15,7 +16,7 @@ import polars as pl
 
 from . import audit, duties, lakehouse, risk, sealed_settings
 from .meta import keys as keys_mod
-from .meta import change_impact, lineage, release
+from .meta import change_impact, lineage, openlineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
@@ -778,6 +779,34 @@ class MetaMixin:
         except tomllib.TOMLDecodeError:
             return {"entity": name, "changes": []}
         return {"entity": name, "changes": change_impact.edit_impact(self._project(), name, spec)}
+
+    def _openlineage(self, env: str) -> tuple[Project, dict[str, Any]]:
+        project = self._project()
+        store = self._store(project, env)
+        runs = json.loads(store.meta("run_log").select("run_id", "entity", "status", "started_at", "seconds").write_json())
+        workspace = store.workspace_id if isinstance(store, OneLakeStore) else None
+        return project, openlineage.run_events(project, runs, env, workspace)
+
+    def meta_openlineage_preview(self, env: str = "dev") -> dict[str, Any]:
+        """How many OpenLineage events an export would write for ``env``, and which entities it leaves out
+        and why. Writes nothing."""
+        _, out = self._openlineage(env)
+        return {"env": env, "namespace": out["namespace"], "events": len(out["events"]), "left_out": out["left_out"]}
+
+    def meta_openlineage_export(self, env: str = "dev") -> dict[str, Any]:
+        """OpenLineage run events for each entity's last run in ``env``, one JSON event per line (the
+        format OpenLineage's file transport writes), as a new file in Downloads; never replaces a file."""
+        from . import sql_exec
+
+        project, out = self._openlineage(env)
+        if not out["events"]:
+            raise ValueError(f"Nothing to export: no entity has a finished run in {env.title()} yet")
+        folder = known_folders.downloads()
+        folder.mkdir(parents=True, exist_ok=True)
+        base = re.sub(r"[^\w.-]+", "_", f"{project.root.name}-{env}-openlineage")
+        path = sql_exec._reserve(folder, base, ".jsonl")  # reserved empty, so no other file is overwritten
+        write_text(path, "".join(json.dumps(e, separators=(",", ":")) + "\n" for e in out["events"]), newline="\n")
+        return {"path": str(path), "events": len(out["events"]), "left_out": out["left_out"]}
 
     def meta_lineage(self, name: str, column: str | None = None) -> dict[str, Any]:
         """Column lineage from the project's files: every column of ``name``, or, for one column,

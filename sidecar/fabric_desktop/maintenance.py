@@ -204,6 +204,11 @@ def vacuum_keep(versions: list[int]) -> dict[str, Any]:
     return {"keep_versions": versions} if versions else {}
 
 
+# More history than this for a clock out of step is a date that can't be right (a commit dated 1970, say):
+# Fabric's VACUUM would in effect stop removing anything, so X-ray refuses and says why instead.
+MAX_SKEW_DAYS = 365
+
+
 def skew_safe_days(table: DeltaTable, days: int, now: float | None = None) -> int:
     """``days``, or more when a commit dated out of step with the one before it would let a VACUUM keeping
     ``days`` delete files a version inside them still reads: enough that the removal dated earliest is kept,

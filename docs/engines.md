@@ -605,7 +605,7 @@ A profile never holds a password, token or key. It holds a *reference* to one:
 | --- | --- |
 | Fabric | The app's own sign-in (default); a service principal, managed identity or workload identity for automation |
 | Databricks | A profile from the Databricks CLI's config file; browser sign-in (OAuth); a service principal (OAuth machine-to-machine) |
-| Snowflake (planned) | Browser sign-in through Snowflake's built-in local application (default); a key pair (the private key file's path, and its passphrase as a reference); a programmatic access token (as a reference); a connection from the Snowflake CLI |
+| Snowflake | A key pair (the private key file's path, and its passphrase as a reference) and a programmatic access token (as a reference) sign in now (Preview). Browser sign-in through Snowflake's built-in local application and a connection from the Snowflake CLI are kept in the profile but don't sign in yet. |
 
 A service principal's secret is named as `env:NAME` (an environment variable) or `credman:TARGET`
 (Windows Credential Manager). KratosForge refuses to save or import a profile with anything that
@@ -618,8 +618,28 @@ A Snowflake connection names the account by its identifier (`myorg-myaccount`, o
 such as `xy12345.east-us-2.azure`), never by a URL; the address is always
 `https://<account>.snowflakecomputing.com`. On Windows a private key file must be a full path on a
 drive (`C:\keys\snowflake.p8`): a network share path is refused, so reading the key never reaches
-another computer. Nothing signs in to Snowflake yet; the sign-in methods are recorded so a profile
-made now keeps working when they arrive.
+another computer.
+
+### Checking a Snowflake connection (Preview)
+
+A Snowflake connection signed in with a key pair or a programmatic access token can be checked
+through Snowflake's SQL API (`snowflake_check`). The check signs in, then checks each field the
+connection sets, and says for each one what's wrong and what to do:
+
+| Field | Checked by | Fails when |
+| --- | --- | --- |
+| Sign-in | A statement of context functions | The key isn't the one registered on the user (`RSA_PUBLIC_KEY`), the token was refused or revoked, or a network policy blocks this PC |
+| Role | `CURRENT_AVAILABLE_ROLES()` | The role isn't granted to you |
+| Database | `SHOW DATABASES`, as that role | It doesn't exist, or the role can't see it |
+| Schema | `SHOW SCHEMAS` in that database | The same, or its database failed |
+| Warehouse | `SHOW WAREHOUSES` | The same. When it's found, its state and size are shown |
+
+The check never names a warehouse, because Snowflake's cloud services answer these statements. So
+no warehouse resumes and no warehouse credits are used. A passed check shows the connection works for
+metadata as that role, not that queries on the warehouse will. A key-pair token is made on this PC,
+lasts under an hour and is never stored; a token Snowflake refused is not sent again. Running
+queries on Snowflake comes in a later release. This has been tested against a fake of the SQL API,
+not a live Snowflake account.
 
 Profiles that use only Fabric and Databricks are still saved in the format older versions of
 KratosForge read, so a profile shared with someone who hasn't updated still opens for them. A

@@ -77,7 +77,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "There is no file or folder at ... on this PC" | A file the app or engine expected on this PC is missing: it was moved, renamed or deleted. This is about your PC, not Fabric. | Check the path, or pick the file again. **Retry** if it was only briefly unavailable. |
 | "... couldn't be saved because it is open in ..." | Windows kept the app from replacing one of its files, because another program, such as Excel, still had it open after the app waited. Windows names the program where it can; otherwise the message says another program may have it open, or, for "Access is denied", that the file may be read-only or this account can't change it. | Close the file in the program the message names (or in each of them), check that it isn't read-only, and try again. |
 | "... couldn't be saved because it is read-only" | The file has Windows' Read-only attribute set. | Clear **Read-only** in the file's Properties, then try again. |
-| "... couldn't be saved because Windows Security blocked it" | Windows Security (Defender) stopped the file as unsafe. | Check **Protection history** in Windows Security, then try again. |
+| "... couldn't be saved because Windows Security blocked it" | Windows Security (Defender) stopped the file as unsafe. | If you trust the file, allow it in **Protection history** in Windows Security, then try again. |
 | "... couldn't be saved because Windows won't let KratosForge write in ..." | Controlled folder access in Windows Security protects that folder. | Allow KratosForge in Controlled folder access, or use another folder. |
 | "This PC didn't allow access to ..." | Windows refused to open or write a file, usually because another program has it open or the folder is read-only. | Close the program that has the file open, or pick a folder you can write to. |
 | A new table shows under **Unidentified** in Fabric | Fabric hasn't picked up a table written from outside yet. | Refresh the lakehouse in Fabric. See also [xray-fixes.md](xray-fixes.md#unidentified-tables). |
@@ -128,7 +128,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | A Fabric run "stopped before it saved any results" | The runner notebook failed in Fabric. | Open it from **Monitor** to see the notebook's output in Fabric. |
 | Fabric schedule or Run in Fabric fails with 403 | You aren't Contributor on the workspace, or your organization's own app registration lacks `Item.Execute.All`. | Ask for Contributor, or an admin adds the permission and you sign in again ([permissions.md](permissions.md#using-your-own-app-registration)). |
 | A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > KratosForge > Schedules shows each run and why it was skipped. |
-| A job run says "This workspace was named Prod by a project opened on this PC" | Prod changes only by promote, so a job run is refused there, with a project open or not. | Point the job at a Dev or scratch workspace, or promote. |
+| A job run says "This workspace was named Prod by a project opened on this PC" | Prod changes only by promote, so a job run is refused there, with a project open or not. | Point the job at a Dev or scratch workspace, or make the change in Dev and promote it. |
 
 ## Source control
 

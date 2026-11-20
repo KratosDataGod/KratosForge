@@ -167,7 +167,7 @@ _STATEMENT = re.compile(r"`((?:SELECT\s|WITH\s+\w+\s+AS\s*\()[^`\n]+)`")
 
 def _whole(sql: str) -> bool:
     """A statement someone could run as written: not a pattern with ``...`` or a ``<placeholder>``."""
-    return "..." not in sql and "<" not in sql
+    return "..." not in sql and not re.search(r"<[A-Za-z_][\w -]*>", sql)
 
 
 def inline_statements(page: str) -> list[Found]:

@@ -310,7 +310,7 @@ def test_lines_cut_from_the_end_with_the_head_deleted_are_caught_by_the_event_lo
     (anchored.audit.folder / audit_chain.HEAD).unlink()
     assert _check(anchored)["problems"] == [
         "head.json: missing, so the end of the trail can't be confirmed",
-        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}); "
+        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}), so "
         "lines were deleted from the end")]
 
 

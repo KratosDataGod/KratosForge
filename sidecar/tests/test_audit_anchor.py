@@ -50,7 +50,7 @@ def test_a_cut_end_with_the_head_rewritten_to_match_is_caught(tmp_path, event_lo
     path.write_text("".join(line + "\n" for line in lines[:2]), encoding="utf-8")
     (folder / audit_chain.HEAD).write_text(json.dumps({"hash": json.loads(lines[1])["hash"], "lines": 2}))
     assert log.verify()["problems"] == [
-        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}); "
+        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}), so "
         "lines were deleted from the end")]
 
 
@@ -173,3 +173,29 @@ def test_an_event_log_record_is_read_for_our_source_only():
     assert audit_anchor._record_text(data, 0) is None
     assert audit_anchor._record_text(data, len(theirs)) == "anchor text"
     assert audit_anchor._record_text(_record(audit_anchor.SOURCE, []), 0) is None
+
+
+def test_the_event_log_is_read_once_while_the_trails_head_is_unchanged(tmp_path, event_log, monkeypatch):
+    folder = tmp_path / "audit"
+    log = _trail(folder)
+    reads = []
+    real = event_log.read
+    monkeypatch.setattr(audit_anchor, "reader", lambda: reads.append(1) or real())
+    assert log.verify()["ok"] and log.verify()["ok"]  # the audit page, loaded twice
+    assert len(reads) == 1
+    log.record("meta_run", "ok", 0.1, {"n": 99})  # the head moves: read again
+    assert log.verify()["ok"] and len(reads) == 2
+    monkeypatch.setattr(audit_anchor, "_cache", {k: (key, at - audit_anchor.CACHE_SECONDS - 1, found)
+                                                 for k, (key, at, found) in audit_anchor._cache.items()})
+    assert log.verify()["ok"] and len(reads) == 3  # and after CACHE_SECONDS anyway
+
+
+def test_a_line_with_a_stray_byte_shows_as_its_own_row_not_a_failed_list(tmp_path):
+    folder = tmp_path / "audit"
+    log = _trail(folder)
+    path, lines = _lines(folder)
+    raw = path.read_bytes().split(b"\n")
+    raw[1] = raw[1][:10] + b"\xff\xfe" + raw[1][10:]
+    path.write_bytes(b"\n".join(raw))
+    rows = log.recent()
+    assert len(rows) == COUNT and sum(1 for r in rows if r["action"] == "unreadable_line") == 1

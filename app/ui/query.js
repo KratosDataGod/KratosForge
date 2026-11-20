@@ -245,6 +245,8 @@ async function sqlChartRows(execution, part) {
 }
 
 // A managed run's state on the Results band: [pill class, label].
+// An export's format as it is said and shown: Parquet is a name, not an acronym to spell out.
+const EXPORT_NAME = { csv: "CSV", json: "JSON", parquet: "Parquet", xlsx: "Excel" };
 const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
   completed: ["ok", "Succeeded"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"], timed_out: ["bad", "Timed out"] };
 
@@ -470,6 +472,7 @@ function renderQuery() {
     Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null, grid: sqlGridCarry(tab.grid),
       multi: multi ? { units, part: null, change, grids: {} } : null, old: null, ranParams: used });
     drawResults();
+    announce("Query running");  // the pill is redrawn, not a live region: say the start and the end
     let status;
     try {
       status = await rpc("sql_start", wh
@@ -524,13 +527,15 @@ function renderQuery() {
     if (here()) {
       editor.recheck();
       runFx(status, allow);
+      announce(status?.state === "completed" && !tab.error
+        ? `Query succeeded: ${(status.rows ?? 0).toLocaleString()} row${status.rows === 1 ? "" : "s"}`
+        : `Query ${(SQL_STATE[status?.state]?.[1] || "failed").toLowerCase()}`);
     }
   }
 
   // KF-MO-005: a spark on the Results pill when a query that took a while succeeds, the ember when one
   // fails; a stop, a quick query or a confirmation the person declined plays nothing. Uses the
-  // engine's own seconds, and runs after the redraw, which replaces the pill. The pill already
-  // says the outcome to a screen reader, so nothing extra is announced.
+  // engine's own seconds, and runs after the redraw, which replaces the pill. run() announces the outcome.
   function runFx(status, allow) {
     const pill = band.querySelector(".sql-pill");
     if (status?.state === "completed" && !tab.error && status.seconds > SQL_SPARK_SECONDS) forgeEvent("sql.succeeded", pill);
@@ -813,6 +818,7 @@ function renderQuery() {
     }
     tab.exporting = out;
     sqlPage.redraw?.();
+    announce(`Exporting ${EXPORT_NAME[format] || format}`);  // the progress line is redrawn, so it isn't read
     let st = out;
     while (st.state === "running") {
       await new Promise((r) => setTimeout(r, 300));
@@ -864,7 +870,7 @@ function renderQuery() {
     if (out?.exists) {
       const replace = await confirmDialog("Replace the table?",
         `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace", { danger: true, typeToConfirm: name });
-      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect }),
+      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect, confirm_name: name }),
         "Could not save the table");
     }
     if (out) {
@@ -1186,7 +1192,7 @@ function renderQuery() {
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
       h("span", { class: "spacer" }),
       x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
-        `Exporting ${x.format === "xlsx" ? "Excel" : x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
+        `Exporting ${EXPORT_NAME[x.format] || x.format}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
       x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
       r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,

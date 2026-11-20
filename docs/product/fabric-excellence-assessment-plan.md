@@ -1,6 +1,6 @@
 # Fabric Excellence Assessment: plan, gaps, risks and stories
 
-Status: plan (2026-11-17). Owner: Fabric Excellence Assessment thread. Requested by Chris (master
+Status: plan (2026-11-17). Built so far: FEA-101 to FEA-104, the pure engine, with the methodology in [excellence-assessment.md](../optimize/excellence-assessment.md) (#2941), and FEA-105 with its first 10 controls and the read-only `excellence_assess` call (#2957). FEA-109 adds the scorecard on Optimize > Assessment > Excellence, in Preview (#2990). FEA-203 (architecture controls, #3010), FEA-301 and FEA-302 (notebook and pipeline controls, #3013) are built too. Owner: Fabric Excellence Assessment thread. Requested by Chris (master
 implementation prompt, 2026-11-17). Shared standards: the KratosForge mission prompt and its hard gates in
 `KratosDataGod/ai-commons` (`prompts/kratosforge/mission-and-engineering-philosophy.md`).
 

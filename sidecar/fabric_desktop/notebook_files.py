@@ -78,7 +78,7 @@ def search(shelf: NotebookShelf, query: str, names_only: bool = False, saved_in:
                 try:
                     cells = shelf.load(name)["cells"]
                 except (OSError, ValueError) as exc:
-                    problems.append({"name": name, "text": f"Couldn't read it ({type(exc).__name__})."})
+                    problems.append({"name": name, "text": f"Couldn't read it ({type(exc.__cause__ or exc).__name__})."})
                     continue
             for n, c in enumerate(cells, 1):
                 for line_no, line in enumerate((c.get("source") or "").splitlines(), 1):

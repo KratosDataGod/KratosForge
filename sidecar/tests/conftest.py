@@ -45,7 +45,24 @@ def event_log(monkeypatch):
     monkeypatch.setattr(audit_anchor, "writer", log.write)
     monkeypatch.setattr(audit_anchor, "reader", log.read)
     monkeypatch.setattr(audit_anchor, "_off_until", 0.0)
+    monkeypatch.setattr(audit_anchor, "_cache", {})
     return log
+
+
+@pytest.fixture(autouse=True)
+def duckdb_default_connection_left_clean():
+    """After each test, DuckDB's default connection (duckdb.sql, spark without a session) holds no result
+    and no failed transaction. A result a test left unread is released by the next query; if a Cancel
+    test's interrupt() aborted it meanwhile, later tests' queries failed with "Current transaction is
+    aborted". A connection that can't run SELECT 1 is replaced. It uses the real duckdb module, imported
+    here before the test, since a test may put a fake or None in sys.modules["duckdb"]."""
+    import duckdb
+
+    yield
+    try:
+        duckdb.default_connection().execute("SELECT 1").fetchall()
+    except duckdb.Error:
+        duckdb.set_default_connection(duckdb.connect())
 
 
 @pytest.fixture(autouse=True)
@@ -55,6 +72,16 @@ def no_interactive_sign_in(monkeypatch):
     def refuse(self, scopes, **kwargs):
         return {"error": "access_denied", "error_description": "no interactive sign-in in tests"}
     monkeypatch.setattr(msal.PublicClientApplication, "acquire_token_interactive", refuse)
+
+
+@pytest.fixture(autouse=True)
+def no_remembered_secrets():
+    """dbutils.secrets keeps the values it read for the process, so one test's secret would be
+    redacted in the next test's output."""
+    from fabric_desktop import secret_redaction
+    secret_redaction.forget_all()
+    yield
+    secret_redaction.forget_all()
 
 
 class _NoSignInService:

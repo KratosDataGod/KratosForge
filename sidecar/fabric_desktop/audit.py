@@ -265,7 +265,7 @@ class AuditLog:
         with ``unreadable`` given as a placeholder row (UNREADABLE) that says which line, so a list of the
         trail shows where it is damaged rather than skipping over it."""
         for path in self._files():
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):  # a stray byte: that line only
                 if not line.strip():
                     continue
                 try:
@@ -277,7 +277,8 @@ class AuditLog:
                 elif unreadable:
                     yield {"schema": SCHEMA, "at": "", "action": UNREADABLE, "outcome": "error", "seconds": 0,
                            "who": "", "params": {}, "file": path.name, "line": number,
-                           "error": f"{path.name} line {number} isn't an audit line; the trail check names it"}
+                           "error": (f"{path.name} line {number} isn't an audit line, so it can't be shown. "
+                                     "Run --verify to see what the trail check finds.")}
 
     def recent(self, limit: int = 200, action: str = "") -> list[dict[str, Any]]:
         """The newest lines, newest first. A line that can't be read shows as a placeholder row

@@ -180,6 +180,19 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("CONCAT", f"CONCAT({listed})", "".join(x or "" for x in args)))
         out.append(("CONCAT_WS", f"CONCAT_WS('-', {listed})", "-".join(x for x in args if x is not None)))
         out.append(("PLUS", " + ".join(map(q, args)), None if None in args else "".join(x or "" for x in args)))
+    mixed = random.Random(SEED + 3)  # its own draws, so the families above keep their inputs
+    for _ in range(40):
+        # data-types/data-type-precedence-transact-sql: text meeting an int is converted to the int, and
+        # expressions/case-transact-sql, coalesce-transact-sql and set-operators-union-transact-sql take the type of
+        # highest precedence; text for an int is a whole number with spaces around it, '' being 0.
+        t, n = mixed.choice(["", " 7 ", "10", "9", "-3", "+4", "007", " 12"]), mixed.randint(-12, 12)
+        whole = int(t) if t.strip() else 0
+        out.append(("CASE_TEXT", f"CASE WHEN {n} > 99 THEN {n} ELSE {q(t)} END", whole))
+        out.append(("IIF_TEXT", f"IIF({n} > 99, {n}, {q(t)})", whole))
+        out.append(("COALESCE_TEXT", f"COALESCE(NULL, {q(t)}, {n})", whole))
+        # MAX of an int column is the larger number; of a text column, the later text ('9' after '10').
+        out.append(("UNION_TEXT", f"(SELECT MAX(a) FROM (SELECT {n} AS a UNION ALL SELECT {q(t)}) AS u)", max(n, whole)))
+        out.append(("EXCEPT_TEXT", f"(SELECT COUNT(*) FROM (SELECT {whole} AS a EXCEPT SELECT {q(t)}) AS u)", 0))
     return out
 
 
@@ -227,6 +240,72 @@ def test_cases_are_seeded_and_cover_every_family() -> None:
     first = cases("")
     assert first == cases("") and len(first) > 1500
     assert {f for f, _, _ in first} >= {f for f, _ in KNOWN} | {"EQ", "LT", "LIKE", "PLUS"}
+
+
+@pytest.mark.parametrize("expression", [
+    "CASE WHEN 1 = 0 THEN 1 ELSE '2.5' END", "IIF(1 = 0, 1, 'a')", "COALESCE(NULL, 'x', 1)",
+    "(SELECT MAX(a) FROM (SELECT 1 AS a UNION ALL SELECT '2.5') AS u)",
+    "(SELECT MAX(a) FROM (SELECT 'abc' AS a UNION SELECT 1) AS u)",
+])
+def test_text_that_isnt_a_whole_number_stops_where_it_meets_an_int(engine, expression: str) -> None:
+    # data-types/data-type-precedence-transact-sql: the text is converted to int, and '2.5' or 'a' can't be:
+    # "Conversion failed when converting the varchar value '2.5' to data type int." DuckDB rounded '2.5' to 3, and a
+    # UNION of an int and text was a text column.
+    with pytest.raises(Exception, match="Conversion failed when converting"):
+        engine.execute(f"SELECT {expression} AS v", dialect="tsql")
+
+
+def test_text_columns_meeting_int_columns_take_the_int_type(engine) -> None:
+    engine.execute("CREATE TABLE dbo.mixed (i INT, s VARCHAR(10), b BIT, d DATE)", dialect="tsql")
+    engine.execute("INSERT INTO dbo.mixed VALUES (1, '10', 1, '2024-01-01'), (2, ' 9 ', 0, '2024-01-02'), "
+                   "(3, '', NULL, NULL)", dialect="tsql")
+
+    def rows(query: str) -> list[tuple]:
+        return [tuple(_value(v) for v in r) for r in engine.execute(query, dialect="tsql")["rows"]]
+    # CASE and COALESCE take the int (DuckDB stopped: "Cannot mix values of type VARCHAR and INTEGER").
+    assert rows("SELECT i, CASE WHEN i > 1 THEN i ELSE s END FROM dbo.mixed ORDER BY i") == [(1, 10), (2, 2), (3, 3)]
+    assert rows("SELECT i, COALESCE(s, i) FROM dbo.mixed ORDER BY i") == [(1, 10), (2, 9), (3, 0)]
+    # A UNION's column is an int, so it sorts as numbers (here it sorted as text: '', ' 9 ', '1', '10', ...).
+    assert rows("SELECT a FROM (SELECT i AS a FROM dbo.mixed UNION ALL SELECT s FROM dbo.mixed) AS x ORDER BY a") == [
+        (0,), (1,), (2,), (3,), (9,), (10,)]
+    assert rows("SELECT a FROM (SELECT s AS a FROM dbo.mixed UNION SELECT i FROM dbo.mixed) AS x ORDER BY a") == [
+        (0,), (1,), (2,), (3,), (9,), (10,)]
+    # bit outranks text ('true' is 1), and so does date.
+    assert rows("SELECT a FROM (SELECT b AS a FROM dbo.mixed UNION ALL SELECT 'true') AS x ORDER BY a") == [
+        (None,), (False,), (True,), (True,)]
+    assert rows("SELECT a FROM (SELECT d AS a FROM dbo.mixed WHERE i = 1 UNION ALL SELECT '2024-03-04') AS x "
+                "ORDER BY a") == [(dt.date(2024, 1, 1),), (dt.date(2024, 3, 4),)]
+    # ' 1' is the int 1, so EXCEPT takes it away (here the text '1' and ' 1' differed, and 1 was kept).
+    assert rows("SELECT 1 AS a EXCEPT SELECT ' 1'") == []
+
+
+@pytest.mark.parametrize("frame", ["RANGE BETWEEN 1 PRECEDING AND CURRENT ROW", "RANGE 2 PRECEDING",
+                                   "RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING"])
+def test_range_with_a_number_of_rows_is_refused(engine, frame: str) -> None:
+    # queries/select-over-clause-transact-sql: "<unsigned value specification> PRECEDING ... This specification
+    # isn't allowed for RANGE." DuckDB ran it as a range of values.
+    with pytest.raises(ValueError, match="RANGE with a number of rows .* nothing ran.* Use ROWS BETWEEN"):
+        engine.execute(f"SELECT SUM(v) OVER (ORDER BY k {frame}) AS s FROM (VALUES (1, 1), (2, 2)) AS t(k, v)",
+                       dialect="tsql")
+
+
+def test_windows_with_order_and_no_frame_sum_the_ties_together(engine) -> None:
+    # queries/select-over-clause-transact-sql: "If ORDER BY is specified and ROWS/RANGE is not specified, then
+    # RANGE UNBOUNDED PRECEDING AND CURRENT ROW is used as default for window frame"; NULLs sort first.
+    rows = engine.execute("SELECT k, v, SUM(v) OVER (ORDER BY k) AS s, LAST_VALUE(v) OVER (ORDER BY k) AS l, "
+                          "COUNT(*) OVER (ORDER BY k RANGE UNBOUNDED PRECEDING) AS c, SUM(v) OVER () AS t FROM "
+                          "(VALUES (1, 10), (2, 20), (2, 20), (NULL, 5), (4, NULL)) AS q(k, v) ORDER BY k, v",
+                          dialect="tsql")["rows"]
+    assert [tuple(_value(r[i]) for i in (0, 2, 3, 4, 5)) for r in rows] == [
+        (None, 5, 5, 1, 55), (1, 15, 10, 2, 55), (2, 55, 20, 4, 55), (2, 55, 20, 4, 55), (4, 55, None, 5, 55)]
+
+
+def test_isnull_of_a_number_too_long_for_its_text_stops(engine) -> None:
+    # functions/isnull-transact-sql: the value is converted to the first argument's type, as CAST(12345 AS
+    # VARCHAR(2)) is, which doesn't cut a number short (here it gave '12').
+    with pytest.raises(Exception, match="doesn't fit in VARCHAR"):
+        engine.execute("SELECT ISNULL(CAST(NULL AS VARCHAR(2)), 12345) AS v", dialect="tsql")
+    assert engine.execute("SELECT ISNULL(CAST(NULL AS VARCHAR(5)), 12345) AS v", dialect="tsql")["rows"][0][0] == "12345"
 
 
 @pytest.mark.parametrize(("expression", "want"), [

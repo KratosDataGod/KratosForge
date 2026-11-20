@@ -186,6 +186,7 @@ Rules 2026.11.19.
 | SFN-028 | Runs only in Snowflake | TRUNCATE TABLE IF EXISTS: DuckDB's TRUNCATE has no IF EXISTS. |
 | SFN-029 | Runs only in Snowflake | ALTER TABLE with more than one column, and ALTER TABLE ... SWAP WITH: DuckDB's ALTER TABLE changes one column at a time and has no SWAP. |
 | SFN-030 | Runs only in Snowflake | CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits the open transaction first, and DuckDB doesn't. |
+| SFN-031 | Runs only in Snowflake | A UNION, INTERSECT or MINUS with text written in one SELECT and a number in another in the same column: Snowflake converts the text to a number (and stops on text that isn't one), and DuckDB makes the column text. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value

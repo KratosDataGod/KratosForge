@@ -1,0 +1,42 @@
+# WR-116: Spark 3.5's math functions where this PC answered differently, each case one query: the probe's own
+# queries, from /mnt/project-files/sql-differential/spark-probe-findings-2026-11-18.md. Spark's answers:
+# tests/fixtures/spark_3_5_3_math.json (written from that probe's Spark 3.5.3 answers; tools/capture_spark_values.py
+# math gives the same file). Checked by tests/test_spark_math_values.py.
+
+# round of a double: half up on the digits Java writes for it
+SELECT round(1.005D, 2)
+SELECT round(9.995D, 2)
+
+# log, ln, log10, log2: NULL for 0 or less, and for a base of 0 or less
+SELECT log(2, 0)
+SELECT log(2, -1)
+SELECT log(0, 8)
+SELECT log(1, 8)
+SELECT log(-2, 8)
+SELECT log(0)
+SELECT log(-1)
+SELECT ln(0)
+SELECT ln(-1)
+SELECT log10(0)
+SELECT log10(-5)
+SELECT log2(0)
+SELECT log2(-1)
+
+# pow and hypot: Java's Math.pow and Math.hypot
+SELECT pow(1, double('NaN'))
+SELECT pow(-1, double('Infinity'))
+SELECT hypot(double('Infinity'), double('NaN'))
+SELECT hypot(1e200, 1e200)
+
+# factorial: an int argument, NULL outside 0 to 20
+SELECT factorial(21)
+SELECT factorial(-1)
+SELECT factorial(CAST(5 AS BIGINT))
+SELECT factorial(3.7)
+
+# trigonometry and try_ arithmetic
+SELECT atan2(0.0D, -0.0D)
+SELECT acos(2)
+SELECT asin(-2)
+SELECT cot(0)
+SELECT try_subtract(-2147483648, 1)

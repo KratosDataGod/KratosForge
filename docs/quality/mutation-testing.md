@@ -8846,6 +8846,243 @@ No bugs were found.
 
 These modules in the lane have no boundary mutants on today's `main`, so there was nothing to re-score: `engines_service.py` (batch 15), `central/udf.py` (batch 17), `snowflake_sql_parity.py` (batch 18), `meta/templates.py` and `optimize_service.py` (batch 19), `meta/diff.py` (batch 29), `orchestration/validate.py` (batch 32), `meta/lineage.py` and `sqlcompat/profiles.py` (batch 34).
 
+# Mutation testing, batch 172
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 11 sampled 150 of its then 519 mutants (84.7% before, 97.3% after).
+- The ipywidgets stand-in that notebook cells import: the widget registry, number and range controls, selections, Output and its caps, the controls `interact` picks, links, and the import finder (`widgets.py`).
+
+The run was at `main` ad1ac4cf8 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 541 of 541 mutants ran (521 point + 20 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. pytest was given `--basetemp` in a folder of this run's own: a run on the same box earlier that night had pytest's shared temporary folder fail at the end of every session, which would count every mutant as killed. A first run started in that window was stopped and run again from the start; the figures below are from the second run, and a few of its killed mutants were checked by hand to fail a real test.
+
+Three tests in `test_ipywidgets.py` were left out with `--deselect` to keep each mutant's run short: `test_a_handler_stuck_in_native_code_holds_cells_and_controls_until_it_returns`, `test_a_slow_handler_is_stopped` and `test_widget_events_wait_for_a_proof_and_a_replay`. They take about 10 s of the file's 20 s and test the kernel's handler threads, not this module. The other files that call the module through the notebook kernel (test_dbutils, test_notebook_inputs and the rest listed in batch 11) were not in the set, so the score counts only the files given.
+
+Before the "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `widgets.py` | test_widgets_mutation, test_widgets_more_edges, test_ipywidgets_parity, test_output_cap, test_boundary_mutation_2, test_outputs_hardening, test_ipywidgets (+ test_widgets_uncapped) | 541 of 541 (521 + 20) | 494 / 47 | **91.3%** | 475/521 → 509/521 | 19/20 → 19/20 | 528 / 13 | **97.6%** | 13 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **widgets.py**:
+  - The registry keeps the last 1000 widgets, and ids count from `w1`.
+  - A layout and a style given to a widget are kept.
+  - A select-multiple, and a range slider, keep a description and a tooltip; a range slider casts a new step or max to a number.
+  - An event with no value (a submit on its own, or an empty event) leaves the value alone.
+  - Setting a value equal to the current one, but not the same object, tells no observer.
+  - The defaults: a slider is 0 to 100 in steps of 1, with readout and continuous update on; a range slider is 0 to 100 with (25, 75) picked; an unbounded number box starts at 0 whatever its min.
+  - `Output.capture()` keeps what the output holds unless asked to clear it.
+  - `update_display` inside an Output replaces only the output with that id.
+  - `interactive_output` shows a result, and nothing for `None`.
+  - A control given to `interactive` wins over the argument's default.
+  - A password box shows its placeholder and never its value.
+  - The controls `interact` picks for 0, 0.5, -2 and a float range, with a hundredth of the span as the step.
+  - A widget shown inside an Output is drawn one level below it, so the depth limit counts it.
+  - A dropdown value is found by equality, not only by identity.
+  - Rich output past the cap says "passed 16 MB".
+  - `ipywidgets` is found as a package, and `ipywidgets.widgets` as a module.
+  - → `test_widgets_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `widgets.py` | 153 | `_view(depth=0)` default | Equivalent: every caller passes the depth (as in batch 11). |
+| `widgets.py` | 183 | `value is not None` to `is None` in `ValueWidget.__init__` | Equivalent: only a selection has a value in its state before this line, it is `None` there, and a selection's default is `None`. |
+| `widgets.py` | 210 | `_state.get("min", 0)` default to 1 | Equivalent: `min` is always in the state, set just before. |
+| `widgets.py` | 230 | the `is int` test in `_from_app`, negated and swapped (2 mutants) | Equivalent: setting `value` casts it again, so an int slider gets an int and a float one a float either way (as in batch 11). |
+| `widgets.py` | 333 | `Checkbox._default` returning `None` | Equivalent: the value is cast with `bool`, and `bool(None)` is `False`. |
+| `widgets.py` | 356 | `Text._default` returning `None` | Equivalent: the value is cast to text, and `None` becomes `""`. |
+| `widgets.py` | 618, 621 | `__exit__`'s annotation `Literal[False]` and its `return False` to `None` | Equivalent: the annotation is never read, and `None` doesn't swallow an error either. |
+| `widgets.py` | 623, 636 | `clear_output(wait=False)` and `capture(wait=False)` defaults | Equivalent: `clear_output` doesn't read `wait`. |
+| `widgets.py` | 797 | `v > 0` to `v >= 0` for the slider's min | Equivalent: for 0 both give `-0` and `3 * 0`, which are both 0. |
+| `widgets.py` | 855 | the `isinstance(c, fixed)` test in `kwargs` negated | Equivalent: both branches read `c.value`. |
+
+# Mutation testing, batch 173
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 9 sampled 150 of its then 443 mutants (85.3% before, 96.7% after).
+- Notebook import and export in the Fabric, Databricks and Jupyter formats: the export formats, percent-format scripts, the notes on what a Databricks conversion drops, and the limits on a .dbc archive (`notebook_formats.py`).
+
+The run was at `main` ad1ac4cf8 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 468 of 468 mutants ran (459 point + 9 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. pytest was given `--basetemp` in a folder of this run's own, as in batch 172.
+
+`test_snowflake_sql.py` was given as its one test that exports a notebook (`test_exports_keep_the_translation_as_escaped_text`); its other 311 tests don't call this module and take about 7 s. `test_ipynb_round_trip.py` goes through the notebook store, not this module, so it isn't in the set. Before the "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways. No `-k` filter was used.
+
+A mutant whose run times out counts as killed, as in earlier batches. Three timed out, each a loop in `_trim` that never ends: the two `while` tests negated (lines 80 and 82) and `lines[1:]` to `lines[0:]` (line 81).
+
+Since the run, #3047 changed `notebook_formats.py` (Databricks notebook magics), so the score is for `notebook_formats.py` at ad1ac4cf8. The new tests pass unchanged on `main` bdf2c1775.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `notebook_formats.py` | test_notebook_formats_mutation, test_notebook_formats, test_notebook_formats_edges, test_notebook_formats_roundtrip, test_notebook_formats_service_mutation, test_notebook_formats_service_edges, test_deep_nesting, test_debugger_saved, test_notebook_report, test_chart_libraries, test_snowflake_sql (one test) (+ test_notebook_formats_uncapped) | 468 of 468 (459 + 9) | 434 / 34 | **92.7%** | 431/459 → 452/459 | 3/9 → 9/9 | 461 / 7 | **98.5%** | 7 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **notebook_formats.py**:
+  - A .dbc archive holds at most 500 files and makes at most 200 notebooks, and one over 64 MiB isn't read; exactly at each limit is still read.
+  - An archive may unpack to exactly its total cap. An entry that unpacks to more than its header says is refused by what was read, on its own and in the total.
+  - A long entry name is cut at 120 characters in each message that names it (too big, bigger than its header, damaged).
+  - An .ipynb of exactly the size cap is read.
+  - Each export format writes its own kind of file, and an .ipynb export is indented by one space.
+  - Only a `plotly` output with a figure becomes a plotly display.
+  - A Jupytext header is only skipped at the top of a script.
+  - Commands in a .dbc notebook that aren't objects are skipped.
+  - An unknown cell magic is exported to Databricks as written.
+  - `_safe_entry` answers `False` for an unsafe path, not just something falsy.
+  - A notebook name is cut at 120 characters.
+  - → `test_notebook_formats_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `notebook_formats.py` | 220 | the options start 2 → 3 characters after the magic name | Equivalent: the character after the name is always a space or the line's end, which `strip()` removes either way (as in batch 9). |
+| `notebook_formats.py` | 224 | `[1:]` → `[0:]` for the lines after a line magic | Equivalent: the first line starts with `%`, which the same list leaves out anyway. |
+| `notebook_formats.py` | 345 | `zip(strict=True)` to `False` | Equivalent: `to_ipynb` makes one Jupyter cell per cell, so both sides always have the same length. |
+| `notebook_formats.py` | 463 | `lines[1:]` → `lines[0:]` | Equivalent: the header line comes before any marker, so it is never added to a block (as in batch 9). |
+| `notebook_formats.py` | 504, 519 | `n` default 0 → 1 | Equivalent: every caller passes `n` (as in batch 9). |
+| `notebook_formats.py` | 571 | `m.group(1)` → `m.group(0)` | Equivalent: the heading is only searched for `[markdown]` and `parameters`, which `# %%` doesn't change (as in batch 9). |
+
+# Mutation testing, batch 182
+
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`), so the score counts the boundary mutants (`<` to `<=`, `>` to `>=`) together with the earlier kinds. The table shows both parts.
+- Reading and writing TMDL on this PC: the reader's indents, objects and properties, the writer's layout, the read-back check and how two models are compared (`tmdl.py`).
+
+Batch 12 sampled 150 of this module's 484 mutants then (82.7% before, 96.7% after). The module has grown to 504 mutants, and this run ran all 504 of 504.
+
+The run was at `main` ad1ac4cf8 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902: each mutant ran without a bytecode cache, and the tests were first run once on the unmutated copy of `sidecar/`, where they passed. Test files were given to the tool as paths relative to `sidecar/`, and each was checked to exist before the run. The set is every test file that calls `tmdl.py`. Together they take about 5 seconds, so none was left out. No `-k` filter or `--deselect` was needed: no test in the set reads `docs/`, `examples/` or `app/`.
+
+Every run passed `--basetemp` with a folder of this lane's own to pytest. During this push, one mutant in another lane left a folder in the shared `/tmp/pytest-of-root` nested too deep for pytest's cleanup. While that folder was there, every pytest session on the machine ended with exit code 1 even when all its tests passed, so each mutant would have counted as killed. A first run of this module overlapped that time. It was thrown away and the module run again from the start with its own `--basetemp`. Three kills of the new run, picked at random, were checked by hand: each mutant was applied to a copy of `sidecar/` and the set run without `-x`. Each failed real tests (2, 7 and 1).
+
+Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways, so no run below can score a false 100%.
+
+A mutant whose run times out counts as killed, as in earlier batches. Nine timed out, each a loop that no longer moves on: the reader's line counter `+= 1` to `+= 0` (lines 152, 167, 177, 189, 198 and 203), and `file_name`'s loop for a free name, whose test was negated or flipped (line 569) or whose `n += 1` became `+= 0` (line 570).
+
+Since the run, #3064 changed `tmdl.py` (its file order now also sorts by a case-folded name), so the score is for `tmdl.py` at ad1ac4cf8. One new test, on the file order, was updated to the new order before this change went up; all the new tests pass on `main` bdf2c1775.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `tmdl.py` | test_tmdl, test_tmdl_edges, test_tmdl_write, test_model_ossie_service_edges, test_tmdl_mutation, test_boundary_mutation_2 (+ test_tmdl_uncapped) | 504 of 504 (485 + 19), uncapped | 467 / 37 | **92.7%** | 449/485 → 477/485 | 18/19 → 18/19 | 495 / 9 | **98.2%** | 9 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **tmdl.py**:
+  - The 20 MB limit on reading: one character over is refused before anything is read, and exactly 20 MB is read.
+  - Fewer than four spaces are no indent.
+  - In the canonical form, numbers become text and booleans stay booleans. An object that became text is a difference at its path, and a key only in the second model is "(added)".
+  - A model without a compatibility level gets 1604. Files other than the known ones are read last (the order keys 1, 10, 20 and 30).
+  - A value with a quote at only one end is written as it is. `unquote` needs a quote at both ends.
+  - An object whose name isn't text, or is empty, is left out and reported. So is a table entry that isn't an object, and a description that isn't text.
+  - Database and model properties are one tab deep.
+  - A partition source with more than an expression is written as a block.
+  - A relationship end without a column keeps its table, and a table that isn't text is kept as a property. A relationship table with a line break, and a format string expression with a fence line, are refused by name.
+  - A default that isn't text is written as text. Only a plain one-line changed property is written; the others are reported.
+  - A format string definition on one line keeps its properties apart from its expression.
+  - A line the reader doesn't understand is reported by its first 80 characters. A description right after `///` is read whole.
+  - → `test_tmdl_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `tmdl.py` | 110 | `end < 0` to `end < 1`, and to `end <= 0` | Equivalent: `ref.find("'", end)` starts at 1, so it gives -1 or a position of 1 or more. |
+| `tmdl.py` | 111 | the `raise` removed for a quote that isn't closed | Equivalent: with `end` at -1 the column part is the whole reference, which doesn't start with `.`, so line 117 raises the same `ValueError` with the same message. |
+| `tmdl.py` | 122 | the `raise` removed for a reference with no dot | Equivalent: the column is then empty, so line 124 raises the same `ValueError` with the same message. |
+| `tmdl.py` | 169, 180 | `min(..., default=0)` to `default=1` | Equivalent: the default is used only when the body has no lines that aren't blank. Then the body is empty, so the pad is never used. |
+| `tmdl.py` | 244, 246 | `m.group(1)` to `m.group(0)` | Equivalent: `_WORD` is `^(\w+)$`, so the whole match is the group. |
+| `tmdl.py` | 640 | `str(bim.get("name") or "")` to `and` | Equivalent: it changes only the name of the read-back model, and `differences` compares only `model` and the compatibility level. |
+
+# Mutation testing, batch 184
+
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`), so the score counts the boundary mutants together with the earlier kinds. The table shows both parts.
+- Connection profiles: which platforms a piece of work uses, its sign-in references, export and import, switching, and reading the Databricks and Snowflake CLIs' own files (`connprofiles.py`).
+
+Batch 13 sampled 150 of this module's 406 mutants then (91.3% before, 100% after). It now has 411, and this run ran all 411 of 411.
+
+The run was at `main` ad1ac4cf8 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902 and the method of batch 182: tests first passed on the unmutated copy, paths relative to `sidecar/`, and the lane's own `--basetemp` (batch 182 says why). The set is batch 13's set with the two `*_mutation` files that call the module. The other files that call it (test_databricks_billing, test_databricks_bundles_service, test_databricks_runs_service, test_databricks_sync_service, test_dbconnect, test_dbconnect_env, test_engine_conformance, test_platforms) were left out to keep each mutant's run short: batch 13 ran them against its survivors, and they killed none. No `-k` filter or `--deselect` was needed. Three kills picked at random were checked by hand, as in batch 182, and each failed real tests (6, 13 and 44).
+
+Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They passed both ways.
+
+Three mutants timed out, and they count as killed. All three are in `import_`'s loop for a new id (line 457): with the test negated, flipped or made `or`, a profile id that is free makes the loop draw ids forever.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `connprofiles.py` | test_connprofiles, test_connprofiles_edges, test_connprofiles_key_text, test_connprofiles_shape, test_connprofiles_mutation, test_databricks_host, test_databricks_profile_host, test_engine_connections_settings, test_engines_service, test_engines_service_edges, test_engines_service_mutation, test_secret_detectors_userinfo (+ test_connprofiles_uncapped) | 411 of 411 (406 + 5), uncapped | 395 / 16 | **96.1%** | 391/406 → 406/406 | 4/5 → 5/5 | 411 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **connprofiles.py**:
+  - A key file that isn't a full path says so, with the Windows example only on Windows.
+  - A key in a message is kept up to 60 characters and cut to 59 and "…" after that.
+  - `normalize` gives a 14-character `p-` id, `prefer_local` on and serverless off.
+  - A budget of 0 minutes is allowed; -1 isn't.
+  - A Databricks config without a section header is found, with no profiles and an error that names only the exception type. A profile with a client id but no client secret signs in with the CLI, not as oauth-m2m.
+  - A CLI profile on AWS keeps that cloud.
+  - Snowflake connections are read from `config.toml` when there is no `connections.toml`, and a `connections` entry there that isn't a table is no connections. Only group or other write bits earn the chmod note (POSIX only).
+  - Import names each connection to set up by its id, not its platform.
+  - Switching with one open session says "session", not "sessions".
+  - → `test_connprofiles_uncapped.py`.
+
+# Mutation testing, batch 185
+
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). It has no `<` or `>` comparison, so it has no boundary mutants.
+- The engine picker behind a notebook: connections and Settings > Connections, the confirm and risk check a remote engine asks for, switching engines, Databricks runs, billing, sync pairs and bundles, and the threads a session and a cell run on (`engines_service.py`).
+
+Batch 15 sampled 150 of this module's 391 mutants then (86.7% before, 100% after). This run ran all 391 of 391.
+
+The run was at `main` ad1ac4cf8 (2026-11-18), with `sidecar/tools/mutate.py` as it is since #2902 and the method of batch 182: tests first passed on the unmutated copy, paths relative to `sidecar/`, and the lane's own `--basetemp` (batch 182 says why). The set is every test file that calls the module, as in batch 15, and it takes about 7 seconds. No `-k` filter or `--deselect` was needed. Three kills picked at random were checked by hand, as in batch 182, and each failed real tests (11, 11 and 10).
+
+Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They passed both ways.
+
+A mutant whose run times out counts as killed. Four timed out in the first run, as in batch 15: two make `_new_id`'s loop never end (line 110), and two make the loop that picks a free connection id never end (line 496). One more times out in the "after" run: `n += 1` to `+= 0` in that loop (line 498), which a third connection from the same CLI profile now reaches.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `engines_service.py` | test_databricks_billing, test_databricks_bundles_service, test_databricks_runs_service, test_databricks_sync_service, test_engine_connections_settings, test_engines_service, test_engines_service_edges, test_engines_service_mutation, test_fabric_spark (+ test_engines_service_uncapped) | 391 of 391 (391 + 0), uncapped | 357 / 34 | **91.3%** | 357/391 → 388/391 | none | 388 / 3 | **99.2%** | 3 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **engines_service.py**:
+  - Removing a sync pair answers with its id, and removing a connection with the profile and the connection.
+  - Adding a connection clears the profile's last check. A saved CLI connection isn't serverless. A new profile gets a 14-character id.
+  - A third connection from the same CLI profile gets `-3`, and a long CLI profile name is cut to 36 characters before its number. Replacing one connection keeps the others.
+  - Settings show a Databricks warehouse id and a Snowflake warehouse, each profile's name (a damaged one's too), and only the active profile as active. A connection row carries its profile's remote compute policy.
+  - Discovery reads Unity Catalog unless asked not to, and runs are of the last day unless asked. Runs that can't read the signed-in user are still signed in.
+  - Billing runs when the sign-in can't name its user, as "this PC's user".
+  - Bundle validate, plan and deploy pass the allowed commands and the typed target on.
+  - The profiles folder can be asked for twice.
+  - An engine that can't run cells yet is refused with its plan. Fabric Spark needs both the workspace and the lakehouse.
+  - Leaving Python for another engine needs a decision (close or keep), and going back to Python from a local engine plans to close it.
+  - A profile that allows the engine by policy needs no confirm.
+  - The risk check names the cluster's state ("terminated", and "stopped" when it has none), and one that can't read says the HTTP status or the kind of error.
+  - A cell that raises says how long it ran.
+  - → `test_engines_service_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `engines_service.py` | 80, 633 | `_MAGIC.sub(..., count=1)` to `count=0` | Equivalent: `_MAGIC` starts with `^` and has no multiline flag, so it can only match at the start of the text, once. |
+| `engines_service.py` | 686 | `current is not None and current != engine` to `or` | Equivalent: the new cases are a notebook with no engine yet, or the same engine again. For both, `transition` answers `needed: False`, so no `SwitchNeeded` is raised either way. |
+
 # Mutation testing, batch 187
 
 One module, run uncapped: every one of its mutants, not a sample of 150.

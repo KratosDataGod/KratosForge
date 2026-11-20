@@ -181,5 +181,5 @@ def test_restoring_a_prod_table_checks_the_same_roles_as_a_rollback(svc, monkeyp
 
     fabric.assignments = [assignment(ME, "Contributor"), ADMIN]
     with pytest.raises(LookupError, match="past the role check"):
-        svc.meta_restore("silver.customers", "prod", 1)
+        svc.meta_restore("silver.customers", "prod", 1, confirm_name="Sales - Prod")  # WR-250: typed name
     assert len(touched) == 1

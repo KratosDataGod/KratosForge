@@ -25,15 +25,56 @@ from .spark_hash import hash_sql
 # ---- helpers
 
 
+# An argument a template reads more than once is put in once, as a lambda's parameter, when it is this big
+# (in nodes): copied into each place, calls nested in each other (upper(lower(...)), substring_index of
+# substring_index) would grow exponentially, to megabytes of SQL that take seconds to plan.
+_BIND_ABOVE = 40
+# A lambda's body can't hold these, so an argument or template with one is copied as before.
+_NOT_IN_LAMBDA = (exp.AggFunc, exp.Window, exp.Subquery, exp.Select)
+# Nor is one that can raise on a row's values put in once: bound, it is worked out on every row, where
+# the template may have read it only on some (a raise_error a CASE would have skipped would stop the
+# query). raise_error and assert_true come here as ERROR(<the row's message>); an ERROR with a fixed
+# message is a refusal by type (spark_text_arg's), the same on every row, and can be bound.
+_RAISES = {"RAISE_ERROR", "ASSERT_TRUE"}
+
+
+def _raises(node: exp.Expression) -> bool:
+    return any(f.name.upper() in _RAISES or (f.name.upper() == "ERROR" and not (
+        f.expressions and isinstance(f.expressions[0], exp.Literal) and f.expressions[0].is_string))
+        for f in node.find_all(exp.Anonymous))
+
+
 def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> exp.Expression:
     """``template`` read as DuckDB SQL (or already read: a copy is used), with the arguments in place
     of fj_arg0, fj_arg1, ... (as sql._with_args). Lambda names in templates start with kf_, which a
-    query can't use."""
+    query can't use. A big argument read more than once is read once (_BIND_ABOVE)."""
     tree = (template.copy() if isinstance(template, exp.Expression)
             else cast(exp.Expression, sqlglot.parse_one(template, read="duckdb")))
+    places: dict[int, list[exp.Column]] = {}
     for column in list(tree.find_all(exp.Column)):
         if column.name.startswith("fj_arg") and not column.table:
-            column.replace(args[int(column.name[6:])].copy())
+            places.setdefault(int(column.name[6:]), []).append(column)
+    bound = [i for i, cols in places.items()
+             if len(cols) > 1 and sum(1 for _ in args[i].walk()) > _BIND_ABOVE and not _raises(args[i])]
+    # An aggregate, window or subquery may be in a bound argument, which goes in the list outside the
+    # lambda, but not in the lambda's body: so not in the template or an argument left in place, and in
+    # one bound argument at most, which is put in outermost.
+    held = [i for i in places if args[i].find(*_NOT_IN_LAMBDA)]
+    if tree.find(*_NOT_IN_LAMBDA) or len(held) > 1 or any(i not in bound for i in held):
+        bound = []
+    bound.sort(key=lambda i: i not in held)  # the first is put in outermost
+    for i, cols in places.items():
+        for column in cols:
+            column.replace(exp.column(f"kf_bound{i}") if i in bound else args[i].copy())
+    for i in reversed(bound):
+        wrap = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([fj_value], kf_bound{i} -> fj_body))[1]",
+                                                      read="duckdb"))
+        for column in list(wrap.find_all(exp.Column)):
+            if column.name == "fj_value":
+                column.replace(args[i].copy())
+            elif column.name == "fj_body":
+                column.replace(tree)
+        tree = wrap
     return tree
 
 
@@ -46,6 +87,12 @@ def _refuse(name: str, why: str, instead: str = "") -> Callable[..., exp.Express
         raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: {why} "
                          f"Run the cell in Fabric{', or ' + instead if instead else ''}.")
     return refuse
+
+
+def _sql_keywords(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+    raise ValueError("sql_keywords() can't run on this PC the way it runs in Fabric, because this PC doesn't have "
+                     "Spark's list of SQL keywords and which of them are reserved, so nothing ran. Run the cell in "
+                     "Fabric.")
 
 
 # base64 takes bytes, and text as its UTF-8 bytes (a NULL of no type is NULL); any other type is refused, as in
@@ -258,6 +305,63 @@ _LOG1P = ("CASE WHEN CAST(fj_arg0 AS DOUBLE) <= -1 THEN NULL WHEN ABS(CAST(fj_ar
           "THEN CAST(fj_arg0 AS DOUBLE) - POW(CAST(fj_arg0 AS DOUBLE), 2) / 2 + POW(CAST(fj_arg0 AS DOUBLE), 3) / 3 "
           "ELSE LN(1 + CAST(fj_arg0 AS DOUBLE)) END")
 
+# ---- math (WR-116): Spark's answers are Java's Math and StrictMath ones, where DuckDB stops with an error or
+# answers as C's libm does
+
+_NAN = "CAST('NaN' AS DOUBLE)"
+_VOLATILE = (exp.Rand, exp.Randn, exp.Uuid)
+
+
+def _doubles(args: list[exp.Expression]) -> list[exp.Expression]:
+    return [exp.cast(a.copy(), exp.DataType.build("DOUBLE")) for a in args]
+
+
+def _doubles_once(template: str, args: list[exp.Expression]) -> exp.Expression:
+    """_read_once over ``args`` cast to double, where a column or literal cast is still read as it is."""
+    return _read_once(template, _doubles(args), [_cheap(a) for a in args])
+
+
+# log(base, x), log10 and log2 (sqlglot reads them all as LOG(base, x)): NULL for x <= 0 or base <= 0, as Spark's
+# Logarithm, where DuckDB stops ("cannot take logarithm of zero") or, from 2.0, gives -inf or NaN. Base 1 is
+# ln(x) / 0, +-inf (or NaN for x = 1), which DuckDB stops on too.
+_LOG = ("CASE WHEN fj_arg0 <= 0 OR fj_arg1 <= 0 THEN NULL WHEN fj_arg0 = 1 OR ISNAN(fj_arg0) OR ISNAN(fj_arg1) "
+        "THEN LN(fj_arg1) / LN(fj_arg0) ELSE LOG(fj_arg0, fj_arg1) END")
+# Java's Math.pow, where C's pow differs: NaN for a NaN exponent, and for 1 or -1 to an infinite power.
+_POW = (f"CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL THEN NULL WHEN ISNAN(fj_arg1) OR (ISINF(fj_arg1) "
+        f"AND ABS(fj_arg0) = 1) THEN {_NAN} ELSE POW(fj_arg0, fj_arg1) END")
+# Java's Math.hypot: infinite when either side is, even beside a NaN; past 1e150 (or below 1e-150) scaled by the
+# larger side, so the squares don't overflow to inf (or underflow to 0).
+_HYPOT = ("CASE WHEN fj_arg0 IS NULL OR fj_arg1 IS NULL THEN NULL "
+          "WHEN ISINF(fj_arg0) OR ISINF(fj_arg1) THEN CAST('Infinity' AS DOUBLE) "
+          "WHEN GREATEST(ABS(fj_arg0), ABS(fj_arg1)) > 1e150 OR (GREATEST(ABS(fj_arg0), ABS(fj_arg1)) < 1e-150 "
+          "AND GREATEST(ABS(fj_arg0), ABS(fj_arg1)) > 0) THEN GREATEST(ABS(fj_arg0), ABS(fj_arg1)) "
+          "* SQRT(1 + POW(LEAST(ABS(fj_arg0), ABS(fj_arg1)) / GREATEST(ABS(fj_arg0), ABS(fj_arg1)), 2)) "
+          "ELSE SQRT(POW(fj_arg0, 2) + POW(fj_arg1, 2)) END")
+
+
+def _try_arithmetic(op: str) -> Callable[..., exp.Expression | None]:
+    """try_add, try_subtract and try_multiply: NULL where the result overflows its type, and of two ints an int,
+    as in Spark, -2147483648 included (_spark_literal)."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        return _with_args(f"TRY(fj_arg0 {op} fj_arg1)", [_spark_literal(a) for a in args]) if len(args) == 2 else None
+    return build
+
+
+def _log(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    if isinstance(node, exp.Ln) or len(args) == 1:  # ln(x), and log(x) as Spark's log(e, x)
+        return _doubles_once("CASE WHEN fj_arg0 <= 0 THEN NULL ELSE LN(fj_arg0) END", args[:1])
+    return _doubles_once(_LOG, args) if len(args) == 2 else None
+
+
+def _factorial(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+    """factorial(n) of n cast to an int as Spark casts it (a bigint or decimal: 3.7 is 3), a bigint, NULL
+    outside 0 to 20, where DuckDB takes only an INTEGER and stops on a negative one."""
+    if len(args) != 1:
+        return None
+    return _with_args(f"(LIST_TRANSFORM([{_spark_whole('fj_arg0', 'INTEGER')}], lambda kf_f: CASE WHEN kf_f "
+                      "BETWEEN 0 AND 20 THEN CAST(FACTORIAL(kf_f) AS BIGINT) END))[1]", args)
+
+
 # Spark's typeof names: int, bigint, string, decimal(p,s), array<int>, ...
 _TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "bigint"), ("HUGEINT", "bigint"),
                ("INTEGER", "int"), ("VARCHAR", "string"), ("DOUBLE", "double"), ("FLOAT", "float"),
@@ -268,6 +372,8 @@ _TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "big
 def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     if len(args) != 1:
         return None
+    if isinstance(args[0], exp.Anonymous) and args[0].name.upper() in ("RAISE_ERROR", "ERROR"):
+        return exp.Literal.string("void")  # Spark names raise_error's type without running it
     # A scalar type, or a list of one (INTEGER[] -> array<int>); deeper types in lower case.
     # A struct or map is named from its type where spark_complex_types can work it out; otherwise refused.
     stop = ("'typeof() can''t run on this PC the way it runs in Fabric, because the struct or map''s type "
@@ -617,11 +723,65 @@ def _strposition(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
     """locate(substr, str, pos) and instr: an empty substr is found at 1 from any start of 1 or more, as
     Spark's UTF8String.indexOf has it (DuckDB found it at the start). Otherwise as instr."""
     _text_this("instr")(node, args)
+    find = node.args.get("substr")
+    if isinstance(find, exp.Expression):  # instr(12345, 34) is 3: Spark casts the substring to text too
+        node.set("substr", _text_of(find, "instr"))
     start = node.args.get("position")
     find = node.args.get("substr")
     if start is None or find is None or (isinstance(find, exp.Literal) and find.is_string and find.name):
         return None
-    return _with_args("CASE WHEN fj_arg0 = '' AND fj_arg1 >= 1 THEN 1 ELSE fj_arg2 END", [find, start, node.copy()])
+    # The node names fj_arg0 and fj_arg1 itself, so _with_args sees each read twice and binds a big one once:
+    # nested locate(b, locate(...), 2) grows linearly with its depth, not 3x per level.
+    inner = node.copy()
+    inner.set("substr", exp.column("fj_arg0"))
+    inner.set("position", exp.column("fj_arg1"))
+    template = cast(exp.Expression, sqlglot.parse_one("CASE WHEN fj_arg0 = '' AND fj_arg1 >= 1 THEN 1 ELSE fj_arg2 END",
+                                                      read="duckdb"))
+    for column in list(template.find_all(exp.Column)):
+        if column.name == "fj_arg2":
+            column.replace(inner)
+    return _with_args(template, [find, start])
+
+
+_CONCAT_WS_NESTED = ("concat_ws() takes only text or arrays of text, and this is a map or struct, so nothing ran on "
+                     "this PC. Spark stops on it too, with a data type mismatch. Cast the map or struct to string, "
+                     "or pick its fields, first.")
+
+
+def refuse_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
+    """concat_ws of a map or struct refused by name, as Spark refuses it ([DATATYPE_MISMATCH]); DuckDB wrote its own
+    text of it ({'a': 1}). Run on the Spark tree as read, before its parts are cast to text: a part that isn't a
+    literal or an array is checked by its DuckDB type when the query runs (check_nested_concat_ws)."""
+    for node in list(statement.find_all(exp.ConcatWs)):
+        for part in list(node.expressions)[1:]:
+            if isinstance(part, (exp.Struct, exp.Map, exp.VarMap)):
+                raise ValueError(_CONCAT_WS_NESTED)
+            from .spark_strings import _ARRAYS
+            if isinstance(part, _ARRAYS) and any(isinstance(e, (exp.Struct, exp.Map, exp.VarMap))
+                                                 for e in part.expressions):
+                raise ValueError(_CONCAT_WS_NESTED)  # array(named_struct(...)): Spark refuses array<struct> too
+    return statement
+
+
+def check_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
+    """concat_ws's parts that aren't literals or arrays, checked by their DuckDB type when the query runs (a
+    map or struct column is refused as refuse_nested_concat_ws refuses a written one). sql.spark_fixes runs it
+    once the names the person wrote are checked, since it adds a lambda of its own (kf_cw)."""
+    from .spark_strings import _ARRAYS
+    for node in list(statement.find_all(exp.ConcatWs)):
+        for part in list(node.expressions)[1:]:
+            if isinstance(part, (exp.Literal, exp.Null, exp.Cast, exp.TryCast, *_ARRAYS)):
+                continue  # an array call stays as it is: spark_strings joins its elements
+            # The part is read once, through a lambda, so nested concat_ws doesn't repeat it at each level.
+            check = sqlglot.parse_one(
+                "(LIST_TRANSFORM([fj_part], kf_cw -> CASE WHEN TYPEOF(kf_cw) LIKE 'STRUCT(%' OR TYPEOF(kf_cw) "
+                "LIKE 'MAP(%' THEN ERROR(fj_why) ELSE kf_cw END))[1]", read="duckdb")
+            why = next(c for c in check.find_all(exp.Column) if c.name == "fj_why")
+            why.replace(exp.Literal.string(_CONCAT_WS_NESTED))
+            slot = next(c for c in check.find_all(exp.Column) if c.name == "fj_part")
+            part.replace(check)
+            slot.replace(part)
+    return statement
 
 
 def _concat_ws(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
@@ -1068,7 +1228,7 @@ def _hash_template(name: str, count: int) -> exp.Expression:
 
 def _spark_literal(arg: exp.Expression) -> exp.Expression:
     """-2147483648 is an int to Spark and a BIGINT to DuckDB (which reads 2147483648, then negates it):
-    a value hashed by its type must be the type Spark gives it."""
+    a value hashed by its type, or added in try_add, must be the type Spark gives it."""
     inner = arg.this if isinstance(arg, exp.Neg) else None
     if isinstance(inner, exp.Literal) and not inner.is_string and inner.this == "2147483648":
         return exp.cast(arg.copy(), exp.DataType.Type.INT)
@@ -1107,7 +1267,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "FIND_IN_SET": _template(_FIND_IN_SET, 2),
     "GET": _template("CASE WHEN fj_arg1 < 0 THEN NULL ELSE fj_arg0[fj_arg1 + 1] END", 2),
     "HASH": _hash("hash"),
-    "HYPOT": _template("SQRT(POW(CAST(fj_arg0 AS DOUBLE), 2) + POW(CAST(fj_arg1 AS DOUBLE), 2))", 2),
+    "HYPOT": lambda n, a: _doubles_once(_HYPOT, a) if len(a) == 2 else None,
     "INLINE_OUTER": _template(_INLINE_OUTER, 1),
     "ISNOTNULL": _template("(fj_arg0 IS NOT NULL)", 1),
     "ISNULL": _template("(fj_arg0 IS NULL)", 1),
@@ -1145,6 +1305,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **{name: _refuse(name.lower(), _JAVA) for name in ("JAVA_METHOD", "REFLECT")},
     **{name: _refuse(name.lower(), _INPUT_FILE) for name in ("INPUT_FILE_NAME", "INPUT_FILE_BLOCK_LENGTH",
                                                              "INPUT_FILE_BLOCK_START")},
+    "SQL_KEYWORDS": _sql_keywords,
     "SPARK_PARTITION_ID": _refuse("spark_partition_id", "this PC doesn't split a query's rows into Spark "
                                   "partitions, so there is no partition number to give."),
     # Increasing and unique, as Spark promises (its values have gaps between partitions), as
@@ -1327,6 +1488,19 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Sqrt", _template("(LIST_TRANSFORM([CAST(fj_arg0 AS DOUBLE)], kf_v -> CASE WHEN kf_v < 0 THEN "
                            "CAST('NaN' AS DOUBLE) ELSE SQRT(kf_v) END))[1]", 1)),
         ("Levenshtein", _levenshtein),
+        ("Ln", _log),
+        ("Log", _log),
+        ("Pow", lambda n, a: _doubles_once(_POW, a) if len(a) == 2 else None),
+        ("Factorial", _factorial),
+        # Java's Math.acos and Math.asin: NaN outside [-1, 1], where DuckDB 1.5 stops
+        *((name, _template(f"CASE WHEN ABS(CAST(fj_arg0 AS DOUBLE)) > 1 THEN {_NAN} ELSE {name.upper()}(fj_arg0) END", 1))
+          for name in ("Acos", "Asin")),
+        # Spark's cot is 1 / Math.tan: inf at 0, where DuckDB 1.5 stops
+        ("Cot", _template("1 / TAN(CAST(fj_arg0 AS DOUBLE))", 1)),
+        # Spark's atan2 adds 0.0 to each side first, so -0.0 counts as 0.0: atan2(0.0, -0.0) is 0.0, not pi
+        ("Atan2", lambda n, a: _doubles_once("ATAN2(CASE WHEN fj_arg0 = 0 THEN 0.0 ELSE fj_arg0 END, "
+                                          "CASE WHEN fj_arg1 = 0 THEN 0.0 ELSE fj_arg1 END)", a)
+         if len(a) == 2 else None),
         # bit_count counts the bits of the value as a long (Long.bitCount), so -1 gives 64 for an int too.
         ("BitwiseCount", lambda n, a: _with_args(f"CAST(BIT_COUNT({_spark_whole('fj_arg0', 'BIGINT')}) AS INTEGER)",
                                                  [n.this])),
@@ -1342,9 +1516,9 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Sign", _sign),
         ("Stack", _stack),
         ("SubstringIndex", _substring_index),
-        ("SafeAdd", _template("TRY(fj_arg0 + fj_arg1)", 2)),
-        ("SafeSubtract", _template("TRY(fj_arg0 - fj_arg1)", 2)),
-        ("SafeMultiply", _template("TRY(fj_arg0 * fj_arg1)", 2)),
+        ("SafeAdd", _try_arithmetic("+")),
+        ("SafeSubtract", _try_arithmetic("-")),
+        ("SafeMultiply", _try_arithmetic("*")),
         ("Typeof", _typeof),
         ("WidthBucket", lambda n, a: _with_args(_WIDTH_BUCKET, [n.this, n.args["min_value"], n.args["max_value"],
                                                                 n.args["num_buckets"]])),
@@ -1697,8 +1871,9 @@ def _grouping_id(node: exp.Expression) -> exp.Expression | None:
 
 
 def _any(node: exp.Expression) -> exp.Expression | None:
-    """any(col) as an aggregate (not ``x = ANY (subquery)``)."""
-    if isinstance(node.parent, (exp.Binary, exp.Predicate)) and not isinstance(node.parent, (exp.And, exp.Or)):
+    """any(col) as an aggregate (not ``x = ANY (subquery)`` or ``s LIKE ANY ('a%', 'b%')``). Spark's quantifier
+    takes a subquery, or a list after LIKE, so ``any(x) = true`` and ``true = any(x)`` are the aggregate."""
+    if isinstance(node.parent, (exp.Like, exp.ILike)) and node.arg_key != "this":
         return None
     inner = node.this.this if isinstance(node.this, exp.Paren) else node.this
     if isinstance(inner, (exp.Subquery, exp.Select, exp.Query)):

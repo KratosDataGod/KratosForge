@@ -111,7 +111,18 @@ def pipeline_activities(definition: dict[str, Any], name: str) -> list[dict[str,
     """Every activity of a pipeline (nested ones too), with what the analyzers need."""
     imported = loads(json.dumps(definition), name_hint=name)
     return [{"name": a.name, "type": a.type, "inactive": a.inactive, "type_properties": a.type_properties,
-             "path": a.path} for a in imported.pipeline.all_activities()]
+             "path": a.path, "policy": _policy(a.raw.get("policy")),
+             "depends_on": [{"activity": d.activity, "conditions": list(d.conditions)} for d in a.depends_on]}
+            for a in imported.pipeline.all_activities()]
+
+
+POLICY_KEYS = ("retry", "retryIntervalInSeconds", "timeout", "secureInput", "secureOutput")
+
+
+def _policy(policy: Any) -> dict[str, Any]:
+    """An activity's retry, timeout and secure input/output settings, as the definition states them
+    (absent keys stay absent: Fabric's defaults aren't filled in, so a reader can tell "not set")."""
+    return {k: policy[k] for k in POLICY_KEYS if k in policy} if isinstance(policy, dict) else {}
 
 
 def workloads(workspace: dict[str, Any], items: list[dict[str, Any]], definitions: dict[str, dict[str, Any]],

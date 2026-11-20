@@ -50,7 +50,7 @@ def test_databricks_sql_cast_truncates_and_stops_on_text_that_isnt_whole():
 
 def test_f_expr_casts_truncate():
     from fabric_desktop import spark_compat
-    assert duckdb.sql(f"SELECT {spark_compat.spark_expr('CAST(3.7 AS INT)')}").fetchall()[0][0] == 3
+    assert duckdb.connect().sql(f"SELECT {spark_compat.spark_expr('CAST(3.7 AS INT)')}").fetchall()[0][0] == 3
 
 
 def test_nested_casts_read_their_source_once_and_stay_small():

@@ -88,11 +88,13 @@ def test_the_written_model_reads_back_as_the_same_model():
     assert (rel["fromTable"], rel["fromColumn"], rel["toTable"], rel["toColumn"]) == ("Sales", "Customer Key", "Customer", "Key")
 
 
-def test_what_reads_back_with_a_note_is_in_the_writers_report():
-    # Cultures aren't read from TMDL on this PC: the reader's note reaches the report from_bim returns.
+def test_what_reads_back_with_a_note_is_in_the_writers_report(monkeypatch):
+    # The reader's notes on what the writer wrote reach the report from_bim returns.
+    note = {"object": "table 'T'", "kind": "lost", "message": "a note from the reader"}
+    real = tmdl.to_bim
+    monkeypatch.setattr(tmdl, "to_bim", lambda files, name="": (real(files, name)[0], [note]))
     _, report = tmdl.from_bim({"name": "M", "model": {"culture": True}})
-    assert [r["object"] for r in report] == ["culture"]
-    assert "aren't read from TMDL on this PC" in report[0]["message"]
+    assert report == [note]
 
 
 def test_a_long_bad_property_name_is_reported_cut_to_80_characters():

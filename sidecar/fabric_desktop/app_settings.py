@@ -444,7 +444,8 @@ def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
                       "until it's fixed"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
                 "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry, "
-                "external AI tools, package installs, the Optimize lakehouse and data samples in replay bundles off. "
+                "external AI tools, package installs, the Optimize lakehouse, KratosForge Environments and data samples "
+                "in replay bundles off. "
                 "Sign-in still works, and accounts from any tenant can sign in"), False
 
 

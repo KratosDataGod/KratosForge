@@ -40,7 +40,7 @@ _DRIVE_REMOTE = 4  # GetDriveTypeW: a mapped network drive
 def checks(user: str | None, list_workspaces: Callable[[], list[dict[str, Any]]],
            list_capacities: Callable[[], list[dict[str, Any]]], settings: dict[str, Any],
            clock: Callable[[], dict[str, Any] | None] = lambda: None,
-           folder: Path | None = None) -> list[dict[str, Any]]:
+           folder: Path | None = None, local_folders: dict[str, str] | None = None) -> list[dict[str, Any]]:
     out = [_check("engine", "Local engine", "ok", f"Starts on this PC. Python {platform.python_version()}.")]
     if not user:
         out.append(_check("sign_in", "Signed in", "fail", "Not signed in, so Fabric can't be reached yet.",
@@ -68,7 +68,23 @@ def checks(user: str | None, list_workspaces: Callable[[], list[dict[str, Any]]]
         out.append(row)
     if folder is not None:
         out.append(data_folder_check(folder))
+    if local_folders is not None:
+        out.append(onedrive_check(local_folders))
     return out
+
+
+def onedrive_check(folders: dict[str, str]) -> dict[str, Any]:
+    """Whether any folder the app keeps files in (``{what it holds: path}``) is in OneDrive, where OneDrive
+    would upload the same files the app reads, writes and publishes to Fabric. Reads only."""
+    from . import known_folders
+    title = "Files kept out of OneDrive"
+    found = [f"{what} ({path})" for what, path in folders.items() if path and known_folders.in_onedrive(path)]
+    if not found:
+        return _check("onedrive", title, "ok", "None of the folders KratosForge keeps files in are in OneDrive.")
+    return _check("onedrive", title, "warn",
+                  f"These are in OneDrive, which uploads the same files KratosForge reads and writes, and its "
+                  f"sync can lock them: {'; '.join(found)}. Move each to a folder on this PC outside OneDrive, "
+                  f"such as {known_folders.local_folder()}, then open it from there.", "", "troubleshooting.md#files-in-onedrive")
 
 
 def _on_network(folder: Path) -> bool:

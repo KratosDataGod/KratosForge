@@ -75,3 +75,107 @@ def downloads() -> Path:
 def documents() -> Path:
     """The Documents folder Explorer shows: with OneDrive's known folder move, the one in OneDrive."""
     return _folder(DOCUMENTS, "Documents")
+
+
+# ---- OneDrive (Chris, 2026-11-20): files the app stores or processes stay on this PC, out of OneDrive, so
+# OneDrive isn't uploading the same files the app is publishing to Fabric.
+
+_ONEDRIVE_ENV = ("OneDrive", "OneDriveCommercial", "OneDriveConsumer")
+
+
+def _registry_onedrive() -> list[Path]:
+    """Each signed-in OneDrive account's folder (HKCU\\Software\\Microsoft\\OneDrive\\Accounts\\*\\UserFolder);
+    a business account can have one per organization. None off Windows."""
+    if sys.platform != "win32":
+        return []
+    try:
+        import winreg
+    except ImportError:
+        return []
+    found: list[Path] = []
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\OneDrive\Accounts") as accounts:
+            i = 0
+            while True:
+                try:
+                    name = winreg.EnumKey(accounts, i)
+                except OSError:
+                    break
+                i += 1
+                try:
+                    with winreg.OpenKey(accounts, name) as key:
+                        value, _kind = winreg.QueryValueEx(key, "UserFolder")
+                except OSError:
+                    continue
+                if isinstance(value, str) and value.strip():
+                    found.append(Path(value.strip()))
+    except OSError:  # OneDrive was never set up for this user
+        return []
+    return found
+
+
+def onedrive_roots() -> list[Path]:
+    """The OneDrive folders on this PC: OneDrive's own environment variables, and each account's folder."""
+    roots: list[Path] = []
+    for name in _ONEDRIVE_ENV:
+        value = (os.environ.get(name) or "").strip()
+        if value and Path(value).is_absolute():
+            roots.append(Path(value))
+    roots += _registry_onedrive()
+    unique: list[Path] = []
+    for root in roots:
+        if not any(_same(root, u) for u in unique):
+            unique.append(root)
+    return unique
+
+
+def _key(path: Path) -> str:
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+
+def onedrive_root(path: str | Path) -> Path | None:
+    """The OneDrive folder ``path`` is in, or None. Besides the folders onedrive_roots names, a folder of the
+    profile named ``OneDrive`` or ``OneDrive - <Org>`` counts (OneDrive's own names for them), so a moved
+    Documents is caught even when OneDrive isn't running."""
+    target = _key(Path(path))
+    for root in onedrive_roots():
+        base = _key(root)
+        if target == base or target.startswith(base.rstrip(os.sep) + os.sep):
+            return root
+    home = _key(Path.home())
+    if target.startswith(home.rstrip(os.sep) + os.sep):
+        first = Path(os.path.abspath(path)).relative_to(os.path.abspath(Path.home())).parts[:1]
+        if first and (first[0].lower() == "onedrive" or first[0].lower().startswith("onedrive - ")):
+            return Path.home() / first[0]
+    return None
+
+
+def in_onedrive(path: str | Path) -> bool:
+    return onedrive_root(path) is not None
+
+
+def local_folder() -> Path:
+    """Where the app puts folders of the person's own that it makes (a new metadata project, exports when
+    Downloads is in OneDrive): ``KratosForge`` in the profile, which OneDrive's known folder move doesn't move."""
+    return Path.home() / "KratosForge"
+
+
+def export_folder() -> Path:
+    """Where exports are written: Downloads, unless Windows has moved it into OneDrive; then KratosForge\\Exports
+    in the profile, so an export isn't uploaded to OneDrive."""
+    found = downloads()
+    if not in_onedrive(found):
+        return found
+    folder = local_folder() / "Exports"
+    folder.mkdir(parents=True, exist_ok=True)  # Downloads always exists; this one may not yet
+    return folder
+
+
+def onedrive_refusal(path: str | Path, what: str) -> str | None:
+    """Why ``what`` can't be kept at ``path`` (it is in OneDrive), or None."""
+    root = onedrive_root(path)
+    if root is None:
+        return None
+    return (f"{path} is in OneDrive ({root}), so {what} can't be kept there: OneDrive would upload the same files "
+            f"the app reads and writes, and its sync can lock them. Pick a folder on this PC outside OneDrive, "
+            f"such as {local_folder()}.")

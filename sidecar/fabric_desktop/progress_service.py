@@ -262,7 +262,7 @@ def _avatar_ok(data: bytes) -> bool:
 
 def _save_new(stem: str, ext: str, text: str | bytes) -> Path:
     """A new file in Downloads; one already there (even one made a moment ago) is never replaced."""
-    folder = known_folders.downloads()
+    folder = known_folders.export_folder()
     folder.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^\w.-]+", "-", stem)
     path, n = folder / f"{stem}.{ext}", 2

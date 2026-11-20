@@ -6,7 +6,10 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import os
 import re
+import shutil
+import threading
 import tomllib
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
@@ -101,12 +104,20 @@ def _days(value: Any) -> Any:
         return value
 
 
+_ONEDRIVE_LOCK = threading.Lock()
+
+
+def DEFAULT_PROJECT_FOLDER() -> Path:  # noqa: N802 - a constant that depends on the profile
+    """Where a new metadata project goes unless the person picks a folder: in the profile, out of OneDrive."""
+    return known_folders.local_folder() / "metadata"
+
+
 def _project_folder(path: str) -> Path:
     """A project's folder as the app's folder picker gives it: a full path. A relative one would be
     taken from wherever the engine happened to start (#1173)."""
     folder = Path(path)
     if not folder.is_absolute():
-        raise ValueError(f"Choose the project's folder by its full path, such as C:\\Users\\you\\Documents\\metadata, not {path!r}")
+        raise ValueError(f"Choose the project's folder by its full path, such as C:\\Users\\you\\KratosForge\\metadata, not {path!r}")
     return folder
 
 
@@ -145,6 +156,8 @@ class MetaMixin:
 
     def _project(self) -> Project:
         path = self._settings().get("meta_project")
+        if path:
+            path = self._out_of_onedrive(str(path))
         if path and not Path(path).is_absolute():  # saved before full paths were required: where it points depends on the start folder
             raise NoMetadataProject(f"The metadata project was saved as {path!r}, not a full path. Open its folder again.")
         if not path or not (Path(path) / "layers.toml").exists():
@@ -158,6 +171,43 @@ class MetaMixin:
         if remember is not None:  # its Prod workspaces stay marked once it's closed (prod_writes_service.py)
             remember(project)
         return project
+
+    def _out_of_onedrive(self, path: str) -> str:
+        """The project's folder, copied out of OneDrive first when it is still where earlier versions made a new
+        project (Documents\\FabricDesktop\\metadata, which OneDrive's known folder move puts in OneDrive): to
+        KratosForge\\metadata in the profile, and the setting is changed to the copy. The original is left as
+        it was, for the person to delete; nothing is removed. Any other folder is the person's choice and stays
+        (readiness warns about one in OneDrive). Once per folder per run."""
+        with _ONEDRIVE_LOCK:  # one copy at a time: a job thread may ask for the project as the app does
+            return self._copy_out_of_onedrive(path)
+
+    def _copy_out_of_onedrive(self, path: str) -> str:
+        checked = self.__dict__.setdefault("_onedrive_checked", {})
+        if path in checked:
+            return checked[path]
+        checked[path] = path
+        old = known_folders.documents() / "FabricDesktop" / "metadata"
+        if os.path.normcase(os.path.normpath(path)) != os.path.normcase(os.path.normpath(old)) \
+                or not known_folders.in_onedrive(path) or not (Path(path) / "layers.toml").exists():
+            return path
+        new = DEFAULT_PROJECT_FOLDER()
+        if new.exists():
+            _log.warning("The metadata project in OneDrive (%s) wasn't copied out, because %s already exists.", path, new)
+            return path
+        work = new.with_name(new.name + ".copying")
+        try:
+            if work.exists():
+                shutil.rmtree(work)  # a copy an earlier run didn't finish: only ever this app's own work folder
+            shutil.copytree(path, work, symlinks=True)
+            work.rename(new)
+        except OSError as exc:
+            _log.warning("Couldn't copy the metadata project out of OneDrive (%s to %s); it stays where it is: %s",
+                         path, new, describe_error(exc))
+            return path
+        self._save_settings(meta_project=str(new), meta_project_moved_from=path)
+        _log.info("Copied the metadata project out of OneDrive, from %s to %s. The original is left as it was.", path, new)
+        checked[path] = str(new)
+        return str(new)
 
     def _install_guard(self, project: Project) -> None:
         def guard(lakehouse_name: str, schema: str, table: str) -> str | None:
@@ -285,8 +335,7 @@ class MetaMixin:
         try:
             project = self._project()
         except LookupError:
-            return {"path": None, "default_path": str(known_folders.documents() / "FabricDesktop" / "metadata"),
-                    **describe()}
+            return {"path": None, "default_path": str(DEFAULT_PROJECT_FOLDER()), **describe()}
         return project.summary() | describe()
 
     def meta_init(self, path: str, preset: str = "3", sample: bool = True) -> dict[str, Any]:
@@ -295,6 +344,8 @@ class MetaMixin:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - not signed in: the owner can be filled in later
             _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
+        if (refusal := known_folders.onedrive_refusal(_project_folder(path), "a metadata project")):
+            raise ValueError(refusal)
         init_project(_project_folder(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
@@ -824,7 +875,7 @@ class MetaMixin:
         project, out = self._openlineage(env)
         if not out["events"]:
             raise ValueError(f"Nothing to export: no entity has a finished run in {env.title()} yet")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = re.sub(r"[^\w.-]+", "_", f"{project.root.name}-{env}-openlineage")
         path = sql_exec._reserve(folder, base, ".jsonl")  # reserved empty, so no other file is overwritten

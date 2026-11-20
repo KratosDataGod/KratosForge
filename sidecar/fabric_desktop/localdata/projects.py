@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -83,6 +84,11 @@ class Project:
 
     @property
     def temp_dir(self) -> Path:
+        """DuckDB's spill and dry-run copies: beside the database, unless the project is in OneDrive (made before
+        new projects were kept out of it); then in this PC's temp folder, so OneDrive isn't uploading them."""
+        from .. import known_folders
+        if known_folders.in_onedrive(self.root):
+            return Path(tempfile.gettempdir()) / "kratosforge-local" / self.id / "tmp"
         return self.root / "tmp"
 
     def source(self, path: str) -> Source | None:
@@ -231,6 +237,9 @@ class ProjectStore:
         while pid in index:
             pid, n = f"{base}-{n}", n + 1
         target = Path(folder).expanduser() if folder else self.root / pid
+        from .. import known_folders
+        if (refusal := known_folders.onedrive_refusal(target, "a local data project")):
+            raise ValueError(refusal)
         if (target / "project.json").exists():
             raise ValueError(f"{target} already holds a local data project. Open it instead.")
         target.mkdir(parents=True, exist_ok=True)

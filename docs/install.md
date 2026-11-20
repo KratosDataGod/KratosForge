@@ -106,7 +106,8 @@ These prove where a file came from; they don't replace code signing, which is st
 | `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. The run histories (`history.jsonl`, `schedule_runs.jsonl`) keep their newest rows: past 8 MB the older ones are dropped. |
 | `%LOCALAPPDATA%\FabricDesktop\replays` | The app's copy of each replay bundle you opened. A bundle can hold a sample of the tables its notebook read, so a copy unused for 30 days (your organization can change that) is deleted like the local copies above; the bundle you opened stays where it was. |
 | `%ProgramData%\FabricDesktop\policy.json` | Settings your organization fixed, if any. |
-| `Documents\FabricDesktop\metadata` | The default folder for a new metadata project. You can pick another, and you should keep it in Git. |
+| `%USERPROFILE%\KratosForge\metadata` | The default folder for a new metadata project. You can pick another, outside OneDrive, and you should keep it in Git. Earlier versions used `Documents\FabricDesktop\metadata`: one still there in OneDrive is copied here on first use ([Files in OneDrive](troubleshooting.md#files-in-onedrive)). |
+| `%USERPROFILE%\KratosForge\Exports` | Exports, only when Windows has moved Downloads into OneDrive. Otherwise they go to Downloads. |
 
 ## Uninstall
 
@@ -128,7 +129,7 @@ These prove where a file came from; they don't replace code signing, which is st
 | --- | --- |
 | The app's scheduled tasks (`\FabricDesktop\`, except the agent's task `\FabricDesktop\Agent`) | Your notebooks, settings, stores and backups in `%LOCALAPPDATA%\FabricDesktop`, unless you pass `-RemoveData`; the audit trail, unless you also pass `-RemoveAuditTrail` |
 | The `kratosforge://` link handler (`HKCU\Software\Classes\kratosforge`) | `%ProgramData%\FabricDesktop` (your organization's policy file, the agent's folder) |
-| The engine (`engine`) and the launchers AI tools and VS Code run (`bin`) | `Documents\FabricDesktop` and your Git repositories |
+| The engine (`engine`) and the launchers AI tools and VS Code run (`bin`) | `KratosForge` in your profile, `Documents\FabricDesktop` from earlier versions, and your Git repositories |
 | Every saved sign-in and token: `msal_cache.bin`, `fabric-view-signin.bin`, the Fabric view's browser profile (`fabric-view`), the app window's browser profile (`%LOCALAPPDATA%\com.kratosbi.fabricdesktop`), the link listener's token (`link-port`), the VS Code pairing hello (`editor-port`), sealed copies a cut-off save left behind (`*.tmp`), and the mail server password in Windows Credential Manager (`KratosForge/mail-server`) | VS Code's own settings and the KratosForge extension: remove the `fabric-desktop` MCP server and the extension in VS Code |
 | `kratosforge.exe`, when you give `-AppPath` | Anything in Fabric: lakehouses, tables and notebooks you published stay where they are |
 

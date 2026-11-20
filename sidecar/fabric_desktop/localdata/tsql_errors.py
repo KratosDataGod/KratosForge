@@ -102,18 +102,18 @@ def _arithmetic(first: str, sql: str) -> str | None:
     overflow = "Arithmetic overflow error converting expression to data type {}."
     if found := _ARITHMETIC.match(first):
         return overflow.format(_INTEGERS.get(found["kind"], "numeric"))
-    if (found := _ABS.match(first)) and found["value"] in _ABS_KINDS:
+    if (found := _ABS.fullmatch(first)) and found["value"] in _ABS_KINDS:
         return overflow.format(_ABS_KINDS[found["value"]])
     if found := _COLUMN_CAST.match(first):
         return overflow.format(_INTEGERS[found["kind"]])
-    if found := _TEXT_TO.match(first):
+    if found := _TEXT_TO.fullmatch(first):
         kind, value = found["kind"], found["value"]
         if kind in _INTEGERS:
             # A whole number too big for the type has other words (248 and 244), and '' is 0 in SQL Server
             if re.fullmatch(r"\s*(?:[+-]?\d+)?\s*", value):
                 return None
             return f"Conversion failed when converting the varchar value '{value}' to data type {_INTEGERS[kind]}."
-        if _A_NUMBER.match(value) or (not kind.startswith("DECIMAL") and not value.strip()):
+        if _A_NUMBER.fullmatch(value) or (not kind.startswith("DECIMAL") and not value.strip()):
             return None  # too big for the decimal (8115 in other words), or '' that a float takes as 0
         return "Error converting data type varchar to {}.".format(
             "numeric" if kind.startswith("DECIMAL") else "float" if kind == "DOUBLE" else "real")

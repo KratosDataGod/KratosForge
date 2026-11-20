@@ -474,8 +474,8 @@ class ProvFabric:
     def list_workspaces(self):
         return list(self.workspaces)
 
-    def find_lakehouse(self, ws, name):
-        return next((lh for lh in self.lakehouses.get(ws, []) if lh["displayName"] == name), None)
+    def list_lakehouses(self, ws):
+        return list(self.lakehouses.get(ws, []))
 
     def create_workspace(self, name, capacity_id="", description=""):
         ws = {"id": "66666666-6666-4666-8666-666666666666", "displayName": name}
@@ -597,6 +597,62 @@ def test_a_failed_step_stops_the_rest_and_a_new_plan_finishes_it(tmp_path):
     assert done["ok"] and [c[0] for c in fab.created] == ["workspace", "lakehouse"]
 
 
+def test_apply_checks_the_plan_again_and_refuses_one_that_changed(tmp_path):
+    fab = ProvFabric()
+    prov, lakes = provisioning(tmp_path, fab)
+    shown = prov.plan({"name": "Ours", "capacity_id": "cap"})
+    fab.workspaces.append({"id": WS, "displayName": "kratosforge"})  # taken meanwhile, in another case
+    with pytest.raises(PermissionError, match="already exists"):
+        prov.apply(shown, confirmed=True)
+    # A plan edited after it was shown (here: a step dropped) is refused, not run.
+    fab.workspaces.clear()
+    shown = prov.plan({"name": "Ours", "capacity_id": "cap"})
+    edited = pv.ProvisionPlan(shown.provider, shown.steps[:-1], shown.request)
+    with pytest.raises(PermissionError, match="changed since this plan was shown"):
+        prov.apply(edited, confirmed=True)
+    assert fab.created == [] and lakes == {}
+
+
+def test_names_are_taken_whatever_their_case(tmp_path):
+    fab = ProvFabric(workspaces=[{"id": WS, "displayName": "KRATOSFORGE"}],
+                     lakehouses={WS: [{"id": LH, "displayName": "kratosforgelakehouse"}]})
+    prov, _ = provisioning(tmp_path, fab)
+    assert "already exists" in prov.plan({"name": "x", "capacity_id": "c"}).blocked[0]
+    assert "already has a lakehouse" in prov.plan({"name": "x", "workspace_id": WS}).blocked[0]
+
+
+def test_core_tables_are_set_up_first_whatever_order_families_come_in(tmp_path, monkeypatch):
+    from fabric_desktop.optimize import schema, setup
+    other = next((f for f in schema.FAMILIES.values() if f is not setup.CORE), None)
+    if other is None:
+        pytest.skip("only one table family is registered")
+    fab = ProvFabric()
+    prov, _ = provisioning(tmp_path, fab, families=[other, setup.CORE])
+    order, real = [], setup.initialize
+
+    def recording(lake, installation, approve=False, family=setup.CORE):
+        order.append(family.prefix)
+        return real(lake, installation, approve=approve, family=family)
+
+    monkeypatch.setattr(setup, "initialize", recording)
+    out = prov.apply(prov.plan({"name": "Ours", "capacity_id": "cap"}), confirmed=True)
+    assert out["ok"] and order[0] == setup.CORE.prefix and set(order) == {setup.CORE.prefix, other.prefix}
+    plan = prov.plan({"name": "Ours", "capacity_id": "cap", "workspace_name": "Other"})
+    assert [s.target for s in plan.steps if s.action == "initialize"][0].endswith(f"({setup.CORE.prefix})")
+
+
+def test_plan_steps_say_what_a_ready_or_upgraded_family_means(tmp_path):
+    from fabric_desktop.controlplane import provisioning as prv
+    from fabric_desktop.optimize import setup
+    from fabric_desktop.optimize.installation import Installation
+    fab = ProvFabric(workspaces=[{"id": WS, "displayName": "Data"}])
+    prov, _ = provisioning(tmp_path, fab)
+    setup.initialize(prov._open_lake(WS, LH, None), Installation(tmp_path / "other" / "optimize"), approve=True)
+    ready = [s for s in prov.plan({"name": "x", "workspace_id": WS, "lakehouse_id": LH}).steps if s.target.startswith("Optimize")]
+    assert ready[0].action == "find" and ready[0].note == prv.READY_NOTE
+    assert "only read" in prv.UPGRADE_NOTE
+
+
 # ---- CP-006 adopt, CP-007 compatibility, CP-008 status
 
 def test_adopt_previews_a_manifest_of_ids_from_this_pcs_connections(tmp_path):
@@ -638,7 +694,9 @@ def test_adopt_refuses_an_empty_or_newer_lakehouse():
     (["ready", "incomplete"], None, "incomplete"),
     (["upgrade", "newer"], None, "read_only"),
     (["ready", "conflict"], None, "read_only"),
-    (["empty"], None, "missing"),
+    (["empty"], None, "upgrade"),
+    (["ready", "unrelated"], None, "upgrade"),
+    ([], None, "missing"),
     (["ready"], 4, "upgrade"),
     (["ready"], 6, "read_only"),
 ])
@@ -648,6 +706,13 @@ def test_the_environment_is_as_compatible_as_its_worst_store(states, op, want):
     got = health.compatibility(m, [{"family": f"f{i}x_", "state": s} for i, s in enumerate(states)], op, 5)
     assert got["state"] == want and got["writable"] == (want != "read_only")
     assert got["can_upgrade"] == (want in ("upgrade", "incomplete"))
+
+
+def test_a_family_not_set_up_yet_asks_for_an_upgrade_not_connected():
+    from fabric_desktop.controlplane import health
+    got = health.compatibility(fabric(), [{"family": "fdopt_", "state": "ready"}, {"family": "fdacc_", "state": "empty"}])
+    assert got["state"] == "upgrade" and got["can_upgrade"]
+    assert health.status(connected=True, reachable=True, compat=got)["status"] == "Upgrade required"
 
 
 def test_a_newer_manifest_makes_the_environment_read_only():

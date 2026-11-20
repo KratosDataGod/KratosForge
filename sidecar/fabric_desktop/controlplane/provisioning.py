@@ -44,6 +44,16 @@ WORKSPACE_COST = ("No new purchase. The workspace runs on the capacity you pick,
 LAKEHOUSE_PERMISSION = "Contributor, Member or Admin role on the workspace."
 LAKEHOUSE_COST = "OneLake storage for what it holds (small: history rows, not data copies)."
 TABLES_PERMISSION = "Write access to the lakehouse (Contributor or higher on the workspace)."
+READY_NOTE = "No table changes. This PC is added to its installations list (one row)."
+UPGRADE_NOTE = ("Upgrades the shared tables. KratosForge on other PCs can only read them until it's updated "
+                "to this version.")
+CHANGED = ("Something changed since this plan was shown (a name was taken, or a lakehouse or its tables "
+           "changed). Nothing was created. Review the new plan and confirm again.")
+
+
+def _same_name(a: Any, b: str) -> bool:
+    """Fabric names are compared without case, so "kratosforge" is taken when "KratosForge" exists."""
+    return isinstance(a, str) and a.strip().casefold() == b.strip().casefold()
 
 
 class FabricProvisioning:
@@ -88,7 +98,7 @@ class FabricProvisioning:
         else:
             ws_name = (req.get("workspace_name") or DEFAULT_WORKSPACE).strip()
             req["workspace_name"] = ws_name
-            taken = any(w.get("displayName") == ws_name for w in self.fabric.list_workspaces())
+            taken = any(_same_name(w.get("displayName"), ws_name) for w in self.fabric.list_workspaces())
             steps.append(PlanStep("create", f"workspace {ws_name}", True, WORKSPACE_PERMISSION, WORKSPACE_COST,
                                   blocked=(f"A workspace called {ws_name} already exists. Choose it as an existing "
                                            "workspace, or pick another name.") if taken else
@@ -103,7 +113,8 @@ class FabricProvisioning:
         else:
             lh_name = (req.get("lakehouse_name") or DEFAULT_LAKEHOUSE).strip()
             req["lakehouse_name"] = lh_name
-            taken = bool(ws_id) and self.fabric.find_lakehouse(ws_id, lh_name) is not None
+            taken = bool(ws_id) and any(_same_name(lh.get("displayName"), lh_name)
+                                         for lh in self.fabric.list_lakehouses(ws_id))
             steps.append(PlanStep("create", f"lakehouse {lh_name}", True, LAKEHOUSE_PERMISSION, LAKEHOUSE_COST,
                                   blocked=(f"This workspace already has a lakehouse called {lh_name}. Choose it as an "
                                            "existing lakehouse, or pick another name.") if taken else ""))
@@ -128,12 +139,13 @@ class FabricProvisioning:
         for fam, st in states:
             label = f"{fam.title} tables ({fam.prefix})"
             if st["state"] == setup.READY:
-                steps.append(PlanStep("find", label, False))
+                steps.append(PlanStep("find", label, False, TABLES_PERMISSION, note=READY_NOTE))
             elif st["state"] in (setup.NEWER, setup.CONFLICT):
                 steps.append(PlanStep("refuse", label, False, blocked=st["message"]))
             else:
                 action = "upgrade" if st["state"] == setup.UPGRADE else "initialize"
-                steps.append(PlanStep(action, label, bool(st["adds"]), TABLES_PERMISSION))
+                steps.append(PlanStep(action, label, bool(st["adds"]), TABLES_PERMISSION,
+                                      note=UPGRADE_NOTE if action == "upgrade" else ""))
         return steps
 
     # ---- apply
@@ -145,7 +157,13 @@ class FabricProvisioning:
             raise NotConfirmed("Nothing was created: creating an environment needs your confirmation.")
         if plan.blocked:
             raise PermissionError(" ".join(plan.blocked))
-        req = plan.request
+        # The plan the person saw is checked again now, so a stale or edited plan never runs.
+        fresh = self.plan(plan.request)
+        if fresh.blocked:
+            raise PermissionError(" ".join(fresh.blocked))
+        if fresh.steps != plan.steps or fresh.provider != plan.provider:
+            raise PermissionError(CHANGED)
+        req = fresh.request
         done: list[dict[str, str]] = []
         out: dict[str, Any] = {"ok": False, "steps": done, "workspace_id": req.get("workspace_id", ""),
                                "lakehouse_id": req.get("lakehouse_id", ""), "manifest": None}

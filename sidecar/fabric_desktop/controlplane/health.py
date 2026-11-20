@@ -10,8 +10,8 @@ only. ``adopt_preview`` builds it for the person to see; the caller writes it wi
 after they confirm. No table is created, changed or copied, and deleting the manifest file undoes it.
 
 Compatibility (CP-007): every store says ready, upgrade (older, this app can upgrade it after a
-confirm), incomplete (an earlier setup stopped part way), read_only (a newer app wrote it, or its
-tables aren't KratosForge's), or missing. The environment's state is the worst of them.
+confirm, including a family whose tables aren't there yet), incomplete (an earlier setup stopped part
+way), read_only (a newer app wrote it, or its tables aren't KratosForge's), or missing (nothing to check). The environment's state is the worst of them.
 
 Status (CP-008): Connected, Working offline, Synchronizing, Upgrade required, Limited permissions or
 Connection failed, each with the next thing to do.
@@ -68,8 +68,9 @@ def adopt_preview(*, name: str, lake_connection: dict[str, Any], inspections: li
 
 READY, UPGRADE, INCOMPLETE, READ_ONLY, MISSING = "ready", "upgrade", "incomplete", "read_only", "missing"
 _WORST = (READ_ONLY, MISSING, INCOMPLETE, UPGRADE, READY)
+# A family with no tables yet (empty, or only other tables) is one this app can add after a confirm.
 _FROM_INSPECT = {setup.READY: READY, setup.UPGRADE: UPGRADE, setup.INCOMPLETE: INCOMPLETE, setup.NEWER: READ_ONLY,
-                 setup.CONFLICT: READ_ONLY, setup.EMPTY: MISSING, setup.UNRELATED: MISSING}
+                 setup.CONFLICT: READ_ONLY, setup.EMPTY: UPGRADE, setup.UNRELATED: UPGRADE}
 
 
 def compatibility(manifest: dict[str, Any], inspections: list[dict[str, Any]],

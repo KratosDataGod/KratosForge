@@ -173,6 +173,7 @@ class PlanStep:
     permission: str = ""  # the role or permission the step needs
     cost: str = ""        # what it may cost, or "" for none
     blocked: str = ""     # why it can't go ahead, or ""
+    note: str = ""        # what else the person should know: a side effect, or a consequence for other PCs
 
 
 @dataclass(frozen=True)

@@ -104,6 +104,19 @@ def last_hash(folder: Path) -> str:
     return GENESIS
 
 
+def _ends_mid_line(path: Path) -> bool:
+    """Whether ``path`` ends part way through a line: an append a power cut stopped before its newline."""
+    try:
+        with path.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell() == 0:
+                return False
+            f.seek(-1, os.SEEK_END)
+            return f.read(1) != b"\n"
+    except OSError:
+        return False
+
+
 @contextmanager
 def locked(folder: Path) -> Iterator[None]:
     """One writer at a time across every process, through ``<folder>/.lock``."""
@@ -144,7 +157,7 @@ def _hashes(folder: Path) -> list[str | None]:
     """Each line's stored hash in trail order (None for a line that isn't an audit line)."""
     out: list[str | None] = []
     for path in files(folder):
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             if line.strip():
                 try:
                     out.append(str(json.loads(line)["hash"]))
@@ -169,10 +182,13 @@ def write(folder: Path, entry: dict[str, Any], line: str) -> None:
     newest = files(folder)
     if newest and newest[-1].name > name:
         name = newest[-1].name
+    # A line a power cut left without its newline stays as it is (the trail is never rewritten; verify()
+    # reports it), and this one starts on a line of its own instead of being joined onto it.
+    cut = _ends_mid_line(folder / name)
     with (folder / name).open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
+        f.write(("\n" if cut else "") + line + "\n")
     new = {"hash": entry["hash"]}
-    if head.get("hash") == entry["prev"] and isinstance(head.get("lines"), int):
+    if not cut and head.get("hash") == entry["prev"] and isinstance(head.get("lines"), int):
         new["lines"] = head["lines"] + 1
     else:  # no head yet (a trail from before HD-017), a write that stopped before its head, or lines gone
         hashes = _hashes(folder)
@@ -250,7 +266,7 @@ def prune(folder: Path, days: int, now: float | None = None) -> dict[str, Any]:
         base: dict[str, Any] = head["base"] if isinstance(head.get("base"), dict) else {}
         done = str(base.get("through") or "")  # a prune stopped part way already counted these months
         lines = sum(1 for p in old if _month(p) > done
-                    for line in p.read_text(encoding="utf-8").splitlines() if line.strip())
+                    for line in p.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
         last = _last_line(old[-1])
         try:
             last_hash = str(json.loads(last)["hash"])
@@ -287,7 +303,7 @@ def verify(folder: Path) -> dict[str, Any]:
     seen: dict[int, str] = {}  # line number across the trail -> its hash
     last_at: dt.datetime | None = None
     for path in files(folder):
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             if not line.strip():
                 continue
             count += 1
@@ -314,7 +330,7 @@ def verify(folder: Path) -> dict[str, Any]:
     # Lines in months a prune already counted, still waiting to be deleted (the clock was put back after a
     # prune stopped part way), aren't in the head's count of lines.
     counted = sum(1 for path in files(folder) if base.get("through") and _month(path) <= str(base["through"])
-                  for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+                  for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
     seen = {n - counted: h for n, h in seen.items()}
     for name, mark in (("newest line recorded", head), ("line recorded before lines went missing", head.get("lost") or {})):
         lines, want = mark.get("lines"), mark.get("hash")
@@ -338,6 +354,10 @@ def verify(folder: Path) -> dict[str, Any]:
         result["notes"] = notes
     if base.get("through"):
         result["pruned"] = {"through": base["through"], "lines": base.get("lines")}
+        if not base.get("hash"):  # prune() couldn't read the last line it deleted
+            result.setdefault("notes", []).append(
+                f"the pruned history (through {base['through']}) ended on a line that couldn't be read, so the "
+                "trail's first line can't be checked against it")
     return result
 
 
@@ -432,7 +452,7 @@ def export(folder: Path, out: Path, since: str = "", replace: bool = False) -> d
     lines: list[str] = []
     with locked(folder):  # a still copy: no line lands half-way through
         for path in files(folder):
-            for line in path.read_text(encoding="utf-8").splitlines():
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
                 if not line.strip():
                     continue
                 if not lines and start is not None:
@@ -488,7 +508,7 @@ def verify_export(out: Path, folder: Path | None = None) -> dict[str, Any]:
     if _sha256(out) != manifest.get("sha256"):
         problems.append(f"{out.name}: its SHA-256 isn't the manifest's: the file was changed after it was exported")
     prev, count, hashes = str(manifest.get("first_prev", GENESIS)), 0, []
-    for number, line in enumerate(out.read_text(encoding="utf-8").splitlines(), 1):
+    for number, line in enumerate(out.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
         if not line.strip():
             continue
         count += 1

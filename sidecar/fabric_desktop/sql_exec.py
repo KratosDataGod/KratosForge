@@ -99,6 +99,7 @@ STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled",
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
 MAX_KEPT = 20  # finished runs whose snapshots are kept, newest first
 MAX_STATEMENTS = 200  # statements one run may hold (S14)
+MAX_EXPORTS_KEPT = 50  # finished exports whose status can still be asked for, newest first; running ones always
 MAX_PINNED = 10  # results kept past MAX_KEPT and retention because the person pinned them (S27)
 EXPORT_FORMATS = ("csv", "parquet", "xlsx", "json")
 EXPORT_BATCH_ROWS = 65_536
@@ -986,8 +987,17 @@ class SqlExecutions:
                         raw=bool(raw) and fmt == "csv")
         with self._lock:
             self._exports[export.id] = export
+            self._forget_old_exports()
         threading.Thread(target=self._write, args=(res.path, export), daemon=True, name=f"sql-export-{export.id}").start()
         return export.status()
+
+    def _forget_old_exports(self) -> None:
+        """Keep the newest MAX_EXPORTS_KEPT finished exports (the page asks for an export's status only while it
+        runs and just after): each export was kept for the engine's life, so a long session's exports added up.
+        A running export is always kept. Called with ``_lock`` held."""
+        finished = [e.id for e in self._exports.values() if e.state != "running"]  # oldest first: insertion order
+        for export_id in finished[:max(0, len(finished) - MAX_EXPORTS_KEPT)]:
+            del self._exports[export_id]
 
     def export_status(self, export_id: str) -> dict[str, Any]:
         return self._get_export(export_id).status()

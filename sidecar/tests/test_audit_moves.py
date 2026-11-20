@@ -188,3 +188,12 @@ def test_an_export_of_pruned_months_is_checked_against_its_manifest_only_and_say
     assert result["ok"] and result["notes"] == [
         ("the export's lines are in months pruned from this trail (through 2026-10), so it's checked against "
         "its manifest only")]
+
+
+def test_a_pruned_month_that_ended_on_a_damaged_line_is_noted(trail):
+    path = trail / "audit-2026-10.jsonl"
+    lines = _lines(path)
+    path.write_text("".join(line + "\n" for line in lines[:-1]) + lines[-1][:20] + "\n", encoding="utf-8")
+    audit_chain.prune(trail, 1, now=DECEMBER)
+    assert any(n.startswith("the pruned history (through 2026-10) ended on a line that couldn't be read")
+               for n in audit_chain.verify(trail).get("notes", []))

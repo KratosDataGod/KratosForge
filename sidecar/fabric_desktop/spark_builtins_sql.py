@@ -25,15 +25,56 @@ from .spark_hash import hash_sql
 # ---- helpers
 
 
+# An argument a template reads more than once is put in once, as a lambda's parameter, when it is this big
+# (in nodes): copied into each place, calls nested in each other (upper(lower(...)), substring_index of
+# substring_index) would grow exponentially, to megabytes of SQL that take seconds to plan.
+_BIND_ABOVE = 40
+# A lambda's body can't hold these, so an argument or template with one is copied as before.
+_NOT_IN_LAMBDA = (exp.AggFunc, exp.Window, exp.Subquery, exp.Select)
+# Nor is one that can raise on a row's values put in once: bound, it is worked out on every row, where
+# the template may have read it only on some (a raise_error a CASE would have skipped would stop the
+# query). raise_error and assert_true come here as ERROR(<the row's message>); an ERROR with a fixed
+# message is a refusal by type (spark_text_arg's), the same on every row, and can be bound.
+_RAISES = {"RAISE_ERROR", "ASSERT_TRUE"}
+
+
+def _raises(node: exp.Expression) -> bool:
+    return any(f.name.upper() in _RAISES or (f.name.upper() == "ERROR" and not (
+        f.expressions and isinstance(f.expressions[0], exp.Literal) and f.expressions[0].is_string))
+        for f in node.find_all(exp.Anonymous))
+
+
 def _with_args(template: str | exp.Expression, args: list[exp.Expression]) -> exp.Expression:
     """``template`` read as DuckDB SQL (or already read: a copy is used), with the arguments in place
     of fj_arg0, fj_arg1, ... (as sql._with_args). Lambda names in templates start with kf_, which a
-    query can't use."""
+    query can't use. A big argument read more than once is read once (_BIND_ABOVE)."""
     tree = (template.copy() if isinstance(template, exp.Expression)
             else cast(exp.Expression, sqlglot.parse_one(template, read="duckdb")))
+    places: dict[int, list[exp.Column]] = {}
     for column in list(tree.find_all(exp.Column)):
         if column.name.startswith("fj_arg") and not column.table:
-            column.replace(args[int(column.name[6:])].copy())
+            places.setdefault(int(column.name[6:]), []).append(column)
+    bound = [i for i, cols in places.items()
+             if len(cols) > 1 and sum(1 for _ in args[i].walk()) > _BIND_ABOVE and not _raises(args[i])]
+    # An aggregate, window or subquery may be in a bound argument, which goes in the list outside the
+    # lambda, but not in the lambda's body: so not in the template or an argument left in place, and in
+    # one bound argument at most, which is put in outermost.
+    held = [i for i in places if args[i].find(*_NOT_IN_LAMBDA)]
+    if tree.find(*_NOT_IN_LAMBDA) or len(held) > 1 or any(i not in bound for i in held):
+        bound = []
+    bound.sort(key=lambda i: i not in held)  # the first is put in outermost
+    for i, cols in places.items():
+        for column in cols:
+            column.replace(exp.column(f"kf_bound{i}") if i in bound else args[i].copy())
+    for i in reversed(bound):
+        wrap = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([fj_value], kf_bound{i} -> fj_body))[1]",
+                                                      read="duckdb"))
+        for column in list(wrap.find_all(exp.Column)):
+            if column.name == "fj_value":
+                column.replace(args[i].copy())
+            elif column.name == "fj_body":
+                column.replace(tree)
+        tree = wrap
     return tree
 
 
@@ -46,6 +87,12 @@ def _refuse(name: str, why: str, instead: str = "") -> Callable[..., exp.Express
         raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, so nothing ran: {why} "
                          f"Run the cell in Fabric{', or ' + instead if instead else ''}.")
     return refuse
+
+
+def _sql_keywords(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+    raise ValueError("sql_keywords() can't run on this PC the way it runs in Fabric, because this PC doesn't have "
+                     "Spark's list of SQL keywords and which of them are reserved, so nothing ran. Run the cell in "
+                     "Fabric.")
 
 
 # base64 takes bytes, and text as its UTF-8 bytes (a NULL of no type is NULL); any other type is refused, as in
@@ -268,6 +315,8 @@ _TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "big
 def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     if len(args) != 1:
         return None
+    if isinstance(args[0], exp.Anonymous) and args[0].name.upper() in ("RAISE_ERROR", "ERROR"):
+        return exp.Literal.string("void")  # Spark names raise_error's type without running it
     # A scalar type, or a list of one (INTEGER[] -> array<int>); deeper types in lower case.
     # A struct or map is named from its type where spark_complex_types can work it out; otherwise refused.
     stop = ("'typeof() can''t run on this PC the way it runs in Fabric, because the struct or map''s type "
@@ -1145,6 +1194,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **{name: _refuse(name.lower(), _JAVA) for name in ("JAVA_METHOD", "REFLECT")},
     **{name: _refuse(name.lower(), _INPUT_FILE) for name in ("INPUT_FILE_NAME", "INPUT_FILE_BLOCK_LENGTH",
                                                              "INPUT_FILE_BLOCK_START")},
+    "SQL_KEYWORDS": _sql_keywords,
     "SPARK_PARTITION_ID": _refuse("spark_partition_id", "this PC doesn't split a query's rows into Spark "
                                   "partitions, so there is no partition number to give."),
     # Increasing and unique, as Spark promises (its values have gaps between partitions), as
@@ -1649,8 +1699,9 @@ def _grouping_id(node: exp.Expression) -> exp.Expression | None:
 
 
 def _any(node: exp.Expression) -> exp.Expression | None:
-    """any(col) as an aggregate (not ``x = ANY (subquery)``)."""
-    if isinstance(node.parent, (exp.Binary, exp.Predicate)) and not isinstance(node.parent, (exp.And, exp.Or)):
+    """any(col) as an aggregate (not ``x = ANY (subquery)`` or ``s LIKE ANY ('a%', 'b%')``). Spark's quantifier
+    takes a subquery, or a list after LIKE, so ``any(x) = true`` and ``true = any(x)`` are the aggregate."""
+    if isinstance(node.parent, (exp.Like, exp.ILike)) and node.arg_key != "this":
         return None
     inner = node.this.this if isinstance(node.this, exp.Paren) else node.this
     if isinstance(inner, (exp.Subquery, exp.Select, exp.Query)):

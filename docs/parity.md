@@ -97,7 +97,7 @@ Notes:
 
 | Area | Visual familiarity | Workflow compatibility | Cloud API integration | Local execution | Verified runtime equivalence |
 | --- | --- | --- | --- | --- | --- |
-| Sign-in, roles and warehouses | Partial | Missing | Missing | · | · |
+| Sign-in, roles and warehouses | Partial | Missing | Partial | · | · |
 | SQL worksheets | Partial | Missing | Missing | Partial | · |
 | Databases, schemas and object browser | Partial | Missing | · | · | · |
 | Snowpark | Partial | Missing | · | Missing | · |
@@ -108,6 +108,7 @@ Notes:
 Notes:
 
 - **Every area, Visual familiarity:** The Snowflake-familiar skin (Preview) gives a blue accent and Snowsight's page names on the rail; pages keep KratosForge's own layout.
+- **Sign-in, roles and warehouses, Cloud API integration:** Key-pair and programmatic access token sign-in, and a connection check of role, database, schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser sign-in and Snowflake CLI connections aren't supported yet. Against fakes, no live run yet.
 - **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.
 <!-- END GENERATED: parity -->
 
@@ -145,7 +146,7 @@ and it never raises a status. This table is generated from `PLANS` in the same m
 | Azure Databricks | Compute | C Notebooks and distributed compute | P2 | Not built yet | DBX-005 | Platform parity |
 | Azure Databricks | Asset bundles and deployment | F Source control and deployment | P1 | Cloud only | DBX-001 | Databricks and Snowflake parity |
 | Azure Databricks | Cost and DBU | G Monitoring, cost and optimization | P1 | Cloud only | DBX-006 | Optimization engine |
-| Snowflake | Sign-in, roles and warehouses | A Authentication and connectivity | P0 | Not built yet | SF-001, SF-002, PAR-003 | Platform parity |
+| Snowflake | Sign-in, roles and warehouses | A Authentication and connectivity | P0 | Cloud only | SF-001, SF-002, PAR-003 | Platform parity |
 | Snowflake | SQL worksheets | B SQL development | P0 | Simulated or validated on this PC | SF-003, PAR-002 | Platform parity |
 | Snowflake | Databases, schemas and object browser | D Data storage and catalog | P1 | Not built yet | SF-004 | Platform parity |
 | Snowflake | Snowpark | C Notebooks and distributed compute | P2 | Not built yet | SF-007 | unassigned |

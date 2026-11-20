@@ -238,9 +238,11 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   on the warehouse with no further confirm, as in a Databricks notebook. The confirm is for starting
   the session, not for each statement.
 - **Try it on this PC first.** The DuckDB engine runs Databricks SQL translated by sqlglot, so you can
-  write and test a warehouse query against local tables without starting the warehouse. Unity
-  Catalog three-part names need that catalog and schema in the local session, and Delta-only
-  commands don't run there.
+  write and test a warehouse query against local tables without starting the warehouse. The local
+  session is the catalog `main` (`workspace`, `hive_metastore` and `spark_catalog` name it too) with
+  the schema `default`, so `main.default.orders`, `USE CATALOG main`, `USE SCHEMA sales` and
+  `current_schema()` answer as on Databricks. A name in any other Unity Catalog catalog is refused by
+  name, and Delta-only commands don't run there.
 - **Busy or briefly unavailable:** checking on a statement, and cancelling one, is tried up to four
   times through throttling (HTTP 429), gateway errors (502, 503, 504) and a dropped connection,
   waiting as Databricks' `Retry-After` says (at most 30 seconds in all). A statement is sent again

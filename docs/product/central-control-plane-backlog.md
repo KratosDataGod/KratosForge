@@ -7,7 +7,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 
 ## Phase 1: Fabric foundation
 
-### CP-001 Environment manifest model and validator (P0)
+### CP-001 Environment manifest model and validator (P0) **Built** (engine only, #3110)
 - **Problem:** nothing identifies a KratosForge Environment; the Platform and the central lakehouse are configured apart (gap G1, G2).
 - **User value:** a second PC can tell for sure that what it found is the organization's environment.
 - **Evidence:** no manifest exists (`grep environment.json` finds only Fabric Environment items); `optimize/registry.py`, `central/service.py._platform_config`.
@@ -18,7 +18,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** unit tests, no network.
 - **Owner:** Central control plane thread.
 
-### CP-002 Manifest store with conditional writes (P0)
+### CP-002 Manifest store with conditional writes (P0) **Built** (engine only, #3110)
 - **Problem:** two installations writing the manifest at once could overwrite each other.
 - **User value:** safe concurrent setup and upgrade (scenario 12).
 - **Evidence:** OneLake file access exists (`onelake.FileStore`), lease pattern in `leases.py` uses ETags.
@@ -29,7 +29,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** unit tests on the local store and a faked OneLake store.
 - **Owner:** Central control plane thread.
 
-### CP-003 Provider contracts and capability declarations (P0)
+### CP-003 Provider contracts and capability declarations (P0) **Built** (engine only, #3110)
 - **Problem:** no provider-neutral contract for central storage (gap G4).
 - **User value:** Databricks and Snowflake can be added without rewriting features (scenario 9).
 - **Evidence:** `central/client.py` (`LocalPlatform`, `FabricPlatform`), `optimize/lakehouse.py` (`_Tables`), `engines/capabilities.py` (pattern to reuse).
@@ -40,7 +40,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** contract suite `test_controlplane_contract.py`.
 - **Owner:** Central control plane thread.
 
-### CP-004 Fabric discovery: find environments read-only (P0)
+### CP-004 Fabric discovery: find environments read-only (P0) **Built** (engine only, #3110)
 - **Problem:** joining finds items by name (gap G2).
 - **User value:** "Connect to existing" lists real environments the person can open, from any PC.
 - **Evidence:** `optimize_service.optimize_discover`, `fabric.list_lakehouses`, `central/setup.join`.
@@ -51,7 +51,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** fake Fabric client; assert zero write calls.
 - **Owner:** Central control plane thread.
 
-### CP-005 Fabric provisioning plan and apply (P0)
+### CP-005 Fabric provisioning plan and apply (P0) **Built** (engine only, #3121)
 - **Problem:** two separate setups (gap G3); nothing explains costs and permissions in one place.
 - **User value:** one guided "Create environment", with what will be created, what it costs and which permission each step needs, before anything happens.
 - **Evidence:** `central/setup.setup`, `optimize_service.optimize_create`, `optimize/setup.initialize`.
@@ -63,7 +63,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** fakes. Live: part of CP-012.
 - **Owner:** Central control plane thread; Lakehouse optimize co-sign for `optimize/setup` calls.
 
-### CP-006 Adopt an existing install as an environment (P0)
+### CP-006 Adopt an existing install as an environment (P0) **Built** (engine only, #3121)
 - **Problem:** existing users have a central lakehouse and/or Platform but no environment.
 - **User value:** keep every row; one confirm makes it a KratosForge Environment (scenario 11).
 - **Evidence:** `optimize/registry.py` connections, `central/service._platform_config`.
@@ -74,7 +74,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** fakes; assert the only write is the manifest path.
 - **Owner:** Central control plane thread.
 
-### CP-007 Environment compatibility check (P1)
+### CP-007 Environment compatibility check (P1) **Built** (engine only, #3121)
 - **Problem:** no one place says "this environment needs an upgrade" (gap G5).
 - **User value:** clear Upgrade required / Read-only status instead of failures.
 - **Evidence:** `core.SCHEMA_VERSION`, `optimize/setup.inspect` states.
@@ -85,7 +85,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** unit tests over inspect fixtures.
 - **Owner:** Central control plane thread.
 
-### CP-008 Environment status and offline behavior (P1)
+### CP-008 Environment status and offline behavior (P1) **Built** (engine only, #3121)
 - **Problem:** no single status; offline looks like failure.
 - **User value:** Connected, Working offline, Synchronizing, Upgrade required, Limited permissions, Connection failed, each with a next action.
 - **Evidence:** `optimize/outbox.sync_state`, `central/client` errors.
@@ -96,7 +96,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** unit tests.
 - **Owner:** Central control plane thread.
 
-### CP-009 RPC methods for the environment (P1)
+### CP-009 RPC methods for the environment (P1) **Built** (engine only, #3131)
 - **Problem:** the UI needs calls.
 - **User value:** the Settings screen can be built on stable calls.
 - **Solution:** `controlplane_service.py` mixin: `cp_status`, `cp_discover`, `cp_plan`, `cp_create`, `cp_adopt`, `cp_connect`, `cp_disconnect`, `cp_check`. Policy key `allow_central_environment` (default on) joins the policy-key list and the loosening rules where relevant.
@@ -116,7 +116,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** browser test, accessibility check.
 - **Owner:** UX thread (mockup), this thread (build).
 
-### CP-011 Environment cost beside savings (P1)
+### CP-011 Environment cost beside savings (P1) **Built** (engine only, #3137)
 - **Problem:** environment operating cost isn't shown or separated from savings (gap G6).
 - **User value:** honest net figures (scenario 10).
 - **Evidence:** `fdopt_sync`, Measured overhead rows from `optimize_service._record_overhead`.

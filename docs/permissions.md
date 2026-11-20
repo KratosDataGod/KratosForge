@@ -120,6 +120,8 @@ With Microsoft's sign-in there is nothing to roll out: people download the app a
 | Settings | **Settings > Account > App (client) ID** | One person or a pilot |
 | Built in | Repository variable `FABRIC_CLIENT_ID` (**Settings > Secrets and variables > Actions > Variables**); every build after that carries it | A fork of this repository built for one organization |
 
+A value from the environment variable, Settings or the build that isn't an app (client) ID is skipped and the next one is used. A mistyped policy value still locks the setting and is named as a policy problem.
+
 Leave all of them empty to use Microsoft's sign-in.
 
 `policy.json` can also fix the update channel, hide preview features, and say where **Report a problem** goes:

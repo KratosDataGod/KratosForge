@@ -206,7 +206,7 @@ def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
                 # Java stops on a { that isn't a repeat such as {2} or {2,5} ("Illegal repetition"); RE2 took it
                 # as the character, so rlike('a{', 'a{') was true here where Spark stops
                 raise ValueError(f"{fn}'s regular expression has a {{ that isn't a repeat such as {{2}} or {{2,5}}, so "
-                                 "nothing ran: Spark stops on it too (\"Illegal repetition\"). Write \\{ for the "
+                                 "nothing ran. Spark stops on it too (\"Illegal repetition\"). Write \\{ for the "
                                  "character {.")
             out.append(q.group())
             i = q.end()
@@ -300,6 +300,7 @@ def _empty_matches(pattern: str) -> tuple[bool, bool, bool]:
     Each anchor is taken as matching anywhere, so 'can match empty text' errs towards yes."""
     kept: list[str] = []
     anchors, in_class, i, n, start = False, False, 0, len(pattern), 0
+    unclosed = False  # a [: with no :] after it: later ones have none either, so no rescan
     while i < n:
         c = pattern[i]
         if c == "\\":
@@ -310,12 +311,13 @@ def _empty_matches(pattern: str) -> tuple[bool, bool, bool]:
             i += 2
             continue
         if in_class:
-            if c == "[" and pattern.startswith("[:", i):
+            if c == "[" and pattern.startswith("[:", i) and not unclosed:
                 end = pattern.find(":]", i + 2)
                 if end > 0:
                     kept.append(pattern[i:end + 2])
                     i = end + 2
                     continue
+                unclosed = True
             in_class = not (c == "]" and i > start)
         elif c == "[":
             in_class = True
@@ -379,12 +381,12 @@ def _refuse_empty_matches(fn: str, pattern: str, replacement: str | None = None)
         if only or replacement == "":
             return   # an empty match replaced by nothing changes nothing
         raise ValueError(f"regexp_replace can't run on this PC with a pattern that can match empty text right after "
-                         f"another match ('{pattern}'), so nothing ran: Java replaces that empty match too, and RE2, "
+                         f"another match ('{pattern}'), so nothing ran. Java replaces that empty match too, and RE2, "
                          "which runs it here, skips it. Use a pattern that always matches a character (+ in place of "
                          "*), or run it in Fabric.")
     if anchors and duckdb_major() < 2:
         raise ValueError(f"{fn} can't run on this PC with a pattern that can match empty text at an anchor or word "
-                         f"boundary ('{pattern}'), so nothing ran: this PC's DuckDB counts some of those empty "
+                         f"boundary ('{pattern}'), so nothing ran. This PC's DuckDB counts some of those empty "
                          "matches twice. Use a pattern that always matches a character, or run it in Fabric.")
 
 
@@ -497,7 +499,7 @@ def _instr(node: exp.Expression, fn: str, groups: int | None) -> exp.Expression:
     index_arg = node.args.get("position")
     index = _int(index_arg) if index_arg is not None else 0
     if index is not None and (index < 0 or (groups is not None and index > groups)):
-        raise ValueError(f"{fn} asks for group {index}, and the pattern has {_groups(groups or 0)}, so nothing ran: "
+        raise ValueError(f"{fn} asks for group {index}, and the pattern has {_groups(groups or 0)}, so nothing ran. "
                          f"Spark stops on it too where a row matches. {_use_group(groups or 0)}")
     pattern = node.expression
     written = _text(pattern)

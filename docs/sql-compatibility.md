@@ -535,7 +535,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character, and only for an `N'...'` written directly inside it: `DATALENGTH(N'ab')` is `4`, but `DATALENGTH(N'a' + N'b')` is `2` here, where T-SQL gives `4` |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
 | `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
-| `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT`, `REGEXP_INSTR` flags | `m` lets `^` and `$` match at each line and `s` lets `.` match a line break, also together (`'sm'`); of `c` and `i` the last one counts, and `c` is taken by `REGEXP_COUNT` and `REGEXP_INSTR` too. `REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm')` is true |
+| `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT`, `REGEXP_INSTR` flags | `m` lets `^` and `$` match at each line and `s` lets `.` match a line break, also together (`'sm'`). Of `c` and `i` the last one counts, and `c` is taken by `REGEXP_COUNT` and `REGEXP_INSTR` too. `REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm')` is true |
 | `REGEXP_COUNT`, `REGEXP_INSTR` | An `int`, so `REGEXP_COUNT(s, 'b') / 2` divides as whole numbers |
 
 What still differs:

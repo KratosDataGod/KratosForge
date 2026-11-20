@@ -187,7 +187,7 @@ Rules 2026.11.20.
 | SFN-028 | Runs only in Snowflake | TRUNCATE TABLE IF EXISTS: DuckDB's TRUNCATE has no IF EXISTS. |
 | SFN-029 | Runs only in Snowflake | ALTER TABLE with more than one column, and ALTER TABLE ... SWAP WITH: DuckDB's ALTER TABLE changes one column at a time and has no SWAP. |
 | SFN-030 | Runs only in Snowflake | CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits the open transaction first, and DuckDB doesn't. |
-| SFN-031 | Runs only in Snowflake | A regular expression written with a non-greedy quantifier ('*?', '+?', '??'), which Snowflake doesn't support, a backreference ('\1') in the pattern, which it doesn't support either, or a lookahead or lookbehind, which RE2 can't read. |
+| SFN-031 | Runs only in Snowflake | A regular expression written with a non-greedy quantifier ('*?', '+?', '??') or a backreference ('\1') in the pattern, which Snowflake doesn't support, or with a lookahead or lookbehind, which RE2 can't read. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value

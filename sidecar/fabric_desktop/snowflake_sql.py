@@ -1199,11 +1199,12 @@ def _rewrite_regexp_patterns(statement: exp.Expression) -> None:
         pattern = node.expression
         written = isinstance(pattern, exp.Literal) and pattern.is_string
         if written:
-            what = _unsupported_regex(pattern.name)
-            if what:
+            found = _unsupported_regex(pattern.name)
+            if found:
+                what, step = found
                 raise _Untranslatable(_refuse(
                     "SFN-031", "This regular expression",
-                    f"The pattern '{pattern.name}' uses {what}, so nothing ran. Rewrite the pattern without it.",
+                    f"The pattern '{pattern.name}' uses {what}, so nothing ran. {step}",
                     f"{_DOCS}/functions-regexp"))
         key = _REGEXP_PARAMETERS.get(type(node))
         if key is None:
@@ -1218,24 +1219,29 @@ def _rewrite_regexp_patterns(statement: exp.Expression) -> None:
         inline_flags(node, key)
 
 
-def _unsupported_regex(pattern: str) -> str | None:
-    """What in ``pattern`` neither Snowflake nor RE2 reads, named for the user, or None."""
+_REWRITE = "Rewrite the pattern without it."
+
+
+def _unsupported_regex(pattern: str) -> tuple[str, str] | None:
+    """What in ``pattern`` neither Snowflake nor RE2 reads, named for the user, with the step to take, or None."""
     i, n, in_class, class_start, quantified = 0, len(pattern), False, 0, False
+    unclosed: set[str] = set()  # a [: (or [. [=) with no :] after it: later ones have none either, so no rescan
     while i < n:
         c = pattern[i]
         if c == "\\":
             d = pattern[i + 1:i + 2]
             if d and d in "123456789" and not in_class:
-                return (f"a backreference ('\\{d}'), which Snowflake's regular expressions don't support "
-                        "(a replacement can use one)")
+                return ((f"a backreference ('\\{d}'), which Snowflake's regular expressions don't support "
+                        "(a replacement can use one)"), _REWRITE)
             i, quantified = i + 2, False
             continue
         if in_class:
-            if c == "[" and pattern[i + 1:i + 2] in (":", ".", "="):  # [:alpha:] inside a class
-                end = pattern.find(pattern[i + 1] + "]", i + 2)
+            if c == "[" and pattern[i + 1:i + 2] in (":", ".", "=") and pattern[i + 1] not in unclosed:
+                end = pattern.find(pattern[i + 1] + "]", i + 2)  # [:alpha:] inside a class
                 if end > 0:
                     i = end + 2
                     continue
+                unclosed.add(pattern[i + 1])
             if c == "]" and i > class_start:
                 in_class = False
             i += 1
@@ -1246,10 +1252,11 @@ def _unsupported_regex(pattern: str) -> str | None:
             class_start = i  # a ] right here is a character of the class
             continue
         if pattern.startswith(("(?=", "(?!", "(?<=", "(?<!"), i):
-            return "a lookahead or lookbehind ('(?=', '(?!', '(?<=', '(?<!'), which RE2, which runs it here, can't read"
+            return (("a lookahead or lookbehind ('(?=', '(?!', '(?<=', '(?<!'), which RE2, the engine that runs it here, "
+                    "can't read"), _REWRITE)
         if c == "?" and quantified:
-            return ("a non-greedy quantifier ('*?', '+?', '??'), which Snowflake's regular expressions don't support. "
-                    "Use a narrower class, such as [^,]* in place of .*?")
+            return ("a non-greedy quantifier ('*?', '+?', '??'), which Snowflake's regular expressions don't support",
+                    "Use a narrower class, such as [^,]* in place of .*?.")
         if c == "{" and (quantifier := _QUANTIFIER.match(pattern, i)):
             i, quantified = quantifier.end(), True
             continue
@@ -2412,8 +2419,8 @@ CATALOG = (
     ("SFN-030", "Runs only in Snowflake", ("CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits "
                 "the open transaction first, and DuckDB doesn't.")),
     ("SFN-031", "Runs only in Snowflake", ("A regular expression written with a non-greedy quantifier ('*?', '+?', "
-                "'??'), which Snowflake doesn't support, a backreference ('\\1') in the pattern, which it doesn't "
-                "support either, or a lookahead or lookbehind, which RE2 can't read.")),
+                "'??') or a backreference ('\\1') in the pattern, which Snowflake doesn't support, or with a "
+                "lookahead or lookbehind, which RE2 can't read.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 

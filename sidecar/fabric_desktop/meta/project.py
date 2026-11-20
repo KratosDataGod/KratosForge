@@ -929,3 +929,21 @@ def impact(project: Project, entity: str) -> list[str]:
                     nxt.append(n)
         frontier = nxt
     return out
+
+
+def prod_name(project: Any) -> str:
+    """What a person types to confirm a change to Prod: its workspace's name, else its id (WR-250)."""
+    cfg = project.environments.get("prod", {}) or {}
+    return str(cfg.get("workspace_name") or cfg.get("workspace_id") or "Prod")
+
+
+def prod_typed(project: Any, env: str, confirm_name: str, doing: str, nothing: str) -> None:
+    """Refuse a change to Prod unless ``confirm_name`` is its workspace's name exactly, as Prod writes ask
+    (WR-250, the product owner's card 2026-11-19). ``confirm_name`` is a guard parameter, so the audit line
+    is written before the change runs (audit.fails_closed)."""
+    if env != "prod":
+        return
+    name = prod_name(project)
+    if confirm_name != name:
+        raise PermissionError(f"{name} is the Prod workspace, so {doing} runs only after you type its name to confirm. "
+                              f"{nothing}")

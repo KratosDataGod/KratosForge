@@ -52,7 +52,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
            "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_set_delta_features", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
-           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_impact", "meta_edit_impact", "meta_keys", "meta_set_keys_workspace",
+           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_impact", "meta_edit_impact", "meta_openlineage_preview", "meta_openlineage_export", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_source_read", "meta_sources_move", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "notebook_fabric_step_check", "notebook_vorder_cell", "run_notebook_fabric_step", "notebook_fabric_step_result", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
@@ -124,6 +124,11 @@ METHODS |= INTEGRATION_METHODS
 from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
 
 METHODS |= LOCAL_DATA_METHODS
+
+# The KratosForge Environment (controlplane_service.py, CP-009).
+from .controlplane_service import METHODS as CONTROL_PLANE_METHODS  # noqa: E402
+
+METHODS |= CONTROL_PLANE_METHODS
 
 # Optimize's shared lakehouse (optimize_service.py).
 from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402

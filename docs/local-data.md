@@ -43,13 +43,14 @@ Delta tables with deletion vectors or column mapping are read correctly ([Delta 
 
 A project writes Delta tables into its own `Tables` folder, one folder per table, as a schema-enabled lakehouse does (`Tables\dbo\sales`). They are views in the project like any other table, and every write is one Delta commit made with delta-rs.
 
+<!-- example: runs -->
 ```sql
 -- Create one (fails if it exists; IF NOT EXISTS skips it, OR REPLACE gives it a new schema)
 CREATE TABLE sales USING DELTA PARTITIONED BY (year) AS
 SELECT *, year(order_date) AS year FROM dbo.orders;
 
 INSERT INTO sales SELECT * FROM dbo.new_orders;      -- add rows
-INSERT INTO sales BY NAME SELECT amount, id FROM t;  -- match columns by name, not position
+INSERT INTO sales BY NAME SELECT year, amount, order_date, id FROM dbo.new_orders;  -- match columns by name, not position
 INSERT OVERWRITE sales SELECT * FROM sales WHERE year >= 2025;  -- replace every row
 ```
 
@@ -70,7 +71,7 @@ Times are UTC. A time picks the last version committed at or before it. To resto
 - Unsigned integers widen to the next signed type (`UTINYINT` to `SMALLINT`, `UBIGINT` to `DECIMAL(20,0)`).
 - Types Delta has no column for are refused with what to cast them to: `TIME`, `INTERVAL`, decimals over 38 digits.
 - Column names can't have spaces or `,;{}()=`, and can't differ only in case.
-- A table whose own protocol is outside that profile (for example one written elsewhere with deletion vectors) isn't written to.
+- A table whose own protocol is outside that profile (for example one with column mapping by ID or V2 checkpoints) isn't written to.
 
 **Schemas.** Rows added to a table must have its columns. `INSERT` matches them by position, as SQL does; `BY NAME` and the `local_write_delta` call match them by name. A value goes into another column type of the same kind (a number into any number column, a date into a timestamp column); one that doesn't fit, such as 70000 in a `SMALLINT`, stops the write. New or missing columns are a schema change: `local_write_delta` with `schema_mode = "merge"` adds them, and `CREATE OR REPLACE TABLE` (or `schema_mode = "overwrite"`) gives the table a new schema and partitioning.
 
@@ -82,18 +83,19 @@ Times are UTC. A time picks the last version committed at or before it. To resto
 
 **Changing rows: MERGE, UPDATE and DELETE.** The project's Delta tables take the statements Fabric and Databricks notebooks use, in either dialect, each in one commit:
 
+<!-- example: runs -->
 ```sql
 MERGE INTO customers AS t USING updates AS s ON t.id = s.id
   WHEN MATCHED AND s.deleted THEN DELETE
   WHEN MATCHED THEN UPDATE SET *                  -- or SET t.name = s.name, ...
   WHEN NOT MATCHED THEN INSERT *                  -- or INSERT (id, name) VALUES (s.id, s.name)
-  WHEN NOT MATCHED BY SOURCE THEN DELETE;         -- rows the source no longer has
+  WHEN NOT MATCHED BY SOURCE AND t.region = 'EU' THEN DELETE;  -- EU rows the source no longer has
 UPDATE customers SET spend = spend * 1.1 WHERE region = 'EU';
 DELETE FROM customers WHERE last_order < '2020-01-01';
 ```
 
 - The source (`USING`) is any query or table in the project, and can read a table as it was (`VERSION AS OF`). Column names match without regard to case, as in Spark.
-- As in Delta, a table row that `ON` matches with more than one source row stops the MERGE with Delta's error, `[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE]`, and nothing changes. As in Delta, this counts every source row `ON` matches, whatever a `WHEN MATCHED AND ...` condition says, and `WHEN NOT MATCHED BY SOURCE` clauses count too. A MERGE that only inserts, or whose only `WHEN MATCHED` clause is a plain `DELETE`, is let through, as Delta lets it through. Which source row would win is undefined, so keep one row per key first (`QUALIFY row_number() OVER (PARTITION BY id ORDER BY updated DESC) = 1`). It is checked for any `ON`. A database table (one made with `CREATE TABLE` without `USING DELTA`) is checked by T-SQL's rule instead, in every dialect: only the source rows a `WHEN MATCHED` clause would act on count. See [Local T-SQL changes](sql-compatibility.md#local-t-sql-changes).
+- As in Delta, a table row that `ON` matches with more than one source row stops the MERGE with Delta's error, `[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE]`, and nothing changes. As in Delta, this counts every source row `ON` matches, whatever a `WHEN MATCHED AND ...` condition says, and `WHEN NOT MATCHED BY SOURCE` clauses count too. A MERGE that only inserts, or whose only `WHEN MATCHED` clause is a plain `DELETE`, is let through, as Delta lets it through. Which source row would win is undefined, so keep one row per key first (`QUALIFY row_number() OVER (PARTITION BY id ORDER BY updated DESC) = 1`). It is checked for any `ON`. A database table (one made with `CREATE TABLE` without `USING DELTA`) is checked by T-SQL's rule instead, in every dialect: only the source rows a `WHEN MATCHED` clause would act on count. See [Local T-SQL changes](sql-compatibility.md#local-t-sql-changes). A MERGE written in T-SQL follows T-SQL's rule instead, on a Delta table too, as a warehouse's tables are Delta tables. See [Local T-SQL MERGE](sql-compatibility.md#local-t-sql-merge).
 - An `UPDATE` or `DELETE` without a `WHERE` on its columns (no `WHERE`, or one such as `WHERE true`) changes every row, and so does a `MERGE` whose `WHEN NOT MATCHED BY SOURCE` deletes or updates with no condition (every row the source lacks: all of them, if the source is empty). None of these run from a query. Run them with `local_change_delta` and `confirm`, or add a condition.
 - A change that fails commits nothing, and the error says so. If another program committed to the table after the change read it, the change stops and says another writer changed the table; the table then shows that program's change. Run the change again to apply yours on top.
 - `local_change_delta` with `dry_run` runs the statement on a copy of the table (its log copied, its data files linked, deleted afterwards) and returns exactly how many rows it would insert, update and delete. The table isn't touched.
@@ -126,7 +128,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `code LIKE '[A-C]1%'`, `code LIKE '[^0-9]%'` | Character ranges match as in T-SQL (`[%]` and `[_]` match the character itself, the `ESCAPE` character works inside the brackets too, and a range written backwards such as `[z-a]` matches nothing). A pattern that isn't written in the query, such as `LIKE other_column`, matches as DuckDB's `LIKE`, with no ranges, and the result's `translation.notes` says so |
 | `name = 'Ann'`, `<>`, `<`, `IN (...)` on text | Trailing spaces don't count, as in T-SQL: `'Ann  ' = 'Ann'` is true. Leading spaces and case still count. An equality between a column and a value still lets a Parquet or Delta file skip row groups |
 | `name + '!'` on text columns | The two strings joined |
-| `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |
+| `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error). In a comparison with an integer or a float the text is converted as a `CAST` would, so `2 = '1.5'` is an error |
 | `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
 | `CAST(0.1 AS FLOAT)`, `FLOAT(24)`, `REAL` | `FLOAT` (and `FLOAT(25)` to `FLOAT(53)`) is an 8-byte float, `REAL` and `FLOAT(1)` to `FLOAT(24)` 4 bytes, as SQL Server stores them |
 | `CAST(3.7 AS INT)`, `CONVERT(INT, -3.7)` | `3`, `-3`: a decimal or float cast to any integer type is cut toward zero, as T-SQL does (DuckDB rounds). Casts to `DECIMAL` still round |
@@ -183,6 +185,7 @@ A project's transformations are SQL files in `transforms\<schema>\<name>.sql`, o
 
 **Settings** are comment lines at the top of a file:
 
+<!-- example: illustrative -->
 ```sql
 -- dialect: spark
 -- materialize: delta

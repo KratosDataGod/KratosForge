@@ -948,13 +948,15 @@ async function renderSettings() {
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
   // Connections (connections.js) is a tab too: Databricks and Snowflake connection profiles.
-  const tab = previewShown() && ["integrations", "connections"].includes(state.settingsTab) ? state.settingsTab : "general";
+  // Environment (kf-environment.js) is the KratosForge Environment this PC uses (CP-010).
+  const tab = previewShown() && ["integrations", "connections", "environment"].includes(state.settingsTab) ? state.settingsTab : "general";
   const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
-    [["general", "General"], ["connections", "Connections"], ["integrations", "Integrations"]].map(([id, label]) =>
+    [["general", "General"], ["connections", "Connections"], ["environment", "Environment"], ["integrations", "Integrations"]].map(([id, label]) =>
       h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
         label, id === "general" ? null : previewTag()))) : null;
   const integrations = h("div", { class: "integrations" });
   const connections = h("div", { class: "connections" });
+  const environment = h("div", { class: "kf-environment" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
   const platform = previewShown() ? h("section", { class: "card pad platform-link" },
     h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
@@ -963,13 +965,17 @@ async function renderSettings() {
   // Usage and Notifications are read above: whoever moved on to another page meanwhile stays there.
   if (state.view !== "settings") return;
   setView(settingsPageView(pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")),
-    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, editor, previews, usage, platform, notify, about, advanced].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : tab === "environment" ? environment : [account, updates, display, editor, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
   if (tab === "connections") {
     renderConnectionsTab(connections);
+    return;
+  }
+  if (tab === "environment") {
+    renderEnvironmentTab(environment);
     return;
   }
   const optimize = previewShown() ? await optimizeSettingsSection() : null;

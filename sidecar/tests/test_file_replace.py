@@ -148,3 +148,27 @@ def test_a_saved_sql_template_keeps_lf_and_is_on_disk_before_it_is_swapped_in(tm
     SqlTemplatesMixin._write_over(target, "-- a\nselect 1\n")
     assert events == ["fsync", "replace"] and target.read_bytes() == b"-- a\nselect 1\n"
     assert [p.name for p in tmp_path.iterdir()] == ["t.sql"]
+
+
+def test_unlink_waits_out_a_brief_hold_then_says_so(tmp_path, monkeypatch):
+    from pathlib import Path
+    monkeypatch.setattr(jsonfile.time, "sleep", lambda s: None)
+    target, real, refused = tmp_path / "copy.json", Path.unlink, []
+    target.write_text("{}")
+
+    def held(self, missing_ok=False):
+        if self == target and len(refused) < limit[0]:
+            refused.append(1)
+            raise PermissionError(32, "being used by another process")
+        return real(self, missing_ok=missing_ok)
+    limit = [jsonfile.REPLACE_ATTEMPTS - 1]
+    monkeypatch.setattr(Path, "unlink", held)
+    jsonfile.unlink(target)  # refused on every try but the last
+    assert not target.exists() and len(refused) == jsonfile.REPLACE_ATTEMPTS - 1
+    jsonfile.unlink(target)  # already gone: nothing to do
+    target.write_text("{}")
+    refused.clear()
+    limit[0] = jsonfile.REPLACE_ATTEMPTS
+    with pytest.raises(PermissionError):
+        jsonfile.unlink(target)
+    assert target.exists()

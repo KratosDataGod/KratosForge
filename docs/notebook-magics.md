@@ -10,11 +10,13 @@ covers the rest of the notebook.
 A `%%sql` cell shows its result as a table, as in Fabric. It also keeps that result in a variable
 called `_sqldf`, as Databricks does, so the next Python cell can carry on from it:
 
+<!-- example: illustrative -->
 ```sql
 %%sql
 SELECT region, sum(amount) AS total FROM dbo.sales GROUP BY region
 ```
 
+<!-- example: illustrative -->
 ```python
 top = _sqldf.orderBy("total", ascending=False).limit(3)
 display(top)
@@ -28,6 +30,7 @@ display(top)
 - To run one query inside a Python cell, put `%sql` in front of it. Assign it to keep the result,
   or put it on the cell's last line to show it:
 
+<!-- example: illustrative -->
 ```python
 df = %sql SELECT * FROM dbo.sales WHERE region = 'West'
 print(df.count())
@@ -82,6 +85,7 @@ A line that starts with `!` runs in this PC's shell, as in IPython, Fabric and D
 notebooks. Output appears in the cell as it comes, and **Cancel** ends the command and everything
 it started.
 
+<!-- example: illustrative -->
 ```python
 !pip list
 files = !dir /b Files
@@ -169,6 +173,7 @@ Keep helper code in a `.py` file (for example in the notebook's resources, or a 
 `sys.path`), import it, and turn on autoreload. When you edit the file, the next cell uses the new
 code without restarting the session:
 
+<!-- example: illustrative -->
 ```python
 %load_ext autoreload
 %autoreload 2
@@ -199,6 +204,7 @@ defining `name`.
 `%run` runs another notebook in this one, so its functions and variables are yours afterwards.
 Both products' ways of passing values work:
 
+<!-- example: illustrative -->
 ```python
 %run Load sales {"day": "2026-01-01", "full": true}
 %run ./etl/Load sales $day="2026-01-01" $full="true"
@@ -219,6 +225,7 @@ Both products' ways of passing values work:
 variables are yours afterwards. `%run -b file.sql` runs a SQL file as a `%%sql` cell would, and
 leaves a query's result in `_sqldf`.
 
+<!-- example: illustrative -->
 ```python
 %run -b helpers.py
 %run -b helpers.py {"factor": 2}     # set as variables before the file runs
@@ -284,6 +291,7 @@ Those engines are in Fabric, so on this PC the cell is checked instead of run:
 [environment](notebooks.md#notebook-environments-preview), never into the app's own Python, and the cell waits
 until pip finishes:
 
+<!-- example: illustrative -->
 ```python
 %pip install openpyxl==3.1.5 rich
 %pip install -r builtin/requirements.txt    # a file in the notebook's resources

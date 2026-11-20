@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-19",
+  "updated": "2026-11-20",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -3574,7 +3574,8 @@
         "dataops.js calls meta_lineage",
         "PR #124 merged 2026-10-17; awaiting implementation review",
         "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Columns added by Python code can't be traced.",
-        "Lineage impact: what a column change breaks, before you make it (#2918, Preview) on main at 7be2906d"
+        "Lineage impact: what a column change breaks, before you make it (#2918, Preview) on main at 7be2906d",
+        "Export lineage as OpenLineage run events (#2949, Preview) on main at bdb6f251"
       ],
       "features": [
         "FEAT-META-17"
@@ -3601,7 +3602,8 @@
       "state": "Accepted",
       "prs": [
         124,
-        2918
+        2918,
+        2949
       ],
       "computed": {
         "benefit": 3.4,
@@ -4214,7 +4216,8 @@
         "No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)",
         "MCP server: read-only tools for metadata lineage, runs and quality results (#2907) and for local data projects, tables and Delta history (#2958) on main at 7be2906d",
         "Docs say what a connected AI tool can read and what stays on this PC (#2976); registry-wide MCP tool guard tests and a generated tools page (#3006) on main at ad1ac4cf",
-        "MCP server multi-client isolation and framing fuzz (#3057); every tool's limits tested and a tighter audit execution id (#3071) on main at 1719d5db"
+        "MCP server multi-client isolation and framing fuzz (#3057); every tool's limits tested and a tighter audit execution id (#3071) on main at 1719d5db",
+        "The AI docs' examples run as tests, and the audit execution id's shape is checked everywhere (#3087) on main at 75bf5b39"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -4258,7 +4261,8 @@
         2976,
         3006,
         3057,
-        3071
+        3071,
+        3087
       ],
       "external_dependencies": [
         "Overlaps HD-006 run-notebook approval shows and binds the code (P0); HD-014 workspace limits on every capability (Codebase audit and hardening backlog, PB-101)"
@@ -4427,7 +4431,8 @@
         "FOR TIMESTAMP AS OF reads local Delta tables as they were (#2865); a folder whose name contains _delta_log lists its files (#2890) on main at 8838a247",
         "Delta tables with deletion vectors and column mapping read correctly (#2924); a local Delta write killed at each commit step, and Compact clears a staged _last_checkpoint (#2972) on main at 7be2906d",
         "Writes to Delta tables use deletion vectors and column mapping by default, and a refused table names the reader that can't read it (#2971, the product owner's typed 2026-11-17 'new delta features should be on by default') on main at ad1ac4cf",
-        "The local table list doesn't wait for a running query (#3045) on main at 1719d5db"
+        "The local table list doesn't wait for a running query (#3045) on main at 1719d5db",
+        "The next statement reads another writer's commit to a project Delta table (#3075, WR-243); change data feed reads answer as Databricks documents (#3076, WR-317) on main at 75bf5b39"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4570,7 +4575,9 @@
         2924,
         2971,
         2972,
-        3045
+        3045,
+        3075,
+        3076
       ]
     },
     {
@@ -4635,7 +4642,9 @@
         "Mutation batches 81 to 87 and the mutation tool stops when unmutated tests fail (#2902); every UI Fabric write checked against the engine's list (#2880, #2891); heartbeat test fix (#2905); editor parity docs at 92% (#2909) on main at 8838a247",
         "Differential tests against Spark 3.5.3 and documented rules (#2921); mutation batches 88 to 90; path and concurrency tests (#2950, #2963, #2970); DuckDB 2.0 lane fix (#2953); editor parity notebook score 96% (#2908) on main at 7be2906d",
         "Mutation batches 91 to 93; tests for file locks, the kernel process, OneLake upload retries and the Ossie converter (#3022, #3023, #2987, #3025); accessibility audit of every page with three keyboard fixes (#3016) on main at ad1ac4cf",
-        "Mutation batches 94 to 148 (#3037, #3040); branch coverage tests (#3060, #3062); fuzzing of readers and settings files (#3030, #3026); keyboard-only task tests (#3055); editor parity SQL 93% (#2956); main fixed (#3078) on main at 1719d5db"
+        "Mutation batches 94 to 148 (#3037, #3040); branch coverage tests (#3060, #3062); fuzzing of readers and settings files (#3030, #3026); keyboard-only task tests (#3055); editor parity SQL 93% (#2956); main fixed (#3078) on main at 1719d5db",
+        "Mutation batches 109 and 151 to 170 (#3063, #3041); browser tests for 14 pages with four UI fixes (#3092); screen reader announcements and reduced-motion audit (#3094); Spark SQL parser fuzzing (#3089); coverage and test fixes (#3061, #3082, #3104); sqlglot floor 30.23 (#3095); DuckDB 2 lane fix (#3079) on main at 75bf5b39",
+        "Mutation batches 171 to 196 (#3084, #3108, #3099); line and branch coverage for 31 engine modules (#3117, #3123); test stability fixes (#3115, #3116, #3124, #3130, #3134) on main at bdb6f251"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5199,10 +5208,31 @@
         3030,
         3037,
         3040,
+        3041,
         3055,
         3060,
+        3061,
         3062,
-        3078
+        3063,
+        3078,
+        3079,
+        3082,
+        3084,
+        3089,
+        3092,
+        3094,
+        3095,
+        3099,
+        3103,
+        3104,
+        3108,
+        3115,
+        3116,
+        3117,
+        3123,
+        3124,
+        3130,
+        3134
       ],
       "issues": [
         910,
@@ -5367,7 +5397,9 @@
         "Spark on this PC gives Spark's answers for regular expressions and strings (#2851), aggregates (#2857), arrays, maps and generators (#2864, #2879), window functions (#2886) and ANSI-off casts with Spark's decimal types on the DuckDB engine (#2894); MERGE's one-match rule checked on every path and replaceWhere runs locally (#2900); smaller fixes #2868, #2873, #2877, #2883, #2884, #2906 on main at 8838a247",
         "Notebook debugger: saved breakpoints, Debug from here (#2914), hardening (#2945), Preview; Spark SQL built-ins fixed where differential tests found silent wrong answers (#2933), try_to_date refused by name (#2966) on main at 7be2906d",
         "Spark SQL on this PC answers as Spark 3.5 does for JSON (#2973), hashing and encoding (#2980), session time zone (#2995) and initcap, soundex, trunc, make_date, sqrt (#2931, #2988); pandas_udf arrays and datetimes (#2991, #3028) on main at ad1ac4cf",
-        "Spark SQL whole-number arithmetic wraps as Spark does (#3031, WR-116) and nested text functions translate (#3046); NB003 accepts collect after aggregating (#3054); the notebook debugger survives malformed messages and a dead process (#3011) on main at 1719d5db"
+        "Spark SQL whole-number arithmetic wraps as Spark does (#3031, WR-116) and nested text functions translate (#3046); NB003 accepts collect after aggregating (#3054); the notebook debugger survives malformed messages and a dead process (#3011) on main at 1719d5db",
+        "Spark functions listed Not checked are value-checked or refused (#3074, WR-122); array and string edges (#3050), SET TIME ZONE (#3073, WR-120), nested calls read once (#3069); silent wrong answers in double rounding and text-to-number comparisons fixed across Spark, T-SQL and Snowflake (#3101, WR-250 to WR-254); debugger soak hardening (#3090) on main at 75bf5b39",
+        "Spark SQL math edges (#3120, WR-116), instr, locate and concat_ws (#3132); pandas_udf numbers keep their rows beside a null (#3118) on main at bdb6f251"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5606,7 +5638,16 @@
         3028,
         3031,
         3046,
-        3054
+        3050,
+        3054,
+        3069,
+        3073,
+        3074,
+        3090,
+        3101,
+        3118,
+        3120,
+        3132
       ]
     },
     {
@@ -5622,7 +5663,9 @@
         "Plan merged (#1708): what's merged, what's left, the audit's four gaps, and no CU savings claim without a measured baseline; results wait on this PC when the lakehouse can't be reached (#1726, #1733) on main at 5f8144f7",
         "Estate X-ray: tick small-files findings and Optimize them together (#2425); Optimize and Vacuum under concurrency in real processes, and VACUUM and table retention refuse less than 7 days (#2428, #2468) on main at 47416473",
         "Optimization engine: assess a workspace or capacity for duplicate work and full refreshes (#2217, Preview), and share an assessment to the central Optimize lakehouse behind one confirm (#2593, #2607) on main at af7d786b",
-        "Extended by PB-137 (Enterprise Savings Intelligence) and PB-138 (Fabric Excellence Assessment), each with its own plan (#2940, #2939) on main at 7be2906d"
+        "Extended by PB-137 (Enterprise Savings Intelligence) and PB-138 (Fabric Excellence Assessment), each with its own plan (#2940, #2939) on main at 7be2906d",
+        "Monthly figures computed from unrounded values; pipeline activities keep policy and dependsOn (#3098) on main at 75bf5b39",
+        "A job can V-Order its table in Fabric after it publishes, once the capacity check allows it (#3096) on main at bdb6f251"
       ],
       "features": [
         "FEAT-ADM-01"
@@ -5679,7 +5722,9 @@
         2428,
         2468,
         2593,
-        2607
+        2607,
+        3096,
+        3098
       ]
     },
     {
@@ -5773,7 +5818,9 @@
         "Local T-SQL matches a Fabric Warehouse or refuses by name: COPY INTO, BULK INSERT and OPENROWSET (#2847), data types (#2870), procedures and functions (#2874), clones and snapshots (#2888), table-valued forms (#2898); exports keep exact values (#2861) and large results never come out short without saying so (#2887) on main at 8838a247",
         "SQL page peek definition (Alt+F12) and F12 to warehouse procedures and functions (#2915); local T-SQL N'...' text (#2925), CTEs (#2954), hints, labels and statistics (#2965); CSV exports guard against formula cells (#2932, the product owner's card 2026-11-17) on main at 7be2906d",
         "SQL page script splitting and stop/restart pinned by tests (#2943); result grid follow-ups (#3004); local T-SQL FORMAT and PARSE (#2952), a named write-write race (#2981), SPACE/REPLICATE, ASCII/UNICODE/CHAR edges (#2978, #3007), TOP PERCENT checks (#2992) on main at ad1ac4cf",
-        "Local T-SQL: wide tables and long values (#2999, WR-235), SQL Server's own missing-object messages (#2993, WR-233), CHAR/SPACE/REPLICATE arguments (#3043) on main at 1719d5db"
+        "Local T-SQL: wide tables and long values (#2999, WR-235), SQL Server's own missing-object messages (#2993, WR-233), CHAR/SPACE/REPLICATE arguments (#3043) on main at 1719d5db",
+        "Local T-SQL: SQL Server error numbers and severity (#2996, WR-234), a fuzzed splitter (#3067, WR-236), long leading-zero literals (#3081) on main at 75bf5b39",
+        "T-SQL transactions: a failed change keeps nothing, on a warehouse and on this PC (#3135, WR-245); UPPER keeps ß, table PRIMARY KEY, CONVERT of a TIME with a style (#3058) on main at bdb6f251"
       ],
       "features": [
         "FEAT-FAB-11",
@@ -5910,10 +5957,15 @@
         2981,
         2992,
         2993,
+        2996,
         2999,
         3004,
         3007,
-        3043
+        3043,
+        3058,
+        3067,
+        3081,
+        3135
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -6271,7 +6323,9 @@
         "#599 merged, vendored converter at 82b9eff",
         "TMDL to and from Apache Ossie on this PC, nothing dropped silently (#2592) on main at af7d786b",
         "Save an Ossie file as TMDL in the project on this PC (#2910, slice 2); vendored converter round-trip tests (#3025) on main at ad1ac4cf",
-        "Semantic model card: Ossie file to TMDL and the Round-trip check (#3039, slice 3); randomized hostile round-trip tests and the bugs they found (#3064) on main at 1719d5db"
+        "Semantic model card: Ossie file to TMDL and the Round-trip check (#3039, slice 3); randomized hostile round-trip tests and the bugs they found (#3064) on main at 1719d5db",
+        "TMDL cultures round-trip, and Ossie to TMDL keeps culture files it can't read (#3077) on main at 75bf5b39",
+        "Ossie keeps what the file doesn't set, with a conversion fidelity report, schema validation and version profiles (#3107, OSSIE-004a, 003a, 003b) on main at bdb6f251"
       ],
       "features": [
         "FEAT-META-19",
@@ -6309,7 +6363,9 @@
         2592,
         2910,
         3039,
-        3064
+        3064,
+        3077,
+        3107
       ],
       "mandatory": "none",
       "computed": {
@@ -6812,7 +6868,10 @@
         3018,
         3020,
         3047,
-        3048
+        3048,
+        3065,
+        3106,
+        3133
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6833,7 +6892,9 @@
         "Parity follow-ups (#2858), Snowflake ARRAY and OBJECT columns and casts (#2860), Databricks try_divide of decimals and decimal sum overflow (#2896) on main at 8838a247",
         "Snowflake statements: MERGE duplicates, VARIANT, PIVOT names and variables (#2920), POSITION and LPAD edges (#2960); Databricks SQL table statements (#2930, #2959) on main at 7be2906d",
         "Snowflake functions: value checks, ARRAY_INSERT, SAMPLE (#3015) and eight documented edge rules (#3020); Databricks table statements: generated columns, identity check, sequence cleanup (#2994) on main at ad1ac4cf",
-        "Databricks SQL statements (#3018) and notebook magics (#3047, WR-311) answer as documented or are refused by name; Snowflake ARRAY and VARIANT show as JSON (#3048, WR-312) on main at 1719d5db"
+        "Databricks SQL statements (#3018) and notebook magics (#3047, WR-311) answer as documented or are refused by name; Snowflake ARRAY and VARIANT show as JSON (#3048, WR-312) on main at 1719d5db",
+        "Snowflake SQL statements answer as documented or are refused by name (#3065, WR-313); dbutils answers as the Databricks reference documents and notebook output redacts secret values (#3106, WR-315) on main at 75bf5b39",
+        "Snowflake TO_TIMESTAMP_NTZ and TO_TIMESTAMP of a column answer by the value's type (#3133) on main at bdb6f251"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -7065,7 +7126,9 @@
         "Untested Fabric writes are tagged Preview and every Fabric write is guarded (#2875); engine methods with no screen wait for a recorded go-ahead (#2871); fullmatch checks finished (#2853, #2859, #2869); container free memory counts inactive file cache (#2903); a build-time advisory allowed to 2026-12-17 (#2897) on main at 8838a247",
         "Notebook cells wait for the typed name before changing or overwriting a Prod-marked workspace (#2929, #2951, the product owner's card 2026-11-17); approvals and notices are atomic and audited (#2926, #2927); app update and Windows folder hardening (#2917, #2948, #2961); Optimize, Vacuum and Z-Order failure paths recorded (#2916); settings history prompt fixed (#2942) on main at 7be2906d",
         "A delete, removed access or replace go-ahead runs only once audited (#3008); notices never sent twice (#3032); a guard over every policy-lockable setting (#2946); Maintain's Optimize stops on a Blocked capacity (#2947); a refused Windows save names the program holding the file (#2974) on main at ad1ac4cf",
-        "Prod schedules and agent Prod jobs write their started line first (#3068); audit trail tamper tests (#3044); retention purges keep the record at the limit (#3051); Windows hardening for read-only saves, network paths and clock changes (#3012); quiet hours refuse bad times (#3042); Optimize asks first on a capacity warning (#3038) on main at 1719d5db"
+        "Prod schedules and agent Prod jobs write their started line first (#3068); audit trail tamper tests (#3044); retention purges keep the record at the limit (#3051); Windows hardening for read-only saves, network paths and clock changes (#3012); quiet hours refuse bad times (#3042); Optimize asks first on a capacity warning (#3038) on main at 1719d5db",
+        "Every Prod write path listed with its guard, two gaps closed (#3100, WR-248); Prod PC schedules decide fail-closed before the overlap lock (#3091); the audit trail's end anchored in the Windows event log (#3088); a locked alerts outbox never sends twice (#3072); Windows hardening for failed updates and power cuts (#3086) on main at 75bf5b39",
+        "Promote, rollback and restore wait for the Prod workspace's typed name (#3114, WR-250), also for a workspace another project named Prod (#3129, WR-251); Save as table in Prod asks for the name (#3111, WR-249); every setting classed loosening or restricting, and bad policy fails closed (#3125); notices not resent after a 5xx that may have arrived (#3126); VACUUM and OPTIMIZE clock-skew and commit-race hardening (#3093, #3127) on main at bdb6f251"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -7311,7 +7374,19 @@
         3042,
         3044,
         3051,
-        3068
+        3068,
+        3072,
+        3086,
+        3088,
+        3091,
+        3093,
+        3100,
+        3111,
+        3114,
+        3125,
+        3126,
+        3127,
+        3129
       ],
       "issues": [],
       "computed": {
@@ -7728,7 +7803,8 @@
         "Owner scores (Data mesh, 2026-11-07, from the code on main and the Wave 2 reviews; they replace values copied from PB-052): developer value 2, product teams set a promise in the product dialog and readers open a Status view, not daily work for most developers; CU reduction 1, no Fabric compute moves, and status reports add a UDF_Platform call only when a status changes (incident_service._report_product_status); enterprise value 4, promises, Red/Amber/Green status and a change window are governance signals buyers ask for, but all are Preview, warn only and not a rollout condition; differentiation 3, UNVERIFIED, COMPETITIVE_CAPABILITY_MATRIX.md has no row for data product promises or status; strategic alignment 3, data mesh governance supports deploying to Fabric but isn't the local develop-and-run core; complexity 3, five PRs adding catalog.product.promise and catalog.product_status, a promise incident kind, platform operations and screens on three pages; risk 3, writes are limited to new catalog rows behind require_member and changes only warn, but the new UDF_Platform operations haven't run on a tenant and core.py needs Finish or repair",
         "Implementation review docs/product/reviews/PB-130-promises.md recommends Accept with documented limitations: the screens are Preview and untested on a tenant, Status is only as current as the team's own incident check, and the change window advises without blocking. 408 engine tests and 18 browser tests pass on main at 56e3826b",
         "Implementation review docs/product/reviews/PB-130-promises.md: Accepted with Documented Limitations (Chris chose 'Accept with limits' on the decision card, 2026-11-07 13:17 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpTcvHfkEFgjqcbKt2fwWMst); limitations: all three screens are Preview and untested on a Fabric tenant; Status is only as current as the team's own incident check; the change window warns and never blocks a promote",
-        "Data product and link names, and integration patterns, checked as they are used (#3017) on main at 1719d5db"
+        "Data product and link names, and integration patterns, checked as they are used (#3017) on main at 1719d5db",
+        "Product and link names checked first, never a Windows device name (#3070) on main at 75bf5b39"
       ],
       "features": [
         "FEAT-MESH-04",
@@ -7764,7 +7840,8 @@
         1774,
         1775,
         1780,
-        3017
+        3017,
+        3070
       ],
       "source_refs": [
         "Data mesh Wave 2"
@@ -8094,7 +8171,8 @@
       "evidence": [
         "Plan merged in #2940 (2026-11-18)",
         "fdopt_ schema version 2 for savings intelligence (#2962, ESI-101) and the savings attribution waterfall, engine only (#2969, ESI-303) on main at 7be2906d",
-        "Sync states for results waiting on this PC (#2977, ESI-105), period figures and the recurring monthly benefit (#2986, ESI-304), versioned pricing scenarios and capacity value (#2998, ESI-401), engine only on main at ad1ac4cf"
+        "Sync states for results waiting on this PC (#2977, ESI-105), period figures and the recurring monthly benefit (#2986, ESI-304), versioned pricing scenarios and capacity value (#2998, ESI-401), engine only on main at ad1ac4cf",
+        "Overhead per run, corrections and reconciliation, and the reporting schema (#3083, ESI-202, ESI-404, ESI-501; engine and docs only) on main at 75bf5b39"
       ],
       "features": [
         "FEAT-ADM-11"
@@ -8129,7 +8207,8 @@
         2969,
         2977,
         2986,
-        2998
+        2998,
+        3083
       ],
       "computed": {
         "benefit": 4.5,
@@ -8148,7 +8227,8 @@
         "Plan merged in #2939 (2026-11-18)",
         "Assessment engine: evidence, versioned controls, scoring and snapshots (#2941, FEA-101 to FEA-104) on main at 7be2906d",
         "First 10 controls and the read-only engine call (#2957, FEA-105) and architecture controls (#3010, FEA-203) on main at ad1ac4cf",
-        "Excellence scorecard on Optimize > Assessment (#2990, FEA-109, Preview); notebook and pipeline controls (#3013, FEA-301, FEA-302) on main at 1719d5db"
+        "Excellence scorecard on Optimize > Assessment (#2990, FEA-109, Preview); notebook and pipeline controls (#3013, FEA-301, FEA-302) on main at 1719d5db",
+        "Capacity and FinOps controls from imported Capacity Metrics exports (#3085, FEA-202); semantic model controls (#3066, FEA-304); the Excellence screen names every evidence kind (#3105) on main at 75bf5b39"
       ],
       "features": [
         "FEAT-ADM-11"
@@ -8179,12 +8259,116 @@
         2957,
         2990,
         3010,
-        3013
+        3013,
+        3066,
+        3085,
+        3105
       ],
       "computed": {
         "benefit": 4.3,
         "cost": 4.5,
         "score": 1.29,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-139",
+      "title": "Central control plane: the KratosForge Environment",
+      "category": "Enterprise Administration and FinOps",
+      "problem": "An organization's central stores (Platform database, central lakehouse, optimize tables) have no single description an install can discover, adopt and check, so each install wires them up by hand.",
+      "capability": "Owned and specified by the Central control plane program (docs/product/central-control-plane-plan.md, -decisions.md and -backlog.md, stories CP-001 to CP-017, Chris's master prompt 2026-11-19); not restated here. No new store: an environment manifest in the central lakehouse plus provider contracts over the existing central and optimize families.",
+      "evidence": [
+        "Phase 0: audit of every central and local store, target architecture, manifest v1 spec, provider contracts, nine ADRs and stories CP-001 to CP-017 (#3109, docs only) on main at 75bf5b39",
+        "Environment manifest, conditional store, provider declarations and read-only Fabric discovery (#3110, CP-001 to CP-004); Fabric provisioning plan, adopt preview, compatibility and status (#3121, CP-005 to CP-008); engine methods (#3131, CP-009) on main at bdb6f251"
+      ],
+      "features": [
+        "FEAT-MESH-01",
+        "FEAT-ADM-11"
+      ],
+      "acceptance": [
+        "As defined in CP-001 to CP-017 in docs/product/central-control-plane-backlog.md",
+        "Live validation only in kf_tenant_test with a typed 'yes, run it' (CP-012); the Settings screen only after an approved mockup (CP-010)"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 5,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 5,
+        "risk": 4
+      },
+      "mandatory": "none",
+      "owner": "Central control plane",
+      "source_refs": [
+        "CP-001..017",
+        "CP-ADR-001..009"
+      ],
+      "duplicates": [
+        "Builds on PB-104 (central lakehouse) and the central platform (FEAT-MESH-01); extends, doesn't replace"
+      ],
+      "effort": "XL",
+      "confidence": "Low",
+      "state": "In progress",
+      "prs": [
+        3109,
+        3110,
+        3121,
+        3131
+      ],
+      "computed": {
+        "benefit": 3.75,
+        "cost": 4.5,
+        "score": 1.12,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-140",
+      "title": "Three-platform parity: Fabric, Databricks and Snowflake",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "problem": "Fabric, Databricks and Snowflake support grew feature by feature, so there's no one scored view of what each platform can do, how it's verified and what's missing.",
+      "capability": "Owned and specified by the three-platform parity program (docs/product/platform-parity-assessment.md and platform-parity-backlog.md: PAR-001 to PAR-005, SF-001 onwards, DBX-001 onwards, FAB-001 onwards; Chris's master prompt 2026-11-19); not restated here. It extends the parity registry (sidecar/fabric_desktop/parity.py, docs/parity.md) rather than adding a second one. Local runtime parity on this PC stays with the Databricks and Snowflake parity work under PB-120.",
+      "evidence": [
+        "Phase 0: assessment, scored backlog and a plan per parity area, with registry plan metadata on the parity page (#3112, PAR-001); Snowflake key-pair and PAT sign-in and a connection check through the SQL API (#3113, SF-001, SF-002, Preview) on main at bdb6f251"
+      ],
+      "features": [
+        "FEAT-EXT-05"
+      ],
+      "acceptance": [
+        "As defined in docs/product/platform-parity-backlog.md",
+        "Live checks only with a typed 'yes, run it' (DBX-001 and the SF live checks); the parity view only after an approved mockup (PAR-004)"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 5,
+        "risk": 4
+      },
+      "mandatory": "none",
+      "owner": "Three-platform parity",
+      "source_refs": [
+        "PAR-001..005",
+        "SF-001..",
+        "DBX-001.."
+      ],
+      "duplicates": [
+        "Extends PB-120 (platform support levels and one engine contract); split agreed with the Databricks parity work 2026-11-19"
+      ],
+      "effort": "XL",
+      "confidence": "Low",
+      "state": "In progress",
+      "prs": [
+        3112,
+        3113
+      ],
+      "computed": {
+        "benefit": 3.8,
+        "cost": 4.5,
+        "score": 1.14,
         "priority": "P3"
       }
     }

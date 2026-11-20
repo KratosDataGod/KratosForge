@@ -338,10 +338,10 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_model_dictionary_export` | `sidecar/fabric_desktop/model_dictionary_service.py:54` | this PC | the signed-in Windows user's own files |
 | `meta_model_dictionary_import` | `sidecar/fabric_desktop/model_dictionary_service.py:78` | platform: save_enrichment | platform's check per operation; confirm or approve argument |
 | `meta_model_dictionary_save` | `sidecar/fabric_desktop/model_dictionary_service.py:65` | this PC | the signed-in Windows user's own files |
-| `meta_model_ossie_import` | `sidecar/fabric_desktop/model_ossie_service.py:352` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
-| `meta_model_ossie_save` | `sidecar/fabric_desktop/model_ossie_service.py:294` | this PC | the signed-in Windows user's own files |
-| `meta_model_ossie_to_tmdl` | `sidecar/fabric_desktop/model_ossie_service.py:419` | this PC | confirm or approve argument |
-| `meta_model_tmdl_save` | `sidecar/fabric_desktop/model_ossie_service.py:374` | Fabric or OneLake | Fabric's own rights |
+| `meta_model_ossie_import` | `sidecar/fabric_desktop/model_ossie_service.py:393` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
+| `meta_model_ossie_save` | `sidecar/fabric_desktop/model_ossie_service.py:317` | this PC | the signed-in Windows user's own files |
+| `meta_model_ossie_to_tmdl` | `sidecar/fabric_desktop/model_ossie_service.py:462` | this PC | confirm or approve argument |
+| `meta_model_tmdl_save` | `sidecar/fabric_desktop/model_ossie_service.py:417` | Fabric or OneLake | Fabric's own rights |
 | `meta_new_entity` | `sidecar/fabric_desktop/meta_service.py:500` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `meta_new_key_table` | `sidecar/fabric_desktop/meta_service.py:1059` | Fabric or OneLake | Fabric's own rights |
 | `meta_open` | `sidecar/fabric_desktop/meta_service.py:286` | this PC | the signed-in Windows user's own files |
@@ -549,9 +549,9 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `workload_assign` | `sidecar/fabric_desktop/workload_service.py:442` | Fabric or OneLake | Fabric's own rights |
 | `workload_link` | `sidecar/fabric_desktop/workload_service.py:470` | Fabric or OneLake | Fabric's own rights |
 | `workload_unlink` | `sidecar/fabric_desktop/workload_service.py:482` | this PC | the signed-in Windows user's own files |
-| `xray_adopt` | `sidecar/fabric_desktop/xray_service.py:598` | Fabric or OneLake | Fabric's own rights |
+| `xray_adopt` | `sidecar/fabric_desktop/xray_service.py:615` | Fabric or OneLake | Fabric's own rights |
 | `xray_dismiss` | `sidecar/fabric_desktop/xray_service.py:226` | this PC | the signed-in Windows user's own files |
-| `xray_optimize` | `sidecar/fabric_desktop/xray_service.py:307` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |
+| `xray_optimize` | `sidecar/fabric_desktop/xray_service.py:320` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |
 | `xray_pause` | `sidecar/fabric_desktop/xray_service.py:135` | Fabric or OneLake | Fabric's own rights |
-| `xray_remove_staging` | `sidecar/fabric_desktop/xray_service.py:545` | Fabric or OneLake | Fabric's own rights; organization policy |
-| `xray_vacuum` | `sidecar/fabric_desktop/xray_service.py:394` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |
+| `xray_remove_staging` | `sidecar/fabric_desktop/xray_service.py:562` | Fabric or OneLake | Fabric's own rights; organization policy |
+| `xray_vacuum` | `sidecar/fabric_desktop/xray_service.py:410` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy; risk check |

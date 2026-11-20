@@ -73,7 +73,7 @@ WRITE_SITES = {
     ("maintenance.py", "vacuum_preview", "table.vacuum"): "dry_run=True: lists files, deletes none",
     ("maintenance.py", "_unnamed", "table.vacuum"): "dry_run=True",
     ("maintenance.py", "_named_anywhere", "table.vacuum"): "dry_run=True",
-    ("maintenance.py", "compact_local", "table.optimize.compact"): LOCAL,
+    ("maintenance.py", "compact_local", "DeltaTable(uri).optimize.compact"): LOCAL,
     ("maintenance.py", "compact_local", "table.vacuum"): LOCAL,
     ("prove_service.py", "ProveMixin._replay_seed", "write_deltalake"): LOCAL,
     ("livetest.py", "LiveTest._delta_write", "write_deltalake"): "the live test, run by hand in kf_tenant_test",

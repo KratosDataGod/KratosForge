@@ -921,10 +921,10 @@ class LocalEngine:
         n = 0
         if dialect == "spark":
             from sqlglot import exp
-            from sqlglot.errors import ParseError
+            from sqlglot.errors import ParseError, TokenError
             try:
                 trees = [cast(exp.Expression, t) for t in sql_dialects.parse(sql, read="spark") if t is not None]
-            except ParseError as exc:
+            except (ParseError, TokenError) as exc:  # an unclosed quote is a TokenError
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:
                 refuse_spark_hashes(tree)  # DuckDB's hash isn't Spark's (EA-017)

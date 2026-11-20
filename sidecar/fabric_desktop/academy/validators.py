@@ -379,7 +379,7 @@ def check_log(workspace: Path, rel: str) -> list[dict[str, Any]]:
                 continue
             try:
                 action = json.loads(line)
-            except (json.JSONDecodeError, RecursionError):
+            except (ValueError, RecursionError):  # not JSON, or a number past Python's 4300-digit limit
                 raise ws.Refused(f"Commit {version} of {rel} isn't valid Delta JSON.") from None
             if not isinstance(action, dict):
                 raise ws.Refused(f"Commit {version} of {rel} isn't valid Delta JSON.")
@@ -400,7 +400,7 @@ def _name(value: Any) -> str:
 def _table_facts(commits: list[dict[str, Any]]) -> dict[str, Any]:
     try:
         return _facts(commits)
-    except (AttributeError, TypeError, ValueError, KeyError):
+    except (AttributeError, TypeError, ValueError, KeyError, OverflowError):
         raise ws.Refused("The table's Delta log has an entry the check can't read.") from None
 
 
@@ -421,6 +421,8 @@ def _facts(commits: list[dict[str, Any]]) -> dict[str, Any]:
                     schema = json.loads(a["metaData"].get("schemaString") or "{}").get("fields") or []
                 except (json.JSONDecodeError, AttributeError, RecursionError):
                     schema = []
+                if not isinstance(schema, list) or not all(isinstance(f, dict) for f in schema):
+                    raise TypeError("the schema's fields aren't a list of columns")
             if "add" in a:
                 live[unquote(a["add"]["path"])] = int(a["add"].get("size") or 0)
             if "remove" in a:

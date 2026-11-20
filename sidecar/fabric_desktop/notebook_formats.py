@@ -30,7 +30,7 @@ import zlib
 from pathlib import PurePosixPath
 from typing import Any
 
-from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, to_ipynb
+from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, ipynb_cell_problem, to_ipynb
 
 FORMATS = ("ipynb", "ipynb_outputs", "fabric_py", "databricks_py", "html")
 EXTENSIONS = {"ipynb": ".ipynb", "ipynb_outputs": ".ipynb", "fabric_py": ".py", "databricks_py": ".py", "html": ".html"}
@@ -625,12 +625,23 @@ def parse_ipynb(text: str) -> dict[str, Any]:
     if len(text) > MAX_TEXT:
         raise ValueError("The file is larger than 32 MB, so it wasn't read.")
     try:
-        nb = json.loads(text)
+        nb = json.loads(text.lstrip("\ufeff"))
     except (ValueError, RecursionError):  # RecursionError: nested too deep to be a notebook
         raise ValueError("This .ipynb file isn't valid JSON, so it can't be imported.") from None
     if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
         raise ValueError("This .ipynb file has no cells list, so it isn't a Jupyter notebook.")
-    return {"format": "Jupyter notebook (.ipynb)", "cells": from_ipynb(nb)["cells"]}
+    problem = ipynb_cell_problem(nb["cells"])
+    if problem:
+        raise ValueError(f"This .ipynb file can't be imported: {problem}.")
+    notes: list[dict[str, Any]] = []
+    for n, c in enumerate(nb["cells"], 1):
+        if c.get("cell_type") not in ("code", "markdown"):
+            notes.append(_note(n, "changed", f"The cell's type ({str(c.get('cell_type') or 'none')[:40]}) isn't code or markdown, "
+                                             "so it comes in as a code cell."))
+        if c.get("outputs"):
+            notes.append(_note(n, "dropped", "The cell's saved outputs: imported notebooks start without outputs. "
+                                             "Run the cell to get them."))
+    return {"format": "Jupyter notebook (.ipynb)", "cells": from_ipynb(nb)["cells"], "notes": notes}
 
 
 def _safe_entry(name: str) -> bool:

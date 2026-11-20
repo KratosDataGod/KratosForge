@@ -119,7 +119,7 @@ The estimate leaves out Spark session start-up. Fabric's **Capacity Metrics** ap
 - 7 days, Fabric's default,
 - the table's own `delta.deletedFileRetentionDuration`,
 - **Keep history** on the metadata layer whose lakehouse it is, in a workspace your metadata project uses.
-- more, when a commit is dated earlier than the one before it (a writer's clock out of step), enough that no version inside the retention loses its files, since Fabric's VACUUM goes by each removal's date.
+- more, when a commit is dated earlier than the one before it (a writer's clock out of step), enough that no version inside the retention loses its files, since Fabric's VACUUM goes by each removal's date. If that would mean keeping more than 365 days, Vacuum doesn't start and says why: run VACUUM from a notebook on this PC instead, which keeps exactly the files those versions read.
 
 So **Restore** and time travel still reach back as far as the layer promises. With the **Needs vacuum** filter on, **Vacuum all** checks each table first and starts one job per table that passes, each keeping its own history. A table that is blocked, has warnings or couldn't be checked is named and left for its own **Vacuum**, which shows its risk check. **Optimize** on a small-files finding keeps the same history when it vacuums.
 

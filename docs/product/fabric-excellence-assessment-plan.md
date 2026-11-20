@@ -1,6 +1,6 @@
 # Fabric Excellence Assessment: plan, gaps, risks and stories
 
-Status: plan (2026-11-17). Built so far: FEA-101 to FEA-104, the pure engine, with the methodology in [excellence-assessment.md](../optimize/excellence-assessment.md) (#2941), and FEA-105 with its first 10 controls and the read-only `excellence_assess` call (#2957). FEA-109 adds the scorecard on Optimize > Assessment > Excellence, in Preview (#2990). FEA-203 (architecture controls, #3010), FEA-301 and FEA-302 (notebook and pipeline controls, #3013) are built too. Owner: Fabric Excellence Assessment thread. Requested by Chris (master
+Status: plan (2026-11-17). Built so far: FEA-101 to FEA-104, the pure engine, with the methodology in [excellence-assessment.md](../optimize/excellence-assessment.md) (#2941), and FEA-105 with its first 10 controls and the read-only `excellence_assess` call (#2957). FEA-109 adds the scorecard on Optimize > Assessment > Excellence, in Preview (#2990). FEA-203 (architecture controls, #3010), FEA-301 and FEA-302 (notebook and pipeline controls, #3013), FEA-202 (capacity controls, #3085) and FEA-304 (semantic model controls, #3066) are built too. Owner: Fabric Excellence Assessment thread. Requested by Chris (master
 implementation prompt, 2026-11-17). Shared standards: the KratosForge mission prompt and its hard gates in
 `KratosDataGod/ai-commons` (`prompts/kratosforge/mission-and-engineering-philosophy.md`).
 
@@ -298,7 +298,7 @@ coverage and Critical Risk flag built from evidence the app already reads.
   guests, apps as Admin, Prod writers without Dev access, OneLake data access roles present when
   OneLake security is on. Tenant settings controls (Publish to web, external sharing) when the
   signed-in person is a Fabric admin; otherwise not evaluated.
-- **FEA-202 Capacity and FinOps controls**: capacity state, region alignment, throttling and
+- **FEA-202 Capacity and FinOps controls**: **Built** in part (#3085): the failed-operation CU share, refreshes more than hourly and unused paid F capacity, from imported Capacity Metrics exports. Capacity state, region alignment, throttling and
   background/interactive share from imported Capacity Metrics, idle capacity windows, repeated
   refreshes; the five financial figures kept separate; F64 planner output read when OE-040/041
   land.
@@ -321,7 +321,7 @@ coverage and Critical Risk flag built from evidence the app already reads.
   schedules (OE-011).
 - **FEA-303 Lakehouses and Warehouses**: schema-enabled, table maintenance, SQ rules on stored
   procedures and views, warehouse query insights where enabled.
-- **FEA-304 Semantic models**: definition-only BPA rules, Direct Lake fallback and guardrails,
+- **FEA-304 Semantic models**: **Built** in part (#3066): bidirectional relationships, RLS presence, Direct Lake fallback, and BPA rules SM001, SM002 and SM004 from stored results. Definition-only BPA rules, Direct Lake fallback and guardrails,
   bidirectional filters, high-cardinality columns, RLS presence. Full BPA (VertiPaq) only as an
   explicit action with a typed "yes, run it".
 - **FEA-305 DevOps**: Git connection, uncommitted changes, deployment pipeline stages and drift.

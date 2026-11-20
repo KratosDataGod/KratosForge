@@ -23,6 +23,10 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "... closed before it finished starting, so this build was put back" | The new build was installed but didn't open its window, so the app put the build you had back and kept running it. | Restart the app to try the update again. If it keeps happening, report it; antivirus holding the new file is a common cause. |
 | "The new build changed after it was checked, so it wasn't installed" or "The download wasn't checked against its release, so it wasn't installed" during an update | The app checks the new exe against its release's checksum, holds it so nothing can change it, and checks it again once it is in place. The file was different on one of those checks, or the checksum was missing, so the app kept the build you had. | Try the update again. If it keeps happening, report it. Antivirus or another program changing the download is a common cause. |
 | "Could not read build ...'s checksum from its release" during an update | The app couldn't read the release's `version.json`, so it couldn't check the new exe and didn't install it. | Check the internet connection, then try the update again. |
+| "The download does not match build ...'s checksum, so it was discarded and not installed" | The downloaded exe isn't the one the release describes, so it wasn't installed. This version stays as it is. | Try the update again, and report it if it keeps happening. |
+| "The download of build ... kept stopping part way" | The connection dropped during the download on every try, so the partial file was discarded. | Check the internet connection, then try again in a few minutes. |
+| "Build ...'s release gives no checksum for the app" | The release is missing the checksum the app checks every download against, so nothing was installed. | Report it so the release can be fixed. |
+| "The release download is not build ... yet" | The release was still being published when the app downloaded it. | Try again in a few minutes. |
 | "Build ... was replaced on the update channel by build ..." | A newer build was published after the app last checked (the banner or dialog showed the older one). The app checks the channel again just before downloading and installs the build it offers now. | Nothing. |
 | "The update channel is being republished" | The channel changed builds twice during one update, which happens while a release is being published. Nothing was installed. | Try again in a few minutes. |
 | A setting, list or history the app kept is suddenly empty, and `sidecar.log` says a file "could not be read" | One of the app's state files was damaged (a crash or power cut mid-save, say). The app kept what was in it as `<name>.corrupt-<time>` in the same folder instead of overwriting it, and carried on without it. | That `.corrupt-` file still has what was in it. Report it with the file if you want help getting it back; delete it once you don't need it. |
@@ -31,6 +35,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "The local engine stopped while doing this" | The Python engine crashed. It restarts on your next action. | Try again. If it keeps happening, report it; `%LOCALAPPDATA%\FabricDesktop\sidecar.log` has the reason, and its last line says how the engine ended. |
 | "The local engine keeps stopping as it starts" | The engine stopped 3 times in a row within a minute of starting, so the app stopped starting it for 5 minutes instead of starting it again for every action. Your files and settings are untouched. | Wait for it to try again, or restart KratosForge. If it still stops, send IT `sidecar.log`, `sidecar.prev.log` and `app-crash.log` from `%LOCALAPPDATA%\FabricDesktop` (the support bundle can't be made while the engine won't start). |
 | "The local engine stopped answering, so the app restarted it" | A quick request (opening a notebook, reading variables, checking a running cell) had no answer for 60 seconds, so the app ended the engine instead of freezing. Notebook variables are gone. | Run the notebook's cells again. If it keeps happening, report it with the request named in the details and `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. |
+| A setting can't be changed: "Group Policy on this PC couldn't be read, and it may set ..." | The Group Policy key can't be read right now, so the setting can only be made stricter. | Try again later. Ask IT if it doesn't clear. |
 
 ## Signing in
 
@@ -97,6 +102,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "A database file stayed busy with another change for too long, so this didn't finish" | Another process, often a scheduled run or the agent, held one of the app's SQLite files longer than the wait. Nothing is damaged. | Try again in a moment. If it keeps happening, check for a long scheduled run or agent job. |
 | "Git isn't installed on this PC", or a shell cell can't find bash or PowerShell, though it is installed | Programs are found only in PATH folders on this PC's own drives, never in the current folder or on a network share, so a copy in a repository's folder or on a share isn't used. | Install the program on this PC (Git for Windows from git-scm.com) and make sure its folder is on PATH, then restart KratosForge. |
 | A SQL query fails on a Spark-only feature | Not every Spark SQL function has a DuckDB match. | The error names the part it couldn't run. Rewrite that part, or run the query in Fabric. |
+| Save as table says "... got a table called ... while you confirmed, so nothing was written" | Someone made a table with that name while the confirm was open. | Save again, and type the name asked for to replace it. |
 
 ## Metadata
 
@@ -122,6 +128,7 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | A Fabric run "stopped before it saved any results" | The runner notebook failed in Fabric. | Open it from **Monitor** to see the notebook's output in Fabric. |
 | Fabric schedule or Run in Fabric fails with 403 | You aren't Contributor on the workspace, or your organization's own app registration lacks `Item.Execute.All`. | Ask for Contributor, or an admin adds the permission and you sign in again ([permissions.md](permissions.md#using-your-own-app-registration)). |
 | A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > KratosForge > Schedules shows each run and why it was skipped. |
+| A job run says "This workspace was named Prod by a project opened on this PC" | Prod changes only by promote, so a job run is refused there, with a project open or not. | Point the job at a Dev or scratch workspace, or promote. |
 
 ## Source control
 

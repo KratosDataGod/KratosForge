@@ -81,6 +81,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-editor/organise-cells.md](notebook-editor/organise-cells.md) | Engineers, analysts | Collapse heading sections, cell titles and tags, duplicate and drag cells |
 | [platforms.md](platforms.md) | Engineers | What KratosForge supports on Fabric, Databricks, Snowflake and this PC, at which level, and the evidence behind each level |
 | [engines.md](engines.md) | Engineers | Execution engines and what each can do, remote compute approval, the Databricks SQL warehouse engine, Databricks SQL and Snowflake SQL tried on DuckDB, usage figures, connection profiles for Fabric, Databricks, Snowflake or a mix (Preview) |
+| [parity.md](parity.md) | Engineers, platform owners | How close KratosForge comes to Fabric, Databricks and Snowflake, area by area, at five levels judged separately |
 | [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
 | [notebook-editor/load-data-items.md](notebook-editor/load-data-items.md) | Engineers, analysts | Drag tables and files into cells; Load with Polars, Spark, SQL or pandas |
@@ -137,6 +138,9 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [optimize/plan.md](optimize/plan.md) | Contributors, platform owners | The Optimize program (PR-OPT-001 to 009): audit, risks, data model, PRs in order |
 | [product/fabric-excellence-assessment-plan.md](product/fabric-excellence-assessment-plan.md) | Contributors, platform owners | The Fabric Excellence Assessment program (FEA): reuse, gaps, risks and phased stories |
 | [product/enterprise-savings-intelligence-plan.md](product/enterprise-savings-intelligence-plan.md) | Contributors, platform owners, FinOps | The Enterprise Savings Intelligence program (ESI): the shared savings ledger, attribution and sync, phased stories |
+| [product/savings-reporting-schema.md](product/savings-reporting-schema.md) | Contributors, FinOps | The savings reporting layer (ESI-501): the `dim_` and `fact_` names a report or semantic model uses over the shared Optimization Lakehouse |
+| [product/central-control-plane-plan.md](product/central-control-plane-plan.md) | Contributors, platform owners | The KratosForge Environment: one manifest per organization, discovery, provisioning and status ([decisions](product/central-control-plane-decisions.md), [stories](product/central-control-plane-backlog.md)) |
+| [product/platform-parity-assessment.md](product/platform-parity-assessment.md) | Contributors, platform owners | The three-platform parity program: assessment, scored backlog and a plan per area ([backlog](product/platform-parity-backlog.md)) |
 | [finops/plan.md](finops/plan.md) | Contributors, platform owners | The administration and FinOps program (FINOPS-001 to 005): audit, overlaps, PRs |
 | [product/enterprise-gap-analysis.md](product/enterprise-gap-analysis.md) | Platform owners, contributors | The enterprise product program: what exists for each capability FD-101 to FD-140, what's missing and who owns it ([backlog](product/enterprise-backlog.md), [decisions](product/implementation-decisions.md)) |
 | [product/release-readiness.md](product/release-readiness.md) | Platform owners | What must be true before an enterprise pilot, the capability matrix and the pilot checklist |
@@ -231,7 +235,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Notebook widgets | Notebook > a cell that shows ipywidgets controls ([notebooks.md](notebooks.md)) |
 | Altair charts in notebooks | Notebook > a cell that shows an Altair chart ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
-| Column lineage | Entity page, Lineage card: Columns, and Impact for what a column change breaks ([metadata-guide.md](metadata-guide.md#impact-of-a-column-change-preview)) |
+| Column lineage | Entity page, Lineage card: Columns, and Impact for what a column change breaks ([metadata-guide.md](metadata-guide.md#impact-of-a-column-change-preview)); **Export OpenLineage...** in Impact writes the lineage to Downloads ([metadata-guide.md](metadata-guide.md#export-lineage-as-openlineage-preview)) |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
 | Create workspace | Data mesh > Environments and Domains, Platform > Settings: Create workspace, Create platform and Finish setup (always shown) |

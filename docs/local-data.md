@@ -128,7 +128,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `code LIKE '[A-C]1%'`, `code LIKE '[^0-9]%'` | Character ranges match as in T-SQL (`[%]` and `[_]` match the character itself, the `ESCAPE` character works inside the brackets too, and a range written backwards such as `[z-a]` matches nothing). A pattern that isn't written in the query, such as `LIKE other_column`, matches as DuckDB's `LIKE`, with no ranges, and the result's `translation.notes` says so |
 | `name = 'Ann'`, `<>`, `<`, `IN (...)` on text | Trailing spaces don't count, as in T-SQL: `'Ann  ' = 'Ann'` is true. Leading spaces and case still count. An equality between a column and a value still lets a Parquet or Delta file skip row groups |
 | `name + '!'` on text columns | The two strings joined |
-| `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |
+| `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error). In a comparison with an integer or a float the text is converted as a `CAST` would, so `2 = '1.5'` is an error |
 | `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
 | `CAST(0.1 AS FLOAT)`, `FLOAT(24)`, `REAL` | `FLOAT` (and `FLOAT(25)` to `FLOAT(53)`) is an 8-byte float, `REAL` and `FLOAT(1)` to `FLOAT(24)` 4 bytes, as SQL Server stores them |
 | `CAST(3.7 AS INT)`, `CONVERT(INT, -3.7)` | `3`, `-3`: a decimal or float cast to any integer type is cut toward zero, as T-SQL does (DuckDB rounds). Casts to `DECIMAL` still round |

@@ -32,6 +32,9 @@ CLAIM_PAGES = ("user-guide.md", "sql-compatibility.md", "local-data.md", "notebo
 # Pages not scanned for fenced blocks: plans and review records describe work, not the product.
 SKIP_DIRS = ("product", "quality")
 PRACTICE_PAGES = ("notebook-best-practices.md", "sql-best-practices.md")
+# Pages whose every example runs and carries no marker: the app shows this page's text as it is (learn/patterns.py),
+# so a marker would show there. Each block is still run by a test.
+IMPLIED_RUNS = ("decision-patterns.md",)
 FENCED_LANGS = ("sql", "python", "py", "pyspark")
 MARKER = re.compile(r"^\s*<!--\s*example:\s*(runs|illustrative)\b[^>]*-->\s*$")
 
@@ -65,7 +68,8 @@ def fenced_blocks() -> Iterator[Block]:
             mark = MARKER.match(before[-1]) if before else None
             indent = len(m.group(1))
             code = "\n".join(ln[indent:] for ln in m.group(3).splitlines())
-            yield Block(rel, text[:m.start()].count("\n") + 1, lang, code, mark.group(1) if mark else None)
+            marker = mark.group(1) if mark else "runs" if rel in IMPLIED_RUNS else None
+            yield Block(rel, text[:m.start()].count("\n") + 1, lang, code, marker)
 
 
 # ---- inline claims

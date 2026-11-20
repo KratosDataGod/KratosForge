@@ -481,4 +481,4 @@ Format SQL uses sqlglot to read the query in the tab's dialect and print it back
 
 ## Job files
 
-For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files](agent.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses. Monitor > Runs lists each run as a **Job run**, named after the job.
+For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files](agent.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses. It also refuses a workspace that any project opened on this PC named as Prod, with a project open or not. Monitor > Runs lists each run as a **Job run**, named after the job.

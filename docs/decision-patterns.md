@@ -51,7 +51,6 @@ How to decide: start with full refresh while it fits the run's time. Move to inc
 doesn't, with a key to merge on, a lookback window for late rows, and a regular check against a full
 rebuild ([Prove](prove/how-proofs-work.md) compares two results row by row).
 
-<!-- example: runs -->
 ```python
 # Runs on this PC with DuckDB; nothing is read from or written to Fabric.
 import duckdb
@@ -110,7 +109,6 @@ How to decide: develop on this PC, then measure the real notebook both ways with
 [Comparing fairly](side-by-side.md#comparing-fairly)). Schedule where the measurement and the
 reliability needs point.
 
-<!-- example: runs -->
 ```python
 # Runs on this PC with DuckDB: how long a group-by over 10,000,000 rows takes here. It's a
 # measurement of this PC only; Side by side measures your notebook in both places.

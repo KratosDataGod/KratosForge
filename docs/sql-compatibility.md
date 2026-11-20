@@ -863,9 +863,9 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | What | Here, as in a warehouse |
 | --- | --- |
 | `/` and `%` on integers | Cut toward zero, and the remainder takes the dividend's sign: `-7 / 2` is `-3`, and `-7 % 2` is `-1` |
-| Dividing by zero | `/` and `%` stop with "Divide by zero error encountered.", for integers, decimals and floats. `NULL / 0` is `NULL` |
+| Dividing by zero | `/` and `%` stop with "Msg 8134, Level 16: Divide by zero error encountered.", for integers, decimals and floats. `NULL / 0` is `NULL` |
 | A result past `int` or `bigint` | An error, as in T-SQL. The message is DuckDB's ("Overflow in addition of INT32"), not T-SQL's "Arithmetic overflow error" |
-| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with "Conversion failed". Two texts are concatenated (`'1' + '1'` is `'11'`) |
+| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with "Conversion failed". Two texts are concatenated (`'1' + '1'` is `'11'`). In a comparison with an integer or a float, the text is converted as a `CAST` would: `0 = ''` is true, and `2 = '1.5'` is a conversion error |
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
@@ -971,9 +971,9 @@ When a project runs a T-SQL script on this PC, it runs as a batch does in a Fabr
 
 | What | Here, as in a warehouse |
 | --- | --- |
-| Several statements, or `GO` on a line of its own | Run in order. `GO` splits the script into batches |
+| Several statements, or `GO` on a line of its own | Run in order. `GO` splits the script into batches. A `GO` line inside a string, a quoted or bracketed name, or a comment is refused, with its line number |
 | A statement that fails part way, or is stopped | Changes no rows. An `INSERT`, `UPDATE`, `DELETE` or `SELECT ... INTO` that fails part way through its rows, or is stopped in the middle, leaves the table as it was, as a warehouse rolls back a statement that fails |
-| An error part way through | The script stops at that statement. The error names it and says what ran: "Statement 2 of 3 (SELECT) failed: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run." |
+| An error part way through | The script stops at that statement. The error names it and says what ran: "Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run." |
 | `UPDATE ... SET v = v + 'x'` | The `SET` values and the `WHERE` of an `UPDATE` or `DELETE` follow T-SQL's types, as a `SELECT` does: two texts are joined, and text compares without its trailing spaces (`WHERE v = 'b'` finds `'b  '`) |
 
 Refused by name: variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `TRY ... CATCH`, `RETURN`, `BREAK`, `CONTINUE`, `GOTO` and labels, `THROW`, `RAISERROR`, `PRINT`, `WAITFOR`, `CHECKPOINT`, cursors (`DECLARE ... CURSOR`, `OPEN`, `FETCH`, `CLOSE`, `DEALLOCATE`), transactions (`BEGIN TRAN`, `COMMIT`, `ROLLBACK`, `SAVE TRANSACTION`, `SET TRANSACTION`), `EXEC` and `GO n` (run the batch n times). A script with variables and control flow runs in a Fabric Warehouse.

@@ -34,6 +34,7 @@ CLAIMS: list[Claim] = [
     Claim("sql-compatibility.md", "'1.5' = 1", "notebook"),
     Claim("sql-compatibility.md", "'1.55' = 1.6", "notebook"),
     Claim("sql-compatibility.md", "'1.0' IN (1, 2)", "notebook"),
+    Claim("sql-compatibility.md", "0 = ''", "local-tsql", query="SELECT CASE WHEN 0 = '' THEN 1 ELSE 0 END = 1"),
     Claim("sql-compatibility.md", "CAST('.5' AS INT)", "notebook"),
     Claim("sql-compatibility.md", "factorial(3.7)", "notebook"),
     Claim("sql-compatibility.md", "cot(0)", "notebook", want="inf", note="Python's float('inf') renders as inf"),

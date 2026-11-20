@@ -104,10 +104,10 @@ def compatibility(manifest: dict[str, Any], inspections: list[dict[str, Any]],
 CONNECTED, OFFLINE, SYNCHRONIZING = "Connected", "Working offline", "Synchronizing"
 UPGRADE_REQUIRED, LIMITED, FAILED = "Upgrade required", "Limited permissions", "Connection failed"
 NEXT = {
-    CONNECTED: "",
+    CONNECTED: "Shared results are saved to the environment as they're made.",
     OFFLINE: "Keep working. Results wait on this PC and are sent when the environment can be reached.",
     SYNCHRONIZING: "Results are being sent now.",
-    UPGRADE_REQUIRED: "Open Settings > KratosForge Environment and choose Upgrade. Every record is kept.",
+    UPGRADE_REQUIRED: "Choose Upgrade. Every record is kept.",
     LIMITED: "Ask the environment's owner for Contributor on its workspace to save shared results.",
     FAILED: "Check the sign-in and network, then choose Validate connection.",
 }
@@ -138,7 +138,7 @@ def status(*, connected: bool, reachable: bool | None, compat: dict[str, Any] | 
     waiting = sum(int(k.get("pending", 0)) for k in ((sync or {}).get("kinds") or {}).values())
     return {"status": label, "next": next_step,
             "detail": f"{waiting} result{'s' if waiting != 1 else ''} waiting on this PC" if waiting else "",
-            "last_sync": (sync or {}).get("last_sync")}
+            "waiting": waiting, "last_sync": (sync or {}).get("last_sync")}
 
 
 def failed(reason: str) -> dict[str, Any]:

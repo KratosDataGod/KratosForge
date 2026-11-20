@@ -145,7 +145,7 @@ def test_bad_json_is_refused_not_guessed():
 
 def test_summary_holds_ids_and_labels_only():
     s = mf.summary(fabric())
-    assert set(s) == {"environment_id", "name", "provider", "writable", "workspace_id", "lakehouse_id",
+    assert set(s) == {"environment_id", "name", "provider", "writable", "workspace_id", "workspace_name", "lakehouse_id",
                       "lakehouse_name", "has_operational_store", "operational_name", "families", "updated_at"}
     assert s["lakehouse_name"] == "KratosForgeLakehouse" and s["families"] == {"fdopt_": 2, "fdacc_": 1}
 

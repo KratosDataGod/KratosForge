@@ -129,6 +129,7 @@ const PREVIEW_FEATURES = {
   academy: "Academy",
   appStudio: "App Studio",
   embedStudio: "Embed Studio (Power BI)",
+  kfEnvironment: "KratosForge Environment",
 };
 
 function previewShown() {

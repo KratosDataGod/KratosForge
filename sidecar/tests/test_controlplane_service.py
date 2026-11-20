@@ -75,13 +75,15 @@ def test_calls_are_registered_audited_and_gated():
     assert cpsvc.METHODS <= server.METHODS
     for read in ("cp_status", "cp_discover", "cp_plan", "cp_adopt_preview", "cp_check", "cp_cost"):
         assert not audit.audited(read), read
-    for change in ("cp_create", "cp_adopt", "cp_connect", "cp_switch", "cp_disconnect"):
+    assert not audit.audited("cp_upgrade_plan")
+    for change in ("cp_create", "cp_adopt", "cp_upgrade", "cp_connect", "cp_switch", "cp_disconnect"):
         assert audit.audited(change), change
     # The go-ahead writes its audit line first, or the call doesn't run.
     assert audit.fails_closed("cp_create", {"token": "t", "confirmed": True})
     assert audit.fails_closed("cp_adopt", {"token": "t", "confirmed": True})
+    assert audit.fails_closed("cp_upgrade", {"token": "t", "confirmed": True})
     # The caller names a preview; it can't send a plan, a request or a manifest.
-    for method in ("cp_create", "cp_adopt"):
+    for method in ("cp_create", "cp_adopt", "cp_upgrade"):
         assert list(inspect.signature(getattr(Service, method)).parameters) == ["self", "token", "confirmed", "confirm_name"]
 
 
@@ -176,7 +178,7 @@ def test_the_policy_turns_it_off_but_a_pc_can_still_let_go(svc, tmp_path):
     calls = [lambda: svc.cp_discover(), lambda: svc.cp_plan({"name": "x"}), lambda: svc.cp_create("t", confirmed=True),
              lambda: svc.cp_adopt_preview("x"), lambda: svc.cp_adopt("t", confirmed=True),
              lambda: svc.cp_connect(WS, "lh"), lambda: svc.cp_switch(env), lambda: svc.cp_check(),
-             lambda: svc.cp_cost()]
+             lambda: svc.cp_cost(), lambda: svc.cp_upgrade_plan(), lambda: svc.cp_upgrade("t", confirmed=True)]
     for call in calls:
         with pytest.raises(PermissionError, match="allow_central_environment"):
             call()
@@ -304,6 +306,9 @@ def test_cost_reads_the_environments_measured_sync_overhead_and_leaves_the_rest_
     assert got["cost"]["value"] is None and got["net"]["value"] is None
     with pytest.raises(ValueError, match="between 1 and 366, not 0"):
         svc.cp_cost(days=0)
+    with pytest.raises(ValueError) as long:
+        svc.cp_cost(days="9" * 500)
+    assert len(str(long.value)) < 70
 
 
 def test_cost_refuses_tables_a_newer_app_wrote(svc):
@@ -313,3 +318,73 @@ def test_cost_refuses_tables_a_newer_app_wrote(svc):
                 [{"record_id": "v99", "version": 99, "description": "later", "applied_at": "2026-11-20T00:00:00Z"}])
     with pytest.raises(PermissionError, match="(?i)newer"):
         svc.cp_cost()
+
+
+def _adopted(svc):
+    """An environment adopted from a central lakehouse holding only Optimize's tables: the other
+    families' tables aren't there yet, so it needs an upgrade."""
+    _central(svc)
+    svc.cp_adopt(svc.cp_adopt_preview("Ours")["token"], confirmed=True)
+    return LocalLakehouse(svc.lakes / WS / CENTRAL)
+
+
+def test_upgrade_shows_a_plan_then_runs_it_by_token_once(svc):
+    from fabric_desktop.optimize import schema
+    with pytest.raises(ValueError, match="Connect this PC"):
+        svc.cp_upgrade_plan()
+    lake = _adopted(svc)
+    others = [f for f in schema.FAMILIES.values() if f.prefix != "fdopt_"]
+    assert others, "the test needs a second table family"
+    assert svc.cp_check()["status"] == "Upgrade required"
+    before = sorted(lake.table_names())
+    plan = svc.cp_upgrade_plan()
+    assert plan["token"] and not plan["blocked"] and plan["typed_name"] == ""
+    assert [s["action"] for s in plan["steps"]] == ["initialize"] * len(others) + ["write_manifest"]
+    assert sorted(lake.table_names()) == before  # a plan changes nothing
+    with pytest.raises(pv.NotConfirmed):
+        svc.cp_upgrade(plan["token"])
+    out = svc.cp_upgrade(plan["token"], confirmed=True)
+    assert out["ok"] and [s["status"] for s in out["steps"]] == ["done"] * (len(others) + 1)
+    assert set(out["environment"]["families"]) == set(schema.FAMILIES)
+    assert st.local_store(svc.lakes / WS / CENTRAL).read().manifest["schema"]["families"] == out["environment"]["families"]
+    assert svc.cp_check()["status"] == "Connected"
+    with pytest.raises(PermissionError, match="expired or was already used"):
+        svc.cp_upgrade(plan["token"], confirmed=True)
+    done = svc.cp_upgrade_plan()
+    assert done["token"] == "" and "Nothing to upgrade" in done["blocked"][0]
+
+
+def test_upgrade_refuses_what_changed_since_the_plan_and_needs_a_prod_name(svc):
+    from fabric_desktop.optimize import schema, setup
+    lake = _adopted(svc)
+    plan = svc.cp_upgrade_plan()
+    other = next(f for f in schema.FAMILIES.values() if f.prefix != "fdopt_")
+    setup.initialize(lake, svc.optimize_installation, approve=True, family=other)  # another PC, meanwhile
+    with pytest.raises(PermissionError, match="changed since"):
+        svc.cp_upgrade(plan["token"], confirmed=True)
+    svc.prod.add(WS)
+    plan = svc.cp_upgrade_plan()
+    assert plan["typed_name"] == "Platform"
+    for typed in ("", "platform", "Platform "):
+        with pytest.raises(PermissionError, match="type its name exactly"):
+            svc.cp_upgrade(plan["token"], confirmed=True, confirm_name=typed)
+    assert svc.cp_upgrade(plan["token"], confirmed=True, confirm_name="Platform")["ok"]
+
+
+def test_upgrade_never_overwrites_a_manifest_another_pc_changed(svc, monkeypatch):
+    _adopted(svc)
+    plan = svc.cp_upgrade_plan()
+    real = st.ManifestStore.replace
+
+    def raced(self, current, manifest):
+        raise st.ManifestChanged("Another installation changed this environment's manifest since it was read.")
+    monkeypatch.setattr(st.ManifestStore, "replace", raced)
+    out = svc.cp_upgrade(plan["token"], confirmed=True)
+    assert not out["ok"] and out["steps"][-1]["step"] == "Manifest" and out["steps"][-1]["status"] == "failed"
+    monkeypatch.setattr(st.ManifestStore, "replace", real)
+    # The tables were upgraded but the manifest wasn't: the next plan only catches the manifest up.
+    again = svc.cp_upgrade_plan()
+    assert again["token"] and [s["action"] for s in again["steps"]] == ["write_manifest"]
+    done = svc.cp_upgrade(again["token"], confirmed=True)
+    assert done["ok"] and [s["step"] for s in done["steps"]] == ["Manifest"]
+    assert "Nothing to upgrade" in svc.cp_upgrade_plan()["blocked"][0]

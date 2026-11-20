@@ -106,7 +106,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** service tests with fakes.
 - **Owner:** Central control plane thread.
 
-### CP-010 Settings → KratosForge Environment UI (P1, needs mockup approval)
+### CP-010 Settings → KratosForge Environment UI (P1, mockup approved 2026-11-20, built as Preview)
 - **Problem:** no screen.
 - **User value:** create, connect, switch, validate, upgrade, repair, export configuration, disconnect.
 - **Solution:** UX thread mockup first; Chris approves; then build in `features.js` conventions, Preview label.
@@ -115,6 +115,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Acceptance:** per approved mockup; browser test.
 - **Tests:** browser test, accessibility check.
 - **Owner:** UX thread (mockup), this thread (build).
+- **Built:** `app/ui/kf-environment.js` (Settings > Environment), with `cp_upgrade_plan` and `cp_upgrade` for Upgrade under the same token, confirm and typed-name rules as Create; browser test `app/tests/browser/settings-environment.test.cjs`. Export configuration and repair are not in the approved mockup and wait on their own.
 
 ### CP-011 Environment cost beside savings (P1) **Built** (engine only, #3137)
 - **Problem:** environment operating cost isn't shown or separated from savings (gap G6).

@@ -26,7 +26,7 @@ from typing import Any
 from . import jsonfile, notebook_resources
 from .fabric_run import SHIM_MARKER, uses_spark
 from .meta import diff as diff_mod
-from .notebook import NotebookShelf, NotebookStore, check_notebook_name, from_ipynb, ipynb_cell_problem
+from .notebook import NotebookShelf, NotebookStore, check_notebook_name, from_ipynb, ipynb_cell_problem, other_cell_type_note
 
 KEEP_DAYS = 30
 MAX_FILE_BYTES = 20 * 1024 * 1024
@@ -204,6 +204,9 @@ def read(nb: dict[str, Any]) -> dict[str, Any]:
     if spark:
         notes.append(f"Cell{'s' if len(spark) > 1 else ''} {', '.join(map(str, spark))} use{'' if len(spark) > 1 else 's'} "
                      "Spark. On this PC spark runs on DuckDB's Spark-compatible API, so check them with Validate.")
+    kept = [raw for raw, c in zip(nb["cells"], parsed["cells"], strict=True) if any(c is k for k in cells)]
+    notes += [f"Cell {n}. {other_cell_type_note(raw.get('cell_type'))}" for n, raw in enumerate(kept, 1)
+              if raw.get("cell_type") not in ("code", "markdown")]
     if dropped_setup:
         notes.append("The setup cell KratosForge adds when it publishes was left out; Publish adds it again.")
     outputs = any(c.get("outputs") for c in nb["cells"] if isinstance(c, dict))

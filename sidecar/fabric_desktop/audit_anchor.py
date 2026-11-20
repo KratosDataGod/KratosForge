@@ -70,9 +70,10 @@ def parse(value: str) -> Anchor | None:
         return None
     fields = dict(part.strip().partition("=")[::2] for part in value[len(PREFIX) + 1:].split(";"))
     try:
-        return Anchor(fields["folder"], fields["hash"], int(fields["lines"]))
+        anchor = Anchor(fields["folder"], fields["hash"], int(fields["lines"]))
     except (KeyError, ValueError):
         return None
+    return anchor if anchor.lines >= 0 else None  # a negative count isn't one this app wrote
 
 
 # ----------------------------------------------------------------------------- the Windows event log

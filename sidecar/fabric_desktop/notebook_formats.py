@@ -30,7 +30,7 @@ import zlib
 from pathlib import PurePosixPath
 from typing import Any
 
-from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, ipynb_cell_problem, to_ipynb
+from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, ipynb_cell_problem, other_cell_type_note, to_ipynb
 
 FORMATS = ("ipynb", "ipynb_outputs", "fabric_py", "databricks_py", "html")
 EXTENSIONS = {"ipynb": ".ipynb", "ipynb_outputs": ".ipynb", "fabric_py": ".py", "databricks_py": ".py", "html": ".html"}
@@ -637,8 +637,7 @@ def parse_ipynb(text: str) -> dict[str, Any]:
     notes: list[dict[str, Any]] = []
     for n, c in enumerate(nb["cells"], 1):
         if c.get("cell_type") not in ("code", "markdown"):
-            notes.append(_note(n, "changed", f"The cell's type ({str(c.get('cell_type') or 'none')[:40]}) isn't code or markdown, "
-                                             "so it comes in as a code cell."))
+            notes.append(_note(n, "changed", other_cell_type_note(c.get("cell_type"))))
         if c.get("outputs"):
             notes.append(_note(n, "dropped", "The cell's saved outputs were left out, because imported notebooks start without outputs. "
                                              "Run the cell to get them."))

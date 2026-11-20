@@ -376,6 +376,33 @@ lists Snowflake connections.
   a fake of it, not a live account. How TIME and TIMESTAMP_TZ values look on the wire, and that
   EXPLAIN runs without a warehouse, come from the documentation and haven't been checked live.
 
+### Snowflake objects and query history (Preview)
+
+Two engine calls read a Snowflake connection's objects and your own recent queries. There's no screen
+for them in the app yet, so for now they are engine calls only.
+
+- **Objects** (`engines/snowflake_objects.py`) lists databases, schemas, tables and views, and the
+  columns of a table or view you pick, with `SHOW` commands as the connection's role. They never send
+  a warehouse, so none resumes and no warehouse credits are used. Each list is a page of up to 1,000
+  rows (200 unless asked), and the next page starts after the last name shown, with `SHOW`'s
+  `LIMIT ... FROM`. A prefix filter uses `STARTS WITH`, which is case sensitive. A name you type is
+  matched as Snowflake lists it, ignoring case when only one object matches. A name your role can't see
+  says so and what to ask for, for example USAGE on the database. Snowflake returns at most 10,000
+  columns of a table, and they are paged on this PC.
+- **Query history** (`engines/snowflake_history.py`) reads your own queries from
+  `INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER`, which needs no grant on `ACCOUNT_USAGE`. It covers 1 hour
+  to just under 7 days (24 hours unless asked) and up to 1,000 queries (100 unless asked), newest first,
+  with each query's id, status, run time, warehouse and rows. Query text is cut to 500 characters unless
+  asked (2,000 at most), after anything that looks like a password or token is removed. Queries still
+  running are included. The query that reads the history is left out.
+- **Query history uses credits.** It's a query, so it runs on the connection's warehouse and needs a
+  database for its `INFORMATION_SCHEMA`. A suspended warehouse resumes, and a running one uses credits
+  until its own auto-suspend. So it needs the same confirmation, for that account and warehouse, as the
+  [Snowflake SQL warehouse](#snowflake-sql-warehouse-preview), or your profile's policy.
+- **Not confirmed yet.** Both follow Snowflake's documentation and are tested against a fake of the SQL
+  API, not a live account. Whether `LIMIT ... FROM` includes the named row isn't documented, so a row
+  with that exact name is never shown twice either way. Query profiles and credits come later.
+
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace

@@ -39,7 +39,7 @@ _CP = "KratosForge Environment (CP-009): engine first, the Settings screen waits
 
 NO_UI_CALLER: dict[str, str] = {
     **{m: _CP for m in ("cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview", "cp_adopt",
-                        "cp_connect", "cp_switch", "cp_disconnect", "cp_check")},
+                        "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost")},
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # SF-002: the Check button in Settings > Connections waits on its mockup.

@@ -48,10 +48,11 @@ def test_tmdl_to_ossie_to_tmdl_keeps_every_object():
     before, _ = tmdl.to_bim(FILES, "Sales model")
     after, _ = tmdl.to_bim(files, "Sales model")
     assert _same(before, after)
-    # What can't travel is named: translations the reader doesn't read, and what other tools won't see in Ossie.
-    lost = {(r["object"], r["kind"]) for r in out["report"]}
-    assert ("culture fr-FR", "lost") in lost
-    assert ("model", "kept") in lost  # roles and perspectives ride in the Power BI section
+    # Translations ride in the Power BI section with roles and perspectives; other tools won't see them in Ossie.
+    assert [c["name"] for c in after["model"]["cultures"]] == ["fr-FR"]
+    assert files["definition/cultures/fr-FR.tmdl"].startswith("cultureInfo fr-FR\n")
+    assert any(r["object"] == "model" and r["kind"] == "kept" and "translations" in r["message"] for r in out["report"])
+    assert not any(r["object"].startswith("culture") for r in out["report"])
 
 
 def test_a_fabric_model_to_ossie_to_tmdl_is_the_same_model():
@@ -96,12 +97,12 @@ def test_round_trip_names_what_doesnt_come_back():
 def test_tmsl_lines_lists_cultures_and_unknown_lists():
     bim = _bim()
     bim["model"]["tables"][0]["measures"][0]["expression"] = ["COUNTROWS(", "  'fact_sales')"]
-    bim["model"]["cultures"] = [{"name": "fr-FR", "translations": {}}]
+    bim["model"]["cultures"] = [{"name": "fr-FR", "translations": {}}]  # an empty setting: said, not dropped
     bim["model"]["tables"][0]["someNewList"] = [{"name": "x"}]
     files, report, back = _read_back(bim)
     m = next(t for t in back["model"]["tables"] if t["name"] == "fact_sales")["measures"][0]
     assert m["expression"] == "COUNTROWS(\n  'fact_sales')"
-    assert {r["object"] for r in report} == {"culture 'fr-FR'", "table 'fact_sales' someNewList"}
+    assert {r["object"] for r in report} == {"culture 'fr-FR' translations", "table 'fact_sales' someNewList"}
     assert all(r["kind"] == "lost" for r in report)
 
 
@@ -207,6 +208,177 @@ def test_a_hostile_model_reads_back_with_the_same_objects_and_nothing_extra():
     assert back["model"]["annotations"][0]["value"] == "x\ntable Injected"
     assert "definition/roles/_.._evil.tmdl" in files
     assert all(PureWindowsPath(p).parts[0] == "definition" and ".." not in PureWindowsPath(p).parts for p in files)
+
+
+# ---- cultures: translations and linguistic metadata
+
+CULTURES = [
+    {"name": "fr-FR", "linguisticMetadata": {"content": {"Version": "1.0.0", "Language": "fr-FR",
+                                                         "DynamicImprovement": "HighConfidence", "Entities": {"a": [1, 2.5, None, True]}},
+                                             "contentType": "json"},
+     "annotations": [{"name": "note", "value": "kept"}],
+     "translations": {"model": {"name": "Model", "translatedCaption": "Modèle", "translatedDescription": "Le modèle",
+                                "tables": [{"name": "fact_sales", "translatedCaption": "Ventes",
+                                            "translatedDescription": "deux\nlignes",
+                                            "columns": [{"name": "amount", "translatedCaption": "true",
+                                                         "translatedDisplayFolder": " Valeurs "}],
+                                            "measures": [{"name": "fact_sales total amount", "translatedCaption": "Total"}]},
+                                           {"name": "dim_customer", "translatedCaption": "Client",
+                                            "hierarchies": [{"name": "Geography", "translatedCaption": "Géographie",
+                                                             "levels": [{"name": "Country", "translatedCaption": "Pays"}]}]}],
+                                "roles": [{"name": "EU only", "translatedCaption": "UE"}],
+                                "perspectives": [{"name": "Finance", "translatedCaption": "Finances"}]}}},
+    {"name": "en-US", "linguisticMetadata": {"content": "<Linguistic/>\n<x/>", "contentType": "xml"}},
+    {"name": "de-DE"},
+]
+
+
+def test_cultures_write_as_tmdl_and_read_back_exactly():
+    bim = _bim()
+    bim["model"]["cultures"] = copy.deepcopy(CULTURES)
+    files, report, back = _read_back(bim)
+    assert report == []
+    assert tmdl.differences(bim, back) == [] and tmdl.differences(back, bim) == []
+    assert back["model"]["cultures"] == CULTURES  # in their order too, from model.tmdl's refs
+    assert {p for p in files if "/cultures/" in p} == {f"definition/cultures/{c}.tmdl" for c in ("fr-FR", "en-US", "de-DE")}
+    model = files["definition/model.tmdl"]
+    assert model.index("ref cultureInfo fr-FR") < model.index("ref cultureInfo en-US") < model.index("ref cultureInfo de-DE")
+    fr = files["definition/cultures/fr-FR.tmdl"]
+    assert fr.startswith("cultureInfo fr-FR\n\n\tlinguisticMetadata =\n\t\t\t{\n") and "\t\t\t}\n\t\tcontentType: json\n" in fr
+    en = files["definition/cultures/en-US.tmdl"]
+    assert en == "cultureInfo en-US\n\n\tlinguisticMetadata =\n\t\t\t```\n\t\t\t<Linguistic/>\n\t\t\t<x/>\n\t\t\t```\n\t\tcontentType: xml\n\n"
+    assert "\ttranslations\n\t\tmodel Model\n\t\t\tcaption: Modèle\n" in fr
+    assert "\t\t\t\tcaption: Ventes\n" in fr and '\t\t\t\t\tcaption: "true"\n' in fr
+    again, _ = tmdl.from_bim(back)
+    assert {p: t for p, t in again.items() if "/cultures/" in p} == {p: t for p, t in files.items() if "/cultures/" in p}
+
+
+def test_tmsl_to_tmdl_to_ossie_to_tmdl_keeps_cultures():
+    bim = _bim()
+    bim["model"]["cultures"] = copy.deepcopy(CULTURES)
+    files, report = tmdl.from_bim(bim)
+    assert report == []
+    out = model_ossie.tmdl_to_ossie(files, "SM_Gold", translate_dax=False)
+    assert not any(r["kind"] == "lost" for r in out["report"])
+    files2, report2 = model_ossie.ossie_to_tmdl(out["yaml"])
+    assert report2 == []
+    assert {p for p in files2 if "/cultures/" in p} == {p for p in files if "/cultures/" in p}
+    after = tmdl.to_bim(files2, "SM_Gold")[0]
+    assert _same(bim, after) and after["model"]["cultures"] == CULTURES
+
+
+def test_what_a_culture_cant_carry_is_named():
+    bim = {"name": "m", "model": {"cultures": [
+        {"name": "fr-FR", "translations": {"model": {"tables": [{"name": "T", "translatedCaption": 5,
+                                                                "measures": [{"name": "M", "kpi": {"translatedCaption": "k"}}],
+                                                                "partitions": [{"name": "p", "translatedCaption": "x"}]},
+                                                               {"translatedCaption": "no name"}]},
+                                           "other": {"x": 1}}},
+        {"translations": {}}, "not an object"]}}
+    _, report = tmdl.from_bim(bim)
+    assert {r["object"] for r in report} == {
+        "culture 'fr-FR' translations model table 'T' translatedCaption",
+        "culture 'fr-FR' translations model table 'T' measure 'M' kpi",
+        "culture 'fr-FR' translations model table 'T' partitions",
+        "culture 'fr-FR' translations model table None",
+        "culture 'fr-FR' translations other", "culture", "cultures"}
+    assert all(r["kind"] == "lost" for r in report)
+
+
+@pytest.mark.parametrize("name", HOSTILE_NAMES + ["../../evil", "CON", "a/b\\c"])
+def test_hostile_culture_and_translation_names_round_trip_in_safe_files(name):
+    bim = {"name": "m", "model": {"tables": [{"name": name, "columns": [{"name": name, "dataType": "string"}]}], "cultures": [
+        {"name": name, "translations": {"model": {"tables": [{"name": name, "translatedCaption": name,
+                                                              "columns": [{"name": name, "translatedCaption": name}]}]}}}]}}
+    files, report, back = _read_back(bim)
+    assert report == [] and tmdl.differences(bim, back) == []
+    assert back["model"]["cultures"][0]["name"] == name
+    assert back["model"]["cultures"][0]["translations"]["model"]["tables"] == bim["model"]["cultures"][0]["translations"]["model"]["tables"]
+    paths = [p for p in files if "/cultures/" in p]
+    assert len(paths) == 1
+    assert all(PureWindowsPath(p).parts[:2] == ("definition", "cultures") and ".." not in PureWindowsPath(p).parts
+               and len(PureWindowsPath(p).parts) == 3 for p in paths)
+
+
+@pytest.mark.parametrize("name", ["new\nline", "carriage\rreturn", *(f"x{c}\tcultureInfo Evil" for c in SEPARATORS)])
+def test_culture_and_translation_names_with_line_breaks_are_refused_by_name(name):
+    with pytest.raises(ValueError, match="can't be written as TMDL: culture .*line break"):
+        tmdl.from_bim({"name": "m", "model": {"cultures": [{"name": name}]}})
+    bim = {"name": "m", "model": {"cultures": [{"name": "fr-FR", "translations": {"model": {"tables": [
+        {"name": "T", "measures": [{"name": name, "translatedCaption": "x"}]}]}}}]}}
+    with pytest.raises(ValueError, match="can't be written as TMDL: culture 'fr-FR' translations model table 'T' measure .*line break"):
+        tmdl.from_bim(bim)
+
+
+@pytest.mark.parametrize("sep", SEPARATORS)
+def test_separators_in_translations_and_metadata_are_fenced_or_escaped(sep):
+    evil = f"1{sep}\tcultureInfo Evil"
+    bim = {"name": "m", "model": {"cultures": [{"name": "fr-FR",
+        "linguisticMetadata": {"content": {"k": evil, evil: [evil]}, "contentType": "json"},
+        "translations": {"model": {"translatedCaption": evil, "tables": [{"name": "T", "translatedDescription": evil}]}}}]}}
+    files, report, back = _read_back(bim)
+    assert report == [] and tmdl.differences(bim, back) == []
+    assert back["model"]["cultures"][0]["linguisticMetadata"] == bim["model"]["cultures"][0]["linguisticMetadata"]
+    text = files["definition/cultures/fr-FR.tmdl"]
+    json_part = text[:text.index("\t\tcontentType: json")]
+    assert json_part.splitlines() == json_part.split("\n")[:-1], "unfenced JSON metadata has every separator as a \\u escape"
+    lines = text.splitlines()  # split the way any reader might
+    fenced = [i for i, line in enumerate(lines) if line.strip().endswith("```")]
+    start, end = lines.index("\tlinguisticMetadata ="), lines.index("\t\tcontentType: json")
+    for i, line in enumerate(lines):
+        if "cultureInfo Evil" in line:
+            in_json = start < i < end and line.startswith("\t\t\t")  # metadata: deeper than any property
+            assert in_json or sum(1 for f in fenced if f < i) % 2 == 1, "only inside an open fence"
+
+
+# A culture file as Power BI Desktop saves it: re-saved on this PC, it shows no diff.
+POWER_BI_CULTURE = "\n".join([
+    "cultureInfo en-US", "",
+    "\tlinguisticMetadata =", "\t\t\t{", '\t\t\t  "Version": "1.0.0",', '\t\t\t  "Language": "en-US",',
+    '\t\t\t  "DynamicImprovement": "HighConfidence",', '\t\t\t  "Entities": {', '\t\t\t    "sales": {',
+    '\t\t\t      "Definition": {', '\t\t\t        "Binding": {', '\t\t\t          "ConceptualEntity": "Ventes é"',
+    "\t\t\t        }", "\t\t\t      },", '\t\t\t      "State": "Generated",', '\t\t\t      "Weight": 0.99,',
+    '\t\t\t      "Terms": [', '\t\t\t        {', '\t\t\t          "sales": {', '\t\t\t            "State": "Generated"',
+    "\t\t\t          }", "\t\t\t        }", "\t\t\t      ]", "\t\t\t    }", "\t\t\t  }", "\t\t\t}",
+    "\t\tcontentType: json", "", ""])
+
+
+def test_a_power_bi_culture_file_saves_back_byte_identical():
+    files = {"definition/model.tmdl": "model Model\n\tculture: en-US\nref cultureInfo en-US\n",
+             "definition/cultures/en-US.tmdl": POWER_BI_CULTURE}
+    bim, report = tmdl.to_bim(files, "m")
+    assert report == []
+    written, report = tmdl.from_bim(bim)
+    assert report == [] and written["definition/cultures/en-US.tmdl"] == POWER_BI_CULTURE
+    assert written["definition/model.tmdl"] == files["definition/model.tmdl"]
+
+
+def test_a_fence_on_the_line_after_equals_is_read_as_a_fence():
+    text = "cultureInfo de-DE\n\tlinguisticMetadata =\n\t\t\t```\n\t\t\t<a>\n\t\t\t  b\n\t\t\t</a>\n\t\t\t```\n\t\tcontentType: xml\n"
+    bim, report = tmdl.to_bim({"definition/cultures/de-DE.tmdl": text}, "m")
+    assert report == [] and bim["model"]["cultures"][0]["linguisticMetadata"] == {"content": "<a>\n  b\n</a>", "contentType": "xml"}
+
+
+def test_a_translation_or_metadata_with_a_fence_line_is_refused_by_name():
+    bim = {"name": "m", "model": {"cultures": [{"name": "fr-FR", "translations": {"model": {"translatedCaption": "a\n```\nb"}}}]}}
+    with pytest.raises(ValueError, match="culture 'fr-FR' translations model translatedCaption: .*three backticks"):
+        tmdl.from_bim(bim)
+    bim = {"name": "m", "model": {"cultures": [{"name": "fr-FR", "linguisticMetadata": {"content": "<a>\n```\n</a>", "contentType": "xml"}}]}}
+    with pytest.raises(ValueError, match="culture 'fr-FR' linguisticMetadata: .*three backticks"):
+        tmdl.from_bim(bim)
+
+
+def test_deeply_nested_linguistic_metadata_is_refused_not_a_crash():
+    deep: list = []
+    here = deep
+    for _ in range(100_000):
+        here.append([])
+        here = here[0]
+    with pytest.raises(ValueError, match="nested too deeply"):
+        tmdl.from_bim({"name": "m", "model": {"cultures": [{"name": "fr-FR", "linguisticMetadata": {"content": deep, "contentType": "json"}}]}})
+    text = "cultureInfo fr-FR\n\tlinguisticMetadata = " + "[" * 100_000 + "]" * 100_000 + "\n\t\tcontentType: json\n"
+    with pytest.raises(ValueError, match="nested too deeply"):
+        tmdl.to_bim({"definition/cultures/fr-FR.tmdl": text}, "m")
 
 
 # ---- file names

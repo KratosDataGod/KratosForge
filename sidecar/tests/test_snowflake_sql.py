@@ -967,7 +967,7 @@ def test_uniform_from_random_still_runs():
 def _first(sql):
     translation = sf.translate(sql)
     assert translation.runnable, translation.first_refusal()
-    return duckdb.sql(translation.duckdb_sql).fetchall()[0][0]
+    return duckdb.connect().sql(translation.duckdb_sql).fetchall()[0][0]
 
 
 def test_alter_session_sets_the_time_zone_and_refuses_other_parameters():
@@ -1165,3 +1165,15 @@ def test_an_array_of_text_and_numbers_is_refused_by_name(sql):
 def test_an_array_of_one_kind_or_from_a_column_still_runs():
     assert sf.translate("SELECT array_construct(1, 2), array_construct('a', NULL), array_append(array_construct(1), x) "
                         "FROM t").runnable
+
+
+@pytest.mark.parametrize("query", ["SELECT IFF(b = 0 OR c, 0, a / b) FROM t", "SELECT IFF(b = 0 AND NOT c, 0, a / b) FROM t"])
+def test_an_iff_that_only_looks_like_div0_keeps_its_division_guard(query):
+    # Telling DIV0's form apart used to move the divisor (OR) or the numerator (AND) out of the query.
+    sql = sf.translate(query).duckdb_sql
+    assert "ELSE a / CASE WHEN b = 0 THEN ERROR('Division by zero') ELSE b END END" in sql
+
+
+def test_div0_and_div0null_still_divide_without_the_guard():
+    sql = sf.translate("SELECT DIV0(a, b), DIV0NULL(a, b) FROM t").duckdb_sql
+    assert "ERROR" not in sql and sql.count("ELSE a / b END") == 2

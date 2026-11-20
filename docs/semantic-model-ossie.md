@@ -240,14 +240,17 @@ A measure past either cap is not run, and the row gives the reason.
 
 | Sides | Result |
 | --- | --- |
-| Both SQL, same value on every dataset | Verified equivalent, on these datasets only (the row says so) |
+| Both SQL, same value on every dataset | Verified equivalent, on these datasets run on DuckDB only (the row says so) |
 | Both SQL, some values differ within the tolerances | Equivalent within tolerance |
 | Both SQL, a value differs past the tolerances | Different results, naming the dataset and both values |
 | One side DAX | The L2 result stands. The SQL values are evidence, and the DAX side is "not run" |
 
 **A DAX side never runs on this PC**, because there is no DAX engine here and DuckDB isn't one. A
 report never holds a DAX-side value without an executed DAX query. OSSIE-006d runs that side in
-`kf_tenant_test`. L3 never improves a row that L1 or L2 already found worse. Relationships, filter
+`kf_tenant_test`. L3 never improves a row that L1 or L2 already found worse, but values that differ
+still lower it to Different results. Both SQL sides run with DuckDB's semantics, not their own engine's:
+DuckDB gives infinity for 1/0 where T-SQL raises an error, and integer division and NULL order can
+differ too. Relationships, filter
 context and time intelligence aren't exercised, because the subset aggregates whole tables, so
 these are listed under `not_checked`.
 

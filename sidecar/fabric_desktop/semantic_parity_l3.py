@@ -22,11 +22,12 @@ Results, per measure row:
 
 - both sides SQL and both ran: **Verified equivalent** when every dataset gives the same value on both sides,
   **Equivalent within tolerance** when some differ within the tolerances, **Different results** otherwise (the
-  datasets and both values are in ``changes``). Verified means on these datasets only, which the row's notes say.
+  datasets and both values are in ``changes``). Verified means on these datasets, both run on DuckDB, which the
+  row's notes say: each side's own engine can still differ (DuckDB gives 1/0 = inf where T-SQL raises an error).
 - one side DAX: the row keeps its L2 result (at best **Structurally compatible but behavior unverified**); the SQL
   side's values are evidence for the 006d comparison, never a match.
 - a row L1 or L2 already found worse (Different results, Unsupported, Test failed) keeps that result; L3 never
-  improves on it. A SQL query that DuckDB refuses on a dataset is that value's error, compared like a value.
+  improves on it, but different values still lower it to Different results (never a Test failed row). A SQL query that DuckDB refuses on a dataset is that value's error, compared like a value.
 
 Tolerances are configuration (``DEFAULT_TOLERANCES_L3``, stated in the report): ``absolute`` and ``relative``, a
 pair of numbers is within tolerance when ``|a - b| <= max(absolute, relative * max(|a|, |b|))``. Exact equality is
@@ -67,7 +68,8 @@ NOT_CHECKED_L3 = (
     {"what": "performance", "level": "L4", "story": "OSSIE-006", "reason": "not measured until a live baseline exists"},
 )
 _DAX_NOT_RUN = "not run: this PC has no DAX engine (OSSIE-006d runs the DAX side in kf_tenant_test)"
-_ON_DATASETS = "Verified on the controlled datasets only (L3, SQL side): other data can still differ"
+_ON_DATASETS = ("Verified on the controlled datasets only, both run on DuckDB (L3, SQL side): other data, or each "
+                "side's own engine (a zero divisor, integer division, NULL order), can still differ")
 
 # Value classes by a side's column type (TMSL dataType or Ossie data_type, casefolded) -> (class, DuckDB type).
 _TYPES: dict[str, tuple[str, str]] = {
@@ -290,13 +292,13 @@ def _load(con: Any, which: str, run: _Run, scenario: dict[str, list[str | None]]
         n = len(scenario["int"])
         select = ", ".join(f"CAST(v{i} AS {typed[1]}) AS {_q(c)}" for i, (c, typed) in enumerate(cols))
         raw = ", ".join(f"v{i} VARCHAR" for i in range(len(cols)))
-        con.execute(f"CREATE TEMP TABLE staging ({raw})")
+        con.execute(f"CREATE TEMP TABLE kf_l3_staging ({raw})")
         if n:
             marks = ", ".join("?" for _ in cols)
-            con.executemany(f"INSERT INTO staging VALUES ({marks})",
+            con.executemany(f"INSERT INTO kf_l3_staging VALUES ({marks})",
                             [[scenario[typed[0]][r] for _, typed in cols] for r in range(n)])
-        con.execute(f"CREATE TABLE {_q(which)}.{_q(table)} AS SELECT {select} FROM staging")
-        con.execute("DROP TABLE staging")
+        con.execute(f"CREATE TABLE {_q(which)}.{_q(table)} AS SELECT {select} FROM kf_l3_staging")
+        con.execute("DROP TABLE kf_l3_staging")
 
 
 def _run_side(which: str, run: _Run, queries: dict[str, str]) -> dict[str, dict[str, str | None]]:

@@ -34,6 +34,7 @@ from typing import Any, Iterator
 from . import __version__, audit_chain
 from .redact import secrets
 
+UNREADABLE = "unreadable_line"  # the action of the placeholder row recent() shows for a damaged line
 SCHEMA = "audit@1"
 GENESIS = audit_chain.GENESIS
 
@@ -53,7 +54,7 @@ meta_model_ossie_models meta_model_ossie_export meta_model_ossie_read meta_model
 meta_model_directlake_setup meta_model_directlake_check
 meta_model_ossie_folders meta_model_ossie_export_folder
 meta_model_dictionary meta_model_dictionary_preview
-meta_preflight meta_profile_preview meta_project meta_promote_check meta_promote_impact
+meta_openlineage_preview meta_preflight meta_profile_preview meta_project meta_promote_check meta_promote_impact
 meta_quarantine meta_run_detail meta_runs meta_runs_all meta_schedules meta_table_history meta_varlib
 meta_versions notebook_dependencies notebook_inputs notebook_places notebook_runs notebook_schedules notebook_syntax notebook_symbol notebook_format notebook_practices notebook_practice_rules notebook_plotly_js open_notebook pc_schedule_runs
 pc_schedules_for time_zones platform_admins platform_audit platform_change_window platform_domains platform_entra_check platform_entra_find platform_entra_groups platform_entra_script platform_glossary platform_key_tables
@@ -75,6 +76,7 @@ risk_check meta_risk_gate risk_settings meta_optimize_check
 model_bpa_status model_bpa_risk
 incidents_board incidents_for_me incident_sla_policy incidents_history incident_impact
 optimize_discover optimize_findings optimize_recommendations optimize_status optimization_assess excellence_assess
+cp_status cp_discover cp_plan cp_adopt_preview cp_check
 tenant_settings_history
 platform_notify_settings platform_notify_open
 pipeline_run_check pipeline_run_status pipeline_runs pipeline_list
@@ -88,7 +90,7 @@ notebook_file_path notebook_disk_stamp notebook_name_for_path notebook_listing n
 notebook_formats_import_check notebook_print_page notebook_report_open notebook_report_page notebook_prod_pending
 profile_get profile_report profile_avatar
 notebook_comments_list
-engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan
+engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan snowflake_check
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
 learn_fixes learn_fix_compare learn_fix_checked learn_patterns learn_team_notes
 academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness academy_sandbox_status
@@ -259,21 +261,30 @@ class AuditLog:
         audit_chain.append(self.folder, entry)  # under the folder's lock: no other process forks the chain
         return entry
 
-    def entries(self) -> Iterator[dict[str, Any]]:
-        """Every line, oldest first. A line that isn't a JSON object is left out: ``verify()`` names it,
-        and the app can still show the rest of the trail and that check."""
+    def entries(self, unreadable: bool = False) -> Iterator[dict[str, Any]]:
+        """Every line, oldest first. A line that isn't a JSON object is left out (``verify()`` names it), or
+        with ``unreadable`` given as a placeholder row (UNREADABLE) that says which line, so a list of the
+        trail shows where it is damaged rather than skipping over it."""
         for path in self._files():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    try:
-                        entry = json.loads(line)
-                    except ValueError:  # reported by verify()
-                        continue
-                    if isinstance(entry, dict):
-                        yield entry
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):  # a stray byte: that line only
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:  # reported by verify()
+                    entry = None
+                if isinstance(entry, dict):
+                    yield entry
+                elif unreadable:
+                    yield {"schema": SCHEMA, "at": "", "action": UNREADABLE, "outcome": "error", "seconds": 0,
+                           "who": "", "params": {}, "file": path.name, "line": number,
+                           "error": (f"{path.name} line {number} isn't an audit line, so it can't be shown. "
+                                     "Run --verify to see what the trail check finds.")}
 
     def recent(self, limit: int = 200, action: str = "") -> list[dict[str, Any]]:
-        rows = [e for e in self.entries() if not action or e.get("action") == action]
+        """The newest lines, newest first. A line that can't be read shows as a placeholder row
+        (UNREADABLE) in the full list; a list of one action leaves it out."""
+        rows = [e for e in self.entries(unreadable=not action) if not action or e.get("action") == action]
         return rows[-limit:][::-1]
 
     def verify(self) -> dict[str, Any]:

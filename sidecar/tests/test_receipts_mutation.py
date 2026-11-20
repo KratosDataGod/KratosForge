@@ -237,7 +237,6 @@ def test_the_list_shows_fifty_unless_asked_for_more(tmp_path):
     assert len(store.list(limit=60)) == 52
 
 
-@pytest.mark.xfail(strict=True, reason="the redaction note lowercases 'This PC' to 'this pc'")
 def test_the_redaction_note_keeps_this_pc_as_written():
     body = {"schema": receipts.SCHEMA, "kind": "run"}
     md = receipts.to_markdown(body, "e" * 64, hide=["machine"])

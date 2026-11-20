@@ -941,9 +941,16 @@ async function renderEnvTab(body, p) {
       h("div", { class: "row" }, previewMarked("promote", h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`)), h("span", { class: "spacer" }),
         btn(`Promote to ${ENV_LABEL[target]}`, "publish", async () => {
           if (!state.user && !(await signIn())) return;
+          // Prod, or a workspace a project on this PC named Prod (WR-251): the promote waits for the workspace's
+          // name typed (WR-250), as a Prod write does. The gate check says which name; Prod's is known without it.
+          const prodName = checks[target]?.confirm_name || (target === "prod" ? (envs.prod?.workspace_name || envs.prod?.workspace_id || "Prod") : "");
+          if (prodName && !(await confirmDialog(`Promote to ${ENV_LABEL[target]}?`,
+            target === "prod" ? `This puts ${ENV_LABEL[source]}'s metadata on ${prodName}, the Prod workspace, and its next runs use it.`
+              : `This puts ${ENV_LABEL[source]}'s metadata on ${prodName}, and its next runs use it. ${prodName} is another project's Prod workspace on this PC.`,
+            "Promote", { danger: true, typeToConfirm: prodName }))) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
           let cancelled = false;
-          const res = await metaCall("meta_promote", { source, target }, "Promote blocked", (err) => { cancelled = friendlyError(err).cancelled; });
+          const res = await metaCall("meta_promote", { source, target, ...(prodName ? { confirm_name: prodName } : {}) }, "Promote blocked", (err) => { cancelled = friendlyError(err).cancelled; });
           // Anvil Strike on the message once the target is on the new version; the ember beside the
           // error when the promote fails, and nothing for a cancelled sign-in (motion.js).
           if (res) {

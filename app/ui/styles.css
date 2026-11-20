@@ -3088,6 +3088,7 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
   :focus-visible, .search:focus-within, .palette-input:focus-within, .nbf-search:focus-within, .pbi-frame.pbi-focus { outline: 2px solid Highlight; }
   .avatar { border: 1px solid CanvasText; }
   .seg button.on:disabled { color: HighlightText; }  /* a locked choice: outranks the normal-mode rule */
+  .choice-row.selected .muted-text { color: HighlightText; }  /* its description, on the theme's Highlight like its name */
 }
 
 /* Home > Recent notebooks: details, Run several and items pinned to Home (home-notebooks.js) */
@@ -3207,6 +3208,35 @@ table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit
 .cx-warn { color: var(--danger); }
 .cx-problems, .cx-part-error { color: var(--danger); }
 .cx-empty pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 8px; border-radius: var(--r-sm); }
+/* Settings > Environment (kf-environment.js, Preview, CP-010) */
+.kfe-page { display: flex; flex-direction: column; gap: 12px; }
+.kfe-title { margin: 0; }
+.kfe-page > p { margin: 0; }
+.kfe-card { display: flex; flex-direction: column; gap: 10px; }
+.kfe-card h3, .kfe-card h4 { margin: 0; }
+.kfe-card h4 { margin-top: 6px; font-size: 14px; }
+.kfe-card > p { margin: 0; }
+.kfe-card .row { flex-wrap: wrap; gap: 8px; }
+.kfe-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 20px; margin: 0; }
+.kfe-kv dt { color: var(--muted); }
+.kfe-kv dd { margin: 0; overflow-wrap: anywhere; }
+.kfe-status { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--hover); }
+.kfe-status.pass { background: var(--ok-soft); }
+.kfe-status.wrn { background: var(--warn-soft); }
+.kfe-status.fail { background: var(--danger-soft); }
+.kfe-status.info { background: var(--info-soft); }
+.kfe-status .kfe-waiting { grid-column: 2; }
+.kfe-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kfe-table th { text-align: left; font-weight: 600; color: var(--muted); }
+.kfe-table th, .kfe-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.kfe-table tr.dim td { opacity: 0.5; }
+.kfe-table .kfe-act { text-align: right; white-space: nowrap; }
+.kfe-plan td:first-child { min-width: 220px; }
+.kfe-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.kfe-field small { font-size: 12px; }
+.kfe-narrow { max-width: 360px; }
+.kfe-buttons { justify-content: flex-end; }
+@media (max-width: 640px) { .kfe-table .kfe-act { white-space: normal; } .kfe-plan td:first-child { min-width: 0; } }
 /* Optimize's sync line under the band, and its details (PR-OPT-006). */
 .optimize-sync[hidden] { display: none; }
 .optimize-sync { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }

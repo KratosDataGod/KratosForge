@@ -33,6 +33,9 @@ class Svc(es.EstateMixin):
     def _settings(self):
         return self.settings
 
+    def _confirm_name(self, project, env):  # MetaMixin's: the name a change there waits for (WR-251)
+        return ""
+
     def _save_settings(self, **kw):
         self.saved.append(kw)
         self.settings.update(kw)

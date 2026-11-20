@@ -61,6 +61,7 @@ _TEXT: dict[str, tuple[str, str]] = {
     "allow_fabric_runs": ("fabric", "False stops the app starting jobs on Fabric capacity; work stays on the PC."),
     "allow_staging_cleanup": ("fabric", "False stops the Estate X-ray deleting leftover Dataflow Gen2 staging lakehouses; it still lists them."),
     "allow_optimize_lakehouse": ("fabric", "False stops Optimize creating, connecting to or writing to a shared optimization lakehouse."),
+    "allow_central_environment": ("fabric", "False stops the app creating, adopting, connecting to or checking a KratosForge Environment."),
     "allow_replay_samples": ("fabric", "False removes the sample of input data from replay bundles, so a bundle never holds lakehouse data."),
     "allow_signed_out_schedules": ("fabric", "False stops people setting schedules on this PC to run while they're signed out of Windows."),
     "platform_presence": ("fabric", "True records owners' last-used dates in the platform catalog, which everyone who reads the catalog sees."),

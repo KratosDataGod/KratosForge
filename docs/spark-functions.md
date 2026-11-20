@@ -21,9 +21,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | --- | ---: |
 | Runs | 402 |
 | Differs | 0 |
-| Refused | 21 |
+| Refused | 34 |
 | Fails | 0 |
-| Not checked | 15 |
+| Not checked | 2 |
 | **All** | **438** |
 
 ## Aggregate
@@ -398,31 +398,31 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `aes_decrypt` | Refused | `SELECT aes_decrypt(unhex('83F16B2AA704794132802D248E6BFD4E380078182D1544813898AC97E709B28A94'), '0000111122223333')` | aes_decrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
-| `aes_encrypt` | Not checked | `SELECT hex(aes_encrypt('Spark', '0000111122223333'))` |  |
+| `aes_encrypt` | Refused | `SELECT hex(aes_encrypt('Spark', '0000111122223333'))` | aes_encrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
 | `assert_true` | Runs | `SELECT assert_true(0 < 1)` |  |
 | `bitmap_bit_position` | Runs | `SELECT bitmap_bit_position(1)` |  |
 | `bitmap_bucket_number` | Runs | `SELECT bitmap_bucket_number(123)` |  |
 | `bitmap_count` | Runs | `SELECT bitmap_count(X '1010')` |  |
 | `current_catalog` | Runs | `SELECT current_catalog()` |  |
-| `current_database` | Not checked | `SELECT current_database()` |  |
-| `current_schema` | Not checked | `SELECT current_schema()` |  |
-| `current_user` | Not checked | `SELECT current_user()` |  |
+| `current_database` | Refused | `SELECT current_database()` | Fabric names the notebook's default lakehouse: it depends on the notebook, not on Spark. |
+| `current_schema` | Refused | `SELECT current_schema()` | Fabric names the notebook's default lakehouse: it depends on the notebook, not on Spark. |
+| `current_user` | Refused | `SELECT current_user()` | Fabric names the identity running the notebook. Refused here, where DuckDB would name itself. |
 | `equal_null` | Runs | `SELECT equal_null(3, 3)` |  |
 | `hll_sketch_estimate` | Refused | `SELECT hll_sketch_estimate(hll_sketch_agg(col)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
 | `hll_union` | Refused | `SELECT hll_sketch_estimate(hll_union(hll_sketch_agg(col1), hll_sketch_agg(col2))) FROM VALUES (1, 4), (1, 4), (2, 5), (2, 5), (3, 6) tab(col1, col2)` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
-| `input_file_block_length` | Not checked | `SELECT input_file_block_length()` |  |
-| `input_file_block_start` | Not checked | `SELECT input_file_block_start()` |  |
-| `input_file_name` | Not checked | `SELECT input_file_name()` |  |
-| `java_method` | Not checked | `SELECT java_method('java.util.UUID', 'randomUUID')` |  |
-| `monotonically_increasing_id` | Not checked | `SELECT monotonically_increasing_id()` |  |
-| `raise_error` | Not checked | `SELECT raise_error('custom error message')` |  |
-| `reflect` | Not checked | `SELECT reflect('java.util.UUID', 'randomUUID')` |  |
-| `spark_partition_id` | Not checked | `SELECT spark_partition_id()` |  |
+| `input_file_block_length` | Refused | `SELECT input_file_block_length()` | input_file_block_length() can't run on this PC the way it runs in Fabric, so nothing ran: this PC doesn't track the file each row was read from. Run the cell in |
+| `input_file_block_start` | Refused | `SELECT input_file_block_start()` | input_file_block_start() can't run on this PC the way it runs in Fabric, so nothing ran: this PC doesn't track the file each row was read from. Run the cell in  |
+| `input_file_name` | Refused | `SELECT input_file_name()` | input_file_name() can't run on this PC the way it runs in Fabric, so nothing ran: this PC doesn't track the file each row was read from. Run the cell in Fabric. |
+| `java_method` | Refused | `SELECT java_method('java.util.UUID', 'randomUUID')` | java_method() can't run on this PC the way it runs in Fabric, so nothing ran: it calls a Java method by reflection, and this PC runs no Java. Run the cell in Fa |
+| `monotonically_increasing_id` | Not checked | `SELECT monotonically_increasing_id()` | Spark's ids depend on how the cluster splits the rows. Checked by behaviour: unique, increasing, bigint. |
+| `raise_error` | Not checked | `SELECT raise_error('custom error message')` | Stops with the message as Spark does, but as DuckDB's Invalid Input Error, not Spark's USER_RAISED_EXCEPTION. |
+| `reflect` | Refused | `SELECT reflect('java.util.UUID', 'randomUUID')` | reflect() can't run on this PC the way it runs in Fabric, so nothing ran: it calls a Java method by reflection, and this PC runs no Java. Run the cell in Fabric |
+| `spark_partition_id` | Refused | `SELECT spark_partition_id()` | Depends on how Fabric's cluster splits a query's rows into partitions. |
 | `try_aes_decrypt` | Refused | `SELECT try_aes_decrypt(unhex('6E7CA17BBB468D3084B5744BCA729FB7B2B7BCB8E4472847D02670489D95FA97DBBA7D3210'), '0000111122223333', 'GCM')` | try_aes_decrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
 | `typeof` | Runs | `SELECT typeof(1)` |  |
-| `user` | Not checked | `SELECT user()` |  |
+| `user` | Refused | `SELECT user()` | Fabric names the identity running the notebook. Refused here, where DuckDB would name itself. |
 | `uuid` | Runs | `SELECT length(uuid()), uuid() RLIKE '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', uuid() = uuid()` |  |
-| `version` | Not checked | `SELECT version()` |  |
+| `version` | Refused | `SELECT version()` | Fabric's Spark build and its git revision. Refused here, where DuckDB would give its own version. |
 
 ## Operators and other
 
@@ -433,7 +433,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `between` | Runs | `SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'` |  |
 | `case` | Runs | `SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END` |  |
 | `range` | Runs | `SELECT * FROM range(1, 7, 2)` |  |
-| `sql_keywords` | Not checked |  |  |
+| `sql_keywords` | Refused | `SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2` | sql_keywords() can't run on this PC the way it runs in Fabric, because this PC doesn't have Spark's list of SQL keywords and which of them are reserved, so noth |
 | `\|\|` | Runs | `SELECT 'Spark' \|\| 'SQL', 'a' \|\| NULL` |  |
 
 ## Predicate

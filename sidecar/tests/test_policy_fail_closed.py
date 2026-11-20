@@ -273,6 +273,51 @@ def test_removing_the_file_forgets_the_copy(files):
     assert_everything_restricted()
 
 
+def _held(monkeypatch, times):
+    """The saved copy's delete is refused ``times`` times, as Windows does while a scanner has it open.
+    Setting the returned hold[0] to 0 ends the hold."""
+    from pathlib import Path
+    from fabric_desktop import jsonfile
+    real, refused, hold = Path.unlink, [], [times]
+    monkeypatch.setattr(jsonfile.time, "sleep", lambda s: None)
+
+    def unlink(self, missing_ok=False):
+        if self == app_settings.saved_policy_path() and len(refused) < hold[0]:
+            refused.append(self)
+            raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+        return real(self, missing_ok=missing_ok)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    return refused, hold
+
+
+def test_removing_the_file_forgets_the_copy_once_a_brief_hold_on_it_ends(files, monkeypatch):
+    files({"allow_fabric_runs": False})
+    app_settings.load()
+    refused, _ = _held(monkeypatch, 3)
+    files.path.unlink()
+    assert app_settings.load()["allow_fabric_runs"] == {"value": True, "source": "default"}
+    assert len(refused) == 3 and not app_settings.saved_policy_path().exists()
+
+
+def test_a_copy_held_past_the_wait_still_lets_the_settings_load_and_goes_on_the_next_read(files, monkeypatch, caplog):
+    files({"allow_fabric_runs": False})
+    app_settings.load()
+    _, hold = _held(monkeypatch, 10**6)
+    files.path.unlink()
+    assert app_settings.load()["allow_fabric_runs"] == {"value": True, "source": "default"}
+    assert app_settings.saved_policy_path().exists() and "saved copy of the removed policy" in caplog.text
+    files("{broken")  # a broken file while the copy is still held doesn't bring the removed policy back
+    assert_everything_restricted()
+    files.path.unlink()
+    hold[0] = 0
+    app_settings.load()  # the hold ended: the next read removes it
+    assert not app_settings.saved_policy_path().exists()
+    files({"allow_fabric_runs": False})  # a policy that reads becomes the copy a broken file falls back on
+    app_settings.load()
+    files("{broken")
+    assert app_settings.load()["allow_fabric_runs"]["value"] is False
+
+
 def test_a_damaged_copy_fails_closed(files):
     files({"show_preview": True})
     app_settings.load()
@@ -294,7 +339,7 @@ def test_register_link_scheme_is_a_setting_the_shell_reads(files):
     assert app_settings.policy_problems()[0].startswith("register_link_scheme should be bool")
 
 
-GATES = ("allow_replay_samples", "allow_optimize_lakehouse", "allow_notebook_packages", "allow_pypi_packages")
+GATES = ("allow_replay_samples", "allow_optimize_lakehouse", "allow_central_environment", "allow_notebook_packages", "allow_pypi_packages")
 
 
 def test_a_file_that_cant_be_read_turns_off_every_gate(files):

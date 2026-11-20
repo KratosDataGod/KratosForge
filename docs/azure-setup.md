@@ -47,6 +47,8 @@ Skip this unless your organization requires every app to use a registration in y
 
 Nothing here is required. A policy file at `%ProgramData%\FabricDesktop\policy.json`, pushed with Intune or Group Policy, can fix the update channel or turn self-updates off, hide Preview features, keep work off Fabric capacity, limit sign-in to your own tenant, point **Report a problem** at your own support channel, and name your own app registration (step 3). People see "Set by your organization" and can't change those settings.
 
+Group Policy and Intune can set the same keys, except the structured ones (`platform`, `incident_sla`, `editor_key_overrides`) and `engine_folder`, through the ADMX templates in `deploy/policy`. A value set there wins over the same key in the file ([Enterprise install](enterprise-install.md#deploy)).
+
 A policy file that sets everything an organization usually wants:
 
 ```json
@@ -60,6 +62,7 @@ A policy file that sets everything an organization usually wants:
 | Key | Values | Effect |
 | --- | --- | --- |
 | `allow_fabric_runs` | `true` (default) or `false` | `false` keeps work off Fabric capacity: Run in Fabric, Fabric schedules, Optimize and the Fabric side of a proof are refused with a message, and turning a Fabric schedule off still works. Runs on the PC are not affected |
+| `allow_central_environment` | `true` (default) or `false` | `false` stops the app creating, adopting, connecting to or checking a KratosForge Environment |
 | `allow_optimize_lakehouse` | `true` (default) or `false` | `false` stops the app creating, connecting to or writing to shared optimization lakehouses ([Optimize](optimize/README.md)) |
 | `allow_staging_cleanup` | `true` (default) or `false` | `false` stops the Estate X-ray deleting leftover Dataflow Gen2 staging lakehouses; it still lists them ([X-ray fixes](xray-fixes.md#leftover-staging-lakehouses)) |
 | `allow_signed_out_schedules` | `true` (default) or `false` | `false` stops schedules on this PC running while the person is signed out of Windows: none can be set that way, and ones already set are paused when the app starts and skip any run Windows still starts (Monitor says why). Windows keeps the person's password with such a task until it is switched back to run while signed in or removed ([Notebooks](notebooks.md)) |
@@ -137,8 +140,9 @@ A key that is misspelled is ignored. An invalid file or key fails closed for any
 
 - **The file is there but can't be read** (a stray comma, not one JSON object, no permission to open it): each PC keeps using the last copy of the file it could read, as Group Policy keeps its last applied settings, until you fix it. Each PC saves that copy whenever it reads a valid file, and deletes it when the file is removed. The copy is `%LOCALAPPDATA%\FabricDesktop\policy-last-good.json`. It sits in the person's own profile, so someone could edit it, but it only counts while the real file is broken, and **Settings > Help and about** says when it is in use.
 - **The file can't be read and the PC has never read a valid one** (a new PC whose first file is broken): none of it applies, and every restriction takes its most restrictive value until you fix it. People can still sign in and work on their PC, but there are no runs in Fabric, no warehouse changes or monitoring views, Preview features and telemetry are off, the app installs no Databricks Connect client, notebooks can't install packages, the app doesn't use the central lakehouse, replay bundles hold no data samples, schedules on the PC don't run while the person is signed out of Windows, the Estate X-ray deletes no staging lakehouses, the owner coverage dates aren't recorded, external AI tools are off with no permissions, no HTTP API and no extensions, App Studio has no model connections, and receipt exports leave out every part. Other settings (`client_id`, `channel`, `support_url`, `platform`, the SQL and notebook limits, `local_retention_days`) go back to what they'd be with no file.
-- **A restriction has the wrong kind of value** (`"false"` in quotes instead of `false`): that key takes its most restrictive value. `allow_fabric_runs`, `show_preview`, `telemetry`, `sql_warehouse_writes`, `wh_monitoring_views`, `allow_dbconnect_install`, `allow_notebook_packages`, `allow_pypi_packages`, `allow_optimize_lakehouse`, `allow_replay_samples`, `allow_signed_out_schedules`, `allow_staging_cleanup`, `platform_presence`, `integrations`, `integrations_http`, `integrations_editors`, `appstudio_models` and `appstudio_sample_rows` become `false`; `allowed_tenants` lets no account sign in; `integrations_max_permissions`, `integrations_extensions`, `appstudio_providers` and `appstudio_hosts` allow none; `receipt_redactions` leaves out every part.
+- **A restriction has the wrong kind of value** (`"false"` in quotes instead of `false`): that key takes its most restrictive value. `allow_fabric_runs`, `show_preview`, `telemetry`, `sql_warehouse_writes`, `wh_monitoring_views`, `allow_dbconnect_install`, `allow_notebook_packages`, `allow_pypi_packages`, `allow_optimize_lakehouse`, `allow_central_environment`, `allow_replay_samples`, `allow_signed_out_schedules`, `allow_staging_cleanup`, `platform_presence`, `integrations`, `integrations_http`, `integrations_editors`, `appstudio_models` and `appstudio_sample_rows` become `false`; `allowed_tenants` lets no account sign in; `integrations_max_permissions`, `integrations_extensions`, `appstudio_providers` and `appstudio_hosts` allow none; `receipt_redactions` leaves out every part.
 - **Any other key has the wrong kind of value**: it's ignored, and the person's own choice or the default applies.
+- **A value out of its range** (for example `sql_page_rows` above 10000): it's ignored, and the person's own choice or the default applies. **Settings > Help and about** says so.
 
 With no policy file at all, nothing is restricted. **Settings > Help and about** lists every problem in the file and what KratosForge did about it. Check there after you push a new file.
 
@@ -198,6 +202,7 @@ Have one person do this on a PC with the app installed:
 3. Open **OneLake**, expand a lakehouse, and choose **SQL query**. Run `SELECT * FROM <a table> LIMIT 10`. Expected: rows. This proves OneLake access from outside Fabric works.
 4. **Create > Notebook**, **Add data items**, attach a lakehouse they can write to, and run:
 
+   <!-- example: illustrative -->
    ```python
    import polars as pl
    from fabric_desktop import lakehouse

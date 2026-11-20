@@ -100,6 +100,19 @@ def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
             time.sleep(REPLACE_BACKOFF * (2 ** attempt))
 
 
+def unlink(path: str | os.PathLike[str]) -> None:
+    """Remove ``path`` if it is there, waiting out Windows refusing it (PermissionError) while a virus
+    scanner or the indexer has it open, as ``replace`` does; still refused after that, the error."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            Path(path).unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_BACKOFF * (2 ** attempt))
+
+
 def set_aside(path: Path, then: str = "it is being started again empty", keep: bool = False) -> Path:
     """Move an unreadable file to ``<name>.corrupt-<timestamp>`` and say so (``then``: what happens next).
 

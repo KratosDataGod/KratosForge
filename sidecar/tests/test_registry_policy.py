@@ -80,13 +80,15 @@ def test_a_value_of_the_wrong_type_is_left_out_and_said_so_and_the_file_applies(
     assert any(says in p for p in app_settings.policy_problems()), app_settings.policy_problems()
 
 
-def test_a_key_that_cant_be_read_is_said_so_and_only_the_file_applies(policy, monkeypatch):
-    policy({"telemetry": False})
+def test_a_key_that_cant_be_read_is_said_so_and_its_restrictions_take_their_safest_values(policy, monkeypatch):
+    policy({"telemetry": False, "show_preview": True})
 
     def refused():
         raise PermissionError(5, "Access is denied")
     monkeypatch.setattr(registry_policy, "_reader", lambda: refused)
-    assert app_settings.read_policy() == ({"telemetry": False}, None)
+    data, error = app_settings.read_policy()
+    assert error is None and data["telemetry"] is False
+    assert data["show_preview"] is False  # Group Policy may restrict it: the safe side applies until it can be read
     assert any("Group Policy settings couldn't be read" in p for p in app_settings.policy_problems())
 
 

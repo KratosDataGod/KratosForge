@@ -265,3 +265,14 @@ def test_deep_nesting_is_refused_before_polars_sees_it():
     assert lineage._expr_columns("'" + "(" * 100 + "' || a") == ["a"]  # brackets in quoted text don't count
     assert time.perf_counter() - start < 1.0
     assert project_mod.check_expr(cast(50), {"a"})[0].endswith("does not parse (ValueError)")
+
+
+def test_brackets_in_a_backtick_name_or_unmatched_ones_cannot_hide_deep_nesting():
+    import time
+
+    deep = "CAST(" * 50 + "a" + " AS INT)" * 50
+    start = time.perf_counter()
+    assert lineage._expr_columns("`" + ")" * 40 + "` + " + deep) is None
+    assert lineage._expr_columns(")" * 40 + " + " + deep) is None
+    assert lineage._expr_columns("`(((` + a") == ["(((", "a"]
+    assert time.perf_counter() - start < 1.0

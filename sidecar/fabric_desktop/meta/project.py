@@ -529,7 +529,7 @@ def describe_exceptions(project: Project, today: dt.date | None = None,
 MAX_EXPR_OPERATORS = 200
 # Polars' parser takes exponential time on deep nesting (CAST(CAST(... 50 deep runs for minutes), with no operator.
 MAX_EXPR_DEPTH = 32
-_QUOTED_PART = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
+_QUOTED_PART = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`")
 _OPERATOR = re.compile(r"[-+*/%<>=|&^~!]+|\b(?:AND|OR|NOT|IS|IN|LIKE|ILIKE|BETWEEN)\b", re.IGNORECASE)
 
 
@@ -539,16 +539,16 @@ def sql_expr(expr: str) -> pl.Expr:
         raise TypeError("an expression must be text")
     bare = _QUOTED_PART.sub("''", expr)
     if len(_OPERATOR.findall(bare)) > MAX_EXPR_OPERATORS:
-        raise ValueError(f"expression has more than {MAX_EXPR_OPERATORS} operators; split it into steps")
+        raise ValueError(f"expression has more than {MAX_EXPR_OPERATORS} operators, so split it into steps")
     depth = deepest = 0
     for ch in bare:
         if ch == "(":
             depth += 1
             deepest = max(deepest, depth)
-        elif ch == ")":
-            depth -= 1
+        elif ch == ")":  # an unmatched ) never hides the nesting after it
+            depth = max(0, depth - 1)
     if deepest > MAX_EXPR_DEPTH:
-        raise ValueError(f"expression nests more than {MAX_EXPR_DEPTH} brackets deep; split it into steps")
+        raise ValueError(f"expression nests more than {MAX_EXPR_DEPTH} brackets deep, so split it into steps")
     return pl.sql_expr(expr)
 
 

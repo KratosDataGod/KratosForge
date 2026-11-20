@@ -704,6 +704,8 @@ class Kernel:
         # Set before each cell likewise: the workspaces the person typed the name of for that one run
         # (lakehouse.cell_prod_context, by the cell's thread).
         self.prod_allowed: frozenset[str] = frozenset()
+        from . import lakehouse as _lakehouse
+        _lakehouse.tag_cell_threads()  # threads a cell's code starts are a cell's code (lakehouse.cell_started_threads)
         self._writes: Any = None
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
@@ -891,6 +893,8 @@ class Kernel:
                     stderr.targets.pop(ident, None)
                     self._local.run = None
             thread = threading.Thread(target=work, daemon=True, name="widget-event")
+            from . import lakehouse as _lakehouse
+            _lakehouse.cell_started_threads.add(thread)  # a handler is a cell's code but no running cell's own
             self._widget_thread = thread
             thread.start()
             thread.join(WIDGET_SECONDS)

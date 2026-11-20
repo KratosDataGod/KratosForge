@@ -3,8 +3,11 @@ typed-name guard (lakehouse.prod_refusal), and a new way to write a Delta table 
 decision about it.
 
 The runtime half runs each path in a cell against a Prod-marked workspace and checks it is refused with nothing
-changed. The static half lists every call in fabric_desktop that writes or changes a Delta table, by file, so a
-new one fails here until it is routed through lakehouse's guarded writers or listed with its reason."""
+changed. It is the proof that matters: the guard sits on the paths ordinary Spark and notebook code takes.
+
+The static half counts every call in fabric_desktop that writes or changes a Delta table, by file, so a new one
+fails here until it is routed through lakehouse's guarded writers or listed with its reason. It is a safety net
+for the app's own code, not a security boundary: a cell runs arbitrary Python and could call deltalake itself."""
 
 import ast
 import json
@@ -110,20 +113,22 @@ _TABLE_CHANGES = {"merge", "delete", "update", "restore", "vacuum", "create_chec
 # Where each such call is, and why it's fine. A new one fails test_no_new_delta_write_skips_a_decision: route a
 # cell-reachable write through lakehouse.write_table / change_table / maintain_table (which ask prod_refusal),
 # or add it here with the reason it isn't a notebook cell's.
-KNOWN = {
-    "lakehouse.py": "guarded: prod_refusal runs first in write_table (overwrite), change_table and maintain_table; "
-                    "a proof writes its own copy",
-    "publish.py": "write_table's commit (after its prod_refusal), and the app's Publish page, which confirms its own way",
-    "delta_dml.py": "the MERGE/UPDATE/DELETE engine, called by lakehouse.change_table (after prod_refusal) and Local data",
-    "maintenance.py": "X-ray's Optimize/Vacuum: the app's own page, which shows the plan and confirms first",
-    "localdata/engine.py": "Local data: this PC's own Delta folders, never a lakehouse in a workspace",
-    "livetest.py": "the live test harness's own scratch tables",
-    "meta/store.py": "a metadata project's run: Test and Prod change only by promote, which the app confirms",
-    "meta/restore.py": "Undo a bad load, from the metadata project's page, which confirms first",
-    "prove_service.py": "a proof's seed copies on this PC, never the shared table",
-    "academy/pyspark_delta.py": "an Academy exercise's own tables, in its sandbox workspace",
-    "academy/pyspark_lab.py": "an Academy exercise's own tables, in its sandbox workspace",
-    "academy/pyspark_shim.py": "an Academy exercise's own tables, in its sandbox workspace",
+KNOWN = {  # file: (how many such calls it has, why they are fine)
+    "lakehouse.py": (6, ("guarded: prod_refusal runs first in write_table (overwrite), change_table and "
+                         "maintain_table; a proof writes its own copy")),
+    "publish.py": (2, ("write_table's commit, after its prod_refusal; and run_job, a job file's run (the Jobs page, "
+                       "the CLI's run, the agent), not a notebook cell's. run_job has no Prod typed-name check of its own")),
+    "delta_dml.py": (2, ("the MERGE/UPDATE/DELETE engine, called by lakehouse.change_table (after prod_refusal) and "
+                         "Local data")),
+    "maintenance.py": (5, "X-ray's Optimize/Vacuum: the app's own page, which shows the plan and confirms first"),
+    "localdata/engine.py": (2, "Local data: this PC's own Delta folders, never a lakehouse in a workspace"),
+    "livetest.py": (3, "the live test harness's own scratch tables"),
+    "meta/store.py": (5, "a metadata project's run: Test and Prod change only by promote, which the app confirms"),
+    "meta/restore.py": (1, "Undo a bad load, from the metadata project's page, which confirms first"),
+    "prove_service.py": (1, "a proof's seed copies on this PC, never the shared table"),
+    "academy/pyspark_delta.py": (3, "an Academy exercise's own tables, in its sandbox workspace"),
+    "academy/pyspark_lab.py": (1, "an Academy exercise's own tables, in its sandbox workspace"),
+    "academy/pyspark_shim.py": (2, "an Academy exercise's own tables, in its sandbox workspace"),
 }
 
 
@@ -161,11 +166,13 @@ def _on_delta(value: ast.AST, call: ast.Call) -> bool:
 
 
 def test_no_new_delta_write_skips_a_decision():
-    unknown = sorted(f for f in _delta_calls() if f not in KNOWN)
-    assert not unknown, (
-        f"{unknown} write or change a Delta table. If a notebook cell can reach it, route it through "
-        "lakehouse.write_table / change_table / maintain_table, which ask the Prod guard; otherwise add it to "
-        "KNOWN with the reason it isn't a cell's.")
+    """A new file that writes a Delta table, or a new such call in a listed file, fails until it is decided."""
+    found = _delta_calls()
+    changed = {f: (n, KNOWN.get(f, (0, ""))[0]) for f, n in found.items() if n != KNOWN.get(f, (0, ""))[0]}
+    assert not changed, (
+        f"Delta write calls by file, (found, listed): {changed}. If a notebook cell can reach a new one, route it "
+        "through lakehouse.write_table / change_table / maintain_table, which ask the Prod guard; otherwise update "
+        "KNOWN with its count and the reason it isn't a cell's.")
 
 
 def test_the_known_list_has_no_stale_entries():

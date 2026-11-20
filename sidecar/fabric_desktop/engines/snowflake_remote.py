@@ -131,7 +131,10 @@ class Client:
         """Run one statement and return Snowflake's final answer (its result set's first partition).
         ``asynchronous`` asks for the statement handle at once (``async=true``), so a Cancel pressed
         while it runs always has a handle to cancel; it is then followed for up to ``max_wait`` seconds."""
-        body: dict[str, Any] = {"statement": sql, "timeout": int(timeout)}
+        # One statement per request, whatever the account or user sets: Snowflake's own count check backs
+        # up any statement splitting done before the call.
+        body: dict[str, Any] = {"statement": sql, "timeout": int(timeout),
+                                "parameters": {"MULTI_STATEMENT_COUNT": "1"}}
         for key, value in (("role", role), ("database", database), ("schema", schema), ("warehouse", warehouse)):
             if value:
                 body[key] = value

@@ -11,12 +11,77 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def no_real_event_log(monkeypatch):
+    """Audit writes also record the trail's end in the Windows event log (audit_anchor.py). Tests don't
+    add records to this PC's real log, and don't read ones other tests left; test_audit_anchor.py uses
+    a fake log, and one marked Windows-only test the real one."""
+    from fabric_desktop import audit_anchor
+    monkeypatch.setattr(audit_anchor, "writer", audit_anchor._no_writer)
+    monkeypatch.setattr(audit_anchor, "reader", audit_anchor._no_reader)
+
+
+class FakeEventLog:
+    """An event log in memory: ``audit_anchor``'s writer and reader."""
+
+    def __init__(self):
+        self.records: list[str] = []
+        self.fail = None  # an exception to raise on write and read
+
+    def write(self, value):
+        if self.fail:
+            raise self.fail
+        self.records.append(value)
+
+    def read(self):
+        if self.fail:
+            raise self.fail
+        return list(reversed(self.records))
+
+
+@pytest.fixture
+def event_log(monkeypatch):
+    from fabric_desktop import audit_anchor
+    log = FakeEventLog()
+    monkeypatch.setattr(audit_anchor, "writer", log.write)
+    monkeypatch.setattr(audit_anchor, "reader", log.read)
+    monkeypatch.setattr(audit_anchor, "_off_until", 0.0)
+    monkeypatch.setattr(audit_anchor, "_cache", {})
+    return log
+
+
+@pytest.fixture(autouse=True)
+def duckdb_default_connection_left_clean():
+    """After each test, DuckDB's default connection (duckdb.sql, spark without a session) holds no result
+    and no failed transaction. A result a test left unread is released by the next query; if a Cancel
+    test's interrupt() aborted it meanwhile, later tests' queries failed with "Current transaction is
+    aborted". A connection that can't run SELECT 1 is replaced. It uses the real duckdb module, imported
+    here before the test, since a test may put a fake or None in sys.modules["duckdb"]."""
+    import duckdb
+
+    yield
+    try:
+        duckdb.default_connection().execute("SELECT 1").fetchall()
+    except duckdb.Error:
+        duckdb.set_default_connection(duckdb.connect())
+
+
+@pytest.fixture(autouse=True)
 def no_interactive_sign_in(monkeypatch):
     """Sign-in needs no setup now, so a test that reaches it would open a browser and wait.
     Make it fail at once instead, as it does for someone who closes the sign-in window."""
     def refuse(self, scopes, **kwargs):
         return {"error": "access_denied", "error_description": "no interactive sign-in in tests"}
     monkeypatch.setattr(msal.PublicClientApplication, "acquire_token_interactive", refuse)
+
+
+@pytest.fixture(autouse=True)
+def no_remembered_secrets():
+    """dbutils.secrets keeps the values it read for the process, so one test's secret would be
+    redacted in the next test's output."""
+    from fabric_desktop import secret_redaction
+    secret_redaction.forget_all()
+    yield
+    secret_redaction.forget_all()
 
 
 class _NoSignInService:

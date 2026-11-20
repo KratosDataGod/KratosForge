@@ -34,6 +34,7 @@ from typing import Any, Iterator
 from . import __version__, audit_chain
 from .redact import secrets
 
+UNREADABLE = "unreadable_line"  # the action of the placeholder row recent() shows for a damaged line
 SCHEMA = "audit@1"
 GENESIS = audit_chain.GENESIS
 
@@ -259,21 +260,30 @@ class AuditLog:
         audit_chain.append(self.folder, entry)  # under the folder's lock: no other process forks the chain
         return entry
 
-    def entries(self) -> Iterator[dict[str, Any]]:
-        """Every line, oldest first. A line that isn't a JSON object is left out: ``verify()`` names it,
-        and the app can still show the rest of the trail and that check."""
+    def entries(self, unreadable: bool = False) -> Iterator[dict[str, Any]]:
+        """Every line, oldest first. A line that isn't a JSON object is left out (``verify()`` names it), or
+        with ``unreadable`` given as a placeholder row (UNREADABLE) that says which line, so a list of the
+        trail shows where it is damaged rather than skipping over it."""
         for path in self._files():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    try:
-                        entry = json.loads(line)
-                    except ValueError:  # reported by verify()
-                        continue
-                    if isinstance(entry, dict):
-                        yield entry
+            for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):  # a stray byte: that line only
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:  # reported by verify()
+                    entry = None
+                if isinstance(entry, dict):
+                    yield entry
+                elif unreadable:
+                    yield {"schema": SCHEMA, "at": "", "action": UNREADABLE, "outcome": "error", "seconds": 0,
+                           "who": "", "params": {}, "file": path.name, "line": number,
+                           "error": (f"{path.name} line {number} isn't an audit line, so it can't be shown. "
+                                     "Run --verify to see what the trail check finds.")}
 
     def recent(self, limit: int = 200, action: str = "") -> list[dict[str, Any]]:
-        rows = [e for e in self.entries() if not action or e.get("action") == action]
+        """The newest lines, newest first. A line that can't be read shows as a placeholder row
+        (UNREADABLE) in the full list; a list of one action leaves it out."""
+        rows = [e for e in self.entries(unreadable=not action) if not action or e.get("action") == action]
         return rows[-limit:][::-1]
 
     def verify(self) -> dict[str, Any]:

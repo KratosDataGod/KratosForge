@@ -4,7 +4,7 @@ Read-only and honest by construction (measurement.py's rules):
 
 - **Sync overhead** is Measured: the seconds, rows and commits each Optimize sync recorded
   (optimize_service._record_overhead), added up per metric over the period. It covers every PC that
-  syncs to the environment's lakehouse: the rows don't say which installation wrote them.
+  syncs to the environment's lakehouse, with this PC's own share beside it (by installation id).
 - **Fabric capacity** the environment's items use is Unknown until the FinOps capacity import provides
   measured CU for them (ESI decisions D3 and D4). It is never estimated here.
 - **Money** is Unknown for the same reason. A price would only ever be a Scenario figure (savings/pricing.py).
@@ -55,12 +55,15 @@ def _when(value: Any) -> dt.datetime | None:
 
 
 def summary(rows: Iterable[dict[str, Any]], *, days: int = 30, now: dt.datetime | None = None,
-            savings: dict[str, Any] | None = None) -> dict[str, Any]:
+            savings: dict[str, Any] | None = None, installation_id: str = "") -> dict[str, Any]:
     """The environment's cost over the last ``days``. ``rows``: fdopt_measurements rows.
-    ``savings``: a measurement.total result for the same period, when the caller has one."""
+    ``savings``: a measurement.total result for the same period, when the caller has one.
+    ``installation_id``: this PC's, for its own share (``this_pc``) beside every PC's."""
     now = now or dt.datetime.now(dt.timezone.utc)
     since = now - dt.timedelta(days=days)
     sync: dict[str, list[dict[str, Any]]] = {metric: [] for metric, _ in SYNC_METRICS}
+    mine: dict[str, list[dict[str, Any]]] = {metric: [] for metric, _ in SYNC_METRICS}
+    pcs: set[str] = set()
     for row in rows:
         if not str(row.get("workload_key") or "").startswith(SYNC_PREFIX) or row.get("metric") not in sync:
             continue
@@ -68,11 +71,17 @@ def summary(rows: Iterable[dict[str, Any]], *, days: int = 30, now: dt.datetime 
         if at is None or not since <= at <= now:
             continue
         sync[row["metric"]].append(_part(row))
+        pcs.add(str(row.get("installation_id") or ""))
+        if installation_id and row.get("installation_id") == installation_id:
+            mine[row["metric"]].append(_part(row))
     overhead = {metric: ms.total(sync[metric], metric, unit) for metric, unit in SYNC_METRICS}
+    this_pc = ({metric: ms.total(mine[metric], metric, unit) for metric, unit in SYNC_METRICS}
+               if installation_id else None)
     cu = ms.unknown("environment_cu", ms.CU_SECONDS, NO_CU)
     money = ms.unknown("environment_cost", ms.CURRENCY, NO_MONEY)
     return {"period": {"start": since.isoformat(), "end": now.isoformat(), "days": days},
-            "sync_overhead": overhead, "sync_scope": SYNC_SCOPE, "syncs": len(sync["optimize_sync_seconds"]),
+            "sync_overhead": overhead, "sync_scope": SYNC_SCOPE, "pcs": len(pcs),
+            "syncs": len(sync["optimize_sync_seconds"]), "this_pc": this_pc,
             "fabric_cu": cu, "cost": money, "savings": savings, "net": net(savings, money)}
 
 
@@ -89,4 +98,4 @@ def net(savings: dict[str, Any] | None, cost: dict[str, Any]) -> dict[str, Any]:
     weakest = max((savings["classification"], cost["classification"]),
                   key=lambda c: order.index(c) if c in order else len(order))
     return {"value": round(float(savings["value"]) - float(cost["value"]), 6), "unit": cost.get("unit"),
-            "currency": cost.get("currency"), "classification": weakest, "label": ms.LABELS[weakest], "reason": ""}
+            "currency": cost.get("currency"), "classification": weakest, "label": ms.LABELS.get(weakest, weakest), "reason": ""}

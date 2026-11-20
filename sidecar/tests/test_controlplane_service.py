@@ -299,6 +299,7 @@ def test_cost_reads_the_environments_measured_sync_overhead_and_leaves_the_rest_
     got = svc.cp_cost(days=7)
     assert got["sync_overhead"]["optimize_sync_seconds"]["value"] == 2.5 and got["syncs"] == 1
     assert got["sync_overhead"]["optimize_sync_seconds"]["label"] == "Measured"
+    assert got["this_pc"]["optimize_sync_seconds"]["value"] == 2.5 and got["pcs"] == 1
     assert got["fabric_cu"]["classification"] == "unknown" and got["fabric_cu"]["value"] is None
     assert got["cost"]["value"] is None and got["net"]["value"] is None
     with pytest.raises(ValueError, match="between 1 and 366"):

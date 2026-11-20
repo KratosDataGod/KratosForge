@@ -231,7 +231,7 @@ class ControlPlaneMixin:
 
     def cp_cost(self, days: int = 30) -> dict[str, Any]:
         """What the active environment costs over the last ``days``: the measured sync overhead of every PC
-        that syncs to it,
+        that syncs to it and this PC's share,
         and Fabric capacity and money as Unknown until they are measured. Net savings only when both
         sides are known. Reads only."""
         self._cp_allowed()
@@ -246,7 +246,8 @@ class ControlPlaneMixin:
         if state["state"] in (setup.NEWER, setup.CONFLICT):  # rows of a schema this app doesn't know aren't read
             raise PermissionError(state["message"])
         rows = Shared(lake, self.optimize_installation, access="read").rows("measurements")  # type: ignore[attr-defined]
-        return cpcost.summary(rows.to_dicts(), days=days) | {"environment": active}
+        return cpcost.summary(rows.to_dicts(), days=days,
+                              installation_id=self.optimize_installation.id) | {"environment": active}  # type: ignore[attr-defined]
 
     # ---- changes
 

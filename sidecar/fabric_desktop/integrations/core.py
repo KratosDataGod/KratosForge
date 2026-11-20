@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..redact import REMOVED, describe, secret_key
+from ..redact import REMOVED, describe, secret_key, user_paths
 from ..redact import secrets as redact_secrets
 from ..retrying import TRANSIENT_STATUS, status_of
 
@@ -127,7 +127,8 @@ def error_from(exc: BaseException) -> IntegrationError:
         # str() of a KeyError is the repr of its text, with line breaks as \n, which hides a secret on
         # the next line from the patterns; its own text is what the person should read anyway.
         text = exc.args[0] if isinstance(exc, KeyError) and len(exc.args) == 1 and isinstance(exc.args[0], str) else str(exc)
-        message = redact_secrets(text or type(exc).__name__)
+        # An engine message can name a file under the person's home folder: keep the path, not who.
+        message = user_paths(redact_secrets(text or type(exc).__name__))
     name = type(exc).__name__
     status = status_of(exc)
     if name == "FabricError" or status is not None or name in ("HTTPError", "ConnectionError", "Timeout"):

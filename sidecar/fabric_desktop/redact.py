@@ -190,9 +190,13 @@ def for_support(text: str) -> str:
     text = _SHAREPOINT_SITE.sub(r"\1[site]", text)
     text = _ONEDRIVE_PERSONAL.sub(r"\1[user]", text)
     text = _ONEDRIVE_ORG.sub(r"\1[organization]", text)
-    text = _WIN_USER_PATH.sub(r"\1[user]", text)
-    text = _UNIX_USER_PATH.sub(r"\1[user]", text)
+    text = user_paths(text)
     return _GUID.sub("[id]", text)
+
+
+def user_paths(text: str) -> str:
+    """``text`` with the user name in home folder paths replaced (C:\\Users\\[user]\\..., /home/[user]/...)."""
+    return _UNIX_USER_PATH.sub(r"\1[user]", _WIN_USER_PATH.sub(r"\1[user]", text))
 
 
 DESCRIBE_MAX = 1000  # characters of an exception's message that describe keeps

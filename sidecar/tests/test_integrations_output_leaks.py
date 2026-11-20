@@ -482,3 +482,16 @@ def test_real_read_only_results_name_no_path_outside_the_folders_they_read(engin
             if not any(path == r or r in path.parents for r in roots):
                 found.append((cap_id, p))
     assert found == [], f"paths outside the data folders in results: {found}"
+
+
+@pytest.mark.parametrize("text", [
+    "can't read C:\\Users\\chris\\Documents\\Sales\\orders.csv",
+    "can't read c:/users/chris/Documents/orders.csv",
+    "Permission denied: /home/chris/.local/share/kratosforge/x",
+    "missing /Users/chris/Library/kratosforge/x",
+])
+def test_an_engine_message_naming_a_home_folder_keeps_the_path_but_not_whose(text):
+    """A message that isn't a file error (the engine's own words) can still name a file under the
+    person's home folder: it is kept, with the user name replaced."""
+    err = error_from(RuntimeError(text))
+    assert "chris" not in err.message and "[user]" in err.message, err.message

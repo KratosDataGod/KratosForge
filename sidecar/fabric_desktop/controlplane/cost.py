@@ -71,7 +71,8 @@ def summary(rows: Iterable[dict[str, Any]], *, days: int = 30, now: dt.datetime 
         if at is None or not since <= at <= now:
             continue
         sync[row["metric"]].append(_part(row))
-        pcs.add(str(row.get("installation_id") or ""))
+        if row.get("installation_id"):
+            pcs.add(str(row["installation_id"]))
         if installation_id and row.get("installation_id") == installation_id:
             mine[row["metric"]].append(_part(row))
     overhead = {metric: ms.total(sync[metric], metric, unit) for metric, unit in SYNC_METRICS}

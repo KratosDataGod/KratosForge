@@ -74,6 +74,16 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 
 **Recover.** Nothing. The other agent finishes the request.
 
+### A Prod job's audit line couldn't be written
+
+- **Message** (`agent.py`, log): `job not started: its audit line couldn't be written`
+
+**Means.** A Prod job runs only once its `started` line is in the audit log, as the app's own Prod actions do. The line couldn't be written, so nothing ran; the job waits in the queue and is tried again later.
+
+**Check first.** Is the disk with the agent's home full, or is the audit folder read-only or locked by another program?
+
+**Recover.** Free disk space or unlock the audit folder. The job runs on its next try.
+
 ## Starting the agent
 
 ### The agent's settings are refused
@@ -255,6 +265,16 @@ Each failed request, and each drop, also adds a `notice_not_delivered` line to t
 **Check first.** The `route` and `variable` fields name the route and the variable. Check the variable is set in the service's own environment (the systemd unit, the container, or the scheduled task), not only in your shell.
 
 **Recover.** Set the variable to a Teams webhook or `flow:https://...`, then restart the agent. For email, send it through a flow or from the app ([incidents](incidents.md#teams-a-flow-or-email)).
+
+### The alerts outbox couldn't be opened
+
+- **Message** (`agent.py`, log): `couldn't open the alerts outbox; incident changes are posted once, without it`
+
+**Means.** The incidents were written, but the outbox that keeps their messages until Teams takes them couldn't be opened. Each change is posted once and not kept; one that can't go now (quiet hours, a failing route) is counted as lost and audited.
+
+**Check first.** Is `alerts.sqlite3` in the agent's home locked by another program, damaged, or on a full disk?
+
+**Recover.** Free the file or the disk, or restart the agent. Messages queue in the outbox again from the next pass.
 
 ## Incidents
 

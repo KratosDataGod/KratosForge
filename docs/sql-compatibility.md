@@ -94,7 +94,7 @@ These cases still differ:
 
 ## Decimal results on this PC (LOC-005)
 
-Spark SQL run on this PC, in a notebook or on the DuckDB engine, and Databricks SQL on the DuckDB engine, give Spark's decimal type and value for division, multiplication, addition, subtraction, `%`, `pmod`, `div`, `avg`, `sum`, `round`, `bround`, `ceil` and `floor`. These follow Spark's own rules: DecimalPrecision with `spark.sql.decimalOperations.allowPrecisionLoss` on, the default. A division by zero gives NULL, as Spark does with ANSI mode off; Databricks SQL stops on it, as with ANSI mode on. For example, `CAST(1 AS DECIMAL(10,2)) / 3` is `decimal(14,6)` 0.333333 here, as in Fabric Spark. These results are checked against Spark's published rules in `sidecar/tests/test_spark_decimal_rules.py`. They haven't been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC, in a notebook or on the DuckDB engine, and Databricks SQL on the DuckDB engine, give Spark's decimal type and value for division, multiplication, addition, subtraction, `%`, `pmod`, `div`, `avg`, `sum`, `round`, `bround`, `ceil` and `floor`. These follow Spark's own rules: DecimalPrecision with `spark.sql.decimalOperations.allowPrecisionLoss` on, the default. A division by zero gives NULL, as Spark does with ANSI mode off; Databricks SQL stops on it, as with ANSI mode on. For example, `CAST(1 AS DECIMAL(10,2)) / 3` is `decimal(14,6)` 0.333333 here, as in Fabric Spark. A local data project's Spark SQL doesn't use these rules yet: it keeps DuckDB's types, so the same division gives a double there. These results are checked against Spark's published rules in `sidecar/tests/test_spark_decimal_rules.py`. They haven't been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
 
 These cases can still differ, and LOC-005 notes them:
 
@@ -177,7 +177,7 @@ Spark SQL run on this PC reads and shows timestamps in `spark.sql.session.timeZo
 
 | Case | On this PC, as in Spark |
 | --- | --- |
-| The session time zone | `spark.conf.set("spark.sql.session.timeZone", ...)` takes a region (`America/Chicago`), `UTC`, or an offset of whole hours (`-08:00`, `GMT-08:00`, `UTC+3`). `current_timezone()` gives the id as it was set |
+| The session time zone | `spark.conf.set("spark.sql.session.timeZone", ...)` takes a region (`America/Chicago`), `UTC`, or an offset of whole hours (`-08:00`, `GMT-08:00`, `UTC+3`). `current_timezone()` gives the id as it was set `SET TIME ZONE 'America/Chicago'` and `SET spark.sql.session.timeZone = ...` in `spark.sql` set it the same way, and `RESET spark.sql.session.timeZone` puts it back to UTC. In a call with several statements, the ones after it use the new zone. |
 | `timestamp` and `timestamp_ntz` | A `timestamp` is an instant, shown in the session's zone; a `timestamp_ntz` is a wall clock with no zone. A cast between them, or from a date or text to a `timestamp`, reads the wall clock in the session's zone. `unix_timestamp` of a `timestamp_ntz` reads it as UTC |
 | The hour clocks skip | A wall clock that doesn't exist, such as 02:30 on the day America/Chicago springs forward, moves forward by the gap (03:30) |
 | The hour clocks repeat | A wall clock that happens twice, such as 01:30 on the day America/Chicago falls back, is the earlier of the two (01:30 CDT), as Java reads it. This holds for casts, `make_timestamp`, `to_timestamp`, `unix_timestamp` and `to_utc_timestamp`; `date_trunc` keeps the offset of the time it truncates |
@@ -194,6 +194,7 @@ These cases still differ:
 | Case | Spark | This PC |
 | --- | --- | --- |
 | A `timestamp` from `collect()` | A `datetime` with no zone, in UTC (Fabric's driver runs in UTC) | A `datetime` with the session's zone, which is the same instant |
+| A bare `RESET` in `spark.sql` | Puts every setting back to its default | Puts back only the session time zone |
 
 ## Window functions on this PC
 
@@ -419,7 +420,7 @@ When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` o
 | What | Here, as in a warehouse |
 | --- | --- |
 | `MERGE` with `WHEN MATCHED`, `WHEN NOT MATCHED [BY TARGET]` and `WHEN NOT MATCHED BY SOURCE` | The same rows. The result is the number of rows inserted, updated and deleted, as `@@ROWCOUNT` would be |
-| A `MERGE` in which more than one source row would update or delete the same row | Refused with T-SQL's words, "The MERGE statement attempted to UPDATE or DELETE the same row more than once", and nothing changes. A source row that a `WHEN MATCHED ... AND` condition leaves out doesn't count, and source rows that are inserted can repeat |
+| A `MERGE` in which more than one source row would update or delete the same row | Refused with T-SQL's words, "The MERGE statement attempted to UPDATE or DELETE the same row more than once", and nothing changes. A source row that a `WHEN MATCHED ... AND` condition leaves out doesn't count, and source rows that are inserted can repeat. See [Local T-SQL MERGE](#local-t-sql-merge) |
 | `UPDATE t SET ... FROM dbo.a AS t JOIN dbo.b AS s ON ...` and `DELETE t FROM dbo.a AS t JOIN ...` | The table named in `FROM` is the one changed, and each inner join is a filter on it, so only the rows that join change |
 | `UPDATE dbo.a SET ... FROM dbo.a JOIN dbo.b ON ...` | The `dbo.a` in `FROM` is the table being changed, not a second copy of it, so rows that don't join stay as they are |
 | `INSERT`, `UPDATE`, `DELETE` | The result is the number of rows changed |
@@ -430,6 +431,28 @@ What can still differ:
 - `OUTPUT` and `@@ROWCOUNT` are refused by name. Each statement's row count is its result instead.
 - An `UPDATE` or `DELETE` whose `FROM` has an outer join (`LEFT`, `RIGHT`, `FULL`), `JOIN ... USING`, or the changed table after another one, is refused by name.
 - On one of the project's Delta tables, `MERGE`, `UPDATE` and `DELETE` run through delta-rs, which has its own rules: see [Local data](local-data.md).
+
+## Local T-SQL MERGE
+
+When a project runs a T-SQL `MERGE` on this PC, on a database table or on one of the project's Delta tables, it gives a Fabric Warehouse's rows, or stops by name before anything changes. Each case below is checked against Microsoft's MERGE (Transact-SQL) page, whose syntax block for Fabric Data Warehouse is the one followed here.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| A table row that more than one source row would update or delete | Refused with SQL Server's error 8672, word for word: "The MERGE statement attempted to UPDATE or DELETE the same row more than once. This happens when a target row matches more than one source row. A MERGE statement cannot UPDATE/DELETE the same row of the target table multiple times. Refine the ON clause to ensure a target row matches at most one source row, or use the GROUP BY clause to group the source rows." The same on a Delta table, an unconditional `WHEN MATCHED THEN DELETE` included |
+| A source row that a `WHEN MATCHED ... AND` condition leaves out, or one that is only inserted | Doesn't count, so the `MERGE` runs and each of the repeated source rows is inserted |
+| One source row that matches several table rows | Each of those rows is updated or deleted once |
+| Two `WHEN MATCHED` clauses, or two `WHEN NOT MATCHED BY SOURCE` | The first clause whose condition holds takes the row, and the second takes only what the first leaves. The clauses can be written in any order |
+| A third `WHEN MATCHED` or `WHEN NOT MATCHED BY SOURCE`, a second `WHEN NOT MATCHED [BY TARGET]`, a first of two clauses with no `AND` condition, or two clauses that both `UPDATE` or both `DELETE` | Refused by name, with the rule it breaks |
+| `WHEN NOT MATCHED BY SOURCE` that reads a source column, or `WHEN NOT MATCHED [BY TARGET]` that reads a table column (`s.x` or `t.x`) | Refused by name, because there is no such row to read |
+| `UPDATE SET t.v = ...` with the table's alias | Runs as `SET v = ...`. A column set twice in one clause, or named twice in an `INSERT`, is refused by name (SQL Server's error 264) |
+| `INSERT VALUES (...)` with no column list | A value for each of the table's columns, in order. A different number of values is refused by name |
+| `INSERT DEFAULT VALUES` | Refused by name, because a warehouse's `MERGE` doesn't take it |
+| A `MERGE` without a semicolon after it | Refused by name, as SQL Server's error 10713 does |
+
+What can still differ:
+
+- On one of the project's Delta tables, `WHEN NOT MATCHED BY SOURCE` with no condition changes every row the source doesn't have, so it runs only with confirm (`local_change_delta`). Add a condition, such as `AND t.id < 1000`, to run it in a script.
+- In Spark SQL or DuckDB SQL a Delta table keeps Delta's own rule for repeated source rows, which counts every match of `ON` and allows an unconditional `DELETE`.
 ## Local T-SQL ordering and window functions
 
 When a project runs T-SQL on this PC, NULLs, ties and window functions give a warehouse's answers. Each case below is checked against T-SQL's reference.
@@ -455,7 +478,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 
 | Function | Here, as in a warehouse |
 | --- | --- |
-| `DATEADD` | Month and year steps end on the last day of a shorter month: `DATEADD(month, 1, '2024-01-31')` is `2024-02-29`, `DATEADD(year, 1, '2024-02-29')` is `2025-02-28`. A minute or hour added to a `date` is an error, as in T-SQL |
+| `DATEADD` | Month and year steps end on the last day of a shorter month: `DATEADD(month, 1, '2024-01-31')` is `2024-02-29 00:00:00`, `DATEADD(year, 1, '2024-02-29')` is `2025-02-28 00:00:00`. Text is read as a `datetime`, so the answer is one, as in T-SQL. A minute or hour added to a `date` is an error, as in T-SQL |
 | `DATEDIFF` | Boundaries crossed, not whole spans: `DATEDIFF(year, '2023-12-31', '2024-01-01')` is `1`, `DATEDIFF(week, Saturday, Sunday)` is `1`. The answer is an `int`, and a count past an int's range stops with T-SQL's "The datediff function resulted in an overflow" (`DATEDIFF(millisecond, ...)` over more than 24 days) |
 | `DATEDIFF_BIG` | The same counts as a `bigint`, with no overflow |
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
@@ -570,12 +593,12 @@ These cases can still differ. LOC-002 warns wherever a pattern is used:
 | `.` and `\r`, `\u0085`, `\u2028`, `\u2029` | Doesn't match them | Matches them. Both leave out `\n` |
 | `(?i)` with letters outside ASCII | Without `(?u)`, only ASCII letters ignore case | Every letter ignores case |
 | `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
-| `split` with a pattern that can match no text, such as `x*` | The array ends with an empty part | No empty part at the end |
+| `split` with a pattern that can match no text, taken from the data or given to the DataFrame API's `F.split` | The array ends with an empty part | No empty part at the end. One written in the query is refused (see above) |
 | `regexp_replace` with a replacement taken from the data that has a `$` or `\` | Read as groups and escapes | Refused by name |
 | `concat_ws` with an array column (not an array expression in SQL), or any array in the DataFrame API's `F.concat_ws` | The elements joined | The array written as text, such as `[a, b]` |
 | A pattern in the DataFrame API given as a column, such as `F.regexp_like(c, F.lit('...'))` | Java's syntax | RE2's: only a pattern given as a Python string is translated |
 | The DataFrame API's `F.split_part` with an empty delimiter, and `F.concat` with a NULL | As in the table above | `''`, and an `int` NULL. The DataFrame API's other string functions weren't compared. Use the SQL form, `F.expr(...)`, for Spark's |
-| `upper('ß')` | `SS` | `ẞ` |
+| The DataFrame API's `F.upper` of `'ß'` | `SS` | `ẞ`. Use `F.expr("upper(...)")` for Spark's |
 
 ## Rules
 
@@ -847,7 +870,7 @@ When a project runs T-SQL on this PC, arithmetic with a decimal side gets the pr
 | Case | Here, as in a warehouse | What can still differ |
 | --- | --- | --- |
 | `+`, `-`, `*` of decimals, or a decimal and an integer | T-SQL's type, and its value rounded to that scale. Past 38 digits the scale gives way as T-SQL's rules say (`decimal(38,10) * decimal(38,10)` is `decimal(38,6)`) | A value too big to work out exactly here (more whole digits than DuckDB leaves room for) is worked out in floating point, and the run's notes say so: about 15 significant digits match |
-| `/` with a decimal side | T-SQL's type, and the quotient worked out exactly and cut at that scale (`-10.25 / 3` is `-3.4166666666666`). An inner division is cut at its own scale first, as in T-SQL. Dividing by zero stops with "Divide by zero error encountered" | A dividend or divisor whose digits don't fit in 38 once moved is divided in floating point, and the notes say so. Also when a side calls `RAND` or `NEWID`, which can't be read twice |
+| `/` with a decimal side | T-SQL's type, and the quotient worked out exactly and cut at that scale (`-10.25 / 3` is `-3.416666`, and `-10.25 / CAST(3 AS INT)` is `-3.4166666666666`). An inner division is cut at its own scale first, as in T-SQL. Dividing by zero stops with "Divide by zero error encountered" | A dividend or divisor whose digits don't fit in 38 once moved is divided in floating point, and the notes say so. Also when a side calls `RAND` or `NEWID`, which can't be read twice |
 | `SUM` of a decimal | `decimal(38, s)` | Nothing |
 | `AVG` of a decimal, also with `OVER (...)` | `decimal(38, max(s, 6))` | The average is worked out in floating point, then given that type, and the notes say so |
 | Numbers written in the query | `1.5` is `decimal(2,1)`, and a whole number meets a decimal as `decimal(its digits, 0)`, so `1.0 / 3` is `0.333333` | Nothing |
@@ -862,9 +885,9 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | What | Here, as in a warehouse |
 | --- | --- |
 | `/` and `%` on integers | Cut toward zero, and the remainder takes the dividend's sign: `-7 / 2` is `-3`, and `-7 % 2` is `-1` |
-| Dividing by zero | `/` and `%` stop with "Divide by zero error encountered.", for integers, decimals and floats. `NULL / 0` is `NULL` |
+| Dividing by zero | `/` and `%` stop with "Msg 8134, Level 16: Divide by zero error encountered.", for integers, decimals and floats. `NULL / 0` is `NULL` |
 | A result past `int` or `bigint` | An error, as in T-SQL. The message is DuckDB's ("Overflow in addition of INT32"), not T-SQL's "Arithmetic overflow error" |
-| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with "Conversion failed". Two texts are concatenated (`'1' + '1'` is `'11'`) |
+| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with "Conversion failed". Two texts are concatenated (`'1' + '1'` is `'11'`). In a comparison with an integer or a float, the text is converted as a `CAST` would: `0 = ''` is true, and `2 = '1.5'` is a conversion error |
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
@@ -970,9 +993,9 @@ When a project runs a T-SQL script on this PC, it runs as a batch does in a Fabr
 
 | What | Here, as in a warehouse |
 | --- | --- |
-| Several statements, or `GO` on a line of its own | Run in order. `GO` splits the script into batches |
+| Several statements, or `GO` on a line of its own | Run in order. `GO` splits the script into batches. A `GO` line inside a string, a quoted or bracketed name, or a comment is refused, with its line number |
 | A statement that fails part way, or is stopped | Changes no rows. An `INSERT`, `UPDATE`, `DELETE` or `SELECT ... INTO` that fails part way through its rows, or is stopped in the middle, leaves the table as it was, as a warehouse rolls back a statement that fails |
-| An error part way through | The script stops at that statement. The error names it and says what ran: "Statement 2 of 3 (SELECT) failed: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run." |
+| An error part way through | The script stops at that statement. The error names it and says what ran: "Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run." |
 | `UPDATE ... SET v = v + 'x'` | The `SET` values and the `WHERE` of an `UPDATE` or `DELETE` follow T-SQL's types, as a `SELECT` does: two texts are joined, and text compares without its trailing spaces (`WHERE v = 'b'` finds `'b  '`) |
 
 Refused by name: variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `TRY ... CATCH`, `RETURN`, `BREAK`, `CONTINUE`, `GOTO` and labels, `THROW`, `RAISERROR`, `PRINT`, `WAITFOR`, `CHECKPOINT`, cursors (`DECLARE ... CURSOR`, `OPEN`, `FETCH`, `CLOSE`, `DEALLOCATE`), transactions (`BEGIN TRAN`, `COMMIT`, `ROLLBACK`, `SAVE TRANSACTION`, `SET TRANSACTION`), `EXEC` and `GO n` (run the batch n times). A script with variables and control flow runs in a Fabric Warehouse.

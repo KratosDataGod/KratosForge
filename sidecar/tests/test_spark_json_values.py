@@ -1,7 +1,7 @@
 """WR-118: Spark 3.5's JSON functions on this PC, value-checked against Spark 3.5.3 (see spark_values.py).
 
 get_json_object, json_tuple, from_json in its PERMISSIVE, FAILFAST and DROPMALFORMED modes (with the
-corrupt-record column), to_json and schema_of_json: 232 queries in tools/spark_value_cases/json.txt, each
+corrupt-record column), to_json and schema_of_json: 260 queries in tools/spark_value_cases/json.txt, each
 answered by Spark 3.5.3 in tests/fixtures/spark_3_5_3_json.json. What this PC can't answer as Spark does is
 refused by name below, and listed in docs/sql-compatibility.md."""
 

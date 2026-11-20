@@ -32,6 +32,8 @@ def test_only_this_periods_sync_rows_are_added_and_labelled_measured():
     assert cost.summary(rows, now=NOW)["this_pc"] is None
     assert got["syncs"] == 2 and got["sync_overhead"]["optimize_sync_commits"]["value"] == 2
     assert got["sync_overhead"]["optimize_sync_rows"]["value"] == 0  # nothing ran in the period: observed zero
+    # A row without an installation id still counts toward the overhead, but isn't another PC.
+    assert cost.summary(rows + [_row("optimize_sync_seconds", 1.0, pc="")], now=NOW)["pcs"] == 2
 
 
 def test_fabric_capacity_and_money_are_unknown_never_estimated():

@@ -205,6 +205,7 @@ nav = [
       { "Three-platform parity backlog" = "product/platform-parity-backlog.md" },
       { "Central control plane stories" = "product/central-control-plane-backlog.md" },
       { "Semantic engineering plan" = "product/semantic-engineering-plan.md" },
+      { "Savings reporting schema" = "product/savings-reporting-schema.md" },
       { "Development status" = "product/DEVELOPMENT_STATUS.md" },
       { "Development operations" = "product/operations/README.md" },
       { "12-week roadmap" = "product/operations/roadmap.md" },

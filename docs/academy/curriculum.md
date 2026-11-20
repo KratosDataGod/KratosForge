@@ -130,11 +130,11 @@ validation checks both the fix and that nothing else changed.
 
 | | Count |
 | --- | --- |
-| Exercises | 64 (52 Guided or Challenge, 12 Troubleshoot) |
-| LOCAL VERIFIED | 30 |
+| Exercises | 68 (54 Guided or Challenge, 14 Troubleshoot) |
+| LOCAL VERIFIED | 34 |
 | SIMULATED | 24 |
 | KNOWLEDGE ONLY | 10 |
-| With a planned FABRIC VERIFIED version | 34 |
+| With a planned FABRIC VERIFIED version | 35 |
 | Capstones | 3 |
 | Built from existing Learn lessons or labs | 26 |
 

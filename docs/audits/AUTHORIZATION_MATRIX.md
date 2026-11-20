@@ -284,7 +284,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `list_lakehouses` | `sidecar/fabric_desktop/service.py:566` | Fabric or OneLake | Fabric's own rights |
 | `list_local_projects` | `sidecar/fabric_desktop/localdata_service.py:42` | this PC | the signed-in Windows user's own files |
 | `list_local_tables` | `sidecar/fabric_desktop/localdata_service.py:78` | this PC | the signed-in Windows user's own files |
-| `list_notebooks` | `sidecar/fabric_desktop/service.py:1363` | this PC | the signed-in Windows user's own files |
+| `list_notebooks` | `sidecar/fabric_desktop/service.py:1373` | this PC | the signed-in Windows user's own files |
 | `list_tables` | `sidecar/fabric_desktop/service.py:727` | Fabric or OneLake | Fabric's own rights |
 | `list_workspaces` | `sidecar/fabric_desktop/service.py:563` | Fabric or OneLake | Fabric's own rights |
 | `local_add_source` | `sidecar/fabric_desktop/localdata_service.py:63` | this PC | the signed-in Windows user's own files |
@@ -368,8 +368,8 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_sources_move` | `sidecar/fabric_desktop/meta_service.py:1097` | platform: adopt_sources; Fabric or OneLake | platform's check per operation; Fabric's own rights |
 | `meta_tests` | `sidecar/fabric_desktop/estate_service.py:555` | this PC | the signed-in Windows user's own files |
 | `model_bpa_check` | `sidecar/fabric_desktop/model_bpa_service.py:146` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy; risk check |
-| `move_notebook` | `sidecar/fabric_desktop/service.py:1447` | this PC | the signed-in Windows user's own files |
-| `new_notebook` | `sidecar/fabric_desktop/service.py:1366` | this PC | the signed-in Windows user's own files |
+| `move_notebook` | `sidecar/fabric_desktop/service.py:1457` | this PC | the signed-in Windows user's own files |
+| `new_notebook` | `sidecar/fabric_desktop/service.py:1376` | this PC | the signed-in Windows user's own files |
 | `notebook_batch_fabric` | `sidecar/fabric_desktop/notebook_batch_service.py:284` | Fabric or OneLake | Fabric's own rights |
 | `notebook_batch_start` | `sidecar/fabric_desktop/notebook_batch_service.py:119` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
 | `notebook_batch_stop` | `sidecar/fabric_desktop/notebook_batch_service.py:164` | this PC | the signed-in Windows user's own files |
@@ -390,10 +390,10 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `notebook_frame_download` | `sidecar/fabric_desktop/service.py:981` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
 | `notebook_from_fabric` | `sidecar/fabric_desktop/notebook_files_service.py:181` | Fabric or OneLake | Fabric's own rights |
 | `notebook_import` | `sidecar/fabric_desktop/notebook_files_service.py:110` | this PC | the signed-in Windows user's own files |
-| `notebook_inputs_set` | `sidecar/fabric_desktop/service.py:1428` | this PC | the signed-in Windows user's own files |
+| `notebook_inputs_set` | `sidecar/fabric_desktop/service.py:1438` | this PC | the signed-in Windows user's own files |
 | `notebook_ipywidget_event` | `sidecar/fabric_desktop/service.py:969` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
 | `notebook_move_to_folder` | `sidecar/fabric_desktop/notebook_folders_service.py:46` | this PC | the signed-in Windows user's own files |
-| `notebook_onelake_writes_set` | `sidecar/fabric_desktop/service.py:1391` | this PC | the signed-in Windows user's own files |
+| `notebook_onelake_writes_set` | `sidecar/fabric_desktop/service.py:1401` | this PC | the signed-in Windows user's own files |
 | `notebook_prod_confirm` | `sidecar/fabric_desktop/prod_writes_service.py:128` | this PC | confirm or approve argument |
 | `notebook_report_export` | `sidecar/fabric_desktop/notebook_formats_service.py:156` | this PC | the signed-in Windows user's own files |
 | `notebook_resource_add` | `sidecar/fabric_desktop/notebook_resources_service.py:42` | this PC | the signed-in Windows user's own files |
@@ -475,25 +475,25 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `prove_rules_set` | `sidecar/fabric_desktop/prove_service.py:531` | this PC | the signed-in Windows user's own files |
 | `prove_start` | `sidecar/fabric_desktop/prove_service.py:616` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
 | `prove_verify` | `sidecar/fabric_desktop/prove_service.py:695` | Fabric or OneLake | Fabric's own rights |
-| `publish_notebook` | `sidecar/fabric_desktop/service.py:1513` | Fabric or OneLake | Fabric's own rights |
+| `publish_notebook` | `sidecar/fabric_desktop/service.py:1523` | Fabric or OneLake | Fabric's own rights |
 | `readiness_check` | `sidecar/fabric_desktop/service.py:527` | Fabric or OneLake | Fabric's own rights; PermissionError |
 | `readiness_write_test` | `sidecar/fabric_desktop/service.py:557` | Fabric or OneLake | Fabric's own rights |
 | `receipt_save` | `sidecar/fabric_desktop/prove_service.py:124` | this PC | the signed-in Windows user's own files |
-| `rename_notebook` | `sidecar/fabric_desktop/service.py:1484` | this PC | the signed-in Windows user's own files |
+| `rename_notebook` | `sidecar/fabric_desktop/service.py:1494` | this PC | the signed-in Windows user's own files |
 | `replay_bundle_open` | `sidecar/fabric_desktop/prove_service.py:235` | this PC | the signed-in Windows user's own files |
 | `replay_bundle_save` | `sidecar/fabric_desktop/prove_service.py:167` | runs code or a pipeline on this PC | what the code reaches is checked where it lands; PermissionError; organization policy |
 | `replay_delete_outputs` | `sidecar/fabric_desktop/prove_service.py:417` | Fabric or OneLake | Fabric's own rights |
 | `replay_end` | `sidecar/fabric_desktop/prove_service.py:472` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
 | `replay_result` | `sidecar/fabric_desktop/prove_service.py:459` | this PC | the signed-in Windows user's own files |
 | `replay_start` | `sidecar/fabric_desktop/prove_service.py:369` | Fabric or OneLake; runs code or a pipeline on this PC | Fabric's own rights |
-| `restart_kernel` | `sidecar/fabric_desktop/service.py:1357` | this PC | the signed-in Windows user's own files |
+| `restart_kernel` | `sidecar/fabric_desktop/service.py:1367` | this PC | the signed-in Windows user's own files |
 | `risk_acknowledge` | `sidecar/fabric_desktop/risk_service.py:249` | this PC | PermissionError; organization policy; risk check |
 | `run_fabric_item_now` | `sidecar/fabric_desktop/schedule_service.py:704` | Fabric or OneLake | Fabric's own rights |
 | `run_notebook_fabric_step` | `sidecar/fabric_desktop/cloud_service.py:370` | Fabric or OneLake | Fabric's own rights |
 | `run_notebook_in_fabric` | `sidecar/fabric_desktop/cloud_service.py:320` | Fabric or OneLake | Fabric's own rights |
 | `run_pc_schedule_now` | `sidecar/fabric_desktop/schedule_service.py:204` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
 | `save_app_settings` | `sidecar/fabric_desktop/service.py:494` | runs code or a pipeline on this PC | what the code reaches is checked where it lands |
-| `save_notebook` | `sidecar/fabric_desktop/service.py:1452` | this PC | the signed-in Windows user's own files |
+| `save_notebook` | `sidecar/fabric_desktop/service.py:1462` | this PC | the signed-in Windows user's own files |
 | `save_sql` | `sidecar/fabric_desktop/service.py:1290` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument |
 | `set_cost_settings` | `sidecar/fabric_desktop/estate_service.py:157` | this PC | the signed-in Windows user's own files |
 | `set_fabric_schedule_enabled` | `sidecar/fabric_desktop/schedule_service.py:664` | Fabric or OneLake | Fabric's own rights |

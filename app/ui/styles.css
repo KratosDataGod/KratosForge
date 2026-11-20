@@ -372,7 +372,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange); }
 .cell.frozen .cell-box { background: var(--surface-2); }
 .cell-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
-.cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag) { visibility: visible; }
+.cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag), .cell-head:has(.comment-badge) { visibility: visible; }
 .cell.markdown:not(.selected):not(:hover) .cell-head { display: none; }
 .cell-head .spacer { flex: 1; }
 .cell-head select.lang { height: 24px; padding: 0 4px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); font-size: 12px; color: var(--text-2); }

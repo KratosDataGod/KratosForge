@@ -243,12 +243,12 @@ def test_windows_take_snowflakes_default_frames() -> None:
 
 def test_a_set_operation_of_text_and_numbers_is_refused_by_name() -> None:
     """operators-query: a UNION of a VARCHAR and an INTEGER column converts the text to a number ("Numeric value
-    'Smith, Jane' is not recognized"); DuckDB made the column text, so '10' sorted before 9 (SFN-031)."""
+    'Smith, Jane' is not recognized"); DuckDB made the column text, so '10' sorted before 9 (SFN-032)."""
     for sql in ["SELECT '10' AS a UNION ALL SELECT 9", "SELECT 1 AS a, 'x' AS b UNION SELECT 2, 3",
                 "SELECT 1 AS a INTERSECT SELECT '1'", "SELECT 1 AS a MINUS SELECT '1'",
                 "SELECT 1 AS a UNION ALL SELECT NULL UNION ALL SELECT '2'::VARCHAR"]:
         translation = sf.translate(sql)
-        assert not translation.runnable and translation.statements[0].notes[0].id == "SFN-031", sql
+        assert not translation.runnable and translation.statements[0].notes[0].id == "SFN-032", sql
     for sql in ["SELECT '10' AS a UNION ALL SELECT '9'", "SELECT 1 AS a UNION ALL SELECT NULL",
                 "SELECT '10'::NUMBER AS a UNION ALL SELECT 9"]:
         assert sf.translate(sql).runnable, sql

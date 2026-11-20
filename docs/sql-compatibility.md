@@ -129,12 +129,12 @@ Spark SQL run on this PC, and the DataFrame API's filters and columns, compare t
 
 ## CASE, coalesce and UNION result types on this PC (WR-259)
 
-Spark SQL run on this PC gives `CASE`, `if`, `coalesce`, `nvl`, `ifnull`, `nvl2`, `greatest`, `least`, `UNION`, `INTERSECT` and `EXCEPT` the result type Spark gives them with ANSI mode off. Text with a number, a date or a timestamp is text, so `CASE WHEN c THEN 1 ELSE 'a' END` is the string `'1'` and `coalesce(1.0D, 'x')` is `'1.0'`, written as Spark's `CAST` to `STRING` writes it. An integer with a decimal is the decimal that holds both, with a `bigint` counted as `decimal(20,0)`: `coalesce(1L, 2.5)` is a `decimal(21,1)`, and a value too large for a 38-digit decimal is NULL. A `UNION` widens each column the same way, pair by pair from the left, so `SELECT 1L UNION ALL SELECT 1.5 UNION ALL SELECT 'x'` gives `'1.0'`. Before, DuckDB cast the text to the number instead (1, or a stop on `'a'`), and turned a boolean into a number. A boolean with a number or text, binary with text, a date with a number, and `greatest` or `least` of a number and text are refused by name, since Spark stops on them too. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_branch_types.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC gives `CASE`, `if`, `coalesce`, `nvl`, `ifnull`, `nvl2`, `greatest`, `least`, `UNION`, `INTERSECT` and `EXCEPT` the result type Spark gives them with ANSI mode off. Text with a number, a date or a timestamp is text, so `CASE WHEN c THEN 1 ELSE 'a' END` is the string `'1'` and `coalesce(1.0D, 'x')` is `'1.0'`, written as Spark's `CAST` to `STRING` writes it. An integer with a decimal is the decimal that holds both, with a `bigint` counted as `decimal(20,0)`: `coalesce(1L, 2.5)` is a `decimal(21,1)`, and a value too large for a 38-digit decimal is NULL. A `UNION` widens each column the same way, pair by pair from the left, so `SELECT 1L UNION ALL SELECT 1.5 UNION ALL SELECT 'x'` gives `'1.0'`. Before, DuckDB cast the text to the number instead (1, or a stop on `'a'`), and turned a boolean into a number. A boolean with a number or text, binary with text, a date with a number, and `greatest` or `least` of a number and text are refused by name, because Spark stops on them too. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_branch_types.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
 
 | Case | Spark | This PC |
 | --- | --- | --- |
 | A statement whose types can't be worked out, or a `UNION` with `*` | Spark's result type | DuckDB's own type |
-| A tiny decimal turned to text, such as `CAST(0.00000001 AS DECIMAL(9,8))` with `'a'` | `'1E-8'` | `'0.00000001'`, as this PC's `CAST` to `STRING` writes it |
+| A tiny decimal turned to text, such as `CAST(0.00000001 AS DECIMAL(9,8))` in a `CASE` with `'a'` | `'1E-8'` | `'0.00000001'`, as this PC's `CAST` to `STRING` writes it |
 | `array`, `map` and `IN` with values of two types | Spark's wider type, or an error for a boolean and a number | DuckDB's own type, or its error |
 | The DataFrame API's `when`, `coalesce` and `union` | Spark's result type | DuckDB's own type |
 
@@ -475,7 +475,7 @@ When a project runs T-SQL on this PC, NULLs, ties and window functions give a wa
 | `CUME_DIST`, `PERCENT_RANK` | Ties share a value, as in T-SQL |
 | `LAG`, `LEAD` | `NULL` past the edge of the partition, or the default you give: `LAG(x, 1, 0)` |
 | `SUM`, `COUNT`, `MAX` and the other aggregates `OVER (ORDER BY ...)` | The default frame is `RANGE`, so rows that tie share a running total. Write `ROWS UNBOUNDED PRECEDING` for one total per row |
-| `RANGE` with a number of rows, such as `RANGE BETWEEN 1 PRECEDING AND CURRENT ROW` | Refused by name, as a warehouse refuses it: T-SQL takes `RANGE` only with `UNBOUNDED` and `CURRENT ROW`. Use `ROWS` |
+| `RANGE` with a number of rows, such as `RANGE BETWEEN 1 PRECEDING AND CURRENT ROW` | Refused by name, as a warehouse refuses it, because T-SQL takes `RANGE` only with `UNBOUNDED` and `CURRENT ROW`. Use `ROWS` |
 | `PERCENTILE_CONT` | A `float`, with `NULL`s left out, for a decimal column too: 0.25 of `1.25`, `2.50` and `4.00` is `1.875` |
 | `PERCENTILE_CONT` and `PERCENTILE_DISC` with `ORDER BY ... DESC` | p counts from the largest value: 0.25 of 1 to 5 descending is `4`. `PERCENTILE_DISC` keeps its value's type |
 

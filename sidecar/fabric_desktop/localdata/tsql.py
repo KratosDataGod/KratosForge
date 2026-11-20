@@ -2522,7 +2522,7 @@ def _refused_by_name(tree: exp.Expression) -> None:
         if str(spec.args.get("kind") or "").upper() == "RANGE" and any(
                 end is not None and not (isinstance(end, str) and end.upper() in ("UNBOUNDED", "CURRENT ROW"))
                 for end in (spec.args.get("start"), spec.args.get("end"))):
-            raise ValueError("A window frame of RANGE with a number of rows before or after can't run, so nothing ran: "
+            raise ValueError("A window frame of RANGE with a number of rows before or after can't run, so nothing ran. "
                              "T-SQL takes RANGE only with UNBOUNDED PRECEDING, UNBOUNDED FOLLOWING and CURRENT ROW, and "
                              "a Fabric Warehouse stops on it. Use ROWS BETWEEN n PRECEDING AND CURRENT ROW to count rows.")
 

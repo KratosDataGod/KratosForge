@@ -177,7 +177,7 @@ def _needs(have: Kind, want: Kind) -> bool:
 
 def _refuse(what: str, kinds: list[Kind]) -> Refused:
     names = ", ".join(dict.fromkeys(_spark_name(k) for k in kinds if k[0] != "null"))
-    return Refused(f"{what} mixes values of types Spark has no common type for ({names}), so nothing ran: Spark stops "
+    return Refused(f"{what} mixes values of types Spark has no common type for ({names}), so nothing ran. Spark stops "
                    "on it too ([DATATYPE_MISMATCH]). Cast the values to one type, for example CAST(x AS STRING) "
                    "or CAST(flag AS INT).")
 

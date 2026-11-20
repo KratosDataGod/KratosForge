@@ -1102,9 +1102,8 @@ def _catalog_refusal(name: str, what: str | None = None) -> ValueError:
 def _main_schema_refusal(what: str) -> ValueError:
     """A schema named main: DuckDB's own name for the schema this session shows as default, so it can't be
     another schema here, and reading it as default would answer where Databricks finds no such schema."""
-    return _statement_refusal(what, "this PC's engine keeps the name main for the schema shown as default, so a "
-                              "schema named main can't be told apart from it", "use default, or give the schema "
-                              "another name")
+    return _statement_refusal(what, "this PC's engine already uses the name main for the schema shown as default",
+                              "use default or another schema name")
 
 
 def _default_schema(identifier: exp.Identifier | None) -> exp.Identifier | None:
@@ -1138,15 +1137,15 @@ def unity_names(statement: exp.Expression) -> list[exp.Expression]:
         if table.args.get("db") is not None and table.db.lower() == "main":
             raise _main_schema_refusal(f"The schema main in {'.'.join(p.name for p in table.parts)}")
         table.set("db", _default_schema(table.args.get("db")))
-    for column in list(statement.find_all(exp.Column)):  # main.default.t.id: the same names as a table's
+    for column in list(statement.find_all(exp.Column)):
+        # main.default.t.id: the session's catalog and schema in front of a table's name. Only those are touched:
+        # any other leading parts may be a table, an alias or a struct's fields (t.s.a.b), so they stay as written.
         column_catalog = column.args.get("catalog")
-        if column_catalog is not None:
-            if column_catalog.name.lower() not in SESSION_CATALOGS:
-                raise _catalog_refusal(column_catalog.name)
+        if column_catalog is not None and column_catalog.name.lower() in SESSION_CATALOGS:
             column.set("catalog", None)
-        if column.args.get("db") is not None and column.args["db"].name.lower() == "main":
-            raise _main_schema_refusal(f"The schema main in {'.'.join(p.name for p in column.parts)}")
-        column.set("db", _default_schema(column.args.get("db")))
+            column.set("db", _default_schema(column.args.get("db")))
+        elif column_catalog is None and column.args.get("db") is not None and column.args["db"].name.lower() == "default":
+            column.set("db", _default_schema(column.args.get("db")))
     for node in list(statement.find_all(exp.CurrentSchema, exp.CurrentDatabase, exp.CurrentCatalog)):
         node.replace(exp.Literal.string("main") if isinstance(node, exp.CurrentCatalog) else _current_schema())
     return [statement]

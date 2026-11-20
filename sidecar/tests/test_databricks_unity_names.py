@@ -106,18 +106,22 @@ def test_columns_qualified_with_the_schema_or_catalog(cell, code):
     assert cell(code) == [[1]]
 
 
-def test_a_column_in_another_catalog_is_refused(cell):
-    assert cell("SELECT prod.default.t.id FROM t").startswith("error: A table in the catalog prod can't run")
+def test_struct_fields_and_aliases_are_left_as_written(cell):
+    # four or more dotted parts may be a struct's fields, not a catalog (sqlglot puts them in catalog and db)
+    assert cell("CREATE TABLE st AS SELECT named_struct('a', named_struct('b', 7, 'c', named_struct('d', 9))) AS s") == [[1]]
+    assert cell("SELECT st.s.a.b FROM st") == [[7]]
+    assert cell("SELECT s.a.c.d FROM st") == [[9]]
+    assert cell("SELECT x.s.a.b FROM st x") == [[7]]
+    assert cell("SELECT main.id FROM t AS main") == [[1]]
 
 
 @pytest.mark.parametrize("code, what", [("USE main", "USE main"), ("USE SCHEMA main", "USE SCHEMA main"),
-                                        ("SELECT * FROM main.t", "The schema main in main.t"),
-                                        ("SELECT main.t.id FROM t", "The schema main in main.t.id")])
+                                        ("SELECT * FROM main.t", "The schema main in main.t")])
 def test_a_schema_named_main_is_refused_since_it_is_default_here(cell, code, what):
     # On Databricks USE x is USE SCHEMA x, so USE main names a schema main, not the catalog
     answer = cell(code)
     assert answer.startswith(f"error: {what} can't run on this PC the way it runs in Databricks, because this PC's "
-                             "engine keeps the name main for the schema shown as default"), answer
+                             "engine already uses the name main for the schema shown as default"), answer
     assert cell("SELECT current_schema()") == [["default"]]
 
 

@@ -232,6 +232,8 @@ THROTTLE_WAIT_CAP = 5.0
 class OneLakeBackend:
     """Lease files in a lakehouse's Files area, changed only with ADLS Gen2 conditional requests."""
 
+    WHAT = "the lease for"  # how errors name a file; a subclass storing other files says what they are
+
     def __init__(self, workspace_id: str, lakehouse_id: str, token: Callable[[], str],
                  session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep,
                  timeout: float = 60, clock: Callable[[], float] = time.monotonic):
@@ -263,7 +265,7 @@ class OneLakeBackend:
 
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)
-        what = f"write the lease for {key}"
+        what = f"write {self.WHAT} {key}"
         deadline = self._deadline()
         resp = self._change(lambda: self._http.put(url, params={"resource": "file"},
                                                           headers=self._headers(**condition), timeout=self.timeout), deadline)
@@ -295,7 +297,7 @@ class OneLakeBackend:
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
-            raise _onelake_error(resp, f"read the lease for {key}")
+            raise _onelake_error(resp, f"read {self.WHAT} {key}")
         try:
             modified = parsedate_to_datetime(resp.headers["Last-Modified"]).timestamp()
         except (KeyError, TypeError, ValueError):
@@ -315,7 +317,7 @@ class OneLakeBackend:
         if resp.status_code in (404, 409, 412):
             return False
         if resp.status_code >= 400:
-            raise _onelake_error(resp, f"release the lease for {key}")
+            raise _onelake_error(resp, f"release {self.WHAT} {key}")
         return True
 
 

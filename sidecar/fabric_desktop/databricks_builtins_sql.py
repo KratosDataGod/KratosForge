@@ -904,3 +904,178 @@ def table_writes(statements: list[exp.Expression], con: Any) -> list[exp.Express
                                          "takes no value for it, not even one Databricks would take",
                                          f"list the columns to write and leave {name} out")
     return written_out
+
+
+# Statements Databricks answers one way and DuckDB another, or reads where Databricks doesn't: written so the
+# answer is Databricks', or refused by name.
+_VARIABLES = "a query reads a Databricks session variable by its name, which DuckDB doesn't"
+_LEAVE_OUT = "leave the statement out"
+_NOT_HERE: dict[type[exp.Expression], tuple[str, str, str]] = {  # what, why, instead
+    exp.Declare: ("DECLARE VARIABLE", _VARIABLES, "write the value into the query"),
+    exp.Cache: ("CACHE TABLE", "it keeps a table in Apache Spark's cache, which this PC doesn't have",
+                "leave the statement out (for CACHE TABLE name AS query, write CREATE TEMPORARY VIEW name AS query)"),
+    exp.Uncache: ("UNCACHE TABLE", "it takes a table out of Apache Spark's cache, which this PC doesn't have",
+                  _LEAVE_OUT),
+}
+_MAINTENANCE = {"OPTIMIZE": "it lays out a Delta table's files", "VACUUM": "it removes a Delta table's unused files"}
+# DuckDB's type names as Databricks' DESCRIBE TABLE writes them
+_DESCRIBE_TYPES = {"INTEGER": "int", "BIGINT": "bigint", "SMALLINT": "smallint", "TINYINT": "tinyint",
+                   "VARCHAR": "string", "DOUBLE": "double", "FLOAT": "float", "BOOLEAN": "boolean", "DATE": "date",
+                   "TIMESTAMP WITH TIME ZONE": "timestamp", "TIMESTAMP": "timestamp_ntz", "BLOB": "binary"}
+MULTIPLE_MATCHES = ("[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] MERGE stopped, as Databricks stops it, "
+                    "because more than one source row matches the same target row and which one should change it is "
+                    "ambiguous. "
+                    "Nothing was changed. Keep one source row for each target row, for example the latest change "
+                    "for each key.")
+
+
+def _databricks_stops(what: str, why: str, instead: str) -> ValueError:
+    """A refusal of a statement Databricks stops too, so it has no warehouse step: running it there won't help."""
+    return ValueError(f"{what}, so nothing ran. Databricks stops it too, {why}. {instead}.")
+
+
+def _quoted(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _describe(statement: exp.Describe) -> exp.Expression:
+    """DESCRIBE [TABLE] t as Databricks answers it: col_name, data_type and comment for each column, in order,
+    with Databricks' type names. A column of a type this PC doesn't name as Databricks does stops the query by
+    name, and so does a table that isn't there."""
+    table = statement.this
+    if any(statement.args.get(k) for k in ("style", "properties", "expressions", "partition", "format", "as_json")) \
+            or not isinstance(table, exp.Table) or str(statement.args.get("kind") or "TABLE").upper() != "TABLE":
+        raise _statement_refusal("This DESCRIBE", "only a plain DESCRIBE TABLE answers here with Databricks' columns",
+                                 "write DESCRIBE TABLE with the table's name only")
+    where = [f"lower(table_name) = lower({_quoted(table.name)})", "NOT internal"]
+    if table.args.get("db"):
+        where.append(f"lower(schema_name) = lower({_quoted(table.db)})")
+    if table.args.get("catalog"):
+        where.append(f"lower(database_name) = lower({_quoted(table.catalog)})")
+    types = " ".join(f"WHEN {_quoted(duck)} THEN {_quoted(dbx)}" for duck, dbx in _DESCRIBE_TYPES.items())
+    other = _statement_refusal("DESCRIBE TABLE of this column's type", "this PC doesn't write that type's name as "
+                               "Databricks does", "read the column's type with typeof()")
+    missing = (f"[TABLE_OR_VIEW_NOT_FOUND] The table or view {table.name} cannot be found, so DESCRIBE TABLE has "
+               "nothing to describe.")
+    query = (f"WITH c AS (SELECT column_name, data_type, comment, column_index FROM duckdb_columns() "
+             f"WHERE {' AND '.join(where)}) "
+             f"SELECT col_name, data_type, comment FROM (SELECT column_name AS col_name, CASE data_type {types} "
+             f"ELSE CASE WHEN data_type LIKE 'DECIMAL(%' THEN lower(data_type) "
+             f"ELSE error({_quoted(str(other))}) END END AS data_type, comment, column_index AS i FROM c "
+             f"UNION ALL SELECT error({_quoted(missing)}), NULL, NULL, 0 WHERE NOT EXISTS (SELECT 1 FROM c)) "
+             "ORDER BY i")
+    return cast(exp.Expression, parse_one(query, read="duckdb"))
+
+
+def _merge_matches_once(statement: exp.Merge) -> exp.Merge:
+    """``statement`` with its source read through a check that stops the MERGE when more than one source row
+    matches the same target row through its WHEN MATCHED clauses, as Databricks stops it (DuckDB 1.x would change
+    the row from one of them). Left as it is when Databricks allows that: no WHEN MATCHED clause, or only an
+    unconditional DELETE. The check is in the MERGE itself, so the cell still answers with the MERGE's count."""
+    whens = statement.args.get("whens")
+    matched = [w for w in (whens.expressions if whens else []) if w.args.get("matched") and not w.args.get("source")]
+    target, source = statement.this, statement.args.get("using")
+    if not matched or statement.args.get("on") is None or not isinstance(target, exp.Table) or source is None:
+        return statement
+    if len(matched) == 1 and matched[0].args.get("condition") is None and not isinstance(
+            matched[0].args.get("then"), (exp.Update, exp.Insert)):  # WHEN MATCHED THEN DELETE
+        return statement
+    # Databricks (after 15.4 LTS) counts the matches the WHEN MATCHED conditions let through
+    on = statement.args["on"].copy()
+    conditions = [w.args["condition"].copy() for w in matched if w.args.get("condition") is not None]
+    if len(conditions) == len(matched):
+        on = exp.and_(on, exp.or_(*conditions))
+    rowid = exp.column("rowid", table=target.alias_or_name)
+    pairs = exp.select(rowid).from_(target.copy()).join(source.copy(), on=on) \
+        .group_by(rowid.copy()).having("count(*) > 1")
+    check = cast(exp.Select, parse_one(f"SELECT CASE WHEN EXISTS (SELECT 1) THEN error({_quoted(MULTIPLE_MATCHES)}) "
+                                       "ELSE TRUE END", read="duckdb"))
+    cast(exp.Exists, check.find(exp.Exists)).set("this", pairs)
+    checked = exp.select("*").from_(source.copy()).where(exp.Subquery(this=check))
+    statement.set("using", exp.Subquery(this=checked, alias=exp.TableAlias(
+        this=exp.to_identifier(source.alias_or_name or "__kf_source"))))
+    return statement
+
+
+def _alter_columns(statement: exp.Alter) -> list[exp.Expression]:
+    """ALTER TABLE ... ADD COLUMNS (a, b) and DROP COLUMNS (a, b) as one ALTER TABLE for each column, which is how
+    DuckDB reads them, with an added column's COMMENT kept. An added column with a DEFAULT is refused: Databricks
+    can't define one when it adds a column to a Delta table (its rows that are there stay NULL), where DuckDB would
+    give those rows the default. So is FIRST or AFTER, since DuckDB adds a column at the end only."""
+    actions = statement.args.get("actions") or []
+    if len(actions) != 1:
+        return [statement]
+    action = actions[0]
+    if isinstance(action, exp.Schema) and all(isinstance(c, exp.ColumnDef) for c in action.expressions):
+        added: list[exp.Expression] = list(action.expressions)
+    elif isinstance(action, exp.ColumnDef):
+        added = [action]
+    else:
+        added = []
+    table = statement.this
+    written: list[exp.Expression] = []
+    comments: list[exp.Expression] = []
+    for column in added:
+        if column.args.get("position") is not None:
+            raise _statement_refusal("ALTER TABLE ... ADD COLUMN ... FIRST or AFTER", "DuckDB adds a column at the "
+                                     "end of the table only", "add it at the end, and list the columns in the order "
+                                     "you want in the query")
+        for constraint in list(column.args.get("constraints") or []):
+            kind = constraint.args.get("kind")
+            if isinstance(kind, exp.DefaultColumnConstraint):
+                raise _databricks_stops("ALTER TABLE ... ADD COLUMN ... DEFAULT can't run here",
+                                        "because it takes no default when it adds a column to a Delta table",
+                                        "Add the column, then ALTER TABLE ... ALTER COLUMN ... SET DEFAULT, which "
+                                        "applies to new rows only")
+            if isinstance(kind, exp.CommentColumnConstraint) and isinstance(table, exp.Table):
+                constraint.pop()
+                comments.append(_comment(exp.Column(this=column.this.copy(), table=table.this.copy(),
+                                                    db=table.args.get("db"), catalog=table.args.get("catalog")),
+                                         kind.this.name))
+        one = statement.copy()
+        one.set("actions", [column.copy()])
+        written.append(one)
+    if not added and isinstance(action, exp.Drop) and str(action.args.get("kind") or "").upper() == "COLUMNS":
+        names = [n for t in action.args.get("tables") or [] for n in (t.expressions if isinstance(t, exp.Schema) else [t])]
+        for name in names:
+            one = statement.copy()
+            one.set("actions", [exp.Drop(kind="COLUMN", exists=action.args.get("exists"),
+                                         tables=[exp.Column(this=name.copy()) if isinstance(name, exp.Identifier)
+                                                 else name.copy()])])
+            written.append(one)
+    return [*written, *comments] if written else [statement]
+
+
+def other_statements(statement: exp.Expression) -> list[exp.Expression]:
+    """``statement`` as Databricks answers it, for statements table_statements leaves as they are: DESCRIBE TABLE
+    with Databricks' columns, and a MERGE that stops when more than one source row matches a target row. What
+    Databricks reads another way is refused by name: UPDATE ... FROM (Databricks' UPDATE has no FROM), INSERT
+    OVERWRITE and REPLACE WHERE, session variables, CACHE TABLE, OPTIMIZE and VACUUM."""
+    for kind, (what, why, instead) in _NOT_HERE.items():
+        if isinstance(statement, kind):
+            raise _statement_refusal(what, why, instead)
+    if any(call.name.lower() == "table_changes" for call in statement.find_all(exp.Anonymous)):
+        raise _statement_refusal("table_changes", f"it reads a Delta table's change data feed, and {_LOCAL_TABLE}",
+                                 "read the changes in a notebook cell on this PC with spark.read.option("
+                                 "\"readChangeFeed\", \"true\").option(\"startingVersion\", 0).table(...)")
+    if isinstance(statement, exp.Set) and any(i.args.get("kind") == "VARIABLE" for i in statement.expressions):
+        raise _statement_refusal("SET VARIABLE", _VARIABLES, "write the value into the query")
+    if isinstance(statement, exp.Command) and statement.name.upper() in _MAINTENANCE:
+        word = statement.name.upper()
+        raise _statement_refusal(word, f"{_MAINTENANCE[word]}, and {_LOCAL_TABLE}", _LEAVE_OUT)
+    if isinstance(statement, exp.Update) and statement.args.get("from_") is not None:
+        raise _databricks_stops("UPDATE ... FROM isn't Databricks SQL", "as a syntax error, because its UPDATE has "
+                                "no FROM clause", "Write it as MERGE INTO ... USING ... WHEN MATCHED THEN UPDATE")
+    if isinstance(statement, exp.Insert) and statement.args.get("overwrite"):
+        raise _statement_refusal("INSERT OVERWRITE", "DuckDB has no INSERT OVERWRITE", "empty the table with "
+                                 "TRUNCATE TABLE (or DELETE FROM ... WHERE for a partition), then INSERT INTO")
+    if isinstance(statement, exp.Insert) and statement.args.get("where") is not None:
+        raise _statement_refusal("INSERT INTO ... REPLACE WHERE", "DuckDB has no REPLACE WHERE", "DELETE FROM the "
+                                 "table WHERE the same condition, then INSERT INTO")
+    if isinstance(statement, exp.Alter) and str(statement.args.get("kind") or "").upper() == "TABLE":
+        return _alter_columns(statement)
+    if isinstance(statement, exp.Describe):
+        return [_describe(statement)]
+    if isinstance(statement, exp.Merge):
+        return [_merge_matches_once(statement)]
+    return [statement]

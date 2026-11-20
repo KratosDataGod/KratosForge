@@ -80,9 +80,9 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E41 | Design an eventstream: filter, aggregate and route to two destinations | 2.3.2 | C | SIM +FV | config | 25 | |
 | E42 | Structured streaming with foreachBatch and MERGE | 2.3.3 | C | LV +FV | pyspark | 30 | |
 | E43 | Tumbling, hopping and session windows over device events | 2.3.5 | G | LV +FV | duckdb | 25 | LM-15 |
+| E67 | Reload one day of a Delta table with replaceWhere | 2.1.1 | C | LV | pyspark | 20 | LM-21 |
 | E69 | Flatten nested JSON order events with PySpark | 2.2.6 | C | LV | pyspark | 20 | |
 | E70 | Running totals per customer with a PySpark window | 2.2.8 | C | LV | pyspark | 20 | |
-| E67 | Reload one day of a Delta table with replaceWhere | 2.1.1 | C | LV | pyspark | 20 | LM-21 |
 
 ## 3. Monitor and optimize an analytics solution
 

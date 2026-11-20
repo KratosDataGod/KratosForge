@@ -174,10 +174,14 @@ async function rollbackDialog(env, onChange) {
   const earlier = res.releases.filter((r) => !r.current && r.kept);
   let pick = earlier.length ? earlier[0].version : null;
   const what = h("div", { class: "rollback-what" });
+  // Prod: the rollback waits for its workspace's name typed (WR-250), as a Prod write does.
+  const needs = res.confirm_name || "";
+  const typed = needs ? h("input", { autocomplete: "off", spellcheck: "false", oninput: () => { go.disabled = !ready(); } }) : null;
+  const ready = () => !!pick && (!typed || typed.value.trim() === needs);
   const go = btn("Roll back", null, async () => {
-    if (!pick) return;
+    if (!ready()) return;
     if (!state.user && !(await signIn())) return;
-    const out = await metaCall("meta_rollback", { env, version: pick }, "Rollback blocked");
+    const out = await metaCall("meta_rollback", { env, version: pick, ...(needs ? { confirm_name: needs } : {}) }, "Rollback blocked");
     if (!out) return;
     closeDialog();
     toast(`${ENV_LABEL[env]} is back on metadata ${out.version}`, false, { log: true });
@@ -186,7 +190,7 @@ async function rollbackDialog(env, onChange) {
   }, "tool primary");
   const label = (r) => `${r.version} (${relTime(r.at)})`;
   const show = async () => {
-    go.disabled = !pick;
+    go.disabled = !ready();
     go.textContent = pick ? `Roll back ${ENV_LABEL[env]} to ${pick}` : "Roll back";
     if (!pick) { what.replaceChildren(); return; }
     what.replaceChildren(h("p", { class: "muted-text small" }, "Working out what changes..."));
@@ -223,7 +227,8 @@ async function rollbackDialog(env, onChange) {
     h("fieldset", { class: "rollback-releases" }, h("legend", {}, `Releases to ${ENV_LABEL[env]}`), res.releases.map(row)),
     earlier.length ? null : h("p", { class: "muted-text small" }, `${ENV_LABEL[env]} keeps no earlier release to go back to. Releases promoted before this version of the app didn't keep their files.`),
     what,
-    h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`));
+    h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`),
+    typed ? h("label", { class: "field" }, `Type ${needs} to confirm`, typed) : null);
   showDialog(`Roll back ${ENV_LABEL[env]}`, body, [btn("Cancel", null, closeDialog, "tool"), go])
     .querySelector(".dialog")?.classList.add("wide");
   show();

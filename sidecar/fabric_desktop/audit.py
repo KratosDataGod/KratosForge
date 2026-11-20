@@ -271,7 +271,7 @@ class AuditLog:
                     continue
                 try:
                     entry = json.loads(line)
-                except ValueError:  # reported by verify()
+                except (ValueError, RecursionError):  # reported by verify(); RecursionError: nested too deep
                     entry = None
                 if isinstance(entry, dict):
                     yield entry

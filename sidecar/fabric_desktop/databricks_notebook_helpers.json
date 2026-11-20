@@ -24,7 +24,7 @@
     "notebook.entry_point.getDbutils": "Gives the notebook's path and your user name for getContext(); the run id is empty.",
     "notebook.exit": "",
     "notebook.run": "Runs a notebook from this PC's notebooks folder. The timeout and arguments are taken; arguments arrive as widget values.",
-    "secrets.get": "A secret scope is an Azure Key Vault name, read with your own sign-in. Databricks-backed scopes are not reachable.",
+    "secrets.get": "A secret scope is an Azure Key Vault name, read with your own sign-in. Databricks-backed scopes are not reachable. The value shows as [REDACTED] in the notebook's output, as in Databricks.",
     "secrets.getBytes": "Same scopes as secrets.get.",
     "secrets.list": "Same scopes as secrets.get. You need the Key Vault Secrets User role.",
     "secrets.listScopes": "Returns an empty list and says that a scope is a Key Vault name: this PC can't list your vaults.",

@@ -102,9 +102,11 @@ async function renderTestsTab(body) {
   const run = async () => {
     body.querySelector(".tests-summary")?.replaceChildren(h("span", { class: "muted-text" }, "Running the tests..."));
     const res = await metaCall("meta_tests", { run: true }, "Tests didn't run");
-    if (res) draw(res);
+    draw(res || shown);  // a refused run shows the last results again, not "Running the tests..." for good
   };
+  let shown = t;
   const draw = (r) => {
+    shown = r;
     const failed = r.tests.filter((x) => x.status !== "passed");
     fill(body,
       h("div", { class: "row tests-summary" },

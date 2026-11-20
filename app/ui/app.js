@@ -91,6 +91,9 @@ function hydrateIcons(root = document) {
 // toast stays while the pointer or keyboard focus is on it (UX-011).
 function toast(text, isError = false, opts = {}) {
   const t = document.getElementById("toast");
+  // A hidden status region isn't in the accessibility tree when its words change, so the first toast after a quiet
+  // spell isn't read; the window's polite region (motion.js announce) says it. An error is an alert, read when shown.
+  if (t.hidden && !isError && typeof announce === "function") announce(text);
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
   if (opts.action) {
     t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
@@ -1262,7 +1265,7 @@ async function renderMonitor() {
     ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
       at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
-      seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
+      seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})${r.v_order_error ? ` ${r.v_order_error}` : ""}`, reason: "",
     })),
   ];
   if (forge) forgeActivityFill(forgeStripSlot, forgeBandSlot, all);

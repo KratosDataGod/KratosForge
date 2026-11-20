@@ -51,8 +51,7 @@ METHODS = {"cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview
            "cp_upgrade"}
 PREVIEW_SECONDS = 15 * 60
 MAX_PREVIEWS = 20
-OFF = ("Your organization has turned off KratosForge Environments (allow_central_environment in its "
-       "policy). Ask IT if you need them.")
+OFF = "Your organization has turned off KratosForge Environments."  # then app_settings.ask_it("allow_central_environment")
 CHANGED = ("Something changed since this was shown, so nothing was done. Look at it again and confirm.")
 EXPIRED = "This preview has expired or was already used. Look at it again and confirm."
 REQUEST_KEYS = ("name", "workspace_id", "workspace_name", "capacity_id", "lakehouse_id", "lakehouse_name",
@@ -81,7 +80,7 @@ class ControlPlaneMixin:
 
     def _cp_allowed(self) -> None:
         if not app_settings.value("allow_central_environment"):
-            raise PermissionError(OFF)
+            raise PermissionError(f"{OFF} {app_settings.ask_it('allow_central_environment')}")
 
     def _cp_store(self, workspace_id: str, lakehouse_id: str) -> cps.ManifestStore:
         return cps.onelake_store(workspace_id, lakehouse_id, self.auth.storage_token)

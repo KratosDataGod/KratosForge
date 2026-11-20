@@ -170,7 +170,8 @@ class ProveMixin:
         """Save a replay bundle to the Downloads folder, as a new file. With ``include_sample``,
         up to replay.SAMPLE_ROWS rows of each table read, unless policy turns samples off."""
         if include_sample and not app_settings.value("allow_replay_samples"):
-            raise PermissionError("Your organization doesn't allow data samples in replay bundles.")
+            raise PermissionError("Your organization doesn't allow data samples in replay bundles. "
+                                  + app_settings.ask_it("allow_replay_samples"))
         bundle = self._replay_bundle(name, cells, failed, lakehouse_ref)
         samples = replay.samples(bundle, self._replay_sample) if include_sample else None
         if not include_ids:

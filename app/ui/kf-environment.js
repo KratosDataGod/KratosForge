@@ -601,7 +601,7 @@ async function kfeDisconnect(el, e) {
 function kfePolicyOff(el) {
   const active = kfe.status.active;
   return h("section", { class: "card pad kfe-card" },
-    kfeStatusLine("neu", "Turned off", "Your organization has turned off KratosForge Environments (allow_central_environment in its policy). Ask IT if you need them."),
+    kfeStatusLine("neu", "Turned off", "Your organization has turned off KratosForge Environments. Ask IT to change allow_central_environment in Group Policy or the policy file if you need them."),
     h("p", { class: "small muted-text" }, "Work still runs on this PC. ",
       active ? btn("Disconnect this PC...", null, () => kfeDisconnect(el, active), "tool outline small") : null));
 }

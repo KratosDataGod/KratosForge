@@ -127,7 +127,7 @@ test("When IT turns it off, the box can only be unticked and rows say so", { ski
   await page().evaluate(() => { state.settings = { ...(state.settings || {}), allow_signed_out_schedules: { value: false } }; });
   rows[3].signed_out_problem = "policy";
   await monitor();
-  assert.match(await page().textContent("tr:has-text('nb_signed_out')"), /Your organization has turned off runs while you're signed out\. Run only while signed in/);
+  assert.match(await page().textContent("tr:has-text('nb_signed_out')"), /Your organization has turned off runs while you're signed out\. Ask IT to change allow_signed_out_schedules in Group Policy or the policy file\. Run only while signed in/);
   await page().click("tr:has-text('nb_plain') button:has-text('Edit')");
   const d = page().locator(".dialog");
   assert.ok(await d.locator("label:has-text('signed out of Windows') input").isDisabled());

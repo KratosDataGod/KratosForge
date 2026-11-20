@@ -24,7 +24,7 @@ import time
 import unicodedata
 from typing import Any
 
-from . import win_paths
+from . import app_settings, win_paths
 from .editor_channel import Channel
 from .editor_pairing import Pairings
 from .jsonfile import read_json, write_json
@@ -115,9 +115,10 @@ class EditorMixin:
         from .integrations import policy
         rules = policy.current()
         if rules.get("enabled") is False:
-            return "Your organization has turned integrations off on this PC."
+            return "Your organization has turned integrations off on this PC. " + app_settings.ask_it("integrations")
         if rules.get("editors") is False:
-            return "Your organization doesn't let editors such as VS Code run notebooks on this PC."
+            return ("Your organization doesn't let editors such as VS Code run notebooks on this PC. "
+                    + app_settings.ask_it("integrations_editors"))
         return ""
 
     def _editor_enabled(self) -> bool:

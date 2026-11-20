@@ -486,7 +486,8 @@ class XRayMixin:
             out["why"][-1] += f", less than {xray.STAGING_QUIET_DAYS} days, so a dataflow may still be using it."
         out["dataflows"] = self._staging_dataflows(workspace_id, lakehouse_id, name, _when(last), out["why"])
         if not out["allowed"]:
-            out["why"].append("Your organization turned off removing staging lakehouses (allow_staging_cleanup in its policy file).")
+            out["why"].append("Your organization turned off removing staging lakehouses. "
+                              + app_settings.ask_it("allow_staging_cleanup"))
         out["ok"] = not out["why"]
         return out
 

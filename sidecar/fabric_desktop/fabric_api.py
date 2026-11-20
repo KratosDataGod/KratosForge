@@ -254,7 +254,8 @@ def _check_fabric_runs_allowed(what: str) -> None:
     from . import app_settings
     if not app_settings.value("allow_fabric_runs"):
         raise FabricError(f"Your organization doesn't allow {what} from KratosForge, so it wasn't "
-                          "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
+                          f"started. Run it on this PC instead, or ask IT to change allow_fabric_runs in "
+                          f"{app_settings.policy_source('allow_fabric_runs')}.", POLICY_BLOCKED)
 
 
 _COOLDOWN_SECONDS = re.compile(r"wait (\d{1,4}) second", re.IGNORECASE)

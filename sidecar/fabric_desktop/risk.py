@@ -96,7 +96,8 @@ def check_policy(f: dict[str, Any]) -> dict[str, Any] | None:
                        "Fabric capacity.", source=POLICY_SOURCE)
     return finding("policy", BLOCKED, "Your organization doesn't allow Fabric runs from this app",
                    "IT has set allow_fabric_runs to false, so the app won't start jobs on Fabric capacity.",
-                   remedy="Run it on this PC instead, or ask your IT team.", source=POLICY_SOURCE, essential=True)
+                   remedy="Run it on this PC instead, or ask IT to change allow_fabric_runs in Group Policy or the "
+                   "policy file.", source=POLICY_SOURCE, essential=True)
 
 
 def check_sign_in(f: dict[str, Any]) -> dict[str, Any] | None:

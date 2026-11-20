@@ -265,6 +265,21 @@ class MetaMixin:
         return (f"{_statement(operation)} on {table} is refused: the capacity check is Blocked ({found['title']}). "
                 f"{found.get('remedy') or ''} Nothing was changed.").replace("  ", " ")
 
+    def _job_v_order_refusal(self, workspace_id: str, table: str) -> str | None:
+        """Why a job's V-Order (an Optimize on the capacity, after its write) mustn't start now, as a clause, or
+        None. A job runs unattended and can't accept a warning, so it starts only on a capacity known to be
+        fine: Blocked, a Warning and an unknown reading all stop it, and X-ray, which shows the capacity and
+        asks, is the way to V-Order the table then."""
+        found = self._maintenance_capacity(workspace_id)
+        if found is not None and found["outcome"] == risk.PASS:
+            return None
+        if found is not None and found["outcome"] == risk.BLOCKED:
+            return f"the capacity check is Blocked ({found['title']})"
+        if found is not None and found["outcome"] == risk.WARNING:
+            return f"the capacity check has a warning ({found['title']}), and a job run can't accept one"
+        # None, risk.UNKNOWN (never read, unreadable or stale) or any outcome this doesn't know: not checked.
+        return "the capacity of its workspace isn't known, and a job run doesn't start an Optimize unchecked"
+
     def meta_project(self) -> dict[str, Any]:
         try:
             project = self._project()

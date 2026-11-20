@@ -20,7 +20,8 @@ def test_dbutils_is_a_global_and_importable_like_databricks(tmp_path):
                 "from databricks.sdk.runtime import dbutils as d\n"
                 f"[f.name for f in d.fs.ls('file:{folder}')]")
     # the first use of dbutils in a session names the ANSI mode Spark answers with here (WR-112)
-    assert out["outputs"][0] == {"type": "stream", "text": f"{dbutils_local.DATABRICKS_ANSI_NOTE}\nhello\n"}
+    # and put says how many bytes it wrote, as in Databricks
+    assert out["outputs"][0] == {"type": "stream", "text": f"{dbutils_local.DATABRICKS_ANSI_NOTE}\nWrote 5 bytes.\nhello\n"}
     assert _last(out) == "['a.txt']"
     assert "dbutils" not in {v["name"] for v in k.variables()}
     again = k.run("print(dbutils.fs.head('file:" + folder + "/a.txt'))")
@@ -118,7 +119,8 @@ def test_secrets_read_key_vault_as_you(monkeypatch):
     k = Kernel(token=lambda audience: f"token-{audience}")
     out = k.run("pw = dbutils.secrets.get('kv', 'db-password')\n"
                 "([s.key for s in dbutils.secrets.list('kv')], dbutils.secrets.getBytes('kv', 'db-password'))")
-    assert _last(out) == "(['a', 'b'], b's3cret')"
+    # Shown as [REDACTED], as Databricks shows a secret's value in a cell's output.
+    assert _last(out) == "(['a', 'b'], b'[REDACTED]')"
     assert calls[0] == ("https://kv.vault.azure.net/secrets/db-password", "Bearer token-keyvault")
     # A secret read through dbutils is hidden in Variables, like notebookutils' getSecret.
     assert next(v for v in k.variables() if v["name"] == "pw")["value"] == "hidden"

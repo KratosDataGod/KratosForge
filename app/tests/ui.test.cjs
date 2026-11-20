@@ -5862,11 +5862,12 @@ test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the e
   assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
 });
 
-test("Profile shows proofs, and Journey and Achievements only while progression is on (KF-DX-002)", () => {
+test("Profile shows proofs, and Journey, Ranks, Skill trees and Achievements only while progression is on (KF-DX-002)", () => {
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
   assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
-  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "trees", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /p\.settings\.progression \? tab\("trees", "Skill trees"\) : null/);
   assert.match(p, /const proved = r\.type === "prove\.match";/);
   const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);

@@ -1,6 +1,6 @@
 # Pipeline, notebook or something else: choose the tool for five jobs
 
-Tidewater Freight's data team has five jobs to build. Two engineers want to write everything as notebooks; the operations team wants everything as pipelines. Each job needs the tool that fits who builds it, how much code it takes and how the data arrives.
+Tidewater Freight's data team has five jobs to build. Two engineers want to write everything as notebooks, and the operations team wants everything as pipelines. Each job needs the tool that fits who builds it, how much code it takes and how the data arrives.
 
 ## What you'll do
 
@@ -17,5 +17,5 @@ This lab is a model, not Fabric. decisions.json holds each scenario and the deci
 ## What it doesn't prove
 
 - That anything runs: no pipeline, notebook, dataflow, copy job or eventstream is built here.
-- Whether a job that this exercise gives to one tool could also be built with another one; the checks follow the decision guide's best fit.
+- Whether a job that this exercise gives to one tool could also be built with another one. The checks follow the decision guide's best fit.
 - The settings of each activity, such as the notebook's parameters or the Teams message.

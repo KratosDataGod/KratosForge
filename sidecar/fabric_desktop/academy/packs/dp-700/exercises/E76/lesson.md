@@ -16,6 +16,6 @@ This lab is a model, not Fabric. decisions.json holds each scenario and the deci
 
 ## What it doesn't prove
 
-- That any label or badge is applied: nothing runs here and no Purview policy is read.
+- That any label or badge is applied: nothing runs here and no label policy is read.
 - Fully automated downstream inheritance, inheritance from data sources and default or mandatory labeling, which this exercise leaves out.
 - Label protection settings such as encryption, and what a label does to access in other tenants.

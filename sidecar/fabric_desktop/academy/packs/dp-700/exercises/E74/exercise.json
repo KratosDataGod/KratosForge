@@ -54,7 +54,7 @@
         {
           "path": "workloads.finance_star.store",
           "equals": "warehouse",
-          "why": "Multi-table transactions in T-SQL need a warehouse; a lakehouse's SQL analytics endpoint is read-only and an eventhouse is for streaming events."
+          "why": "Multi-table transactions in T-SQL need a warehouse. A lakehouse's SQL analytics endpoint is read-only and an eventhouse is for streaming events."
         }
       ]
     },
@@ -78,7 +78,7 @@
         {
           "path": "workloads.defect_images.store",
           "equals": "lakehouse",
-          "why": "Unstructured and semi-structured data for machine learning in Spark is a lakehouse; a warehouse is for structured data."
+          "why": "Unstructured and semi-structured data for machine learning in Spark is a lakehouse, while a warehouse is for structured data."
         }
       ]
     },
@@ -90,7 +90,7 @@
         {
           "path": "workloads.shared_curated.store",
           "equals": "lakehouse",
-          "why": "The data is built in Spark, and T-SQL readers who never write can use the lakehouse's SQL analytics endpoint: T-SQL readers alone don't need a warehouse."
+          "why": "The data is built in Spark, and T-SQL readers who never write can use the lakehouse's SQL analytics endpoint. T-SQL readers alone don't need a warehouse."
         }
       ]
     },
@@ -102,7 +102,7 @@
         {
           "path": "workloads.analyst_loads.store",
           "equals": "warehouse",
-          "why": "COPY INTO, UPDATE and DELETE are DML; the lakehouse's SQL analytics endpoint has no DML, so a T-SQL team that writes needs a warehouse."
+          "why": "COPY INTO, UPDATE and DELETE are DML. The lakehouse's SQL analytics endpoint has no DML, so a T-SQL team that writes needs a warehouse."
         }
       ]
     }

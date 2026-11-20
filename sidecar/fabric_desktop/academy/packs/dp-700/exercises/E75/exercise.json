@@ -59,7 +59,7 @@
         {
           "path": "flows.incident_queries.engine",
           "equals": "eventhouse_kql",
-          "why": "Ad hoc queries over billions of stored events in seconds, with time series functions, are an eventhouse's job; an eventstream routes events, it doesn't answer queries."
+          "why": "Ad hoc queries over billions of stored events in seconds, with time series functions, are an eventhouse's job. An eventstream routes events, it doesn't answer queries."
         }
       ]
     },
@@ -76,7 +76,7 @@
         {
           "path": "flows.fraud_scoring.runs_as",
           "equals": "spark_job_definition",
-          "why": "Notebooks are for developing and testing streams; a production stream that runs continuously belongs in a Spark job definition."
+          "why": "Notebooks are for developing and testing streams, and a production stream that runs continuously belongs in a Spark job definition."
         },
         {
           "path": "flows.fraud_scoring.retry_policy",
@@ -93,7 +93,7 @@
         {
           "path": "flows.clickstream_landing.engine",
           "equals": "spark_structured_streaming",
-          "why": "The stream is already PySpark writing to Delta; the fix is in how it writes, not a new engine."
+          "why": "The stream is already PySpark writing to Delta. The fix is in how it writes, not a new engine."
         },
         {
           "path": "flows.clickstream_landing.trigger_processing_time",
@@ -101,7 +101,7 @@
             "1 minute",
             "60 seconds"
           ],
-          "why": "By default Spark writes each microbatch as soon as the last one finishes; a trigger interval gathers data and writes fewer, larger files."
+          "why": "By default Spark writes each microbatch as soon as the last one finishes. A trigger interval gathers data and writes fewer, larger files."
         }
       ]
     }
@@ -112,7 +112,7 @@
     "Where should a stream that runs around the clock live, and what restarts it?",
     "What makes Spark write a file for every microbatch?"
   ],
-  "explanation": "An eventstream brings events in, transforms them and sends them to several destinations, such as an eventhouse, a lakehouse and Activator, without code, from sources that include IoT Hub and Kafka. An eventhouse stores streaming events and answers interactive KQL queries over billions of them in seconds; an eventstream doesn't answer queries. Spark Structured Streaming is the code option: it reads Event Hubs or Kafka, joins and scores in PySpark and writes Delta tables. In production a continuous stream runs as a Spark job definition with a retry policy, not a notebook, and a trigger interval makes it write fewer, larger files.",
+  "explanation": "An eventstream brings events in, transforms them and sends them to several destinations, such as an eventhouse, a lakehouse and Activator, without code, from sources that include IoT Hub and Kafka. An eventhouse stores streaming events and answers interactive KQL queries over billions of them in seconds. An eventstream doesn't answer queries. Spark Structured Streaming is the code option. It reads Event Hubs or Kafka, joins and scores in PySpark and writes Delta tables. In production a continuous stream runs as a Spark job definition with a retry policy, not a notebook, and a trigger interval makes it write fewer, larger files.",
   "remediation": [
     "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
     "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",

@@ -420,7 +420,7 @@ When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` o
 | What | Here, as in a warehouse |
 | --- | --- |
 | `MERGE` with `WHEN MATCHED`, `WHEN NOT MATCHED [BY TARGET]` and `WHEN NOT MATCHED BY SOURCE` | The same rows. The result is the number of rows inserted, updated and deleted, as `@@ROWCOUNT` would be |
-| A `MERGE` in which more than one source row would update or delete the same row | Refused with T-SQL's words, "The MERGE statement attempted to UPDATE or DELETE the same row more than once", and nothing changes. A source row that a `WHEN MATCHED ... AND` condition leaves out doesn't count, and source rows that are inserted can repeat |
+| A `MERGE` in which more than one source row would update or delete the same row | Refused with T-SQL's words, "The MERGE statement attempted to UPDATE or DELETE the same row more than once", and nothing changes. A source row that a `WHEN MATCHED ... AND` condition leaves out doesn't count, and source rows that are inserted can repeat. See [Local T-SQL MERGE](#local-t-sql-merge) |
 | `UPDATE t SET ... FROM dbo.a AS t JOIN dbo.b AS s ON ...` and `DELETE t FROM dbo.a AS t JOIN ...` | The table named in `FROM` is the one changed, and each inner join is a filter on it, so only the rows that join change |
 | `UPDATE dbo.a SET ... FROM dbo.a JOIN dbo.b ON ...` | The `dbo.a` in `FROM` is the table being changed, not a second copy of it, so rows that don't join stay as they are |
 | `INSERT`, `UPDATE`, `DELETE` | The result is the number of rows changed |
@@ -431,6 +431,28 @@ What can still differ:
 - `OUTPUT` and `@@ROWCOUNT` are refused by name. Each statement's row count is its result instead.
 - An `UPDATE` or `DELETE` whose `FROM` has an outer join (`LEFT`, `RIGHT`, `FULL`), `JOIN ... USING`, or the changed table after another one, is refused by name.
 - On one of the project's Delta tables, `MERGE`, `UPDATE` and `DELETE` run through delta-rs, which has its own rules: see [Local data](local-data.md).
+
+## Local T-SQL MERGE
+
+When a project runs a T-SQL `MERGE` on this PC, on a database table or on one of the project's Delta tables, it gives a Fabric Warehouse's rows, or stops by name before anything changes. Each case below is checked against Microsoft's MERGE (Transact-SQL) page, whose syntax block for Fabric Data Warehouse is the one followed here.
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| A table row that more than one source row would update or delete | Refused with SQL Server's error 8672, word for word: "The MERGE statement attempted to UPDATE or DELETE the same row more than once. This happens when a target row matches more than one source row. A MERGE statement cannot UPDATE/DELETE the same row of the target table multiple times. Refine the ON clause to ensure a target row matches at most one source row, or use the GROUP BY clause to group the source rows." The same on a Delta table, an unconditional `WHEN MATCHED THEN DELETE` included |
+| A source row that a `WHEN MATCHED ... AND` condition leaves out, or one that is only inserted | Doesn't count, so the `MERGE` runs and each of the repeated source rows is inserted |
+| One source row that matches several table rows | Each of those rows is updated or deleted once |
+| Two `WHEN MATCHED` clauses, or two `WHEN NOT MATCHED BY SOURCE` | The first clause whose condition holds takes the row, and the second takes only what the first leaves. The clauses can be written in any order |
+| A third `WHEN MATCHED` or `WHEN NOT MATCHED BY SOURCE`, a second `WHEN NOT MATCHED [BY TARGET]`, a first of two clauses with no `AND` condition, or two clauses that both `UPDATE` or both `DELETE` | Refused by name, with the rule it breaks |
+| `WHEN NOT MATCHED BY SOURCE` that reads a source column, or `WHEN NOT MATCHED [BY TARGET]` that reads a table column (`s.x` or `t.x`) | Refused by name, because there is no such row to read |
+| `UPDATE SET t.v = ...` with the table's alias | Runs as `SET v = ...`. A column set twice in one clause, or named twice in an `INSERT`, is refused by name (SQL Server's error 264) |
+| `INSERT VALUES (...)` with no column list | A value for each of the table's columns, in order. A different number of values is refused by name |
+| `INSERT DEFAULT VALUES` | Refused by name, because a warehouse's `MERGE` doesn't take it |
+| A `MERGE` without a semicolon after it | Refused by name, as SQL Server's error 10713 does |
+
+What can still differ:
+
+- On one of the project's Delta tables, `WHEN NOT MATCHED BY SOURCE` with no condition changes every row the source doesn't have, so it runs only with confirm (`local_change_delta`). Add a condition, such as `AND t.id < 1000`, to run it in a script.
+- In Spark SQL or DuckDB SQL a Delta table keeps Delta's own rule for repeated source rows, which counts every match of `ON` and allows an unconditional `DELETE`.
 ## Local T-SQL ordering and window functions
 
 When a project runs T-SQL on this PC, NULLs, ties and window functions give a warehouse's answers. Each case below is checked against T-SQL's reference.

@@ -27,7 +27,8 @@ Results, per measure row:
 - one side DAX: the row keeps its L2 result (at best **Structurally compatible but behavior unverified**); the SQL
   side's values are evidence for the 006d comparison, never a match.
 - a row L1 or L2 already found worse (Different results, Unsupported, Test failed) keeps that result; L3 never
-  improves on it, but different values still lower it to Different results (never a Test failed row). A SQL query that DuckDB refuses on a dataset is that value's error, compared like a value.
+  improves on it, but different values still mark the row Different results (never a Test failed row). A SQL
+  query that DuckDB refuses on a dataset is that value's error, compared like a value.
 
 Tolerances are configuration (``DEFAULT_TOLERANCES_L3``, stated in the report): ``absolute`` and ``relative``, a
 pair of numbers is within tolerance when ``|a - b| <= max(absolute, relative * max(|a|, |b|))``. Exact equality is
@@ -62,14 +63,14 @@ MAX_TERMS_PER_MEASURE = 64
 MAX_TERMS_PER_SIDE = 2000
 NOT_CHECKED_L3 = (
     {"what": "the DAX side", "level": "L3", "story": "OSSIE-006d",
-     "reason": "no DAX engine runs on this PC; DuckDB runs SQL only, so a DAX side is recorded as not run"},
+     "reason": "no DAX engine runs on this PC, and DuckDB runs SQL only, so a DAX side is recorded as not run"},
     {"what": "relationships, filter context and time intelligence", "level": "L3", "story": "OSSIE-006d",
      "reason": "the L2 subset aggregates whole tables, so nothing crosses a relationship or a filter"},
     {"what": "performance", "level": "L4", "story": "OSSIE-006", "reason": "not measured until a live baseline exists"},
 )
 _DAX_NOT_RUN = "not run: this PC has no DAX engine (OSSIE-006d runs the DAX side in kf_tenant_test)"
-_ON_DATASETS = ("Verified on the controlled datasets only, both run on DuckDB (L3, SQL side): other data, or each "
-                "side's own engine (a zero divisor, integer division, NULL order), can still differ")
+_ON_DATASETS = ("Verified on the controlled datasets only, both run on DuckDB (L3, SQL side). Other data, or each "
+                "side's own engine (a zero divisor, integer division, NULL order), can still give different results")
 
 # Value classes by a side's column type (TMSL dataType or Ossie data_type, casefolded) -> (class, DuckDB type).
 _TYPES: dict[str, tuple[str, str]] = {

@@ -248,10 +248,9 @@ A measure past either cap is not run, and the row gives the reason.
 **A DAX side never runs on this PC**, because there is no DAX engine here and DuckDB isn't one. A
 report never holds a DAX-side value without an executed DAX query. OSSIE-006d runs that side in
 `kf_tenant_test`. L3 never improves a row that L1 or L2 already found worse, but values that differ
-still lower it to Different results. Both SQL sides run with DuckDB's semantics, not their own engine's:
-DuckDB gives infinity for 1/0 where T-SQL raises an error, and integer division and NULL order can
-differ too. Relationships, filter
-context and time intelligence aren't exercised, because the subset aggregates whole tables, so
+still mark the row Different results. Both SQL sides run with DuckDB's semantics, not their own
+engine's. For example, DuckDB gives infinity for 1/0 where T-SQL raises an error, and integer
+division and NULL order can differ too. Relationships, filter context and time intelligence aren't exercised, because the subset aggregates whole tables, so
 these are listed under `not_checked`.
 
 Tolerances are configuration, and the report states them: `absolute` 0 and `relative` 1e-9 by

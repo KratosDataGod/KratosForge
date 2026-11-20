@@ -16,7 +16,7 @@ import pyarrow as pa
 
 _OPTIONS = ("startingversion", "startingtimestamp", "endingversion", "endingtimestamp")
 _STOP = "so nothing was read"
-_VERSION_DIGITS = 19  # a Delta version is a long
+VERSION_DIGITS = 19  # a Delta version is a long
 
 
 def asked(options: dict[str, Any]) -> bool:
@@ -56,7 +56,9 @@ def _version(key: str, value: Any) -> int:
                          "version number.")
     text = str(value).strip()
     shown = repr(value) if len(repr(value)) <= 40 else repr(value)[:37] + "..."
-    if len(text.lstrip("+-").lstrip("0")) > _VERSION_DIGITS:  # past any Delta version, before int() reads it all
+    if text.startswith("-") and text[1:].isdigit():
+        raise ValueError(f"{name} can't be negative, {_STOP}.")
+    if len(text.lstrip("+").lstrip("0")) > VERSION_DIGITS:  # past any Delta version, before int() reads it all
         raise ValueError(f"{name} {shown} is past any table's versions, {_STOP}.")
     try:
         number = int(text)

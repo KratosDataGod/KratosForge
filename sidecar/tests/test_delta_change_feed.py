@@ -204,7 +204,9 @@ def test_huge_versions_stop_before_they_are_read_whole(lake):
         delta_cdf.bounds({"startingversion": huge})
     assert "is past any table's versions" in str(raised.value) and len(str(raised.value)) < 200
     out = Kernel().run(f"spark.sql(\"SELECT * FROM table_changes('orders', {huge})\")")
-    assert "up to a long's largest value" in out["outputs"][-1]["evalue"]
+    assert "a version of at most 19 digits" in out["outputs"][-1]["evalue"]
+    with pytest.raises(ValueError, match="can't be negative"):
+        delta_cdf.bounds({"startingversion": "-" + huge})
     with pytest.raises(ValueError) as raised:
         delta_cdf.bounds({"startingversion": "x" * 500})
     assert len(str(raised.value)) < 200

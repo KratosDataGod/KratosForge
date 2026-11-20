@@ -364,6 +364,28 @@ These cases still differ:
 | --- | --- | --- |
 | Databricks SQL on the DuckDB engine | `base64` and `unbase64` as in Spark SQL | `base64` writes one line, and `unbase64` reads only strict base64 |
 
+## Math functions on this PC (WR-116)
+
+Spark SQL run on this PC gives Spark's answers for its math functions at the edges where DuckDB stops with an error or answers as C does, with ANSI mode off as Fabric runs it. 28 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_math_values.py`, on DuckDB 1.5 and 2.0. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Function | On this PC, as in Spark |
+| --- | --- |
+| `log`, `ln`, `log10`, `log2` | NULL for 0 or a negative number, and for a base of 0 or a negative base. A base of 1 gives `inf` (`log(1, 8)`) |
+| `pow`, `power` | As Java's `Math.pow` does, NaN for a NaN exponent, and for 1 or -1 to an infinite power |
+| `hypot` | `inf` when either side is infinite, even beside NaN. Very large or very small sides don't overflow (`hypot(1e200, 1e200)`) |
+| `factorial` | A `bigint`, and NULL outside 0 to 20. A `bigint` or decimal argument is cast to an `int` first, so `factorial(3.7)` is 6 |
+| `acos`, `asin`, `cot` | NaN outside -1 to 1 for `acos` and `asin`, and `cot(0)` is `inf` |
+| `atan2` | -0.0 counts as 0.0, so `atan2(0.0D, -0.0D)` is 0.0 |
+| `try_add`, `try_subtract`, `try_multiply` | `-2147483648` is an `int`, so `try_subtract(-2147483648, 1)` is NULL |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| `abs(-2147483648)` and `round(2147483647, -1)` | Wraps around (ANSI off) | Widens the type, or stops on DuckDB 2.0 |
+
+To get the same answer from both, cast the argument to `bigint` first.
+
 ## Session, reflection and error functions on this PC (WR-122)
 
 Spark SQL run on this PC answers as Spark does for `raise_error`, or refuses the function by name, with ANSI mode off as Fabric runs it. 42 queries were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_functions_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.

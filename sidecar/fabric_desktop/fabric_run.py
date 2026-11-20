@@ -677,7 +677,7 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
                                            "this PC's Spark reads it")))
         return
     if method == "load" and fmt_text not in sl.READ_FORMATS:
-        out["fabric"].append((line, sl.READ_FORMAT_TEXT.format(fmt_text or "parquet")))
+        out["fabric"].append((line, sl.READ_FORMAT_TEXT.format(fmt_text)))
         return
     if fmt_text in ("csv", "json", "parquet"):
         options: list[tuple[str, Any]] = [(k.arg, _value(k.value)) for k in node.keywords

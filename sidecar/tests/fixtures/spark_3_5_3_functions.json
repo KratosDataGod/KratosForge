@@ -1,0 +1,341 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT hex(aes_encrypt('Spark', '0000111122223333', 'ECB'))",
+   "value": [
+    [
+     "348FF37EBDE05B7880BA339068FBDA5E"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(aes_encrypt('Spark', '0000111122223333', 'ECB', 'PKCS'))",
+   "value": [
+    [
+     "348FF37EBDE05B7880BA339068FBDA5E"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(aes_encrypt('Spark SQL', '1234567890abcdef', 'ECB', 'PKCS'))",
+   "value": [
+    [
+     "DE59B0BBE330D07DDF8B9343BDCBBD96"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(aes_encrypt('Spark', '000011112222333344445555', 'ECB', 'PKCS'))",
+   "value": [
+    [
+     "3FB61524010AF3D0E9C167C5797094F9"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(aes_encrypt('Spark', 'abcdefghijklmnop12345678ABCDEFGH', 'ECB', 'PKCS'))",
+   "value": [
+    [
+     "F49DE265B2319E6686F8E200F4099DF8"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(aes_encrypt(unhex('00112233'), '0000111122223333', 'ECB'))",
+   "value": [
+    [
+     "D7FE83FE98A8BA416ADFAA958133FE36"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(aes_encrypt('', '0000111122223333', 'ECB'))",
+   "value": [
+    [
+     "A2B86E759170DE0DDA876438211908C0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT base64(aes_encrypt('Spark', 'abcdefghijklmnop12345678ABCDEFGH', 'CBC', 'DEFAULT', unhex('00000000000000000000000000000000')))",
+   "value": [
+    [
+     "AAAAAAAAAAAAAAAAAAAAAPSd4mWyMZ5mhvjiAPQJnfg="
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT base64(aes_encrypt('Spark', 'abcdefghijklmnop12345678ABCDEFGH', 'GCM', 'DEFAULT', unhex('000000000000000000000000'), 'This is an AAD mixed into the input'))",
+   "value": [
+    [
+     "AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(aes_encrypt('Spark', '0000111122223333', 'GCM', 'DEFAULT', unhex('000000000000000000000000')))",
+   "value": [
+    [
+     "00000000000000000000000046C4EF1C6A7041A6BEAD289645459AF972E4153D03"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT length(aes_encrypt('Spark', '0000111122223333')), length(aes_encrypt('Spark', '0000111122223333', 'CBC'))",
+   "value": [
+    [
+     33,
+     32
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(aes_decrypt(aes_encrypt('Spark', '0000111122223333'), '0000111122223333') AS STRING)",
+   "value": [
+    [
+     "Spark"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(aes_decrypt(aes_encrypt('Spark', '0000111122223333', 'CBC'), '0000111122223333', 'CBC') AS STRING)",
+   "value": [
+    [
+     "Spark"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT aes_encrypt(NULL, '0000111122223333', 'ECB'), aes_encrypt('Spark', NULL, 'ECB')",
+   "value": [
+    [
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(aes_encrypt('Spark', '0000111122223333', 'ECB'))",
+   "value": [
+    [
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT aes_encrypt('Spark', 'short', 'ECB')",
+   "error": "[INVALID_PARAMETER_VALUE.AES_KEY_LENGTH] The value of parameter(s) `key` in `aes_encrypt`/`aes_decrypt` is invalid: expects a binary value with 16, 24 or 32 bytes, but got 5 bytes."
+  },
+  {
+   "sql": "SELECT aes_encrypt('Spark', '0000111122223333', 'ECB', 'NONE')",
+   "error": "[UNSUPPORTED_FEATURE.AES_MODE] The feature is not supported: AES-ECB with the padding NONE by the `aes_encrypt`/`aes_decrypt` function."
+  },
+  {
+   "sql": "SELECT aes_encrypt('Spark', '0000111122223333', 'XTS')",
+   "error": "[UNSUPPORTED_FEATURE.AES_MODE] The feature is not supported: AES-XTS with the padding DEFAULT by the `aes_encrypt`/`aes_decrypt` function."
+  },
+  {
+   "sql": "SELECT input_file_name(), input_file_block_start(), input_file_block_length()",
+   "value": [
+    [
+     "",
+     -1,
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT input_file_name(), input_file_block_start(), input_file_block_length() FROM range(2)",
+   "value": [
+    [
+     "",
+     -1,
+     -1
+    ],
+    [
+     "",
+     -1,
+     -1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(input_file_name()), typeof(input_file_block_start()), typeof(input_file_block_length())",
+   "value": [
+    [
+     "string",
+     "bigint",
+     "bigint"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT java_method('java.lang.Math', 'abs', -5)",
+   "value": [
+    [
+     "5"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT java_method('java.lang.Math', 'max', 3, 7)",
+   "value": [
+    [
+     "7"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reflect('java.lang.String', 'valueOf', 42)",
+   "value": [
+    [
+     "42"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reflect('java.lang.Integer', 'parseInt', '123')",
+   "value": [
+    [
+     "123"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT java_method('java.lang.String', 'valueOf', true)",
+   "value": [
+    [
+     "true"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(reflect('java.lang.Math', 'abs', -5))",
+   "value": [
+    [
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT reflect('java.lang.Math', 'abs', CAST(NULL AS INT))",
+   "error": "An error occurred while calling o144.collectToPython."
+  },
+  {
+   "sql": "SELECT reflect('java.lang.NoSuchClass', 'valueOf', 1)",
+   "error": "[DATATYPE_MISMATCH.UNEXPECTED_CLASS_TYPE] Cannot resolve \"reflect(java.lang.NoSuchClass, valueOf, 1)\" due to data type mismatch: class java.lang.NoSuchClass not found.; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT raise_error('custom error message')",
+   "error": "An error occurred while calling o153.collectToPython."
+  },
+  {
+   "sql": "SELECT raise_error(NULL)",
+   "error": "An error occurred while calling o158.collectToPython."
+  },
+  {
+   "sql": "SELECT raise_error(concat('a', 'b'))",
+   "error": "An error occurred while calling o163.collectToPython."
+  },
+  {
+   "sql": "SELECT raise_error(5)",
+   "error": "An error occurred while calling o168.collectToPython."
+  },
+  {
+   "sql": "SELECT CASE WHEN 1 = 0 THEN raise_error('x') ELSE 1 END",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT coalesce(1, raise_error('x'))",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT if(id > 100, raise_error('big'), id) FROM range(3)",
+   "value": [
+    [
+     0
+    ],
+    [
+     1
+    ],
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT if(id > 1, raise_error('big'), id) FROM range(3)",
+   "error": "An error occurred while calling o185.collectToPython."
+  },
+  {
+   "sql": "SELECT typeof(raise_error('x'))",
+   "value": [
+    [
+     "void"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2",
+   "value": [
+    [
+     "ADD",
+     false
+    ],
+    [
+     "AFTER",
+     false
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT count(*) FROM sql_keywords()",
+   "value": [
+    [
+     326
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT keyword, reserved FROM sql_keywords() WHERE keyword IN ('SELECT', 'FROM', 'TABLE', 'LIMIT') ORDER BY keyword",
+   "value": [
+    [
+     "FROM",
+     false
+    ],
+    [
+     "LIMIT",
+     false
+    ],
+    [
+     "SELECT",
+     false
+    ],
+    [
+     "TABLE",
+     false
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT typeof(keyword), typeof(reserved) FROM sql_keywords() LIMIT 1",
+   "value": [
+    [
+     "string",
+     "boolean"
+    ]
+   ]
+  }
+ ]
+}

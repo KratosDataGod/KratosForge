@@ -349,3 +349,9 @@ def test_cli_activities(capsys):
         cli_main(["pipeline", "activities", "Delete"])
     assert done.value.code == 0
     assert json.loads(capsys.readouterr().out)["activity"]["side_effects"] == ["deletes_data"]
+
+
+def test_an_unknown_planned_classification_is_listed_with_the_entrys_other_problems():
+    e = ActivitySupport(**{**ENTRIES[0].__dict__, "planned": Planned("magic", "")})
+    problems = check_entry(e)
+    assert "planned classification is unknown" in problems and "planned needs the stage that will build it" in problems

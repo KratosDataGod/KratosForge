@@ -71,7 +71,8 @@ def _check(root: Path, audit: AuditLog) -> dict[str, Any]:
     audit.record("policy_file_seen" if seen is None else "policy_file_changed", "ok", 0.0,
                  {"sha256": now["sha256"], "previous": record["previous"], "state": now["state"],
                   "managed": record["managed"], "file": str(app_settings.policy_path()),
-                  "registry_sha256": registry, "registry_previous": record["registry_previous"]})
+                  "registry_sha256": registry, "registry_previous": record["registry_previous"],
+                  **({"registry_unreadable": now["registry_unreadable"]} if now.get("registry_unreadable") else {})})
     try:
         jsonfile.write_text(path, json.dumps(record, indent=2))
     except OSError as exc:  # recorded in the audit trail already; the next look records it again

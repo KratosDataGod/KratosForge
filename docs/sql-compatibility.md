@@ -438,14 +438,14 @@ When a project runs a T-SQL `MERGE` on this PC, on a database table or on one of
 | What | Here, as in a warehouse |
 | --- | --- |
 | A table row that more than one source row would update or delete | Refused with SQL Server's error 8672, word for word: "The MERGE statement attempted to UPDATE or DELETE the same row more than once. This happens when a target row matches more than one source row. A MERGE statement cannot UPDATE/DELETE the same row of the target table multiple times. Refine the ON clause to ensure a target row matches at most one source row, or use the GROUP BY clause to group the source rows." The same on a Delta table, an unconditional `WHEN MATCHED THEN DELETE` included |
-| A source row that a `WHEN MATCHED ... AND` condition leaves out, or one that is only inserted | Doesn't count: the `MERGE` runs, and each of the repeated source rows is inserted |
+| A source row that a `WHEN MATCHED ... AND` condition leaves out, or one that is only inserted | Doesn't count, so the `MERGE` runs and each of the repeated source rows is inserted |
 | One source row that matches several table rows | Each of those rows is updated or deleted once |
 | Two `WHEN MATCHED` clauses, or two `WHEN NOT MATCHED BY SOURCE` | The first clause whose condition holds takes the row, and the second takes only what the first leaves. The clauses can be written in any order |
 | A third `WHEN MATCHED` or `WHEN NOT MATCHED BY SOURCE`, a second `WHEN NOT MATCHED [BY TARGET]`, a first of two clauses with no `AND` condition, or two clauses that both `UPDATE` or both `DELETE` | Refused by name, with the rule it breaks |
-| `WHEN NOT MATCHED BY SOURCE` that reads a source column, or `WHEN NOT MATCHED [BY TARGET]` that reads a table column (`s.x` or `t.x`) | Refused by name: there is no such row to read |
+| `WHEN NOT MATCHED BY SOURCE` that reads a source column, or `WHEN NOT MATCHED [BY TARGET]` that reads a table column (`s.x` or `t.x`) | Refused by name, because there is no such row to read |
 | `UPDATE SET t.v = ...` with the table's alias | Runs as `SET v = ...`. A column set twice in one clause, or named twice in an `INSERT`, is refused by name (SQL Server's error 264) |
 | `INSERT VALUES (...)` with no column list | A value for each of the table's columns, in order. A different number of values is refused by name |
-| `INSERT DEFAULT VALUES` | Refused by name: a warehouse's `MERGE` doesn't take it |
+| `INSERT DEFAULT VALUES` | Refused by name, because a warehouse's `MERGE` doesn't take it |
 | A `MERGE` without a semicolon after it | Refused by name, as SQL Server's error 10713 does |
 
 What can still differ:

@@ -110,7 +110,7 @@ def _two_at_most(kind: str, whens: list[exp.When]) -> None:
         return
     if whens[0].args.get("condition") is None:
         raise ValueError(f"The first of two {kind} clauses needs AND <condition> in T-SQL, and a Fabric Warehouse "
-                         "refuses a MERGE without it: the second clause takes only the rows the first one leaves, "
+                         "refuses a MERGE without it, because the second clause takes only the rows the first one leaves, "
                          f"so an unconditional first clause would leave none. Write {kind} AND ... THEN for the "
                          "first one.")
     if _action(whens[0]) == _action(whens[1]):
@@ -154,11 +154,11 @@ def _insert(then: exp.Insert, table: list[str] | None) -> None:
     columns = then.this.expressions if isinstance(then.this, exp.Tuple) else []
     if len(columns) == 1 and isinstance(columns[0], exp.Column) and not columns[0].this.quoted \
             and columns[0].name.upper() == "DEFAULT" and then.expression is None:
-        raise ValueError("A Fabric Warehouse's MERGE doesn't take INSERT DEFAULT VALUES: its WHEN NOT MATCHED "
+        raise ValueError("A Fabric Warehouse's MERGE doesn't take INSERT DEFAULT VALUES. Its WHEN NOT MATCHED "
                          "inserts with INSERT (columns) VALUES (...). Give the values, or NULL where a column has "
                          "none.")
     if then.expression is None and not isinstance(then.this, exp.Star):
-        raise ValueError("A MERGE's INSERT needs VALUES (...) in T-SQL: write INSERT (columns) VALUES (...).")
+        raise ValueError("A MERGE's INSERT needs VALUES (...) in T-SQL, so write INSERT (columns) VALUES (...).")
     values = then.expression.expressions if isinstance(then.expression, exp.Tuple) else []
     if not columns and table is not None and values and len(values) != len(table):
         raise ValueError(f"INSERT VALUES without a column list gives a value for each column of the table in "
@@ -177,6 +177,6 @@ def _insert(then: exp.Insert, table: list[str] | None) -> None:
 def _reads_only(when: exp.When, others: set[str], kind: str, allowed: str, why: str) -> None:
     for column in when.find_all(exp.Column):
         if column.table and column.table.lower() in others:
-            raise ValueError(f"{kind} reads only {allowed} in T-SQL: it acts on {why}. This one reads "
+            raise ValueError(f"{kind} reads only {allowed} in T-SQL, because it acts on {why}. This one reads "
                              f"{column.sql(dialect='tsql')}, and a Fabric Warehouse refuses it. Take that out of "
                              "the clause, or move the logic to a WHEN MATCHED clause.")

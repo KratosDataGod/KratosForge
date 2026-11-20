@@ -82,7 +82,7 @@ def _load() -> None:
                     key = self.construct_object(key_node)
                     if key in seen:
                         raise ValueError(f"This file gives {str(key)[:80]!r} twice in one object (line "
-                                         f"{key_node.start_mark.line + 1}); keep one")
+                                         f"{key_node.start_mark.line + 1}). Keep one.")
                     seen.add(key)
                 return super().construct_mapping(node, deep)
 
@@ -222,7 +222,7 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
     try:
         text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
     except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a number for tables)
-        raise ValueError("This model couldn't be converted to Ossie: part of it isn't the shape a semantic model's "
+        raise ValueError("This model couldn't be converted to Ossie, because part of it isn't the shape a semantic model's "
                          f"part has ({exc}). Fix that part, then try again.") from exc
     report = list(read_report or []) + report
     doc = yaml.safe_load(text)
@@ -283,11 +283,11 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
             try:  # refused as the converter refuses a model-level metric's data
                 data = json.loads(raw) if raw is not None else {"_v": 2}
             except (TypeError, ValueError) as exc:
-                raise ValueError(f"The Ossie file couldn't be converted: {scope}: POWER_BI custom_extensions data "
-                                 f"is not valid JSON: {exc}") from None
+                raise ValueError(f"The Ossie file couldn't be converted, because the POWER_BI custom_extensions data "
+                                 f"in {scope} isn't valid JSON ({exc}). Fix it, then try again.") from None
             if not isinstance(data, dict):
-                raise ValueError(f"The Ossie file couldn't be converted: {scope}: POWER_BI custom_extensions data "
-                                 "must be a JSON object")
+                raise ValueError(f"The Ossie file couldn't be converted, because the POWER_BI custom_extensions data "
+                                 f"in {scope} isn't a JSON object. Fix it, then try again.")
             data.setdefault("table", d["name"])
             m["custom_extensions"] = [e for e in m.get("custom_extensions") or [] if e is not stash] + \
                 [{"vendor_name": "POWER_BI", "data": json.dumps(data, sort_keys=True)}]
@@ -329,7 +329,7 @@ def _wrong_shape(doc: dict[str, Any]) -> str:
 
     found = ossie_validate.validate(doc)["diagnostics"]
     where = f": {found[0]['path']} {found[0]['message']}" if found else ""
-    return (f"The Ossie file couldn't be converted: part of it isn't the shape Ossie {OSSIE_VERSION} gives it{where}. "
+    return (f"The Ossie file couldn't be converted, because part of it isn't the shape Ossie {OSSIE_VERSION} gives it{where}. "
             "Fix that part, then try again.")
 
 

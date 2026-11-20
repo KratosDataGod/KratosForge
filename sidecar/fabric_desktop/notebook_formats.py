@@ -632,14 +632,15 @@ def parse_ipynb(text: str) -> dict[str, Any]:
         raise ValueError("This .ipynb file has no cells list, so it isn't a Jupyter notebook.")
     problem = ipynb_cell_problem(nb["cells"])
     if problem:
-        raise ValueError(f"This .ipynb file can't be imported: {problem}.")
+        raise ValueError(f"This .ipynb file can't be imported, because {problem}. Fix that cell in Jupyter, then import it "
+                         "again.")
     notes: list[dict[str, Any]] = []
     for n, c in enumerate(nb["cells"], 1):
         if c.get("cell_type") not in ("code", "markdown"):
             notes.append(_note(n, "changed", f"The cell's type ({str(c.get('cell_type') or 'none')[:40]}) isn't code or markdown, "
                                              "so it comes in as a code cell."))
         if c.get("outputs"):
-            notes.append(_note(n, "dropped", "The cell's saved outputs: imported notebooks start without outputs. "
+            notes.append(_note(n, "dropped", "The cell's saved outputs were left out, because imported notebooks start without outputs. "
                                              "Run the cell to get them."))
     return {"format": "Jupyter notebook (.ipynb)", "cells": from_ipynb(nb)["cells"], "notes": notes}
 

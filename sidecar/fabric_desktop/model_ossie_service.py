@@ -252,9 +252,11 @@ def _folder_bim(folder: Path, name: str, path: str) -> tuple[dict[str, Any], lis
         except RecursionError:
             raise ValueError(f"{path}/model.bim is nested too deeply to be a semantic model") from None
         except UnicodeDecodeError:
-            raise ValueError(f"{path}/model.bim isn't UTF-8 text, so the model can't be read") from None
+            raise ValueError(f"{path}/model.bim isn't UTF-8 text, so the model can't be read. Save it as UTF-8, then "
+                             "try again.") from None
         except ValueError as exc:  # json's own error: where the JSON breaks
-            raise ValueError(f"{path}/model.bim isn't valid JSON ({exc}), so the model can't be read") from None
+            raise ValueError(f"{path}/model.bim isn't valid JSON ({exc}), so the model can't be read. Fix the JSON, "
+                             "then try again.") from None
         if not isinstance(bim, dict):
             raise ValueError(f"{path}/model.bim isn't a semantic model")
         bim["name"] = name

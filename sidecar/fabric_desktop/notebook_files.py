@@ -163,7 +163,7 @@ def checked(nb: Any) -> dict[str, Any]:
         raise ValueError("Only Jupyter notebook format 4 (.ipynb from Jupyter, VS Code or Fabric) can be opened.")
     problem = ipynb_cell_problem(nb["cells"])
     if problem:
-        raise ValueError(f"This file isn't a notebook: {problem}.")
+        raise ValueError(f"This file isn't a notebook, because {problem}.")
     return nb
 
 
@@ -257,7 +257,8 @@ def ipynb_of(definition: dict[str, Any]) -> dict[str, Any]:
     try:
         return json.loads(base64.b64decode(part["payload"]))
     except (ValueError, RecursionError):  # not base64, not UTF-8, not JSON, or nested too deep
-        raise ValueError("Fabric returned the notebook's cells in a form that can't be read.") from None
+        raise ValueError("Fabric returned the notebook's cells in a form that can't be read. Open the notebook in Fabric to "
+                         "check it, then try again.") from None
 
 
 # ---- what was published, to see changes made in Fabric since

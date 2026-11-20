@@ -123,16 +123,16 @@ def test_a_part_of_the_wrong_type_is_refused_by_where_it_is_not_a_crash(part, va
         parent[part[-1]].append(5)
     else:
         parent[part[-1]] = value
-    with pytest.raises(ValueError, match=r"^The Ossie file couldn't be converted: .*\$\."):
+    with pytest.raises(ValueError, match=r"^The Ossie file couldn't be converted, because .*\$\."):
         model_ossie.to_tmsl(doc)
 
 
-@pytest.mark.parametrize("data, why", [("{not json", "is not valid JSON: Expecting"), ("[1]", "must be a JSON object"),
-                                       (5, "is not valid JSON")])
+@pytest.mark.parametrize("data, why", [("{not json", r"isn't valid JSON \(Expecting"), ("[1]", "isn't a JSON object"),
+                                       (5, "isn't valid JSON")])
 def test_a_dataset_metrics_power_bi_data_that_isnt_a_json_object_is_refused_by_name(data, why):
     doc = _base()
     doc["datasets"][0]["metrics"][0]["custom_extensions"][0]["data"] = data
-    with pytest.raises(ValueError, match=f"dataset 'fact_sales' metric 'net revenue': POWER_BI custom_extensions data {why}"):
+    with pytest.raises(ValueError, match=f"POWER_BI custom_extensions data in dataset 'fact_sales' metric 'net revenue' {why}"):
         model_ossie.to_tmsl(doc)
 
 

@@ -198,9 +198,9 @@ def test_nesting_too_deep_is_refused_by_name():
 ])
 def test_a_cell_that_cant_be_read_is_refused_naming_it(cells, problem):
     text = json.dumps({"nbformat": 4, "cells": cells})
-    with pytest.raises(ValueError, match=f"^This .ipynb file can't be imported: {problem}.$"):
+    with pytest.raises(ValueError, match=f"^This .ipynb file can't be imported, because {problem}. Fix that cell in Jupyter, then import it again.$"):
         nbf.parse_ipynb(text)
-    with pytest.raises(ValueError, match=f"^This file isn't a notebook: {problem}.$"):
+    with pytest.raises(ValueError, match=f"^This file isn't a notebook, because {problem}.$"):
         nf._parse(text)  # noqa: SLF001
 
 
@@ -216,7 +216,7 @@ def test_import_says_which_outputs_and_cell_types_dont_come_in():
     nb = {"nbformat": 4, "cells": [{"cell_type": "code", "source": "1", "outputs": [{"output_type": "stream", "text": "1"}]},
                                    {"cell_type": "raw", "source": "plain"}, {"cell_type": "markdown", "source": "# T"}]}
     assert nbf.parse_ipynb(json.dumps(nb))["notes"] == [
-        {"cell": 1, "kind": "dropped", "what": "The cell's saved outputs: imported notebooks start without outputs. "
+        {"cell": 1, "kind": "dropped", "what": "The cell's saved outputs were left out, because imported notebooks start without outputs. "
                                                "Run the cell to get them."},
         {"cell": 2, "kind": "changed", "what": "The cell's type (raw) isn't code or markdown, so it comes in as a code cell."}]
 
@@ -238,7 +238,7 @@ def test_a_fabric_definition_without_a_notebook_part_is_refused(definition):
 
 @pytest.mark.parametrize("payload", [b"{trunc", b"\xff\xfe\x00", b"[" * 100_000, b""], ids=["cut", "not-utf8", "deep", "empty"])
 def test_a_fabric_definition_that_isnt_a_notebook_is_refused(payload):
-    with pytest.raises(ValueError, match="^Fabric returned the notebook's cells in a form that can't be read.$"):
+    with pytest.raises(ValueError, match="^Fabric returned the notebook's cells in a form that can't be read. Open the notebook in Fabric to check it, then try again.$"):
         nf.ipynb_of(_definition(payload))
 
 

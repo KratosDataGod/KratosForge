@@ -111,7 +111,7 @@ def test_a_model_bim_that_isnt_json_is_refused_naming_the_file(tmp_path, raw, wh
 def test_a_model_bim_with_a_part_of_the_wrong_type_is_refused_by_name(key, value):
     bim = _bim()
     bim["model"][key] = value
-    with pytest.raises(ValueError, match="^This model couldn't be converted to Ossie: part of it isn't the shape"):
+    with pytest.raises(ValueError, match="^This model couldn't be converted to Ossie, because part of it isn't the shape"):
         model_ossie.export(bim)
 
 

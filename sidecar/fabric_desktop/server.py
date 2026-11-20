@@ -125,6 +125,11 @@ from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
 
 METHODS |= LOCAL_DATA_METHODS
 
+# The KratosForge Environment (controlplane_service.py, CP-009).
+from .controlplane_service import METHODS as CONTROL_PLANE_METHODS  # noqa: E402
+
+METHODS |= CONTROL_PLANE_METHODS
+
 # Optimize's shared lakehouse (optimize_service.py).
 from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 

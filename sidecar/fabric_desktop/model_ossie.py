@@ -72,6 +72,20 @@ def _load() -> None:
                                      "write them out in full")
                 return super().compose_node(parent, index)
 
+            def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+                """A key given twice in one object is refused: YAML's keys are unique, and the later one would
+                silently replace the earlier (a second ``datasets:`` dropping the first)."""
+                seen: set[Any] = set()
+                for key_node, _ in node.value:
+                    if not isinstance(key_node, _yaml.ScalarNode) or key_node.tag == "tag:yaml.org,2002:merge":
+                        continue
+                    key = self.construct_object(key_node)
+                    if key in seen:
+                        raise ValueError(f"This file gives {str(key)[:80]!r} twice in one object (line "
+                                         f"{key_node.start_mark.line + 1}); keep one")
+                    seen.add(key)
+                return super().construct_mapping(node, deep)
+
         yaml, OSSIE_VERSION, ConversionError = _yaml, _version, _error
         convert_ossie_to_semantic_model, convert_semantic_model_to_ossie = _to_model, _to_ossie
         _NoAliasLoader = _NoAlias
@@ -205,7 +219,11 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
     out) leads the report. ``validate`` also runs the round trip (``round_trip_check``): its rows are
     ``round_trip`` and its result is the fidelity report's validation."""
     require()
-    text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
+    try:
+        text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
+    except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a number for tables)
+        raise ValueError("This model couldn't be converted to Ossie: part of it isn't the shape a semantic model's "
+                         f"part has ({exc}). Fix that part, then try again.") from exc
     report = list(read_report or []) + report
     doc = yaml.safe_load(text)
     datasets = doc.get("datasets") or []
@@ -261,7 +279,15 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
                     except sqlglot.errors.SqlglotError:  # ParseError or TokenError (e.g. an unclosed quote)
                         pass  # left as written: the converter reports SQL it can't translate
             stash = next((e for e in m.get("custom_extensions") or [] if e.get("vendor_name") == "POWER_BI"), None)
-            data = json.loads(stash["data"]) if stash else {"_v": 2}
+            raw = stash.get("data") if stash else None
+            try:  # refused as the converter refuses a model-level metric's data
+                data = json.loads(raw) if raw is not None else {"_v": 2}
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"The Ossie file couldn't be converted: {scope}: POWER_BI custom_extensions data "
+                                 f"is not valid JSON: {exc}") from None
+            if not isinstance(data, dict):
+                raise ValueError(f"The Ossie file couldn't be converted: {scope}: POWER_BI custom_extensions data "
+                                 "must be a JSON object")
             data.setdefault("table", d["name"])
             m["custom_extensions"] = [e for e in m.get("custom_extensions") or [] if e is not stash] + \
                 [{"vendor_name": "POWER_BI", "data": json.dumps(data, sort_keys=True)}]
@@ -285,14 +311,26 @@ def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) ->
     refusal = not_convertible(parsed)
     if refusal:  # never fed to the 0.2 converter as if it were 0.2
         raise ValueError(refusal)
-    doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
     try:
+        doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
         bim, report = _convert(convert_ossie_to_semantic_model, yaml.safe_dump(doc, sort_keys=False), source=source)
     except ConversionError as exc:
         raise ValueError(f"The Ossie file couldn't be converted: {exc}") from exc
+    except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a list for a name)
+        raise ValueError(_wrong_shape(parsed)) from exc
     # The caller always passes the lakehouse when it has one; without it the ids are placeholders it reports itself.
     report = lifted + [r for r in report if "placeholder ids" not in r["message"]]
     return bim, report
+
+
+def _wrong_shape(doc: dict[str, Any]) -> str:
+    """Why a document the converter tripped on can't be converted: the schema check's first finding, by path."""
+    from . import ossie_validate
+
+    found = ossie_validate.validate(doc)["diagnostics"]
+    where = f": {found[0]['path']} {found[0]['message']}" if found else ""
+    return (f"The Ossie file couldn't be converted: part of it isn't the shape Ossie {OSSIE_VERSION} gives it{where}. "
+            "Fix that part, then try again.")
 
 
 def _has_stash(obj: Any) -> bool:
@@ -1391,7 +1429,8 @@ def round_trip_check(bim: dict[str, Any]) -> dict[str, Any]:
                 "reason": "model too large for round-trip check", "rows": []}
     try:
         rows = round_trip(bim)
-    except _SHAPE_ERRORS as exc:  # narrow: what the converter refuses or trips on, kept in the result and shown
+    except (*_SHAPE_ERRORS, RecursionError) as exc:  # narrow: what the converter refuses or trips on (or nesting too
+        # deep to compare), kept in the result and shown
         return {"check": "round_trip", "ran": False, "passed": None, "error": f"{type(exc).__name__}: {exc}",
                 "reason": "the round trip couldn't run", "rows": []}
     return {"check": "round_trip", "ran": True, "passed": not rows, "error": "", "reason": "", "rows": rows}

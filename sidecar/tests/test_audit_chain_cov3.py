@@ -46,7 +46,7 @@ def test_a_damaged_last_line_in_a_pruned_month_leaves_an_empty_base_hash(tmp_pat
     assert result["lines"] == 1
     assert result["pruned"] == {"through": "2020-01", "lines": 2}
     # ...but the break the damaged line was isn't erased: verify says where the check now starts blind.
-    assert result["notes"] == ["The last pruned line was damaged, so where the kept trail starts can't be checked"]
+    assert result["notes"] == ["The last pruned line was damaged, so the first kept line can't be checked against it"]
 
 
 def test_a_head_without_a_line_count_keeps_none_after_a_prune(tmp_path):

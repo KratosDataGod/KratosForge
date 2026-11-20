@@ -337,7 +337,7 @@ def verify(folder: Path) -> dict[str, Any]:
     if base.get("through") and not base.get("hash") and len(notes) < MAX_NOTES:
         # A prune whose last deleted line was damaged leaves no hash to chain onto: the kept trail then starts
         # from the beginning again and checks out on its own, so say what can no longer be checked.
-        notes.append("The last pruned line was damaged, so where the kept trail starts can't be checked")
+        notes.append("The last pruned line was damaged, so the first kept line can't be checked against it")
     result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
     if notes:  # only when there's something to say: the usual result keeps its shape
         result["notes"] = notes

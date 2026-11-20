@@ -733,8 +733,9 @@ def _strposition(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
     return _with_args("CASE WHEN fj_arg0 = '' AND fj_arg1 >= 1 THEN 1 ELSE fj_arg2 END", [find, start, node.copy()])
 
 
-_CONCAT_WS_NESTED = ("concat_ws() takes text or arrays of text, as in Spark, where a map or struct is a data type "
-                     "mismatch, so nothing ran on this PC. Cast it to string, or pick its fields, first.")
+_CONCAT_WS_NESTED = ("concat_ws() takes only text or arrays of text, and this is a map or struct, so nothing ran on "
+                     "this PC. Spark stops on it too, with a data type mismatch. Cast the map or struct to string, "
+                     "or pick its fields, first.")
 
 
 def refuse_nested_concat_ws(statement: exp.Expression) -> exp.Expression:

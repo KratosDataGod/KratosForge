@@ -55,12 +55,12 @@ def test_columns_keep_sparks_names_and_answers(spark):
     "concat_ws('-', struct(i, t))",
 ])
 def test_a_map_or_struct_is_refused_by_name(spark, expression):
-    with pytest.raises(Exception, match=r"concat_ws\(\) takes text or arrays of text"):
+    with pytest.raises(Exception, match=r"concat_ws\(\) takes only text or arrays of text, and this is a map or struct, so nothing ran"):
         spark.sql(f"SELECT {expression} FROM kf_iw").collect()
 
 
 def test_a_struct_column_is_refused_when_it_runs(spark):
     spark.sql("CREATE OR REPLACE TEMP VIEW kf_iws AS SELECT named_struct('x', i) AS st, t FROM kf_iw")
-    with pytest.raises(Exception, match=r"concat_ws\(\) takes text or arrays of text"):
+    with pytest.raises(Exception, match=r"concat_ws\(\) takes only text or arrays of text, and this is a map or struct, so nothing ran"):
         spark.sql("SELECT concat_ws('-', st) FROM kf_iws").collect()
     assert spark.sql("SELECT concat_ws('-', t, t) FROM kf_iws").collect()[0][0] == "a-a"

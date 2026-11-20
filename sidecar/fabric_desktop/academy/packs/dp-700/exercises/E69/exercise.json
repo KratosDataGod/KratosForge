@@ -8,7 +8,7 @@
     "2.2.6"
   ],
   "objective_text": "Parse a JSON text column with from_json and a schema, turn each order's array of line items into one row per line with explode_outer, and write a typed Silver table without the raw JSON.",
-  "scenario": "The shop's order API lands one JSON document per order in bronze.order_events: the order's id, customer and time, and an items array with each line's sku, quantity and price. Finance wants silver.order_lines with one typed row per order line. Some orders arrive with an empty items list, or with none at all, and Finance wants to see those too: such an order keeps one row in silver.order_lines with sku, qty and price empty (NULL), never zero rows.",
+  "scenario": "The shop's order API lands one JSON document per order in bronze.order_events: the order's id, customer and time, and an items array with each line's sku, quantity and price. Finance wants silver.order_lines with one typed row per order line. Some orders arrive with an empty items list, or with none at all, and Finance wants to see those too, so such an order keeps one row in silver.order_lines with sku, qty and price empty (NULL), never zero rows.",
   "prerequisites": [
     "E32"
   ],
@@ -44,7 +44,7 @@
     "Running it again leaves the same table."
   ],
   "does_not_verify": [
-    "It doesn't run on Apache Spark or in a Fabric notebook. Here from_json is called through F.expr with the schema written as text, because F.from_json with a StructType isn't available on this PC; in a Fabric notebook both forms work.",
+    "It doesn't run on Apache Spark or in a Fabric notebook. Here from_json is called through F.expr with the schema written as text, because F.from_json with a StructType isn't available on this PC. In a Fabric notebook both forms work.",
     "Malformed JSON: every document here parses. It doesn't show the corrupt-record column or the FAILFAST mode.",
     "Inferring the schema from the files with spark.read.json, and how Spark plans the explode on large tables.",
     "That the table is a lakehouse table in OneLake: here it's a Delta table in the exercise folder on this PC.",
@@ -105,16 +105,16 @@
   ],
   "hints": [
     "Read the JSON with a schema: F.expr(\"from_json(payload, 'order_id INT, customer_id STRING, ...')\"). An array of structs is written ARRAY<STRUCT<name: TYPE, ...>>.",
-    "A field the schema names differently from the JSON key comes back NULL for every row, with no error: the names must match the keys exactly.",
-    "F.explode drops a row whose array is empty or NULL; F.explode_outer keeps it, with a NULL element.",
+    "A field the schema names differently from the JSON key comes back NULL for every row, with no error, so the names must match the keys exactly.",
+    "F.explode drops a row whose array is empty or NULL, and F.explode_outer keeps it, with a NULL element.",
     "Reach into a struct with F.col(\"o.order_id\") or F.col(\"item.sku\"), and alias each column to its final name.",
     "get_json_object always returns text: if you use it, cast every value it gives."
   ],
   "explanation": "from_json reads the JSON text once, by a schema you write, so every field arrives with its type: order_id an integer, placed_at a timestamp, price a decimal. A field is matched by its key, not by position, so documents with their keys in another order or with extra fields parse the same; a schema field whose name doesn't match any key quietly comes back NULL. explode turns an array into one row per element and copies the order's other columns onto each, but it gives no row at all for an empty or NULL array, so orders without lines would disappear. explode_outer keeps them as one row with a NULL element. get_json_object is fine for a single value, but it returns text, so its results need casting. Select only the typed columns, so the raw JSON doesn't travel into Silver, and overwrite so a rerun gives the same table.",
   "troubleshooting": [
-    "Orders 102 and 103 are missing: explode drops an empty or missing array; use explode_outer.",
+    "Orders 102 and 103 are missing: explode drops an empty or missing array, so use explode_outer.",
     "customer_id (or another field) is NULL on every row: its name in the schema doesn't match the JSON key.",
-    "order_id or placed_at is VARCHAR: it came from get_json_object, which returns text; read it with from_json or cast it.",
+    "order_id or placed_at is VARCHAR: it came from get_json_object, which returns text, so read it with from_json or cast it.",
     "The column check names payload: select only the six columns, without the raw JSON."
   ],
   "remediation": [

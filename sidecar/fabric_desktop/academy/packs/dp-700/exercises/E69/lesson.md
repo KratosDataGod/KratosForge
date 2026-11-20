@@ -1,6 +1,6 @@
 # Flatten nested JSON order events with PySpark
 
-The shop's order API lands one JSON document per order in bronze.order_events: the order's id, customer and time, and an items array with each line's sku, quantity and price. Finance wants silver.order_lines with one typed row per order line. Some orders arrive with an empty items list, or with none at all, and Finance wants to see those too: such an order keeps one row in silver.order_lines with sku, qty and price empty (NULL), never zero rows.
+The shop's order API lands one JSON document per order in bronze.order_events: the order's id, customer and time, and an items array with each line's sku, quantity and price. Finance wants silver.order_lines with one typed row per order line. Some orders arrive with an empty items list, or with none at all, and Finance wants to see those too, so such an order keeps one row in silver.order_lines with sku, qty and price empty (NULL), never zero rows.
 
 ## What you'll do
 
@@ -29,7 +29,7 @@ Your answer is PySpark code. It runs on this PC with DuckDB's PySpark API, not A
 
 ## What it doesn't prove
 
-- It doesn't run on Apache Spark or in a Fabric notebook. Here from_json is called through F.expr with the schema written as text, because F.from_json with a StructType isn't available on this PC; in a Fabric notebook both forms work.
+- It doesn't run on Apache Spark or in a Fabric notebook. Here from_json is called through F.expr with the schema written as text, because F.from_json with a StructType isn't available on this PC. In a Fabric notebook both forms work.
 - Malformed JSON: every document here parses. It doesn't show the corrupt-record column or the FAILFAST mode.
 - Inferring the schema from the files with spark.read.json, and how Spark plans the explode on large tables.
 - That the table is a lakehouse table in OneLake: here it's a Delta table in the exercise folder on this PC.

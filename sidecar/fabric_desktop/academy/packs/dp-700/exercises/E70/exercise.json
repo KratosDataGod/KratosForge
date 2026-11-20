@@ -36,7 +36,7 @@
     "Write gold.customer_running_totals with customer_id, order_id, order_date, amount, order_seq, running_amount, so that running the code again leaves the same table."
   ],
   "expected": {
-    "description": "gold.customer_running_totals has 9 rows. Customer C01's running_amount goes 10.00, 11.00, 16.50, 21.00, 23.00; orders 5 and 7, both on 2026-03-03, get different totals."
+    "description": "gold.customer_running_totals has 9 rows. Customer C01's running_amount goes 10.00, 11.00, 16.50, 21.00, 23.00. Orders 5 and 7, both on 2026-03-03, get different totals."
   },
   "verifies": [
     "Your PySpark numbers and totals each customer's orders in the asked order, on the exercise data and on orders you haven't seen with three orders on one day, on this PC.",
@@ -103,15 +103,15 @@
     }
   ],
   "hints": [
-    "groupBy gives one row per customer; a window keeps every order and adds a value computed over its customer's rows.",
+    "groupBy gives one row per customer, while a window keeps every order and adds a value computed over its customer's rows.",
     "Window.partitionBy(\"customer_id\").orderBy(\"order_date\", \"order_id\") puts each customer's orders in sequence, with order_id breaking same-day ties.",
-    "F.row_number().over(w) numbers rows 1, 2, 3 with no repeats; rank gives tied rows the same number.",
+    "F.row_number().over(w) numbers rows 1, 2, 3 with no repeats, and rank gives tied rows the same number.",
     "With orderBy and no frame, Spark sums every row with the same order_date together (a range frame). .rowsBetween(Window.unboundedPreceding, Window.currentRow) stops at the current row.",
     "Write with mode(\"overwrite\") so a rerun replaces the table."
   ],
-  "explanation": "A window function computes over a set of rows related to the current one without collapsing them, so every order keeps its row. partitionBy(\"customer_id\") restarts the sequence and the sum for each customer; leave it out and the total runs across all customers. orderBy decides what 'before' means: by order_date, then order_id so same-day orders have a fixed order. The frame decides which rows are summed. When a window has orderBy and no frame, Spark uses RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, which includes every row whose ordering value equals the current one, so two orders on the same day share a total; rowsBetween(Window.unboundedPreceding, Window.currentRow) counts rows instead and stops at the current one. unboundedFollowing would give every row the customer's whole total. row_number numbers each row once, where rank repeats a number for ties. A groupBy total joined back gives every order the same grand total, not a running one.",
+  "explanation": "A window function computes over a set of rows related to the current one without collapsing them, so every order keeps its row. partitionBy(\"customer_id\") restarts the sequence and the sum for each customer. Leave it out and the total runs across all customers. orderBy decides what 'before' means: by order_date, then order_id so same-day orders have a fixed order. The frame decides which rows are summed. When a window has orderBy and no frame, Spark uses RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, which includes every row whose ordering value equals the current one, so two orders on the same day share a total. rowsBetween(Window.unboundedPreceding, Window.currentRow) counts rows instead and stops at the current one. unboundedFollowing would give every row the customer's whole total. row_number numbers each row once, where rank repeats a number for ties. A groupBy total joined back gives every order the same grand total, not a running one.",
   "troubleshooting": [
-    "Two orders on the same day show the same running_amount: the frame is the default range frame; add rowsBetween(Window.unboundedPreceding, Window.currentRow), or order by order_id as well.",
+    "Two orders on the same day show the same running_amount: the frame is the default range frame, so add rowsBetween(Window.unboundedPreceding, Window.currentRow), or order by order_id as well.",
     "Every order of a customer shows the customer's whole total: the frame ends at unboundedFollowing, or there's no orderBy, or the total came from a groupBy.",
     "The totals keep growing from one customer into the next: the window has no partitionBy.",
     "order_seq repeats a number: use row_number, not rank or dense_rank.",

@@ -42,12 +42,12 @@
     }
   ],
   "hints": [
-    "activity_run_id is an opaque id: the latest run is the one with the latest run_start.",
+    "activity_run_id is an opaque id, so the latest run is the one with the latest run_start.",
     "An activity that didn't run has no row in last night's runs, or none at all. Start from copy_activities and LEFT JOIN the runs, so it can't drop out of the check.",
     "Copy orders failed at 02:01 and was retried at 06:12. The latest run is what bronze.orders holds now.",
-    "Succeeded only means the copy didn't error. Look at rows_copied, and at rows_skipped for the activities that skip incompatible rows; it's NULL where fault tolerance is off."
+    "Succeeded only means the copy didn't error. Look at rows_copied, and at rows_skipped for the activities that skip incompatible rows. It's NULL where fault tolerance is off."
   ],
-  "explanation": "A pipeline's status says whether its activities errored, not whether the data arrived. A useful ingestion check therefore starts from what should have happened, the list of Copy activities, rather than from the runs that did, because an activity that was deactivated or never added to the schedule leaves no failed run to find: Copy stores last ran on Saturday and Copy promotions has never run, and both look fine if you only read the runs. For the activities that ran, the latest run by start time is the one that counts: Copy orders failed and then succeeded on a retry, so bronze.orders is complete, and reporting it as failed sends someone to fix what's already fixed. A succeeded run can still be wrong. Copy products succeeded with 0 rows, the classic sign of a source query or watermark that matched nothing. Copy customers succeeded with 37 rows skipped, because fault tolerance was set to skip incompatible rows: the load didn't fail, it quietly dropped data, and only rowsSkipped, or the skipped-row log if logging is on, shows it.",
+  "explanation": "A pipeline's status says whether its activities errored, not whether the data arrived. A useful ingestion check therefore starts from what should have happened, the list of Copy activities, rather than from the runs that did, because an activity that was deactivated or never added to the schedule leaves no failed run to find. Copy stores last ran on Saturday and Copy promotions has never run, and both look fine if you only read the runs. For the activities that ran, the latest run by start time is the one that counts: Copy orders failed and then succeeded on a retry, so bronze.orders is complete, and reporting it as failed sends someone to fix what's already fixed. A succeeded run can still be wrong. Copy products succeeded with 0 rows, the classic sign of a source query or watermark that matched nothing. Copy customers succeeded with 37 rows skipped, because fault tolerance was set to skip incompatible rows. The load didn't fail, but it quietly dropped data, and only rowsSkipped, or the skipped-row log if logging is on, shows it.",
   "remediation": [
     "https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs",
     "https://learn.microsoft.com/fabric/data-factory/monitoring-hub-pipeline-runs",

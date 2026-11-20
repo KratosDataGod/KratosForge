@@ -313,6 +313,20 @@ test("Roll back: the preview names removed tables, ones it can't compare, and se
   assert.strictEqual(await dialog().getByRole("button", { name: "Roll back Test to 1.0.0" }).count(), 1);
 });
 
+test("Roll back on a Prod workspace says why it asks for the name, and waits for it", { skip }, async () => {
+  const r = (version, more) => ({ version, current: false, kept: true, at: at(-86400), source_env: "test", receipt_id: null, ...more });
+  db.releases = { problem: null, confirm_name: "Sales Prod", releases: [r("1.2.0", { current: true }), r("1.1.0")] };
+  db.preview = { entities: [] };
+  await page().evaluate(() => rollbackDialog("prod"));
+  await dialog().getByText("Sales Prod is a Prod workspace, so this rollback runs only after you type its name exactly to confirm.").waitFor();
+  const go = dialog().getByRole("button", { name: "Roll back Prod to 1.1.0" });
+  assert.ok(await go.isDisabled(), "the rollback waits for the name");
+  await dialog().getByRole("textbox", { name: "Type Sales Prod to confirm" }).fill("Sales Prod");
+  assert.ok(!(await go.isDisabled()));
+  await dialog().getByRole("button", { name: "Cancel" }).click();
+  db.releases = { problem: null, releases: [] };
+});
+
 test("a compare by checksum says the sides are identical, and lists only the totals that moved", { skip }, async () => {
   db.compare = { entity: NAME, keys: [], compared_on_keys: false, method: "hashed", checksum: { match: true },
     left: { env: "test", version: null }, right: { env: "dev", version: null }, rows: { left: 10, right: 10 },

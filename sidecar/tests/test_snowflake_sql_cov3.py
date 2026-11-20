@@ -66,8 +66,8 @@ def test_to_timestamp_of_a_negated_or_bracketed_number_is_seconds_in_utc():
 
 
 def test_timestamp_from_parts_with_nanoseconds_adds_microseconds():
-    sql = one("SELECT TIMESTAMP_FROM_PARTS(2024, 1, 1, 0, 0, 0, 500)").duckdb_sql
-    assert "INTERVAL (CAST(500 AS BIGINT) // 1000) MICROSECOND" in sql
+    sql = one("SELECT TIMESTAMP_FROM_PARTS(2024, 1, 1, 0, 0, 0, 500000)").duckdb_sql
+    assert "INTERVAL (CAST(500000 AS BIGINT) // 1000) MICROSECOND" in sql
 
 
 def test_merge_from_an_unnamed_subquery_gets_no_duplicate_check():

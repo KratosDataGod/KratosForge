@@ -220,7 +220,7 @@ def _git(fabric: Any, status_client: Callable[[], Any], wid: str,
         client = None
     if client is None:
         reads.append({"read": "Git status", "ok": False,
-                      "problem": "Not read: it needs the Workspace.GitUpdate.All permission, which the app asks for "
+                      "problem": "Not read, because it needs the Workspace.GitUpdate.All permission, which the app asks for "
                                  "the first time you open a workspace's Git item status. The assessment never asks "
                                  "for it, so the uncommitted and incoming change controls aren't evaluated."})
         return conn, None

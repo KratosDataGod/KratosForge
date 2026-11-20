@@ -23,7 +23,7 @@ schema-enabled. Microsoft's medallion guidance recommends a separate lakehouse (
 layer; "exactly one per layer" and "schema-enabled" are KratosForge's, so those controls are
 ``kratosforge_recommendation`` and a profile can turn them off.
 
-Dev/Test/Prod separation is not checked here: deciding it needs deployment pipeline configuration
+Dev/Test/Prod separation is not checked here, because deciding it needs deployment pipeline configuration
 the assessment doesn't read, and a name alone can't prove separation.
 """
 

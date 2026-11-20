@@ -1,6 +1,10 @@
-"""The personal-data inventory (docs/enterprise-privacy.md) names every store the engine keeps. Each file
-name the engine's code writes as a store (a SQLite file, a JSON Lines log) must be in the inventory, or be
-listed here with why it holds nothing personal of its own, so a new store can't ship unlisted."""
+"""The personal-data inventory (docs/enterprise-privacy.md) names the databases and logs the engine keeps.
+Each database or log file name written as a quoted literal in the engine's code (.sqlite, .sqlite3, .db,
+.jsonl) must be in the inventory, or be listed here with why it holds nothing personal of its own, so a new
+database or log can't ship unlisted.
+
+What this check doesn't see: JSON stores (such as editor/pairings.json) and names built at run time (with
+with_suffix or from parts). Those are kept in the inventory by review, not by this test."""
 
 from __future__ import annotations
 

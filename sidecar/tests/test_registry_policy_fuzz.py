@@ -155,3 +155,11 @@ def test_other_lists_keep_their_string_items_and_say_what_was_left_out(policy, g
     out, problems = registry_policy.read()
     assert out == {"allowed_tenants": [tenant]}
     assert problems == ["Group Policy key allowed_tenants has 2 items that aren't strings, so they're left out"]
+
+
+def test_every_ai_tools_and_app_studio_restriction_has_a_most_restrictive_value():
+    """_safest() lists each restriction by name: a new key in integrations/policy.py or appstudio/policy.py that
+    it missed would keep its loose default when Group Policy can't be read. This fails until it is added there."""
+    restrictions = {*app_settings.INTEGRATION_KEYS, *app_settings.APPSTUDIO_KEYS, *integrations_policy.KEYS,
+                    *appstudio_policy.KEYS}
+    assert set(registry_policy._safest()) == restrictions  # noqa: SLF001

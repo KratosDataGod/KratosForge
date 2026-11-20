@@ -1,0 +1,127 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "decisions.json",
+  "reset": "Reset puts the original decisions.json back.",
+  "id": "E74",
+  "title": "Six workloads, four stores: lakehouse, warehouse, eventhouse or SQL database",
+  "objectives": [
+    "2.2.1"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "E27"
+  ],
+  "objective_text": "Record the right Fabric data store for six workloads, including the two where T-SQL alone doesn't decide it.",
+  "scenario": "Brightline Manufacturing is moving six workloads into Fabric. The architect's first draft puts everything that uses T-SQL in a warehouse and everything else in a lakehouse, and the review board sent it back.",
+  "engine_label": "A model of a data store decision for each workload, checked on this PC",
+  "verifies": [
+    "Your store for each workload matches the data store decision guide and the lakehouse or warehouse guide: SQL database for OLTP, warehouse for multi-table transactions and T-SQL writes, eventhouse for streaming events and interactive analytics, lakehouse for Spark and unstructured data, with read-only T-SQL readers left on the lakehouse, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any store is created or loaded: nothing runs here.",
+    "Costs, capacity sizes or performance numbers for any store.",
+    "Cosmos DB in Fabric, which this exercise leaves out."
+  ],
+  "expected": {
+    "description": "pos_orders sql_database, finance_star warehouse, line_telemetry eventhouse, defect_images lakehouse, shared_curated lakehouse, analyst_loads warehouse."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The pos_orders workload is in the wrong store.",
+      "pass": "The pos_orders workload is in the right store.",
+      "rules": [
+        {
+          "path": "workloads.pos_orders.store",
+          "equals": "sql_database",
+          "why": "Operational, transactional OLTP work on normalized tables is SQL database in Fabric, the same engine as Azure SQL Database."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The finance_star workload is in the wrong store.",
+      "pass": "The finance_star workload is in the right store.",
+      "rules": [
+        {
+          "path": "workloads.finance_star.store",
+          "equals": "warehouse",
+          "why": "Multi-table transactions in T-SQL need a warehouse; a lakehouse's SQL analytics endpoint is read-only and an eventhouse is for streaming events."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The line_telemetry workload is in the wrong store.",
+      "pass": "The line_telemetry workload is in the right store.",
+      "rules": [
+        {
+          "path": "workloads.line_telemetry.store",
+          "equals": "eventhouse",
+          "why": "Streaming event data with high-granularity interactive analytics, time series and answers in seconds is an eventhouse."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The defect_images workload is in the wrong store.",
+      "pass": "The defect_images workload is in the right store.",
+      "rules": [
+        {
+          "path": "workloads.defect_images.store",
+          "equals": "lakehouse",
+          "why": "Unstructured and semi-structured data for machine learning in Spark is a lakehouse; a warehouse is for structured data."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The shared_curated workload is in the wrong store.",
+      "pass": "The shared_curated workload is in the right store.",
+      "rules": [
+        {
+          "path": "workloads.shared_curated.store",
+          "equals": "lakehouse",
+          "why": "The data is built in Spark, and T-SQL readers who never write can use the lakehouse's SQL analytics endpoint: T-SQL readers alone don't need a warehouse."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The analyst_loads workload is in the wrong store.",
+      "pass": "The analyst_loads workload is in the right store.",
+      "rules": [
+        {
+          "path": "workloads.analyst_loads.store",
+          "equals": "warehouse",
+          "why": "COPY INTO, UPDATE and DELETE are DML; the lakehouse's SQL analytics endpoint has no DML, so a T-SQL team that writes needs a warehouse."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which workloads write rows one at a time from an app?",
+    "Which workloads need T-SQL writes, and which only T-SQL reads?",
+    "What does the SQL analytics endpoint of a lakehouse let you do?",
+    "Where do images and other unstructured files go?"
+  ],
+  "explanation": "The data store guide gives each store an ideal use case: SQL database in Fabric for operational OLTP and normalized databases, a warehouse for enterprise warehousing, SQL-based BI and full SQL transaction support, an eventhouse for streaming event data and interactive analytics, and a lakehouse for big data, machine learning and unstructured data. The lakehouse or warehouse guide adds the two tests that catch the draft: multi-table transactions and T-SQL writes need a warehouse, but T-SQL reads don't, because the lakehouse's SQL analytics endpoint gives full DQL with no DML. So the curated Spark tables stay in the lakehouse, and the team that loads with COPY INTO gets a warehouse.",
+  "remediation": [
+    "LM-06",
+    "LM-23",
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-lakehouse-warehouse"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-20: decision-guide-data-store (summary list: eventhouse for streaming event data and high-granularity interactive analytics; SQL database in Fabric for operational, transactional, OLTP or normalized relational databases; warehouse for enterprise data warehousing, SQL-based BI, OLAP and full SQL transaction support; lakehouse for big data and machine learning with unstructured, semi-structured or structured data. Scenario 2 Rob picks a lakehouse so T-SQL users can consume the data). decision-guide-lakehouse-warehouse (multi-table transactions: warehouse; structured data only: warehouse, unstructured: lakehouse; SQL analytics endpoint: read-only, full DQL, no DML, limited DDL; warehouse: full DQL, DML and DDL with full transaction support). eventhouse page: query billions of events in seconds, time series and IoT data.",
+    "Not graded: the eventhouse's T-SQL support, and Cosmos DB in Fabric for NoSQL, which the guide also lists."
+  ]
+}

@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "decisions.json",
+  "reset": "Reset puts the original decisions.json back.",
+  "id": "E73",
+  "title": "Pipeline, notebook or something else: choose the tool for five jobs",
+  "objectives": [
+    "1.4.1"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "E17"
+  ],
+  "objective_text": "Record the right tool for each of five jobs, from a no-code nightly load that runs a notebook to a Kafka feed, and list the activities the pipeline needs.",
+  "scenario": "Tidewater Freight's data team has five jobs to build. Two engineers want to write everything as notebooks; the operations team wants everything as pipelines. Each job needs the tool that fits who builds it, how much code it takes and how the data arrives.",
+  "engine_label": "A model of a tool decision for each job, checked on this PC",
+  "verifies": [
+    "Your tool for each job matches the persona, code, source and transformation columns and the scenarios of the pipeline, dataflow and Spark decision guide, and the nightly pipeline has the Copy data, Fabric notebook and Teams activities, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That anything runs: no pipeline, notebook, dataflow, copy job or eventstream is built here.",
+    "Whether a job that this exercise gives to one tool could also be built with another one; the checks follow the decision guide's best fit.",
+    "The settings of each activity, such as the notebook's parameters or the Teams message."
+  ],
+  "expected": {
+    "description": "nightly_load: pipeline with Copy data, Fabric notebook and Teams. review_enrichment: notebook. finance_shaping: dataflow_gen2. crm_cdc: copy_job. order_events: eventstream."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The nightly load isn't a pipeline with what it needs.",
+      "pass": "The nightly load is a pipeline that copies, runs the notebook and posts to Teams.",
+      "rules": [
+        {
+          "path": "jobs.nightly_load.tool",
+          "equals": "pipeline",
+          "why": "Copying from many sources with no code, running a notebook after the copies and posting a message on failure is orchestration on a canvas: a pipeline. A copy job only moves data."
+        },
+        {
+          "path": "jobs.nightly_load.activities",
+          "contains": "Copy data",
+          "why": "The copy activity is the guide's no-code choice for moving data from many sources into a lakehouse."
+        },
+        {
+          "path": "jobs.nightly_load.activities",
+          "contains": "Fabric notebook",
+          "why": "The pipeline runs the enrichment notebook as an activity after the copies."
+        },
+        {
+          "path": "jobs.nightly_load.activities",
+          "contains": "Teams",
+          "why": "The Teams activity posts a message in a channel, which the operations team can change without code."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The review enrichment isn't in a notebook.",
+      "pass": "The review enrichment is a notebook.",
+      "rules": [
+        {
+          "path": "jobs.review_enrichment.tool",
+          "equals": "notebook",
+          "why": "Parsing nested JSON and running an open-source Python library is code: Spark in a notebook. The copy activity only does lightweight changes, and a dataflow can't run a Python library."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The finance shaping isn't in a dataflow.",
+      "pass": "The finance shaping is a Dataflow Gen2.",
+      "rules": [
+        {
+          "path": "jobs.finance_shaping.tool",
+          "equals": "dataflow_gen2",
+          "why": "An analyst who knows Power Query, a low volume and 300+ no-code transformations: the guide's Dataflow Gen2 scenario."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The CDC copy isn't a copy job.",
+      "pass": "The CDC copy is a copy job.",
+      "rules": [
+        {
+          "path": "jobs.crm_cdc.tool",
+          "equals": "copy_job",
+          "why": "A wizard that does a full load and then switches to incremental loads from CDC, with nothing to maintain, is the guide's copy job scenario."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The order events aren't forwarded as they occur.",
+      "pass": "The order events flow through an eventstream.",
+      "rules": [
+        {
+          "path": "jobs.order_events.tool",
+          "equals": "eventstream",
+          "why": "Events forwarded as they occur, from Kafka, with no schedule and no code: an eventstream. A scheduled copy is batch."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Who builds each job, and do they write code?",
+    "Does the job only move data, or does it also run other steps and send a message?",
+    "Which tool switches from a full load to CDC on its own?",
+    "Does the data arrive as batches on a schedule, or as events?"
+  ],
+  "explanation": "The decision guide compares the pipeline copy activity, the copy job, Dataflow Gen2, eventstreams and Spark by persona, code, sources and transformation. The nightly load copies from many sources with no code and then has to run a notebook and post to Teams on failure, all visible on a canvas: a pipeline with Copy data, Fabric notebook and Teams activities. The review enrichment needs PySpark and an open-source library, so it's a notebook; the copy activity only does lightweight changes such as type conversion and column mapping. The finance analyst works in Power Query with a low volume, which is Dataflow Gen2. A wizard-driven full load followed by CDC incremental loads is the copy job, and events forwarded as they occur with no code is an eventstream.",
+  "remediation": [
+    "LM-08",
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+    "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
+    "https://learn.microsoft.com/en-us/fabric/data-factory/notebook-activity"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-20: decision-guide-pipeline-dataflow-spark (comparison table: copy activity and copy job no code or low code, lightweight transformation such as type conversion, column mapping, merge or split files, flatten hierarchy; Dataflow Gen2 Power Query with 300+ transformation functions; eventstream for event data, sources include Kafka and CDC databases; Spark is code. Scenario 2 Mary picks Dataflow Gen2, scenario 3 Prashant picks eventstreams to forward events as they occur without extraction schedules, scenario 4 Adam picks Spark, scenario 5 Rajesh picks the copy job for CDC tables with a full load then incremental, on-premises SQL Server to Azure SQL Database). activity-overview lists Copy data and Fabric notebook as data transformation activities and Teams (posts a message in a Teams channel or group chat) as a control flow activity. notebook-activity: the Notebook activity runs a Fabric notebook in a pipeline, with parameters, and the pipeline can be scheduled.",
+    "Not checked, so not graded: whether the Teams activity is preview or GA, and the copy job's own scheduling options. The exercise doesn't claim a copy job can't run a notebook; it grades the guide's best fit, and does_not_verify says so."
+  ]
+}

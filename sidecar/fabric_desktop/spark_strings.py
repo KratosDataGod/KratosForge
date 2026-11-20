@@ -391,8 +391,30 @@ def _locate(node: exp.Expression) -> exp.Expression | None:
     position = node.args.get("position")
     if position is None:
         return None
-    return _around(node, "CASE WHEN fj_arg1 IS NULL THEN 0 WHEN fj_arg2 IS NULL OR fj_arg3 IS NULL THEN NULL "
-                         "WHEN fj_arg1 < 1 THEN 0 ELSE fj_arg0 END", [position, node.args["substr"], node.this])
+    template = ("CASE WHEN fj_arg1 IS NULL THEN 0 WHEN fj_arg2 IS NULL OR fj_arg3 IS NULL THEN NULL "
+                "WHEN fj_arg1 < 1 THEN 0 ELSE fj_arg0 END")
+    parts = {"p": ("position", position), "s": ("substr", node.args["substr"]), "t": ("this", node.this)}
+    bound = {k: v for k, v in parts.items() if not isinstance(v[1], (exp.Column, exp.Literal, exp.Null))}
+    if not bound:
+        return _around(node, template, [position, node.args["substr"], node.this])
+    # An argument that isn't a column or literal is read once, through a lambda over a one-element list: the
+    # NULL checks here and DuckDB's own STRPOS(SUBSTRING(str, pos), substr) twice would otherwise each repeat
+    # it, so nested locate(b, locate(...), 2) grew 3x per level. The arguments themselves (not copies) move
+    # into the list, so the rewrites that follow still see them.
+    names = {"p": "fj_arg1", "s": "fj_arg2", "t": "fj_arg3"}
+    for key in bound:
+        template = re.sub(rf"\b{names[key]}\b", f"kf_loc.{key}", template)
+    fields = ", ".join(f"'{key}': kf_put_{key}" for key in bound)
+    new = _with(f"(LIST_TRANSFORM([{{{fields}}}], kf_loc -> {template}))[1]",
+                [exp.column("kf_hold"), *(v for _, v in parts.values())])
+    _swap(node, new)
+    for key, (arg, value) in bound.items():
+        slot = next(c for c in new.find_all(exp.Column) if c.name == f"kf_put_{key}" and not c.table)
+        node.set(arg, exp.column(key, table="kf_loc"))
+        slot.replace(value)
+    holder = next(c for c in new.find_all(exp.Column) if c.name == "kf_hold")
+    holder.replace(node)
+    return new
 
 
 def _chr(node: exp.Expression) -> exp.Expression | None:

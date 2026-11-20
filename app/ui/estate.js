@@ -53,10 +53,14 @@ async function historyDialog(name) {
 
 function restoreDialog(name, env, v, hist) {
   const reason = h("input", { placeholder: "Bad export from CRM on Monday" });
+  // A Prod workspace (WR-250), or another project's Prod on this PC (WR-251): the restore waits for its name typed.
+  const needs = hist.confirm_name || "";
+  const typed = needs ? h("input", { autocomplete: "off", spellcheck: "false", oninput: () => { go.disabled = typed.value.trim() !== needs; } }) : null;
   const restore = async () => {
+    if (typed && typed.value.trim() !== needs) return;
     closeDialog();
     toast(`Restoring ${name} to version ${v.version}...`);
-    const res = await metaCall("meta_restore", { name, env, version: v.version, reason: reason.value.trim() }, "Not restored");
+    const res = await metaCall("meta_restore", { name, env, version: v.version, reason: reason.value.trim(), ...(needs ? { confirm_name: needs } : {}) }, "Not restored");
     if (!res) return;
     toast(`${name} in ${ENV_LABEL[env]} is back to version ${v.version}`, false, { log: true });
     const downstream = res.downstream || [];
@@ -69,13 +73,17 @@ function restoreDialog(name, env, v, hist) {
     [btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
       downstream.length ? btn("Run downstream", "play", () => { closeDialog(); runEntities(downstream); }, "tool primary") : null].filter(Boolean));
   };
+  const go = btn("Restore", "history", restore, "tool primary");
+  go.disabled = !!typed;
   showDialog(`Restore ${name} to version ${v.version}?`, h("div", { class: "scroll" },
     h("p", { class: "text" }, `${name} in ${ENV_LABEL[env]} goes back to how it was ${dateTimeText(v.at, { empty: `at version ${v.version}` })}. `,
       "Later versions stay in its history, so you can restore one of them again."),
     hist.incremental ? h("p", { class: "text" }, "It loads incrementally, so its watermark moves back too and the next run picks up what came after.") : null,
     hist.downstream.length ? h("p", { class: "muted-text" }, `Tables that read it aren't changed: ${hist.downstream.join(", ")}.`) : null,
-    h("label", { class: "field" }, "Why (kept with the restore)", reason)),
-  [btn("Cancel", null, () => historyDialog(name), "tool outline"), btn("Restore", "history", restore, "tool primary")]);
+    h("label", { class: "field" }, "Why (kept with the restore)", reason),
+    typed ? [h("p", { class: "text" }, `${needs} is a Prod workspace, so this restore runs only after you type its name exactly to confirm.`),
+      h("label", { class: "field" }, `Type ${needs} to confirm`, typed)] : null),
+  [btn("Cancel", null, () => historyDialog(name), "tool outline"), go]);
 }
 
 // The entity lineage's file source, when the files come through a OneLake shortcut.
@@ -102,9 +110,11 @@ async function renderTestsTab(body) {
   const run = async () => {
     body.querySelector(".tests-summary")?.replaceChildren(h("span", { class: "muted-text" }, "Running the tests..."));
     const res = await metaCall("meta_tests", { run: true }, "Tests didn't run");
-    if (res) draw(res);
+    draw(res || shown);  // a refused run shows the last results again, not "Running the tests..." for good
   };
+  let shown = t;
   const draw = (r) => {
+    shown = r;
     const failed = r.tests.filter((x) => x.status !== "passed");
     fill(body,
       h("div", { class: "row tests-summary" },

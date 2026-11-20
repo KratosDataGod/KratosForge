@@ -48,7 +48,7 @@ so it changes when a call is added or refused.
 | `dbutils.notebook.entry_point.getDbutils` | Differs | Gives the notebook's path and your user name for getContext(); the run id is empty. |
 | `dbutils.notebook.exit` | Runs |  |
 | `dbutils.notebook.run` | Differs | Runs a notebook from this PC's notebooks folder. The timeout and arguments are taken; arguments arrive as widget values. |
-| `dbutils.secrets.get` | Differs | A secret scope is an Azure Key Vault name, read with your own sign-in. Databricks-backed scopes are not reachable. |
+| `dbutils.secrets.get` | Differs | A secret scope is an Azure Key Vault name, read with your own sign-in. Databricks-backed scopes are not reachable. The value shows as [REDACTED] in the notebook's output, as in Databricks. |
 | `dbutils.secrets.getBytes` | Differs | Same scopes as secrets.get. |
 | `dbutils.secrets.list` | Differs | Same scopes as secrets.get. You need the Key Vault Secrets User role. |
 | `dbutils.secrets.listScopes` | Differs | Returns an empty list and says that a scope is a Key Vault name: this PC can't list your vaults. |

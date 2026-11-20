@@ -239,7 +239,7 @@ STILL_DIFFERS = {
     "`concat_ws` with an array column": "SELECT concat_ws(',', a) FROM t",
     "A pattern in the DataFrame API given as a column": "",
     "`F.split_part` with an empty delimiter": "",
-    "`upper('ß')`": "SELECT upper(s) FROM t",
+    "`F.upper` of `'ß'`": "",  # SQL upper('ß') gives Spark's SS since #3050
 }
 
 

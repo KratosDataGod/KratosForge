@@ -161,6 +161,13 @@ jobs:
       # A test still running after 10 minutes is hung: its worker prints every thread's stack and exits, and
       # with no worker restarts the run stops there, so the log names the stuck line instead of the job
       # waiting out GitHub's 6-hour limit with no log to read.
+      - name: Diagnostic (to be removed) - this PR's new tests alone, one at a time, names printed first
+        if: env.RUN_TESTS == 'true' && matrix.os == 'windows-latest'
+        timeout-minutes: 15
+        run: python -m pytest -v -p no:xdist -p no:cacheprovider -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true tests/test_semantic_view.py tests/test_semantic_parity.py tests/test_semantic_parity_l2.py tests/test_ossie_fidelity.py
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
       - run: python -m pytest -v -n auto --dist loadfile --max-worker-restart=0 -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true --durations=25 -m "not machine_wide_grants" --junitxml="${{ runner.temp }}/junit-main.xml"
         if: env.RUN_TESTS == 'true'
         timeout-minutes: 70

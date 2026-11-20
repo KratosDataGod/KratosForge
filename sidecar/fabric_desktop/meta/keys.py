@@ -458,7 +458,10 @@ def _spark_bk(columns: list[str], alias: str = "") -> str:
 
 def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
     """The Spark SQL that starts every template notebook for this entity."""
-    src = project.entities[e.spec["source"]["entity"]]
+    name = e.spec["source"]["entity"]
+    if not isinstance(name, str):  # business keys are read from one table, as a run reads one source entity
+        raise ValueError(f"{e.name}: [source] entity must name one entity for [[keys]], not {type(name).__name__}")
+    src = project.entities[name]
     source = f"{project.layer(src.layer).lakehouse}.{src.schema}.{src.table}"
     out = [f"-- Surrogate keys for {e.name}. Generated from metadata/entities/{e.name}.toml; change it there.",
            ""]

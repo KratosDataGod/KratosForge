@@ -86,3 +86,22 @@ def test_meta_saves_no_longer_write_files_in_place():
     for rel in ("meta_service.py", "meta/keys.py", "meta/mesh.py", "meta/project.py", "meta/templates.py"):
         assert ".write_text(" not in (base / rel).read_text(encoding="utf-8"), rel
     assert os.replace  # jsonfile.write_text does the swap
+
+
+def test_a_refused_entity_save_leaves_the_file_and_it_still_opens(svc):
+    path = entity_file(svc)
+    before = path.read_bytes()
+    text = before.decode("utf-8").replace('entity = "bronze.orders"', 'entity = ["bronze.orders"]', 1)
+    assert text != before.decode("utf-8")
+    with pytest.raises(ValueError, match=r"^Not saved: .*\[source\] entity"):
+        svc.meta_save_entity("silver.orders", text)
+    assert path.read_bytes() == before
+    assert svc.meta_entity("silver.orders")["keys_sql"].startswith("-- Surrogate keys for silver.orders")
+
+
+def test_an_entity_edited_by_hand_to_a_list_source_still_opens(svc):
+    path = entity_file(svc)
+    path.write_text(path.read_text(encoding="utf-8").replace('entity = "bronze.orders"', 'entity = ["bronze.orders"]', 1),
+                    encoding="utf-8")
+    opened = svc.meta_entity("silver.orders")
+    assert opened["keys_sql"] is None and any("[source] entity" in x for x in opened["errors"])

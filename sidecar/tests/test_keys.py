@@ -521,3 +521,11 @@ def test_business_keys_that_arent_text_are_looked_up_as_text(tmp_path):
     kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
     K.merge_keys(store, kt, pl.Series(["7"]))
     assert K._keys_for(store, kt, [7])[0]["customer_sk"].to_list() == [1]
+
+
+def test_the_merge_refuses_a_list_of_source_entities(tmp_path):
+    p = init_project(tmp_path / "project", "3", "Chris", True)
+    e = p.entities["silver.orders"]
+    e.spec["source"]["entity"] = ["bronze.orders"]
+    with pytest.raises(ValueError, match=r"\[source\] entity"):
+        K.merge_sql(p, e)

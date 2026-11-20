@@ -24,7 +24,7 @@ from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
-from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, prod_name, prod_typed, validate
+from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, Entity, entity_name_problem, prod_name, prod_typed, validate
 from .meta import diff as diff_mod
 from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
@@ -483,7 +483,10 @@ class MetaMixin:
         errors = [x for x in project.summary()["errors"] if x.startswith(name + ":")]
         keys_sql, keys_from = None, self._keys_database(project, env)
         if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}) and not keys_from:
-            keys_sql = keys_mod.merge_sql(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))
+            try:
+                keys_sql = keys_mod.merge_sql(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))
+            except ValueError as exc:  # a file edited by hand still opens, with the problem listed
+                errors.append(str(exc))
         return e.summary() | {"text": e.path.read_text(encoding="utf-8"), "impact": impact(project, name),
                               "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql,
                               "keys_from": keys_from}
@@ -508,6 +511,15 @@ class MetaMixin:
             downstream = impact(project, name) if name in project.entities else []
             if downstream:
                 raise GateError("save", [f"can't rename {name}: {', '.join(downstream)} read it"])
+        # Build what opening the entity builds before writing, so a refused save leaves the old file.
+        project.entities.pop(name, None)
+        e = project.entities[new_name] = Entity(new_name, spec, path)
+        if keys_mod.entity_keys(e) and "entity" in spec.get("source", {}) \
+                and not [x for x in project.summary()["errors"] if x.startswith(new_name + ":")]:
+            try:
+                keys_mod.merge_sql(project, e)
+            except ValueError as exc:
+                raise ValueError(f"Not saved: {exc}") from exc
         write_text(path, text)
         if new_name != name:  # only once the new file is in place, so a failed save loses neither
             (project.entities_dir / f"{name}.toml").unlink(missing_ok=True)

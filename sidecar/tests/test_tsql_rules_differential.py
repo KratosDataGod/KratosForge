@@ -277,6 +277,13 @@ def test_text_columns_meeting_int_columns_take_the_int_type(engine) -> None:
                 "ORDER BY a") == [(dt.date(2024, 1, 1),), (dt.date(2024, 3, 4),)]
     # ' 1' is the int 1, so EXCEPT takes it away (here the text '1' and ' 1' differed, and 1 was kept).
     assert rows("SELECT 1 AS a EXCEPT SELECT ' 1'") == []
+    # An unnamed first column is converted too, under DuckDB's name for it: '5' and 10 sort as numbers.
+    result = engine.execute("SELECT '5' UNION ALL SELECT 10 ORDER BY 1", dialect="tsql")
+    assert [tuple(_value(v) for v in r) for r in result["rows"]] == [(5,), (10,)]
+    assert rows("SELECT ' 1' EXCEPT SELECT 1") == []
+    # Arithmetic on a CASE, IIF or COALESCE of text and an int (it stopped with DuckDB's binder error).
+    assert rows("SELECT CASE WHEN 1 = 1 THEN '7' ELSE 2 END + 1, IIF(1 = 1, '7', 2) + 1, COALESCE('7', 2) + 1, "
+                "COALESCE(s, i) + 1 FROM dbo.mixed WHERE i = 2") == [(8, 8, 8, 10)]
 
 
 @pytest.mark.parametrize("frame", ["RANGE BETWEEN 1 PRECEDING AND CURRENT ROW", "RANGE 2 PRECEDING",

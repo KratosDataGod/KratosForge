@@ -182,3 +182,10 @@ def test_nested_cases_grow_the_sql_linearly():
 def test_a_column_named_like_the_rewrites_lambda_is_left_as_it_was(spark):
     got = spark.sql("SELECT coalesce(kf_branch_text, 'x') AS r FROM VALUES (1) AS t(kf_branch_text)").collect()
     assert got[0][0] == 1  # DuckDB's own type, as before: the rewrite would read the column as its lambda
+
+
+def test_a_timestamp_with_text_is_the_timestamp_written_as_text(spark):
+    # Read from Spark 3.5.3: the string '2024-01-01 10:00:00', typeof string.
+    row = spark.sql("SELECT CASE WHEN true THEN CAST('2024-01-01 10:00:00' AS TIMESTAMP) ELSE 'a' END AS v, "
+                    "typeof(CASE WHEN true THEN CAST('2024-01-01 10:00:00' AS TIMESTAMP) ELSE 'a' END) AS t").collect()[0]
+    assert (row.v, row.t) == ("2024-01-01 10:00:00", "string")

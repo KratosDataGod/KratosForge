@@ -1066,6 +1066,11 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             if _FLOAT_NOTE not in notes:
                 notes.append(_FLOAT_NOTE)
             done.add(id(node))
+        elif (isinstance(node, exp.Coalesce) and not node.args.get("is_null")
+              or isinstance(node, exp.Case | exp.If) and not isinstance(node.parent, exp.Case)):
+            # Before the arithmetic around it copies it: COALESCE(s, i) + 1 took the text and int as they were.
+            _values_by_precedence(_branch_values(node), _branch_values(info))
+            done.add(id(node))
     for node, info in pairs:
         if id(node) in done:
             continue
@@ -1248,8 +1253,9 @@ def _set_operation_types(tree: exp.Expression, typed: exp.Expression) -> None:
                     _text_converted(named.this, to)
                 elif n:  # only the first SELECT names the columns
                     _text_converted(projection, to)
-                else:
-                    break  # an unnamed first column keeps DuckDB's name for it, and its type
+                else:  # an unnamed first column: converted, under the name DuckDB gave it as written
+                    named = projection.replace(exp.alias_(projection.copy(), projection.sql("duckdb"), quoted=True))
+                    _text_converted(named.this, to)
 
 
 _BY_ZERO = "Divide by zero error encountered."
@@ -1628,7 +1634,10 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
                          exp.If(this=exp.Is(this=v.copy(), expression=exp.Null()),
                                 true=exp.Cast(this=exp.Null(), to=to.copy()))],
                     default=other)
-    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[node.this]), exp.Lambda(this=case, expressions=[v]))
+    # Read as VARCHAR: sqlglot may take a value for text that DuckDB types otherwise (COALESCE('7', 2) is an
+    # INTEGER there), and REGEXP_FULL_MATCH of an integer stopped with DuckDB's binder error.
+    text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"))
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[text]), exp.Lambda(this=case, expressions=[v]))
     node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 

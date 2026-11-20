@@ -218,6 +218,15 @@ def test_dropping_a_reader_no_choice_breaks_asks_nothing(svc):
     assert svc._project().entities[NAME].spec["delta_readers"] == ["sql_endpoint"]
 
 
+def test_a_reader_no_source_says_reads_the_choice_asks_too(svc):
+    # Snowflake's column-mapping cell is unknown, not can't read: it still needs the typed name.
+    before = _file(svc).read_text(encoding="utf-8")
+    with pytest.raises(P.ConfirmNeeded, match="Snowflake"):
+        svc.meta_set_delta_features(NAME, "column_mapping", ["sql_endpoint", "snowflake"])
+    assert _file(svc).read_text(encoding="utf-8") == before
+    assert P.broken_readers("column_mapping", ["sql_endpoint", "snowflake"]) == ["snowflake"]
+
+
 def test_the_entity_editor_save_is_held_to_the_same_rules(svc):
     path = _file(svc)
     before = path.read_text(encoding="utf-8")

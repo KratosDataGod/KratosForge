@@ -172,6 +172,21 @@ def test_an_export_wholly_pruned_since_joins_where_the_trail_now_starts(tmp_path
     assert result["ok"] and "its last line is the one the trail now starts after" in result["notes"][0]
 
 
+def test_an_export_wholly_pruned_since_fails_when_heads_base_was_rewritten_to_match_it(tmp_path):
+    folder = tmp_path / "audit"
+    _add(folder, OCTOBER)
+    _add(folder, NOVEMBER)
+    audit_chain.prune(folder, 1, now=DECEMBER)
+    other = tmp_path / "other"
+    _add(other, OCTOBER, who="someone-else@example.com")
+    out = tmp_path / "forged.jsonl"
+    audit_chain.export(other, out)
+    head = json.loads((folder / audit_chain.HEAD).read_text())
+    head["base"]["hash"] = json.loads(_lines(out)[-1])["hash"]  # the base rewritten to the forged export's end
+    (folder / audit_chain.HEAD).write_text(json.dumps(head))
+    assert not audit_chain.verify_export(out, folder)["ok"]
+
+
 def test_a_partly_pruned_export_that_differs_from_the_trail_fails(trail, tmp_path):
     out = tmp_path / "all.jsonl"
     audit_chain.export(trail, out)

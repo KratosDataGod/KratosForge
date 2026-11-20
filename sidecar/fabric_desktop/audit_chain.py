@@ -166,6 +166,19 @@ def _hashes(folder: Path) -> list[str | None]:
     return out
 
 
+def _first_prev(folder: Path) -> str | None:
+    """The ``prev`` of the trail's first line (None for an empty trail). head.json's base can be rewritten as
+    easily as an export, so a pruned trail's first line has to chain onto it too."""
+    for path in files(folder):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.strip():
+                try:
+                    return str(json.loads(line)["prev"])
+                except (ValueError, KeyError, TypeError):
+                    return ""
+    return None
+
+
 def _head(folder: Path) -> dict[str, Any]:
     head = jsonfile.read_json(Path(folder) / HEAD, {})
     return head if isinstance(head, dict) else {}
@@ -561,7 +574,7 @@ def _export_against_trail(folder: Path, hashes: list[str], last_at: str, notes: 
     where = {h: i for i, h in reversed(list(enumerate(trail)))}
     first = next((i for i, h in enumerate(hashes) if h in where), None)
     if first is None:
-        if through and hashes[-1] == base.get("hash"):
+        if through and hashes[-1] == base.get("hash") and _first_prev(folder) in (base.get("hash"), None):
             notes.append(f"the export's lines were all pruned from this trail (through {through}) after it was "
                          "taken, and its last line is the one the trail now starts after")
             return []

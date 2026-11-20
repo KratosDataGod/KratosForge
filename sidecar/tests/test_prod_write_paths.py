@@ -1,203 +1,330 @@
-"""WR-131: every way a notebook cell can delete or replace rows of a lakehouse table goes through the Prod
-typed-name guard (lakehouse.prod_refusal), and a new way to write a Delta table can't be added without a
-decision about it.
+"""WR-248: every way the engine writes a Delta table has a named gate, and the ones that can reach Prod need it.
 
-The runtime half runs each path in a cell against a Prod-marked workspace and checks it is refused with nothing
-changed. It is the proof that matters: the guard sits on the paths ordinary Spark and notebook code takes.
+The rule (Chris, 2026-11-17): a write to Prod waits for a typed name. A warehouse change needs the warehouse's
+name (WR-209, test_warehouse_write_guard.py). A notebook cell's MERGE, UPDATE, DELETE, VACUUM, RESTORE or overwrite
+needs the workspace's name (prod_writes_service.py, test_prod_writes.py). Test and Prod lakehouses otherwise change
+only by promote.
 
-The static half counts every call in fabric_desktop that writes or changes a Delta table, by file, so a new one
-fails here until it is routed through lakehouse's guarded writers or listed with its reason. It is a safety net
-for the app's own code, not a security boundary: a cell runs arbitrary Python and could call deltalake itself."""
+This file has three parts:
+- Every place in the engine that commits to a Delta table (write_deltalake, publish, write_table, change_table,
+  maintain_table, vacuum, restore, optimize) is listed in WRITE_SITES with the gate it goes through. A new one fails
+  here until someone says how it's gated.
+- Each write statement a warehouse script can hold (CTAS, SELECT INTO, COPY INTO, MERGE, TRUNCATE, DROP and the
+  rest, hidden after a comment, a CTE or another statement) is a change, never a read. A change can't start without
+  the confirmed name.
+- Two paths that skipped the typed name before WR-248:
+  - The SQL page's Save as table replaced a table's rows whenever it was called with mode "overwrite". The page
+    asked for the table's name, but the engine didn't check it.
+  - A job ("Run on this PC") could write a workspace a project named Prod once no project was open.
+"""
+
+from __future__ import annotations
 
 import ast
-import json
-import sys
-from collections import Counter
 from pathlib import Path
 
-import pyarrow as pa
 import pytest
-from deltalake import DeltaTable, write_deltalake
 
-from fabric_desktop import lakehouse
-from tests.test_notebookutils_load_table import files  # noqa: F401 - a fixture
-from tests.test_prod_writes import Svc
-from tests.test_spark_writer import lake  # noqa: F401 - a fixture
+from fabric_desktop import publish, warehouse
+from fabric_desktop.service import Service
 
-PACKAGE = Path(lakehouse.__file__).parent
+PACKAGE = Path(__file__).resolve().parents[1] / "fabric_desktop"
+WRITES = {"write_deltalake", "publish", "write_table", "change_table", "maintain_table", "vacuum", "restore",
+          "z_order", "compact", "create_write_transaction", "convert_to_deltalake"}
+NOT_DELTA = {("pq", "write_table"), ("pyarrow.parquet", "write_table"), ("papq", "write_table")}
 
-# Each way a cell can delete or replace rows of a lakehouse table. Appends and OPTIMIZE keep every row, so they
-# aren't asked (test_prod_writes covers that).
-PATHS = {
-    "saveAsTable overwrite": "df.write.mode('overwrite').saveAsTable('dbo.sales')",
-    "saveAsTable mode argument": "df.write.saveAsTable('dbo.sales', mode='overwrite')",
-    "saveAsTable replaceWhere": "df.write.mode('overwrite').option('replaceWhere', \"region = 'EU'\").saveAsTable('dbo.sales')",
-    "saveAsTable overwriteSchema": "df.write.mode('overwrite').option('overwriteSchema', 'true').saveAsTable('dbo.sales')",
-    "save to a Tables path": "df.write.format('delta').mode('overwrite').save('Tables/dbo/sales')",
-    "insertInto overwrite": "df.write.insertInto('dbo.sales', overwrite=True)",
-    "writeTo createOrReplace": "df.writeTo('dbo.sales').createOrReplace()",
-    "writeTo replace": "df.writeTo('dbo.sales').replace()",
-    "INSERT OVERWRITE": "spark.sql(\"INSERT OVERWRITE dbo.sales SELECT 9 AS id, 'EU' AS region\")",
-    "INSERT OVERWRITE TABLE": "spark.sql(\"INSERT OVERWRITE TABLE dbo.sales SELECT 9, 'EU'\")",
-    "CREATE OR REPLACE TABLE AS": "spark.sql(\"CREATE OR REPLACE TABLE dbo.sales AS SELECT 9 AS id, 'EU' AS region\")",
-    "MERGE INTO": "spark.sql(\"MERGE INTO dbo.sales t USING (SELECT 1 AS id, 'Z' AS region) s ON t.id = s.id "
-                  "WHEN MATCHED THEN UPDATE SET *\")",
-    "UPDATE": "spark.sql(\"UPDATE dbo.sales SET region = 'X'\")",
-    "DELETE FROM": "spark.sql('DELETE FROM dbo.sales WHERE id = 1')",
-    "VACUUM": "spark.sql('VACUUM dbo.sales')",
-    "RESTORE": "spark.sql('RESTORE TABLE dbo.sales TO VERSION AS OF 0')",
-    "DeltaTable merge": "from delta.tables import DeltaTable\n"
-                        "DeltaTable.forName(spark, 'dbo.sales').alias('t').merge(df.alias('s'), 't.id = s.id')"
-                        ".whenNotMatchedInsertAll().whenMatchedUpdateAll().execute()",
-    "DeltaTable update": "from delta.tables import DeltaTable\n"
-                         "DeltaTable.forName(spark, 'dbo.sales').update(\"id = 1\", {'region': \"'X'\"})",
-    "DeltaTable updateExpr": "from delta.tables import DeltaTable\n"
-                             "DeltaTable.forName(spark, 'dbo.sales').updateExpr(\"id = 1\", {'region': \"'X'\"})",
-    "DeltaTable delete": "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.sales').delete('id = 1')",
-    "DeltaTable forPath delete": "from delta.tables import DeltaTable\n"
-                                 "DeltaTable.forPath(spark, 'Tables/dbo/sales').delete('id = 1')",
-    "DeltaTable vacuum": "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.sales').vacuum()",
-    "DeltaTable restoreToVersion": "from delta.tables import DeltaTable\n"
-                                   "DeltaTable.forName(spark, 'dbo.sales').restoreToVersion(0)",
-    "lakehouse.write_table": "import pyarrow as pa\nfrom fabric_desktop import lakehouse\n"
-                             "lakehouse.write_table(pa.table({'id': [9], 'region': ['EU']}), 'dbo.sales')",
-    "notebookutils loadTable Overwrite": "notebookutils.lakehouse.loadTable({'relativePath': 'Files/sales.csv', "
-                                         "'pathType': 'File', 'mode': 'Overwrite', 'formatOptions': "
-                                         "{'format': 'Csv', 'header': True, 'delimiter': ';'}}, 'sales')",
+CELL = "a notebook cell: lakehouse.prod_refusal asks for the Prod workspace's name (test_prod_writes.py)"
+LOCAL = "this PC only: a local data project, a proof's or replay's own copy, or staging, never OneLake"
+WRITE_SITES = {
+    # notebook and Spark-on-this-PC writes, all through lakehouse.py's three entry points
+    ("lakehouse.py", "write_table", "publish"): CELL + "; an overwrite asks, an append or a new table doesn't",
+    ("lakehouse.py", "change_table", "write_deltalake"): CELL,
+    ("lakehouse.py", "maintain_table", "t.optimize.compact"): "OPTIMIZE keeps the rows; Test and Prod refuse it from "
+                                                             "code (meta_service._maintenance_refusal)",
+    ("lakehouse.py", "maintain_table", "t.optimize.z_order"): "as compact",
+    ("lakehouse.py", "maintain_table", "t.vacuum"): CELL,
+    ("lakehouse.py", "maintain_table", "t.restore"): CELL,
+    ("lakehouse.py", "_write_proof", "write_deltalake"): LOCAL,
+    ("spark_local.py", "_write_table", "lakehouse.write_table"): CELL,
+    ("spark_local.py", "LocalSparkSession._statement", "lakehouse.write_table"): CELL,
+    ("spark_local.py", "LocalSparkSession._merge", "lakehouse.change_table"): CELL,
+    ("spark_local.py", "LocalSparkSession._update_or_delete", "lakehouse.change_table"): CELL,
+    ("spark_maint.py", "run", "lakehouse.maintain_table"): CELL,
+    ("proof_spark.py", "ProofSpark.install", "me.write_table"): LOCAL,
+    # the app's own pages
+    ("service.py", "Service.save_sql", "lakehouse.write_table"): "Save as table: replacing a table needs its name "
+                                                                "typed, and in Prod every write the workspace's (WR-248, WR-249)",
+    ("publish.py", "run_job", "publish"): "a job: meta_service._job_guard refuses Test and Prod, and with no project "
+                                          "open a workspace named Prod before (WR-248)",
+    ("publish.py", "publish", "write_deltalake"): "the write itself; its callers are listed here",
+    ("publish.py", "stage_locally", "write_deltalake"): LOCAL,
+    # the metadata framework: Test and Prod change only by promote, behind its gates and the audit line
+    ("meta/store.py", "Store.write", "write_deltalake"): "the framework's run log and entity tables, written by a run "
+                                                        "the promote and approval gates allow",
+    ("meta/store.py", "Store.write_stream", "write_deltalake"): "as Store.write",
+    ("meta/store.py", "LocalStore._tidy_meta", "dt_.optimize.compact"): LOCAL,
+    ("meta/restore.py", "restore", "table.restore"): "an entity's restore: the duties gate in Test and Prod "
+                                                     "(estate_service.meta_restore)",
+    ("estate_service.py", "EstateMixin.meta_restore", "restore_mod.restore"): "the duties gate in Test and Prod",
+    ("meta/promote.py", "rollback", "snapshot.restore"): "a release's files, not a table: the rollback gate",
+    ("meta_service.py", "MetaMixin._released", "snapshot.restore"): "reads a release's files, writes no table",
+    # this PC only, or not a Delta table at all
+    ("localdata/engine.py", "LocalEngine._write", "write_deltalake"): LOCAL,
+    ("maintenance.py", "vacuum_preview", "table.vacuum"): "dry_run=True: lists files, deletes none",
+    ("maintenance.py", "_unnamed", "table.vacuum"): "dry_run=True",
+    ("maintenance.py", "_named_anywhere", "table.vacuum"): "dry_run=True",
+    ("maintenance.py", "compact_local", "DeltaTable(uri).optimize.compact"): LOCAL,
+    ("maintenance.py", "compact_local", "table.vacuum"): LOCAL,
+    ("prove_service.py", "ProveMixin._replay_seed", "write_deltalake"): LOCAL,
+    ("livetest.py", "LiveTest._delta_write", "write_deltalake"): "the live test, run by hand in kf_tenant_test",
+    ("livetest.py", "LiveTest._delta_append", "write_deltalake"): "the live test",
+    ("livetest.py", "LiveTest._publish", "publish"): "the live test",
+    ("livetest.py", "LiveTest._delta_concurrent", "self.write_table"): "the live test",
+    ("livetest.py", "LiveTest._merge_profile", "self.write_table"): "the live test",
+    ("academy/pyspark_lab.py", "prepare", "deltalake.write_deltalake"): "Academy: a sandbox folder on this PC",
+    ("academy/pyspark_shim.py", "Writer.saveAsTable", "deltalake.write_deltalake"): "Academy: a sandbox folder",
+    ("sql_worker.py", "run", "writer.write_table"): "a Parquet export of a result, not a table",
+    ("cli.py", "_backup", "backup.restore"): "the app's settings backup",
+    ("kernel_host.py", "Host.unbind_proof", "self.proof.restore"): "puts a proof's patches back, writes no table",
+    ("notebook.py", "Kernel.unbind_proof", "proof.restore"): "as Host.unbind_proof",
+    ("notebook_files_service.py", "NotebookFilesMixin.notebook_restore", "files.restore"): "a notebook file's version",
+    ("agent.py", "Agent.publish_status", "agent_status.publish"): "the agent's status file",
+    ("integrations/mcp_server.py", "Changes.publish", "self.bus.publish"): "an event to MCP clients",
+    ("integrations/mcp_server.py", "Changes.check", "self.publish"): "an event to MCP clients",
 }
 
 
-@pytest.fixture
-def prod(files, monkeypatch, tmp_path):  # noqa: F811
-    """ws1 (the attached lakehouse's workspace) marked Prod, with two commits so RESTORE has a version to go to."""
-    (tmp_path / "prod_workspaces.json").write_text(json.dumps({"prod": ["ws1"]}))
-    svc = Svc(tmp_path)
-    monkeypatch.setattr(lakehouse, "prod_guard", svc._prod_write_refusal)
-    monkeypatch.setattr(lakehouse, "maintenance_guard", lambda op, ws, t: None)
-    write_deltalake(str(files / "dbo" / "sales"), pa.table({"id": [4], "region": ["APAC"]}), mode="append")
-    return files
-
-
-def _run(code):
-    from fabric_desktop.notebook import Kernel
-    out = Kernel().run("df = spark.createDataFrame([(9, 'EU')], ['id', 'region'])\n" + code)
-    enames = [o.get("ename") for o in out["outputs"] if o.get("type") == "error"]
-    return out["status"], enames, "".join(o.get("text", "") + str(o.get("evalue", "")) for o in out["outputs"])
-
-
-@pytest.mark.parametrize("code", list(PATHS.values()), ids=list(PATHS))
-def test_every_way_a_cell_replaces_or_deletes_rows_waits_for_the_name(prod, code):
-    table = DeltaTable(str(prod / "dbo" / "sales"))
-    before, rows = table.version(), table.to_pyarrow_table().to_pylist()
-    status, enames, text = _run(code)
-    assert status == "error" and enames == ["ProdConfirmNeeded"], text
-    after = DeltaTable(str(prod / "dbo" / "sales"))
-    assert after.version() == before and after.to_pyarrow_table().to_pylist() == rows
-
-
-def test_without_a_prod_mark_the_same_paths_run(files):  # noqa: F811
-    """The guard, not some other refusal, is what stops them above: unmarked, a sample of them runs."""
-    for name in ("saveAsTable overwrite", "INSERT OVERWRITE", "DeltaTable delete", "notebookutils loadTable Overwrite"):
-        status, _, text = _run(PATHS[name])
-        assert status == "ok", f"{name}: {text}"
-
-
-# --- static half: every call in the package that writes or changes a Delta table ---------------------------------
-
-# A Delta table is written or changed only through these (deltalake's API).
-_WRITERS = {"write_deltalake", "create_write_transaction", "convert_to_deltalake"}
-_TABLE_CHANGES = {"merge", "delete", "update", "restore", "vacuum", "create_checkpoint", "cleanup_metadata",
-                  "alter", "compact", "z_order", "set_table_properties", "add_constraint", "drop_constraint",
-                  "add_columns", "add_feature"}
-
-# Where each such call is, and why it's fine. A new one fails test_no_new_delta_write_skips_a_decision: route a
-# cell-reachable write through lakehouse.write_table / change_table / maintain_table (which ask prod_refusal),
-# or add it here with the reason it isn't a notebook cell's.
-KNOWN = {  # file: (how many such calls it has, why they are fine)
-    "lakehouse.py": (6, ("guarded: prod_refusal runs first in write_table (overwrite), change_table and "
-                         "maintain_table; a proof writes its own copy")),
-    "publish.py": (2, ("write_table's commit, after its prod_refusal; and run_job, a job file's run (the Jobs page, "
-                       "the CLI's run, the agent), not a notebook cell's. run_job has no Prod typed-name check of its own")),
-    "delta_dml.py": (2, ("the MERGE/UPDATE/DELETE engine, called by lakehouse.change_table (after prod_refusal) and "
-                         "Local data")),
-    "maintenance.py": (5, "X-ray's Optimize/Vacuum: the app's own page, which shows the plan and confirms first"),
-    "localdata/engine.py": (2, "Local data: this PC's own Delta folders, never a lakehouse in a workspace"),
-    "livetest.py": (3, "the live test harness's own scratch tables"),
-    "meta/store.py": (5, "a metadata project's run: Test and Prod change only by promote, which the app confirms"),
-    "meta/restore.py": (1, "Undo a bad load, from the metadata project's page, which confirms first"),
-    "prove_service.py": (1, "a proof's seed copies on this PC, never the shared table"),
-    "academy/pyspark_delta.py": (3, "an Academy exercise's own tables, in its sandbox workspace"),
-    "academy/pyspark_lab.py": (1, "an Academy exercise's own tables, in its sandbox workspace"),
-    "academy/pyspark_shim.py": (2, "an Academy exercise's own tables, in its sandbox workspace"),
-}
-
-
-def _delta_calls() -> Counter:
-    found: Counter = Counter()
+def write_sites() -> set[tuple[str, str, str]]:
+    found: set[tuple[str, str, str]] = set()
     for path in sorted(PACKAGE.rglob("*.py")):
         rel = path.relative_to(PACKAGE).as_posix()
-        if rel.startswith("academy/packs/"):
-            continue  # exercise files, run in the Academy's sandbox
+        if rel.startswith("academy/packs/"):  # learners' exercises, run in the Academy's sandbox
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            f = node.func
-            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
-            if name in _WRITERS:
-                found[rel] += 1
-            elif name in _TABLE_CHANGES and isinstance(f, ast.Attribute) and _on_delta(f.value, node):
-                found[rel] += 1
+
+        def visit(node: ast.AST, owner: str | None, rel: str = rel) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    visit(child, owner or child.name)
+                elif isinstance(child, ast.ClassDef):
+                    for item in child.body:
+                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            visit(item, f"{child.name}.{item.name}")
+                else:
+                    if isinstance(child, ast.Call):
+                        fn = child.func
+                        name = fn.attr if isinstance(fn, ast.Attribute) else fn.id if isinstance(fn, ast.Name) else ""
+                        base = ast.unparse(fn.value) if isinstance(fn, ast.Attribute) else ""
+                        if name in WRITES and (base, name) not in NOT_DELTA:
+                            found.add((rel, owner or "<module>", f"{base}.{name}" if base else name))
+                    visit(child, owner)
+        visit(tree, None)
     return found
 
 
-def _on_delta(value: ast.AST, call: ast.Call) -> bool:
-    """Whether a method is called on a Delta table: one built or named as one (DeltaTable(...), self._table(),
-    t.optimize), or deltalake's own keywords (update's updates=/predicate=). A dict's update and a file store's
-    delete aren't."""
-    text = ast.unparse(value)
-    if "DeltaTable" in text or text.endswith((".optimize", "_table()")) or "delta" in text.lower():
-        return True
-    keywords = {k.arg for k in call.keywords}
-    if keywords & {"updates", "predicate", "retention_hours", "source_alias", "target_alias", "ignore_missing_files"}:
-        return True
-    return call.func.attr in {"merge", "restore", "vacuum", "compact", "z_order"} and text.split(".")[0] in {  # type: ignore[attr-defined]
-        "dt", "t", "table", "target", "committed", "tbl", "current"}
+def test_every_place_that_writes_a_delta_table_is_listed_with_its_gate():
+    found = write_sites()
+    new = sorted(found - set(WRITE_SITES))
+    assert not new, ("These write a Delta table but aren't in WRITE_SITES. Say which gate each one goes through "
+                     f"(a typed name in Prod, promote only, or this PC only), and test that gate: {new}")
+    gone = sorted(set(WRITE_SITES) - found)
+    assert not gone, f"These are listed but no longer write: take them out of WRITE_SITES: {gone}"
 
 
-def test_no_new_delta_write_skips_a_decision():
-    """A new file that writes a Delta table, or a new such call in a listed file, fails until it is decided."""
-    found = _delta_calls()
-    changed = {f: (n, KNOWN.get(f, (0, ""))[0]) for f, n in found.items() if n != KNOWN.get(f, (0, ""))[0]}
-    assert not changed, (
-        f"Delta write calls by file, (found, listed): {changed}. If a notebook cell can reach a new one, route it "
-        "through lakehouse.write_table / change_table / maintain_table, which ask the Prod guard; otherwise update "
-        "KNOWN with its count and the reason it isn't a cell's.")
-
-
-def test_the_known_list_has_no_stale_entries():
-    stale = sorted(f for f in KNOWN if f not in _delta_calls())
-    assert not stale, f"{stale} no longer write Delta tables: take them out of KNOWN."
-
-
-def test_the_guarded_writers_ask_before_they_write():
-    """In lakehouse.py, write_table, change_table and maintain_table ask prod_refusal before their first Delta write."""
+def test_each_cell_write_in_lakehouse_asks_the_prod_guard():
+    """lakehouse.py's entry points that a cell's write goes through call prod_refusal before anything commits."""
     tree = ast.parse((PACKAGE / "lakehouse.py").read_text(encoding="utf-8"))
-    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
     for name in ("write_table", "change_table", "maintain_table"):
-        calls = [n for n in ast.walk(funcs[name]) if isinstance(n, ast.Call)]
-        asked = min(n.lineno for n in calls if getattr(n.func, "id", getattr(n.func, "attr", "")) == "prod_refusal")
-        writes = [n.lineno for n in calls if getattr(n.func, "id", getattr(n.func, "attr", "")) in
-                  _WRITERS | {"restore", "vacuum", "compact", "z_order", "apply", "_write", "_publish", "write"}]
-        assert all(asked < line for line in writes), name
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+        calls = {c.func.id for c in ast.walk(fn) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+        assert "prod_refusal" in calls, f"lakehouse.{name} no longer asks prod_refusal"
 
 
-def test_the_static_check_finds_a_new_delta_write(tmp_path, monkeypatch):
-    """The check itself: a module that writes a Delta table directly is reported."""
-    (tmp_path / "fabric_desktop").mkdir()
-    (tmp_path / "fabric_desktop" / "sneaky.py").write_text(
-        "from deltalake import DeltaTable, write_deltalake\n"
-        "def f(uri, data):\n    write_deltalake(uri, data, mode='overwrite')\n"
-        "def g(uri):\n    DeltaTable(uri).delete('id = 1')\n", encoding="utf-8")
-    monkeypatch.setattr(sys.modules[__name__], "PACKAGE", tmp_path / "fabric_desktop")
-    assert _delta_calls() == Counter({"sneaky.py": 2})
+# ---- a warehouse script: every kind of write is a change, never a read
+
+WAREHOUSE_WRITES = {
+    "CTAS": "CREATE TABLE dbo.t AS SELECT 1 AS a",
+    "SELECT INTO": "SELECT a INTO dbo.t2 FROM dbo.t",
+    "SELECT INTO a temp table": "SELECT a INTO #t FROM dbo.t",
+    "COPY INTO": "COPY INTO dbo.t FROM 'https://x.blob.core.windows.net/c/f.csv'",
+    "MERGE": "MERGE dbo.t AS t USING dbo.s AS s ON t.a = s.a WHEN MATCHED THEN UPDATE SET t.b = s.b;",
+    "TRUNCATE": "TRUNCATE TABLE dbo.t",
+    "DROP": "DROP TABLE dbo.t",
+    "DROP IF EXISTS": "DROP TABLE IF EXISTS dbo.t",
+    "INSERT": "INSERT INTO dbo.t SELECT * FROM dbo.s",
+    "UPDATE": "UPDATE dbo.t SET a = 1",
+    "DELETE": "DELETE FROM dbo.t",
+    "a write after a CTE": "WITH c AS (SELECT 1 AS a) DELETE FROM dbo.t WHERE a IN (SELECT a FROM c)",
+    "ALTER": "ALTER TABLE dbo.t ADD c INT",
+    "CREATE VIEW": "CREATE VIEW dbo.v AS SELECT 1 AS a",
+    "CREATE PROCEDURE": "CREATE PROCEDURE dbo.p AS SELECT 1",
+    "EXEC of a procedure": "EXEC dbo.p",
+    "dynamic SQL": "EXEC('DROP TABLE dbo.t')",
+    "sp_executesql": "EXEC sp_executesql N'DROP TABLE dbo.t'",
+    "sp_rename": "EXEC sp_rename 'dbo.t', 't2'",
+    "a write after a comment": "/* report */ DROP TABLE dbo.t",
+    "a write after a line comment": "-- report\nDROP TABLE dbo.t",
+    "a write after a read": "SELECT 1; DROP TABLE dbo.t",
+    "a write in a later batch": "SELECT 1\nGO\nDROP TABLE dbo.t",
+    "a write after a semicolon": ";DROP TABLE dbo.t",
+    "a write in IF": "IF 1 = 1 DROP TABLE dbo.t",
+    "a write in BEGIN ... END": "BEGIN DROP TABLE dbo.t END",
+    "a write in TRY": "BEGIN TRY DROP TABLE dbo.t END TRY BEGIN CATCH END CATCH",
+    "a write in WHILE": "WHILE 1 = 0 DELETE FROM dbo.t",
+    "UPDATE STATISTICS": "UPDATE STATISTICS dbo.t",
+    "a clone": "CREATE TABLE dbo.c AS CLONE OF dbo.t",
+    "INSERT ... EXEC": "INSERT INTO dbo.t EXEC dbo.p",
+}
+
+
+@pytest.mark.parametrize("sql", WAREHOUSE_WRITES.values(), ids=WAREHOUSE_WRITES.keys())
+def test_a_warehouse_write_is_never_run_as_a_read(sql):
+    try:
+        found = warehouse.verdicts(sql)
+    except ValueError:
+        return  # not readable, so it isn't shown to only read and doesn't run
+    assert any(v.kind != "read_only" for v in found), found
+
+
+@pytest.mark.parametrize("sql", WAREHOUSE_WRITES.values(), ids=WAREHOUSE_WRITES.keys())
+def test_with_changes_allowed_a_warehouse_write_is_a_change_or_refused(sql):
+    found = warehouse.verdicts(sql, writes=True)
+    assert found[-1].kind in ("warehouse_write", "fabric_mutation"), found
+
+
+# ---- Save as table: the engine checks the typed name before it replaces a table
+
+@pytest.fixture
+def saving(tmp_path, monkeypatch):
+    from fabric_desktop import lakehouse, sql
+    svc = Service(root=tmp_path / "app")
+    written: list[tuple[str, str]] = []
+    monkeypatch.setattr(svc, "_attach", lambda ref: None)
+    monkeypatch.setattr(sql, "run", lambda query, dialect: query)
+    monkeypatch.setattr(lakehouse, "table_exists", lambda table: table == "dbo.sales")
+
+    class Written:
+        def __init__(self, table):
+            self.table, self.rows = table, 1
+
+        def __repr__(self):
+            return f"wrote {self.table}"
+    monkeypatch.setattr(lakehouse, "write_table", lambda data, table, mode: written.append((table, mode)) or Written(table))
+    return svc, written
+
+
+def test_replacing_a_table_without_its_typed_name_writes_nothing(saving):
+    svc, written = saving
+    with pytest.raises(PermissionError, match="type its name"):
+        svc.save_sql("SELECT 1", {}, "dbo.sales", mode="overwrite")
+    with pytest.raises(PermissionError, match="type its name"):
+        svc.save_sql("SELECT 1", {}, "dbo.sales", mode="overwrite", confirm_name="dbo.Sales")  # exactly
+    assert written == []
+
+
+def test_replacing_a_table_with_its_typed_name_writes_it(saving):
+    svc, written = saving
+    assert svc.save_sql("SELECT 1", {}, "dbo.sales", mode="overwrite", confirm_name="dbo.sales")["table"] == "dbo.sales"
+    assert written == [("dbo.sales", "overwrite")]
+
+
+def test_a_new_table_and_an_append_need_no_name(saving):
+    svc, written = saving
+    assert svc.save_sql("SELECT 1", {}, "dbo.sales") == {"table": "dbo.sales", "exists": True}
+    svc.save_sql("SELECT 1", {}, "dbo.fresh")
+    svc.save_sql("SELECT 1", {}, "dbo.sales", mode="append")
+    svc.save_sql("SELECT 1", {}, "dbo.other", mode="overwrite")  # not there yet, so nothing is replaced
+    assert written == [("dbo.fresh", "overwrite"), ("dbo.sales", "append"), ("dbo.other", "overwrite")]
+
+
+def test_an_unknown_mode_is_refused(saving):
+    svc, written = saving
+    with pytest.raises(ValueError, match="mode must be"):
+        svc.save_sql("SELECT 1", {}, "dbo.sales", mode="replace")
+    assert written == []
+
+
+# ---- Save as table in a workspace marked Prod asks for the workspace's name, as a cell's change does (WR-249)
+
+@pytest.fixture
+def in_prod(saving, monkeypatch):
+    from types import SimpleNamespace
+
+    from fabric_desktop import lakehouse
+    svc, written = saving
+    svc.prod_workspaces_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.prod_workspaces_file.write_text('{"prod": ["ws-prod"]}', encoding="utf-8")
+    monkeypatch.setattr(lakehouse, "_attached", SimpleNamespace(workspace_id="WS-PROD", workspace_name="Sales Prod"))
+    return svc, written
+
+
+def test_in_prod_a_new_table_waits_for_the_workspaces_name(in_prod):
+    svc, written = in_prod
+    assert svc.save_sql("SELECT 1", {}, "dbo.fresh") == {"table": "dbo.fresh", "exists": False, "prod": "Sales Prod"}
+    assert svc.save_sql("SELECT 1", {}, "dbo.sales") == {"table": "dbo.sales", "exists": True, "prod": "Sales Prod"}
+    assert svc.save_sql("SELECT 1", {}, "dbo.fresh", confirm_name="dbo.fresh")["prod"] == "Sales Prod"  # not the table's
+    assert written == []
+    svc.save_sql("SELECT 1", {}, "dbo.fresh", confirm_name="Sales Prod")
+    assert written == [("dbo.fresh", "overwrite")]
+
+
+def test_in_prod_new_never_replaces_even_with_the_workspaces_name(in_prod):
+    svc, written = in_prod
+    assert svc.save_sql("SELECT 1", {}, "dbo.sales", confirm_name="Sales Prod")["exists"] is True
+    assert written == []
+
+
+@pytest.mark.parametrize("mode", ["overwrite", "append"])
+@pytest.mark.parametrize("typed", ["", "dbo.sales", "sales prod", "Sales Prod "])
+def test_in_prod_any_write_without_the_workspaces_exact_name_is_refused(in_prod, mode, typed):
+    svc, written = in_prod
+    with pytest.raises(PermissionError, match="Sales Prod is a Prod workspace, so writing dbo.sales there runs only "
+                                              "after you type the workspace's name"):
+        svc.save_sql("SELECT 1", {}, "dbo.sales", mode=mode, confirm_name=typed)
+    assert written == []
+
+
+@pytest.mark.parametrize("mode", ["overwrite", "append"])
+def test_in_prod_the_workspaces_name_lets_a_write_and_a_replace_run(in_prod, mode):
+    svc, written = in_prod
+    svc.save_sql("SELECT 1", {}, "dbo.sales", mode=mode, confirm_name="Sales Prod")
+    assert written == [("dbo.sales", mode)]
+
+
+def test_a_workspace_not_marked_prod_keeps_the_tables_name_check(saving, monkeypatch):
+    from types import SimpleNamespace
+
+    from fabric_desktop import lakehouse
+    svc, written = saving
+    monkeypatch.setattr(lakehouse, "_attached", SimpleNamespace(workspace_id="ws-dev", workspace_name="Sales Dev"))
+    with pytest.raises(PermissionError, match="type its name"):
+        svc.save_sql("SELECT 1", {}, "dbo.sales", mode="overwrite", confirm_name="Sales Dev")
+    svc.save_sql("SELECT 1", {}, "dbo.sales", mode="overwrite", confirm_name="dbo.sales")
+    assert written == [("dbo.sales", "overwrite")]
+
+
+def test_the_page_asks_for_the_workspaces_name_in_prod():
+    text = (PACKAGE.parents[1] / "app" / "ui" / "query.js").read_text(encoding="utf-8")
+    assert "typeToConfirm: ws" in text and "confirm_name: ws }" in text
+
+
+def test_the_page_sends_the_typed_name_with_a_replace():
+    text = (PACKAGE.parents[1] / "app" / "ui" / "query.js").read_text(encoding="utf-8")
+    assert 'mode: "overwrite", dialect: tab.dialect, confirm_name: name }' in text
+    assert 'typeToConfirm: name' in text
+
+
+# ---- a job never writes a workspace named Prod, with a project open or not
+
+def test_a_job_never_writes_a_workspace_remembered_as_prod_with_no_project_open(tmp_path, monkeypatch):
+    svc = Service(root=tmp_path / "app")
+    svc.prod_workspaces_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.prod_workspaces_file.write_text('{"prod": ["ws-prod"]}', encoding="utf-8")
+    ran: list[object] = []
+    monkeypatch.setattr(publish, "run_local", lambda job: ran.append(job))
+    from fabric_desktop.jobs import Job, Target
+    job = Job("j", "sql", tmp_path, Target("WS-PROD", "LH_Gold", "t"), sql="SELECT 1")
+    with pytest.raises(PermissionError, match="named Prod by a project opened on this PC"):
+        publish.run_job(job, None, lambda: "tok", tmp_path, guard=svc._job_guard)
+    assert not ran
+    assert svc._job_guard("ws-scratch", "LH_Scratch", "dbo", "t") is None  # any other workspace, as before

@@ -971,6 +971,7 @@ When a project runs a T-SQL script on this PC, it runs as a batch does in a Fabr
 | What | Here, as in a warehouse |
 | --- | --- |
 | Several statements, or `GO` on a line of its own | Run in order. `GO` splits the script into batches |
+| A statement that fails part way, or is stopped | Changes no rows. An `INSERT`, `UPDATE`, `DELETE` or `SELECT ... INTO` that fails part way through its rows, or is stopped in the middle, leaves the table as it was, as a warehouse rolls back a statement that fails |
 | An error part way through | The script stops at that statement. The error names it and says what ran: "Statement 2 of 3 (SELECT) failed: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run." |
 | `UPDATE ... SET v = v + 'x'` | The `SET` values and the `WHERE` of an `UPDATE` or `DELETE` follow T-SQL's types, as a `SELECT` does: two texts are joined, and text compares without its trailing spaces (`WHERE v = 'b'` finds `'b  '`) |
 

@@ -37,7 +37,7 @@ from .meta import testing as testing_mod
 from .meta import varlib as varlib_mod
 from .notebookutils_local import FROM_KEY
 from .meta.engine import _wm_text
-from .meta.project import ENVIRONMENTS, GateError, prod_name, prod_typed
+from .meta.project import ENVIRONMENTS, GateError
 from .meta.store import OneLakeStore
 from .onelake import TableCatalog
 from .redact import describe, one_line
@@ -116,7 +116,7 @@ class EstateMixin:
             restores = []
         return {"entity": name, "env": env, "retention_days": days, "layer": e.layer, "versions": versions,
                 "restores": restores, "downstream": impact(project, name),
-                **({"confirm_name": prod_name(project)} if env == "prod" else {}),
+                **({"confirm_name": name_} if (name_ := self._confirm_name(project, env)) else {}),  # type: ignore[attr-defined]
                 "incremental": e.mode == "incremental" and bool(e.spec.get("load", {}).get("watermark"))}
 
     def meta_restore(self, name: str, env: str, version: int, reason: str = "",
@@ -131,7 +131,8 @@ class EstateMixin:
             errors, _ = self._duties_gate(project, env, env, separation=False)  # type: ignore[attr-defined]
             if errors:
                 raise GateError("restore", errors)
-        prod_typed(project, env, confirm_name, f"restoring {name} there", "Nothing was restored.")
+        self._confirm_typed(project, env, confirm_name, f"restoring {name} there",  # type: ignore[attr-defined]
+                           "Nothing was restored.")
         e, store, uri = self._entity_uri(project, name, env)
         result = restore_mod.restore(uri, store.options(), int(version),
                                      {"fabric_desktop_restored_to": str(version),

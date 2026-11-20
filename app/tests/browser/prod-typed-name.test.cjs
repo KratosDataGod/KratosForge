@@ -12,10 +12,10 @@ const PROJECT = { environments: { dev: {},
 layers: [{ lakehouse: "LH_Gold" }] };
 
 const apps = [];
-async function open() {
+async function open(check = {}) {
   const sent = [];
   const app = await openApp({ mocks: {
-    meta_promote_check: () => ({ errors: [], notes: [], version: "1.4.0" }),
+    meta_promote_check: (p) => ({ errors: [], notes: [], version: "1.4.0", ...(check[p.target] || {}) }),
     meta_promote_impact: () => ({}),
     meta_last_release: () => null,
     meta_promote: (p) => { sent.push(p); return { version: "1.4.0" }; },
@@ -76,4 +76,17 @@ test("Promote to Test asks for no name", { skip }, async () => {
   await page.click("#env-under-test button:has-text('Promote to Test')");
   await until(() => sent.length > 0);
   assert.deepStrictEqual(sent, [{ source: "dev", target: "test" }]);
+});
+
+test("Promote to a Test workspace another project named Prod waits for that workspace's name (WR-251)", { skip }, async () => {
+  const { page, sent } = await open({ test: { confirm_name: "Sales Test" } });
+  await page.locator("#env-under-test .pass-box").first().waitFor();  // the gate check has answered
+  await page.click("#env-under-test button:has-text('Promote to Test')");
+  const confirm = page.getByRole("dialog", { name: "Promote to Test?" });
+  await confirm.waitFor();
+  assert.match(await confirm.innerText(), /on Sales Test, and its next runs use it\. Sales Test is another project's Prod workspace on this PC\./);
+  await confirm.getByRole("textbox", { name: "Type Sales Test to confirm" }).fill("Sales Test");
+  await confirm.getByRole("button", { name: "Promote" }).click();
+  await until(() => sent.length > 0);
+  assert.deepStrictEqual(sent, [{ source: "dev", target: "test", confirm_name: "Sales Test" }]);
 });

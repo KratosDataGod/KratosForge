@@ -14,6 +14,7 @@ when it opens, and any tables are gone. Nothing here needs a Fabric sign-in or c
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -88,7 +89,9 @@ class Project:
         new projects were kept out of it); then in this PC's temp folder, so OneDrive isn't uploading them."""
         from .. import known_folders
         if known_folders.in_onedrive(self.root):
-            return Path(tempfile.gettempdir()) / "kratosforge-local" / self.id / "tmp"
+            # named by the folder, not the id project.json gives, so an edited id can't point anywhere else
+            key = hashlib.sha256(os.path.normcase(os.path.abspath(self.root)).encode("utf-8")).hexdigest()[:16]
+            return Path(tempfile.gettempdir()) / "kratosforge-local" / key / "tmp"
         return self.root / "tmp"
 
     def source(self, path: str) -> Source | None:

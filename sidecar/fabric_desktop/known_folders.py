@@ -107,8 +107,8 @@ def _registry_onedrive() -> list[Path]:
                         value, _kind = winreg.QueryValueEx(key, "UserFolder")
                 except OSError:
                     continue
-                if isinstance(value, str) and value.strip():
-                    found.append(Path(value.strip()))
+                if isinstance(value, str) and value.strip() and Path(value.strip()).is_absolute():
+                    found.append(Path(value.strip()))  # a relative one would resolve against the start folder
     except OSError:  # OneDrive was never set up for this user
         return []
     return found

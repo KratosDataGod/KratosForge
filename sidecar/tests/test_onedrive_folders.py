@@ -64,8 +64,9 @@ def test_a_new_repository_in_onedrive_is_refused(home):
 
 def test_a_local_data_project_already_in_onedrive_spills_to_the_pc_s_temp(home, tmp_path):
     from fabric_desktop.localdata.projects import Project
-    moved = Project(id="sales", name="Sales", folder=str(home / "OneDrive" / "sales"), storage="persistent")
-    assert not known_folders.in_onedrive(moved.temp_dir) and moved.temp_dir.parts[-2:] == ("sales", "tmp")
+    moved = Project(id="..\\..\\x", name="Sales", folder=str(home / "OneDrive" / "sales"), storage="persistent")
+    assert not known_folders.in_onedrive(moved.temp_dir) and moved.temp_dir.name == "tmp"
+    assert moved.temp_dir.parent.parent.name == "kratosforge-local" and ".." not in moved.temp_dir.parts  # not by id
     here = Project(id="sales", name="Sales", folder=str(tmp_path / "sales"), storage="persistent")
     assert here.temp_dir == tmp_path / "sales" / "tmp"
 
@@ -134,3 +135,26 @@ def test_a_new_metadata_project_defaults_out_of_onedrive_and_refuses_onedrive(ho
 def test_ready_to_work_is_ok_when_nothing_is_in_onedrive(home, tmp_path):
     row = readiness.onedrive_check({"The app's data folder": str(tmp_path / "app")})
     assert row["status"] == "ok" and row["key"] == "onedrive"
+
+
+def test_a_relative_onedrive_account_folder_is_ignored(home, monkeypatch):
+    monkeypatch.setattr(known_folders.sys, "platform", "linux")  # the registry read itself is Windows only
+    assert known_folders._registry_onedrive() == []
+
+
+def test_a_copy_that_fails_part_way_leaves_nothing_in_the_profile(home, tmp_path, monkeypatch):
+    from fabric_desktop import meta_service
+    from fabric_desktop.service import Service
+    old = home / "OneDrive - Contoso" / "Documents" / "FabricDesktop" / "metadata"
+    old.mkdir(parents=True)
+    (old / "layers.toml").write_text("", encoding="utf-8")
+    monkeypatch.setattr(known_folders, "documents", lambda: home / "OneDrive - Contoso" / "Documents")
+
+    def full_disk(src, dst, symlinks=False):
+        Path(dst).mkdir(parents=True)
+        (Path(dst) / "half").write_text("x", encoding="utf-8")
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(meta_service.shutil, "copytree", full_disk)
+    svc = Service(root=tmp_path / "app")
+    assert svc._out_of_onedrive(str(old)) == str(old)
+    assert not (home / "KratosForge").exists() or not any((home / "KratosForge").iterdir())

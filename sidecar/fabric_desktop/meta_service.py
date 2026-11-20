@@ -203,6 +203,11 @@ class MetaMixin:
         except OSError as exc:
             _log.warning("Couldn't copy the metadata project out of OneDrive (%s to %s); it stays where it is: %s",
                          path, new, describe_error(exc))
+            try:
+                if work.exists():
+                    trees.remove(work)  # a part copy (a full disk, a junction loop) isn't left in the profile
+            except OSError as left:
+                _log.warning("Couldn't remove the part copy %s: %s", work, describe_error(left))
             return path
         self._save_settings(meta_project=str(new), meta_project_moved_from=path)
         _log.info("Copied the metadata project out of OneDrive, from %s to %s. The original is left as it was.", path, new)

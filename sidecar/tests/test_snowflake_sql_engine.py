@@ -149,6 +149,7 @@ def test_nothing_is_sent_without_an_authorization_for_this_account_and_warehouse
     ("MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN DELETE", "MERGE"), ("CALL p()", "CALL"),
     ("GRANT ROLE a TO USER b", "GRANT"), ("COPY INTO t FROM @s", "COPY"), ("SELECT * INTO t FROM x", "SELECT ... INTO"),
     ("ALTER WAREHOUSE w SUSPEND", "ALTER"), ("TRUNCATE TABLE t", "TRUNCATE"), ("USE ROLE x", "USE"),
+    ("SELECT * FROM t FOR UPDATE", "SELECT ... FOR UPDATE"),
 ])
 def test_write_statements_are_refused_by_name_before_any_request(code, name):
     fake = FakeSnowflake()
@@ -170,6 +171,25 @@ def test_unreadable_sql_and_system_functions_are_refused_too():
     with pytest.raises(Unsupported, match="no SQL"):
         run(s, "-- nothing\n;")
     assert fake.calls == []
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT 1 ->> DELETE FROM t", "SHOW GRANTS ->> GRANT ROLE x TO USER y",
+    "EXPLAIN USING TEXT SELECT 1 ->> DELETE FROM t", "SHOW TABLES ->> SELECT * FROM $1",
+    "DESC TABLE t ->> DELETE FROM t", "EXPLAIN SELECT 1 ->> DELETE FROM t",
+])
+def test_a_flow_operator_chain_is_refused_before_any_request(code):
+    fake = FakeSnowflake()
+    s = open_session(fake)
+    with pytest.raises(Unsupported, match="chains statements on Snowflake"):
+        run(s, code)
+    assert fake.calls == []
+
+
+def test_flow_operator_text_in_strings_and_comments_is_not_a_chain():
+    assert sw.read_only_statements("SELECT '->>' AS a -- ->> b") == ["SELECT '->>' AS a -- ->> b"]
+    assert sw.read_only_statements("SHOW TABLES LIKE '->>'") == ["SHOW TABLES LIKE '->>'"]
+    assert sw.read_only_statements("EXPLAIN USING TEXT SELECT '->>'") == ["EXPLAIN USING TEXT SELECT '->>'"]
 
 
 def test_read_only_statements_pass_as_written():

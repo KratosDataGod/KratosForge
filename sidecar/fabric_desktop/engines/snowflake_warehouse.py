@@ -96,6 +96,27 @@ def _first_word(text: str) -> str:
     return word.group(1).upper() if word else "This statement"
 
 
+def _flow_chain(text: str) -> bool:
+    """Whether ``text`` holds Snowflake's flow operator ``->>``, which chains statements, outside strings
+    and comments. A command's tail (EXPLAIN ...) comes back from the tokenizer as one string, so it is
+    read again. SQL the tokenizer can't read counts as a chain, so it is refused."""
+    from sqlglot.dialects.snowflake import Snowflake
+    from sqlglot.errors import TokenError
+    from sqlglot.tokens import TokenType
+
+    try:
+        tokens = Snowflake().tokenize(text)
+    except TokenError:  # unreadable SQL is refused, never guessed read-only
+        return True
+    for i, token in enumerate(tokens):
+        if token.token_type == TokenType.DARROW:
+            return True
+        if (token.token_type == TokenType.COMMAND and i + 1 < len(tokens)
+                and tokens[i + 1].token_type == TokenType.STRING and _flow_chain(tokens[i + 1].text)):
+            return True
+    return False
+
+
 def read_only_statements(code: str) -> list[str]:
     """``code``'s statements, each checked read-only. Raises Unsupported, naming the statement, for
     anything else, and for SQL sqlglot can't read, before anything is sent."""
@@ -105,6 +126,9 @@ def read_only_statements(code: str) -> list[str]:
     from .databricks_sql import split_statements
     out = []
     for text in split_statements(code, "snowflake"):
+        if _flow_chain(text):
+            raise Unsupported("->> chains statements on Snowflake, and this engine runs one read-only statement at "
+                              "a time for now. Run each statement on its own, or run the chain in Snowsight.")
         try:
             tree = sqlglot.parse_one(text, read="snowflake")
         except Exception:  # noqa: BLE001 - unreadable SQL is refused, never guessed read-only
@@ -114,6 +138,8 @@ def read_only_statements(code: str) -> list[str]:
             isinstance(tree, exp.Command) and str(tree.this).upper() in ("SHOW", "DESCRIBE", "DESC", "EXPLAIN"))
         if isinstance(tree, exp.Select) and tree.args.get("into"):
             name = "SELECT ... INTO"
+        elif isinstance(tree, exp.Query) and tree.args.get("locks"):
+            name = "SELECT ... FOR UPDATE"
         elif not query:
             name = str(tree.this).upper() if isinstance(tree, exp.Command) else _first_word(text)
             if name in ("WITH", "This statement"):

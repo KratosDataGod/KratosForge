@@ -116,7 +116,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** browser test, accessibility check.
 - **Owner:** UX thread (mockup), this thread (build).
 
-### CP-011 Environment cost beside savings (P1)
+### CP-011 Environment cost beside savings (P1) **Built** (engine only, #3137)
 - **Problem:** environment operating cost isn't shown or separated from savings (gap G6).
 - **User value:** honest net figures (scenario 10).
 - **Evidence:** `fdopt_sync`, Measured overhead rows from `optimize_service._record_overhead`.

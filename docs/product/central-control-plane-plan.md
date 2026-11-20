@@ -1,6 +1,6 @@
 # Central control plane: Phase 0 audit, gap analysis and target architecture
 
-Status: Phase 1 engine built (CP-001 to CP-009, #3110, #3121, #3131), with no UI yet. Owner: Central control plane thread.
+Status: Phase 1 engine built (CP-001 to CP-009, #3110, #3121, #3131) and the environment's own cost (CP-011, #3137), with no UI yet. Owner: Central control plane thread.
 
 Approval: Chris's master prompt of 2026-11-19 is his go for Phase 0 and for Phase 1 engine code
 (CP-001 to CP-009). It is not a go for anything that needs its own approval: new UI (CP-010) is built

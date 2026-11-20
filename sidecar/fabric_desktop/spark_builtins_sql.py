@@ -1830,7 +1830,8 @@ def _time_field(field: str) -> Callable[..., exp.Expression | None]:
             return _with_args(plain, args)  # TIMESTAMP'...', a cast to a timestamp or date: never text
         # TYPEOF is fixed when DuckDB plans the query, so a timestamp column runs the plain branch only
         text = "CAST(fj_arg0 AS VARCHAR)"
-        return _with_args(f"CASE WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN COALESCE({plain}, CASE WHEN REGEXP_FULL_MATCH("
+        # read once: the CASE names its argument five times, so nested calls would multiply its SQL
+        return _read_once(f"CASE WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN COALESCE({plain}, CASE WHEN REGEXP_FULL_MATCH("
                           f"{text}, '{_TIME_ONLY}') THEN {field}(TRY_CAST(LTRIM(TRIM({text}), 'T') AS TIME)) END) "
                           f"ELSE {plain} END", args)
     return build

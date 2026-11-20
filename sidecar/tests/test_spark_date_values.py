@@ -71,6 +71,20 @@ def test_hour_minute_and_second_read_text_that_is_a_time_of_day(spark):
                       "hour('2024-05-17 13:45:12'), hour('x'), hour('25:00:00')") == (13, 12, 9, 45, 13, None, None)
 
 
+def test_nested_hour_minute_and_second_read_their_argument_once():
+    # the text branch names its argument several times: bound once, nesting stays linear
+    import time
+
+    from fabric_desktop import sql
+    query = "t"
+    for fn in ("second", "minute", "hour") * 2:  # six deep: tens of seconds when its SQL multiplied
+        query = f"{fn}({query})"
+    start = time.perf_counter()
+    got = sql.run(f"SELECT {query} n, hour(upper(t)) h FROM VALUES ('13:45:12'), ('x') v(t)").to_pylist()
+    assert time.perf_counter() - start < 10
+    assert got == [{"n": None, "h": 13}, {"n": None, "h": None}]
+
+
 def test_from_and_to_utc_timestamp_take_a_zone_written_as_an_offset(spark):
     assert one(spark, "SELECT to_utc_timestamp(TIMESTAMP'2024-05-17 12:00:00', 'GMT+2'), "
                       "from_utc_timestamp(TIMESTAMP'2024-05-17 12:00:00', 'UTC+05:30'), "

@@ -25,7 +25,7 @@ from deltalake.exceptions import TableNotFoundError
 from .. import delta_profile, delta_read, durable
 from ..errors import NotSetUp
 from ..leases import LeaseBusy, LeaseLost, Leases, LocalBackend, check_held, table_key
-from ..retrying import local_retry, staged_commit_race
+from ..retrying import commit_conflict, local_retry, lost_commit, staged_commit_race
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
 
@@ -321,8 +321,11 @@ class Store:
                                     if metadata or retries else None)
                     break
                 except OSError as exc:  # on Windows that same race can surface as the staged commit refused
-                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 or not staged_commit_race(exc):
+                    if not staged_commit_race(exc):
                         raise
+                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1:
+                        # Nothing was committed: the conflict delta-rs reports elsewhere, in its own type.
+                        raise commit_conflict(f"{schema}.{table}'s next version") from exc
                     time.sleep(0.05 * (attempt + 1))
                 except CommitFailedError as exc:
                     # Two first appends to a table not made yet each create it; the one that loses is
@@ -395,6 +398,8 @@ class Store:
                 self.last_cleanup = self._remove_unwritten(lakehouse, schema, table, before, read_version)
             if read_version is None and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
+            if (conflict := lost_commit(exc, f"{schema}.{table}'s next version")) is not None:
+                raise conflict from exc  # Windows: lost the staged-commit race; nothing was committed
             raise
         return self._committed(uri, target if isinstance(target, DeltaTable) else DeltaTable(uri, storage_options=self.options()))
 

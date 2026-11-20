@@ -812,43 +812,48 @@ def _graph(project: Project) -> dict[str, list[str]]:
 
 
 def find_cycle(project: Project) -> list[str] | None:
+    """The first cycle a depth-first walk in name order finds, from where it closes back to it, or None.
+    Iterative, with its own stack, so a long chain of tables never reaches Python's recursion limit."""
     graph = _graph(project)
-    state: dict[str, int] = {}
-    stack: list[str] = []
-
-    def visit(n: str) -> list[str] | None:
-        state[n] = 1
-        stack.append(n)
-        for m in graph[n]:
-            if state.get(m) == 1:
-                return stack[stack.index(m):] + [m]
-            if m not in state and (c := visit(m)):
-                return c
-        stack.pop()
-        state[n] = 2
-        return None
-
-    for n in sorted(graph):
-        if n not in state and (c := visit(n)):
-            return c
+    state: dict[str, int] = {}  # 1 on the current path, 2 done
+    for start in sorted(graph):
+        if start in state:
+            continue
+        state[start] = 1
+        path, todo = [start], [iter(graph[start])]
+        while todo:
+            m = next(todo[-1], None)
+            if m is None:
+                state[path.pop()] = 2
+                todo.pop()
+            elif state.get(m) == 1:
+                return path[path.index(m):] + [m]
+            elif m not in state:
+                state[m] = 1
+                path.append(m)
+                todo.append(iter(graph[m]))
     return None
 
 
 def run_order(project: Project) -> list[str]:
+    """Every entity after what it reads, depth first in layer then name order. Iterative, as find_cycle."""
     graph = _graph(project)
     out: list[str] = []
     seen: set[str] = set()
-
-    def visit(n: str) -> None:
-        if n in seen:
-            return
-        seen.add(n)
-        for m in graph[n]:
-            visit(m)
-        out.append(n)
-
-    for n in sorted(graph, key=lambda n: (project._layer_pos(project.entities[n]), n)):
-        visit(n)
+    for start in sorted(graph, key=lambda n: (project._layer_pos(project.entities[n]), n)):
+        if start in seen:
+            continue
+        seen.add(start)
+        path, todo = [start], [iter(graph[start])]
+        while todo:
+            m = next(todo[-1], None)
+            if m is None:
+                out.append(path.pop())
+                todo.pop()
+            elif m not in seen:
+                seen.add(m)
+                path.append(m)
+                todo.append(iter(graph[m]))
     return out
 
 

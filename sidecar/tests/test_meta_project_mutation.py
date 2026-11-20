@@ -406,3 +406,48 @@ def test_the_run_order_is_given_whatever_other_problems_the_project_has(proj):
     s = proj.summary(TODAY)
     assert "gold.fact_sales: needs an owner" in s["errors"]
     assert s["run_order"] == P.run_order(proj) and len(s["run_order"]) == 6
+
+
+def with_graph(proj, edges):
+    """The project's entities replaced by ones that read only what ``edges`` gives, in that order."""
+    proj.entities = {n: P.Entity(n, {"hooks": {"reads": r}}, proj.entities_dir / f"{n}.toml") for n, r in edges.items()}
+    return proj
+
+
+@pytest.mark.parametrize(("edges", "order", "cycle"), [
+    ({"gold.z": ["silver.b", "silver.a"], "silver.b": ["bronze.y"], "silver.a": ["bronze.y", "bronze.x"],
+      "bronze.y": [], "bronze.x": [], "other.q": ["gold.z"], "bronze.lone": []},
+     ["bronze.lone", "bronze.x", "bronze.y", "silver.a", "silver.b", "gold.z", "other.q"], None),
+    ({"bronze.top": ["gold.b", "gold.a"], "gold.b": ["silver.d"], "gold.a": ["silver.c", "silver.d"],
+      "silver.c": [], "silver.d": []},
+     ["silver.d", "gold.b", "silver.c", "gold.a", "bronze.top"], None),
+    ({"bronze.a": ["silver.b"], "silver.b": ["silver.c"], "silver.c": ["gold.d"], "gold.d": ["silver.b"], "bronze.e": []},
+     ["gold.d", "silver.c", "silver.b", "bronze.a", "bronze.e"], ["silver.b", "silver.c", "gold.d", "silver.b"]),
+    ({"silver.m": ["silver.n", "bronze.k"], "silver.n": ["silver.m"], "bronze.k": ["gold.j"], "gold.j": ["bronze.k"]},
+     ["gold.j", "bronze.k", "silver.n", "silver.m"], ["bronze.k", "gold.j", "bronze.k"]),
+    ({"bronze.s": ["bronze.s", "bronze.nowhere"], "silver.t": ["bronze.s"]}, ["bronze.s", "silver.t"], None),
+])
+def test_order_and_cycles_on_small_graphs_are_pinned(proj, edges, order, cycle):
+    with_graph(proj, edges)
+    assert P.run_order(proj) == order
+    assert P.find_cycle(proj) == cycle
+
+
+def chain(n):
+    # Each reads the next, so the names sort the opposite way to the order they run in.
+    return {f"silver.t{i:04d}": [f"silver.t{i + 1:04d}"] if i + 1 < n else [] for i in range(n)}
+
+
+def test_a_chain_of_five_thousand_tables_runs_in_order(proj):
+    with_graph(proj, chain(5000))
+    assert P.run_order(proj) == [f"silver.t{i:04d}" for i in reversed(range(5000))]
+    assert P.find_cycle(proj) is None
+
+
+@pytest.mark.parametrize("n", [3, 5000])
+def test_a_long_cycle_is_named_like_a_short_one(proj, n):
+    edges = chain(n)
+    edges[f"silver.t{n - 1:04d}"] = ["silver.t0000"]
+    with_graph(proj, edges)
+    assert P.find_cycle(proj) == [f"silver.t{i:04d}" for i in range(n)] + ["silver.t0000"]
+    assert P.run_order(proj) == [f"silver.t{i:04d}" for i in reversed(range(n))]

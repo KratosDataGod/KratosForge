@@ -132,7 +132,8 @@ def test_runs_that_dont_count_are_left_out_with_the_reason():
             fr("f", 99, 13, workload_key="ws-1/nb-other"),
             fr("g", 99, 14, ran="pc"),
             fr("h", 99, 5, month=9),
-            fr("i", 99, 1, month=11),  # the window's end is exclusive
+            fr("i", 99, 1, month=11),
+            fr("m", 99, 1, month=11, at=END),  # the window's end is exclusive
             fr("j", 99, 15, input_scope=None),
             fr("k", 99, 16, kind=ms.UNKNOWN),
             fr("l", 99, 17, at=None)]
@@ -143,6 +144,7 @@ def test_runs_that_dont_count_are_left_out_with_the_reason():
                    "e": "A different input scope (lh-1:sales/2025 instead of lh-1:sales/2026).",
                    "f": "A different workload (ws-1/nb-other instead of ws-1/nb-sales).",
                    "g": "It didn't run in Fabric.", "h": "It ran outside the window.", "i": "It ran outside the window.",
+                   "m": "It ran outside the window.",
                    "j": "The input scope wasn't recorded, so it can't be matched.", "k": "Its CU isn't known.",
                    "l": "It has no run time, so it can't be placed in the window."}
 
@@ -361,3 +363,26 @@ def test_the_rows_match_the_lakehouse_tables():
     v = bl.validate("opt-1", old, AFTERS, outputs_match=True)
     assert set(v["row"]) == set(schema.TABLES_V2["validation"])
     assert v["row"]["result"] in bl.RESULTS
+
+
+def test_one_run_read_in_cu_hours_and_again_in_cu_seconds_is_refused():
+    hours = fr("a", 1.0)
+    seconds = fr("a", 1.0) | {"cu": cu(1.0, run_id="a", unit=ms.CU_SECONDS)}
+    for order in ([hours, seconds, fr("b", 2), fr("c", 3)], [seconds, hours, fr("b", 2), fr("c", 3)]):
+        with pytest.raises(ValueError, match="different CU figures"):
+            base(order)
+    same = fr("a", 1.0) | {"cu": cu(3600.0, run_id="a", unit=ms.CU_SECONDS)}
+    assert base([hours, same, fr("b", 2), fr("c", 3)])["row"]["runs"] == 3  # the same figure in either unit
+
+
+def test_a_cu_figure_without_a_measurement_id_is_refused():
+    r = fr("a", 10)
+    r["cu"] = {k: v for k, v in r["cu"].items() if k != "id"}
+    with pytest.raises(ValueError, match="no measurement id"):
+        base([r, fr("b", 12), fr("c", 9)])
+
+
+def test_an_estimated_increase_is_validating_not_regressed():
+    est = [after(n, 15, d, kind=ms.ESTIMATED) for n, d in (("x", 3), ("y", 4), ("z", 5))]
+    v = bl.validate("opt-1", base(), est, outputs_match=True)
+    assert v["result"] == bl.VALIDATING and "estimate" in v["reason"]

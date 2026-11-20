@@ -23,8 +23,9 @@ for a change that doesn't touch the definition, such as table maintenance). The 
 
 - **Failed** when the outputs differ (``outputs_match=False``), whatever the CU did.
 - **Validating** while the before isn't known, there are fewer than ``min_runs`` usable after runs,
-  either side is only an estimate, or the outputs weren't compared and nobody said why they can't be.
-- **Regressed** when a run uses more after the change than before it. The optimization moves back
+  either side is only an estimate (an estimated increase included), or the outputs weren't compared
+  and nobody said why they can't be.
+- **Regressed** when measured CU shows a run uses more after the change than before it. The optimization moves back
   to Validating.
 - **Verified** only when the before and after are both measured, the after isn't higher, and the
   outputs matched or the caller stated why output equivalence can't be measured.
@@ -130,8 +131,7 @@ def _unique(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             raise ValueError("Every run needs its run_id.")
         seen = out.get(rid)
         if seen is not None:
-            if (seen.get("cu") or {}).get("value") != (r.get("cu") or {}).get("value") or \
-                    (seen.get("cu") or {}).get("classification") != (r.get("cu") or {}).get("classification"):
+            if cu_of(seen.get("cu"), f"CU of run {rid}") != cu_of(r.get("cu"), f"CU of run {rid}"):
                 raise ValueError(f"Run {rid} appears twice with different CU figures. Keep one.")
             continue
         out[rid] = r
@@ -193,6 +193,8 @@ def _checked_runs(runs: list[dict[str, Any]], key: dict[str, Any], window: tuple
         why = ""
         at = ms.parse_time(r.get("at"))
         match = comparable(key, r)
+        if cu is not None and not str((r.get("cu") or {}).get("id") or "").strip():
+            raise ValueError(f"The CU of {what} run {rid} has no measurement id, so it can't be traced.")
         if rid in skip:
             why = "It is part of the before baseline, so it can't also be an after run."
         elif r.get("ran") not in (None, "", "fabric"):
@@ -368,10 +370,11 @@ def validate(optimization_id: str, before: dict[str, Any], after_runs: list[dict
         result, reason = VALIDATING, f"The before baseline isn't known: {before['cu'].get('reason')}"
     elif a_cls == ms.UNKNOWN:
         result, reason = VALIDATING, after["reason"]
+    elif delta["classification"] != ms.MEASURED:
+        result, reason = VALIDATING, ("The before or after is only an estimate. Verifying, or calling it a "
+                                      "regression, needs measured CU.")
     elif delta["direction"] == "increase":
         result, reason = REGRESSED, "A run uses more CU after the change than before it."
-    elif delta["classification"] != ms.MEASURED:
-        result, reason = VALIDATING, "The before or after is only an estimate; verifying needs measured CU."
     elif outputs_match is None and not (outputs_not_measurable or "").strip():
         result, reason = VALIDATING, "The outputs weren't compared, and nothing says why they can't be."
     else:

@@ -730,7 +730,17 @@ def _strposition(node: exp.Expression, args: list[exp.Expression]) -> exp.Expres
     find = node.args.get("substr")
     if start is None or find is None or (isinstance(find, exp.Literal) and find.is_string and find.name):
         return None
-    return _with_args("CASE WHEN fj_arg0 = '' AND fj_arg1 >= 1 THEN 1 ELSE fj_arg2 END", [find, start, node.copy()])
+    # The node names fj_arg0 and fj_arg1 itself, so _with_args sees each read twice and binds a big one once:
+    # nested locate(b, locate(...), 2) grows linearly with its depth, not 3x per level.
+    inner = node.copy()
+    inner.set("substr", exp.column("fj_arg0"))
+    inner.set("position", exp.column("fj_arg1"))
+    template = cast(exp.Expression, sqlglot.parse_one("CASE WHEN fj_arg0 = '' AND fj_arg1 >= 1 THEN 1 ELSE fj_arg2 END",
+                                                      read="duckdb"))
+    for column in list(template.find_all(exp.Column)):
+        if column.name == "fj_arg2":
+            column.replace(inner)
+    return _with_args(template, [find, start])
 
 
 _CONCAT_WS_NESTED = ("concat_ws() takes only text or arrays of text, and this is a map or struct, so nothing ran on "
@@ -741,19 +751,36 @@ _CONCAT_WS_NESTED = ("concat_ws() takes only text or arrays of text, and this is
 def refuse_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
     """concat_ws of a map or struct refused by name, as Spark refuses it ([DATATYPE_MISMATCH]); DuckDB wrote its own
     text of it ({'a': 1}). Run on the Spark tree as read, before its parts are cast to text: a part that isn't a
-    literal or an array is checked by its DuckDB type when the query runs."""
+    literal or an array is checked by its DuckDB type when the query runs (check_nested_concat_ws)."""
     for node in list(statement.find_all(exp.ConcatWs)):
         for part in list(node.expressions)[1:]:
             if isinstance(part, (exp.Struct, exp.Map, exp.VarMap)):
                 raise ValueError(_CONCAT_WS_NESTED)
             from .spark_strings import _ARRAYS
+            if isinstance(part, _ARRAYS) and any(isinstance(e, (exp.Struct, exp.Map, exp.VarMap))
+                                                 for e in part.expressions):
+                raise ValueError(_CONCAT_WS_NESTED)  # array(named_struct(...)): Spark refuses array<struct> too
+    return statement
+
+
+def check_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
+    """concat_ws's parts that aren't literals or arrays, checked by their DuckDB type when the query runs (a
+    map or struct column is refused as refuse_nested_concat_ws refuses a written one). sql.spark_fixes runs it
+    once the names the person wrote are checked, since it adds a lambda of its own (kf_cw)."""
+    from .spark_strings import _ARRAYS
+    for node in list(statement.find_all(exp.ConcatWs)):
+        for part in list(node.expressions)[1:]:
             if isinstance(part, (exp.Literal, exp.Null, exp.Cast, exp.TryCast, *_ARRAYS)):
                 continue  # an array call stays as it is: spark_strings joins its elements
-            kind = exp.Anonymous(this="TYPEOF", expressions=[part.copy()])
-            nested = exp.or_(exp.Like(this=kind, expression=exp.Literal.string("STRUCT(%")),
-                             exp.Like(this=kind.copy(), expression=exp.Literal.string("MAP(%")))
-            refuse = exp.Anonymous(this="ERROR", expressions=[exp.Literal.string(_CONCAT_WS_NESTED)])
-            part.replace(exp.Case(ifs=[exp.If(this=nested, true=refuse)], default=part.copy()))
+            # The part is read once, through a lambda, so nested concat_ws doesn't repeat it at each level.
+            check = sqlglot.parse_one(
+                "(LIST_TRANSFORM([fj_part], kf_cw -> CASE WHEN TYPEOF(kf_cw) LIKE 'STRUCT(%' OR TYPEOF(kf_cw) "
+                "LIKE 'MAP(%' THEN ERROR(fj_why) ELSE kf_cw END))[1]", read="duckdb")
+            why = next(c for c in check.find_all(exp.Column) if c.name == "fj_why")
+            why.replace(exp.Literal.string(_CONCAT_WS_NESTED))
+            slot = next(c for c in check.find_all(exp.Column) if c.name == "fj_part")
+            part.replace(check)
+            slot.replace(part)
     return statement
 
 

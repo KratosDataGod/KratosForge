@@ -89,6 +89,12 @@ def _refuse(name: str, why: str, instead: str = "") -> Callable[..., exp.Express
     return refuse
 
 
+def _sql_keywords(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+    raise ValueError("sql_keywords() can't run on this PC the way it runs in Fabric, because this PC doesn't have "
+                     "Spark's list of SQL keywords and which of them are reserved, so nothing ran. Run the cell in "
+                     "Fabric.")
+
+
 # base64 takes bytes, and text as its UTF-8 bytes (a NULL of no type is NULL); any other type is refused, as in
 # Spark. Spark 3.5 writes it as MIME does (spark.sql.chunkBase64String.enabled): a line break (CR LF) after
 # every 76 characters. Databricks SQL keeps one line.
@@ -309,6 +315,8 @@ _TYPE_NAMES = [("TINYINT", "tinyint"), ("SMALLINT", "smallint"), ("BIGINT", "big
 def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
     if len(args) != 1:
         return None
+    if isinstance(args[0], exp.Anonymous) and args[0].name.upper() in ("RAISE_ERROR", "ERROR"):
+        return exp.Literal.string("void")  # Spark names raise_error's type without running it
     # A scalar type, or a list of one (INTEGER[] -> array<int>); deeper types in lower case.
     # A struct or map is named from its type where spark_complex_types can work it out; otherwise refused.
     stop = ("'typeof() can''t run on this PC the way it runs in Fabric, because the struct or map''s type "
@@ -1186,6 +1194,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **{name: _refuse(name.lower(), _JAVA) for name in ("JAVA_METHOD", "REFLECT")},
     **{name: _refuse(name.lower(), _INPUT_FILE) for name in ("INPUT_FILE_NAME", "INPUT_FILE_BLOCK_LENGTH",
                                                              "INPUT_FILE_BLOCK_START")},
+    "SQL_KEYWORDS": _sql_keywords,
     "SPARK_PARTITION_ID": _refuse("spark_partition_id", "this PC doesn't split a query's rows into Spark "
                                   "partitions, so there is no partition number to give."),
     # Increasing and unique, as Spark promises (its values have gaps between partitions), as
@@ -1690,8 +1699,9 @@ def _grouping_id(node: exp.Expression) -> exp.Expression | None:
 
 
 def _any(node: exp.Expression) -> exp.Expression | None:
-    """any(col) as an aggregate (not ``x = ANY (subquery)``)."""
-    if isinstance(node.parent, (exp.Binary, exp.Predicate)) and not isinstance(node.parent, (exp.And, exp.Or)):
+    """any(col) as an aggregate (not ``x = ANY (subquery)`` or ``s LIKE ANY ('a%', 'b%')``). Spark's quantifier
+    takes a subquery, or a list after LIKE, so ``any(x) = true`` and ``true = any(x)`` are the aggregate."""
+    if isinstance(node.parent, (exp.Like, exp.ILike)) and node.arg_key != "this":
         return None
     inner = node.this.this if isinstance(node.this, exp.Paren) else node.this
     if isinstance(inner, (exp.Subquery, exp.Select, exp.Query)):

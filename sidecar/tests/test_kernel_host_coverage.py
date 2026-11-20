@@ -24,6 +24,7 @@ from fabric_desktop import (
     net_trust,
     notebook,
     proof_runtime,
+    secret_redaction,
 )
 
 
@@ -682,9 +683,9 @@ def test_main_says_ready_answers_requests_and_ends_when_stdin_closes(
     process.feed.close()
     process.thread.join(5)
     assert process.exits == [0]
-    assert (
-        process.seen["stdout"] is process.stdout
-    )  # print() in a cell goes to stderr's descriptor
+    # print() in a cell goes to stderr's descriptor, past the redaction sidecar.log needs (secret_redaction.py)
+    assert isinstance(process.seen["stdout"], secret_redaction.RedactedStream)
+    assert process.seen["stdout"].stream is process.stdout
     assert process.seen["stdin"].read() == ""
 
 

@@ -41,6 +41,7 @@ NOT_CALLED: dict[str, str] = {
     "duckdb.org": _LINK,
     "kratosdatagod.github.io": _LINK,  # the KratosForge docs site, cited in assessment findings
     "learn.microsoft.com": _LINK,
+    "raw.githubusercontent.com": _LINK,  # ossie_validate/ossie_profiles: where each vendored Ossie schema came from
     "spark.apache.org": _LINK,
     "www.apache.org": _LINK,  # licence text in vendored code
     "evil.example": _EXAMPLE,  # a docstring on how a lookalike host is refused

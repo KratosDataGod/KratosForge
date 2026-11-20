@@ -49,6 +49,7 @@ from . import notebook_resources
 from . import magics
 from . import history
 from . import write_queue
+from . import secret_redaction
 from .frames import Frames, pandas_table, type_name
 from .redact import describe
 
@@ -75,6 +76,14 @@ _RESEND_SECONDS = 0.5
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
                 "SSL_CERT_FILE", "SSL_CERT_DIR"}
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
+
+
+def _redacted(text: str) -> str:
+    """``text`` without anything credential-shaped (redact.secrets) or any value dbutils.secrets read."""
+    from .redact import secrets
+    return secret_redaction.redact(secrets(text))
+
+
 # The last SQL cell's result, which Databricks' later SQL cells can read by name
 # (https://docs.databricks.com/aws/en/notebooks/notebooks-code). Quoted strings are matched only to
 # be skipped (an unclosed one runs to the end, in linear time), so the text '_sqldf' in a string or a
@@ -380,6 +389,7 @@ class _Run:
         self.stream_chars = self.rich_chars = self.spill_chars = 0
         self.spill: Path | None = None
         self.spill_file: Any = None
+        self._spill_held = ""  # the end of the printed text, until the next write shows it isn't half a secret
         self.overflowed = self.rich_dropped = False
 
     @property
@@ -404,6 +414,7 @@ class _Run:
     def write(self, text: str) -> None:
         if not text:
             return
+        text = secret_redaction.redact(text)  # before the overflow file can keep it
         with self.lock:
             if self.clear_pending:
                 self._reset()
@@ -446,7 +457,17 @@ class _Run:
         self._spill(shown[:len(shown) - room] + text)
 
     def _spill(self, text: str) -> None:
-        """Printed text after the cap goes to the file, until it holds SPILL_CHARS."""
+        """Printed text after the cap goes to the file, until it holds SPILL_CHARS. A secret printed in
+        pieces (secret_redaction.py) is redacted whole: the last characters, as many as could start one,
+        wait for the next write, or for the cell to finish."""
+        if self.spill_file is None:
+            return
+        text = secret_redaction.redact(self._spill_held + text)
+        hold = min(len(text), secret_redaction.longest() - 1) if secret_redaction.active() else 0
+        text, self._spill_held = (text[:-hold], text[-hold:]) if hold > 0 else (text, "")
+        self._spill_out(text)
+
+    def _spill_out(self, text: str) -> None:
         if self.spill_file is None:
             return
         room = SPILL_CHARS - self.spill_chars
@@ -507,6 +528,8 @@ class _Run:
 
     def finish(self, status: str) -> None:
         with self.lock:
+            held, self._spill_held = self._spill_held, ""
+            self._spill_out(held)
             if self.spill_file is not None:
                 with contextlib.suppress(OSError):
                     self.spill_file.close()
@@ -525,13 +548,14 @@ class _Run:
                     "outputs": None}
             if changed:
                 self._join()
-                snap["outputs"] = list(self._outputs)
+                # A secret split over two prints, or inside a rich output, is caught here.
+                snap["outputs"] = secret_redaction.redact_output(list(self._outputs))
             if self.watches is not None:
-                snap["watches"] = list(self.watches)
+                snap["watches"] = secret_redaction.redact_output(list(self.watches))
             if progress is not None:
                 snap["progress"] = progress
             if self.debugger is not None:
-                snap["paused"] = self.paused
+                snap["paused"] = secret_redaction.redact_output(self.paused)
             if (onelake := self.onelake.as_dict()) is not None:
                 snap["onelake"] = onelake
             return snap
@@ -544,13 +568,13 @@ class _OutputSink:
         self.out = out
 
     def write(self, text: str) -> None:
-        self.out._write(text)
+        self.out._write(secret_redaction.redact(text))
 
     def add(self, output: dict[str, Any]) -> None:
-        self.out._add(output)
+        self.out._add(secret_redaction.redact_output(output))
 
     def replace(self, display_id: str, output: dict[str, Any]) -> None:
-        self.out._replace(display_id, output)
+        self.out._replace(display_id, secret_redaction.redact_output(output))
 
     def clear(self, wait: bool = False) -> None:
         self.out.clear_output(wait)
@@ -882,25 +906,26 @@ class Kernel:
                 return {"gone": True, "message": WIDGET_GONE}
             w = widgets.registry.get(root or model)
             return {"status": status["value"], "outputs": run.snapshot()["outputs"],
-                    "view": widgets.view(w) if w is not None else None}
+                    "view": secret_redaction.redact_output(widgets.view(w)) if w is not None else None}
         finally:
             self._widget_lock.release()
 
     def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
                    desc: bool = False, q: str = "", filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        return self.frames.page(frame, offset, limit, sort, desc, q, filters)
+        # A secret in the data is [REDACTED] on every page, as in the first one the cell's output shows.
+        return secret_redaction.redact_output(self.frames.page(frame, offset, limit, sort, desc, q, filters))
 
     def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
-        return self.frames.chart(frame, **spec)
+        return secret_redaction.redact_output(self.frames.chart(frame, **spec))
 
     def frame_profile(self, frame: str) -> dict[str, Any]:
-        return self.frames.profile(frame)
+        return secret_redaction.redact_output(self.frames.profile(frame))
 
     def frame_wrangle(self, frame: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
-        return self.frames.wrangle(frame, steps, name)
+        return secret_redaction.redact_output(self.frames.wrangle(frame, steps, name))
 
     def frame_query_profile(self, frame: str) -> dict[str, Any]:
-        return self.frames.query_profile(frame)
+        return secret_redaction.redact_output(self.frames.query_profile(frame))
 
     def frame_download(self, frame: str, format: str, path: str, raw: bool = False) -> dict[str, Any]:  # noqa: A002 - RPC name
         return self.frames.download(frame, format, path, raw=raw)
@@ -990,8 +1015,7 @@ class Kernel:
         run.guest = getattr(self._local, "guest", None)
         run.notebook = self.notebook_name
         if lines or step:
-            from .redact import secrets
-            run.debugger = Debugger(lines, step, self._frame_row, redact=secrets, watches=watches,
+            run.debugger = Debugger(lines, step, self._frame_row, redact=_redacted, watches=watches,
                                     on_change=run.set_paused)
             run.debugger.skip = set(self._base_namespace_keys())
         self._current = self._last_runs[run.guest] = run
@@ -1060,7 +1084,7 @@ class Kernel:
         run = self._current
         if run is None or run.done.is_set() or run.debugger is None or run.guest != getattr(self._local, "guest", None):
             raise RuntimeError("No cell is running under the debugger.")
-        return run.debugger.command(action, expression)
+        return secret_redaction.redact_output(run.debugger.command(action, expression))
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (used by tests and scripts)."""
@@ -1185,20 +1209,19 @@ class Kernel:
 
     def _watch(self, watches: list[str], run: _Run) -> None:
         """Evaluate each watch expression; Cancel stops the rest, which are reported as skipped."""
-        from .redact import secrets
         results: list[dict[str, Any]] = []
         for i, expr in enumerate(watches):
             started = time.monotonic()
             try:
                 value = eval(compile(expr, "<watch>", "eval"), self.namespace)  # noqa: S307 - the person's own notebook code
-                shown = "hidden" if self._hidden(expr, value) else secrets(_preview(value))
+                shown = "hidden" if self._hidden(expr, value) else _redacted(_preview(value))
                 results.append({"expr": expr, "value": shown, "type": type(value).__name__})
             except KeyboardInterrupt:
                 run.interrupted = True
                 results += [{"expr": e, "skipped": True} for e in watches[i:]]
                 break
             except Exception as exc:  # noqa: BLE001 - shown next to the watch
-                results.append({"expr": expr, "error": secrets(f"{type(exc).__name__}: {exc}")})
+                results.append({"expr": expr, "error": _redacted(f"{type(exc).__name__}: {exc}")})
             results[-1]["seconds"] = round(time.monotonic() - started, 3)
         with run.lock:
             run.watches = results
@@ -1745,7 +1768,7 @@ class Kernel:
         kind = type(value).__name__
         try:
             return {"name": name, "type": kind, "size": _size(value),
-                    "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
+                    "value": "hidden" if hidden else secret_redaction.redact(_preview(value)), "memory": _memory(value),
                     "expandable": not hidden and _expandable(value)}
         except Exception:  # noqa: BLE001  # silent-ok: a value that can't be described (a DuckDB relation over a dropped view) is listed by its type, so the rest of the pane still shows
             return {"name": name, "type": kind, "size": "", "value": "hidden" if hidden else "?",
@@ -1778,7 +1801,8 @@ class Kernel:
         else:
             return out
         out["items"] = [{"key": key, "type": type(v).__name__, "size": _size(v),
-                         "value": "hidden" if self._hidden(label, v) else _preview(v)} for key, label, v in entries]
+                         "value": "hidden" if self._hidden(label, v) else secret_redaction.redact(_preview(v))}
+                        for key, label, v in entries]
         out["total"] = len(value)
         return out
 
@@ -1787,6 +1811,8 @@ class Kernel:
         return ("input", "display", "displayHTML", "notebookutils", "mssparkutils", "dbutils", "spark", "In", "Out")
 
     def _hidden(self, name: str, value: Any) -> bool:
+        if isinstance(value, (bytes, bytearray)):  # dbutils.secrets.getBytes
+            value = bytes(value).decode("utf-8", errors="ignore")
         return bool(_SECRET_NAME.search(name)) or (isinstance(value, str) and value in self._secrets)
 
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
@@ -1849,13 +1875,13 @@ class Kernel:
         obj = self._lookup(name)
         if obj is _MISSING:
             return None
-        from .redact import secrets
-        # Credential-shaped text in a value or a default argument is removed, as in the Variables pane.
+        # Credential-shaped text in a value or a default argument is removed, as in the Variables pane,
+        # and so is a value dbutils.secrets read.
         out = intellisense.describe(name, obj, hidden=self._hidden(name.split(".")[-1], obj),
-                                    preview=lambda v: secrets(_preview(v)))
+                                    preview=lambda v: _redacted(_preview(v)))
         if "signature" in out:
-            out["signature"] = secrets(out["signature"])
-        return {**out, "from": start, "to": end}
+            out["signature"] = _redacted(out["signature"])
+        return {**secret_redaction.redact_output(out), "from": start, "to": end}
 
     def _lookup(self, dotted: str) -> Any:
         """The object a plain dotted name refers to, without calling anything (properties aren't run)."""
@@ -2246,7 +2272,7 @@ def _fs_magic(fs: Any, line: str) -> Any:
         return True  # as dbutils.fs.refreshMounts() on this PC
     if command not in _FS_USAGE:
         raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")
-    from .dbutils_local import fs_magic_path
+    from .dbutils_local import _file_info, fs_magic_path
     for path in args[:1] if command in ("put", "head") else args:
         try:
             fs_magic_path(path)  # bare absolute paths and dbfs:/ are Databricks storage, as in dbutils.fs
@@ -2256,9 +2282,10 @@ def _fs_magic(fs: Any, line: str) -> Any:
         raise ValueError(f"%fs {command} needs {_FS_USAGE[command]} path{'s' if _FS_USAGE[command] > 1 else ''}.")
     if command == "ls":
         import polars as pl
-        found = fs.ls(args[0] if args else "Files")
+        # As dbutils.fs.ls lists them, so a folder's name and path end with /, as in Databricks.
+        found = [_file_info(f) for f in fs.ls(args[0] if args else "Files")]
         return pl.DataFrame({"name": [f.name for f in found], "path": [f.path for f in found],
-                             "size": [f.size for f in found], "isDir": [f.isDir for f in found]},
+                             "size": [f.size for f in found], "isDir": [f.isDir() for f in found]},
                             schema={"name": pl.Utf8, "path": pl.Utf8, "size": pl.Int64, "isDir": pl.Boolean})
     if command == "head":
         print(fs.head(args[0], int(args[1]) if len(args) > 1 else 65536))

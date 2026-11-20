@@ -37,9 +37,9 @@ import pytest
 import uvicorn
 
 from fabric_desktop.integrations import peer
-from fabric_desktop.integrations.core import CODES, IntegrationError, validate
+from fabric_desktop.integrations.core import CODES, IntegrationError, redact_secrets, validate
 from fabric_desktop.integrations.http_server import STATUS, RateLimiter, build_app, server_config
-from fabric_desktop.integrations.registry import MAX_URI
+from fabric_desktop.integrations.registry import MAX_AUDITED_NAME, MAX_URI
 from fabric_desktop.integrations.store import IntegrationStore
 
 from test_integrations_audit_every_call import Tools
@@ -239,7 +239,9 @@ def check_ran(tools, before_calls, before_lines, ok_cap, line_cap, data, what):
         strict(calls[0][1])
     if line_cap is not None:
         [line] = tools.trail.lines[before_lines:]
-        assert line["capability"] == line_cap, (what, line["capability"], line_cap)
+        # A name that names no tool is the caller's text: redacted and cut to 200 on its line.
+        expect = line_cap if tools.reg.get(line_cap) is not None else redact_secrets(line_cap)[:MAX_AUDITED_NAME]
+        assert line["capability"] == expect, (what, line["capability"], expect)
         assert line["outcome"] == ("ok" if data["ok"] else data["error"]["code"]), (what, line, data)
 
 

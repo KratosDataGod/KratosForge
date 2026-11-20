@@ -97,6 +97,8 @@ def _redact(value: Any, blank: bool) -> Any:
     if isinstance(value, str):
         return REMOVED if blank else redact_secrets(value)
     if isinstance(value, dict):
+        # Two keys that redact to the same text keep one value: rare (a key holding a secret) and
+        # harmless, since less leaves, not more.
         return {redact_secrets(k) if isinstance(k, str) else k: _redact(v, blank or secret_key(k)) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_redact(v, blank) for v in value]

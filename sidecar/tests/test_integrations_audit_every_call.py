@@ -736,3 +736,19 @@ def test_a_sample_over_real_mcp_over_http_and_a_rest_client_that_hangs_up(store)
         [line] = tools.trail.since(mark, 1)
         assert (line["capability"], line["outcome"], line["client_id"], line["channel"]) == \
             ("fabric_desktop_list_receipts", "cancelled", client["id"], "api")
+
+
+def test_a_name_that_names_no_tool_is_redacted_and_capped_on_its_line():
+    """An unknown tool's name is the caller's text: on its audit line, secrets are taken out of it
+    and it is cut to 200 characters. A real tool's name is kept as it is."""
+    reg, _ = spied()
+    names = []
+    reg.audit = lambda ctx, cap_id, *line, **kw: names.append(cap_id)
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2lnbmF0dXJl"
+    for name in (f"Bearer {token}", "x" * 5000):
+        with pytest.raises(IntegrationError):
+            reg.invoke(object(), name, {}, CallContext(Caller("t", "test"), timeout=5))
+        reg.refused(CallContext(Caller("t", "test")), name, None, IntegrationError("invalid_input", "no"))
+    reg.invoke(object(), "fabric_desktop_get_status", {}, CallContext(Caller("t", "test"), timeout=5))
+    assert all(token not in n and len(n) <= 200 for n in names[:4]), names
+    assert names[-1] == "fabric_desktop_get_status"

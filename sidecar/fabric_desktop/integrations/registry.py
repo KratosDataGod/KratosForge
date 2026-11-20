@@ -34,7 +34,7 @@ from urllib.parse import quote, unquote
 
 from ..redact import describe
 from . import scope
-from .core import CallContext, IntegrationError, error_from, redact_result, redacted, run_call, validate
+from .core import CallContext, IntegrationError, error_from, redact_result, redact_secrets, redacted, run_call, validate
 
 _log = logging.getLogger(__name__)
 
@@ -158,6 +158,7 @@ def _check_schema(schema: Any, what: str, cap_id: str) -> None:
         raise ValueError(f"{cap_id}: {what} properties must be an object")
 
 
+MAX_AUDITED_NAME = 200  # characters of a name that names no tool, on its audit line
 _EXECUTION_ID = re.compile(r"ex_[0-9a-f]{20}")
 
 
@@ -367,6 +368,8 @@ class Registry:
     def _audit(self, ctx: CallContext, cap_id: str, *line: Any, stage: str = "") -> None:
         if self.audit is None:
             return
+        # The name is the caller's text when it names no tool (an unknown id, a refused request).
+        cap_id = redact_secrets(cap_id)[:MAX_AUDITED_NAME] if cap_id not in self._caps else cap_id
         try:
             if stage:
                 self.audit(ctx, cap_id, *line, stage=stage)

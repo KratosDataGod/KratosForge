@@ -65,6 +65,9 @@ CLAIMS: list[Claim] = [
                              "GROUP BY a, b WITH ROLLUP ORDER BY g DESC LIMIT 1"),
     # Regular expressions and text on this PC
     _nb("regexp_count('abc', '')"),
+    # CASE, coalesce and UNION result types (WR-259)
+    _nb("coalesce(1.0D, 'x')"),
+    _nb("coalesce(1L, 2.5)", typeof=True),
     _nb("chr(321)"),
     # Differential tests: fixed cases
     _nb("'24-02-29'", query="SELECT to_date('24-02-29')"),
@@ -134,6 +137,9 @@ ILLUSTRATIVE: dict[tuple[str, str], str] = {
 
 # Inline `SELECT ...` statements run as written (see Statement)
 STATEMENTS: list[Statement] = [
+    Statement(P, "SELECT 1L UNION ALL SELECT 1.5 UNION ALL SELECT 'x'", "notebook",
+              note="WR-259: one string column, '1.0', '1.5', 'x'"),
+    Statement(P, "SELECT 1 EXCEPT SELECT ' 1'", "local-tsql", note="WR-259: empty, ' 1' is the int 1"),
     Statement(P, "SELECT * FROM t", "local-tsql", setup=("CREATE TABLE dbo.t (a INT)",),
               note="a name without a schema reads dbo.t"),
 ]

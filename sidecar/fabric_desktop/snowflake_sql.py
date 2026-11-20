@@ -30,7 +30,7 @@ from sqlglot.errors import ParseError, SqlglotError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.19"
+RULES_VERSION = "2026.11.20"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -218,6 +218,30 @@ def _mixed_array(node: object) -> bool:
     else:
         return False
     return {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}
+
+
+def _set_leaves(node: exp.Expr) -> list[exp.Select]:
+    if isinstance(node, exp.Subquery):
+        return _set_leaves(node.this)
+    if isinstance(node, exp.SetOperation):
+        return _set_leaves(node.left) + _set_leaves(node.right)
+    return [node] if isinstance(node, exp.Select) else []
+
+
+def _mixed_set_column(node: object) -> bool:
+    """SFN-032: a UNION, INTERSECT or MINUS whose column has text written in one SELECT and a number in
+    another. Snowflake converts the text to a number (operators-query: a VARCHAR and an INTEGER column give
+    "Numeric value 'Smith, Jane' is not recognized"); DuckDB makes the column text, so '10' sorted before 9."""
+    if not isinstance(node, exp.SetOperation) or isinstance(node.parent, exp.SetOperation):
+        return False
+    leaves = _set_leaves(node)
+    if len({len(leaf.expressions) for leaf in leaves}) != 1:
+        return False
+    for i in range(len(leaves[0].expressions)):
+        values = [leaf.expressions[i] for leaf in leaves]
+        if {_scalar_kind(v.this if isinstance(v, exp.Alias) else v) for v in values} - {"null"} >= {"text", "number"}:
+            return True
+    return False
 
 
 _ONLY_IN_SNOWFLAKE = "Runs only in Snowflake"
@@ -416,6 +440,12 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                            "A DuckDB list holds values of one type, so an array written with both text and numbers "
                            "can't be made here. Cast them to one type (for example each value ::VARCHAR), or "
                            "build the array from a column.", f"{_DOCS}/functions/array_construct")
+        if _mixed_set_column(node):
+            return _refuse("SFN-032", "Text and numbers in one column of a UNION, INTERSECT or MINUS",
+                           "Snowflake converts the text to a number (and stops on text that isn't one), and DuckDB "
+                           "makes the column text, so the rows would sort and compare differently. Cast the column "
+                           "to one type in every SELECT (for example ::NUMBER or ::VARCHAR).",
+                           f"{_DOCS}/operators-query")
         if isinstance(node, exp.MatchRecognize):
             return _refuse("SFN-019", "MATCH_RECOGNIZE", "DuckDB has no row pattern matching.",
                            f"{_DOCS}/constructs/match_recognize")
@@ -2336,6 +2366,9 @@ CATALOG = (
                 "DuckDB's ALTER TABLE changes one column at a time and has no SWAP.")),
     ("SFN-030", "Runs only in Snowflake", ("CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits "
                 "the open transaction first, and DuckDB doesn't.")),
+    ("SFN-032", "Runs only in Snowflake", ("A UNION, INTERSECT or MINUS with text written in one SELECT and a number "
+                "in another in the same column: Snowflake converts the text to a number (and stops on text that isn't "
+                "one), and DuckDB makes the column text.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 

@@ -316,6 +316,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.3-q11",
+      "type": "single",
+      "stem": "At Marlow, a parent pipeline runs the sales load and then the returns load. Which dependency condition do you put on the connection from the sales load to the returns load?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Succeeded"
+        },
+        {
+          "id": "b",
+          "text": "Completed"
+        },
+        {
+          "id": "c",
+          "text": "Failed"
+        },
+        {
+          "id": "d",
+          "text": "Skipped"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With Completed, the next activity runs when the previous one ends as either succeeded or failed. Succeeded and Failed each cover only one outcome, and Skipped runs only when the previous activity never ran.",
+      "source": "https://learn.microsoft.com/en-us/azure/data-factory/concepts-pipelines-activities",
+      "case": "marlow-sales",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

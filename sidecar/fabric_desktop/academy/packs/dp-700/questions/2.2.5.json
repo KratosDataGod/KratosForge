@@ -314,6 +314,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.5-q11",
+      "type": "single",
+      "stem": "At Quarry Hill, how do you configure the Copy activities for the rows that don't fit?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Raise the degree of copy parallelism so that bad rows are retried apart"
+        },
+        {
+          "id": "b",
+          "text": "Turn on staging, and set intelligent throughput optimization to Maximum"
+        },
+        {
+          "id": "c",
+          "text": "Turn on fault tolerance to skip incompatible rows, with logging left off"
+        },
+        {
+          "id": "d",
+          "text": "Turn on fault tolerance to skip incompatible rows, and turn on logging"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Fault tolerance lets the copy ignore errors such as rows incompatible with the destination, and logging records the copied files and the skipped files and rows. Without logging the team can't see which rows were left out. Staging, throughput and parallelism only change speed.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "case": "quarry-hill-monitoring",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

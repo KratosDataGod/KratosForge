@@ -319,6 +319,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.1-q11",
+      "type": "single",
+      "stem": "At Quarry Hill, both Copy activities succeeded one night but the notebook failed, and its bug is now fixed. How do you finish that run without repeating the two-hour copies?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Open the pipeline run's details and rerun the pipeline from the failed activity"
+        },
+        {
+          "id": "b",
+          "text": "Run the whole pipeline on demand again as soon as the bug fix has been saved"
+        },
+        {
+          "id": "c",
+          "text": "Wait for tonight's scheduled run, which picks up from where last night stopped"
+        },
+        {
+          "id": "d",
+          "text": "Turn on fault tolerance in both Copy activities and then run the pipeline again"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "In the pipeline run detail view you can rerun the pipeline from the failed activity or a selected activity, so the copies that succeeded aren't repeated. Running the whole pipeline repeats them, and a scheduled run is a new run that starts from the beginning.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitoring-hub-pipeline-runs",
+      "case": "quarry-hill-monitoring",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

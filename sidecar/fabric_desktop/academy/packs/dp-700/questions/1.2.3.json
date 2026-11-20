@@ -317,6 +317,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.3-q11",
+      "type": "single",
+      "stem": "At Tidewater, the release manager, who owns LoadShipments in Ship-Prod, adds a default lakehouse rule to it in the Production stage. When does Ship-Prod's notebook start using the lakehouse the rule names?",
+      "options": [
+        {
+          "id": "a",
+          "text": "At the next deployment to the Production stage"
+        },
+        {
+          "id": "b",
+          "text": "After Ship-Prod is unassigned and assigned again"
+        },
+        {
+          "id": "c",
+          "text": "The next time LoadShipments runs on its schedule"
+        },
+        {
+          "id": "d",
+          "text": "As soon as the rule is saved in the Production stage"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Deployment rules take effect the next time you deploy to that stage, and from then on deployed content gets the value the rule sets. Unassigning and reassigning a workspace doesn't apply rules; it deletes the rules for that workspace.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/create-rules",
+      "case": "tidewater-releases",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

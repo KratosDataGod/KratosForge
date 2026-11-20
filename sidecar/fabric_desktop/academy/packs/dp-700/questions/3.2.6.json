@@ -316,6 +316,70 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.6-q11",
+      "type": "single",
+      "stem": "At Quillon, after the column grants are in place, an adjuster's saved query `SELECT * FROM dbo.Claims` fails with Msg 230, The SELECT permission was denied on the column 'FraudScore'. What should change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The adjuster should name only the columns they were granted in the query's SELECT list"
+        },
+        {
+          "id": "b",
+          "text": "The adjuster should rerun the query later, because Msg 230 is a transient connection error"
+        },
+        {
+          "id": "c",
+          "text": "The data team should add a filter predicate on FraudScore to the existing security policy"
+        },
+        {
+          "id": "d",
+          "text": "The adjuster should get Read all data using SQL on ClaimsDW so that SELECT * works again"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "With column-level security, a query that includes a column the user can't read fails rather than skipping that column, and SELECT * includes it. Naming the granted columns fixes it. Read all data using SQL would give the adjuster every column, including FraudScore, which the case forbids.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/column-level-security",
+      "case": "quillon-claims",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.2.6-q12",
+      "type": "single",
+      "stem": "At Marlow, why do the sales load and the returns load conflict even though they never change the same rows?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Snapshot isolation is off by default in the warehouse, so the readers block the writers in FactSales"
+        },
+        {
+          "id": "b",
+          "text": "The returns load's UPDATE takes row locks that the sales load's MERGE has to wait for until the lock request times out"
+        },
+        {
+          "id": "c",
+          "text": "MERGE statements always create new Parquet files, which can't conflict, so the cause is somewhere else"
+        },
+        {
+          "id": "d",
+          "text": "The warehouse checks write-write conflicts at table level, so two transactions that change FactSales can conflict"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The warehouse uses table-level locking, so transactions that modify different rows of the same table can still conflict; the first to commit wins and the other is rolled back. MERGE causes write-write conflicts even when it only appends. Running the loads one after the other avoids the conflict.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/transactions",
+      "case": "marlow-sales",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

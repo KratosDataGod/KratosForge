@@ -1250,6 +1250,13 @@ def _user_size(arg: exp.Expression) -> exp.Expression:
     return size
 
 
+# shiftrightunsigned (>>> in Java): the bits move as an unsigned long or int, by the count mod 64 or 32
+_SHIFT_UNSIGNED = ("CASE WHEN TYPEOF(fj_arg0) = 'BIGINT' THEN CAST(CASE WHEN fj_arg1 % 64 = 0 "
+                   "THEN fj_arg0::HUGEINT ELSE (fj_arg0::HUGEINT & 18446744073709551615) >> (fj_arg1 % 64) END AS BIGINT) "
+                   "ELSE CAST(CASE WHEN fj_arg1 % 32 = 0 THEN fj_arg0::BIGINT "
+                   "ELSE (fj_arg0::BIGINT & 4294967295) >> (fj_arg1 % 32) END AS INTEGER) END")
+_shift_unsigned = _template(_SHIFT_UNSIGNED, 2)
+
 _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **_AGGREGATES,
     "ARRAY_REPEAT": _template("CASE WHEN fj_arg1 IS NULL THEN NULL ELSE LIST_TRANSFORM(RANGE(GREATEST(fj_arg1, 0)), "
@@ -1283,7 +1290,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "MASK": _mask,
     "OCTET_LENGTH": _octet_length,
     "POSITIVE": _template("(+fj_arg0)", 1),
-    "SHIFTRIGHTUNSIGNED": lambda n, a: None if len(a) != 2 else _int_when_int(exp.paren(_shift_unsigned(n, a)), a[0]),
+    "SHIFTRIGHTUNSIGNED": lambda n, a: None if (u := _shift_unsigned(n, a)) is None else _int_when_int(exp.paren(u), a[0]),
     "TIMESTAMP_MICROS": _timestamp_from(1),
     "TIMESTAMP_MILLIS": _timestamp_from(1000),
     "TIMESTAMP_SECONDS": _timestamp_from(1000000),
@@ -1400,13 +1407,6 @@ def _shift(left: bool) -> Callable[..., exp.Expression | None]:
                                                   f"ELSE {_shift_sql(left, 32)} END", operands)), node.this)
     return build
 
-
-# shiftrightunsigned (>>> in Java): the bits move as an unsigned long or int, by the count mod 64 or 32
-_SHIFT_UNSIGNED = ("CASE WHEN TYPEOF(fj_arg0) = 'BIGINT' THEN CAST(CASE WHEN fj_arg1 % 64 = 0 "
-                   "THEN fj_arg0::HUGEINT ELSE (fj_arg0::HUGEINT & 18446744073709551615) >> (fj_arg1 % 64) END AS BIGINT) "
-                   "ELSE CAST(CASE WHEN fj_arg1 % 32 = 0 THEN fj_arg0::BIGINT "
-                   "ELSE (fj_arg0::BIGINT & 4294967295) >> (fj_arg1 % 32) END AS INTEGER) END")
-_shift_unsigned = _template(_SHIFT_UNSIGNED, 2)
 
 
 def _int_when_int(new: exp.Expression, value: exp.Expression) -> exp.Expression:

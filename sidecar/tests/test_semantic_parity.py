@@ -416,7 +416,8 @@ def test_ossie_text_and_a_kind_named_by_the_caller_are_read():
     ({"version": "0.1.1", "semantic_model": [5]}, None), ({"model": 5}, "tmsl"), ({"a.tmdl": 5}, None),
     ({"definition/model.tmdl": "model Model\n"}, "sql"), (_bim(), "tmdl"), ("x" * (model_ossie.MAX_CHARS + 1), None),
     ({"definition.pbism": "{}"}, "tmdl"),
-])
+], ids=lambda v: None if v is None or len(repr(v)) <= 40 else f"{type(v).__name__}-{len(repr(v))}-chars")
+# Short ids: pytest puts the id in PYTEST_CURRENT_TEST, and a 20 MB id stalls a Windows runner (32 KB env limit).
 def test_bad_input_is_test_failed_with_the_reason_never_an_exception(left, kind):
     report = _assert_l1(sp.parity_l1(left, _bim(), left_kind=kind))
     assert report["summary"] == sp.TEST_FAILED

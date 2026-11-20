@@ -5994,6 +5994,30 @@ test("the Ossie card exports, previews and imports only after a confirm, and hid
   assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
 });
 
+test("the semantic view publish-steps card reads the saved files and writes nothing to Fabric (OSSIE-005b)", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("// ---------- Fabric Semantic View: the publish steps")[1].split("// ---------- profiling ----------")[0];
+  assert.match(card, /preview\("semanticView", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    ossieCard\(plan\),\n    semanticViewCard\(plan\),\n/, "the card sits under the Apache Ossie card");
+  for (const method of ["meta_model_semantic_view_status", "meta_model_semantic_view_reveal", "meta_model_semantic_view_save", "meta_model_ossie_folders"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // Only these engine calls: nothing that reaches Fabric.
+  const called = new Set([...card.matchAll(/(?:rpc|metaCall)\("(\w+)"/g)].map(([, m]) => m));
+  assert.deepStrictEqual([...called].sort(), ["meta_model_ossie_folders", "meta_model_semantic_view_reveal", "meta_model_semantic_view_save", "meta_model_semantic_view_status"]);
+  // Save view files: the write carries confirmed and the preview's token only after confirmDialog said yes, danger when it deletes.
+  const save = card.split("async function svSaveFiles(")[1].split("\n}\n")[0];
+  assert.ok(save.indexOf("confirmDialog(") < save.indexOf("confirmed: true"), "confirm comes before the write");
+  assert.match(save, /if \(!ok\) return;/);
+  assert.match(save, /\{ danger: removed\.length > 0 \}/);
+  assert.match(save, /token: c\.token/);
+  // Every Learn link is a literal learn.microsoft.com URL, opened through open_link.
+  const urls = [...card.matchAll(/"(https:\/\/[^"]+)"/g)].map(([, u]) => new URL(u).hostname);
+  assert.ok(urls.length >= 8 && urls.every((h) => h === "learn.microsoft.com"), urls.join(", "));
+  assert.match(card, /onclick: \(e\) => \{ e\.preventDefault\(\); openLink\(url\); \}/);
+  assert.doesNotMatch(card, /publishes the view for you|KratosForge publishes/i, "never says the app publishes");
+});
+
 test("the Direct Lake check is a Preview card that only reads, with fixes that open where the change is made", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const card = meta.split("function directLakeCard(plan, updateModel)")[1].split("// ---------- Apache Ossie")[0];
@@ -6155,16 +6179,18 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
     trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
-    lineage: ["Column lineage", "Impact of a column change"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    lineage: ["Column lineage", "Impact of a column change", "Export lineage as OpenLineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
-      "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
-    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"], ossie: ["Ossie file to TMDL"],
+    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
+    semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],
+    kfEnvironment: ["KratosForge Environment"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -6599,6 +6625,11 @@ const FABRIC_WRITES = {
   appstudio_publish: ["appstudio.js", "page", null],
   // Settings' Motion sample also starts a run, but only Wait and SetVariable steps on this PC (checked below)
   pipeline_run_start: ["pipelines.js", "page", null],
+  // Settings > Environment (CP-010): shown only with preview features on, its heading tagged Preview
+  cp_create: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_adopt: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_connect: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_upgrade: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
   optimize_create: ["optimize.js", "page", null],
   optimize_connect: ["optimize.js", "page", null],
   optimize_set_recommendation: ["optimize.js", "page", null],
@@ -6625,6 +6656,7 @@ const FABRIC_WRITES = {
 };
 // Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
 const FABRIC_READS = {
+  meta_openlineage_export: "reads the run log; writes a new file in Downloads, nothing in Fabric",
   list_capacities: "reads", list_files: "reads", list_items: "reads", list_lakehouses: "reads", list_tables: "reads",
   list_workspaces: "reads", readiness_check: "reads only, never opens a sign-in window", sign_in: "gets a token",
   wh_monitoring_view: "reads the monitoring database", appstudio_plan: "asks the person's model; nothing goes to Fabric",

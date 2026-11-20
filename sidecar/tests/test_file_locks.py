@@ -91,15 +91,33 @@ def test_a_refusal_windows_doesnt_code_as_a_held_file_is_raised_as_it_was(tmp_pa
     assert caught.value is original
 
 
+_HOLD = """\
+import sys, time
+for _ in range(100):
+    try:
+        f = open(sys.argv[1], "rb")
+        break
+    except PermissionError:
+        time.sleep(0.1)
+else:
+    raise SystemExit("the file stayed locked")
+print("open", flush=True)
+sys.stdin.read()
+"""
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows' Restart Manager")
 def test_windows_names_the_process_that_has_the_file_open(tmp_path):
     target = tmp_path / "held.csv"
     target.write_text("id\n1\n")
-    child = subprocess.Popen([sys.executable, "-c", "import sys; f = open(sys.argv[1], 'rb'); sys.stdin.read()",
-                              str(target)], stdin=subprocess.PIPE)
+    # A virus scanner or the indexer may still have the just-written file open, so the child retries its
+    # open for a while, and says "open" only once it holds the file.
+    child = subprocess.Popen([sys.executable, "-c", _HOLD, str(target)], stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, text=True)
     try:
+        assert child.stdout.readline().strip() == "open", "the child couldn't open the file"
         found = []
-        for _ in range(50):  # until the child has opened it
+        for _ in range(50):
             found = file_locks.holders(target)
             if found:
                 break
@@ -108,6 +126,7 @@ def test_windows_names_the_process_that_has_the_file_open(tmp_path):
     finally:
         child.stdin.close()
         child.wait(timeout=10)
+        child.stdout.close()
     assert file_locks.holders(target) == []
 
 

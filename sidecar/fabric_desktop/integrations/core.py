@@ -19,13 +19,16 @@ Nothing here knows about MCP or HTTP; the transports in this package all go thro
 from __future__ import annotations
 
 import logging
+import math
+import ntpath
+import os
 import re
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..redact import describe, walk
+from ..redact import REMOVED, describe, secret_key
 from ..redact import secrets as redact_secrets
 from ..retrying import TRANSIENT_STATUS, status_of
 
@@ -74,20 +77,55 @@ class IntegrationError(Exception):
 
 # ---- secrets out of messages
 
+MAX_RESULT_DEPTH = 200  # lists and objects a result may nest; past it, redacting and JSON would recurse too far
+
+
 def redact_result(value: Any) -> Any:
-    """Every string in a result, with secrets removed, and the text of every field named like a
-    secret (password, token, ...) blanked; counts and flags such as secrets_ignored stay. Applied to
-    every capability's result, so a token that slipped into a notebook, a log line or a receipt
-    doesn't leave through a tool."""
-    return walk(value)
+    """Every string in a result, keys included, with secrets removed, and all the text under a field
+    named like a secret (password, token, ...) blanked, in lists and objects too; counts and flags
+    such as secrets_ignored stay. Anything that isn't JSON becomes its text, as the transports would
+    write it, with secrets removed. Applied to every capability's result, so a token that slipped
+    into a notebook, a log line or a receipt doesn't leave through a tool. A result nested past
+    MAX_RESULT_DEPTH is refused as too_large."""
+    if too_deep(value, MAX_RESULT_DEPTH):
+        raise IntegrationError("too_large", f"The result is nested more than {MAX_RESULT_DEPTH} levels deep.",
+                               hint="Ask for less, or for one part at a time.")
+    return _redact(value, False)
+
+
+def _redact(value: Any, blank: bool) -> Any:
+    if isinstance(value, str):
+        return REMOVED if blank else redact_secrets(value)
+    if isinstance(value, dict):
+        return {redact_secrets(k) if isinstance(k, str) else k: _redact(v, blank or secret_key(k)) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact(v, blank) for v in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return REMOVED if blank else redact_secrets(str(value))
+
+
+def _short_os_message(exc: OSError) -> str:
+    """An OSError's text with only the last part of each path it names: "[Errno 2] No such file or
+    directory: 'C:\\Users\\ann\\AppData\\...\\x.ipynb'" names where the person's data folder is."""
+    names = [ntpath.basename(os.fsdecode(f)) for f in (exc.filename, exc.filename2) if isinstance(f, (str, bytes, os.PathLike))]
+    return f"{exc.strerror or type(exc).__name__}: {' -> '.join(repr(n) for n in names)}"
 
 
 def error_from(exc: BaseException) -> IntegrationError:
     """The engine's exception as an IntegrationError. The engine's messages are already written for
-    people, so they are kept, without secrets."""
+    people, so they are kept, without secrets; a file error names the file but not the folders
+    it is in. An IntegrationError is passed on with secrets removed from its message, hint and
+    details too, since a handler may have built it from the engine's text."""
     if isinstance(exc, IntegrationError):
-        return exc
-    message = redact_secrets(str(exc) or type(exc).__name__)
+        return redacted(exc)
+    if isinstance(exc, OSError) and isinstance(exc.filename, (str, bytes, os.PathLike)):
+        message = redact_secrets(_short_os_message(exc))
+    else:
+        # str() of a KeyError is the repr of its text, with line breaks as \n, which hides a secret on
+        # the next line from the patterns; its own text is what the person should read anyway.
+        text = exc.args[0] if isinstance(exc, KeyError) and len(exc.args) == 1 and isinstance(exc.args[0], str) else str(exc)
+        message = redact_secrets(text or type(exc).__name__)
     name = type(exc).__name__
     status = status_of(exc)
     if name == "FabricError" or status is not None or name in ("HTTPError", "ConnectionError", "Timeout"):
@@ -115,7 +153,38 @@ def error_from(exc: BaseException) -> IntegrationError:
     return IntegrationError("internal", f"{name}: {message}")
 
 
+def redacted(err: IntegrationError) -> IntegrationError:
+    """``err`` with secrets removed from its message, hint and details (changed in place)."""
+    err.message = redact_secrets(err.message)
+    err.args = (err.message,)
+    err.hint = redact_secrets(err.hint)
+    if err.details:
+        err.details = _redact(err.details, False) if not too_deep(err.details, MAX_RESULT_DEPTH) else {}
+    return err
+
+
 # ---- arguments
+
+MAX_DEPTH = 64  # lists and objects arguments may nest, the arguments object itself being the first
+
+
+def too_deep(value: Any, limit: int) -> bool:
+    """Whether ``value`` nests lists and objects more than ``limit`` deep. Without recursion, so a
+    value nested 100,000 deep is told apart as quickly as any other."""
+    stack = [(value, 1)]
+    while stack:
+        v, level = stack.pop()
+        if isinstance(v, dict):
+            children: Any = v.values()
+        elif isinstance(v, (list, tuple)):
+            children = v
+        else:
+            continue
+        if level > limit:
+            return True
+        stack.extend((c, level + 1) for c in children)
+    return False
+
 
 _TYPES: dict[str, Callable[[Any], bool]] = {
     "object": lambda v: isinstance(v, dict),
@@ -175,6 +244,8 @@ def _problems(schema: dict[str, Any], value: Any, path: str) -> list[str]:
         if "pattern" in schema and not re.search(_end_of_text(schema["pattern"]), value):
             out.append(f"{where} isn't in the expected form")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, float) and not math.isfinite(value):  # NaN passes every bound; JSON has no NaN or Infinity
+            return [f"{where} must be a finite number"]
         if "minimum" in schema and value < schema["minimum"]:
             out.append(f"{where} must be at least {schema['minimum']}")
         if "maximum" in schema and value > schema["maximum"]:
@@ -208,6 +279,12 @@ def validate(schema: dict[str, Any], arguments: Any) -> dict[str, Any]:
     top-level properties. Raises invalid_input listing every problem."""
     if arguments is None:
         arguments = {}
+    if too_deep(arguments, MAX_DEPTH):
+        # Checked first: nothing past here (the schema check, the handler, the audit line) need
+        # walk a value nested deep enough to exhaust Python's recursion limit.
+        raise IntegrationError("invalid_input", f"The arguments are nested more than {MAX_DEPTH} levels deep.",
+                               hint="Send flatter arguments.",
+                               details={"problems": [f"arguments are nested more than {MAX_DEPTH} levels deep"]})
     problems = _problems(schema, arguments, "")
     if problems:
         raise IntegrationError("invalid_input", "; ".join(problems[:10]),

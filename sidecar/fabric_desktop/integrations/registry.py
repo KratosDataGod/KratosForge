@@ -34,7 +34,7 @@ from urllib.parse import quote, unquote
 
 from ..redact import describe
 from . import scope
-from .core import CallContext, IntegrationError, error_from, redact_result, run_call, validate
+from .core import CallContext, IntegrationError, error_from, redact_result, redacted, run_call, validate
 
 _log = logging.getLogger(__name__)
 
@@ -341,7 +341,9 @@ class Registry:
             result = self._invoke(service, cap, cap_id, arguments, ctx)
             return result
         except IntegrationError as exc:
-            error = exc
+            # Secrets out of every refusal, whoever raised it: a handler's or an authorizer's message
+            # may carry the engine's text.
+            error = redacted(exc)
             raise
         except Exception as exc:  # handlers raise IntegrationError via run_call; anything else is ours
             error = IntegrationError("internal", f"{type(exc).__name__}: {exc}")
@@ -354,6 +356,13 @@ class Registry:
                 execution = result["id"]
             self._audit(ctx, cap_id, cap.permission if cap else "", arguments, arrived, time.monotonic() - clock,
                         error, execution)
+
+    def refused(self, ctx: CallContext, cap_id: str, arguments: Any, error: IntegrationError) -> None:
+        """The audit line for a call a transport refused before it could reach ``invoke`` (a body
+        that isn't JSON, a resource URI that names nothing, a busy server), so it is recorded like
+        a call ``invoke`` refuses."""
+        cap = self.get(cap_id)
+        self._audit(ctx, cap_id, cap.permission if cap else "", arguments, time.time(), 0.0, error, "")
 
     def _audit(self, ctx: CallContext, cap_id: str, *line: Any, stage: str = "") -> None:
         if self.audit is None:

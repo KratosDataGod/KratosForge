@@ -53,7 +53,7 @@ WRITE_SITES = {
     ("proof_spark.py", "ProofSpark.install", "me.write_table"): LOCAL,
     # the app's own pages
     ("service.py", "Service.save_sql", "lakehouse.write_table"): "Save as table: replacing a table needs its name "
-                                                                "typed, checked by the engine (WR-248)",
+                                                                "typed, and in Prod every write the workspace's (WR-248, WR-249)",
     ("publish.py", "run_job", "publish"): "a job: meta_service._job_guard refuses Test and Prod, and with no project "
                                           "open a workspace named Prod before (WR-248)",
     ("publish.py", "publish", "write_deltalake"): "the write itself; its callers are listed here",
@@ -73,7 +73,7 @@ WRITE_SITES = {
     ("maintenance.py", "vacuum_preview", "table.vacuum"): "dry_run=True: lists files, deletes none",
     ("maintenance.py", "_unnamed", "table.vacuum"): "dry_run=True",
     ("maintenance.py", "_named_anywhere", "table.vacuum"): "dry_run=True",
-    ("maintenance.py", "compact_local", "table.optimize.compact"): LOCAL,
+    ("maintenance.py", "compact_local", "DeltaTable(uri).optimize.compact"): LOCAL,
     ("maintenance.py", "compact_local", "table.vacuum"): LOCAL,
     ("prove_service.py", "ProveMixin._replay_seed", "write_deltalake"): LOCAL,
     ("livetest.py", "LiveTest._delta_write", "write_deltalake"): "the live test, run by hand in kf_tenant_test",
@@ -242,6 +242,70 @@ def test_an_unknown_mode_is_refused(saving):
     with pytest.raises(ValueError, match="mode must be"):
         svc.save_sql("SELECT 1", {}, "dbo.sales", mode="replace")
     assert written == []
+
+
+# ---- Save as table in a workspace marked Prod asks for the workspace's name, as a cell's change does (WR-249)
+
+@pytest.fixture
+def in_prod(saving, monkeypatch):
+    from types import SimpleNamespace
+
+    from fabric_desktop import lakehouse
+    svc, written = saving
+    svc.prod_workspaces_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.prod_workspaces_file.write_text('{"prod": ["ws-prod"]}', encoding="utf-8")
+    monkeypatch.setattr(lakehouse, "_attached", SimpleNamespace(workspace_id="WS-PROD", workspace_name="Sales Prod"))
+    return svc, written
+
+
+def test_in_prod_a_new_table_waits_for_the_workspaces_name(in_prod):
+    svc, written = in_prod
+    assert svc.save_sql("SELECT 1", {}, "dbo.fresh") == {"table": "dbo.fresh", "exists": False, "prod": "Sales Prod"}
+    assert svc.save_sql("SELECT 1", {}, "dbo.sales") == {"table": "dbo.sales", "exists": True, "prod": "Sales Prod"}
+    assert svc.save_sql("SELECT 1", {}, "dbo.fresh", confirm_name="dbo.fresh")["prod"] == "Sales Prod"  # not the table's
+    assert written == []
+    svc.save_sql("SELECT 1", {}, "dbo.fresh", confirm_name="Sales Prod")
+    assert written == [("dbo.fresh", "overwrite")]
+
+
+def test_in_prod_new_never_replaces_even_with_the_workspaces_name(in_prod):
+    svc, written = in_prod
+    assert svc.save_sql("SELECT 1", {}, "dbo.sales", confirm_name="Sales Prod")["exists"] is True
+    assert written == []
+
+
+@pytest.mark.parametrize("mode", ["overwrite", "append"])
+@pytest.mark.parametrize("typed", ["", "dbo.sales", "sales prod", "Sales Prod "])
+def test_in_prod_any_write_without_the_workspaces_exact_name_is_refused(in_prod, mode, typed):
+    svc, written = in_prod
+    with pytest.raises(PermissionError, match="Sales Prod is a Prod workspace, so writing dbo.sales there runs only "
+                                              "after you type the workspace's name"):
+        svc.save_sql("SELECT 1", {}, "dbo.sales", mode=mode, confirm_name=typed)
+    assert written == []
+
+
+@pytest.mark.parametrize("mode", ["overwrite", "append"])
+def test_in_prod_the_workspaces_name_lets_a_write_and_a_replace_run(in_prod, mode):
+    svc, written = in_prod
+    svc.save_sql("SELECT 1", {}, "dbo.sales", mode=mode, confirm_name="Sales Prod")
+    assert written == [("dbo.sales", mode)]
+
+
+def test_a_workspace_not_marked_prod_keeps_the_tables_name_check(saving, monkeypatch):
+    from types import SimpleNamespace
+
+    from fabric_desktop import lakehouse
+    svc, written = saving
+    monkeypatch.setattr(lakehouse, "_attached", SimpleNamespace(workspace_id="ws-dev", workspace_name="Sales Dev"))
+    with pytest.raises(PermissionError, match="type its name"):
+        svc.save_sql("SELECT 1", {}, "dbo.sales", mode="overwrite", confirm_name="Sales Dev")
+    svc.save_sql("SELECT 1", {}, "dbo.sales", mode="overwrite", confirm_name="dbo.sales")
+    assert written == [("dbo.sales", "overwrite")]
+
+
+def test_the_page_asks_for_the_workspaces_name_in_prod():
+    text = (PACKAGE.parents[1] / "app" / "ui" / "query.js").read_text(encoding="utf-8")
+    assert "typeToConfirm: ws" in text and "confirm_name: ws }" in text
 
 
 def test_the_page_sends_the_typed_name_with_a_replace():

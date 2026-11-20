@@ -224,6 +224,26 @@ test("History lists the versions; Restore asks, sends the version and reason, an
   assert.deepStrictEqual(app.errors, []);
 });
 
+test("Restore on a Prod workspace says why it asks for the name, and sends it once typed", { skip }, async () => {
+  db.history.confirm_name = "Sales Prod";
+  await openHistory();
+  const from = app.calls.length;
+  await dialog().locator("tbody tr").nth(2).getByRole("button", { name: "Restore" }).click();
+  await dialog().getByText("Sales Prod is a Prod workspace, so this restore runs only after you type its name exactly to confirm.").waitFor();
+  const go = dialog().getByRole("button", { name: "Restore" });
+  assert.ok(await go.isDisabled(), "the restore waits for the name");
+  const box = dialog().getByRole("textbox", { name: "Type Sales Prod to confirm" });
+  await box.fill("sales prod");
+  assert.ok(await go.isDisabled(), "the name is matched exactly");
+  await box.fill("Sales Prod");
+  await go.click();
+  await dialog().getByText("Version 6 now holds what version 3 had.").waitFor();
+  assert.deepStrictEqual(callsFrom(from, "meta_restore"),
+    [{ name: "silver.customers", env: "dev", version: 3, reason: "", confirm_name: "Sales Prod" }]);
+  await dialog().getByRole("button", { name: "Close", exact: true }).last().click();
+  delete db.history.confirm_name;
+});
+
 test("History says why when it can't be read, and when the table was never written", { skip }, async () => {
   fail.meta_table_history = "PermissionError: The lakehouse can't be read";
   await page().evaluate(() => openEntity("silver.customers"));

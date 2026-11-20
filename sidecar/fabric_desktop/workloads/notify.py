@@ -59,7 +59,7 @@ LINE_MAX = 500  # characters in one title or line of a Teams message
 # email: 20 s), so a message still marked sending after this was cut off by a stop, not slow.
 SENDING_GRACE = 600.0
 CUT_OFF = "From {when}; sending it was cut off, so it may have arrived already."
-UNCONFIRMED = ("{error}. It was sent but no answer came, so it may have arrived. It isn't sent again, "
+UNCONFIRMED = ("{error}. It was sent, but no answer confirmed it, so it may have arrived. It isn't sent again, "
                "so it can't be posted twice. Check the channel or inbox.")
 
 
@@ -68,9 +68,23 @@ class OutcomeUnknown(RuntimeError):
     tell (the mail server stopped answering while it took the message); outcome_unknown tells the rest."""
 
 
+# Answers after which a post may still have been delivered: the server or a gateway in front of it failed
+# after the request reached it. 503 and 429 are refusals before any work, and any 4xx is a refusal.
+MAY_HAVE_ARRIVED = (500, 502, 504)
+
+
+def answered(who: str, status: int, detail: str = "") -> RuntimeError:
+    """The error for a post ``who`` answered with ``status`` (300 or more): OutcomeUnknown when it may have
+    been delivered anyway (MAY_HAVE_ARRIVED), so it isn't sent again; otherwise a refusal, sent again later."""
+    if status in MAY_HAVE_ARRIVED:
+        return OutcomeUnknown(f"{who} answered {status}{detail}")
+    return RuntimeError(f"{who} answered {status}{detail}")
+
+
 def outcome_unknown(exc: BaseException) -> bool:
-    """Whether a failed post may still have arrived: it was sent, and no answer came. A post refused or
-    never sent (no connection, a connect timeout, any answer such as 429, 403 or 503) is False."""
+    """Whether a failed post may still have arrived: it was sent, and no answer came, or an answer that
+    says it failed after the request reached the server (``answered``: 500, 502, 504). A post refused or
+    never sent (no connection, a connect timeout, an answer such as 429, 403 or 503) is False."""
     if isinstance(exc, OutcomeUnknown):
         return True
     try:

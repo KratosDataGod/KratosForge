@@ -55,7 +55,8 @@ def _parse(query: str, dialect: str) -> list[exp.Expression]:
         statements = _statements(sql_dialects.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
                                                     read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(s))) for s in statements]
+            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(spark_builtins_sql.refuse_nested_concat_ws(s))))
+                          for s in statements]
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
@@ -193,6 +194,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
+    statement = spark_builtins_sql.check_nested_concat_ws(statement)
     if databricks:
         _mark_divisions(statement)
     statement = _try_divisions(statement)
@@ -1356,6 +1358,8 @@ def _whole_number(node: exp.Expression) -> bool:
     """Plainly a whole number already: an integer literal or a cast to a whole-number type."""
     if isinstance(node, exp.Paren):
         return _whole_number(node.this)
+    if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal):  # -2147483648 (_negative_literals)
+        return node.this.is_int
     if isinstance(node, exp.Literal):
         return node.is_int
     if isinstance(node, exp.Window):  # row_number, rank, dense_rank and ntile count whole rows
@@ -1497,8 +1501,9 @@ def _past(source: exp.Expression, kind: Any) -> bool:
     bits = _WIDTHS[_INT_CASTS[kind][0]]
     while isinstance(source, exp.Paren):
         source = source.this
-    if isinstance(source, exp.Literal):
-        return not -(2 ** (bits - 1)) <= int(source.this) < 2 ** (bits - 1)
+    if isinstance(source, exp.Literal) or (isinstance(source, exp.Neg) and isinstance(source.this, exp.Literal)):
+        value = int(source.this) if isinstance(source, exp.Literal) else -int(source.this.this)
+        return not -(2 ** (bits - 1)) <= value < 2 ** (bits - 1)
     if isinstance(source, (exp.Cast, exp.TryCast)) and source.to.this in _INT_CASTS:
         return _WIDTHS[_INT_CASTS[source.to.this][0]] > bits
     return False

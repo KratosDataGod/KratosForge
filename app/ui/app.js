@@ -1265,7 +1265,7 @@ async function renderMonitor() {
     ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
       at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
-      seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
+      seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})${r.v_order_error ? ` ${r.v_order_error}` : ""}`, reason: "",
     })),
   ];
   if (forge) forgeActivityFill(forgeStripSlot, forgeBandSlot, all);

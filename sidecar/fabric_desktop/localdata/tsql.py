@@ -201,6 +201,8 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             _gaps(tree)
             _string_edges(tree)
             _char_codes(tree)
+            _sharp_s(tree)
+            _key_columns(tree)
             tsql_types.expand_datetimes(tree)
             if known is not None:
                 _unknown_functions(tree, known)
@@ -1542,7 +1544,10 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
 def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> None:
     """A date written as text with a style, as T-SQL writes it (WR-208): a ``date`` has no time, so styles
     120, 121 and 126 give only ``yyyy-mm-dd``; and style 126 leaves the fraction off when it is zero
-    (``2024-02-29T13:04:05``)."""
+    (``2024-02-29T13:04:05``). A ``time`` is put on T-SQL's base date, 1900-01-01, first: DuckDB's STRFTIME
+    takes no time alone, and a style with a date writes that date in T-SQL."""
+    if _is(kind, {exp.DataType.Type.TIME}):
+        text.set("this", exp.Add(this=exp.cast(exp.Literal.string("1900-01-01"), "DATE"), expression=text.this))
     fmt = text.args.get("format")
     if not isinstance(fmt, exp.Literal) or not fmt.name.startswith("%Y-%m-%d"):
         return
@@ -2841,6 +2846,36 @@ def _char_of(v: exp.Expression) -> exp.Expression:
     """``CHAR`` of the int ``v``: T-SQL's overflow error past an int, NULL outside 0 to 255."""
     inside = exp.Between(this=v.copy(), low=exp.Literal.number(0), high=exp.Literal.number(255))
     return exp.Case(ifs=[_past(v, "int"), exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(v.copy(), "INT")]))])
+
+
+def _key_columns(tree: exp.Expression) -> None:
+    """A table's ``PRIMARY KEY (a, b)`` names its columns only, as DuckDB takes them: sqlglot's T-SQL reader
+    gives each an order (``a NULLS FIRST``), which DuckDB can't read there, and an ASC or DESC changes nothing
+    about which rows a key allows."""
+    for key in tree.find_all(exp.PrimaryKey):
+        for ordered in [e for e in key.expressions if isinstance(e, exp.Ordered)]:
+            ordered.replace(ordered.this)
+
+
+_SHARP_S = "\u00df"  # ß
+
+
+def _sharp_s(tree: exp.Expression) -> None:
+    """``UPPER`` keeps ``ß``, as T-SQL does: it has no one-letter capital in Unicode's simple case mapping, which
+    T-SQL follows, and DuckDB alone gives the capital ``ẞ``. The text is split at each ``ß``, the parts are made
+    upper case, and the ``ß`` are put back, so the value is read once."""
+    for node in reversed(list(tree.find_all(exp.Upper))):  # deepest first, so an outer UPPER copies a rewritten one
+        text = node.this
+        if isinstance(text, exp.Literal) and _SHARP_S not in text.name:
+            if not text.is_string:  # UPPER(5) is '5', as T-SQL makes the number text
+                node.set("this", exp.cast(text.copy(), "VARCHAR"))
+            continue
+        part = exp.to_identifier("kf_tsql_part_")
+        # sqlglot's own nodes, not anonymous calls, so the query doesn't need DuckDB's function list read
+        parts = exp.Split(this=exp.cast(text.copy(), "VARCHAR"), expression=exp.Literal.string(_SHARP_S))
+        upper = exp.Transform(this=parts, expression=exp.Lambda(this=exp.Upper(this=exp.column(part.copy())),
+                                                                expressions=[part]))
+        node.replace(exp.ArrayToString(this=upper, expression=exp.Literal.string(_SHARP_S)))
 
 
 def _charindex(node: exp.StrPosition) -> None:

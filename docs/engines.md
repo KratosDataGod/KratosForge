@@ -130,7 +130,7 @@ Rules 2026.11.19.
 | SFX-014 | Rewritten | HLL becomes APPROX_COUNT_DISTINCT, DATASKETCHES_HLL the same estimate as a DOUBLE (its max_log_k is dropped), and APPROX_PERCENTILE returns a DOUBLE, as in Snowflake. HLL(*) and HLL of more than one value aren't rewritten. BITMAP_BUCKET_NUMBER and BITMAP_BIT_POSITION run as arithmetic on 32,768-bit buckets. |
 | SFX-015 | Rewritten | OCTET_LENGTH counts bytes (a column is taken for text; a BINARY column stops with DuckDB's error). MD5_NUMBER_LOWER64 and MD5_NUMBER_UPPER64 read MD5's last and first 64 bits. WIDTH_BUCKET gives 0 below min_value, num_buckets + 1 at or above max_value, and NULL when any argument is NULL; min_value at or above max_value stops with an error. TRY_BASE64_DECODE_STRING, TRY_BASE64_DECODE_BINARY, TRY_HEX_DECODE_STRING and TRY_HEX_DECODE_BINARY give NULL where the text doesn't decode; an alphabet argument isn't rewritten. SOUNDEX_P123 keeps the second letter's number (Pfister is P123). GETBIT reads a bit of a whole number (0 to 127). BITAND_AGG, BITOR_AGG and BITXOR_AGG round a decimal to a whole number first. Arguments are worked out more than once, which matters only when they aren't deterministic. |
 | SFX-016 | Rewritten | OBJECT_DELETE, OBJECT_PICK, OBJECT_INSERT, OBJECT_AGG, TO_OBJECT and ARRAYS_TO_OBJECT run on DuckDB JSON with Snowflake's NULL rules: a SQL NULL key or value is left out and JSON null is kept; an existing key in OBJECT_INSERT without updateFlag, a repeated key in OBJECT_AGG and arrays of unequal length stop with an error (OBJECT_AGG's text is DuckDB's "Map keys must be unique"). OBJECT_INSERT of a SQL NULL value leaves the object as it is, an existing key too, as the docs don't say otherwise; OBJECT_AGG of no rows is NULL. OBJECT_PICK with one argument takes it for an array only when it is written as one ([...], ARRAY_CONSTRUCT or PARSE_JSON); a column is a key. OBJECT_AGG(DISTINCT ...) isn't rewritten. Objects keep their keys in order, as Snowflake does, and an object constant ({'a': 1}) reads its keys as text. Arguments are worked out more than once, which matters only when they aren't deterministic. |
-| SFX-017 | Rewritten | TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp. CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known here. TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS carry a part outside its range over (seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number written in the query are seconds since 1970, with no time zone. TIMESTAMP_TZ_FROM_PARTS with no time zone argument is in the session's time zone. |
+| SFX-017 | Rewritten | TIME(x) is a cast to TIME, as TO_TIME(x) is: the time of a string or a timestamp. CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known here. TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS carry a part outside its range over (seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number are seconds since 1970, with no time zone; of a column, a number is read that way, text holding a whole number by its size, and anything else is cast to TIMESTAMP, with a UTC offset in text dropped. A TIMESTAMP_TZ column gives the session time zone's wall clock, since DuckDB doesn't keep a value's own offset, where Snowflake gives the value's own local time. TIMESTAMP_TZ_FROM_PARTS with no time zone argument is in the session's time zone. |
 | SFX-018 | Rewritten | CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each partition's first row in ORDER BY order (a NULL is neither true nor a change), and INTERPOLATE_FFILL, INTERPOLATE_BFILL and INTERPOLATE_LINEAR fill a NULL from the rows before and after it. CONDITIONAL_CHANGE_EVENT, and CONDITIONAL_TRUE_EVENT of a LAG or LEAD, are worked out in a subquery over the SELECT's FROM and WHERE, so they are rewritten only in a SELECT from one table or subquery without JOIN, GROUP BY, HAVING or an aggregate. A window frame isn't allowed, as in Snowflake, and INTERPOLATE_LINEAR needs one ORDER BY expression: a number, DATE or timestamp. |
 | SFX-019 | Rewritten | ARRAY_DISTINCT keeps each value where it first appears, and one NULL, as Snowflake does. ARRAY_FLATTEN of an array with a NULL in place of an array is NULL. ARRAY_INSERT past the end fills the gap with NULLs, where Snowflake leaves empty elements. |
 | SFX-020 | Rewritten | ALTER SESSION SET TIMEZONE = '...' becomes DuckDB's SET TimeZone, for the statements after it. |
@@ -605,7 +605,7 @@ A profile never holds a password, token or key. It holds a *reference* to one:
 | --- | --- |
 | Fabric | The app's own sign-in (default); a service principal, managed identity or workload identity for automation |
 | Databricks | A profile from the Databricks CLI's config file; browser sign-in (OAuth); a service principal (OAuth machine-to-machine) |
-| Snowflake (planned) | Browser sign-in through Snowflake's built-in local application (default); a key pair (the private key file's path, and its passphrase as a reference); a programmatic access token (as a reference); a connection from the Snowflake CLI |
+| Snowflake | A key pair (the private key file's path, and its passphrase as a reference) and a programmatic access token (as a reference) sign in now (Preview). Browser sign-in through Snowflake's built-in local application and a connection from the Snowflake CLI are kept in the profile but don't sign in yet. |
 
 A service principal's secret is named as `env:NAME` (an environment variable) or `credman:TARGET`
 (Windows Credential Manager). KratosForge refuses to save or import a profile with anything that
@@ -618,8 +618,28 @@ A Snowflake connection names the account by its identifier (`myorg-myaccount`, o
 such as `xy12345.east-us-2.azure`), never by a URL; the address is always
 `https://<account>.snowflakecomputing.com`. On Windows a private key file must be a full path on a
 drive (`C:\keys\snowflake.p8`): a network share path is refused, so reading the key never reaches
-another computer. Nothing signs in to Snowflake yet; the sign-in methods are recorded so a profile
-made now keeps working when they arrive.
+another computer.
+
+### Checking a Snowflake connection (Preview)
+
+A Snowflake connection signed in with a key pair or a programmatic access token can be checked
+through Snowflake's SQL API (`snowflake_check`). The check signs in, then checks each field the
+connection sets, and says for each one what's wrong and what to do:
+
+| Field | Checked by | Fails when |
+| --- | --- | --- |
+| Sign-in | A statement of context functions | The key isn't the one registered on the user (`RSA_PUBLIC_KEY`), the token was refused or revoked, or a network policy blocks this PC |
+| Role | `CURRENT_AVAILABLE_ROLES()` | The role isn't granted to you |
+| Database | `SHOW DATABASES`, as that role | It doesn't exist, or the role can't see it |
+| Schema | `SHOW SCHEMAS` in that database | The same, or its database failed |
+| Warehouse | `SHOW WAREHOUSES` | The same. When it's found, its state and size are shown |
+
+The check never names a warehouse, because Snowflake's cloud services answer these statements. So
+no warehouse resumes and no warehouse credits are used. A passed check shows the connection works for
+metadata as that role, not that queries on the warehouse will. A key-pair token is made on this PC,
+lasts under an hour and is never stored; a token Snowflake refused is not sent again. Running
+queries on Snowflake comes in a later release. This has been tested against a fake of the SQL API,
+not a live Snowflake account.
 
 Profiles that use only Fabric and Databricks are still saved in the format older versions of
 KratosForge read, so a profile shared with someone who hasn't updated still opens for them. A

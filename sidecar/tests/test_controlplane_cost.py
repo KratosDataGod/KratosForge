@@ -27,6 +27,7 @@ def test_only_this_periods_sync_rows_are_added_and_labelled_measured():
     got = cost.summary(rows, days=30, now=NOW)
     seconds = got["sync_overhead"]["optimize_sync_seconds"]
     assert seconds["value"] == 5.0 and seconds["label"] == "Measured" and seconds["complete"]
+    assert got["sync_scope"] == cost.SYNC_SCOPE  # every installation's rows, not only this PC's
     assert got["syncs"] == 2 and got["sync_overhead"]["optimize_sync_commits"]["value"] == 2
     assert got["sync_overhead"]["optimize_sync_rows"]["value"] == 0  # nothing ran in the period: observed zero
 
@@ -47,3 +48,4 @@ def test_net_needs_both_sides_known_and_comparable():
     got = cost.net(usd(ms.ESTIMATED, 100.0), usd(ms.MEASURED, 30.0))
     assert got["value"] == 70.0 and got["label"] == "Estimated"
     assert cost.net(usd(ms.SCENARIO, 10.0), usd(ms.SCENARIO, 4.0))["label"] == "Scenario"
+    assert cost.net(usd(ms.MEASURED, 10.0), usd(ms.MEASURED, 4.0))["label"] == "Measured"

@@ -230,7 +230,8 @@ class ControlPlaneMixin:
             "environment": mf.summary(got.manifest), "compatibility": compat}
 
     def cp_cost(self, days: int = 30) -> dict[str, Any]:
-        """What the active environment costs over the last ``days``: this PC's measured sync overhead,
+        """What the active environment costs over the last ``days``: the measured sync overhead of every PC
+        that syncs to it,
         and Fabric capacity and money as Unknown until they are measured. Net savings only when both
         sides are known. Reads only."""
         self._cp_allowed()

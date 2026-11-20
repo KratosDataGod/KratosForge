@@ -2,8 +2,9 @@
 
 Read-only and honest by construction (measurement.py's rules):
 
-- **This PC's sync overhead** is Measured: the seconds, rows and commits each Optimize sync recorded
-  (optimize_service._record_overhead), added up per metric over the period.
+- **Sync overhead** is Measured: the seconds, rows and commits each Optimize sync recorded
+  (optimize_service._record_overhead), added up per metric over the period. It covers every PC that
+  syncs to the environment's lakehouse: the rows don't say which installation wrote them.
 - **Fabric capacity** the environment's items use is Unknown until the FinOps capacity import provides
   measured CU for them (ESI decisions D3 and D4). It is never estimated here.
 - **Money** is Unknown for the same reason. A price would only ever be a Scenario figure (savings/pricing.py).
@@ -27,6 +28,7 @@ SYNC_METRICS = (("optimize_sync_seconds", ms.SECONDS), ("optimize_sync_rows", ms
 NO_CU = ("No measured Fabric capacity use for this environment yet: it comes from the FinOps capacity "
          "import, which isn't connected.")
 NO_MONEY = "Not known: there is no measured Fabric capacity use to price."
+SYNC_SCOPE = "Every PC that syncs to this environment"
 NO_NET = "Net savings is shown only when both the savings and the environment's cost are known."
 
 
@@ -70,7 +72,7 @@ def summary(rows: Iterable[dict[str, Any]], *, days: int = 30, now: dt.datetime 
     cu = ms.unknown("environment_cu", ms.CU_SECONDS, NO_CU)
     money = ms.unknown("environment_cost", ms.CURRENCY, NO_MONEY)
     return {"period": {"start": since.isoformat(), "end": now.isoformat(), "days": days},
-            "sync_overhead": overhead, "syncs": len(sync["optimize_sync_seconds"]),
+            "sync_overhead": overhead, "sync_scope": SYNC_SCOPE, "syncs": len(sync["optimize_sync_seconds"]),
             "fabric_cu": cu, "cost": money, "savings": savings, "net": net(savings, money)}
 
 
@@ -83,6 +85,8 @@ def net(savings: dict[str, Any] | None, cost: dict[str, Any]) -> dict[str, Any]:
     scenario = {savings.get("classification") == ms.SCENARIO, cost.get("classification") == ms.SCENARIO}
     if len(scenario) > 1:
         return {"value": None, "reason": "A scenario figure can't be netted against a measured or estimated one."}
-    weakest = max((savings["classification"], cost["classification"]), key=lambda c: (c == ms.SCENARIO, c == ms.ESTIMATED))
+    order = (ms.MEASURED, ms.ESTIMATED, ms.SCENARIO, ms.UNKNOWN)  # weakest last
+    weakest = max((savings["classification"], cost["classification"]),
+                  key=lambda c: order.index(c) if c in order else len(order))
     return {"value": round(float(savings["value"]) - float(cost["value"]), 6), "unit": cost.get("unit"),
             "currency": cost.get("currency"), "classification": weakest, "label": ms.LABELS[weakest], "reason": ""}

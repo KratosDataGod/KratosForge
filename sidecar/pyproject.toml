@@ -16,6 +16,10 @@ dependencies = [
     "pyarrow>=16",
     "deltalake>=1.2",  # VACUUM keep_versions (maintenance.vacuum_keep)
     "msal>=1.31",
+    # Snowflake key-pair sign-in signs a JWT on this PC (engines/snowflake_auth.py). msal brings both
+    # today; they are named here so a change in msal can't drop them.
+    "cryptography>=42",
+    "PyJWT>=2.8",
     # Windows sign-in (Web Account Manager) for MSAL: single sign-on with the Windows work account,
     # and it passes "compliant device" Conditional Access. msal 1.3x pairs with 0.20.
     "pymsalruntime>=0.20,<0.21; sys_platform == 'win32'",

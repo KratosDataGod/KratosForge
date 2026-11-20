@@ -49,7 +49,7 @@ def load() -> dict[str, Any]:
 def built() -> types.SimpleNamespace:
     """The ``dbutils`` a notebook gets, over a notebookutils that does nothing."""
     ns = types.SimpleNamespace
-    nbu = ns(fs=ns(**{n: _stub for n in ("ls", "head", "put", "cp", "mv", "rm", "mkdirs")}),
+    nbu = ns(fs=ns(**{n: _stub for n in ("ls", "head", "put", "cp", "mv", "rm", "mkdirs", "exists")}),
              notebook=ns(run=_stub, exit=_stub), credentials=ns(getSecret=_stub, getToken=_stub))
     return dbutils_local.build(Host(), cast(types.ModuleType, nbu))  # the stand-in has what build reads
 

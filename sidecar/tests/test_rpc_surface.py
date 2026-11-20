@@ -35,9 +35,15 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
+_CP = "KratosForge Environment (CP-009): engine first, the Settings screen waits on its mockup (CP-010)"
+
 NO_UI_CALLER: dict[str, str] = {
+    **{m: _CP for m in ("cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview", "cp_adopt",
+                        "cp_connect", "cp_switch", "cp_disconnect", "cp_check")},
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
+    # SF-002: the Check button in Settings > Connections waits on its mockup.
+    "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,
@@ -139,6 +145,8 @@ def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
 # be (fail closed), the same as when a screen sends it. Every no-screen method that changes something
 # is listed here: with the parameter its destructive step needs, or with why it has none.
 NO_SCREEN_GATE: dict[str, str] = {
+    "cp_create": "confirmed",                  # runs only a plan cp_plan showed, by its token
+    "cp_adopt": "confirmed",                   # writes only the manifest cp_adopt_preview showed, by its token
     "incidents_history_sync": "approve",       # sets up the central incident tables only when approved
     "incidents_measures": "approve",           # copies through incidents_history_sync first
     "local_change_delta": "confirm",           # UPDATE or DELETE without WHERE
@@ -150,6 +158,9 @@ NO_SCREEN_GATE: dict[str, str] = {
     "optimize_share_local_runs": "confirm",
 }
 NOT_DESTRUCTIVE: dict[str, str] = {
+    "cp_connect": "reads an environment's manifest and remembers it on this PC; nothing in Fabric changes",
+    "cp_switch": "changes which connected environment this PC uses",
+    "cp_disconnect": "forgets an environment on this PC; nothing in it is changed or deleted",
     "local_add_source": "adds views over a folder; the files are only read",
     "local_close_project": "closes the database file; nothing is deleted",
     "local_create_project": "makes a new project",

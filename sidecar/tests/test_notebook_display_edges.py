@@ -25,10 +25,10 @@ def test_a_lazy_polars_frame_shows_as_a_table():
 
 def test_a_duckdb_relation_shows_as_a_table_without_running_it_again_to_count():
     # DuckDB's relations live in the _duckdb module: they showed as box-drawn text before.
-    out = nb.display(duckdb.sql(f"SELECT range AS n FROM range({nb.PREVIEW_ROWS + 5})"))
+    out = nb.display(duckdb.connect().sql(f"SELECT range AS n FROM range({nb.PREVIEW_ROWS + 5})"))
     assert out["type"] == "table" and out["columns"] == ["n"]
     assert len(out["rows"]) == nb.PREVIEW_ROWS and out["total_rows"] == f"more than {nb.PREVIEW_ROWS}"
-    assert nb.display(duckdb.sql("SELECT 1 AS n"))["total_rows"] == 1
+    assert nb.display(duckdb.connect().sql("SELECT 1 AS n"))["total_rows"] == 1
 
 
 def test_a_spark_value_that_isnt_a_frame_isnt_a_table():

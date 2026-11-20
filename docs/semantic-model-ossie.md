@@ -38,7 +38,21 @@ Pick an Ossie file (`.yaml` or `.json`) from the project or from disk, and what 
 - **Update** an existing model (the default). The file's tables, columns, measures and
   relationships are laid over the model. What the file doesn't mention stays, such as
   security roles, hierarchies and measures written in Fabric, unless you untick it in the
-  preview. Lineage tags are kept by name, so reports on the model keep working.
+  preview. Lineage tags are kept by name, so reports on the model keep working. On a table,
+  column or measure the file has, what Ossie itself describes (name, description, the
+  column's source or expression and data type, keys, the measure's expression) comes from the
+  file; every other property the model has and the file doesn't set, such as Hidden, format
+  string, display folder, an annotation or a property KratosForge doesn't know, stays. Where
+  the file has a Power BI section for that object (Export to Ossie writes one), the section is
+  the whole story, so a property taken out of it is taken out of the model. A column the file
+  gives another type or data type keeps none of its old properties, and one it maps to
+  another source column keeps nothing about the old source (its source lineage tag and
+  provider type). A property naming another object (a sort-by or group-by column, a
+  variation's relationship or default hierarchy, the column or table an aggregation is an
+  alternate of) isn't kept when the update no longer has that object, for example because you
+  unticked it; nor is a KPI, a format string expression or a detail rows expression whose DAX
+  names a table, column or measure the update takes out. Each property not kept is named in
+  the preview's report.
 - **Replace** an existing model with exactly what the file holds.
 - **New model** in the environment's workspace.
 
@@ -65,7 +79,27 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
 - A folder already there: the file is laid over the TMDL like an Import update. The table
   lists what is added and changed, and each table, column or measure the file doesn't have
   with a **Keep it** tick. **Replace TMDL in <name>...** asks once more, in red, before it
-  rewrites the files. Translations under `cultures/` are left as they are.
+  rewrites the files. Translations under `cultures/` are read and written back like the rest, so
+  they stay; a culture file named differently from its culture is written back under the
+  culture's name, and the old file is listed as removed. A culture file holding translations
+  KratosForge can't read (of a partition, a data source or a KPI, say) is kept byte for byte:
+  it is never rewritten or removed, the file list shows it as Same, and the Round-trip check
+  says "kept as it is, because it holds translations KratosForge can't read" with their names.
+  Every other culture file that defines one of its cultures is kept as well, and `model.tmdl`
+  still lists those cultures in their places. File names are compared as Windows and macOS
+  compare them (ignoring case and Unicode normalisation), so a write never lands on a kept file
+  under another spelling, and a file already there under another case is rewritten in place
+  rather than removed.
+- Any other TMDL file in the folder (a table, `model.tmdl`, `relationships.tmdl`, a role, a
+  perspective...) that holds lines KratosForge can't read, such as an object kind newer than
+  it knows, refuses the write: the preview says, in red, which file and which lines, for
+  example "tables/Sales.tmdl holds lines KratosForge can't read (calendar 'Fiscal year'), so it
+  would lose them if rewritten; nothing was written.", and **Write TMDL** stays off. Such a
+  file isn't kept as it is either, because a table file left stale would disagree with the
+  model written. Take those lines out by hand, then preview again. A confirm is checked the
+  same way, so lines added after the preview are refused too. A property it doesn't know,
+  written as `name: value`, is read like the rest, so it doesn't refuse the write, and it stays
+  as an Import update keeps it (see Update above).
 - The **Round-trip check** lists what is kept, what rides in the Power BI section, and what
   can't be carried, by name. A measure whose SQL has no DAX equivalent is written with no
   expression and shows blank until you add DAX.
@@ -73,6 +107,131 @@ whether `semantic/<name>.SemanticModel/` is new or already there.
 
 Exporting a model kept as TMDL in the project shows the same Round-trip check, which says whether
 reading the Ossie file back gives the same model or names what differs.
+
+## Fidelity report
+
+Export (from Fabric or from a folder), Import's preview and Ossie file to TMDL each return a
+`fidelity` report beside the `report` rows (OSSIE-004a, engine only; the card shows it in
+OSSIE-004b). It lists every object the conversion reads once: the model, tables or datasets,
+columns or fields, measures or metrics, hierarchies, calculation groups, relationships, roles,
+perspectives, cultures and shared expressions, including those that travel in a file's Power BI
+section. Each object is in one class:
+
+| Class | Meaning |
+| --- | --- |
+| Fully preserved | It reached the destination as it was. |
+| Preserved through extensions | It is only in the Ossie file's `POWER_BI` extension: it comes back in Power BI, and other tools don't see it. |
+| Partially converted | It arrived, but something changed: a measure written as BLANK() until it has DAX (`needs_dax`), a data type with no equivalent, a name changed, a label or another vendor's extension dropped. |
+| Unsupported | It has no equivalent and isn't in the destination. It is named, never dropped silently. |
+| Unverified | It arrived, but no one has checked it behaves the same: SQL translated to DAX, or DAX to SQL. |
+
+The class comes from comparing what went in with what came out (what reached the destination,
+what sits in the extension, what is missing), not from the converter's wording. The converter's
+messages, and the TMDL reader's and the merge's rows, are attached to the object they name as
+`evidence`, so a note such as "Power BI infers a measure's data type from its DAX" is no longer
+counted as a loss. A row that names no object is a warning. The report also gives the source and
+destination formats and versions, the converter (`apache/ossie-converters`, commit `82b9eff`), the
+excluded objects, the metadata changes, the warnings, the round-trip check as `validation`, and one
+remediation line for each object that isn't fully preserved. Security roles and calculation
+groups are always listed and flagged, and compared by what they do, not only by name: a role's
+model permission, each table's filter and column permissions and its members, and each
+calculation item's name, expression, ordinal and format string expression. One that arrives with
+any of these changed is Partially converted, with each change listed. A role that is lost,
+changed, or kept only in the extension where other tools won't apply it, is a security warning;
+security warnings come first. Object names longer than 1,024 characters are cut short in the
+report, with their length.
+
+Every export now runs the round-trip check (Ossie and back) for the validation result, so an
+export takes about three to four times as long as the conversion alone (3.5 times on a model of
+2,400 columns). Imports run it on the model they write. A model with more than 20,000 columns and
+measures isn't checked: the validation says "model too large for round-trip check", and a check
+that didn't run is never shown as passed. If the report can't be built from a document, the
+conversion still goes ahead, and the report says so with `status` "unverified" and the reason.
+
+The `kind` (kept or lost) of the existing rows is unchanged, so the current card still works.
+
+## Schema validation
+
+Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the
+version the file declares, and returns the result as `schema_validation` (OSSIE-003a, engine
+only; no screen shows it yet). The check runs on this PC and never goes online. The preview
+reads the file once and the check uses what it read.
+
+The result only informs (`"effect": "informs"`). A file that fails it (`valid` false) can still be
+imported: Import never waits on this check, because the converter already refuses what it can't
+read, and says why. The check shows where the file departs from the specification, which matters
+when the file goes to other tools.
+
+- KratosForge carries two copies of the schema, each fixed to one upstream commit, in
+  `sidecar/fabric_desktop/_vendor/ossie_schema` with their licence and SHA-256 hashes:
+  0.2.0.dev0 (commit `21d14d7`, the last before Ossie moved to 0.3.0.dev0) and 0.3.0.dev0
+  (commit `aa500d3`). The converter reads and writes 0.2.0.dev0, which Fabric Semantic Views take.
+- A file of any other version gets one problem, "no pinned schema for" that version, and never
+  passes. Snowflake's 0.1.1 wrapper is checked for its documented shape (see Version profiles).
+- Each problem gives where it is as a path such as `$.datasets[0].fields[2].name`, the schema
+  rule it breaks (`required`, `additionalProperties`, `type`, `enum` and so on), a short form of
+  the value, what is wrong and how to fix it. A missing property and an unexpected property are
+  one problem each. Problems are sorted by path; after 200 the rest are counted in one line.
+- A file that is wrong almost everywhere costs bounded time: the check stops after 5,000 schema
+  errors and the last line says "at least N more" (`stopped` is true). The problems shown are
+  then the first ones in the file. A file of 2,000 datasets with 50 bad fields each is checked in
+  about a second.
+- The file is read with the same limits as Import: at most 20 million characters, no YAML
+  aliases (`*name`), and no deeper nesting than a model needs. The schema can't refer to anything
+  outside the copies it ships with.
+- `valid` is true only when a schema checked the file and found nothing. Rules beyond the schema,
+  such as what Fabric or Snowflake accept, are the version profiles below.
+- Regular expressions in a schema (`pattern`, `patternProperties`) would be matched with Python's
+  `re`, not the ECMA-262 dialect JSON Schema names. Neither pinned schema has any, and a test fails
+  if a newly vendored schema adds one, so the dialect is reviewed before such a schema ships.
+
+## Version profiles
+
+Fabric, Snowflake and Apache Ossie itself each take a different Ossie version, so KratosForge
+reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/ossie_profiles.py`).
+
+| Profile | Version and layout | Checked by |
+| --- | --- | --- |
+| `ossie-0.3` | 0.3.0.dev0, flat | the pinned schema at `aa500d3` |
+| `ossie-0.2` | 0.2.0.dev0, flat (what the converter reads and writes) | the pinned schema at `21d14d7` |
+| `fabric-semantic-view` | 0.2.0.dev0, flat | the 0.2 schema plus Fabric's documented rules |
+| `snowflake-ossie` | 0.1.1 in the `semantic_model` wrapper | documented shape only: always **Unverified** |
+
+- A file's profile comes from its version and layout. Any other version is refused with a message
+  that names it. Fabric's profile is never guessed, because it uses the same version as `ossie-0.2`;
+  ask for it by name.
+- A 0.3.0.dev0 file or a Snowflake 0.1.1 file is read and checked, but it isn't converted. The
+  converter reads 0.2.0.dev0 only, so Import and Ossie file to TMDL refuse these files and name the
+  profile. Import's preview still returns the schema check, with `convertible` false. Converting
+  between versions comes later (OSSIE-012c).
+- Fabric rules: every metric needs a `DAX` expression, and relationships have one column on each
+  side. A view has at most 20 `.yaml` files, 16 MB of YAML combined and 30 MB of generated TMDL.
+  The TMDL size is checked only when the TMDL is given. Files without the `.yaml` extension, `.yml`
+  among them, are ignored, with a warning. Two readings are labelled derived, because the page
+  doesn't say: "MB" is read as 1,000,000 bytes, the stricter reading, and `.yaml` is matched in any
+  case. A warning says what Fabric leaves out: `custom_extensions`, dataset `fields`,
+  `primary_key`, `unique_keys` and `ai_context`. Warnings never fail the check.
+- A Fabric view can be split across files, and publishing merges them into one view
+  ([YAML reference](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-yaml-reference),
+  updated 2026-11-17). `validate_files` checks each file as a fragment: it needs `version` and
+  `name`, and `datasets`, when the file declares it, is a nonempty list. It then checks the merged
+  view by the Fabric rules and shows each problem in the file it came from. Repeated names,
+  different top-level descriptions and any other top-level key given differently in two files
+  (`fabric/conflict`: "Resolve duplicate names and conflicting definitions across files") are
+  errors. Files may give different `name` values, because Fabric doesn't use the name: "Required,
+  but the value isn't used. The view folder name is used as the view and semantic model name." A
+  file that can't be read is left out of the merged check, and `merged.notes` names it. A view
+  whose files declare no datasets is valid, with a warning that Fabric infers the datasets.
+  `validate` checks one whole document.
+- Snowflake rules: version `0.1.1` and the `semantic_model` wrapper. A field or metric with no
+  `SNOWFLAKE` or `ANSI_SQL` expression gets a warning, because Snowflake skips it. That rule is
+  labelled derived: Snowflake documents the behaviour but not where fields sit in 0.1.1. A correct
+  0.1.1 file has no errors, a `notes` line that no schema is pinned, and the status Unverified. A
+  file that breaks a Snowflake rule is Invalid.
+- Each rule records its source page, the page date from the phase 0 research, its basis (pinned
+  schema, documented or derived) and, in `derived`, any part of it that KratosForge reads in. The
+  result gives the `profile`, a `status` (Valid, Invalid, Unverified or Not checked), `warnings`,
+  `notes` and the `rules` that ran. It still only informs.
 
 ## Keeping Git in step
 
@@ -91,22 +250,33 @@ Files Fabric no longer returns are removed from that folder.
 - KratosForge doesn't ship Microsoft's Tabular Object Model libraries. A model in Fabric is read
   as TMSL; a model in Git is read by KratosForge's own TMDL reader (`sidecar/fabric_desktop/tmdl.py`),
   which covers tables, columns, measures, hierarchies, partitions, relationships, expressions,
-  roles, perspectives, calculation groups, annotations and descriptions. It doesn't read cultures
-  and translations yet.
+  roles, perspectives, calculation groups, cultures, annotations and descriptions.
+- Cultures are one file each under `definition/cultures/`, as Power BI Desktop writes them:
+  `cultureInfo <name>`, its `linguisticMetadata` (JSON content is read as JSON, XML as text,
+  with its `contentType`), and `translations`, which repeat the model's tree (`model Model`,
+  then tables, columns, measures, hierarchies and their levels, perspectives, roles and
+  expressions) with `caption`, `description` and `displayFolder`. These become TMSL's
+  `model.cultures[]`, with `translatedCaption`, `translatedDescription` and
+  `translatedDisplayFolder` under `translations.model`. The writer writes them the same way, with
+  the linguistic metadata on the lines after `linguisticMetadata =` as Power BI Desktop does (so
+  re-saving a Power BI culture file shows no diff), plus a `ref cultureInfo <name>` line in
+  `model.tmdl` for each, which keeps their order. Anything
+  else in a culture (a translation of a KPI, a property a translation doesn't have, a
+  translation with no name) is named in the report, never dropped silently.
 - The engine also writes TMDL on this PC (Preview, PB-110): a model, or an Ossie file, becomes
   TMDL files with no Fabric call. Every write is read back with the TMDL reader before it is
   used. Anything that wouldn't come back exactly as it was, such as a blank first or last line in
-  a value, or translations, is listed in the report by name. A name with a line break, or an
+  a value, is listed in the report by name. A name with a line break, or an
   expression with a line of three backticks, would break the TMDL layout, so it is refused and
   the object is named. Line breaks also include the characters other editors break lines on
   (U+2028, U+2029, U+0085, vertical tab, form feed and the file, group and record separators),
-  and values holding them are written fenced.
+  and values holding them are written fenced (in JSON linguistic metadata, as `\u` escapes).
 - Writing an Ossie file as TMDL into the project never follows a link or junction. Each file is
   written whole and swapped in. Only `.tmdl` files under `definition/` that the model no longer
-  has are removed, and the preview lists them first. Table, role and perspective names never become file names as they are:
+  has are removed, and the preview lists them first. Table, role, perspective and culture names never become file names as they are:
   characters Windows doesn't allow, device names such as `CON`, and names that clash are changed
   for the file name only. TMDL to Ossie and back keeps every object the reader reads. Roles,
-  perspectives, hierarchies and calculation groups travel in the Ossie file's Power BI section,
+  perspectives, translations, hierarchies and calculation groups travel in the Ossie file's Power BI section,
   where other tools don't see them.
 
 ## From an AI tool

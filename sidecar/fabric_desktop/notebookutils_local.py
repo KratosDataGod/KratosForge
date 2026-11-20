@@ -519,6 +519,7 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
         @contextlib.contextmanager
         def task(name: str) -> Iterator[None]:
             host.tasks.append(name)
+            host.task_values.setdefault(name, {})  # dbutils.jobs.taskValues.get finds a task that ran
             try:
                 yield
             finally:

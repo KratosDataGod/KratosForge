@@ -283,7 +283,9 @@ class XRayMixin:
             raise RuntimeError(f"Couldn't read the table's history ({type(exc).__name__}: {exc}), so whether its "
                                "commits' dates can be trusted isn't known. Nothing was started. Try again when the "
                                "table can be read.") from exc
-        if safe > maintenance.MAX_SKEW_DAYS:
+        # Refused only when the skew is what raised the days: a table's own long retention (or a layer's
+        # Keep history) past the bound, with its dates in order, is kept as asked.
+        if safe > days and safe > maintenance.MAX_SKEW_DAYS:
             raise RuntimeError("A commit in this table's history is dated much earlier than the one before it, "
                                "because a writer's clock was out of step. To keep the files its versions read, "
                                f"Fabric's VACUUM would have to keep {safe:,} days of history, so it would remove "

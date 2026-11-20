@@ -866,8 +866,9 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
                              f"not {', '.join(bad)}. Nothing was changed.")
         filters = [(c, op, v) for c, op, v in where] if where else None
         # On Windows a writer committing the same next version at the same moment, or holding a log file, makes
-        # this commit fail to open its log file (retrying.windows_log_race). Nothing was committed, so it runs
-        # again on the table's latest version.
+        # this commit fail to open a log file (retrying.windows_log_race). Usually that is the staged commit and
+        # nothing went in; it can also be a later log file read after the commit went in. Either way it runs again
+        # on the table's latest version, and a second compaction or Z-Order there changes no rows.
         attempts = [0]
 
         def once() -> dict[str, Any]:

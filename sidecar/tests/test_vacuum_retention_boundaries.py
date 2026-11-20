@@ -363,8 +363,32 @@ def test_xray_refuses_a_commit_dated_so_far_out_of_step_that_vacuum_would_remove
     assert len(jobs) == before and _ids(str(uri), 0) == [0]
 
 
-def test_the_bound_is_a_year_and_a_skew_inside_it_still_keeps_enough_days():
+def test_the_bound_is_a_year_and_a_skew_inside_it_still_keeps_enough_days(vacuum_svc):  # noqa: F811
+    svc, uri, _jobs = vacuum_svc
     assert maintenance.MAX_SKEW_DAYS == 365
+    for v, age in enumerate((2 * DAY, 300 * DAY, DAY)):  # skewed, but inside the bound
+        _stamp(str(uri), v, age)
+    safe, why = svc._xray_skew_days(str(uri), {}, 7, "Fabric's default")
+    assert 300 <= safe <= maintenance.MAX_SKEW_DAYS and "out of step" in why
+
+
+@pytest.mark.parametrize("days", [400, 3650])
+def test_a_long_retention_with_dates_in_order_is_kept_not_refused(vacuum_svc, days):  # noqa: F811
+    """A table's own retention (or a layer's Keep history) past the bound, with no clock skew, is not the skew
+    the bound is for: Optimize, its check, Vacuum and its preview keep those days as asked."""
+    svc, uri, _jobs = vacuum_svc
+    for v, age in enumerate((50 * DAY, 40 * DAY, DAY)):
+        _stamp(str(uri), v, age)
+    assert maintenance.skew_safe_days(DeltaTable(str(uri)), days) == days
+    assert svc._xray_skew_days(str(uri), {}, days, "the table's own setting") == (days, "the table's own setting")
+
+
+def test_a_skew_past_the_bound_is_refused_even_when_the_asked_days_are_long(vacuum_svc):  # noqa: F811
+    svc, uri, _jobs = vacuum_svc
+    for v, age in enumerate((2 * DAY, 900 * DAY, DAY)):
+        _stamp(str(uri), v, age)
+    with pytest.raises(RuntimeError, match="so it would remove nothing"):
+        svc._xray_skew_days(str(uri), {}, 400, "the table's own setting")
 
 
 # ---- 4. the cutoff is UTC: the same whatever the PC's time zone

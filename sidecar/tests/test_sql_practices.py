@@ -90,6 +90,15 @@ def ids(query, **kw):
      ["DM002"]),  # the column list, not the alias, says where the number lands
     ("INSERT INTO dbo.d (rn, id) SELECT ROW_NUMBER() OVER (ORDER BY id) AS customer_key, id FROM stg.c", []),
     ("INSERT INTO dbo.d (k_sk, id) SELECT (SELECT MAX(x) FROM dbo.y), ROW_NUMBER() OVER (ORDER BY id) FROM stg.c", []),
+    # DM002's own fix: only new keys are numbered, past the largest key already there
+    (("INSERT INTO dbo.dim_customer (customer_key, customer_id) SELECT k.max_key + ROW_NUMBER() OVER "
+      "(ORDER BY s.customer_id), s.customer_id FROM stg.customer AS s JOIN dbo.key_max AS k ON k.tbl = 'dim_customer'"),
+     []),
+    ("INSERT INTO dbo.d (customer_key, id) SELECT ROW_NUMBER() OVER (ORDER BY id) + 1000, id FROM stg.c", []),
+    ("CREATE TABLE dbo.d AS SELECT m.mx + ROW_NUMBER() OVER (ORDER BY id) AS customer_key, id FROM stg.c JOIN dbo.m AS m ON m.id = 1", []),
+    ("INSERT INTO dbo.d (customer_key, id) SELECT CAST(ROW_NUMBER() OVER (ORDER BY id) AS INT), id FROM stg.c",
+     ["DM002"]),  # a cast is still the number
+    ("INSERT INTO dbo.d (customer_key) SELECT ROW_NUMBER() OVER (ORDER BY id) FROM stg.c;", ["DM002"]),
     # WH001: a TRUNCATE and a reload of the same table
     ("TRUNCATE TABLE dbo.sales; INSERT INTO dbo.sales (id) SELECT id FROM stg.sales", ["WH001"]),
     ("TRUNCATE TABLE dbo.sales; INSERT INTO dbo.other (id) SELECT id FROM stg.sales", []),

@@ -118,7 +118,11 @@ def check(sources: list[str], scheduled: bool = False,
     for n, source in enumerate(sources, 1):
         for rule_id, line in _cell(source, scheduled, counts, n, trees):
             found.append(_finding(rule_id, n, line, settings))
-    for cell, line in _eager_read_kept_then_filtered(trees):
+    parsed = {n for n, _ in trees}
+    other_text = [source if n not in parsed else  # a %%sql cell, or a cell's magic and shell lines, may name a frame
+                  "\n".join(line for line in source.split("\n") if line.lstrip().startswith(("%", "!")))
+                  for n, source in enumerate(sources, 1)]
+    for cell, line in _eager_read_kept_then_filtered(trees, other_text):
         found.append(_finding("NB015", cell, line, settings))
     for name, where in counts.items():
         if len(where) >= 3:
@@ -437,21 +441,35 @@ def _is_eager_polars_read(node: ast.AST) -> bool:
             and isinstance(node.func.value, ast.Name) and node.func.value.id in {"pl", "polars"})
 
 
-def _eager_read_kept_then_filtered(trees: list[tuple[int, ast.AST]]) -> Iterator[tuple[int, int]]:
+def _eager_read_kept_then_filtered(trees: list[tuple[int, ast.AST]], other_text: list[str] | None = None,
+                                   ) -> Iterator[tuple[int, int]]:
     """NB015 across lines and cells: df = pl.read_csv(...), and every use of df anywhere in the notebook is
-    df.filter(...). A name assigned twice, or used any other way in any cell (its columns, its length,
-    passed on), isn't reported, because then the whole frame may be needed. Yields (cell, line)."""
-    assigned: dict[str, list[ast.AST]] = {}
+    df.filter(...). A name bound twice (assigned, a loop or with target, an argument, an import), used any
+    other way in any cell (its columns, its length, passed on), or named in a string or in ``other_text``
+    (a %%sql cell, magic lines: duckdb.sql("... FROM df") reads it whole), isn't reported, because then the
+    whole frame may be needed. Yields (cell, line)."""
+    bound: dict[str, list[ast.AST]] = {}
+    strings: list[str] = list(other_text or [])
     for _, tree in trees:
         for node in ast.walk(tree):
-            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-                for tgt in (node.targets if isinstance(node, ast.Assign) else [node.target]):
-                    for leaf in ast.walk(tgt):
-                        if isinstance(leaf, ast.Name):
-                            assigned.setdefault(leaf.id, []).append(node)
-    eager = {name for name, nodes in assigned.items()
-             if len(nodes) == 1 and isinstance(nodes[0], ast.Assign) and len(nodes[0].targets) == 1
-             and isinstance(nodes[0].targets[0], ast.Name) and _is_eager_polars_read(nodes[0].value)}
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                bound.setdefault(node.id, []).append(node)
+            elif isinstance(node, ast.arg):
+                bound.setdefault(node.arg, []).append(node)
+            elif isinstance(node, ast.alias):
+                bound.setdefault((node.asname or node.name).split(".")[0], []).append(node)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bound.setdefault(node.name, []).append(node)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                strings.append(node.value)
+    parents = {id(child): node for _, tree in trees for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    eager = set()
+    for name, nodes in bound.items():
+        assign = parents.get(id(nodes[0])) if len(nodes) == 1 else None
+        if isinstance(assign, ast.Assign) and len(assign.targets) == 1 and assign.targets[0] is nodes[0] \
+                and _is_eager_polars_read(assign.value) \
+                and not any(re.search(rf"\b{re.escape(name)}\b", text) for text in strings):
+            eager.add(name)
     if not eager:
         return
     filters: dict[str, list[tuple[int, int]]] = {}

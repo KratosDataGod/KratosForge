@@ -419,6 +419,8 @@ def _numbers_a_key(s: Stmt, i: int) -> bool:
     j = _close(s, i + 1) + 1
     if j < len(toks) and toks[j].kw == "OVER" and j + 1 < len(toks) and toks[j + 1].type == TokenType.L_PAREN:
         j = _close(s, j + 1) + 1
+    if not _whole_item(s, i, j):
+        return False  # k.max_key + ROW_NUMBER() OVER (...): numbering only new keys past the largest is the fix
     if j < len(toks) and toks[j].kw == "AS":
         j += 1
     column = _insert_column_for(s, i)  # INSERT INTO t (a_key, ...) SELECT ROW_NUMBER() ..., ...: the list decides
@@ -426,6 +428,25 @@ def _numbers_a_key(s: Stmt, i: int) -> bool:
         return column.lower().endswith(("_key", "_sk"))
     return (j < len(toks) and _is_name(toks[j]) and toks[j].kw not in _ALIAS_STOP | {"FROM"}
             and toks[j].text.lower().endswith(("_key", "_sk")))
+
+
+def _whole_item(s: Stmt, i: int, end: int) -> bool:
+    """ROW_NUMBER() at token i, ending before token ``end``, is the whole select item, or the whole
+    item is CAST(ROW_NUMBER() OVER (...) AS type). An expression around it (an offset added) isn't."""
+    toks = s.toks
+    start = i
+    if i >= 2 and toks[i - 1].type == TokenType.L_PAREN and toks[i - 2].kw in {"CAST", "TRY_CAST"}:
+        close = _close(s, i - 1)
+        if end >= len(toks) or toks[end].kw != "AS" or close >= len(toks):
+            return False
+        start, end = i - 2, close + 1
+    if not start or not (toks[start - 1].kw in {"SELECT", "DISTINCT"} or toks[start - 1].type == TokenType.COMMA):
+        return False
+    if end >= len(toks):
+        return True
+    nxt = toks[end]
+    return (nxt.type in {TokenType.COMMA, TokenType.SEMICOLON, TokenType.R_PAREN} or nxt.kw in _ALIAS_STOP | {"FROM", "AS", "INTO"}
+            or _is_name(nxt))
 
 
 def _insert_column_for(s: Stmt, i: int) -> str | None:

@@ -130,6 +130,15 @@ def test_polars_eager_read_kept_in_a_name_then_only_filtered():
                                            'eu = df.filter(pl.col("r") == "EU")'])["findings"]] == [3]
     assert ids(['df = pl.read_csv("a.csv")\neu = df.filter(pl.col("r") == "EU")', 'print(df.shape)']) == []
     assert ids(['df = pl.read_csv("a.csv")', 'df = df.with_columns(x=1)', 'df.filter(pl.col("x") > 0)']) == []
+    # read whole by SQL, or bound again by a loop, a with block or an argument: not reported
+    f = 'df = pl.read_csv("a.csv")'
+    eu = 'eu = df.filter(pl.col("r") == "EU")'
+    assert ids([f, eu, '%%sql\nSELECT count(*) FROM df']) == []
+    assert ids([f, eu, 'n = duckdb.sql("SELECT count(*) FROM df").fetchone()']) == []
+    assert ids([f, eu, 'for df in parts:\n    pass']) == []
+    assert ids([f, eu, 'with open("x") as df:\n    pass']) == []
+    assert ids([f, eu, 'def show(df):\n    return df']) == []
+    assert ids([f, eu, 'x = "dfx"']) == ["NB015"]  # a word in a string must be the whole name
 
 
 def test_print_logging_only_in_a_scheduled_notebook():

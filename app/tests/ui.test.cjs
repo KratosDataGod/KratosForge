@@ -2515,7 +2515,7 @@ test("a workspace picker and a confirmation settle however they close", async ()
 // Delta table features at publish (Preview): each table's choice on Data mesh > Deploy, a typed confirm
 // when the choice breaks one of the table's readers, and a refused note that links the reader matrix.
 const DELTA_REASON = "This choice allows deletion vectors, which Fabric pipelines can't read (Microsoft's Delta Lake interoperability page).";
-function deltaUi({ shown = true, confirm = true, refuse = null } = {}) {
+function deltaUi({ shown = true, confirm = true, refuse = null, readers = null } = {}) {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const start = meta.indexOf("// ---------- Delta table features at publish (Preview) ----------");
   const code = meta.slice(start, meta.indexOf("\n// ---------- ", start + 10));
@@ -2544,7 +2544,7 @@ function deltaUi({ shown = true, confirm = true, refuse = null } = {}) {
     docLink: (page, label) => node("a", { href: page }, label),
   };
   vm.runInNewContext(`${code}; Object.assign(this, { deltaFeaturesCard, DELTA_CHOICES });`, ctx);
-  const table = { name: "gold.fact_sales", delta: { features: null, reader_names: ["Fabric's SQL analytics endpoint", "Fabric pipelines"],
+  const table = { name: "gold.fact_sales", delta: { features: null, reader_names: readers || ["Fabric's SQL analytics endpoint", "Fabric pipelines"],
     reasons: { default: [DELTA_REASON], every_reader: [], deletion_vectors: [DELTA_REASON], column_mapping: [] }, problems: [] } };
   const card = ctx.deltaFeaturesCard({ entities: [table] });
   const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
@@ -2557,9 +2557,9 @@ function deltaUi({ shown = true, confirm = true, refuse = null } = {}) {
 test("each table has a Delta table features at publish select, tagged Preview, that shows the modern default", () => {
   const d = deltaUi();
   const label = d.find(d.card, (n) => n.tag === "label" && n.kids.includes(d.select));
-  assert.strictEqual(label.kids[0], "Delta table features at publish", "the select's own label");
+  assert.strictEqual(label.kids[0], "Delta features", "the select's own label");
   assert.deepStrictEqual(d.select.kids.map((o) => o.kids[0]), ["Default: deletion vectors and column mapping (modern)",
-    "Every reader (recommended)", "Allow deletion vectors only", "Allow column mapping by name only"]);
+    "Every reader: no deletion vectors or column mapping", "Allow deletion vectors only", "Allow column mapping by name only"]);
   assert.deepStrictEqual(d.select.kids.map((o) => o.attrs.value), ["", "every_reader", "deletion_vectors", "column_mapping"]);
   assert.strictEqual(d.select.value, "", "no setting shows the default");
   assert.ok(d.text(d.card).includes("Preview:deltaPerTable"), "the heading carries the Preview tag");
@@ -2569,6 +2569,16 @@ test("each table has a Delta table features at publish select, tagged Preview, t
   assert.match(features, /\n  deltaPerTable: "Delta table features at publish",/);
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   assert.match(meta, /promoteRow\("dev", "test"\), promoteRow\("test", "prod"\), deltaFeaturesCard\(p\)\);/, "on the Environments tab");
+});
+
+test("three readers are listed as a, b and c, and the default's confirm names both features", async () => {
+  const d = deltaUi({ readers: ["Fabric's SQL analytics endpoint", "Direct Lake", "Fabric pipelines"] });
+  assert.ok(d.text(d.card).includes("Checked against Fabric's SQL analytics endpoint, Direct Lake and Fabric pipelines."));
+  const one = deltaUi({ readers: ["Direct Lake"] });
+  assert.ok(one.text(one.card).includes("Checked against Direct Lake."));
+  await d.pick("every_reader");
+  await d.pick("");
+  assert.strictEqual(d.calls.confirm[0][0], "Allow deletion vectors and column mapping on gold.fact_sales?");
 });
 
 test("a choice that breaks no reader saves without asking", async () => {
@@ -2585,8 +2595,9 @@ test("a choice that breaks a reader asks for the table's name, in red, with the 
   await d.pick("deletion_vectors");
   assert.strictEqual(d.calls.confirm.length, 1);
   const [title, text, ok, opts] = d.calls.confirm[0];
-  assert.strictEqual(title, "Allow this on gold.fact_sales?");
-  assert.strictEqual(text, "This choice lets gold.fact_sales use a Delta feature that one of its readers can't read.");
+  assert.strictEqual(title, "Allow deletion vectors on gold.fact_sales?");
+  assert.strictEqual(text, "These readers of gold.fact_sales can't read it with this choice, or no source says they can. "
+    + "It applies to this table only.");
   assert.strictEqual(ok, "Allow it");
   assert.deepStrictEqual(opts, { danger: true, typeToConfirm: "gold.fact_sales", typeLabel: "Type gold.fact_sales to allow it", items: [DELTA_REASON] });
   assert.deepStrictEqual(d.calls.rpc, [["meta_set_delta_features", { name: "gold.fact_sales", delta_features: "deletion_vectors", confirm_name: "gold.fact_sales" }]]);
@@ -2599,7 +2610,7 @@ test("a choice that breaks a reader asks for the table's name, in red, with the 
 
 test("the typed confirm keeps Allow it off until the table's full name is typed, and lists the reasons", () => {
   const d = dialogHelpers();
-  d.confirmDialog("Allow this on gold.fact_sales?", "x", "Allow it",
+  d.confirmDialog("Allow deletion vectors on gold.fact_sales?", "x", "Allow it",
     { danger: true, typeToConfirm: "gold.fact_sales", typeLabel: "Type gold.fact_sales to allow it", items: [DELTA_REASON] });
   const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
   const overlay = d.root.kids[0];

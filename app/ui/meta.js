@@ -967,18 +967,26 @@ async function renderEnvTab(body, p) {
 // which is the modern profile.
 const DELTA_CHOICES = [
   ["", "Default: deletion vectors and column mapping (modern)"],
-  ["every_reader", "Every reader (recommended)"],
+  ["every_reader", "Every reader: no deletion vectors or column mapping"],
   ["deletion_vectors", "Allow deletion vectors only"],
   ["column_mapping", "Allow column mapping by name only"],
 ];
+
+// What each choice allows, for the typed confirm's title.
+const DELTA_ALLOWS = { "": "deletion vectors and column mapping", deletion_vectors: "deletion vectors", column_mapping: "column mapping" };
+
+// "a", "a and b", "a, b and c".
+function andList(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
 
 function deltaFeaturesCard(p) {
   if (!previewShown()) return null;
   const tables = (p.entities || []).filter((e) => e.delta);
   return h("div", { class: "card pad" },
     previewMarked("deltaPerTable", h("b", {}, "Delta table features at publish")),
-    h("p", { class: "muted-text" }, "A run that publishes a table to OneLake keeps only the Delta features you allow here. "
-      + "When a table already uses a feature you didn't allow, the run refuses it and writes nothing, so change the setting first."),
+    h("p", { class: "muted-text" }, "A run that publishes a table to OneLake uses only the Delta features you allow here. "
+      + "If the table already uses a feature you didn't allow, the run writes nothing, so change the setting first."),
     tables.length ? h("div", { class: "delta-tables" }, tables.map((e) => deltaFeaturesRow(e)))
       : h("p", { class: "muted-text" }, "This project has no tables yet. Add an entity to choose its features."));
 }
@@ -990,8 +998,8 @@ function deltaFeaturesRow(e) {
     DELTA_CHOICES.map(([value, label]) => h("option", { value, selected: value === current ? true : null }, label)));
   return h("div", { class: "row wrap" },
     h("span", { class: "mono grow" }, e.name),
-    h("label", { class: "field" }, "Delta table features at publish", select),
-    h("span", { class: "muted-text small" }, `Checked against ${e.delta.reader_names.join(" and ")}.`),
+    h("label", { class: "field" }, "Delta features", select),
+    h("span", { class: "muted-text small" }, `Checked against ${andList(e.delta.reader_names)}.`),
     e.delta.problems?.length ? deltaRefusedNote(e.delta.problems[0]) : null,
     note);
 }
@@ -1003,8 +1011,8 @@ async function chooseDeltaFeatures(e, select, note) {
   const reasons = e.delta.reasons[choice || "default"] || [];
   let confirmName = null;
   if (reasons.length) {
-    const ok = await confirmDialog(`Allow this on ${e.name}?`,
-      `This choice lets ${e.name} use a Delta feature that one of its readers can't read.`, "Allow it",
+    const ok = await confirmDialog(`Allow ${DELTA_ALLOWS[choice] || "this"} on ${e.name}?`,
+      `These readers of ${e.name} can't read it with this choice, or no source says they can. It applies to this table only.`, "Allow it",
       { danger: true, typeToConfirm: e.name, typeLabel: `Type ${e.name} to allow it`, items: reasons });
     if (!ok) { select.value = e.delta.features || ""; return; }
     confirmName = e.name;

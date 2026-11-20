@@ -478,7 +478,7 @@ Coordinated with the Fabric Excellence Assessment thread.
 OE-041 as separate inputs (verified first). The planner, not this program, makes any
 right-sizing recommendation, and it needs peak, concurrency and throttling evidence.
 
-**ESI-603 What to optimize next.** Rank open opportunities by evidence-backed benefit, using the
+**ESI-603 What to optimize next.** **Built** (engine only, no writes). `savings/priorities.py`. Rank open opportunities by evidence-backed benefit, using the
 existing `ACTION_ORDER` and impact figures.
 
 ## 7. Test matrix (section 16 of the brief)

@@ -22,6 +22,11 @@ ledger and compares them with the latest attribution, fixing nothing (ESI-404).
 same workload, definition version and input scope) and the before and after check that moves an
 optimization from Validating to Verified, or keeps it Validating; estimates and times never verify (ESI-302).
 
+``priorities``: what to optimize next. Open opportunities (proposed, validating or approved) are
+ranked by the benefit their evidence shows: measured CU first, then estimated CU, then run time
+when CU isn't known, then scenario figures, then unknown last with None. Kinds are never sorted
+together. Within a kind: bigger first, then the action order, then id (ESI-603).
+
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.
 """

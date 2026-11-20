@@ -381,3 +381,25 @@ def test_profile_mastery_shows_every_class_and_one_tree_from_the_profile(plain):
     assert plain._profile_path().read_bytes() == before
     out = handle(plain, json.dumps({"id": 1, "method": "profile_mastery", "params": {"class_id": "no-such-class"}}))
     assert "isn't a developer class" in str(out["error"])
+
+
+def test_each_level_says_what_the_next_one_needs():
+    assert len(levels.NEXT_STEP) == len(levels.LEVELS)
+    assert levels.NEXT_STEP[0].startswith("Finish one of its lessons")          # Not started -> Initiate
+    assert levels.NEXT_STEP[2] == "Pass a hands-on exercise on this PC."         # Apprentice -> Journeyman
+    assert "7 days apart" in levels.NEXT_STEP[3]                                 # Journeyman -> Adept
+    assert "Validate" in levels.NEXT_STEP[4]                                     # Adept -> Expert
+    assert "30 days" in levels.NEXT_STEP[5]                                      # Expert -> Master
+    assert "reviewer" in levels.NEXT_STEP[6] and levels.NEXT_STEP[7] == ""
+
+
+def test_profile_mastery_gives_each_talent_the_step_for_its_own_level(plain):  # noqa: F811 - the fixture
+    p = progress.empty()
+    progress.add(p, progress.from_lab(passed(lab("LM-07", "ex")), lab("LM-07", "ex", kind="module")))
+    progress.save(plain._profile_path(), p)
+    out = call(plain, "profile_mastery", class_id="lakehouse-warden")
+    for sp in out["class"]["specializations"]:
+        for n in sp["nodes"]:
+            want = levels.NEXT_STEP[n["level"]] if n["level"] < n["ceiling"] else n["ceiling_reason"]
+            assert n["next"] == want, n["id"]
+    assert any(n["level"] >= 1 for sp in out["class"]["specializations"] for n in sp["nodes"])

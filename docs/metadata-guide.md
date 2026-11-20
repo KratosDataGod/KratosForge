@@ -393,7 +393,7 @@ require_commit = true    # block even when this environment is on this PC
 
 *Preview*, part of **Promote** and tagged with it. Before a promote to Test or Prod writes anything, the promote card checks your workspace role in each workspace the target uses. If Fabric lists you as a **Viewer** there, it says so and names the workspace's Admins to ask, and the promote is blocked. Fabric would refuse those writes anyway, partway through. If your role may come through a group, or Fabric won't show the workspace's access list, the card shows a note instead and Fabric decides when the promote writes.
 
-**Prod asks for its workspace's name.** Promote to Prod, **Roll back...** on Prod and **Restore** of a Prod table run only after you type the Prod workspace's name, as a write to Prod does. When Prod's workspace has no name, you type its id. When Prod has no workspace at all, you type `Prod`. KratosForge checks the name again before anything changes, and the confirm is recorded in the [audit trail](user-guide.md#audit-trail) first. The role and duty checks in this section come first. Test and Dev ask for no name.
+**Prod asks for its workspace's name.** Promote to Prod, **Roll back...** on Prod and **Restore** of a Prod table run only after you type the Prod workspace's name, as a write to Prod does. When Prod's workspace has no name, you type its id. When Prod has no workspace at all, you type `Prod`. KratosForge checks the name again before anything changes, and the confirm is recorded in the [audit trail](user-guide.md#audit-trail) first. The role and duty checks in this section come first. Test and Dev ask for no name, unless their workspace is another project's Prod workspace on this PC. Then they ask for that workspace's name in the same way.
 
 To have a second person release to Prod, set `separate_promoter = true` for Prod in `environments.toml`:
 
@@ -449,6 +449,7 @@ With Preview features on, the platform's list is the one list of source systems:
 
 **Variable library VL_Sources** (Preview, on the same tab; not yet run on a tenant) is one Fabric variable library per environment workspace, with that environment's values active. **Publish to Dev / Test / Prod** creates or updates it; promote updates it in the target. Notebooks read the same names in Fabric and on your PC:
 
+<!-- example: illustrative -->
 ```python
 lib = notebookutils.variableLibrary.getLibrary("VL_Sources")
 lib.CRM_server_host
@@ -610,7 +611,7 @@ Changing this file doesn't change the metadata version, so it never forces a re-
 
 No two environments can use the same workspace, as their own `workspace_id` or as a designation's: each environment's lakehouses have the same names (`LH_Meta`, `LH_Bronze`, ...), so a run in one would write the other's tables. Saving such a change is refused, and if the file is edited by hand to share one, both environments refuse to read or write until it's fixed.
 
-A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a table the metadata project manages, or anything in a workspace that Test or Prod uses: those change only through a framework run and promote. With no project open, a workspace that a project opened on this PC named as Prod is refused the same way.
+A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a table the metadata project manages, or anything in a workspace that Test or Prod uses: those change only through a framework run and promote. A workspace that any project opened on this PC named as Prod is refused the same way, with a project open or not.
 
 ### Data mesh files
 
@@ -629,6 +630,12 @@ Before you drop, rename or retype a column, **Impact** in an entity's Lineage ca
 - **The semantic model** KratosForge builds over the last layer (`SM_<Layer>`). A relationship on a column that goes, or on a lookup that breaks, loses a side. A visible column that goes or changes type is a Check for the reports that use it.
 
 Tables that read the entity but not this column are counted apart. Notebooks outside a project aren't traced yet. When you save an entity whose contract drops, renames or retypes a column that something reads, KratosForge shows the same list and asks before saving. One column gone and one of the same type added reads as a rename.
+
+### Export lineage as OpenLineage (Preview)
+
+**Export OpenLineage...** in the Impact view writes the project's lineage as [OpenLineage](https://openlineage.io) run events, the open format DataHub, OpenMetadata and Marquez read. There is one event for each table's last run in the current environment: the job is the entity, the output is its table with its columns and their column lineage, and the inputs are the tables (or files) it reads. A column read as it is shows as a direct identity; a `[[derive]]` shows its expression; the columns a `[[lookup]]` matches on show as a join. A run that finished is COMPLETE and one that failed is FAIL. Tables that haven't run, or whose last run hasn't finished, are left out, and the dialog lists them first.
+
+The file is new in Downloads (`<project>-<env>-openlineage.jsonl`), one event per line, as OpenLineage's own file transport writes it. Send each line to your catalog's OpenLineage endpoint, for example Marquez's `POST /api/v1/lineage`. Tables in an environment in Fabric are named by their OneLake path (`abfss://<workspace id>@onelake.dfs.fabric.microsoft.com`, `LH_Gold.Lakehouse/Tables/<schema>/<table>`), so they line up with what Spark in Fabric reports; tables on this PC are named `kratosforge://<project>/<env>`. Events carry names and how they link: no data rows and no run messages. A source given as a URL keeps only its scheme, host, port and path (no user, password, query string or path parameters such as `;jsessionid=`, where a key, SAS token or session id would sit), a file on this PC keeps only its name, and anything else credential-shaped is removed. Every event is checked against the OpenLineage spec's JSON schema in the tests. Sending events to a catalog's URL after every run isn't built yet.
 
 ### Columns and tables the framework adds
 

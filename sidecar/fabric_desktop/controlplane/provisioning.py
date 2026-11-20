@@ -42,11 +42,15 @@ WORKSPACE_PERMISSION = ("Your organization lets you create workspaces (Fabric te
 WORKSPACE_COST = ("No new purchase. The workspace runs on the capacity you pick, and what runs in it uses "
                   "that capacity's units.")
 LAKEHOUSE_PERMISSION = "Contributor, Member or Admin role on the workspace."
-LAKEHOUSE_COST = "OneLake storage for what it holds (small: history rows, not data copies)."
+LAKEHOUSE_COST = "OneLake storage for what it holds. It's small, because it keeps history rows, not copies of data."
 TABLES_PERMISSION = "Write access to the lakehouse (Contributor or higher on the workspace)."
 READY_NOTE = "No table changes. This PC is added to its installations list (one row)."
 UPGRADE_NOTE = ("Upgrades the shared tables. KratosForge on other PCs can only read them until it's updated "
                 "to this version.")
+MANIFEST_NOTE = "Ids and versions only, never a secret."
+UPGRADE_CHANGED = ("Something changed since this plan was shown (another PC upgraded the tables or changed the "
+                   "environment). Nothing was upgraded. Review the new plan and confirm again.")
+UPGRADE_DONE = "Nothing to upgrade, because every shared table is already at this version."
 CHANGED = ("Something changed since this plan was shown (a name was taken, or a lakehouse or its tables "
            "changed). Nothing was created. Review the new plan and confirm again.")
 
@@ -94,6 +98,7 @@ class FabricProvisioning:
             if ws is None:
                 steps.append(PlanStep("refuse", ws_id, False, blocked="That workspace isn't one you can open."))
             else:
+                req["workspace_name"] = ws.get("displayName", "")  # the manifest names it, for people
                 steps.append(PlanStep("find", ws.get("displayName", ws_id), False))
         else:
             ws_name = (req.get("workspace_name") or DEFAULT_WORKSPACE).strip()
@@ -120,7 +125,8 @@ class FabricProvisioning:
                                            "existing lakehouse, or pick another name.") if taken else ""))
             for fam in self.families():
                 steps.append(PlanStep("initialize", f"{fam.title} tables ({fam.prefix})", True, TABLES_PERMISSION))
-        steps.append(PlanStep("write_manifest", "Files/_kratosforge/environment.json", True, TABLES_PERMISSION))
+        steps.append(PlanStep("write_manifest", "Files/_kratosforge/environment.json", True, TABLES_PERMISSION,
+                              note=MANIFEST_NOTE))
         return ProvisionPlan("fabric", tuple(steps), req)
 
     def _existing_lakehouse(self, ws_id: str, lh_id: str) -> list[PlanStep]:
@@ -154,7 +160,7 @@ class FabricProvisioning:
         """Run a plan the person confirmed. Returns ``ok``, the ids made or used, each step's outcome,
         and the manifest when it was written."""
         if not confirmed:
-            raise NotConfirmed("Nothing was created: creating an environment needs your confirmation.")
+            raise NotConfirmed("Nothing was created, because creating an environment needs your confirmation.")
         if plan.blocked:
             raise PermissionError(" ".join(plan.blocked))
         # The plan the person saw is checked again now, so a stale or edited plan never runs.
@@ -215,4 +221,84 @@ class FabricProvisioning:
             return "Wrote the manifest"
 
         out["ok"] = step("Manifest", manifest)  # ManifestExists is reported here: connect instead
+        return out
+
+    # ---- upgrade (CP-010): the same plan-and-confirm, for an environment whose tables are older
+
+    def plan_upgrade(self, manifest: dict[str, Any]) -> ProvisionPlan:
+        """What upgrading the environment's shared tables would do. Reads only. Only families that need
+        it get a step; a family that is newer or not KratosForge's blocks the plan."""
+        store = manifest.get("analytical_store") or {}
+        ws_id, lh_id = store.get("workspace_id", ""), store.get("lakehouse_id", "")
+        req = {"environment_id": manifest.get("environment_id", ""), "workspace_id": ws_id, "lakehouse_id": lh_id}
+        if not mf.writable(manifest):
+            return ProvisionPlan("fabric", (PlanStep("refuse", "environment", False, blocked=(
+                "A newer KratosForge wrote this environment. Update KratosForge to upgrade it.")),), req)
+        try:
+            lake = self._open_lake(ws_id, lh_id, bool(store.get("schemas", True)))
+            states = [(fam, setup.inspect(lake, fam)) for fam in self.families()]
+        except Exception as exc:  # noqa: BLE001 - shown as a blocked step, with the reason
+            return ProvisionPlan("fabric", (PlanStep("refuse", lh_id, False, blocked="You can't read this lakehouse."
+                                                     if setup.denied(exc) else
+                                                     f"This lakehouse couldn't be read ({describe(exc)})."),), req)
+        steps: list[PlanStep] = []
+        for fam, st in states:
+            label = f"{fam.title} tables ({fam.prefix})"
+            if st["state"] in (setup.NEWER, setup.CONFLICT):
+                steps.append(PlanStep("refuse", label, False, blocked=st["message"]))
+            elif st["state"] != setup.READY:
+                action = "upgrade" if st["state"] in (setup.UPGRADE, setup.INCOMPLETE) else "initialize"
+                steps.append(PlanStep(action, label, bool(st["adds"]), TABLES_PERMISSION, note=UPGRADE_NOTE))
+        recorded = (manifest.get("schema") or {}).get("families") or {}
+        lagging = any(st["schema_version"] and recorded.get(fam.prefix) != st["schema_version"] for fam, st in states)
+        if not steps and not lagging:  # a manifest behind its tables (a write that failed) is still caught up
+            steps.append(PlanStep("refuse", "environment", False, blocked=UPGRADE_DONE))
+        steps.append(PlanStep("write_manifest", "Files/_kratosforge/environment.json", False, TABLES_PERMISSION,
+                              note=MANIFEST_NOTE))
+        return ProvisionPlan("fabric", tuple(steps), req)
+
+    def apply_upgrade(self, plan: ProvisionPlan, confirmed: bool) -> dict[str, Any]:
+        """Run an upgrade plan the person confirmed: the plan is made again from the manifest as it is
+        now and must match; each family is upgraded, then the manifest records the new versions with
+        an etag-conditional write, so a change by another PC meanwhile is refused, not overwritten."""
+        if not confirmed:
+            raise NotConfirmed("Nothing was upgraded, because upgrading needs your confirmation.")
+        req = plan.request
+        current = self._manifest_store(req.get("workspace_id", ""), req.get("lakehouse_id", "")).read()
+        if current is None or current.manifest.get("environment_id") != req.get("environment_id"):
+            raise PermissionError(UPGRADE_CHANGED)
+        fresh = self.plan_upgrade(current.manifest)
+        if fresh.blocked:
+            raise PermissionError(" ".join(fresh.blocked))
+        if fresh.steps != plan.steps or fresh.request != req:
+            raise PermissionError(UPGRADE_CHANGED)
+        done: list[dict[str, str]] = []
+        out: dict[str, Any] = {"ok": False, "steps": done, "manifest": None}
+        store = current.manifest["analytical_store"]
+        lake = self._open_lake(store["workspace_id"], store["lakehouse_id"], bool(store.get("schemas", True)))
+        versions = dict((current.manifest.get("schema") or {}).get("families") or {})
+        needs = {s.target for s in fresh.steps if s.action in ("upgrade", "initialize")}
+        for fam in self.families():
+            if f"{fam.title} tables ({fam.prefix})" not in needs:
+                continue  # already at this version: left exactly as it is
+            try:
+                got = setup.initialize(lake, self.installation, approve=True, family=fam)
+                versions[fam.prefix] = int(got["schema_version"] or fam.latest())
+                done.append({"step": f"{fam.title} tables", "status": "done", "detail": got["message"]})
+            except Exception as exc:  # noqa: BLE001 - reported, and the steps after it don't run
+                done.append({"step": f"{fam.title} tables", "status": "failed", "detail": describe(exc)})
+                return out
+        for fam in self.families():  # what each family is at now, the ones left alone included
+            at = setup.inspect(lake, fam).get("schema_version")
+            if at:
+                versions[fam.prefix] = int(at)
+        try:
+            schema_part = dict(current.manifest.get("schema") or {}) | {"families": versions}
+            made = self._manifest_store(store["workspace_id"], store["lakehouse_id"]).replace(
+                current, mf.updated(current.manifest, {"schema": schema_part}))
+        except Exception as exc:  # noqa: BLE001 - ManifestChanged among them: reported, never overwritten
+            done.append({"step": "Manifest", "status": "failed", "detail": describe(exc)})
+            return out
+        done.append({"step": "Manifest", "status": "done", "detail": "Recorded the new table versions"})
+        out.update(ok=True, manifest=made.manifest)
         return out

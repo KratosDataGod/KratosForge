@@ -1,6 +1,6 @@
 # Central control plane: Phase 0 audit, gap analysis and target architecture
 
-Status: Phase 0 (discovery and architecture). Owner: Central control plane thread.
+Status: Phase 1 engine built (CP-001 to CP-009, #3110, #3121, #3131) and the environment's own cost (CP-011, #3137), with no UI yet. Owner: Central control plane thread.
 
 Approval: Chris's master prompt of 2026-11-19 is his go for Phase 0 and for Phase 1 engine code
 (CP-001 to CP-009). It is not a go for anything that needs its own approval: new UI (CP-010) is built
@@ -223,7 +223,7 @@ central storage yet.
 | --- | --- | --- | --- |
 | Environment namespace | Workspace (built, Preview) | Unity Catalog catalog + schema in a workspace (planned) | Database + schemas with roles (planned) |
 | Analytical store | Lakehouse Delta tables via OneLake (built, Preview) | Delta tables in Unity Catalog (planned) | Snowflake tables; managed Iceberg where it fits (planned) |
-| Manifest location | Lakehouse file (CP-002, planned) | UC volume file or table property (to verify) | Table or stage file (to verify) |
+| Manifest location | Lakehouse file (CP-002, built, Preview) | UC volume file or table property (to verify) | Table or stage file (to verify) |
 | Operational store | Fabric SQL database through UDF (built, Preview) | To decide: Lakebase/Postgres if available to the tenant, else SQL warehouse tables with optimistic concurrency (to verify) | Hybrid or standard tables with transactions (to verify) |
 | Server-side authorization | UDF `executing_user` + workspace roles (built, Preview) | UC grants (to verify) | Roles and grants (to verify) |
 | Identity | Entra ID, Fabric CLI public client + WAM (built) | Entra or Databricks OAuth (Databricks auth built for execution) | Not built |

@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-19 23:42 UTC, main 75bf5b39.** Covers the PRs merged from #135 to #3109.
+**Product check of 2026-11-20 11:42 UTC, main bdb6f251.** Covers the PRs merged from #135 to #3135.
 
 ## Summary
 
+- Morning check, 2026-11-20: 32 PRs merged after 75bf5b39. 1 was a product data PR, and the other 31 were linked.
+  A new program has an item: PB-140 Three-platform parity (Phase 0 assessment and scored backlog in #3112; Snowflake
+  key-pair and PAT sign-in in Preview, #3113; computed P3, In progress). The central control plane (PB-139) landed
+  CP-001 to CP-009 in the engine. Promote, rollback, restore and Save as table in a Prod workspace now wait for its
+  typed name (PB-124). Lineage exports OpenLineage run events in Preview (PB-081, #2949).
 - Evening check, 2026-11-19: 40 PRs merged after 1719d5db. 2 were product data and docs audit PRs, and the other 38
   were linked. A new program has an item: PB-139 Central control plane, the KratosForge Environment (Phase 0 plan,
   decisions and stories CP-001 to CP-017 merged in #3109; computed P3, In progress). Every Prod write path is listed
@@ -298,7 +303,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 127 items (7 P0, 33 P1, 60 P2, 27 P3). 14 are Proposed, 32 In progress, 2 In review and 79 Accepted.
+- Backlog: 128 items (7 P0, 33 P1, 60 P2, 28 P3). 14 are Proposed, 33 In progress, 2 In review and 79 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.

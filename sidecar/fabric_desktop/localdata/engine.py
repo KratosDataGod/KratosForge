@@ -295,25 +295,33 @@ def _updated_once(con: duckdb.DuckDBPyConnection, text: str) -> None:
                          "with GROUP BY or ROW_NUMBER(), or use a MERGE.")
 
 
-def _matched_once(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
-    """Refuse a MERGE on a database table in which one of its rows would be updated or deleted by more than one
-    source row. T-SQL and Spark refuse it, since which source row wins is undefined; DuckDB's MERGE let the
-    last one win. A pair counts when a WHEN MATCHED clause would act on it."""
+# SQL Server's error 8672, word for word: a Fabric Warehouse's MERGE refuses the same.
+TSQL_SAME_ROW_TWICE = ("The MERGE statement attempted to UPDATE or DELETE the same row more than once. This happens "
+                       "when a target row matches more than one source row. A MERGE statement cannot UPDATE/DELETE "
+                       "the same row of the target table multiple times. Refine the ON clause to ensure a target "
+                       "row matches at most one source row, or use the GROUP BY clause to group the source rows.")
+
+
+def _matched_once(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", target_from: str | None = None,
+                  source_from: str | None = None, name: str | None = None) -> None:
+    """Refuse a MERGE in which one row of its table would be updated or deleted by more than one source row,
+    with SQL Server's error 8672. T-SQL and Spark refuse it, since which source row wins is undefined; DuckDB's
+    MERGE let the last one win. A pair counts when a WHEN MATCHED clause would act on it, so a duplicate that
+    every WHEN MATCHED condition leaves out doesn't, and an unconditional DELETE does (Delta allows that one).
+    ``target_from`` and ``source_from`` are DuckDB relations (a database table and the USING query by default)."""
     from sqlglot import exp
 
     conditions = [w.condition for w in c.whens if w.match == "matched"]
     acted = "" if any(x is None for x in conditions) else \
         " WHERE " + delta._duckdb(exp.or_(*[cast(exp.Expression, x).copy() for x in conditions]))
-    target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
+    target = target_from or (q(c.schema) + "." + q(c.table) if c.schema else q(c.table))
+    source = source_from or f"({c.source_sql(KfDuckDB)})"
     row = first_row(con.execute(
         f"SELECT 1 FROM (SELECT *, row_number() OVER () AS __fd_row FROM {target}) AS {q(c.alias)} "
-        f"JOIN ({c.source_sql(KfDuckDB)}) AS {q(c.source_alias)} ON {delta._duckdb(cast(exp.Expression, c.on))}"
+        f"JOIN {source} AS {q(c.source_alias)} ON {delta._duckdb(cast(exp.Expression, c.on))}"
         f"{acted} GROUP BY __fd_row HAVING count(*) > 1 LIMIT 1"))
     if row is not None:
-        raise ValueError(f"The MERGE statement attempted to UPDATE or DELETE the same row more than once: a row of "
-                         f"{c.name} matches more than one source row, so which one changes it is undefined. Keep "
-                         "one source row per row of the table, for example with GROUP BY or ROW_NUMBER() in the "
-                         "source.")
+        raise ValueError(f"{TSQL_SAME_ROW_TWICE} Nothing in {name or c.name} was changed.")
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
@@ -950,7 +958,7 @@ class LocalEngine:
             texts, notes = tsql.translate(sql, self._column_types(con), _FunctionNames(lambda: self._function_names(con)))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
-            return self._duckdb_steps(con, texts, n)
+            return self._duckdb_steps(con, texts, n, tsql=True)
         try:
             texts = [s.query for s in con.extract_statements(sql)]
         except duckdb.Error as exc:
@@ -961,7 +969,10 @@ class LocalEngine:
                 raise ValueError(_short(exc)) from None
         return self._duckdb_steps(con, texts, n)
 
-    def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int) -> list[dict[str, Any]]:
+    def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int,
+                      tsql: bool = False) -> list[dict[str, Any]]:
+        """Each statement as a step to run. ``tsql``: the statements came from T-SQL, so a MERGE on one of the
+        project's Delta tables is checked for T-SQL's error 8672 rather than Delta's multiple-match rule."""
         steps: list[dict[str, Any]] = []
         for text in texts:
             matched: delta_dml.Change | None = None
@@ -976,6 +987,8 @@ class LocalEngine:
                         raise
                     parsed = None
                     joined = rewritten  # an UPDATE ... FROM is checked before it runs (_updated_once)
+                if parsed is not None:
+                    parsed.tsql = tsql
                 change = self._own_change(parsed)
                 if change is None and parsed is not None and parsed.kind == "merge" \
                         and any(w.match == "matched" for w in parsed.whens):
@@ -1529,7 +1542,10 @@ class LocalEngine:
         query = c.source_sql(KfDuckDB)
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
-        if delta_dml.needs_one_match(c) and c.on is not None:
+        if c.tsql:  # WR-244: as a warehouse does, whose tables are Delta tables too
+            if any(w.match == "matched" for w in c.whens):
+                _matched_once(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}", f"temp.{q(source_table)}", name)
+        elif delta_dml.needs_one_match(c) and c.on is not None:
             detail = delta_dml.multiple_match(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}",
                                               f"temp.{q(source_table)}", delta._duckdb(c.on))
             if detail is not None:

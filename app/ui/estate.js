@@ -53,7 +53,7 @@ async function historyDialog(name) {
 
 function restoreDialog(name, env, v, hist) {
   const reason = h("input", { placeholder: "Bad export from CRM on Monday" });
-  // Prod: the restore waits for its workspace's name typed (WR-250), as a Prod write does.
+  // A Prod workspace (WR-250), or another project's Prod on this PC (WR-251): the restore waits for its name typed.
   const needs = hist.confirm_name || "";
   const typed = needs ? h("input", { autocomplete: "off", spellcheck: "false", oninput: () => { go.disabled = typed.value.trim() !== needs; } }) : null;
   const restore = async () => {
@@ -81,7 +81,8 @@ function restoreDialog(name, env, v, hist) {
     hist.incremental ? h("p", { class: "text" }, "It loads incrementally, so its watermark moves back too and the next run picks up what came after.") : null,
     hist.downstream.length ? h("p", { class: "muted-text" }, `Tables that read it aren't changed: ${hist.downstream.join(", ")}.`) : null,
     h("label", { class: "field" }, "Why (kept with the restore)", reason),
-    typed ? h("label", { class: "field" }, `Type ${needs} to confirm`, typed) : null),
+    typed ? [h("p", { class: "text" }, `${needs} is a Prod workspace, so this restore runs only after you type its name exactly to confirm.`),
+      h("label", { class: "field" }, `Type ${needs} to confirm`, typed)] : null),
   [btn("Cancel", null, () => historyDialog(name), "tool outline"), go]);
 }
 

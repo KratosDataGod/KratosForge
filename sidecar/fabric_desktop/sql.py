@@ -315,6 +315,17 @@ _SPARK_INTS = (exp.Year, exp.Month, exp.Day, exp.DayOfMonth, exp.DayOfYear, exp.
 # any other is NULL with ANSI off.
 _TRUNC_UNITS = {"YEAR", "YYYY", "YY", "QUARTER", "MONTH", "MM", "MON", "WEEK"}
 _DATE_TRUNC_UNITS = _TRUNC_UNITS | {"DAY", "DD", "HOUR", "MINUTE", "SECOND", "MILLISECOND", "MICROSECOND"}
+
+
+def _abbreviated_unit(node: exp.Expression, at: int) -> bool:
+    """Whether the unit of trunc or date_trunc was written as a letter sqlglot spells out for it ('Q' as
+    QUARTER, 'D' as DAY, 'M' as MINUTE): Spark takes none of them, so its answer is NULL."""
+    written = node.meta.get(spark_sql_names._ARGS)
+    if not written or len(written) != 2:
+        return False
+    text = written[at].strip()
+    return len(text) > 2 and text[0] == text[-1] and text[0] in "'\"" and \
+        text[1:-1].upper() in exp.TimeUnit.UNABBREVIATED_UNIT_NAME
 # next_day's day names, as Spark reads them (DateTimeUtils.getDayOfWeekFromString), ISO numbered.
 _NEXT_DAY = ("CAST(TRY_CAST(fj_arg0 AS DATE) + TO_DAYS(CAST((((CASE UPPER(CAST(fj_arg1 AS VARCHAR)) "
              + " ".join(f"WHEN '{n[:2]}' THEN {i} WHEN '{n[:3]}' THEN {i} WHEN '{n}' THEN {i}" for i, n in enumerate(
@@ -363,7 +374,8 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
                 unit = node.args.get("unit")
                 trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var
                 allowed = _TRUNC_UNITS if trunc else _DATE_TRUNC_UNITS
-                if isinstance(unit, (exp.Literal, exp.Var)) and unit.name.upper() not in allowed and node is not statement:
+                if isinstance(unit, (exp.Literal, exp.Var)) and node is not statement and (
+                        unit.name.upper() not in allowed or _abbreviated_unit(node, 1 if trunc else 0)):
                     wrap(node, "CAST(NULL AS DATE)" if trunc else "CAST(NULL AS TIMESTAMPTZ)", [])
             elif node.name.upper() == "MAKE_DATE" and len(node.expressions) == 3 and node is not statement:
                 wrap(node, _MAKE_DATE, list(node.expressions))
@@ -1837,14 +1849,50 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+# Spark's date plus an interval of years, months, weeks or days is a date (DateAddYMInterval, DateAdd,
+# DateAddInterval); DuckDB's is a timestamp. An interval with hours or less is a timestamp in both.
+_DATE_UNITS = frozenset({"YEAR", "YEARS", "MONTH", "MONTHS", "WEEK", "WEEKS", "DAY", "DAYS"})
+_DATES = (exp.CurrentDate, exp.TsOrDsToDate, exp.LastDay, exp.DateFromParts)
+
+
+def _whole_days(node: exp.Expression) -> bool:
+    """An interval of years, months, weeks or days only (INTERVAL 1 MONTH 2 DAY is read as a sum)."""
+    if isinstance(node, exp.Interval):
+        unit = node.args.get("unit")
+        return isinstance(unit, exp.Var) and unit.name.upper() in _DATE_UNITS
+    return isinstance(node, exp.Add) and _whole_days(node.this) and _whole_days(node.expression)
+
+
+def _known_date(node: exp.Expression) -> bool:
+    """Whether ``node`` is a date as written: DATE'...', a cast to DATE, current_date(), to_date..."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        return node.to.is_type(exp.DataType.Type.DATE)
+    return isinstance(node, _DATES)
+
+
+def _date_plus_days(node: exp.Add | exp.Sub) -> bool:
+    """date + INTERVAL 1 MONTH, INTERVAL 2 DAY + date, date - INTERVAL 1 YEAR: a date in Spark. A column's
+    type isn't known here; spark_decimals.spark_decimal_types gives a DATE column's sum its type."""
+    left, right = node.this, node.expression
+    if _whole_days(right) and _known_date(left):
+        return True
+    return isinstance(node, exp.Add) and _whole_days(left) and _known_date(right)
+
+
 def _spark_dates(statement: exp.Expression) -> exp.Expression:
     """Keep Spark's date results where sqlglot's DuckDB SQL differs: date_add and date_sub return
-    a date (DuckDB's date + INTERVAL is a timestamp), trunc(date, 'MM') returns a date, and Spark's
-    unit spellings ('MM', 'YYYY') become ones DuckDB reads."""
+    a date (DuckDB's date + INTERVAL is a timestamp), as does a date plus an interval of whole days
+    or months; trunc(date, 'MM') returns a date, and Spark's unit spellings ('MM', 'YYYY') become
+    ones DuckDB reads."""
     # Deepest first: a node is replaced by a cast of its copy, so a trunc inside a trunc must have its unit
     # spelled for DuckDB before the outer one copies it (trunc(trunc(d, 'MM'), 'MONTH') kept 'MM' and stopped).
-    for node in reversed(list(statement.find_all(exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc))):
-        if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
+    for node in reversed(list(statement.find_all(exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc, exp.Add, exp.Sub))):
+        if isinstance(node, (exp.Add, exp.Sub)):
+            if node is statement or not _date_plus_days(node):
+                continue
+        elif isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
             unit = node.args.get("unit")
             spark_trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var
             name = unit.name.upper() if unit is not None else ""

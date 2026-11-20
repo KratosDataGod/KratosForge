@@ -172,6 +172,9 @@ from .redact import one_line
 from .auth import MICROSOFT_CLIENT_ID
 
 _log = logging.getLogger(__name__)
+# Saved policy copies whose policy file was removed but which couldn't be deleted yet (held past the wait):
+# until a delete or a readable policy replaces them, a broken policy file doesn't fall back on them.
+_REMOVED_COPY_KEPT: set[Path] = set()
 
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
@@ -476,7 +479,9 @@ def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
     except FileNotFoundError:
         try:  # IT removed the policy: an old copy mustn't come back later
             jsonfile.unlink(saved)
+            _REMOVED_COPY_KEPT.discard(saved)
         except OSError as exc:  # held past the wait: the next read tries again; the settings still load
+            _REMOVED_COPY_KEPT.add(saved)  # and a broken file meanwhile doesn't fall back on it
             _log.warning("Couldn't remove the saved copy of the removed policy file (%s): %s", saved, exc)
         return {}, None, False
     except RecursionError:
@@ -489,7 +494,7 @@ def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
             return data, None, False
         reason = "must hold one JSON object"
     try:
-        copy = json.loads(saved.read_text(encoding="utf-8"))
+        copy = None if saved in _REMOVED_COPY_KEPT else json.loads(saved.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError):
         copy = None
     if isinstance(copy, dict):
@@ -504,9 +509,9 @@ def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
 
 def _save_copy(saved: Path, text: str) -> None:
     try:
-        if saved.exists() and saved.read_text(encoding="utf-8") == text:
-            return
-        jsonfile.write_text(saved, text)
+        if not (saved.exists() and saved.read_text(encoding="utf-8") == text):
+            jsonfile.write_text(saved, text)
+        _REMOVED_COPY_KEPT.discard(saved)  # the copy is this policy's now, not the removed one's
     except OSError:  # no copy this time; the policy itself still applies
         pass
 

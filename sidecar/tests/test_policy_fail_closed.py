@@ -306,9 +306,16 @@ def test_a_copy_held_past_the_wait_still_lets_the_settings_load_and_goes_on_the_
     files.path.unlink()
     assert app_settings.load()["allow_fabric_runs"] == {"value": True, "source": "default"}
     assert app_settings.saved_policy_path().exists() and "saved copy of the removed policy" in caplog.text
+    files("{broken")  # a broken file while the copy is still held doesn't bring the removed policy back
+    assert_everything_restricted()
+    files.path.unlink()
     hold[0] = 0
     app_settings.load()  # the hold ended: the next read removes it
     assert not app_settings.saved_policy_path().exists()
+    files({"allow_fabric_runs": False})  # a policy that reads becomes the copy a broken file falls back on
+    app_settings.load()
+    files("{broken")
+    assert app_settings.load()["allow_fabric_runs"]["value"] is False
 
 
 def test_a_damaged_copy_fails_closed(files):

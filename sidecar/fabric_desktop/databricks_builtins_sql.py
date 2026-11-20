@@ -1054,6 +1054,10 @@ def other_statements(statement: exp.Expression) -> list[exp.Expression]:
     for kind, (what, why, instead) in _NOT_HERE.items():
         if isinstance(statement, kind):
             raise _statement_refusal(what, why, instead)
+    if any(call.name.lower() == "table_changes" for call in statement.find_all(exp.Anonymous)):
+        raise _statement_refusal("table_changes", f"it reads a Delta table's change data feed, and {_LOCAL_TABLE}",
+                                 "read the changes in a notebook cell on this PC with spark.read.option("
+                                 "\"readChangeFeed\", \"true\").option(\"startingVersion\", 0).table(...)")
     if isinstance(statement, exp.Set) and any(i.args.get("kind") == "VARIABLE" for i in statement.expressions):
         raise _statement_refusal("SET VARIABLE", _VARIABLES, "write the value into the query")
     if isinstance(statement, exp.Command) and statement.name.upper() in _MAINTENANCE:

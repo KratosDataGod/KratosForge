@@ -121,11 +121,11 @@ def test_a_top_level_run_multiple_starts_with_no_task_values_and_a_nested_one_ke
     nb = nu.build(host).notebook
     out = nb.runMultiple(["a"])
     assert out["a"]["exitVal"] == "done a"
-    assert host.task_values == {}
+    assert host.task_values == {"a": {}}  # "old" went; "a" ran, so taskValues.get finds it
     host.task_values["kept"] = 2
     host.tasks.append("outer")  # runMultiple called from inside a running activity
     nb.runMultiple(["b"])
-    assert host.task_values == {"kept": 2}
+    assert host.task_values == {"a": {}, "kept": 2, "b": {}}
 
 
 def test_validate_dag_returns_true():

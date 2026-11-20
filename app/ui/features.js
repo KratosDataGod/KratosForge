@@ -63,6 +63,7 @@ const PREVIEW_FEATURES = {
   health: "Table health",
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
+  semanticView: "Semantic View files and publish steps",
   directLakeCheck: "Direct Lake check",
   dataDictionary: "Data dictionary",
   tests: "Tests",

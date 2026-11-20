@@ -30,7 +30,7 @@ from sqlglot.errors import ParseError, SqlglotError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.19"
+RULES_VERSION = "2026.11.20"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -805,15 +805,6 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
     Arguments may be worked out more than once, which matters only when they aren't deterministic."""
     from .sql import _from_template
     for found in reversed(list(statement.find_all(exp.RegexpExtract))):
-        flags = found.args.get("parameters")
-        if isinstance(flags, exp.Literal) and "m" in flags.name:
-            # Snowflake's m is multi-line (^ and $ at each line); DuckDB's m option isn't, RE2's (?m) is
-            pattern = found.expression
-            found.set("expression", exp.Literal.string("(?m)" + pattern.name) if isinstance(pattern, exp.Literal)
-                      else exp.DPipe(this=exp.Literal.string("(?m)"), expression=pattern.copy()))
-            found.set("parameters", exp.Literal.string(flags.name.replace("m", "")) if flags.name.replace("m", "")
-                      else None)
-            flags = found.args.get("parameters")
         if found.args.get("occurrence") is not None and not (isinstance(found.args["occurrence"], exp.Literal)
                                                              and found.args["occurrence"].name == "1"):
             continue  # a later occurrence is read from REGEXP_EXTRACT_ALL, which is NULL past the last match
@@ -1186,6 +1177,85 @@ def _json_of_variant_lists(statement: exp.Expression) -> None:
             default=exp.Anonymous(this="to_json", expressions=[value.copy()]))
         node.replace(exp.Cast(this=listed, to=exp.DataType.build("VARCHAR")) if isinstance(node, exp.JSONFormat)
                      else listed)
+
+
+_REGEXP_PARAMETERS = {exp.RegexpLike: "flag", exp.RegexpReplace: "modifiers", exp.RegexpExtract: "parameters",
+                      exp.RegexpExtractAll: "parameters"}
+_QUANTIFIER = re.compile(r"\{\d+(,\d*)?\}")
+
+
+def _rewrite_regexp_patterns(statement: exp.Expression) -> None:
+    """SFX-028 and SFN-031 (WR-257): Snowflake's regular expression parameters and patterns as Snowflake reads
+    them. The m parameter (multi-line: ^ and $ at each line) and s (. matches a line break) become RE2's (?m) and
+    (?s), as regex_flags explains; DuckDB's own m option changed only what . matches, and 'sm' turned s off.
+    An empty pattern "matches nothing, not even an empty subject" in every function but REGEXP_LIKE and its
+    aliases, where it is '^$'; RE2's matched at every position, so REGEXP_REPLACE('abc', '', 'x') gave 'xaxbxcx'.
+    A pattern written in the query with a non-greedy quantifier ("the regular expression functions don't
+    support non-greedy quantifiers"), a backreference ("Snowflake does not support backreferences in regular
+    expression patterns") or a lookaround, which RE2 can't read, is refused by name (functions-regexp)."""
+    from .regex_flags import NO_MATCH, case_flag_only_i, inline_flags
+    for node in list(statement.find_all(exp.RegexpLike, exp.RegexpReplace, exp.RegexpExtract, exp.RegexpExtractAll,
+                                        exp.RegexpCount, exp.RegexpInstr)):
+        pattern = node.expression
+        written = isinstance(pattern, exp.Literal) and pattern.is_string
+        if written:
+            what = _unsupported_regex(pattern.name)
+            if what:
+                raise _Untranslatable(_refuse(
+                    "SFN-031", "This regular expression",
+                    f"The pattern '{pattern.name}' uses {what}, so nothing ran. Rewrite the pattern without it.",
+                    f"{_DOCS}/functions-regexp"))
+        key = _REGEXP_PARAMETERS.get(type(node))
+        if key is None:
+            case_flag_only_i(node)  # REGEXP_COUNT and REGEXP_INSTR read '' and m, s, i as Snowflake does
+            continue
+        if not isinstance(node, exp.RegexpLike):
+            if written and pattern.name == "":
+                node.set("expression", exp.Literal.string(NO_MATCH))
+            elif not written:
+                node.set("expression", exp.func("REGEXP_REPLACE", pattern.copy(), exp.Literal.string("^$"),
+                                                 exp.Literal.string(NO_MATCH)))
+        inline_flags(node, key)
+
+
+def _unsupported_regex(pattern: str) -> str | None:
+    """What in ``pattern`` neither Snowflake nor RE2 reads, named for the user, or None."""
+    i, n, in_class, class_start, quantified = 0, len(pattern), False, 0, False
+    while i < n:
+        c = pattern[i]
+        if c == "\\":
+            d = pattern[i + 1:i + 2]
+            if d and d in "123456789" and not in_class:
+                return (f"a backreference ('\\{d}'), which Snowflake's regular expressions don't support "
+                        "(a replacement can use one)")
+            i, quantified = i + 2, False
+            continue
+        if in_class:
+            if c == "[" and pattern[i + 1:i + 2] in (":", ".", "="):  # [:alpha:] inside a class
+                end = pattern.find(pattern[i + 1] + "]", i + 2)
+                if end > 0:
+                    i = end + 2
+                    continue
+            if c == "]" and i > class_start:
+                in_class = False
+            i += 1
+            continue
+        if c == "[":
+            in_class, quantified = True, False
+            i += 2 if pattern.startswith("^", i + 1) else 1
+            class_start = i  # a ] right here is a character of the class
+            continue
+        if pattern.startswith(("(?=", "(?!", "(?<=", "(?<!"), i):
+            return "a lookahead or lookbehind ('(?=', '(?!', '(?<=', '(?<!'), which RE2, which runs it here, can't read"
+        if c == "?" and quantified:
+            return ("a non-greedy quantifier ('*?', '+?', '??'), which Snowflake's regular expressions don't support. "
+                    "Use a narrower class, such as [^,]* in place of .*?")
+        if c == "{" and (quantifier := _QUANTIFIER.match(pattern, i)):
+            i, quantified = quantifier.end(), True
+            continue
+        quantified = c in "*+?"
+        i += 1
+    return None
 
 
 def _rewrite_regexp_groups(statement: exp.Expression) -> None:
@@ -2268,6 +2338,11 @@ CATALOG = (
                 "table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, "
                 "as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the "
                 "target's column. START TRANSACTION is BEGIN.")),
+    ("SFX-028", "Rewritten", ("The regular expression parameters m (^ and $ match at each line) and s (. matches "
+                "a line break) are read as Snowflake reads them, also together ('sm'), in REGEXP_LIKE, RLIKE, "
+                "REGEXP_REPLACE, REGEXP_SUBSTR and REGEXP_SUBSTR_ALL. The c parameter is taken in REGEXP_COUNT and "
+                "REGEXP_INSTR too. An empty pattern matches nothing, except in REGEXP_LIKE and its aliases, where it "
+                "matches only an empty subject.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2336,6 +2411,9 @@ CATALOG = (
                 "DuckDB's ALTER TABLE changes one column at a time and has no SWAP.")),
     ("SFN-030", "Runs only in Snowflake", ("CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits "
                 "the open transaction first, and DuckDB doesn't.")),
+    ("SFN-031", "Runs only in Snowflake", ("A regular expression written with a non-greedy quantifier ('*?', '+?', "
+                "'??'), which Snowflake doesn't support, a backreference ('\\1') in the pattern, which it doesn't "
+                "support either, or a lookahead or lookbehind, which RE2 can't read.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -2387,6 +2465,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_events(tree)
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
+        _rewrite_regexp_patterns(tree)
         _rewrite_documented_edges(tree)
         _rewrite_strings(tree)
         _rewrite_time(tree)

@@ -18,7 +18,7 @@ from fabric_desktop import sql
     ("\\u00e9", "\\x{00e9}"),
     ("(?u:a)", "(?:a)"),
     ("(?u)a", "a"),
-    ("a{x", "a{x"),
+    ("a\\{x", "a\\{x"),  # a bare { that is no repeat stops, as in Spark (test_spark_regex_dialect.py)
     ("\\p{IsLatin}", "\\p{Latin}"),
 ])
 def test_java_escapes_and_groups_as_re2_reads_them(pattern, re2):

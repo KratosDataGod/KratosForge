@@ -160,6 +160,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -169,6 +170,8 @@ from typing import Any
 from . import jsonfile
 from .redact import one_line
 from .auth import MICROSOFT_CLIENT_ID
+
+_log = logging.getLogger(__name__)
 
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
@@ -471,7 +474,10 @@ def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
         text = raw.decode("utf-8-sig")
         data = json.loads(text)
     except FileNotFoundError:
-        saved.unlink(missing_ok=True)  # IT removed the policy: an old copy mustn't come back later
+        try:  # IT removed the policy: an old copy mustn't come back later
+            jsonfile.unlink(saved)
+        except OSError as exc:  # held past the wait: the next read tries again; the settings still load
+            _log.warning("Couldn't remove the saved copy of the removed policy file (%s): %s", saved, exc)
         return {}, None, False
     except RecursionError:
         reason = "can't be read as JSON (it is nested too deeply)"

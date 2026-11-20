@@ -235,9 +235,8 @@ class ControlPlaneMixin:
         and Fabric capacity and money as Unknown until they are measured. Net savings only when both
         sides are known. Reads only."""
         self._cp_allowed()
-        days = int(days)
-        if not 1 <= days <= 366:
-            raise ValueError("days is between 1 and 366.")
+        if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 366:
+            raise ValueError(f"days must be between 1 and 366, not {days}.")
         active = self.cp_cache.active()
         if not active:
             raise ValueError("Connect this PC to a KratosForge Environment first.")

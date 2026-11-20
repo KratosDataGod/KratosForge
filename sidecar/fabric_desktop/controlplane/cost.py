@@ -25,9 +25,9 @@ from .. import measurement as ms
 SYNC_PREFIX = "optimize.sync."
 SYNC_METRICS = (("optimize_sync_seconds", ms.SECONDS), ("optimize_sync_rows", ms.COUNT),
                 ("optimize_sync_commits", ms.COUNT))
-NO_CU = ("No measured Fabric capacity use for this environment yet: it comes from the FinOps capacity "
-         "import, which isn't connected.")
-NO_MONEY = "Not known: there is no measured Fabric capacity use to price."
+NO_CU = ("No measured Fabric capacity use for this environment yet, because KratosForge doesn't import "
+         "capacity use from Fabric yet.")
+NO_MONEY = "Not known, because there is no measured Fabric capacity use to price yet."
 SYNC_SCOPE = "Every PC that syncs to this environment"
 NO_NET = "Net savings is shown only when both the savings and the environment's cost are known."
 

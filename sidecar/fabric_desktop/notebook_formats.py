@@ -204,7 +204,7 @@ def databricks_export_notes(cells: list[dict[str, Any]], lakehouse: dict[str, An
         if hidden:
             notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting: Databricks source doesn't keep it."))
         if c.get("type") == "code" and breakpoints_meta(meta.get("breakpoints")):
-            notes.append(_note(n, "dropped", "The cell's breakpoints: Databricks source doesn't keep them."))
+            notes.append(_note(n, "dropped", "The cell's breakpoints weren't kept, because Databricks source has no place for them."))
         if c.get("type") != "code":
             continue
         source = _magic_first(c.get("source", ""))
@@ -516,6 +516,10 @@ def _databricks_cell(text: str, comment: str, default: str | None,
     return _code(f"{default}\n{text}" if default else text)
 
 
+SH_EXIT = (" A %%sh cell fails when its script ends with a non-zero exit code, as a %sh -e cell does in Databricks."
+           " There, a plain %sh cell goes on.")
+
+
 def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None, n: int = 0) -> dict[str, Any]:
     """A Databricks cell whose first line is a magic: %md, %sql, %scala, %r, %python, %run, %pip..."""
     first = body[0].strip() if body else ""
@@ -530,9 +534,12 @@ def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None
         return _markdown(_trim(tail))
     if name == "python":
         return _code(_trim(tail))
+    if name == "sh" and rest.strip() == "-e":  # %sh -e: fail the cell on a non-zero exit, which %%sh can't say
+        return _code("%sh -e\n" + _trim(body[1:]))
     if name in _FROM_DATABRICKS:
         if notes is not None:
-            notes.append(_note(n, "changed", f"%{name} became {_FROM_DATABRICKS[name]}, KratosForge's way to mark the language."))
+            notes.append(_note(n, "changed", f"%{name} became {_FROM_DATABRICKS[name]}, KratosForge's way to mark the language."
+                               + (SH_EXIT if name == "sh" else "")))
         return _code(_FROM_DATABRICKS[name] + "\n" + _trim(tail))
     return _code("\n".join(body))  # %run, %pip, %fs...: line magics, kept as they are
 

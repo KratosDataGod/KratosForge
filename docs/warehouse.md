@@ -26,7 +26,7 @@ Tick **Allow changes** at the top of the Warehouse page to let **Run** change th
    Here a workspace's environment comes only from your metadata project (**Data mesh > Environments and promote**), never from its name: a workspace that isn't Dev, Test or Prod there is treated like Prod, even one named `Sales Test`, so it asks for the name and deploys only what's in Git.
 4. The script runs in one transaction, in batches split at `GO` lines. If a statement fails, or you press **Stop**, nothing is kept. **Messages** and the **History** tab show how many rows changed and that it was committed, and the explorer lists the objects again.
 
-A script you wrote as one transaction, `BEGIN TRAN` on its first line and `COMMIT` on its last, runs the same way: those two lines are what the run does anyway. If a batch fails, the error says which one, and nothing is kept.
+A script you wrote as one transaction, `BEGIN TRAN` on its first line and `COMMIT` on its last, runs the same way: those two lines are what the run does anyway. If a batch fails, the error says which one, and nothing is kept. `SET XACT_ABORT ON` or `OFF` in the script doesn't change that. With `OFF`, the warehouse goes on to the next statement after some run-time errors (dividing by zero, a value that doesn't convert), but the run still ends with that error and nothing is kept.
 
 Some things are never run, even when changes are allowed: any other `BEGIN TRAN`, `COMMIT` or `ROLLBACK` (the run is the transaction), dynamic SQL, `EXECUTE AS`, permissions (`GRANT`, `REVOKE`, `DENY`, roles and users, which are managed in Fabric), `USE` and other databases, `COPY INTO` and `BULK INSERT` (loads files and isn't run from the SQL page; see [Loading data with T-SQL](sql-compatibility.md#loading-data-with-t-sql)) and database DDL. A script with one of these says which statement and why, and nothing is sent. A procedure's body is checked when you create it here, but a procedure already in the warehouse runs as it was written. The full list is in [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10).
 
@@ -153,6 +153,7 @@ Your templates show in the gallery beside the built-in ones, in their group (or 
 
 Each template is a `.sql` file you can read and edit anywhere: a few header lines, a blank line, then the SQL. The blank line ends the header, so comments at the top of your SQL stay part of it.
 
+<!-- example: illustrative -->
 ```sql
 -- template: Top rows
 -- group: Team checks
@@ -178,6 +179,7 @@ The explorer's **Queries** tab lists them, My queries first, then each repositor
 
 A saved query is plain T-SQL with a few header lines, so any `.sql` file put in one of those folders shows up too, named after its file. A blank line ends the header:
 
+<!-- example: illustrative -->
 ```sql
 -- query: Revenue by region
 -- warehouse: WH_Gold

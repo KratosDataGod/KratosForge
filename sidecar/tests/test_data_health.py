@@ -224,3 +224,246 @@ def test_loads_carry_the_run_that_wrote_them():
     history[0]["fabric_desktop_run_id"] = "r-20261117-120000-0123456789ab"
     history[1]["fabric_desktop_run_id"] = "not ours"
     assert [x["run_id"] for x in dh.loads(history)] == [None, "r-20261117-120000-0123456789ab"]
+
+
+def test_acknowledgements_no_alert_matches_are_forgotten(svc, monkeypatch):
+    svc.meta_data_health_watch("silver.customers", "dev")
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+    alerts = {"silver.customers": [{"kind": "volume", "version": 6, "title": "x"}]}
+
+    def check(name, env):
+        if name == "gold.dim_customer":
+            raise OSError("can't read it now")
+        return {"entity": name, "env": env, "alerts": [dict(a) for a in alerts[name]]}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    for kind, version, name in (("volume", 5, "silver.customers"), ("volume", 6, "silver.customers"),
+                                ("schema", 6, "silver.customers"), ("volume", 9, "gold.dim_customer")):
+        svc.meta_data_health_quiet(name, "dev", kind, version)
+    svc.meta_data_health_watch("silver.customers", "prod")
+    svc.meta_data_health_quiet("silver.customers", "prod", "volume", 1)
+    svc.meta_data_health_list()
+    # Kept: the one the current alert matches, the unreadable table's, and another environment's.
+    assert sorted(svc._dh_read()["quiet"]) == ["dev|gold.dim_customer|volume|9", "dev|silver.customers|volume|6",
+                                               "prod|silver.customers|volume|1"]
+
+
+# ---- Hardening: the saved list survives crashes, other processes and damage; a check that can't finish
+# never reads as healthy; a table gone from the project leaves no stale row or acknowledgement.
+
+def test_a_damaged_list_is_kept_as_a_copy_and_the_list_says_it_started_again(svc):
+    svc.meta_data_health_watch("silver.customers", "dev")
+    path = svc.root / "data_health.json"
+    torn = path.read_text(encoding="utf-8")[:25]
+    path.write_text(torn, encoding="utf-8")  # cut short, as by a crash mid-write elsewhere
+    out = svc.meta_data_health_list()
+    copies = list(svc.root.glob("data_health.json.corrupt-*"))
+    assert len(copies) == 1 and copies[0].read_text(encoding="utf-8") == torn  # kept as it was, for recovery
+    assert out["tables"] == [] and out["reset"]["copy"] == copies[0].name
+    svc.meta_data_health_watch("silver.customers", "dev")  # a save keeps saying it was started again
+    assert svc.meta_data_health_list()["reset"]["copy"] == copies[0].name
+    state = svc._dh_read()
+    state["reset"]["at"] = "2000-01-01T00:00:00+00:00"
+    svc._dh_write(state)
+    assert "reset" not in svc.meta_data_health_list()  # ... until a week has passed
+
+
+def test_a_list_that_isnt_an_object_is_kept_too_before_anything_is_saved_over_it(svc):
+    (svc.root / "data_health.json").write_text("[1, 2]", encoding="utf-8")  # valid JSON, wrong shape
+    assert svc.meta_data_health_list()["reset"]["copy"].startswith("data_health.json.corrupt-")
+    [copy] = svc.root.glob("data_health.json.corrupt-*")
+    assert copy.read_text(encoding="utf-8") == "[1, 2]"
+
+
+def test_a_process_killed_mid_save_leaves_the_last_saved_list(svc):
+    import subprocess
+    import sys
+    svc.meta_data_health_watch("silver.customers", "dev")
+    before = (svc.root / "data_health.json").read_bytes()
+    child = (
+        "import os, pathlib, sys\n"
+        "from fabric_desktop import jsonfile\n"
+        "from fabric_desktop.service import Service\n"
+        "os.fsync = lambda fd: os._exit(9)\n"  # dies after writing the new copy, before swapping it in
+        "Service(root=pathlib.Path(sys.argv[1])).meta_data_health_watch('gold.dim_customer', 'dev')\n")
+    done = subprocess.run([sys.executable, "-c", child, str(svc.root)], cwd=svc.root.parent, timeout=120)
+    assert done.returncode == 9
+    assert (svc.root / "data_health.json").read_bytes() == before
+    assert [t["entity"] for t in svc.meta_data_health_list()["tables"]] == ["silver.customers"]
+    assert "reset" not in svc.meta_data_health_list()
+
+
+def test_acknowledgements_from_several_processes_at_once_are_all_kept(svc):
+    import subprocess
+    import sys
+    svc.meta_data_health_watch("silver.customers", "dev")
+    child = (
+        "import pathlib, sys, time\n"
+        "from fabric_desktop.service import Service\n"
+        "s = Service(root=pathlib.Path(sys.argv[1]))\n"
+        "go = s.root / 'go'\n"
+        "while not go.exists():\n"  # all start saving at the same moment
+        "    time.sleep(0.005)\n"
+        "for v in range(int(sys.argv[2]), int(sys.argv[2]) + 25):\n"
+        "    s.meta_data_health_quiet('silver.customers', 'dev', 'volume', v)\n")
+    starts = (0, 100, 200, 300)
+    procs = [subprocess.Popen([sys.executable, "-c", child, str(svc.root), str(start)], cwd=svc.root.parent)
+             for start in starts]
+    import time
+    time.sleep(3)  # let every process load and reach the start line
+    (svc.root / "go").touch()
+    assert [p.wait(timeout=120) for p in procs] == [0, 0, 0, 0]
+    keys = svc._dh_read()["quiet"]
+    assert len(keys) == 100 and all(f"dev|silver.customers|volume|{v}" in keys for s in starts for v in range(s, s + 25))
+
+
+def test_a_save_waits_for_another_process_then_says_it_couldnt(svc, monkeypatch):
+    from fabric_desktop import dataops_service
+    from fabric_desktop.leases import _file_lock
+    monkeypatch.setattr(dataops_service, "DATA_HEALTH_LOCK_SECONDS", 0.2)
+    import threading
+    held, release = threading.Event(), threading.Event()
+
+    def other_process():  # flock is per open file, so another thread's open stands in for another process
+        with _file_lock(svc.root / "data_health.json.lock"):
+            held.set()
+            release.wait(5)
+
+    t = threading.Thread(target=other_process)
+    t.start()
+    held.wait(5)
+    try:
+        with pytest.raises(TimeoutError, match="Another KratosForge window or tool is saving the Data health list"):
+            svc.meta_data_health_watch("silver.customers", "dev")
+    finally:
+        release.set()
+        t.join()
+    svc.meta_data_health_watch("silver.customers", "dev")  # once it lets go, the save goes through
+
+
+@pytest.mark.parametrize("exc", [TimeoutError("read timed out"), PermissionError("403 Forbidden"),
+                                 ValueError("the Delta log ended part-way through a commit")])
+def test_a_check_that_cant_finish_is_never_healthy(svc, monkeypatch, exc):
+    svc.meta_data_health_watch("silver.customers", "dev")
+
+    class Broken:
+        def history(self, n):
+            raise exc
+
+        def version(self):
+            return 3
+
+    from fabric_desktop import dataops_service
+    monkeypatch.setattr(dataops_service, "DeltaTable", lambda *a, **k: Broken())
+    [t] = svc.meta_data_health_list()["tables"]
+    assert t["state"] == "error" and t["entity"] == "silver.customers" and t["why"]
+    assert "freshness" not in t and "volume" not in t and "alerts" not in t  # no state that could read as fine
+
+
+def test_the_most_tables_one_pc_watches_are_checked_in_parallel_within_a_bound(svc, monkeypatch):
+    import time
+    from fabric_desktop import dataops_service
+    names = [f"silver.t{i:03}" for i in range(dataops_service.DATA_HEALTH_MAX)]
+    project = svc._project()
+    monkeypatch.setattr(type(svc), "_project", lambda self: type("P", (), {"entities": {n: None for n in names}})())
+    svc._dh_write({"watched": [{"entity": n, "env": "dev"} for n in names], "quiet": {}})
+
+    def check(name, env):
+        time.sleep(0.02)  # a slow log read
+        return {"entity": name, "env": env, "alerts": []} if name != "silver.t050" else (_ for _ in ()).throw(TimeoutError("slow"))
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    start = time.monotonic()
+    tables = svc.meta_data_health_list()["tables"]
+    assert time.monotonic() - start < 100 * 0.02  # four at a time, not one after another
+    assert len(tables) == 100 and [t["entity"] for t in tables if t.get("state") == "error"] == ["silver.t050"]
+    assert project is not None
+    with pytest.raises(ValueError, match="at most 100"):
+        svc.meta_data_health_watch("silver.t000", "prod")
+
+
+def test_a_table_gone_from_the_project_says_so_and_its_acknowledgements_go(svc, monkeypatch):
+    svc.meta_data_health_watch("silver.customers", "dev")
+    state = svc._dh_read()
+    state["watched"].append({"entity": "silver.renamed_away", "env": "dev"})
+    state["quiet"]["dev|silver.renamed_away|volume|4"] = {"at": "2026-11-17T00:00:00+00:00", "until": None}
+    svc._dh_write(state)
+    monkeypatch.setattr(svc, "meta_data_health", lambda name, env: {"entity": name, "env": env, "alerts": []})
+    tables = {t["entity"]: t for t in svc.meta_data_health_list()["tables"]}
+    gone = tables["silver.renamed_away"]
+    assert gone["state"] == "not_in_project" and "Stop watching" in gone["why"] and "alerts" not in gone
+    assert svc._dh_read()["quiet"] == {}
+    svc.meta_data_health_watch("silver.renamed_away", "dev", watch=False)  # stopping needs no entity check
+    assert [t["entity"] for t in svc.meta_data_health_list()["tables"]] == ["silver.customers"]
+
+
+def test_the_same_problem_on_every_check_is_one_alert_and_it_clears_when_the_table_recovers(tmp_path):
+    uri = str(tmp_path / "t")
+    for _ in range(12):
+        pl.DataFrame({"a": list(range(100))}).write_delta(uri, mode="append")
+    pl.DataFrame({"a": [1]}).write_delta(uri, mode="append")
+    first = dh.check(lambda v: DeltaTable(uri, version=v))
+    again = dh.check(lambda v: DeltaTable(uri, version=v))
+    assert [a["kind"] for a in first["alerts"]] == [a["kind"] for a in again["alerts"]] == ["volume"]
+    assert first["alerts"] == again["alerts"]  # the same load, the same one alert: never one per check
+    pl.DataFrame({"a": list(range(100))}).write_delta(uri, mode="append")
+    assert dh.check(lambda v: DeltaTable(uri, version=v))["alerts"] == []  # a usual load clears it
+
+
+def test_a_check_that_hangs_shows_as_not_finished_and_doesnt_hold_up_the_list(svc, monkeypatch):
+    import threading
+    import time
+    from fabric_desktop import dataops_service
+    monkeypatch.setattr(dataops_service, "DATA_HEALTH_LIST_SECONDS", 0.5)
+    svc.meta_data_health_watch("silver.customers", "dev")
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+    release = threading.Event()
+
+    def check(name, env):
+        if name == "gold.dim_customer":
+            release.wait(30)  # OneLake not answering
+        return {"entity": name, "env": env, "alerts": []}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    start = time.monotonic()
+    try:
+        tables = {t["entity"]: t for t in svc.meta_data_health_list()["tables"]}
+    finally:
+        release.set()
+    assert time.monotonic() - start < 20  # well under the 30 s hang, with room for a slow CI runner
+    hung = tables["gold.dim_customer"]
+    assert hung["state"] == "error" and "didn't finish within 0.5 s" in hung["why"] and "alerts" not in hung
+    assert tables["silver.customers"]["alerts"] == []
+    assert list(tables) == ["silver.customers", "gold.dim_customer"]  # the watched order is kept
+
+
+def test_refreshing_while_a_check_hangs_waits_on_it_again_rather_than_starting_another(svc, monkeypatch):
+    import threading
+    from fabric_desktop import dataops_service
+    monkeypatch.setattr(dataops_service, "DATA_HEALTH_LIST_SECONDS", 0.3)
+    svc.meta_data_health_watch("gold.dim_customer", "dev")
+    release = threading.Event()
+    calls = []
+
+    def check(name, env):
+        calls.append(name)
+        release.wait(30)
+        return {"entity": name, "env": env, "alerts": []}
+
+    monkeypatch.setattr(svc, "meta_data_health", check)
+    try:
+        for _ in range(3):
+            assert svc.meta_data_health_list()["tables"][0]["state"] == "error"
+        assert calls == ["gold.dim_customer"]  # one thread for the hung read, not one per refresh
+    finally:
+        release.set()
+    import time
+    deadline = time.monotonic() + 10
+    while svc.meta_data_health_list()["tables"][0].get("state") == "error" and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert svc.meta_data_health_list()["tables"][0]["alerts"] == []  # once it answers, the next refresh shows it
+
+
+def test_the_time_limit_reads_in_minutes():
+    from fabric_desktop.dataops_service import _dh_duration
+    assert (_dh_duration(120), _dh_duration(60), _dh_duration(0.5)) == ("2 minutes", "1 minute", "0.5 s")

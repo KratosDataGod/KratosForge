@@ -1,7 +1,9 @@
 """The app's local stores and projects in folders Windows users really have: a path past the old
 260-character limit, a user name with a space (C:\\Users\\John Smith), a non-ASCII one with an
-apostrophe (C:\\Users\\Jöhn O'Brien\\OneDrive - Contoso), and a folder with a percent sign. Each store is
-made, written, closed and opened again there.
+apostrophe (C:\\Users\\Jöhn O'Brien\\OneDrive - Contoso), a folder with a percent sign, and a long one with an
+ampersand and a comma (C:\\Users\\Mary-Kate O'Brien & Sons, Ltd. (Contoso).CONTOSO.000). Each store is
+made, written, closed and opened again there. A notebook is saved and opened again, a SQL result is exported to CSV and
+a support bundle is written there too.
 
 A local data project's Delta tables couldn't be read under a folder with a space, a non-ASCII
 letter or a percent sign: the engine took their files from delta-rs's file_uris(), which
@@ -24,6 +26,9 @@ NAMES = {
     "non-ascii": lambda base: base / "Users" / "Jöhn O'Brien 日本" / "OneDrive - Contoso Ünited" / "Données",
     "space": lambda base: base / "Users" / "John Smith" / "AppData" / "Local",
     "percent": lambda base: base / "Users" / "100% sure",
+    # A profile folder Windows made for a long display name with an ampersand, on a domain PC
+    "ampersand": lambda base: base / "Users" / "Mary-Kate O'Brien & Sons, Ltd. (Contoso) Ünïcode.CONTOSO.000"
+                              / "AppData" / "Local",
 }
 
 
@@ -102,3 +107,77 @@ def test_the_engine_answers_with_its_data_folder_there(where, monkeypatch):
     svc = Service(client_id="x", root=where / "app")
     reply = server.handle(svc, '{"id": 1, "method": "app_settings", "params": {}}')
     assert "result" in reply, reply
+
+
+def test_a_notebook_saves_and_opens_again(where, monkeypatch):
+    from fabric_desktop.service import Service
+    for var in ("HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"):
+        monkeypatch.setenv(var, str(where / "home"))
+    svc = Service(client_id="x", root=where / "app")
+    svc.save_notebook("Daily sales ö", [{"type": "code", "source": "x = 'Jöhn 日本'"}])
+    again = Service(client_id="x", root=where / "app").open_notebook("Daily sales ö")
+    assert [c["source"] for c in again["cells"]] == ["x = 'Jöhn 日本'"]
+
+
+def test_a_sql_result_exports_to_csv_there(where):
+    import pyarrow as pa
+    import pyarrow.ipc as ipc
+    from fabric_desktop import sql_exec
+    table = pa.table({"id": [1, 2], "name": ["Jöhn", "日本"]})
+    snapshot = where / "snapshot.arrow"
+    with ipc.new_file(str(snapshot), table.schema) as writer:
+        writer.write_table(table)
+    out = where / "Exports" / "result ö.csv"
+    out.parent.mkdir()
+    out.touch()  # the name the export reserved
+    job = sql_exec.Export(id="e1", execution="r1", format="csv", path=out, total=table.num_rows, raw=True)
+    object.__new__(sql_exec.SqlExecutions)._write(snapshot, job)
+    assert job.status()["state"] == "completed", job.status()["error"]
+    assert out.read_text(encoding="utf-8-sig").splitlines()[1:] == ['1,"Jöhn"', '2,"日本"']
+
+
+def test_a_support_bundle_is_written_there(where):
+    import zipfile
+    from fabric_desktop import support_bundle
+    data = where / "app"
+    data.mkdir()
+    (data / "sidecar.log").write_text("started in Jöhn's folder\n", encoding="utf-8")
+    path = support_bundle.create(where / "Downloads", data_dir=data)
+    assert path.parent == where / "Downloads" and support_bundle.NAME.fullmatch(path.name)
+    with zipfile.ZipFile(path) as z:
+        assert z.namelist()
+
+
+def test_a_folder_setting_naming_the_profile_survives_a_save_and_a_fresh_load(where, monkeypatch):
+    from fabric_desktop import app_settings
+    for var in ("HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"):
+        monkeypatch.setenv(var, str(where / "home"))
+    temp = where / "home" / "Temp"
+    temp.mkdir(parents=True)
+    app_settings.save({"sql_temp_dir": str(temp)})
+    assert app_settings.load()["sql_temp_dir"]["value"] == str(temp)
+
+
+PROFILE_NAMES = ["Jöhn O'Brien 日本", "Mary-Kate O'Brien & Sons, Ltd. (Contoso) Ünïcode.CONTOSO.000", "John Smith",
+                 "100% sure", "a" * 64]
+
+
+@pytest.mark.parametrize("name", PROFILE_NAMES)
+def test_the_support_bundle_takes_the_whole_user_name_out_of_a_log_line(name, tmp_path):
+    """Bundles take user names out of paths. An apostrophe (O'Brien), an ampersand or a comma once let
+    the rest of the name through: only "Jöhn O" was replaced, "'Brien" stayed."""
+    import zipfile
+    from fabric_desktop import support_bundle
+    data = tmp_path / "app"
+    data.mkdir()
+    lines = [f"spill folder C:\\Users\\{name}\\AppData\\Local\\Temp",
+             f"open 'C:/Users/{name}/OneDrive - {name}/sales.csv' failed",
+             f"repr: 'C:\\\\Users\\\\{name}', next"]
+    (data / "sidecar.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path = support_bundle.create(tmp_path, data_dir=data)
+    with zipfile.ZipFile(path) as z:
+        text = z.read("sidecar.log").decode("utf-8")
+    assert text.splitlines()[-3:] == [
+        "spill folder C:\\Users\\[user]\\AppData\\Local\\Temp",
+        "open 'C:/Users/[user]/OneDrive - [organization]/sales.csv' failed",
+        "repr: 'C:\\\\Users\\\\[user]', next"]

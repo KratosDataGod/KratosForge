@@ -1,6 +1,6 @@
 # Fabric Excellence Assessment: plan, gaps, risks and stories
 
-Status: plan (2026-11-17). Owner: Fabric Excellence Assessment thread. Requested by Chris (master
+Status: plan (2026-11-17). Built so far: FEA-101 to FEA-104, the pure engine, with the methodology in [excellence-assessment.md](../optimize/excellence-assessment.md) (#2941), and FEA-105 with its first 10 controls and the read-only `excellence_assess` call (#2957). FEA-109 adds the scorecard on Optimize > Assessment > Excellence, in Preview (#2990). FEA-203 (architecture controls, #3010), FEA-301 and FEA-302 (notebook and pipeline controls, #3013), FEA-202 (capacity controls, #3085) and FEA-304 (semantic model controls, #3066) are built too. Owner: Fabric Excellence Assessment thread. Requested by Chris (master
 implementation prompt, 2026-11-17). Shared standards: the KratosForge mission prompt and its hard gates in
 `KratosDataGod/ai-commons` (`prompts/kratosforge/mission-and-engineering-philosophy.md`).
 
@@ -237,7 +237,7 @@ pass, fail, not applicable, not evaluated (reason required), error.
 - Tests: each outcome; registry refusals; a deliberately broken control.
 
 **FEA-103 Scoring engine and profiles.** `excellence/scoring.py` with section 5's formulas,
-the five default profiles (Microsoft-aligned baseline, Enterprise security, Data engineering
+the five default profiles (Baseline, Enterprise security, Data engineering
 excellence, Capacity optimization, KratosForge local-first) as versioned data, re-normalized
 weights for not-applicable dimensions, rating bands, Provisional and Insufficient evidence,
 Critical Risk flag, 99 cap.
@@ -283,7 +283,7 @@ known limitations.
 score, assured score, coverage, Critical Risk, ten-dimension scorecard with drill-in, 3-5 next
 actions). Light shell, 40-60% whitespace. Via the UX thread; Chris reacts before build.
 
-**FEA-109 Scorecard screen (Preview).** Build FEA-108 into Optimize > Assessment behind Preview,
+**FEA-109 Scorecard screen (Preview).** **Built** (#2990, Preview). Build FEA-108 into Optimize > Assessment behind Preview,
 keeping the existing opportunity view reachable.
 - Acceptance: existing `optimize-assess` browser tests pass; new browser tests for Provisional,
   Insufficient evidence and Critical Risk states; keyboard and screen-reader checks; narrow
@@ -298,11 +298,11 @@ coverage and Critical Risk flag built from evidence the app already reads.
   guests, apps as Admin, Prod writers without Dev access, OneLake data access roles present when
   OneLake security is on. Tenant settings controls (Publish to web, external sharing) when the
   signed-in person is a Fabric admin; otherwise not evaluated.
-- **FEA-202 Capacity and FinOps controls**: capacity state, region alignment, throttling and
+- **FEA-202 Capacity and FinOps controls**: **Built** in part (#3085): the failed-operation CU share, refreshes more than hourly and unused paid F capacity, from imported Capacity Metrics exports. Capacity state, region alignment, throttling and
   background/interactive share from imported Capacity Metrics, idle capacity windows, repeated
   refreshes; the five financial figures kept separate; F64 planner output read when OE-040/041
   land.
-- **FEA-203 Architecture controls**: Dev/Test/Prod separation from environment config, one
+- **FEA-203 Architecture controls**: **Built** in part (#3010): one lakehouse per layer, schema-enabled lakehouses, leftovers in production and a cross-workspace default lakehouse; Dev/Test/Prod separation, the naming policy and shortcut opportunities aren't checked yet. Dev/Test/Prod separation from environment config, one
   lakehouse per medallion layer, naming policy (customer pack), cross-workspace dependency count,
   left-over staging lakehouses, shortcut opportunities (with OE-012).
 - **FEA-204 Performance controls**: small files, VACUUM backlog, V-Order on tables Direct Lake
@@ -315,13 +315,13 @@ coverage and Critical Risk flag built from evidence the app already reads.
 
 ### Phase 3: Artifact deep inspection
 
-- **FEA-301 Notebooks**: NB rules as controls (error handling, parameterization, hard-coded
+- **FEA-301 Notebooks**: **Built** in part (#3013): NB001, NB002, NB009, NB012 and NB020 as controls, not yet weighted by run time. NB rules as controls (error handling, parameterization, hard-coded
   paths, secrets, overwrite without replaceWhere), weighted by measured run time.
-- **FEA-302 Pipelines**: retry and timeout settings, failure paths, parameterization, overlapping
+- **FEA-302 Pipelines**: **Built** in part (#3013): deactivated activities and hard-coded workspace ids; retry, timeout and failure paths aren't checked yet. retry and timeout settings, failure paths, parameterization, overlapping
   schedules (OE-011).
 - **FEA-303 Lakehouses and Warehouses**: schema-enabled, table maintenance, SQ rules on stored
   procedures and views, warehouse query insights where enabled.
-- **FEA-304 Semantic models**: definition-only BPA rules, Direct Lake fallback and guardrails,
+- **FEA-304 Semantic models**: **Built** in part (#3066): bidirectional relationships, RLS presence, Direct Lake fallback, and BPA rules SM001, SM002 and SM004 from stored results. Definition-only BPA rules, Direct Lake fallback and guardrails,
   bidirectional filters, high-cardinality columns, RLS presence. Full BPA (VertiPaq) only as an
   explicit action with a typed "yes, run it".
 - **FEA-305 DevOps**: Git connection, uncommitted changes, deployment pipeline stages and drift.

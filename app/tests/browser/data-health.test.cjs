@@ -1,8 +1,8 @@
 // #2358: Monitor > KratosForge > Operations > Data health (see harness.cjs for how to run it). The list shows
 // each watched table's freshness, volume and schema, with open alerts on top and the rule beside a volume
 // alert; a table opens with its chart and alert actions, and Acknowledge sends only that alert; Watch a
-// table... adds one; numbers the log didn't hold show "Can't tell", never a number; an empty list and an
-// engine error each show a plain message; and axe finds nothing serious.
+// table... adds one; numbers the log didn't hold show "Can't tell", never a number; an empty list, an
+// engine error, a list started again and a table gone from the project each show a plain message; and axe finds nothing serious.
 // axe covers dialogs: data-health.js:dhWatchDialog
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
@@ -39,6 +39,8 @@ const orders = {
   schema: { state: "changed", added: ["region"], removed: [], retyped: [], version: 7, since_version: 6 },
   alerts: [{ kind: "schema", title: "z", version: 7 }],
 };
+const gone = { entity: "silver.renamed_away", env: "dev", state: "not_in_project",
+  why: "silver.renamed_away isn't in the metadata project any more. Stop watching it to take it off the list." };
 const full = { env: "dev", tables: [sales, customer, orders], entities: ["gold.dim_customer", "gold.fact_sales", "gold.fact_returns", "silver.orders"], rule: RULE };
 let mode = "full";
 const sent = [];
@@ -49,6 +51,7 @@ before(async () => {
     readiness_check: () => [],
     meta_data_health_list: () => {
       if (mode === "error") throw new Error("The Python sidecar stopped (exit code 1)");
+      if (mode === "reset") return { ...full, tables: [gone], reset: { at: "2026-11-17T09:00:00Z", copy: "data_health.json.corrupt-20261117T090000000000Z" } };
       return mode === "empty" ? { ...full, tables: [] } : full;
     },
     meta_data_health_quiet: (p) => { sent.push(["quiet", p]); return { ...p, at: "now", until: null }; },
@@ -93,6 +96,14 @@ test("a table opens with its chart, and Acknowledge sends only that alert", { sk
   const note = await page().textContent(".page.monitor .dh-note");
   assert.match(note, /Open the run that wrote it/);
   assert.match(note, /Snooze 1 day/);
+  // Open an incident: Report an incident with the alert filled in, for this environment.
+  await page().locator(".page.monitor .dh-note button", { hasText: "Open an incident" }).click();
+  await page().waitForSelector(".dialog .inc-report");
+  assert.match(await page().inputValue(".dialog .inc-report input[type=text]"), /^gold\.fact_sales: version 412 wrote 5,200,000 rows, 10\.4× usual$/);
+  assert.match(await page().inputValue(".dialog .inc-report textarea"), /Usual: median 498,000 rows a load.*Found by Data health/);
+  assert.strictEqual(await page().inputValue(".dialog .inc-report select"), "dev");
+  await page().locator(".dialog button", { hasText: "Cancel" }).click();
+  await page().waitForFunction(() => !document.querySelector(".dialog"));
   assert.strictEqual(await page().locator(".page.monitor .dh-chart rect.dh-bar").count(), 13);
   assert.strictEqual(await page().locator(".page.monitor .dh-chart rect.dh-bar.hi").count(), 1);
   const tiles = await page().locator(".page.monitor .dh-tile").allTextContents();
@@ -138,6 +149,19 @@ test("an empty list and an engine error each show a plain message", { skip }, as
       assert.match(await handle.jsonValue(), words);
     } finally { mode = "full"; }
   }
+});
+
+test("a list started again says so, and a table gone from the project says why", { skip }, async () => {
+  mode = "reset";
+  try {
+    await open();
+    await page().waitForSelector(".page.monitor .dh-reset");
+    assert.match(await page().textContent(".page.monitor .dh-reset"),
+      /couldn't be read, so it started again empty on .+\. The old file was kept as data_health\.json\.corrupt-20261117T090000000000Z in the app's folder\. Watch your tables again to bring them back\./);
+    const row = await page().textContent(".page.monitor .dh-panel tbody tr");
+    assert.match(row, /silver\.renamed_away\s*Not in the project .*Stop watching it/);
+    if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".page.monitor"), []);
+  } finally { mode = "full"; }
 });
 
 test("axe finds nothing serious on the list or a table", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {

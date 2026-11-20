@@ -73,6 +73,9 @@ function dhAlertText(t, a) {
   return `${t.entity}: ${dhSchemaText(t.schema)} in version ${a.version}`;
 }
 
+// A watched table with no result to show, and the words for why (the row then carries its reason).
+const DH_NOT_READ = { error: "Can't read", no_table: "No table yet", not_in_project: "Not in the project" };
+
 function dataHealthPanel() {
   const box = h("div", { class: "inc-panel dh-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading the Delta logs..."));
   loadDataHealth(box);
@@ -126,12 +129,15 @@ function dhList(box, out) {
       onclick: () => { dhPage.open = t.entity; loadDataHealth(box); },
       onkeydown: (e) => { if (e.key === "Enter") { dhPage.open = t.entity; loadDataHealth(box); } } },
       h("td", {}, h("b", {}, t.entity)),
-      t.state === "error" || t.state === "no_table"
-        ? h("td", { colspan: "3" }, h("span", { class: "pill-s neu" }, t.state === "no_table" ? "No table yet" : "Can't read"), " ", h("span", { class: "muted-text small" }, t.why))
+      DH_NOT_READ[t.state]
+        ? h("td", { colspan: "3" }, h("span", { class: "pill-s neu" }, DH_NOT_READ[t.state]), " ", h("span", { class: "muted-text small" }, t.why))
         : [h("td", {}, dhFreshness(t.freshness)), h("td", {}, dhVolume(t.volume)), h("td", {}, dhSchema(t.schema))])))))
     : h("p", { class: "muted-text monitor-empty" }, state.query && out.tables.length ? "Nothing matches your search."
       : `No tables watched in ${envName(dhPage.env)}. Watch a table to check its freshness, volume and schema.`);
-  return [filters, alertBox || "", list,
+  const reset = out.reset ? h("p", { class: "reason dh-reset", role: "status" },
+    `This PC's Data health list couldn't be read, so it started again empty on ${dateText(out.reset.at)}. `
+    + `The old file was kept as ${out.reset.copy} in the app's folder. Watch your tables again to bring them back.`) : null;
+  return [filters, reset || "", alertBox || "", list,
     h("p", { class: "muted-text small inc-foot" }, "Read from each table's Delta log; no Fabric job. Alerts only; nothing in the table changes.")];
 }
 
@@ -192,7 +198,7 @@ function dhDetail(box, out, t) {
       try { await rpc("meta_data_health", { name: t.entity, env: t.env }); } catch (err) { toast(friendlyError(err).text, true); return; }
       loadDataHealth(box);
     }, "tool outline"));
-  if (t.state === "error" || t.state === "no_table") return [head, h("p", { class: "reason monitor-empty" }, t.why)];
+  if (DH_NOT_READ[t.state]) return [head, h("p", { class: "reason monitor-empty" }, t.why)];
   const quiet = async (a, days) => {
     try {
       await rpc("meta_data_health_quiet", { name: t.entity, env: t.env, kind: a.kind, version: a.version, snooze_days: days });
@@ -208,7 +214,11 @@ function dhDetail(box, out, t) {
       a.quiet ? null : h("div", { class: "row tight" },
         run ? btn("Open the run that wrote it", null, () => showRun(run, t.env), "tool outline small") : null,
         btn("Acknowledge", null, () => quiet(a, 0), "tool outline small"),
-        btn("Snooze 1 day", null, () => quiet(a, 1), "tool outline small")));
+        btn("Snooze 1 day", null, () => quiet(a, 1), "tool outline small"),
+        btn("Open an incident", null, () => reportIncident({ env: t.env, title: dhAlertText(t, a),
+          text: [a.kind === "volume" ? dhRuleLine(t.volume) : "", "Found by Data health from the table's Delta log."].filter(Boolean).join(" "),
+          lead: "Track this alert as an incident in the environment's shared list, so your team sees who is on it." },
+        () => loadDataHealth(box)), "tool outline small")));
   });
   const f = t.freshness, s = t.schema, v = t.volume;
   const tile = (big, small) => h("div", { class: "dh-tile" }, h("b", {}, big), h("span", { class: "muted-text small" }, small));

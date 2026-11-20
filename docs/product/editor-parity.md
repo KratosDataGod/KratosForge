@@ -4,7 +4,7 @@ Chris asked on 2026-11-13 for the notebook and SQL editor to have the same funct
 notebooks and SQL editors: a feature parity matrix against the top ten, a roadmap, and an execution
 plan ordered by capability and usefulness, reaching 95% as soon as possible and the last 5% soon after.
 
-This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update at main `4c4d2d9`, 2026-11-17, SQL rows).
+This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update 2026-11-18: SQL rows at main `d9c8868`, notebook rows after #2803).
 
 ## How to read it
 
@@ -32,16 +32,16 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 47 | 1 | 6 | 88% |
-| SQL editor | 45 | 40 | 3 | 2 | 92% |
-| **Both** | **99** | **87** | **4** | **8** | **90%** |
+| Notebook | 54 | 52 | 0 | 2 | 96% |
+| SQL editor | 45 | 41 | 2 | 2 | 93% |
+| **Both** | **99** | **93** | **2** | **4** | **95%** |
 
-The notebook is close: its gaps are editor settings, rich-text Markdown and a few comfort
-features. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+The notebook is at 96%: its two gaps are rich-text Markdown editing (N23) and presentation mode
+(N49), the wave 2 items. Their mockup is approved (2026-11-17), and the builds wait on Chris's go. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), and its results
 grid now sorts, filters, resizes, opens and copies over every row, with several statements and
-result sets per run. Its open rows are go to definition (S08: no peek or scripted definition yet),
-data compare (S34), open transactions across runs (S18), and two rows that need Chris's decision:
+result sets per run. Its open rows are data compare
+(S34, mockups approved), open transactions across runs (S18), and two rows that need Chris's decision:
 editing rows in the grid (S35) and other engines (S42).
 
 ## Notebook matrix
@@ -66,9 +66,9 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N14 | Cell tags and titles | Y | Y | P | Y | Y | Have | `notebook.js` |
 | N15 | Code snippets | P | Y | Y | N | Y | Have | `nbresources.js` |
 | N16 | Drag a table into a cell; Load data menu | N | P | Y | Y | Y | Have | `nbdrag.js` |
-| N17 | Editor display settings: word wrap, font size | Y | Y | P | Y | P | Partial | font fixed at 13px (`notebook.js:741`), no wrap toggle |
-| N18 | Vim key bindings | Y | Y | N | N | N | Gap | |
-| N19 | Rebind keyboard shortcuts | Y | Y | N | N | N | Gap | `shortcuts.js` lists keys, can't change them |
+| N17 | Editor display settings: word wrap, font size | Y | Y | P | Y | P | Have | Settings > Editor: word wrap and font size for notebooks and SQL (`editorprefs.js`, #2791) |
+| N18 | Vim key bindings | Y | Y | N | N | N | Have | Settings > Editor > Key bindings, Vim (Preview, #2791) |
+| N19 | Rebind keyboard shortcuts | Y | Y | N | N | N | Have | Settings > Editor > Change keys (#2791) |
 | N20 | Markdown: numbered and nested lists, tables, code blocks, quotes, H4 to H6, clickable links | Y | Y | Y | Y | Y | Have | markdown-it: CommonMark, GitHub tables, nested lists, code, quotes, links opened in the browser (#2589) |
 | N21 | LaTeX math in Markdown | Y | Y | Y | Y | Y | Have | KaTeX drawn as MathML, nothing fetched (#2589) |
 | N22 | Images in Markdown, including pasted attachments | Y | Y | Y | Y | Y | Have | pasted attachments and inline data images; remote images are not fetched (#2589) |
@@ -89,7 +89,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N37 | Environment per notebook; install packages | Y | Y | Y | Y | Y | Have | Preview, `nbenv.js` |
 | N38 | Progress for long operations | P | P | Y | Y | P | Have | runtime progress line |
 | N39 | R and Scala kernels | Y | Y | Y | Y | P | Not counted | no JVM or R ships with the engine |
-| N40 | Scratch console beside the notebook | Y | Y | N | N | N | Gap | |
+| N40 | Scratch console beside the notebook | Y | Y | N | N | N | Have | Notebook > View > Scratch, in the notebook's session (`nbconsole.js`, Preview, #2803) |
 | N41 | Rich tables, no-code charts, several charts per result | P | P | Y | Y | Y | Have | #391, #546 |
 | N42 | matplotlib, Plotly, Altair, Bokeh | Y | Y | Y | Y | Y | Have | `chart_output.py`, `vendor/vega` |
 | N43 | ipywidgets | Y | Y | Y | Y | N | Have | `ipywidgets.js` |
@@ -97,7 +97,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N45 | Collapse, scroll and clear outputs; hide code | Y | Y | Y | Y | Y | Have | `notebook.js:149` |
 | N46 | Download a result as CSV, Excel or Parquet | N | P | Y | Y | Y | Have | `frame_download` |
 | N47 | Find inside outputs | Y | Y | N | N | N | Have | Find searches cell outputs too (#2581) |
-| N48 | Publish a notebook as a read-only report or app | P | N | N | Y | Y | Gap | App Studio builds apps from a spec, not from a notebook |
+| N48 | Publish a notebook as a read-only report or app | P | N | N | Y | Y | Have | Notebook > Share > Open as report, outputs only in its own window (`nbreport.js`, Preview, #2797) |
 | N49 | Presentation (slide) mode | P | N | N | Y | Y | Gap | |
 | N50 | Autosave, versions, diff, restore | P | P | Y | Y | Y | Have | `notebook-versions.js` |
 | N51 | Export as .ipynb, .py, HTML | Y | Y | Y | Y | P | Have | `notebook-formats.js` |
@@ -124,7 +124,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S05 | Find and replace, multi-cursor, folding, comment toggle | Y | Y | Y | Y | Y | Have | `sqleditor.js` |
 | S06 | Live error and compatibility underlines | P | Y | Y | Y | P | Have | `sqlcompat`, ahead of the others |
 | S07 | Hover a table, column or function for its details | P | Y | Y | Y | Y | Have | hover cards for tables, columns and functions in Spark SQL, T-SQL and DuckDB (#2598) |
-| S08 | Go to (peek) definition of a table, view or procedure | Y | Y | Y | Y | N | Partial | F12 opens the table or warehouse object in the Explorer (#2610); no peek or scripted definition, no procedures |
+| S08 | Go to (peek) definition of a table, view or procedure | Y | Y | Y | Y | N | Have | F12 opens a table, view, procedure or function in the Explorer (#2610, #2915); Alt+F12 peeks at its definition and opens it as a script (#2915) |
 | S09 | Rename an alias everywhere | N | N | Y | N | N | Not counted | one product |
 | S10 | Snippets and templates | Y | Y | Y | Y | P | Have | `sqltemplates.js` |
 | S11 | Signature help for functions | P | Y | Y | P | P | Have | signature help for functions (#2598) |
@@ -244,9 +244,9 @@ each its own PR and Preview until used for real:
 | F4 | `spark.catalog.listTables`, `listDatabases`, `listFunctions` from the attached lakehouse | No | Merged #2627 |
 | F5 | MERGE with schema evolution and dynamic partition overwrite, under the write lease | No | Merged #2631, #2635 (Preview) |
 | F6 | `OPTIMIZE`, `VACUUM`, `RESTORE` and `DeltaTable` maintenance from code, behind the app's guards | No | Merged #2639 (Preview) |
-| F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No | Part: `lakehouse.loadTable` merged #2637 (Preview) |
-| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Waits on the mockup |
-| F9 | Editor display settings (N17, Wave 1 item 16) | Yes | Waits on the mockup |
+| F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No | Done as far as it can go on this PC: `lakehouse.loadTable` runs here (#2637, Preview). Creating or changing Fabric items from code is a hand-off: the notebook is marked as needing Fabric and runs there (`fabric_run.py` `_UTILS_FABRIC`), as Publish to OneLake is the guarded way from this PC |
+| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Mockup approved 2026-11-17; the build waits on Chris's go |
+| F9 | Editor display settings (N17, Wave 1 item 16) | Yes | Merged #2791 (Preview for Vim) |
 | F10 | Dark mode applied (N60): mockup approved 2026-11-13, merged in #2585 | Yes | Merged #2585 |
 
 What can't run on a PC stays a one-click hand-off to Fabric rather than a silent failure: real Spark

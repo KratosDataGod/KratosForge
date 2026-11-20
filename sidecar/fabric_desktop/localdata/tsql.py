@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 import re
 from collections.abc import Callable, Container
 from typing import Any, cast
@@ -51,10 +52,10 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_ctes, tsql_format, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
-_GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
+_GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
 _INTEGERS = exp.DataType.INTEGER_TYPES
 _TEXT = exp.DataType.TEXT_TYPES
 _NUMBERS = exp.DataType.NUMERIC_TYPES
@@ -78,11 +79,17 @@ _REFUSED = {
     exp.Commit: "transactions (COMMIT)",
     exp.Rollback: "transactions (ROLLBACK)",
 }
+# WR-234: what reads an error after it happened, which waits on the T-SQL interpreter (TRY...CATCH)
+_ERROR_READERS = {"ERROR_NUMBER", "ERROR_MESSAGE", "ERROR_SEVERITY", "ERROR_STATE", "ERROR_LINE", "ERROR_PROCEDURE"}
+_ERROR_READ = ("{name} isn't mapped yet. It reads an error after it happened, in TRY...CATCH or the next statement, "
+               "and the local engine doesn't run TRY...CATCH yet. Here a script stops at its first error and names "
+               "it, with its number where it's certain, such as \"Msg 8134, Level 16: Divide by zero error "
+               "encountered.\" Run it in a Fabric Warehouse to handle the error in T-SQL.")
 _LATER = ("Run the statements one at a time, with values in place of variables. A batch with variables and "
           "control flow runs in a Fabric Warehouse, not on the local engine yet.")
 
 
-_GO_TIMES = re.compile(r"^[ \t]*GO[ \t]+(\d+)[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
+_GO_TIMES = re.compile(r"^[ \t]*GO[ \t]+(\d+)[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
 
 
 def split_batches(sql: str) -> list[str]:
@@ -90,7 +97,53 @@ def split_batches(sql: str) -> list[str]:
     if (times := _GO_TIMES.search(sql)) is not None:
         raise ValueError(_NOT_YET + f"GO {times[1]} (run the batch {times[1]} times) isn't mapped yet. Repeat the "
                          "statements, or use GO on its own.")
-    return [part for part in _GO.split(sql) if part.strip()]
+    parts = _GO.split(sql)
+    line = 1
+    for part in parts[:-1]:
+        line += part.count("\n")
+        if (open_ := _left_open(part)) is not None:
+            raise ValueError(_NOT_YET + f"the GO on line {line} is inside {open_}, and batches are split at every GO "
+                             f"line here. Move the GO out of {open_.replace('a ', 'the ', 1)}, or put something else "
+                             "on that line.")
+    return [part for part in parts if part.strip()]
+
+
+def _left_open(text: str) -> str | None:
+    """What ``text`` ends inside: a string, a quoted or bracketed name, or a comment; None when nothing is open.
+    T-SQL doubles a quote or ``]`` inside one, and nests ``/* */`` comments."""
+    i, n, depth = 0, len(text), 0
+    while i < n:
+        c = text[i]
+        if depth:
+            if text.startswith("/*", i):
+                depth, i = depth + 1, i + 2
+            elif text.startswith("*/", i):
+                depth, i = depth - 1, i + 2
+            else:
+                i += 1
+            continue
+        if text.startswith("--", i):
+            end = text.find("\n", i)
+            if end < 0:
+                return None
+            i = end + 1
+        elif text.startswith("/*", i):
+            depth, i = 1, i + 2
+        elif c in "'\"[":
+            close = "]" if c == "[" else c
+            i += 1
+            while True:
+                end = text.find(close, i)
+                if end < 0:
+                    return {"'": "a string", '"': "a quoted name", "[": "a bracketed name"}[c]
+                if text.startswith(close * 2, end):
+                    i = end + 2
+                    continue
+                i = end + 1
+                break
+        else:
+            i += 1
+    return "a comment" if depth else None
 
 
 def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None,
@@ -101,18 +154,33 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
     lets divisions and ``+`` follow T-SQL's types. ``known`` is the upper-case names of the functions
     the DuckDB database has; a function call outside it is refused by name rather than left to DuckDB's
     catalog error. Raises ValueError for what isn't carried."""
+    try:
+        return _translate(sql, columns, known)
+    except RecursionError:  # sqlglot reads and writes a tree by recursion, so a deep enough nesting stops it
+        raise ValueError(_TOO_DEEP) from None
+
+
+def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
+               known: Container[str] | None) -> tuple[list[str], list[str]]:
     texts: list[str] = []
     notes: list[str] = []
     skipped = False
     schema = _schema(columns or {})
     for batch in split_batches(sql):
         for tree in _parse(batch):
+            if isinstance(tree, exp.Semicolon):  # WR-236: only a comment after the last ``;``, not a statement
+                continue
             if _harmless_setting(tree):
                 skipped = True
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
             _refuse(tree)
+            tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
+            _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
+            _national_text(tree)
             notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
+            notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
+            tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
             _temp_tables(tree)
             notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
             _joined_changes(tree)
@@ -133,14 +201,23 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
+            _char_codes(tree)
+            _sharp_s(tree)
+            _key_columns(tree)
             tsql_types.expand_datetimes(tree)
             if known is not None:
                 _unknown_functions(tree, known)
             tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
+            if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
+                                                   for a in tree.args.get("actions") or []) > 1:
+                raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
+                                 "mapped yet. Add each column in an ALTER TABLE of its own.")
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
             except SqlglotError as exc:
                 raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
+            if len(text) > 50 * len(batch) + 200_000:  # a backstop: each rewrite reads its arguments once
+                raise ValueError(_TOO_DEEP)
             if text.strip():
                 texts.append(text)
     if not texts:
@@ -165,6 +242,9 @@ class KfTSQL(TSQL):
         # SQUARE is a float in T-SQL; sqlglot reads it as POWER(x, 2), which keeps an integer's type and
         # refuses a decimal (_power).
         # JSON_VALUE and JSON_QUERY keep their path as the text T-SQL was given; _json reads it (WR-219).
+        # PARSE and TRY_PARSE take "x AS type USING culture", which sqlglot can't read (WR-229).
+        FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
+                            "TRY_PARSE": tsql_format.parser(True)}
         FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
@@ -506,6 +586,7 @@ def _take_as_of(batch: str) -> tuple[str, str | None]:
 
 def _parse(batch: str) -> list[exp.Expression]:
     batch, when = _take_as_of(batch)
+    batch = tsql_hints.take(batch, KfTSQL().tokenize)  # WR-231: statistics, and hints sqlglot can't read
     cloned = tsql_clone.local_refusal(batch)  # WR-226: never a no-op, never a full copy in a clone's place
     if cloned:
         raise ValueError(_NOT_YET + cloned)
@@ -525,6 +606,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     _refuse_dbcc(batch)
     _refuse_output(batch)
     _refuse_control(batch)
+    tsql_merge.refuse_unterminated(tokens)  # WR-244: a MERGE ends with ;
     unsupported: list[str] = []
 
     class Catch(logging.Handler):
@@ -538,7 +620,9 @@ def _parse(batch: str) -> list[exp.Expression]:
     try:
         trees = [t for t in sql_dialects.parse(batch, read=KfTSQL) if t is not None]
     except SqlglotError as exc:
-        raise ValueError(f"Could not read the query as T-SQL: {_first_line(exc)}") from None
+        if getattr(exc, "too_deep", False):  # sql_dialects.parse caught the RecursionError: the T-SQL message
+            raise ValueError(_TOO_DEEP) from None
+        raise ValueError(_unreadable(exc)) from None
     finally:
         log.removeHandler(handler)
     if unsupported:
@@ -641,6 +725,8 @@ def _refuse(tree: exp.Expression) -> None:
         collate.replace(collate.this)  # a binary collation is how text compares here already (WR-210)
     for p in tree.find_all(exp.Parameter, exp.SessionParameter):
         name = p.sql(dialect="tsql")
+        if name.upper() == "@@ERROR":
+            raise ValueError(_NOT_YET + _ERROR_READ.format(name="@@ERROR"))
         raise ValueError(f"The local engine doesn't run T-SQL variables ({name}) yet. {_LATER}")
 
 
@@ -1038,7 +1124,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         else:
             to = node.args.get("to")
             if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
-                    and _unknown(info.this.type) and not isinstance(node.this, exp.Null):  # NULL converts the same
+                    and _unknown(info.this.type) and not isinstance(node.this, exp.Null) \
+                    and not node.meta.get("kf_digits"):  # NULL, and PARSE's checked digits, convert the same
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
             source = _numeric_style(node, info) or info.this.type
@@ -1304,7 +1391,7 @@ def _cast_in_place(node: exp.Expression, precision: int, scale: int) -> None:
     cast.set("this", node)
 
 
-def _text_as_number(node: exp.Add, side: str, to: exp.DataType) -> None:
+def _text_as_number(node: exp.Expression, side: str, to: exp.DataType) -> None:
     """The text side of ``+`` converted to the number's type, as T-SQL does: ``'' + 1`` is 1 and ``f + ''`` is f,
     since '' converts to 0 for an integer or a float (DuckDB refuses it); text for an integer has to be a whole
     number, as in a CAST. A decimal refuses '' in both."""
@@ -1459,7 +1546,10 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
 def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> None:
     """A date written as text with a style, as T-SQL writes it (WR-208): a ``date`` has no time, so styles
     120, 121 and 126 give only ``yyyy-mm-dd``; and style 126 leaves the fraction off when it is zero
-    (``2024-02-29T13:04:05``)."""
+    (``2024-02-29T13:04:05``). A ``time`` is put on T-SQL's base date, 1900-01-01, first: DuckDB's STRFTIME
+    takes no time alone, and a style with a date writes that date in T-SQL."""
+    if _is(kind, {exp.DataType.Type.TIME}):
+        text.set("this", exp.Add(this=exp.cast(exp.Literal.string("1900-01-01"), "DATE"), expression=text.this))
     fmt = text.args.get("format")
     if not isinstance(fmt, exp.Literal) or not fmt.name.startswith("%Y-%m-%d"):
         return
@@ -1713,7 +1803,7 @@ def _in_class(ch: str) -> str:
     return "\\" + ch if ch in "\\[]^-" else ch
 
 
-_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Like)
+_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Like, exp.Between)
 _PADDED_NOTE = ("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL ignores "
                 "trailing spaces when it compares text ('a' = 'a  ', and 'a  ' LIKE 'a'), and here they count.")
 _TOP = "\U0010ffff"  # the last character: 'ab ' and then it sorts after 'ab', any spaces, and anything after them
@@ -1734,10 +1824,15 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
             elif _unknown(info.this.type) and _is(info.expression.type, _TEXT):
                 unsure = True  # as for =: a text pattern on a value whose type can't be told
             continue
+        if isinstance(node, exp.Between):
+            _text_against_numbers(node, info, ["this", "low", "high"])
+            continue
         if isinstance(node, exp.In):
             if info.args.get("query") is not None or not info.expressions:
                 continue
             sides = [info.this, *info.expressions]
+            if _text_against_numbers(node, info, ["this"], listed=True):
+                continue
             if all(_is(v.type, _TEXT) for v in sides):
                 node.set("this", _rtrim(node.this))
                 node.set("expressions", [_rtrim(v) for v in node.expressions])
@@ -1745,6 +1840,8 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
                 unsure = True
             continue
         a, b = info.this.type, info.expression.type
+        if _text_against_numbers(node, info, ["this", "expression"]):
+            continue
         if _is(a, _TEXT) and _is(b, _TEXT):
             if isinstance(node, exp.EQ) and _column_and_text(node):
                 _padded_equal(node)
@@ -1822,6 +1919,40 @@ def _column_and_text(node: exp.EQ) -> bool:
     sides = (node.this, node.expression)
     return any(isinstance(x, exp.Column) for x in sides) and any(isinstance(x, exp.Literal) and x.is_string
                                                                  for x in sides)
+
+
+_CONVERTED = (_INTEGERS - {exp.DataType.Type.BIT}) | {exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT}
+
+
+def _text_against_numbers(node: exp.Expression, info: exp.Expression, keys: list[str], listed: bool = False) -> bool:
+    """Text compared with an integer or a float, converted to the number's type as T-SQL converts it (a number
+    outranks text): ``0 = ''`` is true and ``2 = '1.5'`` is T-SQL's conversion error, where DuckDB stopped on ''
+    and rounded '1.5' to 2. ``keys`` name the compared sides (with ``listed``, IN's list too). Whether any was."""
+    sides: list[tuple[exp.Expression, exp.Expression, str | int]] = [(node, info, key) for key in keys]
+    if listed:
+        sides += [(node, typed, i) for i, typed in enumerate(info.expressions)]
+    kinds = [(i.args[k] if isinstance(k, str) else i).type for _, i, k in sides]
+    numbers = [k for k in kinds if k is not None and _is(k, _CONVERTED)]
+    if not numbers or not any(_is(k, _TEXT) for k in kinds) or any(k is not None and not (
+            _is(k, _TEXT) or _is(k, _NUMBERS)) for k in kinds):
+        return False
+    to = numbers[0]
+    if any(not _is(k, _CONVERTED) and not _is(k, _TEXT) for k in kinds) or any(
+            k is not None and k.this != to.this for k in numbers):
+        return False  # a decimal, or numbers of two types: T-SQL's precedence picks one, left to DuckDB
+    items = list(node.expressions) if listed else []
+    for (_, _, key), kind in zip(sides, kinds, strict=True):
+        if not _is(kind, _TEXT):
+            continue
+        if isinstance(key, str):
+            _text_as_number(node, key, to)
+        else:
+            holder = exp.Paren(this=items[key].copy())
+            _text_as_number(holder, "this", to)
+            items[key] = holder.this
+    if listed:
+        node.set("expressions", items)
+    return True
 
 
 def _padded_equal(node: exp.EQ) -> None:
@@ -1963,6 +2094,9 @@ def _functions(tree: exp.Expression) -> None:
 
 
 _NOT_YET = "This T-SQL can't be run on the local engine: "
+
+_TOO_DEEP = (_NOT_YET + "the query nests calls or brackets too deeply to translate. Take the inner part out into a "
+             "CTE, a subquery or a variable.")
 
 
 def _gaps(tree: exp.Expression) -> None:
@@ -2267,11 +2401,26 @@ def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
     """A function DuckDB doesn't have is refused by its T-SQL name, not with DuckDB's catalog error."""
     for call in tree.find_all(exp.Anonymous):
         name = call.name.upper()
+        if name in _ERROR_READERS:
+            raise ValueError(_NOT_YET + _ERROR_READ.format(name=f"{name}()"))
         if name and name not in known:
             raise ValueError(_NOT_YET + f"{name} isn't mapped yet.")
     if any(True for _ in tree.find_all(exp.CurrentTimestampLTZ)):
         raise ValueError(_NOT_YET + "SYSDATETIMEOFFSET isn't mapped yet. A warehouse's clock is UTC: "
                          "SYSUTCDATETIME() gives the same time without the offset.")
+
+
+def _national_text(tree: exp.Expression) -> None:
+    """An N'...' literal is nvarchar text. sqlglot reads it as exp.National, which the passes that type text
+    (comparisons with ANSI padding, LIKE's [a-c] ranges, + joining two strings) didn't take for text. So
+    ``WHERE col = N'abc'`` missed a row whose col is 'abc  ', ``LIKE N'[a-c]%'`` never matched, and
+    ``N'a' + N'b'`` stopped with DuckDB's binder error. A warehouse keeps text as UTF-8 varchar, so here it is a
+    plain string. DATALENGTH's own argument keeps its N, since it counts two bytes a character (_datalength)."""
+    for node in list(tree.find_all(exp.National)):
+        parent = node.parent
+        if isinstance(parent, exp.Anonymous) and parent.name.upper() == "DATALENGTH":
+            continue
+        node.replace(exp.Literal.string(node.name))
 
 
 def _datalength(value: exp.Expression) -> exp.Expr:
@@ -2333,7 +2482,10 @@ def _string_split(node: exp.Anonymous) -> None:
 
 def _whole(node: exp.Expression | None, low: int) -> bool:
     """A whole-number literal of at least ``low``: then the edge rules can't apply."""
-    return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
+    if not (isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit()):
+        return False
+    return len(node.name.lstrip("0")) > 20 or int(node.name.lstrip("0") or "0") >= low  # past 20 digits is past any int, and int()
+    # of 4,300 digits or more would stop with Python's own error
 
 
 def _number(node: exp.Expression | None) -> float | None:
@@ -2357,7 +2509,9 @@ def _string_edges(tree: exp.Expression) -> None:
       from the end. A negative length is an error.
     - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
       negative; a NULL ``x`` deletes without inserting.
-    - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+    - ``REPLICATE(s, n)`` and ``SPACE(n)`` are NULL when ``n`` is negative, and a count with a fraction is
+      cut toward zero first (``SPACE(1.7)`` is one space, ``SPACE(-0.5)`` is ''); DuckDB gave '' for a
+      negative count, rounded ``SPACE``'s and didn't bind ``REPLICATE``'s.
     - ``LEFT`` and ``RIGHT`` with a negative length are an error (DuckDB drops from the other end).
     - ``TRANSLATE(s, a, b)`` with ``a`` and ``b`` of different lengths is an error (DuckDB drops the
       characters of ``a`` that have no partner in ``b``).
@@ -2365,92 +2519,392 @@ def _string_edges(tree: exp.Expression) -> None:
     - ``CHARINDEX(x, s, start)`` searches from the start when ``start`` is 0 or negative (DuckDB counted
       from the end), and is 0 for an empty ``x`` (DuckDB found it at 1) (WR-210).
 
-    Literal starts and lengths that can't hit an edge are left as they are."""
-    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Left, exp.Right, exp.Translate,
-                                   exp.StrPosition)):
+    Literal starts and lengths that can't hit an edge are left as they are. The calls are rewritten innermost first,
+    so a call inside another (``REPLICATE(REPLICATE(s, n), m)``) is rewritten too, not only copied by the outer one.
+    Each argument the rewrite reads more than once is bound once (see _once), so nested calls grow the SQL in step,
+    not twice or more a level."""
+    for node in reversed(list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat, exp.Space, exp.Left, exp.Right,
+                                            exp.Translate, exp.StrPosition))):
         if isinstance(node, exp.StrPosition):
             _charindex(node)
         elif isinstance(node, (exp.Left, exp.Right)):
-            name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
-            length = node.expression
-            message = f"Invalid length parameter passed to the {name} function."
-            value = _number(length)
-            if value is not None:
-                # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''.
-                if int(value) < 0:
-                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same "
-                                     "error.")
-                if not _whole(length, 0):  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
-                    node.set("expression", exp.Literal.number(int(value)))
-            elif not _whole(length, 0):
-                whole = exp.cast(exp.Trunc(this=length.copy()), "BIGINT")
-                negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
-                node.set("expression", whole)
-                node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))],
-                                      default=node.copy()))
+            _left_right(node)
         elif isinstance(node, exp.Translate):
-            source, target = node.args["from_"], node.args["to"]
-            message = ("The second and third arguments of the TRANSLATE function must contain an equal number "
-                       "of characters.")
-            if all(isinstance(x, exp.Literal) and x.is_string for x in (source, target)):
-                if len(source.name) != len(target.name):
-                    raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the "
-                                     "same error.")
-                continue
-            differ = exp.NEQ(this=exp.func("LENGTH", source.copy()), expression=exp.func("LENGTH", target.copy()))
-            node.replace(exp.Case(ifs=[exp.If(this=differ, true=exp.func("ERROR", exp.Literal.string(message)))],
-                                  default=node.copy()))
+            _translate_lists(node)
         elif isinstance(node, exp.Substring):
-            start, length = node.args.get("start"), node.args.get("length")
-            if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
-                continue
-            cut: exp.Expression = node.copy()
-            if not _whole(start, 1):
-                first = exp.func("GREATEST", start.copy(), exp.Literal.number(1))
-                count = exp.func("GREATEST", exp.paren(start.copy() + length.copy() - first.copy(), copy=False),
-                                 exp.Literal.number(0))
-                # GREATEST skips NULLs, so a NULL start or length is kept NULL first, as in T-SQL.
-                unknown = exp.or_(exp.Is(this=start.copy(), expression=exp.null()),
-                                  exp.Is(this=length.copy(), expression=exp.null()))
-                cut = exp.Case(ifs=[exp.If(this=unknown, true=exp.null())],
-                               default=exp.Substring(this=node.this, start=first, length=count))
-            if not _whole(length, 0):
-                negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
-                error = exp.func("ERROR", exp.Literal.string("Invalid length parameter passed to the SUBSTRING function."))
-                cut = exp.Case(ifs=[exp.If(this=negative, true=error)], default=cut)
-            node.replace(cut)
+            _substring(node)
         elif isinstance(node, exp.Stuff):
-            start, length = node.args["start"], node.args["length"]
+            _stuff(node)
+        elif isinstance(node, (exp.Repeat, exp.Space)):
+            _repeat(node)
+
+
+# what a rewrite may copy freely: a column, a literal, or a cast or sign of one
+_SMALL = (exp.Column, exp.Identifier, exp.Literal, exp.Null, exp.Boolean, exp.National, exp.Neg, exp.Paren, exp.Cast,
+          exp.Trunc, exp.DataType, exp.DataTypeParam, exp.Var)
+_BOUND = "__kf_bound_args"  # a lambda parameter no user column is likely to share
+
+
+def _small(node: exp.Expression | None) -> bool:
+    if node is None:
+        return True
+    nodes = list(node.walk())
+    return len(nodes) <= 12 and all(isinstance(n, _SMALL) for n in nodes)
+
+
+def _once(values: list[exp.Expression | None], build: Callable[..., exp.Expression]) -> exp.Expression:
+    """``build(*values)``, with each value that isn't small read once: when any isn't, all of those are bound in one
+    struct, as LIST_TRANSFORM([STRUCT_PACK(a := ..., ...)], __kf_bound_args -> ...)[1], and ``build`` gets its .a and so
+    on in their place. So a rewrite can name an argument twice without copying a call nested in it, and the lambda's
+    body holds no subquery, which DuckDB doesn't allow there. ``build`` may copy what it gets freely."""
+    if all(_small(v) for v in values):
+        return build(*(v.copy() if v is not None else None for v in values))
+    fields: list[exp.Expression] = []
+    args: list[exp.Expression | None] = []
+    for i, value in enumerate(values):
+        if _small(value):
+            args.append(value.copy() if value is not None else None)
+            continue
+        name = "abcdefgh"[i]
+        assert value is not None
+        fields.append(exp.PropertyEQ(this=exp.to_identifier(name), expression=value.copy()))
+        args.append(exp.column(name, table=_BOUND))
+    pack = exp.Anonymous(this="STRUCT_PACK", expressions=fields)
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[pack]),
+                     exp.Lambda(this=build(*args), expressions=[exp.to_identifier(_BOUND)]))
+    return exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1)  # DuckDB lists count from 1
+
+
+def _whole_count(count: exp.Expression) -> exp.Expression:
+    """A count or length as T-SQL makes it an int: toward zero."""
+    return count.copy() if _whole(count, 0) else exp.cast(exp.Trunc(this=count.copy()), "BIGINT")
+
+
+# No text is longer than this (2 GB in T-SQL), so a longer LEFT or RIGHT is the whole text; DuckDB stops past 2^32 - 1.
+_LONGEST = 2 ** 31 - 1
+
+
+def _left_right(node: exp.Left | exp.Right) -> None:
+    """``LEFT`` and ``RIGHT``: a negative length is an error (see _string_edges)."""
+    name = "LEFT" if isinstance(node, exp.Left) else "RIGHT"
+    length = node.expression
+    message = f"Invalid length parameter passed to the {name} function."
+    value = _number(length)
+    if value is not None:
+        # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''. It takes a bigint, so a
+        # literal past one, or past a float (400 nines), is T-SQL's overflow error, not Python's.
+        # A whole literal is read exactly (a float would round 9223372036854775807 up past a bigint).
+        exact = _digits(length.name, "bigint") if _whole(length, 0) else \
+            int(value) if math.isfinite(value) else _INFINITE
+        whole = _in_range(exact, "bigint")
+        if whole < 0:
+            raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same error.")
+        if not _whole(length, 0) or whole > _LONGEST:  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
+            node.set("expression", exp.Literal.number(min(whole, _LONGEST)))
+        return
+    if _whole(length, 0):
+        return
+
+    def build(text: exp.Expression, n: exp.Expression) -> exp.Expression:
+        whole = _whole_count(n)
+        longest = exp.func("LEAST", whole.copy(), exp.Literal.number(_LONGEST))
+        call = type(node)(this=text, expression=longest)
+        negative = exp.LT(this=whole, expression=exp.Literal.number(0))
+        return exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))], default=call)
+    node.replace(_once([node.this, length], build))
+
+
+def _translate_lists(node: exp.Translate) -> None:
+    """``TRANSLATE``: lists of different lengths are an error (see _string_edges)."""
+    source, target = node.args["from_"], node.args["to"]
+    message = ("The second and third arguments of the TRANSLATE function must contain an equal number "
+               "of characters.")
+    if all(isinstance(x, exp.Literal) and x.is_string for x in (source, target)):
+        if len(source.name) != len(target.name):
+            raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same error.")
+        return
+
+    def build(text: exp.Expression, a: exp.Expression, b: exp.Expression) -> exp.Expression:
+        differ = exp.NEQ(this=exp.func("LENGTH", a.copy()), expression=exp.func("LENGTH", b.copy()))
+        return exp.Case(ifs=[exp.If(this=differ, true=exp.func("ERROR", exp.Literal.string(message)))],
+                        default=exp.Translate(this=text, from_=a, to=b))
+    node.replace(_once([node.this, source, target], build))
+
+
+def _substring(node: exp.Substring) -> None:
+    """``SUBSTRING`` at a start below 1 or with a negative length (see _string_edges)."""
+    start, length = node.args.get("start"), node.args.get("length")
+    if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
+        return
+
+    def build(text: exp.Expression, st: exp.Expression, n: exp.Expression) -> exp.Expression:
+        cut: exp.Expression = exp.Substring(this=text, start=st.copy(), length=n.copy())
+        if not _whole(start, 1):
+            first = exp.func("GREATEST", st.copy(), exp.Literal.number(1))
+            count = exp.func("GREATEST", exp.paren(st.copy() + n.copy() - first.copy(), copy=False),
+                             exp.Literal.number(0))
+            # GREATEST skips NULLs, so a NULL start or length is kept NULL first, as in T-SQL.
+            unknown = exp.or_(exp.Is(this=st.copy(), expression=exp.null()),
+                              exp.Is(this=n.copy(), expression=exp.null()))
+            cut = exp.Case(ifs=[exp.If(this=unknown, true=exp.null())],
+                           default=exp.Substring(this=text.copy(), start=first, length=count))
+        if not _whole(length, 0):
+            negative = exp.LT(this=n.copy(), expression=exp.Literal.number(0))
+            error = exp.func("ERROR", exp.Literal.string("Invalid length parameter passed to the SUBSTRING function."))
+            cut = exp.Case(ifs=[exp.If(this=negative, true=error)], default=cut)
+        return cut
+    node.replace(_once([node.this, start, length], build))
+
+
+def _stuff(node: exp.Stuff) -> None:
+    """``STUFF`` past the text's edges, or with a negative length or a NULL insert (see _string_edges)."""
+    def build(text: exp.Expression, st: exp.Expression, n: exp.Expression, put: exp.Expression) -> exp.Expression:
+        past = exp.or_(exp.LT(this=st.copy(), expression=exp.Literal.number(1)),
+                       exp.GT(this=st.copy(), expression=exp.func("LENGTH", text.copy())),
+                       exp.LT(this=n.copy(), expression=exp.Literal.number(0)))
+        call = exp.Stuff(this=text, start=st, length=n,
+                         expression=exp.func("COALESCE", put, exp.Literal.string("")))
+        return exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=call)
+    node.replace(_once([node.this, node.args["start"], node.args["length"], node.expression], build))
+
+
+_REPLICATE_CUT = ("REPLICATE gives more than {most} here, and a Fabric Warehouse cuts the result there, because "
+                  "its input isn't {kind}(MAX). Cast the input to {kind}(MAX) to keep the whole result, as the "
+                  "warehouse needs too, or use LEFT to cut it on purpose.")
+
+
+def _replicate_inputs(tree: exp.Expression) -> None:
+    """Mark each REPLICATE by its input as written: "max" for a cast or CONVERT to VARCHAR(MAX) or NVARCHAR(MAX),
+    "national" for N'' text or a cast to NVARCHAR or NCHAR, else "text" (see _repeat). An outer REPLICATE of an
+    inner one takes the inner one's kind, as a warehouse types the inner result."""
+    for node in reversed(list(tree.find_all(exp.Repeat))):  # innermost first
+        value = node.this
+        if isinstance(value, exp.Repeat) and "kf_replicate" in value.meta:
+            node.meta["kf_replicate"] = value.meta["kf_replicate"]
+            continue
+        kind = value.args.get("to") if isinstance(value, exp.Cast) else \
+            value.this if isinstance(value, exp.Convert) else None
+        if isinstance(kind, exp.DataType) and any(isinstance(p, exp.DataTypeParam) and p.name.upper() == "MAX"
+                                                  for p in kind.expressions):
+            node.meta["kf_replicate"] = "max"
+        elif isinstance(value, exp.National) or (isinstance(kind, exp.DataType) and kind.this in (
+                exp.DataType.Type.NVARCHAR, exp.DataType.Type.NCHAR)):
+            node.meta["kf_replicate"] = "national"
+
+
+def _repeat(node: exp.Repeat | exp.Space) -> None:
+    """``REPLICATE(s, n)`` and ``SPACE(n)``: the count cut toward zero and NULL when negative (#2978), and REPLICATE
+    refused at the row where T-SQL would cut the result at 8,000 bytes (4,000 characters of N'' text) because ``s``
+    isn't VARCHAR(MAX) or NVARCHAR(MAX) (WR-235)."""
+    replicate = isinstance(node, exp.Repeat)
+    key = "times" if replicate else "this"
+    count = node.args.get(key)
+    if count is None:
+        return
+    # REPLICATE takes any integer type, bigint included; SPACE takes an int (functions/replicate-transact-sql,
+    # functions/space-transact-sql). A negative count is NULL for both, as SQL Server answers it.
+    width = "bigint" if replicate else "int"
+    value = _number(count)
+    if not _whole(count, 0) and value is not None and math.isfinite(value) and int(value) >= 0:
+        count = exp.Literal.number(_in_range(int(value), width))  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL
+        node.set(key, count)
+    elif _whole(count, 0):
+        _in_range(_digits(count.name, width), width)
+    elif value is not None and not math.isfinite(value):  # 1e400, or more digits than a float holds
+        _in_range(_INFINITE, width)
+    kind = node.meta.get("kf_replicate", "text") if replicate else "max"
+    if _whole(count, 0) and kind == "max":
+        return
+    national = kind == "national"
+    most = 4000 if national else 8000
+
+    if not _whole(count, 0):
+        # #3007: text is a whole number or an error, a number is cut toward zero. _int_of names its value several
+        # times, so the count is read once first: RAND() is one value, and a nested call isn't copied.
+        count = _once([count], lambda c: _int_of(c, width))
+
+    def build(n: exp.Expression, text: exp.Expression | None) -> exp.Expression:
+        whole = n
+        ifs = []
+        if not _whole(n, 0):
+            if not replicate:  # a bigint past an int; a REPLICATE count past a bigint stops in _int_of's cast
+                ifs.append(_past(whole, width))
+            ifs.append(exp.If(this=exp.LT(this=whole.copy(), expression=exp.Literal.number(0)), true=exp.null()))
+        if text is not None and kind != "max" and not _known_within(text, n, national, most):
+            one = exp.func("LENGTH", text.copy()) if national else \
+                exp.Anonymous(this="STRLEN", expressions=[exp.cast(text.copy(), "VARCHAR")])
+            size = exp.Mul(this=exp.cast(one, "DOUBLE"), expression=whole.copy())  # DOUBLE: a huge count can't overflow
+            message = _REPLICATE_CUT.format(most=f"{most:,} {'characters' if national else 'bytes'}",
+                                            kind="NVARCHAR" if national else "VARCHAR")
+            ifs.append(exp.If(this=exp.GT(this=size, expression=exp.Literal.number(most)),
+                              true=exp.func("ERROR", exp.Literal.string(_NOT_YET + message))))
+        call = exp.Repeat(this=text, times=whole) if text is not None else exp.Space(this=whole)
+        return exp.Case(ifs=ifs, default=call) if ifs else call
+    node.replace(_once([count, node.this if replicate else None], build))
+
+
+def _known_within(text: exp.Expression, n: exp.Expression, national: bool, most: int) -> bool:
+    """A literal input repeated a literal number of times, within the limit: no check at run time is needed."""
+    literal = text.this if isinstance(text, exp.National) else text
+    if not (isinstance(literal, exp.Literal) and literal.is_string and _whole(n, 0)):
+        return False
+    size = len(literal.name) if national else len(literal.name.encode("utf-8"))
+    return size * int(n.name.lstrip("0") or "0") <= most
+
+
+_INT_TEXT = re.compile(r"\s*([+-]?[0-9]+)?\s*")  # '' and spaces alone are 0, as T-SQL converts them
+_INFINITE = 2 ** 64  # a literal past a float: past any int too
+_RANGES = {"int": (-2 ** 31, 2 ** 31 - 1), "bigint": (-2 ** 63, 2 ** 63 - 1)}
+
+
+def _digits(text: str, size: str) -> int:
+    """A whole number's text as an int; T-SQL's overflow error past 20 digits, before Python's int() reads it
+    (it stops at 4,300 digits with an error of its own)."""
+    text = text.strip()
+    sign = -1 if text.startswith("-") else 1
+    body = text.lstrip("+-").lstrip("0")  # leading zeros count for nothing, also in int()'s 4,300 digits
+    if len(body) > 20:
+        raise ValueError(f"{_NOT_YET}{_OVERFLOW.format(kind=size)} T-SQL gives the same error.")
+    return sign * int(body or "0")
+
+
+def _in_range(value: int, size: str) -> int:
+    """``value``, or T-SQL's overflow error when an int or a bigint (``size``) can't hold it."""
+    low, high = _RANGES[size]
+    if not low <= value <= high:
+        raise ValueError(f"{_NOT_YET}{_OVERFLOW.format(kind=size)} T-SQL gives the same error.")
+    return value
+
+
+def _past(value: exp.Expression, size: str) -> exp.If:
+    """The CASE branch that stops with T-SQL's overflow error when ``value`` is past an int or a bigint."""
+    low, high = _RANGES[size]
+    outside = exp.Not(this=exp.Between(this=value.copy(), low=exp.Literal.number(low), high=exp.Literal.number(high)))
+    return exp.If(this=outside, true=exp.func("ERROR", exp.Literal.string(_OVERFLOW.format(kind=size))))
+
+
+def _int_of(value: exp.Expression, size: str = "int") -> exp.Expression:
+    """``value`` made an int as T-SQL makes a count or code one: a number is cut toward zero, and text
+    must be a whole number (``'66'`` is 66, ``'6.5'`` is a conversion error, as in T-SQL; DuckDB's cast
+    would round it). A column's type isn't known here, so both ways are written and DuckDB keeps the
+    one its type takes; each reads the value through VARCHAR so that both bind whatever the type."""
+    if isinstance(value, exp.Literal) and value.is_string:
+        if not _INT_TEXT.fullmatch(value.name):
+            raise ValueError(f"{_NOT_YET}{_not_whole(value.name, size)} T-SQL gives the same error.")
+        return exp.Literal.number(_in_range(_digits(value.name, size), size))
+    text = exp.cast(value.copy(), "VARCHAR")
+    if size == "int":
+        message: exp.Expression = exp.DPipe(
+            this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
+                           expression=text.copy()),
+            expression=exp.Literal.string("' to data type int."))
+    else:
+        message = exp.Literal.string(_not_whole("", size))
+    whole = exp.func("COALESCE", exp.Nullif(this=exp.func("TRIM", text.copy()), expression=exp.Literal.string("")),
+                     exp.Literal.string("0"))
+    strict = exp.Case(ifs=[exp.If(this=exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(_INT_TEXT.pattern)),
+                                  true=exp.cast(whole, "BIGINT"))],
+                      default=exp.func("ERROR", message))
+    is_text = exp.EQ(this=exp.func("TYPEOF", value.copy()), expression=exp.Literal.string("VARCHAR"))
+    cut = exp.cast(exp.Trunc(this=exp.cast(text.copy(), "DOUBLE")), "BIGINT")
+    return exp.Case(ifs=[exp.If(this=is_text, true=strict)], default=cut)
+
+
+def _not_whole(text: str, size: str) -> str:
+    """T-SQL's error for text that isn't a whole number, made an int or a bigint."""
+    if size == "int":
+        return f"Conversion failed when converting the varchar value '{text}' to data type int."
+    return f"Error converting data type varchar to {size}."
+
+
+def _char_codes(tree: exp.Expression) -> None:
+    """ASCII, UNICODE and CHAR at their edges, as T-SQL answers them:
+
+    - ``ASCII('')`` and ``UNICODE('')`` are NULL (DuckDB gave 0 and -1).
+    - ``CHAR(n)`` is NULL outside 0 to 255 ("CHAR returns a NULL value for integer expressions outside this
+      input range", functions/char-transact-sql), and a count with a fraction is made an int first, toward
+      zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal)."""
+    for node in reversed(list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr))):  # deepest first: see _once
+        if isinstance(node, (exp.Ascii, exp.Unicode)):
             text = node.this
-            past = exp.or_(exp.LT(this=start.copy(), expression=exp.Literal.number(1)),
-                           exp.GT(this=start.copy(), expression=exp.func("LENGTH", text.copy())),
-                           exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
-            node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
-            node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
-        elif not _whole(node.args.get("times"), 0):
-            times = node.args["times"]
-            negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
-            node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+            if not (isinstance(text, exp.Literal) and text.is_string and text.name):
+                node.set("this", exp.Nullif(this=text.copy(), expression=exp.Literal.string("")))
+            continue
+        if len(node.expressions) != 1:
+            continue
+        code = node.expressions[0]
+        value = _number(code)
+        if value is not None:
+            whole = _in_range(int(value) if math.isfinite(value) else _INFINITE, "int")
+            node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 255
+                         else exp.cast(exp.null(), "TEXT"))
+            continue
+        # The code is read once, and then its int once, so CHAR(RAND() * 300) draws one number, checks and
+        # converts that one, and a call nested in the code is written once.
+        node.replace(_once([code], lambda c: _once([_int_of(c)], _char_of)))
+
+
+def _char_of(v: exp.Expression) -> exp.Expression:
+    """``CHAR`` of the int ``v``: T-SQL's overflow error past an int, NULL outside 0 to 255."""
+    inside = exp.Between(this=v.copy(), low=exp.Literal.number(0), high=exp.Literal.number(255))
+    return exp.Case(ifs=[_past(v, "int"), exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(v.copy(), "INT")]))])
+
+
+def _key_columns(tree: exp.Expression) -> None:
+    """A table's ``PRIMARY KEY (a, b)`` names its columns only, as DuckDB takes them: sqlglot's T-SQL reader
+    gives each an order (``a NULLS FIRST``), which DuckDB can't read there, and an ASC or DESC changes nothing
+    about which rows a key allows."""
+    for key in tree.find_all(exp.PrimaryKey):
+        for ordered in [e for e in key.expressions if isinstance(e, exp.Ordered)]:
+            ordered.replace(ordered.this)
+
+
+_SHARP_S = "\u00df"  # ß
+
+
+def _sharp_s(tree: exp.Expression) -> None:
+    """``UPPER`` keeps ``ß``, as T-SQL does: it has no one-letter capital in Unicode's simple case mapping, which
+    T-SQL follows, and DuckDB alone gives the capital ``ẞ``. The text is split at each ``ß``, the parts are made
+    upper case, and the ``ß`` are put back, so the value is read once."""
+    for node in reversed(list(tree.find_all(exp.Upper))):  # deepest first, so an outer UPPER copies a rewritten one
+        text = node.this
+        if isinstance(text, exp.Literal) and _SHARP_S not in text.name:
+            if not text.is_string:  # UPPER(5) is '5', as T-SQL makes the number text
+                node.set("this", exp.cast(text.copy(), "VARCHAR"))
+            continue
+        part = exp.to_identifier("kf_tsql_part_")
+        # sqlglot's own nodes, not anonymous calls, so the query doesn't need DuckDB's function list read
+        parts = exp.Split(this=exp.cast(text.copy(), "VARCHAR"), expression=exp.Literal.string(_SHARP_S))
+        upper = exp.Transform(this=parts, expression=exp.Lambda(this=exp.Upper(this=exp.column(part.copy())),
+                                                                expressions=[part]))
+        node.replace(exp.ArrayToString(this=upper, expression=exp.Literal.string(_SHARP_S)))
 
 
 def _charindex(node: exp.StrPosition) -> None:
     """``CHARINDEX`` as T-SQL answers it at its edges (see _string_edges)."""
     start, find, text = node.args.get("position"), node.args["substr"], node.this
-    if start is not None:
-        value = _number(start)
-        if value is not None and value <= 1:
-            node.set("position", None)  # 0, negative or 1: from the start
-        elif value is None and not isinstance(start, exp.Null):
-            # A NULL start keeps the answer NULL, as GREATEST alone (which skips NULLs) wouldn't.
-            node.set("position", exp.Case(ifs=[exp.If(this=exp.Is(this=start.copy(), expression=exp.null()),
-                                                       true=exp.null())],
-                                          default=exp.func("GREATEST", start.copy(), exp.Literal.number(1))))
-    if isinstance(find, exp.Literal) and find.is_string and find.name:
+    value = _number(start)
+    if start is not None and value is not None and value <= 1:
+        node.set("position", None)  # 0, negative or 1: from the start
+        start = None
+    plain_find = isinstance(find, exp.Literal) and find.is_string and find.name
+    if plain_find and (start is None or value is not None or isinstance(start, exp.Null)):
         return
-    empty = exp.EQ(this=exp.func("LENGTH", find.copy()), expression=exp.Literal.number(0))
-    unknown = exp.Is(this=text.copy(), expression=exp.null())
-    node.replace(exp.Case(ifs=[exp.If(this=unknown, true=exp.null()), exp.If(this=empty, true=exp.Literal.number(0))],
-                          default=node.copy()))
+
+    def build(t: exp.Expression, f: exp.Expression, st: exp.Expression | None) -> exp.Expression:
+        position = st
+        if st is not None and value is None and not isinstance(start, exp.Null):
+            # A NULL start keeps the answer NULL, as GREATEST alone (which skips NULLs) wouldn't.
+            position = exp.Case(ifs=[exp.If(this=exp.Is(this=st.copy(), expression=exp.null()), true=exp.null())],
+                                default=exp.func("GREATEST", st.copy(), exp.Literal.number(1)))
+        call = exp.StrPosition(this=t.copy(), substr=f.copy(), position=position)
+        if plain_find:
+            return call
+        empty = exp.EQ(this=exp.func("LENGTH", f.copy()), expression=exp.Literal.number(0))
+        unknown = exp.Is(this=t.copy(), expression=exp.null())
+        return exp.Case(ifs=[exp.If(this=unknown, true=exp.null()), exp.If(this=empty, true=exp.Literal.number(0))],
+                        default=call)
+    node.replace(_once([text, find, start], build))
 
 
 _DATEDIFF_OVERFLOW = ("The datediff function resulted in an overflow. The number of dateparts separating two "
@@ -2536,6 +2990,25 @@ def _sunday_week_start(node: exp.TimestampTrunc) -> None:
     wrapper = exp.Sub(expression=day.copy())
     node.replace(wrapper)
     wrapper.set("this", node)
+
+
+# what starts a statement: after one of these, a parse error at it is a statement with no ``;`` before it
+_STARTS = {"SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "CREATE", "ALTER", "DROP", "TRUNCATE", "WITH",
+           "DECLARE", "EXEC", "EXECUTE", "PRINT"}
+
+
+def _unreadable(exc: Any) -> str:
+    """WR-236: why sqlglot couldn't read a batch. T-SQL lets one statement follow another with no ``;``, which the
+    local engine can't split safely, so that case is named rather than left as "Unexpected token"."""
+    errors = getattr(exc, "errors", None) or [{}]
+    first = errors[0]
+    word = str(first.get("highlight") or "").upper()
+    if first.get("description") == "Invalid expression / Unexpected token" and word in _STARTS and \
+            str(first.get("start_context") or "").strip() and str(first.get("end_context") or "").strip():
+        return (f"{_NOT_YET}the {word} on line {first.get('line')} starts a new statement with no ; before it. A "
+                "warehouse reads that, but the local engine needs a ; (or a GO line) between statements. Add a ; at "
+                "the end of the statement before it.")
+    return f"Could not read the query as T-SQL: {_first_line(exc)}"
 
 
 def _first_line(exc: Any) -> str:

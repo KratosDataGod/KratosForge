@@ -135,9 +135,11 @@ def test_a_plain_cte_has_no_note():
     ("WITH a AS (SELECT * FROM t WHERE id = 3) UPDATE a SET s = 'x'", "UPDATE"),
     ("WITH a AS (SELECT * FROM t WHERE id = 3) DELETE FROM a", "DELETE"),
     ("WITH a AS (SELECT * FROM t WHERE id = 3) DELETE a WHERE id = 3", "DELETE"),
+    ("WITH c AS (SELECT * FROM t WHERE id = 3) UPDATE a SET s = 'x' FROM c AS a", "UPDATE"),
+    ("WITH c AS (SELECT * FROM t WHERE id = 3) DELETE a FROM c a", "DELETE"),
 ])
 def test_a_change_through_a_cte_is_refused_by_name_and_changes_nothing(engine, sql, verb):
-    refused(engine, sql, f"{verb} through the CTE 'a' isn't carried yet")
+    refused(engine, sql, f"{verb} through the CTE '")
     assert rows(engine, "SELECT id, s FROM t ORDER BY id") == [[1, "a"], [2, "b"], [3, "c"]]
 
 

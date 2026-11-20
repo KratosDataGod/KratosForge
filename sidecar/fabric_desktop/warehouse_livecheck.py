@@ -162,6 +162,25 @@ CASES: tuple[Case, ...] = (
     Case("SET-01", "WR-217", "settings", "A warehouse's DATEFIRST is 7", "SELECT @@DATEFIRST", "7"),
     Case("SET-02", "WR-217", "settings", "ANSI_NULLS is on: NULL = NULL isn't true",
          "SELECT CASE WHEN NULL = NULL THEN 1 ELSE 0 END", "0"),
+    # WR-229 formatting: .NET's answers; the unverified ones are refused locally until a live run gives them
+    Case("FMT-01", "WR-229", "formatting", "FORMAT with a custom number format in de-DE",
+         "SELECT FORMAT(1234567.891, '#,##0.00', 'de-DE')", "1.234.567,89"),
+    Case("FMT-02", "WR-229", "formatting", "FORMAT with digits between text, and a section for below zero",
+         "SELECT CONCAT(FORMAT(123456789, '000-00-0000'), '/', FORMAT(-5.5, '$#,##0.00;($#,##0.00)'))",
+         "123-45-6789/($5.50)"),
+    # PARSE's "AS type(n) USING culture" can't pass the guard's reader, so this one has neither
+    Case("FMT-03", "WR-229", "formatting", "PARSE reads thousands separators", "SELECT PARSE(' -1,234 ' AS INT)",
+         "-1234"),
+    Case("FMT-04", "WR-229", "formatting", "FORMAT 'P' (refused locally)", "SELECT FORMAT(0.1234, 'P')", None,
+         "unverified"),
+    Case("FMT-05", "WR-229", "formatting", "FORMAT 'C' below zero (refused locally)", "SELECT FORMAT(-1234.5, 'C')",
+         None, "unverified"),
+    Case("FMT-06", "WR-229", "formatting", "FORMAT of a negative number that rounds to zero (refused locally)",
+         "SELECT FORMAT(-0.001, '0.00')", None, "unverified"),
+    Case("FMT-07", "WR-229", "formatting", "TRY_PARSE of '12.0' as an int (refused locally)",
+         "SELECT TRY_PARSE('12.0' AS INT)", None, "unverified"),
+    Case("FMT-08", "WR-229", "formatting", "FORMAT 'N2' of a negative number that rounds to zero (refused locally)",
+         "SELECT FORMAT(-0.001, 'N2')", None, "unverified"),
 )
 
 

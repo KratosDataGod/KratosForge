@@ -35,10 +35,13 @@ NOT_CALLED: dict[str, str] = {
     "www.w3.org": _SCHEMA,  # the SVG namespace the table diagram export checks (service.py) and the
     # XML Schema instance namespace in the generated Group Policy templates
     "schemas.openxmlformats.org": _SCHEMA,  # Excel export XML namespaces
+    "openlineage.io": _SCHEMA,  # OpenLineage schemaURL / _schemaURL values in exported events (meta/openlineage.py)
     "docs.databricks.com": _LINK,
     "docs.snowflake.com": _LINK,  # snowflake_sql: SQL reference links in its conversion notes
     "duckdb.org": _LINK,
+    "kratosdatagod.github.io": _LINK,  # the KratosForge docs site, cited in assessment findings
     "learn.microsoft.com": _LINK,
+    "raw.githubusercontent.com": _LINK,  # ossie_validate/ossie_profiles: where each vendored Ossie schema came from
     "spark.apache.org": _LINK,
     "www.apache.org": _LINK,  # licence text in vendored code
     "evil.example": _EXAMPLE,  # a docstring on how a lookalike host is refused

@@ -226,7 +226,7 @@ CASES: tuple[Case, ...] = (
     Case('map_contains_key (missing key)', 'Array and map', "SELECT map_contains_key(map(1, 'a', 2, 'b'), 3)", False, 'same'),
     Case('get_json_object (nested)', 'JSON', 'SELECT get_json_object(\'{"a":{"b":"c"}}\', \'$.a.b\')', 'c', 'same'),
     Case('get_json_object (array index)', 'JSON', 'SELECT get_json_object(\'{"items":["apple","pear"]}\', \'$.items[0]\')', 'apple', 'same'),
-    Case('get_json_object (every element)', 'JSON', 'SELECT get_json_object(\'{"items":[{"n":1},{"n":2}]}\', \'$.items[*].n\')', '[1,2]', 'untranslated', "Refused here: a [*] path would give a list, not the JSON text '[1,2]'. Read the values with from_json, or use a path to one element."),
+    Case('get_json_object (every element)', 'JSON', 'SELECT get_json_object(\'{"items":[{"n":1},{"n":2}]}\', \'$.items[*].n\')', '[1,2]', 'same'),
     Case('get_json_object (bracket name)', 'JSON', 'SELECT get_json_object(\'{"first name":"Ada"}\', \'$["first name"]\')', 'Ada', 'same'),
     Case('get_json_object (no match)', 'JSON', 'SELECT get_json_object(\'{"a":"b"}\', \'$.missing\')', None, 'same'),
     Case('from_json', 'JSON', 'SELECT from_json(\'{"a":1, "b":0.8}\', \'a INT, b DOUBLE\')', {'a': 1, 'b': 0.8}, 'same'),

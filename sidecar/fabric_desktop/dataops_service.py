@@ -39,7 +39,7 @@ from .redact import describe, one_line
 from .retrying import send_with_retry
 from .leases import _file_lock
 from .workloads import deliver
-from .workloads.notify import LINE_MAX
+from .workloads.notify import LINE_MAX, answered
 
 _log = logging.getLogger(__name__)
 
@@ -583,13 +583,13 @@ TEAMS_WAIT_CAP = 10.0
 
 def post_teams(url: str, title: str, lines: list[str], sleep: Callable[[float], None] = time.sleep) -> None:
     """Post one card. A write: only Teams' throttling (429, refused unread) is sent again, as
-    Retry-After says (capped); after a 5xx or a dropped connection the card may have been posted,
-    so the caller's outbox decides whether to send it again."""
+    Retry-After says (capped). After a 500, 502 or 504, or a dropped connection, the card may have been
+    posted: those raise notify.OutcomeUnknown, so the caller's outbox doesn't send it again."""
     http = http_session.session()
     r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=TEAMS_TIMEOUT), "POST",
                         sleep=sleep, attempts=TEAMS_ATTEMPTS, wait_cap=TEAMS_WAIT_CAP)
     if r.status_code >= 300:
-        raise RuntimeError(f"Teams answered {r.status_code}{_teams_error(r)}")
+        raise answered("Teams", r.status_code, _teams_error(r))
 
 
 def _teams_error(resp: Any) -> str:

@@ -6160,7 +6160,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
+    runSeveral: ["Run several notebooks"], modelBpa: ["Semantic model best practices"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
@@ -6202,7 +6202,6 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
-    "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
     "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
     "Notebook templates for Silver and Gold": ["docs/notebook-templates.md", /There is no page in the app to pick a template/],
@@ -6565,6 +6564,7 @@ const FABRIC_WRITES = {
   start_cell: ["notebook.js", null, "delta.concurrent"], // notebook writes go through the path that check runs
   run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run", "meta.js"],
   run_notebook_fabric_step: ["fabricstep.js", "fabricStep", null],
+  model_bpa_check: ["meta.js", "modelBpa", null],
   cancel_fabric_run: ["activity.js", "cancelFabricRun", null],
   add_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
   delete_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],

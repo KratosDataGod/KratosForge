@@ -14,6 +14,8 @@ from fabric_desktop.integrations.registry import ReadOnlyAuthorizer, Registry, s
 
 from test_integrations_registry import cap, ctx
 
+EX = "ex_" + "b" * 20
+
 
 def resource_cap(**changes):
     base = cap(id="ext_item", resource="fabric-desktop://items/{who}",
@@ -102,12 +104,12 @@ def test_a_handler_that_raises_something_else_is_an_internal_error_and_is_audite
     reg = Registry()
     lines = []
     reg.audit = lambda *a, **kw: lines.append((a, kw))
-    reg.register(cap(handler=lambda svc, ctx, who: {"execution_id": "ex1"} if who == "ok" else 1 / 0))
+    reg.register(cap(handler=lambda svc, ctx, who: {"execution_id": EX} if who == "ok" else 1 / 0))
     with pytest.raises(IntegrationError) as err:
         reg.invoke(None, "ext_hello", {"who": "x"}, ctx())
     assert err.value.code == "internal" and "ZeroDivisionError" in str(err.value)
-    assert reg.invoke(None, "ext_hello", {"who": "ok"}, ctx()) == {"execution_id": "ex1"}
-    assert [line[0][-1] for line in lines] == ["", "ex1"]  # the execution id is on the audit line
+    assert reg.invoke(None, "ext_hello", {"who": "ok"}, ctx()) == {"execution_id": EX}
+    assert [line[0][-1] for line in lines] == ["", EX]  # the execution id is on the audit line
 
 
 def test_an_audit_sink_that_fails_doesnt_fail_a_finished_call(capsys):
@@ -193,3 +195,23 @@ def test_only_an_executions_own_record_puts_its_id_on_the_audit_line():
     for who in results:
         reg.invoke(None, "ext_hello", {"who": who}, ctx())
     assert lines == [started["id"], "", "", ""]
+
+
+def test_an_execution_id_key_counts_only_in_the_id_format_and_in_arguments_only_for_a_tool_that_takes_one():
+    """Someone's data with an "execution_id" key, in a result or in the arguments of a tool that
+    doesn't take one, isn't recorded as an execution."""
+    reg = Registry()
+    lines = []
+    reg.audit = lambda *a, **kw: lines.append(a[-1])
+    results = {"real": {"execution_id": EX}, "loose": {"execution_id": "ex1"}, "other": {"execution_id": EX + "\n"}}
+    reg.register(cap(handler=lambda svc, ctx, who: results[who]))
+    takes = schema({"execution_id": {"type": "string", "maxLength": 23}, "note": {"type": "string", "maxLength": 50}},
+                   ["execution_id"])
+    reg.register(cap(id="ext_status", input_schema=takes, handler=lambda svc, ctx, execution_id, note="": {"ok": 1}))
+    data = schema({"row": {"type": "object"}}, ["row"])
+    reg.register(cap(id="ext_store", input_schema=data, handler=lambda svc, ctx, row: {"ok": 1}))
+    for who in results:
+        reg.invoke(None, "ext_hello", {"who": who}, ctx())
+    reg.invoke(None, "ext_status", {"execution_id": EX}, ctx())
+    reg.invoke(None, "ext_store", {"row": {"execution_id": EX}}, ctx())
+    assert lines == [EX, "", "", EX, ""]

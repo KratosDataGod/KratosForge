@@ -35,11 +35,18 @@ const failing = (method, fn) => (p) => { if (fail[method]) throw new Error(fail[
 // (lakehouse.py WriteResult.__repr__).
 let tables;
 const freshTables = () => new Set(["sales", "sales_summary"]);
-const saveSql = failing("save_sql", ({ table, mode = "new" }) => {
+// In a workspace marked Prod (WR-249) every write waits for the workspace's typed name: "new" answers
+// {table, exists, prod} and writes nothing, and any other mode without the name is refused.
+let prodWorkspace = "";
+const saveSql = failing("save_sql", ({ table, mode = "new", confirm_name = "" }) => {
   // lakehouse.py table_ref: the name is checked before anything is read or written.
   if (!table || /[/\\]/.test(table)) {
     throw new Error(`ValueError: '${table}' isn't a table name: a schema or table name can't be empty or hold / or \\.`);
   }
+  if (prodWorkspace && mode === "new" && (tables.has(table) || confirm_name !== prodWorkspace)) {
+    return { table, exists: tables.has(table), prod: prodWorkspace };
+  }
+  if (prodWorkspace && confirm_name !== prodWorkspace) throw new Error(`PermissionError: ${prodWorkspace} is a Prod workspace`);
   if (mode === "new" && tables.has(table)) return { table, exists: true };
   const version = tables.has(table) ? 3 : 0;
   tables.add(table);
@@ -209,7 +216,51 @@ test("overwriting a table asks first in a danger confirm that wants the name typ
   await confirm.waitFor({ state: "detached" });
   assert.match(await toastSays(/^Wrote 42 rows to sales_summary/), /\(Delta version 3\)$/);
   assert.deepStrictEqual(writes(from), [firstSave("sales_summary"),
-    { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "sales_summary", mode: "overwrite", dialect: "spark" } }]);
+    { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "sales_summary", mode: "overwrite", dialect: "spark", confirm_name: "sales_summary" } }]);
+});
+
+test("in a Prod workspace a new table waits for the workspace's typed name", { skip }, async () => {
+  const from = app.calls.length;
+  prodWorkspace = "Sales Prod";
+  try {
+    await saveAs("prod_totals");
+    const confirm = page().getByRole("dialog", { name: "Write to Prod?" });
+    await confirm.waitFor();
+    assert.match(await confirm.innerText(), /Sales Prod is a Prod workspace\. Saving writes the table prod_totals to Sales there\./);
+    assert.deepStrictEqual(writes(from), [firstSave("prod_totals")], "nothing is written before the answer");
+    const save = confirm.getByRole("button", { name: "Save" });
+    assert.match(await save.getAttribute("class"), /\bdanger-solid\b/);
+    await confirm.getByRole("textbox", { name: "Type Sales Prod to confirm" }).fill("prod_totals");
+    assert.ok(await save.isDisabled(), "the table's name isn't the workspace's");
+    await confirm.getByRole("textbox", { name: "Type Sales Prod to confirm" }).fill("Sales Prod");
+    await save.click();
+    await confirm.waitFor({ state: "detached" });
+    await toastSays(/^Wrote 42 rows to prod_totals/);
+    assert.deepStrictEqual(writes(from), [firstSave("prod_totals"),
+      { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "prod_totals", mode: "new", dialect: "spark", confirm_name: "Sales Prod" } }]);
+  } finally {
+    prodWorkspace = "";
+  }
+});
+
+test("in a Prod workspace a replace asks once, for the workspace's name", { skip }, async () => {
+  const from = app.calls.length;
+  prodWorkspace = "Sales Prod";
+  try {
+    await saveAs("sales_summary");
+    const confirm = page().getByRole("dialog", { name: "Replace the table in Prod?" });
+    await confirm.waitFor();
+    assert.match(await confirm.innerText(), /Sales Prod is a Prod workspace, and Sales already has a table called sales_summary\. Saving replaces all of its rows/);
+    await confirm.getByRole("textbox", { name: "Type Sales Prod to confirm" }).fill("Sales Prod");
+    await confirm.getByRole("button", { name: "Replace" }).click();
+    await confirm.waitFor({ state: "detached" });
+    await toastSays(/^Wrote 42 rows to sales_summary/);
+    assert.deepStrictEqual(writes(from), [firstSave("sales_summary"),
+      { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "sales_summary", mode: "overwrite", dialect: "spark", confirm_name: "Sales Prod" } }]);
+    assert.strictEqual(await page().getByRole("dialog").count(), 0, "no second confirm for the table's name");
+  } finally {
+    prodWorkspace = "";
+  }
 });
 
 test("Cancel on the Replace confirm sends no overwrite", { skip }, async () => {

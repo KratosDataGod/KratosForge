@@ -596,6 +596,7 @@ async function pipelineRunDialog(again = null) {
     plPulse = out.run_id;
     closeDialog();
     logActivity({ id: `pipeline:${out.run_id}`, status: "running", title: `${p.imp.name} · Pipeline run`, text: "Running on this PC" });
+    announce(`${p.imp.name} run started`);
     openPipelineRun(out.run_id);
   };
 
@@ -670,6 +671,7 @@ async function plFollow(id) {
   if (head && r.state === "failed") forgeEvent("pipeline.failed", head);
   const text = end.stopped === "lost" ? `Lost track of the run: ${end.message}` : r ? `${plStateWord(r.state)} in ${took(r.seconds)}.` : "Ended.";
   logActivity({ id: `pipeline:${id}`, status: r?.state === "succeeded" ? "ok" : "error", title: `${r?.pipeline || "Pipeline"} · Pipeline run`, text });
+  announce(`${r?.pipeline || "Pipeline"} run: ${text}`);
 }
 
 function plStateWord(s) {

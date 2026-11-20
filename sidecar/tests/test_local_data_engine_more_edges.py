@@ -131,7 +131,7 @@ def test_a_found_delta_table_is_read_through_its_folder(tmp_path):
     select = eng.file_select(found)
     assert select.startswith('SELECT "id" FROM read_parquet(')
     import duckdb
-    assert duckdb.sql(select).fetchall() == [(1,), (2,)]
+    assert duckdb.connect().sql(select).fetchall() == [(1,), (2,)]
 
 
 def test_a_type_override_that_isnt_a_type_is_refused_before_any_sql_is_made():

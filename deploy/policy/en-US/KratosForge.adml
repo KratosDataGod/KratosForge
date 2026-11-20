@@ -61,6 +61,8 @@
       <string id="forge_animations_Help">The first motion switch: false means motion level 0 unless motion_level is set. People can also change it in Settings; this policy fixes it. Policy file key: forge_animations. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="allow_staging_cleanup">Allow staging cleanup</string>
       <string id="allow_staging_cleanup_Help">False stops the Estate X-ray deleting leftover Dataflow Gen2 staging lakehouses; it still lists them. Policy file key: allow_staging_cleanup. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="allow_central_environment">Allow central environment</string>
+      <string id="allow_central_environment_Help">False stops the app creating, adopting, connecting to or checking a KratosForge Environment. Policy file key: allow_central_environment. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="sql_page_rows">Sql page rows</string>
       <string id="sql_page_rows_Help">Rows on each page of a SQL result. People can also change it in Settings; this policy fixes it. Policy file key: sql_page_rows. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="sql_time_limit_minutes">Sql time limit minutes</string>

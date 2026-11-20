@@ -154,11 +154,15 @@ Spark SQL run on this PC gives Spark's values and types for its date and time fu
 | `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
 | `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
 | `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+| `date + INTERVAL 1 MONTH`, `date - INTERVAL 2 DAY` | A `date` for an interval of years, months, weeks or days, at the month's last day (`DATE'2024-01-31' + INTERVAL 1 MONTH` is `2024-02-29`). An interval with hours, minutes or seconds gives a `timestamp` |
+| `unix_seconds`, `unix_millis` | Rounded down, as Spark does: `unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')` is `1715953512` |
+| `hour`, `minute`, `second` of text | Text that is a time of day only, such as `'13:45:12'` or `'T09:08'`, is read as that time |
+| `from_utc_timestamp`, `to_utc_timestamp` | A zone written as an offset, as Java reads one: `GMT+2`, `UTC+05:30`, `-08:00`, `Z` |
 | `try_to_date` | Refused by name, and nothing runs. Spark 3.5 (Fabric Runtime 1.3) doesn't have it, so Fabric stops on it too. Use `to_date`, which gives NULL for text that isn't a date. Databricks SQL on this PC still runs it |
 
 Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`), letters that aren't pattern letters, and the runs Spark stops on with "Too many pattern letters": five or more of `G`, `M`, `L`, `E`, `Q` or `q`, and seven or more `y`. These are refused too, because this PC can't give Spark's text for them:
 
-- Zone names (`z`, such as `EST`). Use `VV` for the zone's id or `XXX` for its offset.
+- Zone names (`z`, such as `EST`), from `z` to `zzz` when the session's time zone isn't UTC, and `zzzz` always. Use `VV` for the zone's id or `XXX` for its offset. In UTC, `z` to `zzz` give `UTC`, as in Spark.
 - When reading text, `G`, `Q`, `k`, `K`, `O` and `z`.
 
 These cases can still differ. LOC-003 warns wherever a pattern is used:
@@ -166,6 +170,10 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 | Case | Spark | This PC |
 | --- | --- | --- |
 | Text with one digit where the pattern has two, such as `2024-2-9` with `yyyy-MM-dd` | Not read: see the next row | Read |
+| A DATE column plus an interval of whole days or months, where the column's type isn't known before the query runs (a column of a subquery's or a DataFrame's expression) | `date` | `timestamp` at midnight. Cast it: `CAST(d + INTERVAL 1 MONTH AS DATE)` |
+| `from_utc_timestamp` and `to_utc_timestamp` with the zone from a column, written as an offset such as `GMT+2` | Read as that offset | Stops (`Unknown TimeZone`), or for `UTC+05:30` moves by 5 hours only. A zone id such as `Europe/Paris` gives Spark's answer |
+| `hour`, `minute`, `second` of a time of day with a zone, such as `'13:45:12Z'` | That time in the session's zone | NULL |
+| `make_ym_interval` | A year-month interval | Refused by name, and nothing runs, because this PC has no year-month interval type |
 | Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.

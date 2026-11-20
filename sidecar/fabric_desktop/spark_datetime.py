@@ -32,6 +32,28 @@ _REFUSED = ("date_format and from_unixtime can't use '{run}' in a pattern, so no
             "See Spark's datetime patterns (sql-ref-datetime-pattern).")
 
 
+# A zone id java.time's ZoneId.of reads as a fixed offset: Z, +h, +hh, +hhmm, +hh:mm, +hhmmss and
+# +hh:mm:ss, alone or after UTC, GMT or UT. Spark first writes +h: as +0h: (DateTimeUtils.getZoneId).
+_FIXED = re.compile(r"(?:UTC|GMT|UT)?([+-])(\d{1,2}|\d\d:?\d\d|\d\d:\d\d:\d\d|\d{6})")
+
+
+def fixed_offset(zone: str) -> int | None:
+    """The offset, in seconds east of UTC, of ``zone`` when Spark reads it as a fixed offset ('GMT+2',
+    'UTC+05:30', '-08:00', 'Z'), else None (a region such as 'Europe/Paris', or text Java doesn't read)."""
+    zone = re.sub(r"([+-])(\d):", r"\g<1>0\2:", zone, count=1)
+    if zone == "Z":
+        return 0
+    found = _FIXED.fullmatch(zone)
+    if found is None:
+        return None
+    digits = found.group(2).replace(":", "")
+    hh, mm, ss = int(digits[:2]), int(digits[2:4] or 0), int(digits[4:6] or 0)
+    seconds = hh * 3600 + mm * 60 + ss
+    if mm > 59 or ss > 59 or seconds > 18 * 3600:  # ZoneOffset's range
+        return None
+    return -seconds if found.group(1) == "-" else seconds
+
+
 def tokens(pattern: str) -> list[tuple[str, str]]:
     """``pattern`` as ('text', literal) and ('letter', run) pieces, as java.time reads it: a run of one
     letter repeated, text in single quotes ('' is a quote), and anything that isn't a letter as itself.
@@ -74,6 +96,10 @@ def tokens(pattern: str) -> list[tuple[str, str]]:
     return out
 
 
+_ZONE_NAME = _REFUSED.format(run="{run}", why="time zone names such as EST aren't available on this PC. Use VV for "
+                            "the zone's id or XXX for its offset.")
+
+
 def _check(run: str) -> None:
     c, n = run[0], len(run)
     if c in _WEEK_BASED:
@@ -81,14 +107,13 @@ def _check(run: str) -> None:
                                          "unsupported since Spark 3.0). Use extract or weekofyear instead."))
     if c in _UNSUPPORTED:
         raise ValueError(_REFUSED.format(run=run, why="Spark refuses this letter."))
-    if c == "z":
-        raise ValueError(_REFUSED.format(run=run, why="time zone names such as EST aren't available on this "
-                                         "PC. Use VV for the zone's id or XXX for its offset."))
+    if c == "z" and n > 3:
+        raise ValueError(_ZONE_NAME.format(run=run))
     if c == "V" and n != 2:
         raise ValueError(_REFUSED.format(run=run, why="the zone id is written VV."))
     if c == "O" and n not in (1, 4):
         raise ValueError(_REFUSED.format(run=run, why="the offset is written O or OOOO."))
-    if c not in _MOST and c not in "yV":
+    if c not in _MOST and c not in "yVz":
         raise ValueError(_REFUSED.format(run=run, why=f"'{c}' isn't a pattern letter."))
     if n > _SPARK_MOST.get(c, 99):
         raise ValueError(_REFUSED.format(run=run, why=f"Spark stops on it too (\"Too many pattern letters: {c}\")."))
@@ -172,6 +197,9 @@ def _letter(run: str) -> str:
         return f"LEFT(STRFTIME(local, '%f') || '000', {n})"
     if c == "V":
         return "CURRENT_SETTING('TimeZone')"
+    if c == "z":  # the zone's short name: UTC for UTC; any other zone's name isn't known here, so it stops
+        refused = _quote(_ZONE_NAME.format(run=run))
+        return f"CASE WHEN CURRENT_SETTING('TimeZone') = 'UTC' THEN 'UTC' ELSE CAST(ERROR({refused}) AS VARCHAR) END"
     if c == "O":
         return _gmt(n == 4)
     if c in "Xx":

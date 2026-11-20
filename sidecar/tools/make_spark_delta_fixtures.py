@@ -1,5 +1,9 @@
 """Writes the Spark-made Delta fixtures for the reader tests. Run with pyspark 3.5.5 + delta-spark 3.3.2:
-python make_spark_fixtures.py <out folder>"""
+python make_spark_delta_fixtures.py <out folder>
+
+``python make_spark_delta_fixtures.py <out folder> cm_legacy`` writes only cm_legacy, a column-mapped table
+with the legacy protocol (reader 2, writer 5) that Spark and Databricks made before table features, so
+the other fixtures stay as they were checked in."""
 import sys
 from delta import configure_spark_with_delta_pip
 from pyspark.sql import SparkSession
@@ -23,6 +27,15 @@ def make(name, opts, part=None):
     w.save(f"{out}/{name}")
     return f"delta.`{out}/{name}`"
 
+
+if sys.argv[2:] == ["cm_legacy"]:
+    t = make("cm_legacy", {"delta.minReaderVersion": "2", "delta.minWriterVersion": "5",
+                           "delta.columnMapping.mode": "name"})
+    s.sql(f"ALTER TABLE {t} RENAME COLUMN amount TO total")
+    s.sql(f"INSERT INTO {t} VALUES (10, 100, 'n10', 'b')")
+    rows = s.read.format("delta").load(f"{out}/cm_legacy").orderBy("id").collect()
+    print("cm_legacy", [r.asDict() for r in rows])
+    sys.exit(0)
 
 t = make("dv", {"delta.enableDeletionVectors": "true"})
 s.sql(f"DELETE FROM {t} WHERE id IN (3, 7)")

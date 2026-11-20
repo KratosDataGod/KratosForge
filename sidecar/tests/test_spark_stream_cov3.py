@@ -53,10 +53,12 @@ def test_a_checkpoint_of_another_source_is_refused(k, tmp_path):
         (tmp_path / name).mkdir()
         pq.write_table(pa.table({"id": [1]}), tmp_path / name / "one.parquet")
     cp = str(tmp_path / "cp")
-    first = (f"spark.readStream.parquet({str(tmp_path / 'a')!r}).writeStream.format('console')"
-             f".option('checkpointLocation', {cp!r}).start()\n")
-    assert outputs(k, first)[0] == "ok"
-    status, text = outputs(k, first.replace(str(tmp_path / "a"), str(tmp_path / "b")))
+    # Built per source, not by replacing text: on Windows repr() doubles the path's backslashes.
+    def stream(name):
+        return (f"spark.readStream.parquet({str(tmp_path / name)!r}).writeStream.format('console')"
+                f".option('checkpointLocation', {cp!r}).start()\n")
+    assert outputs(k, stream("a"))[0] == "ok"
+    status, text = outputs(k, stream("b"))
     assert status == "error" and "belongs to another source" in text and "Use a new checkpointLocation" in text, text
 
 

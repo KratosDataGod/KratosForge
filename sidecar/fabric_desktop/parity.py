@@ -242,7 +242,7 @@ AREAS: tuple[Area, ...] = (
        cloud_api=Cell("partial", ("test_snowflake_auth.py", "test_snowflake_remote.py"),
                       note="Key-pair and programmatic access token sign-in, and a connection check of role, database, "
                            "schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser "
-                           "sign-in and Snowflake CLI connections don't sign in yet. Against fakes, no live run yet.")),
+                           "sign-in and Snowflake CLI connections aren't supported yet. Against fakes, no live run yet.")),
     _skinned("snowflake", "worksheets", "SQL worksheets",
        cloud_api=MISSING,
        local=Cell("partial", ("test_snowflake_sql.py", "test_snowflake_sql_parity.py", "test_snowflake_coverage.py"),

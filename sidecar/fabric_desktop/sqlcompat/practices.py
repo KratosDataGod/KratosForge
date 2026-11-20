@@ -419,7 +419,8 @@ def _numbers_a_key(s: Stmt, i: int) -> bool:
     j = _close(s, i + 1) + 1
     if j < len(toks) and toks[j].kw == "OVER" and j + 1 < len(toks) and toks[j + 1].type == TokenType.L_PAREN:
         j = _close(s, j + 1) + 1
-    if not _whole_item(s, i, j):
+    j = _whole_item(s, i, j)
+    if j < 0:
         return False  # k.max_key + ROW_NUMBER() OVER (...): numbering only new keys past the largest is the fix
     if j < len(toks) and toks[j].kw == "AS":
         j += 1
@@ -430,23 +431,37 @@ def _numbers_a_key(s: Stmt, i: int) -> bool:
             and toks[j].text.lower().endswith(("_key", "_sk")))
 
 
-def _whole_item(s: Stmt, i: int, end: int) -> bool:
-    """ROW_NUMBER() at token i, ending before token ``end``, is the whole select item, or the whole
-    item is CAST(ROW_NUMBER() OVER (...) AS type). An expression around it (an offset added) isn't."""
+def _whole_item(s: Stmt, i: int, end: int) -> int:
+    """Where the select item ends when ROW_NUMBER() at token i (ending before token ``end``) is the
+    whole item, or the whole item is CAST(ROW_NUMBER() OVER (...) AS type); else -1. An expression
+    around it (an offset added) isn't. SELECT [ALL | DISTINCT] [TOP n | TOP (n) [PERCENT] [WITH TIES]]
+    may come before it."""
     toks = s.toks
     start = i
     if i >= 2 and toks[i - 1].type == TokenType.L_PAREN and toks[i - 2].kw in {"CAST", "TRY_CAST"}:
         close = _close(s, i - 1)
         if end >= len(toks) or toks[end].kw != "AS" or close >= len(toks):
-            return False
+            return -1
         start, end = i - 2, close + 1
-    if not start or not (toks[start - 1].kw in {"SELECT", "DISTINCT"} or toks[start - 1].type == TokenType.COMMA):
-        return False
+    depth = toks[start].depth
+    k = start - 1
+    while k >= 0 and not (toks[k].depth == depth and (toks[k].kw == "SELECT" or toks[k].type == TokenType.COMMA)):
+        t = toks[k]
+        if t.depth == depth and not (t.kw in _SELECT_PREFIX or t.type in {TokenType.NUMBER, TokenType.L_PAREN, TokenType.R_PAREN}
+                                     or t.text.startswith("@")):
+            return -1
+        k -= 1
+    if k < 0:
+        return -1
     if end >= len(toks):
-        return True
+        return end
     nxt = toks[end]
-    return (nxt.type in {TokenType.COMMA, TokenType.SEMICOLON, TokenType.R_PAREN} or nxt.kw in _ALIAS_STOP | {"FROM", "AS", "INTO"}
-            or _is_name(nxt))
+    ok = (nxt.type in {TokenType.COMMA, TokenType.SEMICOLON, TokenType.R_PAREN} or nxt.kw in _ALIAS_STOP | {"FROM", "AS", "INTO"}
+          or _is_name(nxt))
+    return end if ok else -1
+
+
+_SELECT_PREFIX = {"ALL", "DISTINCT", "TOP", "PERCENT", "WITH", "TIES"}
 
 
 def _insert_column_for(s: Stmt, i: int) -> str | None:

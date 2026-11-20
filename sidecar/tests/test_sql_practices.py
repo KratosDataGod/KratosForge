@@ -99,6 +99,16 @@ def ids(query, **kw):
     ("INSERT INTO dbo.d (customer_key, id) SELECT CAST(ROW_NUMBER() OVER (ORDER BY id) AS INT), id FROM stg.c",
      ["DM002"]),  # a cast is still the number
     ("INSERT INTO dbo.d (customer_key) SELECT ROW_NUMBER() OVER (ORDER BY id) FROM stg.c;", ["DM002"]),
+    # what may come before the item: ALL, DISTINCT, TOP n, TOP (n) PERCENT WITH TIES
+    ("SELECT TOP (10) ROW_NUMBER() OVER (ORDER BY id) AS customer_key INTO dbo.d FROM stg.c ORDER BY id",
+     ["DM002", "SQ004"]),
+    ("SELECT TOP 10 PERCENT WITH TIES ROW_NUMBER() OVER (ORDER BY id) AS customer_key INTO dbo.d FROM stg.c ORDER BY id",
+     ["DM002", "SQ004"]),
+    ("SELECT ALL ROW_NUMBER() OVER (ORDER BY id) AS customer_key INTO dbo.d FROM stg.c", ["DM002", "SQ004"]),
+    ("INSERT INTO dbo.d (customer_key) SELECT TOP (10) ROW_NUMBER() OVER (ORDER BY id) FROM stg.c ORDER BY id",
+     ["DM002"]),
+    ("SELECT TRY_CAST(ROW_NUMBER() OVER (ORDER BY id) AS INT) AS customer_key INTO dbo.d FROM stg.c", ["DM002", "SQ004"]),
+    ("SELECT TOP (10) 5 + ROW_NUMBER() OVER (ORDER BY id) AS customer_key INTO dbo.d FROM stg.c ORDER BY id", ["SQ004"]),
     # WH001: a TRUNCATE and a reload of the same table
     ("TRUNCATE TABLE dbo.sales; INSERT INTO dbo.sales (id) SELECT id FROM stg.sales", ["WH001"]),
     ("TRUNCATE TABLE dbo.sales; INSERT INTO dbo.other (id) SELECT id FROM stg.sales", []),

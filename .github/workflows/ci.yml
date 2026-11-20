@@ -161,8 +161,9 @@ jobs:
       # A test still running after 10 minutes is hung: its worker prints every thread's stack and exits, and
       # with no worker restarts the run stops there, so the log names the stuck line instead of the job
       # waiting out GitHub's 6-hour limit with no log to read.
-      - run: python -m pytest -q -n auto --dist loadfile --max-worker-restart=0 -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true --durations=25 -m "not machine_wide_grants" --junitxml="${{ runner.temp }}/junit-main.xml"
+      - run: python -m pytest -v -n auto --dist loadfile --max-worker-restart=0 -o faulthandler_timeout=600 -o faulthandler_exit_on_timeout=true --durations=25 -m "not machine_wide_grants" --junitxml="${{ runner.temp }}/junit-main.xml"
         if: env.RUN_TESTS == 'true'
+        timeout-minutes: 70
         env:
           TMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
           TEMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}

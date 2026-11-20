@@ -238,7 +238,11 @@ AREAS: tuple[Area, ...] = (
                       note="Optimize > Cost (Preview) reads DBUs from the billing system tables after a confirm; "
                            "no budgets or alerts. Against fakes, no live run yet.")),
     # Snowflake
-    _skinned("snowflake", "connect", "Sign-in, roles and warehouses", cloud_api=MISSING),
+    _skinned("snowflake", "connect", "Sign-in, roles and warehouses",
+       cloud_api=Cell("partial", ("test_snowflake_auth.py", "test_snowflake_remote.py"),
+                      note="Key-pair and programmatic access token sign-in, and a connection check of role, database, "
+                           "schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser "
+                           "sign-in and Snowflake CLI connections don't sign in yet. Against fakes, no live run yet.")),
     _skinned("snowflake", "worksheets", "SQL worksheets",
        cloud_api=MISSING,
        local=Cell("partial", ("test_snowflake_sql.py", "test_snowflake_sql_parity.py", "test_snowflake_coverage.py"),
@@ -279,7 +283,7 @@ PLANS: dict[tuple[str, str], Plan] = {
     ("databricks", "compute"): _p("C", "P2", "none", "DBX-005", owner="Platform parity"),
     ("databricks", "bundles"): _p("F", "P1", "cloud", "DBX-001", owner="Databricks and Snowflake parity"),
     ("databricks", "cost"): _p("G", "P1", "cloud", "DBX-006", owner="Optimization engine"),
-    ("snowflake", "connect"): _p("A", "P0", "none", "SF-001", "SF-002", "PAR-003", owner="Platform parity"),
+    ("snowflake", "connect"): _p("A", "P0", "cloud", "SF-001", "SF-002", "PAR-003", owner="Platform parity"),
     ("snowflake", "worksheets"): _p("B", "P0", "simulated", "SF-003", "PAR-002", owner="Platform parity"),
     ("snowflake", "objects"): _p("D", "P1", "none", "SF-004", owner="Platform parity"),
     ("snowflake", "snowpark"): _p("C", "P2", "none", "SF-007"),
@@ -295,8 +299,8 @@ def matrix() -> dict[str, Any]:
     for pid, label in PLATFORMS.items():
         out["platforms"][pid] = {"label": label, "areas": [
             {"id": a.id, "label": a.label, "levels": {lv: vars(a.cell(lv)) | {"tests": list(a.cell(lv).tests)} for lv in LEVELS},
-             "plan": vars(PLANS[(a.platform, a.id)]) | {"items": list(PLANS[(a.platform, a.id)].items)}}
-            for a in AREAS if a.platform == pid]}
+             "plan": vars(plan) | {"items": list(plan.items)}}
+            for a in AREAS if a.platform == pid for plan in (PLANS[(a.platform, a.id)],)]}
     return out
 
 

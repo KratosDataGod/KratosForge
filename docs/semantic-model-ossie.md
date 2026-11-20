@@ -225,6 +225,35 @@ return. The best result is still Structurally compatible but behavior unverified
 performance (L4) are listed under `not_checked`. Expressions can hold literals, so `redacted()`
 replaces their text and forms with a length and a hash.
 
+### Behavioral parity, SQL side (L3)
+
+`semantic_parity_l3.parity_l3(left, right)` (OSSIE-006c, engine only) runs L2 and keeps all its
+rows. For each measure or metric that L2 could read, it runs the SQL side on DuckDB, in memory
+with external access off, against seven small controlled datasets: plain values, NULLs, NULLs
+only, no rows, repeated values, zeros (a zero divisor, empty text, DAX's zero date) and precision
+(decimal fractions, integers past 2^53). The datasets are generated from the tables and columns the
+measures name, typed as each side types them, so a type change between sides is part of the run.
+They are never customer data, and nothing touches disk. The query is built from L2's canonical
+form with quoted names, never from the expression's own text.
+
+| Sides | Result |
+| --- | --- |
+| Both SQL, same value on every dataset | Verified equivalent, on these datasets only (the row says so) |
+| Both SQL, some values differ within the tolerances | Equivalent within tolerance |
+| Both SQL, a value differs past the tolerances | Different results, naming the dataset and both values |
+| One side DAX | The L2 result stands. The SQL values are evidence, and the DAX side is "not run" |
+
+**A DAX side never runs on this PC**, because there is no DAX engine here and DuckDB isn't one. A
+report never holds a DAX-side value without an executed DAX query. OSSIE-006d runs that side in
+`kf_tenant_test`. L3 never improves a row that L1 or L2 already found worse. Relationships, filter
+context and time intelligence aren't exercised, because the subset aggregates whole tables, so
+these are listed under `not_checked`.
+
+Tolerances are configuration, and the report states them: `absolute` 0 and `relative` 1e-9 by
+default, so only floating-point noise passes. A column type with no controlled values (binary,
+time of day, time zones) is not run, with the reason. `semantic_parity_l3.redacted()` also replaces
+each built query with a length and a hash.
+
 ## Schema validation
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the

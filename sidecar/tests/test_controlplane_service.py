@@ -133,6 +133,15 @@ def test_a_plan_whose_steps_changed_without_being_blocked_is_refused(svc):
     assert st.local_store(svc.lakes / WS / CENTRAL).read() is None
 
 
+def test_a_plan_request_takes_only_its_fields_as_short_text(svc):
+    for request, why in [({"name": "x", "extra": 1}, "Unknown request fields: extra"),
+                         ({"name": "x" * (cpsvc.MAX_FIELD + 1)}, "at most"),
+                         ({"name": ["x"]}, "must be text")]:
+        with pytest.raises(ValueError, match=why):
+            svc.cp_plan(request)
+    assert svc._cp_previews() == {} and svc.fake.created == []
+
+
 def test_a_preview_left_too_long_expires(svc, monkeypatch):
     plan = svc.cp_plan({"name": "Ours", "capacity_id": "cap"})
     later = cpsvc.time.monotonic() + cpsvc.PREVIEW_SECONDS + 1
@@ -152,10 +161,10 @@ def test_a_prod_workspace_needs_its_name_typed(svc):
     svc.prod.add(WS)
     plan = svc.cp_plan({"name": "Ours", "workspace_id": WS})
     assert plan["typed_name"] == "Platform"
-    for typed in ("", "Platfrom"):
+    for typed in ("", "Platfrom", "platform", " Platform", "Platform "):
         with pytest.raises(PermissionError, match="Type its name"):
             svc.cp_create(plan["token"], confirmed=True, confirm_name=typed)
-    out = svc.cp_create(plan["token"], confirmed=True, confirm_name=" platform ")
+    out = svc.cp_create(plan["token"], confirmed=True, confirm_name="Platform")
     assert out["ok"] and svc.fake.created == [("lakehouse", "KratosForgeLakehouse")]
 
 

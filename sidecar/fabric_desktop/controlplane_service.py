@@ -49,6 +49,9 @@ OFF = ("Your organization has turned off KratosForge Environments (allow_central
        "policy file).")
 CHANGED = ("Something changed since this was shown, so nothing was done. Look at it again and confirm.")
 EXPIRED = "This preview has expired or was already used. Look at it again and confirm."
+REQUEST_KEYS = ("name", "workspace_id", "workspace_name", "capacity_id", "lakehouse_id", "lakehouse_name",
+                "owner_object_id")
+MAX_FIELD = 256
 
 
 def _digest(value: Any) -> str:
@@ -125,8 +128,8 @@ class ControlPlaneMixin:
         if not workspace_id or not self._prod_marked(workspace_id):  # type: ignore[attr-defined]
             return
         name = self._cp_workspace_name(workspace_id)
-        if (confirm_name or "").strip().casefold() != name.strip().casefold():
-            raise PermissionError(f"{name} is a Prod workspace. Type its name to confirm.")
+        if confirm_name != name:  # exactly, as every other Prod confirm (WR-249, WR-250)
+            raise PermissionError(f"{name} is a Prod workspace. Type its name exactly to confirm.")
 
     def _cp_inspections(self, workspace_id: str, lakehouse_id: str, schemas: bool | None = None) -> list[dict[str, Any]]:
         lake = self._optimize_lake(workspace_id, lakehouse_id, schemas)  # type: ignore[attr-defined]
@@ -159,6 +162,12 @@ class ControlPlaneMixin:
         self._cp_allowed()
         if not isinstance(request, dict):
             raise ValueError("The request is an object: name, and a workspace and lakehouse by id or name.")
+        unknown = sorted(str(k) for k in request if k not in REQUEST_KEYS)
+        if unknown:
+            raise ValueError(f"Unknown request fields: {', '.join(unknown)[:200]}")
+        for key, value in request.items():
+            if value is not None and (not isinstance(value, str) or len(value) > MAX_FIELD):
+                raise ValueError(f"{key} must be text of at most {MAX_FIELD} characters.")
         plan = self._cp_provisioning().plan(request)
         view = _plan_view(plan)
         ws_id = plan.request.get("workspace_id") or ""

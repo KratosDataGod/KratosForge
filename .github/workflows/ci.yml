@@ -161,10 +161,35 @@ jobs:
       # A test still running after 10 minutes is hung: its worker prints every thread's stack and exits, and
       # with no worker restarts the run stops there, so the log names the stuck line instead of the job
       # waiting out GitHub's 6-hour limit with no log to read.
-      - name: Diagnostic (to be removed) - this PR's new tests alone, one at a time, names printed first
+      - name: "Diagnostic (to be removed): fidelity"
         if: env.RUN_TESTS == 'true' && matrix.os == 'windows-latest'
-        timeout-minutes: 15
-        run: python -m pytest -v -p no:xdist -p no:cacheprovider -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true tests/test_semantic_view.py tests/test_semantic_parity.py tests/test_semantic_parity_l2.py tests/test_ossie_fidelity.py
+        timeout-minutes: 8
+        continue-on-error: true
+        run: python -m pytest -v -p no:xdist -p no:cacheprovider tests/test_ossie_fidelity.py
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - name: "Diagnostic (to be removed): parity L1"
+        if: env.RUN_TESTS == 'true' && matrix.os == 'windows-latest'
+        timeout-minutes: 8
+        continue-on-error: true
+        run: python -m pytest -v -p no:xdist -p no:cacheprovider tests/test_semantic_parity.py
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - name: "Diagnostic (to be removed): parity L2"
+        if: env.RUN_TESTS == 'true' && matrix.os == 'windows-latest'
+        timeout-minutes: 8
+        continue-on-error: true
+        run: python -m pytest -v -p no:xdist -p no:cacheprovider tests/test_semantic_parity_l2.py
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - name: "Diagnostic (to be removed): view"
+        if: env.RUN_TESTS == 'true' && matrix.os == 'windows-latest'
+        timeout-minutes: 8
+        continue-on-error: true
+        run: python -m pytest -v -p no:xdist -p no:cacheprovider tests/test_semantic_view.py
         env:
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}

@@ -40,6 +40,7 @@ write in DuckDB SQL (``FOR JSON``, ``OPTION (...)``). ``GO`` lines split the scr
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import logging
 import math
 import re
@@ -749,7 +750,7 @@ def _collations(tree: exp.Expression) -> list[str]:
         collate.replace(collate.this)  # a binary collation is how text compares here already (WR-210)
     for constraint in list(tree.find_all(exp.CollateColumnConstraint)):
         name = constraint.this.sql(dialect="tsql").strip("[]\"'")
-        if name.upper() != "LATIN1_GENERAL_100_BIN2_UTF8":
+        if name.upper() not in ("LATIN1_GENERAL_100_BIN2_UTF8", "DATABASE_DEFAULT"):
             column = constraint.find_ancestor(exp.ColumnDef)
             where = f" (column {column.name})" if column is not None else ""
             raise ValueError(_NOT_YET + f"a column with COLLATE {name}{where} isn't mapped yet, because a Fabric "
@@ -1078,11 +1079,16 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "text, and writes a float in CONCAT with at most 6 significant digits).")]
     collated = _in_order(tree, _COLLATED)
     notes = _padded(compared, _in_order(typed, _COMPARISONS)) + _grouped_text(typed)
-    notes += _collated(collated, _in_order(typed, _COLLATED))
+    # A copy _collated makes of a value isn't in ``here``, so the passes below (+ on text becoming ||, say) miss
+    # it: it is made again from the rewritten value once they have run.
+    later: list[Callable[[], None]] = []
+    notes += _collated(collated, _in_order(typed, _COLLATED), later)
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for cast_node in sized:
             _sized_text(cast_node, None)
+        for again in later:
+            again()
         return notes + [("Couldn't match the query's columns to their types, so divisions, averages, casts to "
                 "integers and floats joined into text are done as DuckDB does them (T-SQL divides and averages "
                 "integers as integers, cuts a decimal cast to an integer toward zero, and writes a float in CONCAT "
@@ -1170,6 +1176,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(_unchecked_style(unchecked))
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
+    for again in later:
+        again()
     return notes
 
 
@@ -2053,7 +2061,7 @@ _SET_ORDER_NOTE = ("T-SQL counts text that differs only in trailing spaces ('a' 
                    "ties. Put the set operation in a FROM and order by RTRIM(...) to get T-SQL's order.")
 
 
-def _collated(here: list[exp.Expression], there: list[exp.Expression]) -> list[str]:
+def _collated(here: list[exp.Expression], there: list[exp.Expression], later: list[Callable[[], None]]) -> list[str]:
     """The rest of T-SQL's padding (WR-246): text that differs only in trailing spaces is one value to
     ``NULLIF``, a simple ``CASE x WHEN ...``, ``COUNT(DISTINCT ...)``, a window's ``PARTITION BY`` and
     ``ORDER BY`` (so ``RANK`` ties them, and ``ROW_NUMBER`` counts them as one partition), and a query's
@@ -2065,9 +2073,11 @@ def _collated(here: list[exp.Expression], there: list[exp.Expression]) -> list[s
     for node, info in zip(here, there, strict=True):
         if isinstance(node, exp.Nullif):
             if _is(info.this.type, _TEXT) and _is(info.expression.type, _TEXT) and not _volatile(node.this):
-                node.replace(exp.Case(ifs=[exp.If(this=exp.EQ(this=_rtrim(node.this.copy()),
-                                                              expression=_rtrim(node.expression)),
-                                                  true=exp.null())], default=node.this))
+                twin = node.this.copy()  # NULLIF's value is read twice: compared through RTRIM, and shown
+                case = exp.Case(ifs=[exp.If(this=exp.EQ(this=_rtrim(twin), expression=_rtrim(node.expression)),
+                                            true=exp.null())], default=node.this)
+                node.replace(case)
+                later.append(functools.partial(_again_default, twin, case))
         elif isinstance(node, exp.Case):
             if node.this is None or not _is(info.this.type, _TEXT):
                 continue
@@ -2089,18 +2099,33 @@ def _collated(here: list[exp.Expression], there: list[exp.Expression]) -> list[s
                                           for p, s in zip(parts, seen, strict=True)])
             order, typed_order = node.args.get("order"), info.args.get("order")
             if isinstance(order, exp.Order) and isinstance(typed_order, exp.Order):
-                _trimmed_keys(order.expressions, typed_order.expressions)
+                _trimmed_keys(order.expressions, typed_order.expressions, later)
         elif isinstance(node, exp.Order) and not isinstance(node.parent, exp.Window):
             keys, seen = node.expressions[:-1], info.expressions[:-1]  # the last key's ties are any order
             if isinstance(node.parent, exp.SetOperation):
                 if any(_is(s.this.type, _TEXT) for s in seen):
                     notes.append(_SET_ORDER_NOTE)
             elif isinstance(node.parent, exp.Select):
-                _trimmed_keys(keys, seen, node.parent)
+                _trimmed_keys(keys, seen, later, node.parent)
     return notes
 
 
-def _trimmed_keys(keys: list[exp.Expression], seen: list[exp.Expression], select: exp.Select | None = None) -> None:
+def _again(twin: exp.Expression, source: exp.Expression | None) -> None:
+    """Make ``twin`` again from ``source``, now that the passes that rewrite ``source`` in place have run."""
+    if source is not None and twin.parent is not None:
+        twin.replace(source.copy())
+
+
+def _again_default(twin: exp.Expression, case: exp.Case) -> None:
+    _again(twin, case.args.get("default"))
+
+
+def _again_shown(twin: exp.Expression, select: exp.Select, at: int) -> None:
+    _again(twin, _shown(select, at))
+
+
+def _trimmed_keys(keys: list[exp.Expression], seen: list[exp.Expression], later: list[Callable[[], None]],
+                  select: exp.Select | None = None) -> None:
     """Order by RTRIM(key) for each key that is text. In a query's ORDER BY, a key that names an output column
     (``ORDER BY 2``, or its alias) is ordered by that column's expression, since RTRIM(alias) could read a
     table's column of the same name. A SELECT DISTINCT is left alone: DuckDB orders it only by its columns."""
@@ -2117,11 +2142,23 @@ def _trimmed_keys(keys: list[exp.Expression], seen: list[exp.Expression], select
                 if isinstance(column, exp.Star) or _has_window(column):
                     continue
                 kind = _typed_select_column(typed, at) or column.type
-                value = column.this if isinstance(column, exp.Alias) else column
-            elif isinstance(value, exp.Literal):
+                if _is(kind, _TEXT):
+                    twin = (column.this if isinstance(column, exp.Alias) else column).copy()
+                    key.set("this", _rtrim(twin))
+                    later.append(functools.partial(_again_shown, twin, select, at))
+                continue
+            if isinstance(value, exp.Literal):
                 continue
         if _is(kind, _TEXT):
-            key.set("this", _rtrim(value.copy()))
+            key.set("this", _rtrim(value))  # the key itself, not a copy, so the passes below still find it
+
+
+def _shown(select: exp.Select, at: int) -> exp.Expression | None:
+    """The expression of the select's column ``at``, without its alias."""
+    columns = select.expressions
+    if not 0 <= at < len(columns):
+        return None
+    return columns[at].this if isinstance(columns[at], exp.Alias) else columns[at]
 
 
 def _output_column(select: exp.Select, key: exp.Expression) -> tuple[int, exp.Expression] | None:

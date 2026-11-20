@@ -198,3 +198,22 @@ def test_join_using_is_refused_as_not_tsql(engine):
 def test_untyped_subquery_comparisons_are_noted():
     _, notes = translate("SELECT n FROM nowhere WHERE s IN (SELECT 'a')")
     assert any("trailing spaces" in n for n in notes)
+
+
+# Quality on #3179: a value _collated copies (NULLIF's, an ORDER BY key that names an output column) still gets the
+# rewrites that run after it, such as + on text becoming ||.
+@pytest.mark.parametrize("sql, want", [
+    ("SELECT s + 'z' AS w, n FROM p ORDER BY w, n", [["a z", 2], ["az", 1], ["bz", 3]]),
+    ("SELECT s + 'z' AS w, n FROM p ORDER BY 1, 2", [["a z", 2], ["az", 1], ["bz", 3]]),
+    ("SELECT s + g AS w, n FROM p ORDER BY w, n", [["a x", 2], ["ax", 1], ["bx", 3]]),
+    ("SELECT NULLIF(s + 'z', 'az') FROM p ORDER BY n", [[None], ["a z"], ["bz"]]),
+])
+def test_a_copied_value_still_joins_text_with_plus(engine, sql, want):
+    engine.execute("DROP TABLE IF EXISTS p", dialect="tsql")
+    engine.execute("CREATE TABLE p (s VARCHAR(10), g VARCHAR(10), n INT)", dialect="tsql")
+    engine.execute("INSERT INTO p VALUES ('a', 'x', 1), ('a ', 'x', 2), ('b', 'x', 3)", dialect="tsql")
+    assert engine.execute(sql, dialect="tsql")["rows"] == want
+
+
+def test_a_column_collate_database_default_runs(engine):
+    engine.execute("CREATE TABLE #d (s VARCHAR(10) COLLATE database_default)", dialect="tsql")

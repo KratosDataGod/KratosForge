@@ -636,7 +636,6 @@ class LiveTest:
 
     def _model_bpa(self) -> str:
         from . import model_bpa
-        from .fabric_compute import RESULTS_DIR
         from .fabric_run import TERMINAL
         model = self._bpa_target()
         name = self._new_item_name("bpa", "Notebook")
@@ -663,7 +662,7 @@ class LiveTest:
                 self.fabric.cancel_job(self.workspace_id, nb_id, job_id)
                 raise RuntimeError(f"Job {job_id} hadn't finished after {_RUN_TIMEOUT // 60} minutes; cancelled it.")
             self.sleep(15)
-        data = self.files.read_bytes(self.workspace_id, self.lakehouse_id, f"{RESULTS_DIR}/{request_id}.json")
+        data = model_bpa.read_results(self.files, self.workspace_id, self.lakehouse_id, request_id)
         record = json.loads(data) if data else None
         error = model_bpa.error(record) if isinstance(record, dict) else None
         out = {"model": model.get("displayName"), "model_id": model.get("id"), "job_id": job_id, "status": status,

@@ -71,8 +71,9 @@ class Files:
     def list(self, ws, lh, folder):
         return [{"name": p.rsplit("/", 1)[-1]} for (l, p) in self.data if l == lh and p.startswith(folder + "/")]
 
-    def read_bytes(self, ws, lh, path):
-        return self.data.get((lh, path))
+    def read_bytes(self, ws, lh, path, length=None):
+        data = self.data.get((lh, path))
+        return data[:length] if data is not None and length else data
 
     def delete(self, ws, lh, folder):
         for key in [k for k in self.data if k[0] == lh and k[1].startswith(folder)]:
@@ -762,6 +763,14 @@ def test_model_bpa_reports_the_error_the_notebook_saved(tmp_path):
     saved = (tmp_path / "out" / "run1" / "model_bpa.json").read_text(encoding="utf-8")
     assert TOKEN not in saved and TOKEN not in json.dumps(result)
     assert json.loads(saved)["error"]["traceback"] == "Traceback ..."
+    assert fabric.items == {}
+
+
+def test_model_bpa_refuses_a_results_file_past_the_cap(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"rows": [], "pad": "x" * (8 * 1024 * 1024)})
+    check = by_id(bpa_run(tmp_path, fabric, files))["model.bpa"]
+    assert check["status"] == "failed" and "larger than 8 MB" in check["detail"]
     assert fabric.items == {}
 
 

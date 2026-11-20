@@ -468,13 +468,26 @@ def test_rows_naming_a_huge_name_are_matched_fast_and_the_name_is_cut_short():
     assert table["object"].endswith("... (40000 characters)'") and len(table["object"]) < model_ossie.MAX_NAME + 40
 
 
-def test_four_thousand_columns_of_one_name_are_numbered_fast():
-    import time
+def test_four_thousand_columns_of_one_name_are_numbered_fast(monkeypatch):
+    """Numbering a repeated name looks up a few candidate ids per object, not one per earlier copy. It counts
+    the lookups rather than timing them: a busy runner took 1.2 s for the 35 ms this takes, and trying every
+    number from 2 up takes about 8 million lookups here."""
+    looked = [0]
+
+    class Counted(dict):
+        def __contains__(self, key):
+            looked[0] += 1
+            return super().__contains__(key)
+
+    class Objects(model_ossie._Objects):
+        def __init__(self):
+            super().__init__()
+            self.ids = Counted()
+    monkeypatch.setattr(model_ossie, "_Objects", Objects)
     bim = {"name": "m", "model": {"tables": [{"name": "T", "columns": [{"name": "c", "dataType": "string"}] * 4000}]}}
     doc = {"version": model_ossie.OSSIE_VERSION, "name": "m", "datasets": [{"name": "T", "fields": [{"name": "c"}]}]}
-    started = time.perf_counter()
     fid = model_ossie.fidelity(bim, doc)
-    assert time.perf_counter() - started < 1.0
+    assert looked[0] < 10 * 4002, looked[0]
     ids = [o["object"] for o in fid["objects"]]
     assert len(ids) == len(set(ids)) == 4002 and ids[-1] == "table 'T' column 'c' #4000"
 

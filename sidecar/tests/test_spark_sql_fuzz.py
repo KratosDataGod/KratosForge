@@ -154,16 +154,20 @@ def test_type_calls_nested_up_to_the_limit_still_read():
 
 
 def _best_time(text: str) -> float:
-    """The quickest of three reads, in this process's CPU time with the garbage collector off: other test workers
-    on the same machine take wall-clock time from a read, not CPU time, and a collection can land in any read."""
+    """CPU time for one read: the best of three samples, in this process's CPU time with the garbage collector
+    off, since other test workers on the same machine take wall-clock time from a read, not CPU time, and a
+    collection can land in any read. Each sample repeats the read for at least 0.25 s, because process_time()
+    on Windows moves in ticks of about 15.6 ms and a short read alone could measure as 0."""
     best = float("inf")
     collecting = gc.isenabled()
     gc.disable()
     try:
         for _ in range(3):
-            start = time.process_time()
-            sql.parse(text, "spark")
-            best = min(best, time.process_time() - start)
+            reads, start = 0, time.process_time()
+            while (spent := time.process_time() - start) < 0.25 or not reads:
+                sql.parse(text, "spark")
+                reads += 1
+            best = min(best, spent / reads)
     finally:
         if collecting:
             gc.enable()
@@ -178,7 +182,7 @@ def test_a_long_or_chain_and_a_long_in_list_read_in_linear_time(query):
     # Each call and operator once walked its whole subtree for its first place in the text: 3,000 ORs took 48 s.
     # The check is how the time grows, not a number of seconds (a loaded Windows runner took 5.06 s for both).
     # Eight times the terms takes 8 to 9.3 times as long now (also with twice as many busy processes as cores),
-    # and took 28 to 42 times as long before, so a bound of 16 leaves room on both sides. (4x the terms against
+    # and took 25 to 42 times as long before, so a bound of 16 leaves room on both sides. (4x the terms against
     # a bound of 9 was flaky with 8 test workers.)
     small, large = _best_time(query(2500)), _best_time(query(20000))
     assert large < 16 * small, f"{small:.3f}s for 2,500, {large:.3f}s for 20,000: grows faster than the length"

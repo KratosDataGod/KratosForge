@@ -174,7 +174,7 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 | A DATE column plus an interval of whole days or months, where the column's type isn't known before the query runs (a column of a subquery's or a DataFrame's expression) | `date` | `timestamp` at midnight. Cast it: `CAST(d + INTERVAL 1 MONTH AS DATE)` |
 | `from_utc_timestamp` and `to_utc_timestamp` with the zone from a column, written as an offset such as `GMT+2` | Read as that offset | Stops (`Unknown TimeZone`), or for `UTC+05:30` moves by 5 hours only. A zone id such as `Europe/Paris` gives Spark's answer |
 | `hour`, `minute`, `second` of a time of day with a zone, such as `'13:45:12Z'` | That time in the session's zone | NULL |
-| `make_ym_interval` | A year-month interval | Refused by name, and nothing runs: this PC has no year-month interval type |
+| `make_ym_interval` | A year-month interval | Refused by name, and nothing runs, because this PC has no year-month interval type |
 | Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.

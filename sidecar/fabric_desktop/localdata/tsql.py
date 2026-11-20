@@ -728,7 +728,7 @@ def _refuse(tree: exp.Expression) -> None:
 _COLLATE_REFUSED = ("text here compares as a Fabric Warehouse's default collation (Latin1_General_100_BIN2_UTF8) "
                     "does, by code point and case-sensitive. Use UPPER or LOWER on both sides to compare without "
                     "case, or run it in a Fabric Warehouse.")
-_CODE_PAGE_NOTE = ("COLLATE {name} runs here as Latin1_General_100_BIN2_UTF8. They agree on ASCII text; a warehouse "
+_CODE_PAGE_NOTE = ("COLLATE {name} runs here as Latin1_General_100_BIN2_UTF8. They agree on ASCII text, but a warehouse "
                    "first converts other text to {name}'s code page, which can order it another way (code page "
                    "1252 puts '€' before 'é') or turn a character it hasn't got into '?'. Use "
                    "Latin1_General_100_BIN2_UTF8 to compare as a warehouse does by default.")
@@ -752,15 +752,16 @@ def _collations(tree: exp.Expression) -> list[str]:
         if name.upper() != "LATIN1_GENERAL_100_BIN2_UTF8":
             column = constraint.find_ancestor(exp.ColumnDef)
             where = f" (column {column.name})" if column is not None else ""
-            raise ValueError(_NOT_YET + f"a column with COLLATE {name}{where} isn't mapped yet: a Fabric Warehouse's "
-                             "tables take Latin1_General_100_BIN2_UTF8 and Latin1_General_100_CI_AS_KS_WS_SC_UTF8 "
-                             f"only, and {_COLLATE_REFUSED} Leave the COLLATE "
-                             "out to get the warehouse's default.")
+            raise ValueError(_NOT_YET + f"a column with COLLATE {name}{where} isn't mapped yet, because a Fabric "
+                             "Warehouse's tables take Latin1_General_100_BIN2_UTF8 and "
+                             "Latin1_General_100_CI_AS_KS_WS_SC_UTF8 only, and text here always compares as the "
+                             "first, by code point and case-sensitive. Leave the COLLATE out to get the warehouse's "
+                             "default.")
         wrapper = constraint.parent
         (wrapper if isinstance(wrapper, exp.ColumnConstraint) else constraint).pop()
     for join in tree.find_all(exp.Join):  # an UPDATE's or DELETE's is refused in _joined_changes
         if join.args.get("using") and not isinstance(tree, (exp.Update, exp.Delete)):
-            raise ValueError(_NOT_YET + "JOIN ... USING isn't T-SQL: a Fabric Warehouse refuses it. Use JOIN ... ON.")
+            raise ValueError(_NOT_YET + "JOIN ... USING isn't T-SQL, so a Fabric Warehouse refuses it. Use JOIN ... ON.")
     return notes
 
 

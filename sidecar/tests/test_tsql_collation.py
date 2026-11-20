@@ -174,7 +174,7 @@ def test_a_code_page_binary_collation_runs_with_a_note(engine):
     got, notes = run(engine, "SELECT CASE WHEN 'a' = 'A' COLLATE Latin1_General_100_BIN2 THEN 1 ELSE 0 END")
     assert got == [[0]]
     assert notes == [("COLLATE Latin1_General_100_BIN2 runs here as Latin1_General_100_BIN2_UTF8. They agree on ASCII "
-                     "text; a warehouse first converts other text to Latin1_General_100_BIN2's code page, which can "
+                     "text, but a warehouse first converts other text to Latin1_General_100_BIN2's code page, which can "
                      "order it another way (code page 1252 puts '€' before 'é') or turn a character it hasn't got "
                      "into '?'. Use Latin1_General_100_BIN2_UTF8 to compare as a warehouse does by default.")]
 
@@ -184,13 +184,13 @@ def test_column_collations(engine):
     engine.execute("INSERT INTO c VALUES ('a')", dialect="tsql")
     assert col(engine, "SELECT COUNT(*) FROM c WHERE s = 'A'") == [0]
     with pytest.raises(ValueError, match=r"a column with COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8 \(column s\) "
-                                         "isn't mapped yet: a Fabric Warehouse's tables take"):
+                                         "isn't mapped yet, because a Fabric Warehouse's tables take"):
         engine.execute("CREATE TABLE ci (s VARCHAR(20) COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8)",
                        dialect="tsql")
 
 
 def test_join_using_is_refused_as_not_tsql(engine):
-    with pytest.raises(ValueError, match=r"JOIN \.\.\. USING isn't T-SQL: a Fabric Warehouse refuses it\. "
+    with pytest.raises(ValueError, match=r"JOIN \.\.\. USING isn't T-SQL, so a Fabric Warehouse refuses it\. "
                                          r"Use JOIN \.\.\. ON\."):
         engine.execute("SELECT n FROM t JOIN u USING (s)", dialect="tsql")
 

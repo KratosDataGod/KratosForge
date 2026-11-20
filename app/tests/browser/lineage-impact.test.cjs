@@ -1,6 +1,6 @@
 // Lineage > Impact on a Data mesh entity page (dataops.js impactDialog), and the check before a save
 // that would break something (confirmContractChange). Both are Preview.
-// axe covers dialogs: dataops.js:impactDialog, dataops.js:confirmContractChange
+// axe covers dialogs: dataops.js:impactDialog, dataops.js:confirmContractChange, dataops.js:openLineageDialog
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
@@ -49,6 +49,10 @@ before(async () => {
         renamed.items[0].why = ["matches customer_sk on customer_id; once it's renamed to cust_id, building gold.fact_sales fails"];
         return { entity: p.name, changes: p.text.includes("customer_id") ? [] : [{ ...renamed, change: "rename", new_name: "cust_id" }] };
       },
+      meta_openlineage_preview: (p) => ({ env: p.env, namespace: "kratosforge://crm/dev", events: 2,
+        left_out: [{ entity: "bronze.orders", why: "hasn't run in Dev" }] }),
+      meta_openlineage_export: (p) => { calls.push(["meta_openlineage_export", p]);
+        return { path: "C:/Users/ana/Downloads/crm-dev-openlineage.jsonl", events: 2, left_out: [] }; },
       meta_save_entity: (p) => { calls.push(["meta_save_entity", p]); return { ...structuredClone(ENTITY), text: p.text }; },
     },
   });
@@ -100,6 +104,22 @@ test("Save anyway saves", { skip }, async () => {
   await page().getByRole("button", { name: "Save anyway" }).click();
   await page().waitForTimeout(100);
   assert.strictEqual(calls.filter((c) => c[0] === "meta_save_entity").length, 1);
+});
+
+test("Export OpenLineage says what it writes and leaves out, then writes it", { skip }, async () => {
+  await page().getByRole("button", { name: /^Impact/ }).click();
+  await page().waitForSelector(".impact-row");
+  await page().getByRole("button", { name: "Export OpenLineage..." }).click();
+  await page().waitForSelector("#dialog-root .dialog .gate-list");
+  const text = await page().locator("#dialog-root .dialog").innerText();
+  assert.match(text, /Export lineage as OpenLineage/);
+  assert.match(text, /Writes 2 OpenLineage run events/);
+  assert.match(text, /Left out \(1\)/);
+  assert.match(text, /bronze\.orders: hasn't run in Dev/);
+  assert.deepStrictEqual(await axeFindings(page(), ".dialog"), []);
+  await page().getByRole("button", { name: "Export", exact: true }).click();
+  await page().waitForFunction(() => !document.querySelector("#dialog-root .dialog"));
+  assert.deepStrictEqual(calls.at(-1), ["meta_openlineage_export", { env: "dev" }]);
 });
 
 test("nothing on the page threw", { skip }, async () => {

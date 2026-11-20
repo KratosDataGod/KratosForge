@@ -1293,17 +1293,27 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Write the query result as a table. "new" (the default) writes nothing when the table
         exists and says so, so the page can ask before replacing it. Replacing a table that exists ("overwrite")
         needs ``confirm_name``, the table's name as the person typed it on the page (WR-248): the engine checks it,
-        so no caller replaces a table's rows without it."""
+        so no caller replaces a table's rows without it. In a workspace marked Prod (WR-249) every write needs
+        the workspace's name typed instead, as a notebook cell's change there does: "new" then writes nothing and
+        answers with ``prod`` (the name to type) and whether the table exists, and any other mode without that
+        name is refused. In Prod the workspace's typed name covers a replace too: it is the stronger check."""
         self._attach(lakehouse_ref)
+        if mode not in ("new", "overwrite", "append"):
+            raise ValueError(f"mode must be new, overwrite or append, not {mode!r}")
+        attached = lakehouse._attached
+        prod = (attached.workspace_name or attached.workspace_id) if (
+            attached is not None and self._prod_marked(attached.workspace_id)) else ""
         if mode == "new":
-            if lakehouse.table_exists(table):
-                return {"table": table, "exists": True}
+            exists = lakehouse.table_exists(table)
+            if exists or (prod and confirm_name != prod):  # "new" never replaces, and asks first in Prod
+                return {"table": table, "exists": exists, **({"prod": prod} if prod else {})}
             mode = "overwrite"
-        elif mode == "overwrite" and confirm_name != table and lakehouse.table_exists(table):
+        elif prod and confirm_name != prod:
+            raise PermissionError(f"{prod} is a Prod workspace, so writing {table} there runs only after you type "
+                                  "the workspace's name to confirm. Nothing was written.")
+        elif mode == "overwrite" and not prod and confirm_name != table and lakehouse.table_exists(table):
             raise PermissionError(f"Replacing {table} deletes all of its rows, so it runs only after you type its "
                                   "name to confirm. Nothing was written.")
-        elif mode not in ("overwrite", "append"):
-            raise ValueError(f"mode must be new, overwrite or append, not {mode!r}")
         written = lakehouse.write_table(sql.run(query, dialect), table, mode)
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 

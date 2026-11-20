@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import re
 import tomllib
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
@@ -15,7 +16,7 @@ import polars as pl
 
 from . import audit, duties, lakehouse, risk, sealed_settings
 from .meta import keys as keys_mod
-from .meta import change_impact, lineage, release
+from .meta import change_impact, lineage, openlineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
@@ -676,6 +677,29 @@ class MetaMixin:
 
     # ---- promote
 
+    def _confirm_name(self, project: Any, env: str) -> str:
+        """The name a promote, rollback or restore in ``env`` waits for, or "" when it asks for none: Prod's
+        workspace name (WR-250), or the workspace's own when a project opened on this PC named it Prod, as
+        another project's Test can be (WR-251)."""
+        if env == "prod":
+            return prod_name(project)
+        cfg = project.environments.get(env, {}) or {}
+        marked = getattr(self, "_prod_marked", None)
+        if marked is not None and any(marked(ws) for ws in sorted(_env_workspaces(cfg))):
+            return str(cfg.get("workspace_name") or cfg.get("workspace_id"))
+        return ""
+
+    def _confirm_typed(self, project: Any, env: str, confirm_name: str, doing: str, nothing: str) -> None:
+        """Refuse unless ``confirm_name`` is exactly the name ``_confirm_name`` asks for. It is a guard parameter,
+        so the audit line is written before the change runs (audit.fails_closed)."""
+        if env == "prod":
+            prod_typed(project, env, confirm_name, doing, nothing)
+            return
+        name = self._confirm_name(project, env)
+        if name and confirm_name != name:
+            raise PermissionError(f"{name} is another project's Prod workspace on this PC, so {doing} runs only after "
+                                  f"you type its name to confirm. {nothing}")
+
     def meta_promote_check(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()
         try:
@@ -703,7 +727,8 @@ class MetaMixin:
         errors += policies["errors"]
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests,
                 "notes": notes + more + duty_notes + policies["notes"], "git": git,
-                "policy_exceptions": policies["excepted"]}
+                "policy_exceptions": policies["excepted"],
+                **({"confirm_name": name} if (name := self._confirm_name(project, target)) else {})}
 
     def meta_promote(self, source: str, target: str, confirm_name: str = "") -> dict[str, Any]:
         project = self._project()
@@ -725,7 +750,7 @@ class MetaMixin:
         errors += policies["errors"]
         if errors:
             raise GateError("promote", errors)
-        prod_typed(project, target, confirm_name, "promoting to it", "Nothing was promoted.")
+        self._confirm_typed(project, target, confirm_name, "promoting to it", "Nothing was promoted.")
         target_store = self._store(project, target, create=True)
         uses_keys = bool(project.key_tables or project.source_systems)
         keys_store = self._keys_store(project, target, create=True) if uses_keys else None  # fails before promoting
@@ -779,6 +804,34 @@ class MetaMixin:
             return {"entity": name, "changes": []}
         return {"entity": name, "changes": change_impact.edit_impact(self._project(), name, spec)}
 
+    def _openlineage(self, env: str) -> tuple[Project, dict[str, Any]]:
+        project = self._project()
+        store = self._store(project, env)
+        runs = json.loads(store.meta("run_log").select("run_id", "entity", "status", "started_at", "seconds").write_json())
+        workspace = store.workspace_id if isinstance(store, OneLakeStore) else None
+        return project, openlineage.run_events(project, runs, env, workspace)
+
+    def meta_openlineage_preview(self, env: str = "dev") -> dict[str, Any]:
+        """How many OpenLineage events an export would write for ``env``, and which entities it leaves out
+        and why. Writes nothing."""
+        _, out = self._openlineage(env)
+        return {"env": env, "namespace": out["namespace"], "events": len(out["events"]), "left_out": out["left_out"]}
+
+    def meta_openlineage_export(self, env: str = "dev") -> dict[str, Any]:
+        """OpenLineage run events for each entity's last run in ``env``, one JSON event per line (the
+        format OpenLineage's file transport writes), as a new file in Downloads; never replaces a file."""
+        from . import sql_exec
+
+        project, out = self._openlineage(env)
+        if not out["events"]:
+            raise ValueError(f"Nothing to export: no entity has a finished run in {env.title()} yet")
+        folder = known_folders.downloads()
+        folder.mkdir(parents=True, exist_ok=True)
+        base = re.sub(r"[^\w.-]+", "_", f"{project.root.name}-{env}-openlineage")
+        path = sql_exec._reserve(folder, base, ".jsonl")  # reserved empty, so no other file is overwritten
+        write_text(path, "".join(json.dumps(e, separators=(",", ":")) + "\n" for e in out["events"]), newline="\n")
+        return {"path": str(path), "events": len(out["events"]), "left_out": out["left_out"]}
+
     def meta_lineage(self, name: str, column: str | None = None) -> dict[str, Any]:
         """Column lineage from the project's files: every column of ``name``, or, for one column,
         the steps back to where it starts and every column built from it further on."""
@@ -802,7 +855,7 @@ class MetaMixin:
         except Exception as exc:  # noqa: BLE001 - the environment can't be read: say so
             return {"env": env, "releases": [], "problem": str(exc)}
         return {"env": env, "releases": history, "problem": None,
-                **({"confirm_name": prod_name(project)} if env == "prod" else {})}
+                **({"confirm_name": name} if (name := self._confirm_name(project, env)) else {})}
 
     def meta_rollback_preview(self, env: str, version: str) -> dict[str, Any]:
         """What rolling ``env`` back to ``version`` changes, by meaning, entity by entity. Reads only."""
@@ -828,7 +881,7 @@ class MetaMixin:
         errors, _ = self._duties_gate(project, env, env, separation=False)  # undoing a release isn't a second promote
         if errors:
             raise GateError("rollback", errors)
-        prod_typed(project, env, confirm_name, "rolling it back", "Nothing was rolled back.")
+        self._confirm_typed(project, env, confirm_name, "rolling it back", "Nothing was rolled back.")
         store = self._store(project, env)
         result = rollback(project, store, version, duties.current_user(), self._signed_in_object_id())
         released = result.pop("project")

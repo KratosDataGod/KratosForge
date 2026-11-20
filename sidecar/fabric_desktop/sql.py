@@ -55,7 +55,8 @@ def _parse(query: str, dialect: str) -> list[exp.Expression]:
         statements = _statements(sql_dialects.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
                                                     read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(s))) for s in statements]
+            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(spark_builtins_sql.refuse_nested_concat_ws(s))))
+                          for s in statements]
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
@@ -193,6 +194,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
+    statement = spark_builtins_sql.check_nested_concat_ws(statement)
     if databricks:
         _mark_divisions(statement)
     statement = _try_divisions(statement)

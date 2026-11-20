@@ -119,3 +119,40 @@ def test_the_pages_send_the_typed_name():
     assert "typeToConfirm: prodName" in meta and "confirm_name: prodName" in meta
     assert "res.confirm_name" in dataops and "confirm_name: needs" in dataops
     assert "hist.confirm_name" in estate and "confirm_name: needs" in estate
+
+
+# ---- WR-251: a workspace that a project opened on this PC named Prod asks the same, whatever this project calls it
+
+def remember_as_prod(svc, workspace_id):
+    svc.prod_workspaces_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.prod_workspaces_file.write_text(f'{{"prod": ["{workspace_id}"]}}', encoding="utf-8")
+
+
+def test_a_test_workspace_another_project_named_prod_waits_for_its_name(svc, monkeypatch):
+    svc.meta_set_environment("test", workspace_id="WS-SHARED", workspace_name="Sales Shared", target="local")
+    remember_as_prod(svc, "ws-shared")  # the ids are compared without case, as for notebook cells
+    assert svc.meta_promote_check("dev", "test")["confirm_name"] == "Sales Shared"
+    with pytest.raises(PermissionError, match="Sales Shared is another project's Prod workspace on this PC, so "
+                                              "promoting to it runs only after you type its name to confirm. "
+                                              "Nothing was promoted."):
+        svc.meta_promote("dev", "test")
+    assert svc.meta_releases("test")["releases"] == []
+    version = svc.meta_promote("dev", "test", confirm_name="Sales Shared")["version"]
+    assert svc.meta_releases("test")["confirm_name"] == "Sales Shared"
+    with pytest.raises(PermissionError, match="so rolling it back runs only after"):
+        svc.meta_rollback("test", version)
+    touched = []
+    monkeypatch.setattr(Service, "_entity_uri", lambda self, *a: touched.append(a) or (_ for _ in ()).throw(
+        LookupError("past the name check")))
+    with pytest.raises(PermissionError, match="so restoring silver.orders there runs only after"):
+        svc.meta_restore("silver.orders", "test", 1)
+    assert touched == []
+    with pytest.raises(LookupError, match="past the name check"):
+        svc.meta_restore("silver.orders", "test", 1, confirm_name="Sales Shared")
+
+
+def test_a_workspace_no_project_named_prod_asks_nothing(svc):
+    svc.meta_set_environment("test", workspace_id="ws-test", workspace_name="Sales Test", target="local")
+    remember_as_prod(svc, "ws-elsewhere")
+    assert "confirm_name" not in svc.meta_promote_check("dev", "test")
+    assert svc.meta_promote("dev", "test")["version"]

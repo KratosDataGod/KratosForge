@@ -42,6 +42,8 @@ NO_UI_CALLER: dict[str, str] = {
                         "cp_connect", "cp_switch", "cp_disconnect", "cp_check")},
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
+    # SF-002: the Check button in Settings > Connections waits on its mockup.
+    "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,

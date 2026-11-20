@@ -260,7 +260,8 @@ class ControlPlaneMixin:
             raise ValueError("Connect this PC to a KratosForge Environment first.")
         got = self._cp_store(active["workspace_id"], active["lakehouse_id"]).read()
         if got is None or got.manifest.get("environment_id") != active["environment_id"]:
-            raise ValueError("The environment's manifest isn't in its lakehouse any more.")
+            raise ValueError("The environment's manifest isn't in its lakehouse any more, so it can't be upgraded. "
+                             "Connect to the environment again, or ask whoever manages it.")
         plan = self._cp_provisioning().plan_upgrade(got.manifest)
         view = _plan_view(plan)
         ws_id = plan.request.get("workspace_id") or ""

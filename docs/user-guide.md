@@ -700,13 +700,13 @@ Anything your organization has set shows "Set by your organization's policy" and
 **Settings > Environment** shows where KratosForge keeps what your team shares: optimization history, savings and settings. Work still runs on this PC, and results wait on this PC until the environment can be reached. The environment is a workspace and a lakehouse in Fabric, with a small manifest file (`Files/_kratosforge/environment.json`) that holds ids and versions only, never a secret.
 
 - **Status** names the environment, its workspace and lakehouse, and one status with the next step: Connected, Working offline, Synchronizing, Upgrade required, Limited permissions or Connection failed. It also says how many results wait on this PC. **Validate connection** checks again.
-- **Create an environment...** shows what will happen before anything is made: each step with the permission it needs, what it may cost and a note. A step that can't go ahead says why, and **Create environment...** stays off until nothing is blocked. Creating asks you to confirm; in a workspace this PC knows as Prod, you type its name exactly.
+- **Create an environment...** shows what will happen before anything is made: each step with the permission it needs, what it may cost and a note. A step that can't go ahead says why, and **Create environment...** stays off until nothing is blocked. Creating asks you to confirm. In a workspace this PC knows as Prod, you type its name exactly.
 - **Connect to one...** lists the workspaces you can open. **Look inside** shows the environments in one, central lakehouses this PC can adopt, and lakehouses it couldn't read, with the reason. Reading changes nothing.
 - **Adopt this PC's central lakehouse...** turns the lakehouse Optimize already uses into an environment. It shows the manifest first, then writes only that file after you confirm. No table is created or changed.
 - **Upgrade...** appears when the shared tables use an older version. It shows a plan and asks you to confirm, as Create does, and keeps every record. KratosForge on other PCs can only read the tables until it's updated.
-- **Switch or disconnect...** lists the environments this PC knows. **Switch to it** makes another one active. **Disconnect...** makes this PC forget one: nothing in Fabric is changed or deleted, and results waiting on this PC stay there.
+- **Switch or disconnect...** lists the environments this PC knows. **Switch to it** makes another one active. **Disconnect...** makes this PC forget one. Nothing in Fabric is changed or deleted, and results waiting on this PC stay there.
 
-Microsoft Fabric is the only provider today, and it's Preview. Azure Databricks and Snowflake show as not available yet. Your organization can turn environments off (`allow_central_environment` in its [policy](azure-setup.md)); then only **Disconnect** stays.
+Microsoft Fabric is the only provider today, and it's Preview. Azure Databricks and Snowflake show as not available yet. Your organization can turn environments off (`allow_central_environment` in its [policy](azure-setup.md)). Then only **Disconnect** stays.
 
 ### Platform notices (Preview)
 

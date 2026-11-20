@@ -105,7 +105,7 @@ function kfeStatusCard(el, env) {
           ? [h("b", {}, `${waiting} result${waiting === 1 ? "" : "s"}`), " wait on this PC."]
           : "No results wait on this PC.")) : null,
     label === "Connection failed" && c.detail ? h("p", { class: "small muted-text" }, c.detail) : null,
-    upgrade ? h("p", { class: "small muted-text" }, "The shared tables use an older version. Upgrade runs the same plan-and-confirm as Create: you see each step, then confirm. KratosForge on other PCs can only read the tables until it's updated.") : null);
+    upgrade ? h("p", { class: "small muted-text" }, "The shared tables use an older version. Upgrade runs the same plan and confirm as Create, so you see each step before you confirm. KratosForge on other PCs can only read the tables until it's updated.") : null);
 }
 
 function kfeNoneCard(el) {
@@ -303,7 +303,7 @@ async function kfeCreateRun(el) {
   const typed = p.typed_name;
   const ok = typed
     ? await confirmDialog(`Create ${name} in ${typed}?`,
-      `${typed} is a Prod workspace, so this runs only after you type its name to confirm. It adds a lakehouse, the shared tables and the manifest. Nothing is deleted.`,
+      `${typed} is a Prod workspace, so this runs only after you type its name exactly to confirm. It adds a lakehouse, the shared tables and the manifest. Nothing is deleted.`,
       "Create", { typeToConfirm: typed })
     : await confirmDialog(`Create ${name} in Fabric?`, kfeCreatesText(p.steps), "Create");
   if (!ok) return;
@@ -321,7 +321,7 @@ async function kfeCreateRun(el) {
   const details = (out.steps || []).map((s) => s.detail).filter(Boolean).join(", ");
   kfe.done = out.ok
     ? { ok: true, label: "Created", text: `${name} is ready, and this PC is connected to it. ${details}.` }
-    : { ok: false, label: "Stopped", text: `${kfeFailed(out.steps)} Nothing after it ran. Make the plan again to finish: what was made is used, not made twice.` };
+    : { ok: false, label: "Stopped", text: `${kfeFailed(out.steps)} Nothing after it ran. Make the plan again to finish. What was already made is used, not made twice.` };
   kfe.check = null;
   kfe.mode = "status";
   await renderEnvironmentTab(el);
@@ -329,7 +329,7 @@ async function kfeCreateRun(el) {
 
 function kfeFailed(steps) {
   const f = (steps || []).find((s) => s.status === "failed");
-  return f ? `${f.step} didn't finish: ${f.detail}.` : "It didn't finish.";
+  return f ? `${f.step} didn't finish. ${f.detail}${/[.!?]$/.test(f.detail || "") ? "" : "."}` : "It didn't finish.";
 }
 
 // ---------- connect ----------
@@ -478,7 +478,7 @@ async function kfeAdoptRun(el) {
   const where = a.environment.lakehouse_name || "this lakehouse";
   const typed = a.typed_name;
   const ok = typed
-    ? await confirmDialog(`Adopt ${where}?`, `${typed} is a Prod workspace, so this runs only after you type its name to confirm. This writes Files/_kratosforge/environment.json in ${where} and connects this PC to ${a.environment.name}. No table is created or changed.`,
+    ? await confirmDialog(`Adopt ${where}?`, `${typed} is a Prod workspace, so this runs only after you type its name exactly to confirm. This writes Files/_kratosforge/environment.json in ${where} and connects this PC to ${a.environment.name}. No table is created or changed.`,
       "Adopt", { typeToConfirm: typed })
     : await confirmDialog(`Adopt ${where}?`, `This writes Files/_kratosforge/environment.json in ${where} and connects this PC to ${a.environment.name}. No table is created or changed.`, "Adopt");
   if (!ok) return;
@@ -527,7 +527,7 @@ async function kfeUpgradeRun(el) {
   const typed = u.typed_name;
   const text = "This upgrades the shared tables and records their new versions in the manifest. Every record is kept, and nothing is deleted.";
   const ok = typed
-    ? await confirmDialog(`Upgrade ${name} in ${typed}?`, `${typed} is a Prod workspace, so this runs only after you type its name to confirm. ${text}`,
+    ? await confirmDialog(`Upgrade ${name} in ${typed}?`, `${typed} is a Prod workspace, so this runs only after you type its name exactly to confirm. ${text}`,
       "Upgrade", { typeToConfirm: typed })
     : await confirmDialog(`Upgrade ${name}?`, text, "Upgrade");
   if (!ok) return;
@@ -590,7 +590,7 @@ async function kfeDisconnect(el, e) {
     "Disconnect", { danger: true });
   if (!ok) return;
   if (!(await attempt(() => rpc("cp_disconnect", { environment_id: e.environment_id }), "Couldn't disconnect"))) return;
-  toast(`This PC forgot ${e.name}.`);
+  toast(`Disconnected this PC from ${e.name}.`);
   delete kfe.lastKnown[e.environment_id];
   if (e.environment_id === kfe.status.active?.environment_id) { kfe.check = null; kfe.checkedAt = null; }
   renderEnvironmentTab(el);

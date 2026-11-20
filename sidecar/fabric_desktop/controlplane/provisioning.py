@@ -50,7 +50,7 @@ UPGRADE_NOTE = ("Upgrades the shared tables. KratosForge on other PCs can only r
 MANIFEST_NOTE = "Ids and versions only, never a secret."
 UPGRADE_CHANGED = ("Something changed since this plan was shown (another PC upgraded the tables or changed the "
                    "environment). Nothing was upgraded. Review the new plan and confirm again.")
-UPGRADE_DONE = "Nothing to upgrade: every shared table is already at this version."
+UPGRADE_DONE = "Nothing to upgrade, because every shared table is already at this version."
 CHANGED = ("Something changed since this plan was shown (a name was taken, or a lakehouse or its tables "
            "changed). Nothing was created. Review the new plan and confirm again.")
 

@@ -48,16 +48,16 @@ def test_three_part_names_write_and_create(cell):
 
 
 @pytest.mark.parametrize("code, what", [
-    ("SELECT * FROM prod.sales.orders", "A name in the catalog prod"),
-    ("INSERT INTO prod.default.t VALUES (2)", "A name in the catalog prod"),
-    ("SELECT * FROM memory.main.t", "A name in the catalog memory"),  # DuckDB's own name isn't Databricks'
+    ("SELECT * FROM prod.sales.orders", "A table in the catalog prod"),
+    ("INSERT INTO prod.default.t VALUES (2)", "A table in the catalog prod"),
+    ("SELECT * FROM memory.main.t", "A table in the catalog memory"),  # DuckDB's own name isn't Databricks'
     ("USE CATALOG prod", "USE CATALOG prod"),
     ("USE SCHEMA prod.sales", "USE SCHEMA prod.sales"),
 ])
 def test_another_catalog_is_refused_by_name(cell, code, what):
     answer = cell(code)
     assert answer.startswith(f"error: {what} can't run on this PC the way it runs in Databricks, because "), answer
-    assert "Run the cell on a Databricks SQL warehouse, or name the table as schema.table" in answer
+    assert "Run the cell on a Databricks SQL warehouse, or name the table as main.schema.table, schema.table or table" in answer
     assert cell("SELECT count(*) FROM t") == [[1]]  # nothing ran
 
 

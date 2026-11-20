@@ -1090,10 +1090,11 @@ _DUCKDB_CATALOGS = {"system", "temp", "memory"}  # USE x in DuckDB would switch 
 
 
 def _catalog_refusal(name: str, what: str | None = None) -> ValueError:
-    return _statement_refusal(what or f"A name in the catalog {name}",
+    others = SESSION_CATALOGS[1:]
+    return _statement_refusal(what or f"A table in the catalog {name}",
                               f"{name} is a Unity Catalog catalog and this session holds only its own tables, in "
-                              f"the catalog main ({', '.join(SESSION_CATALOGS[1:])} name it too)",
-                              "name the table as schema.table or table, or as main.schema.table")
+                              f"the catalog main ({', '.join(others[:-1])} and {others[-1]} name it too)",
+                              "name the table as main.schema.table, schema.table or table")
 
 
 def _default_schema(identifier: exp.Identifier | None) -> exp.Identifier | None:

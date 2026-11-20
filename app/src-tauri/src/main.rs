@@ -211,7 +211,7 @@ mod policy_tests {
         // Readable and not configured: the trusted file's folder is used.
         assert_eq!(mirror_state_from(Ok(Vec::new()), file, Ok(()), Ok(())), Ok(Some("https://files.contoso.com/kf".into())));
         // Unreadable (access denied, a damaged hive): never the file's folder, and the reason is given.
-        let why = mirror_state_from(Err("HKLM\\Software\\Policies\\KratosBI\\KratosForge couldn't be read (Windows error 5)".into()),
+        let why = mirror_state_from(Err("Windows error 5 reading HKLM\\Software\\Policies\\KratosBI\\KratosForge".into()),
                                     file, Ok(()), Ok(())).unwrap_err();
         assert!(why.starts_with("Group Policy couldn't be read (") && why.contains("Windows error 5")
                 && why.ends_with("so only the built-in engine source is used"), "{why}");

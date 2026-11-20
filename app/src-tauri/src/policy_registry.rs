@@ -85,7 +85,7 @@ pub fn sets(found: &[(String, Raw)], key: &str) -> bool {
 pub fn trusted_hosts(unreadable: Option<String>, file: Vec<String>, file_ok: Result<(), String>,
                      registry: Option<Vec<String>>, registry_ok: Result<(), String>) -> (Vec<String>, String) {
     if let Some(why) = unreadable {
-        return (Vec::new(), format!("none are used, since Group Policy couldn't be read ({why})"));
+        return (Vec::new(), format!("none are used, because Group Policy couldn't be read ({why})"));
     }
     let mut ignored = Vec::new();
     if let Some(hosts) = registry {
@@ -140,7 +140,7 @@ pub fn unreadable(status: u32, what: &str) -> Option<String> {
     const UNSUPPORTED_TYPE: u32 = 1630;
     match status {
         SUCCESS | FILE_NOT_FOUND | PATH_NOT_FOUND | UNSUPPORTED_TYPE => None,
-        _ => Some(format!("{what} couldn't be read (Windows error {status})")),
+        _ => Some(format!("Windows error {status} reading {what}")),
     }
 }
 
@@ -276,7 +276,7 @@ mod tests {
         }
         for status in [5, 1009, 1015, 234] {
             // access denied, a damaged hive, the registry failed, more data than asked for
-            assert_eq!(unreadable(status, "auto_update"), Some(format!("auto_update couldn't be read (Windows error {status})")));
+            assert_eq!(unreadable(status, "auto_update"), Some(format!("Windows error {status} reading auto_update")));
         }
     }
 
@@ -330,10 +330,10 @@ mod tests {
         assert_eq!(trusted_hosts(None, Vec::new(), no(), None, no()), (Vec::new(), String::new()));
         // Group Policy there but unreadable (a list that failed part way): no extra hosts from either
         // source, never the file's, which Group Policy may have been set to narrow.
-        let (hosts, why) = trusted_hosts(Some("2 couldn't be read (Windows error 5)".into()), h("f.example.com"), Ok(()),
+        let (hosts, why) = trusted_hosts(Some("Windows error 5 reading 2".into()), h("f.example.com"), Ok(()),
                                          None, Ok(()));
         assert!(hosts.is_empty());
-        assert_eq!(why, "none are used, since Group Policy couldn't be read (2 couldn't be read (Windows error 5))");
+        assert_eq!(why, "none are used, because Group Policy couldn't be read (Windows error 5 reading 2)");
     }
 
     #[test]

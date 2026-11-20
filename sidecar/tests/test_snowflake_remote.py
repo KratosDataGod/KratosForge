@@ -261,3 +261,24 @@ def test_cancel_while_following_cancels_on_snowflake():
     with pytest.raises(sr.SnowflakeError, match="^Cancelled.$"):
         c.statement("SELECT 1")
     assert fake.calls[-1] == {"method": "POST", "url": HOST + "/api/v2/statements/01b2-aa/cancel"}
+
+
+def test_cancel_during_a_throttled_look_still_cancels_and_waits_stay_short():
+    fake, waits = FakeSnowflake(), []
+
+    def request(method, url, **kw):
+        fake.calls.append({"method": method, "url": url})
+        if url.endswith("/cancel"):
+            return Resp(200, {})
+        if method == "GET":
+            return Resp(429, {"message": "slow down"})
+        r = Resp(202, {"statementHandle": "01b2-aa"})
+        r.headers = {"Retry-After": "600"}
+        return r
+    fake.request = request
+    c = sr.Client(sa.TokenProvider("myorg-myaccount", "pat", lambda: ("t", None)), http=fake, sleep=waits.append)
+    c.stopped = lambda: any(x["method"] == "GET" for x in fake.calls)
+    with pytest.raises(sr.SnowflakeError, match="^Cancelled.$"):
+        c.statement("SELECT 1")
+    assert fake.calls[-1]["url"].endswith("/01b2-aa/cancel")
+    assert waits and max(waits) <= sr.POLL_CAP

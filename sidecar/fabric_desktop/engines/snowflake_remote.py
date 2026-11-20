@@ -42,6 +42,7 @@ from .snowflake_auth import SnowflakeAuthError, TokenProvider, provider_for
 SCHEMA = "kratosforge.snowflake-check/1"
 STATEMENT_TIMEOUT = 30          # seconds Snowflake may spend on one check statement
 POLL_SECONDS = 0.5
+POLL_CAP = 5.0              # the longest wait between looks, whatever Retry-After says, so Cancel stays prompt
 MAX_WAIT = 60.0                 # a statement still running after this is cancelled and reported
 _HANDLE = re.compile(r"^[0-9a-fA-F-]{1,64}$")
 CHECK_FIELDS = ("role", "database", "schema", "warehouse")
@@ -137,12 +138,13 @@ class Client:
                 return answer, getattr(answer, "headers", None)
             try:
                 resp = poll_until(look, lambda r: r.status_code != 202 or self.stopped(), MAX_WAIT,
-                                  getattr(resp, "headers", None), self._sleep, self._clock, POLL_SECONDS)
+                                  getattr(resp, "headers", None), self._sleep, self._clock, POLL_SECONDS,
+                                  cap=POLL_CAP)
             except PollTimedOut:
                 self.cancel(handle)
                 raise SnowflakeError(f"The statement was still running after {int(MAX_WAIT)} seconds, "
                                      "so it was cancelled.") from None
-            if resp.status_code == 202:  # stopped: the person pressed Cancel
+            if self.stopped():  # the person pressed Cancel, even if the last look was refused or throttled
                 self.cancel(handle)
                 raise SnowflakeError("Cancelled.")
         if resp.status_code != 200:

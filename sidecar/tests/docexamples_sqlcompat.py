@@ -76,6 +76,9 @@ CLAIMS: list[Claim] = [
     _ts("DATEDIFF(week, Saturday, Sunday)", query="SELECT DATEDIFF(week, '2024-03-02', '2024-03-03')"),
     _ts("EOMONTH('2024-01-31', 1)"),
     _ts("datetime2(6)", query="SELECT CAST(CAST('2024-02-29 13:04:05' AS datetime2(6)) AS varchar(30))"),
+    _ts("CAST('03:04:05.126' AS TIME(2))", query="SELECT CAST(CAST('03:04:05.126' AS TIME(2)) AS VARCHAR(30))"),
+    _ts("DATENAME(hour, ...)", query="SELECT DATENAME(hour, CAST('2024-01-02 03:04:05.123' AS DATETIME2))"),
+    _ts("DATENAME(millisecond, ...)", query="SELECT DATENAME(millisecond, CAST('2024-01-02 03:04:05.123' AS DATETIME2))"),
     # Local T-SQL formatting
     _ts("FORMAT(1234.5, 'N')"),
     _ts("FORMAT(255, 'X4')"),

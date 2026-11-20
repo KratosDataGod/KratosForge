@@ -484,15 +484,19 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
 | `FORMAT` | .NET's date formats in `en-US`, `en-GB` or `de-DE`, on a `date` or a date-and-time column. See [Local T-SQL formatting](#local-t-sql-formatting) |
-| `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000`. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
-| `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11 |
+| `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000` for a `datetime2(6)`. 121 and 126 write a `datetime2(n)` or `time(n)` with its `n` digits, as `CAST` does, and a `datetime` to the millisecond. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
+| `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11, and `datetime2` or `time` with no precision is `(7)`, so seven digits (`.1200000`) |
+| `CAST` of a `datetime` or `smalldatetime` to text, and style 0 or 100 | T-SQL's default for them, `mon dd yyyy hh:miAM`: the day and the hour take two places, `Jan  2 2024  3:04PM` |
+| `datetime2(n)` and `time(n)` with `n` below 6 | Rounded to `n` digits, half up, from text or from another time: `CAST('03:04:05.126' AS TIME(2))` is `03:04:05.13`, and `DATEADD` of one keeps its `n` |
+| `DATEADD` and `DATETIMEFROMPARTS` of a `datetime` | A `datetime`, rounded to 1/300 of a second again: adding 1 millisecond to `.000` leaves `.000`, and adding 2 gives `.003`. `microsecond` or `nanosecond` on a `datetime` is T-SQL's error |
+| `DATENAME` | The month's and the weekday's names, and every other part as `DATEPART`'s number written as text: `DATENAME(hour, ...)` is `'3'`, `DATENAME(millisecond, ...)` is `'123'` |
 | `CONVERT` and `TRY_CONVERT` from text, the same styles | The date the style reads (`'29/02/2024'` with 103), to a `date`, `datetime` or `datetime2`. A date that doesn't exist is an error with `CONVERT` and `NULL` with `TRY_CONVERT`. Styles 120, 121 and 126 read ISO text with or without its time |
 
 What can still differ:
 
-- A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven.
+- A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven: written as text it has a 7th digit of `0` here, text whose 7th digit isn't `0` is refused by name in `CAST` and `CONVERT` to `datetime2`, `datetime2(6)`, `datetime2(7)` or `time` (T-SQL keeps or rounds on it), and text with more than seven digits is T-SQL's conversion error (`NULL` with `TRY_CAST`).
 - Any other `CONVERT` date style runs as translated, but its values haven't been checked. The run's `translation.notes` says so ("CONVERT style 104 runs as a translation that hasn't been checked ...").
-- `CAST(a_datetime AS VARCHAR)` with no style, and `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
+- `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
 
 ## Local T-SQL formatting
 
@@ -528,6 +532,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `=`, `<>`, `<`, `IN`, `JOIN ... ON` | `'a' = 'a  '` is true and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
 | `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
 | `CHARINDEX` with a `NULL` start | `NULL` |
+| `LEFT` and `RIGHT` with a `NULL` length | `NULL` (they kept the whole text) |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
@@ -839,7 +844,7 @@ T-SQL run on this PC takes the data types Microsoft's "Data types in Fabric Data
 | Type | In a table or view | In a query (`CAST`, `CONVERT`) |
 | --- | --- | --- |
 | `bit`, `smallint`, `int`, `bigint`, `decimal`/`numeric`, `float`, `real`, `date`, `char`, `varchar`, `varbinary`, `uniqueidentifier` | Yes | Yes |
-| `datetime2(n)`, `time(n)` | Only with n up to 6: `datetime2` with no precision is `datetime2(7)` and is refused, naming `datetime2(6)` | Yes, kept to the microsecond (a 7th digit is cut) |
+| `datetime2(n)`, `time(n)` | Only with n up to 6: `datetime2` with no precision is `datetime2(7)` and is refused, naming `datetime2(6)` | Yes, kept to the microsecond and rounded to `n` digits. Text with a 7th digit that isn't 0 is refused by name; more than 7 is T-SQL's conversion error |
 | `datetime` | Refused: use `datetime2(6)` | Yes, rounded as T-SQL rounds it, to 1/300 of a second (`.002` is `.003`, `.005` is `.007`, `23:59:59.999` is the next day). Before 1753 or after 9999-12-31 23:59:59.997 is T-SQL's out-of-range error (`NULL` with `TRY_CAST` and `TRY_CONVERT`), and text with more than three digits of a second is T-SQL's conversion error. `CONVERT` with style 121 or 126 writes it to the millisecond, as T-SQL does |
 | `smalldatetime` | Refused: use `datetime2(0)` | Yes, rounded to the minute (29.998 seconds rounds down, 29.999 up), from 1900-01-01 to 2079-06-06 23:59 |
 | `nchar`, `nvarchar`, `text`, `ntext` | Refused: use `char`, `varchar` or `varchar(max)` | Yes, as text |
@@ -860,7 +865,7 @@ Sizes T-SQL doesn't take stop with T-SQL's message: `varchar(8001)` is "The size
 What can still differ:
 
 - `CHAR(n)` isn't padded with spaces (see [Local T-SQL tables](#local-t-sql-tables)).
-- `GETDATE()` and `CURRENT_TIMESTAMP` give the time to the microsecond here. In T-SQL they're `datetime`, in 1/300-second steps.
+- `GETDATE()` and `CURRENT_TIMESTAMP` give the time to the microsecond here. In T-SQL they're `datetime`, in 1/300-second steps, and written as text in style 0.
 - A Delta table's own length limits aren't kept: a `varchar(10)` column written to Delta is text of any length there, as in a Spark table.
 
 ## Local T-SQL decimals
@@ -1068,7 +1073,7 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
 
 - **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
-- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
+- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, `LEFT` and `RIGHT` with a `NULL` length, and times below a second (`datetime2(n)` and `time(n)` rounded to `n` digits and written as text, `datetime` after `DATEADD` and in style 0, and `DATENAME`), each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
 - **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD` and `ORDER BY`'s NULL order, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:

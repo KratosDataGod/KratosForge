@@ -226,6 +226,24 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
     return texts, list(dict.fromkeys(notes))
 
 
+_DATENAME_WORDS = {"MONTH", "MM", "M", "WEEKDAY", "DW", "W"}
+
+
+def _datename(args: list[exp.Expression]) -> exp.Expression:
+    """``DATENAME(part, d)``: the month's and the weekday's names, and every other part as DATEPART's number written
+    as text (functions/datename-transact-sql: ``DATENAME(day, ...)`` is ``'2'``, ``DATENAME(millisecond, ...)``
+    ``'123'``). sqlglot read the other parts as strftime patterns, so ``DATENAME(hour, d)`` was the month's short
+    name and ``DATENAME(millisecond, d)`` six digits (WR-258)."""
+    part, value = seq_get(args, 0), seq_get(args, 1)
+    if len(args) != 2 or part is None or value is None or part.name.upper() in _DATENAME_WORDS:
+        return TSQL.Parser.FUNCTIONS["DATENAME"](args)
+    number = sqlglot.parse_one(f"DATEPART({part.name}, kf_datename)", read=KfTSQL)
+    for spot in list(number.find_all(exp.Column)):
+        if spot.name == "kf_datename":
+            spot.replace(value)
+    return exp.Cast(this=number, to=exp.DataType.build("VARCHAR"))
+
+
 class KfTSQL(TSQL):
     """T-SQL as SQL Server reads it: ``FLOAT`` is an 8-byte float, ``FLOAT(1)`` to ``FLOAT(24)`` and
     ``REAL`` 4 bytes. sqlglot reads ``FLOAT`` as ``REAL``, which DuckDB runs as 4 bytes, so
@@ -245,7 +263,7 @@ class KfTSQL(TSQL):
         # PARSE and TRY_PARSE take "x AS type USING culture", which sqlglot can't read (WR-229).
         FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
                             "TRY_PARSE": tsql_format.parser(True)}
-        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
+        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build, "DATENAME": _datename,
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
                      "JSON_VALUE": lambda args: exp.JSONExtractScalar(this=seq_get(args, 0), expression=seq_get(args, 1),
@@ -1128,7 +1146,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                     and not node.meta.get("kf_digits"):  # NULL, and PARSE's checked digits, convert the same
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
-            source = _numeric_style(node, info) or info.this.type
+            written = None if isinstance(node.this, exp.TimeToStr) else node.meta.get("kf_written")  # not styled
+            source = _numeric_style(node, info) or written or info.this.type
             if (unchecked := node.meta.pop("tsql_unchecked_style", None)) is not None:
                 notes.append(_unchecked_style(unchecked))
             _truncated(node, info.this.type)
@@ -1532,7 +1551,7 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
         return None
     kind = info.this.this.type
     if not _is(kind, _NUMBERS):
-        _date_style(node.this, kind, style)
+        _date_style(node.this, node.meta.get("kf_written") or kind, style)
         if style not in CHECKED_DATE_STYLES:
             node.meta["tsql_unchecked_style"] = style
         return None
@@ -1551,22 +1570,52 @@ def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> N
     if _is(kind, {exp.DataType.Type.TIME}):
         text.set("this", exp.Add(this=exp.cast(exp.Literal.string("1900-01-01"), "DATE"), expression=text.this))
     fmt = text.args.get("format")
+    if isinstance(fmt, exp.Literal) and fmt.name == _STYLE_0:
+        text.replace(_style_0_text(text.this))
+        return
     if not isinstance(fmt, exp.Literal) or not fmt.name.startswith("%Y-%m-%d"):
         return
     if _is(kind, {exp.DataType.Type.DATE}):
         text.set("format", exp.Literal.string("%Y-%m-%d"))
         return
+    written: exp.Expr = text
     if (_is(kind, {exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}) or tsql_types.is_rounded(text.this)) \
             and fmt.name.endswith(".%f"):
         fmt = exp.Literal.string(fmt.name[:-len(".%f")] + ".%g")  # datetime is written to the millisecond (WR-223)
         text.set("format", fmt)
+    elif fmt.name.endswith(".%f") and (digits := _fraction_digits(kind)) is not None:
+        # Styles 121 and 126 write a datetime2(n) or time(n) with its n digits, as CAST does (121 is its default
+        # style), zeros too (WR-258).
+        written = _fraction_text(text.this, fmt.name[:-len(".%f")], digits)
     if style == "126" and fmt.name.endswith((".%f", ".%g")):
-        whole = text.copy()
-        whole.set("format", exp.Literal.string(fmt.name[:-len(".%f")]))  # .%g is as long
-        # DuckDB's MICROSECOND counts the seconds too: the fraction is what's left of a whole second.
-        fraction = exp.Mod(this=exp.func("MICROSECOND", text.this.copy()), expression=exp.Literal.number(1_000_000))
-        zero = exp.EQ(this=exp.paren(fraction, copy=False), expression=exp.Literal.number(0))
-        text.replace(exp.Case(ifs=[exp.If(this=zero, true=whole)], default=text.copy()))
+        # A fraction that is all zeros is left off, with its point; the value is read once.
+        written = exp.func("REGEXP_REPLACE", written.copy(), exp.Literal.string(r"\.0*$"), exp.Literal.string(""))
+    if written is not text:
+        text.replace(written)
+
+
+# sqlglot's pattern for CONVERT style 0 and 100, and CAST's for a datetime: mon dd yyyy hh:miAM.
+_STYLE_0 = "%b %d %Y %-I:%M%p"
+
+
+def _style_0_text(value: exp.Expression) -> exp.Expr:
+    """T-SQL's style 0 (and 100), its default for datetime and smalldatetime: the day and the hour take two places,
+    a space in front of one digit (``Jan  2 2024  3:04AM``), where sqlglot's pattern wrote ``Jan 02 2024 3:04AM``
+    (WR-258). The value is read once."""
+    def build(v: exp.Expression) -> exp.Expression:
+        stamp: exp.Expression = exp.Cast(this=v, to=exp.DataType.build("TIMESTAMP"))
+
+        def part(fmt: str) -> exp.Expression:
+            return exp.Anonymous(this="STRFTIME", expressions=[stamp.copy(), exp.Literal.string(fmt)])
+
+        def padded(fmt: str) -> exp.Expr:
+            return exp.func("LPAD", part(fmt), exp.Literal.number(2), exp.Literal.string(" "))
+        pieces: list[exp.Expr] = [part("%b "), padded("%-d"), part(" %Y "), padded("%-I"), part(":%M%p")]
+        out: exp.Expression = exp.DPipe(this=pieces[0], expression=pieces[1], safe=False)
+        for piece in pieces[2:]:
+            out = exp.DPipe(this=out, expression=piece, safe=False)
+        return out
+    return _once([value], build)
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
@@ -1592,6 +1641,8 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
         text = _bit_text(node.this)
     if source is not None and (digits := _fraction_digits(source)) is not None:
         text = _time_text(node.this, source, digits)
+    elif _is(source, {exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}) or tsql_types.is_rounded(node.this):
+        text = _style_0_text(node.this)  # CAST's style for a datetime is 0, mon dd yyyy hh:miAM (WR-258)
     if _is(source, _NUMBERS):
         # A float in T-SQL's style; a number written with a point (1.50) is a decimal there, and keeps its digits.
         shown = _float_text(node.this) if _is(source, _FLOATS) and not _written_decimal(node.this) else text
@@ -1606,10 +1657,12 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
 
 
 def _fraction_digits(source: exp.DataType | None) -> int | None:
-    """A datetime2(n) or time(n) with its n written: T-SQL shows n digits of a second as text, zeros too."""
-    if not (isinstance(source, exp.DataType) and source.this in (exp.DataType.Type.DATETIME2, exp.DataType.Type.TIME)
-            and source.expressions):
+    """A datetime2(n) or time(n): T-SQL shows n digits of a second as text, zeros too; with no n written it is 7
+    (WR-258: datetime2 and time are datetime2(7) and time(7), and CAST(x AS VARCHAR) writes 7 digits)."""
+    if not (isinstance(source, exp.DataType) and source.this in (exp.DataType.Type.DATETIME2, exp.DataType.Type.TIME)):
         return None
+    if not source.expressions:
+        return 7
     size = source.expressions[0].this
     return int(size.name) if isinstance(size, exp.Literal) and not size.is_string and size.name.isdigit() else None
 
@@ -1622,12 +1675,23 @@ def _time_text(value: exp.Expression, source: exp.DataType, digits: int) -> exp.
     if source.this == exp.DataType.Type.TIME:
         stamp = exp.Add(this=exp.cast(exp.Literal.string("1970-01-01"), "DATE"), expression=stamp)
         shape = "%H:%M:%S"
-    whole = exp.Anonymous(this="STRFTIME", expressions=[stamp.copy(), exp.Literal.string(shape)])
+    return _fraction_text(stamp, shape, digits)
+
+
+def _fraction_text(stamp: exp.Expression, shape: str, digits: int) -> exp.Expr:
+    """``stamp`` written with ``shape`` and n digits of a second, zeros too; the value is read once. It is made a
+    TIMESTAMP first: DuckDB's STRFTIME of a TIMESTAMP_S or TIMESTAMP_MS goes through nanoseconds, which stop before
+    1678."""
+    stamp = exp.Cast(this=stamp, to=exp.DataType.build("TIMESTAMP"))
     if digits <= 0:
-        return whole
-    part = exp.func("LEFT", exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string("%f")]),
-                    exp.Literal.number(min(digits, 6)))
-    return exp.DPipe(this=exp.DPipe(this=whole, expression=exp.Literal.string(".")), expression=part)
+        return exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string(shape)])
+    text = exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string(shape + ".%f")])
+    if digits == 7:
+        # The 7th digit is 0 here: text with another 7th digit is refused before it gets here (tsql_types).
+        return exp.DPipe(this=text, expression=exp.Literal.string("0"), safe=False)
+    if digits >= 6:
+        return text
+    return exp.func("REGEXP_REPLACE", text, exp.Literal.string(f"[0-9]{{{6 - digits}}}$"), exp.Literal.string(""))
 
 
 # The date styles whose values are checked against T-SQL's (WR-208); 0 is the default, as a CAST.
@@ -1654,10 +1718,14 @@ def _converts(tree: exp.Expression) -> list[str]:
             # To a datetime or datetime2 sqlglot writes the bare STRPTIME; wrap it as for a date, so
             # TRY_CONVERT's NULL and the ISO styles' optional parts apply there too (WR-208).
             new = exp.Cast(this=new, to=node.this.copy())
+        written = tsql_types.written_type(node.expression)
         if isinstance(new, (exp.Cast, exp.TryCast)):
             # Keep CONVERT's own type, length included (the DuckDB text drops it), and TRY_CONVERT's NULL.
             kind = exp.TryCast if node.args.get("safe") else exp.Cast
             new = kind(this=new.this, to=node.this.copy())
+            if written is not None:
+                # The value's type as written: the DuckDB text made a datetime2(3) or a datetime a TIMESTAMP.
+                new.meta["kf_written"] = written
             if isinstance(new.this, exp.StrToTime):
                 fmt = new.this.args.get("format")
                 if isinstance(fmt, exp.Literal) and fmt.name.startswith("%Y-%m-%d"):
@@ -2609,8 +2677,11 @@ def _left_right(node: exp.Left | exp.Right) -> None:
         whole = _whole_count(n)
         longest = exp.func("LEAST", whole.copy(), exp.Literal.number(_LONGEST))
         call = type(node)(this=text, expression=longest)
-        negative = exp.LT(this=whole, expression=exp.Literal.number(0))
-        return exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))], default=call)
+        negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+        # LEAST skips a NULL, which would keep the whole text; a NULL length gives NULL in T-SQL.
+        unknown = exp.Is(this=whole, expression=exp.null())
+        return exp.Case(ifs=[exp.If(this=unknown, true=exp.null()),
+                             exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))], default=call)
     node.replace(_once([node.this, length], build))
 
 

@@ -248,3 +248,20 @@ def test_a_window_derive_reads_its_partition_and_order_columns(svc):
     events = {e["job"]["name"]: e for e in openlineage.run_events(project, RUNS, "dev")["events"]}
     fields = events["silver.orders"]["outputs"][0]["facets"]["columnLineage"]["fields"]["net_amount"]["inputFields"]
     assert sorted(f["field"] for f in fields) == ["amount", "customer_id", "order_date"]
+
+
+def test_deep_nesting_is_refused_before_polars_sees_it():
+    import time
+
+    from fabric_desktop.meta import project as project_mod
+
+    def cast(n):
+        return "CAST(" * n + "a" + " AS INT)" * n
+
+    assert lineage._expr_columns(cast(project_mod.MAX_EXPR_DEPTH)) == ["a"]
+    start = time.perf_counter()
+    assert lineage._expr_columns(cast(50)) is None  # Polars alone runs for minutes on this
+    assert lineage._expr_columns("(" * 33 + "a" + ")" * 33) is None
+    assert lineage._expr_columns("'" + "(" * 100 + "' || a") == ["a"]  # brackets in quoted text don't count
+    assert time.perf_counter() - start < 1.0
+    assert project_mod.check_expr(cast(50), {"a"})[0].endswith("does not parse (ValueError)")

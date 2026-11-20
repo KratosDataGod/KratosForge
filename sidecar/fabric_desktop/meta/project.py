@@ -527,6 +527,8 @@ def describe_exceptions(project: Project, today: dt.date | None = None,
 # stack and kills the process instead of raising: about 2,000 links on an 8 MB stack, 250 on a 1 MB
 # thread stack. An expression with more operators than this is refused before Polars sees it.
 MAX_EXPR_OPERATORS = 200
+# Polars' parser takes exponential time on deep nesting (CAST(CAST(... 50 deep runs for minutes), with no operator.
+MAX_EXPR_DEPTH = 32
 _QUOTED_PART = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
 _OPERATOR = re.compile(r"[-+*/%<>=|&^~!]+|\b(?:AND|OR|NOT|IS|IN|LIKE|ILIKE|BETWEEN)\b", re.IGNORECASE)
 
@@ -535,8 +537,18 @@ def sql_expr(expr: str) -> pl.Expr:
     """``pl.sql_expr``, but raising ValueError for an expression too long to parse without crashing."""
     if not isinstance(expr, str):
         raise TypeError("an expression must be text")
-    if len(_OPERATOR.findall(_QUOTED_PART.sub("''", expr))) > MAX_EXPR_OPERATORS:
+    bare = _QUOTED_PART.sub("''", expr)
+    if len(_OPERATOR.findall(bare)) > MAX_EXPR_OPERATORS:
         raise ValueError(f"expression has more than {MAX_EXPR_OPERATORS} operators; split it into steps")
+    depth = deepest = 0
+    for ch in bare:
+        if ch == "(":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif ch == ")":
+            depth -= 1
+    if deepest > MAX_EXPR_DEPTH:
+        raise ValueError(f"expression nests more than {MAX_EXPR_DEPTH} brackets deep; split it into steps")
     return pl.sql_expr(expr)
 
 

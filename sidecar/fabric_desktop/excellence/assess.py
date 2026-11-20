@@ -49,8 +49,10 @@ def _inventory(bundle: Bundle, ws: dict[str, Any]) -> list[dict[str, Any]] | Non
         return None
     items: dict[str, dict[str, Any]] = {}
     for r in recs:
-        for it in (r["payload"] or {}).get("items") or []:
-            if isinstance(it, dict) and it.get("id") and it.get("type"):
+        listed = r["payload"].get("items") if isinstance(r["payload"], dict) else None
+        for it in listed if isinstance(listed, list) else []:
+            if isinstance(it, dict) and it.get("id") and isinstance(it["id"], str) and it.get("type") \
+                    and isinstance(it["type"], str):
                 items[str(it["id"])] = subject("item", str(it["id"]), it.get("name"), workspace_id=ws["id"],
                                                item_type=str(it["type"]))
     return [items[k] for k in sorted(items)]

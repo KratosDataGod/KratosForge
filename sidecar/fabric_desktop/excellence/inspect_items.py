@@ -18,6 +18,7 @@ import re
 from typing import Any
 
 from .. import notebook_practices
+from .evidence import text
 
 MAX_PLACES = 20  # cell and line kept per rule; ``count`` has them all
 MAX_NAMES = 50  # activity names kept per list
@@ -28,6 +29,8 @@ _WORKSPACE_KEYS = {"workspaceid"}
 def inspect(w: dict[str, Any]) -> dict[str, Any]:
     """The inspection of one workload (see the module docstring). ``{"read": False}`` when its
     definition wasn't read, and ``{}`` for a type that isn't inspected."""
+    if not isinstance(w, dict):
+        return {}
     kind = w.get("type")
     if kind not in ("Notebook", "DataPipeline"):
         return {}
@@ -79,7 +82,7 @@ def pipeline(w: dict[str, Any]) -> dict[str, Any]:
         return {"read": True, "error": "The pipeline's activities weren't available."}
     inactive, fixed, no_state, no_props = [], [], [], []
     for a in acts:
-        name = str(a.get("name") or a.get("type") or "activity")
+        name = text(a.get("name") or a.get("type")) or "activity"  # cut, so a hostile name can't bloat evidence
         if not isinstance(a.get("inactive"), bool):
             no_state.append(name)
         elif a["inactive"]:

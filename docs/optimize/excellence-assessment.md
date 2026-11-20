@@ -149,7 +149,9 @@ the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the c
 (`GET /capacities`), each lakehouse's properties (`GET /workspaces/{id}/lakehouses/{id}`, the read the
 app already makes before it writes a table; at most 50 per assessment), and the definition of each
 semantic model in the workspace, at most 30, as TMSL (`getDefinition?format=TMSL`, the read the
-Semantic model tab already makes). A read that fails is listed in `reads` and leaves its controls not evaluated.
+Semantic model tab already makes). It also uses the Capacity Metrics exports already imported on this
+PC (Optimize > Cost and savings). That is a local read, not a Fabric call. A read that fails is listed
+in `reads` and leaves its controls not evaluated.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls
@@ -162,6 +164,9 @@ Semantic model tab already makes). A read that fails is listed in `reads` and le
 | FEA-SEC-004 | Security | Low | At most 5 people have a write role through their own account rather than a group | Role assignments |
 | FEA-GOV-001 | Governance | Low | The workspace has a description | Workspace settings |
 | FEA-CAP-001 | Capacity and FinOps | Medium | The workspace's capacity is Active (only a capacity you can see) | Capacities |
+| FEA-CAP-002 | Capacity and FinOps | Medium | Operations with status Failure used under 10% of the imported operations' CU | Capacities, imported Capacity Metrics export (Timepoint operations, with Status) |
+| FEA-CAP-003 | Capacity and FinOps | Low | No item's refresh operations ran more than 24 times on one day (a pass needs at least a day of operations) | Capacities, imported Capacity Metrics export (Timepoint operations, with Operation) |
+| FEA-CAP-004 | Capacity and FinOps | Medium | A running F capacity's items used at least 10% of its size over at least 7 days. Doesn't apply to trial, A or P SKUs or a capacity that isn't running | Capacities, imported Capacity Metrics export (Compute page items) |
 | FEA-PERF-001 | Performance | Medium | A notebook doesn't run the same code on the same data as another (OE-DUP-NB) | Optimization engine |
 | FEA-PERF-002 | Performance | Medium | A pipeline doesn't copy a source another pipeline also copies (OE-DUP-COPY, OE-REPEAT-EXTRACT) | Optimization engine |
 | FEA-DE-001 | Data engineering | Medium | A scheduled notebook or pipeline doesn't rewrite whole tables (OE-FULL-REFRESH); not applicable when it isn't scheduled | Optimization engine |
@@ -237,6 +242,27 @@ What needs the model's data isn't checked here. High-cardinality columns, model 
 Lake guardrails need VertiPaq statistics or the Delta tables' numbers. The
 [Direct Lake check](../direct-lake-check.md) on the Semantic model tab reads those, and the full Best
 Practice Analyzer runs in Fabric only when you ask for it, and the assessment starts neither.
+
+### Capacity usage evidence
+
+FEA-CAP-002 to FEA-CAP-004 decide from the capacity's state and SKU (`GET /capacities`, verified
+configuration) and from Capacity Metrics app exports you imported on this PC, which are **measured**.
+Each row is an operation's Total CU (s), or an item's CU (s) over the period you entered. Nothing about
+usage is read from Fabric. An export is matched to the capacity through the assessed workspace: the
+Capacity Metrics app shows one capacity at a time, so an export that holds this workspace's use is
+taken to be of its capacity. The evidence names the files and their period, so an export taken before
+the workspace moved capacity can be spotted. Exports can be sampled, so a file may not hold every
+operation. A fail (failures, refreshes) is then a lower bound, and a low utilization should be checked
+against the Compute page. Compute-page exports whose periods overlap count once, and the longest is
+kept. An export filtered to some workspaces holds only their use, so the unused capacity it shows is
+from the imported rows, and the capacity's real use is higher.
+
+Without an import that holds the workspace's use, these controls are not evaluated and ask for one. A
+control whose column isn't in the import (Status, Operation, or the Compute page's items with a
+period) is not evaluated, never passed. The exports the app reads don't say whether the capacity was
+throttled or whether an operation was interactive or background, so there is no control for either
+yet. A benefit is capacity freed, estimated; it becomes money only when a capacity is resized, paused
+or retired. The 10%, 24-a-day and 7-day thresholds are KratosForge's.
 
 ## The scorecard
 

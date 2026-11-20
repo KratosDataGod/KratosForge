@@ -24,6 +24,8 @@ notebook's own process. A registered UDF can be called by its name in `spark.sql
 Spark, the declared return type (default `string`) is the column's type, a null goes in as `None`, a
 struct goes in as a `Row`, a returned value that doesn't fit the type comes out null, and an exception
 in the function fails the query. The result column is named as in Spark, such as `clean(email)`.
+A `pandas_udf`'s numbers convert as Spark's Arrow path does: a null beside numbers keeps the other rows, and a
+fraction returned for a whole-number type is cut.
 `asNondeterministic()` makes it run for every row. A grouped-aggregate `pandas_udf` (Series to one
 value), Java UDFs and UDTFs run in Fabric. Registered UDFs are forgotten when the session restarts.
 A name SQL already has as a function (`lower`, `nvl`, `date_add`...) is refused by `spark.udf.register`,

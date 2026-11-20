@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 SIDECAR = Path(__file__).resolve().parents[1]
-HEAVY = ["pyarrow.dataset", "pandas", "pyarrow.compute", "yaml", "fabric_desktop._vendor.ossie_microsoft"]
+HEAVY = ["pyarrow.dataset", "pandas", "pyarrow.compute", "yaml", "fabric_desktop._vendor.ossie_microsoft",
+         "jsonschema"]
 
 
 def loaded_after(code: str) -> dict[str, bool]:

@@ -24,7 +24,8 @@ from .redact import describe
 from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
 from .timeutil import now_iso as _now, seconds_between
-from .workloads.notify import UNCONFIRMED, Outbox, audit_trouble, send, settle_failed, single
+from .workloads.notify import (UNCONFIRMED, OutcomeUnknown, Outbox, audit_trouble, outcome_unknown, send,
+                                settle_failed, single)
 
 _log = logging.getLogger(__name__)
 _PIPELINE_POLL = 0.25  # seconds between looks at a scheduled pipeline run
@@ -552,7 +553,10 @@ class ScheduleMixin:
             try:
                 post(to, title, lines)
             except Exception as exc:  # noqa: BLE001 - any send failure becomes TeamsUnreachable, with the webhook kept out
-                raise TeamsUnreachable(_without_webhook(describe(exc), to)) from None
+                said = _without_webhook(describe(exc), to)
+                if outcome_unknown(exc):  # it may have arrived (no answer, 500, 502, 504): never sent again
+                    raise OutcomeUnknown(said) from None
+                raise TeamsUnreachable(said) from None
         try:
             result = send([], single(url), self._schedule_alerts(), "this PC's schedules", scrubbed)
         finally:

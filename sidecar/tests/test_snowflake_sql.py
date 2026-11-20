@@ -1165,3 +1165,49 @@ def test_an_array_of_text_and_numbers_is_refused_by_name(sql):
 def test_an_array_of_one_kind_or_from_a_column_still_runs():
     assert sf.translate("SELECT array_construct(1, 2), array_construct('a', NULL), array_append(array_construct(1), x) "
                         "FROM t").runnable
+
+
+@pytest.mark.parametrize("query", ["SELECT IFF(b = 0 OR c, 0, a / b) FROM t", "SELECT IFF(b = 0 AND NOT c, 0, a / b) FROM t"])
+def test_an_iff_that_only_looks_like_div0_keeps_its_division_guard(query):
+    # Telling DIV0's form apart used to move the divisor (OR) or the numerator (AND) out of the query.
+    sql = sf.translate(query).duckdb_sql
+    assert "ELSE a / CASE WHEN b = 0 THEN ERROR('Division by zero') ELSE b END END" in sql
+
+
+def test_div0_and_div0null_still_divide_without_the_guard():
+    sql = sf.translate("SELECT DIV0(a, b), DIV0NULL(a, b) FROM t").duckdb_sql
+    assert "ERROR" not in sql and sql.count("ELSE a / b END") == 2
+
+
+@pytest.mark.parametrize("fn", ["TO_TIMESTAMP_NTZ", "TO_TIMESTAMP"])
+def test_to_timestamp_ntz_of_a_column_reads_it_by_its_type(fn):
+    # DuckDB has no TO_TIMESTAMP_NTZ, so a column stopped with its catalog error (a literal was rewritten already).
+    import datetime as dt
+    con = duckdb.connect()
+    numbers = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (1700000000), (-3600), (NULL)) AS t(x)")
+                          .duckdb_sql).fetchall()
+    assert numbers == [(dt.datetime(2023, 11, 14, 22, 13, 20),), (dt.datetime(1969, 12, 31, 23, 0),), (None,)]
+    fraction = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (1700000000.123456789)) AS t(x)")
+                           .duckdb_sql).fetchall()
+    assert fraction == [(dt.datetime(2023, 11, 14, 22, 13, 20, 123456),)]
+    texts = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (VALUES ('2024-01-01 10:00:00'), ('1700000000'), ('1700000000123'), "
+        "('1700000000123456'), ('1700000000123456789')) AS t(x)").duckdb_sql).fetchall()
+    second = dt.datetime(2023, 11, 14, 22, 13, 20)
+    assert texts == [(dt.datetime(2024, 1, 1, 10, 0),), (second,), (second.replace(microsecond=123000),),
+                     (second.replace(microsecond=123456),), (second.replace(microsecond=123456),)]
+    dates = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (DATE '2024-01-01')) AS t(x)").duckdb_sql).fetchall()
+    assert dates == [(dt.datetime(2024, 1, 1),)]
+    with pytest.raises(duckdb.Error, match="(?i)timestamp"):
+        con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES ('nope')) AS t(x)").duckdb_sql).fetchall()
+    # Text with a UTC offset: the offset is dropped, as Snowflake's NTZ reads it (DuckDB 1.5.6 stopped, 2.0 dropped it).
+    offsets = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (VALUES ('2024-01-02 03:04:05 +02:00'), ('2024-01-02 03:04:05.5-0700'), "
+        "('2024-01-02T03:04:05Z'), ('2024-01-02')) AS t(x)").duckdb_sql).fetchall()
+    assert offsets == [(dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2, 3, 4, 5, 500000),),
+                       (dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2),)]
+    # A TIMESTAMPTZ column: the session time zone's wall clock (DuckDB keeps no offset of its own per value).
+    con.execute("SET TimeZone = 'UTC'")
+    zoned = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (SELECT CAST('2024-01-02 03:04:05+02' AS TIMESTAMPTZ) AS x) AS t").duckdb_sql).fetchall()
+    assert zoned == [(dt.datetime(2024, 1, 2, 1, 4, 5),)]

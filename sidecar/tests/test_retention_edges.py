@@ -516,7 +516,7 @@ def policy(tmp_path, monkeypatch):
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     monkeypatch.setattr(app_settings, "user_path", lambda: tmp_path / "user" / "settings.json")
     registry: dict = {}
-    monkeypatch.setattr(registry_policy, "read", lambda reader=None: (dict(registry), []))
+    monkeypatch.setattr(registry_policy, "read_all", lambda reader=None: (dict(registry), [], frozenset()))
     path = tmp_path / "pd" / "FabricDesktop" / "policy.json"
     path.parent.mkdir(parents=True)
     app_settings.user_path().parent.mkdir(parents=True)

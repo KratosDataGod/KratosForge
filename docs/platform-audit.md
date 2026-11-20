@@ -67,6 +67,7 @@ The row never holds the call's arguments or the refusal's message, which can quo
 
 In the Fabric SQL database (T-SQL):
 
+<!-- example: illustrative -->
 ```sql
 SELECT at, by_user, action, target, detail
 FROM catalog.audit
@@ -76,6 +77,7 @@ ORDER BY id;
 
 For a platform kept on one PC (SQLite):
 
+<!-- example: illustrative -->
 ```sql
 SELECT at, by_user, action, target, detail
 FROM catalog__audit

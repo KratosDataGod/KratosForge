@@ -35,7 +35,7 @@ from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
 from .jsonfile import read_object, write_json, write_text
-from . import known_folders
+from . import known_folders, trees
 
 _log = logging.getLogger(__name__)
 
@@ -197,7 +197,7 @@ class MetaMixin:
         work = new.with_name(new.name + ".copying")
         try:
             if work.exists():
-                shutil.rmtree(work)  # a copy an earlier run didn't finish: only ever this app's own work folder
+                trees.remove(work)  # a copy an earlier run didn't finish: only ever this app's own work folder
             shutil.copytree(path, work, symlinks=True)
             work.rename(new)
         except OSError as exc:

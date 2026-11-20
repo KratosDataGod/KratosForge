@@ -77,7 +77,8 @@ _ID = re.compile(r"[a-z][a-z0-9-]{1,39}")
 _PAGE = re.compile(r"[a-z][A-Za-z0-9]{0,39}")
 _COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
 _VERSION = re.compile(r"\d{1,4}\.\d{1,4}\.\d{1,4}", re.ASCII)
-_TEXT_BAD = re.compile(r"[\x00-\x1f\x7f<>{}\\]")
+_TEXT_BAD = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029<>{}\\]")
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 
 KEYS = {"schema", "id", "name", "version", "description", "targets", "appearance", "workflow"}
 TARGET_KEYS = {"platform", "reviewed", "basis"}
@@ -124,6 +125,8 @@ def _text(value: Any, where: str, limit: int, problems: list[str]) -> None:
         problems.append(f"{where} can't hold control characters, < > {{ }} or \\")
     elif any(unicodedata.category(c) == "Cf" for c in value):
         problems.append(f"{where} can't hold invisible formatting characters such as text-direction marks")
+    elif any(unicodedata.category(c) == "Cs" for c in value):
+        problems.append(f"{where} has a broken character, because it holds half of a UTF-16 pair; type it again")
 
 
 def _unknown(obj: dict[str, Any], allowed: set[str], where: str, problems: list[str]) -> None:
@@ -275,8 +278,12 @@ def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> di
         _unknown(t, TARGET_KEYS, where, problems)
         if t.get("platform") not in PLATFORMS:
             problems.append(f"{where} platform must be one of {', '.join(PLATFORMS)}")
+        reviewed = t.get("reviewed")
         try:
-            date.fromisoformat(str(t.get("reviewed")))
+            # fullmatch first: fromisoformat also takes 20261103 and 2026-W44-2, and str() a number
+            if not (isinstance(reviewed, str) and _DATE.fullmatch(reviewed)):
+                raise ValueError(reviewed)
+            date.fromisoformat(reviewed)
         except ValueError:
             problems.append(f"{where} reviewed must be a date like 2026-11-03")
         if "basis" in t:

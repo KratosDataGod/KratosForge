@@ -679,7 +679,7 @@ A capacity repository holds `capacity.toml`: the capacities there should be, the
 
 ## Settings
 
-Open Settings from the gear at the bottom of the left rail, or from the account menu. Settings has two tabs: **General**, below, and **Integrations** (Preview), which connects [external AI tools](#external-ai-tools).
+Open Settings from the gear at the bottom of the left rail, or from the account menu. Settings has tabs: **General**, below; **Connections** (Preview), for Databricks and Snowflake connection profiles; **Environment** (Preview), the [KratosForge Environment](#kratosforge-environment-preview) this PC uses; and **Integrations** (Preview), which connects [external AI tools](#external-ai-tools).
 
 | Section | What's there |
 | --- | --- |
@@ -694,6 +694,19 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, and the SQL query limits. See [Advanced settings](#advanced-settings). |
 
 Anything your organization has set shows "Set by your organization's policy" and can't be changed there.
+
+### KratosForge Environment (Preview)
+
+**Settings > Environment** shows where KratosForge keeps what your team shares: optimization history, savings and settings. Work still runs on this PC, and results wait on this PC until the environment can be reached. The environment is a workspace and a lakehouse in Fabric, with a small manifest file (`Files/_kratosforge/environment.json`) that holds ids and versions only, never a secret.
+
+- **Status** names the environment, its workspace and lakehouse, and one status with the next step: Connected, Working offline, Synchronizing, Upgrade required, Limited permissions or Connection failed. It also says how many results wait on this PC. **Validate connection** checks again.
+- **Create an environment...** shows what will happen before anything is made: each step with the permission it needs, what it may cost and a note. A step that can't go ahead says why, and **Create environment...** stays off until nothing is blocked. Creating asks you to confirm; in a workspace this PC knows as Prod, you type its name exactly.
+- **Connect to one...** lists the workspaces you can open. **Look inside** shows the environments in one, central lakehouses this PC can adopt, and lakehouses it couldn't read, with the reason. Reading changes nothing.
+- **Adopt this PC's central lakehouse...** turns the lakehouse Optimize already uses into an environment. It shows the manifest first, then writes only that file after you confirm. No table is created or changed.
+- **Upgrade...** appears when the shared tables use an older version. It shows a plan and asks you to confirm, as Create does, and keeps every record. KratosForge on other PCs can only read the tables until it's updated.
+- **Switch or disconnect...** lists the environments this PC knows. **Switch to it** makes another one active. **Disconnect...** makes this PC forget one: nothing in Fabric is changed or deleted, and results waiting on this PC stay there.
+
+Microsoft Fabric is the only provider today, and it's Preview. Azure Databricks and Snowflake show as not available yet. Your organization can turn environments off (`allow_central_environment` in its [policy](azure-setup.md)); then only **Disconnect** stays.
 
 ### Platform notices (Preview)
 

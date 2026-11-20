@@ -6165,6 +6165,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"], ossie: ["Ossie file to TMDL"],
+    kfEnvironment: ["KratosForge Environment"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -6599,6 +6600,11 @@ const FABRIC_WRITES = {
   appstudio_publish: ["appstudio.js", "page", null],
   // Settings' Motion sample also starts a run, but only Wait and SetVariable steps on this PC (checked below)
   pipeline_run_start: ["pipelines.js", "page", null],
+  // Settings > Environment (CP-010): shown only with preview features on, its heading tagged Preview
+  cp_create: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_adopt: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_connect: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_upgrade: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
   optimize_create: ["optimize.js", "page", null],
   optimize_connect: ["optimize.js", "page", null],
   optimize_set_recommendation: ["optimize.js", "page", null],

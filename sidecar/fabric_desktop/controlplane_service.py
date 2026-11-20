@@ -11,6 +11,8 @@
     cp_disconnect     forget an environment on this PC (nothing in it changes)
     cp_check          reachability, compatibility and the one status the app shows
     cp_cost           what the environment itself costs, apart from savings (CP-011; reads only)
+    cp_upgrade_plan   what upgrading the active environment's shared tables would do (reads only), with a token
+    cp_upgrade        run that plan, by its token, after the person confirms (CP-010)
 
 Approval path (Security QC on #3121): the engine never runs a plan or manifest the caller sends. A
 preview keeps the request and what was shown on the engine, under a single-use token that binds the
@@ -45,7 +47,8 @@ from .optimize.shared import Shared
 from .redact import describe
 
 METHODS = {"cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview", "cp_adopt",
-           "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost"}
+           "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost", "cp_upgrade_plan",
+           "cp_upgrade"}
 PREVIEW_SECONDS = 15 * 60
 MAX_PREVIEWS = 20
 OFF = ("Your organization has turned off KratosForge Environments (allow_central_environment in its "
@@ -236,7 +239,7 @@ class ControlPlaneMixin:
         sides are known. Reads only."""
         self._cp_allowed()
         if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 366:
-            raise ValueError(f"days must be between 1 and 366, not {days}.")
+            raise ValueError(f"days must be between 1 and 366, not {repr(days)[:20]}.")
         active = self.cp_cache.active()
         if not active:
             raise ValueError("Connect this PC to a KratosForge Environment first.")
@@ -247,6 +250,26 @@ class ControlPlaneMixin:
         rows = Shared(lake, self.optimize_installation, access="read").rows("measurements")  # type: ignore[attr-defined]
         return cpcost.summary(rows.to_dicts(), days=days,
                               installation_id=self.optimize_installation.id) | {"environment": active}  # type: ignore[attr-defined]
+
+    def cp_upgrade_plan(self) -> dict[str, Any]:
+        """What upgrading the active environment's shared tables would do. Nothing changes; the token
+        names this preview for cp_upgrade."""
+        self._cp_allowed()
+        active = self.cp_cache.active()
+        if not active:
+            raise ValueError("Connect this PC to a KratosForge Environment first.")
+        got = self._cp_store(active["workspace_id"], active["lakehouse_id"]).read()
+        if got is None or got.manifest.get("environment_id") != active["environment_id"]:
+            raise ValueError("The environment's manifest isn't in its lakehouse any more.")
+        plan = self._cp_provisioning().plan_upgrade(got.manifest)
+        view = _plan_view(plan)
+        ws_id = plan.request.get("workspace_id") or ""
+        prod = bool(ws_id) and self._prod_marked(ws_id)  # type: ignore[attr-defined]
+        out = view | {"request": plan.request, "environment": mf.summary(got.manifest),
+                      "typed_name": self._cp_workspace_name(ws_id) if prod else ""}
+        if plan.blocked:
+            return out | {"token": ""}
+        return out | self._cp_keep("upgrade", request=plan.request, digest=_digest({"request": plan.request, **view}))
 
     # ---- changes
 
@@ -293,6 +316,29 @@ class ControlPlaneMixin:
         except cps.ManifestExists as exc:
             raise ValueError("This lakehouse became a KratosForge Environment meanwhile. Connect to it instead.") from exc
         return {"ok": True, "manifest": made.manifest, "environment": self.cp_cache.remember(made.manifest)}
+
+    def cp_upgrade(self, token: str, confirmed: bool = False, confirm_name: str = "") -> dict[str, Any]:
+        """Run the upgrade plan cp_upgrade_plan showed, by its token. The plan is made again here and must match."""
+        self._cp_allowed()
+        if not confirmed:
+            raise pv.NotConfirmed("Nothing was upgraded, because upgrading needs your confirmation.")
+        self._cp_typed_name(self._cp_peek("upgrade", token)["request"].get("workspace_id") or "", confirm_name)
+        entry = self._cp_take("upgrade", token)
+        prov = self._cp_provisioning()
+        req = entry["request"]
+        got = self._cp_store(req["workspace_id"], req["lakehouse_id"]).read()
+        if got is None or got.manifest.get("environment_id") != req.get("environment_id"):
+            raise PermissionError(CHANGED)
+        fresh = prov.plan_upgrade(got.manifest)
+        view = _plan_view(fresh)
+        if fresh.blocked:
+            raise PermissionError(" ".join(fresh.blocked))
+        if _digest({"request": fresh.request, **view}) != entry["digest"]:
+            raise PermissionError(CHANGED)
+        out = prov.apply_upgrade(fresh, confirmed=True)
+        if out["ok"] and out["manifest"]:
+            out["environment"] = self.cp_cache.remember(out["manifest"])
+        return out
 
     def cp_connect(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
         """Connect this PC to the environment in this lakehouse and make it the active one. Reads the

@@ -116,7 +116,8 @@ def test_a_warn_or_advisory_policy_never_stops_promote(svc, enforcement):
     assert svc.meta_promote_check("dev", "test")["errors"] == []
     to_test(svc)
     assert svc.meta_promote_check("test", "prod")["errors"] == []
-    assert svc.meta_promote("test", "prod")["version"]
+    from fabric_desktop.meta.project import prod_name
+    assert svc.meta_promote("test", "prod", confirm_name=prod_name(svc._project()))["version"]  # WR-250
 
 
 # --------------------------------------------------------------------------- 3. an exception lets it through

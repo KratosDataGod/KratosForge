@@ -18,7 +18,7 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from . import model_ossie, tmdl
+from . import model_ossie, ossie_validate, tmdl
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
 from .notebook_files_service import _is_link
@@ -124,6 +124,29 @@ def _model_counts(bim: dict[str, Any]) -> dict[str, int]:
 
 
 _CULTURE_LINE = re.compile(r"^(?:cultureInfo|culture)[ \t]", re.M)  # only such files can define a culture
+
+
+def _refuse_unreadable(read_report: list[dict[str, str]]) -> None:
+    """Refuse the write when the reader couldn't read part of a TMDL file outside cultures/ (``read_report`` names
+    it in ``file``). Rewriting that file from what was read would drop those lines from the user's folder, and
+    keeping it as it was would leave it disagreeing with the model written, so nothing is written. The message
+    names each file and what in it KratosForge can't read. Culture files are kept instead (``_kept_cultures``)."""
+    lost: dict[str, list[str]] = {}
+    for r in read_report:
+        rel = str(r.get("file") or "")
+        if r.get("kind") == "lost" and rel and PurePosixPath(rel).parts[:2] != ("definition", "cultures"):
+            lost.setdefault(rel, []).append(str(r.get("object") or ""))
+    if not lost:
+        return
+    parts = []
+    for rel in sorted(lost):
+        short = PurePosixPath(rel).relative_to("definition").as_posix() if rel.startswith("definition/") else rel
+        what = list(dict.fromkeys(lost[rel]))
+        more = f" and {len(what) - 3} more" if len(what) > 3 else ""
+        parts.append(f"{short} holds lines KratosForge can't read ({', '.join(what[:3])}{more})")
+    them = "them" if len(parts) == 1 else "those lines"
+    raise ValueError(f"{'; '.join(parts)}, so it would lose {them} if rewritten; nothing was written. "
+                     "Take those lines out of the folder by hand, or keep it as it is, then preview again.")
 
 
 def _kept_cultures(folder: Path, read_report: list[dict[str, str]]) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
@@ -251,7 +274,8 @@ class ModelOssieMixin:
         model = self._ossie_model(cfg["workspace_id"], name)
         if model is None:
             raise LookupError(f"There's no semantic model named {name} in {cfg.get('workspace_name') or 'the workspace'}")
-        out = model_ossie.export(self._model_bim(cfg["workspace_id"], model), translate_dax=translate_dax)
+        out = model_ossie.export(self._model_bim(cfg["workspace_id"], model), translate_dax=translate_dax, validate=True)
+        del out["round_trip"]  # its result is in the fidelity report; the Round-trip check card is for folders
         return out | {"model": name, "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
 
     def _model_folders(self, project: Any) -> list[Path]:
@@ -281,9 +305,8 @@ class ModelOssieMixin:
             raise LookupError(f"There's no model folder {path}; pick one from {FOLDER}/<name>.SemanticModel")
         name = folder.name.removesuffix(".SemanticModel")
         bim, read_report = _folder_bim(folder, name, path)
-        out = model_ossie.export(bim, translate_dax=translate_dax)
-        return out | {"model": name, "report": read_report + out["report"], "round_trip": model_ossie.round_trip(bim),
-                      "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
+        out = model_ossie.export(bim, translate_dax=translate_dax, read_report=read_report, validate=True)
+        return out | {"model": name, "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
 
     def _ossie_path(self, project: Any, path: str, suffixes: tuple[str, ...]) -> Path:
         rel = PurePosixPath(path.replace("\\", "/"))
@@ -315,13 +338,17 @@ class ModelOssieMixin:
             raise ValueError(f"mode is one of {', '.join(MODES)}")
         model_ossie.require()  # before any Fabric call, even when a name is given and the file isn't parsed yet
         project, cfg = self._ossie_workspace(env)
-        name = (name or model_ossie.parse(text)["name"]).strip()
+        doc = model_ossie.parse(text)  # read once: the conversion, the merge, the reports and the schema check share it
+        refusal = model_ossie.not_convertible(doc)
+        if refusal:  # a known profile the converter can't read: no Fabric call, nothing converted
+            return {"refused": refusal, "doc": doc, "cfg": cfg, "name": (name or model_ossie.model_name(doc)).strip()}
+        name = (name or doc["name"]).strip()
         store = self._store(project, env)  # type: ignore[attr-defined]
         lakehouse = project.layer(self._model_layer(project, layer)).lakehouse  # type: ignore[attr-defined]
         source = None
         if isinstance(store, OneLakeStore) and lakehouse in store.lakehouse_ids:
             source = {"workspaceId": store.workspace_of(lakehouse), "itemId": store.lakehouse_ids[lakehouse]}
-        incoming, report = model_ossie.to_tmsl(text, source=source)
+        incoming, report = model_ossie.to_tmsl(doc, source=source)
         if source is None:
             report.append({"object": "Direct Lake", "kind": "lost",
                            "message": f"{lakehouse} isn't in this environment yet, so new tables read from placeholder ids; promote first"})
@@ -332,9 +359,12 @@ class ModelOssieMixin:
         if mode != "new" and existing is None:
             raise LookupError(f"There's no semantic model named {name} to {mode}; pick New model to create it")
         current = self._model_bim(cfg["workspace_id"], existing) if existing else None
-        final = model_ossie.merge(cast(dict[str, Any], current), incoming, remove) if mode == "update" else incoming
+        final = model_ossie.merge(cast(dict[str, Any], current), incoming, remove, model_ossie.stashed(doc),
+                                  report) if mode == "update" else incoming
         final["name"] = name
-        return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report,
+        return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report, "doc": doc,
+                "fidelity": model_ossie.safe_fidelity(doc, incoming, report,
+                                                      model_ossie.round_trip_check(incoming)),
                 "changes": model_ossie.plan(current, final),
                 "removable": model_ossie.removable(current, incoming) if mode == "update" else []}
 
@@ -343,11 +373,22 @@ class ModelOssieMixin:
         """What importing the Ossie document would change, and what can't be carried over. Writes nothing.
 
         ``removable`` lists what an update keeps although the file doesn't have it; pass any of them in
-        ``remove`` to take them out."""
+        ``remove`` to take them out. ``schema_validation`` is the file checked against the pinned Ossie JSON Schema
+        for its version (ossie_validate.validate), on this PC. It informs only: Import doesn't wait on it, because
+        the converter already refuses what it can't read.
+
+        A file of a profile the converter can't read yet (Ossie 0.3.0.dev0, Snowflake's 0.1.1) is still checked:
+        the answer has ``convertible`` false, ``refused`` (why, by name), the schema check, and no changes."""
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
-        return {"env": env, "name": p["name"], "mode": mode, "exists": p["existing"] is not None,
+        if "refused" in p:
+            return {"env": env, "name": p["name"], "mode": mode, "exists": None,
+                    "workspace_name": p["cfg"].get("workspace_name", ""), "changes": [], "removable": [],
+                    "report": [], "fidelity": None, "convertible": False, "refused": p["refused"],
+                    "schema_validation": ossie_validate.validate(p["doc"])}
+        return {"convertible": True, "env": env, "name": p["name"], "mode": mode, "exists": p["existing"] is not None,
                 "workspace_name": p["cfg"].get("workspace_name", ""), "changes": p["changes"],
-                "removable": p["removable"], "report": p["report"]}
+                "removable": p["removable"], "report": p["report"], "fidelity": p["fidelity"],
+                "schema_validation": ossie_validate.validate(p["doc"])}
 
     def meta_model_ossie_import(self, env: str = "test", text: str = "", name: str = "", mode: str = "update",
                                 remove: list[str] | None = None, layer: str | None = None,
@@ -355,6 +396,8 @@ class ModelOssieMixin:
         """Write the Ossie document into the model. Without ``confirmed`` the answer is ``{"confirm": {...}}``
         and nothing is written, so the user sees what changes first. No refresh runs."""
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
+        if "refused" in p:
+            raise ValueError(p["refused"])
         counts: dict[str, int] = {}
         for row in p["changes"]:
             counts[row["change"]] = counts.get(row["change"], 0) + 1
@@ -435,22 +478,30 @@ class ModelOssieMixin:
         have is kept, and one it has (from the Power BI section of an Ossie file this app wrote) is laid over.
         A culture file the reader can't read in full (a partition's or a KPI's translation, a property it doesn't
         know) is kept byte for byte: never rewritten or removed, shown as "same", with one report row naming what it
-        holds that KratosForge can't read (``_kept_cultures``)."""
+        holds that KratosForge can't read (``_kept_cultures``). Any other TMDL file the reader can't read in full
+        (a property or line it doesn't know) is refused, in the preview and the confirm alike, naming the file and
+        what it can't read: rewriting it would drop those lines, keeping it would disagree with the model written
+        (``_refuse_unreadable``)."""
         model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
-        name = (name or str(model_ossie.parse(text)["name"])).strip()
+        doc = model_ossie.parse(text)  # read once
+        refusal = model_ossie.not_convertible(doc)
+        if refusal:  # Ossie 0.3.0.dev0 or Snowflake's 0.1.1: read, but never converted as if it were 0.2
+            raise ValueError(refusal)
+        name = (name or str(doc["name"])).strip()
         root = Path(project.root)
         folder = root / FOLDER / f"{_folder_name(name)}.SemanticModel"
         definition = folder / "definition"
         _no_links(root, definition)
-        incoming, report = model_ossie.to_tmsl(text)
+        incoming, report = model_ossie.to_tmsl(doc)
         current: dict[str, Any] | None = None
         read_report: list[dict[str, str]] = []
         if (_real(definition, stat.S_ISDIR) and _tmdl_files(definition)) or _real(folder / "model.bim", stat.S_ISREG):
             current, read_report = _folder_bim(folder, name, folder.relative_to(root).as_posix())
+        _refuse_unreadable(read_report)  # before the confirm too, so an old token never writes over such a file
         kept, kept_rows = _kept_cultures(folder, read_report)
         report = [r for r in read_report if r.get("file") not in kept] + kept_rows + report
-        final = model_ossie.merge(current, incoming, remove) if current else incoming
+        final = model_ossie.merge(current, incoming, remove, model_ossie.stashed(doc), report) if current else incoming
         final["name"] = name
         kept_names = {_file_key(n) for names in kept.values() for n in names}
         culture_refs = None
@@ -464,6 +515,7 @@ class ModelOssieMixin:
                 del final["model"]["cultures"]
         files, written = tmdl.from_bim(final, culture_refs)
         report = report + written
+        fid = model_ossie.safe_fidelity(doc, incoming, report, model_ossie.round_trip_check(incoming))
         files["definition.pbism"] = json.dumps({"version": "4.0", "settings": {}}, indent=2) + "\n"
         targets = {}
         kept_keys = {_file_key(rel) for rel in kept}
@@ -486,7 +538,7 @@ class ModelOssieMixin:
         changes = model_ossie.plan(current, final)
         out = {"name": name, "folder": folder.relative_to(root).as_posix(), "exists": current is not None,
                "files": sorted(p.relative_to(root).as_posix() for p in targets),
-               "removed": [p.relative_to(root).as_posix() for p in stale], "report": report,
+               "removed": [p.relative_to(root).as_posix() for p in stale], "report": report, "fidelity": fid,
                "changes": changes if current else [r for r in changes if r["change"] == "needs_dax"],
                "removable": model_ossie.removable(current, incoming) if current else [],
                "unchanged": unchanged, "counts": _model_counts(final),

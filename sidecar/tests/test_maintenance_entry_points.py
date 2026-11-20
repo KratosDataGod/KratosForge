@@ -33,6 +33,8 @@ REVIEWED = {
                                        "local branch is a PC-only table",
     ("lakehouse.py", "maintain_table"): "gate: maintenance_guard -> MetaMixin._maintenance_refusal (notebook "
                                         "OPTIMIZE, ZORDER BY, VACUUM, RESTORE)",
+    ("lakehouse.py", "once"): "inside maintain_table: its retry of OPTIMIZE / ZORDER BY on the Windows log race, "
+                              "reached only after maintain_table's own maintenance_guard check",
     ("fabric_compute.py", "_optimize"): "none needed: runs inside a Fabric notebook on the capacity itself, after "
                                         "a run whose own risk check (paused, throttled or otherwise Blocked) already passed",
     ("maintenance.py", "compact_local"): "none needed: a table on this PC (LocalStore), no Fabric capacity",
@@ -40,6 +42,8 @@ REVIEWED = {
     ("maintenance.py", "_unnamed"): "dry run only",
     ("maintenance.py", "_named"): "dry run only",
     ("meta/store.py", "_tidy_meta"): "none needed: LocalStore's meta tables on this PC",
+    ("publish.py", "_queue_v_order"): "gate: capacity_gate -> MetaMixin._job_v_order_refusal (V-Order after a "
+                                      "job's write: Blocked, Warning or unknown stops it); no gate means no V-Order",
 }
 
 
@@ -68,7 +72,7 @@ def test_every_entry_point_is_reviewed():
     assert set(REVIEWED) - found - dry == set(), "REVIEWED names a call that is gone"
     assert {k for k, v in REVIEWED.items() if v.startswith("gate:")} == {
         ("xray_service.py", "xray_optimize"), ("xray_service.py", "xray_vacuum"),
-        ("cloud_service.py", "_maintain"), ("lakehouse.py", "maintain_table")}
+        ("cloud_service.py", "_maintain"), ("lakehouse.py", "maintain_table"), ("publish.py", "_queue_v_order")}
 
 
 # ---- Maintain > Optimize (and Optimize after a run) in OneLake

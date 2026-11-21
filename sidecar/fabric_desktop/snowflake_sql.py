@@ -30,7 +30,7 @@ from sqlglot.errors import ParseError, SqlglotError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.19"
+RULES_VERSION = "2026.11.21"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -1257,6 +1257,8 @@ def _rewrite_timestamp_parts(statement: exp.Expression) -> None:
                 _put(anonymous, "CAST(TO_TIMESTAMP(fj_arg0) AT TIME ZONE 'UTC' AS TIMESTAMP)", [anonymous.expressions[0]])
             else:  # a column or expression, whose type is known only when the query runs
                 _put(anonymous, _TIMESTAMP_OF_ANY, [anonymous.expressions[0]])
+        elif str(anonymous.this).upper() in ("TO_TIMESTAMP_LTZ", "TO_TIMESTAMP_TZ") and len(anonymous.expressions) == 1:
+            _put(anonymous, _ZONED_TIMESTAMP_OF_ANY, [anonymous.expressions[0]])  # SFX-030
 
 
 # TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a value whose type isn't known here (a column), by its type when the query
@@ -1279,6 +1281,26 @@ _TIMESTAMP_OF_ANY = (
     # DuckDB 1.5.6 stops on it ("not UTC") where 2.0 drops it, so it is dropped here for both.
     r"ELSE CAST(REGEXP_REPLACE(CAST(kf_ts AS VARCHAR), '(\d:\d\d(:\d\d(\.\d+)?)?)\s*(Z|[+-]\d\d(:?\d\d)?)$', "
     r"'\1') AS TIMESTAMP) END))[1]")
+
+
+# SFX-030: TO_TIMESTAMP_LTZ and TO_TIMESTAMP_TZ of a value whose type isn't known here (a column), by its type when
+# the query runs. docs.snowflake.com functions/to_timestamp: a number is seconds since 1970-01-01 00:00:00 UTC (an
+# instant), and text holding a whole number is read by its size as for TO_TIMESTAMP (SFX-022); text with no time
+# zone, a DATE and a TIMESTAMP_NTZ are wall-clock times in the session's time zone (the TIMEZONE parameter, which is
+# DuckDB's TimeZone here: SFX-020); text with an offset, and a value with a time zone, keep their instant. An offset
+# after a space ('... 10:00:00 +02:00') is joined to the time, since DuckDB's cast reads it as a zone name. DuckDB
+# has neither function, so a column stopped with its catalog error. The value is read once, as in _TIMESTAMP_OF_ANY.
+_ZONED_TIMESTAMP_OF_ANY = (
+    "(LIST_TRANSFORM([fj_arg0], kf_ts -> CASE "
+    f"WHEN TYPEOF(kf_ts) IN ({_SF_NUMBER_TYPES}) OR TYPEOF(kf_ts) LIKE 'DECIMAL%' "
+    "THEN MAKE_TIMESTAMP(CAST(TRUNC(TRY_CAST(CAST(kf_ts AS VARCHAR) AS DECIMAL(38, 9)) * 1000000) AS BIGINT)) "
+    "AT TIME ZONE 'UTC' "
+    f"WHEN TYPEOF(kf_ts) = 'VARCHAR' AND REGEXP_MATCHES(CAST(kf_ts AS VARCHAR), '{_SF_WHOLE_TEXT}') THEN "
+    "(LIST_TRANSFORM([TRY_CAST(TRIM(CAST(kf_ts AS VARCHAR)) AS HUGEINT)], kf_n -> MAKE_TIMESTAMP(CAST(CASE "
+    "WHEN kf_n < 31536000000 THEN kf_n * 1000000 WHEN kf_n < 31536000000000 THEN kf_n * 1000 "
+    "WHEN kf_n < 31536000000000000 THEN kf_n ELSE kf_n // 1000 END AS BIGINT)) AT TIME ZONE 'UTC'))[1] "
+    r"ELSE CAST(REGEXP_REPLACE(TRIM(CAST(kf_ts AS VARCHAR)), '(\d)\s+([+-]\d\d(:?\d\d)?)$', '\1\2') "
+    "AS TIMESTAMPTZ) END))[1]")
 
 
 def _written_number(node: exp.Expression) -> bool:
@@ -1371,6 +1393,71 @@ def _rewrite_strings(statement: exp.Expression) -> None:
                                    [pad.this, pad.expression, fill, pad.copy()]))
 
 
+_SFN_BINARY_SLICE = ("SFN-034", "LEFT, RIGHT and SUBSTR of a BINARY value",
+                     ("Snowflake cuts a BINARY value by bytes and gives BINARY; DuckDB's functions take only text, "
+                     "and its text of a BINARY value escapes the bytes, so the answer would differ."))
+_BINARY_SLICE_TEXT = ("Cutting a BINARY value with LEFT, RIGHT or SUBSTR isn't run on this PC (SFN-034), so nothing "
+                      "ran. Run it in Snowflake, or cut HEX_ENCODE(value) instead, two hex digits for each byte.")
+# SFX-031: the text LEFT, RIGHT and SUBSTR cut from a value that isn't text, by its type when the query runs. A
+# number, date, time, timestamp or boolean is coerced to VARCHAR (docs.snowflake.com data-type-conversion), and its
+# text is the session's default output format (parameters TIMESTAMP_NTZ_OUTPUT_FORMAT 'YYYY-MM-DD HH24:MI:SS.FF3',
+# TIMESTAMP_OUTPUT_FORMAT 'YYYY-MM-DD HH24:MI:SS.FF3 TZHTZM' for TIMESTAMP_LTZ and TIMESTAMP_TZ, TIME_OUTPUT_FORMAT
+# 'HH24:MI:SS'); a FLOAT drops trailing zeros ("When a FLOAT value is cast to a VARCHAR value, trailing zeros are
+# omitted"). A BINARY column stops by name (SFN-034). Each branch binds for any type, reading the value through
+# VARCHAR; TYPEOF picks one when the query is planned. The value is read once.
+_TEXT_OF_ANY = (
+    "(LIST_TRANSFORM([fj_arg0], kf_s -> CASE "
+    "WHEN TYPEOF(kf_s) = 'BLOB' THEN ERROR('" + _BINARY_SLICE_TEXT.replace("'", "''") + "') "
+    "WHEN TYPEOF(kf_s) IN ('TIMESTAMP', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS') "
+    "THEN STRFTIME(CAST(CAST(kf_s AS VARCHAR) AS TIMESTAMP), '%Y-%m-%d %H:%M:%S.%g') "
+    "WHEN TYPEOF(kf_s) = 'TIMESTAMP WITH TIME ZONE' THEN (LIST_TRANSFORM([CAST(CAST(kf_s AS VARCHAR) AS TIMESTAMPTZ)], "
+    "kf_z -> STRFTIME(CAST(kf_z AS TIMESTAMP), '%Y-%m-%d %H:%M:%S.%g ') "
+    "|| CASE WHEN DATE_PART('timezone', kf_z) < 0 THEN '-' ELSE '+' END "
+    "|| LPAD(CAST(ABS(DATE_PART('timezone', kf_z)) // 3600 AS VARCHAR), 2, '0') "
+    "|| LPAD(CAST(ABS(DATE_PART('timezone', kf_z)) % 3600 // 60 AS VARCHAR), 2, '0')))[1] "
+    "WHEN TYPEOF(kf_s) = 'TIME' THEN LEFT(CAST(kf_s AS VARCHAR), 8) "
+    r"WHEN TYPEOF(kf_s) IN ('FLOAT', 'DOUBLE') THEN REGEXP_REPLACE(CAST(kf_s AS VARCHAR), '\.0$', '') "
+    "ELSE CAST(kf_s AS VARCHAR) END))[1]")
+_TEXT_FUNCTIONS = (exp.Concat, exp.DPipe, exp.Upper, exp.Lower, exp.Trim, exp.Substring, exp.Left, exp.Right,
+                   exp.Initcap, exp.Pad, exp.ConcatWs)
+
+
+def _plainly_text(node: exp.Expression) -> bool:
+    """Plainly text: a string, a cast to text, or a function that returns text."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.Literal):
+        return node.is_string
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        return node.to.this in exp.DataType.TEXT_TYPES
+    if isinstance(node, exp.Case) and node.args.get("default") is not None:  # SFX-025's text of a VARIANT, too
+        return all(_plainly_text(branch.args["true"]) for branch in node.args.get("ifs") or []) \
+            and _plainly_text(node.args["default"])
+    return isinstance(node, _TEXT_FUNCTIONS)
+
+
+def _rewrite_text_arguments(statement: exp.Expression) -> None:
+    """SFX-031: LEFT, RIGHT and SUBSTR (SUBSTRING) of a number, a date or a timestamp cut its text, as Snowflake
+    coerces it to VARCHAR (_TEXT_OF_ANY); DuckDB's functions take only text, so a column of another type stopped
+    with a binder error. A BINARY value written as one (X'..', TO_BINARY, a cast) is refused (SFN-034)."""
+    for node in list(statement.find_all(exp.Left, exp.Right, exp.Substring)):
+        subject = node.this
+        if subject is None or _plainly_text(subject):
+            continue
+        if _binary_valued(subject):
+            raise _Untranslatable(_refuse(_SFN_BINARY_SLICE[0], _SFN_BINARY_SLICE[1], _SFN_BINARY_SLICE[2] + " Use "
+                                          "HEX_ENCODE(value) and cut its hex digits, two for each byte.",
+                                          f"{_DOCS}/functions/substr"))
+        if isinstance(subject, exp.Literal) or isinstance(subject, exp.Null):
+            node.set("this", exp.cast(subject, "VARCHAR"))  # a number written in the query: its text needs no lambda
+            continue
+        node.set("this", _with_text_of(subject))
+
+
+def _with_text_of(value: exp.Expression) -> exp.Expression:
+    return _from_duckdb(_TEXT_OF_ANY, [value])
+
+
 def _entries(obj: str) -> str:
     return f"map_entries(CAST({obj} AS MAP(VARCHAR, JSON)))"
 
@@ -1395,8 +1482,23 @@ def _bind(names: list[str], body: str) -> str:
 def _put(node: exp.Expr, template: str, args: list[exp.Expression]) -> None:
     """``node`` becomes ``template`` with the argument nodes put in (not their text, so a deep nest of
     calls isn't read again from SQL)."""
-    from .sql import _with_args
-    node.replace(_with_args(template, args))
+    node.replace(_from_duckdb(template, args))
+
+
+_DUCKDB_TYPEOF = "kf_duckdb_typeof"
+
+
+def _from_duckdb(template: str, args: list[exp.Expression]) -> exp.Expression:
+    """``template`` (DuckDB SQL) with the argument nodes put in place of fj_arg0, fj_arg1... A TYPEOF the template
+    itself writes asks DuckDB's type name, so it is marked to keep it from SFX-009's rewrite to Snowflake's names
+    (a TYPEOF in an argument is the person's own and is still rewritten)."""
+    tree = cast(exp.Expression, sqlglot.parse_one(template, read="duckdb"))
+    for typeof in tree.find_all(exp.Typeof):
+        typeof.meta[_DUCKDB_TYPEOF] = True
+    for column in list(tree.find_all(exp.Column)):
+        if column.name.startswith("fj_arg") and not column.table:
+            column.replace(args[int(column.name[6:])].copy())
+    return tree
 
 
 def _object_refusal(name: str, why: str) -> _Untranslatable:
@@ -2002,6 +2104,8 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
     JSON number with a fraction is 'DECIMAL or DOUBLE' (SFD-007). Another type goes by DuckDB's typeof;
     one with no single Snowflake name keeps DuckDB's name."""
     for node in list(statement.find_all(exp.Typeof)):
+        if node.meta.get(_DUCKDB_TYPEOF):
+            continue
         value = _typeof_value(node)
         known = _typeof_of_literal_path(value)
         if known is not _NOT_KNOWN:
@@ -2117,12 +2221,14 @@ def _differences(statement: exp.Expression) -> list[Note]:
         if target is not None and any(not i.args.get("quoted") for i in target.find_all(exp.Identifier)):
             notes.append(SFD_CASE)
     types = {d.this for d in statement.find_all(exp.DataType)}
-    if exp.DataType.Type.TIMESTAMPTZ in types:
+    called = {str(n.this).upper() for n in statement.find_all(exp.Anonymous)}  # TO_TIMESTAMP_LTZ(column) (SFX-030)
+    if exp.DataType.Type.TIMESTAMPTZ in types or "TO_TIMESTAMP_TZ" in called:
         notes.append(SFD_TZ)
     if any(not any(isinstance(side, exp.Literal) and not side.is_string and "." in side.name
                    for side in (d.this, d.expression)) for d in statement.find_all(exp.Div)):
         notes.append(SFD_DIV)
-    if exp.DataType.Type.TIMESTAMPLTZ in types or any(statement.find_all(exp.CurrentTimestamp)):
+    if exp.DataType.Type.TIMESTAMPLTZ in types or any(statement.find_all(exp.CurrentTimestamp)) \
+            or called & {"TO_TIMESTAMP_LTZ", "TO_TIMESTAMP_TZ"}:
         notes.append(SFD_LTZ)
     if any(str(getattr(n.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS and _may_be_date(n.this)
            and not _date_trunc_of_a_date(n)
@@ -2268,6 +2374,13 @@ CATALOG = (
                 "table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, "
                 "as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the "
                 "target's column. START TRANSACTION is BEGIN.")),
+    ("SFX-030", "Rewritten", ("TO_TIMESTAMP_LTZ and TO_TIMESTAMP_TZ of a column read it by its type when the query "
+                "runs: a number is seconds since 1970 UTC, text holding a whole number is read by its size, and text "
+                "with no time zone, a DATE or a TIMESTAMP_NTZ is a time in the session's time zone; text with an "
+                "offset (after a space too) and a value with a time zone keep their instant.")),
+    ("SFX-031", "Rewritten", ("LEFT, RIGHT and SUBSTR of a number, date, time, timestamp or boolean cut its text, as "
+                "Snowflake converts it to VARCHAR: a timestamp as YYYY-MM-DD HH24:MI:SS.FF3 (with +HHMM for "
+                "TIMESTAMP_LTZ and TIMESTAMP_TZ), a time as HH24:MI:SS, and a FLOAT without a trailing .0.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2336,6 +2449,8 @@ CATALOG = (
                 "DuckDB's ALTER TABLE changes one column at a time and has no SWAP.")),
     ("SFN-030", "Runs only in Snowflake", ("CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits "
                 "the open transaction first, and DuckDB doesn't.")),
+    ("SFN-034", "Runs only in Snowflake", ("LEFT, RIGHT and SUBSTR of a BINARY value: Snowflake cuts its bytes, "
+                "and DuckDB's functions take only text. A BINARY column stops when the query runs.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -2387,6 +2502,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_events(tree)
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
+        _rewrite_text_arguments(tree)
         _rewrite_documented_edges(tree)
         _rewrite_strings(tree)
         _rewrite_time(tree)

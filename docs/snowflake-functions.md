@@ -219,7 +219,7 @@ the known differences in more detail.
 | `TO_TIMESTAMP` | Runs | 5 value checks |
 | `TO_TIMESTAMP_LTZ` | Differs | SFD-004 Local time zone is this PC's |
 | `TO_TIMESTAMP_NTZ` | Runs | 2 value checks |
-| `TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset |
+| `TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset; SFD-004 Local time zone is this PC's |
 | `CONVERT_TIMEZONE` | Runs | 2 value checks |
 
 ## Conversion

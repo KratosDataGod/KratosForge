@@ -111,23 +111,35 @@ def audited(method: str) -> bool:
 
 
 def target(params: dict[str, Any]) -> dict[str, Any]:
-    """The identifying values of a call's parameters; code, queries and data are left out."""
-    out: dict[str, Any] = {}
-    for key, value in params.items():
-        if key.lower() in _CONTENT or any(word in key.lower() for word in ("secret", "password", "token")):
-            out[key] = "(given)"
-        elif isinstance(value, (bool, int, float)) or value is None:
-            out[key] = value
-        elif isinstance(value, str):
-            out[key] = secrets(value) if len(value) <= _MAX else "(given)"
-        elif isinstance(value, list) and len(value) <= 20 and all(isinstance(v, str) and len(v) <= _MAX for v in value):
-            out[key] = [secrets(v) for v in value]
-        elif isinstance(value, dict):
-            inner = target(value)
-            out[key] = inner if len(json.dumps(inner, default=str)) <= 4 * _MAX else "(given)"
+    """The identifying values of a call's parameters; code, queries and data are left out.
+
+    Nested objects are walked with a stack of their own, not by recursion, so parameters nested
+    thousands deep (a caller's arguments) still get their line rather than stopping the audit."""
+    top: dict[str, Any] = {}
+    # Each level: its items still to read, what it keeps, and where that goes in its parent.
+    stack: list[tuple[Iterator[tuple[Any, Any]], dict[str, Any], dict[str, Any] | None, Any]] = [
+        (iter(params.items()), top, None, None)]
+    while stack:
+        items, out, parent, parent_key = stack[-1]
+        for key, value in items:
+            if key.lower() in _CONTENT or any(word in key.lower() for word in ("secret", "password", "token")):
+                out[key] = "(given)"
+            elif isinstance(value, (bool, int, float)) or value is None:
+                out[key] = value
+            elif isinstance(value, str):
+                out[key] = secrets(value) if len(value) <= _MAX else "(given)"
+            elif isinstance(value, list) and len(value) <= 20 and all(isinstance(v, str) and len(v) <= _MAX for v in value):
+                out[key] = [secrets(v) for v in value]
+            elif isinstance(value, dict):
+                stack.append((iter(value.items()), {}, out, key))
+                break
+            else:
+                out[key] = "(given)"
         else:
-            out[key] = "(given)"
-    return out
+            stack.pop()
+            if parent is not None:
+                parent[parent_key] = out if len(json.dumps(out, default=str)) <= 4 * _MAX else "(given)"
+    return top
 
 
 # Calls that must not run without a record: a "started" line is written before them, and they are
@@ -170,11 +182,18 @@ def _given(value: Any) -> bool:
 
 
 def _is_prod(value: Any) -> bool:
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return any(_is_prod(v) for v in value)
-    if isinstance(value, dict):  # a target given as an object, such as a PC schedule's {"kind": "meta", "env": ...}
-        return any(_is_prod(value.get(key)) for key in _PROD_PARAMS)
-    return isinstance(value, str) and value.strip().lower() == "prod"
+    """Whether ``value`` names prod, anywhere in its lists, or in an object's own env, envs or target. A
+    stack rather than recursion, so a value nested thousands deep is read too."""
+    stack = [value]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, (list, tuple, set, frozenset)):
+            stack.extend(value)
+        elif isinstance(value, dict):  # a target given as an object, such as a PC schedule's {"kind": "meta", "env": ...}
+            stack.extend(value.get(key) for key in _PROD_PARAMS)
+        elif isinstance(value, str) and value.strip().lower() == "prod":
+            return True
+    return False
 
 
 def fails_closed(method: str, params: Any) -> bool:

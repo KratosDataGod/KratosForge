@@ -356,3 +356,14 @@ def test_recent_activity_and_the_check_in_settings(tmp_path):
 def test_audit_methods_are_on_the_rpc_allowlist():
     from fabric_desktop import server
     assert {"integrations_activity", "integrations_audit_check"} <= server.METHODS
+
+
+def test_arguments_nested_thousands_deep_still_make_a_line():
+    """A client's arguments nested past Python's recursion limit are kept by the same rules, rather than
+    the line failing to be written (it used to raise RecursionError, which left the call unrecorded)."""
+    deep: dict = {"workspace": "w"}
+    for _ in range(5000):
+        deep = {"filter": deep}
+    kept = arguments({"workspace_id": "w-1", "options": deep})
+    assert kept["workspace_id"] == "w-1" and isinstance(kept["options"], (dict, str))
+    assert json.dumps(kept)

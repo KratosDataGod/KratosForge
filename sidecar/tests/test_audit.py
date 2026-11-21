@@ -327,3 +327,44 @@ def test_every_delete_either_fails_closed_or_says_why_it_neednt():
     assert sorted(found - audit.FAIL_CLOSED - set(LOCAL_REMOVALS)) == [], \
         "a new delete: add it to audit.FAIL_CLOSED, or to LOCAL_REMOVALS with why it acts only on this PC"
     assert sorted(set(LOCAL_REMOVALS) - found) == [] and not set(LOCAL_REMOVALS) & audit.FAIL_CLOSED
+
+
+def test_a_nested_object_keeps_its_identifying_values_in_order_until_it_is_too_long():
+    params = {"z": 1, "schedule": {"kind": "meta", "env": "dev", "code": "x", "inner": {"b": [1], "a": ["x", "y"]}},
+              "big": {"name": "n" * 190, "more": {"name": "m" * 190, "deeper": {"name": "d" * 190, "x": {"name": "x" * 190, "y": {"name": "e" * 190}}}}},
+              "nested": {"a": {"b": {"c": None, "d": True}}}, "token_value": {"x": 1}, "tags": [1, 2]}
+    out = audit.target(params)
+    assert out == {"z": 1, "schedule": {"kind": "meta", "env": "dev", "code": "(given)", "inner": {"b": "(given)", "a": ["x", "y"]}},
+                   "big": {"name": "n" * 190, "more": "(given)"}, "nested": {"a": {"b": {"c": None, "d": True}}},
+                   "token_value": "(given)", "tags": "(given)"}
+    assert list(out) == list(params) and list(out["schedule"]) == ["kind", "env", "code", "inner"]
+    # A chain of objects: each level is kept while it is short, and becomes "(given)" once it isn't.
+    chain: dict = {"leaf": "x"}
+    for _ in range(150):
+        chain = {"a": chain}
+    shown = audit.target({"chain": chain})["chain"]
+    levels = 0
+    while isinstance(shown, dict):
+        shown, levels = shown["a"], levels + 1
+    assert (shown, levels) == ("(given)", 37)
+
+
+def test_prod_is_found_inside_lists_and_objects():
+    assert audit.fails_closed("meta_run", {"env": [["dev"], ("x", ["prod"])]})
+    assert audit.fails_closed("meta_run", {"target": {"kind": "meta", "env": [{"envs": "PROD"}]}})
+    assert not audit.fails_closed("meta_run", {"target": {"name": "prod", "env": [["dev"]]}})
+
+
+def test_a_deeply_nested_parameter_is_still_recorded(tmp_path):
+    """A call with parameters nested thousands deep still gets its audit line (it used to hit Python's
+    recursion limit, so the line wasn't written while the call itself ran), and prod deep in a list is found."""
+    deep: dict = {"name": "x"}
+    for _ in range(5000):
+        deep = {"a": deep}
+    entry = AuditLog(tmp_path).record("meta_run", "ok", 1.0, {"spec": deep, "table": "t"})
+    assert entry["target"]["table"] == "t" and isinstance(entry["target"]["spec"], (dict, str))
+    envs: list = ["prod"]
+    for _ in range(5000):
+        envs = [envs]
+    assert audit.fails_closed("meta_run", {"env": envs})
+    assert not audit.fails_closed("meta_run", {"env": [[[["dev"]]]] * 3})

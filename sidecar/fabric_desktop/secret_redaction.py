@@ -99,6 +99,20 @@ def redact_values(text: str, values: Any) -> str:
     return text
 
 
+def mask_cut(text: str, values: Any) -> str:
+    """``text`` cut short with "..." (a preview) whose cut fell inside one of ``values``: the start
+    of that value before the cut is replaced too, when MIN_CHARS or more of it would show."""
+    at = text.rfind("...")
+    if at < 0:
+        return text
+    head, tail = text[:at], text[at:]
+    for form in sorted({f for v in values for f in _forms(v)}, key=len, reverse=True):
+        for k in range(len(form) - 1, MIN_CHARS - 1, -1):
+            if head.endswith(form[:k]):
+                return head[:-k] + REDACTED + tail
+    return text
+
+
 def redact_output(value: Any) -> Any:
     """``value`` with every remembered secret replaced in each string inside it (dicts and lists
     are copied, never changed in place). Bytes are left alone: images and other binary data."""

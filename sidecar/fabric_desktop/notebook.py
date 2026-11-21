@@ -1767,12 +1767,31 @@ class Kernel:
         hidden = self._hidden(name, value)
         kind = type(value).__name__
         try:
+            preview, holds_secret = self._secret_preview(value) if not hidden else ("", False)
+            hidden = hidden or holds_secret
             return {"name": name, "type": kind, "size": _size(value),
-                    "value": "hidden" if hidden else secret_redaction.redact(_preview(value)), "memory": _memory(value),
+                    "value": "hidden" if hidden else preview, "memory": _memory(value),
                     "expandable": not hidden and _expandable(value)}
         except Exception:  # noqa: BLE001  # silent-ok: a value that can't be described (a DuckDB relation over a dropped view) is listed by its type, so the rest of the pane still shows
             return {"name": name, "type": kind, "size": "", "value": "hidden" if hidden else "?",
                     "memory": None, "expandable": False}
+
+    def _secret_preview(self, value: Any) -> tuple[str, bool]:
+        """A value's preview with patterns redacted, and whether it holds a value getSecret read: in a
+        list, a dict, a longer text or an object's repr. Each is replaced in the whole text before it's
+        cut short, and a cut that falls inside one hides the start of it too."""
+        if not self._secrets:
+            return secret_redaction.redact(_preview(value)), False
+        found = False
+
+        def clean(text: str) -> str:
+            nonlocal found
+            out = secret_redaction.redact_values(text, list(self._secrets))
+            found = found or out != text
+            return out
+        text = _preview(value, clean)
+        cut = secret_redaction.mask_cut(text, list(self._secrets))
+        return secret_redaction.redact(cut), found or cut != text
 
     def _debug_redacted(self, text: str) -> str:
         """What the debugger shows of a value or an error: ``_redacted``, and without the values
@@ -1792,7 +1811,7 @@ class Kernel:
         if value is _MISSING or (name.startswith("_") and name != "_sqldf"):
             return {"name": name, "missing": True}
         out: dict[str, Any] = {"name": name, "type": type(value).__name__}
-        if self._hidden(name, value):
+        if self._hidden(name, value) or self._secret_preview(value)[1]:
             return {**out, "hidden": True}
         columns = _columns(value)
         if columns is not None:
@@ -1806,11 +1825,13 @@ class Kernel:
             entries = [(str(i), "", v) for i, v in enumerate(sorted(itertools.islice(value, VAR_ITEMS), key=repr))]
         else:
             return out
-        out["items"] = [{"key": key, "type": type(v).__name__, "size": _size(v),
-                         "value": "hidden" if self._hidden(label, v) else secret_redaction.redact(_preview(v))}
-                        for key, label, v in entries]
+        out["items"] = [self._detail_item(key, label, v) for key, label, v in entries]
         out["total"] = len(value)
         return out
+
+    def _detail_item(self, key: str, label: str, v: Any) -> dict[str, Any]:
+        preview, holds_secret = ("", True) if self._hidden(label, v) else self._secret_preview(v)
+        return {"key": key, "type": type(v).__name__, "size": _size(v), "value": "hidden" if holds_secret else preview}
 
     @staticmethod
     def _base_namespace_keys() -> tuple[str, ...]:
@@ -2396,7 +2417,8 @@ def _count(n: Any) -> str:
     return str(n)
 
 
-def _preview(value: Any) -> str:
+def _preview(value: Any, clean: Callable[[str], str] | None = None) -> str:
+    """A short preview of ``value``. ``clean`` is applied to its text before it's cut short."""
     module = type(value).__module__
     # A LazyFrame's columns come from resolving its plan, which reads its files (or fails when they're
     # gone), so it shows as its repr, as _columns leaves it unexpanded.
@@ -2410,24 +2432,28 @@ def _preview(value: Any) -> str:
         value = value[:_PREVIEW_ITEMS]  # repr of only what is shown: a long text isn't copied whole
     elif kind in _CONTAINERS and len(value) > _PREVIEW_ITEMS:
         # repr of only the first items: a list of millions isn't turned into text to show 80 characters
-        return _preview_items(value)
+        return _preview_items(value, clean)
     try:
         text = repr(value)
     except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
         return "?"
+    if clean is not None:
+        text = clean(text)
     return text if len(text) <= 80 else text[:77] + "..."
 
 
 _PREVIEW_ITEMS = 100  # past this many items or characters, a preview reads only the first ones
 
 
-def _preview_items(value: Any) -> str:
+def _preview_items(value: Any, clean: Callable[[str], str] | None = None) -> str:
     kind = type(value)
     items = itertools.islice(value.items() if kind is dict else value, 20)
     try:
         inner = ", ".join(f"{k!r}: {v!r}" for k, v in items) if kind is dict else ", ".join(repr(v) for v in items)
     except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
         return "?"
+    if clean is not None:
+        inner = clean(inner)
     opener, closer = "()" if kind is tuple else "[]" if kind is list else "{}"
     text = f"{opener}{inner}, ..."
     return (text if len(text) <= 76 else text[:73] + "...") + closer

@@ -95,10 +95,9 @@ def test_a_getsecret_value_is_hidden_in_variables_however_it_is_held(kernel):
     assert p["line"] == 15
     names = {v["name"] for v in p["variables"]}
     assert {"s", "items", "mapping", "pair", "joined", "fstr", "holder"} <= names
-    assert row(p, "s")["value"] == "hidden"
-    assert row(p, "items")["value"] == "['[REDACTED]', 1]"
-    assert row(p, "holder")["value"] == "Holder([REDACTED])"
-    assert row(p, "joined")["value"] == "'prefix-[REDACTED]'"
+    # A value that holds one shows as hidden, as in the Variables pane.
+    for name in ("s", "items", "mapping", "pair", "joined", "fstr", "holder"):
+        assert row(p, name)["value"] == "hidden", name
 
 
 def test_a_getsecret_value_is_hidden_in_a_nested_frame_and_its_stack(kernel):

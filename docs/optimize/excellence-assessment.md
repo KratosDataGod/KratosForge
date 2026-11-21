@@ -140,6 +140,20 @@ a promised saving), effort, risk of change, how to validate, how to roll back, r
 confidence and the exact rule version. Findings are ranked by severity first, so a critical security
 finding is never listed below a minor one with a bigger estimate.
 
+### Where to learn the fix (Academy mapping)
+
+Each finding also carries `learn`: the Learn lessons (`LM-32`, `LAB-07`) and Academy exercises
+(`dp-700` `E10`) that teach its fix, in `excellence/academy_map.py`. The mapping is static and
+reviewed: it names only lessons and exercises that ship in the app, with their own titles, and a test
+fails if one is unknown, retired or renamed, or if a control is neither mapped nor listed as unmapped.
+A control that no lesson teaches yet is listed as unmapped with the reason, and its `learn` is empty;
+it is never given a loosely related lesson. Today 21 of the 30 controls are mapped and 9 are not.
+
+Progress follows one rule (`credit_for`): credit only for a validated fix (the control assessed again
+and passed, on measured or configuration evidence, for the same finding) or a passed exercise. A
+dismissal, an accepted risk or a rerun that couldn't evaluate the control earns nothing, so hiding a
+finding never looks like learning. The rule is engine only; nothing stores progress from it yet.
+
 ## The engine call
 
 `excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you

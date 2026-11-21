@@ -4,7 +4,8 @@ A finding is a plain dict so any view, RPC or table can carry it. Every field th
 filled from the control (severity, dimension, why it matters, how to fix it, validation, rollback,
 references, rule version) and from the outcome (affected resource, what was discovered, the evidence
 ids and their confidence). Expected benefit comes from the control's template or the outcome, and is
-always qualified: a finding never promises a saving.
+always qualified: a finding never promises a saving. ``learn`` lists the Academy lessons and exercises
+that teach the fix (academy_map, FEA-601); it is empty for a control none teaches yet.
 
 Advisory findings (a fail resting only on inferred evidence) carry ``advisory: true`` and are not
 counted in scores; views show them apart.
@@ -15,6 +16,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from . import academy_map
 from .controls import DIMENSIONS, REQUIREMENTS, SEVERITIES, Control
 from .evidence import canonical
 
@@ -44,6 +46,7 @@ def make(c: Control, outcome: dict[str, Any], severity: str) -> dict[str, Any]:
             "risk": t["risk"], "validation": t["validation"], "rollback": t["rollback"],
             "references": [dict(r) for r in c.references], "confidence": outcome["basis"],
             "confidence_label": CONFIDENCE_LABELS[outcome["basis"]], "rule": c.rule, "academy": c.academy,
+            "learn": academy_map.learn(c.id),
             "advisory": advisory, "detail": outcome.get("detail") or {}, "status": "open"}
 
 

@@ -310,3 +310,21 @@ def test_the_demo_decides_the_warehouse_controls_with_no_call(make):
                if c["item"]["item_type"] in ("Warehouse", "SQLEndpoint"))
     assert all(f["fixture"] for f in r["findings"])
     assert assess.rescore(json.loads(json.dumps(r)), catalog.registry())["scores"] == r["scores"]
+
+
+# ---- malformed answers from Fabric
+
+
+@pytest.mark.parametrize("answer", [["x"], "text", 7, {"properties": "x"}, {"properties": ["x"]},
+                                    {"properties": {"collationType": 7}}, {"properties": {"collationType": "  "}}])
+def test_a_malformed_warehouse_answer_is_not_evaluated_not_a_crash(answer):
+    snap = run(wh_items(2), warehouses={wh_id(0): answer, wh_id(1): warehouse(BIN2)})
+    assert {outcome_of(snap, "FEA-WH-002", wh_id(i))["outcome"] for i in range(2)} == {"not_evaluated"}
+
+
+@pytest.mark.parametrize("props", ["x", ["x"], 7])
+def test_a_malformed_sql_endpoint_answer_is_not_evaluated_not_a_crash(props):
+    got = {"displayName": "LH_Sales", "properties": {"sqlEndpointProperties": props}}
+    assert outcome_of(run(endpoint_items(), lakehouses={LH: got}), "FEA-WH-001", EP)["outcome"] == "not_evaluated"
+    for bad in (["x"], "text", {"properties": "x"}):
+        assert cw.endpoint_properties(WSID, endpoint_items(), {LH: bad}, collected_at=AT) == []

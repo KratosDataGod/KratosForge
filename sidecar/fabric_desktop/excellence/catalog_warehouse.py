@@ -48,8 +48,14 @@ def _cut(name: Any) -> str:
     return text if len(text) <= MAX_NAME else text[:MAX_NAME - 1] + "…"
 
 
+def _obj(value: Any) -> dict[str, Any]:
+    """``value`` when Fabric answered with an object, else an empty one: a malformed answer reads as
+    nothing reported, so the control is not evaluated rather than the assessment failing."""
+    return value if isinstance(value, dict) else {}
+
+
 def _collation(got: dict[str, Any]) -> str | None:
-    value = (got.get("properties") or {}).get("collationType")
+    value = _obj(got.get("properties")).get("collationType")
     return _cut(value) if isinstance(value, str) and value.strip() else None
 
 
@@ -63,9 +69,9 @@ def endpoint_properties(ws_id: str, items: list[dict[str, Any]], lakehouses_read
     out = []
     for lh in (i for i in items if i.get("type") == "Lakehouse" and i.get("id")):
         got = lakehouses_read.get(str(lh["id"]))
-        if not got:
+        if not got or not isinstance(got, dict):
             continue
-        props = (got.get("properties") or {}).get("sqlEndpointProperties") or {}
+        props = _obj(_obj(got.get("properties")).get("sqlEndpointProperties"))
         ep = endpoints.get(str(props.get("id") or "").lower())
         if ep is None:
             continue
@@ -89,7 +95,7 @@ def warehouse_properties(ws: dict[str, Any], items: list[dict[str, Any]],
     out, listed = [], []
     for wh in found:
         got = warehouses_read.get(str(wh["id"]))
-        if not got:
+        if not got or not isinstance(got, dict):
             continue
         name = _cut(wh.get("displayName") or got.get("displayName"))
         collation = _collation(got)

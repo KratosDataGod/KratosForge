@@ -94,7 +94,7 @@ the work; "this thread" is the mobile companion thread.
 ## P1 Mobile MVP
 
 ### MC-101 Run feed in the desktop Monitor (P1, M)
-- **User value:** the desktop and phone show the same list. **Scope:** Monitor reads MC-001 where it helps; mockup first. **Dependencies:** MC-001, UX mockup. **Acceptance:** per mockup. **Security:** none new. **Tests:** browser test. **Owner:** UX thread + this thread.
+- **User value:** the desktop and phone show the same list. **Scope:** extends the existing Monitor > Runs page and the activity tray (`app/ui/activity.js`) to read MC-001 where it helps, reusing their Fabric cancel; mockup first. **Dependencies:** MC-001, UX mockup. **Acceptance:** per mockup. **Security:** none new. **Tests:** browser test. **Owner:** UX thread + this thread.
 
 ### MC-102 PC metrics call (P1, S)
 - **User value:** see if the PC is struggling. **Scope:** memory, CPU, disk free of the data drive, sampled at most every 2 s. **Technical:** Windows APIs via `ctypes` (as `free_memory.py`), no new dependency. **Acceptance:** values within 5% of Task Manager. **Security:** none. **Tests:** unit with fakes. **Owner:** this thread.

@@ -41,3 +41,26 @@ def test_formatting_that_would_not_parse_back_is_named(monkeypatch):
 
     monkeypatch.setattr(sf.sqlglot, "parse", parse)
     assert sf._difference("SELECT 1", "after", "duckdb") == "produce SQL that doesn't parse"
+
+
+def test_line_comments_come_back_where_they_did():
+    # A comment runs from the line's first /* to the */ that ends the line, so here the second line's is one
+    # comment with */ inside, and stays.
+    assert sf._restore_line_comments("SELECT 1 /* a */\n/* b */ x /* a */", {"a"}) == "SELECT 1 -- a\n/* b */ x /* a */"
+    assert sf._restore_line_comments("/* a */ x /* a */ \n/* a", {"a"}) == "/* a */ x /* a */ \n/* a"
+
+
+def test_a_line_of_comment_starts_is_read_once():
+    # Each /* was read to the line's end again, so 6,000 took 1.5 s. Read once, 8 times as many
+    # take about 8 times as long.
+    import time
+
+    def quickest(n):
+        best = float("inf")
+        for _ in range(5):
+            started = time.perf_counter()
+            sf._restore_line_comments("/* " * n + "*/ x", {"a"})
+            best = min(best, time.perf_counter() - started)
+        return best
+
+    assert quickest(8000) / max(quickest(1000), 50e-6) < 30

@@ -176,6 +176,11 @@ def _restore_line_comments(text: str, line_comments: set[str]) -> str:
 
     def swap(m: re.Match) -> str:
         body = m.group(1)
+        if body is None:  # a /* whose line doesn't end in */: left as it is
+            return m.group(0)
         return f"-- {body.strip()}" if body.strip() in line_comments and "*/" not in body else m.group(0)
 
-    return re.sub(r"/\*(.*?)\*/(?=[ \t]*(?:\n|$))", swap, text)
+    # A /* whose line doesn't end in */ takes the rest of its line (the second branch): no /* after it on
+    # that line ends there either, and each used to be read to the line's end again, so a line of
+    # 6,000 of them took 1.5 s.
+    return re.sub(r"/\*(.*?)\*/(?=[ \t]*(?:\n|$))|/\*[^\n]*", swap, text)

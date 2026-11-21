@@ -397,6 +397,26 @@ _QUOTED = r"'((?:[^']|'')*)'"
 # (no slow backtracking on a crafted name); the value is stripped first and capped at MAX_REF characters.
 _TMDL_REF = re.compile(rf"^(?:{_QUOTED}|([^\['.\s](?:[^\['.]*[^\['.\s])?))\s*(?:\[(.+)\]|\.\s*(?:{_QUOTED}|(.+)))?$")
 MAX_REF = 512  # longer than any real Table[Column] or Table.Hierarchy: not read as a reference, so not carried
+# DAX's [names], "strings" and 'tables', each read as one piece (_without_quoted).
+_DAX_QUOTED = re.compile(r"\[[^\]]*\]|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'")
+_DAX_OPENS = re.compile(r"[\[\"']")
+
+
+def _without_quoted(text: str) -> str:
+    """``text`` with each _DAX_QUOTED piece made a space, as _DAX_QUOTED.sub(" ", text) gives, without
+    reading a [ that no ] follows to the end of the text: none after it closes either, and each was
+    read again, so 50,000 of them took a second. (A quote is closed by the next one of its kind.)"""
+    last_close = text.rfind("]")
+    out, done, at = [], 0, 0
+    while opens := _DAX_OPENS.search(text, at):
+        start = opens.start()
+        found = _DAX_QUOTED.match(text, start) if text[start] != "[" or start < last_close else None
+        if found is None:
+            at = start + 1
+            continue
+        out += (text[done:start], " ")
+        done = at = found.end()
+    return "".join(out) + text[done:]
 
 
 def _parse_ref(value: Any, table: str) -> tuple[str, str] | None:
@@ -486,7 +506,7 @@ def _check_references(current: dict[str, Any], model: dict[str, Any],
             return None
         # DAX: a name the merge took out, as 'Table', Table, Table[Name] or [Name] when nothing left has that name.
         text = "\n".join(_strings(value)).casefold()
-        bare = re.sub(r"\[[^\]]*\]|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'", " ", text)
+        bare = _without_quoted(text)
         for t in gone_tables:
             quoted = "'" + t.replace("'", "''").casefold() + "'"
             if quoted in text or re.search(rf"(?<![\w.]){re.escape(t.casefold())}(?!\w)", bare):

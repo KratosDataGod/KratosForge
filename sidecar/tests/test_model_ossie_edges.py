@@ -79,3 +79,27 @@ def test_merge_adds_named_items_the_file_lacks_to_lists_it_has():
 
 def test_nothing_is_removable_from_a_new_model():
     assert mo.removable(None, _bim()) == []
+
+
+def test_dax_names_strings_and_tables_are_taken_out_as_before():
+    import re
+
+    rule = re.compile(r"\[[^\]]*\]|\"(?:[^\"]|\"\")*\"|'(?:[^']|'')*'")
+    for text in ("SUM('Sales'[Amount]) + [x]] \"a\"\"b\" 'it''s' [", "[a [b] 'c [' \"[\" ]", "x [ 'y' [ \"z\"", "]["):
+        assert mo._without_quoted(text) == rule.sub(" ", text)
+
+
+def test_a_run_of_open_brackets_in_dax_is_read_once():
+    # Each [ that no ] follows was read to the end of the text, so 50,000 took a second. Now one that
+    # can't close is skipped, and 8 times as many take about 8 times as long.
+    import time
+
+    def quickest(n):
+        best = float("inf")
+        for _ in range(5):
+            started = time.perf_counter()
+            mo._without_quoted("x[ 'y' " * n)
+            best = min(best, time.perf_counter() - started)
+        return best
+
+    assert quickest(8000) / max(quickest(1000), 50e-6) < 30

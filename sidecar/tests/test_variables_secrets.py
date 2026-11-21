@@ -137,6 +137,16 @@ def test_a_secret_is_replaced_before_the_preview_is_cut():
     assert VAULT_VALUE not in _preview(big, replaced) and "[REDACTED]" in _preview(big, replaced)
 
 
+@pytest.mark.parametrize("at", [60, 70, 74, 76, 80, 90, 95, 99])
+def test_a_secret_across_the_long_text_slice_never_shows(at):
+    # A text over 100 characters is sliced to its first 100 before its repr, then cut to 77: a secret
+    # starting anywhere near either edge shows neither whole nor as a start of 4 or more characters.
+    replaced = lambda text: secret_redaction.redact_values(text, [VAULT_VALUE])  # noqa: E731
+    text = secret_redaction.mask_cut(_preview("x" * at + VAULT_VALUE + "y" * 50, replaced), [VAULT_VALUE])
+    for k in range(secret_redaction.MIN_CHARS, len(VAULT_VALUE) + 1):
+        assert VAULT_VALUE[:k] not in text, (at, text)
+
+
 @pytest.mark.parametrize("shown", range(secret_redaction.MIN_CHARS, len(VAULT_VALUE)))
 def test_a_cut_inside_a_secret_hides_its_start(shown):
     text = "abc " + VAULT_VALUE[:shown] + "..."

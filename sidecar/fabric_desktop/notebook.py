@@ -712,6 +712,7 @@ class Kernel:
         self._duckdb_connections: weakref.WeakSet[Any] = weakref.WeakSet()  # opened by this kernel's cells (EA-016)
         self._display_sinks: OrderedDict[str, list[Any]] = OrderedDict()  # display id -> where it was shown
         self._secrets: set[str] = set()
+        self._secrets_lock = threading.Lock()  # getSecret adds on the cell's thread while the pane reads
         self._tasks: list[str] = []
         self.task_values: dict[str, dict[str, Any]] = {}
         self.frames = Frames()
@@ -774,7 +775,8 @@ class Kernel:
 
         def remembered_secret(*args: Any, **kwargs: Any) -> str:
             value = get_secret(*args, **kwargs)
-            self._secrets.add(value)
+            with self._secrets_lock:
+                self._secrets.add(value)
             return value
         utils.credentials.getSecret = remembered_secret
 
@@ -1780,24 +1782,31 @@ class Kernel:
         """A value's preview with patterns redacted, and whether it holds a value getSecret read: in a
         list, a dict, a longer text or an object's repr. Each is replaced in the whole text before it's
         cut short, and a cut that falls inside one hides the start of it too."""
-        if not self._secrets:
+        secrets = self._secret_values()
+        if not secrets:
             return secret_redaction.redact(_preview(value)), False
         found = False
 
         def clean(text: str) -> str:
             nonlocal found
-            out = secret_redaction.redact_values(text, list(self._secrets))
+            out = secret_redaction.redact_values(text, secrets)
             found = found or out != text
             return out
         text = _preview(value, clean)
-        cut = secret_redaction.mask_cut(text, list(self._secrets))
+        cut = secret_redaction.mask_cut(text, secrets)
         return secret_redaction.redact(cut), found or cut != text
 
     def _debug_redacted(self, text: str) -> str:
         """What the debugger shows of a value or an error: ``_redacted``, and without the values
         getSecret read, so one held in a list, a longer text, an object's repr or an error's message
         while a cell is paused shows as [REDACTED]."""
-        return secret_redaction.redact_values(_redacted(text), list(self._secrets))
+        return secret_redaction.redact_values(_redacted(text), self._secret_values())
+
+    def _secret_values(self) -> tuple[str, ...]:
+        """The values getSecret read so far, copied under the lock: a cell can read one while the
+        Variables pane or the debugger is reading this."""
+        with self._secrets_lock:
+            return tuple(self._secrets)
 
     def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
         """A paused frame's local: never expandable, since variable_detail reads the namespace,
@@ -1832,7 +1841,7 @@ class Kernel:
     def _detail_item(self, key: str, label: str, v: Any) -> dict[str, Any]:
         preview, holds_secret = ("", True) if self._hidden(label, v) else self._secret_preview(v)
         # A dict keyed by a secret: the key is replaced as values are, and its item is hidden too.
-        shown_key = secret_redaction.redact_values(key, list(self._secrets)) if self._secrets else key
+        shown_key = secret_redaction.redact_values(key, self._secret_values())
         holds_secret = holds_secret or shown_key != key
         return {"key": secret_redaction.redact(shown_key), "type": type(v).__name__, "size": _size(v),
                 "value": "hidden" if holds_secret else preview}

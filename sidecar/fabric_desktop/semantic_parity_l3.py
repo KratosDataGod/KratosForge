@@ -28,8 +28,8 @@ Results, per measure row:
   side's values are evidence for the 006d comparison, never a match.
 - a row L1 or L2 already found worse (Different results, Unsupported, Test failed) keeps that result; L3 never
   improves on it, but different values still mark the row Different results (never a Test failed row). A SQL
-  query that DuckDB refuses on a dataset never verifies: refused on both sides, the row keeps its L2 result with a
-  note; refused on one side only, the row is Different results. SUM and AVERAGE over a text, Boolean, date or time
+  query that DuckDB refuses on a dataset never verifies. Refused on both sides, the row keeps its L2 result with a
+  note. Refused on one side only, the row is Different results. SUM and AVERAGE over a text, Boolean, date or time
   column aren't run (DuckDB's type rules there aren't DAX's or T-SQL's).
 
 Tolerances are configuration (``DEFAULT_TOLERANCES_L3``, stated in the report): ``absolute`` and ``relative``, a
@@ -437,7 +437,7 @@ def _judge(o: dict[str, Any], behavior: dict[str, Any], tol: dict[str, Any]) -> 
                      != str(right["results"].get(n)).startswith("error:")]
         both = len(refused) - len(one_sided)
         if both:
-            o["notes"] = o["notes"] + [(f"DuckDB refused both sides' query on {both} of {len(SCENARIOS)} datasets; "
+            o["notes"] = o["notes"] + [(f"DuckDB refused both sides' query on {both} of {len(SCENARIOS)} datasets, so "
                                         "L3 verifies nothing about this measure")]
         if one_sided:
             o["behavior_result"] = sp.DIFFERENT

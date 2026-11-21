@@ -258,7 +258,7 @@ these are listed under `not_checked`.
 Tolerances are configuration, and the report states them: `absolute` 0 and `relative` 1e-9 by
 default, so only floating-point noise passes. A column type with no controlled values (binary,
 time of day, time zones) is not run, with the reason. Neither is SUM or AVERAGE over a text,
-Boolean, date or time column: DuckDB sums a Boolean, where DAX and T-SQL refuse it. `semantic_parity_l3.redacted()` also replaces
+Boolean, date or time column, because DuckDB sums a Boolean, where DAX and T-SQL refuse it. `semantic_parity_l3.redacted()` also replaces
 each built query with a length and a hash.
 
 ## Schema validation

@@ -1015,7 +1015,7 @@ class Kernel:
         run.guest = getattr(self._local, "guest", None)
         run.notebook = self.notebook_name
         if lines or step:
-            run.debugger = Debugger(lines, step, self._frame_row, redact=_redacted, watches=watches,
+            run.debugger = Debugger(lines, step, self._frame_row, redact=self._debug_redacted, watches=watches,
                                     on_change=run.set_paused)
             run.debugger.skip = set(self._base_namespace_keys())
         self._current = self._last_runs[run.guest] = run
@@ -1773,6 +1773,12 @@ class Kernel:
         except Exception:  # noqa: BLE001  # silent-ok: a value that can't be described (a DuckDB relation over a dropped view) is listed by its type, so the rest of the pane still shows
             return {"name": name, "type": kind, "size": "", "value": "hidden" if hidden else "?",
                     "memory": None, "expandable": False}
+
+    def _debug_redacted(self, text: str) -> str:
+        """What the debugger shows of a value or an error: ``_redacted``, and without the values
+        getSecret read, so one held in a list, a longer text, an object's repr or an error's message
+        while a cell is paused shows as [REDACTED]."""
+        return secret_redaction.redact_values(_redacted(text), list(self._secrets))
 
     def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
         """A paused frame's local: never expandable, since variable_detail reads the namespace,

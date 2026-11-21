@@ -90,6 +90,15 @@ def redact(text: str) -> str:
     return pattern.sub(REDACTED, text)
 
 
+def redact_values(text: str, values: Any) -> str:
+    """``text`` with each of ``values`` (in each form printing it can take) replaced, as ``redact``
+    does for the values remembered: for values kept elsewhere, such as the ones getSecret read."""
+    forms = sorted({f for v in values for f in _forms(v)}, key=len, reverse=True)
+    for form in forms:
+        text = text.replace(form, REDACTED)
+    return text
+
+
 def redact_output(value: Any) -> Any:
     """``value`` with every remembered secret replaced in each string inside it (dicts and lists
     are copied, never changed in place). Bytes are left alone: images and other binary data."""

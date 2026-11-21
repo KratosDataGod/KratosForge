@@ -125,7 +125,7 @@ UI for the Local Data Explorer, Delta browser, destination picker, publish previ
 ## 6. Known limits and open questions
 
 - Excel files are found and listed but not readable until PR 3.
-- Delta tables with deletion vectors, column mapping or other reader features that a Parquet read would get wrong are listed with the reason and not queryable locally yet.
+- Delta tables with deletion vectors or column mapping are read correctly (#2924). A struct column under column mapping, more than 50,000 runs of deleted rows, and other reader features that a Parquet read would get wrong are listed with the reason and not queryable locally yet.
 - Partitioned Delta tables are read when their files sit in `column=value` folders (as Spark and delta-rs write them); others are reported.
 - File watching is a cheap check before each query (at most every 2 seconds), not a background watcher; switch it off with `auto_refresh = false` and refresh explicitly.
 - A notebook kernel can't open a project's database while the app has it open for writing; `local_close_project` releases it. Read-only sharing comes with the notebook integration.

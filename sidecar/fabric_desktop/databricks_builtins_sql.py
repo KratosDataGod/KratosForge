@@ -1066,6 +1066,10 @@ def other_statements(statement: exp.Expression) -> list[exp.Expression]:
     for kind, (what, why, instead) in _NOT_HERE.items():
         if isinstance(statement, kind):
             raise _statement_refusal(what, why, instead)
+    if any(call.name.lower() == "table_changes" for call in statement.find_all(exp.Anonymous)):
+        raise _statement_refusal("table_changes", f"it reads a Delta table's change data feed, and {_LOCAL_TABLE}",
+                                 "read the changes in a notebook cell on this PC with spark.read.option("
+                                 "\"readChangeFeed\", \"true\").option(\"startingVersion\", 0).table(...)")
     if isinstance(statement, exp.Set) and any(i.args.get("kind") == "VARIABLE" for i in statement.expressions):
         raise _statement_refusal("SET VARIABLE", _VARIABLES, "write the value into the query")
     if isinstance(statement, exp.Command) and statement.name.upper() in _MAINTENANCE:
@@ -1100,10 +1104,20 @@ _DUCKDB_CATALOGS = {"system", "temp", "memory"}  # USE x in DuckDB would switch 
 
 
 def _catalog_refusal(name: str, what: str | None = None) -> ValueError:
-    return _statement_refusal(what or f"A name in the catalog {name}",
-                              f"{name} is a Unity Catalog catalog and this session holds only its own tables, in "
-                              f"the catalog main ({', '.join(SESSION_CATALOGS[1:])} name it too)",
-                              "name the table as schema.table or table, or as main.schema.table")
+    others = SESSION_CATALOGS[1:]
+    kind = ("a catalog of this PC's own engine, not one of the session's" if name.lower() in _DUCKDB_CATALOGS
+            else "a Unity Catalog catalog")
+    return _statement_refusal(what or f"A table in the catalog {name}",
+                              f"{name} is {kind}, and this session holds only its own tables, in "
+                              f"the catalog main ({', '.join(others[:-1])} and {others[-1]} name it too)",
+                              "name the table as main.schema.table, schema.table or table")
+
+
+def _main_schema_refusal(what: str) -> ValueError:
+    """A schema named main: DuckDB's own name for the schema this session shows as default, so it can't be
+    another schema here, and reading it as default would answer where Databricks finds no such schema."""
+    return _statement_refusal(what, "this PC's engine already uses the name main for the schema shown as default",
+                              "use default or another schema name")
 
 
 def _default_schema(identifier: exp.Identifier | None) -> exp.Identifier | None:
@@ -1134,7 +1148,18 @@ def unity_names(statement: exp.Expression) -> list[exp.Expression]:
                 table.set("catalog", None)
             else:
                 raise _catalog_refusal(table.catalog)
+        if table.args.get("db") is not None and table.db.lower() == "main":
+            raise _main_schema_refusal(f"The schema main in {'.'.join(p.name for p in table.parts)}")
         table.set("db", _default_schema(table.args.get("db")))
+    for column in list(statement.find_all(exp.Column)):
+        # main.default.t.id: the session's catalog and schema in front of a table's name. Only those are touched:
+        # any other leading parts may be a table, an alias or a struct's fields (t.s.a.b), so they stay as written.
+        column_catalog = column.args.get("catalog")
+        if column_catalog is not None and column_catalog.name.lower() in SESSION_CATALOGS:
+            column.set("catalog", None)
+            column.set("db", _default_schema(column.args.get("db")))
+        elif column_catalog is None and column.args.get("db") is not None and column.args["db"].name.lower() == "default":
+            column.set("db", _default_schema(column.args.get("db")))
     for node in list(statement.find_all(exp.CurrentSchema, exp.CurrentDatabase, exp.CurrentCatalog)):
         node.replace(exp.Literal.string("main") if isinstance(node, exp.CurrentCatalog) else _current_schema())
     return [statement]
@@ -1161,6 +1186,8 @@ def _use(statement: exp.Use) -> list[exp.Expression]:
             raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: a schema is named as schema or catalog.schema.")
         if len(names) == 2 and names[0].lower() not in SESSION_CATALOGS:
             raise _catalog_refusal(names[0], said)
+        if names[-1].lower() == "main":  # on Databricks USE main is USE SCHEMA main, not the catalog
+            raise _main_schema_refusal(said)
         schema = "main" if names[-1].lower() == "default" else names[-1]
         if schema.lower() in _DUCKDB_CATALOGS:
             raise _statement_refusal(said, f"DuckDB keeps the name {schema} for one of its own catalogs",

@@ -98,14 +98,14 @@ def test_an_older_version_is_read_with_the_deletion_vector_it_had_then():
     table = DeltaTable(str(FIXTURES / "dv"), version=1)  # before DELETE id = 8
     assert [r[0] for r in _sorted(delta_read.arrow(table))] == [0, 1, 2, 4, 5, 6, 8, 9]
     sql, info = eng.delta_select(str(FIXTURES / "dv"), version=1)
-    assert [r[0] for r in duckdb.sql(sql + " ORDER BY id").fetchall()] == [0, 1, 2, 4, 5, 6, 8, 9]
+    assert [r[0] for r in duckdb.connect().sql(sql + " ORDER BY id").fetchall()] == [0, 1, 2, 4, 5, 6, 8, 9]
     assert info["deleted_rows"] == 2
 
 
 @pytest.mark.parametrize("name", NAMES)
 def test_the_local_view_reads_the_rows_spark_reads(name):
     sql, info = eng.delta_select(str(FIXTURES / name))
-    rel = duckdb.sql(sql)
+    rel = duckdb.connect().sql(sql)
     assert rel.columns == EXPECTED[name]["columns"]
     assert sorted(rel.fetchall()) == EXPECTED[name]["rows"]
     deleted = 10 - len(EXPECTED[name]["rows"])

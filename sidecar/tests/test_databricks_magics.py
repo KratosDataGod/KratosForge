@@ -178,7 +178,7 @@ def test_fs_subcommands_map_to_dbutils_fs(tmp_path):
     assert k.run(f"%fs rm {root}/in/a.txt")["status"] == "ok"
     listed = k.run(f"%fs ls {root}")["outputs"][0]
     same = k.run(f"sorted(f.name for f in dbutils.fs.ls('{root}'))")["outputs"][-1]["text"]
-    assert sorted(r[0] for r in listed["rows"]) == eval(same) == ["c.txt", "in"]  # noqa: S307 - the kernel's repr
+    assert sorted(r[0] for r in listed["rows"]) == eval(same) == ["c.txt", "in/"]  # noqa: S307 - the kernel's repr
     assert k.run("%fs mounts")["outputs"] == k.run("dbutils.fs.mounts()")["outputs"] == [{"type": "text", "text": "[]"}]
     assert k.run("%fs refreshMounts")["outputs"] == [{"type": "text", "text": "True"}]
 

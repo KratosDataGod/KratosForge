@@ -24,7 +24,8 @@ from .redact import describe
 from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
 from .timeutil import now_iso as _now, seconds_between
-from .workloads.notify import UNCONFIRMED, Outbox, audit_trouble, send, settle_failed, single
+from .workloads.notify import (UNCONFIRMED, OutcomeUnknown, Outbox, audit_trouble, outcome_unknown, send,
+                                settle_failed, single)
 
 _log = logging.getLogger(__name__)
 _PIPELINE_POLL = 0.25  # seconds between looks at a scheduled pipeline run
@@ -387,17 +388,18 @@ class ScheduleMixin:
                                "Edit the schedule to run only while you're signed in."}
             schedules.log_run(row)
             return row
+        params = {"schedule_id": schedule_id, "trigger": trigger, "target": s["target"]}
+        prod = audit.fails_closed("run_schedule", {"target": s["target"]})  # before the lock: nothing can leave it held
         lock = self._lock(schedule_id, {"started": row["started"], "trigger": trigger})
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
                     "message": "The previous run of this schedule was still going"}
             schedules.log_run(row)
             return row
-        params = {"schedule_id": schedule_id, "trigger": trigger, "target": s["target"]}
-        prod = audit.fails_closed("run_schedule", {"target": s["target"]})
         if prod:
-            # Aimed at Prod: as for the app's own calls, it runs only once its audit line is written. After
-            # the overlap lock, so a run skipped because the last one was still going leaves no "started" line.
+            # Aimed at Prod: as for the app's own calls, it runs only once its audit line is written. Only the
+            # check of whether it is aimed at Prod comes before the overlap lock; the line itself is written
+            # after it, so a run skipped because the last one was still going leaves no "started" line.
             try:
                 self.audit.record("run_schedule", "started", 0.0, params)  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
@@ -551,7 +553,10 @@ class ScheduleMixin:
             try:
                 post(to, title, lines)
             except Exception as exc:  # noqa: BLE001 - any send failure becomes TeamsUnreachable, with the webhook kept out
-                raise TeamsUnreachable(_without_webhook(describe(exc), to)) from None
+                said = _without_webhook(describe(exc), to)
+                if outcome_unknown(exc):  # it may have arrived (no answer, 500, 502, 504): never sent again
+                    raise OutcomeUnknown(said) from None
+                raise TeamsUnreachable(said) from None
         try:
             result = send([], single(url), self._schedule_alerts(), "this PC's schedules", scrubbed)
         finally:

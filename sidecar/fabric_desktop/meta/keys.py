@@ -181,6 +181,18 @@ def entity_keys(e: Entity) -> list[dict[str, Any]]:
     return out
 
 
+def source_entity(e: Entity) -> str:
+    """The one entity [[keys]] read business keys from. The engine reads one source entity, so a list
+    (even of one) has no single table to MERGE from."""
+    src = e.spec.get("source", {}).get("entity")
+    if isinstance(src, list):
+        raise ValueError(f"{e.name}: [[keys]] reads business keys from one source entity, not a list "
+                         f"({', '.join(map(str, src))})")
+    if not isinstance(src, str):
+        raise ValueError(f"{e.name}: [[keys]] reads business keys from one source entity, named as text")
+    return src
+
+
 def validate_keys(project: Project, today: dt.date | None = None) -> list[str]:
     """Key tables, source systems and every entity's [[keys]] (part of the save gate)."""
     from .project import source_columns
@@ -220,6 +232,11 @@ def validate_keys(project: Project, today: dt.date | None = None) -> list[str]:
             continue
         if "entity" not in e.spec.get("source", {}):
             errors.append(f"{e.name}: [[keys]] needs a source entity to read business keys from")
+            continue
+        try:
+            source_entity(e)
+        except ValueError as exc:
+            errors.append(str(exc))
             continue
         available = source_columns(project, e)
         seen = set()
@@ -458,7 +475,7 @@ def _spark_bk(columns: list[str], alias: str = "") -> str:
 
 def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
     """The Spark SQL that starts every template notebook for this entity."""
-    src = project.entities[e.spec["source"]["entity"]]
+    src = project.entities[source_entity(e)]
     source = f"{project.layer(src.layer).lakehouse}.{src.schema}.{src.table}"
     out = [f"-- Surrogate keys for {e.name}. Generated from metadata/entities/{e.name}.toml; change it there.",
            ""]
@@ -496,7 +513,7 @@ def merge_sql(project: Project, e: Entity, keys_workspace: str = "") -> str:
 
 
 def template_cells(project: Project, e: Entity, keys_workspace: str = "") -> list[dict[str, str]]:
-    src = e.spec["source"]["entity"]
+    src = source_entity(e)
     return [
         {"type": "code", "source": "%%sql\n" + merge_sql(project, e, keys_workspace)},
         {"type": "code", "source": (

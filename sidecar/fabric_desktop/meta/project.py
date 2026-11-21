@@ -905,43 +905,49 @@ def _graph(project: Project) -> dict[str, list[str]]:
 
 
 def find_cycle(project: Project) -> list[str] | None:
+    # Depth first with an explicit stack, not recursion: a chain of thousands of entities is fine.
     graph = _graph(project)
     state: dict[str, int] = {}
-    stack: list[str] = []
-
-    def visit(n: str) -> list[str] | None:
-        state[n] = 1
-        stack.append(n)
-        for m in graph[n]:
-            if state.get(m) == 1:
-                return stack[stack.index(m):] + [m]
-            if m not in state and (c := visit(m)):
-                return c
-        stack.pop()
-        state[n] = 2
-        return None
-
-    for n in sorted(graph):
-        if n not in state and (c := visit(n)):
-            return c
+    for root in sorted(graph):
+        if root in state:
+            continue
+        state[root] = 1
+        stack, todo = [root], [iter(graph[root])]
+        while todo:
+            for m in todo[-1]:
+                if state.get(m) == 1:
+                    return stack[stack.index(m):] + [m]
+                if m not in state:
+                    state[m] = 1
+                    stack.append(m)
+                    todo.append(iter(graph[m]))
+                    break
+            else:
+                state[stack.pop()] = 2
+                todo.pop()
     return None
 
 
 def run_order(project: Project) -> list[str]:
+    # Upstream first: each entity after everything it reads (an explicit stack, as in find_cycle).
     graph = _graph(project)
     out: list[str] = []
     seen: set[str] = set()
-
-    def visit(n: str) -> None:
-        if n in seen:
-            return
-        seen.add(n)
-        for m in graph[n]:
-            visit(m)
-        out.append(n)
-
-    for n in sorted(graph, key=lambda n: (project._layer_pos(project.entities[n]), n)):
-        visit(n)
+    for root in sorted(graph, key=lambda n: (project._layer_pos(project.entities[n]), n)):
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, iter(graph[root]))]
+        while stack:
+            n, todo = stack[-1]
+            for m in todo:
+                if m not in seen:
+                    seen.add(m)
+                    stack.append((m, iter(graph[m])))
+                    break
+            else:
+                stack.pop()
+                out.append(n)
     return out
 
 

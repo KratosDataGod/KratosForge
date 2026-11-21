@@ -88,6 +88,26 @@ _GO = re.compile(r"^[ \t]*+GO[ \t]*+;?[ \t]*+$", re.IGNORECASE | re.MULTILINE)
 # Comments, strings and quoted names in one left-to-right pass, so whichever starts first wins: a
 # quote inside [it's] or -- inside [a--b] is part of the name, and a [ inside a string is text.
 _TOKENS = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[((?:[^\]]|\]\])*)\]|\"((?:[^\"]|\"\")*)\"", re.DOTALL)
+_OPENS = re.compile(r"--|/\*|N'|['\[\"]")
+
+
+def _sub_tokens(repl: Callable[[re.Match[str]], str], text: str) -> str:
+    """``_TOKENS.sub(repl, text)``, without trying a quote, [ or /* that nothing closes after it. The
+    rule read each of those to the text's end before giving up, so 12,500 [ took 2.3 s; where one
+    can't close, none after it of its kind can either, and those are skipped instead."""
+    last = {"'": text.rfind("'"), '"': text.rfind('"'), "[": text.rfind("]"), "*": text.rfind("*/")}
+    out, done, at = [], 0, 0
+    while opens := _OPENS.search(text, at):
+        start = opens.start()
+        found = _TOKENS.match(text, start) if opens.end() - 1 < last.get(text[opens.end() - 1], len(text)) else None
+        if found is None:
+            at = start + 1
+            continue
+        out += (text[done:start], repl(found))
+        done = at = found.end()
+    return "".join(out) + text[done:]
+
+
 _DEFINES = re.compile(r"^\s*(?:CREATE|ALTER|CREATE\s+OR\s+ALTER)\s+(PROC|PROCEDURE|FUNCTION|TRIGGER|VIEW)\b\s*([^\s(]*)",
                       re.IGNORECASE)
 # What a change may never do, looked for in each batch's text with comments and strings taken out,
@@ -175,7 +195,7 @@ def without_outer_transaction(query: str) -> tuple[str, bool]:
     """``query`` without a BEGIN TRAN first line and COMMIT last line that wrap all of it, and whether
     they were there. Comments and strings are blanked first, so a COMMIT in one doesn't count."""
     text = query.replace("\r\n", "\n")
-    bare = _TOKENS.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)  # same length, lines kept
+    bare = _sub_tokens(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)  # same length, lines kept
     begin, commit = _BEGIN_LINE.match(bare), _COMMIT_LINE.search(bare)
     if not begin or not commit or commit.start() < begin.end():
         return query, False
@@ -291,7 +311,7 @@ def _bare_and_names(batch: str) -> tuple[str, str]:
             return " "
         return m.group(1).replace("]]", "]") if m.group(0)[0] == "[" else m.group(2).replace('""', '"')
 
-    return (_TOKENS.sub(lambda m: " x " if quoted(m) else " ", batch), _TOKENS.sub(unwrap, batch))
+    return (_sub_tokens(lambda m: " x " if quoted(m) else " ", batch), _sub_tokens(unwrap, batch))
 
 
 def _change_verdicts(query: str) -> list[sql_policy.Verdict]:

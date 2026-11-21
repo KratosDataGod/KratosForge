@@ -106,3 +106,21 @@ def test_a_long_run_of_blanks_around_go_begin_or_commit_is_read_once(fn, build):
     # Split every way between the parts around it, 8,000 took seconds; read once, 8 times the blanks
     # take about 8 times as long.
     assert _quickest(fn, build(16000)) / max(_quickest(fn, build(2000)), 50e-6) < 30
+
+
+@pytest.mark.parametrize("text", ["[a]] b] 'it''s' \"q\"\"x\" N'n' /* c */ -- d\n[", "x ' [ \" /*", "'a' [ 'b' ] /* '",
+                                  "]'[\"'\"]\"[", "/*/ */ N'' \"\" [] --"])
+def test_comments_strings_and_names_are_taken_out_as_before(text):
+    for repl in (lambda m: " ", lambda m: repr((m.span(), m.groups()))):
+        assert warehouse._sub_tokens(repl, text) == warehouse._TOKENS.sub(repl, text)
+
+
+@pytest.mark.parametrize("opener", ["[", "/* ", "[ /* x"])
+def test_brackets_and_comments_that_nothing_closes_are_read_once(opener):
+    # Each one was read to the text's end before giving up, so 12,500 [ took 2.3 s. Now one that can't
+    # close is skipped, and 8 times as many take about 8 times as long. (A quote is closed by the next.)
+    def check(text):
+        warehouse.without_outer_transaction(text)
+        warehouse._bare_and_names(text)
+
+    assert _quickest(check, opener * 8000) / max(_quickest(check, opener * 1000), 50e-6) < 30

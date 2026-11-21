@@ -202,6 +202,23 @@ def test_vacuum_keeps_the_default_retention_and_says_so():
     assert ".vacuum()" in py
 
 
+def test_vacuum_caveat_doesnt_promise_seven_days_the_table_may_not_keep():
+    """Without RETAIN, VACUUM uses the table's delta.deletedFileRetentionDuration, which a notebook
+    may have set below 7 days: the proposal must say to check it, never promise 7 days."""
+    for t in tp.for_outcome(fail("FEA-DE-003", NB_FAIL)):
+        said = " ".join(t["caveats"])
+        assert "never shortens" not in said and "unless the table is set to keep more" not in said
+        assert "deletedFileRetentionDuration" in said and "SHOW TBLPROPERTIES" in said
+
+
+@pytest.mark.parametrize("count", [float("inf"), float("-inf"), float("nan"), "1e999", "x", None, [], {}])
+def test_an_odd_count_never_raises_and_keeps_the_proposal(count):
+    for cid in ("FEA-REL-003", "FEA-DEVOPS-002", "FEA-SM-001", "FEA-SM-006"):
+        d = {k: v for k, v in SAMPLES[cid].items() if k != "count"}
+        got = tp.for_outcome(fail(cid, {**d, "count": count}))
+        assert len(got) == 1 and not any(" of " in c and "change the others" in c for c in got[0]["caveats"])
+
+
 # ---- names: quoted for their language, or left out
 
 

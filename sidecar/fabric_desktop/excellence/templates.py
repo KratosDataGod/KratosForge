@@ -87,6 +87,15 @@ def _names(detail: dict[str, Any], key: str) -> list[str]:
     return sorted({n for n in got if isinstance(n, str)}) if isinstance(got, list) else []
 
 
+def _count(detail: dict[str, Any]) -> int:
+    """The finding's ``count`` as a whole number, 0 when it isn't one (None, NaN, inf, text): an odd
+    count only drops the "N of M" caveat, never the proposal."""
+    got = detail.get("count")
+    if isinstance(got, bool) or not isinstance(got, (int, float)) or got != got or got in (float("inf"), float("-inf")):
+        return 0
+    return max(0, int(got))
+
+
 def _left_out(skipped: int, total: int, shown: int, what: str) -> list[str]:
     out = []
     if skipped:
@@ -127,7 +136,7 @@ def _sm_bidirectional(o: dict[str, Any]) -> list[dict[str, Any]]:
                   "properties as they are. Removing the line has the same effect: one direction is the default."),
                   ("A visual or measure that relied on filtering both ways can show different numbers. Use "
                   "CROSSFILTER in that measure instead, and compare report totals before and after."),
-                  *_left_out(skipped, int(d.get("count") or 0), len(blocks), "relationships")])]
+                  *_left_out(skipped, _count(d), len(blocks), "relationships")])]
 
 
 def _sm_visible_keys(o: dict[str, Any]) -> list[dict[str, Any]]:
@@ -150,7 +159,7 @@ def _sm_visible_keys(o: dict[str, Any]) -> list[dict[str, Any]]:
                  ["Add the isHidden line to each existing column; leave the column's other properties as they are.",
                   ("A report that shows the key column directly loses that field; point it at the dimension's "
                   "columns instead."),
-                  *_left_out(skipped, int(d.get("count") or 0), shown, "columns")])]
+                  *_left_out(skipped, _count(d), shown, "columns")])]
 
 
 def _sm_fallback(o: dict[str, Any]) -> list[dict[str, Any]]:
@@ -187,7 +196,7 @@ def _pl_deactivated(o: dict[str, Any]) -> list[dict[str, Any]]:
                   "\"onInactiveMarkAs\": \"Skipped\", so a run no longer reports it as Succeeded."),
                   ("Run the pipeline once in a test workspace first: an activity that was off may not have run "
                   "for a while."),
-                  *_left_out(skipped, int(d.get("count") or 0), len(names), "activities")])]
+                  *_left_out(skipped, _count(d), len(names), "activities")])]
 
 
 def _pl_fixed_workspace(o: dict[str, Any]) -> list[dict[str, Any]]:
@@ -208,7 +217,7 @@ def _pl_fixed_workspace(o: dict[str, Any]) -> list[dict[str, Any]]:
                   "A variable library value works the same way: @pipeline().libraryVariables.<name>.",
                   ("When the activity should use the pipeline's own workspace, the system variable "
                   "@pipeline().DataFactory gives that workspace's id without a parameter."),
-                  *_left_out(skipped, int(d.get("count") or 0), len(names), "activities")])]
+                  *_left_out(skipped, _count(d), len(names), "activities")])]
 
 
 # ---- notebooks (Python, notebook cells, Spark SQL)
@@ -290,8 +299,11 @@ def _nb_short_vacuum(o: dict[str, Any]) -> list[dict[str, Any]]:
           "DeltaTable.forName(spark, \"<table>\").vacuum()\n")
     places = [("<table>", ("The table the VACUUM at the cell and line named in the finding runs on, as "
                           "schema.table (or `schema`.`table` in Spark SQL when a name needs quoting)."))]
-    caveats = ["This keeps 7 days of history unless the table is set to keep more; it never shortens it.",
-               "Leave spark.databricks.delta.retentionDurationCheck.enabled on: it stops a shorter retention."]
+    caveats = [("This keeps the table's own retention, delta.deletedFileRetentionDuration: 7 days unless the "
+                "table sets it. Check it first with SHOW TBLPROPERTIES <table>; if it is under 7 days, set it "
+                "back to at least 7 days, or this VACUUM still removes history that recent."),
+               ("Leave spark.databricks.delta.retentionDurationCheck.enabled on: it stops a RETAIN shorter than "
+                "the table's retention.")]
     return [_tpl(o["control_id"], "sql", "VACUUM with the default retention (Spark SQL)", sql, places, caveats),
             _tpl(o["control_id"], "python", "VACUUM with the default retention (PySpark)", py, places, caveats)]
 

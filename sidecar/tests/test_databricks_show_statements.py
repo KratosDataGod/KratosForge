@@ -112,16 +112,51 @@ def test_show_columns_with_two_schemas_stops_as_databricks_does(cell):
 
 # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-aux-show-schemas (and -show-tables): a
 # catalog outside the session is refused by name, as WR-316 refuses any name in it
-@pytest.mark.parametrize("code, what", [
-    ("SHOW SCHEMAS IN prod", "SHOW SCHEMAS IN prod"),
-    ("SHOW TABLES IN prod.sales", "SHOW TABLES IN prod.sales"),
-    ("SHOW VIEWS FROM system.information_schema", "SHOW VIEWS IN system.information_schema"),
-    ("SHOW COLUMNS IN prod.sales.orders", "SHOW COLUMNS IN prod.sales"),
+_OWN_CATALOG = "is a catalog of this PC's own engine, not one of the session's, and this session holds only its own tables"
+
+
+@pytest.mark.parametrize("code, what, kind", [
+    ("SHOW SCHEMAS IN prod", "SHOW SCHEMAS IN prod", "is a Unity Catalog catalog, and this session holds only its own tables"),
+    ("SHOW TABLES IN prod.sales", "SHOW TABLES IN prod.sales", "is a Unity Catalog catalog, and"),
+    ("SHOW COLUMNS IN prod.sales.orders", "SHOW COLUMNS IN prod.sales", "is a Unity Catalog catalog, and"),
+    # DuckDB's own catalogs are named as this PC's, as a table name in them is (WR-316)
+    ("SHOW VIEWS FROM system.information_schema", "SHOW VIEWS IN system.information_schema", _OWN_CATALOG),
+    ("SHOW TABLES IN memory.default", "SHOW TABLES IN memory.default", _OWN_CATALOG),
+    ("SHOW SCHEMAS IN temp", "SHOW SCHEMAS IN temp", _OWN_CATALOG),
 ])
-def test_another_catalog_is_refused_by_name(cell, code, what):
+def test_another_catalog_is_refused_by_name(cell, code, what, kind):
     answer = cell(code)
     _refused(answer, what)
-    assert "is a Unity Catalog catalog and this session holds only its own tables" in answer
+    assert kind in answer, answer
+    assert "name the table as main.schema.table, schema.table or table" in answer, answer
+
+
+# WR-316: DuckDB's main schema is default here, so a schema named main is refused as a table's schema and USE main
+# are, and SHOW SCHEMAS never lists main
+@pytest.mark.parametrize("code, what", [
+    ("SHOW TABLES IN main", "SHOW TABLES IN main"),
+    ("SHOW VIEWS FROM workspace.main", "SHOW VIEWS IN workspace.main"),
+    ("SHOW COLUMNS IN main.sam", "SHOW COLUMNS IN main"),
+    ("SHOW COLUMNS IN sam IN main", "SHOW COLUMNS IN main"),
+])
+def test_a_schema_named_main_is_refused_since_it_is_default_here(cell, code, what):
+    answer = cell(code)
+    _refused(answer, what)
+    assert "this PC's engine already uses the name main for the schema shown as default" in answer, answer
+    assert "main" not in [row[0] for row in cell("SHOW SCHEMAS")]
+
+
+# and system, temp and memory, which DuckDB keeps for its own catalogs, are refused as USE refuses them
+@pytest.mark.parametrize("name", ["system", "temp", "memory"])
+def test_a_schema_with_a_duckdb_catalog_name_is_refused(cell, name):
+    answer = cell(f"SHOW TABLES IN {name}")
+    _refused(answer, f"SHOW TABLES IN {name}")
+    assert f"DuckDB keeps the name {name} for one of its own catalogs" in answer, answer
+
+
+@pytest.mark.parametrize("schema", ["main.default", "workspace.default", "hive_metastore.default", "default"])
+def test_show_tables_in_the_sessions_default_schema(cell, schema):
+    assert cell(f"SHOW TABLES IN {schema} LIKE 'sam'") == [["default", "sam", False]]
 
 
 # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-aux-show-tables: "Except for * and |

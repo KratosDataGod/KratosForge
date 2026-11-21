@@ -1120,6 +1120,12 @@ def _main_schema_refusal(what: str) -> ValueError:
                               "use default or another schema name")
 
 
+def _duckdb_schema_refusal(name: str, what: str) -> ValueError:
+    """A schema named system, temp or memory: DuckDB reads the name as one of its own catalogs."""
+    return _statement_refusal(what, f"DuckDB keeps the name {name} for one of its own catalogs",
+                              "give the schema another name")
+
+
 def _default_schema(identifier: exp.Identifier | None) -> exp.Identifier | None:
     if identifier is not None and identifier.name.lower() == "default":
         return exp.to_identifier("main")
@@ -1190,8 +1196,7 @@ def _use(statement: exp.Use) -> list[exp.Expression]:
             raise _main_schema_refusal(said)
         schema = "main" if names[-1].lower() == "default" else names[-1]
         if schema.lower() in _DUCKDB_CATALOGS:
-            raise _statement_refusal(said, f"DuckDB keeps the name {schema} for one of its own catalogs",
-                                     "give the schema another name")
+            raise _duckdb_schema_refusal(schema, said)
     shown = "default" if schema == "main" else schema
     check = cast(exp.Expression, parse_one(
         "SELECT error(" + _quoted(f"[SCHEMA_NOT_FOUND] The schema `main`.`{shown}` cannot be found. Verify the "
@@ -1260,6 +1265,12 @@ def _schema(parts: list[str], said: str) -> tuple[str | None, str]:
     catalog = parts[0].lower() if len(parts) == 2 else "main"
     if not parts:
         return None, catalog
+    # the same refusals as a table's schema and USE: main is DuckDB's name for default, and system, temp and
+    # memory are its own catalogs
+    if parts[-1].lower() == "main":
+        raise _main_schema_refusal(f"{said} IN {'.'.join(parts)}")
+    if parts[-1].lower() in _DUCKDB_CATALOGS:
+        raise _duckdb_schema_refusal(parts[-1], f"{said} IN {'.'.join(parts)}")
     return ("main" if parts[-1].lower() == "default" else parts[-1]), catalog
 
 

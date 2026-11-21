@@ -299,7 +299,10 @@ def sleep_jump(monkeypatch):
     during sleep, so a plain jump wouldn't show the bug."""
     real = time.monotonic
     offset = [0.0]
+    active = [True]
     monkeypatch.setattr(time, "monotonic", lambda: real() + offset[0])
+    from fabric_desktop import awake_timer
+    monkeypatch.setattr(awake_timer, "_monotonic", lambda: real() + offset[0])  # its own binding
     event_wait = threading.Event.wait
 
     def windows_wait(self, timeout=None):
@@ -307,6 +310,8 @@ def sleep_jump(monkeypatch):
             return event_wait(self)
         deadline = time.monotonic() + timeout
         while True:
+            if not active[0]:  # the test is over and the clock back: end early, as a wait may
+                return event_wait(self, 0.05)
             left = deadline - time.monotonic()
             if left <= 0:
                 return self.is_set()
@@ -316,4 +321,5 @@ def sleep_jump(monkeypatch):
 
     def jump(seconds: float) -> None:
         offset[0] += seconds
-    return jump
+    yield jump
+    active[0] = False

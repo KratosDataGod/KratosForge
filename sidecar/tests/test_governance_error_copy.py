@@ -80,6 +80,32 @@ def test_group_policy_is_named_when_it_sets_the_key(policy, monkeypatch):
     says(refusal(fabric_api._check_fabric_runs_allowed, "runs in Fabric"), "allow_fabric_runs", "Group Policy")
 
 
+def test_an_ignored_group_policy_value_doesnt_name_group_policy(policy, monkeypatch):
+    # Group Policy's key isn't admin-only, so its client_id is left out and the trusted policy file's applies.
+    policy({"client_id": "22222222-3333-4444-5555-666666666666"})
+    monkeypatch.setattr(registry_policy, "_reader",
+                        lambda: lambda: ({"client_id": ("33333333-4444-5555-6666-777777777777", registry_policy.REG_SZ)}, {}))
+    monkeypatch.setattr(app_settings, "registry_key_untrusted", lambda lists: "Group Policy's key isn't admin-only")
+    assert app_settings.policy_source("client_id") == "the policy file"
+    says(refusal(app_settings.save, {"client_id": "44444444-5555-6666-7777-888888888888"}), "client_id")
+
+
+def test_an_engine_source_without_auto_update_off_names_where_each_is_set(policy, monkeypatch):
+    # auto_update set nowhere: both go where engine_download_url is set.
+    policy({})
+    url = "https://files.contoso.com/kratosforge"
+    monkeypatch.setattr(registry_policy, "_reader", lambda: lambda: ({"engine_download_url": (url, registry_policy.REG_SZ)}, {}))
+    [problem] = [p for p in app_settings.policy_problems() if p.startswith("engine_download_url")]
+    says(problem, "engine_download_url", "Group Policy")
+    assert problem.endswith("set auto_update to false in Group Policy, or to remove engine_download_url")
+    # auto_update set in Group Policy wins over the file, so it has to change there.
+    policy({"engine_folder": "C:\\Program Files\\KratosForge\\engine"})
+    monkeypatch.setattr(registry_policy, "_reader", lambda: lambda: ({"auto_update": (1, registry_policy.REG_DWORD)}, {}))
+    [problem] = [p for p in app_settings.policy_problems() if p.startswith("engine_folder")]
+    says(problem, "engine_folder", "Group Policy")
+    assert "set auto_update to false in Group Policy, or to remove engine_folder from the policy file" in problem
+
+
 def test_unreadable_group_policy_says_what_it_may_set_and_what_it_can_do(policy, monkeypatch):
     def broken():
         raise PermissionError(5, "Access is denied")

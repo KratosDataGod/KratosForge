@@ -735,8 +735,8 @@ def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
         return [(f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
                 "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub")]
     if auto_update is not False:
-        return [('engine_download_url is used only with "auto_update": false, so the engine comes from GitHub. Ask IT '
-                 f'to set auto_update to false in {policy_source("auto_update")}, or to remove engine_download_url')]
+        return [('engine_download_url is used only with "auto_update": false, so the engine comes from GitHub. '
+                 + _auto_update_fix("engine_download_url", auto_update))]
     ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
     if ignored:
         return [(f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Ask IT to push "
@@ -755,8 +755,8 @@ def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
         return [(f"engine_folder: {json.dumps(value)} isn't a full folder path on this PC like "
                  "C:\\Program Files\\KratosForge\\engine, so the engine can't start until it's fixed")]
     if auto_update is not False:
-        return [('engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set. Ask '
-                 f'IT to set auto_update to false in {policy_source("auto_update")}, or to remove engine_folder')]
+        return [('engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set. '
+                 + _auto_update_fix("engine_folder", auto_update))]
     return []
 
 
@@ -849,11 +849,22 @@ def _telemetry_target(text: str) -> bool:
 
 
 def policy_source(key: str) -> str:
-    """Which of the organization's sources sets ``key``, in words for a message: "Group Policy" when its
-    registry key sets it (or couldn't be read), else "the policy file" (also when the file can't be read
-    and the restriction takes its most restrictive value)."""
-    from . import registry_policy
-    return "Group Policy" if key in registry_policy.read()[0] else "the policy file"
+    """Which of the organization's sources sets ``key``, in words for a message: "Group Policy" when a value
+    Group Policy sets for it applies, which includes each on/off restriction's most restrictive value while
+    Group Policy's whole key can't be read. Otherwise "the policy file": when only the file sets it, when
+    neither does, when the file can't be read and the restriction takes its most restrictive value, when
+    Group Policy's value for a LOOSENING setting is ignored because its key isn't admin-only, and when
+    the list subkey for ``key`` can't be read (what Group Policy sets for it is then unknown and not used)."""
+    return "Group Policy" if key in _policy_sources()[3] else "the policy file"
+
+
+def _auto_update_fix(key: str, auto_update: Any) -> str:
+    """What IT can do when ``key`` (engine_download_url or engine_folder) is set without "auto_update": false:
+    set auto_update where it is set (that source wins), or where ``key`` is when it isn't set anywhere; or
+    remove ``key``, from where it is when that's elsewhere."""
+    there = policy_source(key)
+    where = policy_source("auto_update") if auto_update is not None else there
+    return f"Ask IT to set auto_update to false in {where}, or to remove {key}" + ("" if where == there else f" from {there}")
 
 
 def ask_it(key: str) -> str:

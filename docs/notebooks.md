@@ -178,9 +178,10 @@ Printed output shows while a cell runs. A cell shows up to 1,000,000 characters 
 
 **Settings > Advanced > Run notebooks in their own process**, on by default, runs cells in a Python process of their own instead of inside the app's engine. Then **Restart kernel** on a stuck cell ends only that process and any processes its cells started (including ones that started their own session, like a server), a crash in a library ends only that process (the cell says so and the next cell starts a fresh one), and the rest of the app keeps answering meanwhile. Switching it clears variables.
 
-With that setting on, two more Preview settings appear under it.
+**Query progress.** While a cell runs a `spark` query (`spark.sql`, `spark.read`, a DataFrame's `collect` or `show`), the line under the cell shows how far the query is, the closest this PC has to Fabric's Spark job progress bar. DuckDB reports it for scans of tables and files; a query over a generated range or one that is just starting shows no percentage. Only the cell's own queries show there: a query run by a widget's handler or by a thread the cell started shows no percentage under the cell. There is no Spark UI on this PC, since there are no Spark jobs.
 
-- **Query progress.** While a cell runs a `spark` query (`spark.sql`, `spark.read`, a DataFrame's `collect` or `show`), the line under the cell shows how far the query is, the closest this PC has to Fabric's Spark job progress bar. DuckDB reports it for scans of tables and files; a query over a generated range or one that is just starting shows no percentage. Only the cell's own queries show there: a query run by a widget's handler or by a thread the cell started shows no percentage under the cell. There is no Spark UI on this PC, since there are no Spark jobs.
+With **Run notebooks in their own process** on, two more Preview settings appear under it.
+
 - **Cell time limit.** A cell that runs longer is interrupted, and variables are kept. If it doesn't stop within 30 seconds, for example because it's waiting on one long call, its process is ended and variables are cleared. The cell says which happened and offers **Run again without the limit**. Proofs and side by side use the same limit, and a proof's receipt records the limits in force.
 - **Notebook memory limit.** If the notebook's process uses more memory than this, it's ended, so one notebook can't slow the whole PC. Variables are cleared and every cell is marked stale. Memory is checked every second, so a sudden spike can briefly go past the limit before it's seen. KratosForge counts private bytes on Windows and resident memory on Linux, for that process and every process its cells start (a subprocess or a multiprocessing pool), added together. A new process already uses about 0.8 GB on Windows before any cell runs, mostly for the data libraries it loads, so a limit under 2 GB leaves the notebook little room.
 
@@ -333,16 +334,16 @@ The ribbon has four tabs:
 
 | Tab | What's on it |
 | --- | --- |
-| **Home** | Run all, Cancel, **Runs on**, **Check** (Side by side, Validate, Prove), Add data items, Save, **Share** (Save a copy, Versions, Export), Open in VS Code, **Schedule** (Schedule, Recent runs), **Publish to OneLake**. The buttons under Check and Schedule are also on the Run tab |
+| **Home** | Run all, Cancel, **Engine** (**Runs on** when Preview features are hidden), **Check** (Side by side, Validate, Prove), Add data items, Save, **Share** (Save a copy, Versions, Export, Open as report (Preview)), Open in VS Code, **Schedule** (Schedule, Recent runs), **Publish to OneLake**. The buttons under Check and Schedule are also on the Run tab |
 | **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace (every cell), Format notebook, Clear all outputs |
-| **Run** | Run all, Run cell, Run all above, Run cell and below, Run selected cells, Cancel, Runs on, Restart kernel, Restart and run all, Schedule, Recent runs |
-| **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), collapse or expand all inputs and outputs, line numbers |
+| **Run** | Run all, Run cell, Run all above, Run cell and below, Run selected cells, Run stale cells (Preview), Cancel, Engine or Runs on, Side by side, Validate, Prove, Restart kernel, Restart and run all, Schedule, Recent runs |
+| **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), Scratch (Preview), Dependencies (Preview), Comments, Best practices (Preview), collapse or expand all inputs, outputs and sections, line numbers |
 
 **Run all** is the solid button: running is what you do most in a notebook. **Publish to OneLake** stays on the Home tab with its options arrow.
 
 **After a run.** When you run two or more cells on this PC, a line under the ribbon says how many ran and how long it took, or how many ran before the run stopped. It then offers the next step from what the run showed, with a button for each: **Go to the failed cell** when a cell failed, **Review warnings** (or **Review errors**) when Validate found some, **Save the notebook** when there are unsaved changes, and **Publish to OneLake** when a run of the whole notebook finished with every cell run. It recommends nothing it has no evidence for. Close the line with its **x**; the next run shows it again.
 
-The notebook's actions are in the command bar (Ctrl+K) too: Run all, Run the selected cell, Restart the kernel and run all, Validate, Save the notebook, Publish to OneLake, Run in Fabric and Go to the failed cell (Validate and Run in Fabric when Preview features are shown). One that can't run just now says why.
+The notebook's actions are in the command bar (Ctrl+K) too: Run all, Run the selected cell, Restart the kernel and run all, Validate, Save the notebook, Publish to OneLake, Run in Fabric, Go to the failed cell and Pin to Home or unpin (Validate, Run in Fabric and Pin to Home or unpin when Preview features are shown). One that can't run just now says why.
 
 A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run` pass values into, as in Fabric.
 
@@ -365,7 +366,7 @@ How it is published:
 
 ## Where a notebook runs
 
-**Runs on** in the ribbon picks where **Run all** runs the notebook. The choice is saved in the notebook.
+**Runs on** in the ribbon picks where **Run all** runs the notebook. The choice is saved in the notebook. While Preview features show, the **Engine** button takes its place, with the same choices named **Python (this PC)**, **Fabric job** and **Same as Dev**, and other engines besides ([Engines](engines.md)).
 
 | Choice | What happens |
 | --- | --- |

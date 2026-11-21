@@ -132,6 +132,34 @@ Comparing two snapshots gives score changes and new, resolved and recurring find
 used a different profile or rules, the comparison says so, because the change may come from the policy
 rather than the environment.
 
+## What changed since the last read (engine only)
+
+`excellence.changes.changes(previous, current)` compares a stored assessment with a later one, or with
+the evidence of a later read of the same scope, and lists what changed, per resource, with the controls
+to assess again. It is polling: two reads compared after the fact, not event-driven monitoring. A change
+made and undone between the two reads is never seen. Nothing schedules it, stores it or shows it yet.
+
+| Change | Seen when |
+| --- | --- |
+| `item_added`, `item_removed` | An item id is in one workspace item list and not the other |
+| `definition_changed` | Evidence derived from an item's definition (`getDefinition`) differs |
+| `role_assignment_changed` | The set of principal, type, role and guest in the role assignments differs |
+| `capacity_changed` | The workspace's capacity id differs (reassignment), or a capacity's state, SKU or region |
+| `git_state_changed` | Git evidence differs. No evidence records Git state yet, so this is listed as not tracked |
+| `evidence_changed` | Anything else a control reads differs, such as a description or a display name |
+
+- No definition hash is kept and no definition text enters evidence, so `definition_changed` compares
+  the evidence payload's hash as a proxy: rule ids, names and counts derived from the definition. An
+  edit that changes none of these, such as a comment, isn't detected. The optimization evidence also
+  carries which peer items weren't read, so a peer's failed read can show here.
+- When one read has the evidence and the other doesn't (the read failed or wasn't allowed, or the
+  evidence was only insufficient or was tampered with), the change is `unknown`, never unchanged.
+- Order doesn't count: lists are compared sorted. The same inputs always give the same result.
+- The controls to assess again come from each control's declared evidence kinds, and for item controls
+  the item's type, not from a hand-kept list.
+- At most 50 changes are listed, in a fixed order, with the full `count`. Names are cut to 256
+  characters and control characters are removed.
+
 ## Findings
 
 A failed control gives a finding with: title, affected resource, severity, dimension, what was

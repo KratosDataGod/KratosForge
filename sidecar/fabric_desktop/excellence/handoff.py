@@ -99,7 +99,19 @@ def _opportunities(result: dict[str, Any] | None) -> tuple[list[dict[str, Any]],
             bad += 1
             continue
         good.append(o)
+    # Two opportunities under one id can't be told apart: linking either could cite the wrong figure, and
+    # which one wins would depend on input order. Both are skipped as malformed.
+    seen: dict[str, int] = {}
+    for o in good:
+        seen[o["id"]] = seen.get(o["id"], 0) + 1
+    bad += sum(n for n in seen.values() if n > 1)
+    good = [o for o in good if seen[o["id"]] == 1]
     return sorted(good, key=lambda o: o["id"]), bad
+
+
+def _names(v: Any) -> list[str]:
+    """A list of ids as sorted text; anything that isn't a list or tuple names nothing."""
+    return sorted(str(x) for x in v) if isinstance(v, (list, tuple)) else []
 
 
 def _touches(o: dict[str, Any], resource: dict[str, Any]) -> bool:
@@ -120,7 +132,7 @@ def _cite(o: dict[str, Any]) -> dict[str, Any]:
     if o.get("counted") is True:
         return out | {"counted_in_optimization_totals": True, "run_seconds_per_month": copy.deepcopy(imp.get("run_seconds_per_month")),
                       "cu_per_month": copy.deepcopy(imp.get("cu_per_month")), "counted_under": [], "reason": None}
-    under = sorted(str(x) for x in o.get("overlaps") or [])
+    under = _names(o.get("overlaps"))
     return out | {"counted_in_optimization_totals": False, "run_seconds_per_month": None, "cu_per_month": None,
                   "counted_under": under,
                   "reason": "The optimization engine counts this workload under another opportunity; citing it "
@@ -132,7 +144,8 @@ def _plannable(f: dict[str, Any]) -> str | None:
     """Why a finding can't be a planner input, or None when it can."""
     if f["advisory"]:
         return "advisory: rests on inferred evidence only"
-    if f.get("confidence") not in SCORED:
+    c = f.get("confidence")
+    if not isinstance(c, str) or c not in SCORED:
         return "its evidence isn't measured or verified"
     return None
 
@@ -163,6 +176,8 @@ def handoff(findings: list[dict[str, Any]], approved_ids: Iterable[str],
     valid = sorted((same[0] for same in by_id.values() if len(same) == 1), key=lambda f: f["id"])
 
     fixture = any(bool(f.get("fixture")) for f in valid)
+    if fixture and not all(bool(f.get("fixture")) for f in valid):
+        raise ValueError("a demonstration fixture can't be mixed with a real assessment's findings")
     if optimization_result is not None and valid and bool(optimization_result.get("fixture")) != fixture:
         raise ValueError("a demonstration fixture can't be matched with a real assessment")
     opps, bad_opps = _opportunities(optimization_result)
@@ -198,7 +213,7 @@ def handoff(findings: list[dict[str, Any]], approved_ids: Iterable[str],
                     planner.setdefault("opp:" + oid, {"key": "opp:" + oid, "source": "optimization_engine",
                                                       "opportunity_id": oid, "finding_ids": [],
                                                       "rule": opp_by_id[oid]["rule"],
-                                                      "affects": sorted(str(x) for x in opp_by_id[oid].get("affects") or []),
+                                                      "affects": _names(opp_by_id[oid].get("affects")),
                                                       **_cite(opp_by_id[oid])})["finding_ids"].append(f["id"])
                 key = ["opp:" + oid for oid in ids]
             else:

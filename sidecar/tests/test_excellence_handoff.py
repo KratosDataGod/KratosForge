@@ -267,3 +267,37 @@ def test_a_fixture_result_isnt_matched_with_a_real_assessment(demo):
     real = [{k: v for k, v in f.items() if k != "fixture"} for f in findings]
     with pytest.raises(ValueError, match="fixture"):
         handoff.handoff(real, all_ids(real), result)
+
+
+# ---- adversarial review
+
+
+def test_an_unhashable_confidence_is_held_back_not_a_crash():
+    f = finding("fx-1", "FEA-CAP-002@1.0.0") | {"confidence": ["measured"]}
+    h = handoff.handoff([f], ["fx-1"], {"opportunities": []})
+    assert h["planner_inputs"] == [] and h["items"][0]["not_planned_reason"]
+
+
+def test_duplicate_opportunity_ids_are_malformed_not_linked_or_cited():
+    a = opp("opp-1", "OE-DUP-NB", ["nb-x", "item-1"], cu=7200.0)
+    b = opp("opp-1", "OE-DUP-NB", ["nb-y", "item-1"], counted=False, cu=99999.0)
+    outs = []
+    for opps in ([a, b], [b, a]):
+        h = handoff.handoff([finding("fx-1", "FEA-PERF-001@1.0.0")], ["fx-1"], {"opportunities": opps})
+        assert h["items"][0]["opportunity_ids"] == [] and h["dedup"]["malformed_opportunities"] == 2
+        assert all(p["cu_per_month"] is None for p in h["planner_inputs"])
+        outs.append(json.dumps(h, sort_keys=True))
+    assert outs[0] == outs[1]
+
+
+def test_real_findings_mixed_with_fixture_findings_are_refused(demo):
+    findings, result = demo
+    real = finding("fx-real", "FEA-PERF-001@1.0.0", NB_KEEP)
+    with pytest.raises(ValueError, match="fixture"):
+        handoff.handoff([*findings, real], [*all_ids(findings), "fx-real"], result)
+
+
+def test_overlaps_given_as_text_are_not_split_into_letters():
+    o = opp("opp-1", "OE-DUP-NB", ["nb-x", "item-1"], counted=False) | {"overlaps": "opp-a"}
+    h = handoff.handoff([finding("fx-1", "FEA-PERF-001@1.0.0")], ["fx-1"], {"opportunities": [o]})
+    assert h["planner_inputs"][0]["counted_under"] in ([], ["opp-a"])

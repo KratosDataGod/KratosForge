@@ -232,7 +232,8 @@ def _git(fabric: Any, status_client: Callable[[], Any], wid: str,
     if not catalog_devops.status_readable(st):
         reads.append({"read": "Git status", "ok": False,
                       "problem": "Fabric's answer didn't list the changed items in the expected shape, so the "
-                                 "uncommitted and incoming change controls aren't evaluated."})
+                                 "uncommitted and incoming change controls aren't evaluated. Check the workspace on "
+                                 "Source control's Fabric workspace tab with Check status in Fabric."})
         return conn, None
     reads.append({"read": "Git status", "ok": True, "problem": None})
     return conn, st

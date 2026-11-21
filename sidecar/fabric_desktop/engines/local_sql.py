@@ -249,14 +249,17 @@ def _has_variant(kind: object) -> bool:
 def _variants_as_json(rel: Any) -> Any:
     """``rel`` with each column that is or holds a VARIANT (a Snowflake VARIANT or ARRAY column) written as
     JSON, so a result shows its values as Snowflake does ([1,"a"]): DuckDB 1.x can't give a VARIANT to Arrow,
-    and DuckDB 2.0 gives its stored bytes. Other columns are as they were."""
+    and DuckDB 2.0 gives its stored bytes. Other columns are as they were. Each column is read by its position
+    (#1, #2, ...), not its name: DuckDB matches names without regard to case, so two columns named a and A
+    would both read the first one."""
     names, kinds = list(rel.columns), list(rel.types)
-    if not any(_has_variant(k) for k in kinds) or len({n.lower() for n in names}) != len(names):
+    if not any(_has_variant(k) for k in kinds):
         return rel
     def quoted(name: str) -> str:
         return '"' + name.replace('"', '""') + '"'
-    return rel.project(", ".join(f"CAST(CAST({quoted(n)} AS VARIANT) AS JSON) AS {quoted(n)}" if _has_variant(k)
-                                 else quoted(n) for n, k in zip(names, kinds, strict=True)))
+    return rel.project(", ".join(f"CAST(CAST(#{i} AS VARIANT) AS JSON) AS {quoted(n)}" if _has_variant(k)
+                                 else f"#{i} AS {quoted(n)}"
+                                 for i, (n, k) in enumerate(zip(names, kinds, strict=True), start=1)))
 
 
 def _refusal_text(text: str) -> str:

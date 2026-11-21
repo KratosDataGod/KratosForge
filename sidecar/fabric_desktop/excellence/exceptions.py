@@ -37,7 +37,10 @@ MAX_TEXT = 256
 MAX_DAYS = 365
 MAX_EXCEPTIONS = 1000
 ALL = "*"
-_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+# Control, format (zero-width, bidi), surrogate, private-use and unassigned characters, and line or
+# paragraph separators: invisible or not text, so an id that reads right could match nothing.
+_BAD = frozenset(("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"))
 
 
 def _text(i: int, key: str, value: Any) -> str:
@@ -48,7 +51,7 @@ def _text(i: int, key: str, value: Any) -> str:
         raise ValueError(f"exception {i}: {key} is empty")
     if len(s) > MAX_TEXT:
         raise ValueError(f"exception {i}: {key} is longer than {MAX_TEXT} characters")
-    if any(unicodedata.category(ch) == "Cc" for ch in s):
+    if any(unicodedata.category(ch) in _BAD for ch in s):
         raise ValueError(f"exception {i}: {key} has a control character")
     return s
 

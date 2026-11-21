@@ -351,3 +351,28 @@ def test_the_param_comes_over_rpc_and_is_type_checked(tmp_path):
     reply = server.handle(s, json.dumps({"id": 3, "method": "excellence_assess",
                                          "params": {"demo": True, "exceptions": [{"control_id": "nope"}]}}))
     assert "exception 1" in reply["error"] and "result" not in reply
+
+
+# ---- invisible and malformed characters
+
+
+@pytest.mark.parametrize("field, value", [
+    ("subject", WS + "\u200b"),          # zero-width space: reads as the workspace, matches nothing
+    ("subject", "\u2060" + WS),          # word joiner
+    ("subject", "\ufeff*"),              # byte order mark before the wildcard
+    ("owner", "\u202eLead"),             # right-to-left override: the owner reads reversed
+    ("reason", "ok\u2066hidden\u2069"),  # bidi isolates
+    ("subject", "\ud800"),               # lone surrogate: not text, and can't be written as UTF-8
+    ("owner", "x\udfff"),
+    ("reason", "\ue000private"),         # private use
+    ("reason", "a\u2028b"),              # line separator
+])
+def test_invisible_or_malformed_characters_are_refused(field, value):
+    with pytest.raises(ValueError, match=f"exception 1: {field} has a control character"):
+        ok(ex(**{field: value}))
+
+
+def test_rescoring_a_snapshot_with_malformed_exceptions_is_a_value_error(demo):
+    for bad in ("records", ["x"], 7):
+        with pytest.raises(ValueError, match="exceptions"):
+            assess.rescore({**demo, "exceptions": bad}, REG, today=TODAY)

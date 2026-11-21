@@ -173,7 +173,10 @@ def rescore(snapshot: dict[str, Any], registry: ct.Registry, profile: pf.Profile
     changed = sorted(k for k in set(then) | set(now) if then.get(k) != now.get(k))
     if changed:
         raise ValueError("rules changed since this snapshot: " + ", ".join(changed))
-    kept = exc.validate((snapshot.get("exceptions") or {}).get("records"), registry,
+    noted = snapshot.get("exceptions") or {}
+    if not isinstance(noted, dict):
+        raise ValueError("the snapshot's exceptions must be an object")
+    kept = exc.validate(noted.get("records"), registry,
                         today=today or dt.datetime.now(dt.timezone.utc).date())
     return assess(snapshot["evidence"], registry, scope=snapshot["scope"], assessed_at=snapshot["assessed_at"],
                   profile=profile or pf.from_dict(snapshot["profile"]), fixture=bool(snapshot.get("fixture")),

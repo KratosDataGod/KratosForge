@@ -132,6 +132,28 @@ Comparing two snapshots gives score changes and new, resolved and recurring find
 used a different profile or rules, the comparison says so, because the change may come from the policy
 rather than the environment.
 
+## Workspace rankings (engine only)
+
+The engine can rank workspaces from stored snapshots (`excellence/rankings.py`, FEA-502). Nothing on
+screen uses it yet, and it reads and stores nothing.
+
+- Each workspace is ranked on its latest snapshot only.
+- **Ranks come from the assured score**, never the score, so a workspace can't climb by having less
+  checked. Equal assured scores share a rank and are marked as tied; within a tie, higher coverage is
+  listed first, then name, then id.
+- Workspaces are ranked only against others in the same **workload category**. Unless you name the
+  category yourself, it comes from the workspace's items: data engineering (lakehouses, notebooks,
+  pipelines, Spark job definitions, environments, dataflows), warehousing (warehouses, mirrored and
+  SQL databases), business intelligence (semantic models, reports, dashboards), real-time
+  (eventhouses, KQL databases and querysets, eventstreams, Activator). A group holding more than half
+  of these items names the category; otherwise it is **Mixed**, and with none of them,
+  **Uncategorized**. SQL analytics endpoints, which come with a lakehouse, aren't counted.
+- Workspaces with **Insufficient evidence** (coverage under 50% in the default profiles) are listed
+  apart and never ranked. **Provisional** ones (50% to 80%) are ranked and flagged.
+- Snapshots assessed with a different profile or different rule versions are never ranked together:
+  each set is its own group, and so is the demonstration fixture.
+- There are no category or estate averages: each row is one workspace's own result.
+
 ## Findings
 
 A failed control gives a finding with: title, affected resource, severity, dimension, what was

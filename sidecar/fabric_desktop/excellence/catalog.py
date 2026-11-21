@@ -15,6 +15,7 @@ from typing import Any
 
 from . import catalog_architecture, catalog_artifacts, catalog_models
 from . import controls as ct
+from .evidence import Map, fits
 
 WRITE_ROLES = ("Admin", "Member", "Contributor")
 MAX_ADMINS = 4
@@ -311,6 +312,49 @@ CONTROLS = (
 )
 
 
+# ---- the shape of each kind's payload, as its adapter writes it
+#
+# A record of one of these kinds whose payload doesn't fit is set aside (evidence.Bundle), so its
+# controls are not evaluated rather than reading a missing list as an empty one. A key the controls read
+# is required; one that's only shown may be left out (``"?key"``).
+
+_PLAIN = (str, int, float, bool, None)
+_NAMES = [str]
+_NOTEBOOK = {"read": lambda v: v is True, "kind": str, "cells": int, "scheduled": (bool, None),
+             "rules": Map({"severity": str, "count": int, "where": [{"cell": int, "line": int}]}), "unchecked": _NAMES}
+_PIPELINE = {"read": lambda v: v is True, "kind": str, "activities": int, "inactive": _NAMES, "inactive_count": int,
+             "fixed_workspace": _NAMES, "fixed_workspace_count": int, "state_unknown": _NAMES,
+             "properties_unknown": _NAMES}
+_OPERATIONS = {"rows": int, "cu_seconds": float, "status_rows": int, "cu_by_status": Map(float), "operation_rows": int,
+               "window": {"start": (str, None), "end": (str, None)},
+               "refreshes_per_day": [{"workspace": str, "item": str, "day": str, "count": int}],
+               "?refresh_days_over": int}
+PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
+    "workspace.info": {"description": str, "?capacity_id": _PLAIN},
+    "workspace.inventory": {"items": [{"id": str, "type": str, "?name": str}]},
+    "workspace.roles": {"assignments": [{"id": str, "type": str, "role": str, "name": str, "guest": (bool, None)}]},
+    "workspace.naming": {"workspace_name": str, "environment": (str, None), "environment_words": _NAMES,
+                         "lakehouses": [{"id": str, "name": str, "layers": _NAMES}],
+                         "leftovers": [{"id": str, "type": str, "name": str, "words": _NAMES}]},
+    "capacity.state": {"state": str, "sku": str, "?region": str},
+    "capacity.usage": {"operations": (None, _OPERATIONS),
+                       "items": [{"import_id": str, "period": {"start": str, "end": str}, "seconds": float,
+                                  "rows": int, "cu_seconds": float}]},
+    "item.optimization": {"definition": str, "history_read": bool, "scheduled_runs": (int, bool, None),
+                          "peers_not_read": _NAMES,
+                          "matched": [{"rule": _PLAIN, "?opportunity_id": _PLAIN, "?title": _PLAIN}]},
+    "item.inspection": lambda p: fits(p, _NOTEBOOK if isinstance(p, dict) and p.get("kind") == "notebook"
+                                      else _PIPELINE),
+    "item.model": {"read": lambda v: v is True, "kind": str, "tables": int, "relationships": int,
+                   "bidirectional": _NAMES, "bidirectional_count": int, "roles": int, "row_filter_roles": _NAMES,
+                   "row_filter_tables": _NAMES, "direct_lake_tables": int, "direct_lake_behavior": str,
+                   "direct_lake_sources": _NAMES, "rules": Map({"count": int, "objects": _NAMES}),
+                   "types_unknown": _NAMES, "columns_unknown": _NAMES},
+    "item.binding": {"default_lakehouse": (str, None), "?definition": str},
+    "lakehouse.properties": {"schemas_enabled": bool, "default_schema": (str, None)},
+}
+
+
 def registry() -> ct.Registry:
     """A registry with every control in this catalog."""
     r = ct.Registry()
@@ -319,4 +363,5 @@ def registry() -> ct.Registry:
         r.register(c)
     for c in catalog_architecture.CONTROLS:
         r.register(c)
+    r.payloads.update(PAYLOADS)
     return r

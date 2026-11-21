@@ -12,13 +12,12 @@ standard or certification.
 
 from __future__ import annotations
 
-import hashlib
 import math
 from dataclasses import dataclass, field
 from typing import Any
 
 from .controls import DIMENSIONS, SEVERITIES
-from .evidence import canonical, text
+from .evidence import digest, text
 
 SEVERITY_WEIGHTS = {"critical": 10, "high": 5, "medium": 3, "low": 1, "informational": 0}
 RATED_COVERAGE = 0.8       # a rating is shown as authoritative at this coverage or more
@@ -48,7 +47,7 @@ class Profile:
                 "disabled": dict(sorted(self.disabled.items())), "description": self.description}
 
     def fingerprint(self) -> str:
-        return hashlib.sha256(canonical(self.as_dict()).encode()).hexdigest()[:16]
+        return digest(self.as_dict())[:16]
 
 
 def _number(x: Any) -> bool:

@@ -7,7 +7,8 @@ already read is still in memory (opportunities.assess.assess ``inspect=``). It r
   its severity, how many times it matched, and the cell and line of the first ones. Never the cell
   text, and for a secret (NB001) never what was found, only that it was found and where;
 - for a pipeline, counts and activity names: which activities are deactivated and which name a
-  fixed workspace id. Never the activity JSON or the ids themselves.
+  fixed workspace id. Never the activity JSON or the ids themselves. An activity without a name is
+  shown as ``(unnamed <type> activity <n>)``, n its place in the pipeline.
 
 No Fabric call is made here, and nothing runs.
 """
@@ -76,13 +77,38 @@ def _names_fixed_workspace(node: Any) -> bool:
     return False
 
 
+def _given_name(a: Any) -> str:
+    name = a.get("name") if isinstance(a, dict) else None
+    return text(name) if isinstance(name, str) and name.strip() else ""  # cut, so a hostile name can't bloat evidence
+
+
+def _activity_names(acts: list[Any]) -> list[str]:
+    """One name per activity, none shared: its own name, or for an activity without one a marked name
+    with its type and place in the pipeline (``(unnamed Copy activity 2)``), so two of them aren't
+    counted as one and a finding names the right one. Never a real activity's name."""
+    given = [_given_name(a) for a in acts]
+    taken = set(given)
+    out = []
+    for n, (a, name) in enumerate(zip(acts, given, strict=True), start=1):
+        if not name:
+            kind = a.get("type") if isinstance(a, dict) else None
+            kind = text(kind, 64).strip() if isinstance(kind, str) else ""
+            base = f"(unnamed {kind} activity {n})" if kind else f"(unnamed activity {n})"
+            name, again = base, 1
+            while name in taken:
+                again += 1
+                name = f"{base[:-1]}, {again})"
+            taken.add(name)
+        out.append(name)
+    return out
+
+
 def pipeline(w: dict[str, Any]) -> dict[str, Any]:
     acts = w.get("activities")
     if not isinstance(acts, list):
         return {"read": True, "error": "The pipeline's activities weren't available."}
     inactive, fixed, no_state, no_props = [], [], [], []
-    for a in acts:
-        name = text(a.get("name") or a.get("type")) or "activity"  # cut, so a hostile name can't bloat evidence
+    for a, name in zip(acts, _activity_names(acts), strict=True):
         if not isinstance(a.get("inactive"), bool):
             no_state.append(name)
         elif a["inactive"]:

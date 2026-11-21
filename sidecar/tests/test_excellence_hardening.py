@@ -10,6 +10,7 @@ import copy
 import json
 import math
 import random
+import re
 
 import pytest
 
@@ -638,3 +639,160 @@ def test_a_lakehouse_id_that_isnt_id_shaped_never_reaches_a_request_path(tmp_pat
     read = next(x for x in r["reads"] if x["read"] == "lakehouse properties")
     assert read["ok"] is False and len(read["problem"]) < 2000
     assert all(o["outcome"] != "pass" for o in r["outcomes"] if o["subject"]["id"] == bad)
+
+
+# ---- 4. malformed records: hashing, the bundle, and the controls that read them
+
+
+ORDINARY = {"b": [1, 2.5, None, True], "a": {"z": "é \U0001F600", "y": {2: "x", 10: "y"}}, "c": "line\nbreak"}
+
+
+def test_the_hash_format_is_unchanged_for_ordinary_evidence():
+    """Pinned before canonical learned mixed keys: a snapshot of valid evidence keeps its ids and fingerprint."""
+    assert ev.canonical(ORDINARY) == '{"a":{"y":{"2":"x","10":"y"},"z":"é 😀"},"b":[1,2.5,null,true],"c":"line\\nbreak"}'
+    assert ev.content_hash(ORDINARY) == "4b07b137b0de92e42927e894d5bf747d7895e2f1f4b52d3230ce882345e52a21"  # pragma: allowlist secret (a pinned SHA-256)
+    r = ev.record("workspace.roles", ev.subject("workspace", "w1", "Sales"), source="GET x", confidence="measured",
+                  collected_at=AT, payload=ORDINARY)
+    assert r["id"] == "ev-f43ee3ca45302a5e"
+    assert assess.fx.finding_id("FEA-SEC-001", "w1") == "fx-29bc190972e32aae"
+    rnd = random.Random(11)
+    for _ in range(200):
+        v = {str(rnd.randint(0, 50)): rnd.choice([1, "x", None, [1, {"k": 2}], {"n": {"m": 1.5}}]) for _ in range(6)}
+        assert ev.canonical(v) == json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+
+
+@pytest.mark.parametrize("value", [
+    {1: "a", "b": 2}, {"b": 2, 1: "a"}, {"x": [{None: 1, "y": 2, 3.5: 3, True: 4}]}, {1: "a", "1": "b"}, {("t", 1): 1, "a": 2},
+    "\ud800", {"\udfff": ["\ud800 x"]}, {1: "\ud800", "k": {2: "x", "z": "y"}}])
+def test_mixed_keys_and_lone_surrogates_hash_deterministically(value):
+    once = ev.content_hash(value)
+    assert re.fullmatch(r"[0-9a-f]{64}", once)
+    assert ev.content_hash(copy.deepcopy(value)) == once
+    if isinstance(value, dict):  # the same keys in another order hash the same
+        assert ev.content_hash(dict(reversed(list(value.items())))) == once
+    ev.canonical(value)
+
+
+def test_mixed_keys_hash_as_their_json_round_trip_and_stay_distinct():
+    mixed = {1: "a", "b": 2}
+    assert ev.content_hash(mixed) == ev.content_hash(json.loads(json.dumps(mixed)))
+    assert ev.content_hash(mixed) != ev.content_hash({"b": 2})
+    assert ev.content_hash({1: "a", "1": "b"}) != ev.content_hash({1: "b", "1": "a"})
+
+
+def test_a_record_with_mixed_keys_is_made_and_kept():
+    r = ev.record("workspace.info", ev.subject("workspace", WSID), source="s", confidence="measured", collected_at=AT,
+                  payload={"description": "d", 1: "x"})
+    assert ev.problems(r) == [] and len(ev.Bundle([r]).records) == 1
+
+
+@pytest.mark.parametrize("subj", ["ws", None, 5, ["workspace"]])
+def test_a_record_with_a_subject_that_isnt_an_object_is_a_value_error(subj):
+    with pytest.raises(ValueError):
+        ev.record("workspace.info", subj, source="s", confidence="measured", collected_at=AT, payload={})
+
+
+@pytest.mark.parametrize("records", [None, "abc", 5, {"id": "x"}])
+def test_a_bundle_of_something_that_isnt_a_list_is_empty(records):
+    b = ev.Bundle(records)
+    assert b.records == [] and b.ids() == set()
+
+
+def _mutate(rec: dict, how: str) -> None:
+    if how == "payload mixed keys":
+        rec["payload"] = {1: "a", "b": 2}
+    elif how == "payload mixed keys, hash matching":
+        rec["payload"] = {**(rec["payload"] if isinstance(rec["payload"], dict) else {}), 1: "a"}
+        rec["hash"] = ev.content_hash(rec["payload"])
+    elif how == "subject mixed keys":
+        rec["subject"][1] = "x"
+    elif how == "record mixed keys":
+        rec[5] = "x"
+    elif how == "id lone surrogate":
+        rec["id"] = "ev-\ud800"
+    elif how == "subject id lone surrogate":
+        rec["subject"]["id"] = "\ud800"
+    elif how == "subject name too deep":
+        rec["subject"]["name"] = _deep(5000)
+    elif how == "hash not text":
+        rec["hash"] = {1: 2, "a": 3}
+
+
+@pytest.mark.parametrize("how", ["payload mixed keys", "payload mixed keys, hash matching", "subject mixed keys",
+                                 "record mixed keys", "id lone surrogate", "subject id lone surrogate",
+                                 "subject name too deep", "hash not text"])
+def test_a_malformed_record_never_crashes_the_assessment(demo, how):
+    for i in range(len(demo["evidence"])):
+        recs = copy.deepcopy(demo["evidence"])
+        _mutate(recs[i], how)
+        again = assess.rescore({**demo, "evidence": recs}, catalog.registry())
+        all_scores(again)
+        ev.Bundle(list(reversed(recs)))  # and in any order
+
+
+def _junk_payloads(payload: dict) -> list:
+    out: list = [[], "x", 5, None, {}]
+    for k in payload:
+        out.append({kk: v for kk, v in payload.items() if kk != k})
+        for junk in (None, 5, "x", [5], {"a": 1}):
+            if not isinstance(payload[k], type(junk)) or isinstance(junk, list):
+                out.append({**payload, k: junk})
+    return out
+
+
+def test_a_malformed_payload_never_passes_fails_or_errors_a_control(demo):
+    """Every kind's payload with a key missing, or of the wrong type: each control that read the record either
+    decides exactly as it did on the good record (the key isn't one it reads) or is not evaluated. Junk never
+    turns into a pass, a finding or an error, and never a crash."""
+    reg = catalog.registry()
+    base = assess.rescore(demo, reg)
+    for rec in demo["evidence"]:
+        if rec["confidence"] == "insufficient" or not isinstance(rec["payload"], dict):
+            continue
+        before = {(o["control_id"], o["subject"]["id"]): o for o in base["outcomes"]
+                  if rec["id"] in o["evidence_ids"] or rec["id"] in (o.get("advisory") or {}).get("evidence_ids", [])}
+        assert before, rec["kind"]
+        for payload in _junk_payloads(rec["payload"]):
+            bad = ev.record(rec["kind"], rec["subject"], source=rec["source"], confidence=rec["confidence"],
+                            collected_at=rec["collected_at"], payload=payload)
+            recs = [r for r in demo["evidence"] if r["id"] != rec["id"]] + [bad]
+            again = assess.rescore({**demo, "evidence": recs}, reg)
+            all_scores(again)
+            for o in again["outcomes"]:
+                was = before.get((o["control_id"], o["subject"]["id"]))
+                if was is None:
+                    continue
+                same = (o["outcome"], o["text"]) == (was["outcome"], was["text"])
+                assert same or o["outcome"] in ("not_evaluated", "not_applicable"), (
+                    rec["kind"], payload, o["control_id"], o["outcome"], o["text"])
+                assert o["outcome"] != "error", (rec["kind"], payload, o["control_id"], o["text"])
+
+
+# ---- 5. pipeline activities without a name
+
+
+def test_unnamed_activities_are_marked_and_never_collide():
+    acts = [{"type": "Copy", "inactive": True, "type_properties": {}},
+            {"type": "Copy", "inactive": False, "type_properties": {"workspaceId": WSID}},
+            {"name": "", "type": "Copy", "inactive": True, "type_properties": {}},
+            {"name": "   ", "inactive": True, "type_properties": {}},
+            {"name": "Copy", "type": "Copy", "inactive": True, "type_properties": {}},
+            {"name": None, "type": None},
+            {"name": {"x": 1}, "type": ["Copy"], "inactive": False, "type_properties": {"workspaceId": WSID}}]
+    got = inspect_items.inspect({"type": "DataPipeline", "definition": "read", "activities": acts})
+    assert got["activities"] == 7 and got["inactive_count"] == 4 and got["fixed_workspace_count"] == 2
+    assert len(set(got["inactive"])) == 4 and "Copy" in got["inactive"]
+    assert len(set(got["fixed_workspace"])) == 2
+    unnamed = [n for k in ("inactive", "fixed_workspace", "state_unknown", "properties_unknown") for n in got[k]
+               if n != "Copy"]
+    assert unnamed and all(n.startswith("(unnamed ") for n in unnamed), unnamed
+    named = {n for k in ("inactive", "fixed_workspace", "state_unknown", "properties_unknown") for n in got[k]}
+    assert len(named) == 7  # one name per activity, none shared
+    assert "(unnamed Copy activity 1)" in got["inactive"] and "(unnamed Copy activity 2)" in got["fixed_workspace"]
+
+
+def test_an_unnamed_activity_doesnt_take_a_real_activitys_name():
+    acts = [{"name": "(unnamed Copy activity 2)", "inactive": True, "type_properties": {}},
+            {"type": "Copy", "inactive": True, "type_properties": {}}]
+    got = inspect_items.inspect({"type": "DataPipeline", "definition": "read", "activities": acts})
+    assert got["inactive_count"] == 2 and len(set(got["inactive"])) == 2

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Any
 
 from .. import redact
@@ -51,8 +52,39 @@ def text(value: Any, limit: int = MAX_NAME) -> str:
 
 
 def canonical(value: Any) -> str:
-    """JSON with sorted keys and no spacing: the same value always gives the same text."""
+    """JSON with sorted keys and no spacing: the same value always gives the same text.
+
+    A mapping whose keys can't be sorted together (``{1: "a", "b": 2}``) or aren't JSON keys (a tuple)
+    is written with its keys as JSON writes them, sorted by that text and then by their type's name, so
+    it still has one text, and the same one as after a JSON round trip. Any other value keeps the plain
+    ``json.dumps`` text, so the hashes of ordinary evidence never change."""
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    except TypeError:
+        return _canonical_mixed(value)
+
+
+def _json_key(k: Any) -> str:
+    if isinstance(k, str):
+        return k
+    if k is None or isinstance(k, (bool, int, float)):
+        return json.dumps(k)  # null, true, 1, 1.5, NaN: as json.dumps writes a key of that type
+    return text(k, MAX_TEXT)
+
+
+def _canonical_mixed(value: Any) -> str:
+    if isinstance(value, dict):
+        pairs = sorted(((_json_key(k), type(k).__name__, v) for k, v in value.items()), key=lambda p: (p[0], p[1]))
+        return "{" + ",".join(json.dumps(k, ensure_ascii=False) + ":" + _canonical_mixed(v) for k, _, v in pairs) + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(_canonical_mixed(v) for v in value) + "]"
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+
+
+def digest(value: Any) -> str:
+    """The SHA-256 (hex) of ``value``'s canonical text. surrogatepass: a lone surrogate (valid in JSON
+    text, not in UTF-8) hashes instead of raising."""
+    return hashlib.sha256(canonical(value).encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def ok_id(value: Any) -> bool:
@@ -61,8 +93,7 @@ def ok_id(value: Any) -> bool:
 
 
 def content_hash(payload: Any) -> str:
-    # surrogatepass: a lone surrogate (valid in JSON text, not in UTF-8) hashes instead of raising
-    return hashlib.sha256(canonical(payload).encode("utf-8", "surrogatepass")).hexdigest()
+    return digest(payload)
 
 
 def subject(kind: str, id_: str, name: str | None = None, *, workspace_id: str | None = None,
@@ -94,14 +125,15 @@ def record(kind: str, subj: dict[str, Any], *, source: str, confidence: str, col
         raise ValueError(f"unknown confidence {confidence!r}")
     if not collected_at or not isinstance(collected_at, str):
         raise ValueError("evidence needs the time it was collected")
+    if not isinstance(subj, dict):
+        raise ValueError("evidence needs a subject")
     subj = subject(subj.get("type", ""), subj.get("id", ""), subj.get("name"),
                    workspace_id=subj.get("workspace_id"), item_type=subj.get("item_type"))
     clean = redact.walk(payload)
-    digest = content_hash(clean)
-    ident = "ev-" + hashlib.sha256(canonical([kind, subj["type"], subj["id"], source, digest])
-                                   .encode("utf-8", "surrogatepass")).hexdigest()[:16]
+    payload_hash = content_hash(clean)
+    ident = "ev-" + digest([kind, subj["type"], subj["id"], source, payload_hash])[:16]
     return {"schema": SCHEMA, "id": ident, "kind": kind, "subject": subj, "source": source,
-            "confidence": confidence, "collected_at": collected_at, "payload": clean, "hash": digest}
+            "confidence": confidence, "collected_at": collected_at, "payload": clean, "hash": payload_hash}
 
 
 def problems(rec: Any) -> list[str]:
@@ -124,9 +156,62 @@ def problems(rec: Any) -> list[str]:
     try:
         if content_hash(rec["payload"]) != rec["hash"]:
             out.append("payload doesn't match its hash")
-    except (ValueError, RecursionError):
+    except (ValueError, TypeError, RecursionError):
         out.append("payload can't be read")
     return out
+
+
+# ---- payload shapes
+#
+# A catalog says how each kind's payload is shaped (catalog.PAYLOADS): a dict of key -> shape, where a
+# shape is a type (``float``: any finite number), None, a tuple (any of), a one-element list (a list
+# of), a dict (those keys, each required unless written ``"?key"``; others allowed), a Map (text keys
+# to one shape) or a function of the value. A record of a listed kind, with confidence better than
+# ``insufficient``, whose payload doesn't fit is set aside by the Bundle like a tampered one, so a
+# control never reads a missing list as an empty one (no assignments: "no guests") and is not
+# evaluated instead.
+
+class Map:
+    """A mapping of text keys to values of one shape (rule id -> its hits)."""
+
+    def __init__(self, value: Any):
+        self.value = value
+
+
+def _fits(v: Any, spec: Any) -> bool:
+    if spec is None:
+        return v is None
+    if isinstance(spec, type):
+        if spec is float:  # a number: finite, int or float, never a flag
+            return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+        return isinstance(v, spec) and (spec is bool or not isinstance(v, bool))
+    if isinstance(spec, tuple):  # any of
+        return any(_fits(v, s) for s in spec)
+    if isinstance(spec, list):  # a list of
+        return isinstance(v, list) and all(_fits(x, spec[0]) for x in v)
+    if isinstance(spec, Map):
+        return isinstance(v, dict) and all(isinstance(k, str) and _fits(x, spec.value) for k, x in v.items())
+    if isinstance(spec, dict):
+        if not isinstance(v, dict):
+            return False
+        for key, want in spec.items():
+            name = key.lstrip("?")
+            if name not in v:
+                if key.startswith("?"):
+                    continue
+                return False
+            if not _fits(v[name], want):
+                return False
+        return True
+    return bool(spec(v))  # a check of its own
+
+
+def fits(payload: Any, spec: Any) -> bool:
+    """Whether ``payload`` has the shape ``spec`` (see above)."""
+    try:
+        return _fits(payload, spec)
+    except RecursionError:
+        return False
 
 
 def strongest(records: list[dict[str, Any]]) -> str:
@@ -137,26 +222,34 @@ def strongest(records: list[dict[str, Any]]) -> str:
 
 
 class Bundle:
-    """Evidence records indexed by subject id and kind. Records that fail :func:`problems` are kept
-    out and listed in ``rejected``, so tampered or malformed evidence can't decide a control."""
+    """Evidence records indexed by subject id and kind. Records that fail :func:`problems` (tampered or
+    malformed), and those whose payload doesn't fit its kind's shape in ``shapes`` (see above), are kept
+    out and listed in ``rejected``, so they can't decide a control: the controls that need them are not
+    evaluated. Anything but a list is no records."""
 
-    def __init__(self, records: list[dict[str, Any]]):
+    def __init__(self, records: list[dict[str, Any]], shapes: dict[str, Any] | None = None):
         self.records: list[dict[str, Any]] = []
         self.rejected: list[dict[str, Any]] = []
         self._by: dict[tuple[str, str], list[dict[str, Any]]] = {}
         seen: set[str] = set()
         good = []
-        for rec in records:
+        for rec in records if isinstance(records, list) else []:
             bad = problems(rec)
-            if bad:
-                ident = rec.get("id") if isinstance(rec, dict) else None
-                self.rejected.append({"id": ident if isinstance(ident, str) else None, "problems": bad})
-            else:
-                good.append(rec)
-        # In a fixed order, so the record kept for a repeated id, and the first of a kind a control reads,
-        # don't depend on the order the evidence came in.
-        good.sort(key=lambda r: (r["id"], canonical(r)))
-        for rec in good:
+            spec = (shapes or {}).get(rec["kind"]) if not bad and rec["confidence"] != "insufficient" else None
+            if spec is not None and not fits(rec["payload"], spec):
+                bad = [f"payload isn't shaped as {text(rec['kind'], 64)} evidence"]
+            if not bad:
+                # Sorted by id and then the whole record, so the record kept for a repeated id, and the
+                # first of a kind a control reads, don't depend on the order the evidence came in.
+                try:
+                    good.append(((rec["id"], canonical(rec)), rec))
+                    continue
+                except (ValueError, TypeError, RecursionError):
+                    bad = ["record can't be read"]
+            ident = rec.get("id") if isinstance(rec, dict) else None
+            self.rejected.append({"id": ident if isinstance(ident, str) else None, "problems": bad})
+        good.sort(key=lambda g: g[0])
+        for _, rec in good:
             if rec["id"] in seen:
                 continue
             seen.add(rec["id"])

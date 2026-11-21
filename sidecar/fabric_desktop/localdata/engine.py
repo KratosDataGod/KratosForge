@@ -43,6 +43,7 @@ import duckdb
 import pyarrow as pa
 
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
+from ..awake_timer import AwakeTimer
 from . import delta, tsql, tsql_errors
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
@@ -857,8 +858,7 @@ class LocalEngine:
                 def expire() -> None:
                     state["timed_out"] = True
                     con.interrupt()
-                timer = threading.Timer(timeout, expire)
-                timer.daemon = True
+                timer = AwakeTimer(timeout, expire)  # awake time only, as the SQL page's limit
                 timer.start()
             steps: list[dict[str, Any]] = []
             as_of: list[str] = []

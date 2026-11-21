@@ -92,6 +92,7 @@ import pyarrow as pa
 from sqlglot import exp
 
 from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
+from .awake_timer import AwakeTimer
 from .filenames import file_stem
 from .frames import EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
@@ -190,7 +191,7 @@ class Execution:
     refused: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)  # local T-SQL: where this PC's answer can differ from a warehouse's
     proc: subprocess.Popen[str] | None = field(default=None, repr=False)
-    timer: threading.Timer | None = field(default=None, repr=False)
+    timer: AwakeTimer | None = field(default=None, repr=False)
     reader: threading.Thread | None = field(default=None, repr=False)  # follows the process; writes the audit line
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
     time_limit_s: float = 0.0
@@ -658,8 +659,8 @@ class SqlExecutions:
         run.time_limit_s = minutes * 60
         run.time_limit_from = ("policy" if limits.get("sql_time_limit_by_policy") else "sql") if minutes > 0 else ""
         if minutes > 0:
-            run.timer = threading.Timer(minutes * 60, self._time_up, args=(run,))
-            run.timer.daemon = True
+            # Awake time only: a run going when the PC slept isn't stopped on waking for time it didn't run.
+            run.timer = AwakeTimer(minutes * 60, self._time_up, args=(run,))
             run.timer.start()
         run.reader = threading.Thread(target=self._read, args=(run, proc), daemon=True, name=f"sql-run-{run.id}")
         run.reader.start()

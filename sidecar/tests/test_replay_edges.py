@@ -141,3 +141,12 @@ def test_files_read_differently_in_the_replay_are_named():
         "Files/b.csv has no SHA-256 in the bundle, so it can't be checked.",
         "Files/new.csv wasn't read in the bundle's run.",
     ]
+
+
+def test_a_bundle_nested_past_what_json_reads_isnt_a_replay_bundle(tmp_path):
+    """A bundle.json nested deeper than Python's JSON reader takes used to raise RecursionError."""
+    path = tmp_path / "deep.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("bundle.json", '{"format": ' + "[" * 20000 + "]" * 20000 + "}")
+    with pytest.raises(ValueError, match="deep.zip isn't a replay bundle"):
+        replay.read(path)

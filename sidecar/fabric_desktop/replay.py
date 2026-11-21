@@ -228,7 +228,7 @@ def read(path: Path) -> dict[str, Any]:
                 raise ValueError(f"{path.name} is too large to be a replay bundle.")
             bundle = json.loads(z.read(info))
             members = {i.filename: i.file_size for i in z.infolist()}
-    except (zipfile.BadZipFile, KeyError) as exc:
+    except (zipfile.BadZipFile, KeyError, RecursionError) as exc:  # RecursionError: nested past what json reads
         raise ValueError(f"{path.name} isn't a replay bundle.") from exc
     except ValueError as exc:
         if "too large" in str(exc):

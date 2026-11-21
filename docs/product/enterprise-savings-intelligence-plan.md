@@ -472,7 +472,10 @@ verified, capacity readiness), from the same ledger queries the page uses.
 **ESI-601 Assessment to optimization.** **Built** (engine only, no writes; writing waits on ESI-301). `savings/links.py`. An assessment finding (FEA) or opportunity (OE) creates
 an optimization record keyed by its fingerprint; a repeat detection links to the existing record
 instead of creating one; resolution after verification is reported back to the assessment.
-Coordinated with the Fabric Excellence Assessment thread.
+Coordinated with the Fabric Excellence Assessment thread. A finding whose control changed version
+goes to a person for review. With the FEA-604 matches table, a finding and an opportunity on the
+same item share one record. A finding is resolved only when the savings are verified and FEA-602's
+re-check says verified_fixed.
 
 **ESI-602 Capacity planner inputs.** Verified and estimated optimization demand fed to OE-040 and
 OE-041 as separate inputs (verified first). The planner, not this program, makes any

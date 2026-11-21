@@ -19,15 +19,28 @@ fingerprints and ids only: never code, titles or evidence text. Original and opt
 references (``original_ref``, ``optimized_ref``) are definition fingerprints when given, never code
 text. Rollback information belongs to an implemented change, so a proposed record has none.
 
-``link`` takes the records already known (rows of the recommendations table) and new detections
-(proposals from the two builders). A detection whose fingerprint already has a record links to it:
-it returns a link event, never a second record. A new fingerprint gives a new proposed record. A
-detection found again after its optimization was verified is flagged as having come back. Two
-different optimization ids for one fingerprint are refused, in the records or in the detections.
+Each proposal also carries ``rule_id`` (the control id or OE rule) and, for a finding, the
+control's ``rule_version``. No table has a column for either yet, so they travel in the returned
+dict and a stored row can carry them when its writer adds them.
 
-``report_back`` says what to tell the assessment once an optimization has a validation result
-(``baselines.validate``). Only a Verified result resolves the finding or opportunity. Validating,
-Regressed and Failed leave it open, each with a plain one-sentence reason.
+``link`` takes the records already known (rows of the recommendations table, or proposals) and new
+detections (proposals from the two builders). A detection whose fingerprint already has a record
+links to it: it returns a link event, never a second record. A new fingerprint gives a new proposed
+record. A detection found again after its optimization was verified is flagged as having come back.
+A finding whose control has changed version since its record was made gives a ``review`` event:
+it is neither linked nor recorded again, and a person checks it. Two different optimization ids for
+one fingerprint are refused, in the records or in the detections.
+
+With an optional ``matches`` table (FEA-604: control id to the OE rule ids that find the same
+problem), a finding and an opportunity on the same item share one optimization record. The later
+one links to the earlier one's record, so a saving is never counted twice.
+
+``report_back`` says what to tell the source once an optimization has a validation result
+(``baselines.validate``). An opportunity is verified by a Verified result alone. An assessment
+finding is resolved only by a Verified result together with the assessment's own re-check outcome
+``verified_fixed`` (FEA-602). A missing outcome, not evaluated, a profile change or any other value
+keeps it open. Validating, Regressed and Failed always leave the source open. Each answer has a
+plain one-sentence reason.
 
 Not here (ESI-301, which waits on decision D3): the lifecycle writer, version-aware updates,
 conflicts, and the responsible user and device. This module adds no user identity and changes no
@@ -41,6 +54,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from ..excellence.findings import finding_id
@@ -51,7 +65,7 @@ from .baselines import FAILED, REGRESSED, RESULTS, VALIDATING, VERIFIED
 FEA, OE = "fea_finding", "oe_opportunity"  # the record's ``kind``: where it came from
 SOURCES = {FEA: "assessment finding", OE: "opportunity"}
 PROPOSED = "proposed"  # plan section 4.4: the Proposed state
-LINKED = "linked"
+LINKED, REVIEW = "linked", "review"
 FIRST_VERSION = 1
 # The ``fdopt_recommendations`` columns (schema version 2) a proposed record fills. The writer adds
 # the other provenance columns.
@@ -114,18 +128,20 @@ def _link(oid: str, at: str, relation: str, *, artifact: str | None = None, work
             "capacity_id": capacity_id, "relation": relation, "at": at}
 
 
-def _proposal(record: dict[str, Any], links: list[dict[str, Any]], source_id: str) -> dict[str, Any]:
+def _proposal(record: dict[str, Any], links: list[dict[str, Any]], source_id: str, rule_id: str,
+              rule_version: str | None) -> dict[str, Any]:
     unique = {r["record_id"]: r for r in links}
     return {"record": record, "links": [unique[k] for k in sorted(unique)], "source": record["kind"],
             "source_id": source_id, "fingerprint": record["fingerprint"],
-            "optimization_id": record["optimization_id"]}
+            "optimization_id": record["optimization_id"], "rule_id": rule_id, "rule_version": rule_version}
 
 
 def from_finding(finding: dict[str, Any], *, at: str, original_ref: str | None = None) -> dict[str, Any]:
     """The proposed optimization for an FEA finding (``excellence.findings.make``), or ValueError.
 
     Returns ``record`` (the recommendations row), ``links`` (optimization_link rows), ``source``,
-    ``source_id``, ``fingerprint`` and ``optimization_id``. Advisory findings (only inferred
+    ``source_id``, ``fingerprint``, ``optimization_id``, ``rule_id`` (the control id) and
+    ``rule_version`` (the control's version; no table has a column for it yet). Advisory findings (only inferred
     evidence), fixture findings and findings no longer open are refused."""
     if not isinstance(finding, dict):
         raise ValueError("An assessment finding must be a finding record (a dict), as the assessment makes it.")
@@ -137,7 +153,7 @@ def from_finding(finding: dict[str, Any], *, at: str, original_ref: str | None =
         raise ValueError(f"Finding {fid} doesn't name its control as id@version.")
     if not isinstance(res, dict) or not res.get("id") or res.get("type") not in ("workspace", "capacity", "item"):
         raise ValueError(f"Finding {fid} doesn't name the workspace, capacity or item it is about.")
-    control_id = rule.split("@", 1)[0]
+    control_id, rule_version = rule.split("@", 1)
     if finding_id(control_id, str(res["id"])) != fid:
         raise ValueError(f"Finding {fid} doesn't match its control {control_id} and resource {res['id']}; it may "
                          "have been edited, so it isn't used.")
@@ -160,7 +176,7 @@ def from_finding(finding: dict[str, Any], *, at: str, original_ref: str | None =
         links = [_link(oid, when, "affects", workspace_id=str(res["id"]))]
     else:
         links = [_link(oid, when, "affects", capacity_id=str(res["id"]))]
-    return _proposal(rec, links, fid)
+    return _proposal(rec, links, fid, control_id, rule_version)
 
 
 def from_opportunity(opportunity: dict[str, Any], *, at: str, original_ref: str | None = None,
@@ -204,32 +220,52 @@ def from_opportunity(opportunity: dict[str, Any], *, at: str, original_ref: str 
         ws, item = a.get("workspace_id") or "", a.get("item_id") or ""
         links.append(_link(oid, when, str(a.get("role") or "affects"), artifact=artifact_key(ws, item),
                            workspace_id=ws.strip(), capacity_id=cap))
-    return _proposal(rec, links, oppid)
+    return _proposal(rec, links, oppid, str(opportunity["rule"]), None)
 
 
 def _latest(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return max(rows, key=lambda r: (r.get("version") or 0, str(r.get("at") or ""), str(r.get("record_id") or "")))
 
 
-def link(existing_records: list[dict[str, Any]], detections: list[dict[str, Any]]) -> dict[str, Any]:
-    """Sort detections into new records and links to records already known.
+def _matches(matches: Mapping[str, Iterable[str]] | None) -> dict[str, frozenset[str]]:
+    if matches is None:
+        return {}
+    if not isinstance(matches, Mapping):
+        raise ValueError("The matches table maps each control id to the OE rule ids it covers.")
+    out: dict[str, frozenset[str]] = {}
+    for control, rules in matches.items():
+        if not isinstance(control, str) or not control or isinstance(rules, str) or not isinstance(rules, Iterable):
+            raise ValueError(f"The matches table maps each control id to a list of OE rule ids; {control!r} doesn't.")
+        rules = frozenset(rules)
+        if not all(isinstance(r, str) and r for r in rules):
+            raise ValueError(f"Control {control} in the matches table has an OE rule id that isn't a text.")
+        out[control] = rules
+    return out
 
-    ``existing_records``: rows of the recommendations table. Rows without an ``optimization_id``
-    (version 1 recommendations from Optimize's own analysis) are not optimization records and are
-    left alone. ``detections``: proposals from ``from_finding`` or ``from_opportunity``.
 
-    Returns ``new`` (proposals to write, one per new fingerprint), ``linked`` (one link event per
-    detection of a known fingerprint, each naming the existing record and its latest state) and
-    ``repeats`` (how many detections in this batch repeated one before it). Refuses two different
-    optimization ids for one fingerprint, and an id that names a different fingerprint."""
-    if not isinstance(existing_records, list) or not isinstance(detections, list):
-        raise ValueError("Linking needs the existing records and the detections, each as a list.")
-    by_fp: dict[str, dict[str, list[dict[str, Any]]]] = {}
+def _entry(oid: str, fp: str, kind: Any, state: Any, version: Any, rule_id: Any, rule_version: Any,
+           artifacts: set[str]) -> dict[str, Any]:
+    return {"optimization_id": oid, "fingerprint": fp, "kind": kind, "state": state, "version": version,
+            "rule_id": rule_id, "rule_version": rule_version, "artifacts": artifacts}
+
+
+def _items(links: list[Any]) -> set[str]:
+    return {x["artifact_key"] for x in links if isinstance(x, dict) and x.get("artifact_key")}
+
+
+def _known(existing_records: list[Any], existing_links: list[Any]) -> dict[str, dict[str, Any]]:
+    """The optimizations already recorded, by fingerprint, with what matching needs."""
+    rows_of: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
     fp_of: dict[str, str] = {}
-    for r in existing_records:
-        if not isinstance(r, dict):
+    for item in existing_records:
+        if not isinstance(item, dict):
             raise ValueError("An existing record must be a row (a dict) of the recommendations table.")
-        oid, fp = r.get("optimization_id"), r.get("fingerprint")
+        if isinstance(item.get("record"), dict):  # a proposal from this module
+            row, info = item["record"], {"rule_id": item.get("rule_id"), "rule_version": item.get("rule_version"),
+                                         "links": item.get("links") or []}
+        else:
+            row, info = item, {"rule_id": item.get("rule_id"), "rule_version": item.get("rule_version"), "links": []}
+        oid, fp = row.get("optimization_id"), row.get("fingerprint")
         if not oid:
             continue
         if not fp:
@@ -237,41 +273,136 @@ def link(existing_records: list[dict[str, Any]], detections: list[dict[str, Any]
         if fp_of.setdefault(oid, fp) != fp:
             raise ValueError(f"Optimization {oid} has rows for two fingerprints, {fp_of[oid]} and {fp}; "
                              "one optimization is for one finding or opportunity.")
-        by_fp.setdefault(fp, {}).setdefault(oid, []).append(r)
-    for fp, records in by_fp.items():
-        if len(records) > 1:
-            raise ValueError(f"Fingerprint {fp} has two different optimization records ({', '.join(sorted(records))}); "
-                             "one fingerprint must have one record, so this is refused until one is superseded.")
-    new: dict[str, dict[str, Any]] = {}
-    linked: list[dict[str, Any]] = []
-    repeats = 0
+        rows_of.setdefault(oid, []).append((row, info))
+    extra_items: dict[str, set[str]] = {}
+    for x in existing_links:
+        if not isinstance(x, dict):
+            raise ValueError("An existing link must be a row (a dict) of the optimization_link table.")
+        extra_items.setdefault(str(x.get("optimization_id")), set()).update(_items([x]))
+    by_fp: dict[str, dict[str, Any]] = {}
+    for oid, pairs in sorted(rows_of.items()):
+        fp = fp_of[oid]
+        if fp in by_fp:
+            raise ValueError(f"Fingerprint {fp} has two different optimization records "
+                             f"({by_fp[fp]['optimization_id']}, {oid}); one fingerprint must have one record, so "
+                             "this is refused until one is superseded.")
+        last = _latest([r for r, _ in pairs])
+        # The rule version on the latest row that names one.
+        named = [(r, i) for r, i in pairs if i["rule_version"]]
+        version = (max(named, key=lambda p: (p[0].get("version") or 0, str(p[0].get("at") or "")))[1]["rule_version"]
+                   if named else None)
+        rule_id = next((i["rule_id"] for _, i in pairs if i["rule_id"]), None)
+        items = set().union(*(_items(i["links"]) for _, i in pairs)) | extra_items.get(oid, set())
+        by_fp[fp] = _entry(oid, fp, last.get("kind"), last.get("state"), last.get("version"), rule_id, version, items)
+    return by_fp
+
+
+def _counterpart(d: dict[str, Any], entries: list[dict[str, Any]],
+                 table: dict[str, frozenset[str]]) -> list[dict[str, Any]]:
+    """Records of the other source that the matches table says cover the same item as ``d``."""
+    items = _items(d.get("links") or [])
+    if not items or not d.get("rule_id"):
+        return []
+    if d.get("source") == FEA:
+        rules = table.get(d["rule_id"], frozenset())
+        hits = [e for e in entries if e["kind"] == OE and e["rule_id"] in rules and e["artifacts"] & items]
+    else:
+        hits = [e for e in entries if e["kind"] == FEA and d["rule_id"] in table.get(e["rule_id"] or "", frozenset())
+                and e["artifacts"] & items]
+    return sorted(hits, key=lambda e: e["optimization_id"])
+
+
+def link(existing_records: list[dict[str, Any]], detections: list[dict[str, Any]], *,
+         matches: Mapping[str, Iterable[str]] | None = None,
+         existing_links: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Sort detections into new records, links to records already known, and matches a person must check.
+
+    ``existing_records``: rows of the recommendations table, or proposals from this module. Rows
+    without an ``optimization_id`` (version 1 recommendations from Optimize's own analysis) are left
+    alone. A row may carry ``rule_id`` and ``rule_version`` when the caller has them; no table has
+    those columns yet, so a plain row's rule version can't be compared. ``detections``: proposals
+    from ``from_finding`` or ``from_opportunity``. ``existing_links``: optimization_link rows, for
+    the items a stored record covers.
+
+    ``matches`` (optional): control id to the OE rule ids that find the same problem (FEA-604). A
+    finding whose control maps to an opportunity's rule, on the same item, links to that
+    opportunity's record instead of making a second one, and the other way round, so a saving is
+    never counted twice. Opportunities in the batch are taken before findings, so a finding links
+    to an opportunity found in the same run. Without ``matches`` nothing is matched across sources.
+
+    Returns ``new`` (proposals to write, one per new fingerprint), ``linked`` (link events; never a
+    second record), ``review`` (a finding whose control changed version since its record was made:
+    neither linked nor new, for a person to check) and ``repeats`` (detections that repeated one
+    earlier in the batch). Refuses two different optimization ids for one fingerprint, and an id
+    that names a different fingerprint."""
+    if existing_links is None:
+        existing_links = []
+    if not all(isinstance(x, list) for x in (existing_records, detections, existing_links)):
+        raise ValueError("Linking needs the existing records, the detections and the existing links, each as a list.")
+    table = _matches(matches)
+    known = _known(existing_records, existing_links)
     for d in detections:
         if not isinstance(d, dict) or not isinstance(d.get("record"), dict):
             raise ValueError("A detection must be a proposal from from_finding or from_opportunity.")
-        rec = d["record"]
-        fp, oid = rec.get("fingerprint"), rec.get("optimization_id")
+        fp, oid = d["record"].get("fingerprint"), d["record"].get("optimization_id")
         if not fp or oid != optimization_id(fp):
             raise ValueError(f"Detection {fp!r} doesn't carry the optimization id its fingerprint gives; build it "
                              "with from_finding or from_opportunity.")
-        if fp in by_fp:
-            existing_id, rows = next(iter(by_fp[fp].items()))
-            if existing_id != oid:
-                raise ValueError(f"Fingerprint {fp} already has optimization {existing_id}, not {oid}; two records "
-                                 "for one fingerprint are refused.")
-            latest = _latest(rows)
-            came_back = latest.get("state") == VERIFIED
-            linked.append({"event": LINKED, "optimization_id": oid, "fingerprint": fp, "source": d.get("source"),
-                           "source_id": d.get("source_id"), "detected_at": rec.get("at"),
-                           "existing_state": latest.get("state"), "existing_version": latest.get("version"),
-                           "came_back": came_back,
-                           "reason": (f"Found again after optimization {oid} was verified, so the fix may not have "
-                                      "held." if came_back else
-                                      f"Already tracked as optimization {oid}, so no new record is made.")})
-        elif fp in new:
-            repeats += 1
-        else:
-            new[fp] = d
-    return {"new": [new[k] for k in sorted(new)], "linked": linked, "repeats": repeats}
+        if fp in known and known[fp]["optimization_id"] != oid:
+            raise ValueError(f"Fingerprint {fp} already has optimization {known[fp]['optimization_id']}, not {oid}; "
+                             "two records for one fingerprint are refused.")
+    order = sorted(range(len(detections)), key=lambda i: (detections[i].get("source") != OE, i))
+    new: dict[str, dict[str, Any]] = {}
+    linked: list[dict[str, Any]] = []
+    review: list[dict[str, Any]] = []
+    repeats = 0
+    for i in order:
+        d = detections[i]
+        rec = d["record"]
+        fp, oid = rec["fingerprint"], rec["optimization_id"]
+        base = {"fingerprint": fp, "source": d.get("source"), "source_id": d.get("source_id"),
+                "detected_at": rec.get("at")}
+        stored = known.get(fp)
+        if stored is None and fp in new:
+            stored = _entry(oid, fp, d.get("source"), PROPOSED, FIRST_VERSION, new[fp].get("rule_id"),
+                            new[fp].get("rule_version"), set())
+        if stored is not None:
+            was, now = stored["rule_version"], d.get("rule_version")
+            if d.get("source") == FEA and was and now and was != now:
+                review.append(base | {"event": REVIEW, "optimization_id": oid, "stored_rule_version": was,
+                                      "detected_rule_version": now,
+                                      "reason": (f"Control {d.get('rule_id')} changed from version {was} to {now} "
+                                                 "since this optimization was recorded, so a person needs to check "
+                                                 "that the match still holds.")})
+            elif fp not in known:
+                repeats += 1
+            else:
+                came_back = stored["state"] == VERIFIED
+                linked.append(base | {
+                    "event": LINKED, "optimization_id": oid, "matched": False, "existing_state": stored["state"],
+                    "existing_version": stored["version"], "came_back": came_back,
+                    "rule_version_checked": d.get("source") != FEA or bool(was and now),
+                    "reason": (f"Found again after optimization {oid} was verified, so the fix may not have held."
+                               if came_back else f"Already tracked as optimization {oid}, so no new record is made.")})
+            continue
+        if table:
+            entries = list(known.values()) + [
+                _entry(p["optimization_id"], k, p["source"], PROPOSED, FIRST_VERSION, p.get("rule_id"),
+                       p.get("rule_version"), _items(p["links"])) for k, p in new.items()]
+            hits = _counterpart(d, entries, table)
+            if hits:
+                hit = hits[0]
+                what = "Assessment finding" if d.get("source") == FEA else "Opportunity"
+                linked.append(base | {
+                    "event": LINKED, "optimization_id": hit["optimization_id"], "matched": True,
+                    "matched_fingerprint": hit["fingerprint"],
+                    "also_matches": [h["optimization_id"] for h in hits[1:]], "existing_state": hit["state"],
+                    "existing_version": hit["version"], "came_back": False, "rule_version_checked": False,
+                    "reason": (f"{what} {fp} finds the same problem as {hit['fingerprint']} on the same item, so it "
+                               f"links to optimization {hit['optimization_id']} and isn't counted twice.")})
+                continue
+        new[fp] = d
+    return {"new": [new[k] for k in sorted(new)], "linked": linked, "review": review, "repeats": repeats}
 
 
 _REASONS = {
@@ -280,17 +411,51 @@ _REASONS = {
     REGRESSED: "Measured CU went up after the change, so the {what} stays open.",
     FAILED: "The outputs changed after the change, so the {what} stays open.",
 }
+VERIFIED_FIXED = "verified_fixed"  # FEA-602: the assessment's own re-check found the control fixed
 
 
-def report_back(record: dict[str, Any], validation: dict[str, Any]) -> dict[str, Any]:
+def _fea_outcome(value: Any) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("outcome", value.get("status"))
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"The assessment's verification outcome is a text such as {VERIFIED_FIXED}, not {value!r}.")
+    return "_".join(value.strip().lower().replace("-", " ").split()) or None
+
+
+def _fea_reason(outcome: str | None) -> str:
+    if outcome is None:
+        return ("The savings were verified, but the assessment hasn't checked the finding again, so the "
+                "assessment finding stays open.")
+    if outcome == "not_evaluated":
+        return ("The savings were verified, but the assessment couldn't evaluate the control again, so the "
+                "assessment finding stays open.")
+    if "profile" in outcome:
+        return ("The savings were verified, but the assessment profile changed, so the assessment finding stays "
+                "open until it is checked under the same profile.")
+    return (f"The savings were verified, but the assessment's check gave {outcome}, not {VERIFIED_FIXED}, so the "
+            "assessment finding stays open.")
+
+
+def report_back(record: dict[str, Any], validation: dict[str, Any], *, fea_outcome: Any = None,
+                to: str | None = None) -> dict[str, Any]:
     """What to tell the assessment about this optimization's validation, or ValueError.
 
     ``record``: the optimization's record (a recommendations row, or a proposal from this module).
     ``validation``: the result of ``baselines.validate``, or its ``fdopt_validation`` row.
+    ``to``: the finding or opportunity to report to (its fx- or opp- id) when it was linked to this
+    record through ``matches``; default: the record's own fingerprint.
+    ``fea_outcome``: for a finding, the assessment's own re-check (FEA-602), as a text or a dict
+    with ``outcome``.
 
-    Returns ``resolved`` (True only for Verified), the ``status`` to show on the source (an FEA
-    finding: resolved or open; an opportunity: verified or validating, as its lifecycle has it),
-    the source and its id, the validation id and result, and a one-sentence ``reason``."""
+    A finding is resolved only when the validation is Verified and ``fea_outcome`` is
+    ``verified_fixed``. A missing outcome, not evaluated, a profile change or anything else keeps it
+    open. An opportunity is resolved (verified) on a Verified validation alone.
+
+    Returns ``resolved``, the ``status`` to show on the source (a finding: resolved or open; an
+    opportunity: verified or validating, as its lifecycle has it), the source and its id, the
+    validation id and result, the FEA outcome and a one-sentence ``reason``."""
     if isinstance(record, dict) and isinstance(record.get("record"), dict):
         record = record["record"]
     if not isinstance(record, dict):
@@ -301,19 +466,35 @@ def report_back(record: dict[str, Any], validation: dict[str, Any]) -> dict[str,
                          "there is nothing to report back to.")
     if not fp or oid != optimization_id(fp):
         raise ValueError(f"Optimization {oid!r} doesn't match its fingerprint {fp!r}.")
+    target = fp if to is None else to
+    if not isinstance(target, str) or not target.startswith(("fx-", "opp-")):
+        raise ValueError(f"Reporting back goes to an fx- finding or an opp- opportunity id, not {target!r}.")
+    source = FEA if target.startswith("fx-") else OE
     if not isinstance(validation, dict):
         raise ValueError("Reporting back needs the validation result from baselines.validate.")
-    row = validation.get("row") if isinstance(validation.get("row"), dict) else validation
+    row = validation["row"] if isinstance(validation.get("row"), dict) else validation
     result = validation.get("result", row.get("result"))
     if result not in RESULTS:
         raise ValueError(f"The validation result must be one of {', '.join(RESULTS)}, not {result!r}.")
     if row.get("optimization_id") != oid:
         raise ValueError(f"That validation is for optimization {row.get('optimization_id')!r}, not {oid}.")
-    resolved = result == VERIFIED
-    if kind == FEA:
-        status = "resolved" if resolved else "open"
-    else:
+    outcome = _fea_outcome(fea_outcome) if source == FEA else None
+    if source == OE:
+        resolved = result == VERIFIED
         status = VERIFIED if resolved else VALIDATING
-    return {"optimization_id": oid, "source": kind, "source_id": fp, "fingerprint": fp, "resolved": resolved,
-            "status": status, "validation_id": row.get("validation_id"), "validation_result": result,
-            "reason": _REASONS[result].format(what=SOURCES[kind])}
+        reason = _REASONS[result].format(what=SOURCES[OE])
+    else:
+        resolved = result == VERIFIED and outcome == VERIFIED_FIXED
+        status = "resolved" if resolved else "open"
+        if result != VERIFIED:
+            reason = _REASONS[result].format(what=SOURCES[FEA])
+        elif resolved:
+            reason = ("Its optimization was verified and the assessment confirmed the fix, so the assessment "
+                      "finding is resolved.")
+        else:
+            reason = _fea_reason(outcome)
+    return {"optimization_id": oid, "source": source, "source_id": target, "fingerprint": target,
+            "resolved": resolved, "status": status, "validation_id": row.get("validation_id"),
+            "validation_result": result, "fea_outcome": outcome, "reason": reason}
+
+

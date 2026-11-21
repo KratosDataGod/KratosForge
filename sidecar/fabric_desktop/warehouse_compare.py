@@ -11,6 +11,7 @@ Nothing here reads files, runs SQL or calls Fabric.
 
 from __future__ import annotations
 
+import bisect
 import difflib
 import re
 from typing import Any, cast
@@ -183,8 +184,9 @@ _ORDER = {("create", "schema"): 0, ("create", "table"): 1, ("add_columns", "tabl
           ("alter", "function"): 2, ("create", "view"): 3, ("alter", "view"): 3, ("create", "procedure"): 4,
           ("alter", "procedure"): 4, ("drop", "procedure"): 5, ("drop", "view"): 6, ("drop", "function"): 7,
           ("drop", "table"): 8, ("drop", "schema"): 9}
-_LEADING_CREATE = re.compile(r"^((?:\s|--[^\n]*\n|/\*.*?\*/)*)CREATE\s+(?:OR\s+ALTER\s+)?(VIEW|PROC|PROCEDURE|FUNCTION)\b",
-                             re.IGNORECASE | re.DOTALL)
+# CREATE VIEW, PROC, PROCEDURE or FUNCTION after nothing but blanks and comments (_leading_create).
+_CREATE_HEAD = re.compile(r"CREATE\s+(?:OR\s+ALTER\s+)?(VIEW|PROC|PROCEDURE|FUNCTION)\b", re.IGNORECASE)
+_BLANKS = re.compile(r"\s+")
 ONE_DEFINITION = ("the file holds more than the object's own CREATE (another batch after GO), so a deploy doesn't "
                   "offer it: keep one object per file")
 ONE_TABLE = ("the file holds more than CREATE TABLE with its columns (another statement, or AS SELECT), so a deploy "
@@ -223,7 +225,7 @@ def _one_definition(kind: str, text: str) -> str | None:
         return None
     t = tokens(parts[0])
     if kind in ("view", "procedure", "function"):
-        if not _LEADING_CREATE.match(parts[0]):
+        if not _leading_create(parts[0]):
             return None
         # A view, or a function with no BEGIN ... END body, ends at its first ";": nothing may follow.
         if kind == "view" or "begin" not in t:
@@ -249,9 +251,64 @@ def _one_definition(kind: str, text: str) -> str | None:
     return None
 
 
+def _leading_create(text: str) -> tuple[str, str, int] | None:
+    """The blanks and comments before ``text``'s CREATE VIEW, PROC, PROCEDURE or FUNCTION, the kind as
+    written and where the kind ends; None when anything else comes first.
+
+    This is what ^((?:\\s|--[^\\n]*\\n|/\\*.*?\\*/)*)CREATE\\s+(?:OR\\s+ALTER\\s+)?(VIEW|...)\\b
+    (DOTALL) matched, worked out once for each */ instead of once for each way of reaching it: the rule
+    tried every way of splitting a run of comments, twice as many for each more */, and 26 comments
+    took 10 seconds. As the rule did, a /* comment ends at the first */ after which the rest reads
+    (more comments first, then CREATE), and blanks and -- comments are read whole."""
+    newlines = [m.start() for m in re.finditer("\n", text)]
+    ends: dict[int, int] = {}  # where the blanks and -- comments from a place end
+
+    def past_blanks_and_line_comments(i: int) -> int:
+        path = []
+        while i not in ends:
+            path.append(i)
+            blanks = _BLANKS.match(text, i)
+            if blanks:
+                i = blanks.end()
+                continue
+            n = bisect.bisect_left(newlines, i + 2)
+            if text.startswith("--", i) and n < len(newlines):
+                i = newlines[n] + 1
+                continue
+            break
+        end = ends.get(i, i)
+        for p in path:
+            ends[p] = end
+        return end
+
+    def create_at(i: int) -> tuple[str, str, int] | None:
+        m = _CREATE_HEAD.match(text, i)
+        return (text[:i], m.group(1), m.end()) if m else None
+
+    start = past_blanks_and_line_comments(0)
+    if not text.startswith("/*", start):
+        return create_at(start)
+    # From the last */ back: what reading on from each one finds. Reading on reaches CREATE, or another
+    # /* whose comment ends at the first */ (at least two characters on) from which reading on succeeds.
+    found: dict[int, tuple[str, str, int]] = {}
+    succeeded: list[int] = []  # the */ from which reading on found CREATE, as -position, ascending
+
+    def first_success(i: int) -> tuple[str, str, int] | None:
+        n = bisect.bisect_right(succeeded, -i) - 1
+        return found[-succeeded[n]] if n >= 0 else None
+
+    for close in reversed([m.start() for m in re.finditer(r"\*/", text) if m.start() >= start + 2]):
+        stop = past_blanks_and_line_comments(close + 2)
+        result = first_success(stop + 2) if text.startswith("/*", stop) else create_at(stop)
+        if result:
+            found[close] = result
+            succeeded.append(-close)
+    return first_success(start + 2)
+
+
 def _as_create_or_alter(text: str) -> str | None:
-    m = _LEADING_CREATE.match(text)
-    return None if not m else f"{m.group(1)}CREATE OR ALTER {m.group(2).upper()}" + text[m.end():]
+    found = _leading_create(text)
+    return None if not found else f"{found[0]}CREATE OR ALTER {found[1].upper()}" + text[found[2]:]
 
 
 def _added_columns(warehouse: str, project: str) -> list[tuple[str, str]] | None:

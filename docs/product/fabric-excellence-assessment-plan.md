@@ -364,7 +364,8 @@ coverage and Critical Risk flag built from evidence the app already reads.
 - **FEA-602 Remediation verification**: before and after measurements; realized savings only
   with billing or capacity change evidence.
 - **FEA-603 Trend analysis and regressions** across snapshots.
-- **FEA-604 Optimization planning**: hand approved findings to the optimization engine and the
+- **FEA-604 Optimization planning**: **Built** (engine only): `excellence/handoff.py`; planner inputs
+  aren't consumed until OE-040/041 land. Hand approved findings to the optimization engine and the
   F64 planner without double counting.
 
 ## 8. Mapping to the brief's acceptance criteria

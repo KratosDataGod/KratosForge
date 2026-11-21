@@ -264,6 +264,39 @@ throttled or whether an operation was interactive or background, so there is no 
 yet. A benefit is capacity freed, estimated; it becomes money only when a capacity is resized, paused
 or retired. The 10%, 24-a-day and 7-day thresholds are KratosForge's.
 
+## Optimization planning handoff
+
+`excellence.handoff.handoff(findings, approved_ids, optimization_result=None)` (FEA-604, engine only:
+no screen, no storage, no Fabric read) hands the findings a person approved to the optimization engine
+and the F64 planner without counting anything twice.
+
+- **Only approved findings.** Others are counted in `dedup.not_approved`; an approved id that names no
+  finding is listed in `dedup.unknown_approved_ids`.
+- **Explicit matching.** `MATCHES` maps each control to the optimization engine rules that report the
+  same concern: FEA-PERF-001 to OE-DUP-NB and OE-DUP-NB-SUSPECT, FEA-PERF-002 to OE-DUP-COPY and
+  OE-REPEAT-EXTRACT, FEA-DE-001 to OE-FULL-REFRESH, FEA-DE-002 to OE-DUP-NB-PARAM. FEA-CAP-002, 003
+  and 004 are handed on with no engine rule yet. A finding is linked to an opportunity when the rule
+  matches and the opportunity's artifacts include the finding's resource (same workspace). A control
+  with no entry (security, governance and the rest) is listed in `dedup.unmapped`, never guessed.
+- **Linked, not duplicated.** Each item is `already_in_optimization` (with its `opportunity_ids`) or
+  `new_candidate`. Several findings on one opportunity become one planner input
+  (`dedup.shared_opportunities`).
+- **No double counting.** Nothing is added up. A planner input cites only the optimization engine's
+  own monthly run time and CU, as the engine's measurements with their basis, and only for an
+  opportunity the engine counts in its totals; an overlapping one carries no figure and names the
+  opportunity it is counted under. A new candidate carries no figure. No money is handed on: capacity
+  freed is not money saved.
+- **Advisory findings never plan.** A finding resting on inferred or insufficient evidence is listed
+  but never becomes a planner input. Without an optimization result, a finding whose control has
+  engine rules is `not_checked` and held back too.
+- Malformed findings are listed in `dedup.rejected`; malformed opportunities are skipped and counted.
+  A demonstration fixture is never matched with a real assessment.
+
+Each planner input is `{key, source, opportunity_id, finding_ids, rule, affects, basis, realizable,
+realizable_reason, counted_in_optimization_totals, run_seconds_per_month, cu_per_month,
+counted_under, reason}`. The F64 planner (OE-040, OE-041) isn't built yet, so nothing consumes these
+inputs; the result says so in `planner.consumed: false`.
+
 ## The scorecard
 
 **Optimize > Assessment > Excellence** shows the assessment. Like the rest of Assessment, it is a Preview feature. Pick a workspace and choose

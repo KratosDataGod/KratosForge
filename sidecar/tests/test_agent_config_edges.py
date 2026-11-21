@@ -63,3 +63,22 @@ def test_loading_a_missing_or_broken_file_says_which(tmp_path):
     with pytest.raises(agent_config.ConfigError) as err:
         agent_config.load(broken)
     assert err.value.errors[0].startswith("not valid TOML")
+
+
+def test_secret_keys_are_named_with_their_path_in_order():
+    raw = {"agent": {"token": "x", "list": [{"password": 1}, [{"Secret": None}]]}, "z": {"a": {"api_key": "k"}}}
+    tail = ": secrets don't go in agent.toml; put it in an environment variable and give its name as "
+    assert agent_config._secret_keys(raw, "") == [
+        f"agent.token{tail}token_env", f"agent.list.[0].password{tail}password_env",
+        f"agent.list.[1].[0].Secret{tail}Secret_env", f"z.a.api_key{tail}api_key_env"]
+    assert agent_config._secret_keys({"a": {"token": 1}, "token": 2}, "") == [f"a.token{tail}token_env", f"token{tail}token_env"]
+
+
+def test_a_file_with_a_dotted_key_thousands_of_parts_long_is_checked(tmp_path):
+    """TOML's dotted keys (a.b.c = 1) make tables as deep as the key is long without any nesting in the
+    text; checking them for secrets used to raise RecursionError from load()."""
+    path = tmp_path / "agent.toml"
+    path.write_text("x." + ".".join(["a"] * 5000) + ".token = 1\n", encoding="utf-8")
+    with pytest.raises(agent_config.ConfigError) as caught:
+        agent_config.load(path)
+    assert any(e.startswith("x.a.a.") and ".token: secrets don't go in agent.toml" in e for e in caught.value.errors)

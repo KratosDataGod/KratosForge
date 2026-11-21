@@ -78,3 +78,27 @@ def test_plain_keys_are_named_as_they_are():
 @pytest.mark.parametrize("schema", [[1], {"v": 1}, "two", 1.5, True])
 def test_a_schema_that_isnt_a_whole_number_says_so(schema):
     assert "schema must be a whole number." in cp.problems(profile(schema=schema))
+
+
+def _nested_value():
+    token = "ghp_" + "ab12" * 9
+    return {"conn": {"password": "env:PW", "token": "hunter2", "nested": [{"client_secret": ""}, [token, {"api_key": ["x"]}]]},  # pragma: allowlist secret
+            "z": token, "ok": 1, 5: {"secret": "credman:x"}}  # pragma: allowlist secret
+
+
+def test_secret_problems_name_each_place_in_order():
+    assert cp.secret_problems(_nested_value()) == [
+        "conn.token must be a reference (env:NAME or credman:TARGET), not a value.",
+        "conn.nested[1][0] looks like a token, key or password. Profiles keep references only.",
+        "conn.nested[1][1].api_key must be a reference (env:NAME or credman:TARGET), not a value.",
+        "z looks like a token, key or password. Profiles keep references only."]
+
+
+def test_secret_problems_read_a_value_nested_thousands_deep():
+    """A profile nested past Python's recursion limit is checked rather than raising RecursionError."""
+    value: object = {"token": "hunter2"}  # pragma: allowlist secret
+    for i in range(5000):
+        value = {"a": value} if i % 2 else [value]
+    [problem] = cp.secret_problems(value)
+    assert problem.endswith(".token must be a reference (env:NAME or credman:TARGET), not a value.")
+    assert problem.startswith("a[0].a[0].") and problem.count("[0]") == 2500

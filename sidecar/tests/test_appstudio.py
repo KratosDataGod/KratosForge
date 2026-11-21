@@ -387,3 +387,28 @@ def test_import_refuses_too_many_files_and_caps_versions(tmp_path, monkeypatch):
     monkeypatch.setattr(project, "MAX_VERSIONS", 3)
     dest = project.import_(_zip(base | {f"versions/{n:04d}.json": version for n in range(1, 6)}), tmp_path / "b")
     assert len(list((dest / "versions").glob("*.json"))) == 3
+
+
+def test_secret_problems_name_each_place_in_order():
+    token = "ghp_" + "ab12" * 9
+    value = {"conn": {"password": "env:PW", "token": "hunter2", "nested": [{"client_secret": ""}, [token, {"api_key": ["x"]}]]},  # pragma: allowlist secret
+             "z": token, "ok": 1, 5: {"secret": "credman:x"}}  # pragma: allowlist secret
+    assert project.secret_problems(value) == [
+        "conn.password looks like it holds a secret. Projects never keep keys, tokens or passwords.",
+        "conn.token looks like it holds a secret. Projects never keep keys, tokens or passwords.",
+        "conn.nested[1][0] looks like a key, token or password. Projects never keep secrets.",
+        "conn.nested[1][1].api_key looks like it holds a secret. Projects never keep keys, tokens or passwords.",
+        "z looks like a key, token or password. Projects never keep secrets.",
+        "5.secret looks like it holds a secret. Projects never keep keys, tokens or passwords."]
+
+
+def test_secret_problems_read_a_file_nested_thousands_deep():
+    """A project file line nested past Python's recursion limit is checked rather than raising
+    RecursionError; one past what json reads is checked as text, as a torn line is."""
+    line = '{"a": [' * 2500 + '{"token": "hunter2"}' + "]}" * 2500  # pragma: allowlist secret
+    [problem] = project.text_problems(line, "history.jsonl")
+    assert problem.startswith("history.jsonl line 1.a[0].") and problem.endswith(".token looks like it holds a secret. "
+                                                                                  "Projects never keep keys, tokens or passwords.")
+    token = "ghp_" + "ab12" * 9
+    assert project.text_problems("[" * 20000 + json.dumps(token) + "]" * 20000, "v.json") == [
+        "v.json holds something that looks like a key, token or password."]

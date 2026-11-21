@@ -46,7 +46,7 @@ import re
 import tomllib
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from . import redact
@@ -109,21 +109,28 @@ def _key_text(key: Any) -> str:
 
 
 def secret_problems(data: Any, path: str = "") -> list[str]:
-    """Every place in ``data`` that holds a secret instead of a reference. Values are never repeated."""
+    """Every place in ``data`` that holds a secret instead of a reference, in order. Values are never
+    repeated. Walked with a stack rather than recursion, so a profile nested thousands deep is checked too."""
     problems: list[str] = []
-    if isinstance(data, dict):
-        for key, value in data.items():
-            where = f"{path}.{_key_text(key)}" if path else _key_text(key)
-            if redact.secret_key(key) and value not in (None, "", [], {}):
-                if not (isinstance(value, str) and _REF.fullmatch(value)):
-                    problems.append(f"{where} must be a reference (env:NAME or credman:TARGET), not a value.")
-                    continue
-            problems += secret_problems(value, where)
-    elif isinstance(data, list):
-        for i, value in enumerate(data):
-            problems += secret_problems(value, f"{path}[{i}]")
-    elif isinstance(data, str) and _looks_secret(data):
-        problems.append(f"{path or 'value'} looks like a token, key or password. Profiles keep references only.")
+    # Each entry: whether it is a dict's value, its key, the value, and its path.
+    stack: list[Iterator[tuple[bool, Any, Any, str]]] = [iter([(False, None, data, path)])]
+    while stack:
+        nxt = next(stack[-1], None)
+        if nxt is None:
+            stack.pop()
+            continue
+        keyed, key, data, path = nxt
+        if keyed and redact.secret_key(key) and data not in (None, "", [], {}):
+            if not (isinstance(data, str) and _REF.fullmatch(data)):
+                problems.append(f"{path} must be a reference (env:NAME or credman:TARGET), not a value.")
+                continue
+        if isinstance(data, dict):
+            stack.append(iter([(True, key, value, f"{path}.{_key_text(key)}" if path else _key_text(key))
+                               for key, value in data.items()]))
+        elif isinstance(data, list):
+            stack.append(iter([(False, None, value, f"{path}[{i}]") for i, value in enumerate(data)]))
+        elif isinstance(data, str) and _looks_secret(data):
+            problems.append(f"{path or 'value'} looks like a token, key or password. Profiles keep references only.")
     return problems
 
 

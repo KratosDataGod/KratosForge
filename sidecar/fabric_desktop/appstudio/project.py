@@ -25,7 +25,7 @@ import re
 import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Iterator
 
 from .. import redact
 from ..jsonfile import read_json, read_text, write_json, write_text
@@ -70,20 +70,26 @@ def folder_name(name: str) -> str:
 
 
 def secret_problems(value: Any, where: str = "") -> list[str]:
-    """Every place in ``value`` holding something that looks like a secret. Values are never repeated."""
+    """Every place in ``value`` holding something that looks like a secret, in order. Values are never
+    repeated. Walked with a stack rather than recursion, so a value nested thousands deep is checked too."""
     out: list[str] = []
-    if isinstance(value, dict):
-        for k, v in value.items():
-            here = f"{where}.{str(k)[:40]}" if where else str(k)[:40]
-            if redact.secret_key(k) and v not in (None, "", [], {}, False):
-                out.append(f"{here} looks like it holds a secret. Projects never keep keys, tokens or passwords.")
-                continue
-            out += secret_problems(v, here)
-    elif isinstance(value, list):
-        for i, v in enumerate(value):
-            out += secret_problems(v, f"{where}[{i}]")
-    elif isinstance(value, str) and (redact.secrets(value) != value or _MODEL_KEY.search(value)):
-        out.append(f"{where or 'value'} looks like a key, token or password. Projects never keep secrets.")
+    # Each entry: whether it is a dict's value, its key, the value, and its path.
+    stack: list[Iterator[tuple[bool, Any, Any, str]]] = [iter([(False, None, value, where)])]
+    while stack:
+        nxt = next(stack[-1], None)
+        if nxt is None:
+            stack.pop()
+            continue
+        keyed, k, value, where = nxt
+        if keyed and redact.secret_key(k) and value not in (None, "", [], {}, False):
+            out.append(f"{where} looks like it holds a secret. Projects never keep keys, tokens or passwords.")
+            continue
+        if isinstance(value, dict):
+            stack.append(iter([(True, k, v, f"{where}.{str(k)[:40]}" if where else str(k)[:40]) for k, v in value.items()]))
+        elif isinstance(value, list):
+            stack.append(iter([(False, None, v, f"{where}[{i}]") for i, v in enumerate(value)]))
+        elif isinstance(value, str) and (redact.secrets(value) != value or _MODEL_KEY.search(value)):
+            out.append(f"{where or 'value'} looks like a key, token or password. Projects never keep secrets.")
     return out
 
 
@@ -94,7 +100,7 @@ def text_problems(text: str, where: str) -> list[str]:
     for n, line in enumerate(text.splitlines(), 1):
         try:
             out += secret_problems(json.loads(line), f"{where} line {n}")
-        except ValueError:
+        except (ValueError, RecursionError):  # not JSON, or nested past what json reads: the text check below
             pass
     if not out and (redact.secrets(text) != text or _MODEL_KEY.search(text)):
         out.append(f"{where} holds something that looks like a key, token or password.")

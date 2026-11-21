@@ -75,7 +75,7 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from .fabric_run import MAX_EVERY_MINUTES, schedule_configuration
 from .local_schedules import local_configuration
@@ -198,16 +198,23 @@ class AgentConfig:
 
 
 def _secret_keys(table: Any, where: str) -> list[str]:
+    """Every key named like a secret, with its path, in the order the file has them. A stack rather than
+    recursion: a dotted key (a.b.c = 1) makes tables as deep as it is long."""
     found = []
-    if isinstance(table, dict):
-        for k, v in table.items():
-            if k.lower() in _SECRET_KEYS:
-                found.append(f"{where}{k}: secrets don't go in agent.toml; put it in an environment variable "
-                             f"and give its name as {k}_env")
-            found += _secret_keys(v, f"{where}{k}.")
-    elif isinstance(table, list):
-        for i, v in enumerate(table):
-            found += _secret_keys(v, f"{where}[{i}].")
+    stack: list[Iterator[tuple[Any, str, str | None]]] = [iter([(table, where, None)])]  # value, its path, its key
+    while stack:
+        nxt = next(stack[-1], None)
+        if nxt is None:
+            stack.pop()
+            continue
+        table, where, key = nxt
+        if key is not None and key.lower() in _SECRET_KEYS:
+            found.append(f"{where[:-1]}: secrets don't go in agent.toml; put it in an environment variable "
+                         f"and give its name as {key}_env")
+        if isinstance(table, dict):
+            stack.append(iter([(v, f"{where}{k}.", k) for k, v in table.items()]))
+        elif isinstance(table, list):
+            stack.append(iter([(v, f"{where}[{i}].", None) for i, v in enumerate(table)]))
     return found
 
 

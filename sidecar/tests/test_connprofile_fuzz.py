@@ -10,6 +10,7 @@ The generators use the random module with fixed seeds, so a failure names a case
 from __future__ import annotations
 
 import copy
+import os
 import random
 import re
 from urllib.parse import urlparse
@@ -162,9 +163,10 @@ def test_a_secret_named_field_in_plain_text_is_refused(key):
 
 
 def test_a_keypair_profile_still_names_its_key_file():
+    key_file = os.path.abspath("/keys/sf.p8")  # a full path on this OS (with a drive on Windows)
     profile = {"name": "S", "kind": "snowflake", "connections": [{"platform": "snowflake", "account": "myorg-myacct",
-               "credential": {"method": "keypair", "private_key_file": "/keys/sf.p8", "passphrase": "env:SF_PASS"}}]}
-    assert cp.validate(profile)["connections"][0]["credential"]["private_key_file"] == "/keys/sf.p8"
+               "credential": {"method": "keypair", "private_key_file": key_file, "passphrase": "env:SF_PASS"}}]}
+    assert cp.validate(profile)["connections"][0]["credential"]["private_key_file"] == key_file
 
 
 def test_a_host_with_url_parameters_is_refused():

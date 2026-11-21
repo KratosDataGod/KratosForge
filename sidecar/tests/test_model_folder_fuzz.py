@@ -117,7 +117,10 @@ def test_a_model_bim_with_a_part_of_the_wrong_type_is_refused_by_name(key, value
 
 def test_a_model_nested_too_deeply_to_compare_still_exports_and_says_the_round_trip_didnt_run():
     bim = _bim()
-    bim["model"]["annotations"] = [{"name": "x", "value": json.loads("[" * 3000 + "]" * 3000)}]
+    deep: list[object] = []  # built in Python: json.loads of this hits the C stack limit first on Windows
+    for _ in range(3000):
+        deep = [deep]
+    bim["model"]["annotations"] = [{"name": "x", "value": deep}]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         out = model_ossie.export(bim, validate=True)
@@ -140,4 +143,4 @@ def test_an_ossie_path_with_a_drive_or_a_stream_is_refused(svc, path):  # noqa: 
         svc.meta_model_ossie_save(path, _ossie())
     with pytest.raises(ValueError, match="Save it as a path inside the project"):
         svc.meta_model_ossie_read(path)
-    assert not list(Path(svc._project().root).rglob("*:*"))
+    assert not [p for p in Path(svc._project().root).rglob("*") if ":" in p.name]  # "*:*" is a drive on Windows

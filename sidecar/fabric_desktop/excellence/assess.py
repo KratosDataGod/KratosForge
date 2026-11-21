@@ -29,6 +29,7 @@ from typing import Any
 
 from . import controls as ct
 from . import findings as fx
+from . import policy_packs
 from . import profiles as pf
 from . import scoring
 from .evidence import Bundle, canonical, subject
@@ -56,10 +57,18 @@ def _inventory(bundle: Bundle, ws: dict[str, Any]) -> list[dict[str, Any]] | Non
     return [items[k] for k in sorted(items)]
 
 
-def _run(c: ct.Control, subj: dict[str, Any], bundle: Bundle, profile: pf.Profile) -> dict[str, Any]:
+def _run(c: ct.Control, subj: dict[str, Any], bundle: Bundle, profile: pf.Profile,
+         ws: dict[str, Any] | None = None) -> dict[str, Any]:
+    pack = profile.policy_pack or {}
+    out_of_scope = policy_packs.out_of_scope(profile, c.id, subj, ws or subj)
     if c.id in profile.disabled:
         o = ct._outcome(c, subj, ct.not_applicable(f"Turned off in the {profile.title} profile: {profile.disabled[c.id]}"),
                         "insufficient")
+        if any(d["control_id"] == c.id for d in pack.get("disabled") or []):
+            o["policy"] = {"pack": f"{pack['id']}@{pack['version']}", "effect": "disabled"}
+    elif out_of_scope:
+        o = ct._outcome(c, subj, ct.not_applicable(out_of_scope), "insufficient")
+        o["policy"] = {"pack": f"{pack['id']}@{pack['version']}", "effect": "out_of_scope"}
     else:
         ws_id = subj.get("workspace_id")
 
@@ -110,7 +119,7 @@ def assess(records: list[dict[str, Any]], registry: ct.Registry, *, scope: dict[
                                 "insufficient")
                 o["severity"] = profile.severity_overrides.get(c.id, c.severity)
                 outcomes.append(o)
-            outcomes += [_run(c, it, bundle, profile) for it in mine]
+            outcomes += [_run(c, it, bundle, profile, ws) for it in mine]
         item_cov += _item_coverage(inv or [], outcomes, registry)
     findings = fx.rank([fx.make(registry.get(o["control_id"]), o, o["severity"]) for o in outcomes
                         if o["outcome"] == "fail" or o.get("advisory", {}) and o["advisory"].get("outcome") == "fail"])
@@ -130,6 +139,7 @@ def assess(records: list[dict[str, Any]], registry: ct.Registry, *, scope: dict[
     return {"schema": SCHEMA, "fixture": fixture, "fixture_note": FIXTURE_NOTE if fixture else None,
             "assessed_at": assessed_at, "scope": {"workspaces": workspaces, "capacities": capacities},
             "profile": profile.as_dict(), "policy_version": pv, "rule_versions": registry.versions(),
+            "policy_pack": policy_packs.effects(profile, outcomes),
             "fingerprint": hashlib.sha256(canonical([pv, [r["id"] for r in bundle.records]]).encode()).hexdigest()[:16],
             "scores": scores, "workspace_scores": by_ws, "capacity_scores": by_cap,
             "findings": findings, "next_actions": fx.next_actions(findings),

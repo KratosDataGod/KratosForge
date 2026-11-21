@@ -27,7 +27,7 @@ import datetime as dt
 import json
 from typing import Any
 
-from .excellence import adapters, assess, catalog, catalog_architecture, catalog_capacity, inspect_items, inspect_models, profiles
+from .excellence import adapters, assess, catalog, catalog_architecture, catalog_capacity, inspect_items, inspect_models, policy_packs, profiles
 from .opportunities_service import _guid
 from .redact import describe
 
@@ -177,11 +177,18 @@ def _models(opt: dict[str, Any], read: Any) -> tuple[list[dict[str, Any]], dict[
 
 class ExcellenceMixin:
     def excellence_assess(self, workspace_id: str = "", days: int = 30, profile: str = profiles.DEFAULT,
-                          demo: bool = False) -> dict[str, Any]:
+                          demo: bool = False, policy_pack: dict[str, Any] | None = None) -> dict[str, Any]:
         """Assess one workspace (and its capacity, when you can see it) against the excellence controls.
 
-        Reads only. ``profile`` is a built-in profile id. With ``demo`` a labelled fixture is assessed."""
+        Reads only. ``profile`` is a built-in profile id. ``policy_pack`` (optional) is an organization's
+        policy pack (excellence.policy_packs), checked strictly before anything is read and applied to
+        the profile; the result lists what it turned off or scoped out. With ``demo`` a labelled fixture
+        is assessed."""
         prof = profiles.get(str(profile or profiles.DEFAULT))
+        if policy_pack is not None:
+            if not isinstance(policy_pack, dict):
+                raise ValueError("policy_pack is a policy pack object (docs/optimize/excellence-assessment.md#policy-packs)")
+            prof = policy_packs.apply(prof, policy_pack)
         at = _now()
         reads: list[dict[str, Any]] = []
         info_read = True

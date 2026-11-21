@@ -123,6 +123,34 @@ they are then not applicable, never passed). Profiles are versioned and stored w
 
 These are KratosForge defaults, not Microsoft standards. The baseline uses the weights from the product brief and the applicable Microsoft guidance.
 
+### Policy packs
+
+A policy pack (FEA-504) is your organization's own policy for the assessment, as versioned JSON: `id`,
+`version` (like 1.0.0), `name`, `owner`, `created` and `rules`. Engine only for now: there is no screen
+and nothing stores packs; `excellence_assess(..., policy_pack=...)` takes one.
+
+| Rule | What it does |
+| --- | --- |
+| `naming` | Workspace and item name patterns and a maximum length. Kept with the assessment; no control scores them yet. |
+| `severity_overrides` | A control's severity: low, medium, high or critical. Lowering a critical control needs `{"severity", "reason"}`. |
+| `disabled` | Controls turned off, each `{"control_id", "reason"}`. They are not applicable, never passed. |
+| `weights` | Every dimension's weight: finite numbers of 0 or more that add up to 100. |
+| `applicability` | Where a control applies: item types it covers (narrower only) and workspace name patterns. |
+
+A pack is refused, with every problem listed, when a field is missing or unknown, a control id is
+unknown, a weight is NaN, infinite or negative, a disabled control has no reason, or a pattern is over
+200 characters, repeats a group that itself repeats (like `(a+)+`, which can backtrack for minutes),
+or isn't valid RE2. Patterns match the whole name with RE2, the matcher the governance checks
+registry uses, which never backtracks. A pattern such as `[a-z]+(-[a-z]+)*` counts as nested; write
+`[a-z][a-z0-9-]*` instead.
+
+Turning a control off or putting it out of scope can raise a score, so it is never silent: the
+assessment's `policy_pack` lists the pack's id, version and SHA-256 fingerprint, the controls it turned
+off with their reasons, and how many outcomes it put out of scope, and each such outcome says so. A
+workspace whose name isn't known is assessed as usual, never put out of scope on a guess. Two
+versions of a pack can be compared (`policy_packs.diff`): every change, the ones that can raise a
+score, and a warning when the content changed without a higher version.
+
 ## Snapshots, rescoring and trends
 
 Each assessment is a snapshot: the evidence it used, every control's outcome on every resource, the
@@ -142,7 +170,7 @@ finding is never listed below a minor one with a bigger estimate.
 
 ## The engine call
 
-`excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you
+`excellence_assess(workspace_id, days, profile, demo, policy_pack)` assesses one workspace, and its capacity when you
 can see it. It reads only, with your own access, and makes no read the app didn't already make: the
 optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
 the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see

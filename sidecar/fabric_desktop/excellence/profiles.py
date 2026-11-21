@@ -5,6 +5,9 @@ It can change dimension weights (they add up to 100), the weight of each severit
 rating needs, a control's severity, and turn a control off (it is then *not applicable* with the
 profile's reason, never passed).
 
+A policy pack (policy_packs.apply) makes a new profile from one: it adds where controls apply and
+the pack's audit record, which as_dict carries so a snapshot shows the pack it was assessed with.
+
 The built-in profiles are KratosForge defaults. The Microsoft-aligned baseline uses the weights from
 the product brief; the others shift weight toward what they emphasize. None of them is a Microsoft
 standard or certification.
@@ -12,6 +15,7 @@ standard or certification.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from dataclasses import dataclass, field
 from typing import Any
@@ -38,13 +42,24 @@ class Profile:
     severity_overrides: dict[str, str] = field(default_factory=dict)
     disabled: dict[str, str] = field(default_factory=dict)  # control id -> reason
     description: str = ""
+    # Set by a policy pack (FEA-504, policy_packs.apply): where a control applies ({control id:
+    # {"item_types": [...], "workspaces": [pattern, ...]}}) and the pack's audit record. Both are left
+    # out of as_dict when empty, so a profile without a pack keeps its fingerprint.
+    applicability: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    policy_pack: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "version": self.version, "title": self.title, "weights": dict(self.weights),
-                "severity_weights": dict(self.severity_weights), "rated_coverage": self.rated_coverage,
-                "provisional_coverage": self.provisional_coverage,
-                "severity_overrides": dict(sorted(self.severity_overrides.items())),
-                "disabled": dict(sorted(self.disabled.items())), "description": self.description}
+        out = {"id": self.id, "version": self.version, "title": self.title, "weights": dict(self.weights),
+               "severity_weights": dict(self.severity_weights), "rated_coverage": self.rated_coverage,
+               "provisional_coverage": self.provisional_coverage,
+               "severity_overrides": dict(sorted(self.severity_overrides.items())),
+               "disabled": dict(sorted(self.disabled.items())), "description": self.description}
+        if self.applicability:
+            out["applicability"] = {k: {kk: list(vv) for kk, vv in sorted(v.items())}
+                                    for k, v in sorted(self.applicability.items())}
+        if self.policy_pack is not None:
+            out["policy_pack"] = copy.deepcopy(self.policy_pack)
+        return out
 
     def fingerprint(self) -> str:
         return hashlib.sha256(canonical(self.as_dict()).encode()).hexdigest()[:16]
@@ -66,6 +81,13 @@ def problems(p: Profile) -> list[str]:
         out.append("a severity override names an unknown severity")
     if any(not str(r).strip() for r in p.disabled.values()):
         out.append("a disabled control needs a reason")
+    for scope in p.applicability.values():
+        if (not isinstance(scope, dict) or not scope or set(scope) - {"item_types", "workspaces"}
+                or any(not isinstance(v, (list, tuple)) or not v for v in scope.values())):
+            out.append("an applicability names item_types or workspaces, each a non-empty list")
+            break
+    if p.applicability and p.policy_pack is None:
+        out.append("applicability comes from a policy pack")
     return out
 
 
@@ -82,7 +104,10 @@ def from_dict(d: dict[str, Any]) -> Profile:
                            severity_weights=dict(d["severity_weights"]), rated_coverage=d["rated_coverage"],
                            provisional_coverage=d["provisional_coverage"],
                            severity_overrides=dict(d.get("severity_overrides") or {}),
-                           disabled=dict(d.get("disabled") or {}), description=d.get("description", "")))
+                           disabled=dict(d.get("disabled") or {}), description=d.get("description", ""),
+                           applicability={k: {kk: list(vv) for kk, vv in v.items()}
+                                          for k, v in (d.get("applicability") or {}).items()},
+                           policy_pack=copy.deepcopy(d["policy_pack"]) if d.get("policy_pack") is not None else None))
 
 
 def _w(architecture: float, performance: float, security: float, governance: float, data_engineering: float,

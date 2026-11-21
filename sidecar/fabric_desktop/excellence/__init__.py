@@ -7,6 +7,7 @@ fixture. The plan is docs/product/fabric-excellence-assessment-plan.md.
 - :mod:`.evidence`  typed evidence records with a confidence class and a content hash
 - :mod:`.controls`  versioned controls, outcomes, and the registry
 - :mod:`.profiles`  assessment profiles: dimension weights, severity overrides, thresholds
+- :mod:`.policy_packs` an organization's policy pack, validated, applied to a profile, fingerprinted
 - :mod:`.scoring`   dimension and overall scores, coverage, assured score, rating, Critical Risk
 - :mod:`.findings`  the finding record built from a failed control
 - :mod:`.assess`    one assessment run, its snapshot, rescoring and comparison

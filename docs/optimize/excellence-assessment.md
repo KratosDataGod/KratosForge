@@ -132,6 +132,31 @@ Comparing two snapshots gives score changes and new, resolved and recurring find
 used a different profile or rules, the comparison says so, because the change may come from the policy
 rather than the environment.
 
+## Verifying a fix
+
+`excellence/verification.py` (engine only; nothing on screen calls it yet) takes a finding, the
+snapshot it was found in and a later snapshot, and gives one status:
+
+- **Verified fixed**: the control failed before and passes after, on evidence.
+- **Still failing**: it fails in both.
+- **Regressed**: it passed before and fails after.
+- **Not verified**, with the reason: the control couldn't be checked after (not evaluated, error,
+  not applicable, or the resource is gone), the first fail rested only on inferred evidence, the two
+  snapshots used a different profile or a different version of the rule, or the input is malformed.
+  A control that went from fail to not evaluated is never counted as fixed.
+
+Measured change in CU seconds and run time is shown only when both sides are **measured** the same
+way: the same metric and method, windows of the same length, the after window not before the before
+one, and the same workload. Otherwise the figure says **Not comparable** and why. It never decides
+the status.
+
+Realized savings are empty unless billing evidence shows the billed amount went down between two
+equally long periods, the after one starting between the two assessments, for a capacity both
+snapshots covered, with a person's confirmation that the fix caused it. Even then the figure is only
+the billed difference, cited with its source. A capacity resize, pause or SKU change on its own is
+recorded but isn't a figure until a bill shows it. Capacity freed is not money saved, and on a
+reservation nothing is saved until it renews.
+
 ## Findings
 
 A failed control gives a finding with: title, affected resource, severity, dimension, what was
@@ -288,7 +313,7 @@ again or leave the app; snapshots aren't saved yet, so there is no trend or comp
 ## Limitations
 
 - Snapshots aren't stored yet, so the scorecard has no trend arrows and no "Compare with an earlier
-  one". The engine can already compare two snapshots.
+  one". The engine can already compare two snapshots and verify a fix between them.
 - The first controls cover what the app already reads. Estate X-ray (table layout), governance checks,
   the semantic model checks that need data, and more DevOps and reliability controls come in later
   stories; until then those dimensions show as not applicable or not evaluated, never as passing.

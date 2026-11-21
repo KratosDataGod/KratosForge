@@ -362,7 +362,7 @@ coverage and Critical Risk flag built from evidence the app already reads.
 - **FEA-601 Academy mapping**: each control links to a lesson or exercise; progress only for
   validated fixes or passed exercises, never for dismissals.
 - **FEA-602 Remediation verification**: before and after measurements; realized savings only
-  with billing or capacity change evidence.
+  with billing or capacity change evidence. **Built** (engine only): `excellence/verification.py`.
 - **FEA-603 Trend analysis and regressions** across snapshots.
 - **FEA-604 Optimization planning**: hand approved findings to the optimization engine and the
   F64 planner without double counting.

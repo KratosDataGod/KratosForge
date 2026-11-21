@@ -130,8 +130,8 @@ the known differences in more detail.
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `DIV0` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
-| `DIV0NULL` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
+| `DIV0` | Runs | 1 value check |
+| `DIV0NULL` | Runs | 1 value check |
 | `ABS` | Runs | 1 value check |
 | `CEIL` | Runs | 1 value check |
 | `FLOOR` | Runs | 1 value check |

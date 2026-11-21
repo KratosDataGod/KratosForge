@@ -17,6 +17,7 @@ DuckDB) and tests/test_snowflake_sql.py keeps one test per probe row.
 from __future__ import annotations
 
 import datetime as dt
+import decimal
 import json
 import re
 import uuid
@@ -30,7 +31,7 @@ from sqlglot.errors import ParseError, SqlglotError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.20"
+RULES_VERSION = "2026.11.21"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -121,7 +122,9 @@ SFD_TZ = _n("SFD-002", "TIMESTAMP_TZ loses its offset",
             "TRY_TO_TIMESTAMP_TZ and a cast to TIMESTAMP_TZ check the offset instead (SFX-029, SFN-033).",
             "Compare instants, not offsets.", f"{_DOCS}/data-types-datetime")
 SFD_DIV = _n("SFD-003", "Division returns DOUBLE",
-             "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules.",
+             "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. Raised for a "
+             "division whose operands' types aren't known here (an expression, a subquery's column); one of "
+             "NUMBERs known here gets Snowflake's NUMBER instead (SFX-053).",
              "Round or cast the result where scale matters; use DIV0 where a zero divisor is expected.",
              f"{_DOCS}/operators-arithmetic")
 SFD_LTZ = _n("SFD-004", "Local time zone is this PC's",
@@ -132,7 +135,8 @@ SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
               "isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at "
               "midnight. The date is the same. Raised when the value may be a DATE (a column's type isn't "
               "known here); a value that is plainly a DATE (a cast, TO_DATE, CURRENT_DATE) is cast back to "
-              "DATE instead, and a TIMESTAMP cast or function raises nothing.",
+              "DATE instead, and a TIMESTAMP cast or function raises nothing. A table's DATE or TIMESTAMP "
+              "column is known from the session's tables (SFX-051).",
               "Cast the result to DATE where its type matters, such as a join or a written table.",
               f"{_DOCS}/functions/date_trunc")
 SFD_BRACKET = _n("SFD-009", "[i] on a value whose type isn't known",
@@ -605,25 +609,31 @@ def _strftime(model: str) -> str | None:
 
 
 def _plainly_a_date(value: exp.Expression | None) -> bool:
-    return value is not None and (value.is_type(exp.DataType.Type.DATE) or isinstance(value, exp.CurrentDate))
+    """A DATE: a cast to one, CURRENT_DATE, or a table's DATE column (SFX-051)."""
+    return value is not None and (value.is_type(exp.DataType.Type.DATE) or isinstance(value, exp.CurrentDate)
+                                  or (isinstance(value, exp.Column) and value.meta.get(_SF_TYPE) == "date"))
 
 
 def _date_trunc_of_a_date(node: exp.Expr) -> bool:
     """DATE_TRUNC, DATEADD or TIMESTAMPADD by a unit of a day or longer on a value that is plainly a DATE:
-    Snowflake gives a DATE back."""
-    return (isinstance(node, (exp.DateTrunc, exp.DateAdd)) and _plainly_a_date(node.this)
-            and str(getattr(node.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS)
+    Snowflake gives a DATE back. DATE_TRUNC of a DATE by a time unit (HOUR and shorter) is the DATE itself, as
+    DATE_TRUNC "returns ... the same type as the input value" (SFX-051)."""
+    unit = str(getattr(node.args.get("unit"), "name", "") or "").upper()
+    truncation = isinstance(node, (exp.DateTrunc, exp.TimestampTrunc))
+    return ((truncation or isinstance(node, exp.DateAdd)) and _plainly_a_date(node.this)
+            and (unit in _DATE_UNITS or (truncation and unit in _TIME_UNITS)))
 
 
 def _rewrite_date_trunc(statement: exp.Expression) -> None:
     """DATE_TRUNC and DATEADD of a DATE by a date unit stay a DATE, as in Snowflake (DuckDB gives a
     TIMESTAMP at midnight for DATE + INTERVAL; sqlglot 30.25 keeps DATE_TRUNC a DATE itself, earlier
     versions don't). Here every version gives a DATE (#1252, #1319)."""
-    for node in [n for n in statement.find_all(exp.DateTrunc, exp.DateAdd) if _date_trunc_of_a_date(n)]:
+    for node in [n for n in statement.find_all(exp.DateTrunc, exp.TimestampTrunc, exp.DateAdd)
+                 if _date_trunc_of_a_date(n)]:
         if isinstance(node.parent, exp.Cast) and node.parent.to.is_type(exp.DataType.Type.DATE):
             continue
         kept = node.copy()
-        if isinstance(kept, exp.DateTrunc):
+        if isinstance(kept, (exp.DateTrunc, exp.TimestampTrunc)):
             kept.set("input_type_preserved", None)
         node.replace(exp.cast(kept, exp.DataType.Type.DATE))
 
@@ -2153,6 +2163,342 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
         node.replace(case)
 
 
+# ---------------------------------------------------------------- column types and NUMBER arithmetic (2026.11.21)
+
+# A column's type, from the session's own tables, kept in the column node's meta: ("number", p, s) for a NUMBER,
+# "float", "date" or "timestamp". Only a column read straight from a table gets one (not a CTE's or subquery's,
+# whose DuckDB type can differ from what sqlglot works out). Every whole-number type is NUMBER(38,0), as
+# Snowflake's INT, INTEGER, BIGINT, SMALLINT, TINYINT and BYTEINT are (data-types-numeric).
+_SF_TYPE = "kf_sf_type"
+_USER_ARITHMETIC = "kf_sf_user_arithmetic"   # +, -, * or / the query wrote, before any rewrite adds its own
+_WHOLE_TYPES = {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "UTINYINT", "USMALLINT", "UINTEGER",
+                "UBIGINT", "UHUGEINT", "INT", "INT1", "INT2", "INT4", "INT8", "LONG", "SHORT"}
+_MAX_DIGITS = 38
+
+
+def session_tables(conn: Any) -> dict[str, dict[str, str]]:
+    """The connection's tables and views by upper-case name, each column with its DuckDB type, for
+    ``translate(code, tables=...)``. A temp table wins over another of the same name."""
+    tables: dict[str, dict[str, str]] = {}
+    rows = conn.execute("SELECT table_name, column_name, data_type FROM duckdb_columns() "
+                        "WHERE NOT internal ORDER BY database_name = 'temp' DESC, column_index").fetchall()
+    for table, column, kind in rows:
+        tables.setdefault(str(table).upper(), {}).setdefault(str(column).upper(), str(kind))
+    return tables
+
+
+def _kind_of_type(kind: str) -> Any:
+    """("number", p, s), "float", "date", "timestamp", or None, for a DuckDB type's name."""
+    text = kind.strip().upper()
+    if text in _WHOLE_TYPES:
+        return ("number", _MAX_DIGITS, 0)
+    found = re.fullmatch(r"(?:DECIMAL|NUMERIC)\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)", text)
+    if found:
+        return ("number", int(found.group(1)), int(found.group(2)))
+    if text in ("FLOAT", "DOUBLE", "REAL", "FLOAT4", "FLOAT8"):
+        return "float"
+    if text == "DATE":
+        return "date"
+    if text.startswith("TIMESTAMP"):
+        return "timestamp"
+    return None
+
+
+def _type_columns(statement: exp.Expression, tables: dict[str, dict[str, str]]) -> None:
+    """Marks each column of ``statement`` read straight from one of ``tables`` with its kind (_SF_TYPE). A
+    statement sqlglot can't qualify against them gets no marks, and runs as it did before."""
+    from sqlglot.optimizer.qualify import qualify
+    from sqlglot.optimizer.scope import traverse_scope
+    from sqlglot.schema import MappingSchema
+
+    columns = list(statement.find_all(exp.Column))
+    if not columns or not tables:
+        return
+    for i, column in enumerate(columns):
+        column.meta["kf_sf_column"] = i
+    try:
+        schema = MappingSchema(cast(dict[str, object], {t: {c: "TEXT" for c in cols} for t, cols in tables.items()}),
+                               dialect="snowflake", normalize=False)
+        copy = qualify(statement.copy(), schema=schema, dialect="snowflake", validate_qualify_columns=False,
+                       quote_identifiers=False, identify=False, expand_stars=False)
+        found: dict[int, Any] = {}
+        for scope in traverse_scope(copy):
+            for column in scope.columns:
+                mark = column.meta.get("kf_sf_column")
+                source = scope.sources.get(column.table)
+                if mark is None or not isinstance(source, exp.Table) or source.args.get("db"):
+                    continue
+                kind = tables.get(source.name.upper(), {}).get(column.name.upper())
+                if kind is not None and _kind_of_type(kind) is not None:
+                    found[mark] = _kind_of_type(kind)
+    except Exception:  # noqa: BLE001 - only a type mark: a statement sqlglot can't qualify runs as it did before
+        found = {}
+    for column in columns:
+        mark = column.meta.pop("kf_sf_column", None)
+        if mark in found:
+            column.meta[_SF_TYPE] = found[mark]
+
+
+def _mark_arithmetic(statement: exp.Expression) -> None:
+    """The query's own +, -, * and /, marked before the rewrites write theirs, and those SFX-052 and SFX-053 give
+    Snowflake's NUMBER: each keeps its result type and its operands' (_EXACT), worked out before any rewrite
+    moves it."""
+    for node in statement.find_all(exp.Add, exp.Sub, exp.Mul, exp.Div):
+        node.meta[_USER_ARITHMETIC] = True
+    for node in list(statement.find_all(exp.Add, exp.Sub, exp.Mul, exp.Div)):
+        result = _exact_number(node)
+        a, b = _number_kind(node.this), _number_kind(node.expression)
+        if result is None or not isinstance(a, tuple) or not isinstance(b, tuple):
+            continue
+        if isinstance(node, exp.Div) and _division_sql(a, b, result) is None:
+            continue
+        node.meta[_EXACT] = (result, a, b)
+
+
+_EXACT = "kf_sf_exact"
+
+
+def _literal_number(text: str) -> tuple[str, int, int] | None:
+    """Snowflake's NUMBER(p, s) for a number written in the query: 7 is NUMBER(1,0), 10.01 NUMBER(4,2). A
+    number with an exponent isn't a NUMBER, so None."""
+    text = text.lstrip("+-")
+    if not re.fullmatch(r"\d*\.?\d*", text) or not any(c.isdigit() for c in text):
+        return None
+    whole, _, fraction = text.partition(".")
+    digits = len(whole.lstrip("0")) + len(fraction)
+    if digits > _MAX_DIGITS:
+        return None
+    return ("number", max(1, digits), len(fraction))
+
+
+def _cast_kind(to: exp.DataType) -> Any:
+    if to.this in (exp.DataType.Type.DECIMAL, exp.DataType.Type.BIGDECIMAL) or to.this.name.startswith("DECIMAL"):
+        params = [p.this for p in to.expressions if isinstance(p, exp.DataTypeParam)]
+        values = [int(p.name) for p in params if isinstance(p, exp.Literal) and p.name.isdigit()]
+        if len(values) != len(to.expressions):
+            return None
+        precision, scale = (values + [_MAX_DIGITS, 0])[:2] if values else (_MAX_DIGITS, 0)
+        if len(values) == 1:
+            scale = 0
+        return ("number", precision, scale) if 0 <= scale <= precision <= _MAX_DIGITS else None
+    if to.this in (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT,
+                   exp.DataType.Type.BIGINT):
+        return ("number", _MAX_DIGITS, 0)
+    if to.this in (exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT):
+        return "float"
+    return None
+
+
+def _number_kind(node: exp.Expr | None) -> Any:
+    """Snowflake's type for a numeric operand: ("number", p, s) for a NUMBER, "float" for a FLOAT, else None
+    (not known here). A NUMBER is known for a number written in the query, a cast to a numeric type, a table's
+    column (_type_columns), and +, -, * or / of known NUMBERs, by Snowflake's rules (operators-arithmetic)."""
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        node = node.this
+    if node is None:
+        return None
+    if isinstance(node, exp.Literal):
+        return None if node.is_string else _literal_number(node.name)
+    if isinstance(node, (exp.Cast, exp.TryCast)) and isinstance(node.to, exp.DataType):
+        return _cast_kind(node.to)
+    if isinstance(node, exp.Column):
+        kind = node.meta.get(_SF_TYPE)
+        return kind if kind == "float" or (isinstance(kind, tuple) and kind[0] == "number") else None
+    if isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)) and node.meta.get(_USER_ARITHMETIC):
+        a, b = _number_kind(node.this), _number_kind(node.expression)
+        if a is None or b is None:
+            return None
+        if "float" in (a, b):
+            return "float"
+        return _arithmetic_type(node, a, b)
+    return None
+
+
+def _arithmetic_type(node: exp.Expr, a: tuple[str, int, int], b: tuple[str, int, int]) -> Any:
+    """("number", P, S) of ``node`` by Snowflake's scale and precision rules for arithmetic (operators-arithmetic),
+    with precision kept to 38. None for a product whose scale Snowflake rounds (S1 + S2 past 12)."""
+    (_, p1, s1), (_, p2, s2) = a, b
+    l1, l2 = p1 - s1, p2 - s2
+    if isinstance(node, (exp.Add, exp.Sub)):
+        whole, scale = max(l1, l2) + 1, max(s1, s2)
+    elif isinstance(node, exp.Mul):
+        whole, scale = l1 + l2, min(s1 + s2, max(s1, s2, 12))
+        if scale != s1 + s2:
+            return None
+    else:
+        whole, scale = l1 + s2, max(s1, min(s1 + 6, 12))
+    return ("number", min(_MAX_DIGITS, max(1, whole + scale)), scale)
+
+
+# Where a NUMBER result can stand in for DuckDB's integer or DOUBLE one: DuckDB's own functions that take a
+# whole number (SUBSTRING, REPEAT, a list index, an INTERVAL) don't take a DECIMAL, so arithmetic anywhere else
+# keeps DuckDB's types (and SFD-003 for a division).
+_VALUE_PARENTS = (exp.Select, exp.Where, exp.Having, exp.Qualify, exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE,
+                  exp.Between, exp.In, exp.Cast, exp.TryCast, exp.Sum, exp.Avg, exp.Min, exp.Max, exp.Abs,
+                  exp.Coalesce, exp.Ordered, exp.Group, exp.If, exp.Case, exp.Is)
+
+
+def _value_context(node: exp.Expr) -> bool:
+    child, parent = node, node.parent
+    while parent is not None:
+        if isinstance(parent, (exp.Paren, exp.Alias, exp.Neg)):
+            child, parent = parent, parent.parent
+            continue
+        if isinstance(parent, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
+            if not parent.meta.get(_USER_ARITHMETIC) or _number_kind(parent) is None:
+                return False
+            child, parent = parent, parent.parent
+            continue
+        if isinstance(parent, exp.Round):
+            return child is parent.this
+        return isinstance(parent, _VALUE_PARENTS)
+    return False
+
+
+def _exact_number(node: exp.Expr) -> tuple[str, int, int] | None:
+    """The NUMBER type SFX-052 or SFX-053 gives ``node`` (the query's own +, -, * of whole numbers, or / of
+    NUMBERs), or None when it keeps DuckDB's."""
+    if not node.meta.get(_USER_ARITHMETIC) or not _value_context(node):
+        return None
+    kind = _number_kind(node)
+    if not isinstance(kind, tuple):
+        return None
+    if isinstance(node, exp.Div):
+        return kind
+    if isinstance(node, (exp.Add, exp.Sub, exp.Mul)) and kind[2] == 0:
+        return kind
+    return None
+
+
+_NUMBER_LIMIT = _refuse(
+    "SFN-050", "A NUMBER division past 38 digits", "Snowflake divides NUMBERs exactly and rounds to the result's "
+    "scale (max(S1, min(S1 + 6, 12))). Here the dividend's digits at that scale, or the result's, need more than 38 "
+    "digits, which this PC can't divide exactly, so the query stops rather than answer through DOUBLE.",
+    f"{_DOCS}/operators-arithmetic")
+
+
+def _unscaled_sql(value: str, scale: int) -> str:
+    """``value`` (a NUMBER) as the HUGEINT of its digits at ``scale``: exact for 38 digits."""
+    return f"CAST(REPLACE(CAST(CAST({value} AS DECIMAL(38, {scale})) AS VARCHAR), '.', '') AS HUGEINT)"
+
+
+def _division_sql(a: tuple[str, int, int], b: tuple[str, int, int], result: tuple[str, int, int]) -> str | None:
+    """DuckDB SQL (with {0} and {1}) for Snowflake's division of NUMBER ``a`` by NUMBER ``b``: the exact quotient
+    rounded half away from zero to the result's scale, Snowflake's "Division by zero" for a zero divisor, and
+    SFN-050 when the digits pass 38."""
+    _, precision, scale = result
+    shift = scale + b[2] - a[2]
+    if not 0 <= shift < _MAX_DIGITS or scale >= _MAX_DIGITS:
+        return None
+    power = f"CAST('1{'0' * shift}' AS HUGEINT)"
+    n, d = "kf_sfdiv.n", "kf_sfdiv.d"
+    scaled = f"(ABS({n}) * {power})"
+    quotient = (f"SIGN({n}) * SIGN({d}) * ({scaled} // ABS({d}) + CASE WHEN {scaled} % ABS({d}) >= "
+                f"ABS({d}) - {scaled} % ABS({d}) THEN 1 ELSE 0 END)")
+    unit = "0." + "0" * (scale - 1) + "1" if scale else "1"
+    value = (f"CAST(CAST(kf_sfdiv.q AS DECIMAL(38, 0)) * CAST('{unit}' AS DECIMAL({scale + 1}, {scale})) "
+             f"AS DECIMAL({precision}, {scale}))")
+    stop = _stop_sql(_NUMBER_LIMIT)
+    zero = "error('Division by zero')"
+    return (f"(LIST_TRANSFORM([{{'n': {_unscaled_sql('fj_arg0', a[2])}, 'd': {_unscaled_sql('fj_arg1', b[2])}}}], kf_sfdiv -> "
+            f"CASE WHEN {d} = 0 THEN {zero} WHEN {n} IS NULL OR {d} IS NULL THEN NULL "
+            f"WHEN ABS({n}) >= CAST('1{'0' * (_MAX_DIGITS - shift)}' AS HUGEINT) THEN {stop} "
+            f"ELSE (LIST_TRANSFORM([{{'q': {quotient}}}], kf_sfdiv -> CASE WHEN ABS(kf_sfdiv.q) >= "
+            f"CAST('1{'0' * precision}' AS HUGEINT) THEN {stop} ELSE {value} END))[1] END))[1]")
+
+
+def _written_value(node: exp.Expression) -> decimal.Decimal | None:
+    sign = 1
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        sign = -sign if isinstance(node, exp.Neg) else sign
+        node = node.this
+    if not (isinstance(node, exp.Literal) and not node.is_string and _literal_number(node.name)):
+        return None
+    return sign * decimal.Decimal(node.name)
+
+
+def _divided_literals(node: exp.Div, result: tuple[str, int, int]) -> exp.Expression | None:
+    """SFX-053 for two numbers written in the query (7/2): the quotient worked out here, exactly, rounded half away
+    from zero to the result's scale, as a NUMBER. None for a zero divisor or a result past its precision, which the
+    query's own check stops on."""
+    a, b = _written_value(node.this), _written_value(node.expression)
+    if a is None or b is None or b == 0:
+        return None
+    _, precision, scale = result
+    with decimal.localcontext() as context:
+        context.prec = 100
+        value = (a / b).quantize(decimal.Decimal(1).scaleb(-scale), rounding=decimal.ROUND_HALF_UP)
+    if len(value.as_tuple().digits) > precision:
+        return None
+    return exp.cast(exp.Literal.string(str(value)), exp.DataType.build(f"DECIMAL({precision}, {scale})"))
+
+
+def _duckdb_name(node: exp.Expression) -> str:
+    """The column name DuckDB gives ``node`` when it has no alias: each operator in brackets, functions in lower
+    case, as DuckDB writes them ((7 / 2), round((7 / 2), 2))."""
+    copy = node.copy()
+    for found in list(copy.find_all(exp.Binary)):
+        if not isinstance(found.parent, exp.Paren) and not isinstance(found, (exp.Dot, exp.Bracket)):
+            found.replace(exp.Paren(this=found.copy()))
+    if isinstance(copy, exp.Binary):
+        copy = exp.Paren(this=copy)
+    return copy.sql(dialect="duckdb", normalize_functions="lower")
+
+
+def _rewrite_numbers(statement: exp.Expression) -> None:
+    """SFX-052 and SFX-053: the query's own +, - and * of whole numbers, and / of NUMBERs, give Snowflake's NUMBER
+    type and value (operators-arithmetic), where DuckDB gives an INTEGER that overflows past 2147483647 and a
+    DOUBLE for /. A projection with no alias keeps the name DuckDB gives the expression as written."""
+    from .sql import _with_args
+    targets = [n for n in statement.find_all(exp.Add, exp.Sub, exp.Mul, exp.Div) if n.meta.get(_EXACT)]
+    if not targets:
+        return
+    ids = {id(t) for t in targets}
+    names = [(select, i, _duckdb_name(p)) for select in statement.find_all(exp.Select)
+             for i, p in enumerate(select.expressions)
+             if not isinstance(p, (exp.Alias, exp.Star)) and any(id(n) in ids for n in p.walk())]
+    for node in reversed(targets):  # innermost first: an outer one copies its operands as they are now
+        result, a, b = node.meta.pop(_EXACT)
+        if isinstance(node, exp.Div):
+            folded = _divided_literals(node, result)
+            if folded is not None:  # two numbers written in the query: the answer itself, with no check left in
+                node.replace(folded)
+                continue
+            template = _division_sql(a, b, result)
+            if template is None:
+                continue
+        else:
+            op = {exp.Add: "+", exp.Sub: "-", exp.Mul: "*"}[type(node)]
+            template = f"CAST(CAST(fj_arg0 AS DECIMAL(38, 0)) {op} CAST(fj_arg1 AS DECIMAL(38, 0)) AS DECIMAL({result[1]}, 0))"
+        new = exp.paren(_with_args(template, [node.this, node.expression]))
+        new.meta["kf_sf_number"] = True
+        node.replace(new)
+    for select, i, name in names:
+        projection = select.expressions[i]
+        projection.replace(exp.alias_(projection.copy(), name, quoted=True))
+
+
+def _division_exact(node: exp.Div) -> bool:
+    """Whether SFX-053 gives this division Snowflake's NUMBER, or Snowflake itself answers a DOUBLE (a FLOAT
+    operand), so SFD-003 doesn't apply."""
+    return bool(node.meta.get(_EXACT)) or "float" in (_number_kind(node.this), _number_kind(node.expression))
+
+
+def _rewrite_substr(statement: exp.Expression) -> None:
+    """SFX-050: SUBSTR and SUBSTRING with a negative start further back than the string's first character give
+    '' in Snowflake ("If the position is outside of the range of a string ... an empty value is returned"); DuckDB
+    counts the characters before the string and gave the rest (SUBSTR('Spark SQL', -10, 5) was 'Spar'). The
+    start becomes one past the end there, which gives '' and keeps NULL for a NULL length."""
+    from .sql import _from_template
+    for node in list(statement.find_all(exp.Substring)):
+        start = node.args.get("start")
+        if start is None or (isinstance(start, exp.Literal) and not start.is_string):
+            continue  # no start, or one written as a number that isn't negative
+        node.set("start", exp.paren(_from_template(
+            "CASE WHEN {1} < 0 AND -{1} > LENGTH({0}) THEN LENGTH({0}) + 1 ELSE {1} END",
+            [exp.paren(node.this.copy()), exp.paren(start.copy())])))
+
+
 def _div0_branch(node: exp.Div) -> bool:
     """True for the division inside DIV0 and DIV0NULL as sqlglot reads them (IF(b = 0 ..., 0, a / b)),
     which never runs with a zero divisor."""
@@ -2214,12 +2560,21 @@ def _may_be_date(value: exp.Expression | None) -> bool:
         return value.to.this not in _TIMESTAMP_TYPES
     if isinstance(value, exp.Anonymous) and str(value.this).upper() in _TIMESTAMP_FUNCTIONS:
         return False
+    if isinstance(value, exp.Column) and value.meta.get(_SF_TYPE) is not None:
+        return value.meta.get(_SF_TYPE) == "date"  # a table's column of a known type (SFX-051)
     return not isinstance(value, (exp.CurrentTimestamp, exp.ConvertTimezone))
 
 
 _DATE_UNITS = {"YEAR", "YEARS", "Y", "YY", "YYY", "YYYY", "YR", "YRS", "QUARTER", "QUARTERS", "Q", "QTR", "QTRS",
                "MONTH", "MONTHS", "MM", "MON", "MONS", "WEEK", "WEEKS", "W", "WK", "WEEKOFYEAR", "WOY", "WY",
                "DAY", "DAYS", "D", "DD", "DAYOFMONTH"}
+
+
+# DATE_TRUNC's time parts (date-time-part-intervals): on a DATE the answer is the DATE itself.
+_TIME_UNITS = {"HOUR", "HOURS", "H", "HH", "HR", "HRS", "MINUTE", "MINUTES", "M", "MI", "MIN", "MINS", "SECOND",
+               "SECONDS", "S", "SEC", "SECS", "MILLISECOND", "MILLISECONDS", "MS", "MSEC", "MICROSECOND",
+               "MICROSECONDS", "US", "USEC", "NANOSECOND", "NANOSECONDS", "NS", "NSEC", "NANOSEC", "NSECOND",
+               "NANOSECS", "NSECONDS"}
 
 
 _OFFSET_CHECK = "kf_sf_offset_check"   # a cast to TIMESTAMP_TZ the query wrote: SFX-029 checks its offset
@@ -2327,8 +2682,8 @@ def _differences(statement: exp.Expression) -> list[Note]:
     types = {d.this for d in statement.find_all(exp.DataType)}
     if any(d.this == exp.DataType.Type.TIMESTAMPTZ and not _offset_checked(d) for d in statement.find_all(exp.DataType)):
         notes.append(SFD_TZ)
-    if any(not any(isinstance(side, exp.Literal) and not side.is_string and "." in side.name
-                   for side in (d.this, d.expression)) for d in statement.find_all(exp.Div)):
+    if any(not _division_exact(d) and not any(isinstance(side, exp.Literal) and not side.is_string and "." in side.name
+                                              for side in (d.this, d.expression)) for d in statement.find_all(exp.Div)):
         notes.append(SFD_DIV)
     if exp.DataType.Type.TIMESTAMPLTZ in types or any(statement.find_all(exp.CurrentTimestamp)):
         notes.append(SFD_LTZ)
@@ -2481,6 +2836,23 @@ CATALOG = (
                 "store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object, its "
                 "columns, a column or alias of CREATE ... AS and CREATE VIEW, a renamed table or column, an added "
                 "column. A quoted name keeps its case.")),
+    ("SFX-050", "Rewritten", ("SUBSTR and SUBSTRING with a negative start further back than the string's first "
+                "character give '', as Snowflake documents for a start outside the string; DuckDB gave the "
+                "characters from the string's start (SUBSTR('Spark SQL', -10, 5) was 'Spar').")),
+    ("SFX-051", "Rewritten", ("DATEADD and TIMESTAMPADD by a day or longer, and DATE_TRUNC by any part, of a table's "
+                "DATE column give a DATE, as Snowflake does, where DuckDB gave a TIMESTAMP at midnight. The column's "
+                "type is read from the session's tables; a table the same cell creates isn't known yet, and its "
+                "column keeps SFD-006.")),
+    ("SFX-052", "Rewritten", ("+, - and * of whole numbers (numbers written in the query, casts to a whole-number "
+                "type, a table's integer columns) are NUMBER arithmetic, as Snowflake's INT is NUMBER(38,0): "
+                "2147483647 + 1 is 2147483648 where DuckDB's INTEGER overflowed. The result is NUMBER(P,0) by "
+                "Snowflake's precision rules, and past 38 digits it stops, as in Snowflake. Inside a function that "
+                "takes a whole number (SUBSTR's start, a list index), DuckDB's own type is kept.")),
+    ("SFX-053", "Rewritten", ("/ of two NUMBERs (numbers written in the query, casts to NUMBER, a table's integer "
+                "and NUMBER(p,s) columns) is NUMBER with Snowflake's scale max(S1, min(S1 + 6, 12)) and precision "
+                "L1 + S2 + scale (at most 38), rounded half away from zero: 7/2 is 3.500000 and NUMBER(10,2) / "
+                "NUMBER(10,2) is NUMBER(18,8). A FLOAT operand gives a DOUBLE, as in Snowflake. Any other "
+                "operand keeps DuckDB's DOUBLE and SFD-003.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2555,6 +2927,9 @@ CATALOG = (
                 "fraction or exponent read from a column or a path (the query stops at that row): Snowflake's answer "
                 "depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a "
                 "path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired.")),
+    ("SFN-050", "Runs only in Snowflake", ("A NUMBER division (SFX-053) whose dividend, at the result's scale, "
+                "or whose result needs more than 38 digits: the query stops at that row rather than answer through "
+                "DOUBLE.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -2583,7 +2958,7 @@ def _session_time_zone(statement: exp.Expression) -> str | None:
     return None
 
 
-def _statement(n: int, statement: exp.Expression) -> StatementReport:
+def _statement(n: int, statement: exp.Expression, tables: dict[str, dict[str, str]] | None = None) -> StatementReport:
     refusal = _not_translatable(statement)
     if refusal:
         return StatementReport(n, "not_translatable", None, (refusal,))
@@ -2591,6 +2966,9 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     if zone is not None:  # SFX-020
         return StatementReport(n, "translated", f"SET TimeZone = {exp.Literal.string(zone).sql('duckdb')}", ())
     tree = statement.copy()
+    if tables:
+        _type_columns(tree, tables)
+    _mark_arithmetic(tree)
     notes = _differences(tree)
     brackets = list(tree.find_all(exp.Bracket))  # held, so no new node can reuse one of these ids
     written = {id(b) for b in brackets}
@@ -2608,6 +2986,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
         _rewrite_documented_edges(tree)
+        _rewrite_substr(tree)
         _rewrite_strings(tree)
         _rewrite_time(tree)
         _rewrite_timestamp_parts(tree)
@@ -2625,6 +3004,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_variant_types(tree)
         unknown_brackets = _type_values(tree, written)
         _rewrite_json_text(tree)
+        _rewrite_numbers(tree)
         _rewrite_division(tree)
         _json_of_variant_lists(tree)
         tree = _sort_json_keys(_check_offsets(tree))
@@ -2640,8 +3020,10 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     return StatementReport(n, "difference" if notes else "translated", sql, tuple(notes))
 
 
-def translate(code: str) -> Translation:
+def translate(code: str, tables: dict[str, dict[str, str]] | None = None) -> Translation:
     """Every statement of ``code`` rewritten for DuckDB, with its verdict. Nothing runs here.
+    ``tables`` (session_tables) gives the session's column types, so a column's DATE or NUMBER type is known
+    (SFX-051, SFX-052, SFX-053); a table the cell itself creates isn't in it, and keeps the label.
     ValueError when the SQL can't be read at all."""
     reports, open_transaction = [], False
     for i, statement in enumerate(_with_identifiers(parse(code)), 1):
@@ -2654,7 +3036,7 @@ def translate(code: str) -> Translation:
             open_transaction = True
         elif isinstance(statement, (exp.Commit, exp.Rollback)):
             open_transaction = False
-        reports.append(_statement(i, statement))
+        reports.append(_statement(i, statement, tables))
     return Translation(tuple(reports))
 
 

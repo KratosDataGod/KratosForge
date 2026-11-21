@@ -372,7 +372,8 @@ class DuckDBSession(_SqlSession):
             return code
         if dialect == "snowflake":
             from .. import snowflake_sql
-            translation = snowflake_sql.translate(code)
+            # with the session's column types, so a table's DATE and NUMBER columns keep Snowflake's types
+            translation = snowflake_sql.translate(code, tables=snowflake_sql.session_tables(self._con))
             self._preamble = [translation.as_output()]
             if not translation.runnable:
                 raise Unsupported(translation.first_refusal() + " Nothing in the cell ran.")

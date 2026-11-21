@@ -179,7 +179,8 @@ def test_a_runnable_snowflake_cell_runs_its_translation(duck):
     result = duck.execute(CellRequest("SELECT 41 + 1 AS answer", "sql", "snowflake"))
     assert result.status == "ok", result.outputs
     assert result.rows == 1
-    assert result.outputs[-1]["rows"] == [[42]]
+    # 41 + 1 is a NUMBER(3,0) in Snowflake (SFX-052), shown as a NUMBER column's values are
+    assert result.outputs[-1]["rows"] == [["42"]]
 
 
 def test_only_a_snowflake_plan_says_it_is_the_translation_plan(duck):

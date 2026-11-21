@@ -58,7 +58,8 @@ PROBE = [
      "difference", ["SFD-002", "SFD-004"]),
     ("TIMESTAMP_TZ literal with offset", "select '2026-01-01 10:00:00 +05:00'::timestamp_tz",
      "not_translatable", ["SFN-013"]),
-    ("Integer division 7/2", "select 7/2, 7 % 2", "difference", ["SFD-003"]),
+    # 7/2 is NUMBER(7,6) 3.500000, as Snowflake's operators-arithmetic page gives it (SFX-053), so no label
+    ("Integer division 7/2", "select 7/2, 7 % 2", "translated", []),
     ("Quoted alias", 'select 1 as "Mixed", 2 as plain', "translated", []),
     ("Unquoted identifier case", "create table up_test(MyCol int)", "translated", []),
     ("CREATE STREAM", "create stream s1 on table t", "not_translatable", ["SFN-001"]),
@@ -277,7 +278,8 @@ def test_a_cell_runs_whole_or_not_at_all(session, monkeypatch):
     r = run(session, "insert into t (id) values (9); create stream s1 on table t")
     assert r.status == "error" and "Statement 2 runs only in Snowflake" in r.outputs[-1]["evalue"]
     assert [o["verdict"] for o in r.outputs[0]["statements"]] == ["translated", "not_translatable"]
-    assert spy.calls == []
+    # the only query is the session's read of its own column types for the translation (SFX-051 to SFX-053)
+    assert [c for c in spy.calls if "FROM duckdb_columns()" not in c] == []
     assert rows(session.execute(CellRequest("select count(*) from t where id = 9", "sql"))) == [[0]]
 
 
@@ -1251,7 +1253,7 @@ def test_jarowinkler_similarity_is_refused_by_name():
     t = sf.translate("SELECT jarowinkler_similarity(s, t) FROM ed")
     assert not t.runnable and t.statements[0].notes[0].id == "SFN-031"
     assert "EDITDISTANCE runs here" in t.first_refusal()
-    assert sf.RULES_VERSION == "2026.11.20" and "SFN-031" in sf.docs_table()
+    assert sf.RULES_VERSION == "2026.11.21" and "SFN-031" in sf.docs_table()
 
 
 @pytest.mark.parametrize("code, want", [

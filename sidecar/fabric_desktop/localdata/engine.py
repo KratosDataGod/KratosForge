@@ -237,7 +237,10 @@ def _data_files(table: Any, folder: str) -> list[str]:
     """The data files of the loaded version, as paths on disk. From the log's own paths (each one
     percent-encoded once), not file_uris(): delta-rs 1.x percent-encodes the table's folder there but
     leaves a partition folder as it is on disk, so neither decoding nor not decoding it names the files
-    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith)."""
+    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith).
+
+    A path that leaves the table's folder (``..``, a rooted path, a URI elsewhere) is refused, never read:
+    a damaged or hostile log would otherwise show the rows of any Parquet file the project can reach."""
     files = []
     for rel in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
         path = unquote(rel)
@@ -245,8 +248,22 @@ def _data_files(table: Any, folder: str) -> list[str]:
             path = _local_path(path)
         elif not os.path.isabs(path):
             path = os.path.normpath(os.path.join(folder, path))
+        if not _inside(path, folder):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"outside the table's folder ({rel[:200]!r}), and only files inside it are read. Check "
+                             "where the table's _delta_log came from, or write the table again.")
         files.append(path)
     return files
+
+
+def _inside(path: str, folder: str) -> bool:
+    """Whether ``path`` is a file within ``folder``, after ``..`` and case (on Windows) are resolved."""
+    p = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+    r = os.path.normcase(os.path.normpath(os.path.abspath(folder)))
+    try:
+        return p != r and os.path.commonpath([p, r]) == r
+    except ValueError:  # silent-ok: another drive (Windows) is outside the folder
+        return False
 
 
 def _local_path(uri: str) -> str:

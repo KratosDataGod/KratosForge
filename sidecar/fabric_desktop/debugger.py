@@ -36,6 +36,7 @@ MAX_BREAKPOINTS = 100
 MAX_LOCALS = 200
 MAX_SKIPPED = 5  # names of stepped-over functions reported with a pause
 EVAL_SECONDS = 10.0
+MAX_EVALS = 20  # evaluations a pause keeps, the latest ones
 MAX_EXPRESSION = 2000  # characters in an expression to evaluate (the panel's box takes 500)
 
 
@@ -74,6 +75,7 @@ class Debugger:
         self.skip: set[str] = set()  # names not shown as variables (the kernel's own)
         self.skipped: list[str] = []  # functions Step into didn't enter since the last pause
         self._raising: types.FrameType | None = None  # the frame an exception is leaving, if any
+        self.stopping = False  # Stop was asked for: its interrupt ends an expression instead of being its answer
 
     # ---- set up by the kernel, on the cell's thread
 
@@ -173,7 +175,9 @@ class Debugger:
     def _evaluate(self, frame: types.FrameType, expr: str) -> dict[str, Any]:
         try:
             value = eval(compile(expr, "<debug>", "eval"), frame.f_globals, frame.f_locals)  # noqa: S307 - the person's own notebook code
-        except Exception as exc:  # noqa: BLE001 - shown next to the expression
+        except BaseException as exc:  # noqa: BLE001 - exit(), KeyboardInterrupt and the like too: shown next to the expression
+            if self.stopping:
+                raise  # Stop's interrupt, landing in an expression that ran on: it ends the cell
             return {"expr": expr, "error": self.redact(f"{type(exc).__name__}: {exc}")}
         return {"expr": expr, **self._row(expr, value)}
 
@@ -195,6 +199,8 @@ class Debugger:
         self.on_change(self.paused)
         try:
             while True:
+                if self.stopping:
+                    raise Stopped()
                 try:
                     action, arg = self.commands.get(timeout=0.1)  # short waits, so an interrupt still lands
                 except queue.Empty:
@@ -204,7 +210,7 @@ class Debugger:
                 if action == "eval":
                     expr, slot = arg
                     result = self._evaluate(frame, expr)
-                    self.paused["evals"] = (self.paused["evals"] + [result])[-20:]
+                    self.paused["evals"] = (self.paused["evals"] + [result])[-MAX_EVALS:]
                     slot["result"] = result
                     slot["done"].set()
                     self.on_change(self.paused)
@@ -244,6 +250,7 @@ class Debugger:
 
     def stop(self) -> bool:
         """Cancel while paused; False when the cell isn't paused (interrupt it the usual way)."""
+        self.stopping = True
         if self.paused is None:
             return False
         self.commands.put(("stop", None))

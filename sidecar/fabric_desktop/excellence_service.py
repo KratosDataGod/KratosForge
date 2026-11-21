@@ -226,11 +226,16 @@ def _git(fabric: Any, status_client: Callable[[], Any], wid: str,
         return conn, None
     try:
         st = client.git_status(wid)
-        reads.append({"read": "Git status", "ok": True, "problem": None})
-        return conn, st if isinstance(st, dict) else None
     except Exception as exc:  # noqa: BLE001 - the status controls are then not evaluated
         reads.append({"read": "Git status", "ok": False, "problem": f"Couldn't be read ({describe(exc)})."})
         return conn, None
+    if not catalog_devops.status_readable(st):
+        reads.append({"read": "Git status", "ok": False,
+                      "problem": "Fabric's answer didn't list the changed items in the expected shape, so the "
+                                 "uncommitted and incoming change controls aren't evaluated."})
+        return conn, None
+    reads.append({"read": "Git status", "ok": True, "problem": None})
+    return conn, st
 
 
 class ExcellenceMixin:

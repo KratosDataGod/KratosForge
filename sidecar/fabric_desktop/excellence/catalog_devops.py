@@ -59,6 +59,13 @@ def _short(value: Any) -> str:
     return "" if any(ord(c) < 32 or ord(c) == 127 for c in s) else s[:MAX_TEXT]
 
 
+def status_readable(raw: Any) -> bool:
+    """True when ``raw`` is shaped like Get Status's answer: a dict whose ``changes`` is a list of
+    dicts. Anything else can't be counted, so it must never read as "nothing changed"."""
+    changes = raw.get("changes") if isinstance(raw, dict) else None
+    return isinstance(changes, list) and all(isinstance(c, dict) for c in changes)
+
+
 def _counts(raw: dict[str, Any]) -> dict[str, int]:
     """Counts of the items Get Status lists: changed in the workspace and not in Git (uncommitted),
     changed in Git and not in the workspace (incoming), and both (conflicts, also in the other two)."""
@@ -93,7 +100,7 @@ def evidence(ws: dict[str, Any], connection: dict[str, Any] | None, status: dict
     payload = {"state": state,
                "provider": _short(details.get("gitProviderType")) if connected else "",
                "branch": _short(details.get("branchName")) if connected else "",
-               "status": _counts(status) if isinstance(status, dict) and state == "ConnectedAndInitialized" else None}
+               "status": _counts(status) if status_readable(status) and state == "ConnectedAndInitialized" else None}
     subj = ev.subject("workspace", str(ws.get("id") or ""), ws.get("displayName") or ws.get("name"))
     source = GET_CONNECTION + (" and " + GET_STATUS if payload["status"] is not None else "")
     return [ev.record(KIND, subj, source=source, confidence="verified_configuration", collected_at=collected_at,

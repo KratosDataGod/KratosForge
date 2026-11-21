@@ -295,3 +295,20 @@ def test_the_demo_shows_devops_without_calling_fabric(make):
     assert FIXTURE_GIT_CONNECTION["gitConnectionState"] == "ConnectedAndInitialized" and FIXTURE_GIT_STATUS["changes"]
     again = assess.rescore(json.loads(json.dumps(r)), catalog.registry())
     assert again["scores"] == r["scores"]
+
+
+@pytest.mark.parametrize("answer", [{"changes": "x"}, {}, {"changes": None}, {"changes": [1, "a"]},
+                                    {"changes": [{"workspaceChange": "Modified"}, None]}, ["changes"], "ok"])
+def test_a_malformed_status_answer_is_listed_and_never_passes(make, answer):
+    s = make(status_client=FakeStatusClient(answer=answer))
+    r = s.excellence_assess(workspace_id=WSID)
+    got = read_of(r, "Git status")
+    assert got["ok"] is False and "expected shape" in got["problem"]
+    assert outcome_of(r, "FEA-DEVOPS-003")["outcome"] == "pass"
+    for cid in ("FEA-DEVOPS-004", "FEA-DEVOPS-005"):
+        assert outcome_of(r, cid)["outcome"] == "not_evaluated"
+
+
+def test_an_empty_change_list_is_a_clean_status():
+    assert dv.status_readable({"changes": []})
+    assert not dv.status_readable({"changes": "x"}) and not dv.status_readable(None)

@@ -18,7 +18,7 @@ column.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Iterator
 
 import polars as pl
 
@@ -132,20 +132,27 @@ def entity_columns_names(project: Project, name: str) -> list[str]:
 
 
 def upstream(project: Project, name: str, column: str, _seen: set | None = None) -> list[dict[str, Any]]:
-    """Every step back from ``name.column`` to where it starts, nearest first."""
+    """Every step back from ``name.column`` to where it starts, nearest first (depth first, each column
+    once). Walked with a stack rather than recursion: a chain of entities can be longer than Python's limit."""
     seen = _seen if _seen is not None else set()
-    if (name, column) in seen or name not in project.entities:
-        return []
-    seen.add((name, column))
-    rec = entity_columns(project, name).get(column)
-    if rec is None:
-        return [{"entity": name, "column": column, "how": "unknown", "label": "inferred", "inputs": [],
-                 "note": f"{name} doesn't write {column}"}]
-    steps = [{"entity": name, "column": column, **rec}]
-    for i in rec["inputs"]:
-        if i.get("missing") or "entity" not in i:
+    steps: list[dict[str, Any]] = []
+    stack: list[Iterator[tuple[str, str]]] = [iter([(name, column)])]
+    while stack:
+        nxt = next(stack[-1], None)
+        if nxt is None:
+            stack.pop()
             continue
-        steps += upstream(project, i["entity"], i["column"], seen)
+        name, column = nxt
+        if (name, column) in seen or name not in project.entities:
+            continue
+        seen.add((name, column))
+        rec = entity_columns(project, name).get(column)
+        if rec is None:
+            steps.append({"entity": name, "column": column, "how": "unknown", "label": "inferred", "inputs": [],
+                          "note": f"{name} doesn't write {column}"})
+            continue
+        steps.append({"entity": name, "column": column, **rec})
+        stack.append(iter([(i["entity"], i["column"]) for i in rec["inputs"] if not i.get("missing") and "entity" in i]))
     return steps
 
 

@@ -17,7 +17,7 @@ import re
 import posixpath
 import uuid
 from urllib.parse import urlsplit, urlunsplit
-from typing import Any
+from typing import Any, Iterator
 
 from .. import __version__
 from .. import redact
@@ -218,13 +218,22 @@ def _dataset_key(names: Names, inp: dict[str, Any]) -> tuple[str, str] | None:
 
 
 def _own_sources(cols: dict[str, Any], entity: str, col: str, seen: set[str]) -> list[dict[str, Any]]:
-    """The inputs from outside the entity that one of its own columns is built from, however many steps in."""
-    if col in seen or col not in cols:
-        return []
-    seen.add(col)
+    """The inputs from outside the entity that one of its own columns is built from, however many steps in
+    (with a stack rather than recursion: an entity can derive a chain of columns longer than Python's limit)."""
     out: list[dict[str, Any]] = []
-    for i in cols[col]["inputs"]:
-        out += _own_sources(cols, entity, i["column"], seen) if i.get("entity") == entity else [i]
+    stack: list[Iterator[dict[str, Any]]] = []
+    if col not in seen and col in cols:
+        seen.add(col)
+        stack.append(iter(cols[col]["inputs"]))
+    while stack:
+        i = next(stack[-1], None)
+        if i is None:
+            stack.pop()
+        elif i.get("entity") != entity:
+            out.append(i)
+        elif i["column"] not in seen and i["column"] in cols:
+            seen.add(i["column"])
+            stack.append(iter(cols[i["column"]]["inputs"]))
     return out
 
 

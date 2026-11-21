@@ -77,3 +77,38 @@ def test_upstream_stops_at_a_cycle():
     two = entity("s.two", ["a"], sources=("s.one",))
     steps = lineage.upstream(project(one, two), "s.one", "a")
     assert [(s["entity"], s["column"]) for s in steps] == [("s.one", "a"), ("s.two", "a")]
+
+
+def _branching():
+    """s.top reads a (from s.left) and b (from s.right); both of those start in bronze.raw, and s.left's
+    b comes from s.right too, so the walk meets s.right.b twice."""
+    left = entity("s.left", ["a", "b"], spec={"source": {"entity": ["s.right"]},
+                                              "derive": [{"column": "a", "expr": "b + 1"}]}, sources=("s.right",))
+    right = entity("s.right", ["b", "a"])
+    top = entity("s.top", ["c", "a"], spec={"source": {"entity": ["s.left"]}, "derive": [{"column": "c", "expr": "a + b"}]},
+                 sources=("s.left",))
+    return project(raw(), left, right, top)
+
+
+def test_upstream_walks_depth_first_nearest_first_and_visits_each_column_once():
+    steps = lineage.upstream(_branching(), "s.top", "c")
+    assert [(s["entity"], s["column"]) for s in steps] == [
+        ("s.top", "c"), ("s.top", "a"), ("s.left", "a"), ("s.left", "b"), ("s.right", "b"), ("bronze.raw", "b")]
+    gone = entity("s.gone", ["x", "q"], spec={"source": {"entity": ["s.top"]}, "derive": [{"column": "x", "expr": "q || c"}]},
+                  sources=("s.top",))
+    steps = lineage.upstream(project(*_branching().entities.values(), gone), "s.gone", "x")
+    assert [(s["entity"], s["column"], s["how"]) for s in steps] == [
+        ("s.gone", "x", "derived"), ("s.gone", "q", "source"), ("s.top", "c", "derived"), ("s.top", "a", "source"),
+        ("s.left", "a", "derived"), ("s.left", "b", "source"), ("s.right", "b", "source"), ("bronze.raw", "b", "source")]
+    assert lineage.upstream(_branching(), "s.top", "nope")[0]["note"] == "s.top doesn't write nope"
+
+
+def test_upstream_follows_a_chain_thousands_of_entities_long():
+    """A project whose entities read one another in a chain longer than Python's recursion limit is
+    traced to its start (it used to raise RecursionError)."""
+    chain, before = [raw()], "bronze.raw"
+    for i in range(3000):
+        chain.append(entity(f"s.e{i}", ["a"], sources=(before,)))
+        before = f"s.e{i}"
+    steps = lineage.upstream(project(*chain), before, "a")
+    assert len(steps) == 3001 and (steps[0]["entity"], steps[-1]["entity"]) == ("s.e2999", "bronze.raw")

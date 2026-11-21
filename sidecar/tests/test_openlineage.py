@@ -623,3 +623,19 @@ def test_a_long_value_is_cleaned_in_linear_time():
     start = time.perf_counter()
     openlineage.safe_origin("a_" * 5000)  # redact.py has slow patterns of its own on longer text
     assert time.perf_counter() - start < 1.0
+
+
+def test_own_sources_trace_own_columns_in_order_once_each():
+    cols = {"c": {"inputs": [{"entity": "e", "column": "a"}, {"entity": "x", "column": "k"}, {"entity": "e", "column": "b"}]},
+            "a": {"inputs": [{"entity": "e", "column": "b"}, {"origin": "files", "column": "f"}]},
+            "b": {"inputs": [{"entity": "y", "column": "m"}, {"entity": "e", "column": "c"}, {"entity": "e", "column": "gone"}]}}
+    got = openlineage._own_sources(cols, "e", "c", set())
+    assert got == [{"entity": "y", "column": "m"}, {"origin": "files", "column": "f"}, {"entity": "x", "column": "k"}]
+
+
+def test_own_sources_follow_a_chain_thousands_of_columns_long():
+    """An entity deriving each column from the one before, longer than Python's recursion limit, traces
+    back to where the first starts (it used to raise RecursionError)."""
+    cols = {f"c{i}": {"inputs": [{"entity": "e", "column": f"c{i - 1}"}]} for i in range(1, 5000)}
+    cols["c0"] = {"inputs": [{"entity": "raw", "column": "a"}]}
+    assert openlineage._own_sources(cols, "e", "c4999", set()) == [{"entity": "raw", "column": "a"}]

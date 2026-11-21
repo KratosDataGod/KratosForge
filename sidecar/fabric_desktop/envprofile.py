@@ -71,8 +71,11 @@ def imports(source: str) -> dict[str, Any]:
     except SyntaxError as exc:
         return {"parsed": False, "modules": [], "dynamic": dynamic, "error": f"line {exc.lineno}: {exc.msg}"}
     found: dict[str, dict[str, Any]] = {}
-
-    def visit(node: ast.AST, optional: bool) -> None:
+    # Each node before the ones inside it, in order, with a stack: a long expression (a sum of thousands
+    # of terms) is a tree deeper than Python's recursion limit.
+    stack: list[tuple[ast.AST, bool]] = [(tree, False)]
+    while stack:
+        node, optional = stack.pop()
         names: list[str] = []
         line = 0
         if isinstance(node, ast.Import):
@@ -84,18 +87,13 @@ def imports(source: str) -> dict[str, Any]:
             seen = found.setdefault(top, {"module": top, "line": line, "optional": optional})
             seen["optional"] = seen["optional"] and optional  # required anywhere means required
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            for child in ast.iter_child_nodes(node):
-                visit(child, True)  # needed only if the function is called
-            return
-        if isinstance(node, ast.Try) and _catches_import_error(node):
-            for child in node.body:
-                visit(child, True)
-            for child in node.handlers + node.orelse + node.finalbody:
-                visit(child, optional)
-            return
-        for child in ast.iter_child_nodes(node):
-            visit(child, optional)
-    visit(tree, False)
+            inner = [(child, True) for child in ast.iter_child_nodes(node)]  # needed only if the function is called
+        elif isinstance(node, ast.Try) and _catches_import_error(node):
+            inner = [(child, True) for child in node.body]
+            inner += [(child, optional) for child in node.handlers + node.orelse + node.finalbody]
+        else:
+            inner = [(child, optional) for child in ast.iter_child_nodes(node)]
+        stack.extend(reversed(inner))
     return {"parsed": True, "modules": sorted(found.values(), key=lambda m: m["line"]), "dynamic": dynamic}
 
 

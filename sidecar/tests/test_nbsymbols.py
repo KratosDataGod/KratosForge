@@ -92,3 +92,13 @@ def test_a_name_bound_in_any_scope_counts_as_used_so_a_rename_cant_be_captured(s
 
 def test_a_free_name_is_used_nowhere():
     assert find_symbol([code("x = 1\nprint(x)")], 0, 0, "grand_total")["anywhere"] == 0
+
+
+def test_a_cell_with_an_expression_thousands_of_terms_long_is_read():
+    """A long sum is a tree thousands deep: every use of the name in it is found (it used to raise
+    RecursionError)."""
+    source = "y = 1\nx = " + " + ".join(["y"] * 5000) + "\n"
+    found = find_symbol([code(source)], 0, 0, "y")
+    assert len(found["places"]) == 5001 and found["places"][0]["kind"] == "definition"
+    last = found["places"][-1]
+    assert (last["cell"], last["line"], last["from"], last["kind"]) == (0, 2, 6 + 4 + 4 * 4999, "reference")

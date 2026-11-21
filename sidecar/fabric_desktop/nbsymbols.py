@@ -151,8 +151,19 @@ class _Finder:
             self.found.append((line, col, kind))
 
     def visit(self, node: ast.AST, shadowed: bool, base: bool | None = None) -> None:
-        """``shadowed``: the name here isn't the module's. ``base``: what a function, lambda or
-        comprehension started here inherits, which skips a class body's own names."""
+        """Every place in ``node``, each node before the ones inside it, in order. A stack rather than
+        recursion: a long expression (a sum of thousands of terms) is a tree deeper than Python's limit."""
+        stack: list[tuple[ast.AST, bool, bool | None]] = [(node, shadowed, base)]
+        while stack:
+            calls: list[tuple[ast.AST, bool, bool | None]] = []
+            self._visit_one(*stack.pop(), calls)
+            stack.extend(reversed(calls))
+
+    def _visit_one(self, node: ast.AST, shadowed: bool, base: bool | None,
+                   calls: list[tuple[ast.AST, bool, bool | None]]) -> None:
+        """One node's own places; the nodes inside it to visit go in ``calls``, in order. ``shadowed``: the
+        name here isn't the module's. ``base``: what a function, lambda or comprehension started here
+        inherits, which skips a class body's own names (None: the same as ``shadowed``)."""
         name = self.name
         base = shadowed if base is None else base
         if isinstance(node, _SCOPES):
@@ -177,13 +188,13 @@ class _Finder:
                     if node.returns:
                         outer.append(node.returns)
                 for n in outer:
-                    self.visit(n, shadowed, base)
+                    calls.append((n, shadowed, base))
             elif isinstance(node, ast.Lambda):
                 for d in node.args.defaults + node.args.kw_defaults:
                     if d is not None:
-                        self.visit(d, shadowed, base)
+                        calls.append((d, shadowed, base))
             else:  # a comprehension's first iterable is read where the comprehension is
-                self.visit(node.generators[0].iter, shadowed, base)
+                calls.append((node.generators[0].iter, shadowed, base))
             if name in scope.globals:
                 inner = False
             elif name in scope.nonlocals:
@@ -192,19 +203,19 @@ class _Finder:
                 inner = base or name in scope.bound
             if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
                 for i, gen in enumerate(node.generators):
-                    self.visit(gen.target, inner)
+                    calls.append((gen.target, inner, None))
                     if i:
-                        self.visit(gen.iter, inner)
+                        calls.append((gen.iter, inner, None))
                     for cond in gen.ifs:
-                        self.visit(cond, inner)
+                        calls.append((cond, inner, None))
                 for p in ([node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]):
-                    self.visit(p, inner)
+                    calls.append((p, inner, None))
                 return
             body = [node.body] if isinstance(node, ast.Lambda) else node.body
             # Functions inside a class body don't see the class's own names.
             child_base = base if isinstance(node, ast.ClassDef) else inner
             for n in body:
-                self.visit(n, inner, child_base)
+                calls.append((n, inner, child_base))
             return
         if isinstance(node, ast.Name) and node.id == name:
             if not shadowed:
@@ -237,7 +248,7 @@ class _Finder:
             if col is not None:
                 self.found.append((node.lineno, col, "definition"))
         for child in ast.iter_child_nodes(node):
-            self.visit(child, shadowed, base)
+            calls.append((child, shadowed, base))
 
 
 def _parse(source: str) -> tuple[ast.Module | None, str]:

@@ -118,6 +118,20 @@ def test_malformed_inventory_payloads_dont_crash():
         assert snap["type_coverage"]["types"] == [] and snap["type_coverage"]["totals"]["items"] == 0
 
 
+@pytest.mark.parametrize("payload", [[1, 2], {"items": "abc"}, {"items": {"a": 1}}, {"items": None}, {}])
+def test_an_inventory_without_a_list_of_items_is_unlisted_not_empty(payload):
+    """A malformed inventory says nothing about the workspace's items: it must not read as an empty
+    workspace (no types, no note, item controls not applicable)."""
+    subj = ev.subject("workspace", WSID, "Sales")
+    r = ev.record("workspace.inventory", subj, source="test", confidence="verified_configuration",
+                  collected_at=AT, payload=payload)
+    snap = assess.assess([r], catalog.registry(), scope={"workspaces": [WSID]}, assessed_at=AT)
+    tc = snap["type_coverage"]
+    assert tc["note"] == cv.NOT_LISTED and [w["id"] for w in tc["unlisted_workspaces"]] == [WSID]
+    item_ids = {c.id for c in catalog.registry().controls() if c.scope == "item"}
+    assert not [o for o in snap["outcomes"] if o["control_id"] in item_ids and o["outcome"] == "not_applicable"]
+
+
 def test_an_empty_workspace_has_no_types_and_no_note():
     snap = run([])
     tc = snap["type_coverage"]

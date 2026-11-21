@@ -46,13 +46,14 @@ def policy_version(registry: ct.Registry, profile: pf.Profile) -> str:
 
 
 def _inventory(bundle: Bundle, ws: dict[str, Any]) -> list[dict[str, Any]] | None:
-    recs = [r for r in bundle.get(ws["id"], INVENTORY) if r["confidence"] != "insufficient"]
-    if not recs:
+    # an inventory whose payload holds no list of items says nothing about them: unlisted, not empty
+    lists = [r["payload"]["items"] for r in bundle.get(ws["id"], INVENTORY) if r["confidence"] != "insufficient"
+             and isinstance(r["payload"], dict) and isinstance(r["payload"].get("items"), list)]
+    if not lists:
         return None
     items: dict[str, dict[str, Any]] = {}
-    for r in recs:
-        listed = r["payload"].get("items") if isinstance(r["payload"], dict) else None
-        for it in listed if isinstance(listed, list) else []:
+    for listed in lists:
+        for it in listed:
             if isinstance(it, dict) and it.get("id") and it.get("type"):
                 name = cv.cut(it["name"]) if it.get("name") else None
                 items[str(it["id"])] = subject("item", str(it["id"]), name, workspace_id=ws["id"],

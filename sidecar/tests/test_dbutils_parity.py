@@ -202,6 +202,26 @@ def test_ls_writes_a_windows_path_with_forward_slashes():
     assert dbutils_local._file_info(lake).path == lake.path
 
 
+def test_ls_leaves_a_network_path_as_given():
+    # Rewritten with /, file:\\server\share\x would read back as file://server/share/x, whose path is
+    # server/share/x on this PC: another file. Strings only, so this holds on any OS.
+    from types import SimpleNamespace
+
+    def info(path, is_dir=False):
+        e = SimpleNamespace(path=path, name="x", size=1, isDir=is_dir, modificationTime=1)
+        return dbutils_local._file_info(e).path
+
+    for unc in ("file:\\\\server\\share\\x", "file://server/share/x", "file:\\/server\\x",
+                "file:\\\\?\\C:\\data\\x", "\\\\server\\share\\x"):
+        assert info(unc) == unc
+    assert info("file:\\\\server\\share\\sub", is_dir=True) == "file:\\\\server\\share\\sub/"
+    assert info("file:C:\\data\\x.csv") == "file:C:/data/x.csv"
+    assert info("file:C:\\data/mixed\\x.csv") == "file:C:/data/mixed/x.csv"
+    for posix in ("file:/tmp/data/x.csv", "file:C:/data/x.csv", "file:/C:/data/x.csv"):
+        assert info(posix) == posix
+    assert info("file:/tmp/data/sub", is_dir=True) == "file:/tmp/data/sub/"
+
+
 def test_ls_paths_read_back(tmp_path):
     (tmp_path / "a.txt").write_text("hello")
     k = Kernel()

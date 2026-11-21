@@ -88,10 +88,22 @@ class FileInfo(NamedTuple):
         return not self.isDir()
 
 
+def _is_unc(local: str) -> bool:
+    """A network path (\\\\server\\share\\x, or //server/share/x): Windows reads two leading slashes or
+    backslashes, in any mix, as the start of one."""
+    return len(local) >= 2 and local[0] in "\\/" and local[1] in "\\/"
+
+
 def _file_info(e: Any) -> FileInfo:
     # A path on this PC is written with / as on Databricks (file:C:/data/x on Windows), so code that joins or
     # splits paths on / and isDir()'s trailing / work the same; the path still reads back through dbutils.fs.
-    path = "file:" + e.path[5:].replace("\\", "/") if e.path.startswith("file:") else e.path
+    # A network path (file:\\server\share\x) is left exactly as given. Writing it with / would start it
+    # file://server/share/x, which reads back as a URI whose path drops the server: notebookutils strips
+    # "file://" and opens server/share/x, a folder under the current directory on this PC, so a different file.
+    # Unchanged, it reads back as the same network path, and no rewrite can name some other file.
+    path = e.path
+    if path.startswith("file:") and not _is_unc(path[5:]):
+        path = "file:" + path[5:].replace("\\", "/")
     if not e.isDir:
         return FileInfo(path, e.name, e.size, e.modificationTime)
     return FileInfo(path.rstrip("/") + "/", e.name.rstrip("/") + "/", 0, e.modificationTime)

@@ -367,3 +367,28 @@ def test_arguments_nested_thousands_deep_still_make_a_line():
     kept = arguments({"workspace_id": "w-1", "options": deep})
     assert kept["workspace_id"] == "w-1" and isinstance(kept["options"], (dict, str))
     assert json.dumps(kept)
+
+
+def test_an_approved_call_with_arguments_nested_thousands_deep_is_recorded_before_it_runs_or_doesnt_run(store, capsys):
+    deep: dict = {"workspace": "w"}
+    for _ in range(4000):
+        deep = {"filter": [deep]}
+    reg = registry(store, wait=10)
+    seen: list = []
+    reg.register(Capability("ext_deep", "Deep", "Runs code.", schema({"code": {"type": "string"}, "options": {"type": "object"}}),
+                            schema(extra=True), "EXECUTE_LOCAL_CODE",
+                            lambda s, c, **a: seen.append([x["outcome"] for x in lines(store)]) or {"ok": True},
+                            read_only=False, approval="always", needs_service=False))
+    client, _ = store.add_client("Codex", grants=["EXECUTE_LOCAL_CODE"])
+    approve_first(store)
+    reg.invoke(None, "ext_deep", {"code": "x", "options": deep}, ctx(client["id"]))
+    assert seen == [["started"]]  # the line was written before the handler ran
+    for error in (RecursionError("maximum recursion depth exceeded"), OSError("disk full")):
+        def broken(*a, err=error, **k):
+            raise err
+        reg.audit = broken
+        approve_first(store)
+        with pytest.raises(IntegrationError) as exc:
+            reg.invoke(None, "ext_deep", {"code": "x", "options": deep}, ctx(client["id"]))
+        assert exc.value.code == "internal" and "didn't run" in exc.value.message
+    assert len(seen) == 1

@@ -368,3 +368,49 @@ def test_a_deeply_nested_parameter_is_still_recorded(tmp_path):
         envs = [envs]
     assert audit.fails_closed("meta_run", {"env": envs})
     assert not audit.fails_closed("meta_run", {"env": [[[["dev"]]]] * 3})
+
+
+def test_a_protected_call_with_deeply_nested_parameters_is_recorded_before_it_runs_or_doesnt_run(tmp_path):
+    """Prod-reaching and typed-name calls with parameters nested thousands deep: the "started" line is
+    written before the call runs; when it can't be written (any error, recursion included), nothing runs."""
+    deep: object = "v1"
+    for _ in range(4000):
+        deep = {"a": [deep]}
+    prod: object = "prod"
+    for _ in range(4000):
+        prod = [prod]
+    class Runs(Guarded):
+        def meta_run(self, names=None, env="dev"):  # fails closed only when it reaches prod
+            self.ran.append("meta_run")
+            return []
+    s = Runs(tmp_path)
+    seen = []
+    record = s.audit.record
+
+    def watched(action, outcome, *a, **k):
+        seen.append((action, outcome, list(s.ran)))
+        return record(action, outcome, *a, **k)
+    s.audit.record = watched
+    for method, params in (("meta_rollback", {"env": "prod", "version": deep}),
+                           ("meta_rollback", {"env": prod, "version": "v1"}),
+                           ("meta_run", {"env": prod}),
+                           ("sql_start", {"query": deep, "confirm_name": "Sales"})):
+        s.ran.clear()
+        seen.clear()
+        assert "result" in call(s, method, **params), method
+        assert seen == [(method, "started", []), (method, "ok", [method])], method
+    assert [e["outcome"] for e in s.audit.recent()[:2]] == ["ok", "started"]
+
+    for error in (RecursionError("maximum recursion depth exceeded"), OSError("disk full")):
+        class Broken:
+            def record(self, *a, err=error, **k):
+                raise err
+        s.audit = Broken()
+        s.ran.clear()
+        for method, params in (("meta_rollback", {"env": "prod", "version": deep}),
+                               ("meta_rollback", {"env": prod, "version": "v1"}),
+                               ("meta_run", {"env": prod}),
+                               ("sql_start", {"query": deep, "confirm_name": "Sales"})):
+            reply = call(s, method, **params)
+            assert "audit log couldn't be written, so this didn't run" in reply["error"], (method, error)
+        assert s.ran == []

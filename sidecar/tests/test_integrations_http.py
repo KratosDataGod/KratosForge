@@ -199,6 +199,20 @@ def test_invoke_bad_body(store, content):
     assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_input"
 
 
+@pytest.mark.parametrize("depth", [5000, 20000])
+def test_invoke_deeply_nested_body(store, depth):
+    """A body nested past what Python's JSON reader takes (20,000) is a plain invalid_input, not a server
+    error; one it does take (5,000) reaches the capability's own checks and the audit line."""
+    _, token = http_client(store)
+    body = b'{"arguments": {"seconds": 0, "x": ' + b"[" * depth + b"]" * depth + b"}}"
+    with api(store) as c:
+        r = c.post("/api/v1/capabilities/ext_slow/invoke", headers=auth(token) | {"Content-Type": "application/json"},
+                   content=body)
+    assert r.status_code in (200, 400), r.text
+    if depth > 10000:
+        assert r.json()["error"]["code"] == "invalid_input" and "nested too deeply" in r.json()["error"]["message"]
+
+
 def test_invoke_invalid_arguments(store):
     _, token = http_client(store)
     with api(store) as c:

@@ -318,6 +318,8 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
             return error_response(err)
         except ValueError:
             return error_response(IntegrationError("invalid_input", "The body must be JSON: {\"arguments\": {...}}."))
+        except RecursionError:  # past what Python's JSON reader takes: refused like any other bad body
+            return error_response(IntegrationError("invalid_input", "The body is nested too deeply to read."))
         if not isinstance(body, dict) or not isinstance(body.get("arguments", {}), dict) or set(body) - {"arguments"}:
             return error_response(IntegrationError("invalid_input", "The body must be {\"arguments\": {...}}."))
         return await _run(request, cap_id, body.get("arguments") or {})

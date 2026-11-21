@@ -206,8 +206,20 @@ _AGGREGATES: dict[str, Callable[..., exp.Expression | None]] = {
     "EVERY": _template("BOOL_AND(fj_arg0)", 1),
     "STD": _template("STDDEV_SAMP(fj_arg0)", 1),
     "TRY_AVG": _template("AVG(fj_arg0)", 1),
-    "TRY_SUM": _template("SUM(fj_arg0)", 1),
+    "TRY_SUM": lambda node, args: _try_sum(args),
 }
+
+
+TRY_SUM = "kf_try_sum"
+
+
+def _try_sum(args: list[exp.Expression]) -> exp.Expression | None:
+    """try_sum as DuckDB's SUM, marked so spark_decimals gives an integral one Spark's BIGINT, NULL past its range."""
+    if len(args) != 1:
+        return None
+    summed = _with_args("SUM(fj_arg0)", args)
+    summed.meta[TRY_SUM] = True
+    return summed
 
 # Spark's skewness and kurtosis are the population ones (no small-sample correction). DuckDB's
 # skewness is the sample one, so it is scaled back; kurtosis_pop is Spark's excess kurtosis. With

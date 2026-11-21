@@ -78,6 +78,8 @@ Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.an
 | `try_cast`, `try_divide` | NULL | NULL |
 | `try_divide` of decimals | A decimal, typed as `/` is: `decimal(23,13)` for two `decimal(10,2)` | The same |
 | A decimal `sum` or `avg` past its result type, `decimal(p + 10, s)` | NULL | Stops with `[ARITHMETIC_OVERFLOW] Overflow in sum of decimals` |
+| A `sum` of whole numbers (`tinyint` to `bigint`), a `bigint` as in Spark and Databricks | The total, a `bigint` | The total, a `bigint`; past its range it stops with `[ARITHMETIC_OVERFLOW] long overflow` |
+| `try_sum` of whole numbers past `bigint`'s range | NULL | NULL |
 
 `spark.conf.set("spark.sql.ansi.enabled", "true")` is kept for when the notebook runs in Fabric, and prints a note saying this PC still answers with ANSI mode off.
 
@@ -86,6 +88,8 @@ These cases still differ:
 | Case | Spark | This PC |
 | --- | --- | --- |
 | `abs(-2147483648)` or `-(-2147483648)` on an int, with ANSI off | Wraps around: -2147483648 | 2147483648, a `bigint` |
+| A `sum` of whole numbers past `bigint`'s range, with ANSI off | Wraps around | Stops by name: this PC never gives a wrapped total |
+| A `sum` of whole numbers whose running total passes `bigint`'s range and comes back, with ANSI on | Stops with `[ARITHMETIC_OVERFLOW]`, depending on the order rows are added | The total, which fits a `bigint` |
 | A notebook in Databricks Runtime 17.0 or later, which runs Spark SQL with ANSI mode on | A failed `CAST` or a division by zero stops | Gives NULL, as with ANSI mode off. The first use of `dbutils` in a session prints a note saying so, since which runtime a notebook is meant for isn't known here. Run it as Databricks SQL on the DuckDB engine, or on Databricks |
 | `pmod(x, 0)` in Databricks SQL | Stops with `[DIVIDE_BY_ZERO]` | NULL |
 | A decimal `sum` or `avg` whose running total passes about 1.7 × 10^38 | NULL with ANSI off, `[ARITHMETIC_OVERFLOW]` with ANSI on | Stops with DuckDB's "Overflow in HUGEINT addition" |

@@ -200,6 +200,30 @@ def _summed(value: str, total: tuple[int, int], ansi: bool) -> str:
             f"THEN TRY_CAST(kf_decsum AS DECIMAL({total[0]}, {total[1]})) ELSE {over} END))[1]")
 
 
+# sum of a whole-number column is a BIGINT in Spark and Databricks (Databricks SQL's sum: "If expr is an integral
+# number type, a BIGINT"). Past BIGINT's range Databricks SQL, with ANSI mode on, stops with ARITHMETIC_OVERFLOW;
+# Spark with ANSI mode off, as Fabric runs it, wraps the total around, which this PC doesn't do: it stops by name.
+LONG_SUM_OVERFLOW = ("[ARITHMETIC_OVERFLOW] long overflow. Use `try_sum` to tolerate overflow and return NULL "
+                     "instead. If necessary set ansi_mode to false to bypass this error.")
+LONG_SUM_WRAPS = ("sum() of whole numbers is too big for a long (BIGINT), the type Spark gives it, and can't run on "
+                  "this PC the way it runs in Fabric: with ANSI mode off Spark wraps the total around past "
+                  "9223372036854775807, and this PC doesn't give a wrapped total, so the query stopped. Use try_sum "
+                  "for NULL, or cast the column to DECIMAL(38, 0) first.")
+
+
+def _long_sum(value: str, node: exp.Expr, ansi: bool) -> str:
+    """``value`` (DuckDB's sum of whole numbers, a HUGEINT) as Spark's BIGINT: NULL for try_sum past BIGINT's range,
+    else Databricks' ARITHMETIC_OVERFLOW (ANSI) or a refusal by name (Spark, ANSI off, where Spark wraps). DuckDB adds
+    in a HUGEINT, so only the total is checked: a running total that passes BIGINT's range and comes back, which
+    stops Spark with ANSI mode on, gives the total here."""
+    from .spark_builtins_sql import TRY_SUM
+    stop = LONG_SUM_OVERFLOW if ansi else LONG_SUM_WRAPS
+    over = "NULL" if node.meta.get(TRY_SUM) else f"ERROR({exp.Literal.string(stop).sql('duckdb')})"
+    return (f"(LIST_TRANSFORM([{value}], kf_decsum -> CASE WHEN kf_decsum IS NULL THEN NULL "
+            f"WHEN kf_decsum BETWEEN CAST('-9223372036854775808' AS HUGEINT) AND CAST('9223372036854775807' AS HUGEINT) "
+            f"THEN CAST(kf_decsum AS BIGINT) ELSE {over} END))[1]")
+
+
 def _wrapper(node: exp.Expr) -> exp.Expr:
     """The aggregate with the FILTER and OVER clauses around it, which a rewrite keeps."""
     top = node
@@ -411,6 +435,9 @@ def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
         bare = argument.expressions[0] if isinstance(argument, exp.Distinct) and len(argument.expressions) == 1 \
             else argument
         found = _decimal(bare, typed, annotated)
+        if found is not None and found[0] == "int" and isinstance(node, exp.Sum):
+            top = _wrapper(node)
+            return _with_args(_long_sum("fj_arg0", node, ansi), [top]), top, ("int", 20)
         if found is None or found[0] == "int":
             return None
         p, s = _operand(found)

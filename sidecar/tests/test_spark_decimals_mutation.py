@@ -55,7 +55,9 @@ def test_a_decimal_without_its_precision_leaves_only_that_expression_as_it_was(c
 
 @pytest.mark.parametrize("query, kinds", [
     ("SELECT a * b AS v, sum(f) AS d FROM t GROUP BY a, b", ["DECIMAL(21,4)", "DOUBLE"]),
-    ("SELECT a * b AS v, sum(n) AS i FROM t GROUP BY a, b", ["DECIMAL(21,4)", "HUGEINT"]),
+    # sum of an integral column is a BIGINT in Spark and Databricks (Databricks SQL's sum: "If expr is an integral
+    # number type, a BIGINT"), no longer DuckDB's HUGEINT
+    ("SELECT a * b AS v, sum(n) AS i FROM t GROUP BY a, b", ["DECIMAL(21,4)", "BIGINT"]),
 ])
 def test_a_sum_of_an_integer_or_a_double_keeps_duckdbs_type_next_to_one_that_changes(conn, query, kinds):
     assert answer(conn, query) == kinds

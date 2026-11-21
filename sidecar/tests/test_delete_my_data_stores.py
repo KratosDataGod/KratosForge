@@ -245,7 +245,8 @@ def test_on_windows_remove_data_leaves_no_store_but_the_audit_trails(tmp_path):
     def place(rel: str) -> Path:
         return webview / rel[len(WEBVIEW):] if rel.startswith(WEBVIEW) else data / rel
 
-    for rel in (*files, *AUDIT_TRAILS):
+    # The kept-ids files last: a new Outbox clears the one beside it, as a fresh outbox has no kept ids.
+    for rel in sorted((*files, *AUDIT_TRAILS), key=lambda r: r.endswith(".sent-not-removed.json")):
         _seed(place(rel))
     assert all(place(rel).is_file() for rel in files)
     subprocess.run(["cmdkey.exe", f"/generic:{cred}", "/user:u", f"/pass:{PERSON}"], check=True,

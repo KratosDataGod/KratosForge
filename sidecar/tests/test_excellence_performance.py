@@ -19,9 +19,10 @@ AT = "2026-11-19T02:00:00+00:00"
 WSID = "11111111-2222-3333-4444-555555555555"
 IDS = ("FEA-PERF-003", "FEA-PERF-004", "FEA-PERF-005")
 MB = 1024 * 1024
+LH0, LH1, LH2 = (f"1a1a1a1a-0000-4000-8000-00000000000{i}" for i in range(3))
 
 
-def lakehouse(i: str = "lh0", name: str | None = None) -> dict:
+def lakehouse(i: str = LH0, name: str | None = None) -> dict:
     return {"id": i, "type": "Lakehouse", "displayName": name or i}
 
 
@@ -44,7 +45,7 @@ def run(read: dict, items: list[dict] | None = None) -> dict:
     return assess.assess(records, catalog.registry(), assessed_at=AT, scope={"workspaces": [{"id": WSID}]})
 
 
-def outcome_of(snap: dict, cid: str, subject_id: str = "lh0") -> dict:
+def outcome_of(snap: dict, cid: str, subject_id: str = LH0) -> dict:
     got = [o for o in snap["outcomes"] if o["control_id"] == cid and o["subject"]["id"] == subject_id]
     assert len(got) == 1, got
     return got[0]
@@ -63,69 +64,69 @@ def test_performance_controls_are_registered_and_complete():
 
 
 def test_the_evidence_is_measured_and_keeps_only_numbers():
-    recs = perf.table_layout(WSID, [lakehouse()], {"lh0": {"tables": [table()]}}, collected_at=AT)
+    recs = perf.table_layout(WSID, [lakehouse()], {LH0: {"tables": [table()]}}, collected_at=AT)
     assert [r["confidence"] for r in recs] == ["measured"] and recs[0]["kind"] == "lakehouse.tables"
     assert set(recs[0]["payload"]["tables"][0]) == {"name", "read", "delta", "files", "bytes", "avg_file_bytes",
                                                     "versions_since_vacuum", "last_vacuum", "features"}
 
 
 def test_small_files_pass_fail_and_not_evaluated():
-    assert outcome_of(run({"lh0": {"tables": [table(files=500, avg_mb=200)]}}), "FEA-PERF-003")["outcome"] == "pass"
+    assert outcome_of(run({LH0: {"tables": [table(files=500, avg_mb=200)]}}), "FEA-PERF-003")["outcome"] == "pass"
     # Under 20 files is fine however small they are.
-    assert outcome_of(run({"lh0": {"tables": [table(files=19, avg_mb=0.1)]}}), "FEA-PERF-003")["outcome"] == "pass"
-    o = outcome_of(run({"lh0": {"tables": [table("dbo.raw", files=1840, avg_mb=0.6), table()]}}), "FEA-PERF-003")
+    assert outcome_of(run({LH0: {"tables": [table(files=19, avg_mb=0.1)]}}), "FEA-PERF-003")["outcome"] == "pass"
+    o = outcome_of(run({LH0: {"tables": [table("dbo.raw", files=1840, avg_mb=0.6), table()]}}), "FEA-PERF-003")
     assert o["outcome"] == "fail" and "dbo.raw (1,840 files averaging 0.6 MB)" in o["text"] and o["basis"] == "measured"
-    o = outcome_of(run({"lh0": {"tables": [table(), unread()]}}), "FEA-PERF-003")
+    o = outcome_of(run({LH0: {"tables": [table(), unread()]}}), "FEA-PERF-003")
     assert o["outcome"] == "not_evaluated" and "dbo.gone" in o["text"] and "dbo.gone" in o["needs"]
 
 
 def test_vacuum_pass_fail_and_not_evaluated():
-    assert outcome_of(run({"lh0": {"tables": [table(since_vacuum=29)]}}), "FEA-PERF-004")["outcome"] == "pass"
-    o = outcome_of(run({"lh0": {"tables": [table("dbo.raw", since_vacuum=212, vacuumed=False)]}}), "FEA-PERF-004")
+    assert outcome_of(run({LH0: {"tables": [table(since_vacuum=29)]}}), "FEA-PERF-004")["outcome"] == "pass"
+    o = outcome_of(run({LH0: {"tables": [table("dbo.raw", since_vacuum=212, vacuumed=False)]}}), "FEA-PERF-004")
     assert o["outcome"] == "fail" and "212 versions, never vacuumed" in o["text"]
-    o = outcome_of(run({"lh0": {"tables": [table()], "past_budget": 3}}), "FEA-PERF-004")
+    o = outcome_of(run({LH0: {"tables": [table()], "past_budget": 3}}), "FEA-PERF-004")
     assert o["outcome"] == "not_evaluated" and "3 tables past" in o["text"]
 
 
 def test_delta_features_pass_fail_and_not_evaluated():
     # Deletion vectors and column mapping by name: the SQL endpoint and Direct Lake read both.
-    ok = run({"lh0": {"tables": [table(features=[dp.DELETION_VECTORS, dp.CM_NAME])]}})
+    ok = run({LH0: {"tables": [table(features=[dp.DELETION_VECTORS, dp.CM_NAME])]}})
     assert outcome_of(ok, "FEA-PERF-005")["outcome"] == "pass"
-    o = outcome_of(run({"lh0": {"tables": [table("dbo.notes", features=[dp.CM_ID])]}}), "FEA-PERF-005")
+    o = outcome_of(run({LH0: {"tables": [table("dbo.notes", features=[dp.CM_ID])]}}), "FEA-PERF-005")
     assert o["outcome"] == "fail" and "dbo.notes (column mapping by ID)" in o["text"]
     # No source says whether they read V2 checkpoints: not decided either way.
-    o = outcome_of(run({"lh0": {"tables": [table(features=[dp.V2_CHECKPOINTS])]}}), "FEA-PERF-005")
+    o = outcome_of(run({LH0: {"tables": [table(features=[dp.V2_CHECKPOINTS])]}}), "FEA-PERF-005")
     assert o["outcome"] == "not_evaluated" and "V2 checkpoints" in o["text"]
-    assert outcome_of(run({"lh0": {"tables": [unread()]}}), "FEA-PERF-005")["outcome"] == "not_evaluated"
+    assert outcome_of(run({LH0: {"tables": [unread()]}}), "FEA-PERF-005")["outcome"] == "not_evaluated"
 
 
 def test_a_failing_table_fails_even_when_another_was_not_read():
-    snap = run({"lh0": {"tables": [table(files=900, avg_mb=1, since_vacuum=40, features=[dp.CM_ID]), unread()]}})
+    snap = run({LH0: {"tables": [table(files=900, avg_mb=1, since_vacuum=40, features=[dp.CM_ID]), unread()]}})
     assert {cid: outcome_of(snap, cid)["outcome"] for cid in IDS} == dict.fromkeys(IDS, "fail")
 
 
 def test_missing_data_is_never_a_pass():
     # The Tables folder wasn't listed (or the lakehouse wasn't read): no evidence.
-    snap = run({"lh0": None})
+    snap = run({LH0: None})
     for cid in IDS:
         o = outcome_of(snap, cid)
         assert o["outcome"] == "not_evaluated" and "lakehouse.tables" in o["needs"]
     snap = run({})
     assert {outcome_of(snap, cid)["outcome"] for cid in IDS} == {"not_evaluated"}
     # Every table's log failed: still not evaluated, never passed.
-    snap = run({"lh0": {"tables": [unread("dbo.a"), unread("dbo.b")]}})
+    snap = run({LH0: {"tables": [unread("dbo.a"), unread("dbo.b")]}})
     assert {outcome_of(snap, cid)["outcome"] for cid in IDS} == {"not_evaluated"}
 
 
 def test_no_tables_staging_and_folders_that_are_not_delta_do_not_apply():
-    empty = run({"lh0": {"tables": []}})
+    empty = run({LH0: {"tables": []}})
     assert {outcome_of(empty, cid)["outcome"] for cid in IDS} == {"not_applicable"}
-    staging = run({"lh0": {"tables": [], "staging": True}})
+    staging = run({LH0: {"tables": [], "staging": True}})
     assert {outcome_of(staging, cid)["outcome"] for cid in IDS} == {"not_applicable"}
     not_delta = perf.table_facts("dbo.csvs", {"exists": False}, [])
-    snap = run({"lh0": {"tables": [not_delta]}})
+    snap = run({LH0: {"tables": [not_delta]}})
     assert {outcome_of(snap, cid)["outcome"] for cid in IDS} == {"not_applicable"}
-    snap = run({"lh0": {"tables": [not_delta, table()]}})
+    snap = run({LH0: {"tables": [not_delta, table()]}})
     assert {outcome_of(snap, cid)["outcome"] for cid in IDS} == {"pass"}
 
 
@@ -179,9 +180,9 @@ class FakeStore:
 
     def list(self, w, lh, directory):
         self.calls.append(("list", lh, directory))
-        if lh == "lh2":
+        if lh == LH2:
             raise RuntimeError("403 Forbidden token=abc.def.ghi")
-        if lh == "lh1" or directory == "Tables/Files":
+        if lh == LH1 or directory == "Tables/Files":
             return []
         if directory == "Tables":
             return [{"name": "dbo", "is_dir": True}]
@@ -218,15 +219,15 @@ def layout_read(r: dict) -> dict:
 
 def test_the_call_reads_tables_through_the_xray_reader_only(make):
     store = FakeStore(broken={"t1"})
-    s = make([lakehouse("lh0"), lakehouse("lh1"), lakehouse("lh2", "LH_Locked")], store)
+    s = make([lakehouse(LH0), lakehouse(LH1), lakehouse(LH2, "LH_Locked")], store)
     r = s.excellence_assess(workspace_id=WSID)
     assert {c[0] for c in s.fake.calls} <= {"get_workspace", "list_items", "list_role_assignments", "list_capacities",
                                             "get_lakehouse"}
     assert {c[0] for c in store.calls} == {"list", "read"}
-    assert outcome_of(r, "FEA-PERF-003", "lh0")["outcome"] == "fail"  # t0 has 400 files of 1 MB
-    assert outcome_of(r, "FEA-PERF-004", "lh0")["outcome"] == "not_evaluated"  # t1 wasn't read
-    assert outcome_of(r, "FEA-PERF-003", "lh1")["outcome"] == "not_applicable"  # no tables
-    assert outcome_of(r, "FEA-PERF-003", "lh2")["outcome"] == "not_evaluated"  # not listed
+    assert outcome_of(r, "FEA-PERF-003", LH0)["outcome"] == "fail"  # t0 has 400 files of 1 MB
+    assert outcome_of(r, "FEA-PERF-004", LH0)["outcome"] == "not_evaluated"  # t1 wasn't read
+    assert outcome_of(r, "FEA-PERF-003", LH1)["outcome"] == "not_applicable"  # no tables
+    assert outcome_of(r, "FEA-PERF-003", LH2)["outcome"] == "not_evaluated"  # not listed
     got = layout_read(r)
     assert got["ok"] is False and "LH_Locked" in got["problem"] and "1 of 2 table logs" in got["problem"]
     assert "abc.def.ghi" not in json.dumps(r)
@@ -235,22 +236,22 @@ def test_the_call_reads_tables_through_the_xray_reader_only(make):
 def test_table_reads_are_bounded(make, monkeypatch):
     monkeypatch.setattr(excellence_service, "MAX_TABLE_READS", 3)
     store = FakeStore(tables=5)
-    r = make([lakehouse("lh0")], store).excellence_assess(workspace_id=WSID)
+    r = make([lakehouse(LH0)], store).excellence_assess(workspace_id=WSID)
     assert sum(1 for c in store.calls if c[0] == "read") == 3
     assert "2 tables past the first 3" in layout_read(r)["problem"]
-    o = outcome_of(r, "FEA-PERF-004", "lh0")
+    o = outcome_of(r, "FEA-PERF-004", LH0)
     assert o["outcome"] == "not_evaluated" and "past the assessment's read budget" in o["text"]
 
 
 def test_no_onelake_sign_in_leaves_the_controls_not_evaluated(make):
-    s = make([lakehouse("lh0")], RuntimeError("Sign in again"))
+    s = make([lakehouse(LH0)], RuntimeError("Sign in again"))
     r = s.excellence_assess(workspace_id=WSID)
     assert layout_read(r)["ok"] is False and "Sign in again" in layout_read(r)["problem"]
-    assert {outcome_of(r, cid, "lh0")["outcome"] for cid in IDS} == {"not_evaluated"}
+    assert {outcome_of(r, cid, LH0)["outcome"] for cid in IDS} == {"not_evaluated"}
 
 
 def test_the_demo_shows_performance_without_calling_fabric_or_onelake(make):
-    s = make([lakehouse("lh0")], AssertionError("the demo must not read OneLake"))
+    s = make([lakehouse(LH0)], AssertionError("the demo must not read OneLake"))
     r = s.excellence_assess(demo=True)
     assert s.fake.calls == [] and r["fixture"] is True
     assert not any(x["read"] == "table layout" for x in r["reads"])
@@ -276,3 +277,14 @@ def test_the_onelake_read_is_silent_and_never_prompts(tmp_path):
     s.__dict__["auth"] = _NoPrompt()
     with pytest.raises(PermissionError, match="no OneLake sign-in yet"):
         s._excellence_onelake()
+
+
+def test_a_lakehouse_id_that_isnt_a_guid_never_reaches_onelake(make):
+    """An item id goes into the OneLake URL and the table's address: one that isn't a GUID (here a path
+    that steps out of the lakehouse) is never listed or read, and its controls are not evaluated."""
+    store = FakeStore()
+    bad = "../" + LH0
+    r = make([lakehouse(bad, "LH_Odd"), lakehouse(LH0)], store).excellence_assess(workspace_id=WSID)
+    assert not any(c[1] == bad for c in store.calls) and any(c[1] == LH0 for c in store.calls)
+    assert {outcome_of(r, cid, bad)["outcome"] for cid in IDS} == {"not_evaluated"}
+    assert "LH_Odd" in layout_read(r)["problem"]

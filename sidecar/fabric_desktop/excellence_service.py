@@ -280,7 +280,8 @@ class ExcellenceMixin:
                 got[lid] = {"tables": [], "staging": True}
                 continue
             try:
-                names = _table_names(store, wid, lid)
+                # the id goes into the OneLake URL and the table's address: only a GUID is used there
+                names = _table_names(store, wid, _guid(lid, "lakehouse"))
             except Exception as exc:  # noqa: BLE001 - that lakehouse's controls are then not evaluated
                 problems.append(f"{name} ({describe(exc)})")
                 continue

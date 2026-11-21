@@ -1734,9 +1734,10 @@ class Kernel:
             proof.restore()
 
     def finish_proof(self, modules: list[str]) -> dict[str, Any]:
-        if self._proof is None:
+        proof: ProofRuntime | None = getattr(self, "_proof", None)  # unset until a proof is first bound
+        if proof is None:
             raise RuntimeError("No proof is running in this session.")
-        log = self._proof.finish(modules)
+        log = proof.finish(modules)
         self._proof = None
         return log
 

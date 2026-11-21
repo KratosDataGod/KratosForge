@@ -102,7 +102,7 @@ def _check(e: dict[str, Any]) -> dict[str, Any]:
         if rcls == ms.SCENARIO or rcls not in _STRENGTH:
             raise ValueError(f"{kind.capitalize()} {eid} doesn't say what its layer is afterwards.")
         result = e.get("result_cu_hours")
-        if (rcls == ms.UNKNOWN or e.get("layer_removed")) != (result is None):
+        if bool(rcls == ms.UNKNOWN or e.get("layer_removed")) != (result is None):
             raise ValueError(f"{kind.capitalize()} {eid} has a result figure that doesn't fit its classification.")
         if result is not None:
             _number(result, f"result of {kind} {eid}")

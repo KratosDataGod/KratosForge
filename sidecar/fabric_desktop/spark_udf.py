@@ -148,6 +148,9 @@ class UserDefinedFunction:
     def _arrow(self) -> Callable[..., Any]:
         import pyarrow as pa
         func, dt, iterator = self.func, self.returnType, self._iterator
+        T = _types()
+        decimal_hint = (f"Decimal values with at most {getattr(dt, 'scale', 0)} digits after the point "
+                        f"(round with Decimal.quantize)")
 
         def call(*arrays: Any) -> Any:
             series = [a.to_pandas() for a in arrays]
@@ -161,10 +164,11 @@ class UserDefinedFunction:
             if not hasattr(out, "__len__") or isinstance(out, (str, bytes)) or len(out) != n:
                 raise RuntimeError(f"The pandas_udf {self.__name__} returned {len(out) if hasattr(out, '__len__') else 'one value'} "
                                    f"for {n} rows. A scalar pandas_udf returns a Series as long as its input.")
-            if isinstance(dt, _numeric_types()):
+            if isinstance(dt, (*_numeric_types(), T.DecimalType)):
                 # As Spark converts a pandas_udf's numbers (pa.Array.from_pandas, safe off by default):
                 # a null in an int Series makes it float, and 2.0 is still 2; a float is cut to a whole
-                # number and a whole number wraps into a smaller type, as Arrow casts them.
+                # number and a whole number wraps into a smaller type, as Arrow casts them. A decimal
+                # takes only Decimal values that fit its scale; floats and ints stop, as they do in Spark.
                 import pandas as pd
                 series = out if isinstance(out, pd.Series) else pd.Series(list(out), dtype=object)
                 try:
@@ -176,7 +180,8 @@ class UserDefinedFunction:
                         f"The pandas_udf {self.__name__} returned values that aren't {cast(Any, dt).simpleString()}, so the "
                         f"cell stopped, as it does in Fabric (\"Exception thrown when converting pandas.Series "
                         f"({series.dtype}) to Arrow Array ({_arrow_type(dt)})\"). Return "
-                        f"numbers, or change the pandas_udf's return type.") from exc
+                        f"{decimal_hint if isinstance(dt, T.DecimalType) else 'numbers'}, or change the pandas_udf's "
+                        f"return type.") from exc
             values = [_fits(None if _isnull(v) else _plain(v), dt) for v in list(out)]
             return pa.array(values, type=_arrow_type(dt))
         return call

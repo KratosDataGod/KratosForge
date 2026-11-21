@@ -28,7 +28,9 @@ Results, per measure row:
   side's values are evidence for the 006d comparison, never a match.
 - a row L1 or L2 already found worse (Different results, Unsupported, Test failed) keeps that result; L3 never
   improves on it, but different values still mark the row Different results (never a Test failed row). A SQL
-  query that DuckDB refuses on a dataset is that value's error, compared like a value.
+  query that DuckDB refuses on a dataset never verifies: refused on both sides, the row keeps its L2 result with a
+  note; refused on one side only, the row is Different results. SUM and AVERAGE over a text, Boolean, date or time
+  column aren't run (DuckDB's type rules there aren't DAX's or T-SQL's).
 
 Tolerances are configuration (``DEFAULT_TOLERANCES_L3``, stated in the report): ``absolute`` and ``relative``, a
 pair of numbers is within tolerance when ``|a - b| <= max(absolute, relative * max(|a|, |b|))``. Exact equality is
@@ -111,6 +113,8 @@ SCENARIOS: dict[str, dict[str, list[str | None]]] = {
 }
 _SQL_AGG = {"SUM": "SUM({})", "AVERAGE": "AVG({})", "MIN": "MIN({})", "MAX": "MAX({})", "COUNT": "COUNT({})",
             "DISTINCTCOUNTNOBLANK": "COUNT(DISTINCT {})"}
+_NUMERIC_AGG = frozenset({"SUM", "AVERAGE"})  # DuckDB sums a Boolean; DAX and T-SQL refuse it, so it isn't run
+_NUMERIC_CLASSES = frozenset({"int", "dec", "num"})
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -218,6 +222,9 @@ class _Run:
             if t[1] not in _SQL_AGG:
                 raise _NotRun(f"{t[1]} has no SQL form")
             where = self.column(t[2], t[3])
+            if t[1] in _NUMERIC_AGG and self.columns[(t[2], t[3])][0] not in _NUMERIC_CLASSES:
+                raise _NotRun(f"{t[1]} over {self.columns[(t[2], t[3])][0]} column {mo._short(t[2])}"
+                              f"[{mo._short(t[3])}]: DuckDB's type rules here aren't DAX's or T-SQL's")
             return f"(SELECT {_SQL_AGG[t[1]].format(_q(t[3]))} FROM {where})"
         if not any(table == t[1] for table, _ in self.types):
             raise _NotRun(f"the {self.side.which} side has no columns for table {mo._short(t[1])}")
@@ -279,6 +286,7 @@ def _connect() -> Any:
 
     con = duckdb.connect(":memory:", config={"threads": 1, "enable_external_access": False})
     con.execute("SET autoload_known_extensions = false")
+    con.execute("SET lock_configuration = true")  # nothing later on this connection can loosen the settings above
     return con
 
 
@@ -423,6 +431,20 @@ def _judge(o: dict[str, Any], behavior: dict[str, Any], tol: dict[str, Any]) -> 
         o["notes"] = o["notes"] + ([f"L3 ran the {ran[0]} side's SQL only; its values are evidence, not a match"]
                                    if ran else ["L3 ran neither side"])
         return
+    refused = [n for n in SCENARIOS if any(str(b["results"].get(n)).startswith("error:") for b in (left, right))]
+    if refused:  # a refusal never verifies: equal error texts aren't equal behavior
+        one_sided = [n for n in refused if str(left["results"].get(n)).startswith("error:")
+                     != str(right["results"].get(n)).startswith("error:")]
+        both = len(refused) - len(one_sided)
+        if both:
+            o["notes"] = o["notes"] + [(f"DuckDB refused both sides' query on {both} of {len(SCENARIOS)} datasets; "
+                                        "L3 verifies nothing about this measure")]
+        if one_sided:
+            o["behavior_result"] = sp.DIFFERENT
+            o["changes"] = o["changes"] + [f"on the {n} dataset only one side's query ran" for n in one_sided]
+            if o["result"] != sp.TEST_FAILED:
+                o["result"] = sp.DIFFERENT
+        return
     verdicts = {name: _close(left["results"].get(name), right["results"].get(name), tol["values"])
                 for name in SCENARIOS}
     tol["used"] = True
@@ -442,7 +464,8 @@ def _judge(o: dict[str, Any], behavior: dict[str, Any], tol: dict[str, Any]) -> 
     elif found == sp.DIFFERENT and o["result"] != sp.TEST_FAILED:
         o["result"] = sp.DIFFERENT
     if found in (sp.VERIFIED, sp.WITHIN_TOLERANCE):
-        o["notes"] = o["notes"] + [_ON_DATASETS]
+        notes = [n for n in o["notes"] if n != sp._NO_QUERY] if o["result"] == found else o["notes"]
+        o["notes"] = notes + [_ON_DATASETS]
 
 
 def redacted(report: dict[str, Any]) -> dict[str, Any]:

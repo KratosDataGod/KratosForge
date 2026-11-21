@@ -146,13 +146,40 @@ def test_a_zero_divisor_guarded_by_nullif_is_null():
 
 
 def test_a_worse_l2_result_stands_whatever_l3_finds():
-    bim = _model("SUM('fact_sales'[amount])")
-    doc = _ossie(bim, "SUM(amount)")
-    m = _measure(l3.parity_l3(doc, _typed(doc, "amount", "Float"), tolerances={"relative": 1}))
-    column = next(o for o in l3.parity_l3(doc, _typed(doc, "amount", "Float"))["objects"]
-                  if o["kind"] == "column" and o["id"].endswith("'amount'"))
-    assert column["result"] == sp.DIFFERENT and "behavior" not in column
-    assert m["result"] in (sp.VERIFIED, sp.WITHIN_TOLERANCE)
+    for worse in (sp.DIFFERENT, sp.UNSUPPORTED, sp.TEST_FAILED):
+        o = _row(worse)
+        l3._judge(o, _ran({"basic": "1"}, {"basic": "1"}), l3._tolerances(None))
+        assert o["result"] == worse and o["behavior_result"] == sp.VERIFIED
+
+
+def _row(result=sp.COMPATIBLE):
+    return {"result": result, "notes": [sp._NO_QUERY], "changes": []}
+
+
+def _ran(left, right):
+    every = dict.fromkeys(l3.SCENARIOS, "1")
+    return {"left": {"ran": True, "results": {**every, **left}}, "right": {"ran": True, "results": {**every, **right}}}
+
+
+def test_a_query_refused_on_both_sides_never_verifies():
+    o = _row()
+    l3._judge(o, _ran({"basic": "error: BinderException"}, {"basic": "error: BinderException"}),
+              l3._tolerances(None))
+    assert o["result"] == sp.COMPATIBLE and "behavior_result" not in o
+    assert any("verifies nothing" in n for n in o["notes"]) and l3._ON_DATASETS not in o["notes"]
+
+
+def test_a_query_refused_on_one_side_only_is_different():
+    o = _row()
+    l3._judge(o, _ran({"basic": "error: BinderException"}, {}), l3._tolerances(None))
+    assert o["result"] == sp.DIFFERENT and o["behavior_result"] == sp.DIFFERENT
+    assert o["changes"] == ["on the basic dataset only one side's query ran"]
+
+
+def test_a_promoted_row_drops_the_l2_no_query_note():
+    o = _row()
+    l3._judge(o, _ran({}, {}), l3._tolerances(None))
+    assert o["result"] == sp.VERIFIED and sp._NO_QUERY not in o["notes"] and l3._ON_DATASETS in o["notes"]
 
 
 def test_a_measure_reference_runs_the_referenced_measure():
@@ -174,11 +201,21 @@ def test_a_type_with_no_controlled_values_is_not_run_with_the_reason():
     assert "behavior_result" not in m and m["result"] != sp.VERIFIED
 
 
-def test_sum_of_text_is_the_engines_error_compared_as_a_value():
-    bim = _model("SUM('fact_sales'[amount])")
-    doc = _typed(_ossie(bim, "SUM(amount)"), "amount", "String")
+@pytest.mark.parametrize("datatype", ["String", "Boolean", "Date"])
+@pytest.mark.parametrize(("dax", "sql"), [("SUM", "SUM"), ("AVERAGE", "AVG")])
+def test_sum_or_average_of_a_non_number_is_not_run_or_verified(datatype, dax, sql):
+    bim = _model(f"{dax}('fact_sales'[amount])")
+    doc = _typed(_ossie(bim, f"{sql}(amount)"), "amount", datatype)
     m = _measure(l3.parity_l3(doc, copy.deepcopy(doc)))
-    assert all(v is None or v.startswith("error:") for v in m["behavior"]["left"]["results"].values())
+    assert not m["behavior"]["left"]["ran"] and "type rules" in m["behavior"]["left"]["reason"]
+    assert m["result"] not in (sp.VERIFIED, sp.WITHIN_TOLERANCE)
+
+
+def test_sum_against_average_of_text_is_never_verified():
+    bim = _model("SUM('fact_sales'[amount])")
+    left = _typed(_ossie(bim, "SUM(amount)"), "amount", "String")
+    right = _typed(_ossie(bim, "AVG(amount)"), "amount", "String")
+    assert _measure(l3.parity_l3(left, right))["result"] not in (sp.VERIFIED, sp.WITHIN_TOLERANCE)
 
 
 def test_the_same_input_gives_the_same_report():
@@ -257,12 +294,14 @@ def test_a_diamond_chain_of_measure_references_computes_each_measure_once():
     assert _measure(report, "d8")["result"] == sp.VERIFIED
 
 
-def test_a_measure_that_errors_passes_its_error_to_the_measures_that_read_it():
+def test_a_measure_that_errors_passes_its_error_to_the_measures_that_read_it(monkeypatch):
+    monkeypatch.setattr(l3, "_NUMERIC_AGG", frozenset())  # let DuckDB refuse SUM over text at run time
     bim = _model("SUM('fact_sales'[amount])")
     doc = _typed(_ossie(bim, "SUM(amount)"), "amount", "String")
     doc["metrics"].append({"name": "n", "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "m"}]}})
-    results = _measure(l3.parity_l3(doc, copy.deepcopy(doc)), "n")["behavior"]["left"]["results"]
-    assert results["basic"].startswith("error:")
+    report = l3.parity_l3(doc, copy.deepcopy(doc))
+    assert _measure(report, "n")["behavior"]["left"]["results"]["basic"].startswith("error:")
+    assert {_measure(report, k)["result"] for k in ("m", "n")} == {sp.COMPATIBLE}  # same refusals never verify
 
 
 def test_the_aggregates_one_side_runs_are_capped_in_all(monkeypatch):

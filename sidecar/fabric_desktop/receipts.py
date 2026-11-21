@@ -24,7 +24,9 @@ import math
 import os
 import re
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
+
+from .redact import KEEP, rebuild
 
 SCHEMA = "fabric-desktop/run-receipt@1"
 _ID = re.compile(r"^[0-9a-f]{64}$")
@@ -39,19 +41,26 @@ class ReceiptError(Exception):
 
 def canonical(body: dict[str, Any]) -> bytes:
     """The bytes a receipt is hashed over: sorted keys, no whitespace, UTF-8, no NaN or infinity."""
-    def check(v: Any) -> None:
-        if isinstance(v, float) and not math.isfinite(v):
-            raise ReceiptError("A receipt can't hold NaN or infinity; record them as null with a note.")
-        if isinstance(v, dict):
-            for k, x in v.items():
-                if not isinstance(k, str):
-                    raise ReceiptError("Receipt keys must be text.")
-                check(x)
-        elif isinstance(v, (list, tuple)):
-            for x in v:
-                check(x)
-    check(body)
-    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    stack: list[Iterator[tuple[Any, Any]]] = [iter([("", body)])]  # a stack, so a body nested thousands deep is checked too
+    while stack:
+        for k, v in stack[-1]:
+            if not isinstance(k, str):
+                raise ReceiptError("Receipt keys must be text.")
+            if isinstance(v, float) and not math.isfinite(v):
+                raise ReceiptError("A receipt can't hold NaN or infinity; record them as null with a note.")
+            if isinstance(v, dict):
+                stack.append(iter(v.items()))
+                break
+            if isinstance(v, (list, tuple)):
+                stack.append(("", x) for x in v)
+                break
+        else:
+            stack.pop()
+    try:
+        text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except RecursionError:
+        raise ReceiptError("A receipt can't be nested too deeply to write as JSON.") from None
+    return text.encode("utf-8")
 
 
 def receipt_id(body: dict[str, Any]) -> str:
@@ -158,27 +167,15 @@ def redact(receipt: dict[str, Any], hide: Iterable[str]) -> dict[str, Any]:
     if unknown:
         raise ValueError(f"Can't redact {', '.join(sorted(unknown))}. Choose from {', '.join(REDACTIONS)}.")
     out = json.loads(json.dumps(receipt))
+    located = ("workspace_id", "workspace_name", "lakehouse_id", "lakehouse_name", "workspace", "uri", "url", "item_id")
 
-    def walk(v: Any, path: tuple[str, ...]) -> Any:
-        if isinstance(v, dict):
-            res = {}
-            for k, x in v.items():
-                if "identity" in hide and k == "identity":
-                    res[k] = "hidden"
-                elif "locations" in hide and k in ("workspace_id", "workspace_name", "lakehouse_id", "lakehouse_name",
-                                                   "workspace", "uri", "url", "item_id"):
-                    res[k] = "hidden"
-                elif "values" in hide and k in ("examples", "sample", "rows_sample"):
-                    res[k] = "hidden"
-                elif "machine" in hide and k in ("machine", "host"):
-                    res[k] = "hidden"
-                else:
-                    res[k] = walk(x, path + (k,))
-            return res
-        if isinstance(v, list):
-            return [walk(x, path) for x in v]
-        return v
-    return walk(out, ())
+    def field(k: Any, _v: Any) -> Any:
+        if ("identity" in hide and k == "identity" or "locations" in hide and k in located
+                or "values" in hide and k in ("examples", "sample", "rows_sample")
+                or "machine" in hide and k in ("machine", "host")):
+            return "hidden"
+        return KEEP
+    return rebuild(out, lambda v: v, field=field)  # a stack, not recursion: a receipt can be nested thousands deep
 
 
 def _fmt(v: Any) -> str:

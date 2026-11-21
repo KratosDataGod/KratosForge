@@ -68,6 +68,15 @@ def test_a_receipt_is_verified_only_when_it_still_hashes_to_its_id():
     assert not release.verified(json.dumps([1, 2]), "x")
 
 
+def test_a_stored_receipt_nested_deeply_or_holding_nan_is_not_verified_rather_than_an_error():
+    deep = '{"a":' + "[" * 9000 + "]" * 9000 + "}"
+    body = json.loads(deep)
+    assert release.verified(deep, receipts.receipt_id(body))
+    assert not release.verified(deep, "0" * 64)
+    assert not release.verified('{"a":' + "[" * 9990 + "]" * 9990 + "}", "0" * 64)
+    assert not release.verified('{"a": NaN}', "0" * 64)
+
+
 def test_committed_files_are_the_last_commits_text_files_with_the_suffix_asked_for(repo):
     (repo / "metadata" / "a.toml").write_text("changed since", encoding="utf-8")  # the commit's text, not the folder's
     assert release.committed(repo, "metadata", ".toml") == {"metadata/a.toml": "name = 'a'\n"}

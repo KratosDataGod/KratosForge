@@ -175,7 +175,7 @@ def verified(receipt: str | None, rid: str | None) -> bool:
         return False
     try:
         return receipts.receipt_id(json.loads(receipt)) == rid
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, RecursionError, receipts.ReceiptError):  # a row from the database
         return False
 
 

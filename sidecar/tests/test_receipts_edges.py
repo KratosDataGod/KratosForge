@@ -46,3 +46,44 @@ def test_an_html_report_that_ends_on_a_table_closes_it():
     page = receipts.to_html(body, receipts.receipt_id(body))
     assert page.count("<table>") == page.count("</table>") == 1
     assert page.index("</table>") > page.index("gold.sales")
+
+
+def test_canonical_checks_every_level_and_redaction_reaches_every_level():
+    nested = {"b": [1, {"x": float("nan")}], "a": 1}
+    with pytest.raises(receipts.ReceiptError, match="NaN"):
+        receipts.canonical(nested)
+    with pytest.raises(receipts.ReceiptError, match="keys must be text"):
+        receipts.canonical({"a": [({1: 2},)]})
+    assert receipts.canonical({"b": [(1, 2), {"y": None}], "a": "é"}) == '{"a":"é","b":[[1,2],{"y":null}]}'.encode()
+    body = {"identity": {"user": "u"}, "outputs": [{"examples": [1], "host": "h", "keep": {"uri": "x", "n": [1, {"machine": 2}]}}],
+            "workspace": "w", "z": (1, 2)}
+    assert receipts.redact(body, ["identity", "locations", "values", "machine"]) == {
+        "identity": "hidden", "outputs": [{"examples": "hidden", "host": "hidden", "keep": {"uri": "hidden", "n": [1, {"machine": "hidden"}]}}],
+        "workspace": "hidden", "z": [1, 2]}
+    assert receipts.redact(body, []) == {"identity": {"user": "u"}, "outputs": [{"examples": [1], "host": "h",
+                                         "keep": {"uri": "x", "n": [1, {"machine": 2}]}}], "workspace": "w", "z": [1, 2]}
+
+
+def test_a_receipt_nested_thousands_deep_is_stored_redacted_and_checked_without_overflowing(tmp_path):
+    deep: object = "secret"
+    for _ in range(3000):
+        deep = {"host": "h", "n": [deep]}
+    body = receipts.new_receipt("proof", notebook={"name": "n", "parameters": {"p": deep}})
+    store = receipts.ReceiptStore(tmp_path)
+    rid = store.put(body)
+    assert store.verify(store.get(rid), rid)
+    out = receipts.redact(store.get(rid), ["machine"])["notebook"]["parameters"]["p"]
+    for _ in range(3000):
+        assert out["host"] == "hidden"
+        out = out["n"][0]
+    assert out == "secret"
+    bad = {"n": [float("inf")]}
+    for _ in range(3000):
+        bad = {"n": [bad]}
+    with pytest.raises(receipts.ReceiptError, match="NaN"):
+        receipts.canonical(bad)
+    too_deep: object = 1
+    for _ in range(200_000):
+        too_deep = [too_deep]
+    with pytest.raises(receipts.ReceiptError, match="nested too deeply"):
+        receipts.canonical({"x": too_deep})

@@ -123,6 +123,22 @@ The tests that stand in for Fabric use fakes. A fake that accepts what Fabric re
 
 When a live run finds a new refusal, add it there with the run it came from, and add a row here.
 
+## KratosForge Environment live run (CP-012)
+
+The [KratosForge Environment](user-guide.md#kratosforge-environment-preview) stays Preview until this run is recorded. It runs only in the test workspace `kf_tenant_test`, never a Prod workspace, and only after the product owner types the go for it. It runs on a PC that is signed in to KratosForge, from a separate worktree of `main`.
+
+Part 1, one PC:
+
+1. `cp_discover()` finds `kf_tenant_test`; `cp_plan` for a new lakehouse in it (`KratosForgeLakehouse_cp012`). Nothing may be blocked, and `typed_name` must be empty (the workspace isn't marked Prod).
+2. `cp_create(token, confirmed=True)` creates the lakehouse, the shared tables and the manifest. No workspace is created.
+3. `cp_check()` says Connected; `cp_discover(kf_tenant_test)` lists the environment; `cp_upgrade_plan()` says there's nothing to upgrade; `cp_cost(days=7)` reads.
+4. The manifest (`Files/_kratosforge/environment.json`) holds ids and versions only: no secret, email or name of a person.
+5. `cp_disconnect`, `cp_connect`, `cp_disconnect`: the PC is left as it was.
+
+Part 2, a second installation and a reader (needs its own go): connect a second installation, write optimization rows from both, read them from each, and try a write from an account that isn't a workspace member, which Fabric must refuse.
+
+The lakehouse is left in place; deleting it is a separate, confirmed step. Each run's outputs (secrets redacted), timings and any refusal go in [platforms.md](platforms.md#live-runs), and a refusal the fakes accepted becomes a row in the table above.
+
 ## What it doesn't check yet
 
 - Schedules, and running pipelines (the pipeline check reads and writes a definition; it doesn't run it).

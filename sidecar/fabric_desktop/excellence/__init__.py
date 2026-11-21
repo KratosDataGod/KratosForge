@@ -10,6 +10,8 @@ fixture. The plan is docs/product/fabric-excellence-assessment-plan.md.
 - :mod:`.scoring`   dimension and overall scores, coverage, assured score, rating, Critical Risk
 - :mod:`.findings`  the finding record built from a failed control
 - :mod:`.assess`    one assessment run, its snapshot, rescoring and comparison
+- :mod:`.trends`    transitions, regressions and score deltas across many snapshots (FEA-603)
+- :mod:`.portfolio` a capacity's score from its workspaces' control outcomes, not their scores (FEA-503)
 
 Rules every part keeps: a control that couldn't be checked is *not evaluated*, never passed; a pass or
 a fail must cite the evidence it rests on; inferred evidence is advisory unless a control says why it

@@ -132,6 +132,32 @@ Comparing two snapshots gives score changes and new, resolved and recurring find
 used a different profile or rules, the comparison says so, because the change may come from the policy
 rather than the environment.
 
+### Trends and capacity scores (engine only, not on screen yet)
+
+Two engine functions are built and tested but nothing on screen or over RPC uses them yet, because
+snapshots aren't stored yet (FEA-501).
+
+**Trends** (`excellence/trends.py`, FEA-603) take any number of snapshots of the same scope, up to 100,
+order them by time and, step by step, classify each control on each resource against the last result
+that was decided (pass or fail): new failure, regressed (pass to fail), recurring, resolved, newly
+passing, newly not evaluated, no longer applicable, or no longer assessed. A control that failed and is
+now not evaluated, turned off or gone is **never resolved**: missing evidence can't look like a fix, so
+it stays listed as an unverified failure until a pass is seen. Each step gives the change in score,
+assured score and coverage, overall and per dimension. When the score moved only because a different
+set of controls could be checked (no control checked both times changed its result), the step says
+so; compare the assured score then. A step whose snapshots used a different profile, rules, scope or
+fixture flag is marked not comparable, with the reasons. Malformed snapshots, scores that aren't
+finite numbers and two snapshots with the same timestamp are refused.
+
+**Capacity scores** (`excellence/portfolio.py`, FEA-503) pool the outcomes that bear on one capacity
+and score them with the same formulas as any assessment. They are **not an average of workspace
+scores**. The outcomes are the capacity's own controls and the Capacity and FinOps and Performance
+controls on the workspaces the caller names as on that capacity, and on their items, each from the
+latest snapshot that assessed it. A listed workspace, or the capacity, that no snapshot assessed counts
+as not evaluated for each of those controls, so a capacity with little evidence has low coverage and
+no rating rather than a healthy score. The findings shown are the snapshots' own; nothing new is made.
+Snapshots made with another profile or other rule versions are refused rather than mixed.
+
 ## Findings
 
 A failed control gives a finding with: title, affected resource, severity, dimension, what was
@@ -287,8 +313,9 @@ again or leave the app; snapshots aren't saved yet, so there is no trend or comp
 
 ## Limitations
 
-- Snapshots aren't stored yet, so the scorecard has no trend arrows and no "Compare with an earlier
-  one". The engine can already compare two snapshots.
+- Snapshots aren't stored yet, so the scorecard has no trend arrows, no "Compare with an earlier
+  one" and no capacity score. The engine can already compare snapshots, find regressions across
+  them and score a capacity from its workspaces' outcomes.
 - The first controls cover what the app already reads. Estate X-ray (table layout), governance checks,
   the semantic model checks that need data, and more DevOps and reliability controls come in later
   stories; until then those dimensions show as not applicable or not evaluated, never as passing.

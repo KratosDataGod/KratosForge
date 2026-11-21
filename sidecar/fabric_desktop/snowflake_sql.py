@@ -21,7 +21,9 @@ import json
 import re
 import uuid
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any, cast
 
 import sqlglot
@@ -30,7 +32,7 @@ from sqlglot.errors import ParseError, SqlglotError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.20"
+RULES_VERSION = "2026.11.21"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -61,10 +63,18 @@ class StatementReport:
                 "notes": [n.as_dict() for n in self.notes]}
 
 
+# What a cell knows of the session's tables, for SFX-032: (schema, table), both lower case, to each column's name
+# (lower case) and kind, in the table's order. A kind is TIMESTAMP_TZ or TIMESTAMP_LTZ for a column a Snowflake
+# cell made with that type, ZONED for a DuckDB TIMESTAMPTZ column whose Snowflake type isn't known, or OTHER.
+Tables = Mapping[tuple[str, str], tuple[tuple[str, str], ...]]
+
+
 @dataclass(frozen=True)
 class Translation:
     statements: tuple[StatementReport, ...]
     rules_version: str = RULES_VERSION
+    # the tables as they are after the cell, if every statement runs (SFX-032); not part of the label
+    tables: tuple[tuple[tuple[str, str], tuple[tuple[str, str], ...]], ...] = dataclass_field(default=(), compare=False)
 
     @property
     def runnable(self) -> bool:
@@ -110,15 +120,19 @@ def _n(id: str, title: str, reason: str, action: str, source: str = "") -> Note:
 
 
 SFD_CASE = _n("SFD-001", "A column made by an expression keeps DuckDB's name",
-              "Snowflake stores an unquoted name in upper case, and so does this PC (SFX-030). A column of CREATE "
-              "TABLE ... AS or CREATE VIEW made by an expression with no alias (a + 1) gets a name Snowflake writes "
-              "its own way; here it keeps DuckDB's.",
+              "Snowflake stores and resolves an unquoted name in upper case, and so does this PC (SFX-030, SFX-031). "
+              "A column made by an expression with no alias (a + 1) gets a name Snowflake writes its own way; here "
+              "it keeps DuckDB's. Raised for CREATE TABLE ... AS and CREATE VIEW, where the name is stored; a "
+              "query's result shows such a column under DuckDB's name too.",
               "Give such a column an alias.",
               f"{_DOCS}/identifiers-syntax")
 SFD_TZ = _n("SFD-002", "TIMESTAMP_TZ loses its offset",
             "DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value "
-            "is lost. Raised for a TIMESTAMP_TZ column, and a TIMESTAMP_TZ made from a number; TO_TIMESTAMP_TZ, "
-            "TRY_TO_TIMESTAMP_TZ and a cast to TIMESTAMP_TZ check the offset instead (SFX-029, SFN-033).",
+            "is lost. Raised for a TIMESTAMP_TZ column, a TIMESTAMP_TZ made from a number, and an INSERT, UPDATE "
+            "or MERGE that writes a value other than text to a TIMESTAMP_TZ column (or to a timestamp column "
+            "with a time zone that no Snowflake cell in this session made); TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ, "
+            "a cast to TIMESTAMP_TZ and text written to a TIMESTAMP_TZ column check the offset instead (SFX-029, "
+            "SFX-032, SFN-033).",
             "Compare instants, not offsets.", f"{_DOCS}/data-types-datetime")
 SFD_DIV = _n("SFD-003", "Division returns DOUBLE",
              "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules.",
@@ -144,10 +158,10 @@ SFD_BRACKET = _n("SFD-009", "[i] on a value whose type isn't known",
                  "or check the result.", f"{_DOCS}/data-types-semistructured")
 SFD_TYPEOF = _n("SFD-007", "TYPEOF can't always name Snowflake's type",
                 "TYPEOF gives Snowflake's type names here (SFX-009). A JSON number with a fraction or an "
-                "exponent that isn't read from PARSE_JSON of text written in the query stops the query (SFN-034). "
-                "A type with no single Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or "
-                "TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't "
-                "known here: a column, a path or a computed value.",
+                "exponent that isn't read from PARSE_JSON of text written in the query stops the query (SFN-034), "
+                "and so does a timestamp with a time zone whose Snowflake type isn't known (SFN-035). A type with "
+                "no Snowflake name keeps DuckDB's name (INTERVAL, UUID, STRUCT, MAP). Raised when the value's type "
+                "isn't known here: a column, a path or a computed value.",
                 "Don't branch on TYPEOF's text for those values in code meant for both; TYPEOF(PARSE_JSON(...)) "
                 "and TYPEOF of a cast are named as in Snowflake.", f"{_DOCS}/functions/typeof")
 
@@ -241,6 +255,13 @@ _JSON_FRACTION = _refuse(
     "way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER "
     "of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a "
     "TO_VARIANT value they run.", f"{_DOCS}/functions/is_decimal")
+
+# SFN-035 (2026.11.21): TYPEOF of a timestamp with a time zone gave DuckDB's name (SFD-007 in part).
+_ZONED_TYPEOF = _refuse(
+    "SFN-035", "TYPEOF of a timestamp with a time zone", "Snowflake's TYPEOF names TIMESTAMP_TZ and TIMESTAMP_LTZ "
+    "apart; DuckDB keeps both as one type, so TYPEOF of such a value from a column or a computed value stops. "
+    "TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or CURRENT_TIMESTAMP runs.",
+    f"{_DOCS}/functions/is_timestamp")
 
 
 # ---------------------------------------------------------------- reading
@@ -456,11 +477,32 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
             return _refuse("SFN-012", "Cortex AI functions", "Cortex runs models in Snowflake.")
         if isinstance(node, exp.Cast) and node.to.this == exp.DataType.Type.TIMESTAMPTZ \
                 and isinstance(node.this, exp.Literal) and node.this.is_string \
-                and re.search(r"\s[+-]\d{2}:?\d{2}$", node.this.name):
-            return _refuse("SFN-013", "TIMESTAMP_TZ text with an offset", "DuckDB can't read an offset written "
-                           "after a space ('2026-01-01 10:00:00 +05:00'): it takes it for a time zone name.",
-                           f"{_DOCS}/data-types-datetime")
+                and _SPACED_OFFSET_TEXT.search(node.this.name) and not _typeof_argument(node):
+            return _SPACED_OFFSET
     return None
+
+
+_SPACED_OFFSET_TEXT = re.compile(r"\s([+-]\d{2}:?\d{2})$")
+
+
+def _typeof_argument(node: exp.Expression) -> bool:
+    """Whether ``node`` is what TYPEOF names (inside TO_VARIANT or a cast to VARIANT): SFX-009 needs only its
+    type, so an offset DuckDB can't read in it doesn't matter."""
+    parent = node.parent
+    while isinstance(parent, exp.ToVariant) or (isinstance(parent, (exp.Cast, exp.TryCast))
+                                                and parent.to.is_type(exp.DataType.Type.VARIANT)):
+        parent = parent.parent
+    return isinstance(parent, exp.Typeof)
+
+
+def _offset_unspaced(value: exp.Expression) -> None:
+    """Text with an offset after a space ('2024-01-02 16:00:00 +00:00') written as DuckDB reads it, with no space."""
+    for literal in value.find_all(exp.Literal):
+        if literal.is_string and _SPACED_OFFSET_TEXT.search(literal.name):
+            literal.set("this", _SPACED_OFFSET_TEXT.sub(r"\1", literal.name))
+_SPACED_OFFSET = _refuse("SFN-013", "TIMESTAMP_TZ text with an offset", "DuckDB can't read an offset written "
+                         "after a space ('2026-01-01 10:00:00 +05:00'): it takes it for a time zone name.",
+                         f"{_DOCS}/data-types-datetime")
 
 
 # ---------------------------------------------------------------- rewrites (SFX-*)
@@ -526,10 +568,11 @@ def _flattened(source: exp.Expression, path: str, outer: bool) -> exp.Expression
     # would give a scalar one row), and one row of NULLs with OUTER
     compound = "coalesce(json_type(CAST(fj_arg0 AS JSON)) IN ('ARRAY', 'OBJECT'), FALSE)"
     field = "__sf_e.key" if not path else f"'{path}.' || __sf_e.key"
-    return _with_args(f"(SELECT CASE WHEN {array} THEN NULL ELSE __sf_e.key END AS key, "
-                      f"CASE WHEN {array} THEN '{path}[' || __sf_e.key || ']' ELSE {field} END AS path, "
-                      f"CASE WHEN {array} THEN CAST(__sf_e.key AS INT) END AS index, __sf_e.value AS value, "
-                      f"CAST(fj_arg0 AS JSON) AS this FROM json_each(CAST(fj_arg0 AS JSON)) AS __sf_e WHERE {compound}"
+    # the columns are named in upper case, as Snowflake names them (SFX-031)
+    return _with_args(f"(SELECT CASE WHEN {array} THEN NULL ELSE __sf_e.key END AS \"KEY\", "
+                      f"CASE WHEN {array} THEN '{path}[' || __sf_e.key || ']' ELSE {field} END AS \"PATH\", "
+                      f"CASE WHEN {array} THEN CAST(__sf_e.key AS INT) END AS \"INDEX\", __sf_e.value AS \"VALUE\", "
+                      f"CAST(fj_arg0 AS JSON) AS \"THIS\" FROM json_each(CAST(fj_arg0 AS JSON)) AS __sf_e WHERE {compound}"
                       + (f" UNION ALL SELECT NULL, '{path}', NULL, NULL, CAST(fj_arg0 AS JSON) WHERE NOT {compound} "
                          "OR NOT EXISTS (SELECT 1 FROM json_each(CAST(fj_arg0 AS JSON)))" if outer else "") + ")",
                       [this])
@@ -708,7 +751,8 @@ def _rewrite_values(statement: exp.Expression) -> None:
         first = node.expressions[0]
         width = len(first.expressions) if isinstance(first, exp.Tuple) else 1
         node.set("alias", exp.TableAlias(this=alias.this if alias is not None else exp.to_identifier("_values"),
-                                         columns=[exp.to_identifier(f"column{i}") for i in range(1, width + 1)]))
+                                         columns=[exp.to_identifier(f"COLUMN{i}", quoted=True)
+                                                  for i in range(1, width + 1)]))
 
 
 def _rewrite_ratio_to_report(statement: exp.Expression) -> None:
@@ -1171,6 +1215,44 @@ def _rewrite_names(statement: exp.Expression) -> bool:
             elif isinstance(action, exp.RenameColumn) and isinstance(action.args.get("to"), exp.Column):
                 _upper(action.args["to"].this)
     return named
+
+
+_WRITTEN_NAMES = "kf_sf_written_names"  # a SELECT or alias list the query wrote: SFX-031 names its columns
+
+
+def _mark_result_names(statement: exp.Expression) -> None:
+    """SFX-031, before the rewrites: the SELECTs and the alias column lists (AS v(a, b), WITH c(a) AS ...) the
+    query wrote are marked (a copy keeps the mark), so only those are named, not the ones a rewrite writes."""
+    for node in statement.find_all(exp.Select, exp.TableAlias, exp.Typeof):
+        node.meta[_WRITTEN_NAMES] = True  # and the TYPEOF calls the query wrote, for SFN-035
+
+
+def _rewrite_result_names(statement: exp.Expression) -> None:
+    """SFX-031: Snowflake resolves an unquoted name in upper case (identifiers-syntax), so a result's column is
+    named that way: SELECT last_name FROM t gives LAST_NAME and ... AS area_of_circle gives AREA_OF_CIRCLE (the
+    SELECT page). In each SELECT the query wrote, a column with no alias and an unquoted alias (also in * RENAME
+    and * REPLACE) get the upper-case name, quoted so DuckDB keeps it; so do the names of an alias column list.
+    A quoted name keeps its case. DuckDB finds a name by any case, so the query reads as before. A column made
+    by an expression with no alias keeps DuckDB's name (SFD-001)."""
+    for node in list(statement.find_all(exp.Select, exp.TableAlias)):
+        if not node.meta.pop(_WRITTEN_NAMES, False):
+            continue
+        if isinstance(node, exp.TableAlias):
+            for column in node.columns:
+                _upper(column)
+            continue
+        for item in list(node.expressions):
+            if isinstance(item, exp.Alias):
+                _upper(item.args.get("alias"))
+            elif isinstance(item, exp.Column) and isinstance(item.this, exp.Identifier) \
+                    and not item.this.args.get("quoted"):
+                item.replace(exp.alias_(item.copy(), exp.Identifier(this=item.name.upper(), quoted=True)))
+            star = item.this if isinstance(item, exp.Column) else item
+            if isinstance(star, exp.Star):
+                for key in ("rename", "replace"):
+                    for renamed in star.args.get(key) or []:
+                        if isinstance(renamed, exp.Alias):
+                            _upper(renamed.args.get("alias"))
 
 
 def _variant_text(statement: exp.Expression) -> None:
@@ -2008,6 +2090,27 @@ _TYPEOF_KNOWN_CASTS = {exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR, exp.Da
                        exp.DataType.Type.BINARY, exp.DataType.Type.VARBINARY}
 
 
+_ZONED_FUNCTIONS = {"TO_TIMESTAMP_TZ": "TIMESTAMP_TZ", "TRY_TO_TIMESTAMP_TZ": "TIMESTAMP_TZ",
+                    "TO_TIMESTAMP_LTZ": "TIMESTAMP_LTZ", "TRY_TO_TIMESTAMP_LTZ": "TIMESTAMP_LTZ"}
+
+
+def _zoned_type_name(value: exp.Expression) -> str | None:
+    """SFX-009: TIMESTAMP_TZ or TIMESTAMP_LTZ for a value the query plainly makes as one (is_timestamp's
+    example: TYPEOF of TO_TIMESTAMP_TZ is TIMESTAMP_TZ and of TO_TIMESTAMP_LTZ is TIMESTAMP_LTZ; CURRENT_TIMESTAMP
+    returns TIMESTAMP_LTZ), else None."""
+    if isinstance(value, exp.CurrentTimestamp):
+        return "TIMESTAMP_LTZ"
+    kind = value.to if isinstance(value, (exp.Cast, exp.TryCast)) else \
+        value.args.get("target_type") if isinstance(value, exp.StrToTime) else None
+    if isinstance(kind, exp.DataType) and kind.this == exp.DataType.Type.TIMESTAMPTZ:
+        return "TIMESTAMP_TZ"
+    if isinstance(kind, exp.DataType) and kind.this == exp.DataType.Type.TIMESTAMPLTZ:
+        return "TIMESTAMP_LTZ"
+    if isinstance(value, exp.Anonymous):
+        return _ZONED_FUNCTIONS.get(value.name.upper())
+    return None
+
+
 def _typeof_value(node: exp.Typeof) -> exp.Expression:
     """TYPEOF's argument without casts to VARIANT: Snowflake names the value inside, and DuckDB's VARIANT
     (1.5 and later) would hide it."""
@@ -2089,7 +2192,7 @@ def _typeof_known(node: exp.Typeof) -> bool:
     value = _typeof_value(node)
     if _typeof_of_literal_path(value) is not _NOT_KNOWN:
         return True
-    if isinstance(value, (exp.ParseJSON, exp.Literal, exp.Boolean, exp.Null)):
+    if isinstance(value, (exp.ParseJSON, exp.Literal, exp.Boolean, exp.Null)) or _zoned_type_name(value):
         return True
     return isinstance(value, (exp.Cast, exp.TryCast)) and value.to.this in _TYPEOF_KNOWN_CASTS
 
@@ -2118,10 +2221,23 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
     JSON number with a fraction stops the query (SFN-034). Another type goes by DuckDB's typeof;
     one with no single Snowflake name keeps DuckDB's name."""
     for node in list(statement.find_all(exp.Typeof)):
+        written = node.meta.pop(_WRITTEN_NAMES, False)  # not one a rewrite wrote, which reads DuckDB's name
         value = _typeof_value(node)
         known = _typeof_of_literal_path(value)
         if known is not _NOT_KNOWN:
             node.replace(exp.Literal.string(known) if known else exp.cast(exp.Null(), "VARCHAR"))
+            continue
+        zoned = _zoned_type_name(value)
+        if zoned:
+            # the name is the type's; only a NULL (TRY_TO_TIMESTAMP_TZ of bad text) is NULL. The value's offset
+            # doesn't change its type, so SFX-029's check is left out here
+            value = value.copy()
+            for marked in value.find_all(exp.Cast, exp.TryCast):
+                marked.meta.pop(_OFFSET_CHECK, None)
+            _offset_unspaced(value)
+            node.replace(exp.Case(ifs=[exp.If(this=exp.Is(this=value, expression=exp.Null()),
+                                               true=exp.cast(exp.Null(), "VARCHAR"))],
+                                  default=exp.Literal.string(zoned)))
             continue
         if isinstance(value, exp.ParseJSON):
             # Snowflake's rule on the text as written: DuckDB's JSON() writes doubles again.
@@ -2132,16 +2248,21 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
             text = "trim(CAST(_kf_v AS VARCHAR))"
             number = (f"CASE WHEN NOT regexp_full_match({text}, '-?[0-9]+') THEN {_stop_sql(_JSON_FRACTION)} "
                       f"WHEN length(ltrim(ltrim({text}, '-'), '0')) > 38 THEN 'DOUBLE' ELSE 'INTEGER' END")
+        # a timestamp with a time zone is TIMESTAMP_TZ or TIMESTAMP_LTZ in Snowflake: which isn't known (SFN-035)
+        stop = _stop_sql(_ZONED_TYPEOF) if written else "typeof(_kf_v)"
+        zoned_kind = _KIND.replace("'TIMESTAMP_TZ'", _stop_sql(_ZONED_TYPEOF) if written else "'TIMESTAMP_TZ'") \
+            .replace("__sf_v", "_kf_v")
         json_case = " ".join(f"WHEN {_quoted(k)} THEN {_quoted(v)}" for k, v in _JSON_NAMES.items())
         type_case = " ".join(f"WHEN {_quoted(k)} THEN {_quoted(v)}" for k, v in _TYPEOF_NAMES.items())
         template = (f"SELECT CASE WHEN _kf_v IS NULL THEN NULL "
                     f"WHEN typeof(_kf_v) = 'JSON' THEN CASE json_type(TRY_CAST(_kf_v AS JSON)) {json_case} "
                     f"ELSE {number} END "
                     # a DuckDB VARIANT, such as an ARRAY column's element (SFX-024), by the value it holds
-                    f"WHEN typeof(_kf_v) = 'VARIANT' THEN {_KIND.replace('__sf_v', '_kf_v')} "
+                    f"WHEN typeof(_kf_v) = 'VARIANT' THEN {zoned_kind} "
                     f"WHEN regexp_full_match(typeof(_kf_v), 'DECIMAL\\([0-9]+,0\\)') THEN 'INTEGER' "
                     f"WHEN typeof(_kf_v) LIKE 'DECIMAL(%' THEN 'DECIMAL' "
                     f"WHEN typeof(_kf_v) LIKE '%[]' THEN 'ARRAY' "
+                    f"WHEN typeof(_kf_v) = 'TIMESTAMP WITH TIME ZONE' THEN {stop} "
                     f"ELSE CASE typeof(_kf_v) {type_case} ELSE typeof(_kf_v) END END")
         case = sqlglot.parse_one(template, read="duckdb").expressions[0]
         # The value goes in as a tree, not as text read again (#1252), as in SFX-001.
@@ -2234,6 +2355,213 @@ def _offset_checked(kind: exp.DataType) -> bool:
     if isinstance(parent, (exp.Cast, exp.TryCast)) and parent.args.get("to") is kind:
         return True
     return isinstance(parent, exp.StrToTime) and parent.args.get("target_type") is kind
+
+
+# ---------------------------------------------------------------- writes to a TIMESTAMP_TZ column (SFX-032)
+
+_TZ_KIND, _LTZ_KIND, _ZONED_KIND, _OTHER_KIND = "TIMESTAMP_TZ", "TIMESTAMP_LTZ", "ZONED", "OTHER"
+
+
+def _column_kind(kind: object) -> str:
+    if isinstance(kind, exp.DataType) and kind.this == exp.DataType.Type.TIMESTAMPTZ:
+        return _TZ_KIND
+    if isinstance(kind, exp.DataType) and kind.this == exp.DataType.Type.TIMESTAMPLTZ:
+        return _LTZ_KIND
+    return _OTHER_KIND
+
+
+def _table_key(table: object) -> tuple[str, str] | None:
+    if not isinstance(table, exp.Table) or not table.name:
+        return None
+    return ((table.db or "main").lower(), table.name.lower())
+
+
+def _track_tables(statement: exp.Expression, tables: dict[tuple[str, str], tuple[tuple[str, str], ...]]) -> None:
+    """``tables`` as it is after ``statement`` runs: a CREATE TABLE with its columns written out adds the
+    table (with each column's Snowflake type); one whose columns aren't written (AS, LIKE, CLONE), a DROP or a
+    rename forgets it, and ALTER TABLE ... ADD COLUMN adds the column."""
+    if isinstance(statement, exp.Create) and (statement.args.get("kind") or "").upper() == "TABLE":
+        target = statement.this
+        key = _table_key(target.this if isinstance(target, exp.Schema) else target)
+        if key is None:
+            return
+        tables.pop(key, None)
+        if isinstance(target, exp.Schema) and statement.expression is None and not statement.args.get("clone"):
+            columns = [c for c in target.expressions if isinstance(c, exp.ColumnDef)]
+            if len(columns) == len(target.expressions):
+                tables[key] = tuple((c.name.lower(), _column_kind(c.args.get("kind"))) for c in columns)
+    elif isinstance(statement, exp.Drop):
+        key = _table_key(statement.this)
+        if key is not None:
+            tables.pop(key, None)
+    elif isinstance(statement, exp.Alter) and (statement.args.get("kind") or "").upper() == "TABLE":
+        key = _table_key(statement.this)
+        if key is None or key not in tables:
+            return
+        for action in statement.args.get("actions") or []:
+            if isinstance(action, exp.ColumnDef) and key in tables:
+                tables[key] = (*tables[key], (action.name.lower(), _column_kind(action.args.get("kind"))))
+            else:  # a rename, a dropped or changed column: no longer known here
+                tables.pop(key, None)
+
+
+def session_tables(con: Any, made: Tables | None = None) -> dict[tuple[str, str], tuple[tuple[str, str], ...]]:
+    """SFX-032: the session's tables, from DuckDB's catalog (the session's database and its temporary
+    tables, which hide one of the same name). A TIMESTAMPTZ column is TIMESTAMP_TZ or TIMESTAMP_LTZ as ``made``
+    (what earlier Snowflake cells created) says, while the table still has those columns in that order;
+    otherwise ZONED, as DuckDB keeps one type for both."""
+    rows = con.execute(
+        "SELECT database_name = 'temp', schema_name, table_name, column_name, data_type FROM duckdb_columns() "
+        "WHERE database_name = current_database() OR database_name = 'temp' "
+        "ORDER BY 1, schema_name, table_name, column_index").fetchall()
+    by_database: tuple[dict[tuple[str, str], list[tuple[str, str]]], ...] = ({}, {})
+    for temporary, schema, table, column, kind in rows:
+        by_database[bool(temporary)].setdefault((str(schema).lower(), str(table).lower()), []).append(
+            (str(column).lower(), _ZONED_KIND if str(kind) == "TIMESTAMP WITH TIME ZONE" else _OTHER_KIND))
+    found = {**by_database[0], **by_database[1]}
+    tables: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {}
+    for key, columns in found.items():
+        known = (made or {}).get(key)
+        if known is not None and [c for c, _ in known] == [c for c, _ in columns] and all(
+                (k in (_TZ_KIND, _LTZ_KIND)) == (z == _ZONED_KIND) for (_, k), (_, z) in zip(known, columns, strict=True)):
+            tables[key] = tuple(known)
+        else:
+            tables[key] = tuple(columns)
+    return tables
+
+
+_WRITES = re.compile(r"\b(INSERT|UPDATE|MERGE)\b", re.IGNORECASE)
+
+
+def may_write(code: str) -> bool:
+    """Whether ``code`` may hold an INSERT, UPDATE or MERGE, so SFX-032 needs the session's tables."""
+    return bool(_WRITES.search(code))
+
+
+def tables_after(code: str, tables: Tables) -> dict[tuple[str, str], tuple[tuple[str, str], ...]]:
+    """``tables`` as they are once ``code`` (Snowflake SQL that translate() read) has run."""
+    known = dict(tables)
+    for statement in parse(code):
+        _track_tables(statement, known)
+    return known
+
+
+def _plain_text(value: exp.Expression) -> bool:
+    """Text or NULL written in the query, or a value already cast to TIMESTAMP_TZ (which SFX-029 checks)."""
+    if _scalar_kind(value) in ("text", "null"):
+        return True
+    return isinstance(value, (exp.Cast, exp.TryCast)) and value.to.this == exp.DataType.Type.TIMESTAMPTZ
+
+
+def _zoned_value(value: exp.Expression, kind: str) -> bool:
+    """A value written to a column of ``kind``: one written to a TIMESTAMP_TZ column becomes a cast to
+    TIMESTAMP_TZ, which SFX-029 checks. True when SFD-002 still applies: a value that isn't text (its offset
+    isn't known here), or any value but NULL written to a ZONED column."""
+    if kind == _ZONED_KIND:
+        return _scalar_kind(value) != "null"
+    if kind == _LTZ_KIND and isinstance(value, exp.Literal) and value.is_string:
+        _offset_unspaced(value)  # Snowflake reads the offset and keeps the instant, as DuckDB does
+        return False
+    if kind != _TZ_KIND or (isinstance(value, exp.Var) and value.name.upper() == "DEFAULT"):
+        return False
+    if isinstance(value, exp.Literal) and value.is_string and _SPACED_OFFSET_TEXT.search(value.name):
+        raise _Untranslatable(_SPACED_OFFSET)
+    plain = _plain_text(value)
+    if not (isinstance(value, (exp.Cast, exp.TryCast)) and value.to.this == exp.DataType.Type.TIMESTAMPTZ):
+        value.replace(exp.Cast(this=value.copy(), to=exp.DataType.build("TIMESTAMPTZ")))
+    return not plain
+
+
+def _written_columns(table: object, columns: list[exp.Expression] | None,
+                     tables: Tables) -> list[str] | None:
+    """The kinds of the columns a write names (all the table's, in order, when it names none), or None when
+    the table isn't known."""
+    key = _table_key(table)
+    spec = tables.get(key) if key is not None else None
+    if spec is None:
+        return None
+    if not columns:
+        return [k for _, k in spec]
+    kinds = dict(spec)
+    return [kinds.get(c.name.lower(), _OTHER_KIND) for c in columns]
+
+
+def _set_values(assignments: list[exp.Expression], table: object, tables: Tables) -> bool:
+    kinds = _written_columns(table, None, tables)
+    key = _table_key(table)
+    if kinds is None or key is None:
+        return False
+    named = dict(tables[key])
+    unknown = False
+    for assignment in assignments:
+        if isinstance(assignment, exp.EQ) and isinstance(assignment.this, exp.Column):
+            unknown |= _zoned_value(assignment.expression, named.get(assignment.this.name.lower(), _OTHER_KIND))
+    return unknown
+
+
+def _query_values(query: exp.Expression, kinds: list[str]) -> bool:
+    """The rows of INSERT ... SELECT, with each value for a TIMESTAMP_TZ column cast as _zoned_value does."""
+    if isinstance(query, exp.Select) and len(query.expressions) == len(kinds) \
+            and not any(isinstance(item, exp.Star) or (isinstance(item, exp.Column) and isinstance(item.this, exp.Star))
+                        for item in query.expressions):
+        unknown = False
+        for item, kind in zip(list(query.expressions), kinds, strict=True):
+            value = item.this if isinstance(item, exp.Alias) else item
+            unknown |= _zoned_value(value, kind)
+        return unknown
+    if not any(k in (_TZ_KIND, _ZONED_KIND) for k in kinds):
+        return False  # an LTZ column reads text as DuckDB does
+    if _TZ_KIND in kinds:  # a star or a set operation: its columns by place, through a subquery
+        names = [f"__sf_c{i}" for i in range(len(kinds))]
+        rows = exp.Subquery(this=query.copy(), alias=exp.TableAlias(
+            this=exp.to_identifier("__sf_rows"), columns=[exp.to_identifier(n) for n in names]))
+        outer = exp.select(*[exp.column(n) for n in names]).from_(rows)
+        query.replace(outer)
+        _query_values(outer, kinds)
+    return True
+
+
+def _rewrite_zoned_writes(statement: exp.Expression, tables: Tables) -> bool:
+    """SFX-032: Snowflake keeps the UTC offset of each value in a TIMESTAMP_TZ column, and DuckDB keeps only its
+    instant. Each value INSERT, UPDATE or MERGE writes to a TIMESTAMP_TZ column that a Snowflake cell in this
+    session made becomes a cast to TIMESTAMP_TZ, so SFX-029 checks it: text with no offset, or the session
+    zone's own, is stored as Snowflake stores it, and text with another offset stops the query (SFN-033).
+    True when SFD-002 still applies: a value that isn't text, or a TIMESTAMPTZ column whose Snowflake type
+    isn't known here (one not made by a Snowflake cell in this session)."""
+    if not tables:
+        return False
+    if isinstance(statement, exp.Insert):
+        target = statement.this
+        table = target.this if isinstance(target, exp.Schema) else target
+        kinds = _written_columns(table, list(target.expressions) if isinstance(target, exp.Schema) else None, tables)
+        source = statement.expression
+        if kinds is None or source is None or all(k == _OTHER_KIND for k in kinds):
+            return False
+        if isinstance(source, exp.Values):
+            unknown = False
+            for row in source.expressions:
+                values = list(row.expressions) if isinstance(row, exp.Tuple) else [row]
+                for value, kind in zip(values, kinds, strict=False):  # a short row stops in DuckDB
+                    unknown |= _zoned_value(value, kind)
+            return unknown
+        return _query_values(source.this if isinstance(source, exp.Subquery) and not source.alias else source,
+                             kinds)
+    if isinstance(statement, exp.Update):
+        return _set_values(list(statement.expressions), statement.this, tables)
+    if isinstance(statement, exp.Merge):
+        unknown = False
+        whens = statement.args.get("whens")
+        for when in (whens.expressions if isinstance(whens, exp.Whens) else []):
+            then = when.args.get("then")
+            if isinstance(then, exp.Update):
+                unknown |= _set_values(list(then.expressions), statement.this, tables)
+            elif isinstance(then, exp.Insert) and isinstance(then.expression, exp.Tuple):
+                columns = list(then.this.expressions) if isinstance(then.this, exp.Tuple) else None
+                kinds = _written_columns(statement.this, columns, tables)
+                for value, kind in zip(list(then.expression.expressions), kinds or [], strict=False):
+                    unknown |= _zoned_value(value, kind)
+        return unknown
+    return False
 
 
 def _mark_offsets_and_json(statement: exp.Expression) -> None:
@@ -2359,7 +2687,7 @@ CATALOG = (
                 "with nothing to flatten, and PATH => "
                 "takes plain names and [n]. A scalar has nothing to flatten (no row, or the OUTER row). A key that isn't a plain name is written in PATH as it is, since "
                 "Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; "
-                "SFD-005 is retired.")),
+                "SFD-005 is retired. The columns are named KEY, PATH, INDEX, VALUE and THIS (SFX-031).")),
     ("SFX-002", "Rewritten", ("TO_VARCHAR and TO_CHAR with a date or time format written in the query become "
                 "strftime. Elements with no equivalent (quarter, week) aren't rewritten.")),
     ("SFX-003", "Runs only in Snowflake", "TO_VARCHAR and TO_CHAR with a number format."),
@@ -2379,9 +2707,12 @@ CATALOG = (
     ("SFX-009", "Rewritten", ("TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT "
                 "for JSON; INTEGER, DECIMAL or DOUBLE for a JSON number by how PARSE_JSON reads it (an exponent "
                 "makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, "
-                "VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; SQL NULL for "
+                "VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; TIMESTAMP_TZ "
+                "and TIMESTAMP_LTZ for TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ (and TRY_), a cast to either, and "
+                "CURRENT_TIMESTAMP (LTZ); SQL NULL for "
                 "SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. "
-                "A JSON number with a fraction whose writing isn't known stops the query (SFN-034); a type with no Snowflake name is SFD-007. The argument is worked out more than once, "
+                "A JSON number with a fraction whose writing isn't known stops the query (SFN-034), and so does "
+                "another timestamp with a time zone (SFN-035); a type with no Snowflake name is SFD-007. The argument is worked out more than once, "
                 "which matters only when it isn't deterministic.")),
     ("SFX-010", "Rewritten", ("a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
                 "infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is "
@@ -2481,6 +2812,15 @@ CATALOG = (
                 "store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object, its "
                 "columns, a column or alias of CREATE ... AS and CREATE VIEW, a renamed table or column, an added "
                 "column. A quoted name keeps its case.")),
+    ("SFX-031", "Rewritten", ("A query's result names a column, or an unquoted alias, in upper case, as Snowflake "
+                "resolves an unquoted name (SELECT last_name gives LAST_NAME, AS area_of_circle gives AREA_OF_CIRCLE): in "
+                "each SELECT, in * RENAME and * REPLACE, and in an alias column list (AS v(a, b), WITH c(a) AS). A "
+                "quoted name keeps its case. A column made by an expression with no alias keeps DuckDB's name (SFD-001).")),
+    ("SFX-032", "Rewritten", ("INSERT, UPDATE and MERGE check each value they write to a TIMESTAMP_TZ column that a "
+                "Snowflake cell in this session made (this cell or an earlier one), as SFX-029 checks a cast: text "
+                "with no offset, or the session zone's own, is stored as Snowflake stores it; text with another "
+                "offset stops the query (SFN-033). Any other value, and a column whose Snowflake type isn't known "
+                "here, is SFD-002. INSERT ... SELECT * reads the query's columns by place.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2549,12 +2889,16 @@ CATALOG = (
     ("SFN-031", "Runs only in Snowflake", ("JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and "
                 "DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired.")),
     ("SFN-033", "Runs only in Snowflake", ("TIMESTAMP_TZ from text with a UTC offset other than the session zone's "
-                "(the query stops at that row), and TO_TIMESTAMP_TZ with TZH or TZM in its format: DuckDB keeps the "
+                "(the query stops at that row; also text written to a TIMESTAMP_TZ column, SFX-032), and TO_TIMESTAMP_TZ with TZH or TZM in its format: DuckDB keeps the "
                 "instant, not the offset.")),
     ("SFN-034", "Runs only in Snowflake", ("TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a "
                 "fraction or exponent read from a column or a path (the query stops at that row): Snowflake's answer "
                 "depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a "
                 "path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired.")),
+    ("SFN-035", "Runs only in Snowflake", ("TYPEOF of a timestamp with a time zone from a column or a computed value "
+                "(the query stops at that row): Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps "
+                "one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or "
+                "CURRENT_TIMESTAMP runs (SFX-009).")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -2583,7 +2927,7 @@ def _session_time_zone(statement: exp.Expression) -> str | None:
     return None
 
 
-def _statement(n: int, statement: exp.Expression) -> StatementReport:
+def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) -> StatementReport:
     refusal = _not_translatable(statement)
     if refusal:
         return StatementReport(n, "not_translatable", None, (refusal,))
@@ -2595,6 +2939,9 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     brackets = list(tree.find_all(exp.Bracket))  # held, so no new node can reuse one of these ids
     written = {id(b) for b in brackets}
     try:
+        _mark_result_names(tree)
+        if _rewrite_zoned_writes(tree, tables or {}) and SFD_TZ not in notes:
+            notes.append(SFD_TZ)
         _mark_offsets_and_json(tree)
         _variant_text(tree)
         _rewrite_flatten(tree)
@@ -2627,6 +2974,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_json_text(tree)
         _rewrite_division(tree)
         _json_of_variant_lists(tree)
+        _rewrite_result_names(tree)
         tree = _sort_json_keys(_check_offsets(tree))
         sql = ";\n".join([_duck(b) for b in before] + [_duck(tree)])
     except _Untranslatable as exc:
@@ -2640,10 +2988,12 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     return StatementReport(n, "difference" if notes else "translated", sql, tuple(notes))
 
 
-def translate(code: str) -> Translation:
-    """Every statement of ``code`` rewritten for DuckDB, with its verdict. Nothing runs here.
+def translate(code: str, tables: Tables | None = None) -> Translation:
+    """Every statement of ``code`` rewritten for DuckDB, with its verdict. Nothing runs here. ``tables`` is
+    what the session holds (session_tables), for SFX-032; a table this cell creates is known after it.
     ValueError when the SQL can't be read at all."""
     reports, open_transaction = [], False
+    known = dict(tables or {})
     for i, statement in enumerate(_with_identifiers(parse(code)), 1):
         statement = _start_transaction(statement)
         if open_transaction and isinstance(statement, (exp.Create, exp.Drop, exp.Alter)) \
@@ -2654,8 +3004,9 @@ def translate(code: str) -> Translation:
             open_transaction = True
         elif isinstance(statement, (exp.Commit, exp.Rollback)):
             open_transaction = False
-        reports.append(_statement(i, statement))
-    return Translation(tuple(reports))
+        reports.append(_statement(i, statement, known))
+        _track_tables(statement, known)
+    return Translation(tuple(reports), tables=tuple(known.items()))
 
 
 _DDL_IN_TRANSACTION = _refuse(

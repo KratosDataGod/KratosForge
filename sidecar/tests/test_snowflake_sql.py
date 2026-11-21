@@ -540,7 +540,8 @@ def test_typeof_of_a_column_names_json_values_and_flags_what_it_cant_know():
 @pytest.mark.parametrize("code, want", [
     ("""select typeof(v:a) from (select parse_json('{"a": 1.912e2}') as v)""", "SFN-034"),  # 191.2 here: it stops
     ("""select typeof(v:a) from (select parse_json('{"a": 10}') as v)""", "INTEGER"),
-    ("select typeof('2026-01-01 10:00'::timestamp_ltz)", "TIMESTAMP WITH TIME ZONE"),  # LTZ or TZ: DuckDB's name
+    # LTZ or TZ isn't known for a column's value: it stops (SFN-035). A cast written in the query is named (SFX-009)
+    ("select typeof(c) from (select '2026-01-01 10:00'::timestamp_ltz as c)", "SFN-035"),
 ])
 def test_typeof_never_gives_a_confident_wrong_name(code, want):
     (report,) = sf.translate(code).statements
@@ -1133,7 +1134,7 @@ def test_text_casts_keep_their_column_names_and_text_columns_that_arent_json_sti
         con.execute(statement.duckdb_sql)
     result = con.sql(translation.statements[-1].duckdb_sql)
     assert result.columns == ["CAST(n AS TEXT)", "TRY_CAST(s AS TEXT)", "CAST(j AS TEXT)", "CAST(s AS TEXT)",
-                              "UPPER(CAST(s AS TEXT))", "ARRAY_LENGTH(CAST(j AS JSON) -> '$.a')", "named",
+                              "UPPER(CAST(s AS TEXT))", "ARRAY_LENGTH(CAST(j AS JSON) -> '$.a')", "NAMED",
                               '(SELECT MAX(CAST(n AS TEXT)) AS "MAX(CAST(n AS TEXT))" FROM t)']
     # 'x' isn't JSON: the VARIANT branch is never taken for it, even when DuckDB works it out for every row
     assert result.fetchall() == [("1", "x", '{"a":[1]}', "x", "X", 1, "1", "1")]
@@ -1251,7 +1252,7 @@ def test_jarowinkler_similarity_is_refused_by_name():
     t = sf.translate("SELECT jarowinkler_similarity(s, t) FROM ed")
     assert not t.runnable and t.statements[0].notes[0].id == "SFN-031"
     assert "EDITDISTANCE runs here" in t.first_refusal()
-    assert sf.RULES_VERSION == "2026.11.20" and "SFN-031" in sf.docs_table()
+    assert sf.RULES_VERSION == "2026.11.21" and "SFN-031" in sf.docs_table()
 
 
 @pytest.mark.parametrize("code, want", [

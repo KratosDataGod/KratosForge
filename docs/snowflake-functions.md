@@ -21,9 +21,9 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 388 |
+| Runs | 387 |
 | Differs | 11 |
-| Refused | 91 |
+| Refused | 92 |
 | Fails | 0 |
 | Not checked | 16 |
 | **All** | **506** |
@@ -38,7 +38,7 @@ the known differences in more detail.
 | `CHAR` | Runs | 2 value checks |
 | `CONCAT` | Runs | 1 value check |
 | `CONCAT_WS` | Runs | 1 value check |
-| `INSERT` | Runs | 1 value check |
+| `INSERT` | Refused | INSERT (TIMESTAMP_TZ column, text with an offset): Statement 3 runs only in Snowflake: TIMESTAMP_TZ text with an offset. DuckDB can't read an offset written after a space ('2026-01-01 10:00:00 +05:00'): it takes it for a time zone name. |
 | `LENGTH` | Runs | 1 value check |
 | `LEN` | Runs | 1 value check |
 | `LPAD` | Runs | 1 value check |

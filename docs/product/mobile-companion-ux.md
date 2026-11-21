@@ -99,7 +99,7 @@ amber "connecting". Tapping it lists every paired PC with its state and "Pair an
   matches your phone", the choice "Monitor only" (default) or "Monitor and run allowed items",
   **Allow** (primary) and **Deny** (default style).
 - Devices table: name (rename), platform, paired, last seen, path, permission, **Remove**.
-- **Disconnect all phones**: ends current connections and pauses phone access; phones reconnect without pairing once it's switched back on.
+- **Disconnect all phones**: ends current connections and pauses phone access; phones reconnect without pairing once phone access is switched back on.
 - **Remove all phones**: deletes every pairing; each phone must pair again. Uses `confirmDialog` danger, as does **Remove** on a single device (a typed name only if policy calls for one).
 - Allowed items: list with Remove; items are added from each item's own menu ("Allow from phone").
 - Remote access (P2): relay status; when policy sets a relay URL it shows it read-only.

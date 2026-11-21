@@ -28,6 +28,11 @@ def _column_type(select: str, table: str, column: str = "v") -> dict:
 
 
 CLAIMS: list[Claim] = [
+    # T-SQL fractions made a bigint and DATETRUNC by its value's type; Spark dates past the year 9999
+    _ts("SUBSTRING('abcdef', 2.7, 2.9)"),
+    _ts("CHARINDEX('c', 'abcabc', 3.9)"),
+    _ts("DATETRUNC(month, '1998-03-04')"),
+    _nb("year(date_add(DATE'9999-12-31', 1))"),
     # Spark's date and time functions on this PC
     _nb("DATE'2024-01-31' + INTERVAL 1 MONTH"),
     _nb("unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')"),

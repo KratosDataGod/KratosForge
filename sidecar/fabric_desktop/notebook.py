@@ -1920,12 +1920,26 @@ def plain_error(exc: BaseException) -> str:
         plain = blocked
     elif disk_full.is_disk_full(exc):
         plain = disk_full.message(None, "A Delta table write that failed changed nothing.")
+    elif _PAST_THE_RANGE.search(raw) and type(exc).__module__.startswith(("duckdb", "_duckdb")):
+        plain = _PAST_THE_RANGE_TEXT
     elif any(isinstance(e, MemoryError) for e in _chain(exc)):
         plain = ("This PC ran out of memory in this cell. Variables from earlier cells are kept. "
                  "Close other apps, or work on less data at once, and run it again.")
     else:
         return raw
     return f"{plain} ({raw})" if raw else plain
+
+
+# DuckDB's errors for a date or a timestamp past what it holds (dates to 5881580-07-10, timestamps to 294247-01-10),
+# as date_add, make_date, add_months or + INTERVAL far past the year 9999 give them. Spark's limits are close (a date
+# to the year 5881580, a timestamp to about 290308), and past them it answers with a wrapped value or stops with its
+# own overflow error (checked on Spark 3.5.3); the DuckDB text named neither the function nor what to do.
+_PAST_THE_RANGE = re.compile(r"Date out of range|Date and time not in timestamp range|ICU date overflows timestamp "
+                             r"range")
+_PAST_THE_RANGE_TEXT = ("A date or time in this query is past what the local engine holds (dates to the year 5881580, "
+                        "times to the year 294247, close to Spark's own limits), so the query stopped. Check the date "
+                        "arithmetic (date_add, add_months, make_date, + INTERVAL) for a count that is too large, or "
+                        "run the cell in Fabric.")
 
 
 def _chain(exc: BaseException) -> list[BaseException]:

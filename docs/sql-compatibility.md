@@ -158,6 +158,7 @@ Spark SQL run on this PC gives Spark's values and types for its date and time fu
 | `unix_seconds`, `unix_millis` | Rounded down, as Spark does: `unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')` is `1715953512` |
 | `hour`, `minute`, `second` of text | Text that is a time of day only, such as `'13:45:12'` or `'T09:08'`, is read as that time |
 | `from_utc_timestamp`, `to_utc_timestamp` | A zone written as an offset, as Java reads one: `GMT+2`, `UTC+05:30`, `-08:00`, `Z` |
+| `date_add`, `add_months`, `make_date`, `+ INTERVAL` past the year 9999 | A date, as in Spark: `year(date_add(DATE'9999-12-31', 1))` is `10000`. Past what the local engine holds (dates to the year 5881580, timestamps to 294247), the cell stops with a message that says so and what to check, where Spark gives a wrapped value or its own overflow error |
 | `try_to_date` | Refused by name, and nothing runs. Spark 3.5 (Fabric Runtime 1.3) doesn't have it, so Fabric stops on it too. Use `to_date`, which gives NULL for text that isn't a date. Databricks SQL on this PC still runs it |
 
 Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`), letters that aren't pattern letters, and the runs Spark stops on with "Too many pattern letters": five or more of `G`, `M`, `L`, `E`, `Q` or `q`, and seven or more `y`. These are refused too, because this PC can't give Spark's text for them:
@@ -176,6 +177,8 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 | `hour`, `minute`, `second` of a time of day with a zone, such as `'13:45:12Z'` | That time in the session's zone | NULL |
 | `make_ym_interval` | A year-month interval | Refused by name, and nothing runs, because this PC has no year-month interval type |
 | Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
+
+A date past the year 9999 written as text, by a cast to `string` or `show()`, starts with `+` in Spark (`+10000-01-01`) and has no `+` here; a date before the year 1 is written `-0005-01-01` in Spark and `0006-01-01 (BC)` here. No rule warns about it yet.
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
 
@@ -489,6 +492,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `DATEADD` | Month and year steps end on the last day of a shorter month: `DATEADD(month, 1, '2024-01-31')` is `2024-02-29 00:00:00`, `DATEADD(year, 1, '2024-02-29')` is `2025-02-28 00:00:00`. Text is read as a `datetime`, so the answer is one, as in T-SQL. A minute or hour added to a `date` is an error, as in T-SQL |
 | `DATEDIFF` | Boundaries crossed, not whole spans: `DATEDIFF(year, '2023-12-31', '2024-01-01')` is `1`, `DATEDIFF(week, Saturday, Sunday)` is `1`. The answer is an `int`, and a count past an int's range stops with T-SQL's "The datediff function resulted in an overflow" (`DATEDIFF(millisecond, ...)` over more than 24 days) |
 | `DATEDIFF_BIG` | The same counts as a `bigint`, with no overflow |
+| `DATETRUNC` | The type of the value it truncates, as T-SQL keeps it: a `time` is truncated as a `time`, and text, written in the query or held in a column, is read as a `datetime2`: `DATETRUNC(month, '1998-03-04')` is `1998-03-01 00:00:00`. A part finer than the type keeps (`millisecond` of a `datetime2(2)`, `microsecond` of a `datetime`, `millisecond` of a `smalldatetime`), and a date part of a `time`, stop with T-SQL's error: "The datepart microsecond is not supported by date function datetrunc for data type datetime2." |
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
 | `FORMAT` | .NET's date formats in `en-US`, `en-GB` or `de-DE`, on a `date` or a date-and-time column. See [Local T-SQL formatting](#local-t-sql-formatting) |
@@ -539,6 +543,8 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
+| `SUBSTRING`, `CHARINDEX`, `LEFT`, `RIGHT` with a decimal or float start or length | Made a `bigint` first, cut toward zero as T-SQL converts a decimal or float to an integer: `SUBSTRING('abcdef', 2.7, 2.9)` is `bc` and `CHARINDEX('c', 'abcabc', 3.9)` is `3` |
+| A flag other than `c`, `i`, `m` and `s` in a `REGEXP_*` function, such as `'x'` | T-SQL's own error: "Invalid flag provided. 'x' are not valid flags. Only {c,i,s,m} flags are valid." `REGEXP_INSTR`'s return_option must be 0 or 1, as in T-SQL. Its group argument (other than 0), and a return_option worked out from a column, are refused by name |
 | `CONCAT`, `CONCAT_WS`, `+` | `CONCAT` skips `NULL`, and `+` gives `NULL`. A number written with a point keeps its digits (`CONCAT('a', 1.50)` is `a1.50`), and a `bit` is `1` or `0` |
 | `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character, and only for an `N'...'` written directly inside it: `DATALENGTH(N'ab')` is `4`, but `DATALENGTH(N'a' + N'b')` is `2` here, where T-SQL gives `4` |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |

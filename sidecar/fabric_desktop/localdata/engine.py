@@ -1135,6 +1135,8 @@ class LocalEngine:
         name = f"{schema + '.' if schema else ''}{table}"
         if entry is None:
             raise ValueError(f"{name} isn't a Delta table in {self.project.name}, so it has no versions.")
+        if not isinstance(entry, dict) or not isinstance(entry.get("folder") or "", str):  # a hand-edited project.json
+            raise ValueError(f"{name}'s entry in {self.project.name}'s saved catalog (project.json) can't be read.")
         if entry.get("format") != "delta" or not entry.get("folder"):
             raise ValueError(f"{name} isn't a Delta table ({entry.get('format')}), so it has no versions.")
         return entry

@@ -2972,7 +2972,8 @@ def ipynb_cell_problem(cells: list[Any]) -> str | None:
 def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
     cells = []
     for c in nb.get("cells", []):
-        source = c.get("source", "")
+        source = c.get("source")
+        source = "" if source is None else source
         cell = {"type": "markdown" if c.get("cell_type") == "markdown" else "code",
                 "source": "".join(source) if isinstance(source, list) else source}
         if isinstance(c.get("id"), str):
@@ -3031,6 +3032,20 @@ def _write_atomic(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def _loaded_notebook(nb: Any) -> dict[str, Any]:
+    """from_ipynb of a parsed .ipynb, refused (TypeError) when the file is JSON but not a notebook the
+    rest of the app can read: every cell's source is text, the lakehouse and workspace are objects."""
+    if not isinstance(nb, dict):
+        raise TypeError(f"it holds {type(nb).__name__}, not one JSON object")
+    loaded = from_ipynb(nb)
+    if not all(isinstance(c["source"], str) for c in loaded["cells"]):
+        raise TypeError("a cell's source isn't text")
+    for key in ("lakehouse", "workspace"):
+        if loaded[key] is not None and not isinstance(loaded[key], dict):
+            raise TypeError(f"its {key} isn't an object")
+    return loaded
+
+
 def disk_stamp(nb: dict[str, Any]) -> str:
     """A short hash of a saved notebook's cells (type, source, and the cell settings the app reads,
     such as a parameters tag), so a save can tell whether the file was changed since the app read it,
@@ -3065,11 +3080,15 @@ class NotebookStore:
     def load(self, name: str) -> dict[str, Any]:
         try:
             nb = json.loads(self.path(name).read_text(encoding="utf-8"))
-        except ValueError as exc:  # cut off by a power cut, NUL bytes, or Git conflict markers: left as it is
+            loaded = _loaded_notebook(nb)
+            stamp = disk_stamp(nb)
+        except (ValueError, TypeError, AttributeError, RecursionError) as exc:
+            # Cut off by a power cut, NUL bytes, Git conflict markers, or JSON that isn't a notebook (a list,
+            # cells that aren't objects, a lakehouse that is text): left as it is
             raise ValueError(f"{self.path(name).name} is damaged or isn't a notebook any more, so it can't be "
                              "opened. The file has been left as it is. Fix it in a text editor, or put back an "
                              "earlier copy.") from exc
-        return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
+        return {"name": name, **loaded, "disk_stamp": stamp}
 
     def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
              compute: str | None = None, workspace: dict[str, Any] | None = None,

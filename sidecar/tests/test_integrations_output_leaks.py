@@ -490,8 +490,15 @@ def test_real_read_only_results_name_no_path_outside_the_folders_they_read(engin
     "Permission denied: /home/chris/.local/share/kratosforge/x",
     "missing /Users/chris/Library/kratosforge/x",
 ])
-def test_an_engine_message_naming_a_home_folder_keeps_the_path_but_not_whose(text):
+def test_an_engine_message_naming_a_home_folder_keeps_the_file_but_not_whose(text):
     """A message that isn't a file error (the engine's own words) can still name a file under the
-    person's home folder: it is kept, with the user name replaced."""
+    person's home folder: the file's name is kept, its folders (and so the user name) are not."""
     err = error_from(RuntimeError(text))
-    assert "chris" not in err.message and "[user]" in err.message, err.message
+    last = text.replace("\\", "/").rsplit("/", 1)[1]
+    assert "chris" not in err.message and err.message.endswith(last), err.message
+
+
+def test_a_home_folder_path_inside_other_text_still_hides_whose():
+    """A path the folder cut doesn't reach, joined to other text, still loses the user name."""
+    err = error_from(RuntimeError("bad file=C:\\Users\\chris\\x.csv"))
+    assert "chris" not in err.message, err.message

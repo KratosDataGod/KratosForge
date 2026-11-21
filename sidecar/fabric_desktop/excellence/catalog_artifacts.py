@@ -182,11 +182,11 @@ def _fixed_workspace(ctx: ct.Context) -> dict[str, Any]:
     return ct.passed([rid], f"None of its {p['activities']} activities names a fixed workspace id.")
 
 
-def _callouts(ctx: ct.Context, what: str) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
-    rid, p, stop = _pipeline(ctx, "policy_unknown")
+def _callouts(ctx: ct.Context, what: str, unknown_key: str) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
+    rid, p, stop = _pipeline(ctx, unknown_key)
     if stop:
         return rid, p, stop
-    if not isinstance(p.get("calls_out"), int):  # inspected before these settings were kept
+    if not isinstance(p.get("calls_out"), int) or unknown_key not in p:  # inspected before these settings were kept
         return rid, p, ct.not_evaluated(f"The activities' {what} weren't inspected.", needs="the activities' policy")
     if not p["calls_out"]:
         return rid, p, ct.not_applicable("No activity calls out to another service (Copy, notebook, Web, "
@@ -200,7 +200,7 @@ def _no_retry(ctx: ct.Context) -> dict[str, Any]:
     someone reruns it. A retry is the documented answer to transient failures. Medium, not high: the
     run fails visibly and nothing is lost; not low, because transient errors are routine for these
     activities and each one costs a stale table and a manual rerun."""
-    rid, p, stop = _callouts(ctx, "retry settings")
+    rid, p, stop = _callouts(ctx, "retry settings", "retry_unknown")
     if stop:
         return stop
     count = int(p.get("no_retry_count") or 0)
@@ -218,7 +218,7 @@ def _no_timeout(ctx: ct.Context) -> dict[str, Any]:
     with late data, but bounded and visible in run history. The threshold is KratosForge's: any
     explicit timeout under the 12-hour default, because only the owner knows how long a step should
     take; Microsoft gives the default, not a number to use."""
-    rid, p, stop = _callouts(ctx, "timeout settings")
+    rid, p, stop = _callouts(ctx, "timeout settings", "timeout_unknown")
     if stop:
         return stop
     count = int(p.get("no_timeout_count") or 0)
@@ -242,6 +242,9 @@ def _no_failure_path(ctx: ct.Context) -> dict[str, Any]:
         return ct.not_evaluated("The activities' dependencies weren't inspected.", needs="the activities' dependsOn")
     if not p["calls_out"]:
         return ct.not_applicable("No activity calls out to another service, so there is little to handle on failure.")
+    if not p["failure_path"] and p.get("failure_path_unknown") is not False:
+        return ct.not_evaluated("Whether the activities on a Failed or Completed dependency are active couldn't be "
+                                "read.", needs="the activities' state")
     if p["failure_path"]:
         return ct.passed([rid], "An activity runs when another fails or completes (a failure path).")
     return ct.failed([rid], f"None of its {p['activities']} activities runs when another fails or completes, so a "

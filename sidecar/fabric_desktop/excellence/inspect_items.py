@@ -134,8 +134,9 @@ def pipeline(w: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(acts, list):
         return {"read": True, "error": "The pipeline's activities weren't available."}
     inactive, fixed, no_state, no_props = [], [], [], []
-    no_retry, no_timeout, no_policy, no_depends = [], [], [], []
-    callouts, failure_path = 0, False
+    no_retry, no_timeout, no_depends = [], [], []
+    retry_unknown, timeout_unknown = [], []
+    callouts, failure_path, failure_path_unknown = 0, False, False
     for a in acts:
         name = str(a.get("name") or a.get("type") or "activity")[:MAX_NAME]
         if not isinstance(a.get("inactive"), bool):
@@ -152,19 +153,26 @@ def pipeline(w: dict[str, Any]) -> dict[str, Any]:
             no_depends.append(name)
         elif any(str(c).lower() in _FAILURE_CONDITIONS for d in deps if isinstance(d, dict)
                  for c in (d.get("conditions") or [])):
-            failure_path = True
+            # a deactivated activity never runs, so it is no failure path; one whose state wasn't
+            # read leaves the path unknown
+            if a.get("inactive") is False:
+                failure_path = True
+            elif not isinstance(a.get("inactive"), bool):
+                failure_path_unknown = True
         if str(a.get("type")) not in CALLOUT_TYPES or a.get("inactive") is True:
             continue  # a deactivated activity is skipped at run time, so its retry and timeout don't matter
         callouts += 1
         policy = a.get("policy")
         retry = _retry_set(policy) if isinstance(policy, dict) else None
         timeout = _timeout_set(policy) if isinstance(policy, dict) else None
-        if retry is None or timeout is None:  # an older engine, or a policy that can't be read: never a pass
-            no_policy.append(name)
-            continue
-        if not retry:
+        # an older engine, or a value that can't be read: that setting is never a pass
+        if retry is None:
+            retry_unknown.append(name)
+        elif not retry:
             no_retry.append(name)
-        if not timeout:
+        if timeout is None:
+            timeout_unknown.append(name)
+        elif not timeout:
             no_timeout.append(name)
     return {"read": True, "kind": "pipeline", "activities": len(acts),
             "inactive": sorted(inactive)[:MAX_NAMES], "inactive_count": len(inactive),
@@ -172,5 +180,6 @@ def pipeline(w: dict[str, Any]) -> dict[str, Any]:
             "state_unknown": sorted(no_state)[:MAX_NAMES], "properties_unknown": sorted(no_props)[:MAX_NAMES],
             "calls_out": callouts, "no_retry": sorted(no_retry)[:MAX_NAMES], "no_retry_count": len(no_retry),
             "no_timeout": sorted(no_timeout)[:MAX_NAMES], "no_timeout_count": len(no_timeout),
-            "policy_unknown": sorted(no_policy)[:MAX_NAMES], "failure_path": failure_path,
+            "retry_unknown": sorted(retry_unknown)[:MAX_NAMES], "timeout_unknown": sorted(timeout_unknown)[:MAX_NAMES],
+            "failure_path": failure_path, "failure_path_unknown": failure_path_unknown,
             "depends_unknown": sorted(no_depends)[:MAX_NAMES]}

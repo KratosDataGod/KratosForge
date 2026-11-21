@@ -190,7 +190,8 @@ def test_pipeline_inspection_keeps_names_and_counts_only():
     assert got == {"read": True, "kind": "pipeline", "activities": 1, "inactive": ["A"], "inactive_count": 1,
                    "fixed_workspace": ["A"], "fixed_workspace_count": 1, "state_unknown": [], "properties_unknown": [],
                    "calls_out": 0, "no_retry": [], "no_retry_count": 0, "no_timeout": [], "no_timeout_count": 0,
-                   "policy_unknown": [], "failure_path": False, "depends_unknown": []}
+                   "retry_unknown": [], "timeout_unknown": [], "failure_path": False, "failure_path_unknown": False,
+                   "depends_unknown": []}
 
 
 # ---- pipeline retry, timeout and failure path (FEA-302)
@@ -253,7 +254,12 @@ def test_a_missing_policy_or_depends_on_key_is_not_evaluated_never_a_pass():
     assert got["FEA-REL-004"]["outcome"] == got["FEA-REL-005"]["outcome"] == "not_evaluated"
     assert "Old" in got["FEA-REL-004"]["text"] and got["FEA-REL-006"]["outcome"] == "pass"
     unreadable = _policy_outcomes([activity("Odd", kind="Copy", policy={"retry": 2, "timeout": "soon"})])
-    assert unreadable["FEA-REL-004"]["outcome"] == unreadable["FEA-REL-005"]["outcome"] == "not_evaluated"
+    assert unreadable["FEA-REL-005"]["outcome"] == "not_evaluated"
+    assert unreadable["FEA-REL-004"]["outcome"] == "pass"  # its retry was read, so only the timeout is unknown
+    no_retry = _policy_outcomes([activity("Odd", kind="Copy", policy={"retry": 0, "timeout": "soon"})])
+    assert no_retry["FEA-REL-004"]["outcome"] == "fail" and no_retry["FEA-REL-005"]["outcome"] == "not_evaluated"
+    odd_retry = _policy_outcomes([activity("Odd", kind="Copy", policy={"retry": [], "timeout": "0.01:00:00"})])
+    assert odd_retry["FEA-REL-004"]["outcome"] == "not_evaluated" and odd_retry["FEA-REL-005"]["outcome"] == "pass"
     no_deps = activity("Copy", kind="Copy")
     del no_deps["depends_on"]
     got = _policy_outcomes([no_deps])
@@ -266,8 +272,8 @@ def test_policy_controls_are_not_evaluated_without_a_definition_or_an_older_insp
         assert outcome_of(snap, cid, "unread")["outcome"] == "not_evaluated"
         assert outcome_of(snap, cid, "gone")["outcome"] == "not_evaluated"
     old = finish([pipeline("old", [activity("Copy", kind="Copy")])])
-    for k in ("calls_out", "no_retry", "no_retry_count", "no_timeout", "no_timeout_count", "policy_unknown",
-              "failure_path", "depends_unknown"):
+    for k in ("calls_out", "no_retry", "no_retry_count", "no_timeout", "no_timeout_count", "retry_unknown",
+              "timeout_unknown", "failure_path", "failure_path_unknown", "depends_unknown"):
         old["workloads"][0]["inspected"].pop(k)  # evidence from before these settings were kept
     items = [{"id": "old", "type": "DataPipeline", "displayName": "old"}]
     records = (adapters.workspace({"id": WSID, "displayName": "Sales"}, items, collected_at=AT)
@@ -435,3 +441,16 @@ def test_an_unknown_schedule_leaves_the_scheduled_only_rules_unchecked():
 def test_a_deactivated_activity_doesnt_count_toward_retry_or_timeout():
     got = inspect_items.inspect(pipeline("p", [activity("Off", inactive=True, policy={}), activity("On")]))
     assert got["calls_out"] == 1 and got["no_retry"] == [] and got["no_timeout"] == []
+
+
+def test_a_deactivated_activity_is_no_failure_path():
+    def fp(acts):
+        return _policy_outcomes(acts)["FEA-REL-006"]
+    off = activity("Mail", kind="Teams", inactive=True, depends_on=[("Copy", "Failed")])
+    assert fp([activity("Copy", kind="Copy"), off])["outcome"] == "fail"  # it never runs, so nothing alerts
+    on = activity("Log", kind="Script", depends_on=[("Copy", "Completed")])
+    assert fp([activity("Copy", kind="Copy"), off, on])["outcome"] == "pass"
+    unknown = activity("Mail", kind="Teams", depends_on=[("Copy", "Failed")])
+    unknown["inactive"] = None  # its state wasn't read
+    got = fp([activity("Copy", kind="Copy"), unknown])
+    assert got["outcome"] == "not_evaluated" and "active" in got["text"]

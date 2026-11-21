@@ -234,8 +234,11 @@ be read leaves these controls not evaluated.
 Retry, timeout and failure paths are read from each activity's `policy` and `dependsOn` as the
 definition states them. A setting the definition leaves out takes Fabric's default (no retry, a
 12-hour timeout), so it fails. A retry or timeout given by an expression counts as set: its value is
-only known at run time. An activity whose policy wasn't kept (an older engine) or can't be read leaves
-FEA-REL-004 and FEA-REL-005 not evaluated, never passed. The same goes for FEA-REL-006 and `dependsOn`.
+only known at run time. An activity whose policy wasn't kept (an older engine) leaves FEA-REL-004 and
+FEA-REL-005 not evaluated, never passed; a retry or timeout that can't be read leaves only its own
+control not evaluated. The same goes for FEA-REL-006 and `dependsOn`. A deactivated activity never
+runs, so it doesn't count as a failure path; one whose state can't be read leaves FEA-REL-006 not
+evaluated unless another activity is a failure path.
 Outlook and Teams activities aren't counted as calling out, because a retry can send the message
 twice, nor are child pipelines (their own activities carry the policy) or control-flow activities.
 The 12-hour line is KratosForge's, because Microsoft gives the default, not a number to use, and only the

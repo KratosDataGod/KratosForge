@@ -48,6 +48,7 @@ from .store import IntegrationStore
 
 MAX_BODY_BYTES = 1024 * 1024
 REFUSED_EVERY = 10.0  # seconds between audit lines for the same refused request
+PRUNE_AT = 256        # entries in a per-tool map before what it no longer needs is let go
 MAX_RESULT_BYTES = 1_000_000
 RATE_PER_SECOND = 5.0      # sustained requests per tool
 RATE_BURST = 30
@@ -77,6 +78,7 @@ class RateLimiter:
         self.rate, self.burst, self.clock = rate, burst, clock
         self._buckets: dict[str, tuple[float, float]] = {}
         self._lock = threading.Lock()
+        self._kept = 0  # entries after the last prune
 
     def allow(self, key: str) -> bool:
         with self._lock:
@@ -87,7 +89,16 @@ class RateLimiter:
                 self._buckets[key] = (tokens, now)
                 return False
             self._buckets[key] = (tokens - 1, now)
+            if len(self._buckets) > max(PRUNE_AT, 2 * self._kept):
+                self._prune(now)
             return True
+
+    def _prune(self, now: float) -> None:
+        """Forget buckets that have filled up again: a full bucket is the same as none. Otherwise the
+        map would keep one for every tool this server has ever heard from (revoked ones included)."""
+        self._buckets = {k: (tokens, last) for k, (tokens, last) in self._buckets.items()
+                         if tokens + (now - last) * self.rate < self.burst}
+        self._kept = len(self._buckets)
 
 
 class Guard:
@@ -102,6 +113,7 @@ class Guard:
         self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
         self.registry = registry
         self._refused: dict[tuple[str, str], tuple[float, int]] = {}  # (reason, client) -> (last line, not written since)
+        self._kept = 0  # entries after the last prune
 
     async def _refuse(self, scope: Scope, receive: Receive, send: Send, err: IntegrationError,
                       headers: dict[str, str] | None = None, status: int | None = None,
@@ -116,6 +128,11 @@ class Guard:
         if audit is None:
             return
         key, now = (err.message, (client or {}).get("id", "")), time.monotonic()
+        if len(self._refused) > max(PRUNE_AT, 2 * self._kept):
+            # Let go of refusals past their window with nothing left to count: the next one would be
+            # written anyway. One that still counts skipped refusals stays until its line reports them.
+            self._refused = {k: v for k, v in self._refused.items() if v[1] or now - v[0] < REFUSED_EVERY}
+            self._kept = len(self._refused)
         last, skipped = self._refused.get(key, (0.0, 0))
         if last and now - last < REFUSED_EVERY:
             self._refused[key] = (last, skipped + 1)

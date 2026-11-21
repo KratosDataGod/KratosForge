@@ -282,6 +282,7 @@ function findWrite(cell, edits) {
     view.dispatch({ changes: edits.map((e) => ({ from: e.from, to: e.to, insert: e.insert })) });
   } else {
     cell.source = findApply(cell.source, edits);
+    plainTextChanged(cell);  // notebook.js: its plain text, while its editor is out of the page
   }
 }
 

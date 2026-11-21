@@ -401,8 +401,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .editor .cm-editor, .md-edit .cm-editor { background: transparent; }
 /* A code cell's code while its editor isn't in the page (notebook.js EAGER_EDITORS): the editor's font, line
    height and padding, so the cell is the same height and nothing moves when the editor takes its place. */
-.nb-lazy-code { margin: 0; padding: 8px 2px 8px 36px; font: 13px/20px var(--mono); white-space: pre; overflow: hidden; color: var(--text); }
+.nb-lazy-code { margin: 0; padding: 8px 2px 8px 2.77em; font-family: var(--mono); font-size: var(--nb-code-size, 13px);
+  line-height: var(--nb-code-line, 20px); white-space: pre; overflow: hidden; color: var(--text); }
 .nb-lazy-code.plain { padding-left: 6px; }
+.nb-code-wrap .nb-lazy-code { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }  /* editorprefs.js applyEditorPrefs */
 .md-edit { background: var(--surface); }
 .cm-tooltip-autocomplete .cm-completionIcon { width: 1em; }
 .cm-panels { font-size: 12px; }

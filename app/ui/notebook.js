@@ -21,12 +21,12 @@ state.nbSchemas = {};          // lakehouse_id -> { tables: {schema: [names]}, c
 // the page first, so every caller gets one on screen; editors.peek(id) and has(id) don't.
 const EAGER_EDITORS = 40;
 const NEAR_MARGIN = "1500px 0px";
-const waitingEditors = new Map();  // cell id -> puts the cell's editor in place of its plain text
+const waitingEditors = new Map();  // cell id -> its editor slot showing plain text (attach, refresh)
 let nearSlots = [];                // editor slots drawn since the observer last started
 let nearObserver = null;
 class CellEditors extends Map {
   get(id) {
-    waitingEditors.get(id)?.();
+    waitingEditors.get(id)?.attach();
     return super.get(id);
   }
   peek(id) { return super.get(id); }
@@ -93,18 +93,23 @@ function editorSlot(cell, index) {
     waitingEditors.delete(cell.id);
     if (!slot.contains(editors.peek(cell.id)?.dom || null)) slot.replaceChildren(editorFor(cell).dom);
   };
+  // The cell's text changed while it shows plain text (Replace all, or its editor out of the page).
+  slot.refresh = () => {
+    if (slot.firstChild?.classList?.contains("nb-lazy-code")) slot.firstChild.replaceWith(plain());
+  };
   slot.park = () => {
     const view = editors.peek(cell.id);
     if (!slot.isConnected || !view || view.hasFocus || !slot.contains(view.dom)) return;
     slot.replaceChildren(plain());
-    waitingEditors.set(cell.id, slot.attach);
+    waitingEditors.set(cell.id, slot);
   };
   // On screen now (in the page that is being replaced), near the top, or selected: drawn with its editor.
   if (index < EAGER_EDITORS || cell.id === state.selected || editors.peek(cell.id)?.dom.isConnected) {
+    waitingEditors.delete(cell.id);
     slot.append(editorFor(cell).dom);
   } else {
     slot.append(plain());
-    waitingEditors.set(cell.id, slot.attach);
+    waitingEditors.set(cell.id, slot);
   }
   nearSlots.push(slot);
   return slot;
@@ -122,6 +127,18 @@ function observeNear(root) {
   nearObserver = new IntersectionObserver((entries) => entries.forEach((e) => (e.isIntersecting ? e.target.attach() : e.target.park())),
     { root, rootMargin: NEAR_MARGIN });
   slots.forEach((s) => nearObserver.observe(s));
+}
+
+// A cell drawn again on its own (updateCell) in a long notebook: its slot follows the screen too.
+function observeNewSlots() {
+  const slots = nearSlots;
+  nearSlots = [];
+  if (nearObserver) slots.forEach((s) => nearObserver.observe(s));
+}
+
+// A cell's text changed without going through an editor in the page: its plain text follows.
+function plainTextChanged(cell) {
+  waitingEditors.get(cell.id)?.refresh();
 }
 
 // ---------- the screen ----------
@@ -555,8 +572,9 @@ function statusLine(cell) {
 function updateCell(cell, focus = false) {
   const old = document.querySelector(`[data-cell="${cell.id}"]`);
   if (!old) return;
-  const fresh = renderCell(cell);
+  const fresh = renderCell(cell, 0, nearObserver ? visibleCells(state.notebook.cells) : null);
   old.replaceWith(fresh);
+  observeNewSlots();
   editors.get(cell.id)?.requestMeasure();
   if (focus) enterEditMode(cell);
 }
@@ -950,6 +968,9 @@ async function pythonCompletions(ctx) {
 function editorFor(cell) {
   let view = editors.peek(cell.id);
   if (view) return view;
+  // Its slot showing plain text, if any, is being replaced: an editors.get(cell.id) while this one is
+  // built (dbgMarks) mustn't build a second editor through it.
+  waitingEditors.delete(cell.id);
   const keys = cellKeymap(cell);
   view = new CM.EditorView({
     state: CM.EditorState.create({
@@ -978,6 +999,7 @@ function editorFor(cell) {
           if (u.docChanged) {
             const before = `${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}`;
             cell.source = u.state.doc.toString();
+            if (!u.view.dom.isConnected) plainTextChanged(cell);  // an editor out of the page (EAGER_EDITORS)
             if (`${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}` !== before && cell.type === "code") {
               u.view.dispatch({ effects: langComp.reconfigure(languageFor(cell)) });
               const select = document.querySelector(`[data-cell="${cell.id}"] select.lang`);

@@ -203,6 +203,7 @@ nav = [
       { "Central control plane decisions" = "product/central-control-plane-decisions.md" },
       { "Three-platform parity assessment" = "product/platform-parity-assessment.md" },
       { "Three-platform parity backlog" = "product/platform-parity-backlog.md" },
+      { "Snowpark assessment" = "product/snowpark-assessment.md" },
       { "Central control plane stories" = "product/central-control-plane-backlog.md" },
       { "Semantic engineering plan" = "product/semantic-engineering-plan.md" },
       { "Savings reporting schema" = "product/savings-reporting-schema.md" },

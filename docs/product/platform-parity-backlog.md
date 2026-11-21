@@ -180,6 +180,8 @@ Credits only, never converted to currency without a measured rate, never called 
 Research first: which Snowpark Python calls can be checked on this PC, labeled as compatibility, never
 as Snowflake runtime equivalence. Needs Chris's go before any runtime.
 
+The research is in [snowpark-assessment.md](snowpark-assessment.md).
+
 ### SF-008 Tasks, streams and dynamic tables (P2)
 
 After SF-001..005. Author and validate locally; deploy only through Snowflake's own statements.

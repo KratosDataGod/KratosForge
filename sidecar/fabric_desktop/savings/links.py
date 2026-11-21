@@ -38,7 +38,7 @@ one links to the earlier one's record, so a saving is never counted twice.
 ``report_back`` says what to tell the source once an optimization has a validation result
 (``baselines.validate``). An opportunity is verified by a Verified result alone. An assessment
 finding is resolved only by a Verified result together with the assessment's own re-check outcome
-``verified_fixed`` (FEA-602). A missing outcome, not evaluated, a profile change or any other value
+``verified_fixed`` (FEA-602). Only FEA-602's status verified_fixed resolves it. A missing outcome, not_verified (for example profile_changed) or any other status
 keeps it open. Validating, Regressed and Failed always leave the source open. Each answer has a
 plain one-sentence reason.
 
@@ -414,26 +414,34 @@ _REASONS = {
 VERIFIED_FIXED = "verified_fixed"  # FEA-602: the assessment's own re-check found the control fixed
 
 
+FEA_STATUSES = ("verified_fixed", "still_failing", "regressed", "not_verified")  # FEA-602 verification.STATUSES
+
+
 def _fea_outcome(value: Any) -> str | None:
+    """FEA-602 verify()'s ``status`` (from its result dict, or the status itself), with its
+    ``reason_code`` when it is not_verified, as ``not_verified:<code>``. Matched exactly."""
+    code = None
     if isinstance(value, dict):
-        value = value.get("outcome", value.get("status"))
+        value, code = value.get("status"), value.get("reason_code")
     if value is None:
         return None
-    if not isinstance(value, str):
-        raise ValueError(f"The assessment's verification outcome is a text such as {VERIFIED_FIXED}, not {value!r}.")
-    return "_".join(value.strip().lower().replace("-", " ").split()) or None
+    if not isinstance(value, str) or value not in FEA_STATUSES:
+        raise ValueError(f"The assessment's verification status must be one of {', '.join(FEA_STATUSES)}, "
+                         f"not {value!r}.")
+    return f"{value}:{code}" if value == "not_verified" and code else value
 
 
 def _fea_reason(outcome: str | None) -> str:
     if outcome is None:
         return ("The savings were verified, but the assessment hasn't checked the finding again, so the "
                 "assessment finding stays open.")
-    if outcome == "not_evaluated":
-        return ("The savings were verified, but the assessment couldn't evaluate the control again, so the "
-                "assessment finding stays open.")
-    if "profile" in outcome:
+    if outcome == "not_verified:profile_changed":
         return ("The savings were verified, but the assessment profile changed, so the assessment finding stays "
                 "open until it is checked under the same profile.")
+    if outcome.startswith("not_verified"):
+        code = outcome.partition(":")[2] or "no reason given"
+        return (f"The savings were verified, but the assessment couldn't verify the fix ({code}), so the "
+                "assessment finding stays open.")
     return (f"The savings were verified, but the assessment's check gave {outcome}, not {VERIFIED_FIXED}, so the "
             "assessment finding stays open.")
 
@@ -446,11 +454,11 @@ def report_back(record: dict[str, Any], validation: dict[str, Any], *, fea_outco
     ``validation``: the result of ``baselines.validate``, or its ``fdopt_validation`` row.
     ``to``: the finding or opportunity to report to (its fx- or opp- id) when it was linked to this
     record through ``matches``; default: the record's own fingerprint.
-    ``fea_outcome``: for a finding, the assessment's own re-check (FEA-602), as a text or a dict
-    with ``outcome``.
+    ``fea_outcome``: for a finding, the assessment's own re-check (FEA-602), as verify()'s result dict
+    (``status`` and ``reason_code``) or its status.
 
     A finding is resolved only when the validation is Verified and ``fea_outcome`` is
-    ``verified_fixed``. A missing outcome, not evaluated, a profile change or anything else keeps it
+    ``verified_fixed``. Only status verified_fixed resolves it. A missing outcome, not_verified or any other status keeps it
     open. An opportunity is resolved (verified) on a Verified validation alone.
 
     Returns ``resolved``, the ``status`` to show on the source (a finding: resolved or open; an

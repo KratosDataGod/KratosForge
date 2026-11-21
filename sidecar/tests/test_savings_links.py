@@ -35,7 +35,7 @@ def finding(version: str = "1.0.0", subj: dict | None = None, **over) -> dict:
 
 def opportunity(**over) -> dict:
     wl = {"workspace_id": "ws-1", "item_id": "nb-2", "type": "Notebook", "name": "Orders"}
-    o = om.make(rule="duplicate_notebook", category="duplicate_processing", action="eliminate", title="Duplicate",
+    o = om.make(rule="OE-DUP-NB", category="duplicate_processing", action="eliminate", title="Duplicate",
                 artifacts=[om.artifact(wl, "remove"), om.artifact(wl | {"item_id": "nb-3"}, "keep")],
                 current="two notebooks", problem="same code", evidence=[om.evidence("code", "same", "definition")],
                 recommendation="drop one", alternatives=[], effort="low", risk="low", confidence="proven",
@@ -291,7 +291,7 @@ def test_a_real_verified_validation_resolves_and_a_regression_does_not():
     good = bl.validate(oid, before, [run("x", 6, 3, 11), run("y", 7, 4, 11), run("z", 5, 5, 11)], outputs_match=True)
     worse = bl.validate(oid, before, [run("x", 16, 3, 11), run("y", 17, 4, 11), run("z", 15, 5, 11)],
                         outputs_match=True)
-    assert lk.report_back(p, good, fea_outcome={"outcome": "verified_fixed"})["resolved"]
+    assert lk.report_back(p, good, fea_outcome={"status": "verified_fixed"})["resolved"]
     assert not lk.report_back(p, good)["resolved"]
     assert lk.report_back(p, good["row"])["validation_id"] == good["row"]["validation_id"]
     assert not lk.report_back(p, worse, fea_outcome="verified_fixed")["resolved"]
@@ -327,7 +327,7 @@ def test_a_proposal_carries_the_rule_id_and_version_outside_the_row():
     assert p["rule_id"] == "FEA-PERF-001" and p["rule_version"] == "1.2.0"
     assert "rule_version" not in p["record"]
     o = lk.from_opportunity(opportunity(), at=AT)
-    assert o["rule_id"] == "duplicate_notebook" and o["rule_version"] is None
+    assert o["rule_id"] == "OE-DUP-NB" and o["rule_version"] is None
 
 
 def test_a_changed_control_version_asks_for_review_instead_of_linking():
@@ -360,7 +360,7 @@ def test_a_changed_version_within_one_batch_is_reviewed_not_repeated():
 
 # ---------- FEA to OE matches ----------
 
-MATCHES = {"FEA-PERF-001": ["duplicate_notebook"], "FEA-DE-001": ("full_refresh_rule",)}
+MATCHES = {"FEA-PERF-001": ["OE-DUP-NB", "OE-DUP-NB-SUSPECT"], "FEA-DE-001": ("OE-FULL-REFRESH",)}  # FEA-604 shape
 ON_NB2 = {"type": "item", "id": "nb-2", "name": "Orders", "workspace_id": "ws-1", "item_type": "Notebook"}
 
 
@@ -392,7 +392,7 @@ def test_an_opportunity_links_to_a_matching_finding_record():
 
 def test_a_stored_opportunity_row_matches_through_its_link_rows():
     opp = lk.from_opportunity(opportunity(), at=AT)
-    row = opp["record"] | {"rule_id": "duplicate_notebook"}
+    row = opp["record"] | {"rule_id": "OE-DUP-NB"}
     f = lk.from_finding(finding(subj=ON_NB2), at=AT)
     assert lk.link([row], [f], matches=MATCHES)["new"] == [f]
     out = lk.link([row], [f], matches=MATCHES, existing_links=opp["links"])
@@ -421,7 +421,7 @@ def test_a_finding_that_already_has_its_own_record_keeps_it():
     assert ev["optimization_id"] == f["optimization_id"] and not ev["matched"]
 
 
-@pytest.mark.parametrize("table", [["FEA-PERF-001"], {"FEA-PERF-001": "duplicate_notebook"}, {"FEA-PERF-001": [1]},
+@pytest.mark.parametrize("table", [["FEA-PERF-001"], {"FEA-PERF-001": "OE-DUP-NB"}, {"FEA-PERF-001": [1]},
                                    {"": ["x"]}])
 def test_a_bad_matches_table_is_refused(table):
     with pytest.raises(ValueError, match="matches table"):
@@ -433,10 +433,11 @@ def test_a_bad_matches_table_is_refused(table):
 @pytest.mark.parametrize(("outcome", "phrase"), [
     (None, "hasn't checked the finding again"),
     ({}, "hasn't checked the finding again"),
-    ("not evaluated", "couldn't evaluate the control again"),
-    ("not_evaluated", "couldn't evaluate the control again"),
-    ("profile_changed", "profile changed"),
-    ({"outcome": "still_failing"}, "gave still_failing"),
+    ({"status": "not_verified", "reason_code": "missing_after"}, "couldn't verify the fix (missing_after)"),
+    ("not_verified", "couldn't verify the fix (no reason given)"),
+    ({"status": "not_verified", "reason_code": "profile_changed"}, "profile changed"),
+    ({"status": "still_failing"}, "gave still_failing"),
+    ("regressed", "gave regressed"),
 ])
 def test_a_verified_saving_without_the_assessments_fix_keeps_the_finding_open(outcome, phrase):
     p = lk.from_finding(finding(), at=AT)
@@ -447,7 +448,7 @@ def test_a_verified_saving_without_the_assessments_fix_keeps_the_finding_open(ou
 
 def test_verified_fixed_and_verified_savings_resolve_the_finding():
     p = lk.from_finding(finding(), at=AT)
-    out = lk.report_back(p, _validation(p["optimization_id"], "verified"), fea_outcome=" Verified-Fixed ")
+    out = lk.report_back(p, _validation(p["optimization_id"], "verified"), fea_outcome={"status": "verified_fixed", "reason_code": None})
     assert out["resolved"] and out["status"] == "resolved" and out["fea_outcome"] == "verified_fixed"
 
 
@@ -473,7 +474,7 @@ def test_a_finding_matched_to_an_opportunity_reports_back_through_its_record():
     assert done["resolved"] and done["status"] == "resolved"
 
 
-@pytest.mark.parametrize(("kw", "message"), [({"to": "x-1"}, "fx- finding"), ({"fea_outcome": 3}, "outcome")])
+@pytest.mark.parametrize(("kw", "message"), [({"to": "x-1"}, "fx- finding"), ({"fea_outcome": 3}, "verification status"), ({"fea_outcome": "fixed"}, "verification status")])
 def test_bad_report_back_arguments_are_refused(kw, message):
     p = lk.from_finding(finding(), at=AT)
     with pytest.raises(ValueError, match=message):

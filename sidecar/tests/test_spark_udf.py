@@ -264,3 +264,65 @@ spark.range(2).select(bad("id")).collect()""")
         said = " ".join(str(o.get("evalue") or o.get("text") or "") for o in out["outputs"])
         assert "returned values that aren't decimal(10,2)" in said, said
         assert "Return Decimal values with at most 2 digits after the point" in said, said
+
+
+# ---- pandas_udf result conversion, pinned by mutation testing (called over Arrow arrays, as DuckDB calls it)
+
+def _convert(return_type, result, rows=2):
+    import pyarrow as pa
+
+    from fabric_desktop.spark_udf import pandas_udf
+    return pandas_udf(lambda s: result, return_type)._arrow()(pa.array(list(range(rows))))
+
+
+def test_a_pandas_udf_returning_a_nullable_series_keeps_its_nulls(kernel):
+    # Int64 and Float64 Series convert themselves (__arrow_array__) and Arrow refuses a null mask beside
+    # them, so Spark gives none; such a Series stopped the cell here
+    out = run(kernel, """
+import pandas as pd
+from pyspark.sql import functions as F
+df = spark.createDataFrame([(1,), (None,), (3,)], "i long")
+@F.pandas_udf("long")
+def plus_one(s: pd.Series) -> pd.Series:
+    return s.astype("Int64") + 1
+@F.pandas_udf("double")
+def half(s: pd.Series) -> pd.Series:
+    return s.astype("Float64") / 2
+[tuple(r) for r in df.select(plus_one("i"), half("i")).collect()]""")
+    assert out == "[(2, 0.5), (None, None), (4, 1.5)]"
+
+
+@pytest.mark.parametrize(("return_type", "result", "expected", "arrow"), [
+    ("tinyint", [300, -129, 2], [44, 127, 2], "int8"),  # a whole number wraps into the smaller type
+    ("smallint", [70000, 2, 3], [4464, 2, 3], "int16"),
+    ("int", [2 ** 32 + 5, 2, 3], [5, 2, 3], "int32"),
+    ("long", [2.7, None, -2.7], [2, None, -2], "int64"),  # a float is cut to a whole number
+    ("float", [7, 8, 1], [7.0, 8.0, 1.0], "float"),  # whole numbers as floats, not nulls
+])
+def test_every_number_type_converts_as_arrow_casts_it(return_type, result, expected, arrow):
+    import pandas as pd
+    out = _convert(return_type, pd.Series(result), rows=3)
+    assert out.to_pylist() == expected and str(out.type) == arrow
+
+
+def test_a_pandas_udf_that_stops_says_what_it_returned_and_what_to_return():
+    import pandas as pd
+    with pytest.raises(RuntimeError) as bad:
+        _convert("decimal(10,2)", pd.Series([1.5, 2.5]))
+    assert "(float64) to Arrow Array (decimal128(10, 2))" in str(bad.value)
+    assert type(bad.value.__cause__).__name__ == "ArrowInvalid"  # Arrow's own reason is kept
+    with pytest.raises(RuntimeError, match="aren't decimal") as text:
+        _convert("decimal(10,2)", pd.Series(["a", "b"]))
+    assert type(text.value.__cause__).__name__ == "ArrowTypeError"
+    with pytest.raises(RuntimeError, match=r"Return numbers, or change the pandas_udf's return type\.$"):
+        _convert("int", pd.Series(["a", "b"]))
+
+
+def test_nan_from_a_text_pandas_udf_is_null():
+    import pandas as pd
+    assert _convert("string", pd.Series(["a", float("nan")])).to_pylist() == ["a", None]
+
+
+def test_a_pandas_udf_returning_one_text_value_is_refused_even_at_the_rows_length():
+    with pytest.raises(RuntimeError, match="A scalar pandas_udf returns a Series as long as its input"):
+        _convert("string", "ab", rows=2)

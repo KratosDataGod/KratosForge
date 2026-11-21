@@ -177,3 +177,32 @@ def test_a_save_that_stays_refused_reports_it_and_leaves_no_temp_file(tmp_path, 
     with pytest.raises(PermissionError):
         store.save("nb", [{"type": "code", "source": "1"}], None)
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_a_reply_with_nan_has_null_in_its_place_and_keeps_everything_else():
+    class Obj:
+        def __str__(self):
+            return "obj"
+
+    reply = {"id": 1, "result": {"b": [1.5, float("nan"), (float("inf"), "x")], "a": {"o": Obj(), "n": None, 2: True}}}
+    assert server._reply_text(reply) == ('{"id": 1, "result": {"b": [1.5, null, [null, "x"]], '
+                                         '"a": {"o": "obj", "n": null, "2": true}}}')
+    assert server._reply_text({"id": 2, "result": [1, "a"]}) == '{"id": 2, "result": [1, "a"]}'
+
+
+def test_a_deeply_nested_result_with_nan_is_still_sent():
+    """The user's own result, nested thousands deep, goes out: NaN in it becomes null (that used to raise
+    RecursionError, so the shell got "Could not send the result"), and nesting past what JSON can write
+    is cut off with a note in its place."""
+    value: object = [float("nan"), "leaf"]
+    for _ in range(2500):
+        value = {"a": [value]}
+    text = server._reply_text({"id": 1, "result": value})
+    assert text.endswith('[null, "leaf"]' + "]}" * 2500 + "}") and json.loads(text)["id"] == 1
+    value = "leaf"
+    for _ in range(30000):
+        value = [value]
+    got = json.loads(server._reply_text({"id": 2, "result": value}))
+    for _ in range(server.MAX_REPLY_DEPTH):
+        got = got["result"] if isinstance(got, dict) else got[0]
+    assert got == server.TOO_DEEP

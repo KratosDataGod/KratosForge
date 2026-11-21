@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import IO, Any, Callable
+from typing import IO, Any, Callable, Iterator
 
 from . import app_control, audit, disk_full, net_trust, rpc_params, secret_redaction, sqlitefile
 from .redact import secrets
@@ -412,24 +412,57 @@ def _count(service: Service, method: str, reply: dict, seconds: float) -> None:
         print(f"telemetry: could not count {method}: {type(exc).__name__}", file=sys.stderr)
 
 
-def _finite(value: Any) -> Any:
-    """``value`` with NaN and infinity as null, anywhere in it."""
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {k: _finite(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_finite(v) for v in value]
-    return value
+# Where a reply nested deeper than JSON can write (about 10,000 levels in Python's encoder) is cut off:
+# the rest of the user's result still goes out, with TOO_DEEP in place of what lies below this level.
+MAX_REPLY_DEPTH = 1000
+TOO_DEEP = "(nested too deeply to show)"
+
+
+def _finite(value: Any, limit: int | None = None) -> Any:
+    """``value`` with NaN and infinity as null, anywhere in it, and with ``limit`` anything below that
+    many levels as TOO_DEEP. Copied with a stack rather than recursion, so a result nested thousands
+    deep is copied too; a tuple becomes a list, as JSON writes it."""
+    def leaf(v: Any) -> Any:
+        return None if isinstance(v, float) and not math.isfinite(v) else v
+
+    if not isinstance(value, (dict, list, tuple)):
+        return leaf(value)
+    top: dict[str, Any] | list[Any] = {} if isinstance(value, dict) else []
+    stack: list[tuple[Iterator[tuple[Any, Any]], dict[str, Any] | list[Any], int]] = [
+        (iter(value.items()) if isinstance(value, dict) else enumerate(value), top, 1)]
+    while stack:
+        items, out, level = stack[-1]
+        for k, v in items:
+            if isinstance(v, (dict, list, tuple)):
+                child: Any = TOO_DEEP if limit is not None and level >= limit else {} if isinstance(v, dict) else []
+            else:
+                child = leaf(v)
+            if isinstance(out, dict):
+                out[k] = child
+            else:
+                out.append(child)
+            if isinstance(child, (dict, list)):
+                stack.append((iter(v.items()) if isinstance(v, dict) else enumerate(v), child, level + 1))
+                break
+        else:
+            stack.pop()
+    return top
 
 
 def _reply_text(reply: dict[str, Any]) -> str:
     """The reply as one line of strict JSON. Python writes NaN and Infinity, which the shell's parser
-    (and JavaScript's) refuses, failing the whole call: a widget's value or a chart's data can hold them."""
+    (and JavaScript's) refuses, failing the whole call: a widget's value or a chart's data can hold them.
+    A result nested past what JSON can write is cut off at MAX_REPLY_DEPTH, so the reply still goes out."""
     try:
         return json.dumps(reply, default=str, allow_nan=False)
-    except ValueError:
-        return json.dumps(_finite(json.loads(json.dumps(reply, default=str))), allow_nan=False)
+    except ValueError:  # NaN or infinity
+        pass
+    except RecursionError:  # nested past what the encoder writes
+        return json.dumps(_finite(reply, MAX_REPLY_DEPTH), default=str, allow_nan=False)
+    try:
+        return json.dumps(_finite(reply), default=str, allow_nan=False)
+    except RecursionError:
+        return json.dumps(_finite(reply, MAX_REPLY_DEPTH), default=str, allow_nan=False)
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:

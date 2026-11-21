@@ -226,6 +226,16 @@ def test_non_finite_or_non_numeric_scores_are_refused(value, where):
         trends.trend([snap("01"), s])
 
 
+@pytest.mark.parametrize("value", [10 ** 400, -(10 ** 400), 1e308, -1e308, 100.5, -0.5],
+                         ids=["huge", "-huge", "1e308", "-1e308", "over", "under"])
+def test_out_of_range_scores_are_refused_not_crashed_or_inf(value):
+    """Scores are percentages: a huge int raised OverflowError, and 1e308 then -1e308 made an inf delta."""
+    s = snap("02")
+    s["scores"]["overall"]["score"] = value
+    with pytest.raises(ValueError, match="finite number"):
+        trends.trend([snap("01"), s])
+
+
 def test_same_timestamp_twice_and_too_many_are_refused():
     with pytest.raises(ValueError, match="can't tell which came first"):
         trends.trend([snap("01", 5), snap("01", 2)])

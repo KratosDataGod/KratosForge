@@ -18,7 +18,8 @@ latest that assessed the capacity, so one run is never counted twice.
 Coverage carries the gaps. A workspace on the capacity that no snapshot assessed, or a capacity no
 snapshot assessed, gets the outcome the engine gives a resource it couldn't read: *not evaluated*,
 with the reason, for each relevant control the registry has. So a capacity with little evidence has
-low coverage and no rating, never a healthy score. These are gaps, not findings: nothing here makes a
+low coverage and no rating, never a healthy score. A snapshot that assessed the resource but holds
+no outcome of a relevant control for it is a gap the same way. These are gaps, not findings: nothing here makes a
 finding or a saving; the findings listed are the snapshots' own.
 
 Snapshots made with a different profile or rule versions than the registry's are refused, as
@@ -35,6 +36,7 @@ from . import findings as fx
 from . import profiles as pf
 from . import scoring
 from .assess import SCHEMA
+from .evidence import canonical
 from .trends import _when
 
 DIMENSIONS = ("capacity_finops", "performance")
@@ -42,6 +44,7 @@ MAX_SNAPSHOTS = 500
 MAX_WORKSPACES = 1000
 NOT_ASSESSED = "This workspace on the capacity wasn't assessed."
 CAPACITY_NOT_ASSESSED = "The capacity itself wasn't assessed."
+NO_OUTCOME = "The snapshot that assessed this resource holds no outcome of this control for it."
 METHOD = ("Pooled outcomes of capacity-relevant controls, scored with the assessment's formulas; "
           "not an average of workspace scores.")
 
@@ -103,7 +106,9 @@ def _problems(snap: Any) -> list[str]:
 
 def _latest(snaps: list[dict[str, Any]], key: str, sid: str) -> dict[str, Any] | None:
     mine = [s for s in snaps if any(x["id"] == sid for x in s["scope"].get(key, []))]
-    return max(mine, key=lambda s: (_when(s["assessed_at"]), str(s.get("fingerprint") or ""))) if mine else None
+    # canonical text breaks a tie of time and fingerprint, so the input order never picks the snapshot
+    return max(mine, key=lambda s: (_when(s["assessed_at"]), str(s.get("fingerprint") or ""), canonical(s))) \
+        if mine else None
 
 
 def _gap(c: ct.Control, subj: dict[str, Any], profile: pf.Profile, text: str) -> dict[str, Any]:
@@ -177,6 +182,10 @@ def capacity_score(snapshots: list[dict[str, Any]], registry: ct.Registry, *, ca
                 and relevant(o, capacity_id, {wid}, dimensions)]
         sources.append((snap, mine))
         outcomes += mine
+        held = {o["control_id"] for o in mine}
+        outcomes += [_gap(c, {"type": "workspace", "id": wid, "name": name}, profile, NO_OUTCOME)
+                     for c in registry.controls() if c.scope in ("workspace", "item") and c.dimension in dimensions
+                     and c.id not in held]
     cap_snap = _latest(list(snapshots), "capacities", capacity_id)
     if cap_snap is None:
         subj = {"type": "capacity", "id": capacity_id, "name": capacity_id}
@@ -187,6 +196,9 @@ def capacity_score(snapshots: list[dict[str, Any]], registry: ct.Registry, *, ca
                 and o["subject"].get("id") == capacity_id]
         sources.append((cap_snap, mine))
         outcomes += mine
+        held = {o["control_id"] for o in mine}
+        outcomes += [_gap(c, {"type": "capacity", "id": capacity_id, "name": capacity_id}, profile, NO_OUTCOME)
+                     for c in registry.controls() if c.scope == "capacity" and c.id not in held]
 
     findings = fx.rank([f for snap, outs in sources for f in _findings(snap, outs)])
     times = sorted(_when(s["assessed_at"]) for s in used.values())

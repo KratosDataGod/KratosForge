@@ -146,6 +146,25 @@ def test_latest_snapshot_per_workspace_wins():
     assert {o["subject"]["id"] for o in got["outcomes"]} == {"a1", CAP}  # ws-b isn't on the list, so not counted
 
 
+def test_a_snapshot_missing_a_controls_outcomes_is_a_gap_not_healthy():
+    """A snapshot that lists the workspace and capacity but holds none of a relevant control's outcomes
+    must not score as fully covered: each missing control is a gap."""
+    s = ws_snap("ws-a", {"a1": "overwrite"}, cap_state="Paused")
+    s["outcomes"] = [o for o in s["outcomes"] if o["outcome"] != "fail"]
+    got = score([s], ["ws-a"])
+    assert got["scores"]["overall"]["coverage"] < 100 and got["evidence"]["gaps"] == 2
+    assert (got["scores"]["overall"].get("rating") or {}).get("id") != "exemplary"
+    assert {(o["control_id"], o["subject"]["id"]) for o in got["outcomes"] if o.get("gap")} == {
+        ("FEA-PERF-001", "ws-a"), ("FEA-CAP-001", CAP)}
+
+
+def test_same_time_snapshots_without_fingerprints_pick_the_same_one_whatever_the_order():
+    a, b = ws_snap("ws-a", {"a1": "overwrite"}), ws_snap("ws-a", {"a1": "merge"})
+    for s in (a, b):
+        s.pop("fingerprint")
+    assert json.dumps(score([a, b], ["ws-a"]), sort_keys=True) == json.dumps(score([b, a], ["ws-a"]), sort_keys=True)
+
+
 def test_deterministic_and_inputs_unchanged():
     snaps = [ws_snap("ws-a", {"a1": "overwrite"}, "01"), ws_snap("ws-b", {"b1": "merge"}, "02"),
              ws_snap("ws-a", {"a1": "merge", "a2": "overwrite"}, "03", cap_state="Paused")]

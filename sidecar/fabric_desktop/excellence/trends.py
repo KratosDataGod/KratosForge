@@ -24,7 +24,7 @@ scope, in any order, and gives, step by step from the oldest to the newest:
   A step that isn't still gets its transitions, flagged with the reasons, because the change may come
   from the policy or the scope, not the environment.
 
-Inputs are checked before anything is worked out: a malformed snapshot, a non-finite score, two
+Inputs are checked before anything is worked out: a malformed snapshot, a score that isn't a finite number from 0 to 100, two
 snapshots with the same timestamp or more than :data:`MAX_SNAPSHOTS` are refused with ``ValueError``.
 The output depends only on the snapshots' content, never on the order they were given in or the clock.
 Nothing here reads Fabric or writes anything, and nothing here makes a finding or a saving.
@@ -59,7 +59,9 @@ NOTES = {
 # ---- input checks
 
 def _finite(x: Any) -> bool:
-    return x is None or (isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x))
+    """None, or a percentage: a finite number from 0 to 100 (a huge int would overflow math.isfinite)."""
+    return x is None or (isinstance(x, (int, float)) and not isinstance(x, bool) and 0 <= x <= 100
+                         and math.isfinite(x))
 
 
 def _when(text: Any) -> dt.datetime | None:
@@ -75,7 +77,7 @@ def _when(text: Any) -> dt.datetime | None:
 def _block_problems(block: Any, where: str) -> list[str]:
     if not isinstance(block, dict):
         return [f"{where} isn't an object"]
-    return [f"{where}.{k} isn't a finite number or null" for k in ("score", "assured", "coverage")
+    return [f"{where}.{k} isn't a finite number from 0 to 100 or null" for k in ("score", "assured", "coverage")
             if not _finite(block.get(k))]
 
 

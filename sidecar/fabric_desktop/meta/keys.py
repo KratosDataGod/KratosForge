@@ -182,14 +182,13 @@ def entity_keys(e: Entity) -> list[dict[str, Any]]:
 
 
 def source_entity(e: Entity) -> str:
-    """The one entity [[keys]] read business keys from. The engine reads one source entity, so a list
-    (even of one) has no single table to MERGE from."""
+    """The one entity ``[source] entity`` names. The engine reads one source entity, so a list (even of
+    one) is refused by the save gate, and has no single table for [[keys]] to MERGE from."""
     src = e.spec.get("source", {}).get("entity")
-    if isinstance(src, list):
-        raise ValueError(f"{e.name}: [[keys]] reads business keys from one source entity, not a list "
-                         f"({', '.join(map(str, src))})")
     if not isinstance(src, str):
-        raise ValueError(f"{e.name}: [[keys]] reads business keys from one source entity, named as text")
+        raise ValueError(f"{e.name}: [source] entity takes one entity name; to combine tables, read one here and "
+                         "bring in the others with a hook or a custom step that lists them in reads, or with a "
+                         "[[lookup]] for a dimension's key")
     return src
 
 
@@ -235,9 +234,8 @@ def validate_keys(project: Project, today: dt.date | None = None) -> list[str]:
             continue
         try:
             source_entity(e)
-        except ValueError as exc:
-            errors.append(str(exc))
-            continue
+        except ValueError:
+            continue  # validate names the problem once, for every entity
         available = source_columns(project, e)
         seen = set()
         for b in blocks:

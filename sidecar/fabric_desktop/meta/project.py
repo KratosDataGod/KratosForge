@@ -249,7 +249,8 @@ class Entity:
         return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()[:8]
 
     def sources(self) -> list[str]:
-        return as_list(self.spec.get("source", {}).get("entity"))
+        # Names only: an odd value saved by hand (a nested list, a table) is a save-gate error, not a crash.
+        return [s for s in as_list(self.spec.get("source", {}).get("entity")) if isinstance(s, str)]
 
     def reads(self) -> list[str]:
         """Every entity this one reads, from any part of its config."""
@@ -761,6 +762,11 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
         for k in e.keys:
             if k not in e.columns:
                 errors.append(f"{e.name}: key {k} is not a contract column")
+        if "entity" in s.get("source", {}):
+            try:
+                keys_mod.source_entity(e)
+            except ValueError as exc:
+                errors.append(str(exc))
         if e.mode == "incremental" and not s.get("load", {}).get("watermark") and "entity" in s.get("source", {}):
             errors.append(f"{e.name}: incremental loads need a watermark column")
         wm, renames = s.get("load", {}).get("watermark"), s.get("source", {}).get("rename") or {}

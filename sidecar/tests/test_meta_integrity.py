@@ -2,9 +2,10 @@
 
 1. An entity with [[keys]] and a list source (``[source] entity = [...]``) crashed merge_sql with
    ``TypeError: unhashable type: 'list'``, after meta_save_entity had already written the file, so the entity
-   could no longer be opened. The engine reads business keys from one source entity only (a list crashes its
-   read too), so the save gate now names the problem, and a save that would leave an entity unopenable is
-   rolled back.
+   could no longer be opened. The engine reads one source entity only (a list crashes its read too), so the
+   save gate now refuses any ``[source] entity`` that isn't one name, a save that would leave an entity
+   unopenable is rolled back, and lineage, impact, OpenLineage and the run order read a list already saved
+   (or an odd value saved by hand) without crashing.
 2. find_cycle and run_order recursed once per entity in a chain and hit RecursionError past ~1,000. They are
    iterative now, with the same output order as the recursive versions (kept here as the reference)."""
 
@@ -15,6 +16,7 @@ import sys
 
 import pytest
 
+from fabric_desktop.meta import change_impact, lineage, openlineage
 from fabric_desktop.meta import keys as K
 from fabric_desktop.meta import project as P
 from fabric_desktop.meta.project import GateError, validate
@@ -22,6 +24,8 @@ from fabric_desktop.service import Service
 from tests.test_lineage_scale import write_project
 
 LIST_SOURCE = 'entity = ["bronze.orders", "bronze.customers"]'
+ONE_NAME = ("[source] entity takes one entity name; to combine tables, read one here and bring in the others "
+            "with a hook or a custom step that lists them in reads, or with a [[lookup]] for a dimension's key")
 
 
 @pytest.fixture
@@ -42,7 +46,7 @@ def test_saving_keys_with_a_list_source_keeps_the_entity_openable(svc):
     text = path.read_text(encoding="utf-8").replace('entity = "bronze.orders"', LIST_SOURCE)
     out = svc.meta_save_entity("silver.orders", text)  # was TypeError: unhashable type: 'list'
     assert out["keys_sql"] is None
-    assert any("one source entity" in x for x in out["errors"]), out["errors"]
+    assert out["errors"] == [f"silver.orders: {ONE_NAME}"]
     again = svc.meta_entity("silver.orders")
     assert again["text"] == text and again["keys_sql"] is None
 
@@ -52,11 +56,10 @@ def test_the_save_gate_and_the_key_notebook_refuse_a_list_source_with_keys(svc):
     path.write_text(path.read_text(encoding="utf-8").replace('entity = "bronze.orders"', LIST_SOURCE), encoding="utf-8")
     project = svc._project()
     errors = [x for x in validate(project) if x.startswith("silver.orders:")]
-    assert errors == [("silver.orders: [[keys]] reads business keys from one source entity, not a list "
-                       "(bronze.orders, bronze.customers)")]
+    assert errors == [f"silver.orders: {ONE_NAME}"]  # once, not again from the keys rules
     with pytest.raises(GateError):
         svc.meta_key_notebook("silver.orders")
-    with pytest.raises(ValueError, match="one source entity"):
+    with pytest.raises(ValueError, match="takes one entity name"):
         K.merge_sql(project, project.entities["silver.orders"])
 
 
@@ -64,15 +67,71 @@ def test_a_one_item_list_is_refused_too_as_the_engine_cannot_read_it(svc):
     path = _orders(svc)
     path.write_text(path.read_text(encoding="utf-8").replace('entity = "bronze.orders"', 'entity = ["bronze.orders"]'),
                     encoding="utf-8")
-    assert any("one source entity" in x for x in validate(svc._project()))
+    assert f"silver.orders: {ONE_NAME}" in validate(svc._project())
 
 
-def test_a_list_source_without_keys_is_not_a_keys_problem(svc):
-    path = svc._project().entities_dir / "gold.fact_sales.toml"
-    path.write_text(path.read_text(encoding="utf-8").replace('entity = "silver.orders"',
-                                                             'entity = ["silver.orders", "silver.customers"]'),
-                    encoding="utf-8")
-    assert not [x for x in K.validate_keys(svc._project()) if "one source entity" in x]
+def _set_source(svc, name, value):
+    path = svc._project().entities_dir / f"{name}.toml"
+    text = path.read_text(encoding="utf-8")
+    old = next(line for line in text.splitlines() if line.startswith("entity = "))
+    path.write_text(text.replace(old, f"entity = {value}", 1), encoding="utf-8")
+
+
+def test_a_list_source_without_keys_is_refused_by_the_save_gate_too(svc):
+    _set_source(svc, "gold.fact_sales", '["silver.orders", "silver.customers"]')
+    project = svc._project()
+    assert [x for x in validate(project) if x.startswith("gold.fact_sales:")] == [f"gold.fact_sales: {ONE_NAME}"]
+    assert not [x for x in K.validate_keys(project) if "one entity name" in x]
+
+
+def test_one_name_passes_the_gate(svc):
+    assert not [x for x in validate(svc._project()) if ONE_NAME in x]
+
+
+def test_a_saved_list_source_still_shows_in_lineage_impact_openlineage_and_the_run_order(svc):
+    _set_source(svc, "silver.orders", '["bronze.orders", "bronze.customers"]')
+    _set_source(svc, "gold.fact_sales", '["silver.orders", "silver.customers"]')
+    project = svc._project()
+    assert project.entities["gold.fact_sales"].sources() == ["silver.orders", "silver.customers"]
+    order = P.run_order(project)
+    assert order.index("bronze.customers") < order.index("silver.orders") < order.index("gold.fact_sales")
+    assert order.index("silver.customers") < order.index("gold.fact_sales")
+    assert project.summary()["run_order"] == order and P.find_cycle(project) is None
+    assert P.impact(project, "bronze.customers") == ["silver.customers", "silver.orders", "gold.dim_customer",
+                                                     "gold.fact_sales"]
+    # A column comes from every listed entity that has it; one the other lacks is marked missing there.
+    ins = lineage.entity_columns(project, "silver.orders")["order_id"]["inputs"]
+    assert ins == [{"entity": "bronze.orders", "column": "order_id"},
+                   {"entity": "bronze.customers", "column": "order_id", "missing": True}]
+    assert {"entity": "silver.orders", "column": "customer_id", "how": "source"} in \
+        lineage.downstream(project, "bronze.customers", "customer_id")
+    items = change_impact.column_impact(project, "bronze.orders", "amount", "drop")["items"]
+    assert any(i["name"] == "silver.orders" for i in items)
+    runs = [{"run_id": f"r{i}", "entity": n, "status": "ok", "started_at": "2026-11-10T10:00:00+00:00", "seconds": 1}
+            for i, n in enumerate(sorted(project.entities))]
+    events = {ev["job"]["name"]: ev for ev in openlineage.run_events(project, runs, "dev")["events"]}
+    fact_inputs = {i["name"] for i in events["gold.fact_sales"]["inputs"]}
+    assert {"LH_Silver.dbo.orders", "LH_Silver.dbo.customers"} <= fact_inputs
+    assert svc.meta_entity("gold.fact_sales")["errors"] == [f"gold.fact_sales: {ONE_NAME}"]
+
+
+@pytest.mark.parametrize("value", ['[]', '[["bronze.orders"]]', '5', '{ a = "bronze.orders" }',
+                                   '["bronze.orders", 5]', '[{ a = 1 }]'])
+def test_an_odd_source_saved_by_hand_is_a_gate_error_not_a_crash(svc, value):
+    _set_source(svc, "silver.orders", value)
+    _set_source(svc, "gold.fact_sales", value)
+    project = svc._project()  # was TypeError (unhashable list/dict, or a join of an int) in all of these
+    assert f"silver.orders: {ONE_NAME}" in validate(project)
+    assert f"gold.fact_sales: {ONE_NAME}" in project.summary()["errors"]
+    P.run_order(project)
+    P.find_cycle(project)
+    P.impact(project, "bronze.orders")
+    lineage.entity_columns(project, "gold.fact_sales")
+    lineage.downstream(project, "bronze.orders", "order_id")
+    change_impact.column_impact(project, "bronze.orders", "amount", "drop")
+    openlineage.run_events(project, [], "dev")
+    assert svc.meta_entity("silver.orders")["keys_sql"] is None
+    svc.meta_project()
 
 
 def test_a_save_that_cannot_be_opened_is_rolled_back(svc, monkeypatch):

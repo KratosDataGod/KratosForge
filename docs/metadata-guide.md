@@ -553,7 +553,7 @@ business_key = "order_id"
 | --- | --- | --- |
 | top level | `name`, `owner`, `description` | The entity's name (`layer.table`), who owns it, and what it is |
 | `[source]` | `files` | A file pattern under the layer's lakehouse `Files` |
-| | `entity` | Another entity it reads |
+| | `entity` | One other entity it reads, by name (to combine tables, see [Where custom logic goes](#where-custom-logic-goes)) |
 | | `table` | An existing Delta table, by OneLake URI (adopted tables) |
 | | `rename` | Source column names mapped to the contract's names |
 | | `new_files_only` | `false` makes an incremental or dimension load read every file each run ([Loads from files](#loads-from-files-read-only-new-files)) |

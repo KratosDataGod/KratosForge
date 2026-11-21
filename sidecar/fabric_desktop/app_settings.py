@@ -314,6 +314,8 @@ POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
 # may call. Only a source the person using the PC couldn't change may set them (Chris, 2026-11-10):
 # from a policy file or Group Policy key they could change, or the last good copy in their own profile,
 # they are ignored and reported; that source's restrictions still apply, with a warning.
+# audit_retention_days and receipt_retention_days: 0 keeps them, otherwise at least this many days.
+RETENTION_MIN_DAYS = 30
 LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "notebook_package_folder", "client_id",
              "telemetry_connection_string", "appstudio_hosts", "integrations_http", "support_url",
              "audit_retention_days", "receipt_retention_days")
@@ -654,8 +656,8 @@ def policy_problems() -> list[str]:
             problems.append("client_id isn't an app (client) ID")
         elif key == "ui_skin" and not _skin_id(value):
             problems.append("ui_skin must be a skin id: lower-case letters, digits or hyphens")
-        elif key in ("audit_retention_days", "receipt_retention_days") and value != 0 and value < 30:
-            problems.append(f"{key} is 0 (keep them) or at least 30 days")
+        elif key in ("audit_retention_days", "receipt_retention_days") and value != 0 and value < RETENTION_MIN_DAYS:
+            problems.append(f"{key} is 0 (keep them) or at least {RETENTION_MIN_DAYS} days")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
         elif key in LIMITS and not 0 <= value <= LIMITS[key]:
@@ -804,7 +806,7 @@ def _in_range(key: str, value: Any) -> bool:
     if key == "local_retention_days":
         return value >= 0
     if key in ("audit_retention_days", "receipt_retention_days"):
-        return value == 0 or value >= 30
+        return value == 0 or value >= RETENTION_MIN_DAYS
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
     if key in SQL_RANGES:  # from any source: an out-of-range policy value never applies (policy_problems says so)

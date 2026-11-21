@@ -45,6 +45,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import datetime as dt
+import functools
 import hashlib
 import json
 import math
@@ -65,6 +66,7 @@ MAX_NAME = 256          # governance_checks.MAX_NAME: a longer name isn't checke
 MAX_PATTERNS = 20       # per list
 MAX_TEXT = 500          # names, owners, reasons
 MAX_BYTES = 256 * 1024  # a pack's JSON text
+MAX_VALUES = 20_000     # values (and keys) in a pack given as an object, so one bigger than MAX_BYTES can't slip in
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 _BOUNDED = re.compile(r"\{(\d+)(,(\d*))?\}")
@@ -184,9 +186,28 @@ def _full_match(pattern: str, text: str) -> bool:
     return governance_checks._full_match(pattern, text)
 
 
-def matches(pattern: str, name: str) -> bool:
-    """Whether the whole of ``name`` matches ``pattern`` (validated first), with RE2."""
+def _valid_text(text: str) -> bool:
+    """Whether ``text`` can be written as UTF-8 (no lone surrogates), so RE2 and the fingerprint can read it."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+@functools.lru_cache(maxsize=4096)
+def _match_cached(pattern: str, name: str) -> bool:
+    # RE2 compiles the pattern on every call (a long counted pattern takes tens of milliseconds), and the
+    # same workspace name is checked once per item of every scoped control: remember the answer.
     return _full_match(pattern, name)
+
+
+def matches(pattern: str, name: str) -> bool:
+    """Whether the whole of ``name`` matches ``pattern`` (validated first), with RE2. ValueError for a
+    name that isn't valid text: it can't be matched, so the caller decides, never a quiet False."""
+    if not _valid_text(name):
+        raise ValueError("the name isn't valid text")
+    return _match_cached(pattern, name)
 
 
 # ---------------------------------------------------------------------------------------------- validate
@@ -248,12 +269,35 @@ def _naming(naming: Any, out: list[str]) -> None:
             _string_list(rule["item_types"], f"{where}.item_types", out)
 
 
+def _shape_problems(pack: Any) -> list[str]:
+    """Text that isn't valid (a lone surrogate would break RE2 and the fingerprint) and packs too big to
+    check, found without recursion, so neither a deep nor a self-referencing object can crash it."""
+    stack, seen, count = [pack], set(), 0
+    while stack:
+        v = stack.pop()
+        count += 1
+        if count > MAX_VALUES:
+            return [f"the pack holds over {MAX_VALUES} values; it is too big to check"]
+        if isinstance(v, str):
+            if not _valid_text(v):
+                return ["a text in the pack isn't valid text (it holds a lone surrogate)"]
+        elif isinstance(v, (dict, list)):
+            if id(v) in seen:
+                return ["the pack refers to itself"]
+            seen.add(id(v))
+            stack.extend(list(v.keys()) + list(v.values()) if isinstance(v, dict) else v)
+    return []
+
+
 def validate(pack: Any, registry: ct.Registry | None = None) -> list[str]:
     """Everything wrong with ``pack``; empty when it can be applied. Control ids are checked against
     ``registry`` (by default the assessment's catalog)."""
     out: list[str] = []
     if not isinstance(pack, dict):
         return ["a policy pack is a JSON object"]
+    shape = _shape_problems(pack)
+    if shape:
+        return shape
     missing = [f for f in FIELDS if f not in pack]
     if missing:
         out.append("missing " + ", ".join(missing))
@@ -318,7 +362,8 @@ def validate(pack: Any, registry: ct.Registry | None = None) -> list[str]:
         if not isinstance(d, dict) or set(d) != {"control_id", "reason"}:
             out.append(f"{where}: {{control_id, reason}}, a reason is required")
             continue
-        control(d["control_id"], where)
+        if control(d["control_id"], where) is None:
+            continue
         if not _text(d["reason"]):
             out.append(f"{where}: a reason is required (a non-empty string of at most {MAX_TEXT} characters)")
         if d["control_id"] in off:
@@ -394,6 +439,8 @@ def _no_constant(name: str) -> Any:
 def loads(text: str | bytes, registry: ct.Registry | None = None) -> dict[str, Any]:
     """A pack from its JSON text, checked. NaN and Infinity are refused while parsing (Python's json
     would otherwise accept them), as is text over :data:`MAX_BYTES`."""
+    if isinstance(text, str) and not _valid_text(text):
+        raise PolicyPackError(["not valid JSON (the text holds a lone surrogate)"])
     raw = text.encode("utf-8") if isinstance(text, str) else bytes(text)
     if len(raw) > MAX_BYTES:
         raise PolicyPackError([f"the pack is {len(raw)} bytes, over {MAX_BYTES}"])
@@ -401,6 +448,8 @@ def loads(text: str | bytes, registry: ct.Registry | None = None) -> dict[str, A
         pack = json.loads(raw.decode("utf-8"), parse_constant=_no_constant)
     except (ValueError, UnicodeDecodeError) as exc:
         raise PolicyPackError([f"not valid JSON ({exc})"]) from exc
+    except RecursionError as exc:
+        raise PolicyPackError(["not valid JSON (nested too deeply)"]) from exc
     return checked(pack, registry)
 
 
@@ -441,13 +490,15 @@ def _sev(v: Any) -> Any:
     return _override(v)[0]
 
 
-def diff(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+def diff(old: dict[str, Any], new: dict[str, Any], registry: ct.Registry | None = None) -> dict[str, Any]:
     """What changed from ``old`` to ``new``: one entry per changed path (``added``, ``removed`` or
     ``changed``, with both values), the changes that can raise a score (``relaxes``: a control newly
     disabled, its severity lowered or its override removed, its applicability added or changed, weights
     changed), and ``problems`` an auditor should see (another pack, or content changed without a higher
-    version)."""
+    version). A newly added override is compared with the control's severity in ``registry`` (by
+    default the assessment's catalog); one for a control it doesn't know is counted as relaxing."""
     a, b = _flat(old), _flat(new)
+    known = _known(registry or _default_registry())
     changes = []
     for path in sorted(set(a) | set(b)):
         if path not in a:
@@ -462,8 +513,11 @@ def diff(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
         if p.startswith("rules.disabled.") and c["change"] == "added":
             relaxes.append(p)
         elif p.startswith("rules.severity_overrides."):
-            before, after = _sev(c["old"]), _sev(c["new"])
-            if c["change"] == "removed" or (before in RANK and after in RANK and RANK[after] < RANK[before]):
+            cid = p[len("rules.severity_overrides."):]
+            before = _sev(c["old"]) if c["change"] != "added" else (known[cid].severity if cid in known else None)
+            after = _sev(c["new"])
+            if (c["change"] == "removed" or before not in RANK or after not in RANK
+                    or RANK[after] < RANK[before]):
                 relaxes.append(p)
         elif p.startswith("rules.applicability.") and c["change"] in ("added", "changed"):
             relaxes.append(p)
@@ -535,7 +589,8 @@ def apply(profile: pf.Profile, pack: dict[str, Any], registry: ct.Registry | Non
 def _known_name(subj: dict[str, Any]) -> str | None:
     """A subject's name when it was read (evidence.subject falls back to the id), else None."""
     name = subj.get("name")
-    if not isinstance(name, str) or not name or name == subj.get("id") or len(name) > MAX_NAME:
+    if (not isinstance(name, str) or not name or name == subj.get("id") or len(name) > MAX_NAME
+            or not _valid_text(name)):
         return None
     return name
 
@@ -583,6 +638,10 @@ def effects(profile: pf.Profile, outcomes: list[dict[str, Any]]) -> dict[str, An
 # ---------------------------------------------------------------------------------------------- naming
 
 
+def _shown(text: str) -> str:
+    return text.encode("utf-8", "replace").decode("utf-8")
+
+
 def naming_violations(pack: dict[str, Any], workspace_name: str | None,
                       items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The names that break the pack's naming rules: the workspace's (when known) and its items'
@@ -593,8 +652,13 @@ def naming_violations(pack: dict[str, Any], workspace_name: str | None,
 
     def check(rule: dict[str, Any], object_type: str, oid: str, name: str) -> None:
         if len(name) > MAX_NAME:
-            out.append({"object_type": object_type, "id": oid, "name": name[:40] + "...", "rule": "max_length",
-                        "text": f"{len(name)} characters, too long to check."})
+            out.append({"object_type": object_type, "id": _shown(oid), "name": _shown(name[:40]) + "...",
+                        "rule": "max_length", "text": f"{len(name)} characters, too long to check."})
+            return
+        if not _valid_text(name):
+            shown = _shown(name)
+            out.append({"object_type": object_type, "id": _shown(oid), "name": shown, "rule": "pattern",
+                        "text": f"{shown} isn't valid text, so it couldn't be checked."})
             return
         limit = rule.get("max_length")
         if limit is not None and len(name) > limit:

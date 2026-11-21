@@ -329,3 +329,68 @@ def test_naming_violations():
     assert "too long to check" in got[-1]["text"]
     assert pp.naming_violations(full(), "prod-sales", [{"id": "a", "type": "Notebook", "name": "ok"}]) == []
     assert pp.naming_violations(pack(), "anything", []) == []
+
+
+# ---- adversarial review
+
+
+def test_an_unhashable_disabled_control_id_is_a_problem_not_a_crash():
+    got = problems(pack(disabled=[{"control_id": ["FEA-GOV-001"], "reason": "r"}]))
+    assert any("unknown control" in x for x in got)
+
+
+def test_a_deeply_nested_pack_is_refused_as_a_pack_error():
+    with pytest.raises(pp.PolicyPackError):
+        pp.loads("[" * 100000 + "]" * 100000)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda p: p.update(name="Contoso \ud800"),
+    lambda p: p.update(owner="\udfff"),
+    lambda p: p["rules"].update(disabled=[{"control_id": "FEA-GOV-001", "reason": "wiki \ud800"}]),
+    lambda p: p["rules"].update(severity_overrides={"FEA-SEC-002": {"severity": "medium", "reason": "\ud800"}}),
+])
+def test_lone_surrogates_are_refused_before_they_can_break_the_fingerprint(mutate):
+    p = pack()
+    mutate(p)
+    assert any("text" in x for x in problems(p))
+    with pytest.raises(pp.PolicyPackError):
+        pp.apply(pf.get(), p, REG)
+    with pytest.raises(pp.PolicyPackError):
+        pp.loads(json.dumps(p), REG)
+
+
+def test_a_workspace_or_item_name_that_isnt_valid_text_doesnt_crash_the_assessment():
+    prof = pp.apply(pf.get(), pack(applicability={"FEA-DE-001": {"workspaces": ["^prod-.*$"]}}), REG)
+    nb = {"type": "item", "id": "i1", "name": "nb", "workspace_id": "w1", "item_type": "Notebook"}
+    bad = {"type": "workspace", "id": "w1", "name": "prod-\ud800"}
+    assert pp.out_of_scope(prof, "FEA-DE-001", nb, bad) is None  # not known, so assessed as usual
+    got = pp.naming_violations(full(), "prod-\ud800", [{"id": "a", "type": "Notebook", "name": "x\ud800"}])
+    assert [(v["object_type"], v["rule"]) for v in got] == [("workspace", "pattern"), ("item", "pattern")]
+    assert all("couldn't be checked" in v["text"] for v in got)
+    json.dumps(got, ensure_ascii=False).encode("utf-8")  # never a pass, and safe to store
+
+
+def test_a_newly_added_override_that_lowers_a_control_is_a_relaxation():
+    old = pack()
+    new = pack(severity_overrides={"FEA-SEC-002": "low"})  # FEA-SEC-002 is high in the catalog
+    new["version"] = "1.1.0"
+    assert REG.get("FEA-SEC-002").severity == "high"
+    assert "rules.severity_overrides.FEA-SEC-002" in pp.diff(old, new)["relaxes"]
+    raised = pack(severity_overrides={"FEA-SEC-002": "critical"})
+    raised["version"] = "1.1.0"
+    assert pp.diff(old, raised)["relaxes"] == []
+
+
+def test_workspace_patterns_are_matched_once_per_name_not_once_per_item(monkeypatch):
+    # Each match compiles the pattern (up to ~25 ms for a long counted one): per item, it multiplies.
+    prof = pp.apply(pf.get(), pack(applicability={"FEA-DE-001": {"workspaces": ["^prod-.*$", "^dev-[a-z]+$"]}}), REG)
+    calls = []
+    real = pp._full_match
+    monkeypatch.setattr(pp, "_full_match", lambda p, t: calls.append((p, t)) or real(p, t))
+    pp._match_cached.cache_clear()
+    ws = {"type": "workspace", "id": "w1", "name": "test-sales"}
+    for i in range(500):
+        it = {"type": "item", "id": f"i{i}", "name": f"nb{i}", "workspace_id": "w1", "item_type": "Notebook"}
+        assert pp.out_of_scope(prof, "FEA-DE-001", it, ws)
+    assert len(calls) <= 2

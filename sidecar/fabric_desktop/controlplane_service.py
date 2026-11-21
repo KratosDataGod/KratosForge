@@ -11,6 +11,7 @@
     cp_disconnect     forget an environment on this PC (nothing in it changes)
     cp_check          reachability, compatibility and the one status the app shows
     cp_cost           what the environment itself costs, apart from savings (CP-011; reads only)
+    cp_inventory      the service registry and the active environment's tables, family by family (CP-015; reads only)
     cp_upgrade_plan   what upgrading the active environment's shared tables would do (reads only), with a token
     cp_upgrade        run that plan, by its token, after the person confirms (CP-010)
 
@@ -37,6 +38,7 @@ from typing import Any
 from . import app_settings
 from .controlplane import cost as cpcost
 from .controlplane import health
+from .controlplane import inventory as cpinv
 from .controlplane import manifest as mf
 from .controlplane import providers as pv
 from .controlplane import store as cps
@@ -47,8 +49,8 @@ from .optimize.shared import Shared
 from .redact import describe
 
 METHODS = {"cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview", "cp_adopt",
-           "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost", "cp_upgrade_plan",
-           "cp_upgrade"}
+           "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost", "cp_inventory",
+           "cp_upgrade_plan", "cp_upgrade"}
 PREVIEW_SECONDS = 15 * 60
 MAX_PREVIEWS = 20
 OFF = ("Your organization has turned off KratosForge Environments (allow_central_environment in its "
@@ -272,6 +274,25 @@ class ControlPlaneMixin:
         rows = Shared(lake, self.optimize_installation, access="read").rows("measurements")  # type: ignore[attr-defined]
         return cpcost.summary(rows.to_dicts(), days=days,
                               installation_id=self.optimize_installation.id) | {"environment": active}  # type: ignore[attr-defined]
+
+    def cp_inventory(self) -> dict[str, Any]:
+        """The service registry (every registered table family and its tables) and the active environment's
+        lakehouse: each family's state, tables no family claims, and how many other tables there are.
+        Reads only. A lakehouse that can't be read gives its status and reason, like cp_check."""
+        self._cp_allowed()
+        active = self.cp_cache.active()
+        if not active:
+            raise ValueError("Connect this PC to a KratosForge Environment first.")
+        out = {"registry": cpinv.registry(), "environment": active}
+        try:
+            lake = self._optimize_lake(active["workspace_id"], active["lakehouse_id"])  # type: ignore[attr-defined]
+            names = lake.table_names()
+            inspections = [dict(setup.inspect(lake, fam), family=fam.prefix) for fam in schema.FAMILIES.values()]
+        except Exception as exc:  # noqa: BLE001 - shown as offline or refused, with the reason
+            denied = setup.denied(exc)
+            return out | health.status(connected=True, reachable=denied, denied=denied) | {
+                "inventory": None, "error": describe(exc)}
+        return out | health.status(connected=True, reachable=True) | {"inventory": cpinv.inventory(names, inspections)}
 
     def cp_upgrade_plan(self) -> dict[str, Any]:
         """What upgrading the active environment's shared tables would do. Nothing changes; the token

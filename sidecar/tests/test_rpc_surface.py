@@ -38,6 +38,8 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 NO_UI_CALLER: dict[str, str] = {
     # CP-011: the environment's cost, apart from savings. The approved Settings > Environment mockup has no cost panel.
     "cp_cost": "CP-011 engine call; its panel waits on a mockup (the CP-010 screen shows no cost)",
+    # CP-015: the service registry and inventory. Its panel isn't in an approved mockup yet.
+    "cp_inventory": "CP-015 engine call; its panel waits on a mockup",
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # SF-002: the Check button in Settings > Connections waits on its mockup.

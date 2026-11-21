@@ -196,6 +196,20 @@ class _Cell(ast.NodeVisitor):
 
 
 _SHELL = {"system", "sx", "sh"}
+# Levels of a cell's syntax tree the reader goes into: it recurses about twice per level, and a long
+# sum or concatenation (thousands of terms) is a tree that deep, which Python's stack can't take.
+MAX_DEPTH = 300
+
+
+def _deeper_than(tree: ast.AST, limit: int) -> bool:
+    """Whether ``tree`` goes more than ``limit`` levels down (read with a stack, not recursion)."""
+    stack = [(tree, 1)]
+    while stack:
+        node, level = stack.pop()
+        if level > limit:
+            return True
+        stack.extend((child, level + 1) for child in ast.iter_child_nodes(node))
+    return False
 
 
 def _python(source: str) -> tuple[str | None, list[int]]:
@@ -258,6 +272,10 @@ def analyze(source: str) -> dict[str, Any]:
         except SyntaxError as exc:
             out["parsed"] = False
             out["dynamic"].append({"line": exc.lineno or 1, "text": f"doesn't parse: {exc.msg}"})
+            return out
+        if _deeper_than(tree, MAX_DEPTH):
+            out["parsed"] = False
+            out["dynamic"].append({"line": 1, "text": f"is nested more than {MAX_DEPTH} levels deep, so it isn't read"})
             return out
         visitor = _Cell(out)
         if cell.header == "%%capture" and (name := next((w for w in cell.args.split() if not w.startswith("-")), None)):

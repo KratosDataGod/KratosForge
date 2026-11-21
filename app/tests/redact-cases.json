@@ -107,6 +107,12 @@
     {"level": "secrets", "in": ["embed H4sI", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "==", " end"], "out": "embed [removed] end"},
     {"level": "secrets", "in": "H4sI is how gzip in base64 starts", "out": "H4sI is how gzip in base64 starts"},
     {"level": "secrets", "in": ["Ocp-Apim-Subscription-Key: ", "0123456789abcdef", "0123456789abcdef", "\nnext"], "out": "Ocp-Apim-Subscription-Key: [removed]\nnext"},
-    {"level": "secrets", "in": ["{\"subscription_key\": \"", "0123456789abcdef", "0123456789abcdef", "\"}"], "out": "{\"subscription_key\": \"[removed]\"}"}
+    {"level": "secrets", "in": ["{\"subscription_key\": \"", "0123456789abcdef", "0123456789abcdef", "\"}"], "out": "{\"subscription_key\": \"[removed]\"}"},
+    {"level": "support", "in": "ann@contoso.com+bob@contoso.com", "out": "[email][email]"},
+    {"level": "secrets", "in": "x-y_access_token=abc x__token=def", "out": "x-y_access_token=[removed] x__token=[removed]"},
+    {"level": "secrets", "in": ["git+ssh://me:", "pw@host x-ref://tok@host"], "out": "git+ssh://[removed]@host x-ref://[removed]@host"},
+    {"level": "secrets", "in": "abfss://ws@onelake.dfs.fabric.microsoft.com/x", "out": "abfss://ws@onelake.dfs.fabric.microsoft.com/x"},
+    {"level": "secrets", "in": "x.abfss://ws@onelake.dfs.fabric.microsoft.com/x", "out": "x.abfss://[removed]@onelake.dfs.fabric.microsoft.com/x"},
+    {"level": "support", "in": "a.b-contoso.onmicrosoft.com and a-b.sharepoint.com", "out": "[tenant].onmicrosoft.com and [tenant].sharepoint.com"}
   ]
 }

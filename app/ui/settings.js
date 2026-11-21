@@ -118,8 +118,8 @@ function redactReport(text, level = "support") {
     .replace(/(--(?:password|passwd|pwd)\s+)(?:"[^"\n]*"?|'[^'\n]*'?|[^\s"']+)/gi, "$1[removed]")
     .replace(/(\b(?:set-)?cookie\s*:(?![ \t]*\[removed\])[ \t]*)[^\r\n]+/gi, "$1[removed]")
     .replace(/([?&#]code=)[^&\s"'<>#]+/gi, "$1[removed]")
-    .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
-    .replace(/\b(?!(?:abfss?|wasbs?):\/\/[^/\s:@"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s"'<>]|$)))([a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+@/gi, "$1[removed]@")
+    .replace(/(?<=[a-z0-9+.\-])(:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
+    .replace(/(?<=[a-z0-9+.\-])(?!(?:(?<=(?<![a-z0-9+.\-])abfs)|(?<=(?<![a-z0-9+.\-])abfss)|(?<=(?<![a-z0-9+.\-])wasb)|(?<=(?<![a-z0-9+.\-])wasbs)):\/\/[^/\s:@"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s"'<>]|$)))(:\/\/)[^/\s:@"'<>]+@/gi, "$1[removed]@")
     .replace(/https:\/\/(?:[A-Za-z0-9.\-]+\.webhook\.office\.com\/|outlook\.office(?:365)?\.com\/webhook(?:b2)?\/)[^\s"'<>]+/gi, "[removed]")
     .replace(/\/webhook(?:b2)?\/[^\s"'<>/]+@[^\s"'<>/]+\/IncomingWebhook\/[^\s"'<>]+/gi, "[removed]")
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
@@ -136,16 +136,16 @@ function redactReport(text, level = "support") {
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
     .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
-    .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
-    .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/((?:\b|(?<=_)(?=passphrase|token))(?:client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/((?:\b|(?<=_)(?=passphrase|token))(?:client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
-    .replace(/\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
+    .replace(/(?:\b|(?<=_)(?=passphrase|token))(client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token|api[_-]?key|secret(?:[_-]?key)?)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
-    .replace(/[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
-    .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
+    .replace(/([A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+)|[A-Za-z0-9._%+\-#]+/g, (m, email) => (email ? "[email]" : m))
+    .replace(/\b(?=[a-z0-9.\-]{0,253}\.onmicrosoft\.(?:com|us|de|cn)\b)[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
     .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
-    .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
+    .replace(/\b(?=[a-z0-9\-]{0,253}\.sharepoint\.(?:com|us|de|cn)\b)[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
     .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+(?:(?: [^\/\s"'<>?#]+)+(?=[\/"'<>?#\r]|$))?/gim, "$1[site]")
     .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")

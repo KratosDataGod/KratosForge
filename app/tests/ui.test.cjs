@@ -249,6 +249,28 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   }
 });
 
+test("Report a problem reads long dotted or dashed text once, not once per word (as the engine's rules do)", () => {
+  // Eight rules restarted from every word of a long run, so 50,000 characters took over ten seconds.
+  // Read once, eight times the text takes about eight times as long; restarted, about sixty-four.
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
+  const quickest = (text) => {
+    let best = Infinity;
+    for (let i = 0; i < 5; i++) {
+      const started = process.hrtime.bigint();
+      ctx.redactReport(text);
+      best = Math.min(best, Number(process.hrtime.bigint() - started));
+    }
+    return best;
+  };
+  for (const unit of ["a.", "a-", "-a", "a", "aB", "x_token-", "sk-", "a.onmicrosoft."]) {
+    const small = quickest(unit.repeat(Math.ceil(2000 / unit.length)));
+    const large = quickest(unit.repeat(Math.ceil(16000 / unit.length)));
+    assert.ok(large / Math.max(small, 200000) < 30, `${unit}: ${small} ns, then ${large} ns for 8x the text`);
+  }
+});
+
 test("Save support bundle sits after Report a problem and lists every file, missing logs included (PB-062)", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const help = src.slice(src.indexOf('h("h2", {}, "Help and about")'));

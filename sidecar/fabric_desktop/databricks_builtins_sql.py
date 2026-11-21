@@ -1156,6 +1156,9 @@ def unity_names(statement: exp.Expression) -> list[exp.Expression]:
                 raise _catalog_refusal(table.catalog)
         if table.args.get("db") is not None and table.db.lower() == "main":
             raise _main_schema_refusal(f"The schema main in {'.'.join(p.name for p in table.parts)}")
+        if table.args.get("db") is not None and table.db.lower() in _DUCKDB_CATALOGS:
+            # memory.t is schema.table on Databricks, but DuckDB would read memory as its own catalog
+            raise _duckdb_schema_refusal(table.db, f"The schema {table.db} in {'.'.join(p.name for p in table.parts)}")
         table.set("db", _default_schema(table.args.get("db")))
     for column in list(statement.find_all(exp.Column)):
         # main.default.t.id: the session's catalog and schema in front of a table's name. Only those are touched:

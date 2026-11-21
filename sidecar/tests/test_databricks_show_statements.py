@@ -9,7 +9,9 @@ lowercase", and it keeps a column name's case."""
 from __future__ import annotations
 
 import pytest
+import sqlglot
 
+from fabric_desktop.databricks_builtins_sql import unity_names
 from fabric_desktop.engines import local_sql
 from fabric_desktop.engines.contract import CellRequest, SessionConfig
 
@@ -211,3 +213,15 @@ def test_spark_sql_show_is_unchanged():
         assert "SHOW isn't allowed in a DuckDB engine session" in str(result.outputs[-1].get("evalue"))
     finally:
         session.close()
+
+
+@pytest.mark.parametrize("sql", ["SELECT * FROM memory.t", "SELECT * FROM system.t", "SELECT * FROM temp.t",
+                                 "CREATE SCHEMA memory", "DROP SCHEMA temp", "SELECT * FROM main.memory.t"])
+def test_a_schema_with_a_duckdb_catalog_name_is_refused_in_a_table_name(sql):
+    with pytest.raises(ValueError, match="DuckDB keeps the name"):
+        unity_names(sqlglot.parse_one(sql, read="databricks"))
+
+
+def test_the_sessions_information_schema_still_reads():
+    for sql in ("SELECT * FROM system.information_schema.tables", "SELECT * FROM information_schema.tables"):
+        assert unity_names(sqlglot.parse_one(sql, read="databricks"))

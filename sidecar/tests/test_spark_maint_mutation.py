@@ -67,3 +67,37 @@ def test_a_vacuum_dry_run_lists_files_and_a_real_one_answers_with_the_table():
     assert dry == [{"path": "a.parquet"}, {"path": "b.parquet"}]
     real = spark_maint.answer(_result("vacuum", {"dryRun": False}, ["a.parquet"])).to_pylist()
     assert real == [{"path": "dbo.sales"}]
+
+
+def _quickest(text, tries=5):
+    import time
+
+    best = float("inf")
+    for _ in range(tries):
+        started = time.perf_counter()
+        try:
+            spark_maint.statement(text)
+        except ValueError:
+            pass
+        best = min(best, time.perf_counter() - started)
+    return best
+
+
+@pytest.mark.parametrize("build", [
+    lambda n: "OPTIMIZE t WHERE x" + " " * n + "y",
+    lambda n: "OPTIMIZE t ZORDER BY (a" + " " * n + "x",
+    lambda n: "OPTIMIZE t" + " " * n + "y",
+    lambda n: "VACUUM t RETAIN 1 HOURS" + " " * n + "y",
+    lambda n: "RESTORE t TO VERSION AS OF 1" + " " * n + "y",
+])
+def test_a_long_run_of_blanks_is_read_once(build):
+    # Split every way around the ";" and tried as the end of WHERE's text from inside, 800 blanks took
+    # 0.8 s and the time grew with the cube. Read once, 8 times the blanks take about 8 times as long.
+    assert _quickest(build(16000)) / max(_quickest(build(2000)), 50e-6) < 30
+
+
+def test_where_and_zorder_by_still_end_where_they_did():
+    assert spark_maint._OPTIMIZE.match("OPTIMIZE t WHERE  ").group("where") == " "
+    assert spark_maint._OPTIMIZE.match("OPTIMIZE t ZORDER BY ( ) ;").group("zorder") == " "
+    m = spark_maint._OPTIMIZE.match("OPTIMIZE t WHERE a = 1   ZORDER BY (b , c )  ; ")
+    assert (m.group("where"), m.group("zorder")) == ("a = 1", "b , c ")

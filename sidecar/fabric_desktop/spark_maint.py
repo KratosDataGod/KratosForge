@@ -18,12 +18,17 @@ import pyarrow as pa
 from . import lakehouse
 
 _NAME = r"((?:`[^`]*`|[^\s`;])+)"
-_OPTIMIZE = re.compile(rf"^\s*OPTIMIZE\s+{_NAME}(?:\s+WHERE\s+(?P<where>.+?))?"
-                       r"(?:\s+ZORDER\s+BY\s*\(?(?P<zorder>[^)]*?)\)?)?\s*;?\s*$", re.I | re.S)
+# Read in one pass over a long run of blanks: the end's blanks once (*+), not split every way around
+# the ";", and WHERE's and ZORDER BY's text not tried to end inside a run of blanks (_NOT_MID_BLANKS),
+# where whatever follows also reads from the run's start. "OPTIMIZE t WHERE x", 800 spaces and a word
+# took 0.8 s, and the time grew with the cube.
+_NOT_MID_BLANKS = r"(?:(?<!\s)|(?!\s))"
+_OPTIMIZE = re.compile(rf"^\s*OPTIMIZE\s+{_NAME}(?:\s+WHERE\s+(?P<where>.+?){_NOT_MID_BLANKS})?"
+                       rf"(?:\s+ZORDER\s+BY\s*\(?(?P<zorder>[^)]*?){_NOT_MID_BLANKS}\)?)?\s*+;?\s*$", re.I | re.S)
 _VACUUM = re.compile(rf"^\s*VACUUM\s+{_NAME}(?:\s+RETAIN\s+(?P<hours>\d+(?:\.\d+)?)\s+HOURS?)?"
-                     r"(?P<dry>\s+DRY\s+RUN)?\s*;?\s*$", re.I | re.S)
+                     r"(?P<dry>\s+DRY\s+RUN)?\s*+;?\s*$", re.I | re.S)
 _RESTORE = re.compile(rf"^\s*RESTORE\s+(?:TABLE\s+)?{_NAME}\s+(?:TO\s+)?(?:VERSION\s+AS\s+OF\s+(?P<version>\d+)|"
-                      r"TIMESTAMP\s+AS\s+OF\s+(?P<ts>'[^']*'|\"[^\"]*\"))\s*;?\s*$", re.I | re.S)
+                      r"TIMESTAMP\s+AS\s+OF\s+(?P<ts>'[^']*'|\"[^\"]*\"))\s*+;?\s*$", re.I | re.S)
 STARTS = re.compile(r"^\s*(OPTIMIZE|VACUUM|RESTORE)\b", re.I)
 
 

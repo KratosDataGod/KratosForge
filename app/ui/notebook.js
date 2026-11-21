@@ -1654,6 +1654,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   nb.stopRequested = false;
   setKernel("busy", nb);
   cell.status = "running";
+  if (!nb.runningAll) announce(`Running cell ${nb.cells.indexOf(cell) + 1}`);  // cellFx says how it ended
   cell.outputs = [];
   cell.seconds = 0;
   cell.engineFlag = null;
@@ -1778,6 +1779,7 @@ async function runCells(cells, { debug = false } = {}) {
   const ended = (result, done) => Object.assign(forgeRun, { result, done, ended: Date.now() });
   if (code.length > 1) forgeEvent("notebook.run.started", document.querySelector("button[data-run]"));
   nb.runningAll = true;
+  if (code.length) announce(`Running ${code.length} ${code.length === 1 ? "cell" : "cells"}`);  // the end is said below
   try {
     for (const [i, cell] of code.entries()) {
       const ok = await runCell(cell, { nb, debug: dbgStepNext(nb) });  // goes on in nb's session if another notebook is opened

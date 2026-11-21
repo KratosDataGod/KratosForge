@@ -2903,6 +2903,31 @@ html[data-motion-level="0"] .mo-ghost { display: none; }
 .dialog:has(.ossie-import) { max-width: 900px; }
 .ossie-preview { display: flex; flex-direction: column; gap: 8px; }
 .ossie-preview tr.warn-row { background: var(--warn-soft-3); }
+/* Publish the semantic view in Fabric (meta.js semanticViewCard, OSSIE-005b): existing card and control styles */
+.sv-body { display: flex; flex-direction: column; gap: 8px; }
+.sv-body > p { margin: 0; }
+.sv-h { font-size: 13px; font-weight: 600; margin: 8px 0 0; }
+.sv-check { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
+.sv-check-fail .gate-list { margin: 6px 0 0; }
+.sv-files td.mono { font-size: 12px; }
+.sv-folder, .sv-line { align-items: center; font-size: 13px; margin: 0; }
+.sv-path { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--surface-warm); border: 1px solid var(--border); border-radius: var(--r-md); }
+.sv-small { font-size: 12px; }
+.sv-steps { list-style: none; margin: 0; padding: 0; }
+.sv-steps li { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+.sv-steps li > div { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.sv-num { width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-dark); font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.sv-steps li.sv-dim { color: var(--muted); }
+.sv-steps li.sv-dim .sv-num { background: var(--hover); color: var(--muted); }
+.sv-wait { font-size: 12px; font-weight: 600; color: var(--warn); }
+.sv-learn { font-size: 12px; }
+.sv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.sv-list { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+.sv-list li { margin: 4px 0; }
+.sv-note { padding: 8px 12px; border-radius: var(--r-md); background: var(--info-soft); font-size: 13px; }
+.sv-first { display: flex; flex-direction: column; gap: 6px; }
+.sv-first p { margin: 0; }
+.dialog:has(.sv-report) { max-width: 820px; }
 
 /* Data dictionary on the Semantic model tab (meta.js dictionaryCard) */
 .dict-out, .dict-preview { display: flex; flex-direction: column; gap: 10px; }
@@ -3088,6 +3113,7 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
   :focus-visible, .search:focus-within, .palette-input:focus-within, .nbf-search:focus-within, .pbi-frame.pbi-focus { outline: 2px solid Highlight; }
   .avatar { border: 1px solid CanvasText; }
   .seg button.on:disabled { color: HighlightText; }  /* a locked choice: outranks the normal-mode rule */
+  .choice-row.selected .muted-text { color: HighlightText; }  /* its description, on the theme's Highlight like its name */
 }
 
 /* Home > Recent notebooks: details, Run several and items pinned to Home (home-notebooks.js) */
@@ -3207,6 +3233,35 @@ table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit
 .cx-warn { color: var(--danger); }
 .cx-problems, .cx-part-error { color: var(--danger); }
 .cx-empty pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 8px; border-radius: var(--r-sm); }
+/* Settings > Environment (kf-environment.js, Preview, CP-010) */
+.kfe-page { display: flex; flex-direction: column; gap: 12px; }
+.kfe-title { margin: 0; }
+.kfe-page > p { margin: 0; }
+.kfe-card { display: flex; flex-direction: column; gap: 10px; }
+.kfe-card h3, .kfe-card h4 { margin: 0; }
+.kfe-card h4 { margin-top: 6px; font-size: 14px; }
+.kfe-card > p { margin: 0; }
+.kfe-card .row { flex-wrap: wrap; gap: 8px; }
+.kfe-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 20px; margin: 0; }
+.kfe-kv dt { color: var(--muted); }
+.kfe-kv dd { margin: 0; overflow-wrap: anywhere; }
+.kfe-status { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--hover); }
+.kfe-status.pass { background: var(--ok-soft); }
+.kfe-status.wrn { background: var(--warn-soft); }
+.kfe-status.fail { background: var(--danger-soft); }
+.kfe-status.info { background: var(--info-soft); }
+.kfe-status .kfe-waiting { grid-column: 2; }
+.kfe-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kfe-table th { text-align: left; font-weight: 600; color: var(--muted); }
+.kfe-table th, .kfe-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.kfe-table tr.dim td { opacity: 0.5; }
+.kfe-table .kfe-act { text-align: right; white-space: nowrap; }
+.kfe-plan td:first-child { min-width: 220px; }
+.kfe-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.kfe-field small { font-size: 12px; }
+.kfe-narrow { max-width: 360px; }
+.kfe-buttons { justify-content: flex-end; }
+@media (max-width: 640px) { .kfe-table .kfe-act { white-space: normal; } .kfe-plan td:first-child { min-width: 0; } }
 /* Optimize's sync line under the band, and its details (PR-OPT-006). */
 .optimize-sync[hidden] { display: none; }
 .optimize-sync { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }

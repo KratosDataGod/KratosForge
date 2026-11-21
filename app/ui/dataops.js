@@ -174,10 +174,14 @@ async function rollbackDialog(env, onChange) {
   const earlier = res.releases.filter((r) => !r.current && r.kept);
   let pick = earlier.length ? earlier[0].version : null;
   const what = h("div", { class: "rollback-what" });
+  // A Prod workspace (WR-250), or another project's Prod on this PC (WR-251): the rollback waits for its name typed.
+  const needs = res.confirm_name || "";
+  const typed = needs ? h("input", { autocomplete: "off", spellcheck: "false", oninput: () => { go.disabled = !ready(); } }) : null;
+  const ready = () => !!pick && (!typed || typed.value.trim() === needs);
   const go = btn("Roll back", null, async () => {
-    if (!pick) return;
+    if (!ready()) return;
     if (!state.user && !(await signIn())) return;
-    const out = await metaCall("meta_rollback", { env, version: pick }, "Rollback blocked");
+    const out = await metaCall("meta_rollback", { env, version: pick, ...(needs ? { confirm_name: needs } : {}) }, "Rollback blocked");
     if (!out) return;
     closeDialog();
     toast(`${ENV_LABEL[env]} is back on metadata ${out.version}`, false, { log: true });
@@ -186,7 +190,7 @@ async function rollbackDialog(env, onChange) {
   }, "tool primary");
   const label = (r) => `${r.version} (${relTime(r.at)})`;
   const show = async () => {
-    go.disabled = !pick;
+    go.disabled = !ready();
     go.textContent = pick ? `Roll back ${ENV_LABEL[env]} to ${pick}` : "Roll back";
     if (!pick) { what.replaceChildren(); return; }
     what.replaceChildren(h("p", { class: "muted-text small" }, "Working out what changes..."));
@@ -223,7 +227,9 @@ async function rollbackDialog(env, onChange) {
     h("fieldset", { class: "rollback-releases" }, h("legend", {}, `Releases to ${ENV_LABEL[env]}`), res.releases.map(row)),
     earlier.length ? null : h("p", { class: "muted-text small" }, `${ENV_LABEL[env]} keeps no earlier release to go back to. Releases promoted before this version of the app didn't keep their files.`),
     what,
-    h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`));
+    h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`),
+    typed ? [h("p", { class: "text" }, `${needs} is a Prod workspace, so this rollback runs only after you type its name exactly to confirm.`),
+      h("label", { class: "field" }, `Type ${needs} to confirm`, typed)] : null);
   showDialog(`Roll back ${ENV_LABEL[env]}`, body, [btn("Cancel", null, closeDialog, "tool"), go])
     .querySelector(".dialog")?.classList.add("wide");
   show();
@@ -344,9 +350,32 @@ async function impactDialog(name, pick = null) {
       h("span", { class: "muted-text small" }, "From this project's lineage. Nothing runs and nothing changes.")),
     out,
     h("p", { class: "muted-text small" }, "Covers this project's tables, your Python, and the semantic model on its last layer. Notebooks outside a project aren't traced yet.")),
-    [btn("Close", null, closeDialog, "tool outline")]);
+    [btn("Export OpenLineage...", null, () => { closeDialog(); openLineageDialog(); }, "tool outline"), btn("Close", null, closeDialog, "tool outline")]);
   overlay.querySelector(".dialog").classList.add("wide");
   draw();
+}
+
+// Export lineage as OpenLineage: one run event per entity's last run in this environment, written to
+// a new file in Downloads that DataHub, OpenMetadata or Marquez can read. Says first what it leaves out.
+async function openLineageDialog() {
+  const env = state.meta.env;
+  const pre = await metaCall("meta_openlineage_preview", { env }, "Export not available");
+  if (!pre) return;
+  const envName = ENV_LABEL[env] || env;
+  const exportBtn = btn("Export", null, async () => {
+    const res = await metaCall("meta_openlineage_export", { env }, "Not exported");
+    if (!res) return;
+    closeDialog();
+    toast(`Saved ${res.events} OpenLineage event${res.events === 1 ? "" : "s"} to ${res.path}`);
+  }, "tool primary", pre.events ? {} : { disabled: true });
+  showDialog("Export lineage as OpenLineage", h("div", { class: "impact-view" },
+    h("p", { class: "lead" }, pre.events
+      ? `Writes ${pre.events} OpenLineage run event${pre.events === 1 ? "" : "s"} (inputs, outputs and column lineage), one for each table's last run in ${envName}, to a new file in Downloads that DataHub, OpenMetadata or Marquez can read.`
+      : `No table has a finished run in ${envName} yet, so there is nothing to export. Run the project first.`),
+    pre.left_out.length ? h("div", {}, h("b", { class: "small" }, `Left out (${pre.left_out.length})`),
+      h("ul", { class: "gate-list small" }, pre.left_out.map((x) => h("li", {}, `${x.entity}: ${x.why}`)))) : null,
+    h("p", { class: "muted-text small" }, "Table, column and job names and how they link, one event per line. No data rows, no run messages and no paths on this PC.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), exportBtn]);
 }
 
 // Before an entity is saved: if its contract change breaks something, say what and ask. Resolves

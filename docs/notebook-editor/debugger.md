@@ -106,7 +106,9 @@ The automated checks are `sidecar/tests/test_debugger.py`, `sidecar/tests/test_d
 `sidecar/tests/test_debugger_hardening.py` (stepping past library code, a restart while paused,
 large frames and values), `sidecar/tests/test_debugger_robust.py` (malformed debugger and process
 messages, a process that dies or a cell that hangs while paused, the stack through errors and
-recursion) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
+recursion), `sidecar/tests/test_debugger_soak.py` (a thousand pauses and steps, and runs mixing
+Stop, Continue and restart, leave no trace hook, thread or memory behind), `sidecar/tests/test_debugger_midstep.py`
+(Stop, a restart or the process dying while a step runs) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
 Windows, with **Run notebooks in their own process** both on and off:
 
 1. Set breakpoints in two cells, save, close the notebook and reopen it. The red bars are on the

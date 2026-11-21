@@ -253,3 +253,107 @@ test("a cell edited while paused marks the pause on its code, or nowhere, never 
   assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("a garbled pause from the engine draws what it can, with no errors", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Garbled", cells: [{ type: "code", cell_id: "g1", source: "a = 1\nb = 2", meta: {} }] });
+    go("notebook");
+  });
+  const garbled = [
+    { line: 2, stack: "(cell) line 2", variables: { a: 1 }, watches: [null], evals: 7, skipped: "json.dumps" },
+    { line: 2, stack: [{ function: { x: 1 }, line: "two" }, 5], variables: [{ name: null, value: { deep: [1] } }], variables_total: -3 },
+    { line: 99, variables: Array.from({ length: 3000 }, (_, i) => ({ name: `v${i}`, type: "int", size: "", value: "y".repeat(5000) })) },
+    { line: "2" },
+    "paused",
+  ];
+  for (const paused of garbled) {
+    const shown = await p.evaluate((paused) => {
+      const cell = state.notebook.cells[0];
+      cell.status = "running";
+      dbgSnapshot(cell, { status: "running", paused });
+      updateResults(cell);
+      const panel = document.querySelector(".dbg-paused");
+      const text = panel ? panel.innerText : null;
+      dbgSnapshot(cell, null);
+      cell.status = null;
+      updateResults(cell);
+      return text;
+    }, paused);
+    if (typeof paused === "object" && Number.isInteger(paused.line)) {
+      assert.match(shown, new RegExp(`Paused at line ${paused.line}`));
+      assert.ok(shown.length < 2_000_000);
+    } else {
+      assert.strictEqual(shown, null);  // no usable line: not shown as paused
+    }
+  }
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("Debug from here over 20 cells: Stop ends the run there, and Continue runs the rest", { skip }, async () => {
+  const p = page();
+  const cells = Array.from({ length: 20 }, (_, i) => ({ type: "code", cell_id: `m${i}`, source: `v${i} = ${i}\nw${i} = v${i} + 1`, meta: i === 15 ? { breakpoints: [2] } : {} }));
+  await p.evaluate((cells) => { loadIntoState({ name: "Twenty", cells }); go("notebook"); }, cells);
+  const panel = (i) => p.locator(`[data-cell="${i}"] .dbg-paused`);
+  const ids = await p.evaluate(() => state.notebook.cells.map((c) => c.id));
+  // Step through the first three cells line by line, then Stop in the fourth.
+  await p.evaluate(() => { debugFromHere(state.notebook.cells[0]); });
+  for (let i = 0; i < 3; i++) {
+    await panel(ids[i]).getByText("Paused at line 1").waitFor({ timeout: 30000 });
+    await p.keyboard.press("F10");
+    await panel(ids[i]).getByText("Paused at line 2").waitFor({ timeout: 30000 });
+    await p.keyboard.press("F10");
+  }
+  await panel(ids[3]).getByText("Paused at line 1").waitFor({ timeout: 30000 });
+  await panel(ids[3]).getByRole("button", { name: "Stop" }).click();
+  await p.waitForFunction(() => !state.notebook.runningAll && !state.notebook.dbgRun, null, { timeout: 30000 });
+  let status = await p.evaluate(() => state.notebook.cells.map((c) => c.status));
+  assert.deepStrictEqual(status.slice(0, 4), ["ok", "ok", "ok", "cancelled"]);
+  assert.ok(status.slice(4).every((s) => s == null), "nothing ran after Stop");
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  // Again from the fifth cell: Continue at once, so the rest run to cell 16's breakpoint only, then to the end.
+  await p.evaluate(() => { debugFromHere(state.notebook.cells[4]); });
+  await panel(ids[4]).getByText("Paused at line 1").waitFor({ timeout: 30000 });
+  await p.keyboard.press("F5");
+  await panel(ids[15]).getByText("Paused at line 2 (breakpoint)").waitFor({ timeout: 30000 });
+  await p.keyboard.press("F5");
+  await p.waitForFunction(() => !state.notebook.runningAll && !state.notebook.dbgRun, null, { timeout: 60000 });
+  status = await p.evaluate(() => state.notebook.cells.map((c) => c.status));
+  assert.ok(status.slice(4).every((s) => s === "ok"), JSON.stringify(status));
+  assert.strictEqual(await p.locator(".dbg-paused").count(), 0);
+  assert.strictEqual(await p.locator(".cm-line.cm-paused").count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("a cell edited while it waits its turn in Debug from here runs with its new code and breakpoints", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Waiting", cells: [
+      { type: "code", cell_id: "q1", source: "a = 1\nb = 2", meta: {} },
+      { type: "code", cell_id: "q2", source: "c = a + 1\nd = c + 1", meta: { breakpoints: [2] } },
+    ] });
+    go("notebook");
+  });
+  const ids = await p.evaluate(() => state.notebook.cells.map((c) => c.id));
+  const panel = (i) => p.locator(`[data-cell="${i}"] .dbg-paused`);
+  await p.evaluate(() => { debugFromHere(state.notebook.cells[0]); });
+  await panel(ids[0]).getByText("Paused at line 1").waitFor({ timeout: 30000 });
+  // While cell 1 is paused, cell 2 is rewritten: two lines above its breakpoint, and a second breakpoint.
+  await p.evaluate(() => {
+    const c = state.notebook.cells[1];
+    setSource(c, "# checked\n# twice\nc = a + 1\nd = c + 1\ne = d + 1");
+    dbgToggleBreakpoint(c, 5);
+  });
+  assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells[1].meta.breakpoints), [4, 5]);
+  await p.keyboard.press("F5");  // Continue: cell 2 runs to its breakpoints only
+  await panel(ids[1]).getByText("Paused at line 4 (breakpoint)").waitFor({ timeout: 30000 });
+  assert.match(await p.locator(`[data-cell="${ids[1]}"] .cm-line.cm-paused`).innerText(), /^d = c \+ 1$/);
+  assert.strictEqual(await panel(ids[1]).locator(".dbg-edited").count(), 0);  // it runs the code as edited
+  await p.keyboard.press("F5");
+  await panel(ids[1]).getByText("Paused at line 5 (breakpoint)").waitFor({ timeout: 30000 });
+  await p.keyboard.press("F5");
+  await p.waitForFunction(() => !state.notebook.runningAll && !state.notebook.dbgRun, null, { timeout: 30000 });
+  assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells.map((c) => c.status)), ["ok", "ok"]);
+  assert.deepStrictEqual(app.errors, []);
+});

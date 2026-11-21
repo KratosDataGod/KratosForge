@@ -128,6 +128,30 @@ pub fn prune_engines(root: &Path, keep: &[&str]) {
     }
 }
 
+/// What an engine install leaves in `root` when the app is closed, the PC sleeps or the power goes
+/// part way through: the downloaded zips (the whole engine is about 330 MB), the release's
+/// version.json and the half-unpacked `.new` folder. None of it is ever run (an engine runs only
+/// from a folder named for its build, put in place by one rename once it is complete), so the
+/// installed engine is untouched either way; this only gives the space back. Called at startup,
+/// before anything can start an install.
+pub const UNFINISHED: [&str; 4] = ["download.zip", "update.zip", "version.json", ".new"];
+
+pub fn discard_unfinished(root: &Path) {
+    for name in UNFINISHED {
+        let path = root.join(name);
+        // symlink_metadata: a link named like these is removed itself, never followed.
+        match std::fs::symlink_metadata(&path) {
+            Ok(meta) if meta.is_dir() => {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+            Ok(_) => {
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(_) => {}
+        }
+    }
+}
+
 /// Checks an engine built from an update zip before it is put in place: it must be the release's
 /// build, with the release's runtime, and have Python and the engine package.
 pub fn check_patched(dir: &Path, commit: &str, runtime: &str) -> Result<(), String> {
@@ -151,6 +175,28 @@ mod tests {
 
     const RUNTIME: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const COMMIT: &str = "1111111111111111111111111111111111111111";
+
+    #[test]
+    fn an_install_cut_off_part_way_leaves_the_installed_engine_and_gives_back_the_space() {
+        let root = temp("unfinished");
+        let engine = root.join(COMMIT);
+        std::fs::create_dir_all(engine.join("Lib")).unwrap();
+        std::fs::write(engine.join("python.exe"), b"MZ").unwrap();
+        std::fs::write(root.join("download.zip"), b"PK half").unwrap();
+        std::fs::write(root.join("update.zip"), b"PK").unwrap();
+        std::fs::write(root.join("version.json"), b"{").unwrap();
+        std::fs::create_dir_all(root.join(".new").join("Lib")).unwrap();
+        std::fs::write(root.join(".new").join("python.exe"), b"MZ half").unwrap();
+        std::fs::write(root.join("engine-verified.json"), b"{}").unwrap();
+        discard_unfinished(&root);
+        for name in UNFINISHED {
+            assert!(!root.join(name).exists(), "{name} was left");
+        }
+        assert!(engine.join("python.exe").is_file(), "the installed engine was touched");
+        assert!(root.join("engine-verified.json").is_file(), "a file that isn't an unfinished install went");
+        discard_unfinished(&root); // nothing left to remove is fine
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("engine-patch-{name}-{}", std::process::id()));

@@ -63,6 +63,7 @@ const PREVIEW_FEATURES = {
   health: "Table health",
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
+  semanticView: "Semantic View files and publish steps",
   directLakeCheck: "Direct Lake check",
   dataDictionary: "Data dictionary",
   tests: "Tests",
@@ -91,6 +92,7 @@ const PREVIEW_FEATURES = {
   lineage: "Column lineage",
   rollback: "Roll back a release",
   promote: "Promote",
+  deltaPerTable: "Delta table features at publish",
   createWorkspace: "Create workspace",
   syncKeys: "Sync keys",
   varlib: "Variable library",
@@ -129,6 +131,7 @@ const PREVIEW_FEATURES = {
   academy: "Academy",
   appStudio: "App Studio",
   embedStudio: "Embed Studio (Power BI)",
+  kfEnvironment: "KratosForge Environment",
 };
 
 function previewShown() {

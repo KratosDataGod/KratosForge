@@ -260,10 +260,12 @@ AREAS: tuple[Area, ...] = (
     _skinned("snowflake", "loading", "Stages and data loading"),
     _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
     _skinned("snowflake", "history", "Query history, profiling and credits",
-       cloud_api=Cell("partial", ("test_snowflake_history.py",),
+       cloud_api=Cell("partial", ("test_snowflake_history.py", "test_snowflake_credits.py"),
                       note="The engine reads your own recent queries (QUERY_HISTORY_BY_USER) with their status, run "
-                           "time, warehouse and rows, after a confirm, because it runs on a warehouse (Preview). No "
-                           "screen, query profile or credits yet (SF-006). Against fakes, no live run yet.")),
+                           "time, warehouse and rows, and credits used per warehouse per day from ACCOUNT_USAGE's "
+                           "WAREHOUSE_METERING_HISTORY (up to 3 hours behind), each after a confirm, because each "
+                           "runs on a warehouse (Preview). Credits only, never money. No screen or query profile "
+                           "yet. Against fakes, no live run yet.")),
 )
 
 

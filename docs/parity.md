@@ -112,7 +112,7 @@ Notes:
 - **SQL worksheets, Cloud API integration:** The Snowflake SQL warehouse engine (Preview) runs read-only statements (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) through the SQL API after a confirm, and refuses anything else before it is sent. Not in the notebook's engine picker yet. Against fakes, no live run yet.
 - **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.
 - **Databases, schemas and object browser, Cloud API integration:** The engine lists databases, schemas, tables and views, and a table's or view's columns, with SHOW as the connection's role and without a warehouse, a capped page at a time (Preview). No screen shows them yet. Against fakes, no live run yet.
-- **Query history, profiling and credits, Cloud API integration:** The engine reads your own recent queries (QUERY_HISTORY_BY_USER) with their status, run time, warehouse and rows, after a confirm, because it runs on a warehouse (Preview). No screen, query profile or credits yet (SF-006). Against fakes, no live run yet.
+- **Query history, profiling and credits, Cloud API integration:** The engine reads your own recent queries (QUERY_HISTORY_BY_USER) with their status, run time, warehouse and rows, and credits used per warehouse per day from ACCOUNT_USAGE's WAREHOUSE_METERING_HISTORY (up to 3 hours behind), each after a confirm, because each runs on a warehouse (Preview). Credits only, never money. No screen or query profile yet. Against fakes, no live run yet.
 <!-- END GENERATED: parity -->
 
 Areas marked · are the parity backlog: each gets assessed against the platform's current

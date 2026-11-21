@@ -128,9 +128,14 @@ def expression(text: str, scope: Scope) -> Any:
     return value
 
 
+# Calls and brackets inside one another in one expression; the parser recurses once (twice for a
+# bracket) per level, so deeper text is refused rather than running out of Python's stack.
+MAX_NESTING = 200
+
+
 class _Parser:
     def __init__(self, toks: list[tuple[str, str]], scope: Scope):
-        self.toks, self.i, self.scope = toks, 0, scope
+        self.toks, self.i, self.scope, self.depth = toks, 0, scope, 0
 
     def peek(self, offset: int = 0) -> str:
         j = self.i + offset
@@ -145,6 +150,15 @@ class _Parser:
         return value
 
     def value(self) -> Any:
+        self.depth += 1
+        if self.depth > MAX_NESTING:
+            raise ExpressionError(f"the expression is nested more than {MAX_NESTING} levels deep")
+        try:
+            return self._value()
+        finally:
+            self.depth -= 1
+
+    def _value(self) -> Any:
         kind = self.peek()
         if kind == "string":
             out: Any = self.take("string")

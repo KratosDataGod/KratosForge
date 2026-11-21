@@ -40,6 +40,9 @@ PLATFORM_PART = ".platform"
 FORMATS = ("pipeline_content", "item_definition", "git_folder")
 MAX_BYTES = 20 * 1024 * 1024
 MAX_DEPTH = 40  # containers inside containers; Fabric's own limits are far lower
+# Levels of JSON objects and arrays: forty containers take about 200, and every pass over a definition
+# (the expression scan, checks, evaluation) recurses once per level, so text nested deeper is refused.
+MAX_NESTING = 500
 
 # Where control activities keep the activities they contain. A Switch keeps one list per case.
 CHILD_LISTS = ("ifTrueActivities", "ifFalseActivities", "activities", "defaultActivities")
@@ -239,12 +242,30 @@ def _parse(text: str, what: str, duplicates: list[str]) -> Any:
     if len(text.encode("utf-8", "surrogatepass")) > MAX_BYTES:
         raise DefinitionError(f"{what} is larger than {MAX_BYTES // (1024 * 1024)} MB.", "too_large")
     try:
-        return json.loads(text, object_pairs_hook=_object_pairs(duplicates))
+        data = json.loads(text, object_pairs_hook=_object_pairs(duplicates))
     except json.JSONDecodeError as exc:
         raise DefinitionError(f"{what} isn't valid JSON: {exc.msg} at line {exc.lineno}, column {exc.colno}.",
                               "invalid_json", hint="Check for a missing comma, quote or bracket near that place.") from None
     except RecursionError:
         raise DefinitionError(f"{what} is nested too deeply to be a pipeline definition.", "invalid_json") from None
+    if _nested_past(data, MAX_NESTING):
+        raise DefinitionError(f"{what} is nested more than {MAX_NESTING} levels deep.", "too_deep",
+                              hint="A pipeline definition is far shallower; check the file is the pipeline's own.")
+    return data
+
+
+def _nested_past(value: Any, limit: int) -> bool:
+    """Whether ``value`` has objects or arrays more than ``limit`` levels deep (read with a stack, not recursion)."""
+    stack = [(value, 1)]
+    while stack:
+        value, level = stack.pop()
+        children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else None
+        if children is None:
+            continue
+        if level > limit:
+            return True
+        stack.extend((child, level + 1) for child in children)
+    return False
 
 
 def _parts(wrapper: dict[str, Any]) -> list[Any]:
@@ -295,7 +316,7 @@ def _from_parts(wrapper: dict[str, Any], text: str, duplicates: list[str], name_
         elif path == PLATFORM_PART:
             try:
                 platform = json.loads(_decode(part, i, prefix))
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, RecursionError):
                 platform = None  # kept as the raw part regardless; only the schema record misses it
     if content_text is None:
         raise DefinitionError(f"The definition has no {CONTENT_PART} part.", "missing_content_part", f"{prefix}.parts",
@@ -330,7 +351,7 @@ def load(path: str | Path) -> ImportedPipeline:
         if PLATFORM_PART in files:
             try:
                 platform = json.loads(files[PLATFORM_PART])
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, RecursionError):
                 platform = None
         name = p.name[:-len(".DataPipeline")] if p.name.endswith(".DataPipeline") else p.name
         if isinstance(platform, dict) and isinstance(platform.get("metadata"), dict):

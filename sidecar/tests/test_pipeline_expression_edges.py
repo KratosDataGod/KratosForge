@@ -98,3 +98,18 @@ def test_a_time_zone_this_pc_has_no_data_for_says_so(monkeypatch):
     monkeypatch.setattr(zoneinfo, "ZoneInfo", missing)
     with pytest.raises(ExpressionError, match="no time zone data for 'Pacific Standard Time'"):
         run("@convertFromUtc('2026-11-09T10:00:00Z', 'Pacific Standard Time')")
+
+
+
+def test_nested_calls_up_to_the_limit_evaluate_and_deeper_ones_are_refused():
+    inner = "'a'"
+    for _ in range(ev.MAX_NESTING - 1):
+        inner = f"concat({inner}, 'b')"
+    assert ev.evaluate("@" + inner, ev.Scope()) == "a" + "b" * (ev.MAX_NESTING - 1)
+    assert ev.evaluate("@" + "createArray(" * 50 + "1" + ")" * 50 + "[0]" * 50, ev.Scope()) == 1
+    deep = "@" + "concat(" * 5000 + "'a'" + ")" * 5000
+    with pytest.raises(ev.ExpressionError) as caught:
+        ev.evaluate(deep, ev.Scope())
+    assert str(caught.value) == f"the expression is nested more than {ev.MAX_NESTING} levels deep"
+    with pytest.raises(ev.ExpressionError):
+        ev.evaluate("@createArray(1)" + "[createArray(0)" * 3000 + "[0]" + "]" * 3000, ev.Scope())

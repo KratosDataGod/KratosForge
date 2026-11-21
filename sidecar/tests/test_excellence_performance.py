@@ -288,3 +288,15 @@ def test_a_lakehouse_id_that_isnt_a_guid_never_reaches_onelake(make):
     assert not any(c[1] == bad for c in store.calls) and any(c[1] == LH0 for c in store.calls)
     assert {outcome_of(r, cid, bad)["outcome"] for cid in IDS} == {"not_evaluated"}
     assert "LH_Odd" in layout_read(r)["problem"]
+
+
+def test_folder_listings_are_bounded(make, monkeypatch):
+    monkeypatch.setattr(excellence_service, "MAX_TABLE_LISTINGS", 3)
+    store = FakeStore(tables=1)
+    other = "dddddddd-2222-3333-4444-555555555555"
+    r = make([lakehouse(LH0), lakehouse(other, "LH_Second")], store).excellence_assess(workspace_id=WSID)
+    assert sum(1 for c in store.calls if c[0] == "list") == 3  # never more than the budget
+    assert outcome_of(r, "FEA-PERF-003", LH0)["outcome"] in {"pass", "fail"}  # LH0 needed 2 listings
+    assert outcome_of(r, "FEA-PERF-003", other)["outcome"] == "not_evaluated"  # the budget ran out
+    got = layout_read(r)
+    assert got["ok"] is False and "LH_Second" in got["problem"] and "3 OneLake folders" in got["problem"]

@@ -41,6 +41,7 @@ from .redact import describe
 
 METHODS = {"excellence_assess"}
 MAX_LAKEHOUSE_READS = 50  # lakehouse properties read per assessment; the rest are not evaluated, and reads says so
+MAX_TABLE_LISTINGS = 300  # OneLake folder listings per assessment; a lakehouse past it isn't evaluated
 MAX_TABLE_READS = 100  # Delta logs read per assessment; the lakehouses with tables past it aren't passed
 TABLE_READ_WORKERS = 4
 MAX_MODELS = 30  # semantic model definitions read per assessment; the rest are not evaluated
@@ -196,12 +197,24 @@ class OneLakeTables:
         return maintenance.health(uri, self.options, table=loaded), delta_profile.features_used(loaded)
 
 
-def _table_names(store: Any, wid: str, lh: str) -> list[tuple[str | None, str]]:
+class ListingBudgetSpent(Exception):
+    """More OneLake folder listings than one assessment makes (MAX_TABLE_LISTINGS)."""
+
+
+def _table_names(store: Any, wid: str, lh: str, budget: list[int]) -> list[tuple[str | None, str]]:
     """(schema, table) for every folder under Tables that is or should be a table, as X-ray finds them:
-    a folder with a _delta_log is a table of a lakehouse without schemas, any other is a schema."""
+    a folder with a _delta_log is a table of a lakehouse without schemas, any other is a schema.
+    ``budget`` holds the folder listings left in this assessment; each listing spends one, and a
+    lakehouse that would need more raises ListingBudgetSpent before listing anything else."""
+    def listing(path: str) -> list[dict[str, Any]]:
+        if budget[0] <= 0:
+            raise ListingBudgetSpent(f"not read: only {MAX_TABLE_LISTINGS} OneLake folders are listed in one assessment")
+        budget[0] -= 1
+        return store.list(wid, lh, path)
+
     out: list[tuple[str | None, str]] = []
-    for top in [e for e in store.list(wid, lh, "Tables") if e["is_dir"]]:
-        inner = store.list(wid, lh, f"Tables/{top['name']}")
+    for top in [e for e in listing("Tables") if e["is_dir"]]:
+        inner = listing(f"Tables/{top['name']}")
         if any(e["name"] == "_delta_log" for e in inner):
             out.append((None, top["name"]))
         else:
@@ -274,6 +287,7 @@ class ExcellenceMixin:
         got: dict[str, dict[str, Any] | None] = {}
         listed: list[tuple[str, str | None, str]] = []
         problems: list[str] = []
+        budget = [MAX_TABLE_LISTINGS]
         for lh in lakehouses[:MAX_LAKEHOUSE_READS]:
             lid, name = str(lh["id"]), str(lh.get("displayName") or lh["id"])
             if xray.is_staging(name):
@@ -281,7 +295,7 @@ class ExcellenceMixin:
                 continue
             try:
                 # the id goes into the OneLake URL and the table's address: only a GUID is used there
-                names = _table_names(store, wid, _guid(lid, "lakehouse"))
+                names = _table_names(store, wid, _guid(lid, "lakehouse"), budget)
             except Exception as exc:  # noqa: BLE001 - that lakehouse's controls are then not evaluated
                 problems.append(f"{name} ({describe(exc)})")
                 continue

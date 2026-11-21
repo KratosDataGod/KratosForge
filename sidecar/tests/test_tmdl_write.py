@@ -413,6 +413,24 @@ def test_a_model_nested_too_deeply_is_refused_not_a_crash():
         tmdl.from_bim({"name": "m", "model": {"tables": [{"name": "T", "refreshPolicy": deep}]}})
 
 
+def test_comparing_models_nested_too_deeply_is_refused_and_the_round_trip_check_says_it_didnt_run():
+    deep: object = "x"
+    for _ in range(3000):
+        deep = {"a": [deep]}
+    bim = {"name": "m", "model": {"annotations": [{"name": "an", "value": deep}], "tables": [
+        {"name": "t", "columns": [{"name": "c", "dataType": "string", "sourceColumn": "c"}]}]}}
+    assert tmdl.differences({"model": {"x": [{"a": 1}]}}, {"model": {"x": [{"a": "1"}]}}) == []
+    assert tmdl.differences({"model": {"x": 1}}, {"model": {"x": 2}}) == ["x"]
+    with pytest.raises(ValueError, match="nested too deeply to compare"):
+        tmdl.differences(bim, bim)
+    check = model_ossie.round_trip_check(bim)
+    assert (check["ran"], check["passed"], check["error"]) == (
+        False, None, "ValueError: This model is nested too deeply to compare")
+    rows = model_ossie.export(bim, validate=True)["round_trip"]
+    assert [r["message"] for r in rows] == [
+        "the round-trip check didn't run: the round trip couldn't run (ValueError: This model is nested too deeply to compare)"]
+
+
 def test_a_property_name_that_cant_be_written_is_reported_once():
     bim = {"name": "m", "model": {"tables": [{"name": "T", "bad key": 1}]}}
     _, report = tmdl.from_bim(bim)

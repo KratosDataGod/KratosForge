@@ -914,10 +914,14 @@ def _named(item: Any) -> str | None:
 
 def differences(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     """Where ``after`` differs from ``before`` (two parsed ``model.bim``), each as a readable path such as
-    ``table 'Sales' measure 'Net'`` or ``table 'Sales' column 'amount' formatString``. Empty when they match."""
-    a, b = canonical(before.get("model") or {}), canonical(after.get("model") or {})
+    ``table 'Sales' measure 'Net'`` or ``table 'Sales' column 'amount' formatString``. Empty when they match.
+    A model nested deeper than Python's stack is refused with a plain reason."""
     out: list[str] = []
-    _diff(a, b, "", out, "model")
+    try:
+        a, b = canonical(before.get("model") or {}), canonical(after.get("model") or {})
+        _diff(a, b, "", out, "model")
+    except RecursionError:
+        raise ValueError("This model is nested too deeply to compare") from None
     level_a, level_b = before.get("compatibilityLevel"), after.get("compatibilityLevel")
     if level_a is not None and str(level_a) != str(level_b):
         out.append("database compatibilityLevel")

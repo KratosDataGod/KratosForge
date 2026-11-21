@@ -167,9 +167,11 @@ class UserDefinedFunction:
                 # number and a whole number wraps into a smaller type, as Arrow casts them.
                 import pandas as pd
                 series = out if isinstance(out, pd.Series) else pd.Series(list(out), dtype=object)
+                # A nullable Series (Int64, Float64) converts itself and carries its own nulls; Arrow refuses
+                # a mask beside it, so Spark passes none then
+                mask = None if hasattr(series.array, "__arrow_array__") else series.isnull().to_numpy()
                 try:
-                    return pa.Array.from_pandas(series, mask=series.isnull().to_numpy(), type=_arrow_type(dt),
-                                                safe=False)
+                    return pa.Array.from_pandas(series, mask=mask, type=_arrow_type(dt), safe=False)
                 except (TypeError, ValueError) as exc:  # ArrowTypeError and ArrowInvalid too, as Spark catches them
                     # Spark stops on values Arrow won't convert (text, for one); it doesn't null them
                     raise RuntimeError(

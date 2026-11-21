@@ -83,6 +83,29 @@ def test_go_with_a_comment_on_its_line_still_separates_batches(go):
     assert [s.text for s in statements] == ["SELECT 1", "SELECT 2"]
 
 
+@pytest.mark.parametrize("line, alone", [("GO /* a */ b */", True), ("GO /**/ -- x */", True), ("GO -- a /* b", True),
+                                         ("GO /* a */ b", False), ("GO /* a", False), ("GO */", False), ("GO /*/", False)])
+def test_a_go_lines_comments_read_as_before(line, alone):
+    assert (A._GO_LINE.fullmatch(line) is not None) is alone
+
+
+def test_a_line_of_many_comments_is_turned_down_in_time_that_grows_with_it():
+    # Read one comment at a time, a line of comments that isn't GO could be split in twice as many
+    # ways for each more */: 26 comments took 10 s. Now 8 times the comments take about 8 times as long.
+    import time
+
+    def quickest(count):
+        line = "GO " + "/**/" * count + " x"
+        best = float("inf")
+        for _ in range(5):
+            started = time.perf_counter()
+            assert A._GO_LINE.fullmatch(line) is None
+            best = min(best, time.perf_counter() - started)
+        return best
+
+    assert quickest(16) / max(quickest(2), 20e-6) < 30
+
+
 def test_go_followed_by_a_semicolon_is_not_a_batch_separator():
     # sqlcmd and SSMS want GO alone on its line; GO; is left to the statement it ends
     statements, _ = A.split("SELECT 1\nGO;\nSELECT 2", "warehouse")

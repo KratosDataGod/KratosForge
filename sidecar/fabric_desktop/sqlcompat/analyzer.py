@@ -135,8 +135,11 @@ def _alone_on_line(query: str, t: Any) -> bool:
     return _GO_LINE.fullmatch(line.strip()) is not None
 
 
-# GO, an optional count, and comments (Microsoft's GO allows a comment on its line)
-_GO_LINE = re.compile(r"GO(?:\s+\d+)?\s*(?:(?:--.*|/\*.*?\*/)\s*)*", re.IGNORECASE)
+# GO, an optional count, and comments (Microsoft's GO allows a comment on its line). On one line, any
+# run of /* */ comments reads as one from its first /* to its last */, and -- runs to the end, so the
+# comments are one optional block and one optional tail: a run of comments read one by one could be
+# split in twice as many ways for each more */, and a line that wasn't GO took seconds to turn down.
+_GO_LINE = re.compile(r"GO(?:\s+\d+)?\s*(?:/\*.*\*/\s*)?(?:--.*)?", re.IGNORECASE)
 
 
 # Statements sqlglot doesn't read but that are ordinary commands of the engine: the token rules check

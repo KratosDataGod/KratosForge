@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-from deltalake.exceptions import TableNotFoundError
+from deltalake.exceptions import DeltaError, TableNotFoundError
 
 from . import fabric_step, jsonfile, maintenance, notebook_files, profiling, retrying, risk, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
@@ -530,6 +530,11 @@ class CloudMixin:
                 h = maintenance.health(store.uri(t["lakehouse"], t["schema"], t["table"]), store.options(), local=local)
             except LookupError as exc:  # the lakehouse isn't in this environment yet
                 h = {"exists": False, "advice": [], "status": "missing", "message": str(exc)}
+            except DeltaError as exc:  # a damaged _delta_log: this table can't be read, the others still report
+                _log.warning("Couldn't read %s.%s for table health: %s", t["schema"], t["table"], describe(exc))
+                h = {"exists": False, "advice": [], "status": "unreadable",
+                     "message": ("This table couldn't be read, because its Delta log is damaged or needs a feature "
+                                 "this app can't read. Write the table again with a run, or fix its _delta_log folder.")}
             tables.append(t | h)
         cfg = self._env_cfg(project, env)
         return {"env": env, "local": local, "optimize_after_run": self._optimize_after_run(project, env),

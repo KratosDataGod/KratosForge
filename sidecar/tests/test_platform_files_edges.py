@@ -93,3 +93,20 @@ def test_an_existing_file_that_isnt_text_is_written_over(tmp_path):
 def test_a_domain_loop_counts_as_deep_and_ends():
     assert pf._depth("a", {"a": "b", "b": "a"}) == 2
     assert pf._depth("top", {}) == 0
+
+
+def test_a_file_nested_past_the_limit_is_a_problem_not_an_exception(tmp_path):
+    """A dotted key thousands of parts long, or arrays nested past what tomllib reads, used to raise
+    RecursionError from read_repo; the file is now reported as one that can't be read."""
+    (tmp_path / "shortcut_rules.toml").write_text("x." + ".".join(["a"] * 5000) + " = 1\n", encoding="utf-8")
+    (tmp_path / "glossary.toml").write_text("x = " + "[" * 600 + "]" * 600 + "\n", encoding="utf-8")
+    out = pf.read_repo(tmp_path)
+    assert out["shortcut_rules"] is None and out["glossary"] is None
+    assert sorted(out["problems"]) == [
+        "glossary.toml can't be read: it is nested too deeply",
+        f"shortcut_rules.toml can't be read: it is nested more than {pf.MAX_NESTING} levels deep"]
+    # As deep as the limit is still read.
+    (tmp_path / "glossary.toml").unlink()
+    (tmp_path / "shortcut_rules.toml").write_text("x." + ".".join(["a"] * (pf.MAX_NESTING - 2)) + " = 1\n", encoding="utf-8")
+    out = pf.read_repo(tmp_path)
+    assert out["problems"] == [] and out["shortcut_rules"]["x"]

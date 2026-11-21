@@ -299,18 +299,38 @@ def _load(path: Path, problems: list[str], rel: str) -> dict[str, Any] | None:
         problems.append(f"{one_line(rel, 200)} is a link, so it isn't read.")
         return None
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except (OSError, ValueError, UnicodeDecodeError) as e:
         problems.append(f"{one_line(rel, 200)} can't be read: {one_line(e)}")
         return None
+    return _parse(text, problems, rel)
+
+
+# Levels of tables and arrays a platform file may have; its records are a few levels deep. Reading,
+# comparing and writing them recurse once per level, and a dotted key (a.b.c = 1) makes one level per
+# part with no nesting in the text, so a deeper file is a problem rather than a RecursionError.
+MAX_NESTING = 100
 
 
 def _parse(text: str, problems: list[str], rel: str) -> dict[str, Any] | None:
     try:
-        return tomllib.loads(text)
+        data = tomllib.loads(text)
     except ValueError as e:
         problems.append(f"{one_line(rel, 200)} can't be read: {one_line(e)}")
         return None
+    except RecursionError:  # nested past what tomllib reads
+        problems.append(f"{one_line(rel, 200)} can't be read: it is nested too deeply")
+        return None
+    stack: list[tuple[Any, int]] = [(data, 1)]
+    while stack:
+        value, level = stack.pop()
+        children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else None
+        if children is not None:
+            if level > MAX_NESTING:
+                problems.append(f"{one_line(rel, 200)} can't be read: it is nested more than {MAX_NESTING} levels deep")
+                return None
+            stack.extend((child, level + 1) for child in children)
+    return data
 
 
 def is_platform_file(rel: str) -> bool:

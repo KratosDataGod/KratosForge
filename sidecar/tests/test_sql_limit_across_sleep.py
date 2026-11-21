@@ -13,7 +13,6 @@ import threading
 import time
 
 import pyarrow as pa
-import pytest
 from deltalake import write_deltalake
 
 from fabric_desktop import awake_timer, sql_exec
@@ -31,36 +30,8 @@ def limits(**changes):
     return lambda: base
 
 
-@pytest.fixture
-def sleep_jump(monkeypatch):
-    """time.monotonic, which a call moves forward by ``seconds``, as waking from sleep does. Timed
-    waits (Event.wait, so threading.Timer too) are counted on that clock, as on Windows, where a wait
-    whose time passed during sleep ends on waking; elsewhere the OS's own monotonic clock stops
-    during sleep, so a plain jump wouldn't show the bug."""
-    real = time.monotonic
-    offset = [0.0]
-    monkeypatch.setattr(time, "monotonic", lambda: real() + offset[0])
-    event_wait = threading.Event.wait
-
-    def windows_wait(self, timeout=None):
-        if timeout is None:
-            return event_wait(self)
-        deadline = time.monotonic() + timeout
-        while True:
-            left = deadline - time.monotonic()
-            if left <= 0:
-                return self.is_set()
-            if event_wait(self, min(left, 0.05)):
-                return True
-    monkeypatch.setattr(threading.Event, "wait", windows_wait)
-
-    def jump(seconds: float) -> None:
-        offset[0] += seconds
-    return jump
-
-
 def pause(seconds: float) -> None:
-    """Wait real time, on a clock the jump doesn't move."""
+    """Wait real time, on a clock the jump doesn't move (sleep_jump: tests/conftest.py)."""
     end = time.perf_counter() + seconds
     while time.perf_counter() < end:
         time.sleep(0.02)

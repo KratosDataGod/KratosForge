@@ -31,6 +31,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol
 
+from ..awake_timer import AwakeTimer
 from ..redact import describe
 from .activities import default_registry
 from .adapters import ActivityFailed, child_key, notebook_key, timespan
@@ -322,8 +323,7 @@ class PipelineRun:
         self.state, self.started, self._t0 = "running", _now(), time.monotonic()
         timer = None
         if self.timeout_seconds:
-            timer = threading.Timer(self.timeout_seconds, self._time_up)
-            timer.daemon = True
+            timer = AwakeTimer(self.timeout_seconds, self._time_up)  # awake time only, as the SQL page's limit
             timer.start()
         self._changed()
         try:

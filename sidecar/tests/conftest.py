@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import threading
+import time
 
 import msal
 import pytest
@@ -288,3 +289,31 @@ def pytest_collection_modifyitems(session, config, items):
         shown = "\n".join(f"  {nodeid[:300]}" for nodeid in long[:20])
         raise pytest.UsageError(f"{len(long)} test id(s) are over {TEST_ID_LIMIT} characters; give the "
                                 f"parametrize call short ids= (tests/conftest.py TEST_ID_LIMIT):\n{shown}")
+
+
+@pytest.fixture
+def sleep_jump(monkeypatch):
+    """time.monotonic, which a call moves forward by ``seconds``, as waking from sleep does. Timed
+    waits (Event.wait, so threading.Timer too) are counted on that clock, as on Windows, where a wait
+    whose time passed during sleep ends on waking; elsewhere the OS's own monotonic clock stops
+    during sleep, so a plain jump wouldn't show the bug."""
+    real = time.monotonic
+    offset = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: real() + offset[0])
+    event_wait = threading.Event.wait
+
+    def windows_wait(self, timeout=None):
+        if timeout is None:
+            return event_wait(self)
+        deadline = time.monotonic() + timeout
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return self.is_set()
+            if event_wait(self, min(left, 0.05)):
+                return True
+    monkeypatch.setattr(threading.Event, "wait", windows_wait)
+
+    def jump(seconds: float) -> None:
+        offset[0] += seconds
+    return jump

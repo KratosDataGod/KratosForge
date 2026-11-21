@@ -258,7 +258,7 @@ def test_a_rule_not_in_the_catalog_or_changed_gets_a_generic_plan():
     p = plans.plan_for(older, r2)
     assert p["proposed_change"]["specific"] is False and any("has changed" in n for n in p["risk"]["notes"])
     gone = {**f, "rule": "FEA-XYZ-001@1.0.0"}
-    r3 = {**r, "outcomes": [{**r["outcomes"][0], "control_id": "FEA-XYZ-001"}]}
+    r3 = {**r, "outcomes": [{**r["outcomes"][0], "control_id": "FEA-XYZ-001", "rule": "FEA-XYZ-001@1.0.0"}]}
     p = plans.plan_for(gone, r3)
     assert p["proposed_change"]["specific"] is False and p["control"]["current_rule"] is None
     assert p["proposed_change"]["note"] == plans.NOT_SPECIFIC
@@ -275,7 +275,7 @@ def test_plans_import_nothing_that_reads_or_changes_fabric():
             mods.add(("." * n.level) + (n.module or ""))
         elif isinstance(n, ast.Import):
             mods |= {a.name for a in n.names}
-    assert mods <= {"__future__", "hashlib", "json", "collections", "typing", "..redact", ".", ".evidence"}
+    assert mods <= {"__future__", "hashlib", "json", "math", "collections", "typing", "..redact", ".", ".evidence"}
     names = {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.level == 1 and not n.module for a in n.names}
     assert names <= {"controls", "catalog"}
 
@@ -293,3 +293,65 @@ def test_planning_touches_no_fabric_client(monkeypatch):
             monkeypatch.setattr(fabric_api.FabricClient, name, boom)
     for c in REG.controls():
         plans.plan_for(*fail_result(c), graph=chain(5))
+
+
+# ---- adversarial review
+
+
+@pytest.mark.parametrize("change", [
+    {"resource": "it-1"}, {"resource": ["it-1"]}, {"evidence_ids": [["a"]]}, {"evidence_ids": [{"a": 1}]},
+], ids=["resource-str", "resource-list", "evidence-list", "evidence-dict"])
+def test_malformed_finding_fields_dont_crash(change):
+    f, r = fail_result(REG.get("FEA-DE-003"))
+    plans.plan_for({**f, **change}, r)  # a plan or None, never an exception
+
+
+@pytest.mark.parametrize("result_change", [{"outcomes": ["x", None, 5]}, {"evidence": "x"}, {"outcomes": 5}])
+def test_malformed_result_parts_dont_crash(result_change):
+    f, r = fail_result(REG.get("FEA-DE-003"))
+    plans.plan_for(f, {**r, **result_change})
+
+
+@pytest.mark.parametrize("graph", [{"nodes": 5}, {"edges": 5}, {"nodes": "abc", "edges": {"from": "a"}}])
+def test_graph_parts_of_the_wrong_kind_dont_crash(graph):
+    f, r = fail_result(REG.get("FEA-DE-003"))
+    p = plans.plan_for(f, r, graph=graph)
+    assert p["blast_radius"]["known"] is False
+
+
+def test_a_complete_graph_with_skipped_edges_isnt_reported_complete():
+    f, r = fail_result(REG.get("FEA-DE-003"))
+    sid = f["resource"]["id"]
+    g = {"nodes": [{"id": sid}], "edges": [{"from": sid, "to": 7}, "junk"], "complete": True}
+    br = plans.plan_for(f, r, graph=g)["blast_radius"]
+    assert br["complete"] is False and "skipped" in br["reason"]
+
+
+def test_a_finding_and_outcome_without_a_resource_get_no_plan():
+    f, r = fail_result(REG.get("FEA-DE-003"))
+    r2 = {**r, "outcomes": [{**r["outcomes"][0], "subject": None}]}
+    assert plans.plan_for({**f, "resource": None}, r2) is None
+
+
+def test_a_control_that_also_passed_on_the_resource_gets_no_plan_in_any_order():
+    f, r = fail_result(REG.get("FEA-DE-003"))
+    o = r["outcomes"][0]
+    for outs in ([o, {**o, "outcome": "pass"}], [{**o, "outcome": "pass"}, o]):
+        assert plans.plan_for(f, {**r, "outcomes": outs}) is None
+
+
+def test_an_outcome_of_another_rule_version_isnt_this_findings_fail():
+    f, r = fail_result(REG.get("FEA-DE-003"))
+    o = {**r["outcomes"][0], "rule": "FEA-DE-003@0.1.0"}
+    assert plans.plan_for(f, {**r, "outcomes": [o]}) is None
+
+
+def test_templates_are_carried_without_secrets_surrogates_or_non_finite_numbers():
+    f, r = fail_result(REG.get("FEA-DE-003"))
+    t = [{"kind": "sql", "text": "-- password=hunter2-very-secret\nVACUUM t\x1b[31m\ud800", "n": float("nan"),
+          "m": [float("inf")]}]
+    p = plans.plan_for({**f, "templates": t}, r)
+    out = json.dumps(p, allow_nan=False)  # strict JSON
+    assert "hunter2" not in out and "\x1b" not in p["proposed_change"]["templates"][0]["text"]
+    assert "VACUUM t" in p["proposed_change"]["templates"][0]["text"] and "\n" in p["proposed_change"]["templates"][0]["text"]
+    p["plan_id"].encode()

@@ -29,10 +29,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections import deque
 from typing import Any
 
-from ..redact import one_line
+from ..redact import one_line, secrets
 from . import controls as ct
 from .evidence import canonical
 
@@ -201,27 +202,38 @@ def _resource(r: Any) -> dict[str, Any]:
 # ---- the graph
 
 
-def _graph(graph: Any) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]], dict[str, set[str]]]:
-    """Nodes by id, and the edges both ways. ``edges`` are {"from", "to"}: ``to`` depends on ``from``
-    (data or a reference flows from ``from`` to ``to``). An edge's ends that aren't listed as nodes
-    are nodes with only an id. Anything malformed is skipped, never guessed."""
+def _graph(graph: Any) -> tuple[dict[str, dict[str, Any]], dict[str, set[str]], dict[str, set[str]], int]:
+    """Nodes by id, the edges both ways, and how many malformed parts were skipped. ``edges`` are
+    {"from", "to"}: ``to`` depends on ``from`` (data or a reference flows from ``from`` to ``to``). An
+    edge's ends that aren't listed as nodes are nodes with only an id. Anything malformed is skipped,
+    never guessed, and counted, so a graph with skipped parts is never reported complete."""
     nodes: dict[str, dict[str, Any]] = {}
     down: dict[str, set[str]] = {}
     up: dict[str, set[str]] = {}
-    for n in graph.get("nodes") or []:
+    skipped = 0
+    raw_nodes, raw_edges = graph.get("nodes"), graph.get("edges")
+    if raw_nodes is not None and not isinstance(raw_nodes, list):
+        raw_nodes, skipped = [], skipped + 1
+    if raw_edges is not None and not isinstance(raw_edges, list):
+        raw_edges, skipped = [], skipped + 1
+    for n in raw_nodes or []:
         if isinstance(n, dict) and isinstance(n.get("id"), str) and n["id"]:
             nodes.setdefault(n["id"], n)
-    for e in graph.get("edges") or []:
+        else:
+            skipped += 1
+    for e in raw_edges or []:
         if not isinstance(e, dict):
+            skipped += 1
             continue
         a, b = e.get("from"), e.get("to")
         if not (isinstance(a, str) and isinstance(b, str) and a and b):
+            skipped += 1
             continue
         for x in (a, b):
             nodes.setdefault(x, {"id": x})
         down.setdefault(a, set()).add(b)
         up.setdefault(b, set()).add(a)
-    return nodes, down, up
+    return nodes, down, up, skipped
 
 
 def _node(n: dict[str, Any], depth: int) -> dict[str, Any]:
@@ -268,17 +280,20 @@ def _radius(subject: dict[str, Any], graph: Any) -> tuple[dict[str, Any], dict[s
     if not isinstance(graph, dict):
         why = "Not known: the dependency graph given isn't one this plan can read."
         return unknown(why), unknown(why)
-    nodes, down, up = _graph(graph)
+    nodes, down, up, skipped = _graph(graph)
     sid = subject.get("id")
     if not isinstance(sid, str) or sid not in nodes:
         why = "Not known: this resource isn't in the dependency graph given."
         return unknown(why), unknown(why)
-    complete = graph.get("complete") is True
+    complete = graph.get("complete") is True and not skipped
     source = _text(graph.get("source")) or None
+    reason = (None if complete else
+              f"{skipped} malformed part{'s' if skipped != 1 else ''} of the graph given {'were' if skipped != 1 else 'was'} "
+              "skipped, so there may be more than this." if skipped else
+              "The graph given doesn't say it is complete, so there may be more than this.")
 
     def known(listed: list[dict[str, Any]], count: int, cycle: bool) -> dict[str, Any]:
-        return {"known": True, "reason": None if complete else
-                "The graph given doesn't say it is complete, so there may be more than this.",
+        return {"known": True, "reason": reason,
                 "listed": listed, "count": count, "shown": len(listed), "truncated": count > len(listed),
                 "cycle": cycle, "complete": complete, "source": source}
 
@@ -289,31 +304,64 @@ def _radius(subject: dict[str, Any], graph: Any) -> tuple[dict[str, Any], dict[s
 
 
 def _outcome_for(finding: dict[str, Any], result: dict[str, Any]) -> str | None:
-    """The outcome in ``result`` of the finding's control on its resource, or None if there is none."""
-    cid = str(finding.get("rule") or "").split("@")[0]
-    sid = (finding.get("resource") or {}).get("id")
-    for o in result.get("outcomes") or []:
-        if o.get("control_id") == cid and (o.get("subject") or {}).get("id") == sid:
-            return o.get("outcome")
-    return None
+    """The outcome in ``result`` of the finding's rule on its resource, or None if there is none. More
+    than one outcome for it is a fail only when every one is a fail (in any order), and an outcome of
+    another rule version isn't this finding's."""
+    rule = finding.get("rule")
+    res = finding.get("resource")
+    sid = res.get("id") if isinstance(res, dict) else None
+    outcomes = result.get("outcomes")
+    if not isinstance(rule, str) or not rule or not isinstance(sid, str) or not sid or not isinstance(outcomes, list):
+        return None
+    cid = rule.split("@")[0]
+    seen = set()
+    for o in outcomes:
+        if not isinstance(o, dict) or o.get("control_id") != cid:
+            continue
+        subj = o.get("subject")
+        if not isinstance(subj, dict) or subj.get("id") != sid:
+            continue
+        if o.get("rule") is not None and o.get("rule") != rule:
+            continue
+        seen.add(o.get("outcome") if isinstance(o.get("outcome"), str) else None)
+    if not seen:
+        return None
+    return "fail" if seen == {"fail"} else "not a fail"
 
 
 def _evidence(finding: dict[str, Any], result: dict[str, Any]) -> list[dict[str, Any]]:
-    ids = set(finding.get("evidence_ids") or [])
+    raw, recs = finding.get("evidence_ids"), result.get("evidence")
+    ids = {i for i in raw if isinstance(i, str)} if isinstance(raw, list) else set()
     out = []
-    for r in result.get("evidence") or []:
-        if isinstance(r, dict) and r.get("id") in ids:
+    for r in recs if isinstance(recs, list) else []:
+        if isinstance(r, dict) and isinstance(r.get("id"), str) and r["id"] in ids:
             out.append({"id": _text(r["id"]), "kind": _text(r.get("kind")), "source": _text(r.get("source")),
                         "confidence": _text(r.get("confidence")), "resource": _resource(r.get("subject"))})
     return sorted(out, key=lambda x: x["id"])
 
 
+def _clean(value: Any) -> Any:
+    """A JSON copy of ``value`` with credential-shaped text removed, lone surrogates and control
+    characters other than line breaks and tabs replaced, and NaN or infinity as None."""
+    if isinstance(value, str):
+        value = value.encode("utf-8", "replace").decode("utf-8")
+        return secrets("".join(c if c.isprintable() or c in "\n\t" else " " for c in value))
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, list):
+        return [_clean(v) for v in value]
+    if isinstance(value, dict):
+        return {_clean(str(k)): _clean(v) for k, v in value.items()}
+    return value
+
+
 def _templates(finding: dict[str, Any]) -> list[Any] | None:
-    """FEA-402's change templates on the finding, carried as given (a JSON copy), shown as proposals."""
+    """FEA-402's change templates on the finding, carried as given (a JSON copy, with nothing
+    credential-shaped and no control characters but line breaks and tabs), shown as proposals."""
     t = finding.get("templates")
     if not isinstance(t, list) or not t:
         return None
-    return json.loads(canonical(t))
+    return _clean(json.loads(canonical(t)))
 
 
 def plan_for(finding: dict[str, Any], result: dict[str, Any], *, graph: dict[str, Any] | None = None,

@@ -297,3 +297,27 @@ def test_removing_a_cell_alone_is_not_a_reorder():
     old = _nb({"id": "a", "source": "1"}, {"id": "b", "source": "2"}, {"id": "c", "source": "3"})
     new = _nb({"id": "a", "source": "1"}, {"id": "c", "source": "3"})
     assert [c["kind"] for c in diff.notebook_changes(old, new)] == ["removed"]
+
+
+def test_nested_settings_are_compared_depth_first_in_key_order():
+    old = {"options": {"b": {"y": 1, "x": {"deep": 1}}, "a": 1, "c": {"k": [1]}}, "z": 1}
+    new = {"options": {"b": {"y": 2, "x": {"deep": 2, "more": "m"}}, "a": 1, "c": 5}, "z": 2}
+    assert [(c["path"], c["old"], c["new"]) for c in diff.entity_changes(old, new)] == [
+        ("options.b.x.deep", 1, 2), ("options.b.x.more", None, "m"), ("options.b.y", 1, 2),
+        ("options.c", {"k": [1]}, 5), ("z", 1, 2)]
+
+
+def test_settings_nested_deep_are_compared_and_unreadable_nesting_is_reported():
+    """A dotted key nearly a thousand parts long (no nesting in the text) is compared rather than raising
+    RecursionError; one far longer, or an array nested past what Python's TOML reader takes, is a file
+    that can't be compared."""
+    key = "o." + ".".join(["a"] * 990)
+    old, new = f'[source]\nentity = "x"\n[options]\n{key} = 1\n', f'[source]\nentity = "x"\n[options]\n{key} = 2\n'
+    [entity] = diff.project_changes({"e": old}, {"e": new})
+    [change] = entity["changes"]
+    assert change["path"] == "options." + key and (change["old"], change["new"]) == (1, 2)
+    nested = "x = " + "[" * 2000 + "]" * 2000 + "\n"
+    assert diff.project_changes({"e": old}, {"e": nested})[0]["state"] == "unreadable"
+    deeper = "o." + ".".join(["a"] * 20000) + " = 1\n"  # past what == can compare
+    assert diff.project_changes({"e": deeper}, {"e": deeper.replace("1", "2")})[0]["state"] == "unreadable"
+    assert diff.parse("o." + ".".join(["a"] * (diff.MAX_NESTING - 1)) + " = 1") is not None

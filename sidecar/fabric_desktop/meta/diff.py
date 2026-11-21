@@ -31,13 +31,32 @@ _NOUN = {"derive": "derived column", "check": "check", "keys": "surrogate key", 
 
 
 def parse(text: str | None) -> dict[str, Any] | None:
-    """An entity file's settings, or None for a file that doesn't exist (or doesn't parse)."""
+    """An entity file's settings, or None for a file that doesn't exist (or doesn't parse, or is nested
+    more than MAX_NESTING levels deep)."""
     if text is None:
         return None
     try:
-        return tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
+        data = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, RecursionError):  # RecursionError: nested past what tomllib reads
         return None
+    return None if _deeper_than(data, MAX_NESTING) else data
+
+
+# Levels of tables a compared file may have. A dotted key (a.b.c = 1) makes one level per part with no
+# nesting in the text, and comparing two values (==) past about 10,000 levels raises RecursionError.
+MAX_NESTING = 1000
+
+
+def _deeper_than(value: Any, limit: int) -> bool:
+    stack = [(value, 1)]
+    while stack:
+        value, level = stack.pop()
+        children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else None
+        if children is not None:
+            if level > limit:
+                return True
+            stack.extend((child, level + 1) for child in children)
+    return False
 
 
 def _change(kind: str, text: str, section: str, **extra: Any) -> dict[str, Any]:
@@ -104,16 +123,22 @@ def _setting_change(section: str, path: str, a: Any, b: Any) -> dict[str, Any]:
 
 
 def _settings(a: dict[str, Any], b: dict[str, Any], section: str, prefix: str = "") -> list[dict[str, Any]]:
+    """Each setting that differs, depth first in key order. A stack rather than recursion: a TOML dotted
+    key (a.b.c = 1) makes tables as deep as it is long."""
     out = []
-    base = prefix or section
-    for k in sorted(a.keys() | b.keys()):
-        x, y = a.get(k), b.get(k)
-        if x == y:
-            continue
-        if isinstance(x, dict) and isinstance(y, dict):
-            out += _settings(x, y, section, f"{base}.{k}")
-        else:
+    stack = [(iter(sorted(a.keys() | b.keys())), a, b, prefix or section)]
+    while stack:
+        keys, a, b, base = stack[-1]
+        for k in keys:
+            x, y = a.get(k), b.get(k)
+            if x == y:
+                continue
+            if isinstance(x, dict) and isinstance(y, dict):
+                stack.append((iter(sorted(x.keys() | y.keys())), x, y, f"{base}.{k}"))
+                break
             out.append(_setting_change(section, f"{base}.{k}", x, y))
+        else:
+            stack.pop()
     return out
 
 

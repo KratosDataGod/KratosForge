@@ -467,7 +467,8 @@ def test_the_engine_says_cells_can_change_data_without_another_confirm():
     (403, "/api/2.0/sql/warehouses/wh1", "", "CAN USE on the SQL warehouse."),
     (404, "/api/2.0/sql/warehouses/wh1", "", "Check the SQL warehouse ID"),
     (404, "/api/2.0/sql/statements/s1", "", "run the cell again"),
-    (403, "/api/2.1/clusters/list", "", "CAN ATTACH TO"),
+    (403, "/api/2.1/clusters/list", "", "access to the clusters in this workspace"),
+    (403, "/api/2.1/clusters/get", "", "CAN ATTACH TO"),
     (404, "/api/2.1/clusters/get", "", "Check the cluster ID"),
     (404, "/api/2.1/unity-catalog/metastore_summary", "", "no Unity Catalog metastore assigned"),
     (404, "/api/2.1/unity-catalog/catalogs", "METASTORE_DOES_NOT_EXIST", "no Unity Catalog metastore assigned"),
@@ -758,3 +759,57 @@ def test_a_preview_whose_rows_dont_match_the_columns_is_an_error_never_padded(ro
     assert "one value per column" in r.outputs[-1]["evalue"]
     with pytest.raises(dbsql.DatabricksError, match="one value per column"):
         dbsql.to_table({"schema": {"columns": [{"name": "id"}, {"name": "name"}]}}, rows)
+
+
+# ---------------------------------------------------------------- client review nits (DBX-005)
+
+
+class _Pages:
+    """A list endpoint with ``pages`` pages of ``size`` items each."""
+
+    def __init__(self, pages, size):
+        self.pages, self.size = pages, size
+
+    def request(self, method, url, headers=None, timeout=None, json=None, params=None):
+        n = int((params or {}).get("page_token") or 0)
+        body = {"things": [{"i": n * self.size + k} for k in range(self.size)]}
+        if n + 1 < self.pages:
+            body["next_page_token"] = str(n + 1)
+        return Resp(200, body)
+
+
+@pytest.mark.parametrize("pages,size,count,cut", [
+    (1, 3, 3, False),
+    (2, dbsql.CATALOG_LIMIT // 2, dbsql.CATALOG_LIMIT, False),  # exactly the limit, nothing more
+    (3, dbsql.CATALOG_LIMIT // 2, dbsql.CATALOG_LIMIT, True),   # stopped at the limit with a page left
+    (1, dbsql.CATALOG_LIMIT + 1, dbsql.CATALOG_LIMIT, True),    # one page longer than the limit
+])
+def test_a_list_says_whether_it_was_cut_at_the_limit(pages, size, count, cut):
+    client = dbsql.Client(tokens(), _Pages(pages, size), sleep=lambda s: None)
+    items, was_cut = client.list_capped("/api/2.0/things", "things", {})
+    assert (len(items), was_cut) == (count, cut)
+    assert client.list("/api/2.0/things", "things", {}) == items
+
+
+def test_a_refused_sign_in_keeps_the_workspaces_own_reason_after_the_step_that_fixes_it():
+    provider = dba.TokenProvider(HOST, lambda: (TOKEN, None), "oauth-u2m",
+                                 sign_in_again="Sign in again with: databricks auth login --host h")
+
+    class Refusing:
+        def request(self, method, url, **kw):
+            return Resp(401, {"error_code": "UNAUTHENTICATED", "message": "Token is from another tenant " + PAT})
+    with pytest.raises(dbsql.DatabricksError) as err:
+        dbsql.Client(provider, Refusing(), sleep=lambda s: None)._call("GET", "/api/2.0/sql/warehouses/wh1")
+    text = str(err.value)
+    assert text.startswith("Databricks refused the sign-in (HTTP 401). Sign in again with: databricks auth login")
+    assert "Databricks said: Token is from another tenant" in text and PAT not in text
+
+
+def test_a_refused_sign_in_with_no_reason_says_only_the_step():
+    provider = dba.TokenProvider(HOST, lambda: (TOKEN, None), "oauth-u2m", sign_in_again="Sign in again.")
+
+    class Refusing:
+        def request(self, method, url, **kw):
+            return Resp(401, {})
+    with pytest.raises(dbsql.DatabricksError, match=r"^Databricks refused the sign-in \(HTTP 401\)\. Sign in again\.$"):
+        dbsql.Client(provider, Refusing(), sleep=lambda s: None)._call("GET", "/api/2.0/sql/warehouses/wh1")

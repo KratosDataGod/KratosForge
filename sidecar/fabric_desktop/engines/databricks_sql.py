@@ -253,6 +253,7 @@ _HINTS: tuple[tuple[str, dict[int, str]], ...] = (
                                  404: "The statement is no longer on the warehouse; run the cell again."}),
     ("/api/2.0/sql/warehouses", {403: "Ask for CAN USE on the SQL warehouse.",
                                  404: "Check the SQL warehouse ID and the workspace."}),
+    ("/api/2.1/clusters/list", {403: "Ask a workspace admin for access to the clusters in this workspace."}),
     ("/api/2.1/clusters", {403: "Ask for CAN ATTACH TO on the cluster, or for access to clusters in this workspace.",
                            404: "Check the cluster ID and the workspace."}),
     ("/api/2.1/unity-catalog/metastore_summary", {
@@ -316,7 +317,9 @@ class Client:
                 if resp.status_code == 401:
                     self._tokens.drop(fresh)
         if resp.status_code == 401 and self._tokens.sign_in_again:
-            raise DatabricksError(f"Databricks refused the sign-in (HTTP 401). {self._tokens.sign_in_again}", 401)
+            said = self._message(resp)  # the workspace's own reason, after the step that fixes it
+            raise DatabricksError(f"Databricks refused the sign-in (HTTP 401). {self._tokens.sign_in_again}"
+                                  + (f" Databricks said: {said}" if said else ""), 401)
         if resp.status_code >= 400:
             raise DatabricksError(self._refusal(resp, path).rstrip() + (f" Tried {tries} times." if tries > 1 else ""),
                                   resp.status_code)
@@ -346,12 +349,22 @@ class Client:
                 from None
 
     @staticmethod
-    def _refusal(resp: Any, path: str = "") -> str:
+    def _message(resp: Any) -> str:
+        """The workspace's own message in an error answer, on one line and redacted; empty when there is none."""
+        body = Client._body(resp)
+        return redact.one_line(str(body.get("message") or "")) if isinstance(body, dict) else ""
+
+    @staticmethod
+    def _body(resp: Any) -> Any:
         try:
-            body = resp.json()
+            return resp.json()
         except ValueError:
-            body = {}
-        message = redact.one_line(body.get("message") or "") if isinstance(body, dict) else ""
+            return {}
+
+    @staticmethod
+    def _refusal(resp: Any, path: str = "") -> str:
+        body = Client._body(resp)
+        message = Client._message(resp)
         code = str(body.get("error_code") or "") if isinstance(body, dict) else ""
         return f"Databricks refused the request (HTTP {resp.status_code}). " + \
             (f"{message} " if message else "") + refusal_hint(resp.status_code, path, code)
@@ -412,7 +425,8 @@ class Client:
         self._call("POST", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}/cancel",
                    repeatable=True)
 
-    def list(self, path: str, key: str, params: dict[str, str]) -> list[dict[str, Any]]:
+    def list_capped(self, path: str, key: str, params: dict[str, str]) -> tuple[list[dict[str, Any]], bool]:
+        """The items, up to CATALOG_LIMIT, and whether the workspace had more than that."""
         items: list[dict[str, Any]] = []
         token = ""
         pages = Pages(f"{self.host}{path}")  # empty pages with a next token would otherwise never reach the limit
@@ -426,7 +440,11 @@ class Client:
                 pages.follow(token)
             except PagingError as exc:
                 raise DatabricksError(str(exc)) from None
-        return items[:CATALOG_LIMIT]
+        return items[:CATALOG_LIMIT], len(items) > CATALOG_LIMIT or bool(token)
+
+    def list(self, path: str, key: str, params: dict[str, str]) -> list[dict[str, Any]]:
+        """Every item, up to CATALOG_LIMIT; list_capped also says whether the list was cut there."""
+        return self.list_capped(path, key, params)[0]
 
 
 class DatabricksSqlSession:

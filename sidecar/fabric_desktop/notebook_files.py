@@ -246,12 +246,15 @@ def from_fabric(shelf: NotebookShelf, definition: dict[str, Any], item: dict[str
 
 def ipynb_of(definition: dict[str, Any]) -> dict[str, Any]:
     """The .ipynb JSON in a getDefinition result."""
-    import base64
-    parts = (definition.get("definition") or definition).get("parts") or []
-    part = next((p for p in parts if str(p.get("path", "")).endswith(".ipynb")), None)
+    from .fabric_api import definition_parts
+    part = next((data for path, data in definition_parts(definition).items() if path.endswith(".ipynb")), None)
     if part is None:
         raise ValueError("Fabric didn't return the notebook's cells.")
-    return json.loads(base64.b64decode(part["payload"]))
+    nb = json.loads(part)
+    if not isinstance(nb, dict):
+        raise ValueError("Fabric's notebook couldn't be read because it isn't a notebook document. Open it in Fabric "
+                         "to check it still loads.")
+    return nb
 
 
 # ---- what was published, to see changes made in Fabric since

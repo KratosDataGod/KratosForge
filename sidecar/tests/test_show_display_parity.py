@@ -135,6 +135,11 @@ def test_widths_and_cuts_count_utf16_units_as_java_does(spark):
     # 22 units > 7: substring(0, 4) is two emoji, then "..."
     df = spark.createDataFrame([("\U0001F600" * 11,)], ["x"])
     assert SC.show_string(df, truncate=7) == "+-------+\n|      x|\n+-------+\n|\U0001F600\U0001F600...|\n+-------+\n"
+    # A cut through an emoji leaves half of it, one unit, shown as "?": the column is as wide as Spark's.
+    df = spark.createDataFrame([("a\U0001F600bcdefg",)], ["x"])
+    assert SC.show_string(df, truncate=5) == "+-----+\n|    x|\n+-----+\n|a?...|\n+-----+\n"
+    df = spark.createDataFrame([("ab\U0001F600c",)], ["x"])
+    assert SC.show_string(df, truncate=3) == "+---+\n|  x|\n+---+\n|ab?|\n+---+\n"
 
 
 def test_show_prints_the_text_and_a_newline(spark, capsys):

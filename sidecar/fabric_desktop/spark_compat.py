@@ -2225,12 +2225,15 @@ def _java_len(text: str) -> int:
 
 
 def _java_prefix(text: str, units: int) -> str:
-    """``text.substring(0, units)`` in Java. A cut through a character past U+FFFF leaves half of it,
-    which Python can't print, so that half is dropped."""
+    """``text.substring(0, units)`` in Java. A cut through a character past U+FFFF leaves half of it (a lone
+    surrogate), which reaches Python as "?" when the JVM encodes it, so that half is "?": one unit, and the
+    column stays as wide as Spark's."""
     out, used = [], 0
     for c in text:
         used += 2 if ord(c) > 0xFFFF else 1
         if used > units:
+            if used - units == 1 and ord(c) > 0xFFFF:
+                out.append("?")
             break
         out.append(c)
     return "".join(out)

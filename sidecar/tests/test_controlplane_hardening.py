@@ -263,7 +263,7 @@ def test_random_edits_of_a_valid_file_never_raise_anything_else():
             m = mf.from_json(data)
         except mf.ManifestError:
             continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any other exception is the crash this fuzz test looks for
             pytest.fail(f"from_json raised {type(exc).__name__}: {exc!r:.200}")
         accepted += 1
         assert mf.from_json(mf.to_json(m)) == m
@@ -503,7 +503,7 @@ def test_cp_plan_input_fuzz_raises_only_value_or_permission_errors(svc):
             out = svc.cp_plan(request)
         except (ValueError, PermissionError):
             continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any other exception is the crash this fuzz test looks for
             pytest.fail(f"cp_plan({request!r:.200}) raised {type(exc).__name__}: {exc!r:.200}")
         assert isinstance(out, dict) and isinstance(out["token"], str)
         assert all(isinstance(k, str) and k in cpsvc.REQUEST_KEYS for k in request)

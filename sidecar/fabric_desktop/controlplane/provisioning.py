@@ -58,16 +58,8 @@ CHANGED = ("Something changed since this plan was shown (a name was taken, or a 
 def _manifest_refuses(req: dict[str, Any]) -> str:
     """Why the manifest written last would refuse this request's name, labels or owner, or "". Checked
     in the plan, so a workspace and lakehouse are never created for a manifest that can't be written."""
-    try:
-        name = (req.get("name") or "").strip()
-        for key, value in (("name", name), ("workspace_name", req.get("workspace_name")),
-                           ("lakehouse_name", req.get("lakehouse_name"))):
-            mf._text(value, key, required=False, limit=mf.MAX_NAME)
-            mf._check_no_secrets(value, key)
-        mf._guid(req.get("owner_object_id"), "owner_object_id", required=False)
-    except mf.ManifestError as exc:
-        return str(exc)
-    return ""
+    return mf.check_request_fields(name=(req.get("name") or "").strip(), workspace_name=req.get("workspace_name"),
+                                   lakehouse_name=req.get("lakehouse_name"), owner_object_id=req.get("owner_object_id"))
 
 
 def _same_name(a: Any, b: str) -> bool:

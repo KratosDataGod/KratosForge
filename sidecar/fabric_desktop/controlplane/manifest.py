@@ -271,6 +271,20 @@ def _validate(manifest: Any) -> dict[str, Any]:
     return manifest
 
 
+def check_request_fields(*, name: Any = None, workspace_name: Any = None, lakehouse_name: Any = None,
+                         owner_object_id: Any = None) -> str:
+    """Why a manifest would refuse these labels and owner, or "": the same rules ``validate`` applies,
+    for a caller that checks a request before anything is created (provisioning's plan)."""
+    try:
+        for key, value in (("name", name), ("workspace_name", workspace_name), ("lakehouse_name", lakehouse_name)):
+            _text(value, key, required=False, limit=MAX_NAME)
+            _check_no_secrets(value, key)
+        _guid(owner_object_id, "owner_object_id", required=False)
+    except ManifestError as exc:
+        return str(exc)
+    return ""
+
+
 def writable(manifest: dict[str, Any]) -> bool:
     """Whether this app may rewrite the manifest: not one a newer app wrote."""
     return int(manifest.get("manifest_version", 0)) <= MANIFEST_VERSION

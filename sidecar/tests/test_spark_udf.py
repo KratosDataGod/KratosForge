@@ -137,6 +137,21 @@ def mean_(a: pd.Series) -> float:
     assert "grouped-aggregate pandas_udf" in str(out["outputs"]) and "runs in Fabric" in str(out["outputs"])
 
 
+def test_a_pandas_udf_returning_text_for_a_number_type_stops_as_in_spark(kernel):
+    # Spark converts with pa.Array.from_pandas and stops on what Arrow won't convert; it doesn't null it
+    out = kernel.run(SETUP + """
+import pandas as pd
+@F.pandas_udf("long")
+def text(a: pd.Series) -> pd.Series:
+    return a.astype(str)
+df.select(text("id")).collect()
+""")
+    assert out["status"] == "error"
+    said = " ".join(str(o.get("evalue") or o.get("text") or "") for o in out["outputs"])
+    assert "returned values that aren't bigint" in said
+    assert 'as it does in Fabric ("Exception thrown when converting pandas.Series (object) to Arrow Array (int64)")' in said
+
+
 def test_a_pandas_udf_returning_the_wrong_length_is_refused(kernel):
     out = kernel.run(SETUP + """
 import pandas as pd
@@ -221,3 +236,31 @@ def plus_one(batches):
     out = kernel.run("from pyspark.sql.functions import pandas_udf, PandasUDFType\n"
                      "@pandas_udf('id long', PandasUDFType.GROUPED_MAP)\ndef g(pdf): return pdf")
     assert out["status"] == "error" and "applyInPandas" in str(out["outputs"])
+
+
+def test_a_pandas_udf_for_a_decimal_takes_decimals_and_stops_on_floats_as_in_spark(kernel):
+    # Spark 3.5 converts with pa.Array.from_pandas(type=decimal128): Decimal values convert, floats and
+    # Decimals with more digits after the point than the type holds raise ArrowInvalid, so the query stops
+    out = run(kernel, """
+import pandas as pd
+from decimal import Decimal
+from pyspark.sql import functions as F
+df = spark.createDataFrame([(1,), (None,), (3,)], "i long")
+@F.pandas_udf("decimal(10,2)")
+def money(s: pd.Series) -> pd.Series:
+    return s.map(lambda v: None if pd.isna(v) else Decimal(int(v)) / 4)
+[r[0] for r in df.select(money("i")).collect()]""")
+    assert out == "[Decimal('0.25'), None, Decimal('0.75')]"
+    for body in ("return s * 1.5", "return s.map(lambda v: Decimal('1.234'))"):
+        out = kernel.run(f"""
+import pandas as pd
+from decimal import Decimal
+from pyspark.sql import functions as F
+@F.pandas_udf("decimal(10,2)")
+def bad(s: pd.Series) -> pd.Series:
+    {body}
+spark.range(2).select(bad("id")).collect()""")
+        assert out["status"] == "error", body
+        said = " ".join(str(o.get("evalue") or o.get("text") or "") for o in out["outputs"])
+        assert "returned values that aren't decimal(10,2)" in said, said
+        assert "Return Decimal values with at most 2 digits after the point" in said, said

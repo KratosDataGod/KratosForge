@@ -1831,7 +1831,11 @@ class Kernel:
 
     def _detail_item(self, key: str, label: str, v: Any) -> dict[str, Any]:
         preview, holds_secret = ("", True) if self._hidden(label, v) else self._secret_preview(v)
-        return {"key": key, "type": type(v).__name__, "size": _size(v), "value": "hidden" if holds_secret else preview}
+        # A dict keyed by a secret: the key is replaced as values are, and its item is hidden too.
+        shown_key = secret_redaction.redact_values(key, list(self._secrets)) if self._secrets else key
+        holds_secret = holds_secret or shown_key != key
+        return {"key": secret_redaction.redact(shown_key), "type": type(v).__name__, "size": _size(v),
+                "value": "hidden" if holds_secret else preview}
 
     @staticmethod
     def _base_namespace_keys() -> tuple[str, ...]:

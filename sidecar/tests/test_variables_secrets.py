@@ -94,6 +94,18 @@ def test_opening_a_variable_that_holds_a_secret_shows_it_hidden(kernel):
     assert values[25] == "hidden" and values[24] == "'24'" and values.count("hidden") == 1
 
 
+def test_a_dict_keyed_by_a_secret_past_the_preview_never_shows_the_key(kernel):
+    run(kernel, FAKE_VAULT)
+    run(kernel, "table = {f'k{i}': i for i in range(50)}\ntable[s] = 'v'\n"
+                "table.update({f'z{i}': i for i in range(100)})\n")
+    detail = kernel.variable_detail("table")
+    no_secret(detail)
+    assert not detail.get("hidden")  # the preview reads only the first items, so the dict opens
+    item = detail["items"][50]
+    assert item["value"] == "hidden" and "[REDACTED]" in item["key"], item
+    assert all("[REDACTED]" not in i["key"] for i in detail["items"][:50])
+
+
 def test_without_secrets_rows_read_as_before(kernel):
     run(kernel, "a = [1, 2]\nb = 'text'\n")
     rows = {r["name"]: r for r in kernel.variables()}

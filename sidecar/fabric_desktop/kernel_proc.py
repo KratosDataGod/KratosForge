@@ -270,10 +270,12 @@ class ProcessKernel:
             if slot is not None:
                 slot.update({k: v for k, v in message.items() if k in ("result", "error")})
                 slot["done"].set()
-        code = proc.wait()
         tree = self._tree
         if tree is not None and tree.proc is proc:
-            tree.reap()  # a kernel that died on its own (a crash, killed from outside) leaves no process behind
+            # A kernel that died on its own (a crash, killed from outside) leaves no process behind. Before the
+            # wait, so the dead kernel still holds its pid and the group id can't have been reused.
+            tree.reap()
+        code = proc.wait()
         self._close_pipes(proc)
         if proc is self._proc:
             self._gone(stopped_text(code) if not self._ended else self._ended)
@@ -708,6 +710,7 @@ class _Tree:
     def __init__(self, proc: subprocess.Popen[str]):
         self.proc = proc
         self.job = _job_for(proc) if sys.platform == "win32" else None
+        self._job_lock = threading.Lock()  # release runs from the reader, Stop and the next start: once only
 
     def pids(self) -> list[int]:
         """The kernel process and the live processes below it: the Job Object's list on Windows, parent
@@ -720,11 +723,12 @@ class _Tree:
 
     def release(self) -> None:
         """On Windows, close the job, which ends anything still in it."""
-        if self.job:
+        with self._job_lock:  # taken out first: a handle closed twice could be a new kernel's job by then
+            job, self.job = self.job, None
+        if job:
             kernel32 = _kernel32()
-            kernel32.TerminateJobObject(self.job, 1)
-            kernel32.CloseHandle(self.job)
-            self.job = None
+            kernel32.TerminateJobObject(job, 1)
+            kernel32.CloseHandle(job)
 
     def reap(self) -> None:
         """After the kernel process ended: end what its cells started that is still running. On Windows the job

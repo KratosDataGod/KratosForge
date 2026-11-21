@@ -407,7 +407,8 @@ def _without_quoted(text: str) -> str:
     reading a [ that no ] follows to the end of the text: none after it closes either, and each was
     read again, so 50,000 of them took a second. (A quote is closed by the next one of its kind.)"""
     last_close = text.rfind("]")
-    out, done, at = [], 0, 0
+    out: list[str] = []
+    done = at = 0
     while opens := _DAX_OPENS.search(text, at):
         start = opens.start()
         found = _DAX_QUOTED.match(text, start) if text[start] != "[" or start < last_close else None

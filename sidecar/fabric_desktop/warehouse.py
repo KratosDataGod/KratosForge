@@ -96,7 +96,8 @@ def _sub_tokens(repl: Callable[[re.Match[str]], str], text: str) -> str:
     rule read each of those to the text's end before giving up, so 12,500 [ took 2.3 s; where one
     can't close, none after it of its kind can either, and those are skipped instead."""
     last = {"'": text.rfind("'"), '"': text.rfind('"'), "[": text.rfind("]"), "*": text.rfind("*/")}
-    out, done, at = [], 0, 0
+    out: list[str] = []
+    done = at = 0
     while opens := _OPENS.search(text, at):
         start = opens.start()
         found = _TOKENS.match(text, start) if opens.end() - 1 < last.get(text[opens.end() - 1], len(text)) else None

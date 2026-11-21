@@ -8,7 +8,6 @@ TMDL are saved in the metadata project's folder, so they go to Git with the rest
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
@@ -19,6 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from . import model_ossie, ossie_validate, tmdl
+from .fabric_api import definition_text
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
 from .notebook_files_service import _is_link
@@ -274,10 +274,10 @@ class ModelOssieMixin:
         except Exception as exc:  # an empty model here would turn into an update that removes everything
             raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
                                f"({type(exc).__name__}: {exc}). Try again.") from exc
-        part = next((p for p in (got.get("definition") or {}).get("parts", []) if p.get("path") == "model.bim"), None)
-        if part is None:
+        bim = definition_text(got).get("model.bim")  # a part that isn't whole base64 is FabricError, never empty
+        if bim is None:
             raise RuntimeError(f"Fabric didn't return {model.get('displayName') or 'the model'}'s model.bim")
-        return json.loads(base64.b64decode(part.get("payload") or "").decode("utf-8-sig"))
+        return json.loads(bim)
 
     def meta_model_ossie_models(self, env: str = "test") -> dict[str, Any]:
         """The semantic models Export can read in the environment's workspace."""
@@ -442,8 +442,8 @@ class ModelOssieMixin:
         if model is None:
             raise LookupError(f"There's no semantic model named {name} in {cfg.get('workspace_name') or 'the workspace'}")
         got = self.fabric.get_item_definition(cfg["workspace_id"], model["id"], "TMDL")  # type: ignore[attr-defined]
-        parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
-                 for p in (got.get("definition") or {}).get("parts", []) if p.get("path")}
+        # A part that isn't whole base64 is FabricError: written empty, or left out and removed as stale, it would lose the model.
+        parts = definition_text(got, "utf-8")
         if not parts:
             raise RuntimeError(f"Fabric returned no definition for {name}")
         folder = Path(project.root, FOLDER, f"{_SAFE.sub('_', name).strip() or 'model'}.SemanticModel")

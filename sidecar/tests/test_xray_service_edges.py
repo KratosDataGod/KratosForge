@@ -14,6 +14,7 @@ import pytest
 from deltalake import write_deltalake
 
 import fabric_desktop.xray_service as xs
+from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.service import Service
 from test_xray import FakeFabric, _files, _lake, vacuum_svc  # noqa: F401 - the fixture is used by name
 from test_xray_staging import OLD, WS, Fabric, svc  # noqa: F401 - the fixture is used by name
@@ -178,10 +179,11 @@ def test_power_bis_dataflow_list_is_read_with_its_own_token(tmp_path, monkeypatc
 def test_definitions_decode_every_part_and_no_parts_is_unreadable():
     text = base64.b64encode(b'{"stagingLakehouseId": "a"}').decode()
     out = xs._definition_text({"definition": {"parts": [
-        {"path": "a.json", "payload": text},
-        {"path": "b.json", "payload": "abc", "payloadType": "InlineBase64"},  # bad padding: kept as it is
-        {"path": "c.txt", "payload": "plain", "payloadType": "Text"}]}})
-    assert out.split("\n") == ['{"stagingLakehouseId": "a"}', "a.json", "abc", "b.json", "plain", "c.txt"]
+        {"path": "a.json", "payload": text}, {"path": "b.json", "payload": base64.b64encode(b"\xffb").decode()}]}})
+    assert out.split("\n") == ['{"stagingLakehouseId": "a"}', "a.json", "\ufffdb", "b.json"]
+    # Searched as it is, a part that isn't whole base64 can't name the lakehouse: unreadable, not proof.
+    with pytest.raises(FabricError, match="b.json wasn't whole base64"):
+        xs._definition_text({"definition": {"parts": [{"path": "b.json", "payload": "abc"}]}})
     with pytest.raises(ValueError, match="no definition parts"):
         xs._definition_text({"definition": {}})
 

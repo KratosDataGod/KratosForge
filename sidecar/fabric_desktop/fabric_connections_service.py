@@ -13,8 +13,6 @@ See docs/orchestration/data-factory.md.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import datetime as dt
 import json
 import logging
@@ -23,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from .auth import CONNECTION_SCOPES, GATEWAY_SCOPES, SignInError
+from . import fabric_api
 from .fabric_api import FabricClient
 from .orchestration import mashup
 from .redact import describe, one_line, secrets
@@ -59,12 +58,17 @@ def connection_ids(value: Any) -> set[str]:
 
 
 def definition_parts(result: dict[str, Any]) -> list[Any]:
-    """The JSON parts of a getDefinition result; parts that aren't JSON are left out."""
+    """The JSON parts of a getDefinition result; parts that aren't JSON are left out. A definition with
+    no parts, or a part that isn't whole base64 (FabricError BadDefinitionPart), raises, so the scan
+    counts the item as missed, not as using no connection."""
+    parts = fabric_api.definition_parts(result or {})
+    if not parts:
+        raise ValueError("Fabric returned no definition parts")
     out = []
-    for part in ((result or {}).get("definition") or {}).get("parts") or []:
+    for data in parts.values():
         try:
-            out.append(json.loads(base64.b64decode(part.get("payload") or "").decode("utf-8")))
-        except (binascii.Error, UnicodeDecodeError, ValueError):
+            out.append(json.loads(data.decode("utf-8")))
+        except (UnicodeDecodeError, ValueError):
             continue
     return out
 

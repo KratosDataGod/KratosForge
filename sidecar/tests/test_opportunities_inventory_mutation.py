@@ -99,3 +99,28 @@ def test_a_cell_source_given_as_lines_is_joined_and_as_text_kept():
 def test_a_definition_without_notebook_content_is_refused():
     with pytest.raises(ValueError, match="no notebook-content part"):
         inventory.notebook_content({"definition": {"parts": [{"path": ".platform", "payload": ""}]}})
+
+
+def test_definitions_nested_too_deeply_are_not_read_rather_than_raising():
+    """A pipeline from Fabric nested thousands deep is refused by the definition reader (so the copy
+    analyzer's signature walk never sees it), and a notebook whose ipynb is nested past what json
+    reads is a definition that couldn't be read; it used to raise RecursionError out of workloads()."""
+    import base64
+    import datetime as dt
+    import json
+
+    from fabric_desktop.opportunities import inventory
+    deep: object = {"type": "x"}
+    for _ in range(2500):
+        deep = {"a": [deep]}
+    pipe = {"definition": {"parts": [{"path": "pipeline-content.json", "payloadType": "InlineBase64",
+                                      "payload": base64.b64encode(json.dumps({"properties": {"activities": [
+                                          {"name": "c", "type": "Copy", "typeProperties": {"source": deep}}]}}).encode()).decode()}]}}
+    nb_text = '{"cells": ' + "[" * 20000 + "]" * 20000 + "}"
+    nb = {"definition": {"parts": [{"path": "notebook-content.ipynb", "payloadType": "InlineBase64",
+                                    "payload": base64.b64encode(nb_text.encode()).decode()}]}}
+    items = [{"id": "p", "type": "DataPipeline", "displayName": "P"}, {"id": "n", "type": "Notebook", "displayName": "N"}]
+    out = inventory.workloads({"id": "w"}, items, {"p": pipe, "n": nb}, {}, now=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+                              days=30)
+    assert [(w["item_id"], w["definition"]) for w in out] == [("p", "not_read"), ("n", "not_read")]
+    assert "nested more than 500 levels deep" in out[0]["problem"] and "nested too deeply" in out[1]["problem"]

@@ -90,7 +90,10 @@ def notebook_content(definition: dict[str, Any]) -> tuple[list[str], str | None]
         raise ValueError("the definition has no notebook-content part")
     text = _decode(part)
     if str(part.get("path")).endswith(".ipynb"):
-        doc = json.loads(text)
+        try:
+            doc = json.loads(text)
+        except RecursionError:
+            raise ValueError("the notebook is nested too deeply to read") from None
         lh = (((doc.get("metadata") or {}).get("dependencies") or {}).get("lakehouse") or {}).get("default_lakehouse")
         cells = []
         for c in doc.get("cells") or []:

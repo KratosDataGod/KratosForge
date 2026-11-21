@@ -194,3 +194,179 @@ def test_a_folder_someone_else_made_at_the_new_place_is_still_never_used(home, t
     (new / ".kratosforge-copied-from").write_text(str(home / "elsewhere"), encoding="utf-8")
     monkeypatch.setattr(known_folders, "documents", lambda: home / "OneDrive - Contoso" / "Documents")
     assert Service(root=tmp_path / "app")._out_of_onedrive(str(old)) == str(old)
+
+
+# ---- pinned by mutation testing (each test below fails on a change the tests above let through)
+
+class _FakeKey:
+    def __init__(self, entries):
+        self.entries = entries
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fake_winreg(accounts):
+    """A stand-in for winreg holding HKCU\\...\\OneDrive\\Accounts: {account: UserFolder value, or an
+    exception to raise reading it}; accounts=None is a user OneDrive was never set up for."""
+    import types
+
+    def open_key(parent, name):
+        if parent == "HKCU":
+            if accounts is None:
+                raise FileNotFoundError(2, "The system cannot find the file specified")
+            assert name == r"Software\Microsoft\OneDrive\Accounts"
+            return _FakeKey(list(accounts.items()))
+        return _FakeKey(dict(parent.entries)[name])
+
+    def enum_key(key, i):
+        if i >= len(key.entries):
+            raise OSError(259, "No more data is available")
+        return key.entries[i][0]
+
+    def query_value_ex(key, name):
+        assert name == "UserFolder"
+        if isinstance(key.entries, Exception):
+            raise key.entries
+        return key.entries, 1
+
+    return types.SimpleNamespace(HKEY_CURRENT_USER="HKCU", OpenKey=open_key, EnumKey=enum_key,
+                                 QueryValueEx=query_value_ex)
+
+
+def test_each_onedrive_account_folder_is_read_from_the_registry(tmp_path, monkeypatch):
+    import sys
+    org, personal = tmp_path / "OneDrive - Contoso", tmp_path / "OneDrive"
+    accounts = {"Business1": f"  {org}  ", "Broken": OSError(2, "no UserFolder"), "Relative": "OneDrive\\x",
+                "Blank": "   ", "Number": 5, "Personal": str(personal)}
+    monkeypatch.setitem(sys.modules, "winreg", _fake_winreg(accounts))
+    with monkeypatch.context() as m:
+        m.setattr(known_folders.sys, "platform", "win32")
+        found = known_folders._registry_onedrive()
+    assert found == [org, personal]  # trimmed; an unreadable, relative, blank or non-text one is skipped
+    monkeypatch.setitem(sys.modules, "winreg", _fake_winreg(None))
+    with monkeypatch.context() as m:
+        m.setattr(known_folders.sys, "platform", "win32")
+        assert known_folders._registry_onedrive() == []  # OneDrive never set up
+        m.setitem(sys.modules, "winreg", None)  # a Python without winreg
+        assert known_folders._registry_onedrive() == []
+    with monkeypatch.context() as m:
+        m.setattr(known_folders.sys, "platform", "linux")
+        assert known_folders._registry_onedrive() == []  # never asked off Windows
+
+
+def test_onedrive_variables_are_trimmed_and_listed_once(home, tmp_path, monkeypatch):
+    sync = tmp_path / "Sync"
+    monkeypatch.setenv("OneDrive", f" {sync} ")
+    monkeypatch.setenv("OneDriveCommercial", str(sync))
+    monkeypatch.setenv("OneDriveConsumer", "relative")  # would resolve against the start folder
+    monkeypatch.setattr(known_folders, "_registry_onedrive", lambda: [sync, tmp_path / "Personal"])
+    assert known_folders.onedrive_roots() == [sync, tmp_path / "Personal"]
+    monkeypatch.delenv("OneDriveCommercial")
+    monkeypatch.setattr(known_folders, "_registry_onedrive", lambda: [])
+    assert known_folders.onedrive_roots() == [sync]  # OneDrive alone is enough
+    monkeypatch.setenv("OneDriveConsumer", str(tmp_path / "Home"))
+    monkeypatch.delenv("OneDrive")
+    assert known_folders.onedrive_roots() == [tmp_path / "Home"]  # and so is OneDriveConsumer
+
+
+def test_a_onedrive_folder_itself_is_in_onedrive(home, tmp_path, monkeypatch):
+    monkeypatch.setenv("OneDrive", str(tmp_path / "Sync"))
+    assert known_folders.onedrive_root(tmp_path / "Sync") == tmp_path / "Sync"
+    assert known_folders.onedrive_root(home / "OneDrive - Contoso") == home / "OneDrive - Contoso"
+
+
+def test_exports_go_to_the_same_local_folder_every_time(home, monkeypatch):
+    monkeypatch.setattr(known_folders, "downloads", lambda: home / "OneDrive" / "Downloads")
+    assert known_folders.export_folder() == known_folders.export_folder() == home / "KratosForge" / "Exports"
+
+
+def test_a_refusal_and_the_ready_to_work_warning_name_the_local_folder(home, tmp_path):
+    local = str(home / "KratosForge")
+    said = known_folders.onedrive_refusal(home / "OneDrive" / "x", "a project")
+    assert said is not None and said.endswith(f"such as {local}.")
+    assert known_folders.onedrive_refusal(home / "x", "a project") is None
+    row = readiness.onedrive_check({"A": str(home / "OneDrive" / "a")})
+    assert row["text"].startswith(f"These folders are in OneDrive: A ({home / 'OneDrive' / 'a'}). ")
+    assert f"such as {local}, then open it" in row["text"] and row["doc"] == "troubleshooting.md#files-in-onedrive"
+
+
+def test_ready_to_work_lists_every_folder_in_onedrive_and_skips_unset_ones(home, tmp_path):
+    a, b, c = (str(home / "OneDrive" / n) for n in "abc")
+    two = readiness.onedrive_check({"A": a, "B": b, "Unset": "", "Here": str(tmp_path / "here")})
+    assert two["text"].startswith(f"These folders are in OneDrive: A ({a}) and B ({b}). ")
+    three = readiness.onedrive_check({"A": a, "B": b, "C": c})
+    assert three["text"].startswith(f"These folders are in OneDrive: A ({a}), B ({b}) and C ({c}). ")
+
+
+def test_projects_in_onedrive_spill_by_their_folder_one_temp_folder_each(home, tmp_path):
+    from fabric_desktop.localdata.projects import Project
+    one = Project(id="p", name="A", folder=str(home / "OneDrive" / "a"), storage="persistent")
+    two = Project(id="p", name="B", folder=str(home / "OneDrive" / "b"), storage="persistent")
+    same = Project(id="q", name="A", folder=str(home / "OneDrive" / "a"), storage="persistent")
+    assert one.temp_dir != two.temp_dir and one.temp_dir == same.temp_dir
+
+
+def _old_project(home, monkeypatch):
+    old = home / "OneDrive - Contoso" / "Documents" / "FabricDesktop" / "metadata"
+    old.mkdir(parents=True)
+    (old / "layers.toml").write_text("", encoding="utf-8")
+    monkeypatch.setattr(known_folders, "documents", lambda: home / "OneDrive - Contoso" / "Documents")
+    return old
+
+
+def test_a_copy_an_earlier_run_left_unfinished_is_cleared_and_nothing_is_left_beside_the_new_folder(home, tmp_path, monkeypatch):
+    from fabric_desktop.service import Service
+    old = _old_project(home, monkeypatch)
+    left = home / "KratosForge" / "metadata.copying"
+    left.mkdir(parents=True)
+    (left / "stale").write_text("x", encoding="utf-8")
+    new = Service(root=tmp_path / "app")._out_of_onedrive(str(old))
+    assert new == str(home / "KratosForge" / "metadata")
+    assert not (Path(new) / "stale").exists() and (Path(new) / "layers.toml").exists()
+    assert sorted(p.name for p in (home / "KratosForge").iterdir()) == ["metadata"]
+
+
+def test_links_in_the_project_are_copied_as_links(home, tmp_path, monkeypatch):
+    from fabric_desktop.service import Service
+    old = _old_project(home, monkeypatch)
+    (tmp_path / "big").mkdir()
+    try:
+        (old / "data").symlink_to(tmp_path / "big", target_is_directory=True)
+    except OSError:
+        pytest.skip("this PC can't make a symbolic link")
+    new = Path(Service(root=tmp_path / "app")._out_of_onedrive(str(old)))
+    assert (new / "data").is_symlink()  # not followed: a junction loop or a large share isn't copied in
+
+
+def test_a_failed_copy_isnt_tried_again_in_the_same_run(home, tmp_path, monkeypatch):
+    from fabric_desktop import meta_service
+    from fabric_desktop.service import Service
+    old = _old_project(home, monkeypatch)
+    tries = []
+
+    def full_disk(src, dst, symlinks=False):
+        tries.append(dst)
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(meta_service.shutil, "copytree", full_disk)
+    svc = Service(root=tmp_path / "app")
+    assert svc._out_of_onedrive(str(old)) == svc._out_of_onedrive(str(old)) == str(old)
+    assert len(tries) == 1
+
+
+def test_a_marker_that_cant_be_removed_doesnt_stop_the_switch(home, tmp_path, monkeypatch):
+    from fabric_desktop.service import Service
+    old = _old_project(home, monkeypatch)
+    real_unlink = Path.unlink
+
+    def locked(self, missing_ok=False):
+        if self.name == ".kratosforge-copied-from":
+            raise PermissionError(13, "The process cannot access the file")
+        return real_unlink(self, missing_ok=missing_ok)
+    monkeypatch.setattr(Path, "unlink", locked)
+    svc = Service(root=tmp_path / "app")
+    assert svc._out_of_onedrive(str(old)) == str(home / "KratosForge" / "metadata")
+    assert svc._settings()["meta_project"] == str(home / "KratosForge" / "metadata")

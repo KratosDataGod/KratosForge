@@ -309,8 +309,7 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
         retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
         "this table's next version")
     # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
-    root = uri.rstrip("/") + "/"
-    listed = [unquote(p[len(root):] if p.startswith(root) else p) for p in listed]
+    listed = [relative_to_table(uri, p) for p in listed]
     removed = [p for p in listed if p in present and not (Path(uri) / p).exists()]
     # A data file no commit names (a write stopped before its commit) goes once it's as old as the
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
@@ -344,10 +343,11 @@ def table_files(uri: str) -> set[str]:
 
 
 def relative_to_table(uri: str, path: str) -> str:
-    """``path`` as delta-rs lists it (whole, a file:// URL, or relative; either slash; percent-encoded),
-    relative to the table folder ``uri`` with forward slashes."""
-    text = path[len("file://"):] if path.startswith("file://") else path
-    text = unquote(text).replace("\\", "/")
+    """``path`` as delta-rs lists it (whole, a percent-encoded file:// URL, or relative; either slash), relative
+    to the table folder ``uri`` with forward slashes. Only a URL is decoded: a path is the file's name on disk,
+    where a partition value is already escaped (region=North%20America is that folder's name)."""
+    text = unquote(path[len("file://"):]) if path.startswith("file://") else path
+    text = text.replace("\\", "/")
     root = uri.rstrip("/\\").replace("\\", "/") + "/"
     if os.path.normcase(text).startswith(os.path.normcase(root)):
         return text[len(root):]
@@ -396,7 +396,10 @@ def _unnamed(uri: str, table: DeltaTable, hours: float) -> list[str]:
     """Data files untouched for ``hours`` that neither the table's current version names nor a commit
     removed (those are VACUUM's), as paths relative to the table folder."""
     named = {unquote(p) for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist())}
-    named |= {unquote(p) for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False)}
+    # VACUUM lists a file by its name on disk (relative_to_table); its decoded spelling is kept too, so a
+    # file a commit removed is never taken for a leftover however delta-rs spells it.
+    for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False):
+        named |= {relative_to_table(uri, p), unquote(p)}
     out = []
     for e in _data_folder_files(uri):
         rel = Path(e.path).relative_to(uri).as_posix()

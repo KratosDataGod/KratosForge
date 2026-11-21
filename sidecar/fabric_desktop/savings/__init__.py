@@ -42,6 +42,13 @@ evidence the result is Unknown, value None, with the reason. Lower utilization a
 headroom, not savings. Net benefit (measure F) subtracts every attributable cost, and is Unknown when
 one is missing, Unknown or a Scenario (ESI-403).
 
+``links``: an assessment finding (FEA) or an opportunity (OE) becomes a proposed optimization record,
+keyed by its fingerprint. The ids come from the fingerprint alone, so a re-run or a second PC gives the
+same record. A repeat detection links to the existing record and makes no new one. Two records for one
+fingerprint are refused. Only a Verified validation resolves the finding or opportunity; Validating,
+Regressed and Failed leave it open. Records hold fingerprints and ids, never code or evidence text.
+Writing them, version-aware updates and the responsible user and device wait on ESI-301 (ESI-601).
+
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.
 """

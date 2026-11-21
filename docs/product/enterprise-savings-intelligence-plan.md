@@ -469,7 +469,7 @@ verified, capacity readiness), from the same ledger queries the page uses.
 
 ### Phase 6: Continuous optimization
 
-**ESI-601 Assessment to optimization.** An assessment finding (FEA) or opportunity (OE) creates
+**ESI-601 Assessment to optimization.** **Built** (engine only, no writes; writing waits on ESI-301). `savings/links.py`. An assessment finding (FEA) or opportunity (OE) creates
 an optimization record keyed by its fingerprint; a repeat detection links to the existing record
 instead of creating one; resolution after verification is reported back to the assessment.
 Coordinated with the Fabric Excellence Assessment thread.

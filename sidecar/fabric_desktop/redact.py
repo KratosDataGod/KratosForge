@@ -17,7 +17,7 @@ The UI has the same rules in ``app/ui/settings.js`` (``redactReport``); both are
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Callable, Iterator
 from urllib.parse import quote, urlsplit
 
 REMOVED = "[removed]"
@@ -167,16 +167,62 @@ def walk(value: Any, *, stringify: bool = False) -> Any:
     secret (secret_key) blanked; dicts, lists and tuples are walked (a tuple comes back as a list).
     Numbers, flags and None stay. Anything else stays as it is, or with ``stringify`` becomes its
     str() with secrets removed, for a writer that would print it anyway (json default=str)."""
-    if isinstance(value, str):
-        return secrets(value)
-    if isinstance(value, dict):
-        return {k: REMOVED if secret_key(k) and isinstance(v, str) else walk(v, stringify=stringify)
-                for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [walk(v, stringify=stringify) for v in value]
-    if not stringify or isinstance(value, (int, float, bool)) or value is None:
-        return value
-    return secrets(str(value))
+    def leaf(v: Any) -> Any:
+        if isinstance(v, str):
+            return secrets(v)
+        if not stringify or isinstance(v, (int, float, bool)) or v is None:
+            return v
+        return secrets(str(v))
+
+    return rebuild(value, leaf, field=lambda k, v: REMOVED if secret_key(k) and isinstance(v, str) else KEEP)
+
+
+KEEP: Any = object()  # what a ``field`` rule of rebuild() gives for a field it leaves to the walk
+
+
+def rebuild(value: Any, leaf: Callable[[Any], Any], *, keep_tuples: bool = False,
+            field: Callable[[Any, Any], Any] | None = None) -> Any:
+    """A copy of ``value`` with ``leaf`` applied to everything in it that isn't a dict, list or tuple.
+    Dicts keep their key order; a tuple becomes a list, or stays a tuple with ``keep_tuples``.
+    ``field(key, value)``, when given, can replace a dict's value outright (anything but KEEP).
+    Walked with a stack rather than recursion, so a value nested thousands deep (a remote reply,
+    a notebook output) is copied too; one that contains itself is a ValueError."""
+    if not isinstance(value, (dict, list, tuple)):
+        return leaf(value)
+    top: list[Any] = [None]
+    stack: list[tuple[Any, Iterator[tuple[Any, Any]], Any, Any, Any]] = []
+    open_ids: set[int] = set()
+
+    def push(src: Any, parent: Any, slot: Any) -> None:
+        if id(src) in open_ids:
+            raise ValueError("The value contains itself, so it can't be copied.")
+        open_ids.add(id(src))
+        items = iter(src.items()) if isinstance(src, dict) else enumerate(src)
+        stack.append((src, items, {} if isinstance(src, dict) else [], parent, slot))
+
+    push(value, top, 0)
+    while stack:
+        src, items, out, parent, slot = stack[-1]
+        for k, v in items:
+            got = field(k, v) if field is not None and isinstance(out, dict) else KEEP
+            if got is KEEP and isinstance(v, (dict, list, tuple)):
+                if isinstance(out, dict):
+                    out[k] = None  # its place, so the keys keep their order; filled in when it is done
+                    push(v, out, k)
+                else:
+                    out.append(None)
+                    push(v, out, len(out) - 1)
+                break
+            got = leaf(v) if got is KEEP else got
+            if isinstance(out, dict):
+                out[k] = got
+            else:
+                out.append(got)
+        else:
+            stack.pop()
+            open_ids.discard(id(src))
+            parent[slot] = tuple(out) if keep_tuples and isinstance(src, tuple) else out
+    return top[0]
 
 
 def for_support(text: str) -> str:

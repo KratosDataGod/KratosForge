@@ -260,3 +260,30 @@ def test_rules_that_start_later_still_find_what_they_did():
     assert redact.secrets("x.abfss://ws@onelake.dfs.fabric.microsoft.com/x") == "x.abfss://[removed]@onelake.dfs.fabric.microsoft.com/x"
     assert redact.for_support("a.b-contoso.onmicrosoft.com and a-b.sharepoint.com") == (
         "[tenant].onmicrosoft.com and [tenant].sharepoint.com")
+
+
+def test_walk_keeps_the_shape_order_and_types_of_nested_values():
+    obj = object()
+    value = {"b": ({"secret": "s", "n": [1, (2, {"password": 3})]}, ["x"]), "a": [], "t": (), "o": obj}
+    assert redact.walk(value) == {"b": [{"secret": redact.REMOVED, "n": [1, [2, {"password": 3}]]}, ["x"]],
+                                  "a": [], "t": [], "o": obj}
+    assert list(redact.walk(value)) == ["b", "a", "t", "o"]
+    assert redact.walk(value, stringify=True)["o"] == str(obj)
+    assert redact.walk("plain") == "plain" and redact.walk((1, "x")) == [1, "x"]
+
+
+def test_walk_reads_values_nested_thousands_deep():
+    """A result nested past Python's recursion limit (a remote service's reply, an integration result)
+    is walked rather than raising RecursionError."""
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2lnbmF0dXJl"
+    value: object = {"note": f"Bearer {token}", "api_key": "k"}
+    for i in range(5000):
+        value = [value] if i % 2 else {"a": (value,)}
+    out = redact.walk(value)
+    for i in reversed(range(5000)):
+        out = out[0] if i % 2 else out["a"][0]
+    assert out["api_key"] == redact.REMOVED and token not in out["note"]
+    loop: list = []
+    loop.append(loop)
+    with pytest.raises(ValueError, match="contains itself"):
+        redact.walk(loop)

@@ -95,15 +95,8 @@ def redact_output(value: Any) -> Any:
     are copied, never changed in place). Bytes are left alone: images and other binary data."""
     if _pattern is None:
         return value
-    if isinstance(value, str):
-        return redact(value)
-    if isinstance(value, dict):
-        return {k: redact_output(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [redact_output(v) for v in value]
-    if isinstance(value, tuple):
-        return tuple(redact_output(v) for v in value)
-    return value
+    from .redact import rebuild  # walks with a stack: an output can be nested thousands deep
+    return rebuild(value, lambda v: redact(v) if isinstance(v, str) else v, keep_tuples=True)
 
 
 def forget_all() -> None:

@@ -96,3 +96,29 @@ def test_redact_output_copies_and_leaves_bytes():
     assert secret_redaction.redact_output(original) == {"type": "stream", "text": "[REDACTED]",
                                                         "data": [b"topsecret", ("[REDACTED]",)]}
     assert original["text"] == "topsecret"
+
+
+def test_redact_output_keeps_the_shape_order_and_types_of_nested_values():
+    secret_redaction.remember("topsecret")
+    obj = object()
+    original = {"z": [{"b": ("topsecret", [1.5, None, ("x", {"k": "topsecret!"})]), "a": b"topsecret"}],
+                "a": [[], {}, ()], "o": obj, "n": 3}
+    out = secret_redaction.redact_output(original)
+    assert out == {"z": [{"b": ("[REDACTED]", [1.5, None, ("x", {"k": "[REDACTED]!"})]), "a": b"topsecret"}],
+                   "a": [[], {}, ()], "o": obj, "n": 3}
+    assert list(out) == ["z", "a", "o", "n"] and list(out["z"][0]) == ["b", "a"]
+    assert type(out["z"][0]["b"]) is tuple and type(out["a"][2]) is tuple and out["o"] is obj
+    assert out["z"] is not original["z"] and original["z"][0]["b"][0] == "topsecret"
+
+
+def test_redact_output_reads_values_nested_thousands_deep():
+    """A rich output nested past Python's recursion limit (a JSON display of a deep object) is redacted
+    rather than raising RecursionError from every poll of the cell."""
+    secret_redaction.remember("topsecret")
+    value: object = {"text": "topsecret"}
+    for i in range(5000):
+        value = [value] if i % 3 == 0 else ({"a": value} if i % 3 == 1 else (value,))
+    out = secret_redaction.redact_output(value)
+    for i in reversed(range(5000)):
+        out = out[0] if i % 3 != 1 else out["a"]
+    assert out == {"text": "[REDACTED]"}

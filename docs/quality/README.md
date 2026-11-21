@@ -16,6 +16,9 @@ Where a finding here overlaps theirs, it cites their ID and adds only what is ne
 | [Findings register](findings.md) | Every finding QA-001 to QA-030 with file and line, evidence, impact, fix and how to verify it |
 | [Remediation plan](remediation.md) | PR-QA-01 to PR-QA-14: independently executable pull-request specifications |
 | [PR quality gate](pr-review.md) | How every pull request is scored, the automatic failures, and the report format given to Release management |
+| [Mutation testing](mutation-testing.md) | How strong the tests on the write, retry and redaction paths are: mutation scores before and after, equivalent mutants, how to re-run |
+| [Shell test coverage](shell-coverage.md) | Line coverage of the Rust shell's unit tests per file (advisory, Linux, plus a daily Windows run), what it leaves out and where tests go next |
+| [When a new advisory turns the audit red](new-advisory.md) | What to do when the audit fails on main or every pull request: move the package alone, regenerate the hashed locks, then merge main into open pull requests |
 
 ## How the review was done
 

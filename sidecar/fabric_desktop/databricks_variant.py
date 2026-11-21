@@ -24,13 +24,15 @@ from __future__ import annotations
 import json
 import math
 import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Context, Decimal, InvalidOperation
 from typing import Any
 
 _LONG = 2**63
 _DEEPEST = 256  # nesting this PC reads; past it a cell stops by name, so no try_ guesses NULL
 _SHOWN = 100  # characters of a value an error message repeats
 _MAX_DIGITS = 38  # a VARIANT decimal has at most 38 digits and scale 38; anything else is a DOUBLE
+# Exact for any VARIANT decimal and its casts: Python's default context keeps only 28 digits.
+_EXACT = Context(prec=2 * _MAX_DIGITS + 2)
 _PLAIN_DECIMAL = re.compile(r"-?[0-9.]+")  # VariantBuilder.tryParseDecimal: no exponent
 _INTEGER_BITS = {"tinyint": 8, "smallint": 16, "int": 32, "bigint": 64}
 # DuckDB types to_json writes the same as a VARIANT prints them; a DOUBLE 100.0 and a DECIMAL 100.0 print
@@ -92,7 +94,7 @@ def _plain(value: Decimal) -> str:
     """A decimal as BigDecimal.stripTrailingZeros().toPlainString() writes it."""
     if value == 0:
         return "0"
-    return format(value.normalize(), "f")
+    return format(value.normalize(_EXACT), "f")
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -293,7 +295,10 @@ def _number_cast(value: _Number, json_text: str, target: str, safe: bool) -> str
     if match is None or value.kind == "double" and "E" in value.text:
         raise _unknown(json_text, target)
     precision, scale = int(match.group(1)), int(match.group(2))
-    rounded = Decimal(value.text).quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
+    if precision > _MAX_DIGITS:  # Spark's own check, before any value is read
+        raise ValueError(f"[DECIMAL_PRECISION_EXCEEDS_MAX_PRECISION] Decimal precision {precision} exceeds max "
+                         f"precision {_MAX_DIGITS}.")
+    rounded = Decimal(value.text).quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP, context=_EXACT)
     if len(rounded.as_tuple().digits) - max(-int(rounded.as_tuple().exponent), 0) <= precision - scale:
         return format(rounded, "f")
     _cast_error(safe, json_text, target)

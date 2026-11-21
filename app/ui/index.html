@@ -15,6 +15,7 @@
     <div class="brand">
       <img src="wolf-forge-emblem.png" width="28" height="28" alt="">
       <img class="brand-name" src="kratosforge-lettering.png" width="130" height="19" alt="KratosForge">
+      <span class="brand-text">KratosForge</span>
     </div>
     <div class="nav-buttons" hidden>
       <button id="nav-back" class="nav-btn back" title="Back (Alt+Left)" aria-label="Back" aria-keyshortcuts="Alt+ArrowLeft" disabled><span data-icon="chevronRight" data-size="16"></span></button>
@@ -63,10 +64,12 @@
   <script src="actions.js"></script>
   <script src="activity.js"></script>
   <script src="vendor/codemirror/codemirror.js"></script>
+  <script src="editorprefs.js"></script>
   <script src="sqleditor.js"></script>
   <script src="catalog-groups.js"></script>
   <script src="query.js"></script>
   <script src="warehouse.js"></script>
+  <script src="sqldiagram.js"></script>
   <script src="whdetail.js"></script>
   <script src="sqltemplates.js"></script>
   <script src="sqlqueries.js"></script>
@@ -74,7 +77,10 @@
   <script src="sqlchanges.js"></script>
   <script src="whproject.js"></script>
   <script src="whmonitor.js"></script>
+  <script src="whssms.js"></script>
   <script src="sqlplan.js"></script>
+  <script src="sqlgrid.js"></script>
+  <script src="vendor/markdown/markdown.js"></script>
   <script src="app.js"></script>
   <script src="home-notebooks.js"></script>
   <script src="popout.js"></script>
@@ -86,6 +92,8 @@
   <script src="qprofile.js"></script>
   <script src="sqlchart.js"></script>
   <script src="notebook-formats.js"></script>
+  <script src="nbconsole.js"></script>
+  <script src="nbreport.js"></script>
   <script src="nbfind.js"></script>
   <script src="nbdrag.js"></script>
   <script src="nbcells.js"></script>
@@ -93,6 +101,7 @@
   <script src="nbinputs.js"></script>
   <script src="fabricstep.js"></script>
   <script src="nbintel.js"></script>
+  <script src="nbsymbols.js"></script>
   <script src="nbformat.js"></script>
   <script src="nbvars.js"></script>
   <script src="sidebyside.js"></script>
@@ -106,6 +115,7 @@
   <script src="df-copy-jobs.js"></script>
   <script src="df-dataflows.js"></script>
   <script src="profile.js"></script>
+  <script src="art/experience/heroes.js"></script>
   <script src="home-hero.js"></script>
   <script src="empty-spots.js"></script>
   <script src="notebook-comments.js"></script>
@@ -139,11 +149,15 @@
   <script src="agents.js"></script>
   <script src="queue.js"></script>
   <script src="runas.js"></script>
+  <script src="data-health.js"></script>
   <script src="forge-activity.js"></script>
   <script src="xray.js"></script>
   <script src="optimize.js"></script>
+  <script src="optimize-assess.js"></script>
+  <script src="optimize-excellence.js"></script>
   <script src="integrations.js"></script>
   <script src="connections.js"></script>
+  <script src="kf-environment.js"></script>
   <script src="dbx-monitor.js"></script>
   <script src="dbx-cost.js"></script>
   <script src="dbx-sync.js"></script>

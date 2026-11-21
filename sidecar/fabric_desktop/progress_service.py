@@ -13,16 +13,17 @@ import base64
 import json
 import logging
 import re
-import shutil
 import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from . import b64
 from . import app_settings, jsonfile, pdfreport, progress, ranks, roadmap
 from .learn import content as learn_content
 from .redact import describe
 from . import known_folders
+from . import trees
 
 _log = logging.getLogger(__name__)
 
@@ -226,7 +227,7 @@ class ProgressMixin:
     def profile_avatar_set(self, png_base64: str) -> dict[str, Any]:
         """Keep the picture the app cropped and re-encoded: a 256 px square PNG, at most 512 KB."""
         try:
-            data = base64.b64decode(str(png_base64), validate=True)
+            data = b64.decode_exact(str(png_base64))
         except ValueError:
             raise ValueError("That picture couldn't be read.") from None
         if not _avatar_ok(data):
@@ -246,7 +247,7 @@ class ProgressMixin:
         with _LOCK:
             existed = folder.exists()
             if existed:
-                shutil.rmtree(folder)
+                trees.remove(folder)
         return {"deleted": existed}
 
 

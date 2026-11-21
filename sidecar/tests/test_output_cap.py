@@ -149,3 +149,30 @@ def test_printed_text_joins_in_order_around_other_outputs():
     run.write("f")
     assert run.outputs == [{"type": "stream", "text": "abcd"}, {"type": "html", "html": "<b>x</b>"},
                            {"type": "stream", "text": "ef"}]
+
+
+def test_a_huge_error_keeps_the_start_of_its_message_and_the_end_of_its_traceback():
+    out = Kernel().run("def deep():\n    raise ValueError('start' + 'x' * 3_000_000 + 'end')\ndeep()")
+    assert out["status"] == "error"
+    [err] = out["outputs"]
+    assert err["ename"] == "ValueError"
+    assert err["evalue"].startswith("start") and len(err["evalue"]) < notebook.ERROR_CHARS + 200
+    assert err["evalue"].endswith(f"[KratosForge kept the first {notebook.ERROR_CHARS:,} of this message's 3,000,008 characters.]")
+    tb = err["traceback"]
+    assert tb.startswith("[KratosForge kept the last ") and len(tb) < notebook.ERROR_CHARS + 200
+    assert tb.rstrip().endswith("end")  # the error's own line, at the end, is kept
+
+
+def test_an_error_under_the_limit_is_untouched_and_so_is_a_list_traceback():
+    small = {"type": "error", "ename": "E", "evalue": "v", "traceback": ["a\n", "b\n"]}
+    assert notebook.capped_error(small) == small
+    big = notebook.capped_error({"type": "error", "ename": "E", "evalue": "v", "traceback": ["l\n"] * notebook.ERROR_CHARS})
+    assert big["traceback"].startswith("[KratosForge kept the last") and big["traceback"].endswith("l\n")
+
+
+def test_an_error_in_an_output_widget_is_kept_to_the_same_limit():
+    from fabric_desktop import widgets
+    out = widgets.Output()
+    out._add({"type": "error", "ename": "ValueError", "evalue": "m" * (notebook.ERROR_CHARS * 3), "traceback": "t" * (notebook.ERROR_CHARS * 3)})
+    [err] = out.outputs
+    assert len(err["evalue"]) < notebook.ERROR_CHARS + 200 and len(err["traceback"]) < notebook.ERROR_CHARS + 200

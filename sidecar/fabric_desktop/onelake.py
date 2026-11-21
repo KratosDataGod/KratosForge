@@ -33,9 +33,39 @@ _BAD_NAME = re.compile(r"[\"'#%+:?`/\\]")
 
 
 def check_name(kind: str, name: str) -> str:
-    if not name or _BAD_NAME.search(name) or name != name.strip():
+    if not name or _BAD_NAME.search(name) or name != name.strip() or name in (".", ".."):
         raise ValueError(f"Invalid {kind} name {name!r}: avoid quotes, # % + : ? ` / \\ and edge spaces.")
     return name
+
+
+_BAD_ID = re.compile(r"[/@\\?#%:\s]")
+
+
+def workspace_root(workspace_id: str) -> str:
+    """A workspace's OneLake container, ``abfss://<workspace>@onelake...``: what OpenLineage calls a
+    dataset namespace. The id is checked as lakehouse_root checks it."""
+    return lakehouse_root(workspace_id, "_").rsplit("/", 1)[0]
+
+
+def lakehouse_root(workspace_id: str, lakehouse_id: str) -> str:
+    """The OneLake address of a lakehouse, ``abfss://<workspace>@onelake.../<lakehouse>``: the one place it
+    is built (tests/test_table_uris.py fails on another). The ids are GUIDs, which ABFS reads where a
+    name with spaces fails; one that would change the address's shape (a slash, @, ?, #, %, :, or . or ..
+    alone) is refused."""
+    for kind, value in (("workspace", workspace_id), ("lakehouse", lakehouse_id)):
+        if not value or _BAD_ID.search(value) or value in (".", ".."):
+            raise ValueError(f"Invalid {kind} id {value!r} for a OneLake address.")
+    return f"abfss://{workspace_id}@{DFS_HOST}/{lakehouse_id}"
+
+
+def table_uri(root: str, schema: str, table: str, flat: bool = False) -> str:
+    """A Delta table's folder under a lakehouse ``root`` (lakehouse_root, or a local folder in tests and
+    runs on this PC): ``<root>/Tables/<schema>/<table>``, or ``<root>/Tables/<table>`` in a lakehouse
+    without schemas. Names are checked as Fabric checks them, so none can step into another folder."""
+    check_name("table", table)
+    if flat:
+        return f"{root}/Tables/{table}"
+    return f"{root}/Tables/{check_name('schema', schema)}/{table}"
 
 
 @dataclass(frozen=True)
@@ -56,8 +86,7 @@ class TableRef:
     @property
     def uri(self) -> str:
         # GUIDs avoid ABFS failures on workspace names with spaces.
-        folder = self.table if self.flat else f"{self.schema}/{self.table}"
-        return f"abfss://{self.workspace_id}@{DFS_HOST}/{self.lakehouse_id}/Tables/{folder}"
+        return table_uri(lakehouse_root(self.workspace_id, self.lakehouse_id), self.schema, self.table, self.flat)
 
 
 # Uploads on a slow line. delta-rs sends each data file as 5 MB parts, 10 at a time, with several
@@ -104,12 +133,32 @@ def error_code(value: object) -> str:
     return text if _CODE.fullmatch(text) else ""
 
 
+_REQUEST_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
+# What a person can do about a refused OneLake request, by status, so every OneLake error says what to do.
+_NEXT_STEPS = {
+    401: "Sign out and in again",
+    403: "Your account needs access to this workspace in Fabric (Contributor to write). Ask a workspace admin",
+    404: "Check the workspace, lakehouse and path: it may have been deleted or moved",
+    409: "Refresh, then try again: something else changed it at the same time",
+    412: "Refresh, then try again: something else changed it at the same time",
+    429: "OneLake is limiting requests. Try again in a few minutes",
+}
+# The fallback steps point at the request id only when OneLake sent one to give.
+_SERVER_NEXT_STEP = "OneLake had a problem on its side. Try again, and give the request id to support if it keeps happening"
+_SERVER_NEXT_STEP_NO_ID = "OneLake had a problem on its side. Try again, and contact support if it keeps happening"
+_NEXT_STEP = "Check the path and try again, or give the request id to support"
+_NEXT_STEP_NO_ID = "Check the path and try again"
+
+
 def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
     """A refused OneLake request as one line: what didn't happen, the status and OneLake's error code
-    (the DFS API's ``error.code``, the table API's ``error_code``, or ``x-ms-error-code``). The path
-    is the one inside the lakehouse, never the whole URL. Still a requests.HTTPError, with the
-    response, for callers that read its status."""
+    (the DFS API's ``error.code``, the table API's ``error_code``, or ``x-ms-error-code``), one next
+    step, and OneLake's request id (``x-ms-request-id``) for support. The path is the one inside the
+    lakehouse, never the whole URL. Still a requests.HTTPError, with the response, for callers that
+    read its status."""
     code = resp.headers.get("x-ms-error-code") if resp.headers else None
+    request_id = str((resp.headers.get("x-ms-request-id") if resp.headers else None) or "")
+    request_id = request_id if _REQUEST_ID.fullmatch(request_id) else ""
     try:
         body = resp.json()
     except ValueError:
@@ -118,8 +167,13 @@ def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
         err = body.get("error")
         code = (err.get("code") if isinstance(err, dict) else None) or body.get("error_code") or code
     code = error_code(code)
-    return requests.HTTPError(f"OneLake didn't {what} ({resp.status_code}{': ' + code if code else ''}).",
-                              response=resp)
+    status = resp.status_code
+    if status >= 500 and status not in _NEXT_STEPS:
+        step = _SERVER_NEXT_STEP if request_id else _SERVER_NEXT_STEP_NO_ID
+    else:
+        step = _NEXT_STEPS.get(status) or (_NEXT_STEP if request_id else _NEXT_STEP_NO_ID)
+    return requests.HTTPError(f"OneLake didn't {what} ({status}{': ' + code if code else ''}). {step}."
+                              + (f" Request id {request_id}." if request_id else ""), response=resp)
 
 
 class TableCatalog:

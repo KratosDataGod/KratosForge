@@ -142,8 +142,8 @@ def check(item: dict[str, Any], settings: dict[str, dict[str, Any]] | None = Non
                                   "double.", t["entity"]))
         bare = [c["name"] for c in t["columns"] if not c["hidden"] and not c["description"]]
         if not t["description"] or bare:
-            what = (["the table"] if not t["description"] else []) + ([f"{len(bare)} visible column{'s' if len(bare) != 1 else ''}"
-                                                                       f" ({_list(bare)})"] if bare else [])
+            what = (["the table"] if not t["description"] else []) + ([(f"{len(bare)} visible column{'s' if len(bare) != 1 else ''}"
+                                                                       f" ({_list(bare)})")] if bare else [])
             found.append(_finding("SM005", settings, "Table", t["name"], f"No description for {' and '.join(what)}.",
                                   None, {"action": "open_model", "label": "Open the data dictionary", "layer": item.get("layer")}))
         if not t["dimension"] and t["name"] not in related:

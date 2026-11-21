@@ -19,7 +19,15 @@ def rows(query: str) -> list[tuple]:
 
 
 def one(query: str):
-    return rows(query)[0][0]
+    return wall_time(rows(query)[0][0])
+
+
+def wall_time(value):
+    """A timestamp as its wall time in UTC, the session's zone here: Spark's timestamp has a zone, which
+    DuckDB 1.x hands back with the value and 2.x leaves off."""
+    if isinstance(value, dt.datetime) and value.tzinfo is not None:
+        return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return value
 
 
 # (Spark SQL, Spark 3.5's value)
@@ -164,8 +172,8 @@ AGGREGATES = [
     ("SELECT skewness(col) FROM VALUES (1), (3) AS tab(col)", 0.0),
     ("SELECT approx_percentile(col, array(0.5, 0.4, 0.1), 100) FROM VALUES (0), (1), (2), (10) AS tab(col)", [1, 1, 0]),
     ("SELECT percentile_approx(col, 0.5) FROM VALUES (0), (6), (7), (9), (10) AS tab(col)", 7),
-    ("SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) "
-     "FROM VALUES (1), (2), (3) AS tab(col)", "070000"),
+    (("SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) "
+     "FROM VALUES (1), (2), (3) AS tab(col)"), "070000"),
 ]
 
 
@@ -210,7 +218,7 @@ def test_generators_give_sparks_rows_and_column_names():
 
 def test_a_selected_call_keeps_the_name_spark_gives_it():
     assert sql.run("SELECT isnull(1), substring_index('a.b', '.', 1)").column_names == [
-        "isnull(1)", "substring_index('a.b', '.', 1)"]
+        "(1 IS NULL)", "substring_index(a.b, ., 1)"]  # Spark 3.5.3's names
 
 
 @pytest.mark.parametrize("query, match", [
@@ -373,7 +381,7 @@ def test_to_char_of_another_type_is_refused_by_name():
 
 
 def test_to_char_is_named_as_spark_names_it():
-    assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, '999')"]
+    assert sql.run("SELECT to_char(454, '999')").column_names == ["to_char(454, 999)"]  # Spark 3.5.3's name
 
 
 def test_a_format_written_as_joined_literals_is_read_as_spark_joins_them():
@@ -557,3 +565,97 @@ def test_extract_and_date_part_give_sparks_value_and_type(query, want, kind):
 ])
 def test_to_unix_timestamp_reads_its_format_as_unix_timestamp_does(query, want):
     assert one(query) == want
+
+
+# Spark's cast functions, regexp and make_interval, against Apache Spark 3.5.5 (tools/capture_spark_builtins.py's
+# own examples, plus edge cases run in the same Spark): int('1.9') is Spark's CAST with ANSI off, so 1, not an error.
+CAST_FUNCTIONS = [
+    ("SELECT bigint(' 12 ')", 12),
+    ("SELECT bigint('1.9')", 1),
+    ("SELECT bigint('x')", None),
+    ("SELECT int('1.9')", 1),
+    ("SELECT smallint(-3.9)", -3),
+    ("SELECT tinyint('7')", 7),
+    ("SELECT decimal('12.5')", Decimal("13")),
+    ("SELECT decimal(-2.5)", Decimal("-3")),
+    ("SELECT binary('é')", b"\xc3\xa9"),
+    ("SELECT binary(NULL)", None),
+    ("SELECT regexp('Steven', 'Ste(v|ph)en')", True),
+    ("SELECT regexp('abc', '^b')", False),
+    ("SELECT regexp(NULL, 'a')", None),
+    ("SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)",
+     dt.datetime(2027, 4, 3, 4, 5, 6, 500000)),  # Spark's TIMESTAMP, as its wall time in the session's zone (UTC)
+]
+
+
+@pytest.mark.parametrize("query, expected", CAST_FUNCTIONS)
+def test_cast_functions_regexp_and_make_interval_give_sparks_value(query, expected):
+    assert one(query) == expected
+
+
+def test_databricks_sql_cast_functions_stay_ansi():
+    """Databricks SQL runs with ANSI on, so bigint('1.9') stops there as CAST('1.9' AS BIGINT) does."""
+    con = duckdb.connect()
+    statement = _databricks("SELECT bigint('1.9')")[0]
+    with pytest.raises(duckdb.Error, match="CAST_INVALID_INPUT"):
+        con.execute(sql.duckdb_sql(statement)).fetchall()
+
+
+def test_binary_of_a_number_is_refused_not_guessed():
+    """Spark writes a number's bytes (binary(12) is 0000000C); this PC stops and says so."""
+    with pytest.raises(duckdb.Error, match="binary\\(\\) of type INTEGER can't run on this PC"):
+        sql.run("SELECT binary(12)")
+
+
+def test_a_bad_typed_literal_still_stops_while_the_function_gives_null():
+    """Spark refuses DATE '2026-13-01' even with ANSI off; date('2026-02-30') is NULL there."""
+    with pytest.raises(duckdb.Error, match="out of range|Conversion"):
+        sql.run("SELECT DATE '2026-13-01'")
+    assert one("SELECT date('2026-02-30')") is None
+    assert one("SELECT DATE '2026-01-31'") == dt.date(2026, 1, 31)
+
+
+def test_sqlglot_marks_a_cast_function_but_not_a_typed_literal():
+    """spark_legacy_casts relies on this: only the function form's Cast carries its name's position."""
+    import sqlglot
+    literal = sqlglot.parse_one("SELECT DATE '2026-01-01'", read="spark").expressions[0]
+    function = sqlglot.parse_one("SELECT date('2026-01-01')", read="spark").expressions[0]
+    assert "start" not in literal.meta and "start" in function.meta
+
+
+@pytest.mark.parametrize(("call", "depth", "want"), [
+    ("upper(lower({}))", 8, "A.B.C"),
+    ("trim({})", 8, "a.b.c"),
+    ("substring_index({}, '.', 2)", 12, "a.b"),
+])
+def test_calls_nested_in_each_other_grow_the_sql_in_step_not_exponentially(call, depth, want):
+    # Each call reads its argument several times; copied into each place, 8 nested upper(lower(...))
+    # came to megabytes of SQL that took minutes to plan.
+    text = "x"
+    for _ in range(depth):
+        text = call.format(text)
+    query = f"SELECT {text} AS v FROM (SELECT 'a.b.c' AS x)"
+    assert len(sql.duckdb_sql(sql.parse(query)[0])) < 100_000
+    assert one(query) == want
+
+
+def test_an_argument_that_can_raise_is_copied_not_worked_out_once():
+    # Bound, an argument is worked out on every row; one with raise_error stays where the template put it.
+    inner = "lpad(rpad(lpad(rpad(x, 9, '-'), 12, '-'), 14, '-'), 16, '-')"
+    bound = f"SELECT find_in_set({inner}, 'a,b') AS v FROM (SELECT 'a' AS x)"
+    raising = (f"SELECT find_in_set(CASE WHEN x IS NULL THEN raise_error('boom') ELSE {inner} END, 'a,b') AS v "
+               "FROM (SELECT 'a' AS x)")
+    assert "kf_bound" in sql.duckdb_sql(sql.parse(bound)[0])
+    assert "kf_bound" not in sql.duckdb_sql(sql.parse(raising)[0])
+    assert one(raising) == one(bound) == 0
+
+
+@pytest.mark.parametrize("inner", ["max(x)", "(SELECT max(x) FROM t)", "first_value(x) OVER ()"])
+def test_calls_nested_over_an_aggregate_a_subquery_or_a_window_grow_in_step(inner):
+    # The innermost value goes in the list outside the lambda, where these may be.
+    text = inner
+    for _ in range(8):
+        text = f"substring_index({text}, '.', 2)"
+    query = f"WITH t AS (SELECT 'a.b.c' AS x) SELECT {text} AS v FROM t"
+    assert len(sql.duckdb_sql(sql.parse(query)[0])) < 100_000
+    assert one(query) == "a.b"

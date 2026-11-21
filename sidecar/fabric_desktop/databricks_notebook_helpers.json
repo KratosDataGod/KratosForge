@@ -24,7 +24,7 @@
     "notebook.entry_point.getDbutils": "Gives the notebook's path and your user name for getContext(); the run id is empty.",
     "notebook.exit": "",
     "notebook.run": "Runs a notebook from this PC's notebooks folder. The timeout and arguments are taken; arguments arrive as widget values.",
-    "secrets.get": "A secret scope is an Azure Key Vault name, read with your own sign-in. Databricks-backed scopes are not reachable.",
+    "secrets.get": "A secret scope is an Azure Key Vault name, read with your own sign-in. Databricks-backed scopes are not reachable. The value shows as [REDACTED] in the notebook's output, as in Databricks.",
     "secrets.getBytes": "Same scopes as secrets.get.",
     "secrets.list": "Same scopes as secrets.get. You need the Key Vault Secrets User role.",
     "secrets.listScopes": "Returns an empty list and says that a scope is a Key Vault name: this PC can't list your vaults.",
@@ -40,16 +40,16 @@
   },
   "cells": {
     "%python": "",
-    "%sql": "Runs on this PC's Spark SQL (DuckDB with Spark's functions).",
+    "%sql": "Runs on this PC's Spark SQL (DuckDB with Spark's functions). A query's result is the cell's result and _sqldf, which later Python and SQL cells read.",
     "%md": "",
-    "%sh": "Runs as a script on this PC, not on a cluster driver.",
+    "%sh": "Runs as a script on this PC, not on a cluster driver. As in Databricks, a non-zero exit code fails the cell only when it starts with %sh -e.",
     "%scala": "",
     "%r": ""
   },
   "line_magics": {
-    "%run": "Runs a notebook from this PC's notebooks folder in the same session.",
-    "%fs": "ls, head, cp, mv, rm, mkdirs and put, with the same paths as dbutils.fs. A drive path (C:\\data) is also taken.",
-    "%pip": "Installs into the notebook's own environment on this PC, never the engine's. Your organization's policy can turn installs off.",
+    "%run": "Runs a notebook from this PC's notebooks folder in the same session, so its variables and functions are shared. A ./ or ../ path finds the notebook by its name. A failure names the notebook and its cell.",
+    "%fs": "ls, head, cp, mv, rm, mkdirs and put, with the same paths as dbutils.fs. A drive path (C:\\data) is also taken. mounts and refreshMounts answer as dbutils.fs does here. mount, unmount, updateMount and other commands are refused by name.",
+    "%pip": "Installs into the notebook's own environment on this PC, never the engine's. Python isn't restarted, as in Databricks. Your organization's policy can turn installs off.",
     "%sh": "Runs on this PC."
   }
 }

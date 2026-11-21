@@ -95,6 +95,10 @@ def compile_report(spec: dict[str, Any], semantic_model_id: str, measure_tables:
         raise SpecError([f"The semantic model has no measure named {n!r}; add it to the model first." for n in missing])
     if len(spec["pages"]) > MAX_PAGES:
         raise SpecError([f"A Power BI report has at most {MAX_PAGES} pages."])
+    # spec.check already limits ids; a page id is also a folder name in the parts, so check it here too.
+    bad_pages = [p["id"] for p in spec["pages"] if not _NAME.fullmatch(p["id"])]
+    if bad_pages:
+        raise SpecError([f"{i!r} can't be a Power BI page name." for i in bad_pages])
 
     warnings: list[str] = []
     parts: dict[str, str] = {

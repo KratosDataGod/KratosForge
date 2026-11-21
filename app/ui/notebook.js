@@ -110,8 +110,10 @@ function renderNotebook() {
       h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb),
       skinGroup ? null : btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
-      ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu)],
-        "Save a copy, Versions and Export"),
+      ribbonMenu("Share", "arrowUpload", (menu) => [btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(menu),
+        preview("nbReport", btn("Open as report", "document", openNotebookReport, "tool",
+          { title: "The Markdown and outputs from the last run, without the code, in a window of its own. Nothing in it runs." }))],
+        "Save a copy, Versions, Export and Open as report"),
       vscodeButton(nb),
       ribbonMenu("Schedule", "history", () => [preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb)],
         "Schedule this notebook and see its recent runs (also on the Run tab)"),
@@ -144,7 +146,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
-      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb), practicesToggle(nb),
+      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), consoleToggle(nb), depsToggle(), commentsToggle(nb), practicesToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
@@ -167,7 +169,7 @@ function renderNotebook() {
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
     ...[nbNextLine(nb)].filter(Boolean),  // replaceChildren would write "null"
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null, commentsPanel(nb), practicesPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
+      state.showVariables ? renderVariables() : null, consolePanel(nb), commentsPanel(nb), practicesPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       sessionsButton(), environmentButton(nb),
@@ -337,6 +339,8 @@ function renderCell(cell) {
     class: `cell ${cell.type}${selected ? " selected" : ""}${meta.frozen ? " frozen" : ""}${multiSelected() && nbSel.ids.has(cell.id) ? " multi" : ""}`,
     "data-cell": cell.id, tabindex: "-1",
     onmousedown: (e) => {
+      // A result's grid (sqlgrid.js) has its own Shift+click and keeps focus: the cell is only selected.
+      if (e.target.closest?.(".sql-result-table")) { if (state.selected !== cell.id) selectCell(cell); return; }
       if (selectionClick(cell, e)) return;  // nbselect.js: Shift or Ctrl+click
       if (state.selected !== cell.id) selectCell(cell);
       else if (multiSelected()) clearSelection();
@@ -377,7 +381,7 @@ function renderCell(cell) {
     if (cell.editing && !meta.frozen) {
       body = h("div", { class: "md-edit" }, editorFor(cell).dom);
     } else {
-      body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source));
+      body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source, { attachments: cell.attachments }));
     }
     node.append(h("div", { class: "gutter" }, cellGrip(cell), sectionToggle(cell)), h("div", { class: "cell-box" }, head, body, sectionHiddenBar(cell)));
     return node;
@@ -433,6 +437,7 @@ function updateResults(cell) {
   if (!el) return;
   el.querySelector(".cell-results")?.replaceChildren(...cellResults(cell));
   if (cell.type === "code") el.querySelector(".gutter")?.replaceWith(renderGutter(cell));
+  if (typeof findOutputsChanged === "function") findOutputsChanged();  // nbfind.js: matches in outputs
 }
 
 function cellMenu(cell) {
@@ -442,8 +447,9 @@ function cellMenu(cell) {
     items.push({ label: cell.meta.outputs_hidden ? "Show output" : "Hide output", icon: "panel", action: () => setMeta(cell, "outputs_hidden", !cell.meta.outputs_hidden) });
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
     items.push({ label: "Format cell", icon: "code", action: () => formatCells([cell]) });  // nbformat.js
-    if (dbgOn() && !nbWhere(state.notebook).fabric) {  // debugging.js
+    if (dbgOn()) {  // debugging.js; where cells can't pause, these say so instead of running
       items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
+      items.push({ label: "Debug from here (this cell and below)", icon: "down", action: () => debugFromHere(cell) });
     }
   }
   items.push(...fabricStepMenuItems(cell));  // fabricstep.js
@@ -875,6 +881,7 @@ function editorFor(cell) {
     state: CM.EditorState.create({
       doc: cell.source,
       extensions: [
+        editorPrefsExtension("notebook", keys),  // editorprefs.js: wrap, font size, Vim and changed keys; first, so Vim reads keys first
         gutterComp.of(gutters(cell)), cmStyleNonce(),
         // tabindex: a Tab stop already (contenteditable), said outright so a checker counts the editor's scroller as
         // reachable from the keyboard when a long line makes it scroll sideways (axe scrollable-region-focusable).
@@ -885,7 +892,6 @@ function editorFor(cell) {
         CM.syntaxHighlighting(editorHighlight),
         // Before langComp: its completion keymap, also at highest precedence, would otherwise take Esc
         // while suggestions are still being fetched, with nothing on screen.
-        CM.Prec.highest(CM.keymap.of(keys)),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
         findHighlighter(cell),  // nbfind.js
@@ -938,20 +944,22 @@ function cellKeymap(cell) {
     return true;
   };
   return [
-    { key: "Shift-Enter", run: run(true, false) },
-    { key: "Mod-Enter", run: run(false, false) },
-    { key: "Alt-Enter", run: run(false, true) },
-    // A suggestion list on screen takes Esc first (it closes); otherwise Esc leaves for command mode.
+    // An entry with an id takes the key Settings > Editor > Change keys gives it (editorprefs.js).
+    { id: "run_cell_next", key: "Shift-Enter", run: run(true, false) },
+    { id: "run_cell", key: "Mod-Enter", run: run(false, false) },
+    { id: "run_cell_insert", key: "Alt-Enter", run: run(false, true) },
+    // A suggestion list on screen takes Esc first (it closes), and so does Vim out of its normal mode;
+    // otherwise Esc leaves for command mode.
     { key: "Escape", run: (view) => {
-      if (view.dom.querySelector(".cm-tooltip-autocomplete")) return false;
+      if (view.dom.querySelector(".cm-tooltip-autocomplete") || editorVimTakesEscape(view)) return false;
       view.contentDOM.blur();
       enterCommandMode(cell);
       return true;
     } },
-    { key: "Mod-Shift--", run: () => { splitCell(cell); return true; } },  // CodeMirror names keys by their character
-    { key: "Mod-/", run: CM.toggleComment },
-    { key: "F9", run: () => dbgToggleAtCursor(cell) },
-    { key: "Shift-Alt-f", run: () => { formatCells([cell]); return true; } },
+    { id: "split_cell", key: "Mod-Shift--", run: () => { splitCell(cell); return true; } },  // CodeMirror names keys by their character
+    { id: "comment", key: "Mod-/", run: CM.toggleComment },
+    { id: "breakpoint", key: "F9", run: () => dbgToggleAtCursor(cell) },
+    { id: "format", key: "Shift-Alt-f", run: () => { formatCells([cell]); return true; } },
   ];
 }
 
@@ -960,7 +968,8 @@ function cellKeymap(cell) {
 document.addEventListener("keydown", (e) => {
   if (state.view !== "notebook" || !state.notebook || document.getElementById("dialog-root").childElementCount) return;
   const t = e.target;
-  if (t.closest?.(".cm-editor") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
+  // A result's grid (sqlgrid.js) has keys of its own: arrows, Ctrl+C, Enter.
+  if (t.closest?.(".cm-editor, .sql-result-table") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
   // The view itself counts too: opening a notebook focuses it (focusPage), and a click on a cell
   // part that can't take focus (its gutter) leaves it there until the cell takes focus just after.
   if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;
@@ -1198,7 +1207,7 @@ function renderTableOutput(o, cell) {
     : `Showing the first ${o.rows.length} rows (${o.total_rows})`;
 
   if (o.view === "table" && o.frame) {
-    renderResultViewer(o, wrap, bar, numeric, count);
+    renderResultViewer(o, wrap, bar, numeric, count, redraw);
   } else if (o.view === "table") {
     const search = h("input", { type: "search", class: "out-search", placeholder: "Search rows", value: o.q || "", "aria-label": "Search rows" });
     bar.append(h("span", { class: "spacer" }), search);
@@ -1238,11 +1247,12 @@ function renderTableOutput(o, cell) {
 }
 
 // The table of a result: headers sort (▲ ▼), each with its column type, as Fabric and Databricks show.
-function resultTable(columns, types, rows, numeric, sort, onSort) {
+// filterRow: a row of filter boxes under the headers (the result viewer's Filter).
+function resultTable(columns, types, rows, numeric, sort, onSort, filterRow = null) {
   return h("table", {},
     h("thead", {}, h("tr", {}, columns.map((c, i) => h("th", { class: numeric[i] ? "n" : null },
       h("button", { class: "th-sort", onclick: () => onSort(i) }, c, sort?.i === i ? (sort.dir > 0 ? " ▲" : " ▼") : ""),
-      types?.[i] ? h("span", { class: "th-type" }, types[i]) : null)))),
+      types?.[i] ? h("span", { class: "th-type" }, types[i]) : null))), filterRow),
     h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: numeric[i] ? "n" : null }, v === null ? "null" : v))))));
 }
 
@@ -1250,45 +1260,163 @@ const RESULT_PAGE = 100;
 
 // The whole result behind a table output (frames.py): search and sort over every row, pages of
 // 100, Copy and Download. The kernel holds the result; after a restart the cell must run again.
-function renderResultViewer(o, wrap, bar, numeric, count) {
+// The table is the SQL page's grid (sqlgrid.js): select cells and copy them, open a value, resize and
+// rearrange columns. redraw() draws the whole output again (Column statistics opens Inspect).
+function renderResultViewer(o, wrap, bar, numeric, count, redraw = () => {}) {
   const v = o.viewer ||= { offset: 0, q: "", sort: null, page: null, gone: false, busy: false };
+  v.filters ||= {};
+  const g = v.grid ||= {};  // the grid's selection, open value and column layout
+  const cols = o.columns.map((name, i) => ({ name, type: o.types?.[i] || "" }));
   const search = h("input", { type: "search", class: "out-search", placeholder: "Search all rows", value: v.q, "aria-label": "Search all rows" });
   const status = h("span", { class: "more result-range", role: "status" });
   const prev = btn("Previous", null, () => load(v.offset - RESULT_PAGE), "tool outline small");
   const next = btn("Next", null, () => load(v.offset + RESULT_PAGE), "tool outline small");
   const body = h("div", { class: "out-table-scroll" });
+  const sideBox = h("div", { class: "sql-side-box", hidden: true,
+    onkeydown: (e) => { if (e.key === "Escape" && closeSide()) { e.preventDefault(); e.stopPropagation(); body.querySelector("table")?.focus(); } } });
   const menu = h("details", { class: "sql-export result-download" },
     h("summary", { class: "tool outline small", "aria-label": "Download the whole result" }, "Download ▾"),
     h("div", { class: "sql-export-menu", role: "menu" },
-      [["csv", "CSV"], ["xlsx", "Excel"], ["parquet", "Parquet"]].map(([fmt, label]) =>
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; downloadResult(o, fmt); } }, label))));
-  bar.append(h("span", { class: "spacer" }), search, btn("Copy", "document", () => copyResultPage(o), "tool outline small"), previewMarked("resultViewer", menu));
-  wrap.append(body, h("div", { class: "row result-pager" }, prev, next, status));
+      [["csv", "CSV"], ["csv", "CSV, Keep raw values", true], ["xlsx", "Excel"], ["parquet", "Parquet"]].map(([fmt, label, raw]) =>
+        h("button", { role: "menuitem", title: raw ? "Each value exactly as it is. A spreadsheet runs a cell that starts with =, +, - or @ as a formula." : null,
+          onclick: (e) => { e.target.closest("details").open = false; downloadResult(o, fmt, raw); } }, label))));
+  // Filter: a box under each header, read as the SQL page's result grid (sql_view.py), over every row.
+  const filterBtn = btn("Filter", null, () => {
+    v.filterOn = !v.filterOn;
+    const had = Object.values(v.filters).some((t) => String(t).trim());
+    if (!v.filterOn) { Object.values(v.filterTimers || {}).forEach(clearTimeout); Object.assign(v, { filters: {}, filterError: null, filterTimers: {} }); }
+    if (!v.filterOn && had) load(0); else draw();
+    if (v.filterOn) body.querySelector(".sql-filter")?.focus();
+  }, "tool outline small", { title: "A filter box under each column. Filters apply to every row of the result; nothing runs again." });
+  const error = h("p", { class: "sql-grid-error", role: "alert", hidden: true });
+  const columnsBtn = btn("Columns...", null, () => sqlColumnsDialog(cols, g, draw), "tool outline small",
+    { title: "Show, hide and reorder the table's columns" });
+  bar.append(h("span", { class: "spacer" }), search, filterBtn, columnsBtn, btn("Copy", "document", () => copyResultPage(o), "tool outline small"), previewMarked("resultViewer", menu));
+  wrap.append(h("div", { class: "nb-grid-row" }, body, sideBox), error, h("div", { class: "row result-pager" }, prev, next, status));
+  const shown = () => {  // the page on screen, as the grid reads it
+    const p = v.page;
+    return { columns: cols, rows: p ? p.rows : o.rows.slice(0, RESULT_PAGE), offset: v.offset };
+  };
+  async function copySelection(format) {
+    const r = shown();
+    if (!r.rows.length) return;
+    const text = sqlGridCopyText(format, r, g.sel, { dialect: "duckdb", vis: g.vis });
+    if (await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy")) toast(sqlGridCopiedNote(format, sqlGridBlock(r, g.sel, g.vis)));
+  }
+  function openValue(at) { g.side = at; drawSide(); }
+  function closeSide() {
+    if (!g.side) return false;
+    g.side = null;
+    drawSide();
+    return true;
+  }
+  function drawSide() {
+    const r = shown();
+    const panel = g.side && r.rows[g.side.r] ? sqlValuePanel(r, g.side, {
+      close: () => { closeSide(); body.querySelector("table")?.focus(); },
+      copy: (text) => attempt(() => navigator.clipboard.writeText(text).then(() => toast("Copied the value")), "Could not copy") }) : null;
+    sideBox.hidden = !panel;
+    sideBox.replaceChildren(...(panel ? [panel] : []));
+  }
+  const grid = {
+    select: () => { status.textContent = statusText(); },
+    copy: copySelection,
+    open: openValue,
+    close: closeSide,
+    menu: (td) => {
+      if (!td || !g.sel) return;
+      const at = { r: g.sel.f.r, c: g.vis?.[g.sel.f.c] ?? g.sel.f.c };  // the result's column, not its place on screen
+      sqlGridMenu(td, body.querySelector("table"), { copy: copySelection, open: () => openValue(at),
+        stats: () => { o.view = "inspect"; redraw(); } });  // Inspect profiles every column over every row
+    },
+  };
+  const filtered = () => Object.values(v.filters).some((t) => String(t).trim());
+  const filterBoxes = () => {
+    const timers = (v.filterTimers ||= {});
+    const apply = (i, text) => {
+      clearTimeout(timers[i]);
+      delete timers[i];
+      if (!v.filterOn || (v.filters[i] || "") === text) return;
+      v.filters[i] = text;
+      load(0);
+    };
+    return h("tr", { class: "sql-filter-row" }, sqlGridLayoutFor(g, cols).map((i) => {
+      const c = o.columns[i];
+      const box = h("input", { type: "text", class: "sql-filter", "data-column": String(i), value: v.filters[i] || "",
+        placeholder: "Filter", "aria-label": `Filter ${c}`, spellcheck: "false", ...(v.filterError?.column === i ? { "aria-invalid": "true" } : {}),
+        title: "Text to find, or an operator and a value (= != > >= < <=), or null or not null",
+        oninput: () => { clearTimeout(timers[i]); timers[i] = setTimeout(() => apply(i, box.value), 450); },
+        onkeydown: (e) => {
+          if (e.key === "Enter") apply(i, box.value);
+          if (e.key === "Escape" && box.value) { e.stopPropagation(); box.value = ""; apply(i, ""); }
+        } });
+      return h("td", {}, box);
+    }));
+  };
 
+  // The table, in the columns Columns... shows and its order, each with a handle to resize it.
+  const gridTable = (rows) => {
+    const vis = sqlGridLayoutFor(g, cols);
+    const style = h("style", {}, sqlGridWidthCss(g.widths, sqlGridId(g)));
+    const table = h("table", { tabindex: "0", "data-grid": g.id, class: `sql-result-table${Object.keys(g.widths).length ? " sized" : ""}`,
+      "aria-label": "Result. Arrow keys move, Shift and an arrow selects, Ctrl+C copies, Enter opens a value, Shift+F10 shows more." },
+    h("thead", {}, h("tr", {}, vis.map((i) => h("th", { class: numeric[i] ? "n" : null, "data-col": String(i) },
+      h("button", { class: "th-sort", onclick: () => { v.sort = v.sort?.i === i ? { i, dir: -v.sort.dir } : { i, dir: 1 }; return load(0); } },
+        o.columns[i], v.sort?.i === i ? (v.sort.dir > 0 ? " ▲" : " ▼") : ""),
+      o.types?.[i] ? h("span", { class: "th-type" }, o.types[i]) : null,
+      sqlColumnResizer(cols[i], i, g, () => {
+        style.textContent = sqlGridWidthCss(g.widths, g.id);
+        table.classList.toggle("sized", Object.keys(g.widths).length > 0);
+      })))), v.filterOn ? filterBoxes() : null),
+    h("tbody", {}, rows.map((r, k) => h("tr", { "data-r": String(k) }, vis.map((i, c) =>
+      h("td", { "data-c": String(c), "data-col": String(i), class: numeric[i] ? "n" : null }, r[i] === null ? "null" : r[i]))))));
+    if (table.tBodies) sqlGridWire(table, shown(), g, grid, vis);  // a real table (the unit tests draw plain objects)
+    const hidden = cols.length - vis.length;
+    return [style, table, hidden ? h("p", { class: "muted-text sql-grid-hidden" }, sqlGridHiddenNote(cols.length, vis, v.filters)) : null].filter(Boolean);
+  };
+  const statusText = () => {
+    const p = v.page;
+    const rows = p ? p.rows : o.rows.slice(0, RESULT_PAGE);
+    const total = p ? p.total : (typeof o.total_rows === "number" ? o.total_rows : null);
+    const note = sqlGridSelectionNote(g.sel);
+    return v.gone ? "Run the cell again to page, search or download: the kernel no longer holds this result."
+      : !rows.length ? (v.q && !filtered() ? `No rows match "${v.q}"` : v.q ? "No rows match the search and filters"
+        : filtered() ? "No rows match the filters." : "No rows")
+        : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q || filtered() ? " matching" : ""}${note ? ` · ${note}` : ""}`;
+  };
   const draw = () => {
     const p = v.page;
     const rows = p ? p.rows : o.rows.slice(0, RESULT_PAGE);
     const total = p ? p.total : (typeof o.total_rows === "number" ? o.total_rows : null);
-    body.replaceChildren(resultTable(o.columns, o.types, rows, numeric, v.sort, (i) => {
-      v.sort = v.sort?.i === i ? { i, dir: -v.sort.dir } : { i, dir: 1 };
-      return load(0);
-    }));
+    // A redraw replaces the filter boxes: the one being typed in keeps its text, focus and caret.
+    const active = globalThis.document?.activeElement;
+    const typing = active && body.contains(active) && active.matches?.(".sql-filter") ? active : null;
+    const at = typing && { column: typing.dataset.column, value: typing.value, start: typing.selectionStart, end: typing.selectionEnd };
+    body.replaceChildren(...gridTable(rows));
+    drawSide();
+    const box = at && body.querySelector(`.sql-filter[data-column="${at.column}"]`);
+    if (box) { box.value = at.value; box.focus(); box.setSelectionRange(at.start, at.end); }
+    filterBtn.classList?.toggle("toggled", !!v.filterOn);
+    filterBtn.setAttribute?.("aria-pressed", String(!!v.filterOn));
+    error.hidden = !v.filterError;
+    error.textContent = v.filterError?.message || "";
     prev.disabled = v.busy || v.offset === 0;
     next.disabled = v.busy || (total !== null ? v.offset + rows.length >= total : !p && rows.length < RESULT_PAGE);
-    status.textContent = v.gone ? "Run the cell again to page, search or download: the kernel no longer holds this result."
-      : !rows.length ? (v.q ? `No rows match "${v.q}"` : "No rows")
-        : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q ? " matching" : ""}`;
+    status.textContent = statusText();
   };
   async function load(offset) {
     const ask = (v.asked = (v.asked || 0) + 1);
     v.busy = true;
     draw();
     try {
-      const p = await rpc("notebook_frame_page", { frame: o.frame, offset: Math.max(0, offset), limit: RESULT_PAGE,
-        sort: v.sort ? v.sort.i : null, desc: v.sort ? v.sort.dir < 0 : false, q: v.q });
+      const p = await rpc("notebook_frame_page", { frame: o.frame, notebook: state.notebook?.name, offset: Math.max(0, offset), limit: RESULT_PAGE,
+        sort: v.sort ? v.sort.i : null, desc: v.sort ? v.sort.dir < 0 : false, q: v.q,
+        ...(filtered() ? { filters: Object.entries(v.filters).filter(([, t]) => String(t).trim()).map(([c, t]) => ({ column: Number(c), text: String(t) })) } : {}) });
       if (ask !== v.asked) return; // a newer search or page was asked for while this one ran
+      v.filterError = p.filter_error || null;  // the rows on screen stay until the filter can be read
       if (p.gone) v.gone = true;
-      else { v.page = p; v.offset = p.offset; }
+      else if (p.filter_error) { /* keep the page */ }
+      else { Object.assign(v, { page: p, offset: p.offset }); Object.assign(g, { sel: null, side: null }); }  // another page
     } catch (err) {
       if (ask !== v.asked) return;
       toast(`Could not load rows: ${friendlyError(err).text}`, true);
@@ -1308,14 +1436,17 @@ function copyResultPage(o) {
   attempt(() => navigator.clipboard.writeText(text).then(() => toast(`Copied ${rows.length} row${rows.length === 1 ? "" : "s"}. Paste into Excel or a sheet.`)), "Could not copy");
 }
 
-// The whole result, written by the kernel to a new file in Downloads; a file there is never replaced.
-async function downloadResult(o, format) {
+// The whole result, written by the kernel to a new file in Downloads; a file there is never replaced. A CSV puts an
+// apostrophe in front of a text cell a spreadsheet would run as a formula, unless raw (Keep raw values, WR-228).
+async function downloadResult(o, format, raw = false) {
   const label = { csv: "CSV", xlsx: "Excel", parquet: "Parquet" }[format];
   toast(`Downloading the whole result as ${label}...`);
-  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook" }), "Could not download");
+  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook",
+    notebook: state.notebook?.name, ...(raw ? { raw: true } : {}) }), "Could not download");
   if (!out) return;
   if (out.gone) { toast(out.message, true); return; }
-  toast(`Saved ${out.rows.toLocaleString()} row${out.rows === 1 ? "" : "s"} to ${out.path}`);
+  const notes = out.notes?.length ? `. ${out.notes.join(" ")}` : "";
+  toast(`Saved ${out.rows.toLocaleString()} row${out.rows === 1 ? "" : "s"} to ${out.path}${notes}`);
 }
 
 function renderChart(o, numeric) {
@@ -1454,7 +1585,7 @@ function renderFrameProfile(o, numeric, count) {
   };
   if (o.profile) { show(o.profile); return box; }
   box.append(renderInspect(o, numeric), h("div", { class: "more", role: "status" }, `Summary of ${count.toLowerCase()}. Profiling every row...`));
-  rpc("notebook_frame_profile", { frame: o.frame }).then((p) => {
+  rpc("notebook_frame_profile", { frame: o.frame, notebook: state.notebook?.name }).then((p) => {
     if (p.gone) {
       o.profileGone = true;
       box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Run the cell again to profile every row.`;
@@ -1498,7 +1629,10 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   // engines.js: on another engine the cell runs there; Run this cell on Python sets onKernel for one run here.
   const kernel = cell.onKernel === true;
   delete cell.onKernel;
-  if (!kernel && nbOnEngine(nb) && !cell.meta?.frozen) return runEngineCell(cell, nb);
+  if (!kernel && nbOnEngine(nb) && !cell.meta?.frozen) {
+    if (!nb.runningAll) dbgRemoteNote(nb, [cell]);  // debugging.js: breakpoints can't pause there
+    return runEngineCell(cell, nb);
+  }
   // ``nb`` keeps running in its own session if another notebook is opened meanwhile.
   if (!kernel && nbWhere(nb).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
@@ -1508,7 +1642,10 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
     toast("This cell is frozen, so it doesn't run. Unfreeze it on the Edit tab.");
     return true;
   }
-  if (isFabricStep(cell)) return runFabricStep(cell, nb);  // fabricstep.js: on Fabric Spark, not this PC
+  if (isFabricStep(cell)) {  // fabricstep.js: on Fabric Spark, not this PC
+    if (!nb.runningAll) dbgRemoteNote(nb, [cell]);
+    return runFabricStep(cell, nb);
+  }
   if (kernelBusy(nb) && cell.status !== "queued") {
     const other = nb.kernelStatus !== "busy" && [...openNotebooks.values()].find((o) => o.kernelStatus === "busy");
     if (other) toast(`A cell is running in ${other.name}. Notebooks share one kernel unless Run notebooks in their own process is on in Settings.`);
@@ -1517,6 +1654,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   nb.stopRequested = false;
   setKernel("busy", nb);
   cell.status = "running";
+  if (!nb.runningAll) announce(`Running cell ${nb.cells.indexOf(cell) + 1}`);  // cellFx says how it ended
   cell.outputs = [];
   cell.seconds = 0;
   cell.engineFlag = null;
@@ -1562,6 +1700,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   }
   if (cell.paused) dbgSnapshot(cell, null);
   cell.finishedAt = timeText(new Date());
+  cell.finishedAtMs = Date.now();  // the report says which run its outputs are from (nbreport.js)
   cell.partial = code != null;
   setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   if (state.notebook !== nb) return ok;  // finished in the background; reopening shows it
@@ -1574,7 +1713,23 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   if (state.notebook?.dirty) markDirty();
   if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
   cellFx(cell);  // after dbgAfterRun, which draws the results again
+  // A change to a Prod workspace waits for its typed name; run on its own, the cell offers it and runs again.
+  if (cell.status === "error" && !nb.runningAll && cell.outputs.some((o) => o.ename === "ProdConfirmNeeded")) return nbProdConfirm(cell, nb);
   return ok;
+}
+
+// The cell's MERGE, UPDATE, DELETE, VACUUM or RESTORE would change a workspace marked Prod
+// (prod_writes_service.py). Typing the workspace's name lets the cell's next run change it, once.
+async function nbProdConfirm(cell, nb) {
+  const p = await rpc("notebook_prod_pending", { notebook: nb.name }).catch(() => null);
+  if (!p) return false;
+  const go = await confirmDialog(`Change ${p.workspace_name}?`,
+    `${p.operation} on ${p.table} changes ${p.workspace_name}, a Prod workspace. Nothing has changed yet. Type its name to run this cell once.`,
+    "Run in Prod", { danger: true, typeToConfirm: p.workspace_name });
+  if (!go) return false;
+  const allowed = await attempt(() => rpc("notebook_prod_confirm", { notebook: nb.name, workspace_id: p.workspace_id, confirm_name: p.workspace_name }));
+  if (!allowed) return false;
+  return runCell(cell, { nb });
 }
 
 // Forge animations (motion.js): a spark when a cell succeeds on its own (the Wolf Run in the status
@@ -1592,10 +1747,14 @@ function cellFx(cell) {
     document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`));
 }
 
-async function runCells(cells) {
+// `debug` (Debug from here, debugging.js): the first cell starts paused at its first line, and each
+// next one too unless the last command was Continue.
+async function runCells(cells, { debug = false } = {}) {
   const nb = state.notebook;
   const code = cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen);
   if (!(await fabricStepPrecheck(nb, code))) return;  // fabricstep.js: before any cell runs
+  if (!debug) dbgRemoteNote(nb, code);  // debugging.js: says so when breakpoints can't pause there
+  nb.dbgRun = debug && dbgOn() ? { mode: "step" } : null;
   nb.cancelRequested = false;
   const started = performance.now();
   const done = (ran) => {
@@ -1620,9 +1779,10 @@ async function runCells(cells) {
   const ended = (result, done) => Object.assign(forgeRun, { result, done, ended: Date.now() });
   if (code.length > 1) forgeEvent("notebook.run.started", document.querySelector("button[data-run]"));
   nb.runningAll = true;
+  if (code.length) announce(`Running ${code.length} ${code.length === 1 ? "cell" : "cells"}`);  // the end is said below
   try {
     for (const [i, cell] of code.entries()) {
-      const ok = await runCell(cell, { nb });  // goes on in nb's session if another notebook is opened
+      const ok = await runCell(cell, { nb, debug: dbgStepNext(nb) });  // goes on in nb's session if another notebook is opened
       if (!ok || nb.cancelRequested) {
         track?.stop();
         code.slice(i + 1).forEach((c) => { c.status = null; if (state.notebook === nb) updateResults(c); });
@@ -1642,6 +1802,7 @@ async function runCells(cells) {
     setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   } finally {
     nb.runningAll = false;
+    nb.dbgRun = null;
     if (!forgeRun.result) ended("stopped", forgeRun.done);  // an error left the loop
   }
   done(code.length);

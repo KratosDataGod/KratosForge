@@ -11,12 +11,77 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def no_real_event_log(monkeypatch):
+    """Audit writes also record the trail's end in the Windows event log (audit_anchor.py). Tests don't
+    add records to this PC's real log, and don't read ones other tests left; test_audit_anchor.py uses
+    a fake log, and one marked Windows-only test the real one."""
+    from fabric_desktop import audit_anchor
+    monkeypatch.setattr(audit_anchor, "writer", audit_anchor._no_writer)
+    monkeypatch.setattr(audit_anchor, "reader", audit_anchor._no_reader)
+
+
+class FakeEventLog:
+    """An event log in memory: ``audit_anchor``'s writer and reader."""
+
+    def __init__(self):
+        self.records: list[str] = []
+        self.fail = None  # an exception to raise on write and read
+
+    def write(self, value):
+        if self.fail:
+            raise self.fail
+        self.records.append(value)
+
+    def read(self):
+        if self.fail:
+            raise self.fail
+        return list(reversed(self.records))
+
+
+@pytest.fixture
+def event_log(monkeypatch):
+    from fabric_desktop import audit_anchor
+    log = FakeEventLog()
+    monkeypatch.setattr(audit_anchor, "writer", log.write)
+    monkeypatch.setattr(audit_anchor, "reader", log.read)
+    monkeypatch.setattr(audit_anchor, "_off_until", 0.0)
+    monkeypatch.setattr(audit_anchor, "_cache", {})
+    return log
+
+
+@pytest.fixture(autouse=True)
+def duckdb_default_connection_left_clean():
+    """After each test, DuckDB's default connection (duckdb.sql, spark without a session) holds no result
+    and no failed transaction. A result a test left unread is released by the next query; if a Cancel
+    test's interrupt() aborted it meanwhile, later tests' queries failed with "Current transaction is
+    aborted". A connection that can't run SELECT 1 is replaced. It uses the real duckdb module, imported
+    here before the test, since a test may put a fake or None in sys.modules["duckdb"]."""
+    import duckdb
+
+    yield
+    try:
+        duckdb.default_connection().execute("SELECT 1").fetchall()
+    except duckdb.Error:
+        duckdb.set_default_connection(duckdb.connect())
+
+
+@pytest.fixture(autouse=True)
 def no_interactive_sign_in(monkeypatch):
     """Sign-in needs no setup now, so a test that reaches it would open a browser and wait.
     Make it fail at once instead, as it does for someone who closes the sign-in window."""
     def refuse(self, scopes, **kwargs):
         return {"error": "access_denied", "error_description": "no interactive sign-in in tests"}
     monkeypatch.setattr(msal.PublicClientApplication, "acquire_token_interactive", refuse)
+
+
+@pytest.fixture(autouse=True)
+def no_remembered_secrets():
+    """dbutils.secrets keeps the values it read for the process, so one test's secret would be
+    redacted in the next test's output."""
+    from fabric_desktop import secret_redaction
+    secret_redaction.forget_all()
+    yield
+    secret_redaction.forget_all()
 
 
 class _NoSignInService:
@@ -68,6 +133,18 @@ def no_sign_in_service(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def cells_in_the_engine_unless_a_test_asks(request, monkeypatch):
+    """Notebooks run in a process of their own by default (PB-136), but most tests fake OneLake,
+    Fabric or a token by patching this process, and a cell in a process of its own doesn't see
+    those patches (it would reach the real service). So tests run cells inside the engine unless
+    they turn kernel_process on themselves, or are marked ``real_kernel_default``
+    (test_kernel_default.py checks the default itself)."""
+    if request.node.get_closest_marker("real_kernel_default") is None:
+        from fabric_desktop import app_settings
+        monkeypatch.setitem(app_settings.DEFAULTS, "kernel_process", False)
+
+
+@pytest.fixture(autouse=True)
 def saved_policy_in_tmp(monkeypatch, tmp_path):
     """Reading a policy file keeps a copy of it (app_settings.saved_policy_path); keep it out of the
     real profile, so one test's copy can't stand in for another test's broken file."""
@@ -75,6 +152,8 @@ def saved_policy_in_tmp(monkeypatch, tmp_path):
     monkeypatch.setattr(app_settings, "saved_policy_path", lambda: tmp_path / "saved-policy" / "policy-last-good.json")
     # Test policy files are the test account's own; the check for that has tests of its own.
     monkeypatch.setattr(app_settings, "user_can_change", lambda path: False)
+    monkeypatch.setattr(app_settings, "policy_file_untrusted", lambda: None)
+    monkeypatch.setattr(app_settings, "registry_key_untrusted", lambda lists: None)
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +163,18 @@ def no_lakehouse_left_attached(monkeypatch):
     depending on which file ran before it."""
     from fabric_desktop import lakehouse
     monkeypatch.setattr(lakehouse, "_attached", None)
+    # Likewise the maintenance guard a Service sets: without the app, OPTIMIZE, VACUUM and RESTORE fail closed.
+    monkeypatch.setattr(lakehouse, "maintenance_guard", None)
+    # And the Prod typed-name guard a Service sets (prod_writes_service.py): without the app, nothing is marked Prod.
+    monkeypatch.setattr(lakehouse, "prod_guard", None)
+
+
+@pytest.fixture(autouse=True)
+def no_databricks_tokens_refused_by_earlier_tests(monkeypatch):
+    """Tokens a workspace refused are remembered for the process (databricks_auth._REFUSED); each test
+    starts with none, so a stand-in token one test refused can't be withheld in the next."""
+    from fabric_desktop.engines import databricks_auth
+    monkeypatch.setattr(databricks_auth, "_REFUSED", {})
 
 
 @pytest.fixture(autouse=True)
@@ -170,3 +261,30 @@ def pytest_terminal_summary(terminalreporter, config):
     terminalreporter.write_sep("=", f"slowest {min(25, len(files))} test files of {len(files)} ({total:.0f}s of test time in all)")
     for path, (setup, rest, count) in sorted(files.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:25]:
         terminalreporter.write_line(f"{setup + rest:8.1f}s  setup {setup:7.1f}s  {count:4d} tests  {path}")
+
+
+# A test id carries each parametrized value as text. A long value (a 1,025-column CREATE TABLE, a 5,000-digit
+# number) made ids of many KB, and a 20 MB one wedged a Windows runner while xdist and the JUnit report passed
+# it around. A text or bytes value over PARAM_ID_LIMIT characters is named by its start, its length and a hash
+# of the whole, so ids stay short and still unique; and collection stops on any id over TEST_ID_LIMIT.
+PARAM_ID_LIMIT = 60
+TEST_ID_LIMIT = 200
+
+
+def pytest_make_parametrize_id(config, val, argname):
+    if not isinstance(val, (str, bytes)) or len(val) <= PARAM_ID_LIMIT:
+        return None  # pytest's own id
+    import hashlib
+    import re
+    raw = val.encode("utf-8", "surrogatepass") if isinstance(val, str) else val
+    start = re.sub(r"[^A-Za-z0-9_.,:=+-]", "_", (val if isinstance(val, str) else val.decode("latin-1"))[:24])
+    return f"{start}...{len(val)}chars-{hashlib.sha256(raw).hexdigest()[:10]}"
+
+
+def pytest_collection_modifyitems(session, config, items):
+    long = [item.nodeid for item in items
+            if hasattr(item, "callspec") and len(item.callspec.id) > TEST_ID_LIMIT]
+    if long:
+        shown = "\n".join(f"  {nodeid[:300]}" for nodeid in long[:20])
+        raise pytest.UsageError(f"{len(long)} test id(s) are over {TEST_ID_LIMIT} characters; give the "
+                                f"parametrize call short ids= (tests/conftest.py TEST_ID_LIMIT):\n{shown}")

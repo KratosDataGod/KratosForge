@@ -279,10 +279,10 @@ class LocalNotebooks:
         if not ran and not lakes:
             return list(self._after)
         if not lakes:
-            return [f"Ran on this PC; {ran} notebook step{'s' if ran != 1 else ''} ran in a fresh local kernel with no "
-                    "lakehouse. No Fabric call was made."] + self._after
+            return [(f"Ran on this PC; {ran} notebook step{'s' if ran != 1 else ''} ran in a fresh local kernel with no "
+                    "lakehouse. No Fabric call was made.")] + self._after
         names = ", ".join(sorted(lake["ref"].get("name") or lake["ref"]["lakehouse_id"] for lake in lakes))
         where = (f"kept in {self.folder}" if self.keep_outputs else f"in {self.folder}, deleted when the run ended")
-        return [f"Ran on this PC; no Fabric job was started. Notebook steps read tables in {names} at the versions they "
+        return [(f"Ran on this PC; no Fabric job was started. Notebook steps read tables in {names} at the versions they "
                 "had when the first step started, which uses some capacity, and wrote only to the run's own folder "
-                f"({where}), never to the lakehouse's tables."] + self._after
+                f"({where}), never to the lakehouse's tables.")] + self._after

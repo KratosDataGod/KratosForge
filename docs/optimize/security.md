@@ -33,7 +33,16 @@ Every row also carries its provenance: `record_id`, `installation_id` (a random 
 | `config` | Yes | Settings shared by everyone on the lakehouse, such as `store_sql_text` = `never` and `retention_days` | No |
 | `schema_version` | Yes | Which upgrades have run | No |
 | `measurements` | Yes, on each sync | What each write to the lakehouse took on a PC: seconds, rows and commits, as Measured figures ([What syncing costs](README.md#what-syncing-costs)) | No |
-| `actions`, `cu_usage`, `savings`, `dependencies`, `rules` | Not yet | Created empty, for later work in the [plan](plan.md) | — |
+| `actions`, `cu_usage`, `dependencies`, `rules` | Not yet | Created empty, for later work in the [plan](plan.md) | — |
+| `savings` | Not yet | Schema version 2 makes it the savings ledger: append-only events per run and attribution layer, with pricing and baseline versions and the event a correction corrects. Nothing is written until a measured Fabric baseline exists | Workspace, capacity and artifact ids |
+| `pricing` | Not yet (version 2) | Pricing scenarios: SKU, region, currency, rate per CU hour, pricing model, effective dates, source and confidence. An assumption, never a charge | No |
+| `optimization_link` | Not yet (version 2) | Which artifacts, workspaces and capacities an optimization affects | Workspace, capacity and artifact ids |
+| `baseline` | Not yet (version 2) | A workload's versioned baseline: definition fingerprint, measurement window, how many runs and which measurements | The workload key (table, project or notebook names) |
+| `validation` | Not yet (version 2) | An optimization's before and after comparison, whether outputs matched, and the result with its reason | Reasons are free text; when they are written they go through secret removal, as dismiss reasons do |
+| `attribution` | Not yet (version 2) | One row per layer of a run's savings breakdown (optimization, then local run), never more than the baseline | The workload key |
+| `sync` | Not yet (version 2) | Each sync of an installation: kind, rows, commits, seconds and outcome | No |
+
+Schema version 2 also adds empty columns to `local_execution` (workspace and capacity ids, a fingerprint of the definition, bytes in and out, reads, writes and transfer time), `measurements` (comparison id, baseline version) and `recommendations` (optimization id, category, fingerprints of the original and optimized definitions, rollback note, event version). The rollback note is free text; when it is written it goes through secret removal. None of these columns holds a person's name, email address or user id; who did something is a separate decision, not part of version 2. An installation still on version 1 opens an upgraded lakehouse read-only until it is updated.
 
 These are never written: SQL text or code (only fingerprints of them), table contents, access tokens, email addresses, and X-ray's access findings, which name people. X-ray's cost findings aren't written either, because they are estimates for one PC.
 

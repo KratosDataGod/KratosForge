@@ -78,7 +78,7 @@ def search(shelf: NotebookShelf, query: str, names_only: bool = False, saved_in:
                 try:
                     cells = shelf.load(name)["cells"]
                 except (OSError, ValueError) as exc:
-                    problems.append({"name": name, "text": f"Couldn't read it ({type(exc).__name__})."})
+                    problems.append({"name": name, "text": f"Couldn't read it ({type(exc.__cause__ or exc).__name__})."})
                     continue
             for n, c in enumerate(cells, 1):
                 for line_no, line in enumerate((c.get("source") or "").splitlines(), 1):
@@ -384,7 +384,7 @@ def deleted(shelf: NotebookShelf) -> list[dict[str, Any]]:
 def restore(shelf: NotebookShelf, tid: str, name: str | None = None) -> dict[str, Any]:
     """Puts a deleted notebook back where it was (the app's own folder when that repository isn't
     open any more), as ``name`` or its old name. Refuses a name that is taken."""
-    if not _TRASH_ID.match(str(tid)):
+    if not _TRASH_ID.fullmatch(str(tid)):
         raise ValueError("That isn't a deleted notebook.")
     trash = _trash(shelf)
     meta, file = trash / f"{tid}.json", trash / f"{tid}.ipynb"

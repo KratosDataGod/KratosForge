@@ -58,21 +58,23 @@ def test_a_cell_run_from_somewhere_that_isnt_a_notebook_has_no_folder(svc):
 
 def test_showing_a_file_selects_it_and_doesnt_open_it(svc, shown, monkeypatch):
     monkeypatch.setattr(nrs.sys, "platform", "win32")
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     svc.notebook_resource_add("Sales", "run.cmd", base64.b64encode(b"echo hi").decode())
     out = svc.notebook_resource_reveal("Sales", "run.cmd")
     target = svc.notebooks.folder / "Sales.resources" / "builtin" / "run.cmd"
     assert out == {"shown": str(target)}
     (args, kw), = shown
-    assert args == ["explorer", f"/select,{target}"]
+    assert args == [r"C:\Windows\explorer.exe", f"/select,{target}"]
     assert kw["stdin"] == nrs.subprocess.DEVNULL and kw["stdout"] == nrs.subprocess.DEVNULL
 
 
 def test_showing_the_folder_makes_it_when_the_notebook_has_none_yet(svc, shown, monkeypatch):
     monkeypatch.setattr(nrs.sys, "platform", "win32")
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     folder = svc.notebooks.folder / "Sales.resources" / "builtin"
     assert not folder.exists()
     assert svc.notebook_resource_reveal("Sales") == {"shown": str(folder)}
-    assert folder.is_dir() and shown[0][0] == ["explorer", str(folder)]
+    assert folder.is_dir() and shown[0][0] == [r"C:\Windows\explorer.exe", str(folder)]
 
 
 def test_a_file_that_isnt_there_is_not_shown(svc, shown):
@@ -82,8 +84,8 @@ def test_a_file_that_isnt_there_is_not_shown(svc, shown):
 
 
 @pytest.mark.parametrize("platform, select, expected", [
-    ("darwin", True, ["open", "-R", "{path}"]),
-    ("darwin", False, ["open", "{path}"]),
+    ("darwin", True, ["/usr/bin/open", "-R", "{path}"]),
+    ("darwin", False, ["/usr/bin/open", "{path}"]),
     ("linux", True, ["xdg-open", "{parent}"]),
     ("linux", False, ["xdg-open", "{path}"]),
 ])

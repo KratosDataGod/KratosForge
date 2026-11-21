@@ -69,7 +69,7 @@ _RULES = [
     _r("SYN-006", "error", "syntax", TSQL, "`Backticks` aren't T-SQL",
        "{engine} doesn't read `name` as a name.", "Quote names with [square brackets] or \"double quotes\".", "surface"),
     _r("SYN-007", "unverified", "syntax", ALL, "Not checked: couldn't read this statement",
-       "This statement couldn't be read as {target} SQL, so the rules couldn't check it. It may be a typo, or SQL "
+       "This statement couldn't be read for {target}, so the rules couldn't check it. It may be a typo, or SQL "
        "the reader doesn't know.", "Check the statement near this point, or test it in {engine}.", "local", "medium"),
     _r("SYN-008", "warning", "syntax", TSQL + (DK,), "\"Double quotes\" make a name, not text",
        "In {engine}, \"...\" is a column or table name. Comparing with it compares with a column, or fails if there "
@@ -234,17 +234,24 @@ _RULES = [
        "In Fabric Spark it changes the table.", "Run it in Fabric (a notebook or Run in Fabric), or use Save as table "
        "to write a result.", "local"),
     _r("LOC-002", "warning", "local", (SP,), "Regular expressions differ on this PC",
-       "Fabric Spark uses Java regular expressions; this PC runs them with DuckDB's RE2. Lookarounds and "
-       "backreferences don't work here, and some patterns match differently.", "Compare the results in Fabric, or "
-       "keep to simple patterns.", "duckdb_regex", "medium"),
-    _r("LOC-003", "warning", "local", (SP,), "Date pattern is translated on this PC",
-       "{name} uses a Spark date pattern. On this PC the pattern is translated for DuckDB, and unusual pattern "
-       "letters can give different text.", "Compare the results in Fabric.", "spark_datetime", "medium"),
+       "Fabric Spark reads regular expressions the Java way. On this PC a pattern written in the query is "
+       "translated for DuckDB's RE2, and what RE2 can't read (lookarounds, backreferences) is refused by name. A "
+       "pattern taken from the data isn't translated, and $ and . treat line breaks differently.",
+       "Compare the results in Fabric if a pattern comes from the data or the text has line breaks.",
+       "duckdb_regex", "medium"),
+    _r("LOC-003", "warning", "local", (SP,), "Date pattern reads some text differently on this PC",
+       "{name} uses a Spark date pattern. On this PC it is read as Spark reads it, with two exceptions. Text with "
+       "more fraction digits than the pattern has, or one digit where the pattern has two, is still read here. "
+       "Text that stops Spark 3's parser with an error (spark.sql.legacy.timeParserPolicy set to EXCEPTION) gives "
+       "NULL here.",
+       "Compare the results in Fabric.", "spark_datetime", "medium"),
     _r("LOC-004", "information", "local", (SP, DK), "{name} gives a different value each run",
        "{name} doesn't return the same value on every run, so results here and in Fabric won't match.",
        "Don't compare these values between runs.", "local"),
     _r("LOC-005", "information", "local", (SP,), "Decimal results can differ",
-       "Spark and DuckDB use different precision and rounding rules for decimal arithmetic.",
+       "On this PC decimal arithmetic follows Spark's precision and scale rules, except a product, sum or "
+       "difference past 38 digits (DuckDB keeps its own type, and can fail where Spark rounds), and a division "
+       "whose dividend needs more than 38 digits (worked out through DOUBLE).",
        "Compare the results in Fabric if exact decimals matter.", "local", "medium"),
     _r("LOC-006", "warning", "local", (SP,), "{name} has no fixed order",
        "{name} returns values in no fixed order, so the result here and in Fabric can differ.",
@@ -293,10 +300,13 @@ def _name_at(s: Stmt, i: int) -> tuple[list[Tok], int]:
         return [], i
     while i < len(toks) and _is_name(toks[i]):
         parts.append(toks[i])
-        if i + 2 < len(toks) and toks[i + 1].type == TokenType.DOT:
+        if i + 3 < len(toks) and toks[i + 1].type == TokenType.DOT and toks[i + 2].type == TokenType.DOT:
+            # db..table: the schema is left out (the default one); an empty part keeps the name three parts long
+            dot = toks[i + 2]
+            parts.append(Tok(TokenType.VAR, "", "", "", dot.start, dot.start, dot.depth))
+            i += 3
+        elif i + 2 < len(toks) and toks[i + 1].type == TokenType.DOT:
             i += 2
-        elif i + 2 < len(toks) and toks[i + 1].type == TokenType.DOT and toks[i + 2].type == TokenType.DOT:
-            i += 1  # db..table
         else:
             return parts, i + 1
     return parts, i
@@ -708,7 +718,7 @@ def _unknown_functions(s: Stmt) -> Iterator[Hit]:
 
 # ---------- data types and DDL
 
-_TYPE_ALTERNATIVES = {
+TYPE_ALTERNATIVES = {  # also the local engine's words (localdata/tsql_types)
     "MONEY": "decimal(19, 4)", "SMALLMONEY": "decimal(10, 4)", "DATETIME": "datetime2(6)",
     "SMALLDATETIME": "datetime2(0)", "DATETIMEOFFSET": "datetime2(6), converted with AT TIME ZONE",
     "NCHAR": "char (the UTF-8 collation stores any character)", "NVARCHAR": "varchar (the UTF-8 collation stores any character)",
@@ -717,6 +727,7 @@ _TYPE_ALTERNATIVES = {
     "GEOMETRY": "varbinary (well-known binary) or varchar (well-known text)", "JSON": "varchar(max)",
     "XML": "varchar(max), if the XML can be kept as text", "SQL_VARIANT": "a column of one type",
     "HIERARCHYID": "varchar holding the path", "VECTOR": "varbinary or varchar; vectors aren't supported",
+    "ROWVERSION": "a bigint or datetime2(6) column the load sets",
 }
 _CREATE_TABLE = ("CREATE", "TABLE")
 
@@ -773,8 +784,8 @@ def _is_ctas(s: Stmt) -> bool:
 def _types(s: Stmt) -> Iterator[Hit]:
     for j, _col in _column_defs(s):
         t = s.toks[j]
-        if t.kw in _TYPE_ALTERNATIVES:
-            yield _hit("TYP-001", t, name=t.raw.lower(), fix=_TYPE_ALTERNATIVES[t.kw])
+        if t.kw in TYPE_ALTERNATIVES:
+            yield _hit("TYP-001", t, name=t.raw.lower(), fix=TYPE_ALTERNATIVES[t.kw])
         elif t.kw in ("DATETIME2", "TIME") and j + 3 < len(s.toks) and s.toks[j + 1].type == TokenType.L_PAREN \
                 and s.toks[j + 2].type == TokenType.NUMBER and s.toks[j + 2].text.isdigit() and int(s.toks[j + 2].text) > 6:
             yield _hit("TYP-003", t, s.toks[j + 3], name=t.raw.lower(), digits=s.toks[j + 2].text)
@@ -786,8 +797,8 @@ def _types(s: Stmt) -> Iterator[Hit]:
         for i, t in enumerate(s.toks[1:], 1):
             prev = s.toks[i - 1]
             in_convert = prev.type == TokenType.L_PAREN and i >= 2 and s.toks[i - 2].kw == "CONVERT"
-            if t.kw in _TYPE_ALTERNATIVES and (prev.kw == "AS" or in_convert):
-                yield _hit("TYP-002", t, name=t.raw.lower(), fix=_TYPE_ALTERNATIVES[t.kw])
+            if t.kw in TYPE_ALTERNATIVES and (prev.kw == "AS" or in_convert):
+                yield _hit("TYP-002", t, name=t.raw.lower(), fix=TYPE_ALTERNATIVES[t.kw])
 
 
 _NOT_SUPPORTED_OBJECTS = [
@@ -1217,8 +1228,13 @@ def _local(s: Stmt) -> Iterator[Hit]:
             yield _hit("LOC-001", toks[i])
         elif verb in ("CACHE", "SET", "USE"):
             yield _hit("LOC-007", toks[i])
-    if any(t.kw in ("DECIMAL", "NUMERIC") for t in toks) and any(t.type in (TokenType.SLASH,) for t in toks):
-        first = next(t for t in toks if t.kw in ("DECIMAL", "NUMERIC"))
-        yield _hit("LOC-005", first)
+    # Where a decimal result on this PC can still differ from Spark's (docs/sql-compatibility.md, LOC-005):
+    # a division (a very large one goes through DOUBLE) and a product past 38 digits.
+    times = any(t.type == TokenType.STAR and i and toks[i - 1].type not in (
+        TokenType.SELECT, TokenType.COMMA, TokenType.DOT, TokenType.L_PAREN, TokenType.DISTINCT)
+        for i, t in enumerate(toks))
+    decimal = next((t for t in toks if t.kw in ("DECIMAL", "NUMERIC")), None)
+    if decimal is not None and (times or any(t.type == TokenType.SLASH for t in toks)):
+        yield _hit("LOC-005", decimal)
     if s.index == 0:
         yield _hit("LOC-008", toks[0])

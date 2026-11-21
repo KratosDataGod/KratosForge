@@ -143,8 +143,8 @@ class ActivitySupport:
 
 UNKNOWN = ActivitySupport(
     "(unknown)", "Activity type this version doesn't know", "unsupported", "none", "metered_in_fabric",
-    limitations=("Kept exactly as it is in the definition, but not checked or run. A newer KratosForge "
-                 "may know it; otherwise it has to run in Fabric.",))
+    limitations=(("Kept exactly as it is in the definition, but not checked or run. A newer KratosForge "
+                 "may know it; otherwise it has to run in Fabric."),))
 
 
 class ActivityRegistry:
@@ -233,11 +233,11 @@ class ActivityRegistry:
             "diagnostics": [d.to_json() for d in diags], "counts": summary(diags),
             "notes": ["Classifications describe what this version does today; 'planned' is a proposal, not support.",
                       "Nothing here was run, and no Fabric call was made to produce this report.",
-                      "Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the "
+                      ("Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the "
                       "activities this version can't run on this PC, so running the pipeline today uses capacity "
-                      "for each of them; 'fabric_only' lists those that can only ever run in Fabric.",
-                      "Some warnings are known places where a pipeline that runs here fails in Fabric "
-                      "(fabric_differences in the registry). They never stop a local run."],
+                      "for each of them; 'fabric_only' lists those that can only ever run in Fabric."),
+                      ("Some warnings are known places where a pipeline that runs here fails in Fabric "
+                      "(fabric_differences in the registry). They never stop a local run.")],
         }
 
 
@@ -285,8 +285,8 @@ def check_entry(e: ActivitySupport) -> list[str]:
         problems.append(f"a {e.classification} activity can't be fabric_only")
     if e.planned is not None:
         if e.planned.classification not in CLASSIFICATIONS:
-            problems.append("planned classification is unknown")
-        if _RANK[e.planned.classification] >= _RANK.get(e.classification, 9):
+            problems.append("planned classification is unknown")  # and it can't be ranked against today's
+        elif _RANK[e.planned.classification] >= _RANK.get(e.classification, 9):
             problems.append("planned must be more capable than today's classification")
         if not e.planned.stage:
             problems.append("planned needs the stage that will build it")

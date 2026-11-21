@@ -32,9 +32,9 @@ SQ, DQ = "'", '"'
 
 # (case, T-SQL, SQL Server's documented answer as the first cell). These run on the local engine now.
 MAPPED = [  # decimals come back as text, as the engine sends them
-    ("ROUND truncate mode", "SELECT ROUND(123.456, 1, 1)", "123.4"),
-    ("ROUND truncate mode, negative", "SELECT ROUND(-123.456, 1, 1)", "-123.4"),
-    ("ROUND mode 0 rounds", "SELECT ROUND(123.456, 1, 0)", "123.5"),
+    ("ROUND truncate mode", "SELECT ROUND(123.456, 1, 1)", "123.400"),
+    ("ROUND truncate mode, negative", "SELECT ROUND(-123.456, 1, 1)", "-123.400"),
+    ("ROUND mode 0 rounds", "SELECT ROUND(123.456, 1, 0)", "123.500"),
     ("CHOOSE", "SELECT CHOOSE(2, 'a', 'b', 'c')", "b"),
     ("CHOOSE out of range", "SELECT CHOOSE(4, 'a', 'b', 'c')", None),
     ("CAST 'true' AS bit", "SELECT CAST('true' AS bit)", True),
@@ -75,6 +75,15 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("FORMAT long date", "SELECT FORMAT(CAST('2024-03-05' AS DATE), 'D')", "Tuesday, March 5, 2024"),
     ("FORMAT abbreviated day and AM/PM", "SELECT FORMAT(CAST('2024-03-05 14:07' AS DATETIME2), 'ddd hh:mm tt')",
      "Tue 02:07 PM"),
+    # WR-219: the JSON functions, as T-SQL's reference gives them (more in test_tsql_json.py)
+    ("ISJSON of an object", "SELECT ISJSON('{" + DQ + "a" + DQ + ": 1}')", 1),
+    ("ISJSON of a scalar", "SELECT ISJSON('1')", 0),
+    ("JSON_VALUE of a number", "SELECT JSON_VALUE('{" + DQ + "a" + DQ + ": 1}', '$.a')", "1"),
+    ("JSON_VALUE of an object, lax", "SELECT JSON_VALUE('{" + DQ + "a" + DQ + ": [1]}', '$.a')", None),
+    ("JSON_QUERY of an array", "SELECT JSON_QUERY('{" + DQ + "a" + DQ + ": [1]}', '$.a')", "[1]"),
+    ("JSON_QUERY of a scalar, lax", "SELECT JSON_QUERY('{" + DQ + "a" + DQ + ": 1}', '$.a')", None),
+    ("JSON_OBJECT keeps NULL", "SELECT JSON_OBJECT('name':'value', 'type':NULL)", '{"name":"value","type":null}'),
+    ("JSON_ARRAY leaves NULL out", "SELECT JSON_ARRAY('a', 1, 'b', NULL)", '["a",1,"b"]'),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [
@@ -134,7 +143,6 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
 
 @pytest.mark.parametrize("sql", [
     "SELECT TOP 1 WITH TIES DISTINCT boxes FROM dbo.orders ORDER BY boxes",
-    "SELECT TOP 50 PERCENT WITH TIES id FROM dbo.orders ORDER BY boxes",
     "SELECT value FROM STRING_SPLIT('a,b', ',', 1)",
     "SELECT ROUND(1.5, 0, boxes) FROM dbo.orders",
     "SELECT DATALENGTH(5)",
@@ -151,7 +159,8 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT TIMEFROMPARTS(13, 45, 30, 0, 8)",
     "SELECT TIMEFROMPARTS(13, 45, 30, 1234567, 7)",
     "SELECT TIMEFROMPARTS(13, 45, 30, 0, boxes) FROM dbo.orders",
-    "SELECT FORMAT(boxes, '#,##0')  FROM dbo.orders",
+    "SELECT FORMAT(boxes, '#,##0', 'fr-FR')  FROM dbo.orders",
+    "SELECT FORMAT(boxes, 'P')  FROM dbo.orders",
 ])
 def test_what_isnt_mapped_faithfully_is_refused(engine, sql):
     with pytest.raises(Exception, match="on the local engine"):
@@ -221,7 +230,6 @@ def test_the_refused_list_in_the_docs_names_every_refused_function():
     ("SELECT ISDATE('2024-01-01')", "ISDATE"),
     ("SELECT CHECKSUM('a')", "CHECKSUM"),
     ("SELECT DIFFERENCE('a', 'b')", "DIFFERENCE"),
-    ("SELECT TRY_PARSE('1' AS int)", "TRY_PARSE"),
     ("SELECT id FROM dbo.orders WHERE BINARY_CHECKSUM(id) > 0", "BINARY_CHECKSUM"),
     ("SELECT SYSDATETIMEOFFSET()", "SYSDATETIMEOFFSET"),
 ])
@@ -246,6 +254,8 @@ def test_a_macro_in_the_database_is_a_known_function(engine):
 # list has a query here that the local engine must refuse; an item added to the list without one, or a query here
 # whose item left the list, fails. The other backticked text in the list is advice or a skipped option.
 REFUSED_IN_THE_DOCS = {
+    "CREATE TABLE ... AS CLONE OF": "CREATE TABLE dbo.c AS CLONE OF dbo.t",
+    "ALTER DATABASE ... SET TIMESTAMP": "ALTER DATABASE s SET TIMESTAMP = CURRENT_TIMESTAMP",
     "ISNUMERIC": "SELECT ISNUMERIC('1')",
     "POWER": "SELECT POWER(2.5, 2)",
     "DEGREES": "SELECT DEGREES(1.0)",
@@ -255,7 +265,18 @@ REFUSED_IN_THE_DOCS = {
     "SMALLMONEY": "SELECT CAST(1 AS SMALLMONEY)",
     "ISDATE": "SELECT ISDATE('2024-01-01')",
     "CHECKSUM": "SELECT CHECKSUM('a')",
-    "TRY_PARSE": "SELECT TRY_PARSE('1' AS int)",
+    "HASHBYTES": "SELECT HASHBYTES('SHA2_256', 'a')",
+    "CURRENT_USER": "SELECT CURRENT_USER",
+    "USER": "SELECT USER",
+    "SESSION_USER": "SELECT SESSION_USER",
+    "SYSTEM_USER": "SELECT SYSTEM_USER",
+    "SUSER_NAME": "SELECT SUSER_NAME()",
+    "SUSER_SNAME": "SELECT SUSER_SNAME()",
+    "OBJECT_ID": "SELECT OBJECT_ID('dbo.orders')",
+    "SCHEMA_NAME": "SELECT SCHEMA_NAME(1)",
+    "REGEXP_SUBSTR": "SELECT REGEXP_SUBSTR('abc', 'b')",
+    "GET_BIT": "SELECT GET_BIT(3, 0)",
+    "SET_BIT": "SELECT SET_BIT(0, 1)",
     "DECLARE": "DECLARE @n INT = 1",
     "@x": "SELECT @x",
     "@@ROWCOUNT": "SELECT @@ROWCOUNT",
@@ -263,18 +284,56 @@ REFUSED_IN_THE_DOCS = {
     "WHILE": "WHILE 1 = 0 SELECT 1",
     "BEGIN ... END": "BEGIN SELECT 1 END",
     "EXEC": "EXEC dbo.load_orders",
+    "sp_executesql": "EXEC sp_executesql N'SELECT 1'",
+    "EXEC ('...')": "EXEC ('SELECT 1')",
+    "sp_help": "EXEC sp_help 'dbo.t'",
     "PRINT": "PRINT 'hi'",
+    "RETURN": "RETURN",
+    "BREAK": "BREAK",
+    "CONTINUE": "CONTINUE",
+    "GOTO": "GOTO done",
+    "THROW": "THROW 50000, 'Stop', 1",
+    "WAITFOR": "WAITFOR DELAY '00:00:01'",
+    "OPEN": "OPEN c",
+    "CLOSE": "CLOSE c",
+    "DEALLOCATE": "DEALLOCATE c",
+    "GO 2": "SELECT 1\nGO 2",
+    "otherwarehouse.dbo.t": "SELECT * FROM otherwarehouse.dbo.orders",
+    "sys": "SELECT * FROM sys.objects",
+    "CREATE SCHEMA ... AUTHORIZATION": "CREATE SCHEMA s AUTHORIZATION dbo",
+    "WITH SCHEMABINDING": "CREATE VIEW dbo.b WITH SCHEMABINDING AS SELECT 1 AS a",
+    "GRANT": "GRANT SELECT ON dbo.orders TO alice",
+    "DENY": "DENY SELECT ON dbo.orders TO alice",
+    "REVOKE": "REVOKE SELECT ON dbo.orders FROM alice",
+    "EXECUTE AS": "EXECUTE AS USER = 'alice'",
+    "SET ANSI_NULLS OFF": "SET ANSI_NULLS OFF",
+    "SET DATEFORMAT dmy": "SET DATEFORMAT dmy",
+    "SET DATEFIRST 1": "SET DATEFIRST 1",
+    "SET ROWCOUNT": "SET ROWCOUNT 10",
     "transactions": "BEGIN TRANSACTION",
     "procedures and functions": "CREATE PROCEDURE dbo.p AS SELECT 1",
     "USE": "USE sales",
+    "COPY INTO": "COPY INTO dbo.orders FROM 'https://acct.blob.core.windows.net/c/a.csv'",
+    "BULK INSERT": "BULK INSERT dbo.orders FROM 'https://acct.blob.core.windows.net/c/a.csv'",
+    "OPENROWSET": "SELECT * FROM OPENROWSET(BULK 'https://acct.blob.core.windows.net/c/a.parquet') AS r",
     "FOR JSON": "SELECT 1 AS a FOR JSON PATH",
     "OPENJSON": "SELECT [key] FROM OPENJSON('{}')",
+    "NULL ON NULL": "SELECT JSON_ARRAY(1, NULL NULL ON NULL)",
+    "ABSENT ON NULL": "SELECT JSON_OBJECT('a': NULL ABSENT ON NULL)",
+    "JSON_ARRAYAGG": "SELECT JSON_ARRAYAGG(id) FROM dbo.orders",
+    "JSON_OBJECTAGG": "SELECT JSON_OBJECTAGG('a': id) FROM dbo.orders",
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
-    "DATEFIRST": "SET DATEFIRST 1",
+    "OUTPUT": "DELETE FROM dbo.orders OUTPUT deleted.id WHERE id = 1",
+    "IDENTITY": "CREATE TABLE dbo.identity_test (id BIGINT IDENTITY, v INT)",
+    "DBCC": "DBCC CHECKIDENT ('dbo.orders', RESEED)",
+    "##global": "CREATE TABLE ##g (id INT)",
+    "PERCENTILE_DISC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY 'a' DESC) OVER ()",
+    "ORDER BY ... DESC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY CAST('2024-01-01' AS DATE) DESC) OVER ()",
 }
-ADVICE_IN_THE_DOCS = {"JSON_VALUE", "JSON_QUERY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
+ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "JSON_OBJECT", "JSON_ARRAY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
-                      "SET NOCOUNT ON", "SET DATEFIRST 7"}
+                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SET ANSI_NULLS ON", "SELECT", "INSERT", "#temp",
+                      "OPTION (FOR TIMESTAMP AS OF ...)"}
 
 
 def _docs_refused_list() -> str:
@@ -335,3 +394,20 @@ def test_timefromparts_refuses_fractions_from_a_column_that_dont_fit(engine, fra
 def test_timefromparts_takes_fractions_from_a_column(engine):
     engine.execute("CREATE OR REPLACE TABLE dbo.parts AS SELECT 3 AS s, 250 AS f")
     assert first(engine, "SELECT DATEPART(millisecond, TIMEFROMPARTS(1, 2, s, f, 3)) FROM dbo.parts") == 250
+
+
+@pytest.mark.parametrize("sql", ["SELECT HASHBYTES('MD5', 'a')", "SELECT HASHBYTES('SHA1', 'a')",
+                                 "SELECT CASE WHEN HASHBYTES('MD5', 'a') = 0x0CC175B9C0F1B6A831C399E269772661 THEN 1 END",
+                                 "SELECT id FROM dbo.orders WHERE SUSER_SNAME() = 'x'"])
+def test_a_function_duckdb_has_with_another_meaning_is_refused_by_name(engine, sql):
+    """WR-203: each of these gave another answer here (hex text for HASHBYTES' bytes, the engine's user name)."""
+    with pytest.raises(Exception, match="local engine: (HASHBYTES|CURRENT_USER) isn't mapped yet"):
+        engine.execute(sql, dialect="tsql")
+
+
+def test_a_column_named_user_in_brackets_or_with_its_table_still_runs(engine):
+    engine.execute("CREATE OR REPLACE TABLE dbo.people AS SELECT 'ann' AS \"user\"")
+    assert first(engine, "SELECT [user] FROM dbo.people") == "ann"
+    assert first(engine, "SELECT p.[user] FROM dbo.people AS p") == "ann"
+    assert first(engine, "SELECT p.user FROM dbo.people AS p") == "ann"  # with its table it's a column, not USER
+    assert first(engine, "SELECT SCHEMA_NAME()") == "dbo"

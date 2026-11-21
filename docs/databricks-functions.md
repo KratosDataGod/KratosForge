@@ -10,6 +10,8 @@ is compared with the value Databricks gives (Spark 3.5's, or Databricks' own whe
 shows another). Databricks' own functions are in the groups headed "Databricks only": one with
 an example is compared with the value Databricks' reference documents for it, and any other is
 tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN GROUP, a unit keyword).
+A function whose value varies (random values, the clock, the session) is checked with an example
+from its page in Databricks' reference: a seeded one, or the form of the value it documents.
 No Databricks workspace was used. CI runs every check again, so this page changes when a
 function is fixed or breaks.
 
@@ -17,7 +19,7 @@ function is fixed or breaks.
 - **Differs**: runs, but gives another value. Check results that use it on the warehouse.
 - **Refused**: stops with a message saying why, so nothing runs with another answer.
 - **Fails**: stops with an error. Run the cell on a Databricks SQL warehouse.
-- **Not checked**: no example whose value can be compared (random values, the clock or the session, or no example), or DuckDB accepts it but no check compares its value yet.
+- **Not checked**: DuckDB accepts it, but no check compares its value yet.
 
 AI (`ai_`), geospatial (`h3_`, `st_`), file, stream, secret, Unity Catalog and account functions
 aren't listed: they need Databricks' own services. The IP address functions (`ip_`), `url_decode`,
@@ -29,11 +31,11 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 440 |
-| Differs | 0 |
-| Refused | 92 |
+| Runs | 478 |
+| Differs | 10 |
+| Refused | 101 |
 | Fails | 0 |
-| Not checked | 57 |
+| Not checked | 0 |
 | **All** | **589** |
 
 ## Aggregate
@@ -58,7 +60,7 @@ lists more checks and the differences known in more detail.
 | `corr` | Runs | `SELECT corr(c1, c2) FROM VALUES (3, 2), (3, 3), (6, 4) as tab(c1, c2)` |  |
 | `count` | Runs | `SELECT count(*) FROM VALUES (NULL), (5), (5), (20) AS tab(col)` |  |
 | `count_if` | Runs | `SELECT count_if(col % 2 = 0) FROM VALUES (NULL), (0), (1), (2), (3) AS tab(col)` |  |
-| `count_min_sketch` | Refused | `SELECT hex(count_min_sketch(col, 0.5d, 0.5d, 1)) FROM VALUES (1), (2), (1) AS tab(col)` | count_min_sketch() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make t |
+| `count_min_sketch` | Refused | `SELECT hex(count_min_sketch(col, 0.5d, 0.5d, 1)) FROM VALUES (1), (2), (1) AS tab(col)` | count_min_sketch() can't run on this PC the way it runs in Databricks, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't ma |
 | `covar_pop` | Runs | `SELECT covar_pop(c1, c2) FROM VALUES (1,1), (2,2), (3,3) AS tab(c1, c2)` |  |
 | `covar_samp` | Runs | `SELECT covar_samp(c1, c2) FROM VALUES (1,1), (2,2), (3,3) AS tab(c1, c2)` |  |
 | `every` | Runs | `SELECT every(col) FROM VALUES (true), (true), (true) AS tab(col)` |  |
@@ -66,9 +68,9 @@ lists more checks and the differences known in more detail.
 | `first_value` | Runs | `SELECT first_value(col) FROM VALUES (10), (5), (20) AS tab(col)` |  |
 | `grouping` | Runs | `SELECT name, grouping(name), sum(age) FROM VALUES (2, 'Alice'), (5, 'Bob') people(age, name) GROUP BY cube(name)` |  |
 | `grouping_id` | Runs | `SELECT name, grouping_id(), sum(age), avg(height) FROM VALUES (2, 'Alice', 165), (5, 'Bob', 180) people(age, name, height) GROUP BY cube(name, height)` |  |
-| `histogram_numeric` | Refused | `SELECT histogram_numeric(col, 5) FROM VALUES (0), (1), (2), (10) AS tab(col)` | histogram_numeric() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's bins come from its own streaming algorithm, which this PC doesn't ha |
-| `hll_sketch_agg` | Refused | `SELECT hll_sketch_estimate(hll_sketch_agg(col, 12)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
-| `hll_union_agg` | Refused | `SELECT hll_sketch_estimate(hll_union_agg(sketch, true)) FROM (SELECT hll_sketch_agg(col) as sketch FROM VALUES (1) tab(col) UNION ALL SELECT hll_sketch_agg(col, 20) as sketch FROM VALUES (1) tab(col))` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
+| `histogram_numeric` | Refused | `SELECT histogram_numeric(col, 5) FROM VALUES (0), (1), (2), (10) AS tab(col)` | histogram_numeric() can't run on this PC the way it runs in Databricks, so nothing ran: Spark's bins come from its own streaming algorithm, which this PC doesn' |
+| `hll_sketch_agg` | Refused | `SELECT hll_sketch_estimate(hll_sketch_agg(col, 12)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | hll_sketch_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make |
+| `hll_union_agg` | Refused | `SELECT hll_sketch_estimate(hll_union_agg(sketch, true)) FROM (SELECT hll_sketch_agg(col) as sketch FROM VALUES (1) tab(col) UNION ALL SELECT hll_sketch_agg(col, 20) as sketch FROM VALUES (1) tab(col))` | hll_sketch_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make |
 | `kurtosis` | Runs | `SELECT kurtosis(col) FROM VALUES (-10), (-20), (100), (1000) AS tab(col)` |  |
 | `last` | Runs | `SELECT last(col) FROM VALUES (10), (5), (20) AS tab(col)` |  |
 | `last_value` | Runs | `SELECT last_value(col) FROM VALUES (10), (5), (20) AS tab(col)` |  |
@@ -128,7 +130,7 @@ lists more checks and the differences known in more detail.
 | `flatten` | Runs | `SELECT flatten(array(array(1, 2), array(3, 4)))` |  |
 | `get` | Runs | `SELECT get(array(1, 2, 3), 0)` |  |
 | `sequence` | Runs | `SELECT sequence(1, 5)` |  |
-| `shuffle` | Not checked | `SELECT shuffle(array(1, 20, 3, 5))` |  |
+| `shuffle` | Runs | `SELECT array_sort(shuffle(array(1, 20, 3, 5))), size(shuffle(array(1, 20, NULL, 5))), shuffle(NULL)` |  |
 | `slice` | Runs | `SELECT slice(array(1, 2, 3, 4), 2, 2)` |  |
 | `sort_array` | Runs | `SELECT sort_array(array('b', 'd', null, 'c', 'a'), true)` |  |
 
@@ -173,26 +175,26 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `bigint` | Not checked |  |  |
-| `binary` | Not checked |  |  |
-| `boolean` | Not checked |  |  |
+| `bigint` | Runs | `SELECT bigint('12'), bigint(3.9), bigint(-3.9)` |  |
+| `binary` | Runs | `SELECT binary('Spark')` |  |
+| `boolean` | Runs | `SELECT boolean('true'), boolean(0), boolean('no')` |  |
 | `cast` | Runs | `SELECT cast('10' as int)` |  |
-| `date` | Not checked |  |  |
-| `decimal` | Not checked |  |  |
-| `double` | Not checked |  |  |
-| `float` | Not checked |  |  |
-| `int` | Not checked |  |  |
-| `smallint` | Not checked |  |  |
-| `string` | Not checked |  |  |
-| `timestamp` | Not checked |  |  |
-| `tinyint` | Not checked |  |  |
+| `date` | Runs | `SELECT date('2026-01-31'), date(TIMESTAMP '2026-01-31 23:59:59')` |  |
+| `decimal` | Runs | `SELECT decimal('12.345'), decimal(7)` |  |
+| `double` | Runs | `SELECT double('1.5'), double(2)` |  |
+| `float` | Runs | `SELECT float('1.5'), float(2)` |  |
+| `int` | Runs | `SELECT int('12'), int(3.9), int(-3.9)` |  |
+| `smallint` | Runs | `SELECT smallint('12'), smallint(3.9)` |  |
+| `string` | Runs | `SELECT string(12), string(1.50), string(true), string(DATE '2026-01-31')` |  |
+| `timestamp` | Runs | `SELECT timestamp('2026-01-31 10:30:00'), timestamp(DATE '2026-01-31')` |  |
+| `tinyint` | Runs | `SELECT tinyint('12'), tinyint(3.9)` |  |
 
 ## CSV
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `from_csv` | Runs | `SELECT from_csv('1, 0.8', 'a INT, b DOUBLE')` |  |
-| `schema_of_csv` | Refused | `SELECT schema_of_csv('1,abc')` | schema_of_csv() can't run on this PC the way it runs in Fabric, so nothing ran: this PC doesn't infer a CSV schema from one line the way Spark does. Run the cel |
+| `schema_of_csv` | Refused | `SELECT schema_of_csv('1,abc')` | schema_of_csv() can't run on this PC the way it runs in Databricks, so nothing ran: this PC doesn't infer a CSV schema from one line the way Spark does. Run the |
 | `to_csv` | Runs | `SELECT to_csv(named_struct('a', 1, 'b', 2))` |  |
 
 ## Date and time
@@ -201,10 +203,10 @@ lists more checks and the differences known in more detail.
 | --- | --- | --- | --- |
 | `add_months` | Runs | `SELECT add_months('2016-08-31', 1)` |  |
 | `convert_timezone` | Runs | `SELECT convert_timezone('Europe/Brussels', 'America/Los_Angeles', timestamp_ntz'2021-12-06 00:00:00')` |  |
-| `curdate` | Not checked | `SELECT curdate()` |  |
-| `current_date` | Not checked | `SELECT current_date()` |  |
-| `current_timestamp` | Not checked | `SELECT current_timestamp()` |  |
-| `current_timezone` | Not checked | `SELECT current_timezone()` |  |
+| `curdate` | Runs | `SELECT curdate() = current_date(), typeof(curdate())` |  |
+| `current_date` | Runs | `SELECT current_date() = to_date(current_timestamp()), typeof(current_date())` |  |
+| `current_timestamp` | Runs | `SELECT current_timestamp() = now(), typeof(current_timestamp())` |  |
+| `current_timezone` | Runs | `SELECT current_timezone()` |  |
 | `date_add` | Runs | `SELECT date_add('2016-07-30', 1)` |  |
 | `date_diff` | Runs | `SELECT date_diff('2009-07-31', '2009-07-30')` |  |
 | `date_format` | Runs | `SELECT date_format('2016-04-08', 'y')` |  |
@@ -224,22 +226,22 @@ lists more checks and the differences known in more detail.
 | `from_utc_timestamp` | Runs | `SELECT from_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
 | `hour` | Runs | `SELECT hour('2009-07-30 12:58:59')` |  |
 | `last_day` | Runs | `SELECT last_day('2009-01-12')` |  |
-| `localtimestamp` | Not checked | `SELECT localtimestamp()` |  |
+| `localtimestamp` | Runs | `SELECT typeof(localtimestamp())` |  |
 | `make_date` | Runs | `SELECT make_date(2013, 7, 15)` |  |
 | `make_dt_interval` | Runs | `SELECT make_dt_interval(1, 12, 30, 01.001001)` |  |
-| `make_interval` | Not checked | `SELECT make_interval(100, 11, 1, 1, 12, 30, 01.001001)` |  |
+| `make_interval` | Runs | `SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)` |  |
 | `make_timestamp` | Runs | `SELECT make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ltz` | Runs | `SELECT make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887)` |  |
 | `make_timestamp_ntz` | Runs | `SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
-| `make_ym_interval` | Refused | `SELECT make_ym_interval(1, 2)` | make_ym_interval() can't run on this PC the way it runs in Fabric, so nothing ran: this PC has no year-month interval type. Run the cell in Fabric. |
+| `make_ym_interval` | Refused | `SELECT make_ym_interval(1, 2)` | make_ym_interval() can't run on this PC the way it runs in Databricks, so nothing ran: this PC has no year-month interval type. Run the cell on a Databricks SQL |
 | `minute` | Runs | `SELECT minute('2009-07-30 12:58:59')` |  |
 | `month` | Runs | `SELECT month('2016-07-30')` |  |
 | `months_between` | Runs | `SELECT months_between('1997-02-28 10:30:00', '1996-10-30')` |  |
 | `next_day` | Runs | `SELECT next_day('2015-01-14', 'TU')` |  |
-| `now` | Not checked | `SELECT now()` |  |
+| `now` | Runs | `SELECT now() = current_timestamp(), typeof(now())` |  |
 | `quarter` | Runs | `SELECT quarter('2016-08-31')` |  |
 | `second` | Runs | `SELECT second('2009-07-30 12:58:59')` |  |
-| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: session windows run in Fabric only. Run the cell in Fabric. |
+| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Databricks, so nothing ran: session windows run on Databricks only. Run the cell on a Databricks SQL wa |
 | `timestamp_micros` | Runs | `SELECT timestamp_micros(1230219000123123)` |  |
 | `timestamp_millis` | Runs | `SELECT timestamp_millis(1230219000123)` |  |
 | `timestamp_seconds` | Runs | `SELECT timestamp_seconds(1230219000)` |  |
@@ -255,7 +257,7 @@ lists more checks and the differences known in more detail.
 | `unix_micros` | Runs | `SELECT unix_micros(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_millis` | Runs | `SELECT unix_millis(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_seconds` | Runs | `SELECT unix_seconds(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
-| `unix_timestamp` | Not checked | `SELECT unix_timestamp()` |  |
+| `unix_timestamp` | Runs | `SELECT unix_timestamp('2016-04-08', 'yyyy-MM-dd'), unix_timestamp(TIMESTAMP '2016-04-08 10:00:00')` |  |
 | `weekday` | Runs | `SELECT weekday('2009-07-30')` |  |
 | `weekofyear` | Runs | `SELECT weekofyear('2008-02-20')` |  |
 | `window` | Runs | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` |  |
@@ -382,9 +384,9 @@ lists more checks and the differences known in more detail.
 | `pow` | Runs | `SELECT pow(2, 3)` |  |
 | `power` | Runs | `SELECT power(2, 3)` |  |
 | `radians` | Runs | `SELECT radians(180)` |  |
-| `rand` | Not checked | `SELECT rand()` |  |
-| `randn` | Not checked | `SELECT randn()` |  |
-| `random` | Not checked | `SELECT random()` |  |
+| `rand` | Runs | `SELECT rand() >= 0 AND rand() < 1, typeof(rand())` |  |
+| `randn` | Runs | `SELECT typeof(randn()), randn() IS NOT NULL` |  |
+| `random` | Runs | `SELECT random() >= 0 AND random() < 1, typeof(random())` |  |
 | `rint` | Runs | `SELECT rint(12.3456)` |  |
 | `round` | Runs | `SELECT round(2.5, 0)` |  |
 | `sec` | Runs | `SELECT sec(0)` |  |
@@ -407,44 +409,44 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `aes_decrypt` | Refused | `SELECT aes_decrypt(unhex('83F16B2AA704794132802D248E6BFD4E380078182D1544813898AC97E709B28A94'), '0000111122223333')` | aes_decrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
-| `aes_encrypt` | Not checked | `SELECT hex(aes_encrypt('Spark', '0000111122223333'))` |  |
+| `aes_decrypt` | Refused | `SELECT aes_decrypt(unhex('83F16B2AA704794132802D248E6BFD4E380078182D1544813898AC97E709B28A94'), '0000111122223333')` | aes_decrypt() can't run on this PC the way it runs in Databricks, so nothing ran: AES isn't available in the engine on this PC. Run the cell on a Databricks SQL |
+| `aes_encrypt` | Refused | `SELECT base64(aes_encrypt('Spark SQL', '1234567890abcdef', 'ECB', 'PKCS'))` | aes_encrypt() can't run on this PC the way it runs in Databricks, so nothing ran: AES isn't available in the engine on this PC. Run the cell on a Databricks SQL |
 | `assert_true` | Runs | `SELECT assert_true(0 < 1)` |  |
 | `bitmap_bit_position` | Runs | `SELECT bitmap_bit_position(1)` |  |
 | `bitmap_bucket_number` | Runs | `SELECT bitmap_bucket_number(123)` |  |
 | `bitmap_count` | Runs | `SELECT bitmap_count(X '1010')` |  |
-| `current_catalog` | Not checked | `SELECT current_catalog()` |  |
-| `current_database` | Not checked | `SELECT current_database()` |  |
-| `current_schema` | Not checked | `SELECT current_schema()` |  |
-| `current_user` | Not checked | `SELECT current_user()` |  |
+| `current_catalog` | Differs | `SELECT current_catalog()` | 'memory' here, DuckDB's own catalog; the session's catalog in Databricks |
+| `current_database` | Differs | `SELECT current_database()` | 'memory' here, DuckDB's own catalog; the session's schema in Databricks |
+| `current_schema` | Differs | `SELECT current_schema()` | 'main' here, DuckDB's own schema; the session's schema in Databricks |
+| `current_user` | Differs | `SELECT current_user()` | 'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference) |
 | `equal_null` | Runs | `SELECT equal_null(3, 3)` |  |
-| `hll_sketch_estimate` | Refused | `SELECT hll_sketch_estimate(hll_sketch_agg(col)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
-| `hll_union` | Refused | `SELECT hll_sketch_estimate(hll_union(hll_sketch_agg(col1), hll_sketch_agg(col2))) FROM VALUES (1, 4), (1, 4), (2, 5), (2, 5), (3, 6) tab(col1, col2)` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
-| `input_file_block_length` | Not checked | `SELECT input_file_block_length()` |  |
-| `input_file_block_start` | Not checked | `SELECT input_file_block_start()` |  |
-| `input_file_name` | Not checked | `SELECT input_file_name()` |  |
-| `java_method` | Not checked | `SELECT java_method('java.util.UUID', 'randomUUID')` |  |
-| `monotonically_increasing_id` | Not checked | `SELECT monotonically_increasing_id()` |  |
-| `raise_error` | Not checked | `SELECT raise_error('custom error message')` |  |
-| `reflect` | Not checked | `SELECT reflect('java.util.UUID', 'randomUUID')` |  |
-| `spark_partition_id` | Not checked | `SELECT spark_partition_id()` |  |
-| `try_aes_decrypt` | Refused | `SELECT try_aes_decrypt(unhex('6E7CA17BBB468D3084B5744BCA729FB7B2B7BCB8E4472847D02670489D95FA97DBBA7D3210'), '0000111122223333', 'GCM')` | try_aes_decrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
+| `hll_sketch_estimate` | Refused | `SELECT hll_sketch_estimate(hll_sketch_agg(col)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | hll_sketch_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make |
+| `hll_union` | Refused | `SELECT hll_sketch_estimate(hll_union(hll_sketch_agg(col1), hll_sketch_agg(col2))) FROM VALUES (1, 4), (1, 4), (2, 5), (2, 5), (3, 6) tab(col1, col2)` | hll_sketch_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make |
+| `input_file_block_length` | Refused | `SELECT input_file_block_length()` | input_file_block_length() can't run on this PC the way it runs in Databricks, so nothing ran: this PC doesn't track the file each row was read from. Run the cel |
+| `input_file_block_start` | Refused | `SELECT input_file_block_start()` | input_file_block_start() can't run on this PC the way it runs in Databricks, so nothing ran: this PC doesn't track the file each row was read from. Run the cell |
+| `input_file_name` | Refused | `SELECT input_file_name()` | input_file_name() can't run on this PC the way it runs in Databricks, so nothing ran: this PC doesn't track the file each row was read from. Run the cell on a D |
+| `java_method` | Refused | `SELECT java_method('java.util.UUID', 'fromString', 'a5cf6c42-0c85-418f-af6c-3e4e5b1328f2')` | java_method() can't run on this PC the way it runs in Databricks, so nothing ran: it calls a Java method by reflection, and this PC runs no Java. Run the cell o |
+| `monotonically_increasing_id` | Runs | `SELECT monotonically_increasing_id()` | 0, 1, 2 ... here; Databricks' ids are unique and increasing, with gaps |
+| `raise_error` | Runs | `SELECT raise_error('custom error message')` | stops with the message; Databricks' error class is USER_RAISED_EXCEPTION |
+| `reflect` | Refused | `SELECT reflect('java.util.UUID', 'fromString', 'a5cf6c42-0c85-418f-af6c-3e4e5b1328f2')` | reflect() can't run on this PC the way it runs in Databricks, so nothing ran: it calls a Java method by reflection, and this PC runs no Java. Run the cell on a  |
+| `spark_partition_id` | Refused | `SELECT spark_partition_id()` | spark_partition_id() can't run on this PC the way it runs in Databricks, so nothing ran: this PC doesn't split a query's rows into Spark partitions, so there is |
+| `try_aes_decrypt` | Refused | `SELECT try_aes_decrypt(unhex('6E7CA17BBB468D3084B5744BCA729FB7B2B7BCB8E4472847D02670489D95FA97DBBA7D3210'), '0000111122223333', 'GCM')` | try_aes_decrypt() can't run on this PC the way it runs in Databricks, so nothing ran: AES isn't available in the engine on this PC. Run the cell on a Databricks |
 | `typeof` | Runs | `SELECT typeof(1)` |  |
-| `user` | Not checked | `SELECT user()` |  |
-| `uuid` | Not checked | `SELECT uuid()` |  |
-| `version` | Not checked | `SELECT version()` |  |
+| `user` | Differs | `SELECT user()` | 'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference) |
+| `uuid` | Runs | `SELECT length(uuid()), uuid() RLIKE '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', uuid() = uuid()` |  |
+| `version` | Differs | `SELECT version()` | DuckDB's version here (v1.5.6); Databricks gives Apache Spark's and its git revision |
 
 ## Operators and other
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `!=` | Not checked |  |  |
-| `<>` | Not checked |  |  |
-| `between` | Not checked |  |  |
-| `case` | Not checked |  |  |
-| `range` | Not checked |  |  |
-| `sql_keywords` | Not checked |  |  |
-| `\|\|` | Not checked |  |  |
+| `!=` | Runs | `SELECT 1 != 2, 'a' != 'a', NULL != 1` |  |
+| `<>` | Runs | `SELECT 1 <> 2, 'a' <> 'a', NULL <> 1` |  |
+| `between` | Runs | `SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'` |  |
+| `case` | Runs | `SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END` |  |
+| `range` | Runs | `SELECT * FROM range(1, 7, 2)` |  |
+| `sql_keywords` | Refused | `SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2` | sql_keywords() can't run on this PC the way it runs in Databricks, because this PC doesn't have Spark's list of SQL keywords and which of them are reserved, so  |
+| `\|\|` | Runs | `SELECT 'Spark' \|\| 'SQL', 'a' \|\| NULL` |  |
 
 ## Predicate
 
@@ -467,9 +469,9 @@ lists more checks and the differences known in more detail.
 | `like` | Runs | `SELECT like('Spark', '_park')` |  |
 | `not` | Runs | `SELECT not true` |  |
 | `or` | Runs | `SELECT true or false` |  |
-| `regexp` | Not checked | `SELECT regexp('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `regexp_like` | Not checked | `SELECT regexp_like('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
-| `rlike` | Not checked | `SELECT rlike('%SystemDrive%\Users\John', '%SystemDrive%\\Users.*')` |  |
+| `regexp` | Runs | `SELECT regexp('Steven', 'Ste(v\|ph)en'), regexp('Stefan', 'Ste(v\|ph)en')` |  |
+| `regexp_like` | Runs | `SELECT regexp_like('Steven', 'Ste(v\|ph)en'), regexp_like('Stefan', 'Ste(v\|ph)en')` |  |
+| `rlike` | Runs | `SELECT rlike('Steven', 'Ste(v\|ph)en'), rlike('Stefan', 'Ste(v\|ph)en')` |  |
 
 ## String
 
@@ -520,7 +522,7 @@ lists more checks and the differences known in more detail.
 | `right` | Runs | `SELECT right('Spark SQL', 3)` |  |
 | `rpad` | Runs | `SELECT rpad('hi', 5, '??')` |  |
 | `rtrim` | Runs | `SELECT rtrim(' SparkSQL ')` |  |
-| `sentences` | Refused | `SELECT sentences('Hi there! Good morning.')` | sentences() can't run on this PC the way it runs in Fabric, so nothing ran: it splits text by Java's locale rules, which this PC doesn't have. Run the cell in F |
+| `sentences` | Refused | `SELECT sentences('Hi there! Good morning.')` | sentences() can't run on this PC the way it runs in Databricks, so nothing ran: it splits text by Java's locale rules, which this PC doesn't have. Run the cell  |
 | `soundex` | Runs | `SELECT soundex('Miller')` |  |
 | `space` | Runs | `SELECT concat(space(2), '1')` |  |
 | `split` | Runs | `SELECT split('oneAtwoBthreeC', '[ABC]')` |  |
@@ -574,15 +576,15 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `xpath` | Refused | `SELECT xpath('<a><b>b1</b><b>b2</b><b>b3</b><c>c1</c><c>c2</c></a>','a/b/text()')` | xpath() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
-| `xpath_boolean` | Refused | `SELECT xpath_boolean('<a><b>1</b></a>','a/b')` | xpath_boolean() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
-| `xpath_double` | Refused | `SELECT xpath_double('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_double() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
-| `xpath_float` | Refused | `SELECT xpath_float('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_float() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
-| `xpath_int` | Refused | `SELECT xpath_int('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_int() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
-| `xpath_long` | Refused | `SELECT xpath_long('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_long() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
-| `xpath_number` | Refused | `SELECT xpath_number('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_number() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
-| `xpath_short` | Refused | `SELECT xpath_short('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_short() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
-| `xpath_string` | Refused | `SELECT xpath_string('<a><b>b</b><c>cc</c></a>','a/c')` | xpath_string() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath` | Refused | `SELECT xpath('<a><b>b1</b><b>b2</b><b>b3</b><c>c1</c><c>c2</c></a>','a/b/text()')` | xpath() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks SQL war |
+| `xpath_boolean` | Refused | `SELECT xpath_boolean('<a><b>1</b></a>','a/b')` | xpath_boolean() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks |
+| `xpath_double` | Refused | `SELECT xpath_double('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_double() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks  |
+| `xpath_float` | Refused | `SELECT xpath_float('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_float() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks S |
+| `xpath_int` | Refused | `SELECT xpath_int('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_int() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks SQL |
+| `xpath_long` | Refused | `SELECT xpath_long('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_long() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks SQ |
+| `xpath_number` | Refused | `SELECT xpath_number('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_number() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks  |
+| `xpath_short` | Refused | `SELECT xpath_short('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_short() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks S |
+| `xpath_string` | Refused | `SELECT xpath_string('<a><b>b</b><c>cc</c></a>','a/c')` | xpath_string() can't run on this PC the way it runs in Databricks, so nothing ran: XPath isn't available in the engine on this PC. Run the cell on a Databricks  |
 
 ## Databricks only: aggregates and sketches
 
@@ -594,7 +596,7 @@ lists more checks and the differences known in more detail.
 | `approx_top_k_estimate` | Refused |  | approx_top_k_estimate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't  |
 | `bitmap_and_agg` | Runs | `SELECT substring(hex(bitmap_and_agg(val)), 0, 6) FROM VALUES(x'F0'), (x'70'), (x'30') AS T(val)` | A plain aggregate here: FILTER and OVER, and a group with no bitmap, stop by name |
 | `counter_diff` | Runs | `SELECT counter_diff(c) OVER (ORDER BY t) FROM VALUES (1, 100), (2, 200), (3, 400), (4, 50) AS tab(t, c)` |  |
-| `cube` | Not checked |  |  |
+| `cube` | Runs | `SELECT name, age, count(*) FROM VALUES (2, 'Alice'), (5, 'Bob') people(age, name) GROUP BY cube(name, age)` |  |
 | `kll_merge_agg_bigint` | Refused |  | kll_merge_agg_bigint() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
 | `kll_merge_agg_double` | Refused |  | kll_merge_agg_double() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
 | `kll_merge_agg_float` | Refused |  | kll_merge_agg_float() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't ma |
@@ -669,10 +671,10 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `current_time` | Not checked |  |  |
+| `current_time` | Differs | `SELECT current_time(0)` | a TIME WITH TIME ZONE here, with its microseconds: the precision isn't applied. Databricks gives a TIME (16:57:04 in its reference) |
 | `dayname` | Runs | `SELECT dayname(DATE'2024-11-01')` |  |
-| `getdate` | Not checked |  |  |
-| `localtime` | Not checked |  |  |
+| `getdate` | Runs | `SELECT getdate() = current_timestamp()` |  |
+| `localtime` | Refused | `SELECT localtime(3)` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Argument 'this' is not supported for expression 'Localtime' when targeting Kf |
 | `make_time` | Runs | `SELECT make_time(6, 30, 45.887)` |  |
 | `monthname` | Runs | `SELECT monthname(TIMESTAMP'2024-04-08 13:08:15')` |  |
 | `parse_timestamp` | Refused |  | parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8601, |
@@ -723,9 +725,9 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `randstr` | Not checked |  |  |
-| `session_user` | Not checked |  |  |
-| `uniform` | Not checked |  |  |
+| `randstr` | Differs | `SELECT randstr(10, 0), randstr(10, 0) FROM VALUES(1), (2), (3)` | 10 letters and digits, as in Databricks, but a seed gives another series here, the same string on every row |
+| `session_user` | Differs | `SELECT session_user()` | 'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference) |
+| `uniform` | Differs | `SELECT uniform(10, 20, 0), uniform(10, 20, 0) FROM range(10)` | values stay between the bounds, but a seed gives another series here |
 
 ## Databricks only: string and binary
 

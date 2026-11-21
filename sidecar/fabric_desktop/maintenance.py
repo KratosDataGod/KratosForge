@@ -10,6 +10,9 @@ delta-rs, without V-Order.
 from __future__ import annotations
 
 import datetime as dt
+import json
+import math
+import numbers
 import os
 import re
 import stat
@@ -21,12 +24,13 @@ from urllib.parse import unquote
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
-from . import durable
+from . import durable, retrying
 
 SMALL_FILE_BYTES = 32 * 1024 * 1024
 SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is worth compacting
 VERSIONS_BEFORE_VACUUM = 30
 RETENTION_HOURS = 7 * 24 + 1  # Fabric's default retention is 7 days
+MIN_RETENTION_DAYS = 7  # Delta's default; VACUUM with less can delete files a reader or writer still needs
 LOG_RETENTION_DAYS = 30  # Delta's default: older log entries go at the next checkpoint
 # delta-rs writes each file on this PC as <name>#<n> and then renames (data) or links (log) it into
 # place, so a write stopped part way leaves files under that staging name. One untouched this long
@@ -38,7 +42,10 @@ STALE_STAGED_HOURS = 1
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _DATA_FILE = re.compile(rf"part-\d{{5}}-{_UUID}(-c\d{{3}})?(\.[a-z0-9]+)?\.parquet", re.I)
 _STAGED_DATA = re.compile(rf"{_DATA_FILE.pattern}#\d+", re.I)
-_STAGED_LOG = re.compile(r"\d{20}\.(json|checkpoint\.parquet)#\d+")
+# A commit, a checkpoint, or the _last_checkpoint pointer that a write killed while checkpointing never put in place
+_STAGED_LOG = re.compile(r"(\d{20}\.(json|checkpoint\.parquet)|_last_checkpoint)#\d+")
+_COMMIT = re.compile(r"\d{20}\.json")
+_FOREIGN = re.compile(r"[a-z][a-z0-9+.-]*:|[/\\]", re.I)  # a URI (abfss:, file:, C:) or a rooted path
 
 
 def _when(ms: Any) -> str | None:
@@ -135,8 +142,90 @@ def retention_hours(days: int) -> int:
     return int(days) * 24 + 1
 
 
+def _retention_number(value: Any, unit: str) -> float:
+    """``value`` as a finite number, or the refusal: NaN, infinity, True and text are no length of history."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
+        raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, and {value!r} isn't a "
+                         f"number of {unit}. Nothing was changed. Give a number of {unit}, "
+                         f"{MIN_RETENTION_DAYS if unit == 'days' else MIN_RETENTION_DAYS * 24} or more.")
+    return float(value)
+
+
+def check_retention(days: int, allow_shorter: bool = False) -> None:
+    """Refuse a VACUUM keeping less than MIN_RETENTION_DAYS of history, unless a policy allows it
+    (``allow_shorter``). With less, VACUUM can delete files that a read or write still under way in
+    another process is using, and time travel to those versions stops working. What isn't a finite
+    number of days, or is negative, is refused whatever ``allow_shorter`` says."""
+    n = _retention_number(days, "days")
+    if n < 0 or (n < MIN_RETENTION_DAYS and not allow_shorter):
+        raise ValueError(f"VACUUM has to keep at least {MIN_RETENTION_DAYS} days of history, not {n:g}, because "
+                         "with less it can delete files that readers or writers in other processes still use, and time "
+                         "travel to those versions stops working. Nothing was changed.")
+
+
+def check_retain_hours(hours: Any) -> None:
+    """Refuse ``VACUUM t RETAIN n HOURS`` keeping less than MIN_RETENTION_DAYS (in hours), or n that isn't a
+    finite number. There is no way past it."""
+    n = _retention_number(hours, "hours")
+    if n < MIN_RETENTION_DAYS * 24:
+        raise ValueError(f"VACUUM keeps at least {MIN_RETENTION_DAYS} days ({MIN_RETENTION_DAYS * 24} hours) of "
+                         f"history on this PC, not {n:g} hours, because with less it can delete files that readers "
+                         "or writers in other processes still use, and time travel to those versions stops working. "
+                         f"Nothing was changed. Use RETAIN {MIN_RETENTION_DAYS * 24} HOURS or more, or leave RETAIN out.")
+
+
+def skewed_versions(table: DeltaTable, hours: float, now: float | None = None) -> tuple[list[int], int | None]:
+    """The versions inside the retention whose files VACUUM would still delete because a later commit is dated
+    before the cutoff although an earlier one isn't (a writer's clock out of step), and the oldest such later
+    commit's time (ms). VACUUM goes by each removal's own date; a version is inside the retention when a commit
+    at or before the one that replaced it is dated inside it. A commit with no date counts as now. Both are
+    empty for a log whose dates rise with its versions."""
+    now_ms = (time.time() if now is None else now) * 1000
+    cutoff = now_ms - hours * 3_600_000 + 300_000  # five minutes later than VACUUM's own, which reads the clock after
+    stamps = sorted((int(h["version"]), now_ms if h.get("timestamp") is None else float(h["timestamp"]))
+                    for h in table.history() if "version" in h)
+    earliest_after = [math.inf] * (len(stamps) + 1)  # [i]: the earliest date from commit i on
+    for i in range(len(stamps) - 1, -1, -1):
+        earliest_after[i] = min(stamps[i][1], earliest_after[i + 1])
+    keep: list[int] = []
+    oldest: float | None = None
+    latest = -math.inf
+    for i in range(len(stamps) - 1):
+        latest = max(latest, stamps[i][1], stamps[i + 1][1])  # the newest date up to the commit that replaced it
+        later = earliest_after[i + 1]
+        if latest >= cutoff and later < cutoff:
+            keep.append(stamps[i][0])
+            oldest = later if oldest is None else min(oldest, later)
+    return keep, None if oldest is None else int(oldest)
+
+
+def vacuum_keep(versions: list[int]) -> dict[str, Any]:
+    """VACUUM's keep_versions, only when there are any: a log whose dates rise is vacuumed as before."""
+    return {"keep_versions": versions} if versions else {}
+
+
+# More history than this for a clock out of step is a date that can't be right (a commit dated 1970, say):
+# Fabric's VACUUM would in effect stop removing anything, so X-ray refuses and says why instead.
+MAX_SKEW_DAYS = 365
+
+
+def skew_safe_days(table: DeltaTable, days: int, now: float | None = None) -> int:
+    """``days``, or more when a commit dated out of step with the one before it would let a VACUUM keeping
+    ``days`` delete files a version inside them still reads: enough that the removal dated earliest is kept,
+    for an engine (Fabric's table maintenance job) that can't be told which versions to keep."""
+    now = time.time() if now is None else now
+    while True:
+        keep, oldest = skewed_versions(table, retention_hours(days), now)
+        need = math.ceil((now * 1000 - oldest) / 86_400_000) if keep and oldest is not None else days
+        if need <= days:
+            return days
+        days = need
+
+
 def fabric_retention(days: int) -> str:
-    """Retention as Fabric's table maintenance job takes it: d.hh:mm:ss, an hour of margin."""
+    """Retention as Fabric's table maintenance job takes it: d.hh:mm:ss, an hour of margin. Fewer than
+    MIN_RETENTION_DAYS is refused, as on this PC: that job's VACUUM can delete files other readers use."""
+    check_retention(days)
     return f"{int(days)}.01:00:00"
 
 
@@ -160,17 +249,32 @@ def kept_days(config: dict[str, str] | None) -> int | None:
     return -(-int(m.group(1)) * _UNIT_HOURS[m.group(2)] // 24)
 
 
-def vacuum_preview(uri: str, days: int, options: dict[str, str] | None = None) -> list[str]:
+def _with_own(table: DeltaTable, days: int) -> int:
+    """``days``, or the table's own delta.deletedFileRetentionDuration when that keeps longer: it wins, as in
+    a notebook's VACUUM and X-ray's."""
+    own = kept_days(table.metadata().configuration)
+    return own if own and own > days else days
+
+
+def vacuum_preview(uri: str, days: int, options: dict[str, str] | None = None,
+                   allow_shorter: bool = False) -> list[str]:
     """The files (relative to the table folder) VACUUM keeping ``days`` of history would delete.
-    A dry run: nothing is deleted."""
+    A dry run: nothing is deleted. Fewer than MIN_RETENTION_DAYS needs ``allow_shorter``. The table's own longer
+    retention wins, and a version inside it keeps its files whatever a later commit's clock says."""
+    check_retention(days, allow_shorter)
     table = DeltaTable(uri, storage_options=options)
-    paths = table.vacuum(retention_hours=retention_hours(days), dry_run=True, enforce_retention_duration=False)
+    days = _with_own(table, days)
+    keep, _oldest = skewed_versions(table, retention_hours(days))
+    paths = table.vacuum(retention_hours=retention_hours(days), dry_run=True, enforce_retention_duration=False,
+                         **vacuum_keep(keep))
     root = uri.rstrip("/") + "/"
     return [p[len(root):] if p.startswith(root) else p for p in paths]
 
 
-def set_retention(uri: str, days: int, options: dict[str, str] | None = None) -> bool:
-    """Write the retention properties onto the table if they differ. True when it changed."""
+def set_retention(uri: str, days: int, options: dict[str, str] | None = None, allow_shorter: bool = False) -> bool:
+    """Write the retention properties onto the table if they differ. True when it changed. Fewer than
+    MIN_RETENTION_DAYS is refused, unless ``allow_shorter``: every engine's VACUUM would then keep that little."""
+    check_retention(days, allow_shorter)
     table = DeltaTable(uri, storage_options=options)
     wanted = retention_properties(days)
     config = table.metadata().configuration or {}
@@ -180,19 +284,37 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None) ->
     return True
 
 
-def compact_local(uri: str, days: int = 7) -> dict[str, Any]:
-    """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history."""
-    before = DeltaTable(uri).version()
-    set_retention(uri, days)
+def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[str, Any]:
+    """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history.
+    Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``. The table's own
+    longer retention wins (and stays), and a version inside it keeps its files whatever a later commit's clock says."""
+    check_retention(days, allow_shorter)
+    first = DeltaTable(uri)
+    before, files_before = first.version(), len(first.file_uris())
+    days = _with_own(first, days)
+    set_retention(uri, days, allow_shorter=allow_shorter)
+    # On Windows a writer committing the same next version at the same moment makes this commit fail to open
+    # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
+    # so compacting again is safe.
+    metrics = retrying.local_retry(lambda: DeltaTable(uri).optimize.compact())
     table = DeltaTable(uri)
-    metrics = table.optimize.compact()
-    removed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False)
+    present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}
+    keep, _oldest = skewed_versions(table, retention_hours(days))
+    listed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,
+                          **vacuum_keep(keep))
+    # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
+    root = uri.rstrip("/") + "/"
+    listed = [unquote(p[len(root):] if p.startswith(root) else p) for p in listed]
+    removed = [p for p in listed if p in present and not (Path(uri) / p).exists()]
     # A data file no commit names (a write stopped before its commit) goes once it's as old as the
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
     unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
     staged = _remove(uri, _stale_staged(uri))
-    durable.sync_commits(uri, before + 1, DeltaTable(uri).version())  # the compacted files and their commits
+    after = DeltaTable(uri)
+    durable.sync_commits(uri, before + 1, after.version())  # the compacted files and their commits
+    # files_before and files_after are counted from the Delta log, before and after: measured, not estimated.
     return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
+            "files_before": files_before, "files_after": len(after.file_uris()),
             "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
 
 
@@ -233,7 +355,7 @@ def _older_than(entry: os.DirEntry[str], hours: float) -> bool:
 
 def _stale_staged(uri: str) -> list[str]:
     """Files still under delta-rs's staging name, untouched for STALE_STAGED_HOURS, as paths relative to
-    the table folder: data files and log commits a stopped write never put in place."""
+    the table folder: data files, log commits and checkpoint files a stopped write never put in place."""
     out = [e.path for e in _data_folder_files(uri)
            if _STAGED_DATA.fullmatch(e.name) and _older_than(e, STALE_STAGED_HOURS)]
     log = Path(uri) / "_delta_log"
@@ -276,6 +398,106 @@ def leftovers(uri: str, table: DeltaTable | None = None) -> list[str]:
     still under way isn't counted. Only files named as Delta names them. Nothing is deleted."""
     table = table or DeltaTable(uri)
     return sorted(set(_stale_staged(uri)) | set(_unnamed(uri, table, STALE_STAGED_HOURS)))
+
+
+def _named_anywhere(uri: str, table: DeltaTable | None) -> set[str]:
+    """Every file path any version of the table still on disk names: the current version's files, the
+    files commits removed (VACUUM's), and each add and remove in every commit file in _delta_log, so a
+    file only an older version reads (time travel) counts as named too."""
+    named: set[str] = set()
+    if table is not None:
+        named |= {unquote(p) for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist())}
+        root = uri.rstrip("/") + "/"
+        named |= {unquote(p[len(root):] if p.startswith(root) else p)
+                  for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False)}
+    log = Path(uri) / "_delta_log"
+    if not log.is_dir():
+        return named
+    with os.scandir(log) as it:
+        commits = [e.path for e in it if _COMMIT.fullmatch(e.name) and not _is_link(e)]
+    for path in commits:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if '"add"' not in line and '"remove"' not in line:
+                    continue
+                action = json.loads(line)
+                for kind in ("add", "remove"):
+                    if isinstance(action.get(kind), dict) and action[kind].get("path"):
+                        named.add(unquote(str(action[kind]["path"])))
+    return named
+
+
+def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
+    """The files a run that ended mid-write (its process gone, nothing committed) left in a table folder
+    on this PC, as paths relative to it, with their bytes. A dry run: nothing is deleted.
+
+    A file counts only when every one of these holds, so it can only be that run's:
+    - delta-rs names it as a data file (or its staged copy), or it is a staged commit in _delta_log;
+    - it was last written at or after ``since``, the stopped run's start;
+    - no version of the table still on disk names it (_named_anywhere);
+    - it isn't in a linked folder, _delta_log aside, or a folder Delta keeps out of the table.
+    And none count when any commit was made at or after ``since``: another writer was at work then,
+    and its files can't be told from the stopped run's, so all are left for Compact and VACUUM.
+
+    Nothing counts either when the table folder or its _delta_log is a link (a symbolic link, a
+    junction), or when any version names a file by a full path or URI (a shallow clone, an imported
+    table), which can't be matched against the folder's files.
+
+    The caller must hold the table's write lease and know the run's process has ended. That is not
+    proof no other write is under way: compaction holds a lease of its own and runs alongside
+    appends, and notebook and SQL writes to a local table don't take the table's lease. Their files,
+    not committed yet, look just like these. So this is a list to report, not one to delete from."""
+    root = Path(uri)
+    if _linked(root) or _linked(root / "_delta_log"):
+        return {"files": [], "bytes": 0, "refused": "the table folder or its log is a link, so its files aren't looked at"}
+    if not root.is_dir():
+        return {"files": [], "bytes": 0, "refused": None}
+    try:
+        table: DeltaTable | None = DeltaTable(uri)
+    except TableNotFoundError:  # silent-ok: a first load that stopped: no version names anything
+        table = None
+    if table is not None:
+        since_ms = since * 1000
+        # A commit with no time can't be shown to come before the run: it counts as after.
+        if any(c.get("timestamp") is None or int(c["timestamp"]) >= since_ms for c in table.history(20)):
+            return {"files": [], "bytes": 0,
+                    "refused": "a commit was made to the table after the stopped run started, so its files "
+                               "can't be told from another writer's: they're left for Compact"}
+    named = _named_anywhere(uri, table)
+    if any(_FOREIGN.match(p) for p in named):
+        return {"files": [], "bytes": 0,
+                "refused": "a version of the table names a file by its full path, so which files it names "
+                           "can't be told from the folder"}
+    out = []
+    for e in _data_folder_files(uri):
+        rel = Path(e.path).relative_to(uri).as_posix()
+        if (_DATA_FILE.fullmatch(e.name) or _STAGED_DATA.fullmatch(e.name)) and rel not in named \
+                and _written_since(e, since):
+            out.append(rel)
+    log = Path(uri) / "_delta_log"
+    if log.is_dir():
+        with os.scandir(log) as it:
+            out += [f"_delta_log/{e.name}" for e in it if not _is_link(e) and e.is_file(follow_symlinks=False)
+                    and _STAGED_LOG.fullmatch(e.name) and _written_since(e, since)]
+    out.sort()
+    return {"files": out, "bytes": _size(uri, out), "refused": None}
+
+
+def _linked(path: Path) -> bool:
+    """A symbolic link, or on Windows any reparse point (a junction, a mount point). Missing: False."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:  # silent-ok: nothing there to follow
+        return False
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, "st_file_attributes", 0)
+                                             & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def _written_since(entry: os.DirEntry[str], since: float) -> bool:
+    try:
+        return entry.stat(follow_symlinks=False).st_mtime >= since
+    except OSError:  # silent-ok: gone meanwhile
+        return False
 
 
 def _size(uri: str, paths: list[str]) -> int:

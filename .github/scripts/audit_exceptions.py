@@ -90,7 +90,11 @@ def npm_advisories(report: dict) -> list[dict[str, str]]:
             if not isinstance(via, dict):  # names another package that carries the advisory
                 continue
             ghsa = re.search(r"GHSA(?:-[0-9a-z]{4}){3}", str(via.get("url", "")))
-            ident = ghsa[0] if ghsa else f"NPM-{via.get('source', '0')}"  # a valid exceptions-file id too
+            source = via.get("source")
+            # NPM-<source> is a valid exceptions-file id too. An advisory with neither gets no id, so no
+            # exceptions line can let it through (a shared stand-in id would let every such advisory through).
+            number = str(source) if type(source) is int or (isinstance(source, str) and source.isdigit()) else ""
+            ident = ghsa[0] if ghsa else f"NPM-{number}" if number else ""
             out[(ident, name)] = {"id": ident, "package": name, "version": str(via.get("range", "")),
                                   "severity": str(via.get("severity", "")),
                                   "fix": "a fix is available" if entry.get("fixAvailable") else "no fixed version yet"}
@@ -102,7 +106,11 @@ def npm_check(report: dict, lock: str, ids: list[str], today: dt.date) -> tuple[
     errors, warnings = [], []
     until = today + dt.timedelta(days=30)
     for a in npm_advisories(report):
-        where = f"{a['id']} ({a['severity']}) in {a['package']} {a['version']}, {lock}"
+        where = f"{a['id'] or 'An advisory with no id'} ({a['severity']}) in {a['package']} {a['version']}, {lock}"
+        if not a["id"]:
+            errors.append(f"{where}: npm audit gave it no GHSA or source number, so it can't be listed in "
+                          ".github/audit-exceptions.txt. Look at the advisory in npm audit's report and move the package.")
+            continue
         if a["id"] in ids:
             continue
         if a["severity"] in NPM_FAILS:

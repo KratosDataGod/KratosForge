@@ -193,7 +193,7 @@ function whMonitorView(ref, actions) {
           h("tbody", {}, r.rows.map((row) => h("tr", {}, row.map((v, i) => h("td", { class: typeof v === "number" ? "num" : "" },
             whMonCell(v, r.columns[i]?.type),
             i === opAt && /^[0-9A-Za-z-]{8,64}$/.test(String(v || "")) ? btn("Query insights", null, () => actions.insight("Query insights", whMonInsightSql(v)), "tool outline small") : null)))))),
-          r.truncated ? h("p", { class: "muted-text small" }, "The first 500 rows.") : null);
+          r.truncated ? h("p", { class: "muted-text small" }, "Showing the first 500 rows of this window. Pick a shorter window to narrow it.") : null);
   const qname = whMonQueryset(ref.name);
   const builtId = s.querysets?.[qname];
   const pick = (opts, value, label, change) => h("select", { "aria-label": label, onchange: (e) => change(e.target.value) },

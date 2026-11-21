@@ -91,6 +91,9 @@ function hydrateIcons(root = document) {
 // toast stays while the pointer or keyboard focus is on it (UX-011).
 function toast(text, isError = false, opts = {}) {
   const t = document.getElementById("toast");
+  // A hidden status region isn't in the accessibility tree when its words change, so the first toast after a quiet
+  // spell isn't read; the window's polite region (motion.js announce) says it. An error is an alert, read when shown.
+  if (t.hidden && !isError && typeof announce === "function") announce(text);
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
   if (opts.action) {
     t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
@@ -837,7 +840,8 @@ async function renderHome() {
   const resume = h("span", { class: "home-continue" });
   // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
   // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
-  const living = typeof homeHero === "function" && homeLivingOn();
+  // Only while Home has header art (its pool in art/experience/heroes.js); with no Home pool, Home is the flat page.
+  const living = typeof homeHero === "function" && homeLivingOn() && !!heroArtPick("home");
   const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
   const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,
     btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
@@ -1030,8 +1034,13 @@ function tile(iconName, title, desc, onClick) {
 }
 
 function renderCreate() {
-  setView(h("div", { class: "page" },
-    h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
+  // Living Experience (home-hero.js, Preview): Chris's header art with "Create" and the two items most
+  // people start with in its text-safe left side. Off, the plain heading.
+  const hero = typeof pageHero === "function"
+    ? pageHero("create", "Create", { actions: [btn("New notebook", "notebook", () => newNotebook(), "tool primary"),
+      btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool hero-outline")] }) : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" },
+    hero || h("h1", {}, "Create"), pageIntro("Items you create here run on this PC and store their data in OneLake. ", learnMore("create")),
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
@@ -1048,8 +1057,9 @@ function renderCreate() {
 const monitorPage = { env: "all", where: "any", problemsFirst: true, panel: "runs", opsView: "workloads",
   refreshing: false };
 // Pop-out windows (Preview, popout.js). In a pop-out window, POP_OUT is the one section it shows ("runs"
-// or "fabric"); in the main window it is null and popOuts holds the sections open in windows of their own.
-const POP_OUT = ["runs", "fabric"].find((s) => new URLSearchParams(location.search).get("popout") === s) || null;
+// "fabric" or a notebook's "report", nbreport.js); in the main window it is null and popOuts holds the
+// sections open in windows of their own.
+const POP_OUT = ["runs", "fabric", "report"].find((s) => new URLSearchParams(location.search).get("popout") === s) || null;
 const popOuts = new Set();
 // Monitor > Operations holds the workload views (UX-010). Each keeps its own panel id, so links to it still work.
 const MONITOR_OPS = [
@@ -1063,6 +1073,8 @@ const MONITOR_OPS = [
     text: "Which identity runs your workloads in each place, and with what credential" },
   { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
     text: "One record per problem, shared by everyone who can read the environment" },
+  { panel: "data_health", feature: "dataHealth", label: "Data health", anchor: "data-health-preview",
+    text: "The tables you watch: freshness, rows per load and schema, read from each table's Delta log" },
 ];
 // Monitor's tabs are by source, the way Data mesh groups its pages: what KratosForge ran and schedules, and
 // Fabric's own Monitoring hub and schedules. Another source (Databricks, Snowflake) is a tab beside them.
@@ -1132,7 +1144,7 @@ async function renderMonitor() {
     h("button", { class: `tab${source === id ? " active" : ""}`, role: "tab", "aria-selected": String(source === id), onclick: show(first) }, label)));
   // This source's pages: Operations opens the view it was last on.
   const pages = source === "databricks" ? [] : source === "fabric"
-    ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
+    ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", ["Schedules", previewTag()], monitorPage.panel === "fabric_schedules"] : null]
     : [["runs", "Runs", monitorPage.panel === "runs"], previewShown() ? ["schedules", "Schedules", monitorPage.panel === "schedules"] : null,
       ops.length ? [ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel,
         ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null], !!op] : null];
@@ -1167,10 +1179,17 @@ async function renderMonitor() {
   const forge = monitorPage.panel === "runs" && !runsBand && forgeViewShown();
   const forgeStripSlot = forge ? h("div", { class: "forge-strip-slot" }) : null;
   const forgeBandSlot = forge && forgeViewOn() ? h("div", { class: "forge-slot" }) : null;
-  setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
-    POP_OUT ? null : h("div", { class: "page-head" },
-      h("div", {}, h("h1", {}, "Monitor"), h("p", { class: "sub monitor-context" }, monitorAbout(...about))),
-      forgeStripSlot, h("div", { class: "head-actions" }, popOutHere)),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name and its button on
+  // the sky. Not in a pop-out window, not over the docked Fabric hub (the working area keeps its height),
+  // and not above the Forge Activity band, which carries its own Monitor art (#2226): one picture per screen.
+  const hero = !POP_OUT && !hubShown && !forgeBandSlot && typeof pageHero === "function"
+    ? pageHero("monitor", "Monitor", { actions: [h("div", { class: "head-actions" }, popOutHere)] }) : null;
+  const context = h("p", { class: "sub monitor-context" }, monitorAbout(...about));
+  setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}${hero ? " living-head" : ""}` },
+    POP_OUT ? null : hero ? [hero, h("div", { class: "page-head" }, h("div", {}, context), forgeStripSlot)]
+      : h("div", { class: "page-head" },
+        h("div", {}, h("h1", {}, "Monitor"), context),
+        forgeStripSlot, h("div", { class: "head-actions" }, popOutHere)),
     tabs, runsBand ? null : viewRow,
     hub ? (fabricOut ? poppedOutBand("fabric", "Fabric's Monitoring hub", "monitor-fabric")
       : h("section", { class: "card monitor-fabric" }, slot))
@@ -1186,6 +1205,7 @@ async function renderMonitor() {
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
   if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
   if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
+  if (monitorPage.panel === "data_health") { local.replaceWith(dataHealthPanel()); return; }
 
   const refreshFabricPipelines = monitorPage.fabricPipelinesRefresh;
   monitorPage.fabricPipelinesRefresh = false;
@@ -1245,7 +1265,7 @@ async function renderMonitor() {
     ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
       at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
-      seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
+      seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})${r.v_order_error ? ` ${r.v_order_error}` : ""}`, reason: "",
     })),
   ];
   if (forge) forgeActivityFill(forgeStripSlot, forgeBandSlot, all);
@@ -1267,10 +1287,10 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.cancel ? btn("Cancel", null, async (e) => {
+      h("td", { class: "n" }, r.cancel ? previewMarked("cancelFabricRun", btn("Cancel", null, async (e) => {
         e.stopPropagation();
         if (await cancelFabricJob(r.cancel)) { monitorPage.refreshing = true; render(); }
-      }, "tool small outline danger") : null,
+      }, "tool small outline danger")) : null,
       r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
@@ -1367,7 +1387,9 @@ async function renderWorkspaces() {
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky.
+  const hero = typeof pageHero === "function" ? pageHero("workspace", "Workspaces") : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" }, hero || h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     pageIntro("Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
@@ -2186,7 +2208,8 @@ function newCellId() {
 // A notebook saved on Windows can hold \r\n line ends. The editor counts \n as one character, so a
 // cell keeps \n only: cursor positions (split, run selection) then line up with its text.
 function cellFrom(c) {
-  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: (c.source || "").replace(/\r\n?/g, "\n"), meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source };
+  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: (c.source || "").replace(/\r\n?/g, "\n"), meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source,
+    attachments: c.attachments || null };
 }
 
 function loadIntoState(nb) {
@@ -2582,6 +2605,7 @@ async function runInFabric() {
     return;
   }
   if (!(await ensureSignedIn())) return;
+  if (typeof dbgRemoteNote === "function") dbgRemoteNote(nb, nb.cells);  // debugging.js: breakpoints don't pause in Fabric
   // The risk check (FINOPS-004) asks only when something should stop or slow the run. A notebook
   // not yet linked to its Fabric item can't be checked and runs as before.
   if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,
@@ -2888,36 +2912,117 @@ function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-function inlineMd(text) {
-  return esc(text)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<u title="$2">$1</u>');
+// Markdown cells, Markdown outputs and Learn pages (#2579, N20 to N22): CommonMark with GitHub tables,
+// strikethrough and bare links, and $...$ / $$...$$ math, from vendor/markdown (markdown-it and KaTeX).
+// The page is built from markdown-it's tokens with h(), so text never becomes markup: raw HTML in a cell
+// stays text (html: false), only the tags below are made, and no attribute comes from the cell except
+// a list's start number, a table cell's alignment (as a class) and an image's alt text.
+const MD_TAGS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "table", "thead",
+  "tbody", "tr", "th", "td", "strong", "em", "s", "hr", "br"]);
+// Images a cell may show: only data the notebook itself holds (pasted attachments, data: URIs), never a
+// file or a web address, so opening a notebook fetches nothing. SVG is shown with <img>, which runs no script.
+const MD_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"]);
+const MD_IMAGE_MAX = 10 * 1024 * 1024;  // base64 characters
+
+function mdSlug(text) {
+  return String(text).trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").replace(/\s+/g, "-");
 }
 
-function markdown(src) {
+// A link opens in the browser through open_link (https and mailto only, as everywhere in the app); it
+// has no href, so nothing can navigate the app's own window. #heading jumps to that heading on the page.
+function mdLink(href) {
+  const go = (fn) => ({ role: "link", tabindex: "0", onclick: (e) => { e.preventDefault(); fn(e); },
+    onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); fn(e); } } });
+  if (href.startsWith("#") && href.length > 1) {
+    const want = mdSlug(decodeURIComponent(href.slice(1)));
+    return h("a", { class: "md-link", title: `Go to ${href.slice(1)}`, ...go((e) => {
+      const page = e.target.closest(".scroll, .notebook, main") || document;
+      const hit = [...page.querySelectorAll(".md-view h1, .md-view h2, .md-view h3, .md-view h4, .md-view h5, .md-view h6")]
+        .find((x) => mdSlug(x.textContent) === want);
+      hit?.scrollIntoView({ block: "start" });
+    }) });
+  }
+  let url = null;
+  try { url = new URL(href); } catch { /* a relative link: nothing to open */ }
+  if (url && (url.protocol === "https:" || url.protocol === "mailto:") && MD.validLink(href)) {
+    return h("a", { class: "md-link", title: url.href, ...go(() => openLink(url.href)) });
+  }
+  return h("span", { class: "md-link-off", title: href + ": only https and mailto links open" });
+}
+
+// The data: URL for an image the notebook holds, or null.
+function mdImageData(src, attachments) {
+  let mime = null;
+  let b64 = null;
+  if (src.startsWith("attachment:")) {
+    let name = src.slice(11);
+    try { name = decodeURIComponent(name); } catch { /* keep it as written */ }
+    const att = attachments && Object.prototype.hasOwnProperty.call(attachments, name) ? attachments[name] : null;
+    mime = att && typeof att === "object" ? Object.keys(att).find((m) => MD_IMAGE_TYPES.has(m)) : null;
+    b64 = mime ? att[mime] : null;
+    if (Array.isArray(b64)) b64 = b64.join("");
+  } else {
+    const m = /^data:(image\/(?:png|jpeg|gif|webp));base64,(.*)$/s.exec(src);
+    if (m) [mime, b64] = [m[1], m[2]];
+  }
+  if (!mime || typeof b64 !== "string" || b64.length > MD_IMAGE_MAX) return null;
+  b64 = b64.replace(/\s+/g, "");
+  return /^[A-Za-z0-9+/]*={0,2}$/.test(b64) ? `data:${mime};base64,${b64}` : null;
+}
+
+function mdImage(t, attachments) {
+  const alt = (t.children || []).map((c) => c.content).join("");
+  const src = t.attrGet("src") || "";
+  const data = mdImageData(src, attachments);
+  if (data) return h("img", { class: "md-img", src: data, alt });
+  return h("span", { class: "md-img-off", title: src },
+    `[${alt || "image"}] `, h("span", { class: "muted-text" }, "Only images saved in the notebook are shown."));
+}
+
+function mdMath(t) {
+  const display = t.type !== "math_inline";
+  const el = h(t.block ? "div" : "span", { class: display ? "md-math block" : "md-math" });
+  try { MD.math(t.content, el, display); } catch { el.replaceChildren(t.content); }
+  if (t.type === "math_block_eqno" && t.info) el.append(h("span", { class: "md-eqno" }, `(${t.info})`));
+  return el;
+}
+
+function mdBuild(tokens, parent, attachments) {
+  const stack = [parent];
+  for (const t of tokens) {
+    const top = stack[stack.length - 1];
+    if (t.type === "inline") mdBuild(t.children || [], top, attachments);
+    else if (t.type === "text" || t.type === "html_inline" || t.type === "html_block") top.append(t.content);
+    else if (t.type === "softbreak") top.append("\n");
+    else if (t.type === "hardbreak") top.append(h("br"));
+    else if (t.type === "code_inline") top.append(h("code", {}, t.content));
+    else if (t.type === "fence" || t.type === "code_block") top.append(h("pre", { class: "md-code" }, h("code", {}, t.content)));
+    else if (t.type === "image") top.append(mdImage(t, attachments));
+    else if (t.type.startsWith("math_")) top.append(mdMath(t));
+    else if (t.type === "link_open") { const a = mdLink(t.attrGet("href") || ""); top.append(a); stack.push(a); }
+    else if (t.hidden) { /* a tight list item's paragraph: its text goes straight into the <li> */ }
+    else if (t.nesting === -1) { if (stack.length > 1) stack.pop(); }
+    else if (MD_TAGS.has(t.tag)) {
+      const start = t.tag === "ol" ? Number.parseInt(t.attrGet("start"), 10) : NaN;
+      const align = /text-align:(left|right|center)/.exec(t.attrGet("style") || "")?.[1];
+      const el = h(t.tag, { start: Number.isFinite(start) && start >= 0 ? String(start) : null, class: align ? `md-${align}` : null });
+      top.append(el);
+      if (t.nesting === 1) stack.push(el);
+    } else if (t.nesting === 1) stack.push(top);  // a tag not made: its content goes where it is, and its close pops this
+  }
+}
+
+function markdown(src, { attachments = null } = {}) {
   const wrap = h("div");
-  if (!src.trim()) {
-    wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';
+  if (!String(src || "").trim()) {
+    wrap.append(h("p", { class: "placeholder" }, "Empty Markdown cell. Double-click to edit."));
     return wrap;
   }
-  const html = [];
-  let list = null;
-  let para = [];
-  const flushPara = () => { if (para.length) { html.push(`<p>${inlineMd(para.join(" "))}</p>`); para = []; } };
-  const flushList = () => { if (list) { html.push(`<ul>${list.map((li) => `<li>${inlineMd(li)}</li>`).join("")}</ul>`); list = null; } };
-  for (const line of src.split("\n")) {
-    const heading = line.match(/^(#{1,3})\s+(.*)$/);
-    const item = line.match(/^\s*[-*]\s+(.*)$/);
-    if (heading) { flushPara(); flushList(); html.push(`<h${heading[1].length}>${inlineMd(heading[2])}</h${heading[1].length}>`); }
-    else if (item) { flushPara(); (list ||= []).push(item[1]); }
-    else if (!line.trim()) { flushPara(); flushList(); }
-    else { flushList(); para.push(line.trim()); }
+  if (typeof MD === "undefined") {  // the bundle didn't load: show the source rather than nothing
+    wrap.append(h("pre", { class: "md-code" }, src));
+    return wrap;
   }
-  flushPara();
-  flushList();
-  wrap.innerHTML = html.join("");
+  mdBuild(MD.parse(src), wrap, attachments);
   return wrap;
 }
 
@@ -2991,6 +3096,16 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("keydown", navKey);
+// F5 never reloads the window (that loses open work); on the SQL query page it runs the query, as in
+// SSMS, wherever focus is. The editor and the lesson boxes handle it themselves first (defaultPrevented).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "F5") return;
+  const handled = e.defaultPrevented;
+  e.preventDefault();
+  if (handled || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (state.view === "query" && !document.getElementById("dialog-root")?.childElementCount
+      && !document.getElementById("palette")) sqlPage.runQuery?.();
+});
 document.getElementById("nav-back").addEventListener("click", navBack);
 document.getElementById("nav-forward").addEventListener("click", navForward);
 // Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).

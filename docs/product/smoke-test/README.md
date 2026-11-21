@@ -2,7 +2,7 @@
 
 The live test ([Live testing on your tenant](../../live-testing.md)) checks sign-in, the Fabric API, OneLake and Delta. The smoke test (PB-002) goes further. It runs ten core flows of the app on a real tenant, which is the evidence a launch to about 5,000 people needs. Part of each flow runs unattended from the command line, and a person ticks the rest in the app.
 
-No flow has run on a live tenant yet: the first run waits on the owner's go, and its results will be filed as `results-<date>.md` beside this page.
+Each run's results are filed as `results-<date>.md` beside this page, such as [Run 11's](results-2026-11-17.md).
 
 It runs on a **workspace set aside for tests**, never on a production workspace or on the capacity that hosts one. It writes only through the live test and, with `--platform`, the platform flows. Both use the live test's guards and clean up after themselves (see [Before you start](../../live-testing.md#before-you-start)):
 
@@ -22,6 +22,7 @@ fabric-desktop smoke-test --workspace <workspace id> --run-in-fabric        # as
 - It signs in the way the app does, with Microsoft's Fabric CLI client and the Windows sign-in. If the app isn't signed in, the sign-in window opens.
 - `--run-in-fabric` also runs the test notebook in Fabric (flow 6), which spends Spark capacity. Without it, that step is skipped.
 - `--platform` adds the central platform flows 11 to 16 (see [The platform flows](#the-platform-flows-11-to-16)).
+- `--warehouse <warehouse id>` adds flow 17, the warehouse live check (see [Flow 17](#flow-17-the-warehouse-live-check)).
 - `--yes` skips the question. `--out` picks the results folder (default `smoke-test-results`).
 - The exit code is 0 when every automated step passed, 1 when one failed, and 2 when it wasn't run.
 
@@ -64,6 +65,38 @@ How a platform run goes:
 1. **The UDF connection is by hand.** Fabric has no API to connect UDF_Platform to SQL_Platform. When the tables step finds no connection, the run stops and asks you to open UDF_Platform › Manage connections and add SQL_Platform with the alias `platform`, then press Enter. With `--yes` it doesn't wait: flow 11 fails and the rest are skipped.
 2. **The upgrade from a previous version** can't be faked on a tenant. Before the run, install the Stable build, Finish setup with the test workspace as the platform workspace, then run the candidate with `--platform --platform-upgrade`. The person running it must already be a platform admin of that platform. The run takes over only items whose name and type are the platform's (a lakehouse's own SQL endpoint is fine), and refuses a workspace where another item has one of those names.
 3. **Cleanup.** Every item id goes into `platform/platform-ledger.json` as soon as it exists. At the end, the items are deleted by id, what depends on SQL_Platform first, and the ledger marks each one `deleted`. Anything that can't be deleted is listed under "left behind" and fails the run. `--platform-keep` leaves everything in place to look at; delete it in Fabric afterwards.
+
+## Flow 17: the warehouse live check
+
+With `--warehouse <warehouse id>` (WR-218), the smoke test runs each local T-SQL case that [SQL compatibility](../../sql-compatibility.md) lists, from WR-206 to WR-217, in a Warehouse item in the test workspace. There are 31 cases, covering decimals, dates, ordering, text, arithmetic, tables, changes, scripts, views and session settings. Run `--dry-run --warehouse <id>` first to see the plan. The queries use the warehouse's capacity.
+
+| # | Flow | Features | Automated | By hand |
+| --- | --- | --- | --- | --- |
+| 17 | Local T-SQL gives the test warehouse's answers, or the documented difference | FEAT-FAB-11, FEAT-SQL-01 | Each case's local, documented and warehouse answers, side by side | Send any case marked "docs are wrong" or "local differs" to the warehouse workstream |
+
+For each case it records three answers:
+
+- **Local:** what the local engine gives, worked out on this PC.
+- **Documented:** what the docs say a warehouse gives. This is "not documented" where T-SQL's reference doesn't say.
+- **Warehouse:** what the test warehouse gives.
+
+Each case gets one of these verdicts:
+
+- **As documented:** local matches the warehouse and the docs.
+- **Documented difference:** the warehouse matches the docs, and local differs where the docs say it does.
+- **Docs are wrong:** the warehouse doesn't match the docs.
+- **Local matches the warehouse:** the case isn't documented, and local matches the warehouse. Its answer can go in the docs.
+- **Local differs:** the case isn't documented, and local doesn't match the warehouse.
+
+The last two are findings. They're recorded, but they don't fail the flow.
+
+How it stays safe:
+
+1. **The guards.** The workspace must pass the live test's guards. The warehouse must be a Warehouse item in that workspace, and its name mustn't look like production.
+2. **The SQL is checked first.** Before anything connects, every case's SQL is read. A `SELECT` may read anything. Any other statement may only name tables in the scratch schema `fdlt_<run id>`. One case that breaks this stops the whole check.
+3. **Only the scratch schema is created.** The scratch schema is the only thing the check creates. Each case runs in a transaction that is rolled back. At the end, whatever is left in the schema is dropped, then the schema itself, and the check makes sure it's gone. If it's still there, flow 17 fails and says so.
+
+The results are in `warehouse/warehouse-check.md` and `warehouse-check.json`.
 
 ## Recording a run
 

@@ -25,7 +25,7 @@ from .dataops_service import post_teams
 from .redact import secrets
 from .sqlitefile import transaction
 from .workloads import deliver
-from .workloads.notify import Outbox
+from .workloads.notify import Outbox, audit_trouble
 from .workloads.platform_notify import OPENS, VIEWS, Ledger, PlatformRouting, recipients, send, validate
 
 METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open",
@@ -34,6 +34,8 @@ SETTING = "platform_notify"
 MAIL = "mail_server"
 _log = logging.getLogger(__name__)
 # What the bell shows for each notice still open, beside the ledger in platform_outbox.sqlite.
+# Closed and one-off keys are kept this long for dedupe, then deleted (open ones are kept until they close).
+SENT_KEEP_SECONDS = 365 * 86400
 _NOTICE = ("CREATE TABLE IF NOT EXISTS notice (key TEXT PRIMARY KEY, kind TEXT, title TEXT, whom TEXT, "
            "domain TEXT, env TEXT, detail TEXT, open TEXT)")
 
@@ -59,15 +61,29 @@ class PlatformNotifyMixin:
                 checked.append(validate(event))
             except ValueError as exc:
                 raise ValueError(f"event {i + 1}: {exc}") from None
-        routing = PlatformRouting.parse(self._pn_raw())
+        routing = PlatformRouting.parse(self._pn_raw(), saved=True)
         if not routing.routes:
             return {"sent": 0, "queued": 0, "held": 0, "error": None, "skipped": "no platform Teams route set",
                     "events": [{"dedupe": e["dedupe"], "result": "skipped", "reason": "no platform Teams route set"}
                                for e in checked]}
         outbox, ledger = self._pn_paths()
         out = send(checked, routing, outbox, ledger, self._notice_post())
+        audit_trouble(self.audit, out, "platform_outbox.sqlite")  # type: ignore[attr-defined]
         self._pn_remember([e for e, r in zip(checked, out["events"], strict=True) if r["result"] != "skipped"])
+        self._pn_tidy()
         return out
+
+    def _pn_tidy(self) -> None:
+        """The bell's details of notices that have closed (titles and who they waited on) are deleted,
+        and closed and one-off ledger keys older than SENT_KEEP_SECONDS. Never creates the file."""
+        path = self.root / "platform_outbox.sqlite"
+        if not path.exists():
+            return
+        ledger = Ledger(path)
+        with transaction(path) as db:
+            db.execute(_NOTICE)
+            db.execute("DELETE FROM notice WHERE key NOT IN (SELECT key FROM sent WHERE open = 1)")
+        ledger.prune(SENT_KEEP_SECONDS)
 
     def _mail_server(self) -> deliver.MailServer | None:
         """The company mail server, or None when none is set or what's saved can't be used."""

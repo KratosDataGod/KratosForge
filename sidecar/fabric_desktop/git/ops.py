@@ -9,7 +9,6 @@ it fast-forwards, or merges when the person chose Merge.
 from __future__ import annotations
 
 import builtins  # Operations.list hides the builtin in its class's annotations
-import datetime as dt
 import os
 import re
 import shutil
@@ -22,6 +21,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..timeutil import now_iso as _now
+from ..winexe import system32
 from . import cli
 from .cli import GitError
 from .remote import check_url, repo_name
@@ -32,8 +33,6 @@ KEEP = 50  # finished operations remembered for the page
 _PROGRESS = re.compile(r"(?P<phase>[A-Za-z][A-Za-z ]+):\s+(?P<pct>\d{1,3})%")
 
 
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
 def _writable_then_retry(func: Callable[..., Any], path: str, _exc: BaseException) -> None:
@@ -70,7 +69,7 @@ class Operations:
             raise GitError(f"{folder} is a file, not a folder.", kind="invalid")
         folder.mkdir(parents=True, exist_ok=True)  # such as source\repos the first time
         name = (name or repo_name(url)).strip()
-        if not re.match(r"^[A-Za-z0-9._ -]{1,100}$", name) or name in (".", ".."):
+        if not re.fullmatch(r"^[A-Za-z0-9._ -]{1,100}$", name) or name in (".", ".."):
             raise GitError("A folder name is letters, numbers, spaces, . _ and -.", kind="invalid")
         dest = folder / name
         if dest.exists() and any(dest.iterdir()):
@@ -289,7 +288,7 @@ def _kill(proc: subprocess.Popen) -> None:
         return
     try:
         if _WINDOWS:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15,
+            subprocess.run([system32("taskkill.exe"), "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15,
                            creationflags=cli._NO_WINDOW)
         else:
             import os

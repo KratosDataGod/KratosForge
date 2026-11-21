@@ -264,8 +264,8 @@ def test_a_platform_in_fabric_without_the_new_functions_says_to_finish_or_repair
     out = center_of(svc, [HOST, GOLD])
     assert [n["kind"] for n in out["needs"]] == ["cross_env"]  # carries on, every risk flagged
     assert [p for p in out["problems"] if "risk" in p] == [
-        "The platform can't keep accepted shortcut risks yet: UDF_Platform has no list_shortcut_risks function. "
-        "After an update, a platform admin runs Platform > Settings > Finish or repair once."]
+        ("The platform can't keep accepted shortcut risks yet: UDF_Platform has no list_shortcut_risks function. "
+        "After an update, a platform admin runs Platform > Settings > Finish or repair once.")]
     for call in (lambda: svc.shortcut_accept_risk("lh-1|Tables/dbo/product", "cross_env", "On purpose"),
                  lambda: svc.shortcut_withdraw_risk("lh-1|Tables/dbo/product", "cross_env")):
         with pytest.raises(LookupError, match="can't keep accepted shortcut risks yet.*Finish or repair once"):

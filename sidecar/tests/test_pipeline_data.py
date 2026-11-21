@@ -248,3 +248,18 @@ def test_lookup_and_get_metadata_use_onelakes_short_read_limits(svc, monkeypatch
     assert r["state"] == "succeeded", r
     assert len(seen) == 2 and all(o == onelake.read_storage_options("tok") for o in seen)
     assert all(o["retry_timeout"] == onelake.READ_RETRY_TIMEOUT and o["bearer_token"] == "tok" for o in seen)
+
+
+def test_lookup_and_get_metadata_read_a_spark_table_with_deletion_vectors_and_column_mapping(svc):
+    """Fabric Spark's deleted rows stay deleted, and column-mapped columns keep their values and names."""
+    import shutil
+    from pathlib import Path
+    shutil.copytree(Path(__file__).parent / "fixtures" / "delta_spark" / "dv_cm", svc.lh / "Tables" / "dbo" / "spark")
+    r = start(svc, pipeline(lookup("All", table_ds("spark"), firstRowOnly=False),
+                            metadata("Meta", table_ds("spark"), ["structure"])))
+    acts = by_name(r)
+    assert r["state"] == "succeeded", r
+    rows = acts["All"]["output"]["value"]
+    assert sorted(row["id"] for row in rows) == [0, 1, 3, 4, 6, 7, 8, 9]  # Spark deleted 2 and 5
+    assert all(row["total"] == row["id"] * 10 for row in rows)  # the renamed column, not NULL
+    assert [f["name"] for f in acts["Meta"]["output"]["structure"]] == ["id", "total", "label", "p"]

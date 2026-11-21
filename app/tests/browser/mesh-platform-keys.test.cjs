@@ -126,7 +126,8 @@ const writes = () => app.calls.filter((c) => WRITES.includes(c.method) || (APPRO
 const sent = (method) => app.calls.filter((c) => c.method === method);
 const dialogTitle = () => page().getAttribute(".dialog", "aria-label");
 const settingRow = (text) => page().locator(".setting", { has: page().locator(".setting-text b", { hasText: text }) });
-const dialogButton = (name) => page().locator(".dialog .dialog-actions").getByRole("button", { name, exact: true });
+// Exactly this button; a step that creates in Fabric also carries its Preview tag (QA-020).
+const dialogButton = (name) => page().locator(".dialog .dialog-actions").getByRole("button", { name: new RegExp(`^${name}( ?Preview)?$`) });
 const waitDialog = (title) => page().waitForFunction((t) => document.querySelector(".dialog")?.getAttribute("aria-label") === t, title);
 const noDialog = () => page().waitForFunction(() => !document.querySelector(".dialog"));
 const toastText = async (re) => {

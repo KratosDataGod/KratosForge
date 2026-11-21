@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from . import jsonfile
+from .timeutil import parse_time as _parse
 
 SCHEMA = "kratosforge/profile@1"
 RULES_VERSION = 5   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked;
@@ -490,11 +491,6 @@ def _span_days(stamps: list[str | None]) -> int:
     return (times[-1] - times[0]).days if len(times) > 1 else 0
 
 
-def _parse(stamp: str | None) -> dt.datetime | None:
-    try:
-        return dt.datetime.fromisoformat(stamp) if stamp else None
-    except ValueError:
-        return None
 
 
 # ---- impact: measured results only (KF-DX-009)
@@ -582,8 +578,8 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
         (f"Proved {m} notebook{'s' if m != 1 else ''} gave the same results on a workstation and in Microsoft Fabric."
          if m else "")) if x)
     lines = ["# Engineering accomplishments", "", f"{md(name)}{' · ' + md(who['role']) if who.get('role') else ''} · {period}", "",
-          "Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
-          "(worded from verified evidence) or Not measured.", "", "## Executive summary", ""]
+          ("Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
+          "(worded from verified evidence) or Not measured."), "", "## Executive summary", ""]
     if entered:
         lines.append(f"{entered} *(Entered by you)*")
     elif generated:
@@ -678,8 +674,8 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     if include_achievements:
         p = progression(profile)
         lines += ["", "## KratosForge achievements", "",
-               f"Level {p['level']}, {p['xp']} XP. Levels and achievements are motivational and are "
-               "not a skill rating."]
+               (f"Level {p['level']}, {p['xp']} XP. Levels and achievements are motivational and are "
+               "not a skill rating.")]
         lines += [f"- {a['name']}: {a['description']}" for a in p["achievements"]]
     lines += ["", "## Evidence appendix", ""]
     for r in rows:

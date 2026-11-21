@@ -15,13 +15,17 @@ use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
 mod crash;
 mod deep_link;
+mod disk_space;
+mod engine_folder;
 mod engine_patch;
 mod exe_name;
 mod folder_pick;
 mod policy_file;
+mod policy_registry;
 mod policy_trust;
 mod replies;
 mod signature;
+mod ssms_link;
 mod update_guard;
 mod vscode_link;
 mod watchdog;
@@ -53,14 +57,19 @@ fn setting(text: &str, key: &str) -> Option<String> {
 }
 
 /// The organization's policy file (%ProgramData%\FabricDesktop\policy.json), or when it can't be
-/// read, the last copy the sidecar could read (policy_file.rs); empty for no policy.
+/// read, the last copy the sidecar could read (policy_file.rs), with Group Policy's values laid over
+/// it (policy_registry.rs); empty for no policy.
 fn policy_text() -> String {
-    let Some(dir) = std::env::var_os("ProgramData") else { return String::new() };
-    policy_file::text(&PathBuf::from(dir).join("FabricDesktop").join("policy.json"), &data_dir().join("policy-last-good.json"))
+    let file = match std::env::var_os("ProgramData") {
+        Some(dir) => policy_file::text(&PathBuf::from(dir).join("FabricDesktop").join("policy.json"),
+                                       &data_dir().join("policy-last-good.json")),
+        None => String::new(),
+    };
+    policy_registry::overlay(&file, &policy_registry::read())
 }
 
 /// Whether the app may update itself. An organization that rolls out builds itself sets
-/// `"auto_update": false` in its policy file; only that file can turn updates off.
+/// `"auto_update": false` in its policy file or Group Policy; only those can turn updates off.
 fn auto_update_allowed() -> bool {
     policy_allows_updates(&policy_text())
 }
@@ -93,15 +102,27 @@ fn engine_mirror() -> Option<String> {
 
 /// The engine folder to use, or why a valid one in a managed policy file is ignored. The file's
 /// permissions are checked before it is read, so what is read is what only administrators wrote.
+/// Group Policy's `engine_download_url` is trusted the same way: only when the account running the
+/// app couldn't change its key (policy_registry::admin_only).
 fn engine_mirror_state() -> Result<Option<String>, String> {
-    let Some(dir) = std::env::var_os("ProgramData") else { return Ok(None) };
-    let file = PathBuf::from(dir).join("FabricDesktop").join("policy.json");
-    let trusted = policy_trust::admin_only(&file);
-    let text = std::fs::read_to_string(&file).unwrap_or_default();
-    if policy_allows_updates(&text) {
+    let file = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
+    let file_trusted = file.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only);
+    let registry_trusted = policy_registry::admin_only(&[]);
+    let found = policy_registry::read();
+    let text = policy_registry::overlay(&file.map(|f| std::fs::read_to_string(f).unwrap_or_default()).unwrap_or_default(), &found);
+    let trusted = if policy_registry::sets(&found, "engine_download_url") { registry_trusted } else { file_trusted };
+    mirror_from(&text, trusted)
+}
+
+/// engine_mirror_state's rule for the policy's `text` (the file with Group Policy laid over it), given
+/// whether only administrators could have written the source of `engine_download_url`: an engine
+/// folder only with `"auto_update": false`, a valid address, and a trusted source; a valid address
+/// from an untrusted source is why it is ignored.
+fn mirror_from(text: &str, trusted: Result<(), String>) -> Result<Option<String>, String> {
+    if policy_allows_updates(text) {
         return Ok(None);
     }
-    match (policy_engine_url(&text), trusted) {
+    match (policy_engine_url(text), trusted) {
         (Some(url), Ok(())) => Ok(Some(url)),
         (Some(_), Err(why)) => Err(why),
         (None, _) => Ok(None),
@@ -122,11 +143,24 @@ fn policy_engine_url(text: &str) -> Option<String> {
 }
 
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
-/// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file. Only that
-/// file can set it; a missing or unreadable file means none (its last good copy isn't used).
+/// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file or Group Policy.
+/// Only those can set it, and only when the account running the app couldn't change them
+/// (policy_registry::trusted_hosts); a missing or unreadable file means none (its last good copy isn't used).
 fn fabric_view_sign_in_hosts() -> Vec<String> {
-    let Some(dir) = std::env::var_os("ProgramData") else { return Vec::new() };
-    policy_sign_in_hosts(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+    sign_in_hosts_state().0
+}
+
+/// The sign-in hosts, and why a source's were ignored ("" for none).
+fn sign_in_hosts_state() -> (Vec<String>, String) {
+    let path = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
+    let file = path.as_deref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    let file_hosts = policy_sign_in_hosts(&file);
+    let file_ok = if file_hosts.is_empty() { Ok(()) } else { path.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only) };
+    let found = policy_registry::read();
+    let registry = policy_registry::sets(&found, "fabric_view_sign_in_hosts")
+        .then(|| policy_sign_in_hosts(&policy_registry::overlay("", &found)));
+    let registry_ok = if registry.is_some() { policy_registry::admin_only(&["fabric_view_sign_in_hosts"]) } else { Ok(()) };
+    policy_registry::trusted_hosts(file_hosts, file_ok, registry, registry_ok)
 }
 
 /// The valid entries of `fabric_view_sign_in_hosts`, lower-cased; invalid ones are skipped.
@@ -224,8 +258,14 @@ mod policy_tests {
 /// sidecar's app_settings.py.
 fn release_tag() -> &'static str {
     let user = std::fs::read_to_string(data_dir().join("app-settings.json")).unwrap_or_default();
-    for text in [policy_text(), user] {
-        match setting(&text, "channel").as_deref() {
+    channel_tag(&policy_text(), &user)
+}
+
+/// release_tag's rule: the first of the policy file's and then the person's `"channel"` that is
+/// "preview" or "stable" decides; anything else, or neither, is Stable.
+fn channel_tag(policy: &str, user: &str) -> &'static str {
+    for text in [policy, user] {
+        match setting(text, "channel").as_deref() {
             Some("preview") => return "latest",
             Some("stable") => return "stable",
             _ => {}
@@ -259,14 +299,25 @@ fn own_engine_only() -> bool {
 
 /// Only this exe's own engine build when own_engine_only, never a newer one (#418).
 fn check_engine_build(commit: &str) -> Result<(), String> {
-    if !own_engine_only() || commit.eq_ignore_ascii_case(BUILD_COMMIT) {
+    engine_build_allowed(commit, BUILD_COMMIT, own_engine_only, auto_update_allowed)
+}
+
+/// check_engine_build's rule for the engine build `commit`, in an app built from `own`. `own_only`
+/// and `updates_allowed` are asked only when needed, in that order, as check_engine_build asks them.
+fn engine_build_allowed(
+    commit: &str,
+    own: &str,
+    own_only: impl FnOnce() -> bool,
+    updates_allowed: impl FnOnce() -> bool,
+) -> Result<(), String> {
+    if !own_only() || commit.eq_ignore_ascii_case(own) {
         return Ok(());
     }
-    if auto_update_allowed() {
+    if updates_allowed() {
         return Err(format!(
             "This signed build runs only its own engine (build {}), and the engine offered is build {}, so it wasn't \
              installed. The next app update brings its engine with it.",
-            BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT),
+            own.get(..7).unwrap_or(own),
             commit.get(..7).unwrap_or(commit)
         ));
     }
@@ -274,7 +325,7 @@ fn check_engine_build(commit: &str) -> Result<(), String> {
         "Your organization rolls out builds itself, and the engine offered is build {}, not this app's build {}, \
          so it wasn't installed. Ask IT for the current KratosForge exe.",
         commit.get(..7).unwrap_or(commit),
-        BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT)
+        own.get(..7).unwrap_or(own)
     ))
 }
 
@@ -288,7 +339,12 @@ fn missing_release_file(err: &str) -> bool {
 
 /// The host the engine comes from: IT's own folder (engine_download_url) or GitHub.
 fn download_host() -> String {
-    engine_mirror()
+    mirror_host(engine_mirror())
+}
+
+/// The host of IT's engine folder `mirror`, or GitHub's without one (or when it has no host).
+fn mirror_host(mirror: Option<String>) -> String {
+    mirror
         .and_then(|folder| Url::parse(&folder).ok()?.host_str().map(str::to_string))
         .unwrap_or_else(|| "github.com".into())
 }
@@ -303,7 +359,10 @@ fn network_failure(err: &str) -> bool {
 /// A failed engine download, after one line that says what to do when the network was the cause.
 /// The original line stays in brackets for IT.
 fn explain_download(err: &str, host: &str) -> String {
-    let hint = if err.contains("curl: (60)") {
+    let hint = if (err.contains("curl: (60)") || err.contains("curl: (35)")) && certificate_dates(err) {
+        format!("HTTPS to {host} was refused because its certificate isn't valid at this PC's date and time. Check \
+                 that Windows' date, time and time zone are right (Settings > Time & language > Set time automatically).")
+    } else if err.contains("curl: (60)") {
         format!("HTTPS to {host} was refused because its certificate isn't trusted on this PC. If your network \
                  inspects HTTPS, ask IT to add its root certificate to Windows.")
     } else if err.contains("curl: (35)") {
@@ -328,8 +387,24 @@ fn explain_download(err: &str, host: &str) -> String {
     format!("{hint} ({err})")
 }
 
+/// Whether curl refused a certificate for its dates (expired or not valid yet), which a wrong PC clock
+/// causes too: OpenSSL's words, and Schannel's codes and words on Windows.
+fn certificate_dates(err: &str) -> bool {
+    let low = err.to_ascii_lowercase();
+    ["certificate has expired", "certificate is not yet valid", "not within its validity period", "sec_e_cert_expired",
+     "cert_e_expired", "0x80090328", "0x800b0101"]
+        .iter()
+        .any(|t| low.contains(t))
+}
+
 fn release_file(tag: &str, file: &str) -> String {
-    match engine_mirror() {
+    release_url(engine_mirror(), tag, file)
+}
+
+/// Where `file` of release `tag` is downloaded from: IT's engine folder `mirror` when there is one,
+/// otherwise the GitHub release.
+fn release_url(mirror: Option<String>, tag: &str, file: &str) -> String {
+    match mirror {
         Some(folder) => format!("{folder}/{file}"),
         None => format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}"),
     }
@@ -413,21 +488,54 @@ fn engine_root() -> PathBuf {
     data_dir().join("engine")
 }
 
+/// IT's engine folder (engine_folder.rs, Preview): None when the policy file doesn't set one,
+/// otherwise this build's python.exe there or why it can't be used. The policy file's permissions
+/// are checked before it is read, as for engine_download_url.
+fn it_engine() -> Option<Result<PathBuf, String>> {
+    let file = PathBuf::from(std::env::var_os("ProgramData")?).join("FabricDesktop").join("policy.json");
+    let trusted = policy_trust::admin_only(&file);
+    let text = std::fs::read_to_string(&file).ok()?;
+    let checks = engine_folder::Checks {
+        policy: trusted,
+        engine: &policy_trust::admin_only_engine,
+        ancestor: &policy_trust::admin_only_ancestor,
+    };
+    engine_folder::resolve(&text, policy_allows_updates(&text), BUILD_COMMIT, checks).transpose()
+}
+
 /// This build's engine, or failing that another build's, which can still run the
 /// startup check that then updates this exe or the engine. A signed build runs only its own
-/// (own_engine_only); a missing one is installed from this build's release.
+/// (own_engine_only); a missing one is installed from this build's release. When IT keeps the
+/// engine in a folder of its own, only that one, and none when it can't be used (install_engine
+/// then says why).
 fn engine_python() -> Option<PathBuf> {
     if !bundled() {
         return None;
     }
-    let exact = engine_root().join(BUILD_COMMIT).join("python.exe");
+    pick_engine(it_engine, &engine_root(), BUILD_COMMIT, signed_build)
+}
+
+/// engine_python's choice in `root` for build `own`: IT's folder when `it` names one (and nothing
+/// when that can't be used), else this build's engine, else (unless `signed`) another build's,
+/// skipping hidden folders such as a download being unpacked. `it` and `signed` are asked only
+/// when needed, in that order.
+fn pick_engine(
+    it: impl FnOnce() -> Option<Result<PathBuf, String>>,
+    root: &Path,
+    own: &str,
+    signed: impl FnOnce() -> bool,
+) -> Option<PathBuf> {
+    if let Some(it) = it() {
+        return it.ok();
+    }
+    let exact = root.join(own).join("python.exe");
     if exact.exists() {
         return Some(exact);
     }
-    if signed_build() {
+    if signed() {
         return None;
     }
-    std::fs::read_dir(engine_root())
+    std::fs::read_dir(root)
         .ok()?
         .flatten()
         .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
@@ -486,20 +594,30 @@ fn run_schedule_arg(args: &[String]) -> Option<&str> {
     }
 }
 
+/// The interpreter a scheduled run uses: pythonw.exe next to `python` when it is there, so no
+/// console window opens, otherwise `python` itself.
+fn schedule_interpreter(python: String) -> std::ffi::OsString {
+    let pythonw = PathBuf::from(&python).with_file_name("pythonw.exe");
+    if pythonw.exists() { pythonw.into_os_string() } else { python.into() }
+}
+
 /// Runs the current engine's `run-schedule`, windowless, in the task's working folder, and returns
 /// its exit code for Task Scheduler's "last result". No window and no single-instance claim: an
 /// open copy of the app isn't involved.
 fn run_schedule(id: &str) -> i32 {
     let Ok(python) = python() else { return 2 };
-    let pythonw = PathBuf::from(&python).with_file_name("pythonw.exe");
-    let mut cmd = Command::new(if pythonw.exists() { pythonw.into_os_string() } else { python.into() });
+    let mut cmd = Command::new(schedule_interpreter(python));
     cmd.args(["-m", "fabric_desktop.cli", "run-schedule", id])
         .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+        .envs(win_proxy::engine_env().iter().cloned())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     hide_window(&mut cmd);
-    cmd.status().ok().and_then(|s| s.code()).unwrap_or(1)
+    match cmd.status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(e) => schedule_start_failed(e.raw_os_error()),
+    }
 }
 
 fn hide_window(cmd: &mut Command) {
@@ -538,7 +656,11 @@ fn unix_now() -> i64 {
 
 /// The build the exe that started this one updated to (`--updated-to <commit>`).
 fn updated_to_arg() -> Option<String> {
-    let args: Vec<String> = std::env::args().collect();
+    updated_to(&std::env::args().collect::<Vec<_>>())
+}
+
+/// The value after the first `--updated-to` in `args`, if there is one.
+fn updated_to(args: &[String]) -> Option<String> {
     args.iter().position(|a| a == "--updated-to").and_then(|i| args.get(i + 1)).cloned()
 }
 
@@ -548,20 +670,26 @@ fn apply_release_rule(latest: &mut Value) {
     if BUILD_COMMIT.is_empty() || latest["commit"].as_str().is_none() {
         return;
     }
-    let tag = latest["tag"].as_str().unwrap_or(release_tag()).to_string();
-    let path = update_state();
-    match update_guard::check_manifest(latest, update_guard::load_seen(&path, &tag).as_ref(), unix_now()) {
-        Ok(seen) => match update_guard::refused_as_failed(&seen.commit, &update_guard::failed_builds(&path)) {
+    let channel = release_tag();
+    release_rule(latest, channel, &update_state(), unix_now());
+}
+
+/// The release rule itself: `channel` is the release this PC follows when the report names none,
+/// `path` is update-state.json and `now` the Unix time.
+fn release_rule(latest: &mut Value, channel: &str, path: &Path, now: i64) {
+    let tag = latest["tag"].as_str().unwrap_or(channel).to_string();
+    match update_guard::check_manifest(latest, update_guard::load_seen(path, &tag).as_ref(), now) {
+        Ok(seen) => match update_guard::refused_as_failed(&seen.commit, &update_guard::failed_builds(path)) {
             None => {
-                let _ = update_guard::remember(&path, &tag, Some(&seen));
+                let _ = update_guard::remember(path, &tag, Some(&seen));
             }
             Some(reason) => {
-                let _ = update_guard::remember(&path, &tag, None);
+                let _ = update_guard::remember(path, &tag, None);
                 latest["refused"] = json!(reason);
             }
         },
         Err(reason) => {
-            let _ = update_guard::remember(&path, &tag, None);
+            let _ = update_guard::remember(path, &tag, None);
             latest["refused"] = json!(reason);
         }
     }
@@ -569,22 +697,83 @@ fn apply_release_rule(latest: &mut Value) {
 
 /// Windows' answers when application control refuses to start a program: AppLocker or Software
 /// Restriction Policies (ERROR_ACCESS_DISABLED_BY_POLICY), App Control for Business / WDAC
-/// (ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION).
-const APP_CONTROL_BLOCKED: [i32; 2] = [1260, 4551];
+/// (ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION), and an unsigned file under a signing policy
+/// (ERROR_INVALID_IMAGE_HASH).
+const APP_CONTROL_BLOCKED: [i32; 3] = [1260, 4551, 577];
 
 /// Why the engine's Python didn't start, in words that say what to do: application control is
 /// named with the folder IT allows, and a missing file isn't called blocked (or the reverse).
 fn python_failed(e: &std::io::Error) -> String {
-    let folder = python().ok().and_then(|p| PathBuf::from(p).parent().map(|d| d.display().to_string()))
-        .unwrap_or_else(|| engine_root().display().to_string());
-    python_failed_text(e.raw_os_error(), &e.to_string(), &folder)
+    python_failed_for(e.raw_os_error(), &e.to_string(), python().ok(), engine_root, || it_engine().is_some())
+}
+
+/// python_failed's words for error `code` / `error`: the folder is that of `python` (the interpreter
+/// it tried), else `root`'s, and `managed` says whether IT keeps the engine. `root` and `managed` are
+/// asked only when needed, in that order, as python_failed asks them.
+fn python_failed_for(
+    code: Option<i32>,
+    error: &str,
+    python: Option<String>,
+    root: impl FnOnce() -> PathBuf,
+    managed: impl FnOnce() -> bool,
+) -> String {
+    let folder = python.and_then(|p| PathBuf::from(p).parent().map(|d| d.display().to_string()))
+        .unwrap_or_else(|| root().display().to_string());
+    let text = python_failed_text(code, error, &folder);
+    if managed() { managed_engine_text(code, text) } else { text }
+}
+
+/// With IT's own engine folder the person can't delete or repair it, so a file that may have
+/// changed (577) goes to IT, who copies the engine there again before allowing anything.
+fn managed_engine_text(code: Option<i32>, text: String) -> String {
+    if code != Some(577) {
+        return text;
+    }
+    text.replacen(
+        "close KratosForge, delete the folder",
+        "ask IT to copy this build's engine into",
+        1,
+    )
+    .replacen(", and start KratosForge again to download a fresh engine.", " again.", 1)
+}
+
+/// Why the engine didn't start. Application control's line stands on its own; anything else keeps
+/// saying it was the engine.
+fn engine_start_failed(e: &std::io::Error) -> String {
+    engine_start_text(e.raw_os_error(), python_failed(e))
+}
+
+fn engine_start_text(code: Option<i32>, why: String) -> String {
+    match code {
+        Some(c) if APP_CONTROL_BLOCKED.contains(&c) => why,
+        _ => format!("Could not start the Python sidecar: {why}"),
+    }
+}
+
+/// A scheduled run's exit code when its engine couldn't be started: application control's own code,
+/// so Task Scheduler's "Last Run Result" shows why (0x000004EC is AppLocker), and 1 for anything else.
+fn schedule_start_failed(code: Option<i32>) -> i32 {
+    match code {
+        Some(c) if APP_CONTROL_BLOCKED.contains(&c) => c,
+        _ => 1,
+    }
 }
 
 fn python_failed_text(code: Option<i32>, error: &str, folder: &str) -> String {
     match code {
+        // 577 also means a file that changed after it was signed: a fresh engine comes first, so a
+        // hash rule never allows a changed file. A restart alone doesn't replace it (the startup
+        // check runs on the same Python), so the folder is deleted and the next start downloads it.
+        Some(577) => format!(
+            "Windows couldn't verify the signature on the engine's Python, so KratosForge can't start it. A file \
+             may have been changed: close KratosForge, delete the folder {folder}, and start KratosForge again to \
+             download a fresh engine. If it's still blocked, your organization's application control (App Control \
+             for Business, also called WDAC) is refusing it: ask IT to allow the engine's files in {folder}; the \
+             enterprise install guide lists the rules (Application control). ({error})"
+        ),
         Some(c) if APP_CONTROL_BLOCKED.contains(&c) => format!(
-            "Your organization's application control (AppLocker or App Control for Business) blocked the \
-             engine's Python, so KratosForge can't start it. Ask IT to allow the engine's files in {folder}; \
+            "Your organization's application control (AppLocker, or App Control for Business, also called \
+             WDAC) blocked the engine's Python, so KratosForge can't start it. Ask IT to allow the engine's files in {folder}; \
              the enterprise install guide lists the rules (Application control). ({error})"
         ),
         Some(2 | 3) => format!("Python was not found ({error})."),
@@ -597,6 +786,7 @@ fn updater(args: &[&str]) -> Result<Command, String> {
     // folder can shadow a standard library module.
     let mut cmd = Command::new(python()?);
     cmd.args(["-u", "-c", UPDATER]).args(args).current_dir(data_dir()).stdin(Stdio::null());
+    cmd.envs(win_proxy::engine_env().iter().cloned()); // the proxy Windows uses, when Python can't read it itself
     hide_window(&mut cmd);
     Ok(cmd)
 }
@@ -604,16 +794,45 @@ fn updater(args: &[&str]) -> Result<Command, String> {
 /// Runs an updater command, sending each output line to the UI as a
 /// `component-log` event. Returns the last lines of output when it fails, without the
 /// download's "progress <percent>" lines, which only drive the UI's progress label.
-fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
+fn stream(app: &tauri::AppHandle, cmd: Command) -> Result<(), String> {
+    stream_tail(app, cmd).map(|_| ())
+}
+
+/// The SHA-256 updater.py download-app printed last ("verified <sha256>"): the release checksum the
+/// download matched.
+fn verified_sha256(tail: &VecDeque<String>) -> Option<String> {
+    tail.iter().rev().find_map(|line| {
+        let sha = line.trim().strip_prefix("verified ")?.to_ascii_lowercase();
+        (sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())).then_some(sha)
+    })
+}
+
+/// stream, returning the updater's last lines (updater_tail) when it succeeds.
+fn stream_tail(app: &tauri::AppHandle, mut cmd: Command) -> Result<VecDeque<String>, String> {
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| python_failed(&e))?;
+    let tail = updater_tail(BufReader::new(child.stdout.take().expect("updater stdout")), |line| {
+        let _ = app.emit("component-log", line);
+    });
+    let mut stderr = String::new();
+    let _ = child.stderr.take().expect("updater stderr").read_to_string(&mut stderr);
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if status.success() {
+        return Ok(tail);
+    }
+    Err(updater_failure(tail, &stderr))
+}
+
+/// Reads the updater's output to the end, passing every line to `emit` (the page's log), and
+/// keeps the last 12 lines that aren't progress, for the error if it fails.
+fn updater_tail(out: impl BufRead, mut emit: impl FnMut(&String)) -> VecDeque<String> {
     let mut tail = VecDeque::new();
-    for line in BufReader::new(child.stdout.take().expect("updater stdout")).lines() {
+    for line in out.lines() {
         let line = line.unwrap_or_default();
-        let _ = app.emit("component-log", &line);
+        emit(&line);
         if line.starts_with("progress ") {
             continue;
         }
@@ -622,15 +841,14 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
         }
         tail.push_back(line);
     }
-    let mut stderr = String::new();
-    let _ = child.stderr.take().expect("updater stderr").read_to_string(&mut stderr);
-    let status = child.wait().map_err(|e| e.to_string())?;
-    if status.success() {
-        return Ok(());
-    }
+    tail
+}
+
+/// A failed update's error: the last 12 lines of its output followed by what it wrote to stderr.
+fn updater_failure(mut tail: VecDeque<String>, stderr: &str) -> String {
     tail.extend(stderr.lines().map(str::to_string));
     let start = tail.len().saturating_sub(12);
-    Err(tail.iter().skip(start).cloned().collect::<Vec<_>>().join("\n"))
+    tail.iter().skip(start).cloned().collect::<Vec<_>>().join("\n")
 }
 
 /// Several calls can be in flight at once: each writes its request line, then waits for the
@@ -733,10 +951,15 @@ impl Sidecar {
         let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
             .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+            // The proxy Windows uses (PAC, WPAD, or one set for the whole PC), which the engine,
+            // pip, delta-rs and gRPC can't read themselves (win_proxy.rs).
+            .envs(win_proxy::engine_env().iter().cloned())
             // So a schedule that also runs while signed out can run this exe (run_schedule_arg).
             .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
             .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
+            // And why the organization's Fabric view sign-in hosts aren't used.
+            .env("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", sign_in_hosts_state().1)
             .current_dir(data_dir())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -869,7 +1092,7 @@ impl SidecarState {
     fn start_into(&self, guard: &mut Option<Arc<Sidecar>>) -> Result<(), String> {
         if guard.is_none() {
             self.crash_loop.lock().map_err(|e| e.to_string())?.may_start(std::time::Instant::now(), &data_dir())?;
-            let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {}", python_failed(&e)))?;
+            let sidecar = Sidecar::start().map_err(|e| engine_start_failed(&e))?;
             *self.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
             *guard = Some(Arc::new(sidecar));
         }
@@ -1001,21 +1224,18 @@ async fn rpc(
     let result = tauri::async_runtime::spawn_blocking(move || engine.call(&method, params))
         .await
         .map_err(|e| e.to_string())?;
-    let ended = matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK) || e.starts_with(SIDECAR_EXITED));
+    let outcome = call_outcome(&result, sidecar.stopped.load(Ordering::SeqCst), sidecar.started.elapsed(), first_call);
     if let Ok(mut crash_loop) = state.crash_loop.lock() {
-        match &result {
+        if let Some(why) = &outcome.crashed {
             // Counted once, however many calls were waiting on the engine that ended.
-            Err(e) if e.starts_with(SIDECAR_EXITED) && !sidecar.stopped.load(Ordering::SeqCst) => {
-                if !sidecar.counted.swap(true, Ordering::SeqCst) {
-                    let why: Vec<&str> = e.lines().skip(1).filter(|l| !l.starts_with("Full log: ")).collect();
-                    let why = if why.is_empty() { "nothing was written to its log".to_string() } else { why.join(" | ") };
-                    crash_loop.ended(sidecar.started.elapsed(), std::time::Instant::now(), &why);
-                }
+            if !sidecar.counted.swap(true, Ordering::SeqCst) {
+                crash_loop.ended(sidecar.started.elapsed(), std::time::Instant::now(), why);
             }
-            _ if !ended && sidecar.started.elapsed() >= crash::SOON => crash_loop.settled(),
-            _ => {}
+        } else if outcome.settled {
+            crash_loop.settled();
         }
     }
+    let ended = outcome.ended;
     if ended {
         // Ended by the time limit, Stop or a crash: the next call starts a fresh one, unless
         // another call already did.
@@ -1024,12 +1244,43 @@ async fn rpc(
             *guard = None;
         }
     }
-    if first_call && matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
+    if outcome.forget_verified {
         // It would not even start: have the next startup check load the engine again
         // rather than trusting that this build worked before.
         let _ = std::fs::remove_file(data_dir().join("engine-verified.json"));
     }
     result
+}
+
+/// What one engine call's result means for the engine and the crash-loop count (rpc acts on it).
+#[derive(Debug, Default, PartialEq)]
+struct CallOutcome {
+    /// The engine ended on its own (not Stop or an update): why, from the end of its log, to count
+    /// toward a crash loop.
+    crashed: Option<String>,
+    /// The engine answered (even with an error of its own) after running past crash::SOON, so an
+    /// earlier crash loop is over.
+    settled: bool,
+    /// The engine is gone (crashed, stopped or stuck), so the next call starts a fresh one.
+    ended: bool,
+    /// It ended on the very first call: the next startup check should load the engine again.
+    forget_verified: bool,
+}
+
+/// `result` of a call to an engine that was `stopped` on purpose or not and had run for `ran`;
+/// `first_call` when it was the engine's first call.
+fn call_outcome(result: &Result<Value, String>, stopped: bool, ran: std::time::Duration, first_call: bool) -> CallOutcome {
+    let exited = matches!(result, Err(e) if e.starts_with(SIDECAR_EXITED));
+    let ended = exited || matches!(result, Err(e) if e.starts_with(SIDECAR_STUCK));
+    let crashed = match result {
+        Err(e) if exited && !stopped => {
+            let why: Vec<&str> = e.lines().skip(1).filter(|l| !l.starts_with("Full log: ")).collect();
+            Some(if why.is_empty() { "nothing was written to its log".to_string() } else { why.join(" | ") })
+        }
+        _ => None,
+    };
+    let settled = crashed.is_none() && !ended && ran >= crash::SOON;
+    CallOutcome { crashed, settled, ended, forget_verified: first_call && exited }
 }
 
 /// Stops a running notebook cell by ending the sidecar process. The blocked
@@ -1307,6 +1558,22 @@ fn run_tool(mut cmd: Command, what: &str) -> Result<(), String> {
 /// engine already has the release's Python and packages, only the engine's own code is
 /// downloaded (engine_patch.rs); the whole engine is the fallback.
 fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(it) = it_engine() {
+        // Never install into IT's folder, and never fall back to the per-user engine their rules block.
+        return Err(match it {
+            Ok(python) => format!(
+                "Your organization manages the engine in {}, so KratosForge doesn't install or repair it. Ask IT to \
+                 copy this build's engine there again.",
+                python.parent().unwrap_or(&python).display()
+            ),
+            Err(why) => why,
+        });
+    }
+    // A full or read-only profile disk (shared and virtual desktops) is said plainly (disk_space.rs).
+    install_engine_into(app).map_err(|e| disk_space::explain(&e, &engine_root()))
+}
+
+fn install_engine_into(app: &tauri::AppHandle) -> Result<String, String> {
     let say = |line: &str| {
         let _ = app.emit("component-log", line);
     };
@@ -1330,7 +1597,8 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         }
     }
 
-    say("Downloading the engine (Python and its packages, about 150 MB)…");
+    disk_space::check_room(&root, disk_space::free_bytes(&root))?;
+    say("Downloading the engine (Python and its packages, about 330 MB)…");
     let mut result = Err(String::new());
     let mut release = Value::Null;
     let mut release_tag_used = "";
@@ -1563,6 +1831,17 @@ struct ExeHandover<'a> {
     marker: PathBuf,
     commit: &'a str,
     child: Option<Child>,
+    /// The SHA-256 the download was verified against (the channel release's version.json, via
+    /// updater.py download-app): swap checks the file against it again once it holds it, and once
+    /// it is in place, so a change while the swap waited on a scanner is never installed.
+    checked_sha256: String,
+}
+
+fn sha256_of(r: &mut dyn std::io::Read) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    std::io::copy(r, &mut hasher)?;
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 impl update_guard::Handover for ExeHandover<'_> {
@@ -1572,7 +1851,14 @@ impl update_guard::Handover for ExeHandover<'_> {
     }
 
     fn swap(&mut self) -> Result<(), String> {
-        update_guard::swap_in(&self.exe, &self.new, &self.old)
+        let checked = &self.checked_sha256;
+        update_guard::swap_in_checked(&self.exe, &self.new, &self.old, |r| {
+            match sha256_of(r) {
+                Ok(now) if now == *checked => Ok(()),
+                Ok(_) => Err("The new build changed after it was checked, so it wasn't installed. Try the update again.".into()),
+                Err(e) => Err(format!("Could not read the new build to check it again: {e}")),
+            }
+        })
     }
 
     fn spawn(&mut self) -> Result<(), String> {
@@ -1651,11 +1937,12 @@ async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri
         return Err("Your organization rolls out new builds itself, so the app doesn't update itself.".into());
     }
     let exe = app_exe().map_err(|e| e.to_string())?;
+    update_guard::can_update_in_place(&exe)?;
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
     let target = download_offered(&app, commit.to_ascii_lowercase(), &dest);
-    let target = match target {
+    let (target, checked_sha256) = match target {
         Ok(t) => t,
         Err(e) => {
             let _ = std::fs::remove_file(&new); // a partial or unchecked download is never left behind
@@ -1669,13 +1956,13 @@ async fn update_app(app: tauri::AppHandle, webview: tauri::Webview, state: tauri
         return Err(why);
     }
     update_guard::hand_over(&mut ExeHandover {
-        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None, checked_sha256,
     })
 }
 
 /// Downloads the build the channel offers now to `dest`, following it once if it moves on during
-/// the download (update_app). Returns the build downloaded.
-fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<String, String> {
+/// the download (update_app). Returns the build downloaded and the SHA-256 it was verified against.
+fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<(String, String), String> {
     for attempt in 0..2 {
         let offered = offered_now()?;
         if offered != target {
@@ -1692,8 +1979,12 @@ fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> R
         }
         // The download runs the updater with its own Python, not the engine, so the engine keeps
         // running until the file is here and checked.
-        match stream(app, updater(&["download-app", dest, &target])?) {
-            Ok(()) => return Ok(target),
+        match stream_tail(app, updater(&["download-app", dest, &target])?) {
+            Ok(tail) => {
+                return verified_sha256(&tail)
+                    .map(|sha| (target, sha))
+                    .ok_or_else(|| "The download wasn't checked against its release, so it wasn't installed.".into());
+            }
             Err(out) => {
                 let last = out.lines().last().unwrap_or_default().trim().to_string();
                 if last.starts_with("moved ") && attempt == 0 {
@@ -1842,7 +2133,9 @@ static FABRIC_SHOWN: Mutex<BTreeMap<&'static str, String>> = Mutex::new(BTreeMap
 
 /// Shows the calling window's Fabric view over the page's placeholder, creating it the first time.
 /// Coordinates are CSS pixels inside the window, which are Tauri's logical pixels.
+// Each argument is a field the page sends by name; one struct would change the call the page makes.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn fabric_view_show(
     app: tauri::AppHandle,
     window: tauri::Window,
@@ -2312,7 +2605,7 @@ async fn fabric_view_sign_out(app: tauri::AppHandle) -> Result<(), String> {
 
 /// The sections that pop out, with their window titles: Monitor's From KratosForge list and
 /// Fabric's Monitoring hub.
-const POP_OUTS: [(&str, &str); 2] = [("runs", "From KratosForge"), ("fabric", "Fabric Monitoring hub")];
+const POP_OUTS: [(&str, &str); 3] = [("runs", "From KratosForge"), ("fabric", "Fabric Monitoring hub"), ("report", "Notebook report")];
 const POP_OUT_PREFIX: &str = "pop-out-";
 
 fn pop_out_label(section: &str) -> String {
@@ -2437,7 +2730,7 @@ async fn pop_out_open(app: tauri::AppHandle, section: String, on_top: Option<boo
         .collect();
     let builder = match saved_place(&pop_out_places(), &section).filter(|p| place_on_screen(*p, &screens)) {
         Some([x, y, w, h]) => builder.position(x, y).inner_size(w, h),
-        None => builder.inner_size(if section == "fabric" { 1100.0 } else { 720.0 }, 640.0).center(),
+        None => builder.inner_size(match section.as_str() { "fabric" => 1100.0, "report" => 920.0, _ => 720.0 }, 640.0).center(),
     };
     builder.build().map_err(|e| e.to_string())?;
     let _ = app.emit("pop-out", json!({"section": section, "open": true}));
@@ -2548,6 +2841,73 @@ fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
     open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
 }
 
+/// Open in SSMS on the Warehouse page: where SSMS is. `chosen` is a folder or ssms.exe the person
+/// picked earlier ("Choose SSMS's folder…"), used when it still holds SSMS; otherwise SSMS 22, then
+/// 21, where they install by default. Only an ssms.exe signed by Microsoft counts. None when none is
+/// found. The page only learns whether SSMS was found: open_in_ssms finds it again itself.
+#[tauri::command]
+fn ssms_find(chosen: Option<String>) -> Option<String> {
+    find_ssms(chosen).and_then(|p| p.to_str().map(String::from))
+}
+
+fn find_ssms(chosen: Option<String>) -> Option<PathBuf> {
+    if let Some(c) = chosen.filter(|c| vscode_link::may_look_at(c)) {
+        let p = PathBuf::from(&c);
+        let exe = if p.is_dir() { p.join("SSMS.exe") } else { p };
+        if ssms_link::named_ssms(&exe) && exe.is_file() && ssms_trusted(&exe).is_ok() {
+            return Some(exe);
+        }
+    }
+    let pf = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+    ssms_link::candidates(&pf).into_iter().find(|p| p.is_file() && ssms_trusted(p).is_ok())
+}
+
+/// SSMS is started only when Windows trusts its signature and it names Microsoft (ssms_link.rs).
+fn ssms_trusted(exe: &Path) -> Result<(), String> {
+    ssms_link::microsoft_signed(&signature::signer(exe))
+}
+
+/// Opens SSMS on a warehouse, signed in with Microsoft Entra (ssms_link.rs). The page never names
+/// the program: SSMS is found here (find_ssms, from `chosen` or the default folders) and must be
+/// signed by Microsoft. `query`, when given, is written to a .sql file in the app's data folder
+/// (ssms\) and opened in a query window. Files there older than a day are removed first.
+#[tauri::command]
+fn open_in_ssms(chosen: Option<String>, server: String, database: String, user: String, query: Option<String>) -> Result<(), String> {
+    let program = find_ssms(chosen).ok_or("SSMS signed by Microsoft isn't on this PC, so it wasn't opened.")?;
+    ssms_trusted(&program)?;
+    ssms_link::args(&server, &database, &user, None)?;  // the connection is checked before any file is written
+    let file = match query.filter(|q| !q.trim().is_empty()) {
+        None => None,
+        Some(q) if q.len() > ssms_link::QUERY_MAX => return Err("The query is too long to hand to SSMS.".into()),
+        Some(q) => {
+            let dir = data_dir().join("ssms");
+            std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't save the query for SSMS: {e}"))?;
+            let day = std::time::Duration::from_secs(24 * 3600);
+            for old in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let stale = old.metadata().and_then(|m| m.modified()).ok()
+                    .and_then(|t| t.elapsed().ok()).is_some_and(|age| age > day);
+                if stale && old.path().extension().is_some_and(|e| e == "sql") {
+                    let _ = std::fs::remove_file(old.path());
+                }
+            }
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+            let path = dir.join(ssms_link::query_file_name(&database, stamp));
+            std::fs::write(&path, q).map_err(|e| format!("Couldn't save the query for SSMS: {e}"))?;
+            Some(path)
+        }
+    };
+    let args = ssms_link::args(&server, &database, &user, file.as_deref())?;
+    Command::new(&program).args(&args).spawn().map(|_| ()).map_err(|e| format!("Couldn't open SSMS: {e}"))
+}
+
+/// "Open in VS Code (MSSQL extension)" on the Warehouse page: VS Code's MSSQL extension, connected
+/// to the warehouse with Microsoft Entra (ssms_link::mssql_link).
+#[tauri::command]
+fn open_in_mssql(server: String, database: String, user: String) -> Result<(), String> {
+    let link = ssms_link::mssql_link(&server, &database, &user)?;
+    open_with_handler(&link, "VS Code. Is it installed, with the MSSQL extension?")
+}
+
 /// The folders Open in VS Code may open: the app's notebooks folder and the repositories opened
 /// in Source control (git_repos.json, as git_service.py keeps it).
 fn notebook_folders() -> Vec<PathBuf> {
@@ -2584,6 +2944,20 @@ async fn pick_folder(window: tauri::Window, start: Option<String>) -> Result<Opt
     tauri::async_runtime::spawn_blocking(move || std::thread::spawn(move || folder_pick::pick(owner, start)).join())
         .await.map_err(|e| e.to_string())?
         .map_err(|_| "The folder dialog stopped unexpectedly".to_string())?
+}
+
+/// Open .sql... and Save as .sql... on the SQL page (editor parity S38): the Windows file dialog, owned by
+/// the window that asked. `save_name` asks where to save (that name suggested); without it, which file to
+/// open. Returns the path, or None when the person cancels. The engine reads and writes the file.
+#[tauri::command]
+async fn pick_sql_file(window: tauri::Window, start: Option<String>, save_name: Option<String>) -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    let owner = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    #[cfg(not(windows))]
+    let owner = { let _ = &window; 0 };
+    tauri::async_runtime::spawn_blocking(move || std::thread::spawn(move || folder_pick::pick_sql(owner, start, save_name)).join())
+        .await.map_err(|e| e.to_string())?
+        .map_err(|_| "The file dialog stopped unexpectedly".to_string())?
 }
 
 /// Opens one of this repository's docs pages in the default browser, such as
@@ -2746,6 +3120,7 @@ fn main() {
     if let Some(id) = run_schedule_arg(&std::env::args().collect::<Vec<_>>()) {
         std::process::exit(run_schedule(id));
     }
+    win_proxy::warm_up(); // WPAD can take seconds: worked out while the window opens
     // A link is read before anything else. One that doesn't read as a link is never handed on:
     // the app only says it wasn't opened (and why, when this copy is the one that runs).
     // An organization that turned links off (register_link_scheme: false) gets none: no listener on
@@ -2767,6 +3142,9 @@ fn main() {
         let _ = std::fs::remove_file(exe.with_extension("exe.new"));
         let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
     }
+    // And by an engine install cut off part way (closed, asleep, power cut): the installed engine
+    // is whole, since an engine goes in place by one rename once complete; this gives the space back.
+    engine_patch::discard_unfinished(&engine_root());
     tauri::Builder::default()
         .manage(PendingLink(Mutex::new(pending)))
         .setup(move |app| {
@@ -2793,7 +3171,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(guarded(tauri::generate_handler![
             rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, ssms_find, open_in_ssms, open_in_mssql, take_pending_link, pick_folder, pick_sql_file,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ]))
         .run(tauri::generate_context!())
@@ -2867,6 +3245,35 @@ mod python_choice_tests {
         assert_eq!(choose_python(None, None, true).unwrap(), "python");
         assert_eq!(choose_python(Some("python3"), None, true).unwrap(), "python3");
         assert_eq!(choose_python(None, engine(), true).unwrap(), engine().unwrap().to_string_lossy());
+    }
+}
+
+#[cfg(test)]
+mod updated_to_tests {
+    use super::updated_to;
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_build_after_updated_to_is_read() {
+        assert_eq!(updated_to(&args(&["kf.exe", "--updated-to", "abc123"])).as_deref(), Some("abc123"));
+        assert_eq!(updated_to(&args(&["kf.exe", "--other", "--updated-to", "abc123", "more"])).as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn the_first_updated_to_counts() {
+        assert_eq!(updated_to(&args(&["kf.exe", "--updated-to", "first", "--updated-to", "second"])).as_deref(), Some("first"));
+    }
+
+    #[test]
+    fn without_a_value_or_the_flag_there_is_none() {
+        assert_eq!(updated_to(&args(&["kf.exe"])), None);
+        assert_eq!(updated_to(&args(&["kf.exe", "--updated-to"])), None);
+        assert_eq!(updated_to(&args(&["kf.exe", "--updated-to=abc123"])), None);
+        assert_eq!(updated_to(&args(&["kf.exe", "--UPDATED-TO", "abc123"])), None);
+        assert_eq!(updated_to(&[]), None);
     }
 }
 
@@ -2946,13 +3353,42 @@ mod integrity_tests {
     #[test]
     fn a_python_that_application_control_blocks_says_so_and_names_the_folder() {
         let folder = r"C:\Users\a\AppData\Local\FabricDesktop\engine\abc";
-        for code in [1260, 4551] {
+        for code in [1260, 4551, 577] {
             let text = python_failed_text(Some(code), "This program is blocked by group policy. (os error 1260)", folder);
-            assert!(text.starts_with("Your organization's application control"), "{text}");
-            assert!(text.contains(folder) && text.ends_with("(This program is blocked by group policy. (os error 1260))"));
+            assert!(text.contains("application control (") && text.contains("WDAC") && text.contains(folder), "{text}");
+            assert!(text.ends_with("(This program is blocked by group policy. (os error 1260))"));
+            // The engine's start says only that, not "Could not start the Python sidecar" before it.
+            assert_eq!(engine_start_text(Some(code), text.clone()), text);
+            assert_eq!(schedule_start_failed(Some(code)), code); // Task Scheduler shows the policy's code
         }
+        assert!(engine_start_text(Some(2), "Python was not found (x).".into()).starts_with("Could not start the Python sidecar: "));
+        assert_eq!(schedule_start_failed(Some(2)), 1);
+        assert_eq!(schedule_start_failed(None), 1);
+        let changed = python_failed_text(Some(577), "Windows cannot verify the digital signature for this file. (os error 577)", folder);
+        assert!(changed.starts_with("Windows couldn't verify the signature on the engine's Python"), "{changed}");
+        assert!(changed.contains(&format!("close KratosForge, delete the folder {folder}, and start KratosForge again")), "{changed}");
+        assert!(changed.contains("If it's still blocked, your organization's application control (App Control"), "{changed}");
+        assert!(!python_failed_text(Some(1260), "x", folder).contains("may have been changed"));
+        // IT's engine folder: the person can't delete it, so IT copies the engine there again.
+        let managed = managed_engine_text(Some(577), changed.clone());
+        assert!(managed.contains(&format!("A file may have been changed: ask IT to copy this build's engine into {folder} again.")), "{managed}");
+        assert!(!managed.contains("delete the folder") && managed.contains("If it's still blocked"));
+        assert_eq!(managed_engine_text(Some(1260), "x".into()), "x");
         assert_eq!(python_failed_text(Some(2), "not found", folder), "Python was not found (not found).");
         assert_eq!(python_failed_text(Some(5), "Access is denied", folder), "Python could not be started (Access is denied).");
+    }
+
+    #[test]
+    fn a_certificate_refused_for_its_dates_asks_to_check_the_clock() {
+        for err in ["curl: (60) SSL certificate problem: certificate has expired",
+                    "curl: (60) SSL certificate problem: certificate is not yet valid",
+                    "curl: (60) schannel: SEC_E_CERT_EXPIRED (0x80090328) - The received certificate has expired."] {
+            let text = explain_download(err, "github.com");
+            assert!(text.contains("this PC's date and time"), "{text}");
+            assert!(!text.contains("root certificate"), "{text}");
+        }
+        assert!(explain_download("curl: (60) SSL certificate problem: unable to get local issuer certificate", "github.com")
+            .contains("root certificate"));
     }
 
     #[test]
@@ -2990,6 +3426,23 @@ mod integrity_tests {
         let tool = system_tool("curl.exe");
         assert!(tool.ends_with("System32/curl.exe") || tool.ends_with("System32\\curl.exe"), "{}", tool.display());
         assert!(tool.is_absolute() || std::env::var_os("SystemRoot").is_none());
+    }
+}
+
+#[cfg(test)]
+mod schedule_interpreter_tests {
+    use super::schedule_interpreter;
+
+    #[test]
+    fn a_scheduled_run_prefers_pythonw_next_to_the_engines_python() {
+        let dir = std::env::temp_dir().join(format!("kf-schedule-python-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let python = dir.join("python.exe").display().to_string();
+        assert_eq!(schedule_interpreter(python.clone()), std::ffi::OsString::from(&python));
+        std::fs::write(dir.join("pythonw.exe"), "stand-in").unwrap();
+        assert_eq!(schedule_interpreter(python), dir.join("pythonw.exe").into_os_string());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
 
@@ -3120,6 +3573,7 @@ mod fabric_nav_tests {
     fn only_listed_sections_pop_out() {
         assert_eq!(pop_out_title("runs"), Ok("From KratosForge"));
         assert_eq!(pop_out_title("fabric"), Ok("Fabric Monitoring hub"));
+        assert_eq!(pop_out_title("report"), Ok("Notebook report"));
         for bad in ["", "main", "../runs", "runs?x=1", "Fabric"] {
             assert!(pop_out_title(bad).is_err(), "{bad}");
         }
@@ -3355,6 +3809,52 @@ mod embed_host_tests {
 }
 
 #[cfg(test)]
+mod python_failed_tests {
+    use super::python_failed_for;
+    use std::cell::Cell;
+    use std::path::PathBuf;
+
+    const CHANGED: &str = "Windows cannot verify the digital signature for this file. (os error 577)";
+
+    fn engine() -> PathBuf {
+        PathBuf::from("data").join("engine").join("abc")
+    }
+
+    #[test]
+    fn the_folder_named_is_the_pythons_own() {
+        let python = engine().join("python.exe").display().to_string();
+        let asked = Cell::new(false);
+        let text = python_failed_for(Some(1260), "blocked", Some(python), || { asked.set(true); PathBuf::from("root") }, || false);
+        assert!(text.contains(&format!("allow the engine's files in {};", engine().display())), "{text}");
+        assert!(!asked.get(), "the engine root isn't asked for when the Python is known");
+    }
+
+    #[test]
+    fn without_a_python_the_engine_root_is_named() {
+        let text = python_failed_for(Some(1260), "blocked", None, || PathBuf::from("root"), || false);
+        assert!(text.contains("allow the engine's files in root;"), "{text}");
+    }
+
+    #[test]
+    fn with_its_own_folder_a_changed_file_goes_to_it() {
+        let python = Some(engine().join("python.exe").display().to_string());
+        let mine = python_failed_for(Some(577), CHANGED, python.clone(), || PathBuf::from("root"), || false);
+        assert!(mine.contains("close KratosForge, delete the folder"), "{mine}");
+        let its = python_failed_for(Some(577), CHANGED, python, || PathBuf::from("root"), || true);
+        assert!(its.contains(&format!("ask IT to copy this build's engine into {} again.", engine().display())), "{its}");
+        assert!(!its.contains("delete the folder"), "{its}");
+    }
+
+    #[test]
+    fn other_errors_read_the_same_either_way() {
+        for managed in [false, true] {
+            assert_eq!(python_failed_for(Some(2), "not found", None, || PathBuf::from("root"), || managed), "Python was not found (not found).");
+            assert_eq!(python_failed_for(None, "odd", None, || PathBuf::from("root"), || managed), "Python could not be started (odd).");
+        }
+    }
+}
+
+#[cfg(test)]
 mod sidecar_log_tests {
     use super::*;
     use std::io::Write;
@@ -3402,5 +3902,777 @@ mod sidecar_log_tests {
         assert!(text.len() <= SIDECAR_LOG_TRIMMED.len() + 200 + 15);
         assert!(!text.contains('\0'));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_log_cut_inside_one_long_line_keeps_only_the_note_and_what_follows() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-line-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        let mut engine = open_sidecar_log(&log).unwrap();
+        // One line longer than the half kept: no line start to cut at, so no half line is kept.
+        engine.write_all(&[b'x'; 1000]).unwrap();
+        assert!(trim_sidecar_log(&log, 400).unwrap());
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), SIDECAR_LOG_TRIMMED);
+        writeln!(engine, "next").unwrap();
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), format!("{SIDECAR_LOG_TRIMMED}next\n"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_log_exactly_at_its_cap_is_left_alone_and_a_missing_one_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-edge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        std::fs::write(&log, [b'a'; 400]).unwrap();
+        assert!(!trim_sidecar_log(&log, 400).unwrap());
+        assert_eq!(std::fs::metadata(&log).unwrap().len(), 400);
+        // Trimming twice in a row cuts once: the trimmed log is under the cap.
+        std::fs::write(&log, "a\n".repeat(300)).unwrap();
+        assert!(trim_sidecar_log(&log, 400).unwrap());
+        assert!(!trim_sidecar_log(&log, 400).unwrap());
+        assert!(trim_sidecar_log(&dir.join("gone.log"), 400).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_log_in_a_missing_folder_cant_be_opened_and_the_engine_starts_without_one() {
+        // Sidecar::start falls back to no stderr when this fails, rather than not starting.
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-nofolder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(open_sidecar_log(&dir.join("sidecar.log")).is_err());
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn a_crash_log_is_kept_even_when_the_last_run_left_an_older_copy() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-crash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        let prev = dir.join("sidecar.prev.log");
+        std::fs::write(&prev, "two runs ago\n").unwrap();
+        std::fs::write(&log, "Traceback: the crash\n").unwrap();
+        let mut engine = open_sidecar_log(&log).unwrap();
+        writeln!(engine, "restarted").unwrap();
+        assert_eq!(std::fs::read_to_string(&prev).unwrap(), "Traceback: the crash\n");
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "restarted\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod updater_output_tests {
+    use super::{updater_failure, updater_tail, verified_sha256};
+    use std::collections::VecDeque;
+
+    fn lines(range: std::ops::RangeInclusive<u32>) -> String {
+        range.map(|i| format!("line {i}\n")).collect()
+    }
+
+    #[test]
+    fn the_verified_checksum_is_read_from_the_downloads_last_lines() {
+        let sha = "AB".repeat(32);
+        let tail = updater_tail(format!("progress 100\nverified {sha}\n").as_bytes(), |_| {});
+        assert_eq!(verified_sha256(&tail), Some(sha.to_ascii_lowercase()));
+        for out in ["done\n", "verified abc\n", "verified \n"] {
+            assert_eq!(verified_sha256(&updater_tail(out.as_bytes(), |_| {})), None, "{out}");
+        }
+    }
+
+    #[test]
+    fn every_line_reaches_the_log_and_progress_is_left_out_of_the_tail() {
+        let mut logged = Vec::new();
+        let tail = updater_tail("checking\nprogress 10\nprogress 20\ndone\n".as_bytes(), |l| logged.push(l.clone()));
+        assert_eq!(logged, ["checking", "progress 10", "progress 20", "done"]);
+        assert_eq!(tail, ["checking", "done"]);
+    }
+
+    #[test]
+    fn the_tail_keeps_the_last_twelve_lines() {
+        let tail = updater_tail(lines(1..=20).as_bytes(), |_| {});
+        assert_eq!(tail.len(), 12);
+        assert_eq!(tail.front().map(String::as_str), Some("line 9"));
+        assert_eq!(tail.back().map(String::as_str), Some("line 20"));
+    }
+
+    #[test]
+    fn a_failure_ends_with_stderr_and_keeps_twelve_lines() {
+        let tail: VecDeque<String> = ["out 1", "out 2"].map(String::from).into();
+        assert_eq!(updater_failure(tail, "err 1\nerr 2\n"), "out 1\nout 2\nerr 1\nerr 2");
+        let full = updater_tail(lines(1..=12).as_bytes(), |_| {});
+        let text = updater_failure(full, "Traceback\nValueError: bad zip\n");
+        assert_eq!(text.lines().count(), 12);
+        assert!(text.starts_with("line 3\n") && text.ends_with("Traceback\nValueError: bad zip"), "{text}");
+    }
+
+    #[test]
+    fn a_failure_with_no_output_is_empty() {
+        assert_eq!(updater_failure(VecDeque::new(), ""), "");
+    }
+}
+
+/// The bridge between the app and the engine (`Sidecar::call`, `read_replies`, `exited`) and how an
+/// engine is stopped (`SidecarState::shut_down`) or held back after a crash loop (`start_into`), against a
+/// stand-in engine: this test binary run again as `fake_engine`, which speaks the engine's line protocol
+/// on stdin and stdout. It starts the same way on Windows and Linux, with no Python.
+#[cfg(test)]
+mod sidecar_bridge_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const FAKE: &str = "KRATOSFORGE_FAKE_ENGINE";
+
+    /// Not a test of its own: with `FAKE` set it is the stand-in engine, and without it, it returns at once.
+    ///
+    /// - `echo`: answers each request with its method and params, until its input closes.
+    /// - `reverse`: reads two requests, answers the second first, then echoes.
+    /// - `error`, `error_object`, `no_result`: answers with an error text, an error that isn't text, or no result.
+    /// - `crash`: writes a Python-style error to its log and exits with code 3 without answering.
+    /// - `hang`: never answers and ignores its input closing.
+    #[test]
+    fn fake_engine() {
+        let Ok(mode) = std::env::var(FAKE) else { return };
+        let mut out = std::io::stdout();
+        let mut answer = |reply: Value| {
+            writeln!(out, "{reply}").unwrap();
+            out.flush().unwrap();
+        };
+        let echo = |request: &Value| json!({ "id": request["id"], "result": { "method": request["method"], "params": request["params"] } });
+        let mut lines = std::io::stdin().lock().lines().map_while(Result::ok).map(|l| serde_json::from_str::<Value>(&l).unwrap());
+        match mode.as_str() {
+            "crash" => {
+                let mut err = std::io::stderr();
+                err.write_all(b"engine starting\n\nTraceback (most recent call last):\n  File \"server.py\", line 1\nValueError: bad settings file\n").unwrap();
+                err.flush().unwrap();
+                std::process::exit(3);
+            }
+            "hang" => loop {
+                std::thread::sleep(Duration::from_secs(60));
+            },
+            "reverse" => {
+                let (first, second) = (lines.next().unwrap(), lines.next().unwrap());
+                answer(echo(&second));
+                answer(echo(&first));
+            }
+            _ => {}
+        }
+        for request in lines {
+            answer(match mode.as_str() {
+                "error" => json!({ "id": request["id"], "error": "That notebook doesn't exist." }),
+                "error_object" => json!({ "id": request["id"], "error": { "code": 7 } }),
+                "no_result" => json!({ "id": request["id"] }),
+                _ => echo(&request),
+            });
+        }
+    }
+
+    fn folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kf-bridge-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A stand-in engine wired up the way `Sidecar::start` wires the real one.
+    fn start(mode: &str, log: &Path) -> Sidecar {
+        let stderr = open_sidecar_log(log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            // Terse (-q), so the test runner's own output is whole lines the bridge drops (they carry no id)
+            // and never the start of a line an answer is written on.
+            .args(["sidecar_bridge_tests::fake_engine", "--exact", "--nocapture", "--test-threads=1", "-q", "--color", "never"])
+            .env(FAKE, mode)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(stderr)
+            .spawn()
+            .unwrap();
+        let stdin = Mutex::new(child.stdin.take().unwrap());
+        let stdout = child.stdout.take().unwrap();
+        let pending = Arc::new(Mutex::new(replies::Pending::default()));
+        let reader = pending.clone();
+        std::thread::spawn(move || read_replies(stdout, reader));
+        Sidecar {
+            child: Arc::new(Mutex::new(child)),
+            stdin,
+            pending,
+            next_id: AtomicU64::new(1),
+            log: log.to_path_buf(),
+            started: Instant::now(),
+            stopped: Default::default(),
+            noted: Default::default(),
+            counted: Default::default(),
+        }
+    }
+
+    fn state() -> SidecarState {
+        SidecarState {
+            sidecar: Mutex::new(None),
+            child: Mutex::new(None),
+            updating: Default::default(),
+            installing: Default::default(),
+            crash_loop: Mutex::new(crash::CrashLoop::default()),
+        }
+    }
+
+    fn running(engine: &Sidecar) -> bool {
+        matches!(engine.child.lock().unwrap().try_wait(), Ok(None))
+    }
+
+    #[test]
+    fn each_call_gets_the_answer_to_its_own_request() {
+        let dir = folder("echo");
+        let engine = start("echo", &dir.join("sidecar.log"));
+        let first = engine.call("list_notebooks", json!({ "folder": "Sales" })).unwrap();
+        assert_eq!(first, json!({ "method": "list_notebooks", "params": { "folder": "Sales" } }));
+        let second = engine.call("app_settings", json!({})).unwrap();
+        assert_eq!(second["method"], "app_settings");
+        assert_eq!(engine.next_id.load(Ordering::SeqCst), 3, "each request takes the next id");
+        drop(engine);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn answers_that_come_back_out_of_order_still_reach_their_own_calls() {
+        let dir = folder("reverse");
+        let engine = Arc::new(start("reverse", &dir.join("sidecar.log")));
+        let calls: Vec<_> = ["run_cell", "poll_cell"]
+            .into_iter()
+            .map(|method| {
+                let engine = engine.clone();
+                let call = std::thread::spawn(move || engine.call(method, json!({ "cell": method })));
+                // The first request goes out before the second, so the engine answers the second first.
+                std::thread::sleep(Duration::from_millis(200));
+                (method, call)
+            })
+            .collect();
+        for (method, call) in calls {
+            let answer = call.join().unwrap().unwrap();
+            assert_eq!(answer["method"], method);
+            assert_eq!(answer["params"]["cell"], method);
+        }
+        drop(engine);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_error_comes_back_as_its_text_and_an_answer_without_a_result_is_null() {
+        let dir = folder("errors");
+        for (mode, want) in [
+            ("error", Err("That notebook doesn't exist.".to_string())),
+            ("error_object", Err("Unknown sidecar error".to_string())),
+            ("no_result", Ok(Value::Null)),
+        ] {
+            let engine = start(mode, &dir.join(format!("{mode}.log")));
+            assert_eq!(engine.call("open_notebook", json!({ "name": "missing" })), want, "{mode}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_that_dies_reports_the_end_of_its_log_and_how_it_ended_once() {
+        let dir = folder("crash");
+        let log = dir.join("sidecar.log");
+        let engine = start("crash", &log);
+        let err = engine.call("open_notebook", json!({})).unwrap_err();
+        let lines: Vec<&str> = err.lines().collect();
+        assert_eq!(lines[0], SIDECAR_EXITED);
+        // The last three lines that aren't blank: the error, and the line saying how it ended.
+        assert_eq!(lines[1], "  File \"server.py\", line 1");
+        assert_eq!(lines[2], "ValueError: bad settings file");
+        assert!(lines[3].ends_with("seconds: it exited with code 3."), "{err}");
+        assert_eq!(lines[4], format!("Full log: {}", log.display()));
+
+        // Every later call hears the same at once, and how it ended is written to the log only once.
+        let again = engine.call("list_notebooks", json!({})).unwrap_err();
+        assert!(again.starts_with(SIDECAR_EXITED), "{again}");
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(text.matches("The engine stopped after").count(), 1, "{text}");
+        assert!(text.starts_with("engine starting\n"), "the engine's own output is kept: {text}");
+        drop(engine);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_ended_on_purpose_is_logged_as_such_and_with_no_log_the_message_stands_alone() {
+        let dir = folder("stopped");
+        let log = dir.join("sidecar.log");
+        let engine = start("hang", &log);
+        engine.stopped.store(true, Ordering::SeqCst);
+        engine.child.lock().unwrap().kill().unwrap();
+        let err = engine.call("run_cell", json!({})).unwrap_err();
+        assert!(err.contains("KratosForge ended it (Stop or an update)."), "{err}");
+        drop(engine);
+
+        // A log that can't be written or read leaves the plain message, with no empty tail or path.
+        let engine = start("crash", &dir.join("missing").join("sidecar.log"));
+        assert_eq!(engine.call("run_cell", json!({})).unwrap_err(), SIDECAR_EXITED);
+        drop(engine);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn shutting_down_with_no_engine_says_none_was_running() {
+        assert_eq!(state().shut_down(Duration::from_millis(100)), Ok(false));
+    }
+
+    #[test]
+    fn an_idle_engine_ends_when_its_input_closes() {
+        let dir = folder("idle");
+        let state = state();
+        let engine = Arc::new(start("echo", &dir.join("sidecar.log")));
+        engine.call("app_settings", json!({})).unwrap();
+        let child = engine.child.clone();
+        *state.child.lock().unwrap() = Some(child.clone());
+        *state.sidecar.lock().unwrap() = Some(engine);
+
+        assert_eq!(state.shut_down(Duration::from_secs(20)), Ok(true));
+        assert!(state.sidecar.lock().unwrap().is_none() && state.child.lock().unwrap().is_none());
+        // It ended on its own, because its input closed: exit code 0, not killed.
+        assert_eq!(child.lock().unwrap().try_wait().unwrap().and_then(|s| s.code()), Some(0));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_that_ignores_its_input_closing_is_ended_after_the_grace_time() {
+        let dir = folder("hang");
+        let state = state();
+        let engine = Arc::new(start("hang", &dir.join("sidecar.log")));
+        let child = engine.child.clone();
+        *state.sidecar.lock().unwrap() = Some(engine);
+
+        let began = Instant::now();
+        assert_eq!(state.shut_down(Duration::from_millis(500)), Ok(true));
+        assert!(began.elapsed() >= Duration::from_millis(500), "it waited the grace time first");
+        assert!(child.lock().unwrap().try_wait().unwrap().is_some(), "the process is gone");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_a_call_still_holds_is_ended_and_the_hand_over_is_refused() {
+        let dir = folder("held");
+        let state = state();
+        let engine = Arc::new(start("hang", &dir.join("sidecar.log")));
+        let held = engine.clone(); // a call in flight
+        *state.sidecar.lock().unwrap() = Some(engine);
+
+        let err = state.shut_down(Duration::from_millis(300)).unwrap_err();
+        assert_eq!(err, "The engine was still answering a call, so the new build wasn't put in place.");
+        assert!(held.stopped.load(Ordering::SeqCst), "it's marked as ended on purpose, not a crash");
+        // The process was ended so the call could return.
+        assert!(held.child.lock().unwrap().wait().is_ok());
+        assert!(!running(&held));
+        assert!(state.sidecar.lock().unwrap().is_none());
+        drop(held);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_is_not_started_while_a_crash_loop_is_waited_out() {
+        let state = state();
+        {
+            let mut crash_loop = state.crash_loop.lock().unwrap();
+            for _ in 0..crash::STRIKES {
+                crash_loop.ended(Duration::from_secs(1), Instant::now(), "ValueError: bad settings file");
+            }
+        }
+        let mut slot = None;
+        let err = state.start_into(&mut slot).unwrap_err();
+        assert!(err.starts_with(crash::SAFE_MODE), "{err}");
+        assert!(err.ends_with("The last time: ValueError: bad settings file"), "{err}");
+        assert!(slot.is_none() && state.child.lock().unwrap().is_none(), "nothing was started");
+    }
+
+    #[test]
+    fn a_running_engine_is_kept_even_while_a_crash_loop_is_waited_out() {
+        let dir = folder("kept");
+        let state = state();
+        {
+            let mut crash_loop = state.crash_loop.lock().unwrap();
+            for _ in 0..crash::STRIKES {
+                crash_loop.ended(Duration::from_secs(1), Instant::now(), "crashed");
+            }
+        }
+        let engine = Arc::new(start("echo", &dir.join("sidecar.log")));
+        let mut slot = Some(engine.clone());
+        assert_eq!(state.start_into(&mut slot), Ok(()));
+        assert!(slot.as_ref().is_some_and(|kept| Arc::ptr_eq(kept, &engine)));
+        drop((slot, engine));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod policy_rule_tests {
+    use super::{channel_tag, mirror_from};
+
+    const MIRROR: &str = r#"{"auto_update": false, "engine_download_url": "https://files.contoso.com/kf/"}"#;
+
+    #[test]
+    fn the_policy_files_channel_wins_over_the_persons() {
+        assert_eq!(channel_tag(r#"{"channel": "stable"}"#, r#"{"channel": "preview"}"#), "stable");
+        assert_eq!(channel_tag(r#"{"channel": "preview"}"#, r#"{"channel": "stable"}"#), "latest");
+        // No policy, or one that doesn't set a known channel: the person's choice.
+        assert_eq!(channel_tag("", r#"{"channel": "preview"}"#), "latest");
+        assert_eq!(channel_tag(r#"{"channel": "nightly"}"#, r#"{"channel": "preview"}"#), "latest");
+        assert_eq!(channel_tag("\u{feff}{\"channel\": \"preview\"}", ""), "latest", "a byte-order mark is skipped");
+    }
+
+    #[test]
+    fn stable_is_the_default_for_anything_else() {
+        for (policy, user) in [("", ""), ("not json", "{"), (r#"{"channel": "Preview"}"#, ""), (r#"{"channel": 1}"#, r#"{"channel": null}"#)] {
+            assert_eq!(channel_tag(policy, user), "stable", "{policy:?} {user:?}");
+        }
+    }
+
+    #[test]
+    fn its_engine_folder_is_used_only_from_a_trusted_file_with_updates_off() {
+        assert_eq!(mirror_from(MIRROR, Ok(())), Ok(Some("https://files.contoso.com/kf".into())));
+        assert_eq!(mirror_from(MIRROR, Err("a standard user can change it".into())), Err("a standard user can change it".into()));
+        // With updates on the engine isn't one known build, so the folder isn't used, trusted or not.
+        let updates_on = r#"{"engine_download_url": "https://files.contoso.com/kf"}"#;
+        assert_eq!(mirror_from(updates_on, Ok(())), Ok(None));
+        assert_eq!(mirror_from(updates_on, Err("untrusted".into())), Ok(None));
+    }
+
+    #[test]
+    fn no_or_an_unusable_address_means_github_whatever_the_trust() {
+        for text in [r#"{"auto_update": false}"#, r#"{"auto_update": false, "engine_download_url": "http://files.contoso.com/kf"}"#,
+                     r#"{"auto_update": false, "engine_download_url": "https://user@files.contoso.com/kf"}"#] {
+            assert_eq!(mirror_from(text, Ok(())), Ok(None), "{text}");
+            assert_eq!(mirror_from(text, Err("untrusted".into())), Ok(None), "{text}");
+        }
+        // No readable policy file: updates are on, so there is no engine folder.
+        for text in ["", "not json"] {
+            assert_eq!(mirror_from(text, Err("missing".into())), Ok(None), "{text}");
+        }
+    }
+}
+
+/// The page asks the shell to open links and files; these are the asks it refuses before anything is
+/// started. (The ones it allows start the browser, the mail app or VS Code, so they aren't run here.)
+#[cfg(test)]
+mod open_refusal_tests {
+    use super::*;
+
+    #[test]
+    fn only_https_and_mailto_links_are_opened() {
+        for (link, scheme) in [
+            ("http://example.com/", "http"),
+            ("file:///C:/Windows/System32/notepad.exe", "file"),
+            ("javascript:alert(1)", "javascript"),
+            ("kratosforge://open?notebook=x", "kratosforge"),
+            ("vscode://file/C:/x.ipynb", "vscode"),
+            ("ms-settings:privacy", "ms-settings"),
+        ] {
+            assert_eq!(open_link(link.into()), Err(format!("Not opening a {scheme} link")), "{link}");
+        }
+        // Not a whole address at all.
+        assert!(open_link("notepad.exe".into()).is_err());
+        assert!(open_link(String::new()).is_err());
+    }
+
+    #[test]
+    fn vs_code_opens_only_a_notebook_or_folder_on_this_pc_inside_the_notebooks_folders() {
+        for path in ["notebooks/sales.ipynb", r"\\host\share\sales.ipynb", "//host/share/sales.ipynb"] {
+            assert_eq!(
+                open_in_vscode(path.into(), false),
+                Err(format!("Not a notebook or folder on this PC: {path}")),
+                "{path}"
+            );
+        }
+        let dir = std::env::temp_dir().join(format!("kf-open-vscode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join("missing.ipynb");
+        let text = dir.join("notes.txt");
+        std::fs::write(&text, "not a notebook").unwrap();
+        for path in [&missing, &text] {
+            let path = path.to_string_lossy().to_string();
+            assert_eq!(open_in_vscode(path.clone(), true), Err(format!("Not a notebook or folder: {path}")));
+        }
+        // A real notebook, and a folder, outside the app's notebooks folder and its repositories.
+        let notebook = dir.join("sales.IPYNB");
+        std::fs::write(&notebook, "{}").unwrap();
+        for path in [&notebook, &dir] {
+            let path = path.to_string_lossy().to_string();
+            assert_eq!(
+                open_in_vscode(path.clone(), false),
+                Err(format!("Not in the notebooks folder or a repository opened in Source control: {path}"))
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod release_rule_tests {
+    use super::*;
+
+    const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const NOW: i64 = 1_760_800_000;
+
+    fn state(name: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("kf-release-rule-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("update-state.json");
+        (dir, path)
+    }
+
+    fn release(commit: &str, published: i64, tag: Option<&str>) -> Value {
+        let mut r = json!({ "commit": commit, "exe_sha256": "e".repeat(64), "published": published });
+        if let Some(t) = tag {
+            r["tag"] = json!(t);
+        }
+        r
+    }
+
+    #[test]
+    fn a_valid_release_is_remembered_and_offered() {
+        let (dir, path) = state("valid");
+        let mut r = release(A, NOW, None);
+        release_rule(&mut r, "stable", &path, NOW);
+        assert!(r.get("refused").is_none());
+        assert_eq!(update_guard::offered(&path).as_deref(), Some(A));
+        assert_eq!(update_guard::load_seen(&path, "stable").map(|s| s.commit).as_deref(), Some(A));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_reports_own_tag_picks_the_channel() {
+        let (dir, path) = state("tag");
+        let mut r = release(A, NOW, Some("latest"));
+        release_rule(&mut r, "stable", &path, NOW);
+        assert!(update_guard::load_seen(&path, "latest").is_some());
+        assert!(update_guard::load_seen(&path, "stable").is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_older_release_is_refused_and_nothing_is_offered() {
+        let (dir, path) = state("older");
+        release_rule(&mut release(A, NOW, None), "stable", &path, NOW);
+        let mut older = release(B, NOW - 3600, None);
+        release_rule(&mut older, "stable", &path, NOW);
+        assert!(older["refused"].as_str().unwrap().contains("older release"));
+        assert_eq!(update_guard::offered(&path), None);
+        assert_eq!(update_guard::load_seen(&path, "stable").map(|s| s.commit).as_deref(), Some(A));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_build_rolled_back_here_is_refused() {
+        let (dir, path) = state("failed");
+        update_guard::record_failed(&path, A).unwrap();
+        let mut r = release(A, NOW, None);
+        release_rule(&mut r, "stable", &path, NOW);
+        assert!(r["refused"].as_str().unwrap().contains("didn't finish starting on this PC"));
+        assert_eq!(update_guard::offered(&path), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_release_without_a_checksum_is_refused() {
+        let (dir, path) = state("nosum");
+        let mut r = json!({ "commit": A, "published": NOW });
+        release_rule(&mut r, "stable", &path, NOW);
+        assert!(r["refused"].as_str().unwrap().contains("no checksum"));
+        assert_eq!(update_guard::offered(&path), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod engine_choice_tests {
+    use super::{engine_build_allowed, pick_engine};
+    use std::cell::Cell;
+    use std::path::PathBuf;
+
+    const OWN: &str = "aaaaaaa1111111111111111111111111111111111";
+    const OTHER: &str = "bbbbbbb2222222222222222222222222222222222";
+
+    fn root(name: &str, builds: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kf-engine-choice-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for build in builds {
+            std::fs::create_dir_all(dir.join(build)).unwrap();
+            std::fs::write(dir.join(build).join("python.exe"), "stand-in").unwrap();
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn none() -> Option<Result<PathBuf, String>> {
+        None
+    }
+
+    #[test]
+    fn this_builds_engine_is_used_before_any_other() {
+        let dir = root("own", &[OTHER, OWN]);
+        let asked = Cell::new(false);
+        let got = pick_engine(none, &dir, OWN, || { asked.set(true); false });
+        assert_eq!(got, Some(dir.join(OWN).join("python.exe")));
+        assert!(!asked.get(), "whether the build is signed isn't asked when its own engine is there");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unsigned_build_falls_back_to_another_builds_engine_but_a_signed_one_never_does() {
+        let dir = root("other", &[OTHER, ".unpacking"]);
+        assert_eq!(pick_engine(none, &dir, OWN, || false), Some(dir.join(OTHER).join("python.exe")));
+        assert_eq!(pick_engine(none, &dir, OWN, || true), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_hidden_folder_such_as_a_download_being_unpacked_is_never_run() {
+        let dir = root("hidden", &[".unpacking"]);
+        assert_eq!(pick_engine(none, &dir, OWN, || false), None);
+        assert_eq!(pick_engine(none, &dir.join("missing"), OWN, || false), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn its_engine_folder_wins_and_one_that_cant_be_used_means_no_engine_at_all() {
+        let dir = root("it", &[OWN, OTHER]);
+        let it = PathBuf::from(r"C:\Program Files\KratosForge\engine\x\python.exe");
+        let signed_asked = Cell::new(false);
+        let got = pick_engine(|| Some(Ok(it.clone())), &dir, OWN, || { signed_asked.set(true); false });
+        assert_eq!(got, Some(it));
+        // IT asked for its folder, so the per-user engines their rules block are not a fallback.
+        assert_eq!(pick_engine(|| Some(Err("not admin-only".into())), &dir, OWN, || false), None);
+        assert!(!signed_asked.get());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn any_engine_build_is_allowed_unless_only_this_builds_own_may_run() {
+        let updates_asked = Cell::new(false);
+        assert_eq!(engine_build_allowed(OTHER, OWN, || false, || { updates_asked.set(true); true }), Ok(()));
+        assert!(!updates_asked.get());
+        assert_eq!(engine_build_allowed(&OWN.to_uppercase(), OWN, || true, || true), Ok(()), "build ids match without case");
+    }
+
+    #[test]
+    fn a_signed_build_refuses_another_engine_and_says_an_app_update_brings_its_own() {
+        let why = engine_build_allowed(OTHER, OWN, || true, || true).unwrap_err();
+        assert!(why.starts_with("This signed build runs only its own engine (build aaaaaaa)"), "{why}");
+        assert!(why.contains("the engine offered is build bbbbbbb"), "{why}");
+    }
+
+    #[test]
+    fn with_updates_off_another_engine_is_refused_and_it_is_asked_for_the_exe() {
+        let why = engine_build_allowed(OTHER, OWN, || true, || false).unwrap_err();
+        assert!(why.starts_with("Your organization rolls out builds itself, and the engine offered is build bbbbbbb, not this app's build aaaaaaa"), "{why}");
+    }
+}
+
+#[cfg(test)]
+mod download_source_tests {
+    use super::{mirror_host, release_url, setting};
+
+    #[test]
+    fn a_setting_is_read_from_json_text() {
+        assert_eq!(setting(r#"{"channel":"latest"}"#, "channel").as_deref(), Some("latest"));
+        assert_eq!(setting("\u{feff}{\"a\":\"b\"}", "a").as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn a_missing_or_unreadable_setting_is_none() {
+        assert_eq!(setting(r#"{"a":"b"}"#, "c"), None);
+        assert_eq!(setting(r#"{"a":true}"#, "a"), None);
+        assert_eq!(setting(r#"{"a":null}"#, "a"), None);
+        assert_eq!(setting("not json", "a"), None);
+        assert_eq!(setting("", "a"), None);
+        assert_eq!(setting(r#"["a"]"#, "a"), None);
+    }
+
+    #[test]
+    fn files_come_from_the_github_release_without_an_it_folder() {
+        assert_eq!(
+            release_url(None, "stable", "version.json"),
+            "https://github.com/KratosDataGod/KratosForge/releases/download/stable/version.json"
+        );
+        assert_eq!(mirror_host(None), "github.com");
+    }
+
+    #[test]
+    fn files_come_from_the_it_folder_when_there_is_one() {
+        let folder = Some("https://files.example.com/kratosforge/build-13cd5dfa54ee".to_string());
+        assert_eq!(
+            release_url(folder.clone(), "stable", "engine.zip"),
+            "https://files.example.com/kratosforge/build-13cd5dfa54ee/engine.zip"
+        );
+        assert_eq!(mirror_host(folder), "files.example.com");
+    }
+
+    #[test]
+    fn a_folder_without_a_host_names_github() {
+        assert_eq!(mirror_host(Some("not a url".to_string())), "github.com");
+        assert_eq!(mirror_host(Some("file:///C:/engines".to_string())), "github.com");
+    }
+}
+
+#[cfg(test)]
+mod call_outcome_tests {
+    use super::{call_outcome, CallOutcome, SIDECAR_EXITED, SIDECAR_STUCK};
+    use serde_json::json;
+    use std::time::Duration;
+
+    const SOON: Duration = crate::crash::SOON;
+    const BRIEF: Duration = Duration::from_secs(5);
+
+    fn exited(tail: &str) -> Result<serde_json::Value, String> {
+        Err(format!("{SIDECAR_EXITED}\n{tail}\nFull log: C:\\Users\\a\\AppData\\Local\\FabricDesktop\\sidecar.log"))
+    }
+
+    #[test]
+    fn an_engine_that_crashes_counts_toward_a_crash_loop_with_the_end_of_its_log() {
+        let got = call_outcome(&exited("Traceback (most recent call last):\nValueError: bad settings file"), false, BRIEF, false);
+        assert_eq!(got, CallOutcome {
+            crashed: Some("Traceback (most recent call last): | ValueError: bad settings file".into()),
+            settled: false,
+            ended: true,
+            forget_verified: false,
+        });
+        // Nothing in its log but the full-log line, or no tail at all.
+        let quiet = format!("{SIDECAR_EXITED}\nFull log: C:\\x\\sidecar.log");
+        assert_eq!(call_outcome(&Err(quiet), false, BRIEF, false).crashed.as_deref(), Some("nothing was written to its log"));
+        assert_eq!(call_outcome(&Err(SIDECAR_EXITED.into()), false, SOON * 2, false).crashed.as_deref(), Some("nothing was written to its log"));
+    }
+
+    #[test]
+    fn an_engine_stopped_on_purpose_ends_but_never_counts() {
+        let got = call_outcome(&exited("killed"), true, BRIEF, false);
+        assert_eq!(got, CallOutcome { crashed: None, settled: false, ended: true, forget_verified: false });
+    }
+
+    #[test]
+    fn a_stuck_engine_ends_without_counting_or_settling() {
+        let got = call_outcome(&Err(format!("{SIDECAR_STUCK} It didn't answer list_notebooks.")), false, SOON * 2, false);
+        assert_eq!(got, CallOutcome { crashed: None, settled: false, ended: true, forget_verified: false });
+    }
+
+    #[test]
+    fn an_answer_after_the_engine_has_run_a_while_ends_a_crash_loop() {
+        for result in [Ok(json!({"ok": true})), Err("That notebook doesn't exist.".to_string())] {
+            assert_eq!(call_outcome(&result, false, SOON, false), CallOutcome { settled: true, ..Default::default() }, "{result:?}");
+            // Too soon after starting to know the engine is healthy.
+            assert_eq!(call_outcome(&result, false, SOON - Duration::from_millis(1), false), CallOutcome::default(), "{result:?}");
+        }
+    }
+
+    #[test]
+    fn only_an_engine_that_ends_on_its_first_call_has_its_check_forgotten() {
+        assert!(call_outcome(&exited("x"), false, BRIEF, true).forget_verified);
+        // Stopped on the first call still means it never answered once.
+        assert!(call_outcome(&exited("x"), true, BRIEF, true).forget_verified);
+        assert!(!call_outcome(&exited("x"), false, BRIEF, false).forget_verified);
+        assert!(!call_outcome(&Err(SIDECAR_STUCK.into()), false, BRIEF, true).forget_verified);
+        assert!(!call_outcome(&Ok(json!(1)), false, BRIEF, true).forget_verified);
     }
 }

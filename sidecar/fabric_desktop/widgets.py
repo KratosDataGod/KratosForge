@@ -662,8 +662,10 @@ class Output(DOMWidget):
                                                   f"{STREAM_CHARS:,} characters. clear_output() starts it again."})
 
     def _add(self, output: dict[str, Any]) -> None:
-        from .notebook import RICH_CHARS
-        if output.get("type") != "error":  # an error always shows
+        from .notebook import RICH_CHARS, capped_error
+        if output.get("type") == "error":  # an error always shows, kept to ERROR_CHARS
+            output = capped_error(output)
+        else:
             if "rich" in self._cut:
                 return
             size = len(json.dumps(output, default=str))
@@ -1082,8 +1084,9 @@ def install(show: Callable[[Any], None], capture: Callable[[Any], Any]) -> None:
     if _finder not in sys.meta_path:
         sys.meta_path.insert(0, _finder)
     for name in ("ipywidgets", "ipywidgets.widgets"):
-        if not getattr(sys.modules.get(name), "__kratosforge__", True):
-            del sys.modules[name]  # a real ipywidgets a library imported: cells get this one
+        loaded = sys.modules.get(name)
+        if loaded is not None and not getattr(loaded, "__kratosforge__", False):
+            del sys.modules[name]  # a real ipywidgets a library imported (it has no marker): cells get this one
 
 
 @contextlib.contextmanager

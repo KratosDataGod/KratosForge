@@ -75,7 +75,7 @@ def pack_ids(root: Path = ROOT) -> list[str]:
 
 
 def pack(pack_id: str, root: Path = ROOT) -> dict[str, Any]:
-    if not _PACK_ID.match(str(pack_id)) or not (root / pack_id / "pack.json").is_file():
+    if not _PACK_ID.fullmatch(str(pack_id)) or not (root / pack_id / "pack.json").is_file():
         raise ValueError(f"Not a certification pack: {pack_id}")
     return dict(_read_json(root / pack_id / "pack.json"))
 
@@ -147,7 +147,7 @@ def coverage(cert: dict[str, Any]) -> dict[str, Any]:
 
 
 def _doc_ok(link: Any, plat: dict[str, Any]) -> bool:
-    m = re.match(r"^https://([^/]+)/\S+$", str(link))
+    m = re.fullmatch(r"^https://([^/]+)/\S+$", str(link))
     return bool(m and m.group(1) in plat["doc_hosts"])
 
 
@@ -170,8 +170,8 @@ def _objective_problems(o: dict[str, Any], where: str, gap_ids: set[str], lesson
             if p is not plat and p["required"] in o]
     if not o.get("exercises"):
         out.append(f"{where}: needs at least one exercise; a published objective is never left out")
-    out += [f"{where}: {e!r} isn't an exercise id like E01" for e in o.get("exercises") or [] if not _EXERCISE.match(str(e))]
-    out += [f"{where}: {c!r} isn't a capstone id like C1" for c in o.get("capstones") or [] if not _CAPSTONE.match(str(c))]
+    out += [f"{where}: {e!r} isn't an exercise id like E01" for e in o.get("exercises") or [] if not _EXERCISE.fullmatch(str(e))]
+    out += [f"{where}: {c!r} isn't a capstone id like C1" for c in o.get("capstones") or [] if not _CAPSTONE.fullmatch(str(c))]
     out += [f"{where}: unknown Learn lesson {m}" for m in o.get("lessons") or [] if m not in lessons]
     out += [f"{where}: unknown validator {v}" for v in o.get("validation") or [] if v not in VALIDATORS]
     out += [f"{where}: {v} checks another platform" for v in o.get("validation") or []
@@ -206,12 +206,12 @@ def _cert_problems(pid: str, cert: dict[str, Any]) -> list[str]:
     for f in ("title", "vendor", "version", "reviewed", "domains"):
         if not cert.get(f):
             out.append(f"{pid}: certification needs {f}")
-    if cert.get("reviewed") and not _DATE.match(str(cert["reviewed"])):
+    if cert.get("reviewed") and not _DATE.fullmatch(str(cert["reviewed"])):
         out.append(f"{pid}: reviewed is YYYY-MM-DD")
     src = cert.get("source") or {}
     if not _doc_ok(src.get("url"), plat):
         out.append(f"{pid}: source.url is the vendor's study guide")
-    if not _DATE.match(str(src.get("read") or "")):
+    if not _DATE.fullmatch(str(src.get("read") or "")):
         out.append(f"{pid}: source.read is the date the study guide was read (YYYY-MM-DD)")
     if src.get("effective") is None and not src.get("effective_note"):
         out.append(f"{pid}: with no effective date, source.effective_note says why")
@@ -220,7 +220,7 @@ def _cert_problems(pid: str, cert: dict[str, Any]) -> list[str]:
                    f"source.snapshot_sha256 to {snapshot(cert)}")
     gaps = cert.get("gaps") or []
     gap_ids = [g.get("id") for g in gaps]
-    out += [f"{pid}: gap id {g} is like G-01" for g in gap_ids if not _GAP.match(str(g))]
+    out += [f"{pid}: gap id {g} is like G-01" for g in gap_ids if not _GAP.fullmatch(str(g))]
     out += [f"{pid}: gap {g} is listed twice" for g in sorted({g for g in gap_ids if gap_ids.count(g) > 1})]
     for g in gaps:
         out += [f"{pid} {g.get('id')}: needs {f}" for f in ("title", "why", "closes_with", "objectives") if not g.get(f)]
@@ -268,7 +268,7 @@ def problems(root: Path = ROOT) -> list[str]:
     out: list[str] = []
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
         pid = folder.name
-        if not _PACK_ID.match(pid):
+        if not _PACK_ID.fullmatch(pid):
             out.append(f"{pid}: a pack folder is named by its id, like dp-700")
             continue
         try:

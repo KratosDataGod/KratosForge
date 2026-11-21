@@ -98,7 +98,7 @@ function whHistory(ref, actions) {
     for (const e of shown) {
       const state = SQL_STATE[e.state]?.[1] || e.state;
       const first = e.sql.trim().split("\n").find((l) => l.trim() && !l.trim().startsWith("--")) || e.sql.trim();
-      rows.push(h("button", { class: "tree-row wh-h-row", title: e.error ? `${state}: ${e.error}` : "Open in a new tab (doesn't run it)",
+      rows.push(h("button", { class: "tree-row wh-h-row", title: e.error ? `${state}${e.batch ? ` at batch ${e.batch}` : ""}: ${e.error}` : "Open in a new tab (doesn't run it)",
         onclick: () => actions.open(`Run at ${when(e.at)}`, e.sql) },
       h("span", { class: "wh-h-sql" }, first.trim()),
       h("span", { class: `wh-h-meta${["failed", "timed_out"].includes(e.state) ? " bad" : ""}` },

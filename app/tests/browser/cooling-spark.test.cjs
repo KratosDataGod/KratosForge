@@ -10,7 +10,7 @@ const CELLS = [{ type: "code", cell_id: "a", source: "x = 1", meta: {} }];
 
 const apps = [];
 async function open(mocks, engine = []) {
-  const app = await openApp({ viewport: { width: 1440, height: 900 }, engine, mocks: { save_notebook: () => ({ saved: true }), ...mocks } });
+  const app = await openApp({ viewport: { width: 1440, height: 900 }, engine, mocks: { app_settings: () => ({ motion_level: { value: 2 } }), save_notebook: () => ({ saved: true }), ...mocks } });  // Heroic: everyday effects play
   apps.push(app);
   await app.page.emulateMedia({ reducedMotion: "no-preference" });
   await app.page.evaluate((cells) => {

@@ -39,7 +39,8 @@ export function readPortFile(dir: string): { port: number; hello: string } | nul
   return Number.isInteger(n) && n > 0 && n < 65536 && hello ? { port: n, hello } : null;
 }
 
-export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run notebooks is off in its Settings > Integrations.";
+export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run notebooks is off in its Settings > Integrations. "
+  + "Start KratosForge and turn it on there, then run the cell again.";
 export const NOT_KRATOSFORGE = "Something other than KratosForge is listening on the editor channel's port, so this window "
   + "sent it nothing. Restart KratosForge, then try again.";
 
@@ -48,6 +49,63 @@ export const NOT_KRATOSFORGE = "Something other than KratosForge is listening on
 export const API_VERSION = 1;
 export const CONNECTION_LOST = "KratosForge closed the connection, so it may have restarted or stopped. Run the cell again.";
 export const RESTARTED = "The notebook's session in KratosForge ended while this cell ran (KratosForge may have restarted). Run the cell again.";
+export const TIMED_OUT = "KratosForge didn't answer in time. It may be busy with a long task; try again in a moment, or restart KratosForge.";
+export function unreachable(code: string): string {
+  return `This window couldn't reach KratosForge on this PC (${code}). Try again; if it keeps happening, restart KratosForge.`;
+}
+// How often a dropped or slow poll of a running cell is tried again before the cell is reported as
+// failed. Polling only reads, so asking again can't run anything twice; starting a cell is never retried.
+const POLL_RETRIES = 3;
+// A poll that got no answer at all is asked again only once, so a hung app fails the cell in about two minutes.
+const POLL_TIMEOUT_RETRIES = 1;
+export const NOT_PAIRED = "This window's pairing with KratosForge has ended. It ran out, was ended in KratosForge, or "
+  + "KratosForge restarted. Run the cell again to pair this window.";
+export const HELLO_CHANGED = "KratosForge restarted while this window was asking to pair. Run the cell again to ask again.";
+export const OFF = "Let VS Code run notebooks is off in KratosForge's Settings > Integrations, or your organization doesn't "
+  + "allow it. Turn it on there, or ask your admin if your organization turned it off, then run the cell again.";
+export const PAIR_DENIED = "Pairing was denied in KratosForge. To pair this window, run the cell again and choose Pair this "
+  + "window in KratosForge.";
+export const PAIR_UNANSWERED = "Nobody answered in KratosForge, so this window isn't paired. Run the cell again, then choose "
+  + "Pair this window in KratosForge while it asks.";
+export const PAIR_CANCELLED = "Pairing was cancelled. Run the cell again to pair this window.";
+export const PAIR_EXPIRED = "That pairing request ran out before anyone answered in KratosForge. Run the cell again to ask again.";
+export const BAD_REPLY = "KratosForge sent a reply this extension can't read. Install kratosforge.vsix from KratosForge's "
+  + "latest release, then reload this window.";
+export const OUT_OF_STEP = " This extension and KratosForge may be out of step: install kratosforge.vsix from KratosForge's "
+  + "latest release, then reload this window.";
+export function unexpected(message: string): string {
+  return `KratosForge hit an error it didn't expect (${message}). Run the cell again; if it keeps happening, restart KratosForge.`;
+}
+
+// Words that tell the person what to do next. An app message without any gets the window's own.
+const NEXT_STEP = /run the cell again|install kratosforge|turn it on|pair the window|answer them|open the repository|restart kratosforge|try again|split it|open the notebook|pick kratosforge|start kratosforge|import the notebook|save the notebook|move it|rename/i;
+export const hasNextStep = (text: string): boolean => NEXT_STEP.test(text);
+const THEN_AGAIN = " Once that's sorted out, run the cell again.";
+
+/** The error the window shows for an answer the app refused: each with a name and a next step. Where the
+ * app's own words already say what to do (a notebook outside the paired folder, too many windows asking
+ * to pair), they're kept; elsewhere the window says it in its own words. */
+export function refusal(status: number, code: string | undefined, message: string | undefined, pairing = false,
+  hello = false): ChannelError {
+  const said = message || "";
+  switch (code) {
+    case "not_paired": return new ChannelError(status, "not_paired", NOT_PAIRED);
+    // Only a call that sends the hello (asking to pair) is checked against it; anywhere else it means
+    // the window's pairing no longer holds.
+    case "unauthorized": return new ChannelError(status, "unauthorized", hello ? HELLO_CHANGED : NOT_PAIRED);
+    case "off": return new ChannelError(status, "off", OFF);
+    case "busy": return new ChannelError(status, "busy", BUSY);
+    case "extension_too_old": return new ChannelError(status, "extension_too_old", EXTENSION_TOO_OLD);
+    case "not_found": return pairing ? new ChannelError(status, "expired", PAIR_EXPIRED)
+      : new ChannelError(status, "not_found", said ? (hasNextStep(said) ? said : said + THEN_AGAIN) : "KratosForge couldn't find that notebook or cell." + OUT_OF_STEP);
+    case "invalid_input": case "too_large": return new ChannelError(status, code, (said ? `${said}` : "KratosForge refused the request.") + OUT_OF_STEP);
+    case "internal": return new ChannelError(status, "internal", unexpected(said || `status ${status}`));
+    case "refused": case "failed": if (said) return new ChannelError(status, code, hasNextStep(said) ? said : said + THEN_AGAIN);
+      return new ChannelError(status, code, unexpected(`status ${status}`));
+    default: return new ChannelError(status, code || "failed", said ? said + OUT_OF_STEP : unexpected(`status ${status}`));
+  }
+}
+
 export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
 // Only the engine's accept-time refusal is "busy" (editor_channel.py), so a retried call never ran.
 const BUSY_RETRIES = 3;
@@ -62,17 +120,33 @@ export const EXTENSION_TOO_OLD = "This extension is too old for this KratosForge
 export const MAX_REPLY = 64 * 1024 * 1024;
 export const TOO_LARGE = "KratosForge's answer was larger than this extension accepts. Open the notebook in KratosForge to see this cell's output.";
 
+// The most one request to the app may hold (MAX_BODY_BYTES in editor_channel.py). A cell past it is
+// refused here, before anything is sent, with words that say it's the cell.
+export const MAX_REQUEST = 1024 * 1024;
+
+export function cellTooLarge(size: number): string {
+  return `This cell is ${(Math.ceil(size / 1024 / 1024 * 10) / 10).toFixed(1)} MB, and KratosForge takes cells of up to 1 MB from VS Code. `
+    + "Split it into smaller cells, or run it in KratosForge.";
+}
+
 interface Reply { status: number; payload: { ok?: boolean; result?: unknown; error?: { code?: string; message?: string } } | null }
 
-function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer): Promise<Reply> {
+function send(port: number, method: string, url: string, headers: Record<string, string | number>, data?: Buffer,
+  timeout = 60_000): Promise<Reply> {
   return new Promise((resolve, reject) => {
+    let timedOut = false;
+    // A connection that drops or stalls after the answer has begun is reported on the response, not the request.
+    const cut = () => reject(timedOut ? new ChannelError(0, "timed_out", TIMED_OUT) : new ChannelError(0, "connection_lost", CONNECTION_LOST));
     const req = http.request({ host: "127.0.0.1", port, method, path: url, headers: { Host: `127.0.0.1:${port}`, ...headers },
-      timeout: 60_000 }, (res) => {
+      timeout }, (res) => {
       if (Number(res.headers["content-length"]) > MAX_REPLY) {
         req.destroy();
         reject(new ChannelError(0, "too_large", TOO_LARGE));
         return;
       }
+      res.on("aborted", cut);
+      res.on("error", cut);
+      res.on("close", () => { if (!res.complete) cut(); });
       const chunks: Buffer[] = [];
       let size = 0;
       res.on("data", (c: Buffer) => {
@@ -92,11 +166,16 @@ function send(port: number, method: string, url: string, headers: Record<string,
         }
       });
     });
-    req.on("timeout", () => req.destroy(new Error("KratosForge didn't answer in time.")));
+    req.on("timeout", () => {
+      timedOut = true;
+      req.destroy();
+    });
+    // Every way the connection can fail ends as a ChannelError in plain words, never a raw socket error.
     req.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED") reject(new ChannelError(0, "not_listening", NOT_LISTENING));
+      if (timedOut) reject(new ChannelError(0, "timed_out", TIMED_OUT));
+      else if (err.code === "ECONNREFUSED") reject(new ChannelError(0, "not_listening", NOT_LISTENING));
       else if (err.code === "ECONNRESET" || err.code === "EPIPE") reject(new ChannelError(0, "connection_lost", CONNECTION_LOST));
-      else reject(err);
+      else reject(new ChannelError(0, "unreachable", unreachable(err.code || "no answer")));
     });
     if (data) req.write(data);
     req.end();
@@ -105,6 +184,10 @@ function send(port: number, method: string, url: string, headers: Record<string,
 
 export class Channel {
   token = "";
+  /** How long one call may wait for the app's answer, in ms. A poll's own wait is 20 seconds. */
+  timeout = 60_000;
+  /** The first pause before a dropped poll is tried again, in ms; it doubles each time. */
+  pollPause = 500;
 
   constructor(private readonly dir: string = dataDir()) {}
 
@@ -113,20 +196,20 @@ export class Channel {
    * user on this PC could take the same port, and a remembered proof would still match. */
   private async prove(where: { port: number; hello: string }): Promise<void> {
     const nonce = crypto.randomBytes(24).toString("hex");
-    const reply = await send(where.port, "GET", `/v1/hello?nonce=${nonce}&api=${API_VERSION}`, {});
+    const reply = await send(where.port, "GET", `/v1/hello?nonce=${nonce}&api=${API_VERSION}`, {}, undefined, this.timeout);
     const result = (reply.payload?.ok ? reply.payload.result : null) as { proof?: unknown; api?: unknown } | null;
     const proof = result ? String(result.proof ?? "") : "";
     const want = crypto.createHmac("sha256", where.hello).update(nonce).digest();
     const got = Buffer.from(proof, "hex");
     if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
-      if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", reply.payload.error.message || NOT_LISTENING);
+      if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", OFF);
       if (reply.payload?.error?.code === "busy" && reply.status === 503) throw new ChannelError(503, "busy", BUSY);
       if (reply.payload?.error?.code === "extension_too_old") throw new ChannelError(reply.status, "extension_too_old", EXTENSION_TOO_OLD);
       throw new ChannelError(0, "not_kratosforge", NOT_KRATOSFORGE);
     }
     // Proven, so the version is KratosForge's own. An app from before versions were reported speaks 1.
     const api = result?.api === undefined ? 1 : result.api;
-    if (typeof api !== "number" || !Number.isInteger(api) || api < 1) throw new ChannelError(0, "bad_reply", "KratosForge sent a reply this extension can't read.");
+    if (typeof api !== "number" || !Number.isInteger(api) || api < 1) throw new ChannelError(0, "bad_reply", BAD_REPLY);
     if (api > API_VERSION) throw new ChannelError(0, "app_too_new", APP_TOO_NEW);
   }
 
@@ -155,11 +238,11 @@ export class Channel {
     }
     if (hello) headers["X-KratosForge-Hello"] = where.hello;
     else if (this.token) headers.Authorization = `Bearer ${this.token}`;
-    const { status, payload } = await send(where.port, method, url, headers, data);
-    if (!payload) throw new ChannelError(status, "bad_reply", "KratosForge sent a reply this extension can't read.");
+    const { status, payload } = await send(where.port, method, url, headers, data, this.timeout);
+    if (!payload) throw new ChannelError(status, "bad_reply", BAD_REPLY);
     if (payload.ok) return payload.result;
-    if (status === 503 && payload.error?.code === "busy") throw new ChannelError(503, "busy", BUSY);
-    throw new ChannelError(status, payload.error?.code || "failed", payload.error?.message || "KratosForge refused it.");
+    if (payload.error?.code === "busy" && status !== 503) throw new ChannelError(status, "failed", unexpected(`busy, status ${status}`));
+    throw refusal(status, payload.error?.code, payload.error?.message, url.startsWith("/v1/pair/"), hello);
   }
 
   /** Asks to pair; the app shows the request with ``code``, which this window shows too. */
@@ -183,11 +266,11 @@ export class Channel {
         this.token = got.token;
         return { token: got.token, keep: got.keep || "session" };
       }
-      if (got.state === "denied") throw new ChannelError(403, "denied", "Pairing was denied in KratosForge.");
+      if (got.state === "denied") throw new ChannelError(403, "denied", PAIR_DENIED);
       if (got.state === "expired") break;
       await new Promise((r) => setTimeout(r, every));
     }
-    throw new ChannelError(408, "expired", cancelled() ? "Pairing was cancelled." : "Nobody answered in KratosForge, so this window isn't paired.");
+    throw cancelled() ? new ChannelError(408, "cancelled", PAIR_CANCELLED) : new ChannelError(408, "expired", PAIR_UNANSWERED);
   }
 
   status(): Promise<{ app: string; version: string; pairing: Record<string, unknown> }> {
@@ -203,6 +286,8 @@ export class Channel {
   }
 
   start(file: string, code: string): Promise<Snapshot> {
+    const size = Buffer.byteLength(JSON.stringify({ path: file, code }));
+    if (size > MAX_REQUEST) return Promise.reject(new ChannelError(0, "cell_too_large", cellTooLarge(size)));
     return this.request("POST", "/v1/run", { path: file, code }) as Promise<Snapshot>;
   }
 
@@ -214,13 +299,33 @@ export class Channel {
     return this.request("POST", "/v1/interrupt", { path: file });
   }
 
-  /** Runs ``code`` in the notebook's session; ``progress`` gets each new snapshot while it runs. */
-  async run(file: string, code: string, progress: (snap: Snapshot) => void): Promise<Snapshot> {
+  /** A poll of a running cell, asked again a few times if the connection drops or the app is slow to
+   * answer: the cell is still running in the app, so one lost answer doesn't fail it here. */
+  private async pollAgain(file: string, version: number): Promise<Snapshot> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.poll(file, version);
+      } catch (err) {
+        const code = err instanceof ChannelError ? err.code : "";
+        const limit = code === "connection_lost" ? POLL_RETRIES : code === "timed_out" ? POLL_TIMEOUT_RETRIES : -1;
+        if (attempt >= limit) throw err;
+        await new Promise((r) => setTimeout(r, this.pollPause * 2 ** attempt));
+      }
+    }
+  }
+
+  /** Runs ``code`` in the notebook's session; ``progress`` gets each new snapshot while it runs.
+   * ``cancelled`` says the person pressed Stop: before the cell is sent, it isn't sent at all; while
+   * the start is on its way, the cell is interrupted as soon as the app says it started. Once
+   * ``progress`` has had a snapshot, interrupting is the caller's job, so it's never asked twice. */
+  async run(file: string, code: string, progress: (snap: Snapshot) => void, cancelled: () => boolean = () => false): Promise<Snapshot> {
+    if (cancelled()) return { status: "cancelled", outputs: [] };
     let snap = await this.start(file, code);
+    if (cancelled() && (snap.status === "running" || snap.status === "paused")) await this.interrupt(file).catch(() => undefined);
     progress(snap);
     let version = snap.version ?? -1;
     while (snap.status === "running" || snap.status === "paused") {
-      const next = await this.poll(file, version);
+      const next = await this.pollAgain(file, version);
       // The session this cell ran in is gone (no session, or a new one counting from the start):
       // the app restarted. Its last output isn't the cell's result, so say so rather than end "ok".
       if (next.status === "idle" || (next.version ?? version) < version) throw new ChannelError(0, "restarted", RESTARTED);

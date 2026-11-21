@@ -78,7 +78,7 @@ async function toggleVariable(name, redraw) {
   if (nbVars.detail.has(name)) return;
   let detail;
   try {
-    detail = await rpc("kernel_variable_detail", { name });
+    detail = await rpc("kernel_variable_detail", { name, notebook: state.notebook?.name });
   } catch (err) {
     detail = { name, error: String(err.message || err) };
   }

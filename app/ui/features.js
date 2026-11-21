@@ -63,6 +63,7 @@ const PREVIEW_FEATURES = {
   health: "Table health",
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
+  semanticView: "Semantic View files and publish steps",
   directLakeCheck: "Direct Lake check",
   dataDictionary: "Data dictionary",
   tests: "Tests",
@@ -85,11 +86,14 @@ const PREVIEW_FEATURES = {
   agents: "Agents",
   queue: "Queue",
   runAs: "Run as",
+  dataHealth: "Data health",
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",
   rollback: "Roll back a release",
   promote: "Promote",
+  deltaPerTable: "Delta table features at publish",
+  createWorkspace: "Create workspace",
   syncKeys: "Sync keys",
   varlib: "Variable library",
   quarantineReplay: "Quarantine replay",
@@ -101,6 +105,8 @@ const PREVIEW_FEATURES = {
   notebookFolderPublish: "Publishing notebooks from folders",
   fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
+  nbConsole: "Scratch console in notebooks",
+  nbReport: "Notebook as a report",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
   forgeActivity: "Forge Activity view in Monitor",
@@ -109,7 +115,12 @@ const PREVIEW_FEATURES = {
   trustBadges: "Endorsement",
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
+  sqlStatements: "Several SQL statements per run, a result for each",
+  sqlParams: "Query parameters (:name and {{name}}) on the SQL page",
+  sqlFiles: "Open and save .sql files from the SQL page",
+  sqlHistory: "Result history and pinned results on the SQL page",
   sqlPractices: "SQL best practices",
+  sqlDiagram: "Table diagram on the SQL page",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
   engines: "Notebook engine picker",
@@ -120,6 +131,7 @@ const PREVIEW_FEATURES = {
   academy: "Academy",
   appStudio: "App Studio",
   embedStudio: "Embed Studio (Power BI)",
+  kfEnvironment: "KratosForge Environment",
 };
 
 function previewShown() {
@@ -140,12 +152,17 @@ function preview(id, node) {
 
 // Core steps that are untested on a tenant but must not disappear when preview features are hidden:
 // they always show, always with the Preview tag (previewMarked).
-const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"];
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode", "createWorkspace"];
 
 // The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {
   if (PREVIEW_FEATURES[id]) node.append(previewTag());
   return node;
+}
+
+// A Fabric-run button carries the Run in Fabric tag; the same button on this PC carries none.
+function fabricMarked(inFabric, node) {
+  return inFabric ? previewMarked("fabricRun", node) : node;
 }
 
 // A small "Learn more" link to a section of the user guide.
@@ -190,6 +207,9 @@ function withHowItWorks(main, panel) {
 // explanation (pageIntro) open as a drawer from the title bar's info button, and a Preview dot keeps
 // the tag's words for screen readers and as its tooltip.
 const LAYOUT_CHOICES = {
+  // Shown under Skin in Appearance (settings.js), not with the layout choices.
+  ui_color_mode: ["Color mode (Preview)", "Light or dark. Follow the skin uses the skin's own mode, which is light for KratosForge. Your organization can set it for everyone.",
+    [["skin", "Follow the skin"], ["light", "Light"], ["dark", "Dark"]]],
   ui_explanations: ["Explanations", "Each page's one-line explanation and How this works panel: what it reads, what it changes and where results go.",
     [["beside", "Beside the page"], ["on_request", "On request"]]],
   ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
@@ -355,6 +375,20 @@ function isShortcut(e, id) {
   if (!s?.match || (s.mod && !(e.ctrlKey || e.metaKey)) || (s.alt && !e.altKey)) return false;
   const key = String(e.key || "");
   return s.match.some((k) => (k.length === 1 ? key.toLowerCase() === k : key === k));
+}
+
+// The SQL a text box's Run should use, as in SSMS: the selected text when there is some, otherwise all of it.
+function boxChosenText(box) {
+  const { value, selectionStart: from, selectionEnd: to } = box;
+  return to > from && value.slice(from, to).trim() ? value.slice(from, to) : value;
+}
+
+const RUN_BOX_TIP = { title: "Run the selected text, or all of it when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" };
+
+// Run keys for a SQL text box: F5 or Ctrl+Enter call run().
+function isRunKey(e) {
+  return (e.key === "F5" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
+    || (e.key === "Enter" && (e.ctrlKey || e.metaKey));
 }
 
 // Whether focus is in a box someone types in, where a plain "?" must stay a character.

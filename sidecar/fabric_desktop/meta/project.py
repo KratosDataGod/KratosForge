@@ -30,6 +30,7 @@ from typing import Any
 
 import polars as pl
 
+from .. import delta_profile
 from . import freshness as freshness_mod
 from . import objectives as objectives_mod
 from . import keys as keys_mod
@@ -96,7 +97,7 @@ def parse_lookback(value: Any) -> dt.timedelta | int | None:
         if value < 0:
             raise ValueError(value)
         return value
-    m = _LOOKBACK.match(value) if isinstance(value, str) else None
+    m = _LOOKBACK.fullmatch(value) if isinstance(value, str) else None
     if not m:
         raise ValueError(value)
     n, unit = int(m.group(1)), m.group(2).lower()
@@ -114,7 +115,7 @@ def parse_max_deletes(value: Any) -> tuple[str, float]:
         if value < 0:
             raise ValueError(value)
         return "count", float(value)
-    m = _MAX_DELETES.match(value) if isinstance(value, str) else None
+    m = _MAX_DELETES.fullmatch(value) if isinstance(value, str) else None
     if not m or float(m.group(1)) > 100:
         raise ValueError(value)
     return "share", float(m.group(1)) / 100
@@ -216,6 +217,24 @@ class Entity:
         return self.spec.get("scd", {}).get("surrogate_key")
 
     @property
+    def delta_features(self) -> str | None:
+        """delta_features: which Delta table features a write may leave on, None for the default (Preview)."""
+        value = self.spec.get("delta_features")
+        return value if isinstance(value, str) else None
+
+    def delta_summary(self) -> dict[str, Any]:
+        """The table's Delta feature choice, its readers, and why each choice would break one of them."""
+        readers = list(delta_profile.table_readers(self.spec)) if not delta_profile.choice_problems(self.spec) \
+            else list(delta_profile.DEFAULT_READERS)
+        return {"features": self.delta_features, "readers": readers,
+                "reader_names": [delta_profile.READERS[r] for r in readers],
+                "accepted": list(self.spec.get("delta_accepted") or []),
+                "default": delta_profile.DEFAULT_PROFILE.name,
+                "reasons": {c or "default": delta_profile.choice_reasons(c, readers)
+                            for c in (None, *delta_profile.TABLE_CHOICES)},
+                "problems": delta_profile.choice_problems(self.spec)}
+
+    @property
     def date_column(self) -> str | None:
         """The date column that makes this dimension the semantic model's date table ([model] date_column)."""
         model = self.spec.get("model")
@@ -227,7 +246,7 @@ class Entity:
             part = logic.get(section)
             if isinstance(part, dict) and key in part:
                 logic[section] = {k: v for k, v in part.items() if k != key}
-        return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode()).hexdigest()[:8]
+        return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()[:8]
 
     def sources(self) -> list[str]:
         return as_list(self.spec.get("source", {}).get("entity"))
@@ -285,6 +304,7 @@ class Entity:
             "objective": objectives_mod.objective(s), "criticality": (s.get("objectives") or {}).get("criticality")
             if isinstance(s.get("objectives"), dict) else None,
             "link": src.get("link"), "description": mesh_mod.entity_catalog(self)["description"],
+            "delta": self.delta_summary(),
         }
 
 
@@ -366,7 +386,7 @@ class Project:
     @property
     def version(self) -> str:
         """Content hash of every config and code file, so any edit makes a new version."""
-        h = hashlib.sha1()
+        h = hashlib.sha1(usedforsecurity=False)
         for p in sorted(self.versioned_files()):
             rel = p.relative_to(self.root)
             if p.is_file() and not (set(rel.parts) & _IGNORED) and p.suffix not in (".pyc",) \
@@ -386,7 +406,7 @@ class Project:
 
     def fingerprint(self, e: Entity) -> str:
         """The entity's logic plus any Python it runs, so code changes count as logic changes."""
-        h = hashlib.sha1(e.logic_hash().encode())
+        h = hashlib.sha1(e.logic_hash().encode(), usedforsecurity=False)
         if any(True for _ in e.python_refs()):
             for p in sorted((self.root / "transforms").rglob("*.py")):
                 h.update(p.relative_to(self.root).as_posix().encode() + p.read_bytes().replace(b"\r\n", b"\n"))
@@ -400,6 +420,12 @@ class Project:
 
     def layer(self, name: str) -> Layer:
         return self.layers[self.layer_index(name)]
+
+    def delta_policies(self) -> dict[tuple[str, str, str], tuple[delta_profile.Profile, tuple[str, ...]]]:
+        """Each entity table's Delta profile and readers, by (lakehouse, schema, table), for Store.delta_policies."""
+        names = set(self.layer_names())
+        return {(self.layer(e.layer).lakehouse, e.schema, e.table): delta_profile.table_policy(e.spec)
+                for e in self.entities.values() if e.layer in names}
 
     # ---- layer management
 
@@ -417,7 +443,7 @@ class Project:
         if len(set(names)) != len(names):
             problems.append("layer names must be unique")
         for l in layers:
-            if not _LAYER_NAME.match(l.name):
+            if not _LAYER_NAME.fullmatch(l.name):
                 problems.append(f"layer name {l.name!r} must be lowercase letters, digits or _ and start with a letter")
             if l.drift not in DRIFT_POLICIES:
                 problems.append(f"layer {l.name}: drift must be one of {', '.join(DRIFT_POLICIES)}")
@@ -640,6 +666,43 @@ def entity_name_problem(name: str) -> str | None:
         return "each part of the name needs at least one character, and none can hold / \\ or :"
     return None
 
+_DELTA_LINE = re.compile(r"^(" + "|".join(delta_profile.TABLE_KEYS) + r")\s*=")
+_TOML_HEADER = re.compile(r"^\s*\[")
+_TOML_KEY = re.compile(r"^[A-Za-z0-9_\"'-]+\s*=")
+
+
+def with_delta_choice(text: str, features: str | None, readers: list[str] | None, accepted: list[str]) -> str:
+    """The entity file ``text`` with its delta_features, delta_readers and delta_accepted set (each left
+    out when None or empty), and every other line as it was. They are top-level keys, so they go after
+    the name, before the first [section]. ValueError when the file's own layout of them can't be
+    changed line by line (a reader list over several lines): then nothing is changed."""
+    lines = text.splitlines()
+    first = next((i for i, line in enumerate(lines) if _TOML_HEADER.match(line)), len(lines))
+    top = [line for line in lines[:first] if not _DELTA_LINE.match(line.strip())]
+    new = ([f"delta_features = {json.dumps(features)}"] if features is not None else []) \
+        + ([f"delta_readers = {json.dumps(list(readers))}"] if readers else []) \
+        + ([f"delta_accepted = {json.dumps(list(accepted))}"] if accepted else [])
+    at = next((i + 1 for i, line in enumerate(top) if re.match(r"^name\s*=", line.strip())), None)
+    if at is None:
+        keys = [i + 1 for i, line in enumerate(top) if _TOML_KEY.match(line.strip())]
+        at = keys[-1] if keys else 0
+    top[at:at] = new
+    out = "\n".join(top + lines[first:]) + ("\n" if text.endswith("\n") or not text else "")
+    before = tomllib.loads(text)
+    try:
+        after = tomllib.loads(out)
+    except tomllib.TOMLDecodeError:
+        after = None
+    want = {k: v for k, v in before.items() if k not in delta_profile.TABLE_KEYS}
+    want |= {k: v for k, v in (("delta_features", features), ("delta_readers", list(readers or []) or None),
+                                ("delta_accepted", list(accepted) or None)) if v is not None}
+    if after != want:
+        raise ValueError("The Delta table features weren't changed, because the entity file sets them in a way "
+                         "KratosForge can't change line by line. Put each delta_ setting on one line in the file, "
+                         "then choose again.")
+    return out
+
+
 def validate(project: Project, today: dt.date | None = None) -> list[str]:
     """The save gate. Every problem in the project; an empty list means it is clean."""
     today = today or dt.date.today()
@@ -693,13 +756,15 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: [model] date_column {e.date_column} must be a contract column of type date "
                               "or datetime")
         files = s.get("source", {}).get("files", "") or s.get("source", {}).get("landing", "")
-        if files and (Path(files).is_absolute() or re.match(r"^[A-Za-z]:", files)):
+        # rooted ("/data", "\\data", "\\\\server") or a drive: on Windows "/data" has no drive, so isn't is_absolute()
+        if files and (Path(files).is_absolute() or files.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", files)):
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "
                           f"lakehouse Files area and use a relative path")
         errors += freshness_mod.problems(e.name, s, ENVIRONMENTS)
         errors += objectives_mod.problems(e.name, s, ENVIRONMENTS)
         errors += _batch_by_problems(e)
         errors += _late_and_delete_problems(e)
+        errors += [f"{e.name}: {m}" for m in delta_profile.choice_problems(s)]
         own_drift = s.get("contract", {}).get("drift")
         if own_drift is not None and own_drift not in DRIFT_POLICIES:
             errors.append(f"{e.name}: contract drift must be one of {', '.join(DRIFT_POLICIES)}")
@@ -864,3 +929,21 @@ def impact(project: Project, entity: str) -> list[str]:
                     nxt.append(n)
         frontier = nxt
     return out
+
+
+def prod_name(project: Any) -> str:
+    """What a person types to confirm a change to Prod: its workspace's name, else its id (WR-250)."""
+    cfg = project.environments.get("prod", {}) or {}
+    return str(cfg.get("workspace_name") or cfg.get("workspace_id") or "Prod")
+
+
+def prod_typed(project: Any, env: str, confirm_name: str, doing: str, nothing: str) -> None:
+    """Refuse a change to Prod unless ``confirm_name`` is its workspace's name exactly, as Prod writes ask
+    (WR-250, the product owner's card 2026-11-19). ``confirm_name`` is a guard parameter, so the audit line
+    is written before the change runs (audit.fails_closed)."""
+    if env != "prod":
+        return
+    name = prod_name(project)
+    if confirm_name != name:
+        raise PermissionError(f"{name} is the Prod workspace, so {doing} runs only after you type its name to confirm. "
+                              f"{nothing}")

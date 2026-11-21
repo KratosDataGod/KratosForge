@@ -58,7 +58,9 @@ def available() -> int | None:
 
 
 def _group_free() -> int | None:
-    """What this process's memory control group still allows (limit less use), or None without a limit."""
+    """What this process's memory control group still allows (limit less use), or None without a limit.
+    Use leaves out the inactive file cache the kernel takes back under pressure, as Docker and the
+    kubelet count it: on a busy machine that cache can fill the group, and free would read as none."""
     try:
         with open("/proc/self/cgroup", encoding="ascii") as f:
             lines = f.read().splitlines()
@@ -69,13 +71,28 @@ def _group_free() -> int | None:
         if controllers == "":  # cgroup v2
             base = f"/sys/fs/cgroup{path}"
             limit, used = _read(f"{base}/memory.max"), _read(f"{base}/memory.current")
+            cache = _stat(f"{base}/memory.stat", "inactive_file")
         elif "memory" in controllers.split(","):  # cgroup v1
             base = f"/sys/fs/cgroup/memory{path}"
             limit, used = _read(f"{base}/memory.limit_in_bytes"), _read(f"{base}/memory.usage_in_bytes")
+            cache = _stat(f"{base}/memory.stat", "total_inactive_file")
         else:
             continue
         if limit is not None and used is not None and limit < 1 << 60:  # v1 writes a huge number for none
-            return max(0, limit - used)
+            return max(0, limit - (used - min(cache or 0, used)))
+    return None
+
+
+def _stat(path: str, key: str) -> int | None:
+    """One counter from a control group's memory.stat ("key value" lines), or None when it isn't there."""
+    try:
+        with open(path, encoding="ascii") as f:
+            for line in f:
+                name, _, value = line.partition(" ")
+                if name == key and value.strip().isdigit():
+                    return int(value)
+    except OSError:
+        return None
     return None
 
 

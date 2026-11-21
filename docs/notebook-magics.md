@@ -10,23 +10,27 @@ covers the rest of the notebook.
 A `%%sql` cell shows its result as a table, as in Fabric. It also keeps that result in a variable
 called `_sqldf`, as Databricks does, so the next Python cell can carry on from it:
 
+<!-- example: illustrative -->
 ```sql
 %%sql
 SELECT region, sum(amount) AS total FROM dbo.sales GROUP BY region
 ```
 
+<!-- example: illustrative -->
 ```python
 top = _sqldf.orderBy("total", ascending=False).limit(3)
 display(top)
 ```
 
 - `_sqldf` is a `spark` DataFrame. It shows in the **Variables** pane.
+- A later SQL cell can read it too, as in Databricks: `SELECT * FROM _sqldf WHERE total > 10`.
 - Only a query sets it (`SELECT`, `WITH`, `SHOW`, `DESCRIBE`...). A cell that creates a view or
   writes a table leaves the previous `_sqldf` as it was. What counts is the cell's last statement,
   with `--` and `/* */` comments skipped; `WITH x AS (...) INSERT INTO ...` is a write, not a query.
 - To run one query inside a Python cell, put `%sql` in front of it. Assign it to keep the result,
   or put it on the cell's last line to show it:
 
+<!-- example: illustrative -->
 ```python
 df = %sql SELECT * FROM dbo.sales WHERE region = 'West'
 print(df.count())
@@ -81,6 +85,7 @@ A line that starts with `!` runs in this PC's shell, as in IPython, Fabric and D
 notebooks. Output appears in the cell as it comes, and **Cancel** ends the command and everything
 it started.
 
+<!-- example: illustrative -->
 ```python
 !pip list
 files = !dir /b Files
@@ -108,9 +113,11 @@ A whole cell can be a script:
 | `%%cmd` | Windows' command prompt |
 | `%%powershell` | PowerShell |
 
-A script cell fails when its last command exits with a non-zero code, as a `%sh` cell does in
-Databricks. `%%cmd` and `%%powershell` cells are listed as not running in Fabric by the **Runs
-on** check; a `%sh` cell is published as `%%sh`.
+A `%%sh`, `%%bash`, `%%cmd` or `%%powershell` cell fails when its last command exits with a
+non-zero code. A Databricks `%sh` cell works as it does in Databricks: it fails on a non-zero exit
+code only when its first line is `%sh -e`. A plain `%sh` cell prints the exit code and goes on, and
+`_exit_code` holds it. `%%cmd` and `%%powershell` cells are listed as not running in Fabric by the
+**Runs on** check; a `%sh` cell is published as `%%sh`.
 
 `%fs` runs one `notebookutils.fs` command, as in Databricks, with the same paths and the same
 rules (writes to OneLake need a lakehouse you can write to, and a proof refuses them):
@@ -124,6 +131,12 @@ rules (writes to OneLake need a lakehouse you can write to, and a proof refuses 
 | `%fs rm [-r] path` | Removes a file, or a folder with `-r` |
 | `%fs mkdirs path` | Makes a folder |
 | `%fs put [-f] path "text"` | Writes text to a file; `-f` replaces one that exists |
+| `%fs mounts`, `%fs refreshMounts` | Answer as `dbutils.fs` does on this PC: there are no mounts |
+
+`%fs mount`, `%fs unmount`, `%fs updateMount` and any other command stop with an error that names
+the command. So does a `dbfs:/`, `/Volumes/` or other bare absolute path, which is Databricks
+storage. Use `Files/...` for the attached lakehouse or `file:` for a folder on this PC. The **Runs
+on** check lists such a `%fs` cell by number before the notebook runs.
 
 Dependencies treat shell commands and `%fs` changes as side effects, so **Run stale cells** asks
 before running them again, and Prove warns that it can't contain what a shell command changes.
@@ -160,6 +173,7 @@ Keep helper code in a `.py` file (for example in the notebook's resources, or a 
 `sys.path`), import it, and turn on autoreload. When you edit the file, the next cell uses the new
 code without restarting the session:
 
+<!-- example: illustrative -->
 ```python
 %load_ext autoreload
 %autoreload 2
@@ -190,6 +204,7 @@ defining `name`.
 `%run` runs another notebook in this one, so its functions and variables are yours afterwards.
 Both products' ways of passing values work:
 
+<!-- example: illustrative -->
 ```python
 %run Load sales {"day": "2026-01-01", "full": true}
 %run ./etl/Load sales $day="2026-01-01" $full="true"
@@ -210,6 +225,7 @@ Both products' ways of passing values work:
 variables are yours afterwards. `%run -b file.sql` runs a SQL file as a `%%sql` cell would, and
 leaves a query's result in `_sqldf`.
 
+<!-- example: illustrative -->
 ```python
 %run -b helpers.py
 %run -b helpers.py {"factor": 2}     # set as variables before the file runs
@@ -275,12 +291,13 @@ Those engines are in Fabric, so on this PC the cell is checked instead of run:
 [environment](notebooks.md#notebook-environments-preview), never into the app's own Python, and the cell waits
 until pip finishes:
 
+<!-- example: illustrative -->
 ```python
 %pip install openpyxl==3.1.5 rich
 %pip install -r builtin/requirements.txt    # a file in the notebook's resources
 ```
 
-- It needs **Run notebooks in their own process** (Settings > Preview features). Without it the
+- It needs **Run notebooks in their own process** (Settings > Advanced, on by default). Without it the
   line is skipped with a note.
 - A notebook without an environment gets one named after it, attached to it. That session started
   without it, so the cell says to restart the session before importing. Later installs import

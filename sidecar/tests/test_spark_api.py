@@ -87,7 +87,6 @@ def test_the_coverage_page_matches_the_api():
     "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
     "from pyspark.sql import SparkSession\nSparkSession.builder.config('spark.sql.sources.partitionOverwriteMode', 'DYNAMIC')",
 ])
-def test_dynamic_partition_overwrite_from_the_session_is_refused(setter):
-    out = Kernel().run(setter)
-    assert out["status"] == "error" and "would replace the whole table" in str(out["outputs"])
+def test_dynamic_partition_overwrite_can_be_set_on_the_session(setter):
+    assert Kernel().run(setter)["status"] == "ok"
     assert Kernel().run("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')")["status"] == "ok"

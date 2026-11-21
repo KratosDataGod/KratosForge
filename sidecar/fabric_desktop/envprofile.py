@@ -45,7 +45,7 @@ PROVIDED = {"fabric_desktop": "KratosForge's lakehouse module (added to the publ
             "mssparkutils": "Fabric's notebook utilities (KratosForge's version on this PC)"}
 # Spark exists on both sides, as different engines: DuckDB's PySpark API here, Fabric's Spark there.
 SPARK = {"pyspark"}
-_DYNAMIC = re.compile(r"\b(importlib\.import_module|__import__)\s*\(|^\s*%(pip|conda)\b|^\s*!\s*pip\b|"
+_DYNAMIC = re.compile(r"\b(importlib\.import_module|__import__)\s*\(|^[ \t]*%(pip|conda)\b|^[ \t]*![ \t]*pip\b|"
                       r"[\"']pip[\"']\s*,\s*[\"']install[\"']", re.M)
 
 

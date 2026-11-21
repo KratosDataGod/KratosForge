@@ -62,6 +62,7 @@ test("opening a data frame shows its columns and types; a dict shows its items w
   assert.deepStrictEqual(await detail.locator("td.val").allInnerTexts(), ["Int64", "String"]);
   await pane().getByRole("button", { name: "Open config" }).click();
   const cfg = pane().locator("tr.vars-detail").first();  // config sorts first
+  await cfg.getByText("hidden", { exact: true }).waitFor();  // its row shows "Loading..." until the engine answers
   assert.deepStrictEqual(await cfg.locator("td.val").allInnerTexts(), ["'west'", "hidden", "3"]);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-variables.png") });
   // Opening a variable doesn't add a cell; clicking its row still does.

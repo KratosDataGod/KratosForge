@@ -9,6 +9,8 @@
     sidecar.prev.log  the last lines of the run before, when there was one (a crash's log survives the restart)
     app-crash.log   the app's own crashes (a panic: when, which build, where), when there were any
     agent.log       the last lines of the headless agent's log, on a server with an agent
+    agent-crash.log the agent's native crashes (where each happened, by file and function) and its starts,
+                    when it has a crash
     CONTENTS.txt    what is in the zip and what was taken out
 
 Every file passes through :func:`redact.for_support` (no tokens, keys, passwords, email
@@ -28,12 +30,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import __version__, app_settings, policy_watch
+from . import __version__, app_settings, policy_watch, secret_redaction, win_paths
 from .redact import for_support, secret_key
 
 log = logging.getLogger(__name__)
 
 LOG_LINES = 2000
+
+# What a bundle keeps on purpose, and where it should go. Settings shows the same sentence (BUNDLE_KEPT in
+# app/ui/settings.js); test_support_bundle_save.py keeps the two in step.
+KEPT = ("Workspace, lakehouse, warehouse, table and notebook names, and the SQL that ran. "
+        "Send the bundle to your IT or support contact, not to a public forum or GitHub issue.")
+
+
+def _wrap(text: str) -> list[str]:
+    import textwrap
+    return textwrap.wrap(text, 100)
 
 
 def _data_dir() -> Path:
@@ -45,18 +57,42 @@ TAIL_BYTES = 4 * 1024 * 1024  # LOG_LINES of even long lines; a log of any size 
 
 
 def _tail(path: Path, lines: int = LOG_LINES, max_bytes: int = TAIL_BYTES) -> str | None:
-    """The last ``lines`` lines, reading only the file's last ``max_bytes``."""
+    """The last ``lines`` lines, reading only the file's last ``max_bytes``. A UTF-16 file (one with its
+    byte order mark) is read as UTF-16, and any NUL left over is dropped: redaction matches text, and a
+    token with NULs between its characters would pass it."""
     try:
         with path.open("rb") as f:
+            encoding = _UTF16.get(f.read(2), "utf-8")
             size = f.seek(0, os.SEEK_END)
-            f.seek(max(0, size - max_bytes))
+            start = max(0, size - max_bytes)
+            if encoding != "utf-8":
+                start += start % 2  # a whole UTF-16 code unit
+            f.seek(start)
             data = f.read()
     except OSError:
         return None
-    if size > max_bytes:
-        data = data[data.find(b"\n") + 1:] if b"\n" in data else b""  # drop the line cut in half
-    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
-    return "".join(text.splitlines(keepends=True)[-lines:])
+    text = data.decode(encoding, errors="replace").lstrip("\ufeff").replace("\x00", "")
+    if start:
+        text = text[text.find("\n") + 1:] if "\n" in text else ""  # drop the line cut in half
+    text = text.replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
+    return _without_cut_key("".join(text.splitlines(keepends=True)[-lines:]))
+
+
+_UTF16 = {b"\xff\xfe": "utf-16-le", b"\xfe\xff": "utf-16-be"}
+
+
+_KEY_END = re.compile(r"-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[^\n]*\n?")
+_KEY_BEGIN = re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----")
+
+
+def _without_cut_key(text: str) -> str:
+    """``text`` without the start of a private key whose BEGIN line the tail cut off. Redaction finds a
+    key by its BEGIN line, so a body left on its own would pass as plain text; the lines up to and
+    including its END line are the oldest kept, so they are dropped."""
+    end = _KEY_END.search(text)
+    if end and not _KEY_BEGIN.search(text, 0, end.start()):
+        return "[a private key cut off by the start of this log was removed]\n" + text[end.end():]
+    return text
 
 
 def about(data_dir: Path | None = None) -> dict[str, Any]:
@@ -71,7 +107,7 @@ def about(data_dir: Path | None = None) -> dict[str, Any]:
             value = sorted(value) if isinstance(value, dict) else []
         elif key in ("support_url", "dbconnect_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
             value = "set" if value else ""  # an internal help desk or package mirror names the organization by its host
-        elif key in ("sql_temp_dir", "notebook_package_folder") and isinstance(value, str) and value[:2] in ("\\\\", "//"):
+        elif key in ("sql_temp_dir", "notebook_package_folder") and isinstance(value, str) and win_paths.is_share(value):
             value = "a network folder"  # a share's server name is the organization's
         summary[key] = {"value": value, "source": entry["source"]}
     engine = app_settings._read_engine_info()
@@ -108,7 +144,7 @@ def path_facts(data_dir: Path) -> dict[str, Any]:
     share, and whether Windows allows long paths."""
     text = str(data_dir)
     return {"data_folder_length": len(text), "data_folder_ascii": text.isascii(), "data_folder_spaces": " " in text,
-            "data_folder_network": text[:2] in ("\\\\", "//"), "long_paths_enabled": long_paths_enabled()}
+            "data_folder_network": win_paths.is_share(text), "long_paths_enabled": long_paths_enabled()}
 
 
 def policy_state(settings: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -146,6 +182,12 @@ def policy_record(data_dir: Path) -> dict[str, Any]:
     return record
 
 
+def _has_trace(text: str) -> bool:
+    """Whether faulthandler wrote anything there, beyond the line the agent writes at each start."""
+    from .logs import START_LINE
+    return any(line.strip() and START_LINE not in line for line in text.splitlines())
+
+
 def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     """Each file of the bundle by name, already redacted: what create() writes and preview() shows."""
     files: dict[str, str] = {"about.json": json.dumps(about(data_dir), indent=2)}
@@ -165,18 +207,25 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     crashes = _tail(data_dir / "app-crash.log")  # only there once the app itself has crashed
     if crashes is not None:
         files["app-crash.log"] = crashes
+    agent_crashes = _tail(agent_home / "logs" / "agent-crash.log") if agent_home else None
+    if agent_crashes and _has_trace(agent_crashes):  # start lines alone: the agent never crashed
+        files["agent-crash.log"] = agent_crashes
     contents = ["KratosForge support bundle", "",
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",
                 "Taken out of every file: tokens, keys, passwords, email addresses (a guest's too), the tenant's",
                 "onmicrosoft.com and SharePoint names, the organization's name on OneDrive folders, user names in paths, and tenant, workspace and item ids.",
                 "No table data, notebook contents or sign-in cache is included.",
+                "", "Kept, so whoever helps can find the problem:", *_wrap(KEPT), "",
                 "Nothing is uploaded: crash reports stay on this PC, and this bundle goes only where you send it.",
                 "Settings that hold a secret, such as a connection string, or an internal address show only whether they are set.",
                 "The policy file shows only the setting names it sets, never their values; other keys are counted.",
                 "about.json has the policy file's SHA-256, to compare with the file IT shipped, and when this PC last saw it change.",
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"
-    return {name: for_support(text) for name, text in files.items()}
+    # Values dbutils.secrets read are remembered by the kernel process that read them, which redacts its
+    # own output and stderr before sidecar.log gets it (kernel_host.py). This engine remembers only
+    # what a kernel running inside it read, so here it is a second pass, not the protection.
+    return {name: secret_redaction.redact(for_support(text)) for name, text in files.items()}
 
 
 def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dict[str, Any]:

@@ -48,7 +48,7 @@ def test_a_shared_session_shares_spark_but_not_variables(svc):  # noqa: F811
     assert out(run(svc, "A", "x")) == "'A'"
     # Leave: B's next cell starts a session of its own, without A's temp view.
     assert call(svc, "kernel_session_leave", notebook="B") == {"notebook": "B", "left": "A"}
-    assert out(run(svc, "B", "print('shared_view' in [t.name for t in spark.catalog.listTables()])")) == "False\n"
+    assert out(run(svc, "B", "print(spark.catalog.tableExists('shared_view'))")) == "False\n"
     assert svc.kernel_info(notebook="B")["pid"] != svc.kernel_info(notebook="A")["pid"]
 
 

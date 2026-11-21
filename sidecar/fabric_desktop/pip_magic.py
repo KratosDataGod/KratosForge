@@ -33,9 +33,9 @@ def specs(args: list[str], read_file: Callable[[str], str]) -> list[str]:
     out: list[str] = []
     it = iter(args)
     for arg in it:
-        if arg in _QUIET or _SHORT_QUIET.match(arg):
+        if arg in _QUIET or _SHORT_QUIET.fullmatch(arg):
             continue
-        if m := _REQUIREMENT.match(arg):
+        if m := _REQUIREMENT.fullmatch(arg):
             out += _requirements(read_file(m[1]))
             continue
         if arg in ("-r", "--requirement"):

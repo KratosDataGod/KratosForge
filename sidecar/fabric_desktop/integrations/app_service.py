@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import jsonfile
+from ..winexe import system32
 from . import policy
 from .config import TOOLS, launcher_path, snippets, write_launcher
 from .extensions import ExtensionHost
@@ -311,7 +312,7 @@ def _test_stdio(launcher: Any, client_id: str, timeout: float = 60) -> dict[str,
 
     if not launcher.exists():
         return {"ok": False, "message": "The launcher isn't there yet. Turn integrations on first."}
-    command, args = (("cmd.exe", ["/c", str(launcher)]) if os.name == "nt" else (str(launcher), []))
+    command, args = ((system32("cmd.exe"), ["/c", str(launcher)]) if os.name == "nt" else (str(launcher), []))
     params = StdioServerParameters(command=command, args=args + ["--client", client_id], env=dict(os.environ))
 
     async def run() -> dict[str, Any]:

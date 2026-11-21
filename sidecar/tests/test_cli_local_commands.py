@@ -291,8 +291,8 @@ def test_nb_validate_prints_one_line_per_finding_and_counts(tmp_path, capsys):
     _notebook(tmp_path / "Helper.ipynb", ["y = 2"])  # %run finds the notebook beside it
     assert _exit(["nb", "validate", str(nb)]) == 0
     assert capsys.readouterr().out.strip().splitlines() == [
-        f"{nb.resolve()}:1:1: warning: Cell 1 runs another notebook (line 1). A clean run runs it too, in the same "
-        "fresh kernel, with its table writes in the same sandbox.",
+        (f"{nb.resolve()}:1:1: warning: Cell 1 runs another notebook (line 1). A clean run runs it too, in the same "
+        "fresh kernel, with its table writes in the same sandbox."),
         "0 errors, 1 warnings, 0 notes (Runs on isn't set, so what stops either place is a warning)"]
 
 

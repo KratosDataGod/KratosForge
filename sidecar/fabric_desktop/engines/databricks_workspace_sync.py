@@ -30,6 +30,7 @@ import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .. import b64
 from .. import notebook_formats as nbf
 from .. import redact
 from ..jsonfile import read_json, write_bytes, write_json
@@ -341,7 +342,7 @@ def pull(client: Client, pair: dict[str, Any], files: list[str]) -> dict[str, An
         if len(encoded) > MAX_BYTES * 4 // 3 + 4:
             skipped.append({"file": name, "why": "It's over 10 MB in Databricks, so it isn't pulled."})
             continue
-        data = base64.b64decode(encoded, validate=True)
+        data = b64.decode_exact(encoded)
         path = root / name
         if path.is_symlink() or path.resolve().parent != root:
             skipped.append({"file": name, "why": "Not a file in this folder."})

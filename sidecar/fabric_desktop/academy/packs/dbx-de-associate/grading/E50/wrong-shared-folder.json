@@ -1,0 +1,69 @@
+{
+  "_about": "A model of a bundle's databricks.yml as JSON. workspace.root_path is the workspace folder a deploy writes to; the bundle's deployment state (which resources it deployed, and their IDs) is kept in its state folder under root_path. ${bundle.name}, ${bundle.target} and ${var.name} are filled in at deploy time. A target's variables override the top-level variables' defaults for that target.",
+  "needs": {
+    "workspace": "dev and prod share one workspace and are kept apart by catalog. Every deploy writes under the team's deployment folder /Workspace/Deployments, whose permissions the platform team manages. A test target is planned next, so fix the folder once for every target, not with a path per target.",
+    "dev": "The default target, in development mode, writing to the dev catalog.",
+    "prod": "Deployed only from main, in production mode, as the service principal kf-deployer (application ID 6f1c2a9e-3b7d-4e8a-9c21-5d0b7a4e1f33), writing to the prod catalog."
+  },
+  "bundle": {
+    "name": "orders"
+  },
+  "variables": {
+    "catalog": {
+      "description": "The catalog the job writes to",
+      "default": "dev"
+    }
+  },
+  "workspace": {
+    "root_path": "/Workspace/Shared/.bundle/${bundle.name}/${bundle.target}"
+  },
+  "resources": {
+    "jobs": {
+      "nightly_orders": {
+        "name": "nightly_orders",
+        "schedule": {
+          "quartz_cron_expression": "0 0 2 * * ?",
+          "timezone_id": "UTC"
+        },
+        "parameters": [
+          {
+            "name": "catalog",
+            "default": "${var.catalog}"
+          }
+        ],
+        "tasks": [
+          {
+            "task_key": "build_silver",
+            "notebook_task": {
+              "notebook_path": "./src/build_silver.py"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "targets": {
+    "dev": {
+      "default": true,
+      "mode": "development",
+      "workspace": {
+        "host": "https://orders-ws.cloud.databricks.com"
+      }
+    },
+    "prod": {
+      "mode": "production",
+      "workspace": {
+        "host": "https://orders-ws.cloud.databricks.com"
+      },
+      "git": {
+        "branch": "main"
+      },
+      "run_as": {
+        "service_principal_name": "6f1c2a9e-3b7d-4e8a-9c21-5d0b7a4e1f33"
+      },
+      "variables": {
+        "catalog": "prod"
+      }
+    }
+  }
+}

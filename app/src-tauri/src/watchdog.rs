@@ -23,7 +23,7 @@ pub const QUICK: &[&str] = &[
     "receipt_get", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_export", "sql_export_cancel", "sql_export_status",
-    "sql_page", "sql_practices", "sql_start", "sql_status",
+    "sql_file_info", "sql_file_read", "sql_file_write", "sql_page", "sql_pin", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
     "engine_state", "engine_poll_cell", "engine_cancel",
 ];

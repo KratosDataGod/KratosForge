@@ -496,7 +496,8 @@
               "exercises": [
                 "E21",
                 "E22",
-                "E57"
+                "E57",
+                "E67"
               ],
               "capstones": [
                 "C1"
@@ -805,7 +806,8 @@
                 "E38",
                 "E39",
                 "E57",
-                "E58"
+                "E58",
+                "E68"
               ],
               "capstones": [
                 "C1",
@@ -1152,7 +1154,8 @@
               "best_local": "local_verified",
               "exercises": [
                 "E51",
-                "E52"
+                "E52",
+                "E68"
               ],
               "capstones": [],
               "lessons": [],
@@ -1220,9 +1223,10 @@
               "text": "Identify and resolve T-SQL errors",
               "competency": "Find and fix T-SQL errors.",
               "fabric_required": true,
-              "best_local": "simulated",
+              "best_local": "local_verified",
               "exercises": [
-                "E55"
+                "E55",
+                "E65"
               ],
               "capstones": [],
               "lessons": [
@@ -1302,9 +1306,10 @@
               "text": "Optimize a data warehouse",
               "competency": "Optimize a data warehouse.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "local_verified",
               "exercises": [
-                "E61"
+                "E61",
+                "E66"
               ],
               "capstones": [],
               "lessons": [],

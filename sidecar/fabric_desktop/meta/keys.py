@@ -187,7 +187,7 @@ def validate_keys(project: Project, today: dt.date | None = None) -> list[str]:
 
     errors = list(project.key_errors)
     for name in project.key_tables:
-        if not _NAME.match(name):
+        if not _NAME.fullmatch(name):
             errors.append(f"keys/{name}: name must be lowercase letters, digits or _ and start with a letter")
     ids, codes = set(), set()
     for s in project.source_systems:
@@ -195,7 +195,7 @@ def validate_keys(project: Project, today: dt.date | None = None) -> list[str]:
             errors.append(f"source system {s.code or '?'}: id must be a whole number above 0")
         if s.id in ids:
             errors.append(f"source system {s.code}: id {s.id} is used twice")
-        if not _CODE.match(s.code):
+        if not _CODE.fullmatch(s.code):
             errors.append(f"source system {s.code or '?'}: code must be letters, digits or _ and start with a letter")
         if s.code.upper() in codes:
             errors.append(f"source system {s.code}: code is used twice")
@@ -519,7 +519,7 @@ def _toml_value(v: Any) -> str:
 
 
 def write_key_table(root: Path, name: str, owner: str = "", description: str = "") -> Path:
-    if not _NAME.match(name):
+    if not _NAME.fullmatch(name):
         raise ValueError("A key table name must be lowercase letters, digits or _ and start with a letter, "
                          "like customer")
     path = keys_dir(root) / f"{name}.toml"

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
-import shutil
 import threading
 import time
 from collections.abc import Iterator
@@ -26,6 +25,7 @@ import duckdb
 
 from .. import jsonfile
 from . import checks, content, datasets
+from .. import trees
 
 LAB_FILE = "lab.json"
 DB_FILE = "lab.duckdb"
@@ -135,7 +135,7 @@ def reset(root: Path, module_id: str, size: str | None = None, seed: int = 7) ->
     """Throw the lab away, answers included, and start it again."""
     folder = lab_dir(root, module_id)
     if folder.exists():
-        shutil.rmtree(folder)
+        trees.remove(folder)
     return start(root, module_id, size=size, seed=seed)
 
 

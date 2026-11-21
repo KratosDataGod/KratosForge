@@ -24,8 +24,10 @@ when it is stale.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +97,7 @@ def load() -> list[dict[str, Any]]:
 
 def _refusal(exc_text: str) -> bool:
     lowered = exc_text.lower()
-    return "notimplementederror" in lowered or "this pc" in lowered
+    return "notimplementederror" in lowered or "this pc" in lowered or "runs in fabric" in lowered
 
 
 def _run(kernel: Any, source: str) -> tuple[dict[str, Any] | None, str]:
@@ -193,11 +195,36 @@ def coverage() -> list[dict[str, Any]]:
     from .notebook import Kernel
     out = []
     kernels: dict[str, Any] = {}
-    for method in load():
-        kernel = kernels.get(method["class"]) or kernels.setdefault(method["class"], Kernel())
-        status, note = check(method, kernel)
-        out.append({"class": method["class"], "name": method["name"], "status": status, "note": note})
+    with _scratch_lakehouse():
+        for method in load():
+            kernel = kernels.get(method["class"]) or kernels.setdefault(method["class"], Kernel())
+            status, note = check(method, kernel)
+            out.append({"class": method["class"], "name": method["name"], "status": status, "note": note})
     return out
+
+
+@contextlib.contextmanager
+def _scratch_lakehouse() -> Iterator[None]:
+    """A lakehouse in a temporary folder, attached while the examples run, as a notebook in Fabric has
+    one: the examples that save tables write there and nowhere else. What was attached before is
+    attached again after."""
+    import tempfile
+    from pathlib import Path
+
+    from . import lakehouse, onelake, publish
+    before = lakehouse._attached
+    uri, options, published = onelake.TableRef.uri, lakehouse.storage_options, publish.storage_options
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "Tables"
+        onelake.TableRef.uri = property(lambda self: (root / self.schema / self.table).as_posix())  # type: ignore[method-assign,assignment]  # put back below
+        lakehouse.storage_options = publish.storage_options = lambda token: {}
+        try:
+            lakehouse.attach(lakehouse.Attached("ws1", "lh1", "Scratch", lambda: "tok", Path(tmp)))
+            yield
+        finally:
+            lakehouse.attach(before)
+            onelake.TableRef.uri = uri  # type: ignore[method-assign]  # restored
+            lakehouse.storage_options, publish.storage_options = options, published
 
 
 def markdown(rows: list[dict[str, Any]]) -> str:
@@ -219,8 +246,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but an example gives another value or prints something else.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: an example stops with an error. Run the cell in Fabric.",
-        "- **Not checked**: no example whose result can be compared (none documented, Spark itself "
-        "stops on it, or its result changes from run to run).",
+        ("- **Not checked**: no example whose result can be compared (none documented, Spark itself "
+        "stops on it, or its result changes from run to run)."),
         "",
         "Documented examples are a first check, not proof: a method can match on them and differ on other",
         "input. [Spark functions](spark-functions.md) lists the SQL functions the same way.",

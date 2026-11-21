@@ -224,7 +224,7 @@ def test_spark_timestamps_read_in_utc_as_in_fabric_whatever_this_pcs_zone(dialec
     try:
         s._con.execute("SET TimeZone = 'America/Chicago'")
         r = s.execute(sql("SELECT CAST(date_trunc('HOUR', TIMESTAMP'2024-03-10 02:45:10') AS STRING) AS h", dialect))
-        assert r.status == "ok" and r.outputs[0]["rows"] == [["2024-03-10 02:00:00+00"]]
+        assert r.status == "ok" and r.outputs[0]["rows"] == [["2024-03-10 02:00:00"]]  # as Spark writes it, no offset
         # DuckDB SQL cells keep the session's own zone.
         assert s._con.execute("SELECT current_setting('TimeZone')").fetchone() == ("America/Chicago",)
         failed = s.execute(sql("SELECT * FROM no_such_table", dialect))
@@ -552,6 +552,18 @@ def test_duckdb_refusal_names_the_statement_and_plan_refuses_too(tmp_path):
         from fabric_desktop.engines.local_sql import OutsideSession
         with pytest.raises(OutsideSession):
             s.plan("INSTALL httpfs")
+    finally:
+        s.close()
+
+
+def test_duckdb_runs_a_cell_ending_in_comment_lines_and_still_refuses_copy_before_them(tmp_path):
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        r = s.execute(sql("-- first\n-- second\nSELECT 1 AS x;\n-- notes\n-- more notes"))
+        assert r.status == "ok", r.outputs
+        r = s.execute(sql(f"COPY (SELECT 1) TO '{tmp_path.as_posix()}/o.csv';\n-- notes"))
+        assert r.outputs[0]["ename"] == "OutsideSession" and "COPY" in r.outputs[0]["evalue"]
+        assert list(tmp_path.iterdir()) == []
     finally:
         s.close()
 

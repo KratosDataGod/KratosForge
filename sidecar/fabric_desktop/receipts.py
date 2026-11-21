@@ -84,7 +84,7 @@ class ReceiptStore:
         self.folder = folder
 
     def _path(self, rid: str) -> Path:
-        if not _ID.match(rid or ""):
+        if not _ID.fullmatch(rid or ""):
             raise ReceiptError(f"{rid!r} isn't a receipt id (64 hex characters).")
         return self.folder / f"{rid}.json"
 
@@ -201,7 +201,7 @@ def to_markdown(receipt: dict[str, Any], rid: str, hide: Iterable[str] = ()) -> 
              f"Receipt `{rid}`, created {r.get('created_at', '')}.",
              f"Check it: the SHA-256 of the receipt's canonical JSON is its id ({SCHEMA}).", ""]
     if hide:
-        lines += [f"Redacted in this export: {', '.join(REDACTIONS[h].lower() for h in hide)}.", ""]
+        lines += [f"Redacted in this export: {', '.join(REDACTIONS[h][:1].lower() + REDACTIONS[h][1:] for h in hide)}.", ""]
     if v:
         lines += ["## Result", "", f"**{v.get('text') or v.get('verdict', '')}**", ""]
         if v.get("level"):

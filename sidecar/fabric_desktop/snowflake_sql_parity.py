@@ -46,6 +46,87 @@ _VARTAB = ("(SELECT column1 AS n, parse_json(column2) AS v FROM VALUES (1, 'null
            "(4, '-17'), (5, '123.12'), (6, '1.912e2'), (7, '\"Om ara pa ca na dhih\"  '), "
            "(8, '[-1, 12, 289, 2188, false,]'), (9, '{ \"x\" : \"abc\", \"y\" : false, \"z\": 10} '))")
 
+# The docs' example tables, as VALUES (WR-305).
+_EMPLOYEES = ("VALUES (1001, 10000), (1020, 9000), (1030, 8000), (900, 15000), (2000, NULL) AS t(e, s)")
+_BITWISE = "VALUES (15, 1.1), (26, 2.9), (12, 7.1), (14, NULL), (8, NULL), (NULL, 9.1) AS t(k, d)"
+_AGGR = "VALUES (1, 10, NULL), (2, 10, 11), (2, 20, 22), (2, 25, NULL), (2, 30, 35) AS t(k, v, v2)"
+_AVG = "VALUES (1, 1.1), (1, 10), (2, 2.4), (2, NULL), (3, NULL), (NULL, 9.9) AS t(int_col, d)"
+_BASIC = "VALUES (11, 101), (11, 102), (11, NULL), (12, 101), (NULL, 101), (NULL, 102) AS t(i_col, j_col)"
+_SAMPLE = ("VALUES ('1', '1'), ('1', '5'), ('1', '3'), ('2', '2'), ('2', NULL), ('3', NULL), (NULL, '7'), (NULL, '1') "
+           "AS t(k, d)")
+_CORN = "VALUES (1, 'Iowa', 100), (2, 'Iowa', 110), (3, 'Kansas', 120), (4, 'Kansas', 130), (5, 'Iowa', 110) AS t(f, s, b)"
+
+
+# WR-307: the docs' example tables, as VALUES, or the page's own statements where the check is the statement
+_MENU = ("VALUES ('Pretzel', NULL, 3.00), ('Corn Dog', NULL, 4.00), ('Hot Dog', 1.50, 5.00), ('Sandwich', 2.50, 6.00) "
+         "AS menu(item_name, item_cost, item_price)")
+_SALES = ("VALUES (0, 2010, 1000.00), (0, 2011, 1500.00), (0, 2012, 500.00), (0, 2013, 750.00), (1, 2010, 10000.00), "
+          "(1, 2011, 12500.00), (1, 2012, 15000.00), (1, 2013, 20000.00), (2, 2012, 500.00), (2, 2013, 800.00) "
+          "AS sales(emp_id, year, revenue)")
+_QT = "VALUES (1, 'A', 1), (2, 'A', 2), (3, 'B', 1), (4, 'B', 2) AS qt(i, p, o)"
+_LIKE_EX = ("CREATE OR REPLACE TABLE like_ex(name VARCHAR(20)); INSERT INTO like_ex VALUES ('John  Dddoe'), "
+            "('John ''alias'' Doe'), ('Joe   Doe'), ('John_down'), ('Joe down'), ('Elaine'), (''), (null);")
+_ILIKE_EX = ("CREATE OR REPLACE TABLE ilike_ex(name VARCHAR(20)); INSERT INTO ilike_ex VALUES ('John  Dddoe'), "
+             "('Joe   Doe'), ('John_down'), ('Joe down'), (null);")
+_LIKE_EXAMPLE = ("CREATE OR REPLACE TABLE like_example(name VARCHAR(20)); INSERT INTO like_example VALUES "
+                 "('John  Dddoe'), ('Joe   Doe'), ('John_down'), ('Joe down'), ('Tom   Doe'), ('Tim down'), (null);")
+_LIKE_ALL = ("CREATE OR REPLACE TABLE like_all_example(name VARCHAR(20)); INSERT INTO like_all_example VALUES "
+             "('John  Dddoe'), ('Joe   Doe'), ('John_do%wn'), ('Joe down'), ('Tom   Doe'), ('Tim down'), (null);")
+_CITIES = "VALUES ('San Francisco'), ('San Jose'), ('Santa Clara'), ('Sacramento') AS strings(v)"
+_QUARTERLY = ("(SELECT * FROM VALUES (1, 10000, '2023_Q1'), (1, 400, '2023_Q1'), (2, 4500, '2023_Q1'), "
+              "(2, 35000, '2023_Q1'), (1, 5000, '2023_Q2'), (1, 3000, '2023_Q2'), (2, 200, '2023_Q2'), "
+              "(2, 90500, '2023_Q2'), (1, 6000, '2023_Q3'), (1, 5000, '2023_Q3'), (2, 2500, '2023_Q3'), "
+              "(2, 9500, '2023_Q3'), (3, 2700, '2023_Q3'), (1, 8000, '2023_Q4'), (1, 10000, '2023_Q4'), "
+              "(2, 800, '2023_Q4'), (2, 4500, '2023_Q4'), (3, 2700, '2023_Q4'), (3, 16000, '2023_Q4'), "
+              "(3, 10200, '2023_Q4') AS q(empid, amount, quarter))")
+_MONTHLY = ("(SELECT * FROM VALUES (1, 'electronics', 100, 200, 300, 100), (2, 'clothes', 100, 300, 150, 200), "
+            "(3, 'cars', 200, 400, 100, 50), (4, 'appliances', 100, NULL, 100, 50) "
+            "AS m(empid, dept, jan, feb, mar, apr))")
+_MERGE_MULT = (
+    "CREATE OR REPLACE TABLE merge_example_mult_target (id INTEGER, val INTEGER, status VARCHAR); "
+    "INSERT INTO merge_example_mult_target (id, val, status) VALUES (1, 10, 'Production'), (2, 20, 'Alpha'), "
+    "(3, 30, 'Production'); "
+    "CREATE OR REPLACE TABLE merge_example_mult_source (id INTEGER, marked VARCHAR, isnewstatus INTEGER, newval INTEGER, "
+    "newstatus VARCHAR); "
+    "INSERT INTO merge_example_mult_source (id, marked, isnewstatus, newval, newstatus) VALUES "
+    "(1, 'Y', 0, 10, 'Production'), (2, 'N', 1, 50, 'Beta'), (3, 'N', 0, 60, 'Deprecated'), (4, 'N', 0, 40, 'Production'); "
+    "MERGE INTO merge_example_mult_target USING merge_example_mult_source "
+    "ON merge_example_mult_target.id = merge_example_mult_source.id "
+    "WHEN MATCHED AND merge_example_mult_source.marked = 'Y' THEN DELETE "
+    "WHEN MATCHED AND merge_example_mult_source.isnewstatus = 1 THEN UPDATE SET val = merge_example_mult_source.newval, "
+    "status = merge_example_mult_source.newstatus "
+    "WHEN MATCHED THEN UPDATE SET val = merge_example_mult_source.newval "
+    "WHEN NOT MATCHED THEN INSERT (id, val, status) VALUES (merge_example_mult_source.id, merge_example_mult_source.newval, "
+    "merge_example_mult_source.newstatus);")
+_ARRAY_APPEND = ("CREATE OR REPLACE TABLE array_append_examples (array_column ARRAY); "
+                 "INSERT INTO array_append_examples (array_column) SELECT ARRAY_CONSTRUCT(1, 2, 3);")
+_APPEND_FOUR = "UPDATE array_append_examples SET array_column = ARRAY_APPEND(array_column, 4);"
+_APPEND_FIVE = "UPDATE array_append_examples SET array_column = ARRAY_APPEND(array_column, 'five');"
+_BICYCLES = (
+    "CREATE TABLE leased_bicycles (bicycle_id INTEGER, \"customer_id\" INTEGER); "
+    "CREATE TABLE returned_bicycles (bicycle_id INTEGER); "
+    "INSERT INTO leased_bicycles (bicycle_ID, \"customer_id\") VALUES (101, 1111), (102, 2222), (103, 3333), (104, 4444), "
+    "(105, 5555); INSERT INTO returned_bicycles (bicycle_ID) VALUES (102), (104), (110);")
+
+_NEVERMORE = "'nevermore1, nevermore2, nevermore3.'"
+_EMPLOYEES_INSERT = (
+    "CREATE TABLE employees (first_name VARCHAR, last_name VARCHAR, workphone VARCHAR, city VARCHAR, postal_code VARCHAR); "
+    "INSERT INTO employees VALUES ('May', 'Franklin', '1-650-249-5198', 'San Francisco', '94115'), "
+    "('Gillian', 'Patterson', '1-650-859-3954', 'San Francisco', '94115'), "
+    "('Lysandra', 'Reeves', '1-212-759-3751', 'New York', '10018'), "
+    "('Michael', 'Arnett', '1-650-230-8467', 'San Francisco', '94116');")
+_CONTRACTORS = (
+    "CREATE TABLE contractors (contractor_first VARCHAR, contractor_last VARCHAR, worknum VARCHAR, city VARCHAR, "
+    "zip_code VARCHAR); INSERT INTO contractors VALUES ('Bradley', 'Greenbloom', '1-650-445-0676', 'San Francisco', "
+    "'94110'), ('Cole', 'Simpson', '1-212-285-8904', 'New York', '10001'), ('Laurel', 'Slater', '1-650-633-4495', "
+    "'San Francisco', '94115');")
+_DEMO1 = ("CREATE TABLE demo1 (id INTEGER, json_data VARCHAR); "
+          "INSERT INTO demo1 SELECT 1, '{\"level_1_key\": \"level_1_value\"}'; "
+          "INSERT INTO demo1 SELECT 2, '{\"level_1_key\": {\"level_2_key\": \"level_2_value\"}}'; "
+          "INSERT INTO demo1 SELECT 3, '{\"level_1_key\": {\"level_2_key\": [\"zero\", \"one\", \"two\"]}}';")
+_TESTTABLE = "CREATE TABLE testtable (i INTEGER); INSERT INTO testtable VALUES (1), (2), (3), (4), (5);"
+_T2 = "CREATE TABLE t2 (i INTEGER); INSERT INTO t2 VALUES (1), (2), (3), (4), (5);"
+
 
 def _values(*rows: Any) -> str:
     return _V.format("), (".join(str(r) for r in rows))
@@ -501,6 +582,628 @@ CASES: tuple[Case, ...] = (
        f"SELECT listagg(to_varchar(round(l)::int), ',') WITHIN GROUP (ORDER BY observed) FROM (SELECT observed, "
        f"interpolate_linear(temperature) OVER (PARTITION BY city ORDER BY observed) AS l FROM {_MARCH} "
        f"WHERE city = 'South Lake Tahoe')", "44,46,48,50,52,54", page="interpolate_bfill"),
+    # WR-305: the documented examples for functions the list showed as Not checked.
+    _c("BIT_LENGTH", "String", "SELECT bit_length('abc')", 24),
+    _c("BIT_LENGTH (two-byte character)", "String", "SELECT bit_length('Δ')", 16, page="bit_length"),
+    _c("RPAD", "String", "SELECT rpad('Hi', 10, '_')", "Hi________"),
+    _c("RPAD (cut to length)", "String", "SELECT rpad('Twelve Dollars', 10, '$')", "Twelve Dol", page="rpad"),
+    _c("RPAD (two-character pad)", "String", "SELECT rpad('123.50', 19, '*_')", "123.50*_*_*_*_*_*_*", page="rpad"),
+    _c("RTRIM", "String", "SELECT rtrim('$125.00', '0.')", "$125"),
+    _c("RTRIM (spaces)", "String", "SELECT rtrim('Trailing Spaces#  ')", "Trailing Spaces#", page="rtrim"),
+    _c("RTRIM (characters)", "String", "SELECT rtrim('Trailing Spaces#  ', '# ')", "Trailing Spaces", page="rtrim"),
+    _c("RTRIMMED_LENGTH", "String", "SELECT rtrimmed_length(' ABCD ')", 5),
+    _c("STRTOK_TO_ARRAY", "String", "SELECT strtok_to_array('a.b.c', '.')", ["a", "b", "c"]),
+    _c("STRTOK_TO_ARRAY (two delimiters)", "String", "SELECT strtok_to_array('user@snowflake.com', '.@')",
+       ["user", "snowflake", "com"], page="strtok_to_array"),
+    _c("UNICODE", "String", "SELECT unicode('a')", 97),
+    _c("UNICODE (snowflake)", "String", "SELECT unicode('❄')", 10052, page="unicode"),
+    _c("UNICODE (first character)", "String", "SELECT unicode('cde')", 99, page="unicode"),
+    _c("UNICODE (empty)", "String", "SELECT unicode('')", 0, page="unicode"),
+    _c("JAROWINKLER_SIMILARITY", "String", "SELECT jarowinkler_similarity('Snowflake', 'Oracle')", 61),
+    _c("JAROWINKLER_SIMILARITY (phrase)", "String", "SELECT jarowinkler_similarity('Gute nacht', 'Ich weis nicht')", 56,
+       "differs", "Snowflake's reference shows 56; DuckDB's Jaro-Winkler gives 57 (SFD-012).",
+       page="jarowinkler_similarity"),
+    _c("JAROWINKLER_SIMILARITY (accents)", "String", "SELECT jarowinkler_similarity('święta', 'swieta')", 77,
+       "differs", "Snowflake's reference shows 77; DuckDB's Jaro-Winkler gives 72 (SFD-012).",
+       page="jarowinkler_similarity"),
+    _c("JAROWINKLER_SIMILARITY (empty)", "String", "SELECT jarowinkler_similarity('', '')", 0,
+       page="jarowinkler_similarity"),
+    _c("LOWER", "String", "SELECT lower('The Quick Gray Fox')", "the quick gray fox"),
+    _c("LOWER (accents)", "String", "SELECT lower('ÄäÖößÜü')", "ääöößüü", page="lower"),
+    _c("LOWER (Cyrillic)", "String", "SELECT lower('АаБбВвГгДдЕеЁёЖжЗзИиЙй')", "ааббввггддееёёжжззиийй", page="lower"),
+    _c("SUBSTRING", "String", "SELECT substring('testing 1 2 3', 9, 3)", "1 2", page="substr"),
+    _c("SUBSTRING (to the end)", "String", "SELECT substring('800-555-0100', 5)", "555-0100", page="substr"),
+    _c("BASE64_ENCODE", "String", "SELECT base64_encode('Snowflake')", "U25vd2ZsYWtl"),
+    _c("BASE64_ENCODE (HELLO)", "String", "SELECT base64_encode('HELLO')", "SEVMTE8=", page="base64_encode"),
+    _c("BASE64_DECODE_STRING", "String", "SELECT base64_decode_string('U25vd2ZsYWtl')", "Snowflake"),
+    _c("HEX_ENCODE", "String", "SELECT hex_encode('Snowflake')", "536E6F77666C616B65"),
+    _c("HEX_ENCODE (lower case)", "String", "SELECT hex_encode('Snowflake', 0)", "536e6f77666c616b65", page="hex_encode"),
+    _c("HEX_DECODE_STRING", "String", "SELECT hex_decode_string('536E6F77666C616B65')", "Snowflake"),
+    _c("HEX_DECODE_STRING (lower case)", "String", "SELECT hex_decode_string('536e6f77666c616b65')", "Snowflake",
+       page="hex_decode_string"),
+    _c("TIME_FROM_PARTS", "Date and time", "SELECT time_from_parts(0, 100, 0)", dt.time(1, 40)),
+    _c("TIME_FROM_PARTS (seconds over 59)", "Date and time", "SELECT time_from_parts(12, 0, 12345)", dt.time(15, 25, 45),
+       page="time_from_parts"),
+    _c("TIMESTAMP_FROM_PARTS", "Date and time", "SELECT timestamp_from_parts(2013, 4, 5, 12, 0, -3600)",
+       dt.datetime(2013, 4, 5, 11, 0)),
+    _c("TIMESTAMP_NTZ_FROM_PARTS", "Date and time",
+       "SELECT timestamp_ntz_from_parts(to_date('2013-04-05'), to_time('12:00:00'))", dt.datetime(2013, 4, 5, 12, 0),
+       page="timestamp_from_parts"),
+    _c("EXTRACT", "Date and time", "SELECT extract(year FROM to_timestamp('2024-04-10T23:39:20.123-07:00'))", 2024),
+    _c("QUARTER", "Date and time", "SELECT quarter('2025-04-11T23:39:20.123-07:00'::timestamp)", 2, page="year"),
+    _c("MONTH", "Date and time", "SELECT month('2025-04-11T23:39:20.123-07:00'::timestamp)", 4, page="year"),
+    _c("DAY", "Date and time", "SELECT day('2025-04-11T23:39:20.123-07:00'::timestamp)", 11, page="year"),
+    _c("DAYOFMONTH", "Date and time", "SELECT dayofmonth('2025-04-11T23:39:20.123-07:00'::timestamp)", 11, page="year"),
+    _c("DAYOFYEAR", "Date and time", "SELECT dayofyear('2025-04-11T23:39:20.123-07:00'::timestamp)", 101, page="year"),
+    # The default WEEK_OF_YEAR_POLICY (0) and WEEK_START (0): the docs' second WEEK example.
+    _c("WEEK", "Date and time", "SELECT week('2016-01-02T23:39:20.123-07:00'::timestamp)", 53, page="year"),
+    _c("WEEKISO", "Date and time", "SELECT weekiso('2016-01-02T23:39:20.123-07:00'::timestamp)", 53, page="year"),
+    _c("WEEKOFYEAR", "Date and time", "SELECT weekofyear('2016-01-02T23:39:20.123-07:00'::timestamp)", 53, page="year"),
+    _c("YEAROFWEEK", "Date and time", "SELECT yearofweek('2016-01-02T23:39:20.123-07:00'::timestamp)", 2015, page="year"),
+    _c("YEAROFWEEKISO", "Date and time", "SELECT yearofweekiso('2016-01-02T23:39:20.123-07:00'::timestamp)", 2015,
+       page="year"),
+    _c("DAYOFWEEKISO", "Date and time", "SELECT dayofweekiso('2025-04-05T23:39:20.123-07:00'::timestamp)", 6, page="year"),
+    _c("MINUTE", "Date and time", "SELECT minute('2025-04-08T23:39:20.123-07:00'::timestamp)", 39,
+       page="hour-minute-second"),
+    _c("SECOND", "Date and time", "SELECT second('2025-04-08T23:39:20.123-07:00'::timestamp)", 20,
+       page="hour-minute-second"),
+    _c("MONTHS_BETWEEN", "Date and time", "SELECT months_between('2019-03-15'::date, '2019-02-15'::date)", 1),
+    _c("MONTHS_BETWEEN (month ends)", "Date and time", "SELECT months_between('2019-03-31'::date, '2019-02-28'::date)", 1,
+       page="months_between"),
+    _c("MONTHS_BETWEEN (backwards)", "Date and time", "SELECT months_between('2019-02-01'::date, '2019-03-01'::date)", -1,
+       page="months_between"),
+    _c("TIMEDIFF", "Date and time", "SELECT timediff(year, '2017-01-01', '2019-01-01')", 2),
+    _c("TIMEDIFF (months)", "Date and time", "SELECT timediff(month, '2017-01-1', '2017-12-31')", 11, page="timediff"),
+    _c("DATE", "Date and time", "SELECT date('2024-05-10')", D(2024, 5, 10), page="to_date"),
+    _c("DATE (format)", "Date and time", "SELECT date('2024.05.10', 'YYYY.MM.DD')", D(2024, 5, 10), page="to_date"),
+    _c("DATE (month first)", "Date and time", "SELECT date('05/10/2024', 'MM/DD/YYYY')", D(2024, 5, 10), page="to_date"),
+    _c("TO_TIMESTAMP (milliseconds)", "Date and time", "SELECT to_timestamp(1000000000, 3)",
+       dt.datetime(1970, 1, 12, 13, 46, 40)),
+    _c("TO_TIMESTAMP (seconds as text)", "Date and time", "SELECT to_timestamp('31536000')", dt.datetime(1971, 1, 1),
+       page="to_timestamp"),
+    _c("TO_TIMESTAMP_NTZ", "Date and time", "SELECT to_timestamp_ntz('2024-04-05 01:02:03')",
+       dt.datetime(2024, 4, 5, 1, 2, 3), page="to_timestamp"),
+    _c("TO_TIMESTAMP_NTZ (seconds)", "Date and time", "SELECT to_timestamp_ntz(40 * 365.25 * 86400)",
+       dt.datetime(2010, 1, 1), page="to_timestamp"),
+    _c("BOOLAND", "Conditional", "SELECT booland(1, -2)", True),
+    _c("BOOLAND (zero and NULL)", "Conditional", "SELECT booland(0, NULL)", False, page="booland"),
+    _c("BOOLAND (NULL)", "Conditional", "SELECT booland(NULL, 3)", None, page="booland"),
+    _c("BOOLAND (rounded to zero)", "Conditional", "SELECT booland(2, 0.3)", False, page="booland"),
+    _c("BOOLNOT", "Conditional", "SELECT boolnot(0)", True),
+    _c("BOOLNOT (non-zero)", "Conditional", "SELECT boolnot(10)", False, page="boolnot"),
+    _c("BOOLNOT (rounded to zero)", "Conditional", "SELECT boolnot(0.3)", True, page="boolnot"),
+    _c("BOOLOR", "Conditional", "SELECT boolor(0, 2)", True),
+    _c("BOOLOR (non-zero and NULL)", "Conditional", "SELECT boolor(3, NULL)", True, page="boolor"),
+    _c("BOOLOR (NULL)", "Conditional", "SELECT boolor(NULL, 0)", None, page="boolor"),
+    _c("BOOLOR (rounded to zero)", "Conditional", "SELECT boolor(0.4, 0.3)", False, page="boolor"),
+    _c("BOOLXOR", "Conditional", "SELECT boolxor(2, 0)", True),
+    _c("BOOLXOR (both true)", "Conditional", "SELECT boolxor(1, -1)", False, page="boolxor"),
+    _c("BOOLXOR (NULL)", "Conditional", "SELECT boolxor(NULL, 3)", None, page="boolxor"),
+    _c("BOOLXOR (rounded to zero)", "Conditional", "SELECT boolxor(0, 0.3)", False, page="boolxor"),
+    _c("GREATEST_IGNORE_NULLS", "Conditional", "SELECT greatest_ignore_nulls(2, 4, -1, NULL)", 4),
+    _c("GREATEST_IGNORE_NULLS (float)", "Conditional", "SELECT greatest_ignore_nulls(1, 2, 3, 4.25)", 4.25,
+       page="greatest_ignore_nulls"),
+    _c("LEAST_IGNORE_NULLS", "Conditional", "SELECT least_ignore_nulls(2, 4, -1, NULL)", -1),
+    _c("LEAST_IGNORE_NULLS (float)", "Conditional", "SELECT least_ignore_nulls(3, 6, NULL, -2.75)", -2.75,
+       page="least_ignore_nulls"),
+    _c("MAX_BY", "Aggregate", f"SELECT max_by(e, s) FROM {_EMPLOYEES}", 900),
+    _c("MAX_BY (top 3)", "Aggregate", f"SELECT max_by(e, s, 3) FROM {_EMPLOYEES}", [900, 1001, 1020], page="max_by"),
+    _c("MIN_BY", "Aggregate", f"SELECT min_by(e, s) FROM {_EMPLOYEES}", 1030),
+    _c("MIN_BY (bottom 3)", "Aggregate", f"SELECT min_by(e, s, 3) FROM {_EMPLOYEES}", [1030, 1020, 1001], page="min_by"),
+    _c("MODE", "Aggregate", "SELECT mode(v) FROM VALUES (10), (10), (10), (10), (20), (21), (20), (20), (25), (30) AS t(v)",
+       10),
+    _c("MODE (NULL)", "Aggregate", "SELECT mode(v) FROM VALUES (NULL::int) AS t(v)", None, page="mode"),
+    _c("PERCENTILE_CONT", "Aggregate",
+       "SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY v) FROM VALUES (10), (20) AS t(v)", 12.5),
+    _c("PERCENTILE_CONT (four values)", "Aggregate",
+       "SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY v) FROM VALUES (10), (20), (25), (30) AS t(v)", 17.5,
+       page="percentile_cont"),
+    _c("PERCENTILE_DISC", "Aggregate",
+       "SELECT percentile_disc(0.25) WITHIN GROUP (ORDER BY v) FROM VALUES (10), (20), (25), (30) AS t(v)", 10),
+    _c("PERCENTILE_DISC (five values)", "Aggregate",
+       "SELECT percentile_disc(0.25) WITHIN GROUP (ORDER BY v) FROM VALUES (0), (10), (20), (30), (40) AS t(v)", 10,
+       page="percentile_disc"),
+    _c("BITAND_AGG", "Aggregate", f"SELECT bitand_agg(k) FROM {_BITWISE}", 8),
+    _c("BITAND_AGG (decimals)", "Aggregate", f"SELECT bitand_agg(d) FROM {_BITWISE}", 1, page="bitand_agg"),
+    _c("BITOR_AGG", "Aggregate", f"SELECT bitor_agg(k) FROM {_BITWISE}", 31),
+    _c("BITOR_AGG (decimals)", "Aggregate", f"SELECT bitor_agg(d) FROM {_BITWISE}", 15, page="bitor_agg"),
+    _c("BITXOR_AGG", "Aggregate", f"SELECT bitxor_agg(k) FROM {_BITWISE}", 31),
+    _c("BITXOR_AGG (decimals)", "Aggregate", f"SELECT bitxor_agg(d) FROM {_BITWISE}", 12, page="bitxor_agg"),
+    _c("BOOLAND_AGG", "Aggregate", "SELECT booland_agg(c) FROM VALUES (TRUE), (FALSE), (TRUE), (FALSE) AS t(c)", False),
+    _c("BOOLAND_AGG (all true)", "Aggregate", "SELECT booland_agg(c) FROM VALUES (TRUE), (TRUE), (TRUE), (TRUE) AS t(c)",
+       True, page="booland_agg"),
+    _c("BOOLXOR_AGG", "Aggregate", "SELECT boolxor_agg(c) FROM VALUES (TRUE), (FALSE), (FALSE), (FALSE) AS t(c)", True),
+    _c("BOOLXOR_AGG (two true)", "Aggregate", "SELECT boolxor_agg(c) FROM VALUES (TRUE), (FALSE), (TRUE), (FALSE) AS t(c)",
+       False, page="boolxor_agg"),
+    _c("KURTOSIS", "Aggregate", f"SELECT kurtosis(v) FROM {_AGGR}", -2.32421875),
+    _c("KURTOSIS (k)", "Aggregate", f"SELECT kurtosis(k) FROM {_AGGR}", 5, page="kurtosis"),
+    _c("SKEW", "Aggregate", f"SELECT round(skew(v), 11) FROM {_AGGR}", 0.05240788515, "differs",
+       "Snowflake's reference shows 0.05240788515; the exact sample skewness is 0.05240784322 (SFD-013)."),
+    _c("SKEW (k)", "Aggregate", f"SELECT round(skew(k), 9) FROM {_AGGR}", -2.236069766, "differs",
+       "Snowflake's reference shows -2.236069766; the exact sample skewness is -2.236067977 (SFD-013).", page="skew"),
+    # The docs' aggr table for REGR_*, CORR and COVAR_*: v is y, v2 is x; rows with a NULL don't count.
+    _c("REGR_AVGX", "Aggregate", f"SELECT round(regr_avgx(v, v2), 9) FROM {_AGGR}", 22.666666667),
+    _c("REGR_SLOPE", "Aggregate", f"SELECT round(regr_slope(v, v2), 9) FROM {_AGGR}", 0.831408776),
+    _c("REGR_INTERCEPT", "Aggregate", f"SELECT round(regr_intercept(v, v2), 9) FROM {_AGGR}", 1.154734411),
+    _c("REGR_R2", "Aggregate", f"SELECT round(regr_r2(v, v2), 10) FROM {_AGGR}", 0.9976905312),
+    _c("CORR", "Aggregate", f"SELECT round(corr(v, v2), 10) FROM {_AGGR}", 0.9988445981),
+    _c("COVAR_POP", "Aggregate", f"SELECT covar_pop(v, v2) FROM {_AGGR}", 80),
+    _c("COVAR_SAMP", "Aggregate", f"SELECT covar_samp(v, v2) FROM {_AGGR}", 120),
+    _c("VAR_POP", "Aggregate", "SELECT var_pop(v) FROM VALUES (10), (20), (25), (30) AS t(v)", 54.6875),
+    _c("VAR_POP (one value)", "Aggregate", "SELECT var_pop(v) FROM VALUES (10) AS t(v)", 0, page="var_pop"),
+    _c("VAR_SAMP", "Aggregate", "SELECT round(var_samp(v), 10) FROM VALUES (10), (20), (25), (30) AS t(v)", 72.9166666667),
+    _c("VAR_SAMP (one value)", "Aggregate", "SELECT var_samp(v) FROM VALUES (10) AS t(v)", None, page="var_samp"),
+    _c("STDDEV", "Aggregate", "SELECT stddev(c1) FROM VALUES (6), (10), (14) AS t(c1)", 4),
+    _c("AVG", "Aggregate", f"SELECT avg(int_col) FROM {_AVG}", 1.8),
+    _c("AVG (decimals)", "Aggregate", f"SELECT avg(d) FROM {_AVG}", 5.85, page="avg"),
+    _c("BITNOT", "Bitwise", "SELECT bitnot(1)", -2),
+    _c("BITNOT (large)", "Bitwise", "SELECT bitnot(65504)", -65505, page="bitnot"),
+    _c("BITOR", "Bitwise", "SELECT bitor(2, 4)", 6),
+    _c("BITXOR", "Bitwise", "SELECT bitxor(16, 24)", 8),
+    _c("BITSHIFTLEFT", "Bitwise", "SELECT bitshiftleft(16, 1)", 32),
+    _c("BITSHIFTRIGHT", "Bitwise", "SELECT bitshiftright(65504, 1)", 32752),
+    _c("GETBIT", "Bitwise", "SELECT getbit(11, 3)", 1),
+    _c("GETBIT (zero bit)", "Bitwise", "SELECT getbit(11, 2)", 0, page="getbit"),
+    _c("GETBIT (high bit)", "Bitwise", "SELECT getbit(11, 100)", 0, page="getbit"),
+    _c("MD5_HEX", "Hash", "SELECT md5_hex('Snowflake')", "edf1439075a83a447fb8b630ddc9c8de", page="md5"),
+    _c("SHA1", "Hash", "SELECT sha1('Snowflake')", "fda76b0bcc1e87cf259b1d1e3271d76f590fb5dd"),
+    _c("SHA1_HEX", "Hash", "SELECT sha1_hex('AbCd0')", "9ddb991863d53b35a52c490db256207c776ab8d8", page="sha1"),
+    _c("SHA2_HEX", "Hash", "SELECT sha2_hex('AbCd0')",
+       "e1d8ba27889d6782008f495473278c4f071995c5549a976e4d4f93863ce93643", page="sha2"),
+    _c("CBRT", "Numeric", "SELECT round(cbrt(2), 8)", 1.25992105),
+    _c("CBRT (negative)", "Numeric", "SELECT round(cbrt(-10), 8)", -2.15443469, page="cbrt"),
+    _c("FACTORIAL", "Numeric", "SELECT factorial(5)", 120),
+    _c("FACTORIAL (0)", "Numeric", "SELECT factorial(0)", 1, page="factorial"),
+    _c("FACTORIAL (10)", "Numeric", "SELECT factorial(10)", 3628800, page="factorial"),
+    _c("LOG", "Numeric", "SELECT log(2, 8)", 3),
+    _c("LOG (fraction)", "Numeric", "SELECT log(2, 0.5)", -1, page="log"),
+    _c("LOG (base 10)", "Numeric", "SELECT round(log(10, 20), 9)", 1.301029996, page="log"),
+    _c("LN", "Numeric", "SELECT round(ln(10), 9)", 2.302585093),
+    _c("LN (1)", "Numeric", "SELECT ln(1)", 0, page="ln"),
+    _c("COT", "Numeric", "SELECT round(cot(pi() / 3), 10)", 0.5773502692),
+    _c("ATAN2", "Numeric", "SELECT round(atan2(5, 5), 10)", 0.7853981634),
+    _c("DEGREES", "Numeric", "SELECT degrees(pi())", 180),
+    _c("DEGREES (1)", "Numeric", "SELECT round(degrees(1), 9)", 57.295779513, page="degrees"),
+    _c("TRY_TO_BOOLEAN", "Conversion", "SELECT try_to_boolean('True')", True),
+    _c("TRY_TO_BOOLEAN (not valid)", "Conversion", "SELECT try_to_boolean('Not valid')", None, page="try_to_boolean"),
+    _c("TO_DECIMAL", "Conversion", "SELECT to_decimal('12.3456')", 12),
+    _c("TO_DECIMAL (scale)", "Conversion", "SELECT to_decimal('12.3456', 10, 1)", Decimal("12.3"), page="to_decimal"),
+    _c("TO_NUMERIC", "Conversion", "SELECT to_numeric('98.76546')", 99, page="to_decimal"),
+    _c("TO_NUMERIC (scale)", "Conversion", "SELECT to_numeric('98.76546', 10, 1)", Decimal("98.8"), page="to_decimal"),
+    _c("TRY_TO_DATE", "Conversion", "SELECT try_to_date('2024-05-10')", D(2024, 5, 10)),
+    _c("TRY_TO_DATE (not a date)", "Conversion", "SELECT try_to_date('Invalid')", None, page="try_to_date"),
+    _c("TRY_TO_DATE (format)", "Conversion", "SELECT try_to_date('05/10/2024', 'MM/DD/YYYY')", D(2024, 5, 10),
+       page="try_to_date"),
+    _c("TRY_TO_DATE (other format)", "Conversion", "SELECT try_to_date('2024-05-10', 'MM/DD/YYYY')", None,
+       page="try_to_date"),
+    _c("TO_DOUBLE", "Conversion", "SELECT to_double('2.2')", 2.2),
+    _c("TO_DOUBLE (decimal)", "Conversion", "SELECT to_double(1.1)", 1.1, page="to_double"),
+    _c("CHAR", "String", "SELECT char(97)", "a", page="chr"),
+    _c("CHAR (snowflake)", "String", "SELECT char(10052)", "❄", page="chr"),
+    _c("COUNT", "Aggregate", f"SELECT count(i_col) FROM {_BASIC}", 4),
+    _c("COUNT (star)", "Aggregate", f"SELECT count(*) FROM {_BASIC}", 6, page="count"),
+    _c("COUNT (distinct)", "Aggregate", f"SELECT count(DISTINCT j_col) FROM {_BASIC}", 2, page="count"),
+    _c("MIN", "Aggregate", f"SELECT min(d) FROM {_SAMPLE}", "1"),
+    _c("MAX", "Aggregate", f"SELECT max(d) FROM {_SAMPLE}", "7"),
+    _c("SUM", "Aggregate", "SELECT sum(d) FROM VALUES (1.1), (10), (2.2), (NULL), (9) AS t(d)", Decimal("22.3")),
+    _c("STDDEV_POP", "Aggregate", "SELECT round(stddev_pop(c1), 9) FROM VALUES (6), (10), (14) AS t(c1)", 3.265986375,
+       "differs", "Snowflake's reference shows 3.265986375; the square root of 32/3 is 3.265986324 (SFD-013)."),
+    _c("VARIANCE", "Aggregate", "SELECT round(variance(v), 10) FROM VALUES (10), (20), (25), (30) AS t(v)",
+       72.9166666667, page="var_samp"),
+    _c("REGR_COUNT", "Aggregate", f"SELECT regr_count(v, v2) FROM {_AGGR}", 3),
+    _c("REGR_AVGY", "Aggregate", f"SELECT regr_avgy(v, v2) FROM {_AGGR}", 20),
+    _c("REGR_SXX", "Aggregate", f"SELECT round(regr_sxx(v, v2), 9) FROM {_AGGR}", 288.666666667),
+    _c("REGR_SXY", "Aggregate", f"SELECT regr_sxy(v, v2) FROM {_AGGR}", 240),
+    _c("REGR_SYY", "Aggregate", f"SELECT regr_syy(v, v2) FROM {_AGGR}", 200),
+    _c("EXP", "Numeric", "SELECT round(exp(1), 9)", 2.718281828),
+    _c("EXP (of LN)", "Numeric", "SELECT round(exp(ln(10)), 9)", 10, page="exp"),
+    _c("POW", "Numeric", "SELECT pow(2, 3)", 8),
+    _c("POW (fraction)", "Numeric", "SELECT round(pow(2, 0.5), 9)", 1.414213562, page="pow"),
+    _c("POW (negative)", "Numeric", "SELECT pow(2, -1)", 0.5, page="pow"),
+    _c("ACOS", "Numeric", "SELECT round(acos(0.5), 9)", 1.047197551),
+    _c("ACOS (1)", "Numeric", "SELECT acos(1)", 0, page="acos"),
+    _c("ASIN", "Numeric", "SELECT round(asin(0.5), 10)", 0.5235987756),
+    _c("ATAN", "Numeric", "SELECT round(atan(1), 10)", 0.7853981634),
+    _c("SIN", "Numeric", "SELECT round(sin(pi() / 3), 10)", 0.8660254038),
+    _c("SIN (90 degrees)", "Numeric", "SELECT sin(radians(90))", 1, page="sin"),
+    _c("COS", "Numeric", "SELECT round(cos(pi() / 3), 10)", 0.5),
+    _c("COS (0)", "Numeric", "SELECT cos(0)", 1, page="cos"),
+    _c("TAN", "Numeric", "SELECT round(tan(pi() / 3), 9)", 1.732050808),
+    _c("SINH", "Numeric", "SELECT round(sinh(1.5), 9)", 2.129279455),
+    _c("COSH", "Numeric", "SELECT round(cosh(1.5), 9)", 2.352409615),
+    _c("TANH", "Numeric", "SELECT round(tanh(1.5), 10)", 0.9051482536),
+    _c("ASINH", "Numeric", "SELECT round(asinh(2.129279455), 9)", 1.5),
+    _c("ACOSH", "Numeric", "SELECT round(acosh(2.352409615), 9)", 1.5),
+    _c("ATANH", "Numeric", "SELECT round(atanh(0.9051482536), 9)", 1.5),
+    _c("RADIANS", "Numeric", "SELECT round(radians(60), 9)", 1.047197551),
+    _c("RADIANS (720)", "Numeric", "SELECT round(radians(720), 9)", 12.566370614, page="radians"),
+    _c("PI", "Numeric", "SELECT round(pi(), 9)", 3.141592654),
+    _c("TRUNCATE", "Numeric", "SELECT truncate(-975.975)", -975, page="trunc"),
+    _c("TRUNCATE (scale)", "Numeric", "SELECT truncate(135.135, 1)", Decimal("135.1"), page="trunc"),
+    _c("TRUNCATE (negative scale)", "Numeric", "SELECT truncate(-975.975, -1)", -970, page="trunc"),
+    _c("RANK", "Window", f"SELECT list(r ORDER BY b DESC, f) FROM (SELECT f, b, rank() OVER (ORDER BY b DESC) AS r FROM {_CORN})",
+       [1, 2, 3, 3, 5]),
+    _c("DENSE_RANK", "Window",
+       f"SELECT list(r ORDER BY b DESC, f) FROM (SELECT f, b, dense_rank() OVER (ORDER BY b DESC) AS r FROM {_CORN})",
+       [1, 2, 3, 3, 4]),
+    _c("LAG", "Window", "SELECT list(p ORDER BY c1) FROM (SELECT c1, lag(c2) IGNORE NULLS OVER (ORDER BY c1) AS p "
+       "FROM VALUES (1, 5), (2, 4), (3, NULL), (4, 2), (5, NULL), (6, NULL), (7, 6) AS t(c1, c2))",
+       [None, 5, 4, 4, 2, 2, 2]),
+    _c("LAG (default)", "Window", "SELECT list(d ORDER BY y) FROM (SELECT y, r - lag(r, 1, 0) OVER (ORDER BY y) AS d "
+       "FROM VALUES (2010, 1000.00), (2011, 1500.00), (2012, 500.00), (2013, 750.00) AS t(y, r))",
+       [1000, 500, -1000, 250], page="lag"),
+    _c("NTH_VALUE", "Window", "SELECT list(n ORDER BY a, b) FROM (SELECT a, b, nth_value(b, 2) OVER (PARTITION BY a ORDER BY b) "
+       "AS n FROM VALUES (1, 10), (1, 11), (1, 12), (2, 20), (2, 21), (2, 22) AS t(a, b))", [11, 11, 11, 21, 21, 21]),
+    # WR-307: the rest, each from its page's own example (or a page that uses it, named by page=)
+    _c("MD5_BINARY", "Hash", "SELECT md5_binary('Snowflake')", bytes.fromhex("EDF1439075A83A447FB8B630DDC9C8DE")),
+    _c("SHA1_BINARY", "Hash", "SELECT sha1_binary('Snowflake')", bytes.fromhex("FDA76B0BCC1E87CF259B1D1E3271D76F590FB5DD")),
+    # the page's table example; its row is 'AbCd0', the row SHA1_BINARY's and SHA2_HEX's pages hash to the same digests
+    _c("SHA2_BINARY", "Hash", "SELECT sha2_binary('AbCd0')",
+       bytes.fromhex("E1D8BA27889D6782008F495473278C4F071995C5549A976E4D4F93863CE93643")),
+    _c("HEX_DECODE_BINARY", "String", "SELECT hex_decode_binary(hex_encode(md5_binary('Snowflake')))",
+       bytes.fromhex("EDF1439075A83A447FB8B630DDC9C8DE")),
+    _c("TO_BINARY", "Conversion", "SELECT to_binary('SNOW', 'utf-8')", bytes.fromhex("534E4F57")),
+    _c("ARRAY_MAX", "Semi-structured", "SELECT array_max([20, 0, NULL, 10, NULL])", 20),
+    _c("ARRAY_MIN", "Semi-structured", "SELECT array_min([20, 0, NULL, 10, NULL])", 0),
+    _c("ARRAY_REMOVE", "Semi-structured", "SELECT array_size(array_remove([5, 5], 5))", 0),
+    _c("MAP_SIZE", "Semi-structured", "SELECT map_size({'a':1,'b':2,'c':3}::MAP(VARCHAR,NUMBER))", 3),
+    _c("MAP_CONTAINS_KEY", "Semi-structured",
+       "SELECT map_contains_key('k1',{'k1':'v1','k2':'v2','k3':'v3'}::MAP(VARCHAR,VARCHAR))", True),
+    _c("MAP_DELETE", "Semi-structured",
+       "SELECT to_json(map_delete({'a':1,'b':2,'c':3}::MAP(VARCHAR,NUMBER),'a','b'))", '{"c":3}'),
+    _c("VARIANCE_SAMP", "Aggregate", f"SELECT round(variance_samp(v2), 10) FROM {_AGGR} WHERE k = 2", 144.3333333333,
+       page="var_samp"),
+    _c("VARIANCE_SAMP (one row)", "Aggregate", f"SELECT variance_samp(v) FROM {_AGGR} WHERE k = 1", None,
+       page="var_samp"),
+    _c("VARIANCE_POP", "Aggregate", f"SELECT round(variance_pop(v), 10) FROM {_AGGR} WHERE k = 2", 54.6875,
+       page="var_pop"),
+    _c("VARIANCE_POP (one row)", "Aggregate", f"SELECT variance_pop(v) FROM {_AGGR} WHERE k = 1", 0, page="var_pop"),
+    _c("FIRST_VALUE (IGNORE NULLS)", "Window", f"SELECT list(f ORDER BY p) FROM (SELECT item_price AS p, "
+       f"first_value(item_cost) IGNORE NULLS OVER (ORDER BY item_price) AS f FROM {_MENU})", [1.5, 1.5, 1.5, 1.5],
+       page="first_value"),
+    _c("FIRST_VALUE (RESPECT NULLS)", "Window", f"SELECT list(f ORDER BY p) FROM (SELECT item_price AS p, "
+       f"first_value(item_cost) RESPECT NULLS OVER (ORDER BY item_price) AS f FROM {_MENU})", [None, None, None, None],
+       page="first_value"),
+    _c("LAST_VALUE", "Window", "SELECT list(l ORDER BY column1, column2) FROM (SELECT column1, column2, "
+       "last_value(column2) OVER (PARTITION BY column1 ORDER BY column2) AS l FROM VALUES (1, 10), (1, 11), (1, 12), "
+       "(2, 20), (2, 21), (2, 22))", [12, 12, 12, 22, 22, 22]),
+    _c("LEAD", "Window", f"SELECT list(d ORDER BY emp_id, year) FROM (SELECT emp_id, year, lead(revenue) OVER "
+       f"(PARTITION BY emp_id ORDER BY year) - revenue AS d FROM {_SALES})",
+       [500, -1000, 250, None, 2500, 2500, 5000, None, 300, None]),
+    _c("LEAD (IGNORE NULLS)", "Window", "SELECT list(n ORDER BY c1) FROM (SELECT c1, lead(c2) IGNORE NULLS OVER "
+       "(ORDER BY c1) AS n FROM VALUES (1,5), (2,4), (3,NULL), (4,2), (5,NULL), (6,NULL), (7,6) AS t1(c1, c2))",
+       [4, 2, 2, 6, 6, 6, None], page="lead"),
+    _c("ROW_NUMBER", "Window", f"SELECT list(r ORDER BY i) FROM (SELECT i, row_number() OVER (PARTITION BY p ORDER BY o) "
+       f"AS r FROM {_QT})", [1, 2, 1, 2], page="../constructs/qualify"),
+    _c("REGR_VALX", "Aggregate", "SELECT regr_valx(1, 10)", 10),
+    _c("REGR_VALX (NULL y)", "Aggregate", "SELECT regr_valx(NULL, 10)", None, page="regr_valx"),
+    _c("REGR_VALY", "Aggregate", "SELECT regr_valy(1, 10)", 1),
+    _c("REGR_VALY (NULL x)", "Aggregate", "SELECT regr_valy(1, NULL)", None, page="regr_valy"),
+    _c("BETWEEN (decimal)", "Operators", "SELECT 'true' WHERE 1.35 BETWEEN 1 AND 2", "true", page="between"),
+    _c("BETWEEN (text)", "Operators", "SELECT 'true' WHERE 'the' BETWEEN 'that' AND 'then'", "true", page="between"),
+    _c("CASE", "Operators", "SELECT list(result ORDER BY column1) FROM (SELECT column1, CASE WHEN column1=1 THEN 'one' "
+       "WHEN column1=2 THEN 'two' ELSE 'other' END AS result FROM (values(1),(2),(3)) v)", ["one", "two", "other"]),
+    _c("CASE (no ELSE)", "Operators", "SELECT list(result ORDER BY column1) FROM (SELECT column1, CASE WHEN column1=1 "
+       "THEN 'one' WHEN column1=2 THEN 'two' END AS result FROM (values(1),(2),(3)) v)", ["one", "two", None],
+       page="case"),
+    _c("LIKE", "Operators", f"{_LIKE_EX} SELECT list(name ORDER BY name) FROM like_ex WHERE name LIKE '%Jo%oe%'",
+       ["Joe   Doe", "John  Dddoe", "John 'alias' Doe"]),
+    _c("LIKE (NOT LIKE '')", "Operators", f"{_LIKE_EX} SELECT list(name ORDER BY name) FROM like_ex WHERE name NOT LIKE ''",
+       ["Elaine", "Joe   Doe", "Joe down", "John  Dddoe", "John 'alias' Doe", "John_down"], page="like"),
+    _c("LIKE (ESCAPE)", "Operators", f"{_LIKE_EX} SELECT list(name ORDER BY name) FROM like_ex "
+       "WHERE name LIKE '%J%h%^_do%' ESCAPE '^'", ["John_down"], page="like"),
+    _c("ILIKE", "Operators", f"{_ILIKE_EX} SELECT list(name ORDER BY name) FROM ilike_ex WHERE name ILIKE '%j%h%do%'",
+       ["John  Dddoe", "John_down"]),
+    _c("ILIKE (ESCAPE)", "Operators", f"{_ILIKE_EX} SELECT list(name ORDER BY name) FROM ilike_ex "
+       "WHERE name ILIKE '%j%h%^_do%' ESCAPE '^'", ["John_down"], page="ilike"),
+    _c("LIKE ANY", "Operators", f"{_LIKE_EXAMPLE} SELECT list(name ORDER BY name) FROM like_example "
+       "WHERE name LIKE ANY ('%Jo%oe%','T%e')", ["Joe   Doe", "John  Dddoe", "Tom   Doe"], page="like_any"),
+    _c("LIKE ALL", "Operators", f"{_LIKE_ALL} SELECT list(name ORDER BY name) FROM like_all_example "
+       "WHERE name LIKE ALL ('%Jo%oe%','J%e')", ["Joe   Doe", "John  Dddoe"], page="like_all"),
+    _c("ILIKE ANY", "Operators", "SELECT list(name ORDER BY name) FROM VALUES ('jane doe'), ('Jane Doe'), ('JANE DOE'), "
+       "('John Doe'), ('John Smith') AS t(name) WHERE name ILIKE ANY ('jane%', '%SMITH')",
+       ["JANE DOE", "Jane Doe", "John Smith", "jane doe"], page="ilike_any"),
+    _c("REGEXP", "Operators", f"SELECT list(v ORDER BY v) FROM {_CITIES} WHERE v REGEXP 'San* [fF].*'", ["San Francisco"]),
+    _c("REGEXP (whole string)", "Operators", f"SELECT list(v REGEXP 'San\\\\b.*' ORDER BY v) FROM {_CITIES}",
+       [False, True, True, False], page="regexp"),
+    _c("IS DISTINCT FROM", "Operators", "SELECT list(x1.i IS DISTINCT FROM x2.i ORDER BY x1.i, x2.i) FROM "
+       "(VALUES (1), (2), (NULL)) x1(i), (VALUES (1), (2), (NULL)) x2(i)",
+       [False, True, True, True, False, True, True, True, False], page="is-distinct-from"),
+    _c(":: (to a decimal)", "Operators", "SELECT '9.8765'::NUMBER(6,5)", Decimal("9.87650"), page="cast"),
+    _c("CAST", "Conversion", "SELECT CAST('9.8765' AS NUMBER(5,2))", Decimal("9.88")),
+    _c("CAST (number to integer)", "Conversion", "SELECT CAST(1.2345::NUMBER(5,4) AS INTEGER)", 1, page="cast"),
+    _c("QUALIFY", "Operators", f"SELECT list(i ORDER BY i) FROM (SELECT i, p, o FROM {_QT} "
+       "QUALIFY ROW_NUMBER() OVER (PARTITION BY p ORDER BY o) = 1)", [1, 3], page="../constructs/qualify"),
+    _c("PIVOT", "Operators", f"SELECT list(q4 ORDER BY empid) FROM (SELECT * FROM {_QUARTERLY} PIVOT(SUM(amount) FOR "
+       "quarter IN ('2023_Q1' AS q1, '2023_Q2' AS q2, '2023_Q3' AS q3, '2023_Q4' AS q4)))", [18000, 5300, 28900],
+       page="../constructs/pivot"),
+    _c("PIVOT (a missing cell)", "Operators", f"SELECT list(q1 ORDER BY empid) FROM (SELECT * FROM {_QUARTERLY} "
+       "PIVOT(SUM(amount) FOR quarter IN ('2023_Q1' AS q1, '2023_Q2' AS q2, '2023_Q3' AS q3, '2023_Q4' AS q4)))",
+       [10400, 39500, None], page="../constructs/pivot"),
+    _c("UNPIVOT", "Operators", f"SELECT list(sales ORDER BY empid, month) FROM (SELECT * FROM {_MONTHLY} "
+       "UNPIVOT (sales FOR month IN (jan, feb, mar, apr))) WHERE empid = 4", [50, 100, 100],
+       page="../constructs/unpivot"),
+    _c("UNPIVOT (row count)", "Operators", f"SELECT count(*) FROM (SELECT * FROM {_MONTHLY} "
+       "UNPIVOT (sales FOR month IN (jan, feb, mar, apr)))", 15, page="../constructs/unpivot"),
+    _c("UNPIVOT (INCLUDE NULLS)", "Operators", f"SELECT count(*) FROM (SELECT * FROM {_MONTHLY} "
+       "UNPIVOT INCLUDE NULLS (sales FOR month IN (jan, feb, mar, apr)))", 16, page="../constructs/unpivot"),
+    _c("GENERATOR", "Operators", "SELECT count(*) FROM TABLE(GENERATOR(ROWCOUNT => 10)) v", 10),
+    _c("SEQ4", "Numeric", "SELECT list(s ORDER BY s) FROM (SELECT seq4() AS s FROM TABLE(GENERATOR(ROWCOUNT => 10)) v)",
+       [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], page="generator"),
+    # in [min, max], as the page says; a generator other than RANDOM() is refused (SFN-021)
+    _c("UNIFORM", "Numeric", "SELECT min(u) >= 1 AND max(u) <= 10 FROM (SELECT uniform(1, 10, random()) AS u FROM "
+       "TABLE(GENERATOR(ROWCOUNT => 1000)) v)", True),
+    _c("WITH (RECURSIVE)", "Statements", "WITH RECURSIVE current_f (current_val, previous_val) AS (SELECT 0, 1 UNION ALL "
+       "SELECT current_val + previous_val, current_val FROM current_f WHERE current_val + previous_val < 100) "
+       "SELECT list(current_val ORDER BY current_val) FROM current_f",
+       [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89], page="../constructs/with"),
+    _c("UNION ALL (BY NAME)", "Statements", "SELECT list(a ORDER BY a) FROM (SELECT * FROM VALUES (1, 'one'), (2, 'two'), "
+       "(3, 'three') AS t1(a, b) UNION ALL BY NAME SELECT * FROM VALUES ('three', 3), ('four', 4) AS t2(b, a))",
+       [1, 2, 3, 3, 4], page="../operators-query"),
+    _c("MERGE", "Statements", f"{_MERGE_MULT} SELECT list(status ORDER BY id) FROM merge_example_mult_target",
+       ["Beta", "Production", "Production"], page="../sql/merge"),
+    _c("MERGE (values)", "Statements", f"{_MERGE_MULT} SELECT list(val ORDER BY id) FROM merge_example_mult_target",
+       [50, 60, 40], page="../sql/merge"),
+    _c("UPDATE", "Statements", f"{_ARRAY_APPEND} {_APPEND_FOUR} SELECT array_column FROM array_append_examples",
+       [1, 2, 3, 4], page="array_append"),
+    # the page's 1-to-1 join, over the target and src rows its nondeterministic example prints
+    _c("UPDATE FROM", "Statements", "CREATE TABLE target (k INT, v INT); CREATE TABLE src (k INT, v INT); "
+       "INSERT INTO target VALUES (0, 10); INSERT INTO src VALUES (0, 11), (0, 12), (0, 13); "
+       "UPDATE target SET v = b.v FROM (SELECT k, MIN(v) v FROM src GROUP BY k) b WHERE target.k = b.k; "
+       "SELECT list(v) FROM target", [11], page="../sql/update"),
+    _c("DELETE", "Statements", f"{_BICYCLES} DELETE FROM leased_bicycles WHERE \"customer_id\" = 5555; "
+       "SELECT list(bicycle_id ORDER BY bicycle_id) FROM leased_bicycles", [101, 102, 103, 104], page="../sql/delete"),
+    _c("DELETE USING", "Statements", f"{_BICYCLES} DELETE FROM leased_bicycles WHERE \"customer_id\" = 5555; "
+       "DELETE FROM leased_bicycles USING returned_bicycles WHERE leased_bicycles.bicycle_ID = returned_bicycles.bicycle_ID; "
+       "SELECT list(bicycle_id ORDER BY bicycle_id) FROM leased_bicycles", [101, 103], page="../sql/delete"),
+    _c("TRUNCATE TABLE", "Statements", "CREATE OR REPLACE TABLE merge_example_target (id INTEGER, description VARCHAR); "
+       "INSERT INTO merge_example_target (id, description) VALUES (10, 'To be updated (this is the old value)'); "
+       "TRUNCATE table merge_example_target; SELECT count(*) FROM merge_example_target", 0, page="../sql/merge"),
+    # WR-313: statements, each from the page cited (read 2026-11-19)
+    # merge: "Perform a basic merge that updates values", which names the target's column in UPDATE SET
+    _c("MERGE (UPDATE SET target.column)", "Statements", "CREATE OR REPLACE TABLE merge_example_target (id INTEGER, "
+       "description VARCHAR); INSERT INTO merge_example_target (id, description) VALUES "
+       "(10, 'To be updated (this is the old value)'); CREATE OR REPLACE TABLE merge_example_source (id INTEGER, "
+       "description VARCHAR); INSERT INTO merge_example_source (id, description) VALUES "
+       "(10, 'To be updated (this is the new value)'); MERGE INTO merge_example_target USING merge_example_source "
+       "ON merge_example_target.id = merge_example_source.id WHEN MATCHED THEN "
+       "UPDATE SET merge_example_target.description = merge_example_source.description; "
+       "SELECT description FROM merge_example_target", "To be updated (this is the new value)", page="../sql/merge"),
+    # merge: "the target gets one copy of the row for each copy in the source" (two source rows, 2 inserted)
+    _c("MERGE (NOT MATCHED, source duplicates)", "Statements", "CREATE TABLE target (id INTEGER, v INTEGER); "
+       "CREATE TABLE src (id INTEGER, v INTEGER); INSERT INTO src VALUES (50, 1), (50, 2); MERGE INTO target USING "
+       "src ON target.id = src.id WHEN NOT MATCHED THEN INSERT (id, v) VALUES (src.id, src.v); "
+       "SELECT count(*) FROM target", 2, page="../sql/merge"),
+    # merge: AND <case_predicate> "when true, causes the not-matching case to be executed"
+    _c("MERGE (NOT MATCHED AND)", "Statements", "CREATE TABLE target (id INTEGER, v INTEGER); "
+       "CREATE TABLE src (id INTEGER, v INTEGER); INSERT INTO src VALUES (1, 400), (2, 2000); MERGE INTO target "
+       "USING src ON target.id = src.id WHEN NOT MATCHED AND src.v > 1000 THEN INSERT (id, v) VALUES (src.id, src.v); "
+       "SELECT list(id) FROM target", [2], page="../sql/merge"),
+    # insert-multi-table: the page's INSERT FIRST example, src n1 = 1, 11, 101; t1 gets 101 and 11
+    _c("INSERT FIRST", "Statements", "CREATE TABLE src (n1 INTEGER); INSERT INTO src VALUES (1), (11), (101); "
+       "CREATE TABLE t1 (n1 INTEGER); CREATE TABLE t2 (n1 INTEGER); INSERT FIRST WHEN n1 > 100 THEN INTO t1 "
+       "WHEN n1 > 10 THEN INTO t1 INTO t2 ELSE INTO t2 SELECT n1 FROM src; SELECT list(n1 ORDER BY n1) FROM t1",
+       [11, 101], "untranslated", "Refused by SFN-026. Write one INSERT ... SELECT for each table.", page="../sql/insert-multi-table"),
+    # create-table: LIKE copies "Column names, types, defaults, and constraints"
+    _c("CREATE TABLE LIKE", "Statements", "CREATE TABLE t (id INTEGER DEFAULT 7, v INTEGER); CREATE TABLE u LIKE t; "
+       "INSERT INTO u (v) VALUES (1); SELECT id FROM u", 7, "untranslated",
+       "Refused by SFN-027. Write the column definitions out.", page="../sql/create-table"),
+    # create-table: CREATE TABLE mytable_copy (b) AS SELECT * FROM mytable
+    _c("CREATE TABLE AS (column list)", "Statements", "CREATE TABLE mytable (amount NUMBER); "
+       "INSERT INTO mytable VALUES (1); CREATE TABLE mytable_copy (b) AS SELECT * FROM mytable; "
+       "SELECT b FROM mytable_copy", 1, page="../sql/create-table"),
+    # create-table: a transient table has "a lower level of data protection"; it answers queries as any table
+    _c("CREATE TRANSIENT TABLE", "Statements", "CREATE TRANSIENT TABLE t (a INTEGER) CLUSTER BY (a); "
+       "INSERT INTO t VALUES (1), (2); SELECT count(*) FROM t", 2, page="../sql/create-table"),
+    # create-table: AUTOINCREMENT START 10 INCREMENT 5 numbers from 10 by 5; NOORDER values aren't always in order
+    _c("AUTOINCREMENT", "Statements", "CREATE TABLE t (id INTEGER AUTOINCREMENT START 10 INCREMENT 5, v INTEGER); "
+       "INSERT INTO t (v) VALUES (1), (2), (3); SELECT bool_and(id >= 10 AND (id - 10) % 5 = 0) "
+       "AND count(DISTINCT id) = 3 FROM t", True, page="../sql/create-table"),
+    # constraints-overview: "Snowflake doesn't enforce PRIMARY KEY, UNIQUE, and FOREIGN KEY constraints on
+    # standard tables", so a repeated key is kept
+    _c("PRIMARY KEY (not enforced)", "Statements", "CREATE TABLE t (id INTEGER PRIMARY KEY, code VARCHAR UNIQUE); "
+       "INSERT INTO t VALUES (1, 'a'), (1, 'a'); SELECT count(*) FROM t", 2, page="../constraints-overview"),
+    # begin: START TRANSACTION is a synonym for BEGIN; the transaction stays open until COMMIT or ROLLBACK
+    _c("START TRANSACTION", "Statements", "CREATE TABLE t (a INTEGER); START TRANSACTION; INSERT INTO t VALUES (1); "
+       "ROLLBACK; SELECT count(*) FROM t", 0, page="../sql/begin"),
+    # begin: the transaction stays open until COMMIT or ROLLBACK, and COMMIT keeps its rows
+    _c("BEGIN (COMMIT)", "Statements", "CREATE TABLE t (a INTEGER); BEGIN; INSERT INTO t VALUES (1); COMMIT; "
+       "SELECT count(*) FROM t", 1, page="../sql/begin"),
+    # transactions: "DDL statements implicitly commit active transactions", so the INSERT before CREATE stays
+    _c("DDL INSIDE BEGIN", "Statements", "CREATE TABLE t (a INTEGER); BEGIN; INSERT INTO t VALUES (1); "
+       "CREATE TABLE x (b INTEGER); ROLLBACK; SELECT count(*) FROM t", 1, "untranslated",
+       "Refused by SFN-030. Put COMMIT before the CREATE.", page="../transactions"),
+    # truncate-table: the page's own TRUNCATE TABLE IF EXISTS example
+    _c("TRUNCATE TABLE IF EXISTS", "Statements", "CREATE TABLE temp_test_truncate (i INTEGER); "
+       "INSERT INTO temp_test_truncate VALUES (1); TRUNCATE TABLE IF EXISTS temp_test_truncate; "
+       "SELECT count(*) FROM temp_test_truncate", 0, "untranslated", "Refused by SFN-028. Leave out IF EXISTS.",
+       page="../sql/truncate-table"),
+    # alter-table: ADD COLUMN, RENAME COLUMN ... TO and RENAME TO, as its syntax gives them
+    _c("ALTER TABLE RENAME (column and table)", "Statements", "CREATE TABLE t1 (a1 INTEGER); ALTER TABLE t1 ADD COLUMN a2 NUMBER; "
+       "ALTER TABLE t1 RENAME COLUMN a1 TO b1; ALTER TABLE t1 RENAME TO t2; INSERT INTO t2 (b1, a2) VALUES (1, 2); "
+       "SELECT b1 + a2 FROM t2", 3, page="../sql/alter-table"),
+    # alter-table: DROP [ COLUMN ] [ IF EXISTS ] <col1_name> [, <col2_name> ... ]
+    _c("ALTER TABLE DROP COLUMN A, B", "Statements", "CREATE TABLE t (a INTEGER, b INTEGER, c INTEGER); "
+       "ALTER TABLE t DROP COLUMN a, b; SELECT count(*) FROM information_schema.columns WHERE table_name ILIKE 't'",
+       1, "untranslated", "Refused by SFN-029. Write one ALTER TABLE for each column.", page="../sql/alter-table"),
+    _c("ARRAY_APPEND", "Semi-structured", "SELECT array_append(array_construct(1, 2, 3), 4)", [1, 2, 3, 4]),
+    # the page's ARRAY column example: two UPDATEs append 4, then 'five'
+    _c("ARRAY_APPEND (ARRAY column)", "Semi-structured", f"{_ARRAY_APPEND} {_APPEND_FOUR} {_APPEND_FIVE} "
+       "SELECT array_column FROM array_append_examples", [1, 2, 3, 4, "five"], page="array_append"),
+    _c("ARRAY_APPEND (element types)", "Semi-structured", f"{_ARRAY_APPEND} {_APPEND_FOUR} {_APPEND_FIVE} "
+       "SELECT ARRAY_CONSTRUCT(TYPEOF(array_column[0]), TYPEOF(array_column[1]), TYPEOF(array_column[2]), "
+       "TYPEOF(array_column[3]), TYPEOF(array_column[4])) AS type FROM array_append_examples",
+       ["INTEGER", "INTEGER", "INTEGER", "INTEGER", "VARCHAR"], page="array_append"),
+    _c("ARRAY_COMPACT", "Semi-structured", "SELECT array_compact(array_construct(10, NULL, 30))", [10, 30]),
+    _c("ARRAY_DISTINCT", "Semi-structured", "SELECT array_distinct(['A', 'A', 'B', NULL, NULL])", ["A", "B", None]),
+    _c("ARRAY_DISTINCT (NULL)", "Semi-structured", "SELECT array_distinct(NULL)", None, page="array_distinct"),
+    _c("ARRAY_FLATTEN", "Semi-structured", "SELECT array_flatten([[1, 2, 3], [4], [5, 6]])", [1, 2, 3, 4, 5, 6]),
+    _c("ARRAY_FLATTEN (a NULL element)", "Semi-structured", "SELECT array_flatten([[1, 2, 3], NULL, [5, 6]])", None,
+       page="array_flatten"),
+    _c("ARRAY_FLATTEN (a NULL inside)", "Semi-structured", "SELECT array_flatten([[1, 2, 3], [NULL], [5, 6]])",
+       [1, 2, 3, None, 5, 6], page="array_flatten"),
+    _c("ARRAY_GENERATE_RANGE", "Semi-structured", "SELECT array_generate_range(2, 5)", [2, 3, 4]),
+    _c("ARRAY_GENERATE_RANGE (step)", "Semi-structured", "SELECT array_generate_range(5, 25, 10)", [5, 15],
+       page="array_generate_range"),
+    _c("ARRAY_GENERATE_RANGE (negative step)", "Semi-structured", "SELECT array_generate_range(-5, -25, -10)", [-5, -15],
+       page="array_generate_range"),
+    _c("ARRAY_POSITION", "Semi-structured", "SELECT array_position('hi'::variant, array_construct('hello', 'hi'))", 1),
+    _c("ARRAY_POSITION (first)", "Semi-structured",
+       "SELECT array_position('hello'::variant, array_construct('hello', 'hi'))", 0, page="array_position"),
+    _c("ARRAY_POSITION (missing)", "Semi-structured",
+       "SELECT array_position('hello'::variant, array_construct('hola', 'bonjour'))", None, page="array_position"),
+    _c("ARRAY_REMOVE_AT", "Semi-structured", "SELECT array_remove_at([2, 5, 7], 0)", [5, 7]),
+    _c("ARRAY_REMOVE_AT (from the end)", "Semi-structured", "SELECT array_remove_at([2, 5, 7], -1)", [2, 5],
+       page="array_remove_at"),
+    _c("ARRAY_REMOVE_AT (past the end)", "Semi-structured", "SELECT array_remove_at([2, 5, 7], 10)", [2, 5, 7],
+       page="array_remove_at"),
+    _c("ARRAY_REVERSE", "Semi-structured", "SELECT array_reverse([1,2,3,4])", [4, 3, 2, 1]),
+    _c("ARRAY_SORT", "Semi-structured", "SELECT array_sort([20, 0, NULL, 10])", [0, 10, 20, None]),
+    _c("ARRAY_SORT (descending)", "Semi-structured", "SELECT array_sort([20, 0, NULL, 10], FALSE)", [None, 20, 10, 0],
+       page="array_sort"),
+    _c("ARRAY_SORT (NULLs first)", "Semi-structured", "SELECT array_sort([20, 0, NULL, 10], TRUE, TRUE)",
+       [None, 0, 10, 20], page="array_sort"),
+    _c("UUID_STRING (named)", "String", "SELECT uuid_string('fe971b24-9572-4005-b22f-351e9c09274d','foo')",
+       "dc0b6f65-fca6-5b4b-9d37-ccc3fde1f3e2", page="uuid_string"),
+    _c("TO_JSON", "Semi-structured", "SELECT to_json(parse_json('{\"b\":1,\"a\":2}'))", '{"a":2,"b":1}', "differs",
+       "Snowflake sorts an object's keys; here they keep their order (SFD-014)."),
+    _c("PARSE_JSON", "Semi-structured", "SELECT to_json(parse_json('{\"food\":\"bard\"}'))", '{"food":"bard"}',
+       page="to_json"),
+    _c("TO_ARRAY", "Semi-structured", "SELECT to_array('snowman,snowball,snowcone')", ["snowman,snowball,snowcone"]),
+    _c("OBJECT_CONSTRUCT_KEEP_NULL", "Semi-structured",
+       "SELECT to_json(object_construct_keep_null('key_1','one','key_2',NULL))", '{"key_1":"one","key_2":null}'),
+    _c("GET", "Semi-structured", "SELECT get(object_construct('Ukraine', 'Kyiv'), 'Ukraine')::VARCHAR", "Kyiv"),
+    _c("GET_PATH", "Semi-structured",
+       "SELECT get_path(parse_json('{\"array2\": [{\"id3\": \"value_b3\"}]}'), 'array2[0].id3')::VARCHAR", "value_b3"),
+    _c("STRIP_NULL_VALUE", "Semi-structured", "SELECT strip_null_value(parse_json('{\"c\": null}'):c)", None),
+    _c("STRIP_NULL_VALUE (a value)", "Semi-structured", "SELECT strip_null_value(parse_json('{\"c\": \"3\"}'):c)::VARCHAR",
+       "3", page="strip_null_value"),
+    _c("BASE64_DECODE_BINARY", "String", "SELECT base64_decode_binary('SEVMUA==')", b"HELP"),
+    _c("REGEXP_INSTR", "Regular expressions", f"SELECT regexp_instr({_NEVERMORE}, 'nevermore\\\\d')", 1),
+    _c("REGEXP_INSTR (start)", "Regular expressions", f"SELECT regexp_instr({_NEVERMORE}, 'nevermore\\\\d', 5)", 13,
+       page="regexp_instr"),
+    _c("REGEXP_INSTR (occurrence)", "Regular expressions", f"SELECT regexp_instr({_NEVERMORE}, 'nevermore\\\\d', 1, 3)",
+       25, page="regexp_instr"),
+    _c("REGEXP_INSTR (after the match)", "Regular expressions",
+       f"SELECT regexp_instr({_NEVERMORE}, 'nevermore\\\\d', 1, 3, 1)", 35, page="regexp_instr"),
+    _c("REGEXP_INSTR (no such occurrence)", "Regular expressions",
+       f"SELECT regexp_instr({_NEVERMORE}, 'nevermore', 1, 4)", 0, page="regexp_instr"),
+    _c("REGEXP_INSTR (word boundary)", "Regular expressions",
+       "SELECT regexp_instr('It was the best of times, it was the worst of times', '\\\\bwas\\\\b', 1, 1)", 4,
+       page="regexp_instr"),
+    _c("REGEXP_INSTR (POSIX class)", "Regular expressions",
+       "SELECT regexp_instr('It was the best of times, it was the worst of times', '[[:alpha:]]{2,}st', 15, 1)", 38,
+       page="regexp_instr"),
+    _c("REGEXP_SUBSTR_ALL", "Regular expressions", "SELECT regexp_substr_all('a1_a2a3_a4A5a6', 'a[[:digit:]]')",
+       ["a1", "a2", "a3", "a4", "a6"]),
+    _c("REGEXP_SUBSTR_ALL (start)", "Regular expressions",
+       "SELECT regexp_substr_all('a1_a2a3_a4A5a6', 'a[[:digit:]]', 2)", ["a2", "a3", "a4", "a6"],
+       page="regexp_substr_all"),
+    _c("REGEXP_SUBSTR_ALL (occurrence)", "Regular expressions",
+       "SELECT regexp_substr_all('a1_a2a3_a4A5a6', 'a[[:digit:]]', 1, 3)", ["a3", "a4", "a6"],
+       page="regexp_substr_all"),
+    _c("REGEXP_SUBSTR_ALL (i)", "Regular expressions",
+       "SELECT regexp_substr_all('a1_a2a3_a4A5a6', 'a[[:digit:]]', 1, 1, 'i')", ["a1", "a2", "a3", "a4", "A5", "a6"],
+       page="regexp_substr_all"),
+    _c("REGEXP_SUBSTR_ALL (group)", "Regular expressions",
+       "SELECT regexp_substr_all('a1_a2a3_a4A5a6', '(a)([[:digit:]])', 1, 1, 'ie')", ["a", "a", "a", "a", "A", "a"],
+       page="regexp_substr_all"),
+    _c("REGEXP_SUBSTR (group)", "Regular expressions", "SELECT regexp_substr('It was the best of times, it was the "
+       "worst of times.', 'the\\\\W+(\\\\w+)', 1, 2, 'e')", "worst", page="regexp_instr"),
+    _c("REGEXP_SUBSTR_ALL (no match)", "Regular expressions", "SELECT regexp_substr_all('a1_a2a3_a4A5a6', 'b')", [],
+       page="regexp_substr_all"),
+    _c("REGEXP_EXTRACT_ALL", "Regular expressions", "SELECT regexp_extract_all('a1_a2a3_a4A5a6', 'a[[:digit:]]')",
+       ["a1", "a2", "a3", "a4", "a6"], page="regexp_substr_all"),
+    _c("TIMESTAMP_LTZ_FROM_PARTS", "Date and time", "ALTER SESSION SET TIMEZONE='America/New_York'; "
+       "SELECT date_part(epoch_second, timestamp_ltz_from_parts(2013, 4, 5, 12, 00, 00))", 1365177600,
+       page="timestamp_from_parts"),
+    _c("TIMESTAMP_TZ_FROM_PARTS", "Date and time", "ALTER SESSION SET TIMEZONE='America/New_York'; "
+       "SELECT date_part(epoch_second, timestamp_tz_from_parts(2013, 4, 5, 12, 00, 00))", 1365177600,
+       page="timestamp_from_parts"),
+    _c("CONVERT_TIMEZONE", "Date and time", "SELECT convert_timezone('America/Los_Angeles', 'America/New_York', "
+       "'2024-01-01 14:00:00'::TIMESTAMP_NTZ)", dt.datetime(2024, 1, 1, 17, 0)),
+    _c("CONVERT_TIMEZONE (to UTC)", "Date and time", "SELECT convert_timezone('Europe/Warsaw', 'UTC', "
+       "'2024-01-01 00:00:00'::TIMESTAMP_NTZ)", dt.datetime(2023, 12, 31, 23, 0), page="convert_timezone"),
+    _c("TO_CHAR", "Conversion", "SELECT to_char(d, 'yyyy.mm.dd') FROM VALUES ('2024-04-03'::DATE) AS t(d)", "2024.04.03"),
+    _c("TRY_TO_BINARY", "Conversion", "SELECT try_to_binary(hex_encode('A B'), 'HEX')", b"A B"),
+    _c("TRY_TO_DECIMAL", "Conversion", "SELECT try_to_decimal('345.123')", 345),
+    _c("TRY_TO_DECIMAL (scale)", "Conversion", "SELECT try_to_decimal('345.123', 10, 2)", Decimal("345.12"),
+       page="try_to_decimal"),
+    _c("TRY_TO_DECIMAL (out of range)", "Conversion", "SELECT try_to_decimal('345.123', 4, 2)", None,
+       page="try_to_decimal"),
+    _c("TRY_TO_DECIMAL (not a number)", "Conversion", "SELECT try_to_decimal('aaa')", None, page="try_to_decimal"),
+    _c("TRY_TO_NUMERIC", "Conversion", "SELECT try_to_numeric('345.123', 10, 2)", Decimal("345.12"),
+       page="try_to_decimal"),
+    _c("TRY_TO_DOUBLE", "Conversion", "SELECT try_to_double('3.1415926')", 3.1415926),
+    _c("TRY_TO_DOUBLE (not a number)", "Conversion", "SELECT try_to_double('Invalid')", None, page="try_to_double"),
+    _c("TRY_TO_TIME", "Conversion", "SELECT try_to_time('12:30:00')", dt.time(12, 30)),
+    _c("TRY_TO_TIME (not a time)", "Conversion", "SELECT try_to_time('Invalid')", None, page="try_to_time"),
+    _c("TRY_TO_TIMESTAMP", "Conversion", "SELECT try_to_timestamp('2024-01-15 12:30:00')", dt.datetime(2024, 1, 15, 12, 30)),
+    _c("TRY_TO_TIMESTAMP (not a timestamp)", "Conversion", "SELECT try_to_timestamp('Invalid')", None,
+       page="try_to_timestamp"),
+    _c("TO_TIMESTAMP (milliseconds in a string)", "Conversion", "SELECT to_timestamp('31536000000')",
+       dt.datetime(1971, 1, 1), page="to_timestamp"),
+    _c("TO_TIMESTAMP (nanoseconds in a string)", "Conversion", "SELECT to_timestamp('31536000000000000')",
+       dt.datetime(1971, 1, 1), page="to_timestamp"),
+    _c("TO_TIMESTAMP (scale)", "Conversion", "SELECT to_timestamp(1000000000, 3)", dt.datetime(1970, 1, 12, 13, 46, 40),
+       page="to_timestamp"),
+    _c("ARRAYS_OVERLAP", "Semi-structured",
+       "SELECT arrays_overlap(array_construct('hello', 'aloha'), array_construct('hello', 'hi', 'hey'))", True),
+    _c("ARRAYS_OVERLAP (none)", "Semi-structured",
+       "SELECT arrays_overlap(array_construct('hello', 'aloha'), array_construct('hola', 'bonjour', 'ciao'))", False,
+       page="arrays_overlap"),
+    _c("ARRAYS_OVERLAP (NULLs match)", "Semi-structured",
+       "SELECT arrays_overlap(ARRAY_CONSTRUCT(1, 2, NULL), ARRAY_CONSTRUCT(3, NULL, 5))", True, page="arrays_overlap"),
+    _c("ARRAYS_ZIP", "Semi-structured", "SELECT array_size(arrays_zip([1,2,3],['one'],['I','II']))", 3),
+    _c("ARRAYS_ZIP (NULL)", "Semi-structured", "SELECT arrays_zip([1,2,3],NULL,[100,200,300])", None, page="arrays_zip"),
+    _c("MAP_KEYS", "Semi-structured", "SELECT map_keys({'a':1,'b':2,'c':3}::MAP(VARCHAR,NUMBER))", ["a", "b", "c"]),
+    _c("MAP_PICK", "Semi-structured", "SELECT to_json(map_pick({'a':1,'b':2,'c':3}::MAP(VARCHAR,NUMBER),'a','b'))",
+       '{"a":1,"b":2}'),
+    _c("MAP_ENTRIES", "Semi-structured", "SELECT array_size(map_entries({'a': 1, 'b': 2}::MAP(VARCHAR, INT)))", 2),
+    _c("MAP_ENTRIES (NULL)", "Semi-structured", "SELECT map_entries(NULL::MAP(VARCHAR, INT))", None, page="map_entries"),
+    _c("NEXT_DAY", "Date and time", "SELECT next_day('2025-05-06'::DATE, 'Friday')", dt.date(2025, 5, 9)),
+    _c("PREVIOUS_DAY", "Date and time", "SELECT previous_day('2025-05-06'::DATE, 'Friday')", dt.date(2025, 5, 2)),
+    _c("INSERT INTO", "Statements", f"{_EMPLOYEES_INSERT} SELECT list(first_name ORDER BY first_name) FROM employees",
+       ["Gillian", "Lysandra", "May", "Michael"], page="../sql/insert"),
+    _c("INSERT INTO (SELECT)", "Statements", f"{_EMPLOYEES_INSERT} {_CONTRACTORS} "
+       "INSERT INTO employees(first_name, last_name, workphone, city, postal_code) SELECT contractor_first, "
+       "contractor_last, worknum, NULL, zip_code FROM contractors WHERE CONTAINS(worknum,'650'); "
+       "SELECT list(first_name ORDER BY first_name) FROM employees WHERE city IS NULL", ["Bradley", "Laurel"],
+       page="../sql/insert"),
+    # the page's object, holding only the key the call reads
+    _c("TO_VARIANT", "Semi-structured", "SELECT get(to_variant(object_construct('temperature', 31.5)), 'temperature')::FLOAT",
+       31.5, page="get"),
+    _c("CHECK_JSON", "Semi-structured", "SELECT check_json('{\"a\": 1}')", None),
+    _c("TRY_PARSE_JSON", "Semi-structured", "SELECT try_parse_json('{\"x\": \"abc\", \"y\": false')", None),
+    # TRY_TO_TIMESTAMP's page: its one example calls TRY_TO_TIMESTAMP, which "maps to TRY_TO_TIMESTAMP_NTZ by
+    # default" (TIMESTAMP_TYPE_MAPPING's default, TIMESTAMP_NTZ), so these are its values for the _NTZ form
+    _c("TRY_TO_TIMESTAMP_NTZ", "Conversion", "SELECT try_to_timestamp_ntz('2024-01-15 12:30:00')",
+       dt.datetime(2024, 1, 15, 12, 30), page="try_to_timestamp"),
+    _c("TRY_TO_TIMESTAMP_NTZ (not a timestamp)", "Conversion", "SELECT try_to_timestamp_ntz('Invalid')", None,
+       page="try_to_timestamp"),
+    _c("JSON_EXTRACT_PATH_TEXT", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT(json_data, "
+       "'level_1_key') ORDER BY id) FROM demo1",
+       ["level_1_value", '{"level_2_key":"level_2_value"}', '{"level_2_key":["zero","one","two"]}']),
+    _c("JSON_EXTRACT_PATH_TEXT (two levels)", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT("
+       "json_data, 'level_1_key.level_2_key') ORDER BY id) FROM demo1", [None, "level_2_value", '["zero","one","two"]'],
+       page="json_extract_path_text"),
+    _c("JSON_EXTRACT_PATH_TEXT (array index)", "Semi-structured", f"{_DEMO1} SELECT list(JSON_EXTRACT_PATH_TEXT("
+       "json_data, 'level_1_key.level_2_key[1]') ORDER BY id) FROM demo1", [None, None, "one"],
+       page="json_extract_path_text"),
+    _c("ARRAY_UNIQUE_AGG", "Semi-structured", "CREATE OR REPLACE TABLE array_unique_agg_test (a INTEGER); "
+       "INSERT INTO array_unique_agg_test VALUES (5), (2), (1), (2), (1); "
+       "SELECT ARRAY_SIZE(ARRAY_UNIQUE_AGG(a)) AS number_of_distinct_values FROM array_unique_agg_test", 3,
+       page="../../user-guide/querying-arrays-for-distinct-counts"),
+    # the page's testtable isn't created there; SAMPLE ROW (0) is empty and TABLESAMPLE (100) is every row, as it says
+    _c("SAMPLE (ROW 0)", "Operators", f"{_TESTTABLE} SELECT count(*) FROM testtable SAMPLE ROW (0)", 0,
+       page="../constructs/sample"),
+    _c("SAMPLE (TABLESAMPLE 100)", "Operators", f"{_TESTTABLE} SELECT count(*) FROM testtable TABLESAMPLE (100)", 5,
+       page="../constructs/sample"),
+    # the page's t2 (SHOW TABLES says 5 rows), then SHOW TABLES LIKE 't2%' read from information_schema: empty
+    _c("DROP TABLE", "Statements", f"{_T2} DROP TABLE t2; SELECT count(*) FROM information_schema.tables "
+       "WHERE table_name ILIKE 't2%'", 0, page="../sql/drop-table"),
+    _c("DROP TABLE (IF EXISTS)", "Statements", f"{_T2} DROP TABLE t2; DROP TABLE IF EXISTS t2; "
+       "SELECT count(*) FROM information_schema.tables WHERE table_name ILIKE 't2%'", 0, page="../sql/drop-table"),
 )
 
 
@@ -527,8 +1230,8 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
 def table_markdown() -> str:
     """The docs text: the functions that don't answer the same, as a table, then the ones that do."""
     words = {"differs": "Different result", "error": "Doesn't run", "untranslated": "Runs only in Snowflake"}
-    rows = [f"Of {len(CASES)} checks on commonly used Snowflake functions, against the values Snowflake's SQL "
-            "reference documents (no Snowflake account was used), these don't answer the same way on this PC.", "",
+    rows = [(f"Of {len(CASES)} checks on commonly used Snowflake functions, against the values Snowflake's SQL "
+            "reference documents (no Snowflake account was used), these don't answer the same way on this PC."), "",
             "| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
     rows += [f"| `{c.function}` | {c.group} | {words[c.outcome]} | {c.note} |" for c in CASES if c.outcome != "same"]
     same_ = [f"`{c.function}`" for c in CASES if c.outcome == "same"]

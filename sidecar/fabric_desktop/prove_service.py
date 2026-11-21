@@ -13,8 +13,6 @@ publish workspace, so a proof never changes the published notebook that schedule
 
 from __future__ import annotations
 
-import base64
-import datetime as dt
 import hashlib
 import json
 import logging
@@ -26,16 +24,18 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from . import b64, delta_read
 from . import app_settings, depgraph, envprofile, jsonfile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
 from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
 from .measure import RunMeter
-from .onelake import DFS_HOST, FileStore, TableRef, check_name, read_storage_options, storage_options
+from .onelake import FileStore, TableRef, check_name, lakehouse_root, read_storage_options, storage_options, table_uri
 from .proof_runtime import PROOF_ROOT
 from .redact import describe
 from .side_by_side import machine
 from . import known_folders
+from .timeutil import now_iso as _now, parse_time as _parse
 
 NOTEBOOK_JOB = "RunNotebook"
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -48,16 +48,6 @@ _log = logging.getLogger(__name__)
 _PROOFS_SAVING = threading.Lock()  # proofs.jsonl is read, changed and written whole
 
 
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-
-
-def _parse(at: Any) -> dt.datetime | None:
-    try:
-        t = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 
@@ -219,7 +209,7 @@ class ProveMixin:
         uri = TableRef(row["workspace_id"], row["lakehouse_id"], schema, table, flat=flat).uri
         try:
             opened = DeltaTable(uri, version=row["version"], storage_options=read_storage_options(token))
-            return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
+            return delta_read.head(opened, replay.SAMPLE_ROWS)
         except OSError as exc:  # delta-rs raises OSError when OneLake doesn't answer
             raise ConnectionError(SAMPLE_UNREACHABLE) from exc
 
@@ -245,7 +235,7 @@ class ProveMixin:
     def replay_bundle_open(self, path: str | None = None, content: str | None = None) -> dict[str, Any]:
         """Open a bundle (a file's ``path``, or its ``content`` in base64) as a new notebook,
         "<notebook> replay", that remembers the bundle. Nothing runs."""
-        data = Path(path).read_bytes() if path else base64.b64decode(content or "", validate=True)
+        data = Path(path).read_bytes() if path else b64.decode_exact(content or "")
         if len(data) > self.MAX_BUNDLE_BYTES:
             raise ValueError("That file is too large for a replay bundle.")
         bundle_id = hashlib.sha256(data).hexdigest()[:16]
@@ -361,7 +351,7 @@ class ProveMixin:
         """A pinned table: whether its version can still be read, and its latest version."""
         from deltalake import DeltaTable
         schema, table = t["table"].split(".", 1)
-        uri = f"{root}/Tables/{table}" if flat else f"{root}/Tables/{schema}/{table}"
+        uri = table_uri(root, schema, table, flat)
         row: dict[str, Any] = {"table": t["table"], "version": t["version"], "readable": True, "latest": None, "why": ""}
 
         def opts() -> dict[str, str]:  # two small reads on the ordered lane: OneLake's short read limits (#1303)
@@ -369,7 +359,7 @@ class ProveMixin:
             return read_storage_options(o["bearer_token"]) if "bearer_token" in o else o
         try:
             row["latest"] = DeltaTable(uri, storage_options=opts()).version()
-            DeltaTable(uri, version=t["version"], storage_options=opts()).to_pyarrow_dataset().head(1)
+            delta_read.head(DeltaTable(uri, version=t["version"], storage_options=opts()), 1)
         except Exception as exc:  # noqa: BLE001 - said on the banner
             row["readable"] = False
             row["why"] = (f"Version {t['version']} can't be read any more (vacuumed or its log was cleaned up)"
@@ -576,7 +566,7 @@ class ProveMixin:
     # Where a proof reads and writes. Tests replace these with local folders.
 
     def _proof_location(self, lakehouse_ref: dict[str, str]) -> tuple[str, Callable[[], dict[str, str]]]:
-        root = f"abfss://{lakehouse_ref['workspace_id']}@{DFS_HOST}/{lakehouse_ref['lakehouse_id']}"
+        root = lakehouse_root(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])
         return root, lambda: storage_options(self.auth.storage_token())  # type: ignore[attr-defined]
 
     def _proof_tables(self, lakehouse_ref: dict[str, str]) -> Any:
@@ -595,7 +585,7 @@ class ProveMixin:
         from deltalake import DeltaTable
         schema, table = key.split(".", 1)
         uri = f"{root}/{PROOF_ROOT}/{proof_id}/{side}/tables/{schema}/{table}"
-        return DeltaTable(uri, storage_options=options()).to_pyarrow_dataset()
+        return delta_read.dataset(DeltaTable(uri, storage_options=options()))
 
     # ---- what the app calls
 

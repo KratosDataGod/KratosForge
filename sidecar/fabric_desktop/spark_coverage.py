@@ -34,13 +34,37 @@ STATUSES = ("runs", "differs", "refused", "fails", "not checked")
 
 # Functions whose example's value changes from run to run or machine to machine, so no value check:
 # random values, the clock, the session and the file or partition a row came from.
+# The clock and random functions with an example of their own (tools/capture_spark_builtins.py) are checked
+# by what doesn't vary: the type, the range, the elements, a fixed time.
 VARYING = frozenset({
-    "aes_encrypt", "current_catalog", "current_database", "current_date", "current_schema", "current_timestamp",
-    "current_timezone", "current_user", "curdate", "input_file_block_length", "input_file_block_start",
-    "input_file_name", "localtimestamp", "monotonically_increasing_id", "now", "rand", "randn", "random",
-    "reflect", "java_method", "session_user", "shuffle", "spark_partition_id", "user", "uuid", "version",
-    "try_reflect", "unix_timestamp", "uniform", "randstr",
+    "aes_encrypt", "current_database", "current_schema", "current_user", "input_file_block_length",
+    "input_file_block_start", "input_file_name", "monotonically_increasing_id", "reflect", "java_method",
+    "session_user", "spark_partition_id", "user", "version", "try_reflect", "uniform", "randstr",
 })
+
+# WR-122: the page's note on a function above that has no value check here. The session and cluster ones
+# can't be checked on any PC; the others are checked by behaviour (tests/test_spark_unchecked_functions.py),
+# and by Spark 3.5.3's answers to tools/spark_value_cases/functions.txt (tests/test_spark_functions_values.py).
+_LAKEHOUSE = "Fabric names the notebook's default lakehouse: it depends on the notebook, not on Spark."
+_USER = "Fabric names the identity running the notebook. Refused here, where DuckDB would name itself."
+SESSION = {
+    "current_database": _LAKEHOUSE,
+    "current_schema": _LAKEHOUSE,
+    "current_user": _USER,
+    "user": _USER,
+    "spark_partition_id": "Depends on how Fabric's cluster splits a query's rows into partitions.",
+    "session_user": _USER,
+    "version": "Fabric's Spark build and its git revision. Refused here, where DuckDB would give its own version.",
+}
+UNCHECKED = {
+    **SESSION,
+    "monotonically_increasing_id": ("Spark's ids depend on how the cluster splits the rows. Checked by behaviour: "
+                                    "unique, increasing, bigint."),
+    "raise_error": ("Stops with the message as Spark does, but as DuckDB's Invalid Input Error, not Spark's "
+                    "USER_RAISED_EXCEPTION."),
+}
+# A query for a function with no example of its own, run to show whether it runs here at all.
+PROBES = {"sql_keywords": "SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2"}
 
 
 def canonical(value: Any) -> Any:
@@ -59,7 +83,9 @@ def canonical(value: Any) -> Any:
         return f"float:{value:.12g}"
     if isinstance(value, Decimal):
         return f"decimal:{value}"
-    if isinstance(value, dt.datetime):
+    if isinstance(value, dt.datetime):  # an instant as PySpark gives it on a UTC driver, as Fabric's is
+        if value.tzinfo is not None:
+            value = value.astimezone(dt.timezone.utc)
         return f"timestamp:{value.replace(tzinfo=None).isoformat()}"
     if isinstance(value, dt.date):
         return f"date:{value.isoformat()}"
@@ -105,14 +131,21 @@ def _refusal(exc: BaseException) -> bool:
 def check(function: dict[str, Any], spark: Any) -> tuple[str, str]:
     """``function``'s status (see the module docstring) and a short note, by running its example on
     ``spark`` (this PC's Spark session)."""
-    example, expected = function.get("example"), function.get("value")
-    if not example or function["name"] in VARYING or "value" not in function:
-        return "not checked", ""
+    name = function["name"]
+    example, expected = function.get("example") or PROBES.get(name), function.get("value")
+    if not example:
+        return "not checked", UNCHECKED.get(name, "")
+    # No value to compare: the example still runs, so a refusal or a failure shows, never a match.
+    compared = name not in VARYING and "value" in function and name not in PROBES
     try:
-        got = rows_value(spark.sql(example).collect(), function["name"])
+        got = rows_value(spark.sql(example).collect(), name)
     except Exception as exc:  # noqa: BLE001  # silent-ok: every error is a status for the coverage list
         first = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
-        return ("refused" if _refusal(exc) else "fails"), first[:160]
+        if not compared and not _refusal(exc) and "spark_error" in function:
+            return "not checked", UNCHECKED.get(name, "")  # it stops here as in Spark (raise_error)
+        return ("refused" if _refusal(exc) else "fails"), SESSION.get(name) or first[:160]
+    if not compared:
+        return "not checked", UNCHECKED.get(name, "")
     if got == expected:
         return "runs", ""
     return "differs", f"{json.dumps(got)[:80]} here, {json.dumps(expected)[:80]} in Spark"
@@ -127,7 +160,8 @@ def coverage() -> list[dict[str, Any]]:
     for function in load():
         status, note = check(function, spark)
         out.append({"name": function["name"], "group": function.get("group") or "other",
-                    "example": function.get("example") or "", "status": status, "note": note})
+                    "example": function.get("example") or PROBES.get(function["name"], ""), "status": status,
+                    "note": note})
     return out
 
 
@@ -158,8 +192,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but gives another value. Check results that use it in Fabric.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: stops with an error. Run the cell in Fabric.",
-        "- **Not checked**: no example whose value can be compared (random values, the clock or the "
-        "session, or no example).",
+        ("- **Not checked**: no example whose value can be compared (random values, the clock or the "
+        "session, or no example)."),
         "",
         "One example per function is a first check, not proof: a function can match on its example and",
         "differ on other input. [Engines](engines.md) lists the differences known in more detail.",

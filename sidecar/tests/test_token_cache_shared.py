@@ -178,9 +178,12 @@ def test_a_change_that_cant_read_the_file_writes_nothing(tmp_path, monkeypatch):
     def busy(p):
         raise PermissionError(13, "being used by another process")
     monkeypatch.setattr(auth, "read_cache", busy)
-    with pytest.raises(OSError):
-        sign_in(scheduled, "ana", token="refreshed")
+    sign_in(scheduled, "ana", token="refreshed")  # kept in memory, never raised to MSAL mid sign-in
+    assert scheduled.cache.has_state_changed
     monkeypatch.undo()
+    assert users_on_disk(path) == set() and refresh_tokens_on_disk(path) == set()
+    scheduled.cache._busy_until = 0  # the wait after a busy file is over
+    scheduled._save()  # once the file can be read: the sign-out written elsewhere stays
     assert users_on_disk(path) == set() and refresh_tokens_on_disk(path) == set()
 
 

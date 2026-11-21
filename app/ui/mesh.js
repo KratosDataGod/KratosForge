@@ -325,10 +325,10 @@ async function pickDesignationWorkspace(env, d, done) {
       h("p", { class: "muted-text" }, "It's named after your domain, like Sales Ingest - Test."),
       h("label", { class: "field" }, "Capacity", capacity)), [
       btn("Cancel", null, closeDialog, "tool outline"),
-      btn("Create workspace", "add", async () => {
+      previewMarked("createWorkspace", btn("Create workspace", "add", async () => {
         const res = await metaCall("meta_create_designation_workspace", { env, designation: d.id, capacity_id: capacity.value }, "Workspace not created");
         if (res) { closeDialog(); state.workspaces = null; toast(`Created the ${d.label} workspace for ${ENV_LABEL[env]}`); done(); }
-      }, "tool primary")]);
+      }, "tool primary"))]);
   };
   list.replaceChildren(
     h("button", { class: "choice", onclick: create }, icon("add", 20),
@@ -471,6 +471,8 @@ async function renderMeshLinksTab(body) {
       h("td", {}, p_usedBy(l.alias)),
       where,
       h("td", {}, btn("Remove", null, async () => {
+        // Always asks: the project shown here can be older than the engine's, which refuses while an entity reads the link.
+        if (!(await confirmDialog(`Remove link ${l.alias}?`, "Its file in metadata/links is deleted, and nothing in Fabric changes. You can bring it back from Source control until you commit.", "Remove", { danger: true }))) return;
         if (await metaCall("mesh_delete_link", { alias: l.alias }, "Not removed")) rerender();
       }, "tool small danger"))) };
   });
@@ -665,7 +667,7 @@ async function keysSetupDialog(s) {
     h("p", { class: "text" }, "Creates (or finishes) a workspace with SQL_Keys, a SQL database for every environment's keys, and UDF_Keys, the functions that issue them. Nothing moves until you choose Move keys in."),
     h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity), steps);
   const actions = [btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
-    btn(k.workspace_id ? "Finish setup" : "Create workspace", "add", run, "tool primary")];
+    previewMarked("createWorkspace", btn(k.workspace_id ? "Finish setup" : "Create workspace", "add", run, "tool primary"))];
   const open = () => showDialog(`${k.workspace_id ? "Finish" : "Create"} the Keys workspace`, body, actions);
   open();
   const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];
@@ -751,7 +753,7 @@ async function platformSetupDialog(env, s) {
     h("p", { class: "text" }, "Creates (or finishes) the Platform workspace with LH_Meta, SQL_Platform, UDF_Platform and VL_Platform. Steps that are already done are kept."),
     h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity), steps);
   const actions = [btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
-    btn(c.workspace_id ? "Finish setup" : "Create platform", "add", run, "tool primary")];
+    previewMarked("createWorkspace", btn(c.workspace_id ? "Finish setup" : "Create platform", "add", run, "tool primary"))];
   const open = () => showDialog(`${c.workspace_id ? "Finish" : "Create"} the ${ENV_LABEL[env]} platform`, body, actions);
   open();
   const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];

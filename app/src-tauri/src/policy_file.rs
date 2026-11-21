@@ -60,4 +60,39 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn a_policy_path_that_cant_be_read_uses_the_last_good_copy() {
+        let dir = std::env::temp_dir().join(format!("policy-file-dir-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (policy, saved) = (dir.join("policy.json"), dir.join("policy-last-good.json"));
+        // A folder where the file should be exists but can't be read as a file: not "no policy".
+        std::fs::create_dir_all(&policy).unwrap();
+        std::fs::write(&saved, "  {\"auto_update\": false}\n").unwrap();
+        assert_eq!(text(&policy, &saved), "  {\"auto_update\": false}\n");
+        // A copy that is JSON but not an object is no copy.
+        for not_object in ["\"text\"", "42", "null", "true"] {
+            std::fs::write(&saved, not_object).unwrap();
+            assert_eq!(text(&policy, &saved), "", "{not_object:?}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_policy_that_is_json_but_not_an_object_is_not_a_policy() {
+        let dir = std::env::temp_dir().join(format!("policy-file-kind-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (policy, saved) = (dir.join("policy.json"), dir.join("policy-last-good.json"));
+        for not_object in ["\"preview\"", "1", "null", "[{}]"] {
+            std::fs::write(&policy, not_object).unwrap();
+            assert_eq!(text(&policy, &saved), "", "{not_object:?}"); // no copy saved: nothing applies
+        }
+        // An empty object is a policy that sets nothing, not a broken one.
+        std::fs::write(&policy, "{}").unwrap();
+        std::fs::write(&saved, r#"{"channel": "stable"}"#).unwrap();
+        assert_eq!(text(&policy, &saved), "{}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

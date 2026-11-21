@@ -128,6 +128,22 @@ def check(function: dict[str, Any], cases: dict[str, list[Any]]) -> tuple[str, s
     return _from_cases(mine) if mine else _probe(function)
 
 
+# Why each function still Not checked has no value check here (WR-307): its value varies, its page has no
+# example this PC can run as written, or the example needs something this PC doesn't have yet.
+_CLOCK = "its value is the clock's, so there's no documented value to compare"
+_SESSION = "its value describes the Snowflake session or account, which this PC doesn't have"
+_TRADES = "its page's only example reads a trades table the page doesn't create"
+_MIXED = "its page's examples put values of different types in one array, which a DuckDB list can't hold"
+NOT_CHECKED: dict[str, str] = {
+    "ARRAY_CONSTRUCT_COMPACT": _MIXED, "ARRAY_INSERT": _MIXED, "ARRAY_PREPEND": _MIXED,
+    "CUME_DIST": _TRADES, "NTILE": _TRADES, "PERCENT_RANK": _TRADES,
+    "CURRENT_DATE": _CLOCK, "CURRENT_TIME": _CLOCK, "LOCALTIME": _CLOCK,
+    "CURRENT_VERSION": _SESSION, "CURRENT_ROLE": _SESSION, "CURRENT_USER": _SESSION, "CURRENT_DATABASE": _SESSION,
+    "CURRENT_SCHEMA": _SESSION, "CURRENT_SCHEMAS": _SESSION,
+    "RANDOM": "its values are random; RANDOM with a seed is refused",
+}
+
+
 def coverage() -> list[dict[str, Any]]:
     """Every listed function, operator and statement with its group and status, in list order."""
     from . import snowflake_sql_parity
@@ -138,6 +154,8 @@ def coverage() -> list[dict[str, Any]]:
     out = []
     for function in load():
         status, note = check(function, cases)
+        if status == "not checked" and not note:
+            note = NOT_CHECKED.get(function["name"], "")
         sample = "" if function["name"] in cases else function.get("probe", "")  # checks decide, not the sample
         out.append({"name": function["name"], "group": function["group"], "sample": sample, "status": status,
                     "note": note})
@@ -167,7 +185,7 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Refused**: stops with a message saying it runs only in Snowflake, so nothing runs with another answer.",
         "- **Fails**: stops with an error, usually because DuckDB has no function of that name. Run it in Snowflake.",
         "- **Not checked**: DuckDB runs it, but no check compares its value with Snowflake's yet. Check",
-        "  results that use it in Snowflake.",
+        "  results that use it in Snowflake. The note says why it has no check here.",
         "",
         "Geospatial, Cortex AI, table, system and file functions aren't listed: they need Snowflake's own",
         "objects or services. [Engines](engines.md#snowflake-sql-on-this-pc-preview) lists the rules and",

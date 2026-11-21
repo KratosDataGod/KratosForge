@@ -30,14 +30,18 @@ _BPA = "best practices check of a semantic model: engine first, screens wait on 
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
-_AS_MODELS = "App Studio model connections (AS-06): engine first, the connection screen comes with AS-10 after its mockup (docs/architecture/app-studio.md)"
-_AS_PUBLISH = "App Studio publish (AS-13): engine first, the Publish dialog's button turns on after its mockup (docs/architecture/app-studio.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
+    # CP-011: the environment's cost, apart from savings. The approved Settings > Environment mockup has no cost panel.
+    "cp_cost": "CP-011 engine call; its panel waits on a mockup (the CP-010 screen shows no cost)",
+    # OE-004: the Share button on Optimize > Assessment waits on its mockup.
+    "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
+    # SF-002: the Check button in Settings > Connections waits on its mockup.
+    "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,
@@ -67,21 +71,12 @@ NO_UI_CALLER: dict[str, str] = {
     # Engine features whose screens come later.
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
+    "incidents_measures": _INCIDENTS,
     "platform_notify": _NOTIFY,
     "optimize_share_local_runs": _LOCAL_RUNS,
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     "fabric_item_support": _FABRIC_GIT,
     "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview
-    "appstudio_connections": _AS_MODELS,
-    "appstudio_connection_save": _AS_MODELS,
-    "appstudio_connection_delete": _AS_MODELS,
-    "appstudio_connection_test": _AS_MODELS,
-    "appstudio_plan": _AS_MODELS,
-    "appstudio_create_from_plan": _AS_MODELS,
-    "appstudio_change_plan": _AS_MODELS,
-    "appstudio_apply_change": _AS_MODELS,
-    "appstudio_publish_check": _AS_PUBLISH,
-    "appstudio_publish": _AS_PUBLISH,
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }
@@ -140,3 +135,54 @@ def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
         reply = server.handle(svc, json.dumps({"id": 1, "method": name, "params": {}}))
         assert reply == {"id": 1, "error": f"unknown method {name!r}"}, name
         assert callable(getattr(svc, name)), name
+
+
+# WR-613 (QA-017): a method with no screen can't lean on a screen's confirm dialog, so its destructive
+# step must wait for a go-ahead parameter the engine checks itself. That parameter is one of
+# audit.GUARD_PARAMS, so a call that passes it is recorded before it runs and refused when it can't
+# be (fail closed), the same as when a screen sends it. Every no-screen method that changes something
+# is listed here: with the parameter its destructive step needs, or with why it has none.
+NO_SCREEN_GATE: dict[str, str] = {
+    "incidents_history_sync": "approve",       # sets up the central incident tables only when approved
+    "incidents_measures": "approve",           # copies through incidents_history_sync first
+    "local_change_delta": "confirm",           # UPDATE or DELETE without WHERE
+    "local_drop_delta": "confirm",             # without it, only says what would be deleted
+    "local_query": "confirm",                  # DROP, TRUNCATE, CREATE OR REPLACE, INSERT OVERWRITE
+    "local_query_start": "confirm",
+    "local_write_delta": "confirm",            # mode overwrite, like INSERT OVERWRITE
+    "optimization_share": "confirm",
+    "optimize_share_local_runs": "confirm",
+}
+NOT_DESTRUCTIVE: dict[str, str] = {
+    "local_add_source": "adds views over a folder; the files are only read",
+    "local_close_project": "closes the database file; nothing is deleted",
+    "local_create_project": "makes a new project",
+    "local_forget_project": "takes the project off the list; its folder and database stay on disk",
+    "local_project_settings": "changes the project's own settings",
+    "local_query_cancel": "stops a query this PC started",
+    "local_refresh": "re-reads the project's source folders",
+    "local_remove_source": "drops the views over a folder; the files are never touched",
+    "local_set_types": "changes how a file's columns are read; the file is untouched",
+    "local_transform_run": "steps get local_query's checks with no confirm, so a destructive step is refused",
+    "model_bpa_check": ("reads a semantic model in Fabric; the risk check runs first, a blocked one stops it "
+                        "and a warning needs the risk_id the person acknowledged"),
+    "platform_notify": "posts notices only to routes an admin saved, once per dedupe key; changes no data",
+}
+
+
+def test_every_no_screen_method_that_changes_something_waits_for_a_recorded_go_ahead():
+    import inspect
+
+    from fabric_desktop import audit
+    from fabric_desktop.service import Service
+    changing = {m for m in NO_UI_CALLER if audit.audited(m)}
+    unlisted = sorted(changing - set(NO_SCREEN_GATE) - set(NOT_DESTRUCTIVE))
+    assert not unlisted, ("These methods have no screen and change something. Give each a go-ahead parameter "
+                          f"(audit.GUARD_PARAMS) in NO_SCREEN_GATE, or say in NOT_DESTRUCTIVE why it needs none: {unlisted}")
+    stale = sorted((set(NO_SCREEN_GATE) | set(NOT_DESTRUCTIVE)) - changing)
+    assert not stale, f"Listed but no longer a no-screen method that changes something: {stale}"
+    assert not set(NO_SCREEN_GATE) & set(NOT_DESTRUCTIVE)
+    for method, gate in NO_SCREEN_GATE.items():
+        assert gate in audit.GUARD_PARAMS, (method, gate)
+        assert gate in inspect.signature(getattr(Service, method)).parameters, (method, gate)
+        assert audit.fails_closed(method, {gate: True}), (method, gate)

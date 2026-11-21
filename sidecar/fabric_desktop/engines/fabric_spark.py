@@ -88,8 +88,8 @@ FABRIC_SPARK = EngineDescriptor(
     requirements=("A Fabric workspace on a capacity, and Contributor on it", "A lakehouse for the session",
                   "Signed in to Fabric in KratosForge"),
     limitations=("Preview: tested against fakes of Fabric's Livy API, not yet against a live tenant.",
-                 "A session uses Fabric capacity while it is open, including while idle, until it is closed or "
-                 "Fabric ends it.",
+                 ("A session uses Fabric capacity while it is open, including while idle, until it is closed or "
+                 "Fabric ends it."),
                  "notebookutils and %magics are Fabric notebook features; a Livy session doesn't have all of them.",
                  "Your organization can turn off Fabric runs from KratosForge (allow_fabric_runs)."),
 )

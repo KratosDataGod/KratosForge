@@ -306,12 +306,22 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 
 **Data mesh > Quality > Table health** reads every managed table's Delta log in the picked environment: files, size, average file size, V-Order, versions since the last VACUUM and the last OPTIMIZE, with advice.
 
-- In **Test and Prod**, **Optimize** runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM keeping the layer's history days. Tables written from a PC have no V-Order until it runs, so by default every table a Test or Prod run writes is optimized right after the run. Untick **Optimize every table a run writes** to stop that.
+- In **Test and Prod**, **Optimize** runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM keeping the layer's history days. Tables written from a PC have no V-Order until it runs, so by default every table a Test or Prod run writes is optimized right after the run. Untick **Optimize every table a run writes** to stop that. When the workspace's capacity check is Blocked (its last reading shows the capacity paused, say), no job starts for that workspace's tables, and each one says why. When the check has a warning (a paused reading that is over an hour old, for example), **Optimize** first shows the warning for each workspace it affects and asks. Tick **I've looked at these and want to run anyway** to optimize every table, or optimize only the tables without warnings. Your acceptance is recorded in the risk acknowledgements before any job starts, and nothing starts if it can't be recorded; if the reading changed since you looked, those tables don't start and ask you to check again. After a run, which nobody is there to confirm, a workspace with a warning is skipped and its tables show **Not optimized (capacity warning)**, so you can optimize them from table health once you've looked. Turning on **Optimize every table a run writes** while a warning shows says so first. A capacity whose state isn't known doesn't stop it. Compacting on this PC reports how many files the table had before and after, counted from its Delta log.
 - In **Dev on this PC**, **Compact** does the same with delta-rs, without V-Order.
   - If a write on this PC stops part way, for example because the app was closed, it can leave files that no commit names. Table health lists them.
   - Compact removes unfinished files after an hour, and data files that no commit names once they're older than the layer's history days.
   - Compact only touches files named the way Delta names them. Anything else in the folder stays, such as a note or a CSV someone put there. Compact never goes into a linked folder (a symbolic link or a junction).
   - The project's own meta tables on this PC (the run log, watermarks and the rest) are compacted by themselves at every 100th commit, so runs don't slow down as they add up.
+
+### Data health (Preview)
+
+Data health checks one table from its Delta log, on this PC for Dev and in OneLake for Test and Prod: no Fabric job runs, and nothing in the table changes. It reports three things.
+
+- **Freshness**: how long ago the table's data last changed, against the `[freshness]` promise's `within_hours` for that environment. OPTIMIZE, VACUUM and settings changes don't count as a change. (The promise's `by` time is checked from runs, as above.)
+- **Volume**: rows written by each load (WRITE, MERGE, COPY INTO or a streaming batch), read from the commit's own metrics. The usual is the median of the last 20 loads, and the spread is their median distance from it. The latest load is unusual when it is more than 3 spreads from the median. When loads barely vary, it is unusual when it is more than 10% above or below the median. With fewer than 10 loads that recorded their rows, it says "Not enough history" and doesn't alert. A load that didn't record its rows is left out and counted, never estimated.
+- **Schema**: columns added, removed or retyped since the load before the latest.
+
+The rule is returned with every result, so the screen can show it beside each alert. Monitor > KratosForge > Operations > [Data health](user-guide.md#data-health-preview) shows it for the tables you watch.
 
 ## 7. Environments and promote
 
@@ -383,6 +393,8 @@ require_commit = true    # block even when this environment is on this PC
 
 *Preview*, part of **Promote** and tagged with it. Before a promote to Test or Prod writes anything, the promote card checks your workspace role in each workspace the target uses. If Fabric lists you as a **Viewer** there, it says so and names the workspace's Admins to ask, and the promote is blocked. Fabric would refuse those writes anyway, partway through. If your role may come through a group, or Fabric won't show the workspace's access list, the card shows a note instead and Fabric decides when the promote writes.
 
+**Prod asks for its workspace's name.** Promote to Prod, **Roll back...** on Prod and **Restore** of a Prod table run only after you type the Prod workspace's name, as a write to Prod does. When Prod's workspace has no name, you type its id. When Prod has no workspace at all, you type `Prod`. KratosForge checks the name again before anything changes, and the confirm is recorded in the [audit trail](user-guide.md#audit-trail) first. The role and duty checks in this section come first. Test and Dev ask for no name, unless their workspace is another project's Prod workspace on this PC. Then they ask for that workspace's name in the same way.
+
 To have a second person release to Prod, set `separate_promoter = true` for Prod in `environments.toml`:
 
 ```toml
@@ -437,6 +449,7 @@ With Preview features on, the platform's list is the one list of source systems:
 
 **Variable library VL_Sources** (Preview, on the same tab; not yet run on a tenant) is one Fabric variable library per environment workspace, with that environment's values active. **Publish to Dev / Test / Prod** creates or updates it; promote updates it in the target. Notebooks read the same names in Fabric and on your PC:
 
+<!-- example: illustrative -->
 ```python
 lib = notebookutils.variableLibrary.getLibrary("VL_Sources")
 lib.CRM_server_host
@@ -598,7 +611,7 @@ Changing this file doesn't change the metadata version, so it never forces a re-
 
 No two environments can use the same workspace, as their own `workspace_id` or as a designation's: each environment's lakehouses have the same names (`LH_Meta`, `LH_Bronze`, ...), so a run in one would write the other's tables. Saving such a change is refused, and if the file is edited by hand to share one, both environments refuse to read or write until it's fixed.
 
-A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a table the metadata project manages, or anything in a workspace that Test or Prod uses: those change only through a framework run and promote.
+A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a table the metadata project manages, or anything in a workspace that Test or Prod uses: those change only through a framework run and promote. A workspace that any project opened on this PC named as Prod is refused the same way, with a project open or not.
 
 ### Data mesh files
 
@@ -607,6 +620,22 @@ A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a 
 ### Column lineage (Preview)
 
 KratosForge works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
+
+### Impact of a column change (Preview)
+
+Before you drop, rename or retype a column, **Impact** in an entity's Lineage card shows what the change would touch, worked out from the same files. Nothing runs and nothing changes. Pick a column and a change; each consumer is marked **Breaks** or **Check**, with the reasons:
+
+- **Tables** in the project. One that reads the column by name, matches a `[[lookup]]` on it, uses it as a `[[keys]]` business key or in a `[[derive]]` expression, or looks it up with an `exists_in` check breaks when the column goes. Columns built from those further on are marked Check, with the path. A new type is a Check wherever it lands. The entity's own file breaks too when its key, watermark, `[scd]` lists, `[[clean]]` or `[[check]]` name the column.
+- **Your Python** in `transforms/` (hooks, custom steps, custom checks) for the entity and the tables that read it. Code that names the column breaks when it goes. Code that reads the table without naming it is a Check, because code can still use every column.
+- **The semantic model** KratosForge builds over the last layer (`SM_<Layer>`). A relationship on a column that goes, or on a lookup that breaks, loses a side. A visible column that goes or changes type is a Check for the reports that use it.
+
+Tables that read the entity but not this column are counted apart. Notebooks outside a project aren't traced yet. When you save an entity whose contract drops, renames or retypes a column that something reads, KratosForge shows the same list and asks before saving. One column gone and one of the same type added reads as a rename.
+
+### Export lineage as OpenLineage (Preview)
+
+**Export OpenLineage...** in the Impact view writes the project's lineage as [OpenLineage](https://openlineage.io) run events, the open format DataHub, OpenMetadata and Marquez read. There is one event for each table's last run in the current environment: the job is the entity, the output is its table with its columns and their column lineage, and the inputs are the tables (or files) it reads. A column read as it is shows as a direct identity; a `[[derive]]` shows its expression; the columns a `[[lookup]]` matches on show as a join. A run that finished is COMPLETE and one that failed is FAIL. Tables that haven't run, or whose last run hasn't finished, are left out, and the dialog lists them first.
+
+The file is new in Downloads (`<project>-<env>-openlineage.jsonl`), one event per line, as OpenLineage's own file transport writes it. Send each line to your catalog's OpenLineage endpoint, for example Marquez's `POST /api/v1/lineage`. Tables in an environment in Fabric are named by their OneLake path (`abfss://<workspace id>@onelake.dfs.fabric.microsoft.com`, `LH_Gold.Lakehouse/Tables/<schema>/<table>`), so they line up with what Spark in Fabric reports; tables on this PC are named `kratosforge://<project>/<env>`. Events carry names and how they link: no data rows and no run messages. A source given as a URL keeps only its scheme, host, port and path (no user, password, query string or path parameters such as `;jsessionid=`, where a key, SAS token or session id would sit), a file on this PC keeps only its name, and anything else credential-shaped is removed. Every event is checked against the OpenLineage spec's JSON schema in the tests. Sending events to a catalog's URL after every run isn't built yet.
 
 ### Columns and tables the framework adds
 

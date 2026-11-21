@@ -264,6 +264,16 @@ def environment(service: Any, arguments: dict[str, Any], ctx: CallContext | None
     return environment_of(env) if env else None
 
 
+def run_environment(service: Any, arguments: dict[str, Any], ctx: CallContext | None) -> set[str] | None:
+    """The environment whose run log a metadata project run tool reads (``env``, dev by default, as the
+    Data mesh page's runs list). For an environment kept in OneLake the run log lives in its workspace's
+    lakehouse; for one kept on this PC its workspace still counts, so a limited tool can't read it either.
+    None when no project is open or the environment names a place without its workspace id."""
+    meta = service.meta_project()
+    env = (meta.get("environments") or {}).get(arguments.get("env") or "dev") if meta.get("path") else None
+    return environment_of(env) if env else None
+
+
 def workload_of(service: Any, record: dict[str, Any], action: str, env: str) -> set[str] | None:
     """What the risk check reads for one action on a workload (risk_service._risk_facts): the
     capacity of the workspace its deployment in ``env`` runs in, and for a Data mesh entity's run,

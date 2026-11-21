@@ -66,7 +66,12 @@ def hmac(key_hex: str | None, message_hex: str | None, algorithm: str | None) ->
                          "takes SHA-224, SHA-256, SHA-384, SHA-512, SHA-1 or MD5.")
     if not key_hex:
         raise ValueError("[INVALID_PARAMETER_VALUE.HMAC_CRYPTO_ERROR] hmac() can't use an empty key.")
-    return _hmac.new(bytes.fromhex(key_hex), bytes.fromhex(message_hex), getattr(hashlib, digest)).hexdigest()
+    # The user's query picks the algorithm: MD5 and SHA-1 here match Databricks, not a security check,
+    # so they say so, or an OpenSSL in FIPS mode refuses them.
+    def made(data: bytes = b"") -> Any:
+        return hashlib.new(digest, data, usedforsecurity=False)
+
+    return _hmac.new(bytes.fromhex(key_hex), bytes.fromhex(message_hex), made).hexdigest()
 
 
 def bit_reverse(kind: str, value: int | None) -> int | None:

@@ -20,7 +20,7 @@ from .optimize import setup
 from . import governance_notices as notices
 from .central import core
 from .workloads import impact, model, sla
-from .workloads.incident_history import FAMILY, Sent, event_rows, snapshot_rows
+from .workloads.incident_history import FAMILY, REPORT_DAYS, Sent, event_rows, report, snapshot_rows
 from .workloads.incidents import ACTIVE, PRIORITIES, PRIORITY_LABELS, default_priority
 
 
@@ -160,10 +160,15 @@ class IncidentDeskMixin:
             raise ValueError("Who's affected changed since you looked. Nothing was posted; check the list and tell them again.")
         out = self.platform_notify([notices.incident_impact(inc, found)])  # type: ignore[attr-defined]
         result = (out.get("events") or [{}])[0]
+        told = f"{_TOLD} {', '.join(p['upn'] for p in found['people'])}"
         if result.get("result") == "skipped":
-            return {"told": False, "reason": result.get("reason") or out.get("skipped") or "", "people": found["people"]}
-        upns = [p["upn"] for p in found["people"]]
-        self._incident_log(env).note(id, f"{_TOLD} {', '.join(upns)}", self._incident_user())  # type: ignore[attr-defined]
+            reason = result.get("reason") or out.get("skipped") or ""
+            # Posted before, but the note saying so wasn't written (the list was busy, say): write it now.
+            # Notes are kept to 2,000 characters, so compare with what would have been kept.
+            if reason == "already posted" and not any(n.get("text") == told[:2000] for n in inc.get("notes") or []):
+                self._incident_log(env).note(id, told, self._incident_user())  # type: ignore[attr-defined]
+            return {"told": False, "reason": reason, "people": found["people"]}
+        self._incident_log(env).note(id, told, self._incident_user())  # type: ignore[attr-defined]
         return {"told": True, "result": result.get("result"), "routes": result.get("routes") or [], "people": found["people"]}
 
     # ---- history in the central lakehouse
@@ -235,3 +240,24 @@ class IncidentDeskMixin:
         latest = latest.sort("opened_at", descending=True, nulls_last=True).head(max(1, min(int(limit), 5000)))
         cols = [c for c in latest.columns if c not in ("record_id", "installation_id", "app_version", "schema_version")]
         return {"state": "ready", "lakehouse": conn["lakehouse_name"], "incidents": latest.select(cols).to_dicts()}
+
+    def incidents_measures(self, env: str = "", days: int = 30, approve: bool = False) -> dict[str, Any]:
+        """Time to acknowledge, time to resolve and SLAs met for incidents opened in the last ``days``.
+
+        It copies what's new to the central lakehouse first (incidents_history_sync), so the report
+        includes the latest changes, then measures from each incident's latest state there. When the
+        incident tables need setting up, it returns ``needs_confirm`` and nothing is written until the
+        person confirms (``approve``). A copy that fails for one environment is reported, not hidden."""
+        if days not in REPORT_DAYS:
+            raise ValueError(f"days is one of {', '.join(map(str, REPORT_DAYS))}.")
+        if env and env not in ENVIRONMENTS:
+            raise ValueError(f"env is one of {', '.join(ENVIRONMENTS)}, or empty for all.")
+        copied = self.incidents_history_sync(approve=approve)
+        if copied["state"] != "copied":
+            return copied
+        hist = self.incidents_history(env, limit=5000)
+        table, problems, source = self._sla_targets()
+        out = report(hist["incidents"], table, dt.datetime.now(dt.UTC), days)
+        return {"state": "ready" if hist["incidents"] else "empty", "lakehouse": hist.get("lakehouse"), "env": env,
+                "copy": copied["envs"], "sla_source": source, "sla_problems": problems,
+                "capped": len(hist["incidents"]) >= 5000} | out

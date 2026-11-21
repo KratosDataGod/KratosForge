@@ -53,7 +53,7 @@ _RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9]) *(\..*)?$", re.IGN
 
 def check_name(name: str) -> str:
     name = str(name or "").strip()
-    if not _NAME.match(name) or name.endswith((".", " ")):
+    if not _NAME.fullmatch(name) or name.endswith((".", " ")):
         raise ValueError("An environment name is letters, numbers, spaces, dots, dashes and underscores (64 at most).")
     if _RESERVED.match(name.strip()):
         raise ValueError(f"{name} is a name Windows keeps for a device. Choose another name.")

@@ -38,8 +38,11 @@ _log = logging.getLogger(__name__)
 AUTHORITY = "https://login.microsoftonline.com/organizations"
 # Seconds MSAL waits for each sign-in call to Entra (MSAL's own default is to wait forever, so a
 # proxy that swallows the call hung sign-in with no message). The browser or Windows prompt itself
-# isn't bounded by this: only the calls MSAL makes.
-SIGN_IN_TIMEOUT = http_session.DEFAULT_TIMEOUT
+# isn't bounded by this: only the calls MSAL makes. Connecting gets less: a network that drops
+# the traffic (no answer at all) costs that wait per address the host has (eight for login.
+# microsoftonline.com), twice with MSAL's one retry, and Home's first check waits for it.
+SIGN_IN_CONNECT_SECONDS = 5
+SIGN_IN_TIMEOUT = (SIGN_IN_CONNECT_SECONDS, http_session.DEFAULT_TIMEOUT)
 # Microsoft's Fabric sign-in app (Fabric CLI's AUTH_DEFAULT_CLIENT_ID): no app registration needed.
 MICROSOFT_CLIENT_ID = "5814bfb4-2705-4994-b8d6-39aabeb5eaeb"
 
@@ -194,6 +197,34 @@ def write_cache(path: Path, text: str) -> None:
 
 
 _UNREAD = object()
+# Seconds to wait for another process (the app, a scheduled run, an agent) to let go of the sign-in
+# file's lock. One that hangs holding it doesn't hang this one: a new sign-in is kept in memory and
+# written with the next change.
+LOCK_SECONDS = 15
+# After that, seconds before this process waits for it again, so a hung holder costs one wait, not one per call.
+BUSY_SECONDS = 60
+# The sections MSAL keeps in the cache; each maps a key to one entry (an object).
+_SECTIONS = ("AccessToken", "RefreshToken", "IdToken", "Account", "AppMetadata")
+
+
+def _usable(text: str | None) -> bool:
+    """Whether ``text`` is a cache MSAL can read: one JSON object whose known sections are objects of
+    objects. Anything else (truncated, another program's file, a hand edit) is treated as no sign-in,
+    so the person signs in once rather than every call failing."""
+    if not text:
+        return True  # empty: no sign-in yet
+    import json
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    for section in _SECTIONS:
+        entries = data.get(section, {})
+        if not isinstance(entries, dict) or not all(isinstance(e, dict) for e in entries.values()):
+            return False
+    return True
 
 
 class SharedTokenCache(msal.SerializableTokenCache):
@@ -214,6 +245,7 @@ class SharedTokenCache(msal.SerializableTokenCache):
         self.migrate = False  # a plain file from an earlier version was read: write it again encrypted
         self._seen: object = _UNREAD  # the file's _signature() when last read or written
         self._depth = 0
+        self._busy_until = 0.0  # time.monotonic() before which the file isn't waited for again (_in_memory)
         self._reload()
 
     def _signature(self) -> tuple[int, int, int] | None:
@@ -242,8 +274,11 @@ class SharedTokenCache(msal.SerializableTokenCache):
             _log.warning("Couldn't read the saved sign-in just now; trying again at the next lookup: %s", describe(exc))
             return
         try:
+            if not _usable(text):
+                raise ValueError("not a sign-in cache")
             self.deserialize(text)
         except ValueError:  # a damaged cache file: sign in again rather than fail every call
+            _log.warning("The saved sign-in is damaged, so it isn't used; signing in again replaces it")
             self.deserialize(None)
             self.migrate = False
         self._seen = seen
@@ -262,7 +297,9 @@ class SharedTokenCache(msal.SerializableTokenCache):
                 finally:
                     self._depth -= 1
                 return
-            with _file_lock(self.lock_path):
+            if time.monotonic() < self._busy_until:
+                raise TimeoutError("the saved sign-in was busy a moment ago")
+            with _file_lock(self.lock_path, timeout=LOCK_SECONDS):
                 self._depth = 1
                 try:
                     self._reload_for_change()
@@ -308,19 +345,36 @@ class SharedTokenCache(msal.SerializableTokenCache):
             return super().search(credential_type, target=target, query=query, now=now)
 
     def add(self, event: Any, **kwargs: Any) -> None:  # MSAL's signature
-        with self.locked() as outer:
-            before = self._accounts()
-            super().add(event, **kwargs)
-            for home in (self._accounts() - before) & self.removed_elsewhere:
-                self.forget(home)
-            if outer:
-                self.write_or_retry_later()
+        try:
+            with self.locked() as outer:
+                before = self._accounts()
+                super().add(event, **kwargs)
+                for home in (self._accounts() - before) & self.removed_elsewhere:
+                    self.forget(home)
+                if outer:
+                    self.write_or_retry_later()
+        except OSError as exc:  # the file is locked or can't be read just now: keep the sign-in, write it later
+            self._in_memory(exc, lambda: super(SharedTokenCache, self).add(event, **kwargs))
 
     def modify(self, credential_type: Any, old_entry: Any, new_key_value_pairs: Any = None) -> None:
-        with self.locked() as outer:
-            super().modify(credential_type, old_entry, new_key_value_pairs)
-            if outer:
-                self.write_or_retry_later()
+        try:
+            with self.locked() as outer:
+                super().modify(credential_type, old_entry, new_key_value_pairs)
+                if outer:
+                    self.write_or_retry_later()
+        except OSError as exc:
+            self._in_memory(exc, lambda: super(SharedTokenCache, self).modify(credential_type, old_entry, new_key_value_pairs))
+
+    def _in_memory(self, exc: OSError, change: Any) -> None:
+        """Make ``change`` in memory only, when the file couldn't be locked or read to make it there:
+        the person stays signed in, and the change is written with the next one that can be (_save).
+        Never raised to MSAL, which would lose a sign-in the person just finished."""
+        _log.warning("Couldn't update the saved sign-in just now, so it's kept in memory and saved later: %s", describe(exc))
+        with self._lock:
+            # Before change(): MSAL's add() makes each entry through modify(), which must not wait again.
+            self._busy_until = time.monotonic() + BUSY_SECONDS
+            change()
+            self.has_state_changed = True
 
     def forget(self, home: str) -> None:
         """Every entry of the account ``home``, which another process signed out."""
@@ -414,6 +468,28 @@ def ended(result: dict | None) -> str:
     return ""
 
 
+# Where MSAL files a Microsoft Entra account in the cache: the public cloud's sign-in host and the
+# aliases it falls back to (its instance discovery, which asks Microsoft for them over the network).
+ACCOUNT_HOSTS = ("login.microsoftonline.com", "login.windows.net", "login.microsoft.com", "sts.windows.net")
+
+
+def cached_account(cache_path: Path | None = None) -> dict[str, Any] | None:
+    """The saved sign-in's account, from the cache file alone, as MSAL's ``get_accounts`` finds it.
+    Building MSAL's app first asks Microsoft for its sign-in endpoints, which offline or behind a
+    proxy that blocks login.microsoftonline.com waits out the timeout, so start-up reads this instead."""
+    path = cache_path or default_cache_path()
+    if not path.exists():
+        return None
+    cache = SharedTokenCache(path)
+    kinds = (msal.TokenCache.AuthorityType.MSSTS, msal.TokenCache.AuthorityType.ADFS)
+    for host in ACCOUNT_HOSTS:
+        found = [a for a in cache.search(cache.CredentialType.ACCOUNT, query={"environment": host})
+                 if a.get("authority_type") in kinds]
+        if found:
+            return found[0]
+    return None
+
+
 class Authenticator:
     def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True):
         self.client_id = client_id or MICROSOFT_CLIENT_ID
@@ -426,6 +502,11 @@ class Authenticator:
         # refresh it again: one refusal, not one per call.
         self._ended_at: object = None
         self._sign_in_lock = threading.Lock()  # one sign-in window at a time; the others wait for it
+        # Counts sign-in windows opened here, and again when one brings tokens. A refresh's refusal ends
+        # the saved sign-in only if no window opened or signed in while that refresh was out: a slow refusal of the old token must not drop the tokens a
+        # window just brought, which would open a second window for the calls waiting on the first.
+        self._windows = 0
+        self._end_lock = threading.Lock()
         # The last interactive refusal in BLOCKED_CODES: (its error, when, the cache file as it was then).
         self._blocked: tuple[SignInError, float, object] | None = None
         self.cache = SharedTokenCache(self.cache_path)
@@ -477,11 +558,14 @@ class Authenticator:
         if lookup is None:  # a stand-in without it
             more = {"force_refresh": True} if force_refresh else {}
             return self.app.acquire_token_silent(scopes, account=account, **more)
+        window = self._windows
         result = lookup(scopes, account=account, force_refresh=force_refresh)
         if result and "error" in result:
             code = ended(result)
             if code:
-                self._end(account, code)
+                with self._end_lock:
+                    if window == self._windows:  # else a sign-in since then: the refusal is for the old one
+                        self._end(account, code)
             elif refusal is not None:
                 refusal.update(result)
             return None
@@ -566,6 +650,8 @@ class Authenticator:
             self.cache.removed_elsewhere.clear()  # signing in here: the account may come back
             asked = why.get("claims") or claims
             more = {"claims_challenge": asked} if isinstance(asked, str) and asked else {}
+            with self._end_lock:
+                self._windows += 1
             if self.broker:  # Windows sign-in returns when its window is closed
                 result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle(), **more)
             else:
@@ -577,6 +663,8 @@ class Authenticator:
                     raise SignInError("timeout", f"The sign-in in your browser wasn't finished within "
                                       f"{SIGN_IN_SECONDS // 60} minutes. Sign in again.") from None
             if result and "access_token" in result:
+                with self._end_lock:  # and a refresh that started while the window was open is older
+                    self._windows += 1
                 self._ended_at = None
                 self._blocked = None
             elif result:

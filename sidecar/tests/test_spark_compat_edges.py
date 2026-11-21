@@ -71,8 +71,10 @@ def test_date_functions(day, F):
 
 def test_time_zone_shifts(spark, F):
     ts = spark.createDataFrame([("2026-11-09 10:00:00",)], ["t"]).select(F.to_timestamp("t").alias("t"))
-    assert ts.select(F.from_utc_timestamp("t", "Europe/Amsterdam")).first()[0] == datetime.datetime(2026, 11, 9, 11, 0)
-    assert ts.select(F.to_utc_timestamp("t", "Europe/Amsterdam")).first()[0] == datetime.datetime(2026, 11, 9, 9, 0)
+    def wall(v):  # Spark's timestamp has a zone: DuckDB 1.x hands it back with the value, 2.x leaves it off
+        return v.astimezone(datetime.timezone.utc).replace(tzinfo=None) if v.tzinfo else v
+    assert wall(ts.select(F.from_utc_timestamp("t", "Europe/Amsterdam")).first()[0]) == datetime.datetime(2026, 11, 9, 11, 0)
+    assert wall(ts.select(F.to_utc_timestamp("t", "Europe/Amsterdam")).first()[0]) == datetime.datetime(2026, 11, 9, 9, 0)
 
 
 def test_now_json_uuid_and_a_wide_format_number(spark, df, F):

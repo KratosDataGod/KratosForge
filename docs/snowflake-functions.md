@@ -13,7 +13,7 @@ check again, so this page changes when a function is fixed or breaks.
 - **Refused**: stops with a message saying it runs only in Snowflake, so nothing runs with another answer.
 - **Fails**: stops with an error, usually because DuckDB has no function of that name. Run it in Snowflake.
 - **Not checked**: DuckDB runs it, but no check compares its value with Snowflake's yet. Check
-  results that use it in Snowflake.
+  results that use it in Snowflake. The note says why it has no check here.
 
 Geospatial, Cortex AI, table, system and file functions aren't listed: they need Snowflake's own
 objects or services. [Engines](engines.md#snowflake-sql-on-this-pc-preview) lists the rules and
@@ -21,21 +21,21 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 167 |
-| Differs | 20 |
-| Refused | 81 |
+| Runs | 380 |
+| Differs | 22 |
+| Refused | 88 |
 | Fails | 0 |
-| Not checked | 227 |
-| **All** | **495** |
+| Not checked | 16 |
+| **All** | **506** |
 
 ## String and binary
 
 | Function | Status | Note |
 | --- | --- | --- |
 | `ASCII` | Runs | 1 value check |
-| `BIT_LENGTH` | Not checked |  |
+| `BIT_LENGTH` | Runs | 2 value checks |
 | `CHR` | Runs | 1 value check |
-| `CHAR` | Not checked |  |
+| `CHAR` | Runs | 2 value checks |
 | `CONCAT` | Runs | 1 value check |
 | `CONCAT_WS` | Runs | 1 value check |
 | `INSERT` | Runs | 1 value check |
@@ -48,46 +48,46 @@ the known differences in more detail.
 | `PARSE_URL` | Refused | Not rewritten for DuckDB. PARSE_URL is not supported in DuckDB. |
 | `REPEAT` | Runs | 1 value check |
 | `REVERSE` | Runs | 1 value check |
-| `RPAD` | Not checked |  |
-| `RTRIM` | Not checked |  |
-| `RTRIMMED_LENGTH` | Not checked |  |
+| `RPAD` | Runs | 3 value checks |
+| `RTRIM` | Runs | 3 value checks |
+| `RTRIMMED_LENGTH` | Runs | 1 value check |
 | `SOUNDEX` | Runs | 6 value checks |
 | `SOUNDEX_P123` | Runs | 2 value checks |
 | `SPACE` | Runs | 1 value check |
 | `SPLIT` | Runs | 1 value check |
 | `SPLIT_PART` | Runs | 3 value checks |
 | `STRTOK` | Runs | 1 value check |
-| `STRTOK_TO_ARRAY` | Not checked |  |
+| `STRTOK_TO_ARRAY` | Runs | 2 value checks |
 | `TRANSLATE` | Runs | 1 value check |
 | `TRIM` | Runs | 1 value check |
-| `UNICODE` | Not checked |  |
-| `UUID_STRING` | Not checked |  |
+| `UNICODE` | Runs | 4 value checks |
+| `UUID_STRING` | Runs | 1 value check |
 | `SEARCH` | Refused | SEARCH: a Snowflake feature DuckDB lacks. SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have. |
 | `SEARCH_IP` | Refused | SEARCH_IP: a Snowflake feature DuckDB lacks. SEARCH and SEARCH_IP match with Snowflake's search analyzers, which DuckDB doesn't have. |
 | `INITCAP` | Runs | 1 value check |
-| `LOWER` | Not checked |  |
+| `LOWER` | Runs | 3 value checks |
 | `UPPER` | Runs | 1 value check |
 | `CHARINDEX` | Runs | 1 value check |
 | `CONTAINS` | Runs | 1 value check |
 | `EDITDISTANCE` | Runs | 1 value check |
 | `ENDSWITH` | Runs | 1 value check |
-| `JAROWINKLER_SIMILARITY` | Not checked |  |
+| `JAROWINKLER_SIMILARITY` | Differs | JAROWINKLER_SIMILARITY (phrase): Snowflake's reference shows 56; DuckDB's Jaro-Winkler gives 57 (SFD-012). |
 | `LEFT` | Runs | 1 value check |
 | `POSITION` | Runs | 1 value check |
 | `REPLACE` | Runs | 1 value check |
 | `RIGHT` | Runs | 1 value check |
 | `STARTSWITH` | Runs | 1 value check |
 | `SUBSTR` | Runs | 1 value check |
-| `SUBSTRING` | Not checked |  |
+| `SUBSTRING` | Runs | 2 value checks |
 | `COMPRESS` | Refused | Not rewritten for DuckDB. DuckDB does not support the COMPRESS() function. |
 | `DECOMPRESS_BINARY` | Refused | Not rewritten for DuckDB. DECOMPRESS_BINARY is not supported in DuckDB. |
 | `DECOMPRESS_STRING` | Refused | Not rewritten for DuckDB. DECOMPRESS_STRING is not supported in DuckDB. |
-| `BASE64_DECODE_BINARY` | Not checked |  |
-| `BASE64_DECODE_STRING` | Not checked |  |
-| `BASE64_ENCODE` | Not checked |  |
-| `HEX_DECODE_BINARY` | Not checked |  |
-| `HEX_DECODE_STRING` | Not checked |  |
-| `HEX_ENCODE` | Not checked |  |
+| `BASE64_DECODE_BINARY` | Runs | 1 value check |
+| `BASE64_DECODE_STRING` | Runs | 1 value check |
+| `BASE64_ENCODE` | Runs | 2 value checks |
+| `HEX_DECODE_BINARY` | Runs | 1 value check |
+| `HEX_DECODE_STRING` | Runs | 2 value checks |
+| `HEX_ENCODE` | Runs | 2 value checks |
 | `TRY_BASE64_DECODE_BINARY` | Runs | 1 value check |
 | `TRY_BASE64_DECODE_STRING` | Runs | 2 value checks |
 | `TRY_HEX_DECODE_BINARY` | Runs | 1 value check |
@@ -100,12 +100,12 @@ the known differences in more detail.
 | Function | Status | Note |
 | --- | --- | --- |
 | `REGEXP_COUNT` | Runs | 1 value check |
-| `REGEXP_EXTRACT_ALL` | Not checked |  |
-| `REGEXP_INSTR` | Not checked |  |
+| `REGEXP_EXTRACT_ALL` | Runs | 1 value check |
+| `REGEXP_INSTR` | Runs | 7 value checks |
 | `REGEXP_LIKE` | Runs | 1 value check |
 | `REGEXP_REPLACE` | Runs | 1 value check |
-| `REGEXP_SUBSTR` | Runs | 1 value check |
-| `REGEXP_SUBSTR_ALL` | Not checked |  |
+| `REGEXP_SUBSTR` | Runs | 2 value checks |
+| `REGEXP_SUBSTR_ALL` | Runs | 6 value checks |
 | `RLIKE` | Runs | 1 value check |
 
 ## Hash
@@ -113,17 +113,17 @@ the known differences in more detail.
 | Function | Status | Note |
 | --- | --- | --- |
 | `MD5` | Runs | 1 value check |
-| `MD5_HEX` | Not checked |  |
-| `MD5_BINARY` | Not checked |  |
+| `MD5_HEX` | Runs | 1 value check |
+| `MD5_BINARY` | Runs | 1 value check |
 | `MD5_NUMBER_LOWER64` | Runs | 1 value check |
 | `MD5_NUMBER_UPPER64` | Runs | 1 value check |
-| `SHA1` | Not checked |  |
-| `SHA1_HEX` | Not checked |  |
-| `SHA1_BINARY` | Not checked |  |
+| `SHA1` | Runs | 1 value check |
+| `SHA1_HEX` | Runs | 1 value check |
+| `SHA1_BINARY` | Runs | 1 value check |
 | `SHA2` | Runs | 1 value check |
-| `SHA2_HEX` | Not checked |  |
-| `SHA2_BINARY` | Not checked |  |
-| `HASH` | Not checked |  |
+| `SHA2_HEX` | Runs | 1 value check |
+| `SHA2_BINARY` | Runs | 1 value check |
+| `HASH` | Refused | HASH: a Snowflake feature DuckDB lacks. HASH uses Snowflake's own hash, which DuckDB's hash doesn't reproduce. |
 | `HASH_AGG` | Refused | HASH_AGG: a Snowflake feature DuckDB lacks. HASH_AGG uses Snowflake's own hash, which DuckDB's hash doesn't reproduce. |
 
 ## Numeric
@@ -138,165 +138,165 @@ the known differences in more detail.
 | `MOD` | Runs | 1 value check |
 | `ROUND` | Runs | 2 value checks |
 | `SIGN` | Runs | 1 value check |
-| `TRUNCATE` | Not checked |  |
+| `TRUNCATE` | Runs | 3 value checks |
 | `TRUNC` | Runs | 1 value check |
-| `CBRT` | Not checked |  |
-| `EXP` | Not checked |  |
-| `FACTORIAL` | Not checked |  |
-| `POW` | Not checked |  |
+| `CBRT` | Runs | 2 value checks |
+| `EXP` | Runs | 2 value checks |
+| `FACTORIAL` | Runs | 3 value checks |
+| `POW` | Runs | 3 value checks |
 | `POWER` | Runs | 1 value check |
 | `SQRT` | Runs | 1 value check |
 | `SQUARE` | Runs | 1 value check |
-| `LN` | Not checked |  |
-| `LOG` | Not checked |  |
-| `ACOS` | Not checked |  |
-| `ACOSH` | Not checked |  |
-| `ASIN` | Not checked |  |
-| `ASINH` | Not checked |  |
-| `ATAN` | Not checked |  |
-| `ATAN2` | Not checked |  |
-| `ATANH` | Not checked |  |
-| `COS` | Not checked |  |
-| `COSH` | Not checked |  |
-| `COT` | Not checked |  |
-| `DEGREES` | Not checked |  |
-| `PI` | Not checked |  |
-| `RADIANS` | Not checked |  |
-| `SIN` | Not checked |  |
-| `SINH` | Not checked |  |
-| `TAN` | Not checked |  |
-| `TANH` | Not checked |  |
+| `LN` | Runs | 2 value checks |
+| `LOG` | Runs | 3 value checks |
+| `ACOS` | Runs | 2 value checks |
+| `ACOSH` | Runs | 1 value check |
+| `ASIN` | Runs | 1 value check |
+| `ASINH` | Runs | 1 value check |
+| `ATAN` | Runs | 1 value check |
+| `ATAN2` | Runs | 1 value check |
+| `ATANH` | Runs | 1 value check |
+| `COS` | Runs | 2 value checks; labelled SFD-003 Division returns DOUBLE |
+| `COSH` | Runs | 1 value check |
+| `COT` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
+| `DEGREES` | Runs | 2 value checks |
+| `PI` | Runs | 1 value check |
+| `RADIANS` | Runs | 2 value checks |
+| `SIN` | Runs | 2 value checks; labelled SFD-003 Division returns DOUBLE |
+| `SINH` | Runs | 1 value check |
+| `TAN` | Runs | 1 value check; labelled SFD-003 Division returns DOUBLE |
+| `TANH` | Runs | 1 value check |
 | `WIDTH_BUCKET` | Runs | 4 value checks |
 | `HAVERSINE` | Runs | 2 value checks |
 
 ## Date and time
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `DATE_FROM_PARTS` | Runs |  | 1 value check |
-| `TIME_FROM_PARTS` | Not checked |  |  |
-| `TIMESTAMP_FROM_PARTS` | Not checked |  |  |
-| `TIMESTAMP_LTZ_FROM_PARTS` | Not checked |  |  |
-| `TIMESTAMP_NTZ_FROM_PARTS` | Not checked |  |  |
-| `TIMESTAMP_TZ_FROM_PARTS` | Not checked |  |  |
-| `DATE_PART` | Runs |  | 1 value check |
-| `DAYNAME` | Runs |  | 1 value check |
-| `EXTRACT` | Not checked | `SELECT EXTRACT(YEAR FROM TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `HOUR` | Runs |  | 1 value check |
-| `MINUTE` | Not checked | `SELECT MINUTE(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `SECOND` | Not checked | `SELECT SECOND(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `LAST_DAY` | Runs |  | 1 value check |
-| `MONTHNAME` | Runs |  | 1 value check |
-| `NEXT_DAY` | Not checked | `SELECT NEXT_DAY(TO_DATE('2024-03-05'), 'FR')` |  |
-| `PREVIOUS_DAY` | Not checked | `SELECT PREVIOUS_DAY(TO_DATE('2024-03-05'), 'FR')` |  |
-| `YEAR` | Runs |  | 1 value check |
-| `YEAROFWEEK` | Not checked | `SELECT YEAROFWEEK(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `YEAROFWEEKISO` | Not checked | `SELECT YEAROFWEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `DAY` | Not checked | `SELECT DAY(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `DAYOFMONTH` | Not checked | `SELECT DAYOFMONTH(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `DAYOFWEEK` | Runs |  | 1 value check |
-| `DAYOFWEEKISO` | Not checked | `SELECT DAYOFWEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `DAYOFYEAR` | Not checked | `SELECT DAYOFYEAR(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `WEEK` | Not checked | `SELECT WEEK(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `WEEKOFYEAR` | Not checked | `SELECT WEEKOFYEAR(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `WEEKISO` | Not checked | `SELECT WEEKISO(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `MONTH` | Not checked | `SELECT MONTH(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `QUARTER` | Not checked | `SELECT QUARTER(TO_TIMESTAMP('2024-03-05 10:20:30'))` |  |
-| `ADD_MONTHS` | Runs |  | 1 value check |
-| `DATEADD` | Runs |  | 1 value check |
-| `DATEDIFF` | Runs |  | 2 value checks |
-| `MONTHS_BETWEEN` | Not checked |  |  |
-| `TIMEADD` | Runs |  | 1 value check |
-| `TIMEDIFF` | Not checked | `SELECT TIMEDIFF(HOUR, TO_TIMESTAMP('2024-03-05 10:20:30'), TO_TIMESTAMP('2024-03-06 10:20:30'))` |  |
-| `TIMESTAMPADD` | Runs |  | 4 value checks |
-| `TIMESTAMPDIFF` | Runs |  | 1 value check |
-| `DATE_TRUNC` | Runs |  | 1 value check |
-| `TIME_SLICE` | Runs |  | 1 value check |
-| `TO_DATE` | Runs |  | 2 value checks |
-| `DATE` | Not checked |  |  |
-| `TO_TIME` | Runs |  | 1 value check |
-| `TIME` | Runs |  | 2 value checks |
-| `TO_TIMESTAMP` | Not checked |  |  |
-| `TO_TIMESTAMP_LTZ` | Differs |  | SFD-004 Local time zone is this PC's |
-| `TO_TIMESTAMP_NTZ` | Not checked |  |  |
-| `TO_TIMESTAMP_TZ` | Differs |  | SFD-002 TIMESTAMP_TZ loses its offset |
-| `CONVERT_TIMEZONE` | Not checked |  |  |
+| Function | Status | Note |
+| --- | --- | --- |
+| `DATE_FROM_PARTS` | Runs | 1 value check |
+| `TIME_FROM_PARTS` | Runs | 2 value checks |
+| `TIMESTAMP_FROM_PARTS` | Runs | 1 value check |
+| `TIMESTAMP_LTZ_FROM_PARTS` | Runs | 1 value check |
+| `TIMESTAMP_NTZ_FROM_PARTS` | Runs | 1 value check |
+| `TIMESTAMP_TZ_FROM_PARTS` | Runs | 1 value check |
+| `DATE_PART` | Runs | 1 value check |
+| `DAYNAME` | Runs | 1 value check |
+| `EXTRACT` | Runs | 1 value check |
+| `HOUR` | Runs | 1 value check |
+| `MINUTE` | Runs | 1 value check |
+| `SECOND` | Runs | 1 value check |
+| `LAST_DAY` | Runs | 1 value check |
+| `MONTHNAME` | Runs | 1 value check |
+| `NEXT_DAY` | Runs | 1 value check |
+| `PREVIOUS_DAY` | Runs | 1 value check |
+| `YEAR` | Runs | 1 value check |
+| `YEAROFWEEK` | Runs | 1 value check |
+| `YEAROFWEEKISO` | Runs | 1 value check |
+| `DAY` | Runs | 1 value check |
+| `DAYOFMONTH` | Runs | 1 value check |
+| `DAYOFWEEK` | Runs | 1 value check |
+| `DAYOFWEEKISO` | Runs | 1 value check |
+| `DAYOFYEAR` | Runs | 1 value check |
+| `WEEK` | Runs | 1 value check |
+| `WEEKOFYEAR` | Runs | 1 value check |
+| `WEEKISO` | Runs | 1 value check |
+| `MONTH` | Runs | 1 value check |
+| `QUARTER` | Runs | 1 value check |
+| `ADD_MONTHS` | Runs | 1 value check |
+| `DATEADD` | Runs | 1 value check |
+| `DATEDIFF` | Runs | 2 value checks |
+| `MONTHS_BETWEEN` | Runs | 3 value checks |
+| `TIMEADD` | Runs | 1 value check |
+| `TIMEDIFF` | Runs | 2 value checks |
+| `TIMESTAMPADD` | Runs | 4 value checks |
+| `TIMESTAMPDIFF` | Runs | 1 value check |
+| `DATE_TRUNC` | Runs | 1 value check |
+| `TIME_SLICE` | Runs | 1 value check |
+| `TO_DATE` | Runs | 2 value checks |
+| `DATE` | Runs | 3 value checks |
+| `TO_TIME` | Runs | 1 value check |
+| `TIME` | Runs | 2 value checks |
+| `TO_TIMESTAMP` | Runs | 5 value checks |
+| `TO_TIMESTAMP_LTZ` | Differs | SFD-004 Local time zone is this PC's |
+| `TO_TIMESTAMP_NTZ` | Runs | 2 value checks |
+| `TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset |
+| `CONVERT_TIMEZONE` | Runs | 2 value checks |
 
 ## Conversion
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `CAST` | Not checked | `SELECT CAST('1' AS INTEGER)` |  |
-| `TRY_CAST` | Runs |  | 1 value check |
-| `TO_CHAR` | Not checked |  |  |
-| `TO_VARCHAR` | Runs |  | 3 value checks |
-| `TO_BINARY` | Not checked |  |  |
-| `TRY_TO_BINARY` | Not checked |  |  |
-| `TO_DECFLOAT` | Refused |  | DECFLOAT. DuckDB has no decimal floating-point type to hold Snowflake's DECFLOAT (38 significant digits with an exponent). |
-| `TO_DECIMAL` | Not checked |  |  |
-| `TO_NUMBER` | Runs |  | 1 value check |
-| `TO_NUMERIC` | Not checked |  |  |
-| `TO_DOUBLE` | Not checked |  |  |
-| `TRY_TO_DECFLOAT` | Refused |  | DECFLOAT. DuckDB has no decimal floating-point type to hold Snowflake's DECFLOAT (38 significant digits with an exponent). |
-| `TRY_TO_DECIMAL` | Not checked |  |  |
-| `TRY_TO_NUMBER` | Runs |  | 1 value check |
-| `TRY_TO_NUMERIC` | Not checked |  |  |
-| `TRY_TO_DOUBLE` | Not checked |  |  |
-| `TO_BOOLEAN` | Runs |  | 1 value check |
-| `TRY_TO_BOOLEAN` | Not checked |  |  |
-| `TRY_TO_DATE` | Not checked |  |  |
-| `TRY_TO_TIME` | Not checked |  |  |
-| `TRY_TO_TIMESTAMP` | Not checked |  |  |
-| `TRY_TO_TIMESTAMP_LTZ` | Differs |  | SFD-004 Local time zone is this PC's |
-| `TRY_TO_TIMESTAMP_NTZ` | Not checked |  |  |
-| `TRY_TO_TIMESTAMP_TZ` | Differs |  | SFD-002 TIMESTAMP_TZ loses its offset |
-| `TO_ARRAY` | Not checked |  |  |
-| `TO_OBJECT` | Runs |  | 2 value checks |
-| `TO_VARIANT` | Not checked |  |  |
+| Function | Status | Note |
+| --- | --- | --- |
+| `CAST` | Runs | 2 value checks |
+| `TRY_CAST` | Runs | 1 value check |
+| `TO_CHAR` | Runs | 1 value check |
+| `TO_VARCHAR` | Runs | 3 value checks |
+| `TO_BINARY` | Runs | 1 value check |
+| `TRY_TO_BINARY` | Runs | 1 value check |
+| `TO_DECFLOAT` | Refused | DECFLOAT. DuckDB has no decimal floating-point type to hold Snowflake's DECFLOAT (38 significant digits with an exponent). |
+| `TO_DECIMAL` | Runs | 2 value checks |
+| `TO_NUMBER` | Runs | 1 value check |
+| `TO_NUMERIC` | Runs | 2 value checks |
+| `TO_DOUBLE` | Runs | 2 value checks |
+| `TRY_TO_DECFLOAT` | Refused | DECFLOAT. DuckDB has no decimal floating-point type to hold Snowflake's DECFLOAT (38 significant digits with an exponent). |
+| `TRY_TO_DECIMAL` | Runs | 4 value checks |
+| `TRY_TO_NUMBER` | Runs | 1 value check |
+| `TRY_TO_NUMERIC` | Runs | 1 value check |
+| `TRY_TO_DOUBLE` | Runs | 2 value checks |
+| `TO_BOOLEAN` | Runs | 1 value check |
+| `TRY_TO_BOOLEAN` | Runs | 2 value checks |
+| `TRY_TO_DATE` | Runs | 4 value checks |
+| `TRY_TO_TIME` | Runs | 2 value checks |
+| `TRY_TO_TIMESTAMP` | Runs | 2 value checks |
+| `TRY_TO_TIMESTAMP_LTZ` | Differs | SFD-004 Local time zone is this PC's |
+| `TRY_TO_TIMESTAMP_NTZ` | Runs | 2 value checks |
+| `TRY_TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset |
+| `TO_ARRAY` | Runs | 1 value check |
+| `TO_OBJECT` | Runs | 2 value checks |
+| `TO_VARIANT` | Runs | 1 value check |
 
 ## Semi-structured
 
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
-| `CHECK_JSON` | Not checked |  |  |
+| `CHECK_JSON` | Runs |  | 1 value check |
 | `CHECK_XML` | Refused |  | CHECK_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `JSON_EXTRACT_PATH_TEXT` | Not checked |  |  |
-| `PARSE_JSON` | Not checked |  |  |
-| `TRY_PARSE_JSON` | Not checked |  |  |
+| `JSON_EXTRACT_PATH_TEXT` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case |
+| `PARSE_JSON` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `TRY_PARSE_JSON` | Runs |  | 1 value check |
 | `PARSE_XML` | Refused |  | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `STRIP_NULL_VALUE` | Not checked |  |  |
+| `STRIP_NULL_VALUE` | Runs |  | 2 value checks |
 | `ARRAY_AGG` | Runs |  | 1 value check |
-| `ARRAY_APPEND` | Not checked |  |  |
+| `ARRAY_APPEND` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case, SFD-007 TYPEOF can't always name Snowflake's type |
 | `ARRAY_CAT` | Runs |  | 1 value check |
-| `ARRAY_COMPACT` | Not checked |  |  |
+| `ARRAY_COMPACT` | Runs |  | 1 value check |
 | `ARRAY_CONSTRUCT` | Runs |  | 1 value check |
-| `ARRAY_CONSTRUCT_COMPACT` | Not checked |  |  |
+| `ARRAY_CONSTRUCT_COMPACT` | Not checked |  | its page's examples put values of different types in one array, which a DuckDB list can't hold |
 | `ARRAY_CONTAINS` | Runs |  | 1 value check |
-| `ARRAY_DISTINCT` | Not checked |  |  |
+| `ARRAY_DISTINCT` | Runs |  | 2 value checks |
 | `ARRAY_EXCEPT` | Runs |  | 4 value checks |
-| `ARRAY_FLATTEN` | Not checked |  |  |
-| `ARRAY_GENERATE_RANGE` | Not checked |  |  |
-| `ARRAY_INSERT` | Not checked | `SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(1, 2), 0, 3)` |  |
+| `ARRAY_FLATTEN` | Runs |  | 3 value checks |
+| `ARRAY_GENERATE_RANGE` | Runs |  | 3 value checks |
+| `ARRAY_INSERT` | Not checked | `SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(1, 2), 0, 3)` | its page's examples put values of different types in one array, which a DuckDB list can't hold |
 | `ARRAY_INTERSECTION` | Runs |  | 3 value checks |
-| `ARRAY_MAX` | Not checked |  |  |
-| `ARRAY_MIN` | Not checked |  |  |
-| `ARRAY_POSITION` | Not checked |  |  |
-| `ARRAY_PREPEND` | Not checked |  |  |
-| `ARRAY_REMOVE` | Not checked |  |  |
-| `ARRAY_REMOVE_AT` | Not checked | `SELECT ARRAY_REMOVE_AT(ARRAY_CONSTRUCT(1, 2), 0)` |  |
-| `ARRAY_REVERSE` | Not checked |  |  |
+| `ARRAY_MAX` | Runs |  | 1 value check |
+| `ARRAY_MIN` | Runs |  | 1 value check |
+| `ARRAY_POSITION` | Runs |  | 3 value checks |
+| `ARRAY_PREPEND` | Not checked |  | its page's examples put values of different types in one array, which a DuckDB list can't hold |
+| `ARRAY_REMOVE` | Runs |  | 1 value check |
+| `ARRAY_REMOVE_AT` | Runs |  | 3 value checks |
+| `ARRAY_REVERSE` | Runs |  | 1 value check |
 | `ARRAY_SIZE` | Runs |  | 1 value check |
 | `ARRAY_SLICE` | Runs |  | 1 value check |
-| `ARRAY_SORT` | Not checked |  |  |
+| `ARRAY_SORT` | Runs |  | 3 value checks |
 | `ARRAY_TO_STRING` | Runs |  | 1 value check |
 | `ARRAY_UNION_AGG` | Refused |  | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
-| `ARRAY_UNIQUE_AGG` | Not checked |  |  |
-| `ARRAYS_OVERLAP` | Not checked |  |  |
+| `ARRAY_UNIQUE_AGG` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `ARRAYS_OVERLAP` | Runs |  | 3 value checks |
 | `ARRAYS_TO_OBJECT` | Runs |  | 3 value checks |
-| `ARRAYS_ZIP` | Not checked |  |  |
+| `ARRAYS_ZIP` | Runs |  | 2 value checks |
 | `OBJECT_AGG` | Runs |  | 1 value check |
 | `OBJECT_CONSTRUCT` | Runs |  | 1 value check |
-| `OBJECT_CONSTRUCT_KEEP_NULL` | Not checked |  |  |
+| `OBJECT_CONSTRUCT_KEEP_NULL` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
 | `OBJECT_DELETE` | Runs |  | 2 value checks |
 | `OBJECT_INSERT` | Runs |  | 3 value checks |
 | `OBJECT_PICK` | Runs |  | 2 value checks |
@@ -305,16 +305,16 @@ the known differences in more detail.
 | `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
 | `TRANSFORM` | Runs |  | 2 value checks |
 | `MAP_CAT` | Runs |  | 2 value checks |
-| `MAP_CONTAINS_KEY` | Not checked |  |  |
-| `MAP_DELETE` | Not checked |  |  |
-| `MAP_ENTRIES` | Not checked |  |  |
+| `MAP_CONTAINS_KEY` | Runs |  | 1 value check |
+| `MAP_DELETE` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `MAP_ENTRIES` | Runs |  | 2 value checks |
 | `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB.. |
-| `MAP_KEYS` | Not checked |  |  |
-| `MAP_PICK` | Not checked |  |  |
-| `MAP_SIZE` | Not checked |  |  |
-| `GET` | Not checked |  |  |
+| `MAP_KEYS` | Runs |  | 1 value check |
+| `MAP_PICK` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `MAP_SIZE` | Runs |  | 1 value check |
+| `GET` | Runs |  | 1 value check |
 | `GET_IGNORE_CASE` | Refused |  | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
-| `GET_PATH` | Not checked |  |  |
+| `GET_PATH` | Runs |  | 1 value check |
 | `XMLGET` | Refused |  | XMLGET: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `AS_ARRAY` | Runs |  | 1 value check |
 | `AS_BOOLEAN` | Runs |  | 1 value check |
@@ -332,7 +332,7 @@ the known differences in more detail.
 | `AS_TIMESTAMP_LTZ` | Refused |  | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
 | `AS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
 | `AS_TIMESTAMP_TZ` | Refused |  | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `TO_JSON` | Not checked |  |  |
+| `TO_JSON` | Differs |  | TO_JSON: Snowflake sorts an object's keys; here they keep their order (SFD-014). |
 | `TO_XML` | Refused |  | TO_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `IS_ARRAY` | Runs |  | 1 value check |
 | `IS_BOOLEAN` | Runs |  | 1 value check |
@@ -355,52 +355,52 @@ the known differences in more detail.
 
 ## Aggregate
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `ANY_VALUE` | Runs |  | 1 value check |
-| `AVG` | Not checked |  |  |
-| `CORR` | Not checked |  |  |
-| `COUNT` | Not checked |  |  |
-| `COUNT_IF` | Runs |  | 1 value check |
-| `COVAR_POP` | Not checked |  |  |
-| `COVAR_SAMP` | Not checked |  |  |
-| `LISTAGG` | Runs |  | 1 value check |
-| `MAX` | Not checked |  |  |
-| `MAX_BY` | Not checked |  |  |
-| `MEDIAN` | Runs |  | 1 value check |
-| `MIN` | Not checked |  |  |
-| `MIN_BY` | Not checked |  |  |
-| `MODE` | Not checked |  |  |
-| `PERCENTILE_CONT` | Not checked | `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) FROM t` |  |
-| `PERCENTILE_DISC` | Not checked | `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY a) FROM t` |  |
-| `STDDEV` | Not checked |  |  |
-| `STDDEV_SAMP` | Runs |  | 1 value check |
-| `STDDEV_POP` | Not checked |  |  |
-| `SUM` | Not checked |  |  |
-| `VAR_POP` | Not checked |  |  |
-| `VAR_SAMP` | Not checked |  |  |
-| `VARIANCE` | Not checked |  |  |
-| `VARIANCE_SAMP` | Not checked |  |  |
-| `VARIANCE_POP` | Not checked |  |  |
-| `BITAND_AGG` | Not checked |  |  |
-| `BITOR_AGG` | Not checked |  |  |
-| `BITXOR_AGG` | Not checked |  |  |
-| `BOOLAND_AGG` | Not checked |  |  |
-| `BOOLOR_AGG` | Runs |  | 1 value check |
-| `BOOLXOR_AGG` | Not checked |  |  |
-| `REGR_AVGX` | Not checked |  |  |
-| `REGR_AVGY` | Not checked |  |  |
-| `REGR_COUNT` | Not checked |  |  |
-| `REGR_INTERCEPT` | Not checked |  |  |
-| `REGR_R2` | Not checked |  |  |
-| `REGR_SLOPE` | Not checked |  |  |
-| `REGR_SXX` | Not checked |  |  |
-| `REGR_SXY` | Not checked |  |  |
-| `REGR_SYY` | Not checked |  |  |
-| `KURTOSIS` | Not checked |  |  |
-| `SKEW` | Not checked |  |  |
-| `GROUPING` | Runs |  | 2 value checks |
-| `GROUPING_ID` | Runs |  | 1 value check |
+| Function | Status | Note |
+| --- | --- | --- |
+| `ANY_VALUE` | Runs | 1 value check |
+| `AVG` | Runs | 2 value checks |
+| `CORR` | Runs | 1 value check |
+| `COUNT` | Runs | 3 value checks |
+| `COUNT_IF` | Runs | 1 value check |
+| `COVAR_POP` | Runs | 1 value check |
+| `COVAR_SAMP` | Runs | 1 value check |
+| `LISTAGG` | Runs | 1 value check |
+| `MAX` | Runs | 1 value check |
+| `MAX_BY` | Runs | 2 value checks |
+| `MEDIAN` | Runs | 1 value check |
+| `MIN` | Runs | 1 value check |
+| `MIN_BY` | Runs | 2 value checks |
+| `MODE` | Runs | 2 value checks |
+| `PERCENTILE_CONT` | Runs | 2 value checks |
+| `PERCENTILE_DISC` | Runs | 2 value checks |
+| `STDDEV` | Runs | 1 value check |
+| `STDDEV_SAMP` | Runs | 1 value check |
+| `STDDEV_POP` | Differs | STDDEV_POP: Snowflake's reference shows 3.265986375; the square root of 32/3 is 3.265986324 (SFD-013). |
+| `SUM` | Runs | 1 value check |
+| `VAR_POP` | Runs | 2 value checks |
+| `VAR_SAMP` | Runs | 2 value checks |
+| `VARIANCE` | Runs | 1 value check |
+| `VARIANCE_SAMP` | Runs | 2 value checks |
+| `VARIANCE_POP` | Runs | 2 value checks |
+| `BITAND_AGG` | Runs | 2 value checks |
+| `BITOR_AGG` | Runs | 2 value checks |
+| `BITXOR_AGG` | Runs | 2 value checks |
+| `BOOLAND_AGG` | Runs | 2 value checks |
+| `BOOLOR_AGG` | Runs | 1 value check |
+| `BOOLXOR_AGG` | Runs | 2 value checks |
+| `REGR_AVGX` | Runs | 1 value check |
+| `REGR_AVGY` | Runs | 1 value check |
+| `REGR_COUNT` | Runs | 1 value check |
+| `REGR_INTERCEPT` | Runs | 1 value check |
+| `REGR_R2` | Runs | 1 value check |
+| `REGR_SLOPE` | Runs | 1 value check |
+| `REGR_SXX` | Runs | 1 value check |
+| `REGR_SXY` | Runs | 1 value check |
+| `REGR_SYY` | Runs | 1 value check |
+| `KURTOSIS` | Runs | 2 value checks |
+| `SKEW` | Differs | SKEW: Snowflake's reference shows 0.05240788515; the exact sample skewness is 0.05240784322 (SFD-013). |
+| `GROUPING` | Runs | 2 value checks |
+| `GROUPING_ID` | Runs | 1 value check |
 
 ## Approximate and sketches
 
@@ -445,41 +445,41 @@ the known differences in more detail.
 | `INTERPOLATE_FFILL` | Runs | 1 value check |
 | `INTERPOLATE_LINEAR` | Runs | 1 value check; labelled SFD-011 INTERPOLATE_LINEAR gives a DOUBLE |
 | `RATIO_TO_REPORT` | Runs | 5 value checks |
-| `CUME_DIST` | Not checked |  |
-| `DENSE_RANK` | Not checked |  |
-| `FIRST_VALUE` | Not checked |  |
-| `LAG` | Not checked |  |
-| `LAST_VALUE` | Not checked |  |
-| `LEAD` | Not checked |  |
-| `NTH_VALUE` | Not checked |  |
-| `NTILE` | Not checked |  |
-| `PERCENT_RANK` | Not checked |  |
-| `RANK` | Not checked |  |
-| `ROW_NUMBER` | Not checked |  |
+| `CUME_DIST` | Not checked | its page's only example reads a trades table the page doesn't create |
+| `DENSE_RANK` | Runs | 1 value check |
+| `FIRST_VALUE` | Runs | 2 value checks |
+| `LAG` | Runs | 2 value checks |
+| `LAST_VALUE` | Runs | 1 value check |
+| `LEAD` | Runs | 2 value checks |
+| `NTH_VALUE` | Runs | 1 value check |
+| `NTILE` | Not checked | its page's only example reads a trades table the page doesn't create |
+| `PERCENT_RANK` | Not checked | its page's only example reads a trades table the page doesn't create |
+| `RANK` | Runs | 1 value check |
+| `ROW_NUMBER` | Runs | 1 value check |
 
 ## Conditional
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `BOOLAND` | Not checked |  |
-| `BOOLNOT` | Not checked |  |
-| `BOOLOR` | Not checked |  |
-| `BOOLXOR` | Not checked |  |
+| `BOOLAND` | Runs | 4 value checks |
+| `BOOLNOT` | Runs | 3 value checks |
+| `BOOLOR` | Runs | 4 value checks |
+| `BOOLXOR` | Runs | 4 value checks |
 | `COALESCE` | Runs | 1 value check |
 | `DECODE` | Runs | 2 value checks |
 | `EQUAL_NULL` | Runs | 1 value check |
 | `GREATEST` | Runs | 2 value checks |
-| `GREATEST_IGNORE_NULLS` | Not checked |  |
+| `GREATEST_IGNORE_NULLS` | Runs | 2 value checks |
 | `LEAST` | Runs | 1 value check |
-| `LEAST_IGNORE_NULLS` | Not checked |  |
+| `LEAST_IGNORE_NULLS` | Runs | 2 value checks |
 | `IFF` | Runs | 1 value check |
 | `IFNULL` | Runs | 1 value check |
 | `NULLIF` | Runs | 1 value check |
 | `NULLIFZERO` | Runs | 1 value check |
 | `NVL` | Runs | 1 value check |
 | `NVL2` | Runs | 2 value checks |
-| `REGR_VALX` | Not checked |  |
-| `REGR_VALY` | Not checked |  |
+| `REGR_VALX` | Runs | 2 value checks |
+| `REGR_VALY` | Runs | 2 value checks |
 | `ZEROIFNULL` | Runs | 1 value check |
 
 ## Bitwise
@@ -487,48 +487,48 @@ the known differences in more detail.
 | Function | Status | Note |
 | --- | --- | --- |
 | `BITAND` | Runs | 1 value check |
-| `BITNOT` | Not checked |  |
-| `BITOR` | Not checked |  |
-| `BITSHIFTLEFT` | Not checked |  |
-| `BITSHIFTRIGHT` | Not checked |  |
-| `BITXOR` | Not checked |  |
-| `GETBIT` | Not checked |  |
+| `BITNOT` | Runs | 2 value checks |
+| `BITOR` | Runs | 1 value check |
+| `BITSHIFTLEFT` | Runs | 1 value check |
+| `BITSHIFTRIGHT` | Runs | 1 value check |
+| `BITXOR` | Runs | 1 value check |
+| `GETBIT` | Runs | 3 value checks |
 
 ## Context
 
 | Function | Status | Note |
 | --- | --- | --- |
 | `CURRENT_CLIENT` | Refused | CURRENT_CLIENT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `CURRENT_DATE` | Not checked |  |
+| `CURRENT_DATE` | Not checked | its value is the clock's, so there's no documented value to compare |
 | `CURRENT_IP_ADDRESS` | Refused | CURRENT_IP_ADDRESS: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_REGION` | Refused | CURRENT_REGION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `CURRENT_TIME` | Not checked |  |
+| `CURRENT_TIME` | Not checked | its value is the clock's, so there's no documented value to compare |
 | `CURRENT_TIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
-| `CURRENT_VERSION` | Not checked |  |
+| `CURRENT_VERSION` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
 | `CURRENT_ACCOUNT` | Refused | CURRENT_ACCOUNT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_ACCOUNT_NAME` | Refused | CURRENT_ACCOUNT_NAME: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_ORGANIZATION_NAME` | Refused | CURRENT_ORGANIZATION_NAME: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `CURRENT_ROLE` | Not checked |  |
+| `CURRENT_ROLE` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
 | `CURRENT_AVAILABLE_ROLES` | Refused | CURRENT_AVAILABLE_ROLES: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_SECONDARY_ROLES` | Refused | CURRENT_SECONDARY_ROLES: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_SESSION` | Refused | CURRENT_SESSION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_STATEMENT` | Refused | CURRENT_STATEMENT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_TRANSACTION` | Refused | CURRENT_TRANSACTION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `CURRENT_USER` | Not checked |  |
-| `CURRENT_DATABASE` | Not checked |  |
+| `CURRENT_USER` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
+| `CURRENT_DATABASE` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
 | `CURRENT_ROLE_TYPE` | Refused | CURRENT_ROLE_TYPE: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `CURRENT_SCHEMA` | Not checked |  |
-| `CURRENT_SCHEMAS` | Not checked |  |
+| `CURRENT_SCHEMA` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
+| `CURRENT_SCHEMAS` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
 | `CURRENT_WAREHOUSE` | Refused | CURRENT_WAREHOUSE: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `GETDATE` | Differs | SFD-004 Local time zone is this PC's |
-| `LOCALTIME` | Not checked |  |
+| `LOCALTIME` | Not checked | its value is the clock's, so there's no documented value to compare |
 | `LOCALTIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
 | `SYSDATE` | Differs | SFD-004 Local time zone is this PC's |
 | `SYSTIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
 | `LAST_QUERY_ID` | Refused | LAST_QUERY_ID: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `RANDOM` | Not checked |  |
-| `UNIFORM` | Not checked |  |
-| `SEQ4` | Not checked |  |
+| `RANDOM` | Not checked | its values are random; RANDOM with a seed is refused |
+| `UNIFORM` | Runs | 1 value check |
+| `SEQ4` | Runs | 1 value check |
 
 ## Operators
 
@@ -537,48 +537,59 @@ the known differences in more detail.
 | `\|\|` | Runs |  | 1 value check |
 | `/` | Runs |  | 2 value checks; labelled SFD-003 Division returns DOUBLE |
 | `%` | Runs |  | 1 value check |
-| `::` | Not checked | `SELECT '1'::INT` |  |
-| `CASE` | Not checked | `SELECT CASE WHEN 1 = 1 THEN 'a' ELSE 'b' END` |  |
-| `BETWEEN` | Not checked | `SELECT 2 BETWEEN 1 AND 3` |  |
-| `LIKE` | Not checked | `SELECT 'abc' LIKE 'a%'` |  |
-| `ILIKE` | Not checked | `SELECT 'ABC' ILIKE 'a%'` |  |
-| `LIKE ANY` | Not checked | `SELECT 'abc' LIKE ANY ('x%', 'a%')` |  |
-| `LIKE ALL` | Not checked | `SELECT 'abc' LIKE ALL ('a%', '%c')` |  |
-| `ILIKE ANY` | Not checked | `SELECT 'ABC' ILIKE ANY ('x%', 'a%')` |  |
-| `REGEXP` | Not checked | `SELECT 'abc' REGEXP 'a.c'` |  |
-| `IS DISTINCT FROM` | Not checked | `SELECT 1 IS DISTINCT FROM NULL` |  |
+| `::` | Runs |  | 1 value check |
+| `CASE` | Runs |  | 2 value checks |
+| `BETWEEN` | Runs |  | 2 value checks |
+| `LIKE` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case |
+| `ILIKE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
+| `LIKE ANY` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `LIKE ALL` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `ILIKE ANY` | Runs |  | 1 value check |
+| `REGEXP` | Runs |  | 2 value checks |
+| `IS DISTINCT FROM` | Runs |  | 1 value check |
 | `Path (v:a)` | Runs |  | 5 value checks |
-| `QUALIFY` | Not checked | `SELECT x FROM (SELECT 1 AS x) QUALIFY ROW_NUMBER() OVER (ORDER BY x) = 1` |  |
-| `PIVOT` | Not checked | `SELECT * FROM t PIVOT (SUM(b) FOR a IN (1, 2))` |  |
-| `UNPIVOT` | Not checked | `SELECT * FROM t UNPIVOT (v FOR k IN (a, b))` |  |
+| `QUALIFY` | Runs |  | 1 value check |
+| `PIVOT` | Runs |  | 2 value checks |
+| `UNPIVOT` | Runs |  | 3 value checks |
 | `LATERAL FLATTEN` | Runs |  | 5 value checks |
-| `SAMPLE` | Not checked | `SELECT * FROM t SAMPLE (50)` |  |
+| `SAMPLE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `MATCH_RECOGNIZE` | Refused | `SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) DEFINE x AS a > 0)` | MATCH_RECOGNIZE. DuckDB has no row pattern matching. |
-| `GENERATOR` | Not checked | `SELECT SEQ4() FROM TABLE(GENERATOR(ROWCOUNT => 3))` |  |
+| `GENERATOR` | Runs |  | 1 value check |
 
 ## Statements
 
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
 | `CREATE TABLE` | Differs | `CREATE TABLE n (a INT, b VARCHAR)` | SFD-001 Unquoted names keep their case |
-| `CREATE TABLE AS` | Differs | `CREATE TABLE n AS SELECT * FROM t` | SFD-001 Unquoted names keep their case |
+| `CREATE TABLE AS` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
 | `CREATE VIEW` | Differs | `CREATE VIEW v AS SELECT * FROM t` | SFD-001 Unquoted names keep their case |
 | `CREATE SCHEMA` | Differs | `CREATE SCHEMA n` | SFD-001 Unquoted names keep their case |
 | `CREATE TEMPORARY TABLE` | Differs | `CREATE TEMPORARY TABLE n (a INT)` | SFD-001 Unquoted names keep their case |
-| `CREATE TRANSIENT TABLE` | Refused | `CREATE TRANSIENT TABLE n (a INT)` | Not rewritten for DuckDB. Unsupported property transientproperty. |
-| `INSERT INTO` | Not checked | `INSERT INTO t VALUES (3, 4)` |  |
+| `CREATE TRANSIENT TABLE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `INSERT INTO` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `INSERT OVERWRITE` | Refused | `INSERT OVERWRITE INTO t SELECT * FROM s` | INSERT OVERWRITE. Snowflake empties the table and inserts in one statement inside the current transaction; DuckDB has no INSERT OVERWRITE, and a DELETE then INSERT written here wouldn't be one statement. |
-| `UPDATE` | Not checked | `UPDATE t SET b = 0 WHERE a = 1` |  |
-| `UPDATE FROM` | Not checked | `UPDATE t SET b = s.b FROM s WHERE t.a = s.a` |  |
-| `DELETE` | Not checked | `DELETE FROM t WHERE a = 1` |  |
-| `DELETE USING` | Not checked | `DELETE FROM t USING s WHERE t.a = s.a` |  |
-| `MERGE` | Not checked | `MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED THEN INSERT (a, b) VALUES (s.a, s.b)` |  |
-| `TRUNCATE TABLE` | Not checked | `TRUNCATE TABLE t` |  |
-| `DROP TABLE` | Not checked | `DROP TABLE s` |  |
+| `UPDATE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `UPDATE FROM` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `DELETE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `DELETE USING` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `MERGE` | Runs |  | 5 value checks; labelled SFD-001 Unquoted names keep their case |
+| `TRUNCATE TABLE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `DROP TABLE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
 | `ALTER TABLE ADD COLUMN` | Differs | `ALTER TABLE t ADD COLUMN c INT` | SFD-001 Unquoted names keep their case |
-| `ALTER TABLE RENAME` | Differs | `ALTER TABLE t RENAME TO t2` | SFD-001 Unquoted names keep their case |
-| `WITH` | Not checked | `WITH c AS (SELECT 1 AS x) SELECT x FROM c` |  |
-| `UNION ALL` | Not checked | `SELECT 1 UNION ALL SELECT 2` |  |
+| `ALTER TABLE RENAME` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `CREATE TABLE LIKE` | Refused |  | CREATE TABLE LIKE: Statement 2 runs only in Snowflake: CREATE TABLE ... LIKE. Snowflake copies the other table's column names, types, defaults and constraints, and the rewrite can't see that table's definition. Write the column definitions out in CREATE TABLE. |
+| `AUTOINCREMENT` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `PRIMARY KEY` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `INSERT ALL` | Refused | `INSERT ALL INTO t INTO s SELECT 1, 2` | INSERT ALL. DuckDB has no multi-table INSERT, and separate INSERT statements written here wouldn't be one statement. Write one INSERT ... SELECT for each table, with a WHERE that picks the rows it takes. |
+| `INSERT FIRST` | Refused |  | INSERT FIRST: Statement 5 runs only in Snowflake: INSERT FIRST. DuckDB has no multi-table INSERT, and separate INSERT statements written here wouldn't be one statement. Write one INSERT ... SELECT for each table, with a WHERE that picks the rows it takes. |
+| `TRUNCATE TABLE IF EXISTS` | Refused |  | TRUNCATE TABLE IF EXISTS: Statement 3 runs only in Snowflake: TRUNCATE TABLE IF EXISTS. DuckDB's TRUNCATE has no IF EXISTS, and the rewrite can't tell whether the table is there. Leave out IF EXISTS when you know the table is there. |
+| `ALTER TABLE DROP COLUMN A, B` | Refused |  | ALTER TABLE DROP COLUMN A, B: Statement 2 runs only in Snowflake: ALTER TABLE with more than one column. DuckDB's ALTER TABLE changes one column at a time, and separate statements written here wouldn't change the table in one step. Write one ALTER TABLE for each column. |
+| `ALTER TABLE SWAP WITH` | Refused | `ALTER TABLE t SWAP WITH s` | ALTER TABLE ... SWAP WITH. DuckDB has no SWAP WITH. Rename the two tables one at a time with ALTER TABLE ... RENAME TO. |
+| `BEGIN` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `START TRANSACTION` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `DDL INSIDE BEGIN` | Refused |  | DDL INSIDE BEGIN: Statement 4 runs only in Snowflake: CREATE, ALTER or DROP inside a transaction. Snowflake commits the open transaction before a CREATE, ALTER or DROP and runs it as its own transaction, where DuckDB keeps it inside the open one, so a later ROLLBACK would undo different work here. Put COMMIT before the statement. |
+| `WITH` | Runs |  | 1 value check |
+| `UNION ALL` | Runs |  | 1 value check |
 | `CREATE STREAM` | Refused | `CREATE STREAM st ON TABLE t` | Streams. A stream tracks changes inside Snowflake; DuckDB has no equivalent. |
 | `CREATE TASK` | Refused | `CREATE TASK tk WAREHOUSE = w SCHEDULE = '5 MINUTE' AS SELECT 1` | Tasks. A task is scheduled by Snowflake; DuckDB has no scheduler. |
 | `CREATE DYNAMIC TABLE` | Refused | `CREATE DYNAMIC TABLE d TARGET_LAG = '1 minute' WAREHOUSE = w AS SELECT * FROM t` | Dynamic tables. Snowflake keeps a dynamic table up to date itself. Its SELECT can be tried here on its own. |
@@ -592,8 +603,8 @@ the known differences in more detail.
 | `COPY INTO` | Refused | `COPY INTO t FROM @stage` | Stages. COPY INTO and PUT move files through Snowflake stages; a session on this PC reads no files. |
 | `PUT` | Refused | `PUT file:///tmp/a.csv @stage` | Stages. COPY INTO and PUT move files through Snowflake stages; a session on this PC reads no files. |
 | `USE` | Refused | `USE WAREHOUSE w` | USE. Warehouses, roles, databases and schemas are chosen in Snowflake; the session on this PC has one database. |
-| `SHOW` | Refused | `SHOW TABLES` | SHOW and DESCRIBE. These list Snowflake's own objects. |
-| `DESCRIBE` | Refused | `DESCRIBE TABLE t` | SHOW and DESCRIBE. These list Snowflake's own objects. |
+| `SHOW` | Refused | `SHOW TABLES` | SHOW and DESCRIBE. These list Snowflake's own objects, in columns DuckDB's SHOW and DESCRIBE don't give. To see a table this session made, query information_schema.columns or information_schema.tables. |
+| `DESCRIBE` | Refused | `DESCRIBE TABLE t` | SHOW and DESCRIBE. These list Snowflake's own objects, in columns DuckDB's SHOW and DESCRIBE don't give. To see a table this session made, query information_schema.columns or information_schema.tables. |
 | `GRANT` | Refused | `GRANT SELECT ON TABLE t TO ROLE r` | Access control. Roles and grants exist only in Snowflake. |
 | `CREATE STAGE` | Refused | `CREATE STAGE sg` | Stage objects. A stage exists only in Snowflake. |
 | `CREATE SEQUENCE` | Refused | `CREATE SEQUENCE sq` | Sequence objects. A sequence exists only in Snowflake. |

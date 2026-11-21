@@ -18,7 +18,8 @@ from collections.abc import Callable, Collection
 from typing import Any
 
 from . import magics
-from .notebook import _RUN_SCRIPT, MAX_RUN_DEPTH, _run_target, configure_report, to_ipynb
+from .onelake import DFS_HOST
+from .notebook import _RUN_SCRIPT, MAX_RUN_DEPTH, _run_target, configure_report, fs_magic_blocker, to_ipynb
 
 SHIM_MARKER = "# Fabric Desktop setup"
 # Another notebook by name: its cells, or {"cells", "lakehouse"} (compute_check).
@@ -45,7 +46,7 @@ _fd_conversions = {}
 exec(%(conversions)s, _fd_conversions)  # the PC's rule for which column types keep every value (EA-001)
 
 def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None, mount="/lakehouse/default"):
-    root = root or f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}"
+    root = root or f"abfss://{workspace_id}@%(dfs_host)s/{lakehouse_id}"
 
     def opts():
         return {"bearer_token": _nbu.credentials.getToken("storage"), "use_fabric_endpoint": "true"}
@@ -97,6 +98,17 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
         return _DeltaTable(uri(table), storage_options=opts())
     lh.open_table = open_table
 
+    def _fd_rows(t, dataset=False):
+        # The pyarrow reader refuses deletion vectors and reads column-mapped columns as NULL, so a table
+        # with either is read through delta-rs's DataFusion reader, as on the PC (delta_read.py).
+        p = t.protocol()
+        feats = set(p.reader_features or []) | set(p.writer_features or [])
+        mode = str((t.metadata().configuration or {}).get("delta.columnMapping.mode", "") or "").lower()
+        if not ({"deletionVectors", "columnMapping"} & feats) and mode in ("", "none"):
+            return t.to_pyarrow_dataset() if dataset else t.to_pyarrow_table()
+        from deltalake import QueryBuilder
+        return _fd_pa.table(QueryBuilder().register("kf_table", t).execute("SELECT * FROM kf_table"))
+
     def table_exists(table):
         # Only "not found" means no (a proof's ProofTableMissing is a LookupError): any other
         # failure is raised, so it can't turn into an overwrite. As on the PC.
@@ -106,7 +118,7 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
             return False
         return True
     lh.table_exists = table_exists
-    lh.read_table = lambda table: _pl.from_arrow(lh.open_table(table).to_pyarrow_table())
+    lh.read_table = lambda table: _pl.from_arrow(_fd_rows(lh.open_table(table)))
     lh.files = lambda directory="Files": sorted(f"{directory.rstrip('/')}/{n}" for n in _os.listdir(f"{mount}/{directory}"))
 
     def write_table(data, table, mode="overwrite", schema_mode=None, upload=None, skip_unchanged=None):
@@ -174,7 +186,7 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
                 key = ".".join(p for p in (t.catalog, t.db, t.name) if p).lower()
                 if key not in views:
                     views[key] = f"__t{len(views)}"
-                    con.register(views[key], lh.open_table(key).to_pyarrow_dataset())
+                    con.register(views[key], _fd_rows(lh.open_table(key), dataset=True))
                 alias = t.args.get("alias") or exp.TableAlias(this=exp.to_identifier(t.name))
                 t.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
             if two and i == len(statements) - 1:
@@ -205,7 +217,8 @@ def uses_local_module(cells: list[dict[str, Any]]) -> bool:
 def shim_cell(lakehouse: dict[str, Any], schemas_enabled: bool = True) -> dict[str, Any]:
     return {"type": "code", "source": SHIM_MARKER + "\n" + _SHIM % {
         "workspace_id": lakehouse["workspace_id"], "lakehouse_id": lakehouse["lakehouse_id"],
-        "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled), "conversions": repr(_conversions_source())}}
+        "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled), "conversions": repr(_conversions_source()),
+        "dfs_host": DFS_HOST}}
 
 
 def _conversions_source() -> str:
@@ -294,7 +307,7 @@ def _is_sql(c: dict[str, Any]) -> bool:
 # ---- where a notebook can run
 
 # The notebookutils parts that need Fabric, after "notebookutils." (or "mssparkutils.").
-_UTILS_FABRIC = (r"(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|"
+_UTILS_FABRIC = (r"(fs\.(mount|unmount)|lakehouse\.(create|update|delete)|notebook\.(create|update|updateDefinition|delete)\b|"
                  r"warehouse|udf|connections)\b")
 _UTILS_TEXT = "uses Fabric notebook utilities that need Fabric"
 
@@ -302,7 +315,7 @@ _UTILS_TEXT = "uses Fabric notebook utilities that need Fabric"
 # DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials,
 # runtime and variableLibrary, so most PySpark notebooks run here; these parts don't.
 _FABRIC_ONLY = [
-    (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
+    (re.compile(r"\b(sparkContext|\.rdd\b|spark\.udf\.registerJavaFunction)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
     (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),
@@ -313,8 +326,6 @@ _FABRIC_ONLY = [
 _DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
 # MERGE INTO, UPDATE and DELETE run on this PC (spark_local.py, PB-015), into the attached lakehouse.
 _SQL_CHANGE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
-# A MERGE, by SQL or by DeltaTable's merge builder: what turning on autoMerge changes.
-_MERGE = re.compile(r"\bMERGE\s+INTO\b|\.merge\(", re.I)
 # A spark.sql call on a plain string literal (an f-string's text isn't known until it runs).
 _SPARK_SQL_LITERAL = re.compile(r"""\bspark\.sql\(\s*(?P<lit>[rRuU]?(?P<q>\"\"\"|'''|"|')(?:\\.|(?!(?P=q)).)*(?P=q))""", re.S)
 
@@ -613,16 +624,17 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
         return
     method, links = node.func.attr, _chain(node)
     names = [n for n, _ in links]
-    if method in sl.DELTA_CHANGES and _is_delta_table(node.func.value, values):
-        out["fabric"].append((line, sl.DELTA_CHANGE_TEXT.format(method)))
+    if method in sl.DELTA_MAINTENANCE and _is_delta_table(node.func.value, values):
+        if not sl.lakehouse._setting("show_preview", True):
+            out["fabric"].append((line, sl.MAINTENANCE_PREVIEW_TEXT.format(f"DeltaTable.{method}")))
         return
     if "write" in names[1:] and method in ("option", "options"):
         keys = [_text(node.args[0]) if node.args else None] if method == "option" else \
             [k.arg for k in node.keywords] + ([None] if node.args else [])
         for key in keys:
             if key is None:
-                out["unknown_local"].append((line, "sets a write option named only at run time, so the check can't "
-                                                   "tell whether this PC's Spark takes it"))
+                out["unknown_local"].append((line, ("sets a write option named only at run time, so the check can't "
+                                                   "tell whether this PC's Spark takes it")))
             elif text := sl.writer_option_refusal(key, None):
                 out["fabric"].append((line, text))
         return
@@ -640,8 +652,8 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
             out["fabric"].append((line, sl.TABLE_FORMAT_TEXT.format(f)))
             return
         if method == "saveAsTable" and fmt is not None and _text(fmt) is None:
-            out["unknown_local"].append((line, "saves a lakehouse table in a format named only at run time, so the "
-                                               "check can't tell whether it's Delta, the only one this PC saves"))
+            out["unknown_local"].append((line, ("saves a lakehouse table in a format named only at run time, so the "
+                                               "check can't tell whether it's Delta, the only one this PC saves")))
         hit = next((t for k in names_set if (t := sl.writer_option_refusal(k, method))), None)
         if hit:
             out["fabric"].append((line, hit))
@@ -661,11 +673,11 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
     fmt_text = (_text(fmt) or "").lower() if fmt is not None else \
         {"table": "delta", "load": "parquet"}.get(method, method)  # load's default, as on this PC
     if fmt is not None and _text(fmt) is None:
-        out["unknown_local"].append((line, "reads a format named only at run time, so the check can't tell whether "
-                                           "this PC's Spark reads it"))
+        out["unknown_local"].append((line, ("reads a format named only at run time, so the check can't tell whether "
+                                           "this PC's Spark reads it")))
         return
     if method == "load" and fmt_text not in sl.READ_FORMATS:
-        out["fabric"].append((line, sl.READ_FORMAT_TEXT.format(fmt_text or "parquet")))
+        out["fabric"].append((line, sl.READ_FORMAT_TEXT.format(fmt_text)))
         return
     if fmt_text in ("csv", "json", "parquet"):
         options: list[tuple[str, Any]] = [(k.arg, _value(k.value)) for k in node.keywords
@@ -705,8 +717,8 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
         call, first = _call_name(node), node.args[0] if node.args else None
         _spark_refused(node, values, out, line)
         if call == "getattr" and len(node.args) >= 2 and _text(node.args[1]) is None and _full(node.args[0], utils):
-            out["unknown_local"].append((line, "looks up a notebookutils function by a name known only at run time, "
-                                               "so the check can't tell whether it needs Fabric"))
+            out["unknown_local"].append((line, ("looks up a notebookutils function by a name known only at run time, "
+                                               "so the check can't tell whether it needs Fabric")))
         elif call == "getattr" and (full := _full(node, utils)) and _UTILS_USE.match(full):
             out["fabric"].append((line, _UTILS_TEXT))
         elif call in ("exec", "eval", "compile") and first is not None and _text(first) is None:
@@ -728,8 +740,8 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
                 continue
             verdicts = {_sql_where(t, own) for t in texts}
             if "fabric" in verdicts:
-                out["fabric"].append((line, "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
-                                            "lakehouse, or with Preview features off), which runs in Fabric only"))
+                out["fabric"].append((line, ("changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
+                                            "lakehouse, or with Preview features off), which runs in Fabric only")))
             elif refused := next((r for t in texts if (r := _sql_refused(t)) and r[0] == "blocked"), None):
                 out["fabric"].append((line, refused[1]))
             elif verdicts & {"statement", "table"}:
@@ -840,8 +852,6 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     sessions = _sessions(values)
     from . import spark_local
     refused_code = _FABRIC_ONLY + spark_local.REFUSED_CODE
-    if any(_MERGE.search(c.get("source", "")) for c in cells if c.get("type") != "markdown"):
-        refused_code = [*refused_code, (spark_local.AUTO_MERGE_CODE, spark_local.AUTO_MERGE_TEXT)]
     for n, c in enumerate(cells, 1):
         source = c.get("source", "")
         if c.get("type") == "markdown" or not source.strip():
@@ -852,8 +862,8 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
         unknown: list[tuple[int, str]] = []
         sql_unknown: list[tuple[int, str]] = []  # SQL this PC's Spark may refuse, by what it names at run time
         if isinstance(tree, SyntaxError):
-            unknown = [(tree.lineno or 1, f"isn't Python the check can read (line {tree.lineno or 1}: {tree.msg}), "
-                                          "so it can't tell where the cell runs")]
+            unknown = [(tree.lineno or 1, (f"isn't Python the check can read (line {tree.lineno or 1}: {tree.msg}), "
+                                          "so it can't tell where the cell runs"))]
         language = magics.cell(source).language
         if language in ("scala", "r", "csharp"):
             local.append({"cell": n, "text": "uses a Scala, R or .NET cell", "code": _snippet(source)})
@@ -871,13 +881,9 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                     sql_unknown.append((1, refused[1]))
         else:
             hit = next(((m, text) for rx, text in refused_code if (m := rx.search(source))), None)
-            # A refused writer option by its name, in any cell: replaceWhere and partitionOverwriteMode are
-            # writer options only, so this also catches a writer held in a variable (w = df.write).
-            hit = hit or next(((m, text) for m in spark_local.REFUSED_OPTION_TEXT.finditer(source)
-                               if (text := spark_local.writer_option_refusal(m[1], None))), None)
             if read is None:  # not parsed: the literal spark.sql calls in its text
-                hit = hit or next(((m, "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
-                                       "lakehouse, or with Preview features off), which runs in Fabric only")
+                hit = hit or next(((m, ("changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
+                                       "lakehouse, or with Preview features off), which runs in Fabric only"))
                                    for m in _SPARK_SQL_LITERAL.finditer(source)
                                    if not _in_comment(source, m.start()) and _sql_in_place(_literal_sql(m), own)), None)
                 hit = hit or next(((m, r[1]) for m in _SPARK_SQL_LITERAL.finditer(source)
@@ -898,6 +904,11 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                             local.append({"cell": n, "text": refused[1], "code": _line(source, line_magic.line)})
                             break
                         sql_unknown.append((line_magic.line, refused[1]))
+        if len(local) == blocked and language == "python":
+            for fs_line in (m for m in magics.find(source) if m.name == "fs"):
+                if fs_text := fs_magic_blocker(fs_line.rest):
+                    local.append({"cell": n, "text": fs_text, "code": _line(source, fs_line.line)})
+                    break
         if read:
             unknown = list(read["unknown"])
         runs: list[tuple[int, str | None, str, bool | None]] = list(read["runs"]) if read else []

@@ -62,7 +62,7 @@ def tokens(text: str, fold: bool = True) -> list[str]:
             continue
         if t[0] in "[\"":
             inner = t[1:-1].replace("]]", "]") if t[0] == "[" else t[1:-1].replace('""', '"')
-            raw.append((inner if _PLAIN.match(inner) else f"[{inner}]", False))
+            raw.append((inner if _PLAIN.fullmatch(inner) else f"[{inner}]", False))
         elif t[0] == "'" or t[:2].upper() == "N'":
             raw.append((t, False))
         else:

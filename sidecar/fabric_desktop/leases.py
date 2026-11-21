@@ -82,18 +82,26 @@ class Backend(Protocol):
 
 
 @contextmanager
-def _file_lock(path: Path) -> Iterator[None]:
-    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents)."""
+def _file_lock(path: Path, timeout: float | None = None) -> Iterator[None]:
+    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents). With
+    ``timeout``, TimeoutError (an OSError) once that many seconds pass without it: another process
+    that hangs while holding it can't stop this one for good."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = None if timeout is None else time.monotonic() + timeout
     with open(path, "a+b") as f:
         if os.name == "nt":
             import msvcrt
             f.seek(0)
             while True:
                 try:
-                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]  # Windows-only; retries for about 10 s, then raises
+                    # Windows-only; LK_LOCK retries for about 10 s, LK_NBLCK once
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if deadline is None else msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
                     break
                 except OSError:
+                    if deadline is not None:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError(f"{path.name} is held by another process") from None
+                        time.sleep(0.05)
                     continue
             try:
                 yield
@@ -102,7 +110,14 @@ def _file_lock(path: Path) -> Iterator[None]:
                 msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]  # Windows-only
         else:
             import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            while True:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX if deadline is None else fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if deadline is None or time.monotonic() >= deadline:
+                        raise TimeoutError(f"{path.name} is held by another process") from None
+                    time.sleep(0.05)
             try:
                 yield
             finally:
@@ -143,7 +158,7 @@ class LocalBackend:
 
     @staticmethod
     def _etag(data: bytes) -> str:
-        return hashlib.sha1(data).hexdigest()
+        return hashlib.sha1(data, usedforsecurity=False).hexdigest()
 
     def create(self, key: str, data: bytes) -> str | None:
         path = self._path(key)
@@ -217,6 +232,8 @@ THROTTLE_WAIT_CAP = 5.0
 class OneLakeBackend:
     """Lease files in a lakehouse's Files area, changed only with ADLS Gen2 conditional requests."""
 
+    WHAT = "the lease for"  # how errors name a file; a subclass storing other files says what they are
+
     def __init__(self, workspace_id: str, lakehouse_id: str, token: Callable[[], str],
                  session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep,
                  timeout: float = 60, clock: Callable[[], float] = time.monotonic):
@@ -248,7 +265,7 @@ class OneLakeBackend:
 
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)
-        what = f"write the lease for {key}"
+        what = f"write {self.WHAT} {key}"
         deadline = self._deadline()
         resp = self._change(lambda: self._http.put(url, params={"resource": "file"},
                                                           headers=self._headers(**condition), timeout=self.timeout), deadline)
@@ -280,7 +297,7 @@ class OneLakeBackend:
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
-            raise _onelake_error(resp, f"read the lease for {key}")
+            raise _onelake_error(resp, f"read {self.WHAT} {key}")
         try:
             modified = parsedate_to_datetime(resp.headers["Last-Modified"]).timestamp()
         except (KeyError, TypeError, ValueError):
@@ -300,7 +317,7 @@ class OneLakeBackend:
         if resp.status_code in (404, 409, 412):
             return False
         if resp.status_code >= 400:
-            raise _onelake_error(resp, f"release the lease for {key}")
+            raise _onelake_error(resp, f"release {self.WHAT} {key}")
         return True
 
 
@@ -457,6 +474,18 @@ def check_held() -> None:
     its own (Held.check). Outside any lease it does nothing."""
     for held in _HELD.get():
         held.check()
+
+
+def holding(key: str) -> bool:
+    """Whether the caller is inside its lease on ``key`` and the lease is still its own (Held.check)."""
+    for held in _HELD.get():
+        if held.key == key:
+            try:
+                held.check()
+            except LeaseLost:  # silent-ok: the answer is no
+                return False
+            return True
+    return False
 
 
 def table_key(lakehouse: str, schema: str, table: str) -> str:

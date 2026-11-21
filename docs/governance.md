@@ -250,6 +250,7 @@ The desktop calls these engine methods (JSON-RPC, see [architecture](architectur
 
 Checks come from one registry, `sidecar/fabric_desktop/governance_checks.py`. The built-in checkers (naming, ownership, classification, contract) are registered there, and the notebook, SQL and semantic model best-practice checkers are registered the same way (below). The Best Practice Analyzer rules that need a model's VertiPaq statistics run only in Fabric and aren't registered, so a policy can't name them. A policy points at rules by id in **Checked by**.
 
+<!-- example: illustrative -->
 ```python
 register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or "fabric"
 ```
@@ -262,6 +263,7 @@ register(kind, rules, check, runs_in="local")   # runs_in: "local" (this PC) or 
 
 A minimal checker:
 
+<!-- example: illustrative -->
 ```python
 from fabric_desktop import governance_checks as gc
 
@@ -280,7 +282,7 @@ gc.register("notebook-example", lambda: RULES, check)
 
 A policy whose **Checked by** is `notebook.no_print` then runs it on every item of that kind Check now is given. Check now builds entity and product items, notebook items (this PC's notebooks, their code cells, and `scheduled` when an enabled schedule on this PC runs the notebook, either a notebook schedule or a Notebook step of a pipeline schedule) when a policy names a notebook rule, SQL items (this PC's SQL scripts: your saved queries, those in the repositories opened in Source control, and the `.sql` files of the warehouse projects in those repositories) when a policy names a SQL rule, and the model Update model writes for the last layer when a policy names a semantic model rule.
 
-The notebook rules `NB001` to `NB012` and `NB018` to `NB020` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now runs them only on the notebooks a schedule on this PC runs: a notebook schedule's notebook, or a saved notebook a pipeline schedule's Notebook step runs (Fabric schedules aren't read, and a paused schedule doesn't count). SQL rules check each script as warehouse T-SQL; a script that can't be read is listed under the result's problems, not skipped silently. A policy whose rules found nothing of their kind (no notebooks, no scheduled notebooks or no SQL scripts on this PC) shows as not checked, never as passing, and so does one whose parameters turn its rules off (`enabled = false`).
+The notebook rules `NB001` to `NB012`, `NB014`, `NB015`, `NB017` and `NB018` to `NB020` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010`, `SQ012`, `SQ015`, `SQ016`, `DM002`, `WH001` and `SE001` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004`, `NB008` and `NB017` are for scheduled runs, so Check now runs them only on the notebooks a schedule on this PC runs: a notebook schedule's notebook, or a saved notebook a pipeline schedule's Notebook step runs (Fabric schedules aren't read, and a paused schedule doesn't count). SQL rules check each script as warehouse T-SQL; a script that can't be read is listed under the result's problems, not skipped silently. A policy whose rules found nothing of their kind (no notebooks, no scheduled notebooks or no SQL scripts on this PC) shows as not checked, never as passing, and so does one whose parameters turn its rules off (`enabled = false`).
 
 ### Team guidance
 
@@ -301,11 +303,31 @@ offline too.
   sit beside rule ids in the same **Checked by** (`learn.guidance, NB003`), and Check now has nothing
   to check for it: a policy that only sets a level shows as not checked, never as passing.
 
+#### Team notes
+
+The same policy can carry the team's own guidance: a `notes` parameter, a fixed value that maps a
+rule's or a decision pattern's id to a note in plain text, like
+`{"SQ002": "Our fact tables are partitioned by order_date_key, so filter on it.", "DP-02": "We use DuckDB up to 50 GB."}`.
+A note sits beside the built-in guide and never replaces it, and it never changes a check.
+
+- **Owned, versioned and hashed like the policy.** Each note comes with its policy's name, owner,
+  version and SHA-256, so a reader knows who wrote it and which published version it's from. Changing
+  a note is publishing a new version, with the policy's usual history.
+- **Offline.** The notes travel in the project's [policy package](#offline-policy-packages). When the
+  platform can't be reached, `learn_team_notes` reads the latest package on this PC, verified first: a
+  package changed after it was taken is never used.
+- **Every team's note is kept.** Two policies with a note for one rule both show, in policy name order.
+- **What's ignored, and said:** a note for an id with no guide or decision pattern, one that isn't text,
+  and anything past 200 notes in one policy. A note is cut at 2,000 characters.
+
+The engine method `learn_team_notes` returns `{notes: {id: [{text, policy, owner, version, sha256}]},
+problems, package, note}`. The app shows each note at the bottom of **Explain** as **Your team's note**, in plain text, with its policy, version, owner and a short SHA-256, and says when it came from the package.
+
 | Field | Example |
 | --- | --- |
 | Name | New starters |
 | Checked by | `learn.guidance` |
-| Parameters | `level` = `guided` (fixed), `sql` = `professional` (fixed) |
+| Parameters | `level` = `guided` (fixed), `sql` = `professional` (fixed), `notes` = `{"SQ002": "..."}` (fixed) |
 
 ## What isn't built yet
 

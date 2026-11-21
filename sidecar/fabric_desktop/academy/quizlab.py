@@ -173,7 +173,7 @@ def problems(eid: str, grading: Path, ex: dict[str, Any], root: Path) -> list[st
         if not isinstance(q, dict):
             out.append(f"{eid}: question {n} isn't an object")
             continue
-        m = _QID.match(str(q.get("id") or ""))
+        m = _QID.fullmatch(str(q.get("id") or ""))
         if not m or q["id"] in seen:
             out.append(f"{eid}: question {n}'s id is q1, q2 and so on, each once")
         seen.add(q.get("id"))

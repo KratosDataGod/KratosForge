@@ -12,7 +12,7 @@
 const FORGE_LANES = 3;
 // A run that finished this recently is shown as the scene's outcome when nothing else is running.
 const FORGE_RECENT_MS = 10 * 60 * 1000;
-// on: the person's choice this session (null: on at Heroic and Legendary, motion_level 2 and 3, off below).
+// on: the person's choice this session (null: on from Subtle, the default (motion_level 1 and up), off in Professional).
 // rows: the runs Runs read last. seen: runs shown running this session; only those play an outcome, so
 // opening Monitor or restarting the app never replays one. struck: outcomes already played, once each.
 const forgeActivity = { on: null, rows: [], seen: new Set(), struck: new Set(), timer: 0 };
@@ -22,7 +22,7 @@ function forgeViewShown() {
 }
 
 function forgeViewOn() {
-  return forgeActivity.on ?? chosenMotionLevel() >= 2;
+  return forgeActivity.on ?? chosenMotionLevel() >= 1;
 }
 
 // The view row's switch for the band.

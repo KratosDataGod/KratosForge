@@ -238,10 +238,11 @@ def test_git_that_has_ended_isnt_stopped_again(monkeypatch):
 def test_on_windows_git_and_its_helpers_are_ended_together(monkeypatch):
     ran = []
     monkeypatch.setattr(ops, "_WINDOWS", True)
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     monkeypatch.setattr(ops.subprocess, "run", lambda args, **kw: ran.append(args))
     proc = Proc()
     ops._kill(proc)
-    assert ran == [["taskkill", "/F", "/T", "/PID", "4242"]] and proc.killed
+    assert ran == [[r"C:\Windows\System32\taskkill.exe", "/F", "/T", "/PID", "4242"]] and proc.killed
 
 
 def test_a_process_group_already_gone_and_a_kill_that_fails_are_both_fine(monkeypatch):

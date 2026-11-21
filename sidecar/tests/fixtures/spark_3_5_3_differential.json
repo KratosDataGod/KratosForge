@@ -1,0 +1,8486 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "seed": 20261117,
+ "cases": [
+  {
+   "sql": "(3 IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "regexp_replace(date_format(DATE'2024-01-07', 'yyyyMM'), '\\\\s+', ' ')",
+   "spark": "202401",
+   "type": "string"
+  },
+  {
+   "sql": "(instr('abc', 'b') IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "size(split(string(sign(1.0E3D)), '%'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "CASE WHEN true THEN shiftright(10, 5) WHEN true THEN (7 | 7) END",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "(round(-2.5, -1) * 3)",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(4,0)"
+  },
+  {
+   "sql": "(255 BETWEEN 2 AND 1000000)",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "true",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "next_day(DATE'2024-01-06', 'Sunday')",
+   "spark": {
+    "date": "2024-01-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "nanvl(CAST(NULL AS DOUBLE), bround(0.0D, 1))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "('3.5' LIKE '%o W%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "to_date(ltrim(regexp_extract('a', '(\\\\d+)', 0)))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "rtrim(substring(CAST(NULL AS STRING), 4))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "initcap(replace(initcap('aaa'), 'a', '%'))",
+   "spark": "A%%",
+   "type": "string"
+  },
+  {
+   "sql": "(nullif(1000000, 100) IN (CAST(1.0E-3D AS BIGINT), find_in_set('A', CAST(NULL AS STRING)), find_in_set('b', 'x_y%z')))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "false",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(overlay(' ' PLACING '' FROM 3) ILIKE 'a\\_b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST((DATE'1999-12-31' + -2) AS STRING)",
+   "spark": "1999-12-29",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(-3.75D AS BIGINT)",
+   "spark": -3,
+   "type": "bigint"
+  },
+  {
+   "sql": "((DATE'1999-12-31' = (DATE'2000-01-01' + -2)) OR (regexp_extract('', '(\\\\d+)', 1) LIKE '_b_'))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(timestampdiff(QUARTER, DATE'2024-01-06', DATE'2025-02-28') <= (-3 & -7))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(make_date(2024, 3, -7) + -1)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(lpad('2024-02-29', -4, ' ') LIKE '%c')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_format(DATE'2024-01-31', 'yyyy-MM-dd')",
+   "spark": "2024-01-31",
+   "type": "string"
+  },
+  {
+   "sql": "pmod(dayofweek(date_add(DATE'2024-02-29', 10)), weekofyear(make_date(2023, 10, CAST(NULL AS INT))))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "concat('abc', initcap('a'))",
+   "spark": "abcA",
+   "type": "string"
+  },
+  {
+   "sql": "nanvl(1.0E-3D, (pmod(-0.5D, -0.5D)))",
+   "spark": 0.001,
+   "type": "double"
+  },
+  {
+   "sql": "substring(left('  pad  ', 8), 1)",
+   "spark": "  pad  ",
+   "type": "string"
+  },
+  {
+   "sql": "datediff(trunc(DATE'2024-01-07', 'YEAR'), to_date('', 'yyyy-MM-dd'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(DATE'2024-03-01', make_date(2024, 3, -3))",
+   "spark": {
+    "date": "2024-03-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "weekday(trunc(DATE'2024-06-15', 'YEAR'))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "make_date(1900, (- 1000000), (7 % 2))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "to_date(CAST(coalesce(-2.5, 3.14159) AS STRING))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "next_day(to_date('Hello World', 'yyyyMMdd'), 'MON')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "string(sign(CAST(1000000 AS DOUBLE)))",
+   "spark": "1.0",
+   "type": "string"
+  },
+  {
+   "sql": "endswith('', 'a')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "coalesce(-2.5, -10.005)",
+   "spark": {
+    "decimal": "-2.500"
+   },
+   "type": "decimal(5,3)"
+  },
+  {
+   "sql": "((('abc' LIKE '%c') OR CAST('x_y%z' AS BOOLEAN)) OR false)",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST((-1.5 + -0.5) AS STRING)",
+   "spark": "-2.0",
+   "type": "string"
+  },
+  {
+   "sql": "lower(left('abc', 0))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "dayofweek(add_months(DATE'2024-01-07', -100))",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "bround(coalesce(0.5, 2.5), 1)",
+   "spark": {
+    "decimal": "0.5"
+   },
+   "type": "decimal(3,1)"
+  },
+  {
+   "sql": "(to_date('2024-02-29', 'dd/MM/yyyy') + 1)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "months_between(DATE'1999-12-31', DATE'2024-02-29')",
+   "spark": -290.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(size(split(reverse('MiXeD'), 'ab')) AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "1.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "replace(replace('abcABC', 'A', 'A'), 'ab', 'a')",
+   "spark": "acABC",
+   "type": "string"
+  },
+  {
+   "sql": "months_between((date_add(DATE'2024-06-15', 2) + 4), date_sub(CAST(NULL AS DATE), -6))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "(100 + CASE WHEN false THEN 7 WHEN CAST(NULL AS BOOLEAN) THEN 2 END)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "rpad(' ', 2, '')",
+   "spark": " ",
+   "type": "string"
+  },
+  {
+   "sql": "(least(-100, -7) ^ 0)",
+   "spark": -100,
+   "type": "int"
+  },
+  {
+   "sql": "bround(-1.5, -1)",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(2,0)"
+  },
+  {
+   "sql": "instr('  pad  ', 'A')",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "if(true, 7, -1)",
+   "spark": 7,
+   "type": "int"
+  },
+  {
+   "sql": "if((true OR true), dayofmonth(DATE'2023-12-31'), shiftleft(0, 1))",
+   "spark": 31,
+   "type": "int"
+  },
+  {
+   "sql": "initcap('12')",
+   "spark": "12",
+   "type": "string"
+  },
+  {
+   "sql": "dayofweek(make_date(2023, 2, 3))",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "if(true, 'ÄÖü', ' ')",
+   "spark": "ÄÖü",
+   "type": "string"
+  },
+  {
+   "sql": "(0 NOT IN (3, 10))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "trunc(make_date(1900, 0, 7), 'yyyy')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "substr(rpad(' ', -4, 'b'), 6, -2)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "right('-7', CAST(NULL AS INT))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "to_date(format_number(-1.25, 2))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(-100 / CAST((-10.005 + 3.14159) AS INT))",
+   "spark": 16.666666666666668,
+   "type": "double"
+  },
+  {
+   "sql": "to_date('aaa', 'yyyyMMdd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(- if(contains('  pad  ', ','), timestampdiff(QUARTER, DATE'2024-01-06', DATE'2024-02-29'), CAST(0.049 AS INT)))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "(nanvl(1.0E3D, 0.5D) - power(0, 0))",
+   "spark": 999.0,
+   "type": "double"
+  },
+  {
+   "sql": "trim(BOTH 'b' FROM upper('x_y%z'))",
+   "spark": "X_Y%Z",
+   "type": "string"
+  },
+  {
+   "sql": "substring(rtrim('abcABC'), -4)",
+   "spark": "cABC",
+   "type": "string"
+  },
+  {
+   "sql": "(trim(BOTH 'a' FROM CAST(false AS STRING)) ILIKE '_b_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "power(10, 1)",
+   "spark": 10.0,
+   "type": "double"
+  },
+  {
+   "sql": "datediff(coalesce(DATE'2024-06-15', DATE'2000-01-01'), last_day(DATE'2025-02-28'))",
+   "spark": -258,
+   "type": "int"
+  },
+  {
+   "sql": "date_sub(DATE'2024-02-29', 8)",
+   "spark": {
+    "date": "2024-02-21"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "month(coalesce(DATE'2000-01-01', DATE'2000-01-01'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "(10.005 >= CAST(NULL AS INT))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "(NOT false)",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "ltrim(initcap('-7'))",
+   "spark": "-7",
+   "type": "string"
+  },
+  {
+   "sql": "round(CAST(greatest(0, -100, 1) AS DOUBLE), 0)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "(greatest(coalesce(-7, 1000000), nullif(-1, 1000000), greatest(3, 255, 100)) div 1)",
+   "spark": 255,
+   "type": "bigint"
+  },
+  {
+   "sql": "substring_index('a,b,,c', 'b', 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(255 IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "round(pmod(-1, 3), 1)",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "abs((abs(0.049) * CAST('MiXeD' AS INT)))",
+   "spark": null,
+   "type": "decimal(14,3)"
+  },
+  {
+   "sql": "dayofyear(to_date('a,b,,c', 'yyyy-MM-dd'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "next_day(DATE'2024-02-29', 'MON')",
+   "spark": {
+    "date": "2024-03-04"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "char_length(overlay('abc' PLACING ' ' FROM CAST(NULL AS INT)))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "date_add(greatest(DATE'2024-02-29', DATE'2024-02-29'), shiftleft(2, 8))",
+   "spark": {
+    "date": "2025-07-25"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "('2024-02-29' ILIKE 'A%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(-1 & char_length('2024-02-29'))",
+   "spark": 10,
+   "type": "int"
+  },
+  {
+   "sql": "(true OR (CAST(false AS STRING) RLIKE '^[a-z]+$'))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "ascii(concat_ws('b', 'x_y%z', 'a', CAST(NULL AS STRING)))",
+   "spark": 120,
+   "type": "int"
+  },
+  {
+   "sql": "isnan(2.5D)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(pmod(3.75D, (CAST(NULL AS DOUBLE) / -3.75D)))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "sign(-3)",
+   "spark": -1.0,
+   "type": "double"
+  },
+  {
+   "sql": "(CAST(-2.5D AS BIGINT) ^ -100)",
+   "spark": 98,
+   "type": "bigint"
+  },
+  {
+   "sql": "least(-1, 100)",
+   "spark": -1,
+   "type": "int"
+  },
+  {
+   "sql": "replace(nvl('12', CAST(NULL AS STRING)), '_', 'a')",
+   "spark": "12",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(bround(1.25, 2), 0.0)",
+   "spark": {
+    "decimal": "1.25"
+   },
+   "type": "decimal(4,2)"
+  },
+  {
+   "sql": "split_part(right('2024-02-29', 8), 'a', -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(DATE'2000-01-01' AS STRING)",
+   "spark": "2000-01-01",
+   "type": "string"
+  },
+  {
+   "sql": "year(to_date('Hello World', 'yyyy-MM-dd'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "date_add(greatest(date_sub(DATE'2024-03-01', -6), date_sub(DATE'2024-02-29', -4)), ceil(sqrt(3.75D)))",
+   "spark": null,
+   "error": "AnalysisException"
+  },
+  {
+   "sql": "quarter(date_sub(DATE'2000-01-01', -6))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "month(CAST('Hello World' AS DATE))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "(round(-0.5, -1) * (sign(255) % floor(2.5)))",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "trim('abc')",
+   "spark": "abc",
+   "type": "string"
+  },
+  {
+   "sql": "(CAST(NULL AS DOUBLE) - CAST('' AS DOUBLE))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "CASE WHEN isnan(months_between(DATE'2000-01-01', DATE'2024-01-31')) THEN pmod(greatest(255, 0, -7), -100) WHEN false THEN size(split('  pad  ', '')) END",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(trunc(add_months(DATE'2024-02-29', 3), 'MM') AS STRING)",
+   "spark": "2024-05-01",
+   "type": "string"
+  },
+  {
+   "sql": "floor(bround(1.25, 1))",
+   "spark": {
+    "decimal": "1"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "date_format(date_add(add_months(DATE'2023-12-31', 0), shiftright(1, 4)), 'yyyyMM')",
+   "spark": "202312",
+   "type": "string"
+  },
+  {
+   "sql": "abs((1 ^ 100))",
+   "spark": 101,
+   "type": "int"
+  },
+  {
+   "sql": "concat_ws('', CAST(0.5 AS STRING), '  pad  ', ' ')",
+   "spark": "0.5  pad   ",
+   "type": "string"
+  },
+  {
+   "sql": "trim(BOTH '_' FROM regexp_replace(overlay('' PLACING 'A' FROM -2), '\\\\s+', 'A'))",
+   "spark": "A",
+   "type": "string"
+  },
+  {
+   "sql": "instr(CAST(NULL AS STRING), '_')",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "date_sub(trunc(trunc(DATE'1999-12-31', 'WEEK'), 'MONTH'), -2)",
+   "spark": {
+    "date": "1999-12-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "greatest(to_date('a', 'yyyy-MM-dd'), CAST('a' AS DATE))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "endswith(regexp_replace(CAST(-7 AS STRING), '[0-9]', 'A'), ' ')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "substring('Hello World', -1, -6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "lower(CAST(2 AS STRING))",
+   "spark": "2",
+   "type": "string"
+  },
+  {
+   "sql": "(bround(123.456, 0) * ceil(CAST('Hello World' AS DOUBLE)))",
+   "spark": null,
+   "type": "decimal(25,0)"
+  },
+  {
+   "sql": "months_between(DATE'2024-01-31', DATE'2000-01-01')",
+   "spark": 288.96774194,
+   "type": "double"
+  },
+  {
+   "sql": "substr(CAST(-100 AS STRING), 5, 5)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "last_day(make_date(1900, 1000000, weekday(DATE'2024-06-15')))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(-10.005 >= floor((10.005 - CAST(NULL AS DECIMAL(10,3)))))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "(('MiXeD' || 'x_y%z') ILIKE '__')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "trim('2024-02-29')",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "pmod(100, 0)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "dayofweek(DATE'2023-12-31')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "to_date(rpad(trim('12'), -2, ''))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "left(CAST(-3 AS STRING), 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(rtrim('aaa') AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "(123.456 - 0.0)",
+   "spark": {
+    "decimal": "123.456"
+   },
+   "type": "decimal(7,3)"
+  },
+  {
+   "sql": "floor(99.99)",
+   "spark": {
+    "decimal": "99"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "(month(DATE'2025-02-28') NOT IN (if(true, 255, -1), shiftright(1, 2)))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(date_format(DATE'2024-01-07', 'EEEE') RLIKE 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "sqrt(sqrt((pmod(0.5D, 2.5D))))",
+   "spark": 0.8408964152537146,
+   "type": "double"
+  },
+  {
+   "sql": "rpad('-7', 8, '%')",
+   "spark": "-7%%%%%%",
+   "type": "string"
+  },
+  {
+   "sql": "to_date(date_format(trunc(DATE'2024-02-29', 'YEAR'), 'EEEE'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "abs(CAST('  pad  ' AS DECIMAL(10,3)))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "date_add(coalesce(DATE'2023-12-31', DATE'2024-06-15'), 3)",
+   "spark": {
+    "date": "2024-01-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "levenshtein('abc', substr(ltrim('3.5'), -1, -6))",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(lpad('abc', 6, 'b') AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "levenshtein(lpad(replace('aaa', 'ab', 'ab'), 8, 'b'), 'abc')",
+   "spark": 7,
+   "type": "int"
+  },
+  {
+   "sql": "(floor((10.005 * -3)) <> ((10 * 2) % shiftleft(-1, 6)))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "nvl(substring_index('a', '%', 4), string(sign(0.5D)))",
+   "spark": "a",
+   "type": "string"
+  },
+  {
+   "sql": "trim('x_y%z')",
+   "spark": "x_y%z",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(CASE WHEN false THEN 10 WHEN CAST('' AS BOOLEAN) THEN ascii('ÄÖü') END AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "(pmod(power(1, -1), (months_between(DATE'1999-12-31', DATE'2023-12-31') / (pmod(0.5D, 0.0D)))))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "contains(substring_index('aaa', ',', 3), 'A')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(true AS STRING)",
+   "spark": "true",
+   "type": "string"
+  },
+  {
+   "sql": "upper(CAST(next_day(DATE'2025-02-28', 'fri') AS STRING))",
+   "spark": "2025-03-07",
+   "type": "string"
+  },
+  {
+   "sql": "(0 | 3)",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "CAST('ÄÖü' AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "(startswith('Hello World', '%') OR ('abc' > CAST(NULL AS STRING)))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "trim(BOTH '%' FROM 'ÄÖü')",
+   "spark": "ÄÖü",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(-1 AS STRING)",
+   "spark": "-1",
+   "type": "string"
+  },
+  {
+   "sql": "CAST('MiXeD' AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "date_add(DATE'2023-12-31', 255)",
+   "spark": {
+    "date": "2024-09-11"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(month(trunc(DATE'2000-01-01', 'MM')) div (weekday(DATE'2023-12-31') ^ 10))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "bit_count(1)",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "overlay('aaa' PLACING ' ' FROM -6)",
+   "spark": " aaa",
+   "type": "string"
+  },
+  {
+   "sql": "(greatest(1.5, 0.5) + round(123.456, -1))",
+   "spark": {
+    "decimal": "121.5"
+   },
+   "type": "decimal(6,1)"
+  },
+  {
+   "sql": "soundex('a')",
+   "spark": "A000",
+   "type": "string"
+  },
+  {
+   "sql": "dayofweek(DATE'2024-06-15')",
+   "spark": 7,
+   "type": "int"
+  },
+  {
+   "sql": "('2024-02-29' ILIKE '_b_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "to_date(concat('a,b,,c', '2024-02-29'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(DATE'2025-02-28' AS STRING)",
+   "spark": "2025-02-28",
+   "type": "string"
+  },
+  {
+   "sql": "instr('abcABC', ' ')",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "date_sub(DATE'2024-06-15', 0)",
+   "spark": {
+    "date": "2024-06-15"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(date_format(DATE'2024-06-15', 'EEEE') ILIKE '')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST('2024-02-29' AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "quarter((date_add(DATE'2000-01-01', 2) + 5))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "abs(locate(' ', translate('', ' ', 'A'), 6))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "quarter(date_add(DATE'2023-12-31', -100))",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "least(year(next_day(DATE'2024-01-06', 'MON')), dayofyear(add_months(DATE'2024-01-31', 100)))",
+   "spark": 152,
+   "type": "int"
+  },
+  {
+   "sql": "soundex(substring('12', 5))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "timestampdiff(MONTH, DATE'2024-03-01', DATE'2024-01-31')",
+   "spark": -1,
+   "type": "bigint"
+  },
+  {
+   "sql": "ltrim(rtrim('MiXeD'))",
+   "spark": "MiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "last_day(DATE'2024-01-31')",
+   "spark": {
+    "date": "2024-01-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "bround(2.5, 1)",
+   "spark": {
+    "decimal": "2.5"
+   },
+   "type": "decimal(3,1)"
+  },
+  {
+   "sql": "dayofweek(next_day((DATE'2025-02-28' + -2), 'fri'))",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "date_add(coalesce(DATE'2024-06-15', DATE'2024-02-29'), coalesce(-100, CAST(NULL AS INT)))",
+   "spark": {
+    "date": "2024-03-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "ltrim('abc')",
+   "spark": "abc",
+   "type": "string"
+  },
+  {
+   "sql": "lpad(CAST(false AS STRING), 1, '_')",
+   "spark": "f",
+   "type": "string"
+  },
+  {
+   "sql": "right(translate(regexp_extract('a', '(\\\\d+)', 0), '', 'A'), -6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(('-7' LIKE '%,%') OR (-7 NOT IN (255, 100)))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(if(true, 10, CAST(NULL AS INT)) % weekofyear(DATE'2024-01-07'))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "next_day(date_sub(DATE'2023-12-31', 8), 'fri')",
+   "spark": {
+    "date": "2023-12-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "greatest(ceil(0.5D), round(-100, 0), CAST(CAST(NULL AS DECIMAL(10,3)) AS INT))",
+   "spark": 1,
+   "type": "bigint"
+  },
+  {
+   "sql": "CAST(lpad('abc', 8, ',') AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "trim(BOTH 'a' FROM '2024-02-29')",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "dayofyear(DATE'1999-12-31')",
+   "spark": 365,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(100, -3, 1000000)",
+   "spark": 1000000,
+   "type": "int"
+  },
+  {
+   "sql": "contains(reverse('12'), 'ab')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "round(3.14159, 0)",
+   "spark": {
+    "decimal": "3"
+   },
+   "type": "decimal(2,0)"
+  },
+  {
+   "sql": "ceil(power(10, 0))",
+   "spark": 1,
+   "type": "bigint"
+  },
+  {
+   "sql": "(2 % pmod(locate(' ', '  pad  ', -6), quarter(DATE'2024-01-06')))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "isnan(0.0D)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "regexp_replace(concat_ws(',', rtrim(CAST(NULL AS STRING)), lower('ÄÖü'), reverse(' ')), '[0-9]', 'b')",
+   "spark": "äöü, ",
+   "type": "string"
+  },
+  {
+   "sql": "((pmod(CAST(NULL AS DOUBLE), 0.5D)) * months_between(DATE'2024-03-01', DATE'2024-01-06'))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "last_day(CAST(NULL AS DATE))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "((- -7) | 10)",
+   "spark": 15,
+   "type": "int"
+  },
+  {
+   "sql": "replace('', '%', 'a')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "soundex(soundex('  pad  '))",
+   "spark": "  pad  ",
+   "type": "string"
+  },
+  {
+   "sql": "dayofyear(make_date(2023, 10, 3))",
+   "spark": 276,
+   "type": "int"
+  },
+  {
+   "sql": "quarter(CAST(trim('MiXeD') AS DATE))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(DATE'2024-01-06', DATE'1999-12-31')",
+   "spark": {
+    "date": "2024-01-06"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "rtrim(left('a', -6))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "add_months(CAST('12' AS DATE), 10)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(format_number(10.005, 2) AS INT)",
+   "spark": 10,
+   "type": "int"
+  },
+  {
+   "sql": "(weekofyear(DATE'2023-12-31') < CAST('3.5' AS INT))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "soundex(CAST(NULL AS STRING))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "(next_day(date_sub(DATE'2024-01-06', 5), 'Sunday') = CAST(CAST(DATE'2000-01-01' AS STRING) AS DATE))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "trim(BOTH '%' FROM '-7')",
+   "spark": "-7",
+   "type": "string"
+  },
+  {
+   "sql": "replace(substring('a', 6), '%', ',')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "months_between(to_date('MiXeD', 'yyyy-MM-dd'), coalesce(DATE'2024-01-07', DATE'1999-12-31'))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(CAST(ltrim('  pad  ') AS DECIMAL(10,3)) AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "(1.5 * -1)",
+   "spark": {
+    "decimal": "-1.5"
+   },
+   "type": "decimal(4,1)"
+  },
+  {
+   "sql": "floor(bround(-2.5, 0))",
+   "spark": {
+    "decimal": "-2"
+   },
+   "type": "decimal(2,0)"
+  },
+  {
+   "sql": "overlay('aaa' PLACING 'ab' FROM 4)",
+   "spark": "aaaab",
+   "type": "string"
+  },
+  {
+   "sql": "endswith('aaa', '')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "nanvl(1.0E-3D, CAST(100 AS DOUBLE))",
+   "spark": 0.001,
+   "type": "double"
+  },
+  {
+   "sql": "to_date(concat('abcABC', 'ÄÖü'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "right(upper('MiXeD'), -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "weekday(DATE'2024-03-01')",
+   "spark": 4,
+   "type": "int"
+  },
+  {
+   "sql": "(coalesce(DATE'2025-02-28', date_add(DATE'2024-01-31', 3)) <> add_months(add_months(DATE'2024-01-07', 3), (-7 div 3)))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "left(trim(BOTH ' ' FROM '  pad  '), 4)",
+   "spark": "pad",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(CAST(0 AS DECIMAL(10,3)), greatest(0.5, 99.99))",
+   "spark": {
+    "decimal": "0.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "left(trim('  pad  '), -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "pmod(instr(CAST(true AS STRING), '_'), abs(levenshtein('-7', ' ')))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "next_day(DATE'2023-12-31', 'MON')",
+   "spark": {
+    "date": "2024-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "abs(1.5)",
+   "spark": {
+    "decimal": "1.5"
+   },
+   "type": "decimal(2,1)"
+  },
+  {
+   "sql": "nanvl(CAST(nvl('x_y%z', 'x_y%z') AS DOUBLE), sqrt((CAST(NULL AS INT) / 1)))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "bround(0.0, 1)",
+   "spark": {
+    "decimal": "0.0"
+   },
+   "type": "decimal(2,1)"
+  },
+  {
+   "sql": "bround(coalesce(0.5, 3.14159), -1)",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(2,0)"
+  },
+  {
+   "sql": "greatest(nullif(-100, 3), shiftright(-7, 4), CAST(NULL AS INT))",
+   "spark": -1,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(false AS STRING)",
+   "spark": "false",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(-7, CAST(NULL AS INT))",
+   "spark": -7,
+   "type": "int"
+  },
+  {
+   "sql": "repeat(substring('a,b,,c', 2, -4), 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "substring_index('x_y%z', '', -1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(1000000 AS STRING)",
+   "spark": "1000000",
+   "type": "string"
+  },
+  {
+   "sql": "add_months(DATE'1999-12-31', 0)",
+   "spark": {
+    "date": "1999-12-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(soundex(' ') > 'MiXeD')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST('  pad  ' AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "string(sign(months_between(DATE'1999-12-31', DATE'2000-01-01')))",
+   "spark": "-1.0",
+   "type": "string"
+  },
+  {
+   "sql": "translate(' ', 'b', '_')",
+   "spark": " ",
+   "type": "string"
+  },
+  {
+   "sql": "quarter(greatest(DATE'2023-12-31', DATE'2024-03-01'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(DATE'2024-01-31', DATE'2025-02-28')",
+   "spark": {
+    "date": "2024-01-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "greatest(bround(-2.5, 0), coalesce(1.25, 0.049))",
+   "spark": {
+    "decimal": "1.250"
+   },
+   "type": "decimal(5,3)"
+  },
+  {
+   "sql": "power(-100, 1)",
+   "spark": -100.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(size(split('x_y%z', '%')) AS DOUBLE)",
+   "spark": 2.0,
+   "type": "double"
+  },
+  {
+   "sql": "add_months(DATE'2024-01-07', 1)",
+   "spark": {
+    "date": "2024-02-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "substr(overlay('-7' PLACING 'A' FROM 0), 8, 4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "('' ILIKE 'a%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "trim(substring('Hello World', 5))",
+   "spark": "o World",
+   "type": "string"
+  },
+  {
+   "sql": "('a,b,,c' < 'Hello World')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "month(DATE'2025-02-28')",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "months_between(DATE'2024-03-01', CAST('2024-02-29' AS DATE))",
+   "spark": 0.09677419,
+   "type": "double"
+  },
+  {
+   "sql": "endswith(format_number(0.049, 0), '%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "format_number(bround(1.5, 1), 0)",
+   "spark": "2",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(CAST(soundex(CAST(NULL AS STRING)) AS DECIMAL(10,3)), round(abs(10.005), 1))",
+   "spark": {
+    "decimal": "10.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "lower('3.5')",
+   "spark": "3.5",
+   "type": "string"
+  },
+  {
+   "sql": "if(true, 'MiXeD', 'abc')",
+   "spark": "MiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "format_number(2.5, 2)",
+   "spark": "2.50",
+   "type": "string"
+  },
+  {
+   "sql": "quarter(DATE'2025-02-28')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "make_date(2024, CASE WHEN false THEN -3 WHEN true THEN -3 END, sign(255))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(dayofmonth(DATE'2025-02-28') <= greatest(-7, 1, 100))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "startswith(trim(BOTH 'A' FROM '12'), 'ab')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(timestampdiff(MONTH, DATE'2000-01-01', DATE'2024-03-01') / round(0, -1))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(' ' AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "bit_count(if(CAST(NULL AS BOOLEAN), 7, -1))",
+   "spark": 64,
+   "type": "int"
+  },
+  {
+   "sql": "add_months(trunc(DATE'2023-12-31', 'MONTH'), sign(-1))",
+   "spark": {
+    "date": "2023-11-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "greatest(round(1.5, -1), abs(CAST(NULL AS DECIMAL(10,3))))",
+   "spark": {
+    "decimal": "0.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "regexp_extract(ltrim('MiXeD'), '([A-Z])([a-z]*)', 1)",
+   "spark": "M",
+   "type": "string"
+  },
+  {
+   "sql": "(-100 NOT IN (7, CAST(NULL AS INT)))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "coalesce(1.5, -0.5)",
+   "spark": {
+    "decimal": "1.5"
+   },
+   "type": "decimal(2,1)"
+  },
+  {
+   "sql": "CAST(right(concat('a', 'a'), 1) AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "dayofmonth(greatest(DATE'2000-01-01', DATE'2024-06-15'))",
+   "spark": 15,
+   "type": "int"
+  },
+  {
+   "sql": "split_part(concat_ws('a', reverse('a,b,,c'), string(sign(3.75D)), substring_index('', 'b', 3)), 'b', 8)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "abs(round(0.0, 0))",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(1,0)"
+  },
+  {
+   "sql": "to_date(trim(BOTH ' ' FROM 'abcABC'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(CAST(NULL AS DECIMAL(10,3)) - (-0.5 + 3.14159))",
+   "spark": null,
+   "type": "decimal(13,5)"
+  },
+  {
+   "sql": "months_between(greatest(next_day(DATE'2000-01-01', 'fri'), DATE'2024-01-31'), trunc(next_day(DATE'1999-12-31', 'fri'), 'MONTH'))",
+   "spark": 288.96774194,
+   "type": "double"
+  },
+  {
+   "sql": "concat('x_y%z', '  pad  ')",
+   "spark": "x_y%z  pad  ",
+   "type": "string"
+  },
+  {
+   "sql": "round((0.5D - 3.75D), 1)",
+   "spark": -3.3,
+   "type": "double"
+  },
+  {
+   "sql": "overlay('MiXeD' PLACING 'ab' FROM -1)",
+   "spark": "abMiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "least((sign(10) % round(1000000, -2)), (year(DATE'2024-06-15') - CASE WHEN false THEN -7 WHEN true THEN 1000000 END))",
+   "spark": -997976.0,
+   "type": "double"
+  },
+  {
+   "sql": "(NOT true)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(greatest(pmod(CAST(NULL AS INT), 2), 100, CASE WHEN true THEN 3 WHEN false THEN 0 END) NOT IN (1000000, char_length(nvl('', '3.5'))))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "months_between(DATE'2024-01-31', DATE'2024-01-31')",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "(timestampdiff(YEAR, trunc(DATE'2024-01-07', 'MM'), add_months(DATE'1999-12-31', 100)) BETWEEN quarter(greatest(DATE'2000-01-01', DATE'2025-02-28')) AND (- (2 + -1)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "make_date(1900, -3, -100)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(last_day(DATE'1999-12-31') >= greatest(DATE'2024-01-31', DATE'2024-01-07'))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(CAST('aaa' AS DOUBLE) + -2.5D)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "trunc(last_day(to_date('a', 'yyyy-MM-dd')), 'yyyy')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "lpad('3.5', 1, '%')",
+   "spark": "3",
+   "type": "string"
+  },
+  {
+   "sql": "nvl(split_part('abcABC', '', 4), '')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(make_date(1900, -7, 1000000), add_months(DATE'2025-02-28', -7))",
+   "spark": {
+    "date": "2024-07-28"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "round(datediff(greatest(DATE'2024-01-06', DATE'2024-01-31'), DATE'2024-01-31'), -2)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "date_add(coalesce(DATE'2024-03-01', add_months(DATE'2024-01-06', 0)), 2)",
+   "spark": {
+    "date": "2024-03-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "datediff(DATE'2025-02-28', DATE'2000-01-01')",
+   "spark": 9190,
+   "type": "int"
+  },
+  {
+   "sql": "((shiftright(-100, -6) * dayofmonth(DATE'2024-06-15')) BETWEEN ascii(upper('  pad  ')) AND if(false, year(DATE'2025-02-28'), timestampdiff(DAY, DATE'2023-12-31', DATE'2024-01-07')))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "dayofmonth(greatest(make_date(1900, 1000000, 3), DATE'2024-03-01'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "(bround(CAST(255 AS DECIMAL(10,3)), -1) <=> char_length(repeat('a', -4)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "quarter(next_day(DATE'1999-12-31', 'Sunday'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "ascii('aaa')",
+   "spark": 97,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(substr('Hello World', 0, 5) AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "year((greatest(DATE'2024-01-31', DATE'2023-12-31') + -2))",
+   "spark": 2024,
+   "type": "int"
+  },
+  {
+   "sql": "nullif(100, -3)",
+   "spark": 100,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(greatest(-10.005, 1.25), greatest(-0.5, -1.5))",
+   "spark": {
+    "decimal": "1.250"
+   },
+   "type": "decimal(5,3)"
+  },
+  {
+   "sql": "(0 IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(1 = -1)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "regexp_extract(CAST(123.456 AS STRING), '([a-z]+)', 1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "last_day(add_months(DATE'2024-02-29', 3))",
+   "spark": {
+    "date": "2024-05-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(NOT endswith('-7', 'A'))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(bround(-1.25, 2) + bround(1.25, 2))",
+   "spark": {
+    "decimal": "0.00"
+   },
+   "type": "decimal(5,2)"
+  },
+  {
+   "sql": "greatest(round(0.049, -1), round(CAST(NULL AS DECIMAL(10,3)), -1))",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(8,0)"
+  },
+  {
+   "sql": "(pmod(-1, -7) NOT IN (-7, dayofyear(DATE'1999-12-31')))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(coalesce(-100, nullif(-7, 7)) BETWEEN CAST(1.25 AS INT) AND CAST(1.0E-3D AS BIGINT))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "coalesce((CAST(NULL AS INT) ^ -1), 255)",
+   "spark": 255,
+   "type": "int"
+  },
+  {
+   "sql": "shiftleft(greatest(month(DATE'2025-02-28'), -3, (0 % CAST(NULL AS INT))), CAST(NULL AS INT))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "sqrt(bround(0.0D, 1))",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "round(99.99, -1)",
+   "spark": {
+    "decimal": "100"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "make_date(2024, dayofyear(DATE'2024-01-07'), instr(CAST(NULL AS STRING), ''))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "repeat(concat(substring('abcABC', 3), CAST(DATE'2024-02-29' AS STRING)), CAST(NULL AS INT))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "('a,b,,c' || initcap('  pad  '))",
+   "spark": "a,b,,c  Pad  ",
+   "type": "string"
+  },
+  {
+   "sql": "weekday((DATE'2025-02-28' + 5))",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "string(sign(3.75D))",
+   "spark": "1.0",
+   "type": "string"
+  },
+  {
+   "sql": "endswith(trim(BOTH 'A' FROM 'a'), '')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "concat_ws(' ', '', '12', CAST(NULL AS STRING))",
+   "spark": " 12",
+   "type": "string"
+  },
+  {
+   "sql": "abs(bround(10.005, 0))",
+   "spark": {
+    "decimal": "10"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "round(-1.25, 1)",
+   "spark": {
+    "decimal": "-1.3"
+   },
+   "type": "decimal(3,1)"
+  },
+  {
+   "sql": "concat('aaa', '3.5')",
+   "spark": "aaa3.5",
+   "type": "string"
+  },
+  {
+   "sql": "date_sub(DATE'2024-01-07', -4)",
+   "spark": {
+    "date": "2024-01-11"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "if((100 IS NULL), trim(BOTH '' FROM 'MiXeD'), regexp_replace('a,b,,c', '[0-9]', ','))",
+   "spark": "a,b,,c",
+   "type": "string"
+  },
+  {
+   "sql": "date_add(make_date(2024, bit_count(3), (2 * 10)), 255)",
+   "spark": {
+    "date": "2024-11-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "floor(CAST(NULL AS DECIMAL(10,3)))",
+   "spark": null,
+   "type": "decimal(8,0)"
+  },
+  {
+   "sql": "add_months(CAST('a' AS DATE), abs(2))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "substring('  pad  ', -2)",
+   "spark": "  ",
+   "type": "string"
+  },
+  {
+   "sql": "concat_ws('%', 'ÄÖü', nvl(regexp_extract('12', '(\\\\d+)', 1), 'a'), CAST(bround(-1.5, 2) AS STRING))",
+   "spark": "ÄÖü%12%-1.5",
+   "type": "string"
+  },
+  {
+   "sql": "(CAST(NULL AS STRING) LIKE '_b_')",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "dayofyear(CAST('abc' AS DATE))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(next_day(DATE'2024-02-29', 'MON'), greatest(DATE'2024-06-15', DATE'2024-01-07'))",
+   "spark": {
+    "date": "2024-06-15"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "ceil(0.0D)",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "coalesce(month(CAST(NULL AS DATE)), ceil(-0.5D))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "trim('MiXeD')",
+   "spark": "MiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "ascii(concat_ws('%', 'a', 'abc', '  pad  '))",
+   "spark": 97,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(10.005 AS STRING)",
+   "spark": "10.005",
+   "type": "string"
+  },
+  {
+   "sql": "round(123.456, 1)",
+   "spark": {
+    "decimal": "123.5"
+   },
+   "type": "decimal(5,1)"
+  },
+  {
+   "sql": "(3 BETWEEN 10 AND 1)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "abs((dayofweek(CAST(NULL AS DATE)) | -7))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(0.049, -1.25)",
+   "spark": {
+    "decimal": "0.049"
+   },
+   "type": "decimal(4,3)"
+  },
+  {
+   "sql": "CAST(substr('ÄÖü', 5, -6) AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "string(sign(power(1000000, 2)))",
+   "spark": "1.0",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(find_in_set(' ', 'a'), 3, (coalesce(3, 2) - dayofyear(DATE'2024-01-07')))",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "CASE WHEN true THEN CAST(NULL AS INT) WHEN true THEN 1000000 END",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "levenshtein('2024-02-29', CAST(100 AS STRING))",
+   "spark": 8,
+   "type": "int"
+  },
+  {
+   "sql": "reverse('  pad  ')",
+   "spark": "  dap  ",
+   "type": "string"
+  },
+  {
+   "sql": "(format_number(coalesce(3.14159, -1.25), 1) < format_number(2.5, 0))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "nvl('abc', 'a')",
+   "spark": "abc",
+   "type": "string"
+  },
+  {
+   "sql": "months_between(CAST(NULL AS DATE), DATE'2024-01-07')",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "startswith(upper('x_y%z'), 'ab')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(0.5D + (-7 / -3))",
+   "spark": 2.8333333333333335,
+   "type": "double"
+  },
+  {
+   "sql": "((-10.005 * 7) > (- 0))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "trunc(DATE'2024-01-31', 'yyyy')",
+   "spark": {
+    "date": "2024-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "bround(1.0E3D, 0)",
+   "spark": 1000.0,
+   "type": "double"
+  },
+  {
+   "sql": "if(true, CAST(NULL AS STRING), 'ÄÖü')",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "trim(BOTH 'ab' FROM 'a')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "datediff(last_day(next_day(DATE'2024-01-07', 'fri')), trunc(to_date('x_y%z'), 'WEEK'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "right(substring('aaa', 8), 5)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "((1000000 + 3) & (10 + 1))",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "nvl(CAST(false AS STRING), soundex(CAST(NULL AS STRING)))",
+   "spark": "false",
+   "type": "string"
+  },
+  {
+   "sql": "nanvl(0.5D, 3.75D)",
+   "spark": 0.5,
+   "type": "double"
+  },
+  {
+   "sql": "((weekday(DATE'2024-06-15') * greatest(-3, 2, 0)) IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "substring_index(rpad('abc', -6, '_'), '_', 5)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "weekday(date_add(last_day(DATE'2024-01-31'), year(DATE'2024-01-06')))",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "(1.5 <= dayofweek(DATE'2025-02-28'))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(repeat('3.5', 2) AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST((CAST(NULL AS INT) | 100) AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "CAST('3.5' AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "3.500"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(dayofweek(DATE'2024-02-29') IN (instr('-7', '_'), 1, size(split('Hello World', '%'))))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "locate('ab', 'a,b,,c', 2)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "(format_number(-1.5, 0) LIKE '')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(-1.5 AS STRING)",
+   "spark": "-1.5",
+   "type": "string"
+  },
+  {
+   "sql": "('MiXeD' >= '  pad  ')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "sign(100)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "to_date(overlay('12' PLACING ' ' FROM -4), 'dd/MM/yyyy')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "last_day(date_sub(coalesce(DATE'2024-01-07', DATE'2024-01-07'), 0))",
+   "spark": {
+    "date": "2024-01-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "timestampdiff(YEAR, to_date(overlay('12' PLACING 'ab' FROM CAST(NULL AS INT))), to_date(CAST(-0.5 AS STRING)))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "date_sub(DATE'2023-12-31', -6)",
+   "spark": {
+    "date": "2024-01-06"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "shiftleft(levenshtein('MiXeD', 'a'), -4)",
+   "spark": 1342177280,
+   "type": "int"
+  },
+  {
+   "sql": "if((0.049 <= -7), '  pad  ', repeat('3.5', 6))",
+   "spark": "3.53.53.53.53.53.5",
+   "type": "string"
+  },
+  {
+   "sql": "(CAST('Hello World' AS DECIMAL(10,3)) >= bit_count(100))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "floor(-10.005)",
+   "spark": {
+    "decimal": "-11"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "find_in_set('', '12')",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "add_months(DATE'1999-12-31', 10)",
+   "spark": {
+    "date": "2000-10-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "dayofweek(DATE'1999-12-31')",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "ltrim(string(sign(2.5D)))",
+   "spark": "1.0",
+   "type": "string"
+  },
+  {
+   "sql": "dayofmonth(CAST(NULL AS DATE))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "CAST('' AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "quarter(DATE'2000-01-01')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "round(coalesce((99.99 - -10.005), round(0.049, 1)), 0)",
+   "spark": {
+    "decimal": "110"
+   },
+   "type": "decimal(4,0)"
+  },
+  {
+   "sql": "add_months(DATE'2023-12-31', -7)",
+   "spark": {
+    "date": "2023-05-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST('a,b,,c' AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(CAST(100 AS DECIMAL(10,3)) AS INT)",
+   "spark": 100,
+   "type": "int"
+  },
+  {
+   "sql": "month(DATE'2024-06-15')",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(concat(format_number(10.005, 1), split_part('3.5', 'b', 4)) AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "nanvl(power(CAST(3.75D AS BIGINT), -1), round(CAST('  pad  ' AS DOUBLE), 0))",
+   "spark": 0.3333333333333333,
+   "type": "double"
+  },
+  {
+   "sql": "(2 IN (0, 10, -1))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_sub(date_sub(CAST(NULL AS DATE), 6), -1)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "to_date(CAST(NULL AS STRING))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "greatest((DATE'2024-03-01' + 0), add_months(DATE'2024-01-06', -7))",
+   "spark": {
+    "date": "2024-03-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(shiftleft(CAST(NULL AS INT), -2) / 0)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "greatest(year(DATE'2024-01-31'), CAST(NULL AS INT), -100)",
+   "spark": 2024,
+   "type": "int"
+  },
+  {
+   "sql": "(12.5D / 1.0E3D)",
+   "spark": 0.0125,
+   "type": "double"
+  },
+  {
+   "sql": "round(coalesce(bround(10.005, -1), bround(CAST(NULL AS DECIMAL(10,3)), 0)), 0)",
+   "spark": {
+    "decimal": "10"
+   },
+   "type": "decimal(9,0)"
+  },
+  {
+   "sql": "if(('x_y%z' ILIKE '%'), CAST(DATE'2024-03-01' AS STRING), CAST(NULL AS STRING))",
+   "spark": "2024-03-01",
+   "type": "string"
+  },
+  {
+   "sql": "('a' RLIKE 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(bit_count(-100) div quarter(DATE'1999-12-31'))",
+   "spark": 15,
+   "type": "bigint"
+  },
+  {
+   "sql": "find_in_set('a', trim(BOTH ' ' FROM 'abc'))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "(nanvl(12.5D, -0.5D) * months_between(CAST(NULL AS DATE), DATE'2025-02-28'))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "(255 BETWEEN 3 AND 10)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "shiftright(CAST(1.5 AS INT), -4)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "CAST((123.456 * 10) AS STRING)",
+   "spark": "1234.560",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(substring(rpad('2024-02-29', 0, 'ab'), 3) AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "trim(BOTH 'a' FROM CAST(NULL AS STRING))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "CAST('Hello World' AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "coalesce(DATE'2023-12-31', make_date(1900, ceil(-0.5D), ascii('')))",
+   "spark": {
+    "date": "2023-12-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "instr(left(substring_index(CAST(NULL AS STRING), 'A', 8), 2), 'ab')",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "CAST('abcABC' AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "trunc(trunc(DATE'2024-03-01', 'MM'), 'MONTH')",
+   "spark": {
+    "date": "2024-03-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "rtrim(substring_index('-7', 'ab', 5))",
+   "spark": "-7",
+   "type": "string"
+  },
+  {
+   "sql": "datediff(next_day(DATE'2024-01-31', 'Sunday'), coalesce(DATE'2024-01-07', DATE'2023-12-31'))",
+   "spark": 28,
+   "type": "int"
+  },
+  {
+   "sql": "CAST('a' AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(lower('aaa') AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "rtrim('-7')",
+   "spark": "-7",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(regexp_extract('aaa', '([A-Z])([a-z]*)', 0) AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "dayofweek(add_months(date_sub(DATE'2024-03-01', 3), datediff(DATE'2024-01-06', DATE'2000-01-01')))",
+   "spark": 5,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(DATE'2024-02-29', DATE'2024-02-29')",
+   "spark": {
+    "date": "2024-02-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "startswith(CAST(NULL AS STRING), ',')",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "lower(upper(regexp_replace('abcABC', '[a-c]', '')))",
+   "spark": "abc",
+   "type": "string"
+  },
+  {
+   "sql": "quarter(DATE'2023-12-31')",
+   "spark": 4,
+   "type": "int"
+  },
+  {
+   "sql": "(pmod(nanvl(-2.5D, -2.5D), 1.0E-3D))",
+   "spark": 5.204170427930421e-17,
+   "type": "double"
+  },
+  {
+   "sql": "((123.456 - 0.0) < dayofmonth(DATE'2024-02-29'))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "nanvl(2.5D, CAST('a,b,,c' AS DOUBLE))",
+   "spark": 2.5,
+   "type": "double"
+  },
+  {
+   "sql": "ascii(substring('', 4))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "regexp_extract(substring(' ', -6, 1), '(\\\\d+)', 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(-1 NOT IN (0, 2))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "power(datediff(DATE'2024-01-07', DATE'2023-12-31'), 2)",
+   "spark": 49.0,
+   "type": "double"
+  },
+  {
+   "sql": "greatest(greatest(2.5, -1.25), CAST(' ' AS DECIMAL(10,3)))",
+   "spark": {
+    "decimal": "2.500"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(CAST('2024-02-29' AS DOUBLE) / CAST('abc' AS DOUBLE))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "substring('2024-02-29', 4, 2)",
+   "spark": "4-",
+   "type": "string"
+  },
+  {
+   "sql": "char_length(format_number(-10.005, 1))",
+   "spark": 5,
+   "type": "int"
+  },
+  {
+   "sql": "to_date(' ')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(right('-7', 8) AS DOUBLE)",
+   "spark": -7.0,
+   "type": "double"
+  },
+  {
+   "sql": "round(greatest(CAST(NULL AS DECIMAL(10,3)), coalesce(99.99, 99.99)), 2)",
+   "spark": {
+    "decimal": "99.99"
+   },
+   "type": "decimal(10,2)"
+  },
+  {
+   "sql": "CAST(CAST(1 AS DECIMAL(10,3)) AS STRING)",
+   "spark": "1.000",
+   "type": "string"
+  },
+  {
+   "sql": "char_length(repeat(nvl('a,b,,c', 'a'), CAST(NULL AS INT)))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "regexp_replace(concat_ws('a', '-7', rpad('x_y%z', -6, 'a'), CAST(7 AS STRING)), '\\\\s+', 'b')",
+   "spark": "-7aa7",
+   "type": "string"
+  },
+  {
+   "sql": "(rtrim('abc') LIKE 'a\\_b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "substring_index(trim(BOTH ',' FROM '  pad  '), 'b', 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(quarter(DATE'1999-12-31') IN (levenshtein('abc', 'abc'), (-7 div 1), 100))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "endswith('Hello World', 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "lpad('3.5', -1, 'b')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "nanvl(1.0E-3D, 1.0E-3D)",
+   "spark": 0.001,
+   "type": "double"
+  },
+  {
+   "sql": "abs(abs(-1))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "CAST('aaa' AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "date_add(last_day(make_date(2024, -1, 3)), -100)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "startswith('x_y%z', ',')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "coalesce(CAST(-2.5D AS BIGINT), find_in_set('%', 'ÄÖü'))",
+   "spark": -2,
+   "type": "bigint"
+  },
+  {
+   "sql": "ascii(CAST(DATE'1999-12-31' AS STRING))",
+   "spark": 49,
+   "type": "int"
+  },
+  {
+   "sql": "trim(split_part('Hello World', 'A', 1))",
+   "spark": "Hello World",
+   "type": "string"
+  },
+  {
+   "sql": "make_date(2023, -7, 255)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "date_add(DATE'2023-12-31', 10)",
+   "spark": {
+    "date": "2024-01-10"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST(ltrim(translate('-7', 'a', ' ')) AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(upper(CAST(NULL AS STRING)) AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(last_day(DATE'2024-01-31') AS STRING)",
+   "spark": "2024-01-31",
+   "type": "string"
+  },
+  {
+   "sql": "('  pad  ' RLIKE '\\\\d')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "abs(CAST(NULL AS DECIMAL(10,3)))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "replace('abcABC', '', '_')",
+   "spark": "abcABC",
+   "type": "string"
+  },
+  {
+   "sql": "CAST((255 NOT IN (-7, 3)) AS STRING)",
+   "spark": "true",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(string(sign(1.0E-3D)) AS INT)",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "left(trim('  pad  '), 8)",
+   "spark": "pad",
+   "type": "string"
+  },
+  {
+   "sql": "initcap('aaa')",
+   "spark": "Aaa",
+   "type": "string"
+  },
+  {
+   "sql": "dayofmonth(add_months(DATE'2024-01-31', 255))",
+   "spark": 30,
+   "type": "int"
+  },
+  {
+   "sql": "trim(nvl('  pad  ', 'a'))",
+   "spark": "pad",
+   "type": "string"
+  },
+  {
+   "sql": "bround(power(1, 2), 0)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "(255 >= -100)",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "string(sign((-3.75D - 1.0E-3D)))",
+   "spark": "-1.0",
+   "type": "string"
+  },
+  {
+   "sql": "CAST((99.99 + bround(0.5, 1)) AS INT)",
+   "spark": 100,
+   "type": "int"
+  },
+  {
+   "sql": "(0 BETWEEN -3 AND -3)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "rtrim(lpad('-7', -6, 'A'))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "abs(-0.5)",
+   "spark": {
+    "decimal": "0.5"
+   },
+   "type": "decimal(1,1)"
+  },
+  {
+   "sql": "(99.99 * -1)",
+   "spark": {
+    "decimal": "-99.99"
+   },
+   "type": "decimal(6,2)"
+  },
+  {
+   "sql": "(NOT ('aaa' RLIKE '^[a-z]+$'))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "floor(3.14159)",
+   "spark": {
+    "decimal": "3"
+   },
+   "type": "decimal(2,0)"
+  },
+  {
+   "sql": "(3.14159 + greatest(10.005, -0.5))",
+   "spark": {
+    "decimal": "13.14659"
+   },
+   "type": "decimal(8,5)"
+  },
+  {
+   "sql": "dayofmonth(DATE'2024-06-15')",
+   "spark": 15,
+   "type": "int"
+  },
+  {
+   "sql": "translate(concat_ws(',', concat('Hello World', '-7'), date_format(CAST(NULL AS DATE), 'dd/MM/yyyy'), reverse('ÄÖü')), ' ', 'a')",
+   "spark": "HelloaWorld-7,üÖÄ",
+   "type": "string"
+  },
+  {
+   "sql": "reverse(rtrim(CAST(NULL AS STRING)))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "substring(split_part(CAST(NULL AS STRING), 'a', 3), 5, 2)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "CAST(2 AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "2.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(CAST('a' AS DECIMAL(10,3)) - CAST(3 AS DECIMAL(10,3)))",
+   "spark": null,
+   "type": "decimal(11,3)"
+  },
+  {
+   "sql": "regexp_extract(substr('a,b,,c', 5, -2), '([a-z]+)', 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "next_day(DATE'1999-12-31', 'Sunday')",
+   "spark": {
+    "date": "2000-01-02"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "regexp_extract(concat_ws('b', ('MiXeD' || CAST(NULL AS STRING)), concat_ws('_', 'MiXeD', '2024-02-29', 'a,b,,c'), 'ÄÖü'), '(\\\\d+)', 0)",
+   "spark": "2024",
+   "type": "string"
+  },
+  {
+   "sql": "if(false, concat_ws(',', CAST(NULL AS STRING), 'ÄÖü', CAST(NULL AS STRING)), 'abcABC')",
+   "spark": "abcABC",
+   "type": "string"
+  },
+  {
+   "sql": "format_number(bround(99.99, 1), 2)",
+   "spark": "100.00",
+   "type": "string"
+  },
+  {
+   "sql": "last_day(CAST('12' AS DATE))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "coalesce(coalesce(coalesce(0.5, CAST(NULL AS DECIMAL(10,3))), CAST('Hello World' AS DECIMAL(10,3))), abs(coalesce(0.5, -0.5)))",
+   "spark": {
+    "decimal": "0.500"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "length(lower('x_y%z'))",
+   "spark": 5,
+   "type": "int"
+  },
+  {
+   "sql": "bround(bround(3.75D, 0), 0)",
+   "spark": 4.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(dayofyear(DATE'2024-01-31') AS DOUBLE)",
+   "spark": 31.0,
+   "type": "double"
+  },
+  {
+   "sql": "overlay(left('-7', -6) PLACING 'a' FROM 4)",
+   "spark": "a",
+   "type": "string"
+  },
+  {
+   "sql": "format_number(-1.25, 2)",
+   "spark": "-1.25",
+   "type": "string"
+  },
+  {
+   "sql": "(bround(2.5D, 1) - CAST('' AS DOUBLE))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "(next_day(CAST(NULL AS DATE), 'fri') = last_day(DATE'2024-02-29'))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "(round(bround(123.456, 2), 1) * abs(size(split(' ', 'a'))))",
+   "spark": {
+    "decimal": "123.5"
+   },
+   "type": "decimal(17,1)"
+  },
+  {
+   "sql": "CAST(CAST(DATE'1999-12-31' AS STRING) AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "greatest(123.456, 123.456)",
+   "spark": {
+    "decimal": "123.456"
+   },
+   "type": "decimal(6,3)"
+  },
+  {
+   "sql": "nvl('', regexp_extract(soundex('a'), '([A-Z])([a-z]*)', 0))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "shiftleft(coalesce(0, CAST(NULL AS INT)), -4)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "startswith('MiXeD', '_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "repeat(trim(BOTH 'a' FROM ' '), -1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(0, length(regexp_extract('2024-02-29', '(\\\\d+)', 1)), shiftleft(CAST(NULL AS INT), 3))",
+   "spark": 4,
+   "type": "int"
+  },
+  {
+   "sql": "(weekday(DATE'2024-06-15') IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "month(DATE'2000-01-01')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "(pmod(bround(2.5D, 1), sqrt(12.5D)))",
+   "spark": 2.5,
+   "type": "double"
+  },
+  {
+   "sql": "sign(10)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "instr('ÄÖü', '')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "dayofmonth(DATE'2023-12-31')",
+   "spark": 31,
+   "type": "int"
+  },
+  {
+   "sql": "nvl('', '')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "instr(nvl(' ', CAST(NULL AS STRING)), '%')",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "sign(sign(100))",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "(concat('-7', 'abcABC') LIKE '%')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(-10.005 AS INT)",
+   "spark": -10,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(CAST(-7 AS DECIMAL(10,3)), (1.5 - 3.14159))",
+   "spark": {
+    "decimal": "-1.64159"
+   },
+   "type": "decimal(12,5)"
+  },
+  {
+   "sql": "(abs(2.5) + 1.25)",
+   "spark": {
+    "decimal": "3.75"
+   },
+   "type": "decimal(4,2)"
+  },
+  {
+   "sql": "(CAST(0.0 AS STRING) RLIKE '^[a-z]+$')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "add_months(coalesce(to_date('Hello World', 'yyyy-MM-dd'), date_sub(DATE'2024-03-01', 0)), (10 - abs(7)))",
+   "spark": {
+    "date": "2024-06-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(-2.5 * -7)",
+   "spark": {
+    "decimal": "17.5"
+   },
+   "type": "decimal(4,1)"
+  },
+  {
+   "sql": "endswith(left('a', 2), 'a')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "translate('-7', '_', 'ab')",
+   "spark": "-7",
+   "type": "string"
+  },
+  {
+   "sql": "bround(CAST(NULL AS DOUBLE), 1)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "coalesce(DATE'2000-01-01', DATE'2024-06-15')",
+   "spark": {
+    "date": "2000-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "concat_ws('a', substring(substr('-7', -2, -2), 4, 5), concat_ws('b', trim(BOTH '%' FROM 'ÄÖü'), regexp_replace('x_y%z', '[0-9]', '_'), 'aaa'), substring_index(rpad('2024-02-29', 3, 'ab'), '', -6))",
+   "spark": "aÄÖübx_y%zbaaaa",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(add_months(DATE'2024-01-07', 1), trunc(DATE'2024-01-07', 'MONTH'))",
+   "spark": {
+    "date": "2024-02-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST(CAST(3.14159 AS STRING) AS DOUBLE)",
+   "spark": 3.14159,
+   "type": "double"
+  },
+  {
+   "sql": "(coalesce(year(DATE'2023-12-31'), char_length('-7')) BETWEEN 3 AND 2)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "startswith(repeat('Hello World', 6), ',')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "translate(rtrim('a'), '%', '%')",
+   "spark": "a",
+   "type": "string"
+  },
+  {
+   "sql": "(100 div 2)",
+   "spark": 50,
+   "type": "bigint"
+  },
+  {
+   "sql": "add_months(to_date('', 'dd/MM/yyyy'), nullif(1000000, 1))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "round(instr('  pad  ', ''), -1)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "isnan(sqrt(-2.5D))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "if(true, '', '12')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(startswith('2024-02-29', 'b') AS STRING)",
+   "spark": "false",
+   "type": "string"
+  },
+  {
+   "sql": "lower(soundex('2024-02-29'))",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "CASE WHEN (CAST(NULL AS STRING) LIKE 'a%') THEN ceil(CAST(NULL AS DOUBLE)) WHEN ('a,b,,c' RLIKE '^[a-z]+$') THEN ascii('-7') END",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "replace(date_format(DATE'2024-01-07', 'MMM d, yyyy'), '', '%')",
+   "spark": "Jan 7, 2024",
+   "type": "string"
+  },
+  {
+   "sql": "endswith('abc', 'ab')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(CAST(NULL AS DECIMAL(10,3)) - 3.14159)",
+   "spark": null,
+   "type": "decimal(13,5)"
+  },
+  {
+   "sql": "date_format(date_add(DATE'2025-02-28', 255), 'EEEE')",
+   "spark": "Monday",
+   "type": "string"
+  },
+  {
+   "sql": "size(split(regexp_extract(regexp_replace('a,b,,c', '\\\\s+', ''), '([A-Z])([a-z]*)', 1), 'ab'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "last_day(CAST(concat_ws('a', 'x_y%z', 'a', 'abc') AS DATE))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "to_date('abc', 'dd/MM/yyyy')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "nanvl(12.5D, power(shiftright(-1, -6), 1))",
+   "spark": 12.5,
+   "type": "double"
+  },
+  {
+   "sql": "coalesce(-0.5, 10.005)",
+   "spark": {
+    "decimal": "-0.500"
+   },
+   "type": "decimal(5,3)"
+  },
+  {
+   "sql": "(find_in_set('a', '  pad  ') div CAST('a,b,,c' AS INT))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "CAST(lpad('-7', 8, '') AS INT)",
+   "spark": -7,
+   "type": "int"
+  },
+  {
+   "sql": "sign(255)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(7 AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "7.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "trunc(DATE'2000-01-01', 'yyyy')",
+   "spark": {
+    "date": "2000-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(-100 BETWEEN 2 AND 10)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "((NOT CAST(NULL AS BOOLEAN)) OR isnan(CAST(-3 AS DOUBLE)))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "dayofmonth(trunc(DATE'2024-03-01', 'yyyy'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "(CAST(123.456 AS STRING) RLIKE '\\\\d')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "months_between(DATE'1999-12-31', DATE'2024-01-07')",
+   "spark": -288.22580645,
+   "type": "double"
+  },
+  {
+   "sql": "(CAST(3 AS STRING) || lpad(' ', -4, ''))",
+   "spark": "3",
+   "type": "string"
+  },
+  {
+   "sql": "(99.99 - 2.5)",
+   "spark": {
+    "decimal": "97.49"
+   },
+   "type": "decimal(5,2)"
+  },
+  {
+   "sql": "greatest((DATE'2024-06-15' + -6), add_months(DATE'2000-01-01', 7))",
+   "spark": {
+    "date": "2024-06-09"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "concat_ws('', trim(''), CAST(DATE'2025-02-28' AS STRING), substring(repeat('12', 8), 4, -4))",
+   "spark": "2025-02-28",
+   "type": "string"
+  },
+  {
+   "sql": "((length('  pad  ') / nullif(10, -7)) / round(CAST(NULL AS DOUBLE), 0))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "coalesce((100 div -1), 255)",
+   "spark": -100,
+   "type": "bigint"
+  },
+  {
+   "sql": "(-2.5 * 7)",
+   "spark": {
+    "decimal": "-17.5"
+   },
+   "type": "decimal(4,1)"
+  },
+  {
+   "sql": "CAST((-3 IS NULL) AS STRING)",
+   "spark": "false",
+   "type": "string"
+  },
+  {
+   "sql": "(ascii('x_y%z') / -1)",
+   "spark": -120.0,
+   "type": "double"
+  },
+  {
+   "sql": "(CAST('abcABC' AS INT) IS NULL)",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "to_date(concat_ws('b', 'Hello World', 'a', CAST(NULL AS STRING)), 'dd/MM/yyyy')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(- -3)",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "(('' ILIKE 'a%') OR (0 <> -100))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "locate('b', '3.5', 6)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "power(-1, -1)",
+   "spark": -1.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST((CAST(NULL AS INT) BETWEEN dayofmonth(DATE'2024-06-15') AND char_length('a,b,,c')) AS STRING)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(abs(-2.5), -2.5)",
+   "spark": {
+    "decimal": "2.5"
+   },
+   "type": "decimal(2,1)"
+  },
+  {
+   "sql": "greatest((99.99 - 0.049), CAST(100 AS DECIMAL(10,3)))",
+   "spark": {
+    "decimal": "100.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "round(year(DATE'2024-01-31'), 1)",
+   "spark": 2024,
+   "type": "int"
+  },
+  {
+   "sql": "length(substring_index(ltrim('-7'), 'ab', -4))",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "nvl(CAST(DATE'2024-01-07' AS STRING), nvl('aaa', 'abcABC'))",
+   "spark": "2024-01-07",
+   "type": "string"
+  },
+  {
+   "sql": "substring(format_number(CAST(10 AS DECIMAL(10,3)), 1), 2)",
+   "spark": "0.0",
+   "type": "string"
+  },
+  {
+   "sql": "lower(split_part('x_y%z', '', 4))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "last_day(DATE'2024-01-06')",
+   "spark": {
+    "date": "2024-01-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "dayofyear(trunc(DATE'2023-12-31', 'YEAR'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "year(DATE'2024-06-15')",
+   "spark": 2024,
+   "type": "int"
+  },
+  {
+   "sql": "string(sign((1.0E-3D * 1.0E-3D)))",
+   "spark": "1.0",
+   "type": "string"
+  },
+  {
+   "sql": "nullif(100, length('ÄÖü'))",
+   "spark": 100,
+   "type": "int"
+  },
+  {
+   "sql": "ceil((sqrt(3.75D) - power(0, 2)))",
+   "spark": 2,
+   "type": "bigint"
+  },
+  {
+   "sql": "initcap('a')",
+   "spark": "A",
+   "type": "string"
+  },
+  {
+   "sql": "format_number(bround(-1.25, 2), 1)",
+   "spark": "-1.2",
+   "type": "string"
+  },
+  {
+   "sql": "(DATE'2024-03-01' > DATE'2000-01-01')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "instr(('aaa' || '-7'), 'ab')",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "power(abs(nullif(-100, 3)), 0)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "ascii(if((1 BETWEEN 1 AND 7), regexp_extract('aaa', '([A-Z])([a-z]*)', 1), format_number(-10.005, 2)))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "(-2.5D / round(0.5D, 1))",
+   "spark": -5.0,
+   "type": "double"
+  },
+  {
+   "sql": "(1 <= 7)",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "bit_count(month(DATE'2024-06-15'))",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "levenshtein(CAST(-1.25 AS STRING), left('a,b,,c', -6))",
+   "spark": 5,
+   "type": "int"
+  },
+  {
+   "sql": "(reverse('12') ILIKE '__')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "rtrim('MiXeD')",
+   "spark": "MiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(1.5, 123.456)",
+   "spark": {
+    "decimal": "123.456"
+   },
+   "type": "decimal(6,3)"
+  },
+  {
+   "sql": "upper(substring('abc', 5))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "datediff(make_date(2023, -3, 0), date_sub(DATE'2024-02-29', 1))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "ceil(CAST(soundex(' ') AS DOUBLE))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "(endswith('', ' ') AND (NOT true))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(CAST(2 AS DECIMAL(10,3)) AS INT)",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "power(1, 2)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "startswith(regexp_replace('  pad  ', '[0-9]', '%'), 'ab')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "make_date(2024, least(-3, -7), coalesce(-100, 7))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "ltrim('MiXeD')",
+   "spark": "MiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "(- round(255, -1))",
+   "spark": -260,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(CAST(NULL AS INT) AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "lower(ltrim('abc'))",
+   "spark": "abc",
+   "type": "string"
+  },
+  {
+   "sql": "shiftleft(size(split(split_part('Hello World', '%', 5), '_')), 1)",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "bround(123.456, -1)",
+   "spark": {
+    "decimal": "120"
+   },
+   "type": "decimal(4,0)"
+  },
+  {
+   "sql": "dayofweek(next_day(DATE'2024-01-07', 'MON'))",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "(instr('Hello World', '_') % weekday(DATE'2023-12-31'))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "translate(' ', ' ', '')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "last_day(date_add(make_date(2023, 10, -7), char_length('  pad  ')))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "split_part(overlay('  pad  ' PLACING 'a' FROM -1), ' ', 3)",
+   "spark": "pad",
+   "type": "string"
+  },
+  {
+   "sql": "((2.5 * dayofyear(DATE'2024-06-15')) - greatest(CAST('3.5' AS DECIMAL(10,3)), round(0.0, -1)))",
+   "spark": {
+    "decimal": "414.000"
+   },
+   "type": "decimal(16,3)"
+  },
+  {
+   "sql": "(CASE WHEN true THEN 3 WHEN false THEN 255 END NOT IN (instr(' ', ''), shiftleft(1, 5)))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "regexp_extract('2024-02-29', '(\\\\d+)', 0)",
+   "spark": "2024",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(DATE'2024-01-07', DATE'2025-02-28')",
+   "spark": {
+    "date": "2024-01-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "format_number(2.5, 0)",
+   "spark": "2",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(date_sub(DATE'1999-12-31', 0) AS STRING)",
+   "spark": "1999-12-31",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(99.99, 99.99)",
+   "spark": {
+    "decimal": "99.99"
+   },
+   "type": "decimal(4,2)"
+  },
+  {
+   "sql": "(char_length(initcap('x_y%z')) IN (shiftleft(timestampdiff(DAY, DATE'2000-01-01', DATE'2024-01-31'), 1), month(coalesce(DATE'2025-02-28', DATE'2024-02-29')), CAST(CAST(-7 AS DECIMAL(10,3)) AS INT)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "regexp_extract(substring_index('aaa', '_', -4), '([A-Z])([a-z]*)', 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "dayofweek(date_add(DATE'2024-06-15', shiftleft(-7, -1)))",
+   "spark": 5,
+   "type": "int"
+  },
+  {
+   "sql": "nanvl(round(round(-0.5D, 0), 0), bround((12.5D / 0.0D), 0))",
+   "spark": -1.0,
+   "type": "double"
+  },
+  {
+   "sql": "length(left(repeat('3.5', -4), 2))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "regexp_replace(replace('a,b,,c', '_', ','), '^.', '_')",
+   "spark": "_,b,,c",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(round(0, 0) AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "0.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "reverse('a,b,,c')",
+   "spark": "c,,b,a",
+   "type": "string"
+  },
+  {
+   "sql": "if(('ÄÖü' ILIKE ''), floor(-10.005), datediff(DATE'2000-01-01', DATE'2000-01-01'))",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(10,0)"
+  },
+  {
+   "sql": "concat('x_y%z', ' ')",
+   "spark": "x_y%z ",
+   "type": "string"
+  },
+  {
+   "sql": "(10.005 < char_length(repeat('  pad  ', 0)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "to_date(rtrim(right('2024-02-29', 8)))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "dayofweek(greatest(CAST(NULL AS DATE), DATE'1999-12-31'))",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "year(next_day(DATE'2025-02-28', 'Sunday'))",
+   "spark": 2025,
+   "type": "int"
+  },
+  {
+   "sql": "(((123.456 * 100) * greatest(7, 0, -100)) * datediff(greatest(DATE'2000-01-01', DATE'2000-01-01'), (DATE'2024-06-15' + 8)))",
+   "spark": {
+    "decimal": "-772587648.000"
+   },
+   "type": "decimal(32,3)"
+  },
+  {
+   "sql": "(0.0D / -2.5D)",
+   "spark": -0.0,
+   "type": "double"
+  },
+  {
+   "sql": "(2 * -3)",
+   "spark": -6,
+   "type": "int"
+  },
+  {
+   "sql": "(shiftleft(nullif(0, 100), -6) div bit_count((- 0)))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "months_between(CAST('aaa' AS DATE), to_date('-7', 'dd/MM/yyyy'))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "ltrim('a,b,,c')",
+   "spark": "a,b,,c",
+   "type": "string"
+  },
+  {
+   "sql": "regexp_extract(format_number(10.005, 0), '([a-z]+)', 1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(trim(repeat('', 6)) || CAST(2 AS STRING))",
+   "spark": "2",
+   "type": "string"
+  },
+  {
+   "sql": "regexp_extract(trim(BOTH '' FROM 'abcABC'), '([A-Z])([a-z]*)', 0)",
+   "spark": "A",
+   "type": "string"
+  },
+  {
+   "sql": "to_date('2024-02-29')",
+   "spark": {
+    "date": "2024-02-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(pmod(3.75D, 3.75D))",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "greatest((DATE'2024-01-06' + 0), next_day(CAST('x_y%z' AS DATE), 'Sunday'))",
+   "spark": {
+    "date": "2024-01-06"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "substring('aaa', -6, -1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "substring(' ', 1)",
+   "spark": " ",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(1 AS DOUBLE)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "greatest(levenshtein('a,b,,c', ltrim('  pad  ')), instr(repeat('a', CAST(NULL AS INT)), ','), char_length(reverse('3.5')))",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "((255 div -1) BETWEEN CASE WHEN true THEN -3 WHEN false THEN 2 END AND round(1000000, -1))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "coalesce(round(3.14159, 0), CAST('x_y%z' AS DECIMAL(10,3)))",
+   "spark": {
+    "decimal": "3.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(ceil(bround(0.0D, 1)) BETWEEN length(CAST(false AS STRING)) AND 10)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "trunc(DATE'2024-01-31', 'WEEK')",
+   "spark": {
+    "date": "2024-01-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "endswith('aaa', 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(least(255, CAST(NULL AS INT)) BETWEEN ascii('-7') AND CAST(1.0E-3D AS BIGINT))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "substr('MiXeD', 1, 6)",
+   "spark": "MiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "trunc(last_day(add_months(DATE'2023-12-31', 1)), 'MONTH')",
+   "spark": {
+    "date": "2024-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "translate(substring('  pad  ', 3), 'ab', 'ab')",
+   "spark": "pad  ",
+   "type": "string"
+  },
+  {
+   "sql": "quarter(DATE'2024-01-06')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "quarter(to_date('Hello World', 'dd/MM/yyyy'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "next_day(DATE'2025-02-28', 'fri')",
+   "spark": {
+    "date": "2025-03-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "string(sign(0.5D))",
+   "spark": "1.0",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(DATE'2024-01-06', DATE'2024-01-07')",
+   "spark": {
+    "date": "2024-01-06"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "round(100, -2)",
+   "spark": 100,
+   "type": "int"
+  },
+  {
+   "sql": "overlay('Hello World' PLACING ' ' FROM 2)",
+   "spark": "H llo World",
+   "type": "string"
+  },
+  {
+   "sql": "(3 / (-7 div 2))",
+   "spark": -1.0,
+   "type": "double"
+  },
+  {
+   "sql": "format_number(-0.5, 1)",
+   "spark": "-0.5",
+   "type": "string"
+  },
+  {
+   "sql": "upper('a')",
+   "spark": "A",
+   "type": "string"
+  },
+  {
+   "sql": "substr(if(false, CAST(NULL AS STRING), '3.5'), -2, -6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(CAST(3.75D AS BIGINT), (0 & 1000000), round(2, -1))",
+   "spark": 3,
+   "type": "bigint"
+  },
+  {
+   "sql": "date_sub(to_date('aaa'), 3)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "('MiXeD' <= 'abcABC')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(left('3.5', -2) AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "CAST('aaa' AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "('abcABC' LIKE '_b_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "make_date(2024, 1, 10)",
+   "spark": {
+    "date": "2024-01-10"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST(-100 AS DOUBLE)",
+   "spark": -100.0,
+   "type": "double"
+  },
+  {
+   "sql": "greatest(DATE'2025-02-28', to_date(regexp_replace('', '[0-9]', 'ab')))",
+   "spark": {
+    "date": "2025-02-28"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "replace(regexp_extract(' ', '(\\\\d+)', 1), 'a', '%')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "sqrt(bround(3.75D, 1))",
+   "spark": 1.9493588689617927,
+   "type": "double"
+  },
+  {
+   "sql": "sqrt(round((CAST(NULL AS DOUBLE) / 1.0E3D), 1))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "((CAST(NULL AS STRING) || 'x_y%z') LIKE '%c')",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "(CAST(NULL AS INT) = 2)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "timestampdiff(QUARTER, DATE'2024-01-07', DATE'2024-06-15')",
+   "spark": 1,
+   "type": "bigint"
+  },
+  {
+   "sql": "CAST(10 AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "10.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(overlay('abc' PLACING '' FROM 8) ILIKE '%c')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(1 AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "1.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "('-7' LIKE '%o W%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "round(-10.005, 0)",
+   "spark": {
+    "decimal": "-10"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "dayofmonth(DATE'2000-01-01')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "translate('abcABC', ',', 'ab')",
+   "spark": "abcABC",
+   "type": "string"
+  },
+  {
+   "sql": "right(CAST(-3 AS STRING), 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(- if(('2024-02-29' RLIKE '\\\\d'), bit_count(7), (- 7)))",
+   "spark": -3,
+   "type": "int"
+  },
+  {
+   "sql": "abs(datediff(DATE'2024-01-31', DATE'2023-12-31'))",
+   "spark": 31,
+   "type": "int"
+  },
+  {
+   "sql": "to_date(CAST(0.0 AS STRING), 'yyyyMMdd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "initcap(upper('MiXeD'))",
+   "spark": "Mixed",
+   "type": "string"
+  },
+  {
+   "sql": "lower(concat(split_part(' ', 'A', 1), date_format(DATE'1999-12-31', 'yyyy-MM-dd')))",
+   "spark": " 1999-12-31",
+   "type": "string"
+  },
+  {
+   "sql": "weekday(greatest(date_add(DATE'2023-12-31', 100), trunc(DATE'2024-01-07', 'yyyy')))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "length(repeat('-7', -6))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(1000000 AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "1000000.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(100 IN (CAST(NULL AS INT), -3, CAST(NULL AS INT)))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST('MiXeD' AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "initcap(CAST(DATE'2023-12-31' AS STRING))",
+   "spark": "2023-12-31",
+   "type": "string"
+  },
+  {
+   "sql": "to_date(reverse(if(false, 'a', 'a,b,,c')))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "if(CAST(NULL AS BOOLEAN), -100, 1000000)",
+   "spark": 1000000,
+   "type": "int"
+  },
+  {
+   "sql": "(greatest(CAST('MiXeD' AS DECIMAL(10,3)), CAST(255 AS DECIMAL(10,3))) + abs(round(0.0, 1)))",
+   "spark": {
+    "decimal": "255.000"
+   },
+   "type": "decimal(11,3)"
+  },
+  {
+   "sql": "(bround(0.0, 2) * pmod((3 % -3), floor(1.25)))",
+   "spark": {
+    "decimal": "0.0"
+   },
+   "type": "decimal(5,1)"
+  },
+  {
+   "sql": "(round(shiftleft(255, -4), -1) / -3)",
+   "spark": 89478486.66666667,
+   "type": "double"
+  },
+  {
+   "sql": "CAST('a' AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "((1000000 <> 10) AND startswith('  pad  ', ' '))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(isnan(-0.5D) OR (false AND CAST(NULL AS BOOLEAN)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "greatest(dayofyear(make_date(2024, -1, 10)), 7, greatest((10 div -100), dayofyear(DATE'2024-01-06'), dayofmonth(DATE'2024-03-01')))",
+   "spark": 7,
+   "type": "bigint"
+  },
+  {
+   "sql": "dayofweek(last_day(DATE'2024-03-01'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "overlay('a' PLACING 'A' FROM -2)",
+   "spark": "Aa",
+   "type": "string"
+  },
+  {
+   "sql": "((7 ^ -100) BETWEEN 10 AND greatest(10, -1, 1000000))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "instr(CAST(DATE'2024-06-15' AS STRING), 'ab')",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "initcap(format_number(3.14159, 2))",
+   "spark": "3.14",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(coalesce(bround(-0.5, 1), (-1.5 - 10.005)), abs(coalesce(0.5, 1.5)))",
+   "spark": {
+    "decimal": "-0.500"
+   },
+   "type": "decimal(6,3)"
+  },
+  {
+   "sql": "pmod(-1, 1000000)",
+   "spark": 999999,
+   "type": "int"
+  },
+  {
+   "sql": "(trunc(DATE'2025-02-28', 'WEEK') + -6)",
+   "spark": {
+    "date": "2025-02-18"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST(format_number(10.005, 2) AS DOUBLE)",
+   "spark": 10.0,
+   "type": "double"
+  },
+  {
+   "sql": "overlay(string(sign(0.0D)) PLACING 'ab' FROM -2)",
+   "spark": "ab0.0",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(replace(CAST(NULL AS STRING), ' ', 'A') AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "lpad(substr('ÄÖü', 2, 6), 1, 'a')",
+   "spark": "Ö",
+   "type": "string"
+  },
+  {
+   "sql": "levenshtein(date_format(DATE'2024-06-15', 'yyyyMM'), concat(substring('x_y%z', -4, 6), concat_ws('%', 'aaa', '', '12')))",
+   "spark": 11,
+   "type": "int"
+  },
+  {
+   "sql": "(- greatest(3, 0, 100))",
+   "spark": -100,
+   "type": "int"
+  },
+  {
+   "sql": "shiftright(dayofweek(DATE'2025-02-28'), -2)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "bround(CAST(1 AS DOUBLE), 1)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "levenshtein(CAST(NULL AS STRING), concat_ws('ab', 'a,b,,c', regexp_extract('-7', '([A-Z])([a-z]*)', 1), CAST(false AS STRING)))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "substring('a', -6)",
+   "spark": "a",
+   "type": "string"
+  },
+  {
+   "sql": "lpad('3.5', CAST(NULL AS INT), 'b')",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "repeat(left('12', 5), 1)",
+   "spark": "12",
+   "type": "string"
+  },
+  {
+   "sql": "repeat(lower('a'), -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(CAST((2 | -100) AS DECIMAL(10,3)), -1.5)",
+   "spark": {
+    "decimal": "-1.500"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "datediff(to_date('12', 'dd/MM/yyyy'), trunc(DATE'2023-12-31', 'yyyy'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "replace(nvl('a,b,,c', 'a'), '%', 'A')",
+   "spark": "a,b,,c",
+   "type": "string"
+  },
+  {
+   "sql": "ascii('3.5')",
+   "spark": 51,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(substr(CAST(NULL AS STRING), 8, 6) AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "power(-7, 2)",
+   "spark": 49.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(greatest(7, -100, 100) AS DOUBLE)",
+   "spark": 100.0,
+   "type": "double"
+  },
+  {
+   "sql": "ltrim('ÄÖü')",
+   "spark": "ÄÖü",
+   "type": "string"
+  },
+  {
+   "sql": "add_months(DATE'1999-12-31', CAST(1.25 AS INT))",
+   "spark": {
+    "date": "2000-01-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "shiftright(3, -6)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "format_number(10.005, 1)",
+   "spark": "10.0",
+   "type": "string"
+  },
+  {
+   "sql": "find_in_set('A', CAST(123.456 AS STRING))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "dayofweek(make_date(2023, 255, -3))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "last_day(greatest(DATE'2024-02-29', DATE'2024-03-01'))",
+   "spark": {
+    "date": "2024-03-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "datediff(to_date(rtrim('aaa'), 'yyyyMMdd'), trunc(trunc(DATE'1999-12-31', 'WEEK'), 'WEEK'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "bit_count(CAST(CAST('2024-02-29' AS DECIMAL(10,3)) AS INT))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(datediff(DATE'2024-03-01', DATE'2024-06-15') AS DOUBLE)",
+   "spark": -106.0,
+   "type": "double"
+  },
+  {
+   "sql": "(soundex(' ') LIKE '%c')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "power(sign(0), -1)",
+   "spark": {
+    "double": "inf"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "substring('  pad  ', -4, -6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "levenshtein(CAST(trunc(DATE'2000-01-01', 'yyyy') AS STRING), replace(format_number(CAST(NULL AS DECIMAL(10,3)), 1), 'ab', '%'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "add_months(CAST(NULL AS DATE), 3)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(if(CAST(NULL AS BOOLEAN), CAST(NULL AS INT), -1) IN (2, ceil(2.5D), year(DATE'2024-03-01')))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "concat(rpad(CAST(DATE'2024-01-06' AS STRING), -1, '_'), rpad(date_format(DATE'2024-01-07', 'yyyy-MM-dd'), -4, 'A'))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(-1.5 >= 100)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "coalesce(next_day(DATE'2024-01-07', 'fri'), add_months(DATE'2024-02-29', 10))",
+   "spark": {
+    "date": "2024-01-12"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "round((-1.5 - 0.049), 2)",
+   "spark": {
+    "decimal": "-1.55"
+   },
+   "type": "decimal(5,2)"
+  },
+  {
+   "sql": "make_date(2024, weekday(DATE'2024-06-15'), CAST(-2.5 AS INT))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "rtrim(split_part('12', 'ab', 0))",
+   "spark": null,
+   "error": "SparkRuntimeException"
+  },
+  {
+   "sql": "(NOT contains('x_y%z', 'A'))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "datediff(add_months(DATE'2024-01-31', 1000000), date_add(DATE'2000-01-01', 100))",
+   "spark": 30445570,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(0.5D AS BIGINT)",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "months_between(trunc(next_day(DATE'2023-12-31', 'fri'), 'MM'), DATE'2025-02-28')",
+   "spark": -13.87096774,
+   "type": "double"
+  },
+  {
+   "sql": "nanvl(CAST(NULL AS DOUBLE), -2.5D)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "substr('Hello World', 6, 6)",
+   "spark": " World",
+   "type": "string"
+  },
+  {
+   "sql": "(CAST(NULL AS INT) / 255)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "date_sub(make_date(1900, dayofyear(DATE'2024-06-15'), size(split('MiXeD', '_'))), 6)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "coalesce((3 + 3), (10 div 7))",
+   "spark": 6,
+   "type": "bigint"
+  },
+  {
+   "sql": "(100 IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(replace('12', '', ',') ILIKE '_b_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "contains(CAST(NULL AS STRING), 'A')",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "month(to_date('a,b,,c', 'yyyy-MM-dd'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "isnan(bround(1.0E3D, 1))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_add(DATE'2024-01-07', -100)",
+   "spark": {
+    "date": "2023-09-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST(substring_index(CAST(NULL AS STRING), 'A', 8) AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "concat('x_y%z', CAST(10.005 AS STRING))",
+   "spark": "x_y%z10.005",
+   "type": "string"
+  },
+  {
+   "sql": "substr('2024-02-29', 2, 5)",
+   "spark": "024-0",
+   "type": "string"
+  },
+  {
+   "sql": "(2.5 + coalesce(1.5, -1.25))",
+   "spark": {
+    "decimal": "4.00"
+   },
+   "type": "decimal(4,2)"
+  },
+  {
+   "sql": "CAST(replace('', '_', ' ') AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_add(add_months(DATE'2023-12-31', -1), weekofyear(DATE'2024-02-29'))",
+   "spark": {
+    "date": "2023-12-09"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "trunc(DATE'2024-02-29', 'MM')",
+   "spark": {
+    "date": "2024-02-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(- (7 | 1000000))",
+   "spark": -1000007,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(DATE'2000-01-01', DATE'2024-01-06')",
+   "spark": {
+    "date": "2000-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "left(rpad('12', -4, ''), -2)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "next_day(last_day(DATE'2025-02-28'), 'MON')",
+   "spark": {
+    "date": "2025-03-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "last_day(greatest(DATE'2024-01-06', to_date('3.5', 'yyyyMMdd')))",
+   "spark": {
+    "date": "2024-01-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "dayofyear(DATE'2024-02-29')",
+   "spark": 60,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(abs(-100) AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "100.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "trim(BOTH ',' FROM trim(BOTH ',' FROM 'x_y%z'))",
+   "spark": "x_y%z",
+   "type": "string"
+  },
+  {
+   "sql": "make_date(2024, -3, 100)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "last_day(DATE'1999-12-31')",
+   "spark": {
+    "date": "1999-12-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(coalesce(2.5, -1.25) * locate('b', ' ', -4))",
+   "spark": {
+    "decimal": "0.00"
+   },
+   "type": "decimal(14,2)"
+  },
+  {
+   "sql": "month(CAST(NULL AS DATE))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "overlay(split_part('a,b,,c', 'b', 2) PLACING ' ' FROM 2)",
+   "spark": ", c",
+   "type": "string"
+  },
+  {
+   "sql": "('aaa' || '3.5')",
+   "spark": "aaa3.5",
+   "type": "string"
+  },
+  {
+   "sql": "overlay(split_part('a', '%', -6) PLACING 'b' FROM -2)",
+   "spark": "b",
+   "type": "string"
+  },
+  {
+   "sql": "(size(split('', 'A')) / ceil(1.0E3D))",
+   "spark": 0.001,
+   "type": "double"
+  },
+  {
+   "sql": "overlay('a,b,,c' PLACING 'a' FROM -2)",
+   "spark": "ac",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(3 AS DOUBLE)",
+   "spark": 3.0,
+   "type": "double"
+  },
+  {
+   "sql": "contains(if(true, 'ÄÖü', 'a,b,,c'), 'A')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "rpad('12', 8, ',')",
+   "spark": "12,,,,,,",
+   "type": "string"
+  },
+  {
+   "sql": "(CAST(0 AS DECIMAL(10,3)) * 1)",
+   "spark": {
+    "decimal": "0.000"
+   },
+   "type": "decimal(12,3)"
+  },
+  {
+   "sql": "substring('', -1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "split_part(translate('aaa', ',', 'a'), '_', CAST(NULL AS INT))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "round(size(split(substring_index('aaa', '_', 8), '_')), 1)",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "bround(99.99, 2)",
+   "spark": {
+    "decimal": "99.99"
+   },
+   "type": "decimal(5,2)"
+  },
+  {
+   "sql": "regexp_replace(format_number(0.0, 2), '[a-c]', 'b')",
+   "spark": "0.00",
+   "type": "string"
+  },
+  {
+   "sql": "substring_index(trim(lpad('  pad  ', -1, '_')), '', CAST(NULL AS INT))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "((('abc' LIKE '%') OR (2 BETWEEN 2 AND -1)) OR (true AND true))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "to_date(initcap('12'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "dayofweek(add_months(add_months(DATE'2024-06-15', -7), CAST('a,b,,c' AS INT)))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(locate('', '2024-02-29', CAST(NULL AS INT)), 255)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "abs(-1.25)",
+   "spark": {
+    "decimal": "1.25"
+   },
+   "type": "decimal(3,2)"
+  },
+  {
+   "sql": "CAST(greatest(CASE WHEN CAST(NULL AS BOOLEAN) THEN 3 WHEN false THEN -7 END, levenshtein('  pad  ', 'abcABC'), nullif(-1, 100)) AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "7.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "CAST('abcABC' AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(DATE'2024-01-06' + -1)",
+   "spark": {
+    "date": "2024-01-05"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "('3.5' RLIKE 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "('a,b,,c' LIKE 'a%')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(100 div -3)",
+   "spark": -33,
+   "type": "bigint"
+  },
+  {
+   "sql": "bround((1.0E3D + 0.0D), 0)",
+   "spark": 1000.0,
+   "type": "double"
+  },
+  {
+   "sql": "substr('a', CAST(NULL AS INT), 4)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(100, timestampdiff(QUARTER, date_add(DATE'2024-03-01', 10), coalesce(DATE'2024-01-07', DATE'2000-01-01')))",
+   "spark": 100,
+   "type": "bigint"
+  },
+  {
+   "sql": "translate('ÄÖü', '_', '%')",
+   "spark": "ÄÖü",
+   "type": "string"
+  },
+  {
+   "sql": "sign(levenshtein('a,b,,c', 'abc'))",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "round(123.456, 0)",
+   "spark": {
+    "decimal": "123"
+   },
+   "type": "decimal(4,0)"
+  },
+  {
+   "sql": "months_between(DATE'2024-02-29', (DATE'2024-02-29' + 4))",
+   "spark": -0.19354839,
+   "type": "double"
+  },
+  {
+   "sql": "ceil(bround(12.5D, 1))",
+   "spark": 13,
+   "type": "bigint"
+  },
+  {
+   "sql": "(add_months(DATE'2024-01-06', 1000000) > add_months(DATE'2000-01-01', -100))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_format(date_sub(to_date('abcABC', 'yyyyMMdd'), 1), 'yyyy-MM-dd')",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "greatest(-100, -7, 0)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "next_day(date_sub(DATE'2024-01-07', 0), 'Sunday')",
+   "spark": {
+    "date": "2024-01-14"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST('-7' AS DOUBLE)",
+   "spark": -7.0,
+   "type": "double"
+  },
+  {
+   "sql": "to_date('x_y%z', 'yyyyMMdd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(dayofmonth(DATE'2024-03-01') BETWEEN timestampdiff(QUARTER, DATE'2025-02-28', DATE'2023-12-31') AND ascii('aaa'))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "instr('abc', 'a')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "if(true, 7, (2 % 0))",
+   "spark": 7,
+   "type": "int"
+  },
+  {
+   "sql": "CAST('Hello World' AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "power(timestampdiff(YEAR, DATE'2023-12-31', DATE'2024-01-06'), 1)",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "round(bround(99.99, 2), 1)",
+   "spark": {
+    "decimal": "100.0"
+   },
+   "type": "decimal(5,1)"
+  },
+  {
+   "sql": "dayofweek(to_date('2024-02-29'))",
+   "spark": 5,
+   "type": "int"
+  },
+  {
+   "sql": "last_day(to_date('a'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "contains('abcABC', '_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "timestampdiff(YEAR, next_day(DATE'1999-12-31', 'MON'), DATE'2024-01-31')",
+   "spark": 24,
+   "type": "bigint"
+  },
+  {
+   "sql": "(greatest(0, 10, 0) NOT IN (0, length('ÄÖü')))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "levenshtein('12', 'ÄÖü')",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "power((7 div 1), 0)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "trim(CAST(NULL AS STRING))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(DATE'2024-01-07', DATE'2024-01-06')",
+   "spark": {
+    "date": "2024-01-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(1.25 * coalesce(7, 3))",
+   "spark": {
+    "decimal": "8.75"
+   },
+   "type": "decimal(14,2)"
+  },
+  {
+   "sql": "next_day(last_day(DATE'2024-01-07'), 'fri')",
+   "spark": {
+    "date": "2024-02-02"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(0.5 <> locate('ab', CAST(NULL AS STRING), 8))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "reverse(CAST(NULL AS STRING))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "(weekday(DATE'2025-02-28') - (-3 % -7))",
+   "spark": 7,
+   "type": "int"
+  },
+  {
+   "sql": "(floor(-1.25) div if(true, 7, 100))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "substring('ÄÖü', 5)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "isnan(0.5D)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "trim(split_part('  pad  ', '%', 3))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "overlay(lpad(trim(BOTH ',' FROM '-7'), 6, '%') PLACING 'b' FROM 2)",
+   "spark": "%b%%-7",
+   "type": "string"
+  },
+  {
+   "sql": "add_months(DATE'2024-02-29', -100)",
+   "spark": {
+    "date": "2015-10-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST(-3 AS DOUBLE)",
+   "spark": -3.0,
+   "type": "double"
+  },
+  {
+   "sql": "(NOT (concat_ws(' ', 'abc', '3.5', 'ÄÖü') LIKE '%o W%'))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "substring(CAST(123.456 AS STRING), 6)",
+   "spark": "56",
+   "type": "string"
+  },
+  {
+   "sql": "locate(' ', lpad(regexp_replace('ÄÖü', '^.', 'A'), -1, ' '), 4)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "abs(coalesce(10.005, CAST(NULL AS DECIMAL(10,3))))",
+   "spark": {
+    "decimal": "10.005"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "month(DATE'2024-01-07')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "bit_count(if(true, 10, -7))",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "(1 NOT IN (-7, -1))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "weekday(date_sub(DATE'2024-03-01', CAST(NULL AS INT)))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "lower('2024-02-29')",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "('a' LIKE 'a\\_b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST('-7' AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "-7.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "months_between(add_months(DATE'2025-02-28', -1), DATE'2024-01-07')",
+   "spark": 12.67741935,
+   "type": "double"
+  },
+  {
+   "sql": "to_date(left('MiXeD', -4), 'yyyy-MM-dd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "find_in_set('_', split_part(upper('abc'), '_', -1))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "date_add(make_date(2024, 255, CAST(NULL AS INT)), (-100 div 2))",
+   "spark": null,
+   "error": "AnalysisException"
+  },
+  {
+   "sql": "isnan(sqrt(3.75D))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "replace('2024-02-29', 'b', ',')",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "trunc(DATE'2025-02-28', 'YEAR')",
+   "spark": {
+    "date": "2025-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "to_date(upper('a,b,,c'), 'yyyyMMdd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(CAST(false AS STRING) AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "rtrim('ÄÖü')",
+   "spark": "ÄÖü",
+   "type": "string"
+  },
+  {
+   "sql": "ltrim(' ')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "left(' ', CAST(NULL AS INT))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "datediff(next_day(DATE'2024-06-15', 'fri'), greatest(DATE'2000-01-01', DATE'2023-12-31'))",
+   "spark": 173,
+   "type": "int"
+  },
+  {
+   "sql": "weekofyear(last_day(to_date('aaa')))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(nvl(CAST(NULL AS STRING), '  pad  ') AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "least(3, -100)",
+   "spark": -100,
+   "type": "int"
+  },
+  {
+   "sql": "(pmod(round(0.0D, 0), round(-2.5D, 1)))",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "sqrt(1.0E3D)",
+   "spark": 31.622776601683793,
+   "type": "double"
+  },
+  {
+   "sql": "make_date(1900, CAST('x_y%z' AS INT), weekday(DATE'2024-01-31'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "soundex('-7')",
+   "spark": "-7",
+   "type": "string"
+  },
+  {
+   "sql": "(CAST(NULL AS STRING) LIKE '')",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "to_date(concat('a', 'abc'), 'yyyy-MM-dd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "date_sub(last_day(last_day(DATE'2025-02-28')), 8)",
+   "spark": {
+    "date": "2025-02-20"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(next_day(add_months(DATE'2024-03-01', 2), 'Sunday') = coalesce((DATE'2024-03-01' + 5), make_date(2024, 255, 1000000)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "lpad(concat(' ', 'abcABC'), -2, 'b')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "CASE WHEN isnan(-0.5D) THEN size(split('3.5', '%')) WHEN (true OR false) THEN bit_count(1) END",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "CAST((-0.5D / CAST(NULL AS DOUBLE)) AS BIGINT)",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "bround(12.5D, 1)",
+   "spark": 12.5,
+   "type": "double"
+  },
+  {
+   "sql": "CASE WHEN false THEN 1 WHEN false THEN 100 END",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "(floor(1.5) - -3)",
+   "spark": {
+    "decimal": "4"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "('ÄÖü' ILIKE '%c')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(DATE'2024-03-01' AS STRING)",
+   "spark": "2024-03-01",
+   "type": "string"
+  },
+  {
+   "sql": "instr(trim(BOTH ',' FROM '3.5'), ',')",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "next_day(to_date(CAST(NULL AS STRING)), 'MON')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "length('3.5')",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "(lower('aaa') ILIKE '%')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(last_day(DATE'2024-06-15') + -1)",
+   "spark": {
+    "date": "2024-06-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "pmod(-7, -3)",
+   "spark": -1,
+   "type": "int"
+  },
+  {
+   "sql": "('a,b,,c' RLIKE 'b')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(CAST(DATE'2024-03-01' AS STRING) AS DATE)",
+   "spark": {
+    "date": "2024-03-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "rpad(ltrim(CAST(NULL AS STRING)), 4, '_')",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "dayofyear(next_day(DATE'2024-06-15', 'Sunday'))",
+   "spark": 168,
+   "type": "int"
+  },
+  {
+   "sql": "date_format(DATE'2024-03-01', 'MMM d, yyyy')",
+   "spark": "Mar 1, 2024",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(instr('MiXeD', ' '), 1)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "('x_y%z' LIKE '%o W%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(-100 IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "substr(trim(BOTH '_' FROM reverse(CAST(NULL AS STRING))), -1, -6)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "date_add((CAST(NULL AS DATE) + 3), greatest(quarter(DATE'2024-02-29'), round(-1, -1), shiftleft(-7, 8)))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(-100 div CAST(NULL AS INT))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "round((-2.5 - CAST(NULL AS DECIMAL(10,3))), -1)",
+   "spark": null,
+   "type": "decimal(9,0)"
+  },
+  {
+   "sql": "coalesce(coalesce(CAST('x_y%z' AS DECIMAL(10,3)), CAST('a,b,,c' AS DECIMAL(10,3))), coalesce(CAST(1 AS DECIMAL(10,3)), round(99.99, 0)))",
+   "spark": {
+    "decimal": "1.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "next_day(DATE'2023-12-31', 'Sunday')",
+   "spark": {
+    "date": "2024-01-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "substring('a', 5)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "round((-0.5 * 10), 0)",
+   "spark": {
+    "decimal": "-5"
+   },
+   "type": "decimal(4,0)"
+  },
+  {
+   "sql": "(string(sign(-3.75D)) RLIKE '^[a-z]+$')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(DATE'1999-12-31' <=> DATE'2024-02-29')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "least(2, 3)",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "round(CAST('a,b,,c' AS DOUBLE), 0)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "(pmod(-2.5D, -0.5D))",
+   "spark": -0.0,
+   "type": "double"
+  },
+  {
+   "sql": "translate(concat_ws(',', 'a', 'a,b,,c', 'a,b,,c'), 'b', ',')",
+   "spark": "a,a,,,,c,a,,,,c",
+   "type": "string"
+  },
+  {
+   "sql": "levenshtein(CAST(DATE'2024-03-01' AS STRING), nvl('', ''))",
+   "spark": 10,
+   "type": "int"
+  },
+  {
+   "sql": "instr('x_y%z', '_')",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "timestampdiff(WEEK, DATE'2024-01-06', CAST(NULL AS DATE))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "month(greatest(DATE'2024-01-06', DATE'2023-12-31'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "(0.049 * dayofyear(make_date(2024, 3, 3)))",
+   "spark": {
+    "decimal": "3.087"
+   },
+   "type": "decimal(14,3)"
+  },
+  {
+   "sql": "date_sub(date_sub(DATE'2025-02-28', -6), 6)",
+   "spark": {
+    "date": "2025-02-28"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "timestampdiff(YEAR, CAST(NULL AS DATE), DATE'2000-01-01')",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "endswith(lower('  pad  '), 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "regexp_replace(replace('MiXeD', 'ab', 'a'), '[0-9]', 'b')",
+   "spark": "MiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(CAST(NULL AS DECIMAL(10,3)) AS STRING)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "find_in_set('a', trim(' '))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "shiftright(floor(1.25), 2)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(date_add(DATE'2024-01-06', 0), make_date(2023, -1, -7))",
+   "spark": {
+    "date": "2024-01-06"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "levenshtein('abcABC', 'ÄÖü')",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "abs((-10.005 + 1.5))",
+   "spark": {
+    "decimal": "8.505"
+   },
+   "type": "decimal(6,3)"
+  },
+  {
+   "sql": "shiftright(bit_count(CAST(NULL AS INT)), -2)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "split_part(CAST(NULL AS STRING), ',', 4)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "rpad(' ', 6, ',')",
+   "spark": " ,,,,,",
+   "type": "string"
+  },
+  {
+   "sql": "concat_ws('', 'a,b,,c', '', 'ÄÖü')",
+   "spark": "a,b,,cÄÖü",
+   "type": "string"
+  },
+  {
+   "sql": "nullif(if(false, 1, 0), if(false, CAST(NULL AS INT), -1))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(upper('2024-02-29') AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "sqrt(12.5D)",
+   "spark": 3.5355339059327378,
+   "type": "double"
+  },
+  {
+   "sql": "month(coalesce(date_sub(DATE'2024-06-15', -6), CAST('  pad  ' AS DATE)))",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "dayofyear(last_day(DATE'2024-01-07'))",
+   "spark": 31,
+   "type": "int"
+  },
+  {
+   "sql": "(pmod(0.5D, nanvl(2.5D, -3.75D)))",
+   "spark": 0.5,
+   "type": "double"
+  },
+  {
+   "sql": "bit_count(CAST(NULL AS INT))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "add_months(DATE'2023-12-31', 0)",
+   "spark": {
+    "date": "2023-12-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(10 | CAST(NULL AS INT))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "(split_part('', 'a', -6) <> replace('-7', 'ab', ' '))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(year(DATE'2024-06-15') >= datediff(DATE'2024-01-06', DATE'2025-02-28'))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(bround(-3.75D, 1) / 1.0E-3D)",
+   "spark": -3799.9999999999995,
+   "type": "double"
+  },
+  {
+   "sql": "(date_add(trunc(DATE'2024-03-01', 'yyyy'), CASE WHEN false THEN -100 WHEN false THEN 2 END) > (DATE'2024-01-31' + CAST(NULL AS INT)))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(rtrim('MiXeD') AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "contains(ltrim('abcABC'), '_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(99.99 AS INT)",
+   "spark": 99,
+   "type": "int"
+  },
+  {
+   "sql": "(pmod(0.5D, -0.5D))",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "shiftright(2, 1)",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(to_date('a', 'dd/MM/yyyy') AS STRING)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "power(1, 1)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "(round(-7, 1) div dayofweek(DATE'2000-01-01'))",
+   "spark": -1,
+   "type": "bigint"
+  },
+  {
+   "sql": "CAST(isnan(0.5D) AS STRING)",
+   "spark": "false",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(bround(0.049, -1) AS INT)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "concat(CAST(DATE'2024-02-29' AS STRING), trim(BOTH ' ' FROM 'Hello World'))",
+   "spark": "2024-02-29Hello World",
+   "type": "string"
+  },
+  {
+   "sql": "ceil(2.5D)",
+   "spark": 3,
+   "type": "bigint"
+  },
+  {
+   "sql": "round(abs(0.5), -1)",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(2,0)"
+  },
+  {
+   "sql": "dayofweek(coalesce(DATE'2025-02-28', CAST(NULL AS DATE)))",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(CAST(NULL AS INT), -7, nullif(-3, -1))",
+   "spark": -3,
+   "type": "int"
+  },
+  {
+   "sql": "round(3.75D, 1)",
+   "spark": 3.8,
+   "type": "double"
+  },
+  {
+   "sql": "locate('_', '2024-02-29', 5)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(0.5, 0.049)",
+   "spark": {
+    "decimal": "0.500"
+   },
+   "type": "decimal(3,3)"
+  },
+  {
+   "sql": "CAST(99.99 AS STRING)",
+   "spark": "99.99",
+   "type": "string"
+  },
+  {
+   "sql": "make_date(2024, -3, shiftleft(-1, 4))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(greatest(bround(-1.5, 0), 0.0) + (greatest(3.14159, -1.25) + bround(99.99, 0)))",
+   "spark": {
+    "decimal": "103.14159"
+   },
+   "type": "decimal(10,5)"
+  },
+  {
+   "sql": "coalesce(CAST('-7' AS DECIMAL(10,3)), 1.25)",
+   "spark": {
+    "decimal": "-7.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "length('a,b,,c')",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(CAST((-1.25 <= CAST(NULL AS INT)) AS STRING) AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "sign(bit_count(3))",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "round(weekofyear(DATE'1999-12-31'), 0)",
+   "spark": 52,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce(greatest(DATE'1999-12-31', DATE'2023-12-31'), DATE'2024-06-15')",
+   "spark": {
+    "date": "2023-12-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "left(regexp_extract(substring('Hello World', 2), '([a-z]+)', 0), -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "initcap(nvl('2024-02-29', ''))",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "bround(coalesce(-10.005, 10.005), 0)",
+   "spark": {
+    "decimal": "-10"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "bround(CAST(regexp_replace('Hello World', '[0-9]', '%') AS DECIMAL(10,3)), 0)",
+   "spark": null,
+   "type": "decimal(8,0)"
+  },
+  {
+   "sql": "reverse(lower(if(true, 'abcABC', 'abcABC')))",
+   "spark": "cbacba",
+   "type": "string"
+  },
+  {
+   "sql": "bround((2.5D * 0.5D), 1)",
+   "spark": 1.2,
+   "type": "double"
+  },
+  {
+   "sql": "bround(power(3, 1), 1)",
+   "spark": 3.0,
+   "type": "double"
+  },
+  {
+   "sql": "(weekofyear(CAST(NULL AS DATE)) NOT IN (round(1, 1), CAST('-7' AS INT)))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "(CAST(NULL AS DECIMAL(10,3)) * shiftleft(255, -1))",
+   "spark": null,
+   "type": "decimal(21,3)"
+  },
+  {
+   "sql": "ascii(right('  pad  ', 8))",
+   "spark": 32,
+   "type": "int"
+  },
+  {
+   "sql": "round((2.5 * 2), -1)",
+   "spark": {
+    "decimal": "10"
+   },
+   "type": "decimal(4,0)"
+  },
+  {
+   "sql": "(2.5D - nanvl(CAST(NULL AS DOUBLE), -3.75D))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "lower(format_number(2.5, 0))",
+   "spark": "2",
+   "type": "string"
+  },
+  {
+   "sql": "abs(quarter(DATE'2024-06-15'))",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "(CAST(NULL AS INT) % CAST(1.0E-3D AS BIGINT))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "coalesce(-0.5, -0.5)",
+   "spark": {
+    "decimal": "-0.5"
+   },
+   "type": "decimal(1,1)"
+  },
+  {
+   "sql": "dayofmonth(DATE'2025-02-28')",
+   "spark": 28,
+   "type": "int"
+  },
+  {
+   "sql": "to_date(repeat('3.5', 1), 'yyyy-MM-dd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "date_add(CAST(CAST(NULL AS STRING) AS DATE), (7 % -7))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(CAST((0.0D / -2.5D) AS BIGINT) IN (locate('ab', substring('Hello World', -1, 6), -4), quarter(CAST('  pad  ' AS DATE)), instr(upper('2024-02-29'), '')))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "lpad(CAST(-10.005 AS STRING), 2, 'ab')",
+   "spark": "-1",
+   "type": "string"
+  },
+  {
+   "sql": "bround((-1.5 * -3), -1)",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(4,0)"
+  },
+  {
+   "sql": "dayofmonth(to_date('a'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "pmod(length(CAST(false AS STRING)), instr(lpad('abcABC', -6, ','), 'ab'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(weekday(DATE'2024-03-01'), find_in_set('b', 'MiXeD'), greatest(100, 1000000, 3))",
+   "spark": 1000000,
+   "type": "int"
+  },
+  {
+   "sql": "endswith('a', 'ab')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "locate(',', 'a', 0)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(greatest(255, year(DATE'2023-12-31'), CAST(2.5 AS INT)) AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "2023.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "upper(concat('12', '  pad  '))",
+   "spark": "12  PAD  ",
+   "type": "string"
+  },
+  {
+   "sql": "ltrim('')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(greatest(-0.5, bround(1.25, 0)) * -7)",
+   "spark": {
+    "decimal": "-7.0"
+   },
+   "type": "decimal(5,1)"
+  },
+  {
+   "sql": "char_length('2024-02-29')",
+   "spark": 10,
+   "type": "int"
+  },
+  {
+   "sql": "(pmod((1.0E-3D / 3.75D), months_between(DATE'2024-01-06', DATE'2024-06-15')))",
+   "spark": 0.0002666666666666667,
+   "type": "double"
+  },
+  {
+   "sql": "substr(left('a,b,,c', 6), 5, -2)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(shiftright(if(false, -7, CAST(NULL AS INT)), 0) / sign(-3))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(datediff(date_sub(DATE'2024-01-06', 5), add_months(DATE'2024-06-15', 255)) AS DOUBLE)",
+   "spark": -7928.0,
+   "type": "double"
+  },
+  {
+   "sql": "pmod(length('x_y%z'), 2)",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "substr('3.5', -1, 5)",
+   "spark": "5",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(concat('-7', '3.5') AS DOUBLE)",
+   "spark": -73.5,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(CAST(-1.25 AS STRING) AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(soundex('MiXeD') AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(3.14159 AS STRING)",
+   "spark": "3.14159",
+   "type": "string"
+  },
+  {
+   "sql": "abs(round(CAST(-1 AS DECIMAL(10,3)), -1))",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(8,0)"
+  },
+  {
+   "sql": "repeat('a', 3)",
+   "spark": "aaa",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(concat_ws('ab', 'abc', 'x_y%z', 'x_y%z') AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "levenshtein('abcABC', ' ')",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "add_months(to_date(' ', 'yyyy-MM-dd'), shiftleft(3, 4))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "weekofyear(to_date('a'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "power(10, 2)",
+   "spark": 100.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST('x_y%z' AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "regexp_extract(split_part(' ', '%', 5), '(\\\\d+)', 1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "substring(concat_ws(',', '-7', 'MiXeD', 'x_y%z'), -2)",
+   "spark": "%z",
+   "type": "string"
+  },
+  {
+   "sql": "date_add(to_date(CAST(NULL AS STRING)), (-100 * 0))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "repeat(' ', 8)",
+   "spark": "        ",
+   "type": "string"
+  },
+  {
+   "sql": "next_day(date_add(DATE'1999-12-31', 3), 'Sunday')",
+   "spark": {
+    "date": "2000-01-09"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "nullif(CAST(power(255, 0) AS BIGINT), datediff(next_day(CAST(NULL AS DATE), 'Sunday'), make_date(2023, -7, -100)))",
+   "spark": 1,
+   "type": "bigint"
+  },
+  {
+   "sql": "nvl('x_y%z', '3.5')",
+   "spark": "x_y%z",
+   "type": "string"
+  },
+  {
+   "sql": "regexp_extract('ÄÖü', '(\\\\d+)', 1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "endswith(concat(substring_index(' ', '_', 0), substring_index('  pad  ', 'b', 2)), ',')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "make_date(1900, dayofweek(to_date(' ')), bit_count(dayofyear(DATE'2024-06-15')))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "least(shiftright(7, 5), timestampdiff(YEAR, DATE'2024-06-15', DATE'2025-02-28'))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "round(CAST('a,b,,c' AS DECIMAL(10,3)), 2)",
+   "spark": null,
+   "type": "decimal(10,2)"
+  },
+  {
+   "sql": "isnan(12.5D)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "to_date(substr('a', 5, -6), 'dd/MM/yyyy')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "endswith(lower(CAST(NULL AS STRING)), 'ab')",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "startswith(CAST(NULL AS STRING), 'a')",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "concat('2024-02-29', 'x_y%z')",
+   "spark": "2024-02-29x_y%z",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(1.0E3D AS BIGINT)",
+   "spark": 1000,
+   "type": "bigint"
+  },
+  {
+   "sql": "abs(abs(99.99))",
+   "spark": {
+    "decimal": "99.99"
+   },
+   "type": "decimal(4,2)"
+  },
+  {
+   "sql": "substring('a', 3)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(CAST(-3.75D AS BIGINT) % CAST(1.0E3D AS BIGINT))",
+   "spark": -3,
+   "type": "bigint"
+  },
+  {
+   "sql": "if(false, upper('12'), 'Hello World')",
+   "spark": "Hello World",
+   "type": "string"
+  },
+  {
+   "sql": "power(-3, 1)",
+   "spark": -3.0,
+   "type": "double"
+  },
+  {
+   "sql": "(round(0.5, -1) <> (3 * 3))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "coalesce(coalesce(-1.25, 2.5), 2.5)",
+   "spark": {
+    "decimal": "-1.25"
+   },
+   "type": "decimal(3,2)"
+  },
+  {
+   "sql": "datediff(DATE'2024-03-01', make_date(2024, 255, -100))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "if(startswith('aaa', '_'), lpad('a,b,,c', 2, '_'), split_part('12', 'A', 6))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "isnan(CAST(' ' AS DOUBLE))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "string(sign((1000000 / -3)))",
+   "spark": "-1.0",
+   "type": "string"
+  },
+  {
+   "sql": "datediff(CAST(NULL AS DATE), DATE'2024-01-31')",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "nanvl(nanvl(0.5D, -0.5D), (1.0E3D * -2.5D))",
+   "spark": 0.5,
+   "type": "double"
+  },
+  {
+   "sql": "ascii(concat(('2024-02-29' || 'ÄÖü'), concat_ws(' ', 'abc', '2024-02-29', '2024-02-29')))",
+   "spark": 50,
+   "type": "int"
+  },
+  {
+   "sql": "greatest((CAST(NULL AS DATE) + -6), next_day(DATE'2024-01-31', 'MON'))",
+   "spark": {
+    "date": "2024-02-05"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST(CAST(CAST(NULL AS STRING) AS BOOLEAN) AS STRING)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "CAST(add_months(make_date(2024, CAST(NULL AS INT), -100), floor(0.049)) AS STRING)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "(-1.25 * -7)",
+   "spark": {
+    "decimal": "8.75"
+   },
+   "type": "decimal(5,2)"
+  },
+  {
+   "sql": "CAST('abcABC' AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "repeat(date_format(DATE'2024-06-15', 'D'), 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "substring_index(left('3.5', 3), 'A', 5)",
+   "spark": "3.5",
+   "type": "string"
+  },
+  {
+   "sql": "(1 < 1)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(-7 IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "quarter(next_day(DATE'2024-03-01', 'MON'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "concat(lower(lower('a,b,,c')), '3.5')",
+   "spark": "a,b,,c3.5",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(CAST('MiXeD' AS DECIMAL(10,3)) AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "char_length('12')",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "bround(-1.25, -1)",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(2,0)"
+  },
+  {
+   "sql": "bround(round(-2.5, 0), 2)",
+   "spark": {
+    "decimal": "-3"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "(CAST(NULL AS DECIMAL(10,3)) <= 10)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "sqrt((pmod(1.0E-3D, 2.5D)))",
+   "spark": 0.03162277660168379,
+   "type": "double"
+  },
+  {
+   "sql": "round(coalesce(-100, 3), 0)",
+   "spark": -100,
+   "type": "int"
+  },
+  {
+   "sql": "last_day(DATE'2025-02-28')",
+   "spark": {
+    "date": "2025-02-28"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "substring('3.5', 6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(CAST(NULL AS DATE), DATE'2024-06-15')",
+   "spark": {
+    "date": "2024-06-15"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "month(CAST(' ' AS DATE))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "ceil(nanvl(2.5D, (pmod(12.5D, 1.0E-3D))))",
+   "spark": 3,
+   "type": "bigint"
+  },
+  {
+   "sql": "('abcABC' >= '-7')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "('a' || CAST(NULL AS STRING))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "bit_count(shiftleft(-100, 8))",
+   "spark": 52,
+   "type": "int"
+  },
+  {
+   "sql": "lpad('ÄÖü', 6, ' ')",
+   "spark": "   ÄÖü",
+   "type": "string"
+  },
+  {
+   "sql": "round(coalesce((99.99 * 1), round(0.049, 1)), 0)",
+   "spark": {
+    "decimal": "100"
+   },
+   "type": "decimal(5,0)"
+  },
+  {
+   "sql": "locate('_', ' ', -4)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "abs(bround(2.5, 1))",
+   "spark": {
+    "decimal": "2.5"
+   },
+   "type": "decimal(3,1)"
+  },
+  {
+   "sql": "(2 % coalesce(quarter(DATE'2024-01-31'), -100))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "least(levenshtein('MiXeD', '-7'), least(10, -100))",
+   "spark": -100,
+   "type": "int"
+  },
+  {
+   "sql": "((locate(',', '-7', 5) div dayofmonth(DATE'2024-03-01')) > ascii(CAST(DATE'2024-01-07' AS STRING)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(10 / 10)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "(if(CAST(NULL AS BOOLEAN), 3, -100) & (2 | 255))",
+   "spark": 156,
+   "type": "int"
+  },
+  {
+   "sql": "('3.5' ILIKE 'a%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "initcap('abc')",
+   "spark": "Abc",
+   "type": "string"
+  },
+  {
+   "sql": "abs(123.456)",
+   "spark": {
+    "decimal": "123.456"
+   },
+   "type": "decimal(6,3)"
+  },
+  {
+   "sql": "sign(ceil(round(-2.5D, 0)))",
+   "spark": -1.0,
+   "type": "double"
+  },
+  {
+   "sql": "coalesce(bround(greatest(CAST(NULL AS DECIMAL(10,3)), 0.049), 1), CAST(replace('2024-02-29', 'ab', 'a') AS DECIMAL(10,3)))",
+   "spark": {
+    "decimal": "0.000"
+   },
+   "type": "decimal(11,3)"
+  },
+  {
+   "sql": "right(lower('Hello World'), 4)",
+   "spark": "orld",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(-1.25 AS STRING)",
+   "spark": "-1.25",
+   "type": "string"
+  },
+  {
+   "sql": "abs(-2.5)",
+   "spark": {
+    "decimal": "2.5"
+   },
+   "type": "decimal(2,1)"
+  },
+  {
+   "sql": "(' ' RLIKE 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "timestampdiff(QUARTER, (DATE'2024-06-15' + 6), date_add(DATE'2024-02-29', 255))",
+   "spark": 1,
+   "type": "bigint"
+  },
+  {
+   "sql": "((100 | 7) BETWEEN (7 div 255) AND dayofmonth(DATE'1999-12-31'))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "isnan((pmod(-0.5D, 2.5D)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "initcap('Hello World')",
+   "spark": "Hello World",
+   "type": "string"
+  },
+  {
+   "sql": "to_date('Hello World')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "size(split('12', '%'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(-100 AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "-100.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(if(true, '3.5', '') || string(sign(1.0E-3D)))",
+   "spark": "3.51.0",
+   "type": "string"
+  },
+  {
+   "sql": "(rpad('3.5', 5, 'ab') LIKE '%')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(pmod(power(least(-7, CAST(NULL AS INT)), 2), (floor(-0.5) / abs(1000000))))",
+   "spark": 2.2173425205315733e-15,
+   "type": "double"
+  },
+  {
+   "sql": "add_months((DATE'2024-01-06' + -4), bit_count(datediff(DATE'2000-01-01', DATE'2024-01-06')))",
+   "spark": {
+    "date": "2029-01-02"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "lpad(string(sign(CAST(NULL AS DOUBLE))), 6, ' ')",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "startswith('abcABC', '_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "regexp_extract(trim(BOTH '' FROM 'x_y%z'), '([A-Z])([a-z]*)', 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "round(0.0, 0)",
+   "spark": {
+    "decimal": "0"
+   },
+   "type": "decimal(1,0)"
+  },
+  {
+   "sql": "size(split('2024-02-29', 'a'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "substr(' ', -6, -2)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(coalesce(CAST(NULL AS DATE), DATE'2024-02-29'), date_add(DATE'2024-06-15', -1))",
+   "spark": {
+    "date": "2024-06-14"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(CAST(CAST(NULL AS STRING) AS DECIMAL(10,3)) + round(3.14159, -1))",
+   "spark": null,
+   "type": "decimal(11,3)"
+  },
+  {
+   "sql": "coalesce(bround((3.14159 - 10.005), -1), CAST(CAST(3.14159 AS INT) AS DECIMAL(10,3)))",
+   "spark": {
+    "decimal": "-10.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "(least(CASE WHEN true THEN -1 WHEN false THEN 1 END, ascii('')) IN (datediff(next_day(DATE'2024-01-07', 'MON'), DATE'2024-03-01'), if(endswith('MiXeD', ''), 1, nullif(2, -1)), if(false, coalesce(1, 1), (- 10))))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_format(greatest(DATE'2023-12-31', DATE'2024-01-06'), 'D')",
+   "spark": "6",
+   "type": "string"
+  },
+  {
+   "sql": "endswith(lower(' '), '_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "if(CAST(NULL AS BOOLEAN), '', '12')",
+   "spark": "12",
+   "type": "string"
+  },
+  {
+   "sql": "(DATE'1999-12-31' + 5)",
+   "spark": {
+    "date": "2000-01-05"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "('' ILIKE '%,%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(nanvl(CAST(' ' AS DOUBLE), -2.5D) + nanvl(-3.75D, CAST('aaa' AS DOUBLE)))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(format_number(abs(10.005), 0) AS INT)",
+   "spark": 10,
+   "type": "int"
+  },
+  {
+   "sql": "(greatest(123.456, CAST(NULL AS DECIMAL(10,3))) * (1000000 - -7))",
+   "spark": {
+    "decimal": "123456864.192"
+   },
+   "type": "decimal(21,3)"
+  },
+  {
+   "sql": "coalesce(CAST(NULL AS INT), 7)",
+   "spark": 7,
+   "type": "int"
+  },
+  {
+   "sql": "(0.0D * CAST(3 AS DOUBLE))",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "make_date(2023, ascii(string(sign(0.5D))), if(true, abs(1), 7))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(0.5D / sqrt(1.0E3D))",
+   "spark": 0.015811388300841896,
+   "type": "double"
+  },
+  {
+   "sql": "CAST('a,b,,c' AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "trim(BOTH '_' FROM lpad(substring('x_y%z', 8, 6), 4, 'a'))",
+   "spark": "aaaa",
+   "type": "string"
+  },
+  {
+   "sql": "reverse(' ')",
+   "spark": " ",
+   "type": "string"
+  },
+  {
+   "sql": "least(10, nullif(timestampdiff(YEAR, DATE'1999-12-31', DATE'2023-12-31'), bit_count(7)))",
+   "spark": 10,
+   "type": "bigint"
+  },
+  {
+   "sql": "CAST(greatest((1.25 * 10), coalesce(1.5, 2.5)) AS STRING)",
+   "spark": "12.50",
+   "type": "string"
+  },
+  {
+   "sql": "endswith('aaa', 'A')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "greatest(DATE'2024-03-01', last_day(DATE'2024-06-15'))",
+   "spark": {
+    "date": "2024-06-30"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "bit_count(char_length('aaa'))",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(add_months(DATE'2024-01-06', 100) AS STRING)",
+   "spark": "2032-05-06",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(0.0D AS BIGINT)",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "(CAST(NULL AS DATE) + 0)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "add_months(make_date(2023, shiftleft(-3, CAST(NULL AS INT)), levenshtein('12', '-7')), length('x_y%z'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "trim(trim(BOTH 'A' FROM ' '))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "find_in_set('b', 'MiXeD')",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "(0 BETWEEN 3 AND -7)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "round(1.0E-3D, 1)",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "greatest(add_months(DATE'2024-01-07', 100), trunc(DATE'2024-02-29', 'MONTH'))",
+   "spark": {
+    "date": "2032-05-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "to_date('Hello World', 'dd/MM/yyyy')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "trunc(last_day(trunc(DATE'2023-12-31', 'yyyy')), 'WEEK')",
+   "spark": {
+    "date": "2023-01-30"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "nullif(instr(CAST(DATE'2024-02-29' AS STRING), 'ab'), coalesce(floor(99.99), quarter(DATE'2023-12-31')))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "concat(upper('12'), substring('2024-02-29', 4))",
+   "spark": "124-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "bround(2.5D, 1)",
+   "spark": 2.5,
+   "type": "double"
+  },
+  {
+   "sql": "if(false, 100, -7)",
+   "spark": -7,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(abs(0.5), (0.5 - -0.5))",
+   "spark": {
+    "decimal": "1.0"
+   },
+   "type": "decimal(2,1)"
+  },
+  {
+   "sql": "to_date(substring_index('a', 'ab', 1), 'yyyy-MM-dd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "((1 div -100) BETWEEN shiftright(255, 4) AND greatest(-1, 10, 2))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(0.5 * bit_count(instr('3.5', 'b')))",
+   "spark": {
+    "decimal": "0.0"
+   },
+   "type": "decimal(12,1)"
+  },
+  {
+   "sql": "CAST(if(true, 'abc', 'abc') AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "if((size(split('x_y%z', 'A')) <> CAST(NULL AS INT)), 'a', substring(rtrim('abcABC'), -2, CAST(NULL AS INT)))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "('' LIKE '%c')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(right('  pad  ', -2) AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "abs(100)",
+   "spark": 100,
+   "type": "int"
+  },
+  {
+   "sql": "date_sub(next_day(DATE'2024-01-07', 'MON'), 2)",
+   "spark": {
+    "date": "2024-01-06"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "shiftright(255, 1)",
+   "spark": 127,
+   "type": "int"
+  },
+  {
+   "sql": "endswith(format_number(99.99, 1), '')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "levenshtein(concat((CAST(NULL AS STRING) || 'abc'), nvl('a', 'a,b,,c')), '')",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "(abs(coalesce(1.5, CAST(NULL AS DECIMAL(10,3)))) * dayofweek(greatest(DATE'2000-01-01', DATE'1999-12-31')))",
+   "spark": {
+    "decimal": "10.500"
+   },
+   "type": "decimal(21,3)"
+  },
+  {
+   "sql": "to_date('3.5')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "concat('-7', 'MiXeD')",
+   "spark": "-7MiXeD",
+   "type": "string"
+  },
+  {
+   "sql": "(isnan(12.5D) AND (1000000 < 1))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(date_sub(CAST(NULL AS DATE), 3) + -6)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(locate('', '  pad  ', 4) >= (0 + 10))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(-7 - length('x_y%z'))",
+   "spark": -12,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(CAST(NULL AS STRING) AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "contains('3.5', 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "power(0, 1)",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST(2.5D AS BIGINT)",
+   "spark": 2,
+   "type": "bigint"
+  },
+  {
+   "sql": "nullif(quarter(DATE'2023-12-31'), greatest(7, 255, 1000000))",
+   "spark": 4,
+   "type": "int"
+  },
+  {
+   "sql": "(-2.5 + abs(0.5))",
+   "spark": {
+    "decimal": "-2.0"
+   },
+   "type": "decimal(3,1)"
+  },
+  {
+   "sql": "last_day(make_date(2023, 3, 1000000))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "bround(abs(-2.5), 2)",
+   "spark": {
+    "decimal": "2.5"
+   },
+   "type": "decimal(3,1)"
+  },
+  {
+   "sql": "trim(BOTH ',' FROM substring('a', 5, 0))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "char_length('3.5')",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "rpad(substr('MiXeD', -2, -6), 2, 'A')",
+   "spark": "AA",
+   "type": "string"
+  },
+  {
+   "sql": "lower(upper('x_y%z'))",
+   "spark": "x_y%z",
+   "type": "string"
+  },
+  {
+   "sql": "date_sub(to_date('abcABC'), -6)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(trim(BOTH 'A' FROM '-7') AS BOOLEAN)",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "abs((10 % 1))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "abs(-1)",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "trim(BOTH '' FROM 'a')",
+   "spark": "a",
+   "type": "string"
+  },
+  {
+   "sql": "endswith('MiXeD', '_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "regexp_extract(trim(BOTH 'ab' FROM 'ÄÖü'), '(\\\\d+)', 1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "sqrt(nanvl(-3.75D, 1.0E3D))",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "weekday(add_months(DATE'2024-01-07', 100))",
+   "spark": 4,
+   "type": "int"
+  },
+  {
+   "sql": "(2 NOT IN (7, 3))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "next_day(DATE'2025-02-28', 'MON')",
+   "spark": {
+    "date": "2025-03-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(ltrim(regexp_extract(' ', '(\\\\d+)', 0)) < CAST(NULL AS STRING))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "(' ' ILIKE '%o W%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_sub(CAST(NULL AS DATE), 1)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "format_number(123.456, 0)",
+   "spark": "123",
+   "type": "string"
+  },
+  {
+   "sql": "ascii('2024-02-29')",
+   "spark": 50,
+   "type": "int"
+  },
+  {
+   "sql": "power((- levenshtein('abcABC', '')), 2)",
+   "spark": 36.0,
+   "type": "double"
+  },
+  {
+   "sql": "CAST('2024-02-29' AS DATE)",
+   "spark": {
+    "date": "2024-02-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "last_day(DATE'2024-06-15')",
+   "spark": {
+    "date": "2024-06-30"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "nvl(substring('Hello World', -1, -1), CAST(-0.5 AS STRING))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(concat(substring(CAST(NULL AS STRING), -2, 3), translate('abcABC', '_', 'A')) LIKE 'A%')",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "pmod(CAST(left('  pad  ', 3) AS INT), floor((0.0 - -1.5)))",
+   "spark": null,
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "nvl(split_part('x_y%z', '_', -4), '3.5')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(substring('3.5', 8, 6) RLIKE 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(substring(CAST(NULL AS STRING), 4) AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(-7 AS DOUBLE)",
+   "spark": -7.0,
+   "type": "double"
+  },
+  {
+   "sql": "ceil(power(-3, -1))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "(char_length('MiXeD') IS NULL)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "locate('a', '  pad  ', 5)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "(1.0E3D / 2.5D)",
+   "spark": 400.0,
+   "type": "double"
+  },
+  {
+   "sql": "coalesce((CAST(NULL AS DATE) + 2), DATE'2024-01-06')",
+   "spark": {
+    "date": "2024-01-06"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "date_add(CAST(format_number(-1.5, 2) AS DATE), floor(abs(10.005)))",
+   "spark": null,
+   "error": "AnalysisException"
+  },
+  {
+   "sql": "ascii(rpad('Hello World', -2, ','))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "left(if(false, 'a', ''), 3)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(initcap('-7') AS DOUBLE)",
+   "spark": -7.0,
+   "type": "double"
+  },
+  {
+   "sql": "date_add(greatest(DATE'2025-02-28', DATE'2024-02-29'), CAST(NULL AS INT))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "nvl('', '  pad  ')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "size(split(if(false, CAST(NULL AS STRING), '12'), 'b'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "quarter(DATE'2024-06-15')",
+   "spark": 2,
+   "type": "int"
+  },
+  {
+   "sql": "(('a' LIKE 'a\\_b') OR (10 NOT IN (10, 1)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "('MiXeD' RLIKE '^[a-z]+$')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "shiftleft(sign((1 % 7)), 3)",
+   "spark": 8,
+   "type": "int"
+  },
+  {
+   "sql": "(255 <=> 7)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(regexp_replace(' ', '[0-9]', 'A') AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(reverse('x_y%z') AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "pmod(length(''), (1000000 div 0))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "if((2.5 < -3), abs(-1), char_length(' '))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "(reverse('abcABC') > 'a')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "abs(shiftright(3, 4))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "bit_count(-7)",
+   "spark": 62,
+   "type": "int"
+  },
+  {
+   "sql": "next_day(last_day(DATE'2024-01-31'), 'Sunday')",
+   "spark": {
+    "date": "2024-02-04"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "endswith(rtrim('  pad  '), '_')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "sqrt(0.0D)",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "(1.25 - 2.5)",
+   "spark": {
+    "decimal": "-1.25"
+   },
+   "type": "decimal(4,2)"
+  },
+  {
+   "sql": "(- char_length('a,b,,c'))",
+   "spark": -6,
+   "type": "int"
+  },
+  {
+   "sql": "('  pad  ' LIKE 'A%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(DATE'2000-01-01' = DATE'2000-01-01')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "sign(weekofyear(DATE'2024-01-06'))",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "last_day(coalesce(DATE'2024-03-01', DATE'2000-01-01'))",
+   "spark": {
+    "date": "2024-03-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "concat('aaa', '')",
+   "spark": "aaa",
+   "type": "string"
+  },
+  {
+   "sql": "next_day(DATE'1999-12-31', 'fri')",
+   "spark": {
+    "date": "2000-01-07"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "date_add(add_months((DATE'2024-03-01' + 0), find_in_set('b', '3.5')), 7)",
+   "spark": {
+    "date": "2024-03-08"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "ltrim(soundex(substring('12', 1, 4)))",
+   "spark": "12",
+   "type": "string"
+  },
+  {
+   "sql": "concat(concat_ws(' ', 'a,b,,c', '3.5', '-7'), ' ')",
+   "spark": "a,b,,c 3.5 -7 ",
+   "type": "string"
+  },
+  {
+   "sql": "(NOT (255 IN (10, 2, 255)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "('x_y%z' ILIKE '%,%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "size(split(reverse('ÄÖü'), '%'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "date_sub(greatest((DATE'2000-01-01' + -6), make_date(2023, 100, 7)), 8)",
+   "spark": {
+    "date": "1999-12-18"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(regexp_extract('12', '(\\\\d+)', 1) || split_part('x_y%z', 'b', -2))",
+   "spark": "12",
+   "type": "string"
+  },
+  {
+   "sql": "(CAST(-1.25 AS STRING) RLIKE '^[a-z]+$')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "((10 + 1000000) <=> find_in_set('', ''))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "to_date('12', 'yyyy-MM-dd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "substring(right('x_y%z', -1), -2)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "add_months(DATE'1999-12-31', quarter(DATE'1999-12-31'))",
+   "spark": {
+    "date": "2000-04-30"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "to_date(CAST(DATE'2025-02-28' AS STRING))",
+   "spark": {
+    "date": "2025-02-28"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "contains(CAST(false AS STRING), ',')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "floor((-0.5 + round(-0.5, 0)))",
+   "spark": {
+    "decimal": "-2"
+   },
+   "type": "decimal(3,0)"
+  },
+  {
+   "sql": "to_date('a')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CASE WHEN (CAST(NULL AS STRING) RLIKE 'b') THEN dayofmonth(DATE'2025-02-28') WHEN ('-7' RLIKE '\\\\d') THEN (- 255) END",
+   "spark": -255,
+   "type": "int"
+  },
+  {
+   "sql": "contains(substring('ÄÖü', -6, 8), '')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "greatest(CAST(greatest(-7, 3, 1) AS DECIMAL(10,3)), bround(99.99, 2))",
+   "spark": {
+    "decimal": "99.990"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "round(nanvl(CAST(-7 AS DOUBLE), (-2.5D + 3.75D)), 0)",
+   "spark": -7.0,
+   "type": "double"
+  },
+  {
+   "sql": "(ltrim(CAST(true AS STRING)) ILIKE '%c')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_add(date_sub(DATE'2025-02-28', -4), -100)",
+   "spark": {
+    "date": "2024-11-24"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "next_day(DATE'2000-01-01', 'MON')",
+   "spark": {
+    "date": "2000-01-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "startswith('a,b,,c', 'ab')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(greatest(10, 7, -7) | year(DATE'2024-01-06'))",
+   "spark": 2026,
+   "type": "int"
+  },
+  {
+   "sql": "CAST('Hello World' AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "CAST((100 div 3) AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "33.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "initcap('  pad  ')",
+   "spark": "  Pad  ",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(abs(-10.005), -1.25)",
+   "spark": {
+    "decimal": "10.005"
+   },
+   "type": "decimal(5,3)"
+  },
+  {
+   "sql": "length(date_format(DATE'2024-01-07', 'dd/MM/yyyy'))",
+   "spark": 10,
+   "type": "int"
+  },
+  {
+   "sql": "if(endswith(substring('a,b,,c', 5, 0), '_'), soundex(('abcABC' || 'abc')), string(sign(nanvl(-2.5D, 1.0E-3D))))",
+   "spark": "-1.0",
+   "type": "string"
+  },
+  {
+   "sql": "abs((123.456 * 0))",
+   "spark": {
+    "decimal": "0.000"
+   },
+   "type": "decimal(8,3)"
+  },
+  {
+   "sql": "last_day((DATE'2023-12-31' + 1))",
+   "spark": {
+    "date": "2024-01-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(0.0D - (1.0E-3D / 2.5D))",
+   "spark": -0.0004,
+   "type": "double"
+  },
+  {
+   "sql": "bround(months_between(DATE'2024-06-15', DATE'1999-12-31'), 1)",
+   "spark": 293.5,
+   "type": "double"
+  },
+  {
+   "sql": "locate('b', CAST(NULL AS STRING), -2)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "(round(1.0E-3D, 1) / (0 / 1))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "ceil(-0.5D)",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "upper(initcap('MiXeD'))",
+   "spark": "MIXED",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(abs(123.456), CAST(7 AS DECIMAL(10,3)))",
+   "spark": {
+    "decimal": "123.456"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "CAST(CASE WHEN CAST(NULL AS BOOLEAN) THEN -7 WHEN false THEN CAST(NULL AS INT) END AS DECIMAL(10,3))",
+   "spark": null,
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "date_format(add_months(make_date(1900, 1, 1000000), instr('a,b,,c', 'A')), 'D')",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "trim(ltrim(CAST(7 AS STRING)))",
+   "spark": "7",
+   "type": "string"
+  },
+  {
+   "sql": "if(false, string(sign(-3.75D)), CAST(2 AS STRING))",
+   "spark": "2",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(last_day((DATE'2024-01-06' + 6)), DATE'2024-02-29')",
+   "spark": {
+    "date": "2024-02-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "month(coalesce(DATE'2024-03-01', last_day(DATE'1999-12-31')))",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "(' ' <> 'MiXeD')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "substring(replace('ÄÖü', 'A', '%'), 3)",
+   "spark": "ü",
+   "type": "string"
+  },
+  {
+   "sql": "substring(split_part('abc', '%', 1), 4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "format_number(1.25, 1)",
+   "spark": "1.2",
+   "type": "string"
+  },
+  {
+   "sql": "initcap(regexp_replace(' ', '[a-c]', ''))",
+   "spark": " ",
+   "type": "string"
+  },
+  {
+   "sql": "shiftright(3, 6)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "trunc(DATE'2024-01-31', 'YEAR')",
+   "spark": {
+    "date": "2024-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(0.0D / 0.0D)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "abs((-1.25 - 123.456))",
+   "spark": {
+    "decimal": "124.706"
+   },
+   "type": "decimal(7,3)"
+  },
+  {
+   "sql": "overlay('abc' PLACING 'a' FROM -6)",
+   "spark": "aabc",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(-1.25, (-10.005 * timestampdiff(DAY, DATE'2025-02-28', DATE'2024-03-01')))",
+   "spark": {
+    "decimal": "3641.820"
+   },
+   "type": "decimal(26,3)"
+  },
+  {
+   "sql": "regexp_extract(concat_ws('A', left('', 0), CAST(1 AS STRING), substr(CAST(NULL AS STRING), 3, 5)), '([A-Z])([a-z]*)', 0)",
+   "spark": "A",
+   "type": "string"
+  },
+  {
+   "sql": "next_day(coalesce(next_day(DATE'2024-03-01', 'Sunday'), DATE'2000-01-01'), 'fri')",
+   "spark": {
+    "date": "2024-03-08"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "if(true, format_number(0.049, 2), split_part('aaa', 'b', 0))",
+   "spark": "0.05",
+   "type": "string"
+  },
+  {
+   "sql": "round((1.5 + 0.049), 1)",
+   "spark": {
+    "decimal": "1.5"
+   },
+   "type": "decimal(4,1)"
+  },
+  {
+   "sql": "overlay('abcABC' PLACING ',' FROM 2)",
+   "spark": "a,cABC",
+   "type": "string"
+  },
+  {
+   "sql": "nvl('2024-02-29', 'x_y%z')",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "nvl(overlay('abc' PLACING ',' FROM 0), nvl('3.5', '  pad  '))",
+   "spark": ",abc",
+   "type": "string"
+  },
+  {
+   "sql": "abs(-7)",
+   "spark": 7,
+   "type": "int"
+  },
+  {
+   "sql": "to_date(string(sign(sqrt(1.0E-3D))), 'yyyyMMdd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "date_add(date_add(DATE'2024-06-15', -100), timestampdiff(YEAR, DATE'2024-03-01', DATE'2024-01-07'))",
+   "spark": null,
+   "error": "AnalysisException"
+  },
+  {
+   "sql": "date_add(trunc(DATE'2025-02-28', 'QUARTER'), CAST(NULL AS INT))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(levenshtein('Hello World', substr(' ', 5, 0)) AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "11.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "contains(left(lower('ÄÖü'), 6), ',')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "CAST(reverse('aaa') AS DOUBLE)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "replace('-7', 'A', ' ')",
+   "spark": "-7",
+   "type": "string"
+  },
+  {
+   "sql": "lpad('  pad  ', CAST(NULL AS INT), 'A')",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "(99.99 + 10.005)",
+   "spark": {
+    "decimal": "109.995"
+   },
+   "type": "decimal(6,3)"
+  },
+  {
+   "sql": "replace('', '%', '')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "format_number(greatest(0.0, -1.5), 2)",
+   "spark": "0.00",
+   "type": "string"
+  },
+  {
+   "sql": "dayofyear(coalesce(DATE'2025-02-28', DATE'2024-01-06'))",
+   "spark": 59,
+   "type": "int"
+  },
+  {
+   "sql": "(pmod(12.5D, 12.5D))",
+   "spark": 0.0,
+   "type": "double"
+  },
+  {
+   "sql": "greatest(DATE'2024-02-29', DATE'2024-03-01')",
+   "spark": {
+    "date": "2024-03-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "least(CAST(-2.5D AS BIGINT), -100)",
+   "spark": -100,
+   "type": "bigint"
+  },
+  {
+   "sql": "find_in_set('ab', repeat(format_number(2.5, 2), -2))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "(NOT (NOT false))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "sqrt(-3.75D)",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "(initcap(trim(BOTH ' ' FROM 'a,b,,c')) RLIKE 'b')",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "trim(BOTH '' FROM if(CAST(NULL AS BOOLEAN), '  pad  ', ''))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "dayofweek(DATE'2024-01-31')",
+   "spark": 4,
+   "type": "int"
+  },
+  {
+   "sql": "abs(greatest(0.049, 0.049))",
+   "spark": {
+    "decimal": "0.049"
+   },
+   "type": "decimal(3,3)"
+  },
+  {
+   "sql": "coalesce(10.005, abs(CAST(NULL AS DECIMAL(10,3))))",
+   "spark": {
+    "decimal": "10.005"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "rtrim('')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "size(split(trim(BOTH ',' FROM 'aaa'), '%'))",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "(0.0 + -10.005)",
+   "spark": {
+    "decimal": "-10.005"
+   },
+   "type": "decimal(6,3)"
+  },
+  {
+   "sql": "CAST('' AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "round(CAST('a' AS DECIMAL(10,3)), 1)",
+   "spark": null,
+   "type": "decimal(9,1)"
+  },
+  {
+   "sql": "CAST(CAST(CAST(1000000 AS DECIMAL(10,3)) AS INT) AS DOUBLE)",
+   "spark": 1000000.0,
+   "type": "double"
+  },
+  {
+   "sql": "(DATE'2024-01-07' + 4)",
+   "spark": {
+    "date": "2024-01-11"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "year(greatest(DATE'2024-03-01', DATE'2023-12-31'))",
+   "spark": 2024,
+   "type": "int"
+  },
+  {
+   "sql": "(DATE'2025-02-28' + 3)",
+   "spark": {
+    "date": "2025-03-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(' ' || 'a')",
+   "spark": " a",
+   "type": "string"
+  },
+  {
+   "sql": "substr(string(sign(bround(-0.5D, 1))), 6, 3)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(CAST(DATE'2024-01-31' AS STRING) AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(trunc(DATE'2024-06-15', 'QUARTER') AS STRING)",
+   "spark": "2024-04-01",
+   "type": "string"
+  },
+  {
+   "sql": "date_sub(last_day(DATE'2023-12-31'), 4)",
+   "spark": {
+    "date": "2023-12-27"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "format_number((123.456 * 255), 2)",
+   "spark": "31,481.28",
+   "type": "string"
+  },
+  {
+   "sql": "datediff(make_date(2023, 0, 1000000), next_day(DATE'2024-01-06', 'MON'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "reverse(ltrim(translate('3.5', ',', 'a')))",
+   "spark": "5.3",
+   "type": "string"
+  },
+  {
+   "sql": "if(('x_y%z' LIKE '%o W%'), (CAST(NULL AS INT) % -100), -100)",
+   "spark": -100,
+   "type": "int"
+  },
+  {
+   "sql": "string(sign((0.0D + CAST(NULL AS DOUBLE))))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(1000000, 100)",
+   "spark": 1000000,
+   "type": "int"
+  },
+  {
+   "sql": "CAST('12' AS DOUBLE)",
+   "spark": 12.0,
+   "type": "double"
+  },
+  {
+   "sql": "ascii('x_y%z')",
+   "spark": 120,
+   "type": "int"
+  },
+  {
+   "sql": "date_add((DATE'2024-01-06' + -1), datediff(CAST(NULL AS DATE), DATE'2024-02-29'))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "format_number(CAST(NULL AS DECIMAL(10,3)), 2)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "date_sub(last_day(DATE'2024-03-01'), CAST(NULL AS INT))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "rtrim(replace(format_number(-1.5, 2), 'b', 'a'))",
+   "spark": "-1.50",
+   "type": "string"
+  },
+  {
+   "sql": "(-100 div 255)",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "(reverse('ÄÖü') ILIKE '%,%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "overlay(translate('2024-02-29', '_', '%') PLACING 'A' FROM 3)",
+   "spark": "20A4-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "(year(DATE'2025-02-28') / 7)",
+   "spark": 289.2857142857143,
+   "type": "double"
+  },
+  {
+   "sql": "overlay('a,b,,c' PLACING 'A' FROM -2)",
+   "spark": "Ac",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(rpad('x_y%z', -4, '%') AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "quarter(to_date('x_y%z'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(reverse('ÄÖü') AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "make_date(2023, sign(7), length('ÄÖü'))",
+   "spark": {
+    "date": "2023-01-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(1.25 >= floor(99.99))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "quarter(DATE'2024-01-31')",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "add_months(next_day(DATE'2024-02-29', 'Sunday'), weekofyear(trunc(DATE'1999-12-31', 'YEAR')))",
+   "spark": {
+    "date": "2028-08-03"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "levenshtein('12', 'abcABC')",
+   "spark": 6,
+   "type": "int"
+  },
+  {
+   "sql": "(substring('abcABC', CAST(NULL AS INT), -6) || regexp_extract('aaa', '(\\\\d+)', 1))",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "to_date(string(sign(CAST(NULL AS DOUBLE))), 'yyyy-MM-dd')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(find_in_set(',', '2024-02-29') AS DECIMAL(10,3))",
+   "spark": {
+    "decimal": "0.000"
+   },
+   "type": "decimal(10,3)"
+  },
+  {
+   "sql": "weekofyear(to_date('abcABC', 'yyyy-MM-dd'))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "coalesce((DATE'2025-02-28' + 2), to_date('aaa'))",
+   "spark": {
+    "date": "2025-03-02"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "right('3.5', 0)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "CAST('abc' AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "startswith('  pad  ', 'A')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "abs(round(-1.5, 1))",
+   "spark": {
+    "decimal": "1.5"
+   },
+   "type": "decimal(3,1)"
+  },
+  {
+   "sql": "rtrim(rpad('a', -1, 'b'))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(shiftleft(-100, -4) / instr('MiXeD', '_'))",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "concat_ws(',', regexp_extract(CAST(NULL AS STRING), '(\\\\d+)', 1), replace(trim(BOTH '%' FROM '2024-02-29'), 'b', '_'), trim(BOTH 'b' FROM soundex('12')))",
+   "spark": "2024-02-29,12",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(DATE'2024-06-15', DATE'2024-01-31')",
+   "spark": {
+    "date": "2024-06-15"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "coalesce(date_add(last_day(DATE'2024-01-31'), 2), to_date(rpad('abc', 2, 'A')))",
+   "spark": {
+    "date": "2024-02-02"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "pmod(char_length('-7'), dayofmonth(CAST('a,b,,c' AS DATE)))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "greatest(round(0.049, -1), round(-0.5, 2))",
+   "spark": {
+    "decimal": "0.0"
+   },
+   "type": "decimal(3,1)"
+  },
+  {
+   "sql": "CAST(bround(-10.005, 0) AS INT)",
+   "spark": -10,
+   "type": "int"
+  },
+  {
+   "sql": "(if((-7 NOT IN (255, 0)), shiftleft(0, 5), ascii('abc')) + CAST(('12' || 'abc') AS INT))",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "translate(upper(CAST(NULL AS STRING)), 'ab', ' ')",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "CAST((0.049 * CAST(NULL AS INT)) AS STRING)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "greatest(1.25, 123.456)",
+   "spark": {
+    "decimal": "123.456"
+   },
+   "type": "decimal(6,3)"
+  },
+  {
+   "sql": "substring(regexp_extract('  pad  ', '([a-z]+)', 1), -2)",
+   "spark": "ad",
+   "type": "string"
+  },
+  {
+   "sql": "substring_index(replace(CAST(NULL AS STRING), 'ab', 'a'), '%', 6)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "nvl(translate('2024-02-29', 'A', 'A'), substr('a', 1, 3))",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "('ÄÖü' RLIKE 'b')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "greatest((instr('12', 'a') div size(split(' ', 'b'))), -3, instr(date_format(DATE'2024-06-15', 'dd/MM/yyyy'), ' '))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "((coalesce(1.5, -2.5) >= timestampdiff(QUARTER, DATE'2024-06-15', DATE'2024-06-15')) AND (split_part('MiXeD', 'b', CAST(NULL AS INT)) ILIKE 'a%'))",
+   "spark": null,
+   "type": "boolean"
+  },
+  {
+   "sql": "substring('a,b,,c', -1)",
+   "spark": "c",
+   "type": "string"
+  },
+  {
+   "sql": "(coalesce(100, 255) div 3)",
+   "spark": 33,
+   "type": "bigint"
+  },
+  {
+   "sql": "regexp_extract(split_part('  pad  ', 'a', CAST(NULL AS INT)), '([A-Z])([a-z]*)', 0)",
+   "spark": null,
+   "type": "string"
+  },
+  {
+   "sql": "power(nullif(instr('ÄÖü', ''), shiftleft(1000000, -2)), 0)",
+   "spark": 1.0,
+   "type": "double"
+  },
+  {
+   "sql": "substr(' ', -1, 4)",
+   "spark": " ",
+   "type": "string"
+  },
+  {
+   "sql": "((1000000 = 3) OR false)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "isnan((pmod(nanvl(1.0E3D, 0.0D), sqrt(-3.75D))))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(round(CAST('2024-02-29' AS DOUBLE), 1) + -0.5D)",
+   "spark": null,
+   "type": "double"
+  },
+  {
+   "sql": "(-0.5 < least(2, 2))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "shiftleft(CAST(12.5D AS BIGINT), CAST(NULL AS INT))",
+   "spark": null,
+   "type": "bigint"
+  },
+  {
+   "sql": "CAST(coalesce(DATE'2024-03-01', DATE'2024-01-07') AS STRING)",
+   "spark": "2024-03-01",
+   "type": "string"
+  },
+  {
+   "sql": "timestampdiff(QUARTER, date_sub(greatest(DATE'2024-01-06', DATE'2024-03-01'), 6), greatest(last_day(DATE'2024-03-01'), CAST('' AS DATE)))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "coalesce(CAST(upper('3.5') AS DATE), CAST(reverse('2024-02-29') AS DATE))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "add_months(DATE'2024-01-06', 1000000)",
+   "spark": null,
+   "error": "ValueError"
+  },
+  {
+   "sql": "initcap(ltrim('  pad  '))",
+   "spark": "Pad  ",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(1, 1, 0)",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "(((- 2) div greatest(-7, -7, -7)) * -100)",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "nanvl(nanvl(1.0E3D, CAST('a' AS DOUBLE)), -2.5D)",
+   "spark": 1000.0,
+   "type": "double"
+  },
+  {
+   "sql": "contains(substr('a', -4, -6), '%')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "abs(-100)",
+   "spark": 100,
+   "type": "int"
+  },
+  {
+   "sql": "add_months(make_date(2024, 1000000, -3), -100)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "soundex('  pad  ')",
+   "spark": "  pad  ",
+   "type": "string"
+  },
+  {
+   "sql": "soundex('aaa')",
+   "spark": "A000",
+   "type": "string"
+  },
+  {
+   "sql": "substring('a,b,,c', -1, 2)",
+   "spark": "c",
+   "type": "string"
+  },
+  {
+   "sql": "(locate('A', '', 0) ^ 255)",
+   "spark": 255,
+   "type": "int"
+  },
+  {
+   "sql": "if(true, 'aaa', 'Hello World')",
+   "spark": "aaa",
+   "type": "string"
+  },
+  {
+   "sql": "CAST('2024-02-29' AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "(dayofmonth(DATE'2024-01-06') * -3)",
+   "spark": -18,
+   "type": "int"
+  },
+  {
+   "sql": "date_add(to_date('2024-02-29'), -3)",
+   "spark": {
+    "date": "2024-02-26"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "if(contains(right('ÄÖü', -2), 'b'), 'aaa', 'abcABC')",
+   "spark": "abcABC",
+   "type": "string"
+  },
+  {
+   "sql": "coalesce(to_date('12', 'dd/MM/yyyy'), date_add(trunc(DATE'2000-01-01', 'MM'), 0))",
+   "spark": {
+    "date": "2000-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "right('-7', -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "greatest(date_sub(DATE'2024-01-07', -4), DATE'2024-06-15')",
+   "spark": {
+    "date": "2024-06-15"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "substring_index(regexp_replace('', '^.', ' '), 'a', -1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(abs(100) NOT IN (shiftright(0, 5), greatest(1000000, 3, 255)))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "('abcABC' = string(sign(bround(1.0E-3D, 0))))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "date_add(trunc(add_months(DATE'2023-12-31', 7), 'YEAR'), round(ceil(-2.5D), -2))",
+   "spark": null,
+   "error": "AnalysisException"
+  },
+  {
+   "sql": "lpad(string(sign(CAST(-100 AS DOUBLE))), 5, '')",
+   "spark": "-1.0",
+   "type": "string"
+  },
+  {
+   "sql": "next_day(greatest(coalesce(DATE'2024-01-31', DATE'2025-02-28'), to_date('x_y%z', 'dd/MM/yyyy')), 'MON')",
+   "spark": {
+    "date": "2024-02-05"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "CAST(1.25 AS INT)",
+   "spark": 1,
+   "type": "int"
+  },
+  {
+   "sql": "substring('a,b,,c', 5)",
+   "spark": ",c",
+   "type": "string"
+  },
+  {
+   "sql": "CAST(instr('Hello World', '_') AS STRING)",
+   "spark": "0",
+   "type": "string"
+  },
+  {
+   "sql": "(shiftleft(100, 2) div CASE WHEN true THEN 1 WHEN true THEN 3 END)",
+   "spark": 400,
+   "type": "bigint"
+  },
+  {
+   "sql": "((1.0E3D / 3.75D) - bround(2.5D, 0))",
+   "spark": 264.6666666666667,
+   "type": "double"
+  },
+  {
+   "sql": "(date_sub(DATE'1999-12-31', -1) = DATE'2024-03-01')",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "months_between(DATE'2023-12-31', DATE'2024-01-07')",
+   "spark": -0.22580645,
+   "type": "double"
+  },
+  {
+   "sql": "CASE WHEN (1000000 IN (3, 7, 7)) THEN -1 WHEN false THEN 1000000 END",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "sqrt(power(0, -1))",
+   "spark": {
+    "double": "inf"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "CAST(CAST(NULL AS STRING) AS INT)",
+   "spark": null,
+   "type": "int"
+  },
+  {
+   "sql": "nanvl(0.5D, CAST(NULL AS DOUBLE))",
+   "spark": 0.5,
+   "type": "double"
+  },
+  {
+   "sql": "substring('  pad  ', 6, -1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "isnan(CAST(NULL AS DOUBLE))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "shiftright((bit_count(-100) + year(DATE'2024-02-29')), 3)",
+   "spark": 260,
+   "type": "int"
+  },
+  {
+   "sql": "trunc(greatest(date_sub(DATE'2024-01-07', -4), trunc(DATE'2024-01-06', 'yyyy')), 'MONTH')",
+   "spark": {
+    "date": "2024-01-01"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(NOT isnan(months_between(DATE'2024-02-29', CAST(NULL AS DATE))))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "pmod(shiftleft(-3, 2), weekday(DATE'2024-06-15'))",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "substr('  pad  ', -1, -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "date_format(greatest(add_months(DATE'2024-02-29', 1000000), to_date('x_y%z', 'dd/MM/yyyy')), 'yyyyMM')",
+   "spark": "+8535706",
+   "type": "string"
+  },
+  {
+   "sql": "isnan(CAST('a' AS DOUBLE))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "left(substring(concat('3.5', '2024-02-29'), 3, -2), 8)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "nullif(shiftleft(10, -1), 10)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "shiftleft(10, -2)",
+   "spark": -2147483648,
+   "type": "int"
+  },
+  {
+   "sql": "shiftright(sign(7), 4)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "date_add(greatest(CAST('abcABC' AS DATE), make_date(2024, 7, -7)), weekofyear(date_sub(DATE'2024-01-06', -1)))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "substr(upper(CAST(DATE'2025-02-28' AS STRING)), 6, -6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "substr('  pad  ', -4, -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "substr('abc', 2, -6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "substr('abc', 4, -4)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "next_day(coalesce(make_date(1900, -1, -1), DATE'2024-06-15'), 'MON')",
+   "spark": {
+    "date": "2024-06-17"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "overlay(CAST(DATE'2024-01-06' AS STRING) PLACING 'b' FROM -4)",
+   "spark": "b-06",
+   "type": "string"
+  },
+  {
+   "sql": "initcap(rtrim(left('  pad  ', 2)))",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "(bround(99.99, -1) * shiftright(-100, -1))",
+   "spark": {
+    "decimal": "-100"
+   },
+   "type": "decimal(14,0)"
+  },
+  {
+   "sql": "shiftright(shiftleft(10, -6), 4)",
+   "spark": 41943040,
+   "type": "int"
+  },
+  {
+   "sql": "CAST(repeat('-7', 5) AS DATE)",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "CAST(trunc(trunc(DATE'2024-02-29', 'MM'), 'WEEK') AS STRING)",
+   "spark": "2024-01-29",
+   "type": "string"
+  },
+  {
+   "sql": "nanvl(sqrt(-0.5D), (-0.5D + 1.0E3D))",
+   "spark": 999.5,
+   "type": "double"
+  },
+  {
+   "sql": "length(regexp_extract(substr('MiXeD', 6, -2), '([A-Z])([a-z]*)', 0))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "substr('x_y%z', 8, -6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "to_date(initcap(ltrim(' ')))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "initcap(translate(' ', ' ', 'A'))",
+   "spark": "A",
+   "type": "string"
+  },
+  {
+   "sql": "initcap(soundex('MiXeD'))",
+   "spark": "M230",
+   "type": "string"
+  },
+  {
+   "sql": "next_day((make_date(2023, 1, 255) + -2), 'Sunday')",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "(shiftright(-3, 8) BETWEEN shiftright(floor(0.0), -4) AND bit_count(ascii('aaa')))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "round(sqrt(-2.5D), 1)",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "soundex(translate(CAST(10.005 AS STRING), ',', 'A'))",
+   "spark": "10.005",
+   "type": "string"
+  },
+  {
+   "sql": "soundex(CAST(DATE'2000-01-01' AS STRING))",
+   "spark": "2000-01-01",
+   "type": "string"
+  },
+  {
+   "sql": "isnan(CAST(bit_count(CAST(NULL AS INT)) AS DOUBLE))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(ceil(-2.5D) % shiftleft(-3, 8))",
+   "spark": -2,
+   "type": "bigint"
+  },
+  {
+   "sql": "initcap(overlay('Hello World' PLACING '%' FROM 0))",
+   "spark": "%hello World",
+   "type": "string"
+  },
+  {
+   "sql": "overlay(substring(regexp_replace('Hello World', '\\\\s+', 'a'), 1) PLACING '' FROM -4)",
+   "spark": "orld",
+   "type": "string"
+  },
+  {
+   "sql": "substring(substr(CAST(DATE'2023-12-31' AS STRING), 5, -1), 1)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "((1 % 2) div shiftleft(-1, 3))",
+   "spark": 0,
+   "type": "bigint"
+  },
+  {
+   "sql": "initcap(CAST(abs(3.14159) AS STRING))",
+   "spark": "3.14159",
+   "type": "string"
+  },
+  {
+   "sql": "sqrt(-2.5D)",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "round(char_length(substring('Hello World', -6, -6)), -1)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "isnan(CAST('MiXeD' AS DOUBLE))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "sqrt(CAST(-3 AS DOUBLE))",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "initcap(replace('3.5', ',', '_'))",
+   "spark": "3.5",
+   "type": "string"
+  },
+  {
+   "sql": "shiftleft(-7, -1)",
+   "spark": -2147483648,
+   "type": "int"
+  },
+  {
+   "sql": "(-1 BETWEEN (shiftleft(-1, -6) + 1) AND shiftleft(datediff(DATE'2024-02-29', DATE'2024-02-29'), -2))",
+   "spark": true,
+   "type": "boolean"
+  },
+  {
+   "sql": "(''",
+   "spark": null,
+   "error": "ParseException"
+  },
+  {
+   "sql": "shiftleft(0, -4)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "shiftright(-3, -4)",
+   "spark": -1,
+   "type": "int"
+  },
+  {
+   "sql": "initcap(rtrim('ÄÖü'))",
+   "spark": "Äöü",
+   "type": "string"
+  },
+  {
+   "sql": "if(true, substr('ÄÖü', 2, -6), 'aaa')",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "string(sign(sqrt(-3.75D)))",
+   "spark": "NaN",
+   "type": "string"
+  },
+  {
+   "sql": "nullif(locate('%', '-7', 4), shiftleft(-7, -2))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "substring(format_number(0.0, 1), 3, -6)",
+   "spark": "",
+   "type": "string"
+  },
+  {
+   "sql": "add_months(CAST('2024-02-29' AS DATE), shiftleft(-1, 8))",
+   "spark": {
+    "date": "2002-10-29"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "greatest(dayofyear(CAST(NULL AS DATE)), 3, levenshtein('', 'ÄÖü'))",
+   "spark": 3,
+   "type": "int"
+  },
+  {
+   "sql": "shiftleft(month(DATE'2000-01-01'), -1)",
+   "spark": -2147483648,
+   "type": "int"
+  },
+  {
+   "sql": "shiftleft(-7, 3)",
+   "spark": -56,
+   "type": "int"
+  },
+  {
+   "sql": "initcap(overlay(trim(BOTH 'a' FROM 'MiXeD') PLACING '%' FROM -1))",
+   "spark": "%mixed",
+   "type": "string"
+  },
+  {
+   "sql": "shiftleft(month(coalesce(DATE'2024-06-15', DATE'2024-06-15')), -2)",
+   "spark": -2147483648,
+   "type": "int"
+  },
+  {
+   "sql": "shiftleft(1000000, -4)",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "sqrt((weekday(DATE'2024-01-06') / datediff(DATE'2024-02-29', DATE'2025-02-28')))",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "bit_count(ceil(0.0D))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "shiftleft(length(replace('  pad  ', 'A', ',')), -1)",
+   "spark": -2147483648,
+   "type": "int"
+  },
+  {
+   "sql": "concat(concat(overlay('MiXeD' PLACING 'b' FROM 2), CAST(false AS STRING)), substr('a,b,,c', -2, -2))",
+   "spark": "MbXeDfalse",
+   "type": "string"
+  },
+  {
+   "sql": "overlay(translate('x_y%z', '', '') PLACING ',' FROM -1)",
+   "spark": ",x_y%z",
+   "type": "string"
+  },
+  {
+   "sql": "(- shiftright(7, 8))",
+   "spark": 0,
+   "type": "int"
+  },
+  {
+   "sql": "add_months(greatest(DATE'2024-01-31', DATE'1999-12-31'), shiftleft(-3, 0))",
+   "spark": {
+    "date": "2023-10-31"
+   },
+   "type": "date"
+  },
+  {
+   "sql": "(locate('a', trim('ÄÖü'), -2) IN ((shiftleft(-7, 4) + instr('abcABC', 'a')), sign((1000000 ^ -100)), greatest(CAST(-0.5D AS BIGINT), nullif(2, -7), 3)))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "initcap(CAST(weekofyear(DATE'2024-02-29') AS STRING))",
+   "spark": "9",
+   "type": "string"
+  },
+  {
+   "sql": "sqrt(months_between(DATE'2024-01-06', DATE'2025-02-28'))",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "shiftleft(if(true, -100, 1000000), -4)",
+   "spark": -1073741824,
+   "type": "int"
+  },
+  {
+   "sql": "to_date(substring('2024-02-29', 3))",
+   "spark": null,
+   "type": "date"
+  },
+  {
+   "sql": "initcap(CAST((10 NOT IN (0, 0)) AS STRING))",
+   "spark": "True",
+   "type": "string"
+  },
+  {
+   "sql": "isnan((pmod(nanvl(-3.75D, 3.75D), CAST('MiXeD' AS DOUBLE))))",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "(pmod(CAST(ceil(0.0D) AS DOUBLE), sqrt((-3.75D / 2.5D))))",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "concat(substr('a', 2, -4), substring_index('2024-02-29', 'A', -2))",
+   "spark": "2024-02-29",
+   "type": "string"
+  },
+  {
+   "sql": "(nanvl(0.5D, (pmod(12.5D, 2.5D))) - sqrt(nanvl(-3.75D, -0.5D)))",
+   "spark": {
+    "double": "NaN"
+   },
+   "type": "double"
+  },
+  {
+   "sql": "initcap(soundex(('  pad  '",
+   "spark": null,
+   "error": "ParseException"
+  },
+  {
+   "sql": "(shiftleft((3 + 1000000), -1) >= CASE WHEN startswith('  pad  ', '') THEN CASE WHEN true THEN 1 WHEN false THEN 10 END WHEN (-2.5 = 10) THEN 3 END)",
+   "spark": false,
+   "type": "boolean"
+  },
+  {
+   "sql": "shiftleft((-1 div 1), 4)",
+   "spark": -16,
+   "type": "bigint"
+  },
+  {
+   "sql": "initcap(translate('-7', 'a', ''))",
+   "spark": "-7",
+   "type": "string"
+  },
+  {
+   "sql": "shiftleft(CAST(1.0E3D AS BIGINT), -4)",
+   "spark": -9223372036854775808,
+   "type": "bigint"
+  },
+  {
+   "sql": "(dayofweek(DATE'2024-03-01') IN (CAST('2024-02-29' AS INT), shiftleft(-7, -1), 7))",
+   "spark": null,
+   "type": "boolean"
+  }
+ ]
+}

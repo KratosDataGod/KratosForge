@@ -41,6 +41,34 @@ def test_search_and_sort_cover_every_row_not_just_the_preview():
     assert k.frame_page(out["frame"], q="r_9")["total"] == 0
 
 
+def test_filter_boxes_cover_every_row_with_search_and_sort_and_name_a_box_that_cant_be_read():
+    k = Kernel()
+    (out,) = _run(k, "import polars as pl\npl.DataFrame({'n': range(3000), 's': [f'r{i}' for i in range(3000)]})")
+    page = k.frame_page(out["frame"], filters=[{"column": 0, "text": "< 50"}, {"column": 1, "text": "9"}], sort=0, desc=True)
+    assert page["total"] == 5 and [r[0] for r in page["rows"]] == [49, 39, 29, 19, 9] and page["all_rows"] == 3000
+    both = k.frame_page(out["frame"], q="r1", filters=[{"column": 0, "text": "<= 19"}])
+    assert both["total"] == 11, "the search and the boxes both apply"
+    assert k.frame_page(out["frame"], filters=[{"column": 1, "text": "  "}])["total"] == 3000, "an empty box filters nothing"
+    bad = k.frame_page(out["frame"], filters=[{"column": 0, "text": "> lots"}])
+    assert bad == {"frame": out["frame"], "filter_error": {"column": 0, "message": "Write a number after > in the filter on n, as 3000 or 12.5."}}
+    assert k.frame_page(out["frame"], filters=[{"column": 1, "text": "= r1') OR (1=1"}])["total"] == 0, "the text is a value"
+
+
+def test_a_duckdb_relation_cell_result_pages_searches_and_downloads_every_row(tmp_path):
+    # DuckDBPyRelation's module is _duckdb, not duckdb: the viewer once said it "isn't a table" (#2474).
+    k = Kernel()
+    (out,) = _run(k, "import duckdb\nduckdb.sql(\"SELECT range AS n, 'r' || range AS s FROM range(3000)\")")
+    assert out["type"] == "table" and len(out["rows"]) == PREVIEW_ROWS
+    page = k.frame_page(out["frame"], offset=2990, limit=10)
+    assert page["total"] == 3000 and page["rows"][-1] == [2999, "r2999"]
+    assert k.frame_page(out["frame"], q="r2999")["rows"] == [[2999, "r2999"]]
+    store = Frames()
+    import duckdb
+    target = tmp_path / "r.csv"
+    target.touch()
+    assert store.download(store.keep(duckdb.connect().sql("SELECT range AS n FROM range(2500)")), "csv", str(target))["rows"] == 2500
+
+
 def test_odd_and_duplicate_column_names_are_safe():
     store = Frames()
     t = pa.table([pa.array([1, None, 3]), pa.array(["a", "b", "c"])], names=['x"; drop', 'x"; drop'])
@@ -105,6 +133,17 @@ def test_excel_refuses_more_rows_than_a_sheet_holds(tmp_path, monkeypatch):
     assert target.stat().st_size == 0 and not (tmp_path / "r.xlsx.partial").exists()
 
 
+def test_excel_refuses_more_columns_than_a_sheet_holds(tmp_path, monkeypatch):
+    monkeypatch.setattr(frames, "EXCEL_MAX_COLUMNS", 2)
+    store = Frames()
+    target = tmp_path / "r.xlsx"
+    target.touch()
+    with pytest.raises(ValueError, match="Excel holds at most 2 columns and this result has 3"):
+        store.download(store.keep(pa.table({"a": [1], "b": [2], "c": [3]})), "xlsx", str(target))
+    assert target.stat().st_size == 0
+    store.download(store.keep(pa.table({"a": [1], "b": [2]})), "xlsx", str(target))  # at the limit: written
+
+
 def test_a_failed_download_leaves_no_partial_file(tmp_path, monkeypatch):
     store = Frames()
     fid = store.keep(pa.table({"a": [1]}))
@@ -141,6 +180,8 @@ def test_process_kernel_pages_and_downloads_in_its_own_process(tmp_path):
     try:
         (out,) = _run(k, "import polars as pl\npl.DataFrame({'n': range(1500)})")
         assert k.frame_page(out["frame"], offset=1400)["rows"][0] == [1400]
+        assert k.frame_page(out["frame"], filters=[{"column": 0, "text": ">= 1495"}])["total"] == 5
+        assert k.frame_page(out["frame"], filters=[{"column": 0, "text": "> x"}])["filter_error"]["column"] == 0
         target = tmp_path / "r.csv"
         target.touch()
         assert k.frame_download(out["frame"], "csv", str(target))["rows"] == 1500

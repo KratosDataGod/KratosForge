@@ -29,7 +29,7 @@ def test_a_list_with_no_end_stops_at_the_cap_and_says_it_isnt_complete(monkeypat
     c, s = client(pages)
     with pytest.raises(FabricError) as exc:
         c.list_workspaces()
-    assert "after 3 pages" in str(exc.value) and "isn't complete" in str(exc.value)
+    assert "more than 3 pages" in str(exc.value) and "isn't complete" in str(exc.value)
     assert len(s.calls) == 3
 
 

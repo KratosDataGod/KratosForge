@@ -453,7 +453,7 @@ class LiveTest:
 
     def _publish(self, ref: TableRef, data: Any, mode: str) -> Any:
         from .publish import publish
-        return publish(data, ref, mode, self.credential.storage_token())
+        return publish(data, ref, mode, self.credential.storage_token)
 
     def _delta_concurrent(self) -> str:
         import pyarrow as pa
@@ -545,12 +545,13 @@ class LiveTest:
         source = pa.table({"id": [2, 4], "amount": [200, 40]})
         # The same lease the write path takes on this table, so no other KratosForge writer overlaps.
         with leases.table_lease(self.lease_backend(), "dbo", "livetest_merge", owner=f"live test {self.run_id}"):
-            table = delta_profile.open_target(uri, opts)  # refuses a table outside the profile before writing
+            # The check is that a MERGE from this PC never upgrades the table: so the strictest profile.
+            table = delta_profile.open_target(uri, opts, "conservative")  # refused before writing if outside
             if table is None:
                 raise RuntimeError("The seeded table couldn't be opened")
             changed = delta_dml.apply(change, table, source, source.column_names)
         after = DeltaTable(uri, storage_options=opts)
-        delta_profile.check_table(after)
+        delta_profile.check_table(after, "conservative")
         rows = {r["id"]: r["amount"] for r in after.to_pyarrow_table().to_pylist()}
         if rows != {1: 10, 2: 200, 3: 30, 4: 40}:
             raise RuntimeError(f"After the MERGE the table holds {rows}")
@@ -795,8 +796,8 @@ def _safe(fn: Callable[[], Any]) -> str:
 def summary(result: dict[str, Any]) -> str:
     mark = {"passed": "Passed", "failed": "**Failed**", "skipped": "Skipped"}
     lines = [f"# KratosForge live test {result['run_id']}", "",
-             f"Outcome: **{result['outcome']}**. Workspace {cell(result['workspace']['name'], 200) or result['workspace']['id']}, "
-             f"started {result['started_at']}.", ""]
+             (f"Outcome: **{result['outcome']}**. Workspace {cell(result['workspace']['name'], 200) or result['workspace']['id']}, "
+             f"started {result['started_at']}."), ""]
     if (result.get("opt_in") or {}).get("checks"):
         lines += [f"Opt-in checks: {', '.join(result['opt_in']['checks'])}.", ""]
     if result["refused"]:

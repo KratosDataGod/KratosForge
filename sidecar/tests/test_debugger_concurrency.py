@@ -213,6 +213,27 @@ def test_step_out_of_a_coroutine_runs_it_to_its_end(kernel):
     untraced(kernel)
 
 
+def test_step_out_to_a_coroutine_with_no_line_left_stops_as_it_returns(kernel):
+    """Only a coroutine's suspensions are passed over: when Step out comes back into one whose last
+    line is the call (return helper()), the step stops as that coroutine really returns, as it does
+    for a plain function, not back in the cell."""
+    code = ("import asyncio\n"
+            "def helper():\n"
+            "    return 41\n"  # 3
+            "async def main():\n"
+            "    await asyncio.sleep(0)\n"  # 5
+            "    return helper() + 1\n"  # 6
+            "result = asyncio.run(main())\n"  # 7
+            "print(result)")
+    kernel.start(code, breakpoints=[3])
+    assert stack(wait(kernel)["paused"]) == [("(cell)", 7), ("main", 6), ("helper", 3)]
+    kernel.debug("out")
+    assert stack(wait(kernel)["paused"]) == [("(cell)", 7), ("main", 6)]
+    kernel.debug("continue")
+    assert text(finished(kernel)).strip() == "42"
+    untraced(kernel)
+
+
 def test_a_coroutine_running_a_cell_function_in_a_thread_never_pauses_there(kernel):
     code = ("import asyncio\n"
             "def blocking():\n"

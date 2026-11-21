@@ -22,6 +22,7 @@ MAX_LOCALS by name and says how many there are (``variables_total``).
 
 from __future__ import annotations
 
+import dis
 import inspect
 import queue
 import threading
@@ -31,6 +32,9 @@ from typing import Any, Callable
 ACTIONS = ("continue", "step", "next", "out")
 # A generator or coroutine "returns" each time it yields or awaits, not only when it ends.
 SUSPENDS = inspect.CO_GENERATOR | inspect.CO_COROUTINE | inspect.CO_ASYNC_GENERATOR | inspect.CO_ITERABLE_COROUTINE
+# The instructions a frame really returns with; any other "return" event of a generator or
+# coroutine is it suspending at a yield or an await (YIELD_VALUE on 3.12, the RESUME after it on 3.13).
+_RETURNS = frozenset(dis.opmap[name] for name in ("RETURN_VALUE", "RETURN_CONST") if name in dis.opmap)
 CELL_FILE = "<cell>"  # the file name cells are compiled with (notebook._CELL_FILE)
 MAX_BREAKPOINTS = 100
 MAX_LOCALS = 200
@@ -127,7 +131,7 @@ class Debugger:
         generator or coroutine: its return event is mostly a yield or an await giving way to the event
         loop, and a pause there would show it at a line it hasn't left; the step stops at the next line."""
         if (self.mode == "continue" or frame is self._raising or frame.f_code.co_name in ("<module>", "<cell>")
-                or frame.f_code.co_flags & SUSPENDS):
+                or _suspends(frame)):
             return False
         return self._depth(frame) < self.depth
 
@@ -255,3 +259,11 @@ class Debugger:
             return False
         self.commands.put(("stop", None))
         return True
+
+
+def _suspends(frame: types.FrameType) -> bool:
+    """A generator's or coroutine's "return" event that is it yielding or awaiting, not ending."""
+    if not frame.f_code.co_flags & SUSPENDS:
+        return False
+    code = frame.f_code.co_code
+    return not (0 <= frame.f_lasti < len(code) and code[frame.f_lasti] in _RETURNS)

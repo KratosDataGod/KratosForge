@@ -551,7 +551,7 @@ class LocalEngine:
             keep = self.project.storage != "persistent" or self._borrowed > 0
             if not keep:
                 try:
-                    keep = con.execute(_SESSION_OBJECTS).fetchone() is not None
+                    keep = first_row(con.execute(_SESSION_OBJECTS)) is not None
                 except duckdb.Error as exc:
                     _log.info("Checking for temporary objects before reopening: %s", describe(exc))
                     keep = True

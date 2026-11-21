@@ -30,7 +30,7 @@ from sqlglot.errors import ParseError, SqlglotError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.20"
+RULES_VERSION = "2026.11.21"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -191,7 +191,7 @@ def _scalar_kind(node: exp.Expression | None) -> str:
 
 
 def _mixed_array(node: object) -> bool:
-    """SFN-025: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
+    """SFX-040: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
     ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one)."""
     if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
         values = list(node.expressions)
@@ -433,12 +433,6 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                 isinstance(node, exp.DataType) and node.this == exp.DataType.Type.DECFLOAT):
             return _refuse("SFN-018", "DECFLOAT", "DuckDB has no decimal floating-point type to hold Snowflake's "
                            "DECFLOAT (38 significant digits with an exponent).", f"{_DOCS}/functions/to_decfloat")
-        if _mixed_array(node) and isinstance(node, exp.Func):
-            name = "ARRAY_CONSTRUCT" if isinstance(node, exp.Array) else _function_name(node)
-            return _refuse("SFN-025", f"{name}: text and numbers in one array",
-                           "A DuckDB list holds values of one type, so an array written with both text and numbers "
-                           "can't be made here. Cast them to one type (for example each value ::VARCHAR), or "
-                           "build the array from a column.", f"{_DOCS}/functions/array_construct")
         if isinstance(node, exp.MatchRecognize):
             return _refuse("SFN-019", "MATCH_RECOGNIZE", "DuckDB has no row pattern matching.",
                            f"{_DOCS}/constructs/match_recognize")
@@ -448,6 +442,21 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                            "can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE "
                            "run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) "
                            "counts.", f"{_DOCS}/functions-aggregation")
+        if isinstance(node, exp.CurrentVersion):
+            return _refuse("SFN-040", "CURRENT_VERSION", "It gives the version of Snowflake running the query "
+                           "(10.15.100 in Snowflake's example); this PC runs DuckDB, whose own version "
+                           "would come back in its place.", f"{_DOCS}/functions/current_version")
+        if isinstance(node, exp.CurrentSchemas):
+            return _refuse("SFN-041", "CURRENT_SCHEMAS", "It gives the schemas Snowflake's session searches, as "
+                           "JSON text of database.schema names ([\"TEST_DB1.BILLING\", \"TEST_DB1.PUBLIC\"] in "
+                           "Snowflake's example); DuckDB's gives a list of its own search path, with pg_catalog "
+                           "and the same schema more than once. CURRENT_DATABASE and CURRENT_SCHEMA run.",
+                           f"{_DOCS}/functions/current_schemas")
+        if isinstance(node, exp.Rand) and node.this is not None:
+            return _refuse("SFN-042", "RANDOM with a seed", "Snowflake's RANDOM(seed) gives the same series for a "
+                           "seed from its own generator (MT19937-64), which DuckDB's random() doesn't reproduce, "
+                           "so a seeded query would give other numbers here. RANDOM() runs.",
+                           f"{_DOCS}/functions/random")
         if isinstance(node, exp.Func) and _function_name(node) in _ACCOUNT_FUNCTIONS:
             return _refuse("SFN-014", f"{_function_name(node)}: Snowflake account and session",
                            "It reads the Snowflake account, session or client running the query; this PC has none.",
@@ -756,7 +765,15 @@ def _binary_valued(node: exp.Expression) -> bool:
 
 def _rewrite_time(statement: exp.Expression) -> None:
     """SFX-017: TIME(x) is TO_TIME(x): the time of a string or of a timestamp. sqlglot writes it as a cast
-    through TIMESTAMPTZ at an empty time zone, which DuckDB can't read."""
+    through TIMESTAMPTZ at an empty time zone, which DuckDB can't read.
+    SFX-041: CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, are the time cut to p digits
+    after the second; DuckDB keeps 6, so 6 to 9 keep them all. sqlglot couldn't write them for DuckDB."""
+    for clock in list(statement.find_all(exp.Localtime)):  # SFX-041
+        digits = clock.this
+        if isinstance(digits, exp.Literal) and digits.is_int and 0 <= int(digits.name) <= 9:
+            step = 10 ** max(6 - int(digits.name), 0)
+            clock.replace(exp.Localtime() if step == 1 else sqlglot.parse_one(
+                f"TIME '00:00:00' + to_microseconds(epoch_us(LOCALTIME) // {step} * {step})", read="duckdb"))
     for node in list(statement.find_all(exp.Time)):
         if node.this is None:  # TIME() with no argument: left for sqlglot, which refuses it (SFX-000)
             continue
@@ -922,11 +939,29 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
                 call.replace(_date_literal(epoch))
 
 
+def _variant_arrays(statement: exp.Expression) -> None:
+    """SFX-040: an array written in the query with both text and numbers in it is a list of VARIANT values, as
+    an ARRAY column is (SFX-024), so each element keeps its own type, as in Snowflake's array; a DuckDB list of
+    plain values holds one type. SFN-025, which refused it, is retired."""
+    variant = exp.DataType.build("VARIANT")
+    for node in list(statement.find_all(exp.Array, exp.ArrayConstructCompact, exp.ArrayInsert, exp.ArrayPrepend,
+                                        exp.ArrayAppend)):
+        if not _mixed_array(node):
+            continue
+        array = node if isinstance(node, (exp.Array, exp.ArrayConstructCompact)) else node.this
+        for element in [*array.expressions, *([] if array is node else [node.args["expression"]])]:
+            element.replace(exp.Cast(this=element.copy(), to=variant.copy()))
+        # a VARIANT[] cast marks each list as such a list for TO_JSON (SFX-024)
+        for made in {id(array): array, id(node): node}.values():
+            made.replace(exp.Cast(this=made.copy(), to=exp.DataType.build("VARIANT[]", dialect="duckdb")))
+
+
 def _rewrite_arrays(statement: exp.Expression) -> None:
     """SFX-019: ARRAY_DISTINCT keeps each value's first place and one NULL where the first NULL was, as
     Snowflake's does (DuckDB's LIST_DISTINCT doesn't keep the order). ARRAY_FLATTEN of an array holding
     a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it. ARRAY_INSERT past the
     end fills the gap with NULLs (Snowflake leaves empty elements); DuckDB's slices would close it."""
+    _variant_arrays(statement)
     for distinct in list(statement.find_all(exp.ArrayDistinct)):
         # the array is worked out once (fj_arg0 is read once), then searched for each element's first place
         _put(distinct, "LIST_TRANSFORM([fj_arg0], LAMBDA kf_l: "
@@ -2481,6 +2516,12 @@ CATALOG = (
                 "store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object, its "
                 "columns, a column or alias of CREATE ... AS and CREATE VIEW, a renamed table or column, an added "
                 "column. A quoted name keeps its case.")),
+    ("SFX-040", "Rewritten", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
+                "ARRAY_CONSTRUCT_COMPACT, and ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one) "
+                "is a list of VARIANT values, as an ARRAY column is (SFX-024), so each element keeps its own type. "
+                "SFN-025, which refused it, is retired.")),
+    ("SFX-041", "Rewritten", ("CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time "
+                "cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2535,8 +2576,6 @@ CATALOG = (
     ("SFN-023", "Runs only in Snowflake", ("IDENTIFIER($name) where the same cell doesn't set the variable to a "
                 "string first: its value isn't known here.")),
     ("SFN-024", "Runs only in Snowflake", "PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values."),
-    ("SFN-025", "Runs only in Snowflake", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
-                "ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type.")),
     ("SFN-026", "Runs only in Snowflake", ("INSERT ALL and INSERT FIRST: DuckDB has no multi-table INSERT, and "
                 "separate INSERTs wouldn't be one statement.")),
     ("SFN-027", "Runs only in Snowflake", ("CREATE TABLE ... LIKE: Snowflake copies the other table's defaults and "
@@ -2555,6 +2594,12 @@ CATALOG = (
                 "fraction or exponent read from a column or a path (the query stops at that row): Snowflake's answer "
                 "depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a "
                 "path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired.")),
+    ("SFN-040", "Runs only in Snowflake", ("CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own "
+                "version would come back in its place.")),
+    ("SFN-041", "Runs only in Snowflake", ("CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text "
+                "of database.schema names; DuckDB's is a list of its own search path.")),
+    ("SFN-042", "Runs only in Snowflake", ("RANDOM with a seed: Snowflake's series for a seed comes from its own "
+                "generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 

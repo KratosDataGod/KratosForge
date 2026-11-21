@@ -1180,14 +1180,17 @@ def test_session_variables_and_identifier_of_a_variable_the_cell_sets():
     assert not sf.translate("SET tn = 't; DROP TABLE x'; SELECT * FROM IDENTIFIER($tn)").runnable
 
 
-@pytest.mark.parametrize("sql", ["SELECT array_construct(1, 'a', NULL)", "SELECT array_construct_compact(NULL, 'a', -1)",
-                                 "SELECT array_insert(array_construct(0, 1), 2, 'x')",
-                                 "SELECT array_prepend(array_construct('a'), 2.5::double)",
-                                 "SELECT array_append(array_construct(1, 2), 'a')"])
-def test_an_array_of_text_and_numbers_is_refused_by_name(sql):
+@pytest.mark.parametrize(("sql", "want"), [
+    ("SELECT array_construct(1, 'a', NULL)", [1, "a", None]),
+    ("SELECT array_construct_compact(NULL, 'a', -1)", ["a", -1]),
+    ("SELECT array_insert(array_construct(0, 1), 2, 'x')", [0, 1, "x"]),
+    ("SELECT array_prepend(array_construct('a'), 2.5::double)", [2.5, "a"]),
+    ("SELECT array_append(array_construct(1, 2), 'a')", [1, 2, "a"])])
+def test_an_array_of_text_and_numbers_is_a_list_of_variants(sql, want):
+    """SFX-040 (SFN-025 retired): each element keeps its own type, as in Snowflake's array."""
     translation = sf.translate(sql)
-    assert not translation.runnable
-    assert "SFN-025" in translation.as_output()["text"] or "text and numbers in one array" in translation.first_refusal()
+    assert translation.runnable and "VARIANT" in translation.duckdb_sql
+    assert duckdb.connect().execute(translation.duckdb_sql).fetchone()[0] == want
 
 
 def test_an_array_of_one_kind_or_from_a_column_still_runs():
@@ -1251,7 +1254,7 @@ def test_jarowinkler_similarity_is_refused_by_name():
     t = sf.translate("SELECT jarowinkler_similarity(s, t) FROM ed")
     assert not t.runnable and t.statements[0].notes[0].id == "SFN-031"
     assert "EDITDISTANCE runs here" in t.first_refusal()
-    assert sf.RULES_VERSION == "2026.11.20" and "SFN-031" in sf.docs_table()
+    assert sf.RULES_VERSION == "2026.11.21" and "SFN-031" in sf.docs_table()
 
 
 @pytest.mark.parametrize("code, want", [

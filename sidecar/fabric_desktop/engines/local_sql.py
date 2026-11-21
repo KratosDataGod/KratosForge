@@ -317,7 +317,8 @@ def _databricks(code: str) -> list[Any]:
     # the Academy's learner package carries without them
     from .. import databricks_builtins_sql
     try:
-        rewritten = [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+        rewritten = [databricks_builtins_sql.rewrite(sql.spark_fixes(databricks_builtins_sql.refuse_seeds(s), databricks=True))
+                     for s in statements]
     except ValueError as exc:  # a Spark refusal names Fabric: this cell runs as Databricks SQL
         text = str(exc)
         if "the way it runs in Fabric" not in text:
@@ -340,6 +341,16 @@ def _databricks(code: str) -> list[Any]:
 
 
 _REFUSAL = "can't run on this PC the way it runs in Fabric"
+
+
+def databricks_duckdb_sql(statement: Any) -> str:
+    """A statement from _databricks as DuckDB SQL (sql.duckdb_sql), with its refusal naming Databricks, as a
+    Databricks SQL cell shows it: sql.duckdb_sql's own names Fabric."""
+    from .. import sql
+    try:
+        return sql.duckdb_sql(statement)
+    except ValueError as exc:
+        raise ValueError(_databricks_wording(str(exc))) from None
 
 
 def _databricks_wording(text: str) -> str:

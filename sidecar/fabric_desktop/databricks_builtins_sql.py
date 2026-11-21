@@ -205,6 +205,7 @@ def _int_literal(node: exp.Expression) -> int | None:
 # the rows, so a seed is refused.
 _RANDOM_SEED = ("with a seed Databricks gives its own series of values, from its own random generator and the "
                 "way it splits the rows, which this PC can't make.")
+_STAMPS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ)
 _INTEGRAL = (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT, exp.DataType.Type.BIGINT)
 
 
@@ -272,6 +273,16 @@ def _randstr(node: exp.Randstr) -> exp.Expression:
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return _template(f"array_to_string(list_transform(range({length}), __kf_i -> "
                      f"substr('{alphabet}', 1 + CAST(floor(random() * 62) AS INTEGER), 1)), '')")
+
+
+def refuse_seeds(statement: exp.Expression) -> exp.Expression:
+    """``statement`` as it is, or the refusal for a seeded rand(), random() or randn(): with a seed Databricks gives
+    its own series of values, which this PC can't make. Checked before sql.spark_fixes, whose own refusal for a
+    seeded randn names Spark and Fabric."""
+    for node in statement.find_all(exp.Rand, exp.Randn):
+        if node.this is not None:
+            raise _refusal("randn" if isinstance(node, exp.Randn) else "rand", _RANDOM_SEED, "leave out the seed")
+    return statement
 
 
 def _parsed(name: str, args: list[exp.Expression], kind: str, safe: bool) -> exp.Expression:
@@ -659,6 +670,28 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
                 node.parent.replace(rows)
             else:
                 node.replace(rows)
+
+    # collation(str): the name of its argument's collation. A string literal has the default, UTF8_BINARY
+    # (collation('test') is UTF8_BINARY in Databricks' reference), as no table or schema here has another; any
+    # other argument may carry one from a COLLATE, a view or a table, which this PC doesn't track
+    for named in list(statement.find_all(exp.Collation)):
+        if not (isinstance(named.this, exp.Literal) and named.this.is_string):
+            raise _refusal("collation", "this PC knows the collation of a string literal only, not of a column or "
+                                        "an expression, which may carry one from a COLLATE, a view or a table.",
+                           "pass it a string literal")
+        default = exp.Literal.string("UTF8_BINARY")
+        if named is statement:
+            return default
+        named.replace(default)
+
+    # hour(), minute() and second() take a TIME too in Databricks (hour(TIME'08:43:28') is 8); Spark's fix casts the
+    # argument to TIMESTAMP, which gives NULL for a TIME here, so a TIME is put on 1970-01-01 first
+    for part in list(statement.find_all(exp.Hour, exp.Minute, exp.Second)):
+        stamp = part.this
+        if isinstance(stamp, exp.TryCast) and stamp.to.this in _STAMPS:
+            stamp.replace(_template("CASE WHEN typeof(_a) = 'TIME' THEN DATE '1970-01-01' + "
+                                    "TRY_CAST(CAST(_a AS VARCHAR) AS TIME) ELSE _b END",
+                                    a=stamp.this, b=stamp))
 
     # innermost first, so a call inside another's arguments is written before the outer one copies them
     for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, exp.Collate, exp.ParseJSON,

@@ -65,12 +65,11 @@ def canonical(value: Any, kind: Any) -> Any:
 
 def run(example: str, con: Any) -> list[Any]:
     """``example``'s rows as a Databricks SQL cell gets them here, compared as spark_coverage does."""
-    from . import sql
-    from .engines.local_sql import _databricks
+    from .engines.local_sql import _databricks, databricks_duckdb_sql
     statements = _databricks(example)
     for statement in statements[:-1]:
-        con.execute(sql.duckdb_sql(statement))
-    relation = con.sql(sql.duckdb_sql(statements[-1]))
+        con.execute(databricks_duckdb_sql(statement))
+    relation = con.sql(databricks_duckdb_sql(statements[-1]))
     kinds = relation.types
     rows = [[canonical(v, k) for v, k in zip(row, kinds, strict=True)] for row in relation.fetchall()]
     if any(name in example for name in spark_coverage.ORDER_FREE):
@@ -106,6 +105,9 @@ _REF = "docs.databricks.com/aws/en/sql/language-manual/functions/"
 DATABRICKS_CHECKS: dict[str, dict[str, Any]] = {
     "aes_encrypt": {"example": "SELECT base64(aes_encrypt('Spark SQL', '1234567890abcdef', 'ECB', 'PKCS'))",
                     "value": [["3lmwu+Mw0H3fi5NDvcu9lg=="]]},
+    # a string literal's collation: the default, UTF8_BINARY (Databricks' reference: collation('test'))
+    "collation": {"example": "SELECT collation('test')", "value": [["UTF8_BINARY"]],
+                  "note": "of a string literal; of a column or any other expression it is refused by name"},
     "cube": {"example": ("SELECT name, age, count(*) FROM VALUES (2, 'Alice'), (5, 'Bob') people(age, name) "
                          "GROUP BY cube(name, age)"),
              "value": [["Bob", 5, 1], ["Alice", 2, 1], ["Alice", None, 1], [None, 2, 1], [None, None, 2],

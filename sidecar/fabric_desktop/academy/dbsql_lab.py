@@ -34,9 +34,8 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
-from .. import sql
 from ..engines import databricks_sql_parity
-from ..engines.local_sql import _databricks
+from ..engines.local_sql import _databricks, databricks_duckdb_sql
 from ..learn import checks
 from . import exercises, registry
 
@@ -69,7 +68,7 @@ def translate(text: str) -> str:
         raise ValueError(f"This SQL can't run on this PC: it is longer than {MAX_ANSWER:,} characters.")
     try:
         statements = _databricks(text)
-        return ";\n".join(sql.duckdb_sql(s) for s in statements)
+        return ";\n".join(databricks_duckdb_sql(s) for s in statements)
     except ValueError as exc:
         raise ValueError(f"This SQL can't run on this PC: {exc}") from None
     except RecursionError:

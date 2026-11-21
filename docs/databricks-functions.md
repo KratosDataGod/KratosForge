@@ -31,9 +31,9 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 480 |
+| Runs | 481 |
 | Differs | 7 |
-| Refused | 102 |
+| Refused | 101 |
 | Fails | 0 |
 | Not checked | 0 |
 | **All** | **589** |
@@ -590,7 +590,7 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `approx_top_k` | Refused |  | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: APPROX_TOP_K cannot be transpiled to DuckDB due to incompatible return types. |
+| `approx_top_k` | Refused |  | Part of this query can't run on this PC the way it runs in Databricks, so nothing ran: APPROX_TOP_K cannot be transpiled to DuckDB due to incompatible return ty |
 | `approx_top_k_accumulate` | Refused |  | approx_top_k_accumulate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can' |
 | `approx_top_k_combine` | Refused |  | approx_top_k_combine() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't m |
 | `approx_top_k_estimate` | Refused |  | approx_top_k_estimate() can't run on this PC the way it runs in Databricks, so nothing ran: it builds or reads a DataSketches sketch, whose bytes this PC can't  |
@@ -736,7 +736,7 @@ lists more checks and the differences known in more detail.
 | `bit_reverse` | Runs | `SELECT bit_reverse(-2)` | BIGINT here for a column of a smaller integer type; a literal or a CAST keeps its type |
 | `charindex` | Runs | `SELECT charindex('bar', 'abcbarbar', 5)` |  |
 | `collate` | Runs | `SELECT 'Café' = 'café' COLLATE UTF8_LCASE` | UTF8_BINARY and UTF8_LCASE run (UTF8_LCASE as DuckDB's NOCASE, which may lower a few letters such as U+0130 differently from Java); the ICU collations (UNICODE, a language, _CI, _AI, _RTRIM) are refused by name |
-| `collation` | Refused |  | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: COLLATION function is not supported by DuckDB Run it in Fabric, or rewrite th |
+| `collation` | Runs | `SELECT collation('test')` | of a string literal; of a column or any other expression it is refused by name |
 | `hmac` | Runs | `SELECT hex(hmac('key', 'message'))` | A key written in the SQL is kept in the cell and its query history, as in Databricks: read it from a secret |
 | `is_valid_utf8` | Runs | `SELECT is_valid_utf8(x'61C262')` |  |
 | `jaro_winkler_similarity` | Runs | `SELECT jaro_winkler_similarity('MARTHA', 'MARHTA')` |  |

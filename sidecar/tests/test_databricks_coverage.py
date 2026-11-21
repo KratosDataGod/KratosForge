@@ -11,6 +11,8 @@ import duckdb
 import pytest
 
 from fabric_desktop import databricks_coverage, spark_coverage
+from fabric_desktop.engines import local_sql
+from fabric_desktop.engines.contract import CellRequest, SessionConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -974,3 +976,118 @@ def test_a_spark_sql_cell_still_names_fabric():
     from fabric_desktop import sql
     with pytest.raises(ValueError, match="the way it runs in Fabric.*Run the cell in Fabric"):
         sql.parse("SELECT aes_encrypt('a', '0000111122223333')")
+
+
+def _cell_errors(code, *dialects):
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    try:
+        found = []
+        for dialect in dialects:
+            result = session.execute(CellRequest(code, "sql", dialect))
+            assert result.status == "error", (code, dialect)
+            found.append(result.outputs[-1]["evalue"])
+        return found
+    finally:
+        session.close()
+
+
+# https://docs.databricks.com/aws/en/sql/language-manual/functions/rand: rand([seed]), random a synonym; with a
+# seed Databricks draws its own series, which this PC can't make
+@pytest.mark.parametrize(("code", "name"), [
+    ("SELECT rand(1)", "rand"), ("SELECT random(0) FROM range(3)", "rand"), ("SELECT randn(1)", "randn"),
+    ("SELECT x + rand(42) FROM VALUES (1) AS t(x)", "rand"), ("SELECT randn(NULL)", "randn"),
+])
+def test_a_seeded_rand_or_randn_is_refused_in_databricks_words(code, name):
+    databricks, spark = _cell_errors(code, "databricks", "spark")
+    assert databricks.startswith(f"{name}() can't run on this PC the way it runs in Databricks, so nothing ran: "
+                                 "with a seed Databricks gives its own series of values"), databricks
+    assert databricks.endswith("Run the cell on a Databricks SQL warehouse, or leave out the seed.")
+    assert "Fabric" not in databricks and "Spark" not in databricks
+    assert "Fabric" in spark  # a Spark SQL cell's refusal is Spark's own, as before
+    with pytest.raises(ValueError, match=f"{name}\\(\\) can't run on this PC the way it runs in Databricks"):
+        databricks_coverage.run(code, databricks_coverage.connect())
+
+
+def test_a_spark_sql_cell_keeps_its_own_seeded_rand_wording():
+    (rand,) = _cell_errors("SELECT rand(1)", "spark")
+    (randn,) = _cell_errors("SELECT randn(1)", "spark")
+    assert rand.startswith("Part of this query can't run on this PC the way it runs in Fabric"), rand
+    assert randn.startswith("randn() can't run on this PC the way it runs in Fabric, so nothing ran: with a seed "
+                            "Spark gives its own sequence of numbers"), randn
+
+
+def test_rand_and_randn_without_a_seed_still_run_in_databricks():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT rand() >= 0 AND rand() < 1, randn() IS NOT NULL, random() < 1", con) == [
+        [True, True, True]]
+
+
+def test_the_academy_and_the_coverage_list_name_databricks_in_a_generic_refusal():
+    # sql.duckdb_sql's own refusal names Fabric; every Databricks SQL path words it as a Databricks cell does
+    from fabric_desktop.academy import dbsql_lab
+    code = "SELECT approx_top_k(a) FROM VALUES (1) AS t(a)"
+    with pytest.raises(ValueError) as lab:
+        dbsql_lab.translate(code)
+    with pytest.raises(ValueError) as listed:
+        databricks_coverage.run(code, databricks_coverage.connect())
+    for text in (str(lab.value), str(listed.value)):
+        assert "the way it runs in Databricks" in text and "Run it on a Databricks SQL warehouse" in text, text
+        assert "Fabric" not in text
+    with pytest.raises(ValueError, match="rand\\(\\) can't run on this PC the way it runs in Databricks"):
+        dbsql_lab.translate("SELECT rand(1)")
+
+
+# https://docs.databricks.com/aws/en/sql/language-manual/functions/hour (hour(TIME'08:43:28') is 8), .../minute
+# (minute(TIME'08:43:28') is 43) and .../second (second(TIME'10:30:45') is 45): each takes a TIME too
+def test_hour_minute_and_second_of_a_time_give_what_databricks_documents():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT hour(TIME'08:43:28')", con) == [[8]]
+    assert databricks_coverage.run("SELECT minute(TIME'08:43:28')", con) == [[43]]
+    assert databricks_coverage.run("SELECT second(TIME'10:30:45')", con) == [[45]]
+    # from a TIME column, a cast and make_time too, and still an INT
+    assert databricks_coverage.run("SELECT hour(t), minute(t), second(t) FROM VALUES (TIME'08:43:28'), (NULL) AS x(t)",
+                                   con) == [[8, 43, 28], [None, None, None]]
+    assert databricks_coverage.run("SELECT hour(CAST('14:30:00' AS TIME)), minute(make_time(6, 30, 45.887))",
+                                   con) == [[14, 30]]
+    from fabric_desktop import sql
+    from fabric_desktop.engines.local_sql import _databricks
+    assert con.sql(sql.duckdb_sql(_databricks("SELECT hour(TIME'08:43:28')")[-1])).types[0] == "INTEGER"
+
+
+def test_hour_minute_and_second_of_a_timestamp_or_text_are_as_before():
+    con = databricks_coverage.connect()
+    # the reference's examples for text, and a DATE is midnight
+    assert databricks_coverage.run("SELECT hour('2009-07-30 12:58:59'), minute('2009-07-30 12:58:59'), "
+                                   "second('2009-07-30 12:58:59')", con) == [[12, 58, 59]]
+    assert databricks_coverage.run("SELECT hour(TIMESTAMP_NTZ'2020-01-01 05:06:07'), hour(DATE'2020-01-01'), "
+                                   "hour(CAST(NULL AS STRING))", con) == [[5, 0, None]]
+
+
+def test_a_time_in_a_databricks_cell_gives_its_hour():
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    try:
+        result = session.execute(CellRequest("SELECT hour(TIME'08:43:28'), minute(TIME'08:43:28'), "
+                                             "second(TIME'10:30:45')", "sql", "databricks"))
+        assert result.status == "ok"
+        assert result.outputs[-1]["rows"] == [[8, 43, 45]]
+    finally:
+        session.close()
+
+
+# https://docs.databricks.com/aws/en/sql/language-manual/functions/collation: collation('test') is UTF8_BINARY
+def test_collation_of_a_string_literal_is_the_default():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT collation('test')", con) == [["UTF8_BINARY"]]
+    assert databricks_coverage.run("SELECT collation('') = 'UTF8_BINARY', upper(collation('x'))", con) == [
+        [True, "UTF8_BINARY"]]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT collation(s) FROM VALUES ('a') AS t(s)", "SELECT collation('a' COLLATE UTF8_LCASE)",
+    "SELECT collation(upper('a'))", "SELECT collation(NULL)",
+])
+def test_collation_of_anything_but_a_string_literal_is_refused_by_name(code):
+    with pytest.raises(ValueError, match="collation\\(\\) can't run on this PC the way it runs in Databricks, so "
+                                         "nothing ran: this PC knows the collation of a string literal only.*"
+                                         "pass it a string literal"):
+        databricks_coverage.run(code, databricks_coverage.connect())

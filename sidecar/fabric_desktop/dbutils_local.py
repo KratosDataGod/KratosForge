@@ -438,7 +438,7 @@ def build(host: Host, notebookutils: types.ModuleType) -> types.SimpleNamespace:
         secrets=_make_secrets(nbu.credentials.getSecret, nbu.credentials.getToken),
         jobs=types.SimpleNamespace(taskValues=_make_task_values(host)),
         library=types.SimpleNamespace(restartPython=restartPython, install=unsupported(
-            "Installing libraries runs in Databricks. On this PC the engine's packages are fixed.")),
+            "Installing libraries runs in Databricks. On this PC, install packages with %pip install in a cell.")),
         data=types.SimpleNamespace(summarize=summarize),
         credentials=types.SimpleNamespace(assumeRole=unsupported(aws), showCurrentRole=unsupported(aws),
                                           showRoles=unsupported(aws)),

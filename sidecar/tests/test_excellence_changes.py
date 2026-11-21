@@ -260,3 +260,54 @@ def test_hostile_names_are_cut_and_cleaned():
     assert len(name) == cx.MAX_NAME and name.endswith("…")
     assert "\n" not in name and "\x00" not in name and " " not in name
     json.dumps(res)
+
+
+# ---- malformed input: never a crash, never "unchanged" or "removed"
+
+def _swap(records: list[dict], kind: str, payload) -> list[dict]:
+    subj = next(r for r in records if r["kind"] == kind)["subject"]
+    return [r for r in records if r["kind"] != kind] + [
+        ev.record(kind, subj, source="test", confidence="verified_configuration", collected_at=AT2, payload=payload)]
+
+
+def test_inventory_without_a_list_of_items_is_unknown_not_every_item_removed():
+    for payload in ([1, 2], {"items": "abc"}, {"items": None}, {}, {"items": {"a": 1}}):
+        res = cx.changes(result(reads()), _swap(reads(at=AT2), "workspace.inventory", payload), REG)
+        assert kinds(res) == [] and kinds(res, "unknown") == [("item_added", WSID), ("item_removed", WSID)], payload
+
+
+def test_malformed_roles_and_info_payloads_are_unknown_not_a_crash():
+    for payload in ([1], "x", {"assignments": "x"}):
+        res = cx.changes(result(reads()), _swap(reads(at=AT2), "workspace.roles", payload), REG)
+        assert kinds(res, "unknown") == [("role_assignment_changed", WSID)], payload
+    res = cx.changes(result(reads()), _swap(reads(at=AT2), "workspace.roles",
+                                            {"assignments": [{"id": "x", "role": "Admin", "guest": [1]}]}), REG)
+    assert kinds(res) == [("role_assignment_changed", WSID)]
+    res = cx.changes(result(reads()), _swap(reads(at=AT2), "workspace.info", ["x"]), REG)
+    assert kinds(res, "unknown") == [("capacity_changed", WSID), ("evidence_changed", WSID)]
+
+
+def test_records_with_a_bad_subject_source_or_text_count_as_missing():
+    for breakit in (lambda r: r.update(subject="s"), lambda r: r.update(subject={"id": 5}),
+                    lambda r: r.update(source=None), lambda r: r["payload"].update(description="\ud800")):
+        new = reads(at=AT2)
+        breakit(next(r for r in new if r["kind"] == "workspace.info"))
+        res = cx.changes(result(reads()), new, REG)
+        assert ("capacity_changed", WSID) in kinds(res, "unknown")
+    for prev in ({"evidence": 5}, {"evidence": None}, None, "abc", 7):
+        cx.changes(prev, reads(at=AT2), REG)
+
+
+def test_no_earlier_read_is_never_no_change():
+    for prev in (None, [], {"evidence": []}):
+        res = cx.changes(prev, reads(at=AT2), REG)
+        assert res["count"] > 0 or res["not_compared"], prev
+
+
+def test_a_resource_with_no_evidence_in_either_read_is_unknown():
+    empty = {"scope": {"workspaces": [{"id": WSID}], "capacities": [{"id": CAP}]}, "evidence": []}
+    res = cx.changes(empty, empty, REG)
+    assert kinds(res, "unknown") == [("evidence_changed", CAP), ("evidence_changed", WSID)]
+    assert res["changed"] == 0 and res["unknown"] == 2
+    item_controls = {c.id for c in REG.controls() if c.scope == "item"}
+    assert item_controls <= set(next(c for c in res["changes"] if c["subject"]["id"] == WSID)["controls_to_reassess"])

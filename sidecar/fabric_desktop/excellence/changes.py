@@ -23,8 +23,10 @@ Change kinds:
 
 A change is ``changed`` or ``unknown``. When the evidence was collected on one side and is missing or
 only ``insufficient`` on the other (the read failed, or wasn't allowed), the result is ``unknown``,
-never "unchanged". Evidence of a kind neither side collected is not compared. Records that fail
-evidence.problems are treated as missing.
+never "unchanged". Evidence of a kind neither side collected is not compared, but a workspace or
+capacity in both scopes with no evidence at all in either read is one ``unknown`` entry. Records that
+fail evidence.problems, or whose subject, source or payload shape can't be read, are treated as missing.
+Raw records for ``current`` use the previous scope plus the resources the new read holds.
 
 Order never counts as a change: lists inside payloads are compared as sorted. The result is the same
 for the same inputs. ``controls_to_reassess`` comes from each control's declared ``evidence_kinds`` and
@@ -38,7 +40,7 @@ import re
 from typing import Any
 
 from . import controls as ct
-from .evidence import Bundle, canonical, content_hash
+from .evidence import Bundle, canonical, content_hash, problems
 
 SCHEMA = "kratosforge/excellence-changes@1"
 METHOD = "polling"
@@ -84,11 +86,38 @@ def _digest(payload: Any) -> str:
     return content_hash(_norm(payload))
 
 
+def _sound(r: Any) -> bool:
+    """A record this module can read at all: a dict with a string kind and source, a subject with a
+    string type and id, and a payload evidence.problems can check without raising (a lone surrogate
+    can't be hashed). Anything else counts as missing."""
+    if not (isinstance(r, dict) and isinstance(r.get("kind"), str) and isinstance(r.get("source"), str)
+            and isinstance(r.get("subject"), dict) and isinstance(r["subject"].get("type"), str)
+            and isinstance(r["subject"].get("id"), str) and r["subject"]["id"]):
+        return False
+    try:
+        problems(r)
+    except (TypeError, ValueError):  # UnicodeEncodeError is a ValueError
+        return False
+    return True
+
+
+def _shaped(kind: str, payload: Any) -> bool:
+    """A payload this module can compare for ``kind``; a malformed one is missing, so it is unknown and
+    never reads as an empty inventory or role list."""
+    if kind == INVENTORY:
+        return isinstance(payload, dict) and isinstance(payload.get("items"), list)
+    if kind == ROLES:
+        return isinstance(payload, dict) and isinstance(payload.get("assignments"), list)
+    if kind == INFO:
+        return isinstance(payload, dict)
+    return True
+
+
 class _Side:
     """One read: usable records by (subject id, kind), and which kinds were collected at all."""
 
     def __init__(self, records: list[dict[str, Any]]):
-        self.bundle = Bundle([r for r in records if isinstance(r, dict)])
+        self.bundle = Bundle([r for r in records if _sound(r)])
         self.subjects: dict[str, dict[str, Any]] = {}
         self.kinds: dict[str, set[str]] = {}
         for r in self.bundle.records:
@@ -98,14 +127,13 @@ class _Side:
 
     def usable(self, sid: str, kind: str) -> list[dict[str, Any]] | None:
         """The records, or None when there are none that can decide (missing or only insufficient)."""
-        got = [r for r in self.bundle.get(sid, kind) if r["confidence"] != "insufficient"]
+        got = [r for r in self.bundle.get(sid, kind) if r["confidence"] != "insufficient" and _shaped(kind, r["payload"])]
         return got or None
 
 
 def _records(x: Any) -> list[dict[str, Any]]:
-    if isinstance(x, dict):
-        return list(x.get("evidence") or [])
-    return list(x or [])
+    got = x.get("evidence") if isinstance(x, dict) else x
+    return list(got) if isinstance(got, (list, tuple)) else []
 
 
 def _scope(x: Any, side: _Side) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -175,7 +203,7 @@ def _items(recs: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
 
 
 def _roles(recs: list[dict[str, Any]]) -> set[tuple[str, str, str, Any]]:
-    return {(str(p.get("id")), str(p.get("type")), str(p.get("role")), p.get("guest"))
+    return {(str(p.get("id")), str(p.get("type")), str(p.get("role")), canonical(p.get("guest")))
             for r in recs for p in (r["payload"] or {}).get("assignments") or [] if isinstance(p, dict)}
 
 
@@ -205,7 +233,11 @@ def changes(previous: dict[str, Any] | list[dict[str, Any]], current: dict[str, 
     mapper = _Mapper(registry)
     a, b = _Side(_records(previous)), _Side(_records(current))
     ws_a, cap_a = _scope(previous, a)
-    ws_b, cap_b = _scope(current, b) if isinstance(current, dict) and isinstance(current.get("scope"), dict) else (ws_a, cap_a)
+    if isinstance(current, dict) and isinstance(current.get("scope"), dict):
+        ws_b, cap_b = _scope(current, b)
+    else:  # raw records: the previous scope, plus what the new read holds, so nothing new is silently left out
+        got_ws, got_caps = _scope(None, b)
+        ws_b, cap_b = {**got_ws, **ws_a}, {**got_caps, **cap_a}
     found: list[dict[str, Any]] = []
 
     def subj_of(sid: str, fallback: dict[str, Any]) -> dict[str, Any]:
@@ -268,10 +300,20 @@ def changes(previous: dict[str, Any] | list[dict[str, Any]], current: dict[str, 
     def kinds_of(sid: str) -> list[str]:
         return sorted(a.kinds.get(sid, set()) | b.kinds.get(sid, set()))
 
+    def nothing(subj: dict[str, Any], scopes: tuple[str, ...]) -> None:
+        """A resource in both scopes with no evidence in either read: unknown, never unchanged."""
+        found.append(_entry("evidence_changed", "unknown", subj, set(),
+                            sorted(c.id for c, _ in mapper.controls if c.scope in scopes),
+                            reason=_unknown_reason(None, None)))
+
     workspaces = sorted(set(ws_a) & set(ws_b))
     capacities = sorted(set(cap_a) & set(cap_b))
     for wid in workspaces:
         subj = subj_of(wid, {"type": "workspace", "id": wid, "name": ws_b[wid].get("name") or ws_a[wid].get("name")})
+        if not kinds_of(wid) and not any(str(s.get("workspace_id")) == wid for side in (a, b)
+                                         for s in side.subjects.values() if s["type"] == "item"):
+            nothing(subj, ("workspace", "item"))
+            continue
         for kind in kinds_of(wid):
             compare_kind(subj, kind)
         inv_a, inv_b = a.usable(wid, INVENTORY), b.usable(wid, INVENTORY)
@@ -283,6 +325,9 @@ def changes(previous: dict[str, Any] | list[dict[str, Any]], current: dict[str, 
                 compare_kind(subj_of(iid, {}), kind)
     for cid in capacities:
         subj = subj_of(cid, {"type": "capacity", "id": cid, "name": cap_b[cid].get("name") or cap_a[cid].get("name")})
+        if not kinds_of(cid):
+            nothing(subj, ("capacity",))
+            continue
         for kind in kinds_of(cid):
             compare_kind(subj, kind)
 

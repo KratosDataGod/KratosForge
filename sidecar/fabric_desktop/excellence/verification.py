@@ -61,11 +61,24 @@ def _time(value: Any) -> Any:
 
 
 def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+    """A finite number of 0 or more. An int too big for a float (JSON gives one for 400 digits) isn't."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value)) and value >= 0
+    except OverflowError:
+        return False
 
 
 def _text(value: Any) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+    """Text that isn't blank and can be written as UTF-8: a lone surrogate isn't text."""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _snapshot_problems(s: Any, which: str) -> list[str]:
@@ -196,7 +209,10 @@ def _measures(value: Any) -> tuple[dict[str, dict[str, Any]], list[str]]:
                 or not isinstance(m.get("classification"), str):
             bad.append("an entry isn't a measurement")
             continue
-        found = ms.problems(m)
+        try:
+            found = ms.problems(m)
+        except (OverflowError, TypeError, ValueError):  # e.g. an int too big for a float
+            found = ["its value isn't a number that can be compared"]
         family = ms.UNITS.get(m["unit"])
         key = next((k for k, (fam, _, _) in _METRICS.items() if fam == family), None)
         if key is None:
@@ -250,6 +266,8 @@ def _compare(key: str, mb: dict[str, Any] | None, ma: dict[str, Any] | None) -> 
         return no("The after window starts before the before window ends.")
     vb = ms.convert(mb["value"], mb["unit"], unit)
     va = ms.convert(ma["value"], ma["unit"], unit)
+    if not (math.isfinite(vb) and math.isfinite(va) and math.isfinite(va - vb)):
+        return no(f"The {label} is too large to compare.")
     change = round(va - vb, 6)
     return {**base, "comparable": True, "before": round(vb, 6), "after": round(va, 6), "change": change,
             "change_pct": round(change / vb * 100, 1) if vb else None, "window_seconds": lb,
@@ -380,5 +398,6 @@ def verify(finding: Any, before_snapshot: Any, after_snapshot: Any, *, before_me
            "to": iso(after_snapshot.get("assessed_at")) if isinstance(after_snapshot, dict) else None,
            "measured_change": change, "realized_savings": saving, "realized_savings_reason": why or None,
            "savings_note": SAVINGS_NOTE}
-    out["id"] = "fv-" + hashlib.sha256(canonical(out).encode()).hexdigest()[:16]
+    # surrogatepass: a lone surrogate copied from a snapshot's text still hashes, the same way every time
+    out["id"] = "fv-" + hashlib.sha256(canonical(out).encode("utf-8", "surrogatepass")).hexdigest()[:16]
     return out

@@ -332,3 +332,51 @@ def test_every_status_has_a_label_and_text_never_promises_money_from_cu():
     assert "Capacity freed is not money saved" in vf.SAVINGS_NOTE
     r = vf.verify(FINDING, BEFORE, snap("ok", T1))
     assert r["savings_note"] == vf.SAVINGS_NOTE
+
+
+# ---- numbers too big for a float, lone surrogates
+
+BIG = 10 ** 400  # what JSON parses an integer with 401 digits to: finite as an int, not as a float
+
+
+def test_an_amount_too_big_for_a_float_gives_no_saving_and_never_raises():
+    e = billing()
+    e["billed"]["before"]["amount"] = BIG
+    r = vf.verify(FINDING, BEFORE, snap("ok", T1), billing_evidence=e)
+    assert r["status"] == "verified_fixed" and r["realized_savings"] is None
+    assert "can't be used" in r["realized_savings_reason"]
+    json.dumps(r)
+
+
+def test_a_measure_too_big_for_a_float_is_not_comparable_and_never_raises():
+    m = vf.measured_change(dict(measure(1000), value=BIG), measure(400, *AFTER_M))["metrics"]["cu_seconds"]
+    assert not m["comparable"] and "isn't a valid measurement" in m["reason"]
+
+
+def test_a_measure_that_converts_past_a_float_is_not_comparable():
+    huge = 1e306  # finite in CU hours, infinite in CU seconds
+    b = measure(huge, unit=ms.CU_HOURS)
+    a = measure(huge / 2, *AFTER_M, unit=ms.CU_HOURS)
+    m = vf.measured_change(b, a)["metrics"]["cu_seconds"]
+    assert not m["comparable"] and m["change"] is None
+    json.dumps(m, allow_nan=False)
+
+
+@pytest.mark.parametrize("where", ["resource", "outcome text", "billing source", "confirmed by"])
+def test_a_lone_surrogate_never_raises_and_is_never_a_figure(where):
+    finding, before, e = FINDING, BEFORE, billing()
+    if where == "resource":
+        finding = {**FINDING, "resource": {**FINDING["resource"], "id": "\ud800"}}
+    elif where == "outcome text":
+        before = {**BEFORE, "outcomes": [{**o, "text": "fails \udfff"} for o in BEFORE["outcomes"]]}
+    elif where == "billing source":
+        e = billing(source="cost \ud800.csv")
+    else:
+        e = billing(confirmed_by="\udc00")
+    r = vf.verify(finding, before, snap("ok", T1), billing_evidence=e)
+    assert r["id"].startswith("fv-") and json.dumps(r)
+    if where == "resource":
+        assert r["status"] == "not_verified" and r["reason_code"] == "malformed"
+    if where in ("billing source", "confirmed by"):
+        assert r["realized_savings"] is None
+    assert vf.verify(finding, before, snap("ok", T1), billing_evidence=e) == r

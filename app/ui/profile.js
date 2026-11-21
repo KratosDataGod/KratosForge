@@ -306,10 +306,8 @@ function profileRankCheck(c) {
     h("span", { class: "muted-text small" }, c.met ? "Done" : c.coming_soon ? "Coming soon" : `${c.have} of ${c.need}`));
 }
 
-// Profile > Ranks, laid out as Chris's mockup (2026-11-07): a hero, Your rank, the Forge progression, Next
-// rank, its requirements and what the rank gives. Everything shown comes from ranks.standing() and the XP
-// in progress.progression(); nothing is estimated. The hero and shields are drawn here as placeholders
-// until the approved artwork arrives; text and controls stay real UI either way.
+// Rank glyphs: the tier icons, and the drawn shield for a rank with no approved art yet (Apprentice and the
+// Pack and Myth tiers). Ranks with Chris's art use RANK_ART below.
 const RANK_GLYPHS = {
   hammer: "M3 2h9v4H9v12H6V6H3z",
   gear: "M10 1l1.6 2.4 2.8-.8.4 2.8 2.6 1.4-1.4 2.6 1.4 2.4-2.6 1.4-.4 2.8-2.8-.8L10 19l-1.6-2.4-2.8.8-.4-2.8-2.6-1.4 1.4-2.4-1.4-2.6 2.6-1.4.4-2.8 2.8.8zM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",

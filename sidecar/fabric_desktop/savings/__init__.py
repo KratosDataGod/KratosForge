@@ -3,6 +3,13 @@
 ``attribution``: the waterfall that splits one run's avoided Fabric CU between the optimizations in
 effect and running on a PC, never more than the run's baseline (ESI-303).
 
+``accruals``: one run's CU avoided as ledger events, the ledger's only accrual grain. Each layer of
+the attribution becomes one accrual (or regression) shaped as the ``fdopt_savings`` columns, with
+the run's gross, overhead and net. The same run gives the same event ids on every PC, so a resync
+adds nothing, and corrections chain to these ids. Rows are writable only when the workload's
+baseline is Measured (decision of 2026-11-06); otherwise they are shown on this PC and the reason
+is given. Nothing is written here (ESI-203).
+
 ``recurring``: period figures (groupings of those per-run accruals) and the recurring monthly
 benefit, a projection that is always Estimated and never written (ESI-304).
 

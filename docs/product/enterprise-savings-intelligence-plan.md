@@ -398,7 +398,7 @@ rules in `calibration.py` (additive).
 **ESI-202 Overhead per execution.** **Built** (engine only, no writes). `savings/overhead.py`. Data transfer seconds and bytes, sync overhead, and any
 OneLake operations, as separate measurements; Unknown where not measured.
 
-**ESI-203 Execution ledger accruals.** Gross, overhead and net CU avoided per execution as
+**ESI-203 Execution ledger accruals.** **Built** (engine only; writing waits on the measured-baseline gate). `savings/accruals.py`. Gross, overhead and net CU avoided per execution as
 ledger events, through the attribution waterfall (single layer until Phase 3). This is the
 ledger's only accrual grain (section 4.5).
 - Gate: the 2026-11-06 decision stands: no savings rows are written until a measured Fabric

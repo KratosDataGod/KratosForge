@@ -1220,7 +1220,7 @@ class Kernel:
                 run.interrupted = True
                 results += [{"expr": e, "skipped": True} for e in watches[i:]]
                 break
-            except Exception as exc:  # noqa: BLE001 - shown next to the watch
+            except BaseException as exc:  # noqa: BLE001 - exit() and the like too: shown next to the watch
                 results.append({"expr": expr, "error": _redacted(f"{type(exc).__name__}: {exc}")})
             results[-1]["seconds"] = round(time.monotonic() - started, 3)
         with run.lock:

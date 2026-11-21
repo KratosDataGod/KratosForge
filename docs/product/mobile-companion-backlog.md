@@ -64,7 +64,7 @@ the work; "this thread" is the mobile companion thread.
 
 ### MC-006 PoC desktop page (P0, S)
 - **User value:** pair, approve and revoke on the PC.
-- **Scope:** a developer-only Settings > Mobile Companion (Preview) page: switch, QR, approval dialog, devices, remove, disconnect all. Hidden in release builds.
+- **Scope:** a developer-only Settings > Mobile companion (Preview) page: switch, QR, approval dialog, devices, remove, disconnect all. Hidden in release builds.
 - **Dependencies:** MC-002, MC-004; UX thread sketch (full mockup is MC-107).
 - **Technical:** `app/ui/companion.js`, QR drawn in the page (vendored QR encoder, listed in `deps.js`), never written to disk.
 - **Acceptance:** PoC steps 1, 2, 4, 11.
@@ -111,7 +111,7 @@ the work; "this thread" is the mobile companion thread.
 ### MC-106 Notifications through Expo push (P1, M)
 - **User value:** know when a run ends without watching. **Scope:** off until the person turns it on, separately from pairing; no PC name in previews by default; push token registration inside the channel; event rules; generic text + ciphertext; at-most-once. **Dependencies:** MC-005, MC-104. **Acceptance:** previews contain no item names (test inspects the payload). **Security:** T13, T21. **Tests:** payload tests; send failure not retried. **Owner:** this thread; Governance (notices) reviews.
 
-### MC-107 Desktop Settings > Mobile Companion page (P1, M)
+### MC-107 Desktop Settings > Mobile companion page (P1, M)
 - **User value:** pairing and devices for everyone. **Scope:** per approved mockup (UX spec). **Dependencies:** UX mockup approved by Chris. **Acceptance:** per mockup; a11y check. **Security:** destructive actions via `confirmDialog` danger. **Tests:** browser + a11y. **Owner:** UX thread (mockup), this thread (build).
 
 ### MC-108 Phone app MVP screens (P1, L)

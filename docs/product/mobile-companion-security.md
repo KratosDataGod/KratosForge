@@ -41,7 +41,7 @@ flowchart LR
   APP -->|generic text + ciphertext| PUSHS --> PA
 ```
 
-New boundary 6 for `docs/security.md`: **Phones to engine.** Only while Mobile Companion is on and
+New boundary 6 for `docs/security.md`: **Phones to engine.** Only while Mobile companion is on and
 policy allows it. The engine listens on private-range addresses only and/or keeps one outbound
 connection to the organization's relay. Every connection must complete a Noise handshake with a
 paired device key before any message is read.
@@ -78,9 +78,9 @@ paired device key before any message is read.
 
 | Credential | Made | Stored | Lifetime | Rotated | Revoked |
 | --- | --- | --- | --- | --- | --- |
-| PC companion static key (X25519) | First time Mobile Companion is switched on | Data folder, DPAPI | Until reset | "Reset phone pairings" makes a new one; every phone must pair again | Same |
+| PC companion static key (X25519) | First time Mobile companion is switched on | Data folder, DPAPI | Until reset | "Reset phone pairings" makes a new one; every phone must pair again | Same |
 | PC relay key (Ed25519) | With the static key | DPAPI | Until reset | With the static key | Same |
-| Pairing secret | Pair New Device | Engine memory only | 120 s, single use | Never | Burned at first use, on Cancel, on expiry |
+| Pairing secret | Pair a phone | Engine memory only | 120 s, single use | Never | Burned at first use, on Cancel, on expiry |
 | Phone monitor key (P-256, no presence) | Pairing | Secure Enclave / Keystore | Until unpair or app uninstall | Re-pair | Delete on PC |
 | Phone operational key (P-256, presence on every use) | Pairing | Secure Enclave / Keystore | Same | Re-pair | Delete on PC |
 | Phone Noise static key | Pairing | Keychain / Keystore-encrypted store, this device only | Same | Re-pair | Delete on PC |
@@ -93,7 +93,7 @@ nothing to rotate on a timer and nothing a log line could leak.
 **Revocation is immediate (RB):** deleting a device on the PC closes its open sessions within 1 s
 and every new handshake is refused with `device_revoked`; the relay is told to drop its key hash.
 
-**Emergency disconnect (RB):** "Disconnect all phones" on Settings > Mobile Companion, and in the
+**Emergency disconnect (RB):** "Disconnect all phones" on Settings > Mobile companion, and in the
 activity tray menu, closes every session and pauses the listener and relay link until switched back
 on. Pairings are kept, so this is reversible; "Remove all phones" deletes them.
 

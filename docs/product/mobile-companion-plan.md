@@ -113,7 +113,7 @@ KratosForge context, status and mission prompt. Classification: **Implemented** 
 | --- | --- |
 | Registry, permissions, MCP, local API | MCP server thread (#2363) |
 | Installation identity, central stores | Control plane thread |
-| Mockups for the phone screens and the Settings > Mobile Companion page | UX thread |
+| Mockups for the phone screens and the Settings > Mobile companion page | UX thread |
 | Threat model and every inbound-surface PR | Security QC |
 | Notices and alert delivery | Governance, Workload mgmt |
 | Windows install, firewall rule, tray | Windows hardening thread |
@@ -453,8 +453,8 @@ release builds; Preview; never shipped to Stable.
 
 | Step | Shows | Pass condition |
 | --- | --- | --- |
-| 1 | Launch KratosForge with the PoC setting on | Settings > Mobile Companion (Preview) is listed |
-| 2 | Pair New Device shows a QR | QR holds no token or user data (decoded and checked in a test) |
+| 1 | Launch KratosForge with the PoC setting on | Settings > Mobile companion (Preview) is listed |
+| 2 | Pair a phone shows a QR | QR holds no token or user data (decoded and checked in a test) |
 | 3 | Scan on the phone (Expo Go) | Phone shows the PC name and a 6-digit code |
 | 4 | Approve on the PC | PC shows the same 6 digits, phone name and platform; Approve with "Monitor only" or "Monitor and run allowed items" |
 | 5 | Authenticated session | Reconnect works without the QR; audit shows `companion` pairing line |
@@ -481,7 +481,7 @@ work starts.
 | Phase | Contents | Stories | Gate to start |
 | --- | --- | --- | --- |
 | **P0 Foundation** | This evaluation, threat model, pairing protocol, PoC on LAN, relay PoC on Chris's LAN | MC-001 to MC-008 | Chris's typed go for the PoC |
-| **P1 Mobile MVP** | Settings > Mobile Companion, pairing UX, devices, run feed, status, history, allowed-item start, cancel, retry, push (Expo), hardware-bound keys, policy keys, docs | MC-101 to MC-112 | PoC report + Security QC clear + UX mockups approved + Chris's go; Apple/Google accounts if publishing |
+| **P1 Mobile MVP** | Settings > Mobile companion, pairing UX, devices, run feed, status, history, allowed-item start, cancel, retry, push (Expo), hardware-bound keys, policy keys, docs | MC-101 to MC-112 | PoC report + Security QC clear + UX mockups approved + Chris's go; Apple/Google accounts if publishing |
 | **P2 Remote connectivity** | Relay (org-hosted container), transport selector, presence, "PC went offline", optional push gateway, tray option | MC-201 to MC-207 | Chris's relay hosting choice; no hosted resource without his go |
 | **P3 Advanced mobile** | Several PCs polish, parameter presets, optimization and savings, code viewing, Git status, semantic model results, Academy and ranks, keep-awake option | MC-301 to MC-307 | MVP adoption; each new screen mockup first |
 | **P4 Enterprise** | Organization device policy package, team view of PCs that allow phones, shared history from the central lakehouse, approvals (after the promote-approval feature), MDM app config | MC-401 to MC-405 | Control plane live run; Chris's go per feature |

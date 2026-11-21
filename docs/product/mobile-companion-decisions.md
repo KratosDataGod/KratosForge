@@ -13,7 +13,7 @@ flowchart LR
     CACHE[(Encrypted cache<br/>7 days of run summaries)] --- UI
   end
   subgraph PC["Windows PC (KratosForge Desktop)"]
-    SET[Settings > Mobile Companion<br/>pair, approve, devices, revoke] --> ENG
+    SET[Settings > Mobile companion<br/>pair, approve, devices, revoke] --> ENG
     subgraph ENG["Engine (Python sidecar)"]
       LIS[Companion listener<br/>private addresses only] --> CH[CompanionChannel<br/>device = registry client]
       RL[Relay link<br/>outbound wss] --> CH
@@ -175,7 +175,7 @@ sequenceDiagram
   actor P as Person
   participant D as PC (KratosForge)
   participant M as Phone
-  P->>D: Settings > Mobile Companion > Pair New Device
+  P->>D: Settings > Mobile companion > Pair a phone
   D->>D: pairing id, 32-byte secret, 120 s expiry, single use
   D-->>P: QR: kfpair:1, PC key fingerprint, addresses, port, pairing id, secret, expiry
   P->>M: Scan QR

@@ -34,7 +34,6 @@ class LocalPlatform:
 
     def __init__(self, path: Path | str, user: Callable[[], str] | None = None):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._user = user or (lambda: "")
         self._lock = threading.Lock()
         # A file SQLite can't read is refused, not replaced: it holds the keys this platform issued

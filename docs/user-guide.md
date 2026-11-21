@@ -431,7 +431,7 @@ The full walkthrough, from setting up a project to promoting to Prod, and a refe
 
 The Platform page (Preview) is the central data team's setup: the landing zone, business keys, glossary, governance, audit and the platform's settings. Every other team sees what the platform offers there. **Platform admins** (the central team) create business key tables and landing zone sources, and decide requests on Data mesh > Requests; everyone else sees the same screens and sends requests. The platform itself checks who may do what, so hiding a button is only a convenience. Details in [The platform](platform.md#the-platform-page).
 
-The page has four tabs: **Overview**, **Set up**, **Govern** and **Settings**. **Set up** holds Landing zone, Business keys and Glossary, and **Govern** holds Governance and Audit; pick one on the switcher under the tabs. Each is still a page of its own, so a link such as Platform > Business keys opens it.
+The page has four tabs: **Overview**, **Set up**, **Govern** and **Settings**. **Set up** holds Landing zone, Business keys and Glossary, and **Govern** holds Governance and Audit. Pick one on the switcher under the tabs. Each is still a page of its own, so a link such as Platform > Business keys opens it.
 
 | Page | What's there |
 | --- | --- |
@@ -674,7 +674,7 @@ Open alerts are listed at the top, in the app only. Click a table for a chart of
 
 ## Academy (Preview)
 
-**Academy**, at the bottom of the left rail, prepares you for a certification, starting with DP-700, with exercises you do on this PC. Its tabs are **Home**, **Path**, **Practice**, **Assessments**, **Readiness** and **Portfolio**. Learn's lessons and labs open from **Practice**. Exercises use data generated on this PC: nothing reads or writes OneLake or starts anything in Fabric. A passed exercise is recorded in Profile. The whole page is described in [Academy](academy-guide.md), and Learn in [Learn](learn.md).
+**Academy**, at the bottom of the left rail, prepares you for a certification, starting with DP-700, with exercises you do on this PC. Its tabs are **Home**, **Path**, **Practice**, **Assessments**, **Readiness** and **Portfolio**. Learn's lessons and labs open from **Practice**. Exercises use data generated on this PC, and nothing reads or writes OneLake or starts anything in Fabric. A passed exercise is recorded in Profile. The whole page is described in [Academy](academy-guide.md), and Learn in [Learn](learn.md).
 
 ## Source control (Preview)
 
@@ -686,7 +686,7 @@ A capacity repository holds `capacity.toml`: the capacities there should be, the
 
 ### Fabric workspace
 
-A repository's **Fabric workspace** tab shows how a Fabric workspace's own Git connection relates to the repository on this PC. **Link a workspace…** links one for Dev, Test or Prod; the link is saved in `fabric-desktop.toml` in the repository as a change to commit. **Check status in Fabric** lists the items that differ between the workspace and Git. Linking and checking change nothing in Fabric and nothing in Git, and pushing to Git never updates the workspace. See [Fabric workspace](source-control.md#fabric-workspace).
+A repository's **Fabric workspace** tab shows how a Fabric workspace's own Git connection relates to the repository on this PC. **Link a workspace…** links one for Dev, Test or Prod. The link is saved in `fabric-desktop.toml` in the repository as a change to commit. **Check status in Fabric** lists the items that differ between the workspace and Git. Linking and checking change nothing in Fabric and nothing in Git, and pushing to Git never updates the workspace. See [Fabric workspace](source-control.md#fabric-workspace).
 
 ## Profile (Preview)
 
@@ -752,7 +752,7 @@ At the bottom of **Settings > General**, folded. Click **Advanced** to open it; 
 | **Sign-in** | The **App (client) ID**. Leave it empty: KratosForge then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)). When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Notebooks** | **Run notebooks in their own process** (Preview) and, with it on, the **Cell time limit** and **Notebook memory limit**. |
 | **OneLake writes** | How notebooks on this PC write tables: **New notebooks write** (here, then upload in the background; or straight to OneLake, for a fast upload line), **Compression** (Zstandard or Snappy) and **Skip unchanged tables**. Each notebook can choose its own under **Runs on**. **Files on this PC** shows what local writes hold (normally nothing: a write is deleted once it has uploaded) and opens the folder in File Explorer, along with any TPC-H data a run ended mid-way left in the temp folder. **Delete left-overs** deletes all of it after you confirm (your tables in OneLake aren't touched); it's refused while a notebook is running, and what a run still going in another process (a scheduled run) wrote is left, as is any file in use; the notebook's **Runs on** menu has the same **Open the folder of local writes**. See [Writing to OneLake](architecture.md#writing-to-onelake). |
-| **Exercise sandbox** | Whether Academy exercise scripts run in a Windows AppContainer, with no network and no access to your own files. To make that work, KratosForge lets it read its Python on this PC. **Remove exercise permissions** takes that away after you confirm; the next exercise you run adds it back. |
+| **Exercise sandbox** | Whether Academy exercise scripts run in a Windows AppContainer, with no network and no access to your own files. To make that work, KratosForge lets the sandbox read KratosForge's Python on this PC. **Remove exercise permissions** takes that away after you confirm; the next exercise you run adds it back. |
 | **SQL queries** | Rows per page, time limit, memory, queries at once, how long results are kept, and the **Temp folder**. See [Running SQL queries on this PC](sql-execution.md#limits). |
 
 When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_CLIENT_ID` environment variable sets the App ID, the field shows the value it uses, can't be edited and says which: "Set by your organization's policy" or "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable". To change an ID the variable sets, remove the variable (`setx FABRIC_DESKTOP_CLIENT_ID ""`) and restart KratosForge.

@@ -77,3 +77,32 @@ def test_a_run_with_a_time_limit_sets_it_on_the_connection(monkeypatch, tmp_path
     warehouse.run(job, lambda: "tok", lambda kind, **f: said.append(kind))
     assert con.timeout == 45 and con.rolled_back and con.closed
     assert said == ["started", "done"]
+
+
+def _quickest(fn, text, tries=5):
+    import time
+
+    best = float("inf")
+    for _ in range(tries):
+        started = time.perf_counter()
+        fn(text)
+        best = min(best, time.perf_counter() - started)
+    return best
+
+
+@pytest.mark.parametrize("fn, build", [
+    (warehouse.without_outer_transaction, lambda n: "BEGIN TRAN" + " " * n + "x\nCOMMIT"),
+    (warehouse.without_outer_transaction, lambda n: "BEGIN TRAN\nx\nCOMMIT" + " " * n + "x"),
+    (warehouse.without_outer_transaction, lambda n: "BEGIN TRAN\nx\nCOMMIT\nGO" + " " * n + "x"),
+    (warehouse.batches, lambda n: "SELECT 1\nGO" + " " * n + "x"),
+    (warehouse.change_units, lambda n: ["BEGIN TRAN" + " " * n + "x", "SELECT 1", "COMMIT" + " " * n + "x"]),
+    (warehouse.definition_fingerprint, lambda n: "CREATE VIEW v AS SELECT 1\nGO" + " " * n + "x"),
+    (lambda q: warehouse._AS_OF.sub("", q), lambda n: "SELECT 1" + " " * n + "x"),
+    (lambda q: warehouse._AS_OF.sub("", q),
+     lambda n: "SELECT 1 OPTION (FOR TIMESTAMP AS OF '2024-01-02T03:04:05')" + " " * n + "x"),
+])
+def test_a_long_run_of_blanks_around_go_begin_or_commit_is_read_once(fn, build):
+    # Comments are blanked to spaces before these lines are read, so a long one is a long run of blanks.
+    # Split every way between the parts around it, 8,000 took seconds; read once, 8 times the blanks
+    # take about 8 times as long.
+    assert _quickest(fn, build(16000)) / max(_quickest(fn, build(2000)), 50e-6) < 30

@@ -83,7 +83,8 @@ CONNECT_DEADLINE_S = 120  # all tries and waits together; each try's login timeo
 _ERROR_NUMBER = re.compile(r"\((\d{4,5})\)")  # pyodbc's "... (40613)"
 _log = logging.getLogger(__name__)
 _OUTSIDE = {"openrowset", "openquery", "opendatasource"}
-_GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
+# Possessive (*+): each run of blanks is read once, not split every way between the parts around it.
+_GO = re.compile(r"^[ \t]*+GO[ \t]*+;?[ \t]*+$", re.IGNORECASE | re.MULTILINE)
 # Comments, strings and quoted names in one left-to-right pass, so whichever starts first wins: a
 # quote inside [it's] or -- inside [a--b] is part of the name, and a [ inside a string is text.
 _TOKENS = re.compile(r"--[^\n]*|/\*.*?\*/|N?'(?:[^']|'')*'|\[((?:[^\]]|\]\])*)\]|\"((?:[^\"]|\"\")*)\"", re.DOTALL)
@@ -162,9 +163,12 @@ def batches(query: str) -> list[str]:
 # they are taken off and the rest runs as before. A named transaction, ROLLBACK, SAVE TRAN, or BEGIN
 # TRAN or COMMIT anywhere else is still refused (_NEVER_WORDS), since the app can't keep its promise
 # that a failed change keeps nothing with the script deciding when to commit.
-_BEGIN_LINE = re.compile(r"\A\s*BEGIN[ \t]+TRAN(?:SACTION)?[ \t]*;?[ \t]*(?:\n|\Z)", re.IGNORECASE)
-_COMMIT_LINE = re.compile(r"(?:\A|\n)[ \t]*COMMIT(?:[ \t]+(?:TRAN(?:SACTION)?|WORK))?[ \t]*;?[ \t]*"
-                          r"(?:\n[ \t]*GO[ \t]*;?[ \t]*)*\s*\Z", re.IGNORECASE)
+# Comments are blanked to spaces before these are read, so a long one is a long run of blanks: each
+# run is read once (*+), not split every way between the parts around it, which took seconds on a
+# few thousand. A GO line's blanks before its line break belong to it, as the line break's did.
+_BEGIN_LINE = re.compile(r"\A\s*+BEGIN[ \t]++TRAN(?:SACTION)?[ \t]*+;?[ \t]*+(?:\n|\Z)", re.IGNORECASE)
+_COMMIT_LINE = re.compile(r"(?:\A|\n)[ \t]*+COMMIT(?:[ \t]++(?:TRAN(?:SACTION)?|WORK))?[ \t]*+;?"
+                          r"(?:[ \t]*+\n[ \t]*+GO[ \t]*+;?)*+\s*\Z", re.IGNORECASE)
 
 
 def without_outer_transaction(query: str) -> tuple[str, bool]:
@@ -185,8 +189,8 @@ def change_batches(query: str) -> list[str]:
 
 # S14: a script the page split into statements, each with a result of its own. The statements are sent one
 # after the other on one connection, as batches are. A change's statements are its batches.
-_BEGIN_UNIT = re.compile(r"\A\s*BEGIN\s+TRAN(?:SACTION)?\s*;?\s*\Z", re.IGNORECASE)
-_COMMIT_UNIT = re.compile(r"\A\s*COMMIT(?:\s+(?:TRAN(?:SACTION)?|WORK))?\s*;?\s*\Z", re.IGNORECASE)
+_BEGIN_UNIT = re.compile(r"\A\s*+BEGIN\s++TRAN(?:SACTION)?\s*+;?\s*\Z", re.IGNORECASE)
+_COMMIT_UNIT = re.compile(r"\A\s*+COMMIT(?:\s++(?:TRAN(?:SACTION)?|WORK))?\s*+;?\s*\Z", re.IGNORECASE)
 
 
 def change_units(units: list[str]) -> list[str]:
@@ -215,9 +219,10 @@ def unit_verdicts(units: list[str], writes: bool = False) -> list[sql_policy.Ver
 # A read at a past time (time travel): Fabric's query hint OPTION (FOR TIMESTAMP AS OF '<UTC time>') at
 # the end of a SELECT. sqlglot can't read it, so the check reads the query without it; the hint only
 # picks which version of the tables is read, and the query is sent with it as written. A change's
-# batches are read the same way, so a past-time read still runs with Allow changes ticked.
-_AS_OF = re.compile(r"\s*\bOPTION\s*\(\s*FOR\s+TIMESTAMP\s+AS\s+OF\s+'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?'\s*\)"
-                    r"\s*;?\s*$", re.IGNORECASE)
+# batches are read the same way, so a past-time read still runs with Allow changes ticked. It starts
+# where blanks start, not again inside them, so a long run of blanks is read once.
+_AS_OF = re.compile(r"(?<!\s)\s*\bOPTION\s*\(\s*FOR\s+TIMESTAMP\s+AS\s+OF\s+'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?'\s*\)"
+                    r"\s*+;?\s*$", re.IGNORECASE)
 
 
 def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
@@ -439,7 +444,7 @@ PRECONDITION_KINDS = ("schema", "table", "view", "procedure", "function")
 PRECONDITION_KEYS = ("kind", "schema", "name", "exists", "definition", "columns")
 _MODULE_TYPES = {"view": ("V",), "procedure": ("P",), "function": ("FN", "IF", "TF")}
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}")
-_TRAILING_GO = re.compile(r"\n[ \t]*GO[ \t]*;?[ \t]*\s*$", re.IGNORECASE)
+_TRAILING_GO = re.compile(r"\n[ \t]*+GO[ \t]*+;?\s*$", re.IGNORECASE)
 
 
 def definition_fingerprint(text: str) -> str:

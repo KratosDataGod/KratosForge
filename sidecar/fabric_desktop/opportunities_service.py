@@ -181,6 +181,10 @@ class OpportunitiesMixin:
         with ThreadPoolExecutor(max_workers=WORKERS) as pool:
             definitions = dict(pool.map(definition, wanted))
             jobs = dict(pool.map(history, wanted))
-        left = len([it for it in items if it.get("type") in inventory.ANALYZED]) - len(wanted)
+        past = [it for it in items if it.get("type") in inventory.ANALYZED][MAX_ITEMS:]
+        for it in past:  # not read: say why, rather than a bare "wasn't read"
+            definitions[it["id"]] = {"error": f"Not read: only the first {MAX_ITEMS} notebooks and pipelines are "
+                                              "read in one assessment."}
+        left = len(past)
         return {"workspace": workspace, "items": items, "definitions": definitions, "jobs": jobs,
                 "problem": f"{left} item(s) past the first {MAX_ITEMS} weren't read." if left > 0 else None}

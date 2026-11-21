@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import evidence as ev
+from .coverage import cut
 
 GET_WORKSPACE = "GET /v1/workspaces/{id}"
 LIST_ITEMS = "GET /v1/workspaces/{id}/items"
@@ -44,7 +45,8 @@ def _ws_subject(ws: dict[str, Any]) -> dict[str, Any]:
 def workspace(ws: dict[str, Any], items: list[dict[str, Any]] | None, *, collected_at: str,
               info_read: bool = True) -> list[dict[str, Any]]:
     """The workspace's own settings (unless ``info_read`` is false: they couldn't be read), and its
-    items when they could be listed (``None``: they couldn't)."""
+    items when they could be listed (``None``: they couldn't): id, type and name only, each name and
+    type cut at coverage.MAX_TEXT characters."""
     subj = _ws_subject(ws)
     out = []
     if info_read:
@@ -53,7 +55,7 @@ def workspace(ws: dict[str, Any], items: list[dict[str, Any]] | None, *, collect
                              payload={"description": str(ws.get("description") or ""),
                                       "capacity_id": ws.get("capacityId")}))
     if items is not None:
-        listed = [{"id": str(i.get("id")), "type": str(i.get("type")), "name": str(i.get("displayName") or "")}
+        listed = [{"id": str(i.get("id")), "type": cut(i.get("type")), "name": cut(i.get("displayName") or "")}
                   for i in items if i.get("id") and i.get("type")]
         out.append(ev.record("workspace.inventory", subj, source=LIST_ITEMS, confidence="verified_configuration",
                              collected_at=collected_at, payload={"items": sorted(listed, key=lambda i: i["id"])}))

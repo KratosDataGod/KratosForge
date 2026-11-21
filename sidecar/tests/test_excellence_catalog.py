@@ -184,7 +184,8 @@ def test_full_refresh_applies_only_to_scheduled_items_with_history():
 def test_items_the_catalog_doesnt_cover_are_unsupported_and_no_inventory_is_not_evaluated():
     snap = run([], items=[{"id": "m", "type": "Report", "displayName": "Sales"}], opt=opt_result([], []))
     assert snap["item_coverage"] == [{"item": snap["item_coverage"][0]["item"], "state": "unsupported",
-                                      "reason": "No control covers this kind of item yet."}]
+                                      "reason": "No control covers this kind of item yet.", "controls": [],
+                                      "evidence_kinds": []}]
     blind = run([], items=None)
     assert outcome_of(blind, "FEA-PERF-001")["outcome"] == "not_evaluated"
 

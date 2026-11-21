@@ -110,8 +110,11 @@ def _now() -> str:
 
 
 def _items(opt: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """The items the optimization engine listed, or None when they couldn't be listed. A problem with
+    items in hand (only the first ones' definitions were read) still lists them all, so each one is
+    reported in the coverage rather than the whole workspace being left out."""
     ws = (opt.get("workspaces") or [{}])[0]
-    if ws.get("problem"):
+    if ws.get("problem") and not opt.get("workloads"):
         return None
     return [{"id": w["item_id"], "type": w["type"], "displayName": w.get("name")} for w in opt.get("workloads") or []]
 

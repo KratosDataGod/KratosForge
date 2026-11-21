@@ -705,7 +705,11 @@ def with_delta_choice(text: str, features: str | None, readers: list[str] | None
     out when None or empty), and every other line as it was. They are top-level keys, so they go after
     the name, before the first [section]. ValueError when the file's own layout of them can't be
     changed line by line (a reader list over several lines): then nothing is changed."""
-    lines = text.splitlines()
+    # Only LF or CRLF ends a line, as in TOML. str.splitlines() also breaks at U+2028, U+2029, U+0085 and
+    # others, which a string or comment may hold: it cut those in two, losing a comment's text.
+    lines = [line.removesuffix("\r") for line in text.split("\n")]
+    if lines[-1] == "":
+        lines.pop()
     first = next((i for i, line in enumerate(lines) if _TOML_HEADER.match(line)), len(lines))
     top = [line for line in lines[:first] if not _DELTA_LINE.match(line.strip())]
     new = ([f"delta_features = {json.dumps(features)}"] if features is not None else []) \

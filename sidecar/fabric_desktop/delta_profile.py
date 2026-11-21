@@ -327,7 +327,7 @@ def confirm_choice(name: str, old: dict[str, Any], new: dict[str, Any], confirm_
     if not typed:
         raise ConfirmNeeded(f"{name} wasn't saved, because its Delta table features would break one of its readers. "
                             + " ".join(reasons) + f" Type {name} to allow it.", name, reasons)
-    if typed != name:
+    if typed != name.strip():  # the typed name is stripped, so the name it is compared with is too
         raise ConfirmNeeded(f"{name} wasn't saved, because the name typed to allow it was {typed}, not {name}. "
                             + " ".join(reasons) + f" Type {name} exactly to allow it.", name, reasons)
     return broken

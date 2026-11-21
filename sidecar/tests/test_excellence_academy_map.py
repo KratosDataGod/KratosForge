@@ -146,3 +146,24 @@ def test_the_credit_rule_lists_agree():
     assert set(am.CREDITED) == {"fix_validated", "exercise_passed"}
     assert not set(am.CREDITED) & set(am.NO_CREDIT)
     assert set(am.NO_CREDIT) == {"dismissed", "accepted_risk", "not_evaluated"}
+
+
+# ---- adversarial review
+
+
+def test_a_lone_surrogate_in_a_fix_earns_nothing_and_doesnt_crash():
+    assert am.credit_for(_fix(subject_id="\ud800"))["credit"] == 0
+    assert am.credit_for(_fix(control_id="FEA-SEC-\udfff"))["credit"] == 0
+
+
+def test_a_fix_for_a_control_that_doesnt_exist_earns_nothing():
+    fake = fx.finding_id("FEA-FAKE-999", "ws-1")
+    assert am.credit_for(_fix(control_id="FEA-FAKE-999", finding_id=fake))["credit"] == 0
+
+
+@pytest.mark.parametrize("pack, eid", [("dp-700/E1", "0"), ("dp-700", "E1/0"), ("dp-700", "../E10"),
+                                       ("DP 700", "E10"), ("dp-700", "lesson-1")])
+def test_a_passed_exercise_must_name_a_real_pack_and_exercise_id(pack, eid):
+    # "dp-700/E1" + "0" used to mint the key of exercise dp-700/E10 without passing it
+    got = am.credit_for({"kind": "exercise_passed", "pack": pack, "exercise_id": eid})
+    assert got["credit"] == 0 and got["key"] is None

@@ -18,6 +18,7 @@ Nothing here reads files, Fabric or progress. The engine imports this module onl
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from . import findings as fx
@@ -101,6 +102,10 @@ CREDITED = ("fix_validated", "exercise_passed")
 NO_CREDIT = ("dismissed", "accepted_risk", "not_evaluated")
 # Evidence a validating rerun may rest on; inferred evidence is advice and never passes a control.
 _VALID_BASIS = ("measured", "verified_configuration")
+# The Academy's own id shapes (academy/registry.py): a pack id and an exercise or capstone id. Anything
+# else can't name an exercise, and a "/" in either could mint another exercise's key.
+_PACK_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,40}")
+_EXERCISE_ID = re.compile(r"E\d{2}|C\d")
 
 
 def _none(reason: str) -> dict[str, Any]:
@@ -124,7 +129,13 @@ def credit_for(event: dict[str, Any]) -> dict[str, Any]:
         cid, sid = event.get("control_id"), event.get("subject_id")
         if not (isinstance(cid, str) and cid and isinstance(sid, str) and sid):
             return _none("A validated fix names its control and resource.")
-        if event.get("finding_id") != fx.finding_id(cid, sid):
+        if cid not in MAP and cid not in UNMAPPED:
+            return _none("The control isn't one the assessment has.")
+        try:
+            expected = fx.finding_id(cid, sid)
+        except UnicodeError:
+            return _none("The resource id isn't valid text.")
+        if event.get("finding_id") != expected:
             return _none("The finding isn't this control's finding on this resource.")
         if event.get("outcome") != "pass":
             return _none("The control didn't pass when assessed again.")
@@ -133,7 +144,8 @@ def credit_for(event: dict[str, Any]) -> dict[str, Any]:
         return {"credit": 1, "key": "fix:" + event["finding_id"], "reason": "The fix was validated."}
     if kind == "exercise_passed":
         pack, eid = event.get("pack"), event.get("exercise_id")
-        if not (isinstance(pack, str) and pack and isinstance(eid, str) and eid):
+        if not (isinstance(pack, str) and _PACK_ID.fullmatch(pack) and isinstance(eid, str)
+                and _EXERCISE_ID.fullmatch(eid)):
             return _none("A passed exercise names its pack and exercise.")
         return {"credit": 1, "key": f"exercise:{pack}/{eid}", "reason": "The exercise was passed."}
     return _none("Unknown event; only a validated fix or a passed exercise earns progress.")

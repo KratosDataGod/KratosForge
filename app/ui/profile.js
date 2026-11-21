@@ -422,7 +422,7 @@ function rankNextStep(nxt) {
   return h("section", { class: "card pad rk-quest" },
     h("h2", {}, first ? `Next step: ${nxt.name}` : "Next step"),
     h("p", {}, first ? `${first.text}.` : nxt ? "Every requirement is met." : "You hold every rank there is."),
-    first && first.coming_soon ? h("p", { class: "muted-text small" }, "Coming soon: the lessons it needs haven't shipped yet.") : null,
+    first && first.coming_soon ? h("p", { class: "muted-text small" }, "Coming soon. The lessons this rank needs haven't shipped yet.") : null,
     action ? h("div", {}, action) : null);
 }
 
@@ -456,14 +456,14 @@ function profileRanks(p) {
   return h("div", { class: "profile-col rk-page" }, hero, rankTierTabs(r, tier),
     h("section", { class: "card pad rk-progression" }, rankProgression(r, tier),
       h("div", { class: "row" }, h("span", { class: "grow" }),
-        btn(profilePage.fullPath ? "Hide all ranks" : "All ranks and picture prompts", null, () => {
+        btn(profilePage.fullPath ? "Hide all ranks" : "Show all ranks", null, () => {
           profilePage.fullPath = !profilePage.fullPath; render();
         }, "tool link small", { "aria-expanded": profilePage.fullPath ? "true" : "false" }))),
     h("div", { class: "rk-row rk-row-2" }, nextCard, rankNextStep(nxt)),
     profilePage.fullPath ? profileRankPath(r) : null);
 }
 
-// Every rank by tier, with what earns it and its picture prompt (PB-125), behind "View full rank path".
+// Every rank by tier, with what earns it and its picture prompt (PB-125), behind "Show all ranks".
 function profileRankPath(r) {
   const tiers = [...new Set(r.ladder.map((x) => x.tier))];
   return h("div", { class: "profile-col", id: "rk-full-path" },

@@ -127,7 +127,7 @@ test("Ranks shows the tiers, the tier's shields, the next rank's requirements an
   await page.getByRole("button", { name: /The Myth/ }).click();
   await page.locator('.rk-strip[aria-label="The Myth ranks"]').waitFor();
   assert.strictEqual(await page.locator(".rk-strip img").last().getAttribute("src"), "art/ranks/legend-of-the-forge-inactive.webp");
-  await page.getByRole("button", { name: "All ranks and picture prompts" }).click();
+  await page.getByRole("button", { name: "Show all ranks" }).click();
   await page.getByRole("heading", { name: "The Pack", exact: true }).waitFor();
   assert.strictEqual(await page.locator(".profile-rank").count(), 13);
   assert.strictEqual(await page.getByRole("button", { name: "Copy picture prompt" }).count(), 13);

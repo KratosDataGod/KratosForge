@@ -406,3 +406,22 @@ def test_the_run_order_is_given_whatever_other_problems_the_project_has(proj):
     s = proj.summary(TODAY)
     assert "gold.fact_sales: needs an owner" in s["errors"]
     assert s["run_order"] == P.run_order(proj) and len(s["run_order"]) == 6
+
+
+# Expression parsing (sql_expr, check_expr), from the lineage mutation batch.
+
+
+def test_an_expression_must_be_text():
+    for bad in (5, None, ["a"]):
+        with pytest.raises(TypeError, match="^an expression must be text$"):
+            P.sql_expr(bad)  # type: ignore[arg-type]
+
+
+def test_two_hundred_operators_parse_and_two_hundred_and_one_are_refused():
+    assert P.MAX_EXPR_OPERATORS == 200
+    assert P.sql_expr("1" + "+1" * 200).meta.root_names() == []
+    with pytest.raises(ValueError, match="more than 200 operators"):
+        P.sql_expr("1" + "+1" * 201)
+    # operators inside a quoted string or a quoted name aren't counted
+    assert P.check_expr("a || '" + "+" * 500 + "'", {"a"}) == []
+    assert P.check_expr('"' + "-" * 300 + '" + 1', {"-" * 300}) == []

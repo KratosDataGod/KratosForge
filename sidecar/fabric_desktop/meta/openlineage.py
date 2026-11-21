@@ -195,8 +195,9 @@ def _started(run: dict[str, Any]) -> dt.datetime:
 
 def _latest(run: dict[str, Any]) -> tuple[Any, ...]:
     """How runs of one entity are ordered: by start, then (two runs that started at the same time) by
-    what the event is made of, so the rows' order never changes which run is exported."""
-    return (_started(run), *(str(run.get(k)) for k in ("run_id", "status", "seconds", "started_at")))
+    what the event is made of, so the rows' order never changes which run is exported. ``repr``, not ``str``:
+    seconds of 1 and of "1" give different event times, so they must not tie."""
+    return (_started(run), *(repr(run.get(k)) for k in ("run_id", "status", "seconds", "started_at")))
 
 
 def _event_time(run: dict[str, Any]) -> str | None:

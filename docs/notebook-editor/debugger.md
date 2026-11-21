@@ -85,6 +85,11 @@ variables the stopped cell left.
   `%run`, and threads the cell starts run at full speed and never pause. **Step into** on such a
   call steps over it and names it in the panel. To step into a function from an earlier cell, put
   a breakpoint in that cell and debug from there.
+- **Callbacks and coroutines pause.** A cell function that library code calls back on the cell's
+  own thread (a `sorted` key, a generator `list()` consumes, a coroutine `asyncio.run` runs) is
+  the cell's code and stops at its breakpoints; the stack shows only the cell's frames. **Step**
+  and **Step out** run through an `await` to the coroutine's next line. Top-level `await` isn't
+  supported in cells (use `asyncio.run`), with or without the debugger.
 - **Restarting the kernel while paused** ends the paused cell, as **Stop** does, but the variables
   go with the restart. A **Debug from here** run stops there and doesn't go on into the new kernel.
 - **If the notebook's own process ends while paused** (with **Run notebooks in their own process**
@@ -95,7 +100,9 @@ variables the stopped cell left.
 - **Evaluate waits up to 10 seconds** for an answer, then shows it when it finishes. **Stop** ends
   an expression that never finishes.
 - **Up to 100 breakpoints per cell.**
-- **`%%sql` and other magic cells** keep their line numbers: line 1 is the magic line.
+- **`%%time`, `%%capture` and line magics** keep their line numbers: line 1 is the magic line.
+  `%time f()` stops at the cell's breakpoints in `f`. Cells that aren't the cell's own Python
+  (`%%sql`, `%%html`, `%%timeit`, `%%sh` and the like) run without pausing.
 - Debugging runs on the cell's own thread with Python's trace hook, so a traced cell runs slower
   than usual. Cells without breakpoints aren't traced at all.
 
@@ -108,7 +115,8 @@ large frames and values), `sidecar/tests/test_debugger_robust.py` (malformed deb
 messages, a process that dies or a cell that hangs while paused, the stack through errors and
 recursion), `sidecar/tests/test_debugger_soak.py` (a thousand pauses and steps, and runs mixing
 Stop, Continue and restart, leave no trace hook, thread or memory behind), `sidecar/tests/test_debugger_midstep.py`
-(Stop, a restart or the process dying while a step runs) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
+(Stop, a restart or the process dying while a step runs), `sidecar/tests/test_debugger_concurrency.py`
+(threads, asyncio, library callbacks and magics) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
 Windows, with **Run notebooks in their own process** both on and off:
 
 1. Set breakpoints in two cells, save, close the notebook and reopen it. The red bars are on the

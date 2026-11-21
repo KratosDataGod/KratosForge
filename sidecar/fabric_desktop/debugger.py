@@ -22,12 +22,15 @@ MAX_LOCALS by name and says how many there are (``variables_total``).
 
 from __future__ import annotations
 
+import inspect
 import queue
 import threading
 import types
 from typing import Any, Callable
 
 ACTIONS = ("continue", "step", "next", "out")
+# A generator or coroutine "returns" each time it yields or awaits, not only when it ends.
+SUSPENDS = inspect.CO_GENERATOR | inspect.CO_COROUTINE | inspect.CO_ASYNC_GENERATOR | inspect.CO_ITERABLE_COROUTINE
 CELL_FILE = "<cell>"  # the file name cells are compiled with (notebook._CELL_FILE)
 MAX_BREAKPOINTS = 100
 MAX_LOCALS = 200
@@ -118,8 +121,11 @@ class Debugger:
     def _stops_on_return(self, frame: types.FrameType) -> bool:
         """A function that a step came back into returns without running another line, as in
         ``return n * fact(n - 1)``: the step stops as it leaves, so the step never runs on to the end.
-        The cell's own frame is left alone, so a step past the cell's last line ends the cell."""
-        if self.mode == "continue" or frame is self._raising or frame.f_code.co_name in ("<module>", "<cell>"):
+        The cell's own frame is left alone, so a step past the cell's last line ends the cell. So is a
+        generator or coroutine: its return event is mostly a yield or an await giving way to the event
+        loop, and a pause there would show it at a line it hasn't left; the step stops at the next line."""
+        if (self.mode == "continue" or frame is self._raising or frame.f_code.co_name in ("<module>", "<cell>")
+                or frame.f_code.co_flags & SUSPENDS):
             return False
         return self._depth(frame) < self.depth
 

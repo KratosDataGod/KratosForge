@@ -1279,7 +1279,7 @@ class Kernel:
                 warnings.filterwarnings("ignore", message=".*non-interactive.*")
                 tree = ast.parse(code, _CELL_FILE)
                 if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
-                    tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
+                    tree = _fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
                 end = tree.body[-1] if tree.body else None
                 last = end if isinstance(end, ast.Expr) else None
                 if last is not None:
@@ -2019,6 +2019,37 @@ def _databricks_runtime(dbutils: Any) -> None:
     sys.modules.update({"databricks": root, "databricks.sdk": sdk, "databricks.sdk.runtime": runtime})
 
 
+def _fix_missing_locations(tree: ast.Module) -> ast.Module:
+    """ast.fix_missing_locations with a stack rather than recursion, which a cell's long expression
+    (a sum of thousands of terms) would take past Python's limit: each node without a position takes
+    its parent's."""
+    stack: list[tuple[ast.AST, int, int, int, int]] = [(tree, 1, 0, 1, 0)]
+    while stack:
+        node, lineno, col, end_lineno, end_col = stack.pop()
+        if "lineno" in node._attributes:
+            if not hasattr(node, "lineno"):
+                node.lineno = lineno  # type: ignore[attr-defined]
+            else:
+                lineno = node.lineno
+        if "end_lineno" in node._attributes:
+            if getattr(node, "end_lineno", None) is None:
+                node.end_lineno = end_lineno  # type: ignore[attr-defined]
+            else:
+                end_lineno = node.end_lineno  # type: ignore[attr-defined]
+        if "col_offset" in node._attributes:
+            if not hasattr(node, "col_offset"):
+                node.col_offset = col  # type: ignore[attr-defined]
+            else:
+                col = node.col_offset
+        if "end_col_offset" in node._attributes:
+            if getattr(node, "end_col_offset", None) is None:
+                node.end_col_offset = end_col  # type: ignore[attr-defined]
+            else:
+                end_col = node.end_col_offset  # type: ignore[attr-defined]
+        stack.extend((child, lineno, col, end_lineno, end_col) for child in ast.iter_child_nodes(node))
+    return tree
+
+
 class _BuiltinPaths(ast.NodeTransformer):
     """``"builtin/x.csv"`` in a cell's code becomes the path of x.csv in the notebook's resources
     folder, as Fabric's working folder makes it. Rewriting the cell's string literals, rather than
@@ -2039,9 +2070,34 @@ class _BuiltinPaths(ast.NodeTransformer):
         self._parents: dict[int, ast.AST] | None = None
 
     def visit(self, node: ast.AST) -> Any:
+        """``node`` with its paths rewritten: every node is visited, but with a stack rather than
+        ast.NodeTransformer's recursion, which a long expression (a sum of thousands of terms, which
+        Python itself runs) would take past Python's limit. Only string constants are replaced, so
+        the order nodes are visited in doesn't matter: each decision reads the tree as it was."""
         if self._parents is None:  # the tree being rewritten: where each node sits
             self._parents = {id(c): n for n in ast.walk(node) for c in ast.iter_child_nodes(n)}
-        return super().visit(node)
+        top = [node]
+        stack: list[tuple[Any, Any]] = [(top, 0)]  # where a node sits: (its list, index) or (its parent, field)
+        while stack:
+            where, key = stack.pop()
+            here = where[key] if isinstance(where, list) else getattr(where, key)
+            if isinstance(here, ast.Constant):
+                new = self.visit_Constant(here)
+                if isinstance(where, list):
+                    where[key] = new
+                else:
+                    setattr(where, key, new)
+                continue
+            if isinstance(here, ast.JoinedStr):  # only the code in its braces; not its text or format spec
+                self.visit_JoinedStr(here)
+                stack.extend((part, "value") for part in here.values if isinstance(part, ast.FormattedValue))
+                continue
+            for field, value in ast.iter_fields(here):
+                if isinstance(value, list):
+                    stack.extend((value, i) for i, item in enumerate(value) if isinstance(item, ast.AST))
+                elif isinstance(value, ast.AST):
+                    stack.append((here, field))
+        return top[0]
 
     def _parent(self, node: ast.AST) -> ast.AST | None:
         return (self._parents or {}).get(id(node))
@@ -2085,9 +2141,7 @@ class _BuiltinPaths(ast.NodeTransformer):
         return node
 
     def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:  # noqa: N802 - ast's name
-        for part in node.values:
-            if isinstance(part, ast.FormattedValue):
-                part.value = self.visit(part.value)  # the code in the braces; not its format spec
+        """An f-string's leading text; visit() goes into the code in its braces (not its format spec)."""
         first = node.values[0] if node.values else None
         if isinstance(first, ast.Constant) and isinstance(first.value, str) and self._starts_a_path(node):
             path = notebook_resources.resolve(first.value, self.folder)

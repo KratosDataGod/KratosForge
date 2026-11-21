@@ -269,3 +269,46 @@ def test_run_b_is_a_resources_file_to_the_dependency_view():
     from fabric_desktop import depgraph
     out = depgraph.analyze("%run -b helpers.py")
     assert any("resources" in d["text"] for d in out["dynamic"])
+
+
+def test_the_rewrite_changes_only_leading_builtin_text_anywhere_in_a_cell(tmp_path):
+    import ast
+
+    from fabric_desktop.notebook import _BuiltinPaths
+    code = "\n".join([
+        'a = open("builtin/a.csv")',
+        'b = f"builtin/{n:{\'builtin/w\'}}" + f"{g(\'builtin/b\')}x" + f"x{\'builtin/c\'}"',
+        'c = [h("builtin/d", k="builtin/e"), {"builtin/f": "builtin/g"}, lambda: "builtin/h"]',
+        'd = "%s" % "builtin/i", "builtin/{}".format(1), "x" + "builtin/j"',
+        'def f(p="builtin/k"):\n    return [q for q in ("builtin/l",) if q != "builtin/m"]',
+    ])
+    tree = _BuiltinPaths(str(tmp_path)).visit(ast.parse(code))
+    want = "\n".join([
+        "a = open('R/builtin/a.csv')",
+        "b = f'R/builtin/{n:{'builtin/w'}}' + f'{g('R/builtin/b')}x' + f'x{'R/builtin/c'}'",
+        "c = [h('R/builtin/d', k='R/builtin/e'), {'builtin/f': 'R/builtin/g'}, lambda: 'R/builtin/h']",
+        "d = ('%s' % 'builtin/i', 'builtin/{}'.format(1), 'x' + 'builtin/j')",
+        "",
+        "def f(p='R/builtin/k'):",
+        "    return [q for q in ('R/builtin/l',) if q != 'R/builtin/m']",
+    ])
+    assert ast.unparse(tree) == want.replace("R/builtin", (tmp_path / "builtin").as_posix())
+
+
+def test_a_cell_with_an_expression_thousands_of_terms_long_runs_with_resources(kernel, tmp_path):
+    """The rewrite walks the cell's whole syntax tree; a sum of thousands of terms (which Python itself
+    runs) used to stop it with RecursionError in a notebook that has resources."""
+    code = 'n = 1\ntotal = ' + " + ".join(["n"] * 5000) + '\nprint(total, open("builtin/a.csv").read())'
+    assert cell_text(kernel, code) == "5000 x"
+
+
+def test_missing_positions_are_filled_in_as_ast_does():
+    import ast
+    import copy
+
+    from fabric_desktop.notebook import _fix_missing_locations
+    tree = ast.parse("x = f(1, [y for y in z])\nif x:\n    g(x)")
+    tree.body[0].value.args.append(ast.Constant("new"))
+    tree.body[1].body.append(ast.Expr(ast.Name("h", ast.Load())))
+    want = ast.fix_missing_locations(copy.deepcopy(tree))
+    assert ast.dump(_fix_missing_locations(tree), include_attributes=True) == ast.dump(want, include_attributes=True)

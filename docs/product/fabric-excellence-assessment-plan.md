@@ -331,7 +331,7 @@ coverage and Critical Risk flag built from evidence the app already reads.
 
 ### Phase 4: Remediation
 
-- **FEA-401 Remediation plan builder**: permissions check, affected resources, blast radius from
+- **FEA-401 Remediation plan builder**: **Built** (engine only: no screen, no engine call, no execution; `excellence/plans.py`; blast radius only from a graph the caller gives, otherwise not known). Permissions check, affected resources, blast radius from
   depgraph and lineage, dependencies, proposed change, rollback, validation steps.
 - **FEA-402 Templates**: SQL, Python, notebook and TMDL change templates per control, generated
   deterministically and shown as proposals.

@@ -140,6 +140,41 @@ a promised saving), effort, risk of change, how to validate, how to roll back, r
 confidence and the exact rule version. Findings are ranked by severity first, so a critical security
 finding is never listed below a minor one with a bigger estimate.
 
+## Remediation plans (engine only)
+
+**Engine only.** There is no screen, no engine call and no way to run a plan yet: FEA-401 builds the plan,
+later stories show it (FEA-408, FEA-409) and run approved changes through existing confirmed paths
+(FEA-405). `excellence/plans.py` turns one scored finding of an assessment into a plan:
+
+- **Control**: the exact rule version the finding came from. If the rule changed since, or isn't in the
+  catalog any more, the plan has no specific steps and says to assess again.
+- **Affected resources**: the finding's resource, the evidence records it cites (kind and source), and the
+  objects the finding names (activities, relationships, cells).
+- **Blast radius** and **dependencies**: what depends on the resource, and what it depends on, from a
+  dependency graph the caller hands in. Up to 50 are listed, nearest first; the count is always whole, a
+  cycle is reported and ends the walk. The assessment reads no lineage, and the app's own graphs are of
+  cells in one notebook and columns in a metadata project, not of items in a workspace. So without a
+  graph, or when the resource isn't in it, the blast radius is **not known**, with the reason. It is never
+  guessed, and an empty list never stands for "nothing depends on it". A graph that doesn't say it is
+  complete gives an "at least" count.
+- **Permissions needed**: the workspace role (or, for capacity changes, the Azure role) the change needs,
+  from a table per control with the Microsoft Learn page it comes from. Whether you hold it is never
+  checked or claimed.
+- **Proposed change**: the control's solution and steps. FEA-402's change templates, when a finding has
+  them, are carried as proposals. Controls without a specific plan yet (FEA-ARCH-001, FEA-SM-002) say
+  **No specific steps yet**, with no steps and no role.
+- **Rollback**: the control's rollback, what to write down before starting, and what can't be undone
+  (a rotated secret).
+- **Validation**: the control's check, and always: assess again, and the control must **pass**. Not
+  evaluated, not applicable or an error doesn't confirm a fix.
+- **Risk notes**: the control's risk of change and what the change can affect. A plan never says a
+  change is safe, and the expected benefit is the finding's own qualified text: a plan adds no saving.
+
+Advisory findings, and anything that isn't a fail in the assessment (passed, not evaluated, not
+applicable, error), get no plan. Names and text from Fabric, the evidence or the graph are cut to 256
+characters, with control characters and anything credential-shaped removed. The same finding, result and
+graph always give the same plan. Planning reads nothing and changes nothing.
+
 ## The engine call
 
 `excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you

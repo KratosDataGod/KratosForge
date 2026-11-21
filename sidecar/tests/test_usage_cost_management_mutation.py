@@ -63,3 +63,21 @@ def test_the_duplicate_keys_stay_the_same_across_releases():
     got = _row(charge_type="Usage", pricing="OnDemand")
     assert got["slot"] == "cost_management:6f23354e12714ace1d25d314"
     assert got["key"] == "cost_management:2cf75178ee4b5bce2de7d4b0"
+
+
+def test_a_unit_with_a_long_run_of_blanks_is_read_once():
+    # Split every way between its two runs of blanks, 8,000 took 1.1 s. Read once, 8 times the blanks
+    # take about 8 times as long.
+    import time
+
+    assert cm._hours("  10  cu  hours ") == 10.0 and cm._hours(" " * 50 + "hour") == 1.0
+
+    def quickest(n):
+        best = float("inf")
+        for _ in range(5):
+            started = time.perf_counter()
+            assert cm._hours(" " * n + "x") is None
+            best = min(best, time.perf_counter() - started)
+        return best
+
+    assert quickest(16000) / max(quickest(2000), 50e-6) < 30

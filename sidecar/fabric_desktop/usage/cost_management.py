@@ -68,7 +68,8 @@ FOCUS = Layout(
 
 def _hours(unit: str) -> float | None:
     """How many hours one unit is, from text like "1 Hour", "10 Hours" or "Hours"; None when it isn't hours."""
-    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)?\s*(?:cu\s*)?hours?\s*", (unit or "").lower())
+    # Blanks read once (*+): split every way between the two runs, 8,000 took 1.1 s.
+    m = re.fullmatch(r"\s*+(\d+(?:\.\d+)?)?\s*+(?:cu\s*+)?hours?\s*", (unit or "").lower())
     hours = float(m.group(1) or 1) if m else None
     return hours if hours is None or math.isfinite(hours) else None
 

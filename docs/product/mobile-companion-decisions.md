@@ -65,22 +65,29 @@ Rejected: TLS with self-signed pinned certificates (needs native TLS hooks on th
 layer anyway for the relay); bearer tokens over TLS like the VS Code pairing (a copied token works from
 anywhere, so the phone's key must be what proves the device).
 
-Would change if: the PoC finds a mature Noise library on both sides that passes the test vectors
-(prefer it over our own state machine); or Expo adds first-class client certificates.
+Release-blocking: whichever implementation is used passes the published Noise test vectors and an
+interop test against a reference implementation. A vetted library is preferred over our own state
+machine if it passes both.
+
+Would change if: Expo adds first-class client certificates.
 
 ## MC-ADR-003 Device identity is a hardware-bound key, approved on the PC
 
-**Proposed.** At pairing the phone makes a P-256 signing key in the Secure Enclave or Android
-Keystore (StrongBox where present), not exportable, plus an X25519 Noise static key kept in the
-encrypted store. The hardware key signs the Noise static key at pairing and signs each session's
-handshake hash at reconnect. The PC stores both public keys with the device record. Approval happens
+**Proposed.** At pairing the phone makes two P-256 signing keys in the Secure Enclave or Android
+Keystore (StrongBox where present), neither exportable, plus an X25519 Noise static key kept in the
+encrypted store. The **monitor key** (no user presence) signs the Noise static key at pairing and
+each session's handshake hash at reconnect. The **operational key** requires user presence on every
+use (iOS `.userPresence`; Android authentication validity duration 0) and signs every operational
+command over (session handshake hash, `request_id`, `item_id`, `preset_id`); the PC verifies that
+signature before `invoke`, so presence is proven to the PC, not only to the phone. The PC stores both public keys with the device record. Approval happens
 only on the PC, after the person matches a 6-digit code derived from the handshake hash on both screens.
 
 Why: a stolen file from the phone (backup, jailbreak) can't impersonate it without the hardware
 key; the code match defeats a race by someone who photographed the QR.
 
-PoC exception: Expo Go can't reach the Secure Enclave, so the PoC uses a software key in
-`expo-secure-store`. Hardware keys are release-blocking for P1 (MC-104).
+PoC exception: Expo Go can't reach the Secure Enclave, so the PoC uses software keys only, behind a
+developer flag that is off by default and never merged enabled, against `kf_tenant_test` only.
+Hardware keys are release-blocking for P1 (MC-104).
 
 ## MC-ADR-004 The phone is a registry client, not a new API
 
@@ -105,7 +112,13 @@ Why: `EXECUTE_LOCAL_CODE` approves code per run at the PC, which is useless when
 away, and is far broader. Pre-approving named, unchanged items at the PC is the line the brief draws
 between operational and sensitive.
 
-Binding: the allowlist entry stores the item's content hash when it was marked. If the item changed
+Binding: the allowlist entry stores the item's content hash when it was marked. What is hashed, by
+kind: notebook, the code cells' sources and the notebook's attached lakehouse; SQL script, the script
+text and its target lakehouse; pipeline, the pipeline definition JSON; local schedule, the schedule
+record and the hash of what it runs; metadata environment, the project's entity definitions and the
+environment name; Fabric item, the definition fetched from Fabric that will actually run. Each
+preset's parameter values are part of the hash. The phone never passes a parameter value, only a
+preset id. If the item changed
 since, the phone sees "Changed since you allowed it. Allow it again on the PC" and can't start it.
 This is the same idea as approvals bound to argument hashes in `integrations/permissions.py`.
 
@@ -170,7 +183,7 @@ sequenceDiagram
   M->>D: Noise XXpsk3 (psk = secret, prologue = pairing id + fingerprint)
   D-->>M: PC static key (phone checks it matches the QR fingerprint)
   M->>D: phone static key, name, platform, signature by hardware key
-  D->>D: secret burned (success or failure); 5 bad tries ends the request
+  D->>D: secret burned on the first attempt, success or failure
   D-->>P: "Pixel 9 wants to connect. Code 482 913. Allow: Monitor only / Monitor and run allowed items"
   M-->>P: "Check the code on your PC: 482 913"
   P->>D: Approve (or Deny)
@@ -189,12 +202,14 @@ sequenceDiagram
   participant D as PC engine
   participant G as Registry.invoke
   M->>D: Noise KK (direct) or via R (forwarded as ciphertext)
-  M->>D: signature of handshake hash by hardware key
+  M->>D: signature of handshake hash by the monitor key
   D->>D: device known, not revoked, not expired, policy allows
-  M->>D: companion_start_saved {item_id, preset_id, request_id}
+  M->>M: Face ID / fingerprint unlocks the operational key
+  M->>D: companion_start_saved {item_id, preset_id, request_id, sig_op(session hash, request_id, item_id, preset_id)}
+  D->>D: verify operational-key signature, else refuse
   D->>D: request_id seen? return first answer
   D->>G: invoke(client = device, capability, args)
-  G->>G: permission RUN_SAVED_ITEMS, scope, allowlist + content hash, _job_guard, rate limit, audit
+  G->>G: permission RUN_SAVED_ITEMS, scope, allowlist + content hash, _job_guard, rate limit, audit (fails closed)
   G-->>D: accepted, run id
   D-->>M: ack {run_id}
   loop until finished

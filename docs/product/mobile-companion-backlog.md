@@ -27,19 +27,19 @@ the work; "this thread" is the mobile companion thread.
 - **Scope:** `Noise_XXpsk3` and `Noise_KK` over `cryptography`; frame format; rekey; QR payload `kfpair:1`; 6-digit code from the handshake hash.
 - **Dependencies:** none.
 - **Technical:** `companion/noise.py`, `companion/pairing.py` (reusing `editor_pairing.Pairings` request lifecycle: 120 s, 3 waiting, single use); published Noise test vectors in `sidecar/tests/data/`.
-- **Acceptance:** passes the Noise vectors for both patterns; QR decodes to no reusable credential; secret burned after one attempt.
+- **Acceptance:** passes the published Noise vectors for both patterns and an interop test against a reference implementation (release-blocking; a vetted library is preferred if it passes both); QR decodes to no reusable credential; secret burned on the first attempt, success or failure.
 - **Security:** Security QC review (new protocol). See security design T2 to T4.
 - **Tests:** vectors, wrong PSK, expired, reused, wrong fingerprint, reordered counter, replay.
 - **Owner:** this thread; Security QC reviews.
 
 ### MC-003 Companion listener, PoC (P0, M)
 - **User value:** the phone can reach the PC on the same network.
-- **Scope:** WebSocket listener bound to private addresses only, started only while the PoC setting is on; handshake before any message; caps from `editor_channel.py`.
+- **Scope:** WebSocket listener on explicit private interface addresses whose Windows network category is Private or Domain, re-checked and closed on any network change; started only while the PoC developer flag is on; no thread per connection before authentication; 5 s deadlines for the upgrade and first Noise message; header and global unauthenticated caps; handshake before any message.
 - **Dependencies:** MC-002.
 - **Technical:** standard library + the existing HTTP server pattern, or `websockets` only if Security QC and the dependency review accept it; port written to `companion-port` in the data folder.
-- **Acceptance:** refuses public-address binds; unauthenticated sockets closed after 30 s; 17th connection refused.
+- **Acceptance:** refuses public-address and wildcard binds; not listening on a Public network; slow clients cut at 5 s; 33rd unauthenticated socket refused; 17th authenticated connection refused.
 - **Security:** inbound surface: Security QC. T1, T14, T15, T22.
-- **Tests:** bind refusal, caps, framing fuzz extension, Origin refusal.
+- **Tests:** bind refusal, network-profile change, caps and deadlines, pre-auth parser fuzz (release-blocking), Origin refusal.
 - **Owner:** this thread; Windows hardening checks the firewall prompt on Chris's PC.
 
 ### MC-004 Companion transport onto the registry (P0, M)
@@ -57,7 +57,7 @@ the work; "this thread" is the mobile companion thread.
 - **Scope:** `companion_get_pc_status`, `companion_list_runs`, `companion_get_run`, `companion_watch`, `companion_get_metrics`, `companion_list_runnable`, `companion_start_saved`, `companion_cancel_run`, `companion_retry_run`; `request_id` idempotency table.
 - **Dependencies:** MC-001, MC-004.
 - **Technical:** handlers call existing services (`local_schedules.run_now`, `notebook_batch`, `pipeline_service`, `sql_cancel`, `cancel_fabric_run`); allowlist with content hash.
-- **Acceptance:** duplicate `request_id` starts one run; changed item refused; `_job_guard` refusal passes through; cancel absent where unsupported.
+- **Acceptance:** duplicate `request_id` starts one run; operational call without a valid operational-key signature refused; audit write failure refuses the command; changed item or changed preset values refused; `_job_guard` refusal passes through; cancel absent where unsupported.
 - **Security:** T8 to T12.
 - **Tests:** service tests with fakes; concurrency test for duplicate requests.
 - **Owner:** this thread.
@@ -74,7 +74,7 @@ the work; "this thread" is the mobile companion thread.
 
 ### MC-007 PoC phone app in Expo Go (P0, M)
 - **User value:** proves the experience on a real phone at no cost.
-- **Scope:** scan, pair, Home, Jobs, Job details, Run, cancel, reconnect; software keys (PoC exception, ADR MC-ADR-003).
+- **Scope:** scan, pair, Home, Jobs, Job details, Run, cancel, reconnect; software keys only (PoC exception, ADR MC-ADR-003); behind a developer flag that is off by default and never merged enabled; runs against `kf_tenant_test` only.
 - **Dependencies:** MC-002, MC-005.
 - **Technical:** new folder `mobile/` (Expo, TypeScript), `@noble/*` crypto, shared Noise vectors as a test fixture.
 - **Acceptance:** PoC steps 3 to 12 on Chris's phone.
@@ -103,13 +103,13 @@ the work; "this thread" is the mobile companion thread.
 - **User value:** the person decides at the PC what a phone may start. **Scope:** item menu entry on notebooks, SQL scripts, pipelines, schedules, metadata environments; presets; content hash; list on the settings page. **Dependencies:** MC-005, UX mockup. **Acceptance:** changed items disabled on the phone. **Security:** T9. **Tests:** service and browser tests. **Owner:** this thread.
 
 ### MC-104 Hardware-bound device keys (P1, M, release-blocking)
-- **User value:** a copied phone backup can't control the PC. **Scope:** Expo development build with a native module for Secure Enclave / Android Keystore P-256 keys, user presence for operational signing. **Dependencies:** MC-007. **Acceptance:** key marked non-exportable on both platforms; operational command without biometric refused. **Security:** T6, T7. **Tests:** device tests on one iPhone and one Android. **Owner:** this thread.
+- **User value:** a copied phone backup can't control the PC. **Scope:** Expo development build with a native module for two Secure Enclave / Android Keystore P-256 keys: a monitor key (no presence) and an operational key (iOS `.userPresence`, Android validity duration 0) that signs each operational command for the PC to verify. **Dependencies:** MC-007. **Acceptance:** key marked non-exportable on both platforms; operational command without biometric refused. **Security:** T6, T7. **Tests:** device tests on one iPhone and one Android. **Owner:** this thread.
 
 ### MC-105 Policy keys and ADMX (P1, S)
 - **User value:** IT can turn phones off or limit them. **Scope:** keys in MC-ADR-008; `companion_relay_url` in `LOOSENING`; ADMX template; `docs/enterprise-install.md`. **Acceptance:** each key fails closed. **Security:** T19. **Tests:** policy tests per key. **Owner:** this thread; Governance reviews.
 
 ### MC-106 Notifications through Expo push (P1, M)
-- **User value:** know when a run ends without watching. **Scope:** push token registration inside the channel; event rules; generic text + ciphertext; at-most-once. **Dependencies:** MC-005, MC-104. **Acceptance:** previews contain no item names (test inspects the payload). **Security:** T13, T21. **Tests:** payload tests; send failure not retried. **Owner:** this thread; Governance (notices) reviews.
+- **User value:** know when a run ends without watching. **Scope:** off until the person turns it on, separately from pairing; no PC name in previews by default; push token registration inside the channel; event rules; generic text + ciphertext; at-most-once. **Dependencies:** MC-005, MC-104. **Acceptance:** previews contain no item names (test inspects the payload). **Security:** T13, T21. **Tests:** payload tests; send failure not retried. **Owner:** this thread; Governance (notices) reviews.
 
 ### MC-107 Desktop Settings > Mobile Companion page (P1, M)
 - **User value:** pairing and devices for everyone. **Scope:** per approved mockup (UX spec). **Dependencies:** UX mockup approved by Chris. **Acceptance:** per mockup; a11y check. **Security:** destructive actions via `confirmDialog` danger. **Tests:** browser + a11y. **Owner:** UX thread (mockup), this thread (build).

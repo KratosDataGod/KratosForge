@@ -129,8 +129,9 @@ differ only in how bytes travel. Details and diagrams are in the [decisions](mob
 - **Discovery:** the QR code carries the PC's current private addresses and port; the phone keeps
   them and also browses mDNS (`_kratosforge._tcp`, advertising only an opaque id, never the PC or
   user name) when an address changes. iOS asks the person for Local Network permission once.
-- **Transport:** a WebSocket on a port the engine picks, bound only to private-range addresses
-  (RFC 1918, link-local, ULA), never a public address. Encryption is the Noise channel, so no
+- **Transport:** a WebSocket on a port the engine picks, bound to explicit private-range interface
+  addresses (RFC 1918, link-local, ULA) and only while Windows classifies that network as Private or
+  Domain, never Public, since cafe and hotel Wi-Fi use private addresses too. Encryption is the Noise channel, so no
   certificate is needed and there is nothing for a CA to vouch for.
 - **Firewall:** Windows asks to allow the program the first time it listens. An enterprise PC
   often blocks inbound connections by Group Policy, and guest or office Wi-Fi often isolates
@@ -314,8 +315,10 @@ Rules carried by every call:
 - **Scoped:** the device is a registry client with its own grants and optional workspace list.
 - **Rate limited:** per device, 10 operational calls a minute and 120 reads a minute; excess
   answered `rate_limited` with a retry time.
-- **Audited:** every call through the existing audit trail with `channel = "companion"`, device id
-  and network path.
+- **Audited, failing closed:** every call through the existing audit trail with `channel = "companion"`,
+  device id and network path; an operational command whose audit line can't be written is refused.
+- **Presence proven to the PC:** each operational call carries a signature by the phone's
+  presence-required operational key over (session hash, `request_id`, `item_id`, `preset_id`).
 - **Idempotent:** every operational call carries a `request_id` (UUIDv4). The PC keeps a
   `request_id -> result` table for 24 h; a repeat returns the first answer and starts nothing.
 - **Acknowledged:** a start returns `accepted` with the run id at once; progress comes from the
@@ -373,19 +376,20 @@ keeps work in the person's own session.
 
 | Event | Default | Preview text (lock screen) |
 | --- | --- | --- |
-| Run finished | On for runs started from the phone, off for others | "A run finished on CHRIS-PC" |
-| Run failed | On | "A run failed on CHRIS-PC" |
-| Long-running (over N minutes, set on the phone) | Off | "A run is still going on CHRIS-PC" |
-| Resource threshold (memory or disk low) | Off | "CHRIS-PC is low on memory" |
+| Run finished | On for runs started from the phone, off for others | "A run finished on your PC" |
+| Run failed | On | "A run failed on your PC" |
+| Long-running (over N minutes, set on the phone) | Off | "A run is still going on your PC" |
+| Resource threshold (memory or disk low) | Off | "Your PC is low on memory" |
 | Deployment approval requested (P3) | Off | "An approval is waiting" |
 | Optimization opportunity | Off | "New optimization suggestions" |
-| PC disconnected (relay only) | Off | "CHRIS-PC went offline" |
-| Security event (new pairing, failed pairing, device revoked) | Always on | "Security: a phone was paired with CHRIS-PC" |
+| PC disconnected (relay only) | Off | "Your PC went offline" |
+| Security event (new pairing, failed pairing, device revoked) | On whenever notifications are on | "Security: a phone was paired with your PC" |
 
-- The PC name in previews can be replaced with "your PC" (setting on the phone, default on in P4
-  enterprise policy).
+- Previews say "your PC" by default; showing the PC name is an opt-in setting on the phone.
 - **Never in a preview:** item names, table, workspace or notebook names, error text, log lines,
   row counts. The full detail is fetched over the encrypted channel when the person opens the app.
+- **Off until switched on:** push is a new outbound path to a third party, so it stays off until the
+  person turns it on (separately from pairing), and previews carry no PC name by default.
 - **Delivery:** the push payload carries an opaque event id and a ciphertext the phone decrypts
   with its device key; Apple and Google see only the generic text.
 - **At most once:** a push that got no answer is not re-sent, consistent with the notice rule

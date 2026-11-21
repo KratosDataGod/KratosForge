@@ -108,7 +108,7 @@ amber "connecting". Tapping it lists every paired PC with its state and "Pair an
 1. **First pairing:** PC Settings > Mobile Companion > switch on > Pair New Device > phone Pair a PC
    > scan > both show 482 913 > Allow (Monitor only) > phone opens Home for CHRIS-PC. Target: under
    60 seconds, no typing.
-2. **Check a long run from the couch:** notification "A run finished on CHRIS-PC" > tap > biometric
+2. **Check a long run from the couch:** notification "A run finished on your PC" > tap > biometric
    if app lock is on > Job details with result.
 3. **Start a saved run away from the desk:** Run tab > "Daily sales load" > preset "Yesterday" >
    Run on CHRIS-PC > Face ID > Job details follows it.
@@ -137,7 +137,7 @@ amber "connecting". Tapping it lists every paired PC with its state and "Pair an
 
 - Camera: asked when the person taps Pair a PC, with the reason first.
 - Local network (iOS): asked at first direct connection: "To find your PC on this Wi-Fi."
-- Notifications: asked after the first successful pairing, not at install.
+- Notifications: off until the person turns them on in Profile > Settings (separate from pairing); the OS permission is asked then, never at install.
 - Biometrics: asked at the first operational command.
 - Denied camera: offer "Enter code instead" is **not** provided (the QR carries a 32-byte secret);
   show how to allow the camera in Settings.

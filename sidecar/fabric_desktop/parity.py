@@ -158,7 +158,7 @@ def _skinned(platform: str, id_: str, label: str, workflow: Cell | None = None, 
 AREAS: tuple[Area, ...] = (
     # Microsoft Fabric
     _skinned("fabric", "connect", "Sign-in and connections",
-       cloud_api=Cell("verified", ("test_auth_edges.py", "test_credentials_config.py", "test_connection_check.py"), KUDP_RUN,
+       cloud_api=Cell("verified", ("test_auth_edges.py", "test_credentials_config.py"), KUDP_RUN,
                       "Signing in with the developer's own identity was recorded. No app registration or service principal is used.")),
     _skinned("fabric", "workspaces", "Workspaces and items",
        workflow=Cell("partial", ("test_skins.py",),

@@ -171,6 +171,22 @@ def test_the_history_a_table_keeps_in_whole_days(value, days):
     assert M.kept_days(None) is None
 
 
+def test_a_long_number_in_the_retention_setting_is_read_once():
+    # Tried from each of its digits, each try read the rest again: 12,500 digits took 2.4 s. Read from
+    # its first digit only, 8 times the digits take about 8 times as long.
+    assert M.kept_days({"delta.deletedFileRetentionDuration": "x 12 345 days"}) == 345
+
+    def quickest(n):
+        best = float("inf")
+        for _ in range(5):
+            started = time.perf_counter()
+            assert M.kept_days({"delta.deletedFileRetentionDuration": "1" * n + " years"}) is None
+            best = min(best, time.perf_counter() - started)
+        return best
+
+    assert quickest(16000) / max(quickest(2000), 50e-6) < 30
+
+
 @pytest.fixture
 def vacuums(monkeypatch):
     calls = []

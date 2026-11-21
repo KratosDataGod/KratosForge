@@ -243,7 +243,9 @@ def kept_days(config: dict[str, str] | None) -> int | None:
     """The history a table's own ``delta.deletedFileRetentionDuration`` keeps, in whole days
     (rounded up), or None when it doesn't set one. Spark writes it as ``interval 30 days``."""
     text = str((config or {}).get("delta.deletedFileRetentionDuration") or "").lower()
-    m = re.search(r"(\d+)\s*(hour|day|week)", text)
+    # From the first digit of a number only: tried from each digit of a long one, every try read the
+    # rest of it again, and 12,500 digits took 2.4 s.
+    m = re.search(r"(?<!\d)(\d+)\s*(hour|day|week)", text)
     if not m:
         return None
     return -(-int(m.group(1)) * _UNIT_HOURS[m.group(2)] // 24)

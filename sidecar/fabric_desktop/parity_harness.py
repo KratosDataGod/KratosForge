@@ -16,6 +16,10 @@ Outcomes:
     refused      the local engine refused the statement by name (a translation it doesn't make)
     error        the statement failed on this PC
 
+A case may expect the statement to fail (``"expect_error": true``, with no schema or rows) where the
+platform documents an error. Then a failure of the statement on this PC is its match (or unconfirmed), and
+a result is a difference. A failure to make the dataset is still an error, and a refusal still refused.
+
 Only the normalizations a case names apply, from the closed list ``NORMALIZATIONS``. Anything else
 (a decimal's scale, a NULL where a value was expected, row order) is a difference.
 
@@ -49,7 +53,7 @@ NORMALIZATIONS = {
 }
 _CASE_KEYS = {"id", "title", "dataset", "dialects", "note"}
 _DATASET_KEYS = {"table", "columns", "rows"}
-_EXPECT_KEYS = {"statement", "schema", "rows", "normalize", "unconfirmed", "source", "note"}
+_EXPECT_KEYS = {"statement", "schema", "rows", "normalize", "unconfirmed", "source", "note", "expect_error"}
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _ID = re.compile(r"[a-z0-9_]+")
 _DECIMAL = re.compile(r"decimal\((\d{1,2}),(\d{1,2})\)")
@@ -154,7 +158,12 @@ def validate(case: Any) -> dict[str, Any]:
         where = f"{cid} ({dialect})"
         if dialect not in DIALECTS:
             raise CaseError(f"{cid}: unknown dialect {dialect!r}. Dialects: {', '.join(DIALECTS)}.")
-        _keys(ex, _EXPECT_KEYS, {"statement", "schema", "rows", "source"}, where)
+        expect_error = isinstance(ex, dict) and "expect_error" in ex
+        _keys(ex, _EXPECT_KEYS, {"statement", "source"} | (set() if expect_error else {"schema", "rows"}), where)
+        if expect_error and ex["expect_error"] is not True:
+            raise CaseError(f"{where}: expect_error is true or left out.")
+        if expect_error and ({"schema", "rows", "normalize"} & set(ex)):
+            raise CaseError(f"{where}: a case that expects an error has no schema, rows or normalize.")
         norms = ex.get("normalize", [])
         if not isinstance(norms, list) or any(n not in NORMALIZATIONS for n in norms):
             raise CaseError(f"{where}: normalize names some of {', '.join(NORMALIZATIONS)}, not {norms!r}.")
@@ -163,9 +172,10 @@ def validate(case: Any) -> dict[str, Any]:
         if not (isinstance(ex["statement"], str) and ex["statement"].strip() and isinstance(ex["source"], str)
                 and ex["source"].strip()):
             raise CaseError(f"{where}: statement and source are text.")
-        schema = _columns(ex["schema"], f"{where} schema")
-        out["dialects"][dialect] = {"statement": ex["statement"], "schema": schema,
-                                    "rows": _rows(ex["rows"], schema, f"{where} rows"), "normalize": list(norms),
+        schema = [] if expect_error else _columns(ex["schema"], f"{where} schema")
+        out["dialects"][dialect] = {"statement": ex["statement"], "schema": schema, "expect_error": expect_error,
+                                    "rows": [] if expect_error else _rows(ex["rows"], schema, f"{where} rows"),
+                                    "normalize": list(norms),
                                     "unconfirmed": ex.get("unconfirmed", False), "source": ex["source"],
                                     "note": ex.get("note", "")}
     return out
@@ -207,7 +217,8 @@ def dataset_sql(dataset: dict[str, Any]) -> list[str]:
 
 
 def _on_duckdb(case: dict[str, Any], dialect: str) -> tuple[str, Any]:
-    """("ok", table) or (outcome, reason), through the DuckDB engine session cells use."""
+    """("ok", table) or (status, reason), through the DuckDB engine session cells use. "failed" is the
+    statement failing; "error" is anything else going wrong."""
     from .engines.contract import CellRequest, SessionConfig
     from .engines.local_sql import DuckDBAdapter
     session = DuckDBAdapter().open_session(SessionConfig(notebook=f"parity-{case['id']}"))
@@ -222,7 +233,7 @@ def _on_duckdb(case: dict[str, Any], dialect: str) -> tuple[str, Any]:
         if res.status == "ok":
             return "error", "The statement returned no result."
         name, text = _error(res.outputs)
-        return ("refused" if name in _REFUSALS else "error"), f"{name}: {text}"
+        return ("refused" if name in _REFUSALS else "failed"), f"{name}: {text}"
     finally:
         session.close()
 
@@ -259,7 +270,7 @@ def _on_tsql(case: dict[str, Any]) -> tuple[str, Any]:
                 con.execute(text)
             return "ok", con.sql(texts[-1]).to_arrow_table() if texts else None
         except duckdb.Error as exc:
-            return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
+            return "failed", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     finally:
         con.close()
 
@@ -358,12 +369,19 @@ def run_one(case: dict[str, Any], dialect: str) -> dict[str, Any]:
         "date": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "expected": {"schema": [list(c) for c in expect["schema"]],
                      "rows": [[_json(v) for v in r] for r in expect["rows"]], "normalize": expect["normalize"],
-                     "unconfirmed": expect["unconfirmed"], "source": expect["source"]},
+                     "unconfirmed": expect["unconfirmed"], "source": expect["source"],
+                     "expect_error": expect["expect_error"]},
         "actual": None, "written_to": None}
+    if status == "failed" and expect["expect_error"]:
+        return record | {"outcome": "unconfirmed" if expect["unconfirmed"] else "match", "differences": [],
+                         "detail": got}
     if status != "ok" or got is None:
-        return record | {"outcome": status if status != "ok" else "error", "detail": got or "No result."}
+        return record | {"outcome": "error" if status in ("ok", "failed") else status, "detail": got or "No result."}
     record["actual"] = {"schema": [[f.name, _logical(f.type)] for f in got.schema],
                         "rows": [[_json(v) for v in r.values()] for r in got.to_pylist()]}
+    if expect["expect_error"]:
+        return record | {"outcome": "differs", "differences": [
+            {"what": "error", "expected": "the statement fails", "actual": "the statement gave a result"}]}
     diffs = compare(got, expect)
     outcome = "differs" if diffs else "unconfirmed" if expect["unconfirmed"] else "match"
     return record | {"outcome": outcome, "differences": diffs}

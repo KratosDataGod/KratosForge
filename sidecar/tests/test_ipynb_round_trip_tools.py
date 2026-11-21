@@ -5,7 +5,10 @@ indent 1, a final newline, cell attachments, ipywidgets state and widget-view ou
 nobody knows), VS Code on Windows (CRLF, no final newline, vscode metadata, non-ASCII as is) and a
 Fabric export (all on one line, kernel_info, a default lakehouse and environment in dependencies).
 Each is opened with NotebookStore.load and saved with NotebookStore.save, the methods behind the
-open_notebook and save_notebook RPCs, with the cells passed through JSON as the app sends them."""
+open_notebook and save_notebook RPCs, with the cells passed through JSON as the app sends them.
+
+test_ipynb_round_trip.py covers the same rule on the fixture files in tests/fixtures/ipynb and the app's own
+keys (lakehouse, settings, attachments); this file adds other tools' layouts, key order and line endings."""
 import json
 from pathlib import Path
 

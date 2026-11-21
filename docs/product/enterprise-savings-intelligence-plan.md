@@ -442,7 +442,7 @@ confidence. The current single price becomes a scenario labelled as an assumptio
 **ESI-402 Capacity value and headroom.** Measures B and C from 4.6, with time-based headroom
 from imported timepoints.
 
-**ESI-403 Realized savings.** Measure E from Cost Management exports and `fdcap_` SKU changes,
+**ESI-403 Realized savings.** **Built** (engine only, no writes). `savings/realized.py`. Measure E from Cost Management exports and `fdcap_` SKU changes,
 linked to optimizations by a confirmed person action; measure F.
 - Acceptance: nothing is labelled realized without billing or capacity-change evidence; an F64
   with lower utilization shows value and headroom, not realized savings.

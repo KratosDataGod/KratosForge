@@ -27,6 +27,14 @@ ranked by the benefit their evidence shows: measured CU first, then estimated CU
 when CU isn't known, then scenario figures, then unknown last with None. Kinds are never sorted
 together. Within a kind: bigger first, then the action order, then id (ESI-603).
 
+``realized``: realized savings (measure E) only from a Cost Management bill for one capacity over two
+periods of the same length, with a person's confirmed action that links the change to optimizations.
+A SKU change also needs its ``fdcap_change`` row. Only the part of the bill's drop that the change
+explains is claimed, at the lower billed rate; the rest is reported as not claimed. Without that
+evidence the result is Unknown, value None, with the reason. Lower utilization alone shows value and
+headroom, not savings. Net benefit (measure F) subtracts every attributable cost, and is Unknown when
+one is missing, Unknown or a Scenario (ESI-403).
+
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.
 """

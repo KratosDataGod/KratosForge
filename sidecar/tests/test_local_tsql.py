@@ -268,8 +268,8 @@ def test_dateadd_and_datetrunc_keep_a_date_a_date(engine):
 
 
 @pytest.mark.parametrize("sql, says", [
-    ("SELECT DATEADD(hour, 1, day) FROM dbo.orders", "DATEADD doesn't take the date part hour for a date"),
-    ("SELECT DATETRUNC(minute, day) FROM dbo.orders", "DATETRUNC doesn't take the date part minute for a date"),
+    ("SELECT DATEADD(hour, 1, day) FROM dbo.orders", "The datepart hour is not supported by date function dateadd for data type date"),
+    ("SELECT DATETRUNC(minute, day) FROM dbo.orders", "The datepart minute is not supported by date function datetrunc for data type date"),
     (f"SELECT DATETRUNC(dw, {T})", "DATETRUNC doesn't take the date part dw"),
     (f"SELECT DATEADD(iso_week, 1, {T})", "DATEADD doesn't take the date part iso_week"),
     (f"SELECT DATEADD(ns, 100, {T})", "kept to the microsecond"),

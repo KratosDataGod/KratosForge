@@ -1104,7 +1104,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             tsql_format.rewrite(node, info.this.type)
         elif isinstance(node, (exp.Concat, exp.ConcatWs)):
             notes += _floats_joined(node, info)
-        elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc)):
+        elif isinstance(node, exp.TimestampTrunc):
+            _datetrunc_of(node, info.this.type)
+        elif isinstance(node, exp.DateAdd):
             if _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
         elif isinstance(node, exp.Add):
@@ -2390,11 +2392,48 @@ def _refused_by_name(tree: exp.Expression) -> None:
                          "SCHEMA_NAME() with no argument runs.")
     if any(True for _ in tree.find_all(exp.RegexpSubstr)):  # T-SQL's start and occurrence arguments differ
         raise ValueError(_NOT_YET + "REGEXP_SUBSTR isn't mapped yet. REGEXP_LIKE, REGEXP_REPLACE and REGEXP_COUNT run.")
+    _regexp_arguments(tree)
     # DuckDB's GET_BIT and SET_BIT work on bit strings, not numbers
     if any(True for _ in tree.find_all(exp.Getbit)):
         raise ValueError(_NOT_YET + "GET_BIT isn't mapped yet. Use & with a power of 2, such as x & 4.")
     if any(a.name.upper() == "SET_BIT" for a in tree.find_all(exp.Anonymous)):
         raise ValueError(_NOT_YET + "SET_BIT isn't mapped yet. Use | with a power of 2, such as x | 4.")
+
+
+# Each REGEXP_* function's flags argument as sqlglot names it.
+_REGEXP_FLAGS = {exp.RegexpLike: "flag", exp.RegexpReplace: "modifiers", exp.RegexpCount: "parameters",
+                 exp.RegexpInstr: "parameters"}
+
+
+def _regexp_arguments(tree: exp.Expression) -> None:
+    """The REGEXP_* arguments T-SQL refuses, refused with its own error, and REGEXP_INSTR's group, refused by name
+    (sqlglot dropped it, so the position of the whole match came back instead). functions/regexp-instr-transact-sql:
+    a flag outside c, i, s and m gives "Invalid flag provided. '<invalid character>' are not valid flags. Only
+    {c,i,s,m} flags are valid." (DuckDB stopped with its own "Unrecognized Regex option"), and return_option is "0
+    for the beginning, and 1 for the end ... The query returns error for any other value" (sqlglot took any other
+    value as 0)."""
+    for node in tree.find_all(*_REGEXP_FLAGS):
+        flags = node.args.get(_REGEXP_FLAGS[type(node)])
+        if isinstance(flags, exp.Literal) and flags.is_string:
+            wrong = sorted(set(flags.name) - set("cism "))
+            if wrong:
+                raise ValueError(f"{_NOT_YET}Invalid flag provided. '{''.join(wrong)}' are not valid flags. Only "
+                                 "{c,i,s,m} flags are valid. T-SQL gives the same error.")
+    for found in tree.find_all(exp.RegexpInstr):
+        option, group = found.args.get("option"), found.args.get("group")
+        if option is not None and not isinstance(option, exp.Null):
+            value = _number(option)
+            if value is None:
+                raise ValueError(_NOT_YET + "REGEXP_INSTR with a return_option worked out from a column or an "
+                                 "expression isn't mapped yet, so nothing ran. Write 0 (where the match begins) or "
+                                 "1 (just after it) in the query.")
+            if value not in (0, 1):
+                raise ValueError(_NOT_YET + "REGEXP_INSTR's return_option must be 0 (where the match begins) or 1 "
+                                 "(just after it). T-SQL stops with an error for any other value too.")
+        if group is not None and _number(group) != 0:
+            raise ValueError(_NOT_YET + "REGEXP_INSTR with a group argument other than 0 isn't mapped yet, so "
+                             "nothing ran. Leave the group out to get the position of the whole match, or run it in "
+                             "a Fabric Warehouse.")
 
 
 def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
@@ -2631,13 +2670,29 @@ def _translate_lists(node: exp.Translate) -> None:
     node.replace(_once([node.this, source, target], build))
 
 
+def _int_literal(node: exp.Expression | None) -> exp.Expression | None:
+    """A number literal with a fraction (``2.7``, ``-0.5``, ``1e1``) as the bigint T-SQL makes it: cut toward zero
+    (functions/cast-and-convert-transact-sql, "Truncating and rounding results": decimal and float to an integer
+    type truncate). Past a bigint is T-SQL's overflow error. Anything else is returned as it is."""
+    value = _number(node)
+    if node is None or value is None or _whole(node, 0):
+        return node
+    return exp.Literal.number(_in_range(int(value) if math.isfinite(value) else _INFINITE, "bigint"))
+
+
 def _substring(node: exp.Substring) -> None:
-    """``SUBSTRING`` at a start below 1 or with a negative length (see _string_edges)."""
+    """``SUBSTRING`` at a start below 1 or with a negative length (see _string_edges). A start or length with a
+    fraction is made a bigint first, toward zero, as T-SQL converts it (DuckDB's SUBSTRING didn't bind a decimal
+    or a float)."""
+    for key in ("start", "length"):
+        if node.args.get(key) is not None:
+            node.set(key, _int_literal(node.args[key]))
     start, length = node.args.get("start"), node.args.get("length")
     if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
         return
 
     def build(text: exp.Expression, st: exp.Expression, n: exp.Expression) -> exp.Expression:
+        st, n = (v if _number(v) is not None else _whole_count(v) for v in (st, n))
         cut: exp.Expression = exp.Substring(this=text, start=st.copy(), length=n.copy())
         if not _whole(start, 1):
             first = exp.func("GREATEST", st.copy(), exp.Literal.number(1))
@@ -2882,6 +2937,8 @@ def _sharp_s(tree: exp.Expression) -> None:
 
 def _charindex(node: exp.StrPosition) -> None:
     """``CHARINDEX`` as T-SQL answers it at its edges (see _string_edges)."""
+    if node.args.get("position") is not None:  # a start with a fraction is cut toward zero (see _int_literal)
+        node.set("position", _int_literal(node.args["position"]))
     start, find, text = node.args.get("position"), node.args["substr"], node.this
     value = _number(start)
     if start is not None and value is not None and value <= 1:
@@ -2896,7 +2953,7 @@ def _charindex(node: exp.StrPosition) -> None:
         if st is not None and value is None and not isinstance(start, exp.Null):
             # A NULL start keeps the answer NULL, as GREATEST alone (which skips NULLs) wouldn't.
             position = exp.Case(ifs=[exp.If(this=exp.Is(this=st.copy(), expression=exp.null()), true=exp.null())],
-                                default=exp.func("GREATEST", st.copy(), exp.Literal.number(1)))
+                                default=exp.func("GREATEST", _whole_count(st), exp.Literal.number(1)))
         call = exp.StrPosition(this=t.copy(), substr=f.copy(), position=position)
         if plain_find:
             return call
@@ -2976,11 +3033,61 @@ def _stays_a_date(node: exp.Expression) -> None:
     unit = node.args.get("unit")
     name = unit.name.upper() if unit is not None else "DAY"
     if _DATEPARTS.get(name) in _TIME_PARTS:
-        function = "DATEADD" if isinstance(node, exp.DateAdd) else "DATETRUNC"
-        raise ValueError(f"{function} doesn't take the date part {name.lower()} for a date.")
+        raise _unsupported_part(name, "DATEADD" if isinstance(node, exp.DateAdd) else "DATETRUNC", "date")
     wrapper = exp.Cast(to=exp.DataType.build("DATE"))
     node.replace(wrapper)
     wrapper.set("this", node)  # the same node, so a later step still finds what's inside it
+
+
+# The digits of a second each type keeps (DATETIME to 1/300 of a second, three digits; SMALLDATETIME to the minute),
+# and how many each DATETRUNC part needs (functions/datetrunc-transact-sql: "to truncate to the millisecond datepart,
+# the fractional time scale must be at least 3 ... microsecond ... at least 6").
+_SCALES = {exp.DataType.Type.DATETIME2: ("datetime2", 7), exp.DataType.Type.TIME: ("time", 7),
+           exp.DataType.Type.TIMESTAMPTZ: ("datetimeoffset", 7), exp.DataType.Type.DATETIME: ("datetime", 3),
+           exp.DataType.Type.SMALLDATETIME: ("smalldatetime", 0)}
+_PART_SCALE = {"MILLISECOND": 3, "MICROSECOND": 6}
+_DAY_PARTS = {"YEAR", "QUARTER", "MONTH", "DAYOFYEAR", "DAY", "WEEK", "ISO_WEEK"}
+
+
+def _unsupported_part(name: str, function: str, kind: str) -> ValueError:
+    """T-SQL's Msg 9810, as functions/datetrunc-transact-sql shows it."""
+    return ValueError(f"{_NOT_YET}The datepart {name.lower()} is not supported by date function {function.lower()} "
+                      f"for data type {kind}. T-SQL gives the same error.")
+
+
+def _datetrunc_of(node: exp.TimestampTrunc, kind: exp.DataType | None) -> None:
+    """``DATETRUNC`` by the type of its value, as functions/datetrunc-transact-sql gives it: a date stays a date
+    (_stays_a_date); a part finer than the type keeps (millisecond of a datetime2(2), microsecond of a datetime) is
+    T-SQL's error 9810, as is a date part of a time; a time is truncated as a time (DuckDB's DATE_TRUNC takes no
+    TIME); and text "that can resolve to a datetime2(7)" is read as one (DuckDB took only text written in the query).
+    A column whose type isn't known is left as it is."""
+    if kind is None:
+        return
+    if _is(kind, {exp.DataType.Type.DATE}):
+        _stays_a_date(node)
+        return
+    unit = node.args.get("unit")
+    name = unit.name.upper() if unit is not None else "DAY"
+    part = _DATEPARTS.get(name)
+    if kind.this in _SCALES:
+        written, scale = _SCALES[kind.this]
+        params = [p.this for p in kind.expressions if isinstance(p, exp.DataTypeParam)]
+        if written in ("datetime2", "time", "datetimeoffset") and params and isinstance(params[0], exp.Literal) \
+                and params[0].name.isdigit():
+            scale = int(params[0].name)
+        if part in _PART_SCALE and scale < _PART_SCALE[part]:
+            raise _unsupported_part(name, "DATETRUNC", written)
+        if written == "time":
+            if part in _DAY_PARTS:
+                raise _unsupported_part(name, "DATETRUNC", written)
+            if part in _TIME_PARTS:
+                day = exp.cast(exp.Literal.string("1970-01-01"), "DATE")
+                node.set("this", exp.Add(this=day, expression=node.this))
+                wrapper = exp.Cast(to=exp.DataType.build("TIME"))
+                node.replace(wrapper)
+                wrapper.set("this", node)  # the same node, so _functions still sets its DuckDB part
+    elif _is(kind, _TEXT) and not (isinstance(node.this, exp.Literal) and node.this.is_string):
+        node.set("this", exp.cast(node.this, "TIMESTAMP"))
 
 
 def _sunday_week_start(node: exp.TimestampTrunc) -> None:

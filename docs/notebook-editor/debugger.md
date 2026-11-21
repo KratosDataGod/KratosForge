@@ -66,7 +66,7 @@ The paused line is highlighted, and a panel under the cell shows:
 - **Watches** from the Variables pane, evaluated in the paused frame.
 - **Evaluate**: type an expression, such as `df.shape` or `n + 1`, to run it in the paused frame.
   It runs as notebook code, so keep it to reads. A breakpoint in a function the expression calls
-  doesn't pause it, and an expression that calls `exit()` or raises shows the error while the cell
+  doesn't pause the expression, and an expression that calls `exit()` or raises shows the error while the cell
   stays paused. The panel keeps the last 20 answers.
 
 | Button | Key | What it does |
@@ -100,13 +100,13 @@ variables the stopped cell left.
 - **No time limit while debugging.** Time spent paused counts as running, so the cell time limit is
   off for a cell under the debugger. The memory limit still applies.
 - **Evaluate waits up to 10 seconds** for an answer, then shows it when it finishes. **Stop** ends
-  an expression that never finishes. A watch that never finishes holds up the pause the same way;
-  **Stop** ends it too. Stop lands between Python steps, so an expression waiting in a single long
+  an expression that never finishes. A watch that never finishes holds up the pause the same way,
+  and **Stop** ends it too. Stop lands between Python steps, so an expression waiting in a single long
   call, such as `time.sleep(30)`, ends when that call returns.
 - **Up to 100 breakpoints per cell.**
 - **`%%time`, `%%capture` and line magics** keep their line numbers: line 1 is the magic line.
-  `%time f()` stops at the cell's breakpoints in `f`. Cells that aren't the cell's own Python
-  (`%%sql`, `%%html`, `%%timeit`, `%%sh` and the like) run without pausing.
+  `%time f()` stops at the cell's breakpoints in `f`. Cell magics that run the cell some
+  other way (`%%sql`, `%%html`, `%%timeit`, `%%sh` and the like) run without pausing.
 - Debugging runs on the cell's own thread with Python's trace hook, so a traced cell runs slower
   than usual. Cells without breakpoints aren't traced at all.
 

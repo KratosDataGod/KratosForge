@@ -70,12 +70,7 @@ const VIEWPORT = { width: 1440, height: 940 };  // harness.cjs's
 
 // Findings this audit recorded that are filed to be fixed (#905): "page: rule @ element" and "page: element".
 // A new one fails; remove a line when its fix lands (the test then keeps it fixed).
-const KNOWN_RULES = new Set([
-  // In a short window (as at 200%) the rail draws icons only, 44 px wide, and an open item's close is 14 px inside it.
-  // A 24 px close would cover most of the icon there: the layout is UX's to choose (#905).
-  'shell: target-size @ button[title="Close SQL query"]',
-  'shell: target-size @ button[title="Close Daily sales"]',
-]);
+const KNOWN_RULES = new Set([]);
 const KNOWN_KEYBOARD = new Set([]);
 const KNOWN_FOCUS = new Set([]);
 // At 200%: "page: #view is Npx wide in a Mpx window" and "page: Tab stop" hidden when focused. Listed ones need a
@@ -466,6 +461,7 @@ async function audit(page, target, scheme) {
   if (!(await page.evaluate(() => typeof axe === "object"))) await page.addScriptTag({ content: axeSource });
   const scope = target.scope || "#view";
   const forcedLow = mode.media.forcedColors === "active" ? await page.evaluate(forcedContrast, scope) : [];
+  // Text spacing changes only sizes, never colours, so one scheme measures it for all: light, at full size.
   const clipped = scheme === "light" ? await page.evaluate(spacingClips, scope) : [];
   const axeOut = await page.evaluate(async ([scope, tags, off]) => {
     const rules = Object.fromEntries(off.map((id) => [id, { enabled: false }]));

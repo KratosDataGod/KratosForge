@@ -71,7 +71,7 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Data mesh entity | high-contrast | 15 | 0 (0) | none | 15 | 0 | 0 |
 | Shell (top bar and rail) | light | 14 | 0 (0) | none | 19 | 0 | 0 |
 | Shell (top bar and rail) | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
-| Shell (top bar and rail) | zoom-200 | 14 | 1 (1) | none | 19 | 0 | 0 |
+| Shell (top bar and rail) | zoom-200 | 14 | 0 (0) | none | 19 | 0 | 0 |
 | Shell (top bar and rail) | high-contrast | 13 | 0 (0) | none | 19 | 0 | 0 |
 | Confirm dialog | light | 14 | 0 (0) | none | 3 | 0 | 0 |
 | Confirm dialog | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
@@ -166,7 +166,7 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 
 Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any serious or critical rule violation, or keyboard or focus finding, not listed here.
 
-- **Shell (top bar and rail)** (zoom-200): target-size, serious: All touch targets must be 24px large, or leave sufficient space. At `button[title="Close SQL query"]`, `button[title="Close Daily sales"]`
+None.
 
 ## Needs a look
 

@@ -3751,7 +3751,10 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
   .rail-divider { width: 28px; margin: 2px 0; }
   .rail-group-label { width: 36px; height: 0; margin-top: 2px; padding-top: 0; overflow: hidden; }
   #rail-open { gap: 2px; }
-  .rail-close { top: 0; right: 0; width: 14px; height: 14px; }
+  /* An open item's close sits beside its icon, not over it: 26 + 1 + 24 = 51 px, inside the rail's 52 less its 1 px border (WCAG 2.5.8). */
+  .rail-open-item { display: flex; align-items: center; gap: 1px; }
+  .rail-open-item .rail-item { width: 26px; }
+  .rail-close { position: static; width: 24px; height: 24px; }
   .home-hero { height: auto; min-height: 0; }
   .home-hero-img, .home-hero-kicker, .home-hero-title { display: none; }
   .home-hero-text { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 20px; }
@@ -3803,7 +3806,8 @@ body[data-skin-rail="inline"] .rail-open-item { display: flex; flex-direction: c
   body[data-skin-rail="inline"] .rail-item { flex-direction: column; justify-content: center; gap: 0; width: 44px; min-height: 0; padding: 3px 0; }
   body[data-skin-rail="inline"] .rail-divider { width: 28px; margin: 2px 0; }
   body[data-skin-rail="inline"] .rail-group-label { width: 36px; padding-left: 0; }
-  body[data-skin-rail="inline"] .rail-close { top: 0; right: 0; }
+  body[data-skin-rail="inline"] .rail-open-item { flex-direction: row; align-items: center; }
+  body[data-skin-rail="inline"] .rail-open-item .rail-item { width: 26px; }
 }
 /* Header: light is KratosForge's white bar. Brand fills the bar with the skin's accent; its own text and
    buttons turn to --on-accent, and the search box sits on --accent-dark. None blends the bar into the

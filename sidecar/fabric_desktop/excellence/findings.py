@@ -8,6 +8,9 @@ always qualified: a finding never promises a saving.
 
 Advisory findings (a fail resting only on inferred evidence) carry ``advisory: true`` and are not
 counted in scores; views show them apart.
+
+``templates`` holds the change proposals for a scored finding (FEA-402, excellence.templates): text a
+person can copy and apply, never run by the app. Empty for an advisory finding or a control without one.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from typing import Any
 
 from .controls import DIMENSIONS, REQUIREMENTS, SEVERITIES, Control
 from .evidence import canonical
+from .templates import for_outcome
 
 _SEV = {s: i for i, s in enumerate(SEVERITIES)}
 _LVL = {"low": 0, "medium": 1, "high": 2}
@@ -44,7 +48,8 @@ def make(c: Control, outcome: dict[str, Any], severity: str) -> dict[str, Any]:
             "risk": t["risk"], "validation": t["validation"], "rollback": t["rollback"],
             "references": [dict(r) for r in c.references], "confidence": outcome["basis"],
             "confidence_label": CONFIDENCE_LABELS[outcome["basis"]], "rule": c.rule, "academy": c.academy,
-            "advisory": advisory, "detail": outcome.get("detail") or {}, "status": "open"}
+            "advisory": advisory, "detail": outcome.get("detail") or {}, "status": "open",
+            "templates": [] if advisory else for_outcome(outcome)}
 
 
 def rank(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:

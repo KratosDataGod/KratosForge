@@ -9,6 +9,7 @@ fixture. The plan is docs/product/fabric-excellence-assessment-plan.md.
 - :mod:`.profiles`  assessment profiles: dimension weights, severity overrides, thresholds
 - :mod:`.scoring`   dimension and overall scores, coverage, assured score, rating, Critical Risk
 - :mod:`.findings`  the finding record built from a failed control
+- :mod:`.templates` change proposals (text, never run) for some failed controls (FEA-402)
 - :mod:`.assess`    one assessment run, its snapshot, rescoring and comparison
 
 Rules every part keeps: a control that couldn't be checked is *not evaluated*, never passed; a pass or

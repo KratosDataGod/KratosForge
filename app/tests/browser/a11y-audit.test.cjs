@@ -1,5 +1,5 @@
 // PB-063 part 1: an automated accessibility audit of every page in a real browser, light and dark:
-// axe-core's WCAG 2.1 A and AA rules (contrast among them), every clickable thing reachable from the
+// axe-core's WCAG 2.1 A and AA and 2.2 AA rules (contrast and target size among them), every clickable thing reachable from the
 // keyboard, and a visible focus ring on every Tab stop. A serious or critical rule violation not in KNOWN_RULES,
 // or a keyboard or focus finding not in KNOWN_KEYBOARD or KNOWN_FOCUS, fails the test. A11Y_REPORT=<file> also writes the results there as
 // Markdown (docs/ux/accessibility-audit.md is made this way). axe-core is pinned in ci.yml (AXE_CORE_VERSION)
@@ -52,7 +52,7 @@ const WORKLOAD = { id: "notebook:daily_sales", kind: "notebook", kind_label: "No
   readiness: { state: "ready", label: "Ready" }, unowned: true, partial: false, errors: [], dependencies: { upstream: [], downstream: [], products: [] },
   observation: { source: "Notebooks on this PC", state: "live", label: "Live", collected_at: ago(0), age_seconds: 0, detail: "" },
   runs: [], actions: [], assignment_history: [], platform_audit: { platform: "none", waiting: 0, error: "" }, timeline: [], consumers: [], available_actions: [] };
-const RULES = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+const RULES = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 // Each page is checked four ways. Light and dark are the window's color scheme. At 200% (Windows display scale or
 // Ctrl+plus) the window's 1440x940 lays out as 720x470: nothing may make the whole page scroll sideways, and a Tab
 // stop must be on screen and not under something else when it has focus. A Windows contrast theme (forced colors)
@@ -70,7 +70,12 @@ const VIEWPORT = { width: 1440, height: 940 };  // harness.cjs's
 
 // Findings this audit recorded that are filed to be fixed (#905): "page: rule @ element" and "page: element".
 // A new one fails; remove a line when its fix lands (the test then keeps it fixed).
-const KNOWN_RULES = new Set([]);
+const KNOWN_RULES = new Set([
+  // In a short window (as at 200%) the rail draws icons only, 44 px wide, and an open item's close is 14 px inside it.
+  // A 24 px close would cover most of the icon there: the layout is UX's to choose (#905).
+  'shell: target-size @ button[title="Close SQL query"]',
+  'shell: target-size @ button[title="Close Daily sales"]',
+]);
 const KNOWN_KEYBOARD = new Set([]);
 const KNOWN_FOCUS = new Set([]);
 // At 200%: "page: #view is Npx wide in a Mpx window" and "page: Tab stop" hidden when focused. Listed ones need a
@@ -314,6 +319,44 @@ function forcedContrast(scope) {
   return [...new Set(low)];
 }
 
+// Runs in the page: with text spacing raised as WCAG 1.4.12 asks (line height 1.5, paragraphs 2 em apart, letters
+// 0.12 em and words 0.16 em apart), the words a box holds that it now cuts off. A box that shortens its text on
+// purpose (an ellipsis or a line clamp) is left out: those show the whole text in a tooltip or on the next screen.
+async function spacingClips(scope) {
+  const style = document.createElement("style");
+  style.nonce = document.getElementById("style-nonce")?.nonce || document.querySelector("style[nonce]")?.nonce || "";
+  style.textContent = "* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }";
+  document.head.append(style);
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const cut = [];
+  for (const el of [...document.querySelectorAll(scope)].flatMap((r) => [...r.querySelectorAll("*")])) {
+    const cs = getComputedStyle(el);
+    if (!/hidden|clip/.test(cs.overflowX + cs.overflowY) || cs.textOverflow === "ellipsis" || cs.webkitLineClamp !== "none") continue;
+    if (!el.checkVisibility() || !el.textContent.trim() || el.closest(".cm-editor, [aria-hidden=true], svg, .sr-only")) continue;
+    // Words, not decoration (a glow drawn past the edge): a line of its text that ends outside the box.
+    const box = el.getBoundingClientRect();
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walk.nextNode());) {
+      if (!n.textContent.trim() || n.parentElement.closest("[aria-hidden=true]") || !n.parentElement.checkVisibility()) continue;
+      let scrolls = false;  // inside a box of its own that scrolls (a list in a card): reached by scrolling
+      for (let a = n.parentElement; a && a !== el && !scrolls; a = a.parentElement) {
+        const ac = getComputedStyle(a);
+        scrolls = /auto|scroll/.test(ac.overflowX + ac.overflowY) || ac.textOverflow === "ellipsis";
+      }
+      if (scrolls) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      const out = [...range.getClientRects()].find((r) => r.width && (r.right > box.right + 2 || r.bottom > box.bottom + 2 || r.left < box.left - 2));
+      if (!out) continue;
+      cut.push(`${el.id ? `#${el.id}` : el.tagName.toLowerCase() + [...el.classList].slice(0, 2).map((c) => `.${c}`).join("")} cuts off "${n.textContent.trim().replace(/\s+/g, " ").slice(0, 30)}"`);
+      break;
+    }
+  }
+  style.remove();
+  await new Promise((r) => requestAnimationFrame(r));
+  return [...new Set(cut)];
+}
+
 // Runs in the page before a Tab walk: each element's outline and box shadow with focus elsewhere, so a
 // ring counts only where focus changed it (a dialog's own shadow isn't a focus ring).
 function ringBaseline() {
@@ -423,6 +466,7 @@ async function audit(page, target, scheme) {
   if (!(await page.evaluate(() => typeof axe === "object"))) await page.addScriptTag({ content: axeSource });
   const scope = target.scope || "#view";
   const forcedLow = mode.media.forcedColors === "active" ? await page.evaluate(forcedContrast, scope) : [];
+  const clipped = scheme === "light" ? await page.evaluate(spacingClips, scope) : [];
   const axeOut = await page.evaluate(async ([scope, tags, off]) => {
     const rules = Object.fromEntries(off.map((id) => [id, { enabled: false }]));
     const res = await axe.run({ include: [...document.querySelectorAll(scope)] }, { runOnly: { type: "tag", values: tags }, rules });
@@ -437,7 +481,7 @@ async function audit(page, target, scheme) {
     [document.scrollingElement, document.getElementById("view")].filter((e) => e && e.scrollWidth > e.clientWidth + 1)
       .map((e) => `${e.id ? `#${e.id}` : "the page"} is ${e.scrollWidth}px wide in a ${e.clientWidth}px window`)) : [];
   const view = await page.evaluate(() => state.view);
-  const result = { page: target.name, id: target.id, scheme, view, ...axeOut, unreachable, unnamed, moving, forcedLow, stops, sideways,
+  const result = { page: target.name, id: target.id, scheme, view, ...axeOut, unreachable, unnamed, moving, forcedLow, clipped, stops, sideways,
     noRing: stops.filter((s) => !s.shown).map((s) => s.key),
     hidden: mode.viewport ? stops.filter((s) => !s.visible).map((s) => s.key) : [] };
   results.push(result);
@@ -497,6 +541,12 @@ test("in a contrast theme, the colors the app keeps for itself still have enough
   assert.deepStrictEqual(hc.flatMap((r) => r.forcedLow.map((k) => `${r.id}: ${k}`)), [], "low contrast where the app keeps its own colors");
 });
 
+test("with text spacing raised (WCAG 1.4.12), no page cuts off its words", { skip }, async () => {
+  const light = results.filter((r) => r.scheme === "light");
+  assert.ok(light.length >= EXTRA.length + 5, `checked ${light.length} pages`);
+  assert.deepStrictEqual(light.flatMap((r) => r.clipped.map((k) => `${r.id}: ${k}`)), [], "words cut off with more text spacing");
+});
+
 test("with reduced motion asked for, nothing on any page moves", { skip }, async () => {
   assert.ok(results.length >= MODES.length * (EXTRA.length + 5), `checked ${results.length} page views`);
   assert.deepStrictEqual([...new Set(results.flatMap((r) => r.moving.map((k) => `${r.id}: ${k}`)))], [], "motion with reduced motion on");
@@ -538,6 +588,8 @@ test("the audit catches a violation put into a page", { skip }, async () => {
       h("img", { src: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" }),
       h("button", { class: "a11y-bare", style: "outline:none" }),
       h("button", { class: "a11y-glyph" }, "×"),  // axe takes the glyph as its name
+      // A fixed-height box that hides what doesn't fit: more text spacing pushes its last line out.
+      h("div", { class: "a11y-short", style: "height:18px;overflow:hidden;width:200px;font-size:13px;line-height:18px" }, "One line now, and more than one line once spacing grows"),
       h("button", { class: "a11y-glyph-named", "aria-label": "Close" }, "×"),
       // A button with no ring of its own inside a container that always has a shadow, as a dialog has.
       h("div", { style: "box-shadow:0 4px 16px rgba(0,0,0,.2);padding:8px" }, h("button", { class: "a11y-shadowed", style: "outline:none" }, "Shadowed")));
@@ -547,6 +599,7 @@ test("the audit catches a violation put into a page", { skip }, async () => {
   for (const id of ["image-alt", "color-contrast", "button-name"]) assert.ok(ids.includes(id), `${id} in ${ids.join(", ")}`);
   assert.ok(r.unreachable.includes("#a11y-injected"), r.unreachable.join(", "));
   assert.ok(r.moving.some((k) => k.startsWith("#a11y-injected")), `moves: ${r.moving.join(", ")}`);
+  assert.ok(r.clipped.some((k) => k.startsWith("div.a11y-short")), `cut off: ${r.clipped.join(", ")}`);
   assert.ok(r.unnamed.some((k) => k.startsWith("button.a11y-glyph")) && !r.unnamed.some((k) => k.startsWith("button.a11y-glyph-named")), r.unnamed.join(", "));
   assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-bare")), r.noRing.join(", "));
   assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-shadowed")), `a container's own shadow isn't a ring: ${r.noRing.join(", ")}`);
@@ -590,7 +643,7 @@ function report(rows) {
     "*Made by `app/tests/browser/a11y-audit.test.cjs` (PB-063 part 1). Do not edit by hand: run*",
     "`A11Y_REPORT=docs/ux/accessibility-audit.md node --test app/tests/browser/a11y-audit.test.cjs` *to refresh it.*",
     "",
-    `Rules: axe-core ${rowsVersion()} with the WCAG 2.1 A and AA tags (${RULES.join(", ")}), color contrast among them. ` +
+    `Rules: axe-core ${rowsVersion()} with the WCAG 2.1 A and AA and WCAG 2.2 AA tags (${RULES.join(", ")}), color contrast and target size (24 by 24 px, or spaced apart) among them. ` +
       "Keyboard: everything with a pointer cursor must be a Tab stop or inside one, and pressing Tab from the top " +
       "must reach every Tab stop without looping (Escape then Tab leaves a code editor). Focus: each Tab stop on the page " +
       "must show an outline or ring. Each page is checked in light and dark (the window's color scheme); the app has " +
@@ -603,7 +656,9 @@ function report(rows) {
       "the contrast theme. Every page is opened with reduced motion asked for, as Windows asks when Show animations is off: " +
       "nothing may still be moving once it has drawn (a loop, or an animation longer than the stylesheet's cap), and no script " +
       "may start an animation, unless the person chose motion anyway in Settings. A button or link that shows only an icon or " +
-      "a symbol must be named in words (aria-label, aria-labelledby or title). Dialogs opened from buttons are checked the " +
+      "a symbol must be named in words (aria-label, aria-labelledby or title). With text spacing raised as WCAG 1.4.12 asks " +
+      "(line height 1.5, paragraphs 2 em apart, letters 0.12 em and words 0.16 em apart), no box may cut off its words, unless " +
+      "it shortens them on purpose with an ellipsis or a line clamp. Dialogs opened from buttons are checked the " +
       "same way in `a11y-dialogs.test.cjs`.",
     "",
     "The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows " +
@@ -632,6 +687,7 @@ function report(rows) {
     ...(r.forcedLow || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` keeps its own colors with too little contrast`),
     ...(r.moving || []).map((k) => `- **${r.page}** (${r.scheme}): ${k} with reduced motion on`),
     ...(r.unnamed || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` shows only an icon and isn't named in words`),
+    ...(r.clipped || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` with more text spacing`),
   ]);
   const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) => {
     const verdicts = [...new Set(v.nodes.map((n) => judged(`${r.id}: ${v.id} @ ${n}`) || "Not judged yet."))];

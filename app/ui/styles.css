@@ -269,7 +269,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .rail-open-item { position: relative; }
 .rail-close {
   position: absolute; top: 2px; right: 2px; display: flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2);
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2);  /* 24 px: WCAG 2.5.8 */
   cursor: pointer; opacity: 0.55;
 }
 .rail-open-item:hover .rail-close, .rail-close:focus-visible { opacity: 1; }
@@ -1107,7 +1107,7 @@ h2.flush { margin: 0; }
 @media (max-width: 760px) { .sql-side-box { width: 200px; } }
 .sql-table-row { display: flex; align-items: center; }
 .sql-table-row .tree-row { width: auto; }
-.sql-table-row .tree-row.chev { flex: none; padding-right: 2px; }
+.sql-table-row .tree-row.chev { flex: none; min-width: 24px; padding-right: 2px; }  /* 24 px wide: WCAG 2.5.8 */
 .sql-table-row .tree-row:not(.chev) { flex: 1; min-width: 0; padding-left: 2px; }
 .tree-row.sql-col { padding-left: 52px; font-size: 12.5px; }
 

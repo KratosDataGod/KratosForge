@@ -242,13 +242,15 @@ _HERE_CHECKS = (
      ("A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which neither this PC nor Fabric "
      "can reach. Point it at Files/ or Tables/ in a lakehouse, or at a folder on this PC.")),
     # Delta Live Tables (Lakeflow declarative pipelines): Python decorators and SQL statements.
-    (re.compile(r"(?m)^\s*(?:import\s+dlt\b|from\s+dlt\s+import\b|@dlt\.)|(?i:\bCREATE\s+(?:OR\s+REFRESH\s+)?"
+    # A line's own blanks ([^\S\n]) rather than \s, which ran on over every blank line below it, again from
+    # each one: 25,000 blank lines took 3 s. Whether a cell has one is the same either way.
+    (re.compile(r"(?m)^[^\S\n]*(?:import\s+dlt\b|from\s+dlt\s+import\b|@dlt\.)|(?i:\bCREATE\s+(?:OR\s+REFRESH\s+)?"
                 r"(?:STREAMING|LIVE)\s+(?:TABLE|LIVE\s+TABLE|VIEW)\b|\bCREATE\s+OR\s+REFRESH\b|"
                 r"\b(?:APPLY\s+CHANGES|AUTO\s+CDC)\s+INTO\b|\bCONSTRAINT\s+\w+\s+EXPECT\s*\()"),
      ("Delta Live Tables code, which only a Databricks pipeline runs: neither this PC nor Fabric has it. "
      "Rewrite each dataset as a cell that writes its table, check the data in code instead of EXPECT, "
      "and run the cells in order from a pipeline.")),
-    (re.compile(r"(?m)^\s*%run\s+(?:\.{1,2}/|/)"),
+    (re.compile(r"(?m)^[^\S\n]*%run\s+(?:\.{1,2}/|/)"),
      "%run with a workspace path: on this PC it runs the notebook of that name from the notebooks folder, so import it too."),
 )
 

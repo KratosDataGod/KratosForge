@@ -114,3 +114,29 @@ def test_archive_documents_that_arent_notebooks_and_empty_commands_are_skipped()
 def test_an_archive_of_only_documents_that_arent_notebooks_has_none():
     with pytest.raises(ValueError, match="no notebooks in it"):
         nbf.parse_dbc(dbc(**{"manifest.json": "{}"}))
+
+
+def test_a_cell_of_blank_lines_is_checked_in_time_that_grows_with_it():
+    # The Delta Live Tables and %run checks ran on from each line's start over every blank line below it,
+    # so 25,000 blank lines took 3 s. Now each reads its own line, and 8 times the lines take about 8
+    # times as long. A line's own blanks still count, as before.
+    import time
+
+    from fabric_desktop.notebook_formats import _here_notes
+
+    def said(source):
+        return [x["what"][:16] for x in _here_notes([{"type": "code", "source": source}], [])]
+
+    assert said("x\n \n\t import dlt\n") == ["Delta Live Table"]
+    assert said("x = 1\n\n  %run ./a\n") == ["%run with a work"]
+    assert said("x = 1 %run ./a\n") == []
+
+    def quickest(n):
+        best = float("inf")
+        for _ in range(5):
+            started = time.perf_counter()
+            _here_notes([{"type": "code", "source": "\n" * n + "x"}], [])
+            best = min(best, time.perf_counter() - started)
+        return best
+
+    assert quickest(16000) / max(quickest(2000), 50e-6) < 30

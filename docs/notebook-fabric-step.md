@@ -17,6 +17,7 @@ On the last code cell's **⋯** menu, pick **Run on Fabric (Spark)**. The cell s
 
 On the marked cell's **⋯** menu, **Insert V-Order cell** lists the attached lakehouse's tables. The tables the notebook's other cells name are ticked. **Insert** replaces the cell's code with one `OPTIMIZE ... VORDER` per ticked table:
 
+<!-- example: illustrative -->
 ```python
 # V-Order the tables this notebook wrote, so Direct Lake reads them faster.
 spark.sql("OPTIMIZE `gold`.`fact_sales` VORDER")

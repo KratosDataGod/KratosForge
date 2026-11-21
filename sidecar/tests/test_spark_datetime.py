@@ -235,7 +235,7 @@ REFUSED = [
     ("date_format(DATE'2024-02-29', 'ww')", "'ww'", "week-based"),
     ("date_format(DATE'2024-02-29', 'u')", "'u'", "week-based"),
     ("date_format(DATE'2024-02-29', 'e')", "'e'", "week-based"),
-    ("date_format(DATE'2024-02-29', 'z')", "'z'", "time zone names"),
+    ("date_format(DATE'2024-02-29', 'zzzz')", "'zzzz'", "time zone names"),
     ("date_format(DATE'2024-02-29', 'F')", "'F'", "Spark refuses"),
     ("date_format(DATE'2024-02-29', '[yyyy]')", "'['", "optional sections"),
     ("date_format(DATE'2024-02-29', 'ddd')", "'ddd'", "too many"),

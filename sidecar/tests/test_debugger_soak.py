@@ -7,6 +7,7 @@ from __future__ import annotations
 import gc
 import time
 import tracemalloc
+from collections import Counter
 
 import pytest
 
@@ -32,12 +33,31 @@ def wait(k, timeout=20):
 
 
 def threads_and_trace(k):
-    """The kernel's thread count and whether a trace hook is left, read inside the kernel."""
-    k.start("import sys, threading\nprint(threading.active_count(), sys.gettrace() is None)")
+    """The kernel's lasting threads, by name, and whether a trace hook is left, read inside the kernel.
+    The cell's own thread and the host's per-request threads (kernel_host names them request-...,
+    and one handles each poll and start) come and go with every call, so they aren't counted."""
+    k.start("import sys, threading\n"
+            "me = threading.current_thread()\n"
+            "print(sys.gettrace() is None, '|'.join(sorted(t.name for t in threading.enumerate()\n"
+            "    if t is not me and not t.name.startswith('request-'))))")
     snap = wait(k)
     assert snap["status"] == "ok", snap
-    count, untraced = snap["outputs"][-1]["text"].split()
-    return int(count), untraced == "True"
+    untraced, _, names = snap["outputs"][-1]["text"].strip().partition(" ")
+    # A Counter, not a set: a leaked thread whose name repeats one already running still counts.
+    return Counter(n for n in names.split("|") if n), untraced == "True"
+
+
+def assert_no_threads_left(k, before, seconds=10):
+    """An interrupted cell's thread ends as its exception unwinds, which takes a moment on a busy
+    runner: wait for that, within a deadline, then name any thread that stayed."""
+    deadline = time.monotonic() + seconds
+    while True:
+        after, untraced = threads_and_trace(k)
+        assert untraced
+        if not after - before or time.monotonic() > deadline:
+            break
+        time.sleep(0.2)
+    assert not after - before, f"threads left behind: {sorted((after - before).elements())}"
 
 
 PAUSES = 1000
@@ -55,8 +75,7 @@ def test_a_thousand_breakpoint_hits_leave_nothing_behind(kernel):
         kernel.debug("continue")
     snap = wait(kernel)
     assert snap["status"] == "ok" and snap.get("paused") is None
-    after, untraced = threads_and_trace(kernel)
-    assert untraced and after <= before
+    assert_no_threads_left(kernel, before)
 
 
 def test_a_thousand_steps_leave_nothing_behind(kernel):
@@ -70,8 +89,7 @@ def test_a_thousand_steps_leave_nothing_behind(kernel):
     assert set(lines) == {1, 3, 4, 5, 2}  # into f and back, over and over
     assert kernel.interrupt()["interrupted"] is True
     assert wait(kernel)["status"] == "cancelled"
-    after, untraced = threads_and_trace(kernel)
-    assert untraced and after <= before
+    assert_no_threads_left(kernel, before)
 
 
 def test_repeated_pauses_in_the_engine_kernel_dont_grow_memory():
@@ -153,3 +171,24 @@ def test_a_poll_waits_for_an_ended_process_once_and_holds_it_weakly():
     del ended, other
     gc.collect()
     assert k._awaited is not None and k._awaited() is None  # not kept alive for the check
+
+
+def test_a_thread_that_stays_is_named(kernel):
+    # The check above has teeth: a cell that leaves a thread running fails it, by the thread's name.
+    before, _ = threads_and_trace(kernel)
+    kernel.start("import threading, time\nstay = threading.Event()\n"
+                 "threading.Thread(target=stay.wait, name='left-behind', daemon=True).start()")
+    assert wait(kernel)["status"] == "ok"
+    with pytest.raises(AssertionError, match="left-behind"):
+        assert_no_threads_left(kernel, before, seconds=0.5)
+    kernel.start("stay.set()")
+    assert wait(kernel)["status"] == "ok"
+    # One that takes the name of a thread already running is counted too.
+    before, _ = threads_and_trace(kernel)
+    kernel.start("import threading\nstay2 = threading.Event()\n"
+                 "threading.Thread(target=stay2.wait, name='MainThread', daemon=True).start()")
+    assert wait(kernel)["status"] == "ok"
+    with pytest.raises(AssertionError, match="MainThread"):
+        assert_no_threads_left(kernel, before, seconds=0.5)
+    kernel.start("stay2.set()")
+    assert wait(kernel)["status"] == "ok"

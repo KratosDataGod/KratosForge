@@ -6,10 +6,11 @@ duplicated, a deleted line named by place, an older month's file changed or gone
 forged lines whose hashes were recomputed. Each one is also checked through the app's ``audit_log``
 call, whose ``check`` is what the app shows.
 
-Two limits are by design (audit_chain.py's docstring) and are pinned here so a change to them is seen:
-the chain is plain SHA-256 with no key, and ``head.json`` is the only anchor for the end of the trail.
-Someone who rewrites every hash from the changed line on, and ``head.json`` to match, leaves a trail
-that checks out; so does someone who cuts lines from the end and deletes ``head.json``.
+The end of the trail is anchored twice: in ``head.json``, and in the Windows Application event log
+(audit_anchor.py), which a user who isn't an administrator can't change. With an event-log record,
+rewriting every hash and ``head.json`` to match, or cutting lines and deleting ``head.json``, is caught.
+Without one (off Windows, an event log that can't be read, or a trail from before either existed) those
+two still check out; the limits below pin that, so a change to it is seen.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import json
 
 import pytest
 
-from fabric_desktop import audit_chain
+from fabric_desktop import audit, audit_chain
 from fabric_desktop.service import Service
 
 COUNT = 6
@@ -230,7 +231,12 @@ def test_a_line_that_isnt_an_audit_line_still_reaches_the_app(service, junk):
     out = service.audit_log()
     assert f"{path.name} line 3: not an audit line" in out["check"]["problems"] and not out["check"]["ok"]
     assert all(isinstance(e, dict) for e in out["entries"])
-    assert len(out["entries"]) == COUNT + (junk == "{\"no\": \"hash\"}")  # a JSON object is still listed
+    assert len(out["entries"]) == COUNT + 1  # a JSON object is listed as it is; anything else as a placeholder
+    if junk != "{\"no\": \"hash\"}":
+        [row] = [e for e in out["entries"] if e["action"] == audit.UNREADABLE]
+        assert (row["file"], row["line"], row["outcome"]) == (path.name, 3, "error")
+        assert "line 3 isn't an audit line" in row["error"]
+        assert not [e for e in service.audit.recent(200, action="run_schedule") if e["action"] == audit.UNREADABLE]
 
 
 # ------------------------------------------------------------------------ forged lines, hashes recomputed
@@ -268,9 +274,18 @@ def test_a_forgery_that_recomputes_every_later_hash_is_caught_only_by_the_head(s
     assert check["problems"] == [CUT]
 
 
-def test_limit_a_forgery_that_also_rewrites_the_head_checks_out(service):
-    """By design (audit_chain.py): the hash has no key, so whoever can write the folder can rebuild the
-    chain and head.json. Shipping the trail, or an export with its manifest, elsewhere is what catches it."""
+@pytest.fixture
+def anchored(tmp_path, event_log):
+    """The same trail, written while the event log records its end."""
+    service = Service(root=tmp_path)
+    for i in range(COUNT):
+        service.audit.record("meta_run", "ok", 0.1, {"env": "dev", "n": i})
+    assert len(event_log.records) == COUNT
+    assert service.audit.verify() == {"lines": COUNT, "ok": True, "problems": []}
+    return service
+
+
+def _forge_with_head(service):
     path = _file(service)
     lines = _read(path)
     entry = json.loads(lines[2])
@@ -280,12 +295,42 @@ def test_limit_a_forgery_that_also_rewrites_the_head_checks_out(service):
     _write(path, forged)
     (service.audit.folder / audit_chain.HEAD).write_text(
         json.dumps({"hash": json.loads(forged[-1])["hash"], "lines": len(forged)}), encoding="utf-8")
+
+
+def test_a_forgery_that_also_rewrites_the_head_is_caught_by_the_event_log(anchored):
+    _forge_with_head(anchored)
+    assert _check(anchored)["problems"] == [
+        (f"event log: line {COUNT} isn't the line the Windows event log recorded, so the trail was re-sealed "
+        f"at or before line {COUNT}")]
+
+
+def test_lines_cut_from_the_end_with_the_head_deleted_are_caught_by_the_event_log(anchored):
+    path = _file(anchored)
+    _write(path, _read(path)[:COUNT - 2])
+    (anchored.audit.folder / audit_chain.HEAD).unlink()
+    assert _check(anchored)["problems"] == [
+        "head.json: missing, so the end of the trail can't be confirmed",
+        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}), so "
+        "lines were deleted from the end")]
+
+
+def test_the_head_deleted_alone_is_caught_by_the_event_log(anchored):
+    (anchored.audit.folder / audit_chain.HEAD).unlink()
+    assert _check(anchored)["problems"] == ["head.json: missing, so the end of the trail can't be confirmed"]
+
+
+def test_limit_a_forgery_that_also_rewrites_the_head_checks_out_with_no_event_log_record(service):
+    """With no event-log record (off Windows, or an event log that can't be read): the hash has no key, so
+    whoever can write the folder can rebuild the chain and head.json. Shipping the trail, or an export with
+    its manifest, elsewhere is what catches it."""
+    _forge_with_head(service)
     assert _check(service) == {"lines": COUNT, "ok": True, "problems": []}
 
 
-def test_limit_lines_cut_from_the_end_with_the_head_deleted_check_out(service):
-    """By design: head.json is the only anchor for the end of the trail, and a missing head is taken
-    for a trail from before it existed (test_a_trail_from_before_the_head_starts_one_without_a_false_alarm)."""
+def test_limit_lines_cut_from_the_end_of_a_trail_from_before_the_head_check_out(service):
+    """A trail with no head.json and no event-log record is taken for one from before head.json existed
+    (test_a_trail_from_before_the_head_starts_one_without_a_false_alarm): nothing in its lines says which
+    version wrote them, so a cut end with the head deleted, and no event log to compare with, checks out."""
     path = _file(service)
     _write(path, _read(path)[:COUNT - 2])
     assert not _check(service)["ok"]  # with the head there, the cut is seen

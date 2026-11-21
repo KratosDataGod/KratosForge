@@ -38,7 +38,15 @@ _VIEW_NAMES = itertools.count()
 def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     """Spark SQL first; DuckDB SQL is accepted too when it isn't valid Spark.
 
-    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py)."""
+    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py).
+    A query nested too deeply to read or rewrite is a ValueError (sql_dialects.TOO_DEEP)."""
+    try:
+        return _parse(query, dialect)
+    except RecursionError:
+        raise ValueError(sql_dialects.TOO_DEEP) from None
+
+
+def _parse(query: str, dialect: str) -> list[exp.Expression]:
     chosen = sql_dialects.get(dialect)
     if not chosen["runs_here"]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
@@ -47,19 +55,23 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         statements = _statements(sql_dialects.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
                                                     read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(s))) for s in statements]
+            statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(spark_builtins_sql.refuse_nested_concat_ws(s))))
+                          for s in statements]
     except (ParseError, TokenError) as first_error:  # an unclosed quote is a TokenError
         if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
             try:
-                return parse(respelled, dialect)
+                return _parse(respelled, dialect)
             except ValueError:
                 pass  # report the error in the query as written
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
-        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False):  # DuckDB would drop an argument
+        if getattr(first_error, "too_deep", False):
+            raise ValueError(sql_dialects.TOO_DEEP) from None
+        if chosen["id"] != "spark" or getattr(first_error, "uneven_pairs", False) \
+                or getattr(first_error, "final", False):  # DuckDB would drop an argument
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
-            statements = _statements(sqlglot.parse(query, read="duckdb"))
+            statements = _statements(sql_dialects.parse(query, read="duckdb"))
         except (ParseError, TokenError):
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     if not statements:
@@ -182,6 +194,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
+    statement = spark_builtins_sql.check_nested_concat_ws(statement)
     if databricks:
         _mark_divisions(statement)
     statement = _try_divisions(statement)
@@ -302,6 +315,17 @@ _SPARK_INTS = (exp.Year, exp.Month, exp.Day, exp.DayOfMonth, exp.DayOfYear, exp.
 # any other is NULL with ANSI off.
 _TRUNC_UNITS = {"YEAR", "YYYY", "YY", "QUARTER", "MONTH", "MM", "MON", "WEEK"}
 _DATE_TRUNC_UNITS = _TRUNC_UNITS | {"DAY", "DD", "HOUR", "MINUTE", "SECOND", "MILLISECOND", "MICROSECOND"}
+
+
+def _abbreviated_unit(node: exp.Expression, at: int) -> bool:
+    """Whether the unit of trunc or date_trunc was written as a letter sqlglot spells out for it ('Q' as
+    QUARTER, 'D' as DAY, 'M' as MINUTE): Spark takes none of them, so its answer is NULL."""
+    written = node.meta.get(spark_sql_names._ARGS)
+    if not written or len(written) != 2:
+        return False
+    text = written[at].strip()
+    return len(text) > 2 and text[0] == text[-1] and text[0] in "'\"" and \
+        text[1:-1].upper() in exp.TimeUnit.UNABBREVIATED_UNIT_NAME
 # next_day's day names, as Spark reads them (DateTimeUtils.getDayOfWeekFromString), ISO numbered.
 _NEXT_DAY = ("CAST(TRY_CAST(fj_arg0 AS DATE) + TO_DAYS(CAST((((CASE UPPER(CAST(fj_arg1 AS VARCHAR)) "
              + " ".join(f"WHEN '{n[:2]}' THEN {i} WHEN '{n[:3]}' THEN {i} WHEN '{n}' THEN {i}" for i, n in enumerate(
@@ -350,7 +374,8 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
                 unit = node.args.get("unit")
                 trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var
                 allowed = _TRUNC_UNITS if trunc else _DATE_TRUNC_UNITS
-                if isinstance(unit, (exp.Literal, exp.Var)) and unit.name.upper() not in allowed and node is not statement:
+                if isinstance(unit, (exp.Literal, exp.Var)) and node is not statement and (
+                        unit.name.upper() not in allowed or _abbreviated_unit(node, 1 if trunc else 0)):
                     wrap(node, "CAST(NULL AS DATE)" if trunc else "CAST(NULL AS TIMESTAMPTZ)", [])
             elif node.name.upper() == "MAKE_DATE" and len(node.expressions) == 3 and node is not statement:
                 wrap(node, _MAKE_DATE, list(node.expressions))
@@ -368,13 +393,29 @@ def _spark_date_results(statement: exp.Expression, ansi: bool) -> exp.Expression
     return statement
 
 
+_USER_REFUSED = "in Fabric it names the identity running the notebook and here it would name DuckDB"
+# Spark's session functions this PC refuses by name in a Spark SQL cell: the reason, after "because "
+_SESSION_REFUSED = {
+    "current_user": _USER_REFUSED, "user": _USER_REFUSED, "session_user": _USER_REFUSED,
+    "version": "in Fabric it gives the Spark build and git revision and here it would give DuckDB's version",
+}
+
+
 def _spark_session_functions(statement: exp.Expression) -> exp.Expression:
     """Spark's session functions in a Fabric notebook, where DuckDB would describe its own session
     ('memory' for its catalog). current_catalog() is spark_catalog, as in Fabric; current_timezone()
     is the session's spark.sql.session.timeZone (DuckDB's TimeZone, which spark.conf.set changes).
     current_database() and current_schema() are refused: in Fabric they name the default lakehouse,
-    which a SQL cell here can't read; spark.catalog.currentDatabase() can. Databricks SQL keeps
+    which a SQL cell here can't read; spark.catalog.currentDatabase() can. current_user(), user(),
+    session_user() and version() are refused too: Fabric names the identity running the notebook and its
+    own Spark build, where DuckDB would give 'duckdb' and its own version. Databricks SQL keeps
     DuckDB's own answers (its session is the engine's, not a Unity Catalog one)."""
+    for user in list(statement.find_all(exp.CurrentUser, exp.SessionUser, exp.Anonymous)):
+        name = ("current_user" if isinstance(user, exp.CurrentUser) else "session_user"
+                if isinstance(user, exp.SessionUser) else user.name.lower())
+        if name in _SESSION_REFUSED:
+            raise ValueError(f"{name}() can't run on this PC the way it runs in Fabric, because "
+                             f"{_SESSION_REFUSED[name]}, so nothing ran. Run the cell in Fabric.")
     for node in list(statement.find_all(exp.CurrentCatalog, exp.CurrentTimezone, exp.CurrentDatabase,
                                         exp.CurrentSchema)):
         if isinstance(node, exp.CurrentCatalog):
@@ -1263,8 +1304,11 @@ def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -
         string = (f"CASE WHEN regexp_matches({text}, '{_WHOLE_NUMBER}') THEN CAST(regexp_extract({text}, "
                   f"'{_WHOLE_NUMBER}', 1) AS {duck_type}) ELSE ERROR({message}) END")
     else:
-        pattern = _PLAIN_NUMBER if mode == "legacy" else _WHOLE_NUMBER
-        string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{pattern}', 1), '') AS {duck_type})"
+        if mode == "legacy":  # '.5' and '-.5' are 0 too, as Spark's UTF8String.toInt reads them
+            from .spark_text_compare import whole_text
+            string = whole_text(value, duck_type)
+        else:
+            string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{_WHOLE_NUMBER}', 1), '') AS {duck_type})"
     # A timestamp is its seconds since 1970 (UTC), rounded down, as in Spark (EA-014); DuckDB has no such
     # cast. It is read through text, so the CASE binds whatever the value's type.
     seconds = f"floor(epoch(TRY_CAST({text} AS TIMESTAMPTZ)))"
@@ -1326,6 +1370,8 @@ def _whole_number(node: exp.Expression) -> bool:
     """Plainly a whole number already: an integer literal or a cast to a whole-number type."""
     if isinstance(node, exp.Paren):
         return _whole_number(node.this)
+    if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal):  # -2147483648 (_negative_literals)
+        return node.this.is_int
     if isinstance(node, exp.Literal):
         return node.is_int
     if isinstance(node, exp.Window):  # row_number, rank, dense_rank and ntile count whole rows
@@ -1467,8 +1513,11 @@ def _past(source: exp.Expression, kind: Any) -> bool:
     bits = _WIDTHS[_INT_CASTS[kind][0]]
     while isinstance(source, exp.Paren):
         source = source.this
-    if isinstance(source, exp.Literal):
-        return not -(2 ** (bits - 1)) <= int(source.this) < 2 ** (bits - 1)
+    if isinstance(source, exp.Literal) or (isinstance(source, exp.Neg) and isinstance(source.this, exp.Literal)):
+        value = int(source.this) if isinstance(source, exp.Literal) else -int(source.this.this)
+        return not -(2 ** (bits - 1)) <= value < 2 ** (bits - 1)
+    if isinstance(source, exp.Window):  # row_number, rank, dense_rank and ntile are ints (_whole_number)
+        return _WIDTHS["INTEGER"] > bits
     if isinstance(source, (exp.Cast, exp.TryCast)) and source.to.this in _INT_CASTS:
         return _WIDTHS[_INT_CASTS[source.to.this][0]] > bits
     return False
@@ -1495,7 +1544,9 @@ def _negative_literals(statement: exp.Expression) -> None:
         cast_ = neg.this
         if isinstance(cast_, exp.Literal) and not cast_.is_string and cast_.name.isdigit():
             negative: exp.Expression = exp.Literal.number(f"-{cast_.name}")
-            if int(cast_.name) == 2 ** 31:  # an int, as in Spark: DuckDB reads it as minus a bigint
+            # an int, as in Spark: DuckDB reads it as minus a bigint. Compared as text, since a literal
+            # may have more digits than Python's int() reads
+            if cast_.name.lstrip("0") == str(2 ** 31):
                 negative = exp.Cast(this=negative, to=exp.DataType.build("INT"))
             neg.replace(negative)
             continue
@@ -1764,6 +1815,13 @@ _TIMESTAMPS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.D
 _SPARK_DATE_CAST = "kf_spark_date_cast"
 
 
+def _typed_literal(node: exp.Expression) -> bool:
+    """``node`` is a typed literal, TIMESTAMP '...': a Cast of text with no function name's place in the
+    query (see spark_legacy_casts). Spark refuses a bad one ([INVALID_TYPED_LITERAL]) even with ANSI off,
+    so it stays a Cast, and DuckDB stops on it, as on DATE '2026-13-01'."""
+    return isinstance(node.this, exp.Literal) and node.this.is_string and "start" not in node.meta
+
+
 def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     """Spark's to_timestamp with ANSI off, as Fabric runs it: text that isn't a timestamp gives NULL
     (EA-015). sqlglot reads to_timestamp(x) as a CAST and to_timestamp(x, format) as a strptime,
@@ -1780,7 +1838,7 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
             node.replace(read)
         elif isinstance(node, exp.StrToTime):
             node.set("safe", True)
-        elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
+        elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS and not _typed_literal(node):
             # to_timestamp gives Spark's timestamp: with time zone, text read in the session's zone
             to = exp.DataType.build("TIMESTAMPTZ") if _to_timestamp_call(node) else node.to
             replacement = exp.TryCast(this=node.this, to=to)
@@ -1791,14 +1849,50 @@ def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+# Spark's date plus an interval of years, months, weeks or days is a date (DateAddYMInterval, DateAdd,
+# DateAddInterval); DuckDB's is a timestamp. An interval with hours or less is a timestamp in both.
+_DATE_UNITS = frozenset({"YEAR", "YEARS", "MONTH", "MONTHS", "WEEK", "WEEKS", "DAY", "DAYS"})
+_DATES = (exp.CurrentDate, exp.TsOrDsToDate, exp.LastDay, exp.DateFromParts)
+
+
+def _whole_days(node: exp.Expression) -> bool:
+    """An interval of years, months, weeks or days only (INTERVAL 1 MONTH 2 DAY is read as a sum)."""
+    if isinstance(node, exp.Interval):
+        unit = node.args.get("unit")
+        return isinstance(unit, exp.Var) and unit.name.upper() in _DATE_UNITS
+    return isinstance(node, exp.Add) and _whole_days(node.this) and _whole_days(node.expression)
+
+
+def _known_date(node: exp.Expression) -> bool:
+    """Whether ``node`` is a date as written: DATE'...', a cast to DATE, current_date(), to_date..."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        return node.to.is_type(exp.DataType.Type.DATE)
+    return isinstance(node, _DATES)
+
+
+def _date_plus_days(node: exp.Add | exp.Sub) -> bool:
+    """date + INTERVAL 1 MONTH, INTERVAL 2 DAY + date, date - INTERVAL 1 YEAR: a date in Spark. A column's
+    type isn't known here; spark_decimals.spark_decimal_types gives a DATE column's sum its type."""
+    left, right = node.this, node.expression
+    if _whole_days(right) and _known_date(left):
+        return True
+    return isinstance(node, exp.Add) and _whole_days(left) and _known_date(right)
+
+
 def _spark_dates(statement: exp.Expression) -> exp.Expression:
     """Keep Spark's date results where sqlglot's DuckDB SQL differs: date_add and date_sub return
-    a date (DuckDB's date + INTERVAL is a timestamp), trunc(date, 'MM') returns a date, and Spark's
-    unit spellings ('MM', 'YYYY') become ones DuckDB reads."""
+    a date (DuckDB's date + INTERVAL is a timestamp), as does a date plus an interval of whole days
+    or months; trunc(date, 'MM') returns a date, and Spark's unit spellings ('MM', 'YYYY') become
+    ones DuckDB reads."""
     # Deepest first: a node is replaced by a cast of its copy, so a trunc inside a trunc must have its unit
     # spelled for DuckDB before the outer one copies it (trunc(trunc(d, 'MM'), 'MONTH') kept 'MM' and stopped).
-    for node in reversed(list(statement.find_all(exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc))):
-        if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
+    for node in reversed(list(statement.find_all(exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc, exp.Add, exp.Sub))):
+        if isinstance(node, (exp.Add, exp.Sub)):
+            if node is statement or not _date_plus_days(node):
+                continue
+        elif isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
             unit = node.args.get("unit")
             spark_trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var
             name = unit.name.upper() if unit is not None else ""
@@ -2297,6 +2391,8 @@ def duckdb_sql(statement: exp.Expr) -> str:
     here that is a ValueError instead, and nothing runs (#1253)."""
     try:
         return statement.sql(KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
+    except RecursionError:
+        raise ValueError(sql_dialects.TOO_DEEP) from None
     except UnsupportedError as exc:
         reason = str(exc).splitlines()[0] if str(exc) else "sqlglot can't write part of it in DuckDB SQL."
         raise ValueError(f"Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: "
@@ -2353,11 +2449,13 @@ def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Tabl
 def _decimal_types(statement: exp.Expression, con: duckdb.DuckDBPyConnection, dialect: str) -> exp.Expression:
     """Spark SQL's decimal result types and div (spark_decimals), as a notebook's spark.sql gives them: without
     them floor(-1.25) div 7 was DuckDB's double division, -0.2857..., where Spark gives 0. And to_json,
-written from its argument's type as Spark writes it (spark_json)."""
+written from its argument's type as Spark writes it (spark_json), and a shift of an int typed as an int."""
     if sql_dialects.get(dialect)["id"] != "spark":
         return statement
+    from . import spark_text_compare
+    statement = cast(exp.Expression, spark_text_compare.spark_text_comparisons(statement, con))
     statement = cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
-    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json",)))
+    return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json", "int_shift")))
 
 
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:

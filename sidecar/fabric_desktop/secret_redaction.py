@@ -201,5 +201,8 @@ class RedactedStream(io.TextIOBase):
                 self.stream.write(self._clean(part))
         self.stream.flush()
 
-    # close() is io.IOBase's: it calls flush(), so what is held is written out, and the stream
-    # underneath (the process's stderr) stays open.
+    def close(self) -> None:
+        """Writes out what is held; the stream underneath stays open (it is the process's stderr)."""
+        if not self.closed:
+            self.flush()
+        super().close()

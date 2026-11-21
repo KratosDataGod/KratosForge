@@ -642,6 +642,26 @@ lasts under an hour and is never stored. A token Snowflake refuses ends the chec
 queries on Snowflake comes in a later release. This has been tested against a fake of the SQL API,
 not a live Snowflake account.
 
+### One answer from every connection check (Preview)
+
+The Fabric, Databricks and Snowflake checks each keep their own steps: Fabric's sign-in and
+workspace rows from Home's **Ready to work** list, Databricks workspace discovery, and the Snowflake
+check above. Each one also answers in the same shape, so every platform says the same four things:
+
+- **Who you are.** The account the check signed in as.
+- **Which role or workspace.** The Snowflake role the check ran as, the Databricks workspace, or the
+  Fabric workspaces you can see.
+- **What you may do.** What the check found you can use, such as the warehouses and catalogs you can
+  see.
+- **Each problem and its fix.** In the platform's own words, with its code when it gave one (an Entra
+  `AADSTS` code, an HTTP status, a Snowflake error code), and the next step to take.
+
+Everything else stays as the platform has it: the Snowflake account, role and warehouse, the
+Databricks workspace address, the Fabric tenant. An expired or refused sign-in on any platform names
+that platform's reason and what to do, and a result never holds a token or a secret. There's no
+screen for this yet, so for now it is part of the engine (`fabric_desktop/connection_check.py`).
+It's tested against fakes of each platform, not against a live account.
+
 Profiles that use only Fabric and Databricks are still saved in the format older versions of
 KratosForge read, so a profile shared with someone who hasn't updated still opens for them. A
 profile with Snowflake, or any other mix of platforms, needs this version or later.

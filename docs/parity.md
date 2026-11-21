@@ -82,7 +82,7 @@ Notes:
 Notes:
 
 - **Every area, Visual familiarity:** The Databricks-familiar skin (Preview) gives a blue accent and Databricks' page names on the rail; pages keep KratosForge's own layout.
-- **Sign-in and workspace discovery, Cloud API integration:** Against fakes of the CLI and APIs; no live run yet.
+- **Sign-in and workspace discovery, Cloud API integration:** Against fakes of the CLI and APIs; no live run yet. Discovery also answers in the shared connection result (PAR-003), which says who you are, the workspace, what you may do and each problem with its fix.
 - **SQL warehouses and the SQL editor, Cloud API integration:** Against fakes of the SQL Statement API; no live run yet.
 - **SQL warehouses and the SQL editor, Local execution:** Databricks SQL is translated to DuckDB; docs/databricks-functions.md says for every built-in whether it runs, differs, is refused or fails, checked in CI.
 - **Notebooks, Spark and dbutils, Cloud API integration:** Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced with a workspace folder (Preview); against fakes, no live run yet.
@@ -108,7 +108,7 @@ Notes:
 Notes:
 
 - **Every area, Visual familiarity:** The Snowflake-familiar skin (Preview) gives a blue accent and Snowsight's page names on the rail; pages keep KratosForge's own layout.
-- **Sign-in, roles and warehouses, Cloud API integration:** Key-pair and programmatic access token sign-in, and a connection check of role, database, schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser sign-in and Snowflake CLI connections aren't supported yet. Against fakes, no live run yet.
+- **Sign-in, roles and warehouses, Cloud API integration:** Key-pair and programmatic access token sign-in, and a connection check of role, database, schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser sign-in and Snowflake CLI connections aren't supported yet. The check also answers in the shared connection result (PAR-003). Against fakes, no live run yet.
 - **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.
 <!-- END GENERATED: parity -->
 

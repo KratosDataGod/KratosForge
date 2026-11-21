@@ -316,3 +316,22 @@ def test_an_unknown_schedule_leaves_the_scheduled_only_rules_unchecked():
     assert got["scheduled"] is None and "NB004" in got["unchecked"]
     known = inspect_items.inspect({**w, "runs": {"read": True, "scheduled": 0}})
     assert known["scheduled"] is False and known["unchecked"] == []
+
+
+def test_a_fixed_workspace_is_found_anywhere_in_an_activitys_properties():
+    ws = "11111111-2222-3333-4444-555555555555"
+    acts = [{"name": "a", "inactive": False, "type_properties": {"x": [{"y": {"workspaceId": ws}}]}},
+            {"name": "b", "inactive": False, "type_properties": {"workspaceId": "@pipeline().parameters.ws",
+                                                                   "list": [[{"workspace_id": ""}]]}},
+            {"name": "c", "inactive": False, "type_properties": {"z": [[{"WorkspaceId": ws}]]}}]
+    assert inspect_items.pipeline({"activities": acts})["fixed_workspace"] == ["a", "c"]
+
+
+def test_a_fixed_workspace_is_found_in_properties_nested_thousands_deep():
+    """A definition from Fabric nested past Python's recursion limit is read rather than raising RecursionError."""
+    deep: object = {"workspaceId": "11111111-2222-3333-4444-555555555555"}
+    for i in range(5000):
+        deep = {"a": deep} if i % 2 else [deep]
+    out = inspect_items.pipeline({"activities": [{"name": "a", "inactive": False, "type_properties": {"x": deep}},
+                                                 {"name": "b", "inactive": False, "type_properties": {"x": [[[]]] * 3}}]})
+    assert out["fixed_workspace"] == ["a"]

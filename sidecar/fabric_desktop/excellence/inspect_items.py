@@ -65,11 +65,17 @@ def _literal_workspace(value: Any) -> bool:
 
 
 def _names_fixed_workspace(node: Any) -> bool:
-    if isinstance(node, dict):
-        return any((str(k).lower() in _WORKSPACE_KEYS and _literal_workspace(v)) or _names_fixed_workspace(v)
-                   for k, v in node.items())
-    if isinstance(node, list):
-        return any(_names_fixed_workspace(v) for v in node)
+    """Whether a workspace id is written as text anywhere in ``node``. A stack rather than recursion: a
+    definition from Fabric can be nested deeper than Python's limit."""
+    stack = [node]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if any(str(k).lower() in _WORKSPACE_KEYS and _literal_workspace(v) for k, v in node.items()):
+                return True
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
     return False
 
 

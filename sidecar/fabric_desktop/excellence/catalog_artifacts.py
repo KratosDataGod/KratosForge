@@ -243,7 +243,7 @@ def _no_failure_path(ctx: ct.Context) -> dict[str, Any]:
     if not p["calls_out"]:
         return ct.not_applicable("No activity calls out to another service, so there is little to handle on failure.")
     if not p["failure_path"] and p.get("failure_path_unknown") is not False:
-        return ct.not_evaluated("Whether the activities on a Failed or Completed dependency are active couldn't be "
+        return ct.not_evaluated("Whether the activities on a Failed or Completed dependency are activated couldn't be "
                                 "read.", needs="the activities' state")
     if p["failure_path"]:
         return ct.passed([rid], "An activity runs when another fails or completes (a failure path).")

@@ -453,4 +453,4 @@ def test_a_deactivated_activity_is_no_failure_path():
     unknown = activity("Mail", kind="Teams", depends_on=[("Copy", "Failed")])
     unknown["inactive"] = None  # its state wasn't read
     got = fp([activity("Copy", kind="Copy"), unknown])
-    assert got["outcome"] == "not_evaluated" and "active" in got["text"]
+    assert got["outcome"] == "not_evaluated" and "activated" in got["text"]

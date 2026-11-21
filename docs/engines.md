@@ -604,9 +604,10 @@ hidden, Runs on works as before.
 - **Connection.** For a Databricks engine, **Connection** picks the saved profile connection or
   Databricks CLI profile to use. Only the host and warehouse or cluster id reach the screen; tokens
   stay with the sidecar. The connection's default catalog and schema show beside it, as a label.
-- **Engine menu.** Python (this PC) first, then the other engines on this PC (DuckDB, SQLite,
-  Polars), then **Remote**: Run in Fabric (the whole notebook as a Fabric job, as before), Fabric
-  Spark, Databricks SQL warehouse and Databricks Connect, each marked Preview. Engines that are
+- **Engine menu.** Python (this PC) first, then **Same as** the environment, then the other engines
+  on this PC (DuckDB, SQLite, Polars), then **Remote**: **Fabric job** (the whole notebook run in
+  Fabric, as Run in Fabric did before), Fabric Spark, Databricks SQL warehouse and Databricks
+  Connect, each marked Preview. Engines that are
   planned but not built are listed under **More** as information only; they can't be chosen.
   Hover ⓘ for what each engine runs and how it differs from the platform.
 - **Remote confirm.** Choosing a remote engine opens a confirm that names the engine, the

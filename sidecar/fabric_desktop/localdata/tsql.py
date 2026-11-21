@@ -1019,7 +1019,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
-             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup)
+             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
+             exp.Sum, exp.Count)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation))
@@ -1087,7 +1088,19 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             if _is(info.this.type, _INTEGERS):
                 # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
                 whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
-                whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
+                # avg-transact-sql: int for tinyint, smallint and int, bigint for bigint
+                big = info.this.type is not None and info.this.type.this == exp.DataType.Type.BIGINT
+                whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()),
+                                       to=exp.DataType.build("BIGINT" if big else "INTEGER")))
+        elif isinstance(node, exp.Count):
+            if not node.args.get("big_int"):  # COUNT is an int in T-SQL; COUNT_BIG is the bigint
+                _aggregate_as(node, "INTEGER", "int")
+        elif isinstance(node, exp.Sum):
+            kind = info.this.type
+            if _is(kind, _INTEGERS - _BITS):
+                # SUM of a tinyint, smallint or int is an int, of a bigint a bigint; DuckDB's is a HUGEINT
+                big = kind is not None and kind.this == exp.DataType.Type.BIGINT
+                _aggregate_as(node, "BIGINT" if big else "INTEGER", "bigint" if big else "int")
         elif isinstance(node, exp.Mod):
             if _is(info.this.type, _NUMBERS) and _is(info.expression.type, _NUMBERS):
                 _by_zero(node, "%")
@@ -1178,6 +1191,25 @@ def _round_keeps_type(node: exp.Round, info: exp.Expression) -> None:
     message = _OVERFLOW.format(kind=name)
     _fill_in_one(node, f"CASE WHEN (__x) IS NOT NULL AND TRY_CAST((__x) AS {to}) IS NULL "
                        f"THEN CAST(error('{message}') AS {to}) ELSE CAST((__x) AS {to}) END")
+
+
+def _aggregate_as(node: exp.Expression, to: str, name: str) -> None:
+    """COUNT or SUM (or its window) as T-SQL's type ``to`` (aggregate-functions/count-transact-sql: "COUNT
+    always returns an int data type value"; sum-transact-sql: int for tinyint, smallint and int, bigint for
+    bigint). A total past the type stops with T-SQL's overflow error. The total is read once, through a lambda."""
+    if node.find_ancestor(exp.Pivot):
+        return  # DuckDB takes only a bare aggregate in a PIVOT, so its type stays as DuckDB gives it
+    whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+    message = _OVERFLOW.format(kind=name)
+    filled = sqlglot.parse_one(f"(LIST_TRANSFORM([__x], kf_total -> CASE WHEN kf_total IS NOT NULL AND "
+                               f"TRY_CAST(kf_total AS {to}) IS NULL THEN CAST(error('{message}') AS {to}) "
+                               f"ELSE CAST(kf_total AS {to}) END))[1]", read="duckdb")
+    holder = next(c for c in filled.find_all(exp.Column) if c.name == "__x")
+    if isinstance(whole.parent, exp.Select) and whole.arg_key == "expressions":
+        # an unnamed column keeps a readable name (COUNT(*)), not the SQL written for it here
+        filled = exp.alias_(filled, whole.sql(dialect="tsql"), quoted=True, copy=False)
+    whole.replace(filled)
+    holder.replace(whole)
 
 
 def _fill_in_one(node: exp.Expression, text: str) -> None:

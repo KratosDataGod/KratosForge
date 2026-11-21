@@ -125,16 +125,18 @@ def test_a_float_average_and_a_windowed_integer_sum_stay_as_they_are(engine):
     assert translate("SELECT AVG(CAST(1 AS FLOAT))")[0] == [
         "SELECT AVG(CAST(1 AS DOUBLE))"
     ]
-    assert translate("SELECT SUM(1) OVER ()")[0] == ["SELECT SUM(1) OVER ()"]
+    # A windowed SUM of an int is an int, as T-SQL documents it (sum-transact-sql), read once
+    windowed = translate("SELECT SUM(1) OVER ()")[0][0]
+    assert windowed.count("[SUM(1) OVER ()]") == 1 and "CAST(kf_total AS INT)" in windowed
     assert tsql(engine, "SELECT AVG(CAST(id AS FLOAT)) AS a FROM dbo.t")["rows"] == [
         [1.5]
     ]
 
 
 def test_a_decimal_plus_a_windowed_integer_sum_is_a_decimal(engine):
-    assert translate("SELECT 1.5 + SUM(2) OVER ()")[0] == [
-        "SELECT CAST(1.5 + SUM(2) OVER () AS DECIMAL(21, 1))"
-    ]
+    sql = translate("SELECT 1.5 + SUM(2) OVER ()")[0][0]
+    assert sql.startswith("SELECT CAST(1.5 + ") and sql.endswith(" AS DECIMAL(21, 1))")
+    assert tsql(engine, "SELECT 1.5 + SUM(2) OVER () AS v")["rows"] == [["3.5"]]
 
 
 def test_text_divided_by_text_and_text_modulo_text_are_left_to_duckdb():

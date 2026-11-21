@@ -4,7 +4,9 @@ pairs from, and the token a paired window sends. Each is refused cleanly: a Valu
 surface's own refusal), never another exception, never a path outside its folder, and never a token
 that wasn't issued.
 
-The fuzz is seeded (random.Random(seed) over SEEDS), so a failure names the seed and repeats exactly.
+The fuzz is seeded (random.Random(seed) over SEEDS), so a failure names its seed and the hostile values
+for that seed come out the same on every run. The pairing tokens themselves come from secrets, so a
+token's near misses differ from run to run; whether each is refused doesn't.
 The shell's own parsing of the link is fuzzed in deep_link.rs."""
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import os
 import random
 import secrets
 import string
+import sys
 from pathlib import Path
 
 import pytest
@@ -134,6 +137,47 @@ def test_a_hostile_pairing_folder_is_refused_in_words_without_an_exception(seed,
         assert es._folder_problem(local) is None, local
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="a path rooted on whichever drive is current is Windows'")
+def test_a_forward_slash_path_on_the_current_drive_is_refused_on_windows():
+    for folder in ("/Users/ann/repo", "/repo", "/\\Users\\ann"):
+        assert es._folder_problem(folder), folder
+
+
+def test_on_windows_only_a_drive_letter_folder_pairs(monkeypatch):
+    monkeypatch.setattr(es, "_path", ntpath)  # the engine on a PC
+    for folder in ("/Users/ann/repo", "/repo", "/Users/ann/repo/", "\\Users\\ann\\repo", "//./pipe/x", "//?/GLOBALROOT/x"):
+        problem = es._folder_problem(folder)
+        assert problem and "drive letter" in problem, folder
+    for local in ("C:\\Users\\ann\\repo", "C:/Users/ann/repo", "\\\\?\\C:\\Users\\ann\\repo", "//?/C:/Users/ann/repo"):
+        assert es._folder_problem(local) is None, local
+
+
+def test_off_windows_a_posix_folder_still_pairs():
+    if os.name == "nt":
+        pytest.skip("POSIX paths are for test runs off Windows")
+    assert es._folder_problem("/home/ann/repo") is None
+
+
+def test_a_hostile_character_is_refused_before_the_folder_is_shown():
+    for folder in ("\\\\server\\share\\a\u202eb", "\\\\.\\pipe\\a\u202eb", "\\Users\\a\x1bb", "//server/share/a\u2066b"):
+        problem = es._folder_problem(folder)
+        assert problem and "text-direction" in problem, folder
+        assert not any(c in problem for c in "\u202e\u2066\x1b"), folder
+
+
+def test_a_window_paired_from_the_long_path_form_reaches_its_files_by_either_form(monkeypatch):
+    monkeypatch.setattr(es, "_path", ntpath)  # the engine on a PC
+    for window in ("\\\\?\\C:\\Users\\a\\repo", "C:\\Users\\a\\repo"):
+        for inside in ("C:\\Users\\a\\repo\\x.ipynb", "c:/users/a/repo/Sales/x.ipynb", "\\\\?\\C:\\Users\\a\\repo\\x.ipynb"):
+            assert es._inside(inside, window), (window, inside)
+        for outside in ("C:\\Users\\a\\repo", "C:\\Users\\a\\repo-other\\x.ipynb", "C:\\Users\\a\\repo\\..\\x.ipynb",
+                        "\\\\?\\C:\\Users\\a\\repo\\..\\other\\x.ipynb", "C:\\Users\\a\\other\\x.ipynb",
+                        "D:\\Users\\a\\repo\\x.ipynb", "\\\\server\\C$\\Users\\a\\repo\\x.ipynb",
+                        "\\\\?\\UNC\\server\\share\\Users\\a\\repo\\x.ipynb"):
+            assert not es._inside(outside, window), (window, outside)
+    assert es._is_root("\\\\?\\C:\\") and es._is_root("C:\\") and not es._is_root("\\\\?\\C:\\Users\\a\\repo")
+
+
 @pytest.mark.parametrize("seed", SEEDS)
 def test_a_paired_window_reaches_only_files_below_its_folder(seed, tmp_path):
     window = str(tmp_path / "repo")
@@ -184,7 +228,7 @@ def test_only_an_issued_token_is_taken(seed, tmp_path):
         assert p.check(token) is not None, "the issued tokens still work"
 
 
-def test_a_token_is_compared_in_constant_time(tmp_path, monkeypatch):
+def test_every_pairing_is_compared_with_compare_digest(tmp_path, monkeypatch):
     p = Pairings(tmp_path)
     token = _paired(p, "7d")
     _paired(p, "session")

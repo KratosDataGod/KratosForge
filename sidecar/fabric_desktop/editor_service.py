@@ -36,12 +36,27 @@ WRITE_WAIT_SECONDS = 300
 FROM_EDITOR = "VS Code"
 
 
+# The path rules of the PC the engine runs on. A test puts ntpath here to stand in for a PC.
+_path = os.path
+
+
+def _windows() -> bool:
+    return _path is ntpath
+
+
+def _full(path: str) -> str:
+    """``path`` made absolute and compared as Windows does, the long-path form \\\\?\\C:\\... as C:\\..."""
+    if _windows():
+        path = win_paths.plain(path.replace("/", "\\"))
+    return _path.normcase(_path.abspath(path))
+
+
 def _inside(path: str, folder: str) -> bool:
     """Whether ``path`` is ``folder`` or below it, by text alone (no file system call)."""
     if not isinstance(path, str) or not folder or "\x00" in path:
         return False
-    top = os.path.normcase(os.path.abspath(folder)).rstrip("\\/")
-    return os.path.normcase(os.path.abspath(path)).startswith(top + os.sep)
+    top = _full(folder).rstrip("\\/")
+    return _full(path).startswith(top + _path.sep)
 
 
 def _absolute(folder: str) -> bool:
@@ -61,18 +76,19 @@ def _folder_problem(folder: Any) -> str | None:
     if not isinstance(folder, str) or not _absolute(folder) or _is_root(folder):
         return ("Pair from a folder with notebooks in it, not a whole drive or no folder: "
                 "open the notebooks folder or repository in VS Code first.")
+    odd = next((c for c in folder if unicodedata.category(c) == "Cc" or c in _DIRECTION_MARKS), None)
+    if odd is not None:  # before any refusal that shows the folder, so such text is never shown
+        return (f"This folder's path has a control or text-direction character (U+{ord(odd):04X}), so it would show "
+                "differently from the folder itself. Rename the folder, then pair again.")
     if win_paths.is_share(folder.replace("/", "\\")):
         return (f"{folder} is a network folder. KratosForge runs notebooks from folders on this PC's drives: "
                 "clone or copy the notebooks to this PC, or open them from the drive letter the share is mapped to.")
-    if folder.startswith(("\\", "//", "/\\")) and not _drive_path(win_paths.plain(folder.replace("/", "\\"))):
-        # A device path (\\.\pipe, \\?\GLOBALROOT, \??\) or one on whichever drive is current: not a folder
-        # on a drive. Only C:\... is, or its long-path form \\?\C:\...
-        return (f"{folder} isn't a folder on one of this PC's drives. Open the notebooks folder or repository "
+    if ((_windows() or "\\" in folder or folder.startswith("//"))
+            and not _drive_path(win_paths.plain(folder.replace("/", "\\")))):
+        # On Windows only C:\... is a folder on a drive, or its long-path form \\?\C:\... Not a device path
+        # (\\.\pipe, \\?\GLOBALROOT, \??\) or one on whichever drive is current (\Users\..., /Users/...).
+        return (f"{folder} isn't a folder on a drive letter of this PC. Open the notebooks folder or repository "
                 "in VS Code from its drive letter, such as C:, then pair again.")
-    odd = next((c for c in folder if unicodedata.category(c) == "Cc" or c in _DIRECTION_MARKS), None)
-    if odd is not None:
-        return (f"This folder's path has a control or text-direction character (U+{ord(odd):04X}), so it would show "
-                "differently from the folder itself. Rename the folder, then pair again.")
     return None
 
 
@@ -83,9 +99,9 @@ def _drive_path(path: str) -> bool:
 
 def _is_root(folder: str) -> bool:
     """A drive or share root (C:\\, /, \\\\host\\share), which would cover every notebook on it."""
-    full = os.path.abspath(folder)
-    drive, rest = os.path.splitdrive(full)
-    return os.path.dirname(full) == full or rest.strip("\\/") == ""
+    full = _full(folder)
+    drive, rest = _path.splitdrive(full)
+    return _path.dirname(full) == full or rest.strip("\\/") == ""
 
 
 class _WriteAsk:

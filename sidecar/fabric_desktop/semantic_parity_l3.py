@@ -113,6 +113,7 @@ SCENARIOS: dict[str, dict[str, list[str | None]]] = {
 }
 _SQL_AGG = {"SUM": "SUM({})", "AVERAGE": "AVG({})", "MIN": "MIN({})", "MAX": "MAX({})", "COUNT": "COUNT({})",
             "DISTINCTCOUNTNOBLANK": "COUNT(DISTINCT {})"}
+_REFUSED = "error: "  # the prefix of a value DuckDB refused to compute; never compared as a value
 _NUMERIC_AGG = frozenset({"SUM", "AVERAGE"})  # DuckDB sums a Boolean; DAX and T-SQL refuse it, so it isn't run
 _NUMERIC_CLASSES = frozenset({"int", "dec", "num"})
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -261,7 +262,7 @@ def _value(v: Any) -> str | None:
 
 
 def _number(text: str | None) -> Decimal | None:
-    if text is None or text.startswith("error:"):
+    if text is None or text.startswith(_REFUSED):
         return None
     with contextlib.suppress(InvalidOperation):
         d = Decimal(text)
@@ -330,7 +331,7 @@ def _run_side(which: str, run: _Run, queries: dict[str, str]) -> dict[str, dict[
                 try:
                     con.execute(f"CREATE TABLE {table} AS SELECT {sql} AS v")
                 except duckdb.Error as exc:  # narrow: the engine's refusal on this data is that measure's value
-                    failed[table] = f"error: {type(exc).__name__}"
+                    failed[table] = f"{_REFUSED}{type(exc).__name__}"
             for key, sql in queries.items():
                 read = next((failed[t] for t in failed if t in sql), None)
                 if read is not None:
@@ -340,7 +341,7 @@ def _run_side(which: str, run: _Run, queries: dict[str, str]) -> dict[str, dict[
                     rows = con.execute(f"SELECT {sql}").fetchall()
                     out[key][name] = _value(rows[0][0])
                 except duckdb.Error as exc:  # narrow: what the engine refuses on this data is that value's result
-                    out[key][name] = f"error: {type(exc).__name__}"
+                    out[key][name] = f"{_REFUSED}{type(exc).__name__}"
         finally:
             con.close()
     return out
@@ -431,29 +432,26 @@ def _judge(o: dict[str, Any], behavior: dict[str, Any], tol: dict[str, Any]) -> 
         o["notes"] = o["notes"] + ([f"L3 ran the {ran[0]} side's SQL only; its values are evidence, not a match"]
                                    if ran else ["L3 ran neither side"])
         return
-    refused = [n for n in SCENARIOS if any(str(b["results"].get(n)).startswith("error:") for b in (left, right))]
-    if refused:  # a refusal never verifies: equal error texts aren't equal behavior
-        one_sided = [n for n in refused if str(left["results"].get(n)).startswith("error:")
-                     != str(right["results"].get(n)).startswith("error:")]
-        both = len(refused) - len(one_sided)
-        if both:
-            o["notes"] = o["notes"] + [(f"DuckDB refused both sides' query on {both} of {len(SCENARIOS)} datasets, so "
-                                        "L3 verifies nothing about this measure")]
-        if one_sided:
-            o["behavior_result"] = sp.DIFFERENT
-            o["changes"] = o["changes"] + [f"on the {n} dataset only one side's query ran" for n in one_sided]
-            if o["result"] != sp.TEST_FAILED:
-                o["result"] = sp.DIFFERENT
-        return
+    def refused(b: dict[str, Any], n: str) -> bool:
+        return str(b["results"].get(n)).startswith(_REFUSED)
+
+    both = [n for n in SCENARIOS if refused(left, n) and refused(right, n)]  # equal error texts aren't a match
+    one_sided = [n for n in SCENARIOS if refused(left, n) != refused(right, n)]
     verdicts = {name: _close(left["results"].get(name), right["results"].get(name), tol["values"])
-                for name in SCENARIOS}
+                for name in SCENARIOS if name not in both and name not in one_sided}
     tol["used"] = True
     differ = [n for n, v in verdicts.items() if v == "different"]
     o["changes"] = o["changes"] + [
         f"on the {n} dataset the left side gives {left['results'].get(n)!s} and the right side "
-        f"{right['results'].get(n)!s}" for n in differ]
-    if differ:
+        f"{right['results'].get(n)!s}" for n in differ] + [
+        f"on the {n} dataset only one side's query ran" for n in one_sided]
+    if both:
+        o["notes"] = o["notes"] + [(f"DuckDB refused both sides' query on {len(both)} of {len(SCENARIOS)} datasets, "
+                                    "so L3 verifies nothing about this measure")]
+    if differ or one_sided:
         found = sp.DIFFERENT
+    elif both:  # nothing differs where both ran, but a refusal never verifies: the L2 result stands
+        return
     elif any(v == "tolerance" for v in verdicts.values()):
         found = sp.WITHIN_TOLERANCE
     else:

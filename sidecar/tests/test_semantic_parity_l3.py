@@ -176,6 +176,14 @@ def test_a_query_refused_on_one_side_only_is_different():
     assert o["changes"] == ["on the basic dataset only one side's query ran"]
 
 
+def test_a_value_that_differs_counts_even_when_another_dataset_is_refused():
+    o = _row()
+    err = "error: BinderException"
+    l3._judge(o, _ran({"basic": err, "nulls": "2"}, {"basic": err, "nulls": "3"}), l3._tolerances(None))
+    assert o["result"] == sp.DIFFERENT and o["behavior_result"] == sp.DIFFERENT
+    assert o["changes"] == ["on the nulls dataset the left side gives 2 and the right side 3"]
+
+
 def test_a_promoted_row_drops_the_l2_no_query_note():
     o = _row()
     l3._judge(o, _ran({}, {}), l3._tolerances(None))

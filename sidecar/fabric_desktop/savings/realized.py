@@ -35,9 +35,9 @@ moved to another capacity, that capacity's bill went up; this module sees one ca
 net that off, so the result says so.
 
 **Not realized.** When any evidence is missing, the result is not realized: Unknown, value None
-(never 0), with the reason in a full sentence. That covers no bill, a period the export doesn't
-cover on every day (a missing day would look like a saving), periods of different lengths, a bill
-that did not go down, a SKU that went up, and a bill that doesn't fit the recorded SKU.
+(never 0), with the reason in a full sentence. That covers no bill, a period without a compute row on
+every day (a missing day would look like a saving; storage rows don't count, and a paused day needs
+a compute row of 0 CU), periods of different lengths, a bill that did not go down, a SKU that went up, and a bill that doesn't fit the recorded SKU.
 
 **Refused.** Bad input raises ``ValueError`` naming the row: a NaN, negative or infinite amount,
 a billing figure that isn't Measured (a price list is a Scenario, never a bill), mixed currencies,
@@ -155,6 +155,10 @@ def _rows(billing: list[dict[str, Any]], capacity: str) -> list[dict[str, Any]]:
         if row["slot"]:
             other = by_slot.setdefault(row["slot"], row)
             if other is not row and other["key"] != name:
+                if (other["cost"], other["cu"]) == (row["cost"], row["cu"]):
+                    if by_key.get(name) is row:
+                        del by_key[name]  # the same meter and day read from two exports counts once
+                    continue
                 raise ValueError(f"Billing rows {other['key']} and {name} are the same meter and day with different "
                                  "amounts. Keep the later export only.")
     return list(by_key.values())
@@ -192,8 +196,11 @@ def _sku(value_json: Any) -> str | None:
 
 
 def _covered(rows: list[dict[str, Any]], start: dt.datetime, end: dt.datetime) -> float:
-    """Seconds of [start, end) that at least one row covers."""
-    spans = sorted((max(r["start"], start), min(r["end"], end)) for r in rows if r["start"] < end and r["end"] > start)
+    """Seconds of [start, end) that at least one compute row covers. Only compute rows count, because
+    only they are compared: a storage row on a day says nothing about that day's compute bill. A
+    paused day needs a compute row of 0 CU to count as covered."""
+    spans = sorted((max(r["start"], start), min(r["end"], end)) for r in rows
+                   if r["cu"] is not None and r["start"] < end and r["end"] > start)
     total, cursor = 0.0, start
     for a, b in spans:
         a = max(a, cursor)
@@ -201,6 +208,19 @@ def _covered(rows: list[dict[str, Any]], start: dt.datetime, end: dt.datetime) -
             total += (b - a).total_seconds()
             cursor = b
     return total
+
+
+def _missing_days(rows: list[dict[str, Any]], start: dt.datetime, end: dt.datetime) -> str:
+    """The days of [start, end) no compute row touches, as " (2026-11-12, ...)", or ""."""
+    days, day = [], start
+    while day < end and len(days) <= 10:
+        nxt = min(day + dt.timedelta(days=1), end)
+        if not any(r["cu"] is not None and r["start"] < nxt and r["end"] > day for r in rows):
+            days.append(day.date().isoformat())
+        day = nxt
+    if not days:
+        return ""
+    return " (" + ", ".join(days[:10]) + (", and more" if len(days) > 10 else "") + ")"
 
 
 def _sum(rows: list[dict[str, Any]], start: dt.datetime, end: dt.datetime) -> tuple[dict[str, float], str | None]:
@@ -298,8 +318,9 @@ def realize(action: dict[str, Any] | None, billing: list[dict[str, Any]], before
     for name, (s, e) in (("before", (b0, b1)), ("after", (a0, a1))):
         gap = (e - s).total_seconds() - _covered(rows, s, e)
         if gap > TOLERANCE:
-            return _not_realized(base, f"The export has no row for this capacity for {gap / 86400:g} days of the "
-                                       f"{name} period. A missing day would look like a saving.", **ids)
+            return _not_realized(base, f"The export has no compute row for this capacity for {gap / 86400:g} days "
+                                       f"of the {name} period{_missing_days(rows, s, e)}. A missing day would look "
+                                       "like a saving. A paused day needs a compute row of 0 CU.", **ids)
     pre, why = _sum(rows, b0, b1)
     post, why2 = _sum(rows, a0, a1)
     if why or why2:

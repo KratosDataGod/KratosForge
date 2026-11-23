@@ -148,11 +148,26 @@ def test_fewer_billed_hours_with_a_confirmed_action_are_realized():
     assert out["realized_savings"]["value"] == pytest.approx(7 * F64_DAY * 0.5 * 0.18)
 
 
-def test_a_fully_paused_after_period_with_storage_rows_is_covered_and_realized():
+def test_storage_rows_dont_cover_a_day_without_a_compute_row():
     storage = [bill(n, 0, meter="OneLake Storage", cost=1.0) for n in range(9, 16)]
     out = rz.realize(billing_action(), days(1, 7, F64_DAY) + storage, BEFORE, AFTER)
+    assert out["realized"] is False and out["realized_savings"]["value"] is None
+    assert "no compute row" in out["reason"] and "0 CU" in out["reason"]
+
+
+def test_one_missing_compute_day_hidden_by_storage_rows_is_not_realized():
+    # Quality probe: F64 both periods, the 11-12 compute row dropped, a storage row every day.
+    storage = [bill(n, 0, meter="OneLake Storage", cost=1.0) for n in range(1, 16) if n != 8]
+    rows = days(1, 7, F64_DAY) + [r for r in days(9, 15, F64_DAY) if r["start"] != day(12).isoformat()] + storage
+    out = rz.realize(billing_action(), rows, BEFORE, AFTER)
+    assert out["realized"] is False and out["realized_savings"]["value"] is None
+    assert day(12).date().isoformat() in out["reason"]
+
+
+def test_a_fully_paused_after_period_with_zero_cu_compute_rows_is_realized():
+    out = rz.realize(billing_action(), days(1, 7, F64_DAY) + days(9, 15, 0), BEFORE, AFTER)
     assert out["realized_savings"]["value"] == pytest.approx(7 * F64_DAY * 0.18)
-    assert out["billed_after"]["value"] == 0  # storage isn't compared
+    assert out["billed_after"]["value"] == 0
 
 
 def test_a_price_change_alone_is_not_realized():
@@ -271,6 +286,14 @@ def test_a_price_list_figure_is_not_a_bill():
 def test_overlapping_or_reversed_periods_are_refused(before, after):
     with pytest.raises(ValueError, match="period"):
         rz.realize(action(), BILL_F64_TO_F32, before, after, changes=[CHANGE])
+
+
+def test_the_same_meter_and_day_from_two_exports_counts_once():
+    twin = bill(9, F32_DAY, key="cm:other")
+    twin["slot"] = bill(9, F32_DAY)["slot"]
+    once = rz.realize(action(), BILL_F64_TO_F32, BEFORE, AFTER, changes=[CHANGE])
+    both = rz.realize(action(), BILL_F64_TO_F32 + [twin], BEFORE, AFTER, changes=[CHANGE])
+    assert both["realized_savings"]["value"] == once["realized_savings"]["value"]
 
 
 def test_two_amounts_for_one_meter_and_day_are_refused():

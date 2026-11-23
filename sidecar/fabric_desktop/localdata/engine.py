@@ -329,13 +329,42 @@ def _column_names(con: duckdb.DuckDBPyConnection, query: str) -> list[str]:
     return [d[0] for d in con.execute(f"SELECT * FROM ({query}) AS __fd_columns LIMIT 0").description or []]
 
 
-def _placed(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
+def _placed(con: duckdb.DuckDBPyConnection, step: dict[str, Any]) -> None:
     """Place a T-SQL MERGE's unqualified columns on a database table by the columns its table and its source have
     now (WR-257): a temporary table, a table the script made or a table-valued function has them only when the
-    MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words."""
+    MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words.
+    A ``+`` whose types weren't known then is rewritten by them now (WR-267), and the step's SQL with it."""
+    c: delta_dml.Change = step["placed"]
+    tree = None
+    if tsql.PLUS_LATE in step["sql"].lower():
+        tree = cast(Any, sql_dialects.parse_one(step["sql"], read="duckdb"))
+        parsed = delta_dml.parse_tree(tree)
+        assert parsed is not None  # it was read as this MERGE before
+        parsed.tsql, c = True, parsed
+        step["placed"] = c
+        if step.get("matched") is not None:
+            step["matched"] = c
     target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
     tsql_merge.place_change(c, _column_names(con, f"SELECT * FROM {target}"),
                             _column_names(con, c.source_sql(KfDuckDB)))
+    if tree is not None:
+        tsql.late_plus(c, _operand_types(con, f"{target} AS {q(c.alias)}",
+                                         f"({c.source_sql(KfDuckDB)}) AS {q(c.source_alias)}"))
+        step["sql"] = tree.sql(dialect=KfDuckDB)
+
+
+def _operand_types(con: duckdb.DuckDBPyConnection, target_from: str,
+                   source_from: str) -> Callable[[list[Any]], list[str] | None]:
+    """What tsql.late_plus reads a MERGE's ``+`` by: the DuckDB types of its operands over its table and its
+    source, read without reading any row, or None when DuckDB can't read them."""
+    def types(nodes: list[Any]) -> list[str] | None:
+        values = ", ".join(delta._duckdb(n.copy()) for n in nodes)
+        try:
+            return [str(t) for t in con.sql(f"SELECT {values} FROM {target_from} CROSS JOIN {source_from} "
+                                            "LIMIT 0").types]
+        except duckdb.Error:
+            return None
+    return types
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
@@ -845,7 +874,7 @@ class LocalEngine:
                     try:
                         as_of += self._make_as_of(con, step["as_of"])
                         if explain is None and step.get("placed") is not None:
-                            _placed(con, step["placed"])
+                            _placed(con, step)
                         if explain is None and step.get("matched") is not None:
                             _matched_once(con, step["matched"])
                         if dialect == "tsql" and step["kind"] in ("create", "alter") and step["write"] is None \
@@ -1567,6 +1596,9 @@ class LocalEngine:
         if c.tsql:  # WR-257: the source's columns as it has them now, before anything is written
             tsql_merge.place_change(c, [f.name for f in current.schema().fields],
                                     _column_names(con, f"SELECT * FROM temp.{q(source_table)}"))
+            # WR-267: a + whose types weren't known when the MERGE was read
+            tsql.late_plus(c, _operand_types(con, f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)}",
+                                             f"temp.{q(source_table)} AS {q(c.source_alias)}"))
         if c.tsql:  # WR-244: as a warehouse does, whose tables are Delta tables too
             if any(w.match == "matched" for w in c.whens):
                 _matched_once(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}", f"temp.{q(source_table)}", name)

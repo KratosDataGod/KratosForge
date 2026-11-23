@@ -996,6 +996,19 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     """``_typed`` for a query, and for an UPDATE's SET values and an UPDATE's or DELETE's FROM and WHERE: sqlglot
     types no column of an UPDATE or a DELETE, so ``SET v = v + 'x'`` added text as numbers (a DuckDB binder error)
     and a WHERE compared text with its trailing spaces. They are typed as a SELECT that lends them its scope."""
+    if isinstance(tree, exp.Merge):
+        # WR-267: then + again in its WHEN clauses and ON, by the two sides' columns, which a MERGE doesn't lend
+        notes = _typed(tree, schema)
+        merged = _merge_as_select(tree)
+        if merged is None:
+            return notes
+        proxy, give_back = merged
+        resolved: list[str] = []
+        try:
+            notes += _typed(proxy, schema, only=(exp.Add,), late=proxy, resolved=resolved)
+        finally:
+            give_back()
+        return [n for n in notes if n not in resolved]
     lent = _change_as_select(tree)
     if lent is None:
         return _typed(tree, schema)
@@ -1004,6 +1017,46 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
         return _typed(proxy, schema)
     finally:
         give_back()
+
+
+def _merge_as_select(tree: exp.Merge) -> tuple[exp.Select, Callable[[], None]] | None:
+    """A SELECT of a MERGE's ON, WHEN conditions, SET values and INSERT values, FROM its table CROSS JOIN its
+    source (WR-267): the nodes themselves, lent as :func:`_change_as_select` lends them, so ``+`` in them follows
+    the two sides' column types. sqlglot types no column of a MERGE, so ``SET v = s.v + 'z'`` was a binder error."""
+    target, using, whens = tree.this, tree.args.get("using"), tree.args.get("whens")
+    if not isinstance(target, exp.Table) or not isinstance(using, exp.Expression):
+        return None
+    slots: list[tuple[exp.Expression, str, int | None]] = []
+    on = tree.args.get("on")
+    if isinstance(on, exp.Expression):
+        slots.append((tree, "on", None))
+    for when in (whens.expressions if whens else []):
+        if isinstance(when.args.get("condition"), exp.Expression):
+            slots.append((when, "condition", None))
+        then = when.args.get("then")
+        if isinstance(then, exp.Update):
+            slots += [(eq, "expression", None) for eq in then.expressions if isinstance(eq, exp.EQ)]
+        elif isinstance(then, exp.Insert) and isinstance(then.expression, exp.Tuple):
+            slots += [(then.expression, "expressions", i) for i in range(len(then.expression.expressions))]
+    if not slots:
+        return None
+    values = [parent.args[key] if i is None else parent.args[key][i] for parent, key, i in slots]
+    proxy = exp.Select(expressions=values)
+    proxy.set("from_", exp.From(this=target.copy()))
+    proxy.set("joins", [exp.Join(this=using.copy(), kind="CROSS")])
+
+    def give_back() -> None:
+        lent = list(proxy.expressions)
+        tuples: dict[int, tuple[exp.Expression, list[exp.Expression]]] = {}
+        for (parent, key, i), value in zip(slots, lent, strict=True):
+            if i is None:
+                parent.set(key, value)
+            else:
+                tuples.setdefault(id(parent), (parent, list(parent.args[key])))[1][i] = value
+        for parent, items in tuples.values():
+            parent.set("expressions", items)
+
+    return proxy, give_back
 
 
 def _change_as_select(tree: exp.Expression) -> tuple[exp.Select, Callable[[], None]] | None:
@@ -1048,18 +1101,22 @@ def _change_as_select(tree: exp.Expression) -> tuple[exp.Select, Callable[[], No
     return proxy, give_back
 
 
-def _typed(tree: exp.Expression, schema: Any) -> list[str]:
+def _typed(tree: exp.Expression, schema: Any, only: tuple | None = None, late: exp.Select | None = None,
+           resolved: list[str] | None = None) -> list[str]:
     """Make integer division and averages, ``+`` on text, and casts to integers behave as in T-SQL. The types come from
-    a qualified copy of the tree (qualifying renames output columns, so the copy isn't run)."""
+    a qualified copy of the tree (qualifying renames output columns, so the copy isn't run). ``only`` limits it to
+    those kinds of node, and ``+`` to its rules on text (decimals stay as DuckDB adds them); ``late`` is a MERGE's
+    lent SELECT, whose ``+`` with a type known only when it runs is left for :func:`late_plus` (WR-267), and
+    ``resolved`` gets the note an earlier pass gave each ``+`` this one could type."""
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
-    kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
+    kinds = only or (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup)
     here = _in_order(tree, kinds)
-    compared = _in_order(tree, _COMPARISONS)
-    grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation, *_COLLATED))
+    compared = [] if only else _in_order(tree, _COMPARISONS)
+    grouped = not only and any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation, *_COLLATED))
     if not here and not compared and not grouped:
         return []
     sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
@@ -1074,22 +1131,28 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     except SqlglotError:
         for cast_node in sized:
             _sized_text(cast_node, None)
+        if late is not None:
+            _left_for_later([n for n in here if isinstance(n, exp.Add)], late)
         return [("Couldn't tell the column types, so divisions, averages, casts to integers, text comparisons and "
                 "floats joined into text are done as DuckDB does them (T-SQL divides and averages integers as "
                 "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
                 "text, and writes a float in CONCAT with at most 6 significant digits).")]
-    collated = _in_order(tree, _COLLATED)
-    notes = _padded(compared, _in_order(typed, _COMPARISONS)) + _grouped_text(typed)
-    # A copy _collated makes of a value isn't in ``here``, so the passes below (+ on text becoming ||, say) miss
-    # it: it is made again from the rewritten value once they have run.
     later: list[Callable[[], None]] = []
-    notes += _collated(collated, _in_order(typed, _COLLATED), later)
+    notes = []
+    if not only:
+        collated = _in_order(tree, _COLLATED)
+        notes = _padded(compared, _in_order(typed, _COMPARISONS)) + _grouped_text(typed)
+        # A copy _collated makes of a value isn't in ``here``, so the passes below (+ on text becoming ||, say) miss
+        # it: it is made again from the rewritten value once they have run.
+        notes += _collated(collated, _in_order(typed, _COLLATED), later)
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for cast_node in sized:
             _sized_text(cast_node, None)
         for again in later:
             again()
+        if late is not None:
+            _left_for_later([n for n in here if isinstance(n, exp.Add)], late)
         return notes + [("Couldn't match the query's columns to their types, so divisions, averages, casts to "
                 "integers and floats joined into text are done as DuckDB does them (T-SQL divides and averages "
                 "integers as integers, cuts a decimal cast to an integer toward zero, and writes a float in CONCAT "
@@ -1098,6 +1161,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     done: set[int] = set()
     # Decimal arithmetic first, and inner before outer: a rewrite copies its operands, which by then carry theirs.
     for node, info in reversed(pairs):
+        if only:
+            break
         if isinstance(node, tuple(_DECIMAL_OPS)) and (sides := _decimal_operands(info)) is not None:
             if _decimal_math(node, *sides) and _FLOAT_NOTE not in notes:
                 notes.append(_FLOAT_NOTE)
@@ -1152,19 +1217,12 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             if _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
         elif isinstance(node, exp.Add):
-            a, b = info.this.type, info.expression.type
-            if _is(a, _TEXT) and _is(b, _TEXT):
-                node.replace(exp.DPipe(this=node.this, expression=node.expression, safe=False))
-            elif _is(a, _TEXT) and _is(b, _NUMBERS):
-                # A number outranks text in T-SQL: '1' + 1 is 2 (and 'x' + 1 is an error).
-                assert b is not None
-                _text_as_number(node, "this", b)
-            elif _is(b, _TEXT) and _is(a, _NUMBERS):
-                assert a is not None
-                _text_as_number(node, "expression", a)
-            elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
-                notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
-                             "as numbers and joins two strings, and here it is done as DuckDB does it.")
+            untyped = _untyped_plus(node)
+            said = _plus(node, info.this.type, info.expression.type,
+                         late is not None and node.find_ancestor(exp.Select) is late)
+            notes += said
+            if not said and resolved is not None:
+                resolved.append(untyped)
         else:
             to = node.args.get("to")
             if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
@@ -1180,6 +1238,102 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     for again in later:
         again()
     return notes
+
+
+# WR-267: a MERGE's ``+`` whose type is known only when it runs (a source made by the script), as a function no
+# database has, for late_plus to rewrite then.
+PLUS_LATE = "kf_tsql_plus"
+PLUS_UNTYPED = ("Couldn't tell the types in {sql}, so this MERGE isn't run. T-SQL joins two strings with + and adds "
+                "text to a number as numbers, and the local engine has to know which one it is. Give the values a "
+                "type with CAST(... AS VARCHAR(n)) or CAST(... AS INT), in the MERGE or in its USING query.")
+_NULL = {exp.DataType.Type.NULL}
+
+
+def _plus(node: exp.Add, a: exp.DataType | None, b: exp.DataType | None, late: bool = False) -> list[str]:
+    """``a + b`` by T-SQL's types: two strings are joined, a number outranks text ('1' + 1 is 2, and 'x' + 1 is
+    an error), and NULL + text is NULL text (DuckDB has no + for text, so it stopped with its binder's words).
+    ``late``: in a MERGE whose types aren't all known yet, a ``+`` that may be on text is left for
+    :func:`late_plus`, as a call to ``kf_tsql_plus``."""
+    if isinstance(node.this, exp.Null):  # sqlglot types a NULL as unknown
+        a = exp.DataType(this=exp.DataType.Type.NULL)
+    if isinstance(node.expression, exp.Null):
+        b = exp.DataType(this=exp.DataType.Type.NULL)
+    if _is(a, _TEXT) and _is(b, _TEXT):
+        node.replace(exp.DPipe(this=node.this, expression=node.expression, safe=False))
+    elif _is(a, _TEXT) and _is(b, _NUMBERS):
+        assert b is not None
+        _text_as_number(node, "this", b)
+    elif _is(b, _TEXT) and _is(a, _NUMBERS):
+        assert a is not None
+        _text_as_number(node, "expression", a)
+    elif (_is(a, _NULL) and _is(b, _TEXT)) or (_is(b, _NULL) and _is(a, _TEXT)):
+        node.replace(exp.cast(exp.Null(), "VARCHAR"))
+    elif late and (_unknown(a) or _unknown(b)) and not (_is(a, _NULL) and _is(b, _NULL)) \
+            and all(_unknown(k) or _is(k, _TEXT | _NUMBERS) for k in (a, b)):
+        call = exp.Anonymous(this=PLUS_LATE, expressions=[node.this, node.expression])
+        call.meta[PLUS_LATE] = True  # one the script names itself is still refused (_unknown_functions)
+        node.replace(call)
+    elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
+        return [_untyped_plus(node)]
+    return []
+
+
+def _untyped_plus(node: exp.Expression) -> str:
+    return (f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text as numbers and "
+            "joins two strings, and here it is done as DuckDB does it.")
+
+
+def _left_for_later(adds: list[exp.Expression], late: exp.Select) -> None:
+    """Each ``+`` of a MERGE's lent values left for :func:`late_plus`, when no type could be read now."""
+    for node in reversed(adds):  # inner first, so an outer one takes the inner one's call along
+        if isinstance(node, exp.Add) and node.find_ancestor(exp.Select) is late:
+            _plus(node, None, None, late=True)
+
+
+def _is_late(node: exp.Expr) -> bool:
+    return isinstance(node, exp.Anonymous) and node.name.lower() == PLUS_LATE
+
+
+def has_late_plus(node: exp.Expression | None) -> bool:
+    return node is not None and any(_is_late(n) for n in node.walk())
+
+
+def late_plus(change: Any, types: Callable[[list[exp.Expression]], list[str] | None]) -> None:
+    """WR-267: each ``+`` of a ``delta_dml.Change`` MERGE that was left for when it runs (``kf_tsql_plus``),
+    rewritten by :func:`_plus` with its operands' DuckDB types, read by ``types`` (None when DuckDB can't read
+    them, which is refused by name). Inner ones first, so an outer one reads what the inner one now is."""
+    def fixed(node: Any) -> Any:
+        if not isinstance(node, exp.Expression) or not has_late_plus(node):
+            return node
+        root = node
+        for call in reversed([n for n in node.walk(bfs=False) if _is_late(n)]):
+            a, b = call.expressions
+            add = exp.Add(this=a, expression=b)
+            now = exp.Paren(this=add)
+            if call.parent is not None:
+                call.replace(now)  # in the statement too
+            if call is root:
+                root = now
+            kinds = types([a, b])
+            if kinds is None:
+                raise ValueError(PLUS_UNTYPED.format(sql=add.sql(dialect="tsql")))
+            _plus(add, _duckdb_type(kinds[0]), _duckdb_type(kinds[1]))
+        return root
+
+    change.on = fixed(change.on)
+    for when in change.whens:
+        when.condition = fixed(when.condition)
+        when.sets = [(column, fixed(value)) for column, value in when.sets]
+        when.values = [fixed(value) for value in when.values]
+
+
+def _duckdb_type(name: str) -> exp.DataType:
+    if name.strip('"').upper() == "NULL":
+        return exp.DataType(this=exp.DataType.Type.NULL)
+    try:
+        return exp.DataType.build(name, dialect="duckdb")
+    except SqlglotError:
+        return exp.DataType(this=exp.DataType.Type.UNKNOWN)
 
 
 _BY_ZERO = "Divide by zero error encountered."
@@ -1441,7 +1595,13 @@ def _text_as_number(node: exp.Expression, side: str, to: exp.DataType) -> None:
     """The text side of ``+`` converted to the number's type, as T-SQL does: ``'' + 1`` is 1 and ``f + ''`` is f,
     since '' converts to 0 for an integer or a float (DuckDB refuses it); text for an integer has to be a whole
     number, as in a CAST. A decimal refuses '' in both."""
-    cast = exp.Cast(this=node.args[side], to=to.copy())
+    text = node.args[side]
+    if isinstance(text, exp.Literal) and text.is_string and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
+            and (whole := re.fullmatch(r" *([+-]?[0-9]+) *", text.this) or re.fullmatch(r" *()", text.this)):
+        # Text written as a whole number is that number, worked out here: delta-rs can't run the check below
+        node.set(side, exp.Cast(this=exp.Literal.number(int(whole.group(1) or 0)), to=to.copy()))
+        return
+    cast = exp.Cast(this=text, to=to.copy())
     node.set(side, cast)
     if to.this in _INTEGERS - {exp.DataType.Type.BIT}:
         _whole_text(cast, to)
@@ -2639,6 +2799,8 @@ def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
     """A function DuckDB doesn't have is refused by its T-SQL name, not with DuckDB's catalog error."""
     for call in tree.find_all(exp.Anonymous):
         name = call.name.upper()
+        if call.meta.get(PLUS_LATE):
+            continue  # WR-267: rewritten when the MERGE runs (late_plus)
         if name in _ERROR_READERS:
             raise ValueError(_NOT_YET + _ERROR_READ.format(name=f"{name}()"))
         if name and name not in known:

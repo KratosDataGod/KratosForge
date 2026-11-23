@@ -37,7 +37,7 @@ from . import profiles as pf
 from . import scoring
 from .assess import SCHEMA
 from .evidence import canonical
-from .trends import _when
+from .trends import _at, _when
 
 DIMENSIONS = ("capacity_finops", "performance")
 MAX_SNAPSHOTS = 500
@@ -201,7 +201,7 @@ def capacity_score(snapshots: list[dict[str, Any]], registry: ct.Registry, *, ca
                      for c in registry.controls() if c.scope == "capacity" and c.id not in held]
 
     findings = fx.rank([f for snap, outs in sources for f in _findings(snap, outs)])
-    times = sorted(_when(s["assessed_at"]) for s in used.values())
+    times = sorted(_at(s["assessed_at"]) for s in used.values())
     scores = scoring.score(outcomes, profile)
     assessed = sum(1 for w in workspaces if w["state"] == "assessed")
     return {"schema": "kratosforge/excellence-capacity-score@1", "capacity": {"id": capacity_id},

@@ -74,6 +74,14 @@ def _when(text: Any) -> dt.datetime | None:
     return t if t.tzinfo is not None else None
 
 
+def _at(text: Any) -> dt.datetime:
+    """The time of a snapshot already checked by ``problems``, which refuses one without a valid time."""
+    t = _when(text)
+    if t is None:
+        raise ValueError(f"not a time with a zone: {text!r}")
+    return t
+
+
 def _block_problems(block: Any, where: str) -> list[str]:
     if not isinstance(block, dict):
         return [f"{where} isn't an object"]
@@ -142,7 +150,7 @@ def _checked(snapshots: Any) -> list[dict[str, Any]]:
     bad = [f"snapshot {i}: {p}" for i, s in enumerate(snapshots) for p in problems(s)]
     if bad:
         raise ValueError("; ".join(bad))
-    ordered = sorted(snapshots, key=lambda s: _when(s["assessed_at"]))
+    ordered = sorted(snapshots, key=lambda s: _at(s["assessed_at"]))
     for a, b in pairwise(ordered):
         if _when(a["assessed_at"]) == _when(b["assessed_at"]):
             raise ValueError(f"two snapshots are both at {b['assessed_at']}; can't tell which came first")
@@ -222,8 +230,8 @@ def _step(prev: dict[str, Any], cur: dict[str, Any], last: dict[tuple[str, str],
         elif (pv in DECIDED) != (cv in DECIDED):
             coverage_changes += 1
         kind = _classify(pv, cv, last.get(key))
-        if kind:
-            ref = co or po
+        ref = co if co is not None else po
+        if kind and ref is not None:
             transitions.append({
                 "kind": kind, "control_id": key[0], "subject": _subject(ref), "from": pv, "to": cv,
                 "last_decided": last.get(key), "dimension": ref.get("dimension"), "severity": ref.get("severity"),

@@ -277,6 +277,16 @@ an object (a field written as plain text, say) is now refused by path, where the
 to leave it out without saying so. The check goes only as deep as the parts it knows, so a deeply
 nested value elsewhere costs nothing.
 
+A file that isn't one object at all (a list, a number, plain text or an empty file) is refused the
+same way, with "This isn't an Ossie semantic model: it should be one object with version, name and
+datasets", by every entry point: reading, conversion, Ossie to TMDL, the Semantic View and structural
+parity. The TMDL reader refuses files that aren't path -> text.
+
+Conversion also keeps the schema check's depth limit: an Ossie file, or a `model.bim`, nested more
+than 64 levels deep is refused with a plain message that names the limit, before the converter
+reads it. That applies to Import, Export, the round-trip check, Ossie file to TMDL, writing TMDL from
+a model and the Semantic View's reading of an Ossie file. A real model nests about ten levels.
+
 ## Schema validation
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the

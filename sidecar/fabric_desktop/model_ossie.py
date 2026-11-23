@@ -24,7 +24,7 @@ from typing import Any, Literal
 import sqlglot
 from sqlglot import exp
 
-from . import sql_dialects
+from . import sql_dialects, tmdl
 
 # PyYAML is needed only here and in the vendored converter. Both load on first use, not at engine start (they add
 # about 25 ms to every start, and service.py imports this module on every start). Without PyYAML (an engine installed
@@ -121,6 +121,10 @@ _LOCK = threading.Lock()
 CONVERTER_WARNINGS = "ossie_microsoft"
 # A large real model is a few MB of YAML; this keeps a mistaken pick (a data file) from filling memory.
 MAX_CHARS = 20_000_000
+# Levels of nesting a document may have, as the schema check (ossie_validate) allows: deeper is refused before the
+# converter recurses into it.
+MAX_DEPTH = tmdl.MAX_DEPTH
+NOT_A_MODEL = "This isn't an Ossie semantic model: it should be one object with version, name and datasets"
 
 
 def unavailable() -> str:
@@ -161,10 +165,10 @@ def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, st
 
 def load_text(text: str) -> Any:
     """Untrusted YAML or JSON text as plain values: at most MAX_CHARS, a SafeLoader that also refuses aliases,
-    and no nesting deeper than Python's recursion limit. Refuses with a plain reason (ValueError or TypeError)."""
+    and no nesting deeper than Python's recursion limit. Refuses with a plain reason (ValueError)."""
     require()
     if not isinstance(text, str):
-        raise TypeError("An Ossie file is text (YAML or JSON)")
+        raise ValueError("An Ossie file is text (YAML or JSON)")
     if len(text) > MAX_CHARS:
         raise ValueError(f"This file is {len(text) // 1_000_000} MB; an Ossie model is at most {MAX_CHARS // 1_000_000} MB")
     try:
@@ -184,8 +188,7 @@ def parse(text: str) -> dict[str, Any]:
     from . import ossie_profiles
 
     doc = load_text(text)
-    if not isinstance(doc, dict):
-        raise TypeError("This isn't an Ossie semantic model: it should be one object with version, name and datasets")
+    _refuse_root(doc)
     profile = ossie_profiles.detect_profile(doc)  # UnknownProfile, a ValueError naming the version
     if ossie_profiles.PROFILES[profile]["root"] == "flat" and (
             not doc.get("name") or not isinstance(doc.get("datasets"), list) or not doc["datasets"]):
@@ -196,6 +199,8 @@ def parse(text: str) -> dict[str, Any]:
 def model_name(doc: dict[str, Any]) -> str:
     """The model's name: at the top of a flat file, or in Snowflake's 0.1.1 wrapper ``semantic_model[0].name``
     (a list) or ``semantic_model.name`` (one object). "" when there is none."""
+    if not isinstance(doc, dict):
+        return ""
     wrapper = doc.get("semantic_model")
     inner = wrapper[0] if isinstance(wrapper, list) and wrapper else wrapper
     name = doc.get("name") if "name" in doc else inner.get("name") if isinstance(inner, dict) else None
@@ -227,6 +232,9 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
     path before conversion (``_refuse_shape``)."""
     require()
     _refuse_shape(bim, _BIM_SHAPE, "export")
+    if tmdl.too_deep(bim):
+        raise ValueError("This model couldn't be converted to Ossie, because part of it is nested too deeply to read "
+                         f"(more than {MAX_DEPTH} levels). Flatten that part (often an annotation value), then try again.")
     try:
         text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
     except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a number for tables)
@@ -309,21 +317,41 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
     return doc
 
 
+def _refuse_root(doc: Any) -> None:
+    """Refuse (ValueError) a document that isn't one object: a list, text, a number, or nothing (an empty file)."""
+    if not isinstance(doc, dict):
+        raise ValueError(NOT_A_MODEL)
+
+
+def refuse_depth(doc: Any) -> None:
+    """Refuse (ValueError) an Ossie document nested more than ``MAX_DEPTH`` levels deep, as the schema check does,
+    before a converter recurses into it."""
+    if tmdl.too_deep(doc):
+        raise ValueError(f"The Ossie file couldn't be converted, because it is nested too deeply (more than {MAX_DEPTH} "
+                         "levels). Take out the extra nesting, then try again.")
+
+
 def _parsed(text: str | dict[str, Any]) -> dict[str, Any]:
-    """``text`` parsed, or as it is when the caller already has it from ``parse`` (so a file is read once)."""
-    return text if isinstance(text, dict) else parse(text)
+    """``text`` parsed, or as it is when the caller already has it from ``parse`` (so a file is read once); a
+    document that isn't one object is refused (ValueError) either way."""
+    if isinstance(text, str):
+        return parse(text)
+    _refuse_root(text)
+    return text
 
 
 def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """An Ossie document (its text, or what ``parse`` made of it) as a parsed ``model.bim``, and the report.
     ``source`` is the lakehouse new Direct Lake tables read: ``{"workspaceId": ..., "itemId": ...}``. A part of
-    the wrong type is refused by path before conversion (``_refuse_shape``)."""
+    the wrong type is refused by path before conversion (``_refuse_shape``), and so is a document that isn't one
+    object or nests more than ``MAX_DEPTH`` levels deep."""
     lifted: list[dict[str, str]] = []
     parsed = _parsed(text)
     refusal = not_convertible(parsed)
     if refusal:  # never fed to the 0.2 converter as if it were 0.2
         raise ValueError(refusal)
     _refuse_shape(parsed, _OSSIE_SHAPE, "ossie")
+    refuse_depth(parsed)  # after the shape check, which names a wrong type by path however deep it nests
     try:
         doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
         bim, report = _convert(convert_ossie_to_semantic_model, yaml.safe_dump(doc, sort_keys=False), source=source)
@@ -1432,6 +1460,8 @@ def fidelity(source: dict[str, Any], destination: dict[str, Any], rows: list[dic
     Security roles and calculation groups are flagged, and a role that doesn't come through is a security warning
     at the top of ``warnings``."""
     objs = _Objects()
+    if not isinstance(source, dict) or not isinstance(destination, dict):
+        raise ValueError("fidelity compares a model.bim with the Ossie document converted from it, or the other way round")
     if isinstance(source.get("model"), dict) and isinstance(destination.get("datasets"), list):
         to_ossie = True
         _tmsl_to_ossie(source, destination, objs)

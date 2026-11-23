@@ -22,6 +22,22 @@ from pathlib import PurePosixPath
 from typing import Any
 
 MAX_CHARS = 20_000_000
+# Levels of nesting a model may have: a model.bim nests about ten (a culture's translations), an Ossie file about
+# eight. Deeper is refused before a converter or a writer recurses into it (model_ossie and the schema check use it).
+MAX_DEPTH = 64
+
+
+def too_deep(value: Any) -> bool:
+    """Whether ``value`` nests objects and lists more than ``MAX_DEPTH`` levels deep (the top is level 0), found
+    without recursion, so a value nested past Python's stack is answered too."""
+    todo: list[tuple[Any, int]] = [(value, 0)]
+    while todo:
+        item, depth = todo.pop()
+        if depth > MAX_DEPTH:
+            return True
+        children = item.values() if isinstance(item, dict) else item if isinstance(item, list) else ()
+        todo.extend((c, depth + 1) for c in children if isinstance(c, (dict, list)))
+    return False
 
 # Object keyword: (collection in the parent, property the "= ..." default goes in).
 OBJECTS: dict[str, tuple[str, str | None]] = {
@@ -384,6 +400,8 @@ def to_bim(files: dict[str, str], name: str = "") -> tuple[dict[str, Any], list[
     ``model.bim`` document, with the report of anything left out. ``name`` is the model's name
     (TMDL calls every model "Model"; the folder or item name is the real one). A row about something in one
     file names it in ``file`` (its path as given), so a caller rewriting that file can say what it loses."""
+    if not isinstance(files, dict) or not all(isinstance(p, str) and isinstance(t, str) for p, t in files.items()):
+        raise ValueError("A model's TMDL is a folder of files: give them as path -> text")
     if sum(len(t) for t in files.values()) > MAX_CHARS:
         raise ValueError("The model's TMDL is larger than 20 MB, so it isn't read on this PC.")
     report: list[dict[str, str]] = []
@@ -786,7 +804,10 @@ def file_name(name: str, taken: set[str]) -> str:
 
 
 def from_bim(bim: dict[str, Any], culture_refs: list[str] | None = None) -> tuple[dict[str, str], list[dict[str, str]]]:
-    """See ``_from_bim``; a model nested deeper than Python's stack is refused with a plain reason."""
+    """See ``_from_bim``; a model nested more than ``MAX_DEPTH`` levels deep is refused with a plain reason."""
+    if too_deep(bim):
+        raise ValueError(f"This model is nested too deeply to be a semantic model (more than {MAX_DEPTH} levels). "
+                         "Take out the extra nesting, then try again.")
     try:
         return _from_bim(bim, culture_refs)
     except RecursionError:

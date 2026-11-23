@@ -8,7 +8,7 @@ import re
 import pytest
 import yaml
 
-from fabric_desktop import model_ossie
+from fabric_desktop import model_ossie, ossie_validate, semantic_parity, semantic_view, tmdl
 from tests.test_model_ossie import _bim, _ossie
 
 pytestmark = pytest.mark.skipif(bool(model_ossie.unavailable()), reason="the Ossie converter can't run here")
@@ -190,3 +190,101 @@ def test_deeply_nested_wrong_types_are_refused_before_conversion():
     _refused(lambda: model_ossie.to_tmsl(doc), f"{DS}.fields[0]")
     bim = _set(_bim(), ("model", "tables"), _deep(100_000, [], lambda v: [v]))
     _refused(lambda: model_ossie.export(bim), "$.model.tables[0]")
+
+
+# ---- a root that isn't one object, and nesting past the schema check's limit
+
+ROOTS = [pytest.param("- version: 0.2.0.dev0\n", id="list"), pytest.param("", id="empty"),
+         pytest.param("\n# nothing\n", id="comment-only"), pytest.param("2024\n", id="number"),
+         pytest.param("just text\n", id="text"), pytest.param("null\n", id="null")]
+
+
+@pytest.mark.parametrize("text", ROOTS)
+def test_a_root_that_isnt_one_object_is_a_plain_value_error(text):
+    for fn in (model_ossie.parse, model_ossie.to_tmsl, model_ossie.ossie_to_tmdl, model_ossie.stashed,
+               lambda t: semantic_view.semantic_view(t, view_name="v")):
+        with pytest.raises(ValueError, match="^" + re.escape(model_ossie.NOT_A_MODEL) + "$"):
+            fn(text)
+
+
+@pytest.mark.parametrize("root", [None, [], [{"name": "x"}], "x", 5, 1.5, True], ids=repr)
+def test_every_public_entry_point_refuses_a_root_of_the_wrong_type_with_a_value_error(root):
+    calls = {
+        "to_tmsl": lambda: model_ossie.to_tmsl(root), "stashed": lambda: model_ossie.stashed(root),
+        "export": lambda: model_ossie.export(root), "round_trip": lambda: model_ossie.round_trip(root),
+        "merge current": lambda: model_ossie.merge(root, _bim()), "merge incoming": lambda: model_ossie.merge(_bim(), root),
+        "plan": lambda: model_ossie.plan(_bim(), root), "removable": lambda: model_ossie.removable(_bim(), root),
+        "fidelity": lambda: model_ossie.fidelity(root, _bim()), "tmdl_to_ossie": lambda: model_ossie.tmdl_to_ossie(root, "m"),
+        "to_bim": lambda: tmdl.to_bim(root), "from_bim": lambda: tmdl.from_bim(root),
+        "semantic_view": lambda: semantic_view.semantic_view(root, view_name="v"),
+    }
+    for name, call in calls.items():
+        try:
+            call()
+        except ValueError:
+            continue
+        except Exception as exc:  # noqa: BLE001  # narrow: any other exception is the failure this test names
+            pytest.fail(f"{name}: {type(exc).__name__}: {exc}")
+    assert model_ossie.model_name(root) == ""
+    assert model_ossie.safe_fidelity(root, _bim())["status"] == "unverified"
+    report = semantic_parity.parity_l1(root, _bim())
+    assert report["summary"] == semantic_parity.TEST_FAILED and "TypeError" not in report["error"]
+
+
+def test_tmdl_files_of_the_wrong_type_are_a_value_error():
+    for files in ({"definition/model.tmdl": 5}, {5: "model Model"}, "model Model"):
+        with pytest.raises(ValueError, match="path -> text"):
+            tmdl.to_bim(files)
+
+
+def test_conversion_and_the_schema_check_share_one_depth_limit():
+    assert model_ossie.MAX_DEPTH == ossie_validate.MAX_DEPTH == tmdl.MAX_DEPTH == 64
+
+
+@pytest.mark.parametrize("levels", [model_ossie.MAX_DEPTH - 1, model_ossie.MAX_DEPTH, model_ossie.MAX_DEPTH + 1,
+                                    100_000])
+def test_conversion_refuses_nesting_exactly_where_the_schema_check_does(levels):
+    doc = _doc()
+    doc["ai_context"] = _deep(levels - 1, [], lambda v: [v])  # the list itself is one level under the root
+    too_deep = any(d["rule"] == "depth" for d in ossie_validate.validate(doc)["diagnostics"])
+    assert too_deep == (levels > model_ossie.MAX_DEPTH)
+    if not too_deep:
+        model_ossie.to_tmsl(doc)
+        return
+    says = rf"nested too deeply \(more than {model_ossie.MAX_DEPTH} levels\)"
+    for call in (lambda: model_ossie.to_tmsl(doc), lambda: model_ossie.ossie_to_tmdl(doc),
+                 lambda: semantic_view.semantic_view(doc, view_name="v")):
+        with pytest.raises(ValueError, match=says):
+            call()
+    if levels < 900:  # YAML text deeper than this stops PyYAML first ("nested too deeply" all the same)
+        text = yaml.safe_dump(doc)
+        for call in (lambda: model_ossie.to_tmsl(text), lambda: model_ossie.ossie_to_tmdl(text)):
+            with pytest.raises(ValueError, match=says):
+                call()
+    assert "nested too deeply" in semantic_parity.parity_l1(doc, doc)["error"]
+
+
+@pytest.mark.parametrize("levels", [model_ossie.MAX_DEPTH, model_ossie.MAX_DEPTH + 1, 100_000])
+def test_a_model_bim_nested_past_the_limit_is_refused_by_export_and_tmdl(levels):
+    bim = _bim()
+    # model (1), tables (2), the table (3), columns (4), the column (5), extendedProperties (6), its item (7), the
+    # value (8) and the lists inside it, the last at level `levels`
+    bim["model"]["tables"][0]["columns"][0]["extendedProperties"] = [
+        {"name": "deep", "type": "json", "value": _deep(levels - 8, [], lambda v: [v])}]
+    if levels <= model_ossie.MAX_DEPTH:
+        assert model_ossie.export(bim, translate_dax=False)["yaml"]
+        assert tmdl.from_bim(bim)[0]
+        return
+    with pytest.raises(ValueError, match=rf"nested too deeply to read \(more than {model_ossie.MAX_DEPTH} levels\)"):
+        model_ossie.export(bim)
+    with pytest.raises(ValueError, match=rf"nested too deeply to be a semantic model \(more than {model_ossie.MAX_DEPTH}"):
+        tmdl.from_bim(bim)
+    check = model_ossie.round_trip_check(bim)
+    assert check["ran"] is False and "nested too deeply" in check["error"]
+
+
+def test_a_real_model_with_cultures_and_annotations_is_well_inside_the_limit():
+    bim = _bim()
+    bim["model"]["cultures"] = [{"name": "de-DE", "translations": {"model": {"name": "Model", "tables": [
+        {"name": "fact_sales", "columns": [{"name": "amount", "translatedCaption": "Betrag"}]}]}}}]
+    assert not tmdl.too_deep(bim) and not tmdl.too_deep(yaml.safe_load(model_ossie.export(bim)["yaml"]))

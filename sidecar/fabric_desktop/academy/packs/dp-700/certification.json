@@ -569,7 +569,8 @@
               "fabric_required": true,
               "best_local": "local_verified",
               "exercises": [
-                "E26"
+                "E26",
+                "E93"
               ],
               "capstones": [
                 "C2"
@@ -675,15 +676,17 @@
               "text": "Implement mirroring",
               "competency": "Set up mirroring and know what it replicates and how to query it.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E30"
+                "E30",
+                "E94"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
                 "assessment",
+                "config_matches",
                 "fabric_check"
               ],
               "docs": [
@@ -886,7 +889,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E41"
+                "E41",
+                "E95"
               ],
               "capstones": [],
               "lessons": [],
@@ -937,16 +941,18 @@
               "text": "Process data by using KQL",
               "competency": "Process streaming data with KQL.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E34"
+                "E34",
+                "E96"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
                 "assessment",
-                "fabric_check"
+                "fabric_check",
+                "result_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/real-time-intelligence/kusto-query-set",

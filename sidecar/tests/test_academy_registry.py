@@ -80,7 +80,7 @@ def test_no_objective_is_left_out_and_fabric_ones_say_why(dp700):
 def test_coverage_matches_the_plan(dp700):
     cov = registry.coverage(dp700)
     assert cov["objectives"] == cov["with_exercises"] == 49
-    assert cov["best_local"] == {"local_verified": 21, "simulated": 25, "knowledge_only": 3}
+    assert cov["best_local"] == {"local_verified": 21, "simulated": 27, "knowledge_only": 1}
     assert cov["fabric_required"] == 36
     assert cov["gaps"] == 11
 

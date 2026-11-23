@@ -1,0 +1,155 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "parity": null,
+  "id": "E93",
+  "title": "Broken: a Bronze to Silver stream that shares a checkpoint and stops after a cleanup",
+  "objectives": [
+    "2.1.3"
+  ],
+  "mode": "troubleshoot",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Fix a two-hop streaming load, landing files to Bronze and Bronze to Silver, so that each stream keeps its own checkpoint, the Silver stream survives deletes in Bronze, and Silver never holds what the cleanup removes.",
+  "scenario": "Order files land in Files/landing/orders. One notebook streams them into bronze.orders, streams bronze.orders into silver.orders for reports, and then deletes test orders from Bronze. Someone pointed both streams at the same checkpoint folder, and the Silver step fails on the very first run. The team also expects trouble the next morning, because the cleanup rewrites Bronze after the Silver stream has read it.",
+  "datasets": [
+    {
+      "name": "Files/landing/orders",
+      "rows": 6,
+      "size": "small",
+      "seeded": "two fixed JSON Lines files, two of the six orders from the test customer"
+    }
+  ],
+  "files": [
+    "orders-2026-11-01.json",
+    "orders-2026-11-02.json"
+  ],
+  "files_folder": "landing/orders",
+  "starting_environment": "Two JSON Lines files in Files/landing/orders, empty bronze and silver schemas, and the failing notebook as answer.py.",
+  "fault": {
+    "summary": "Two streaming queries share one checkpoint folder, and the second reads a Delta table that a later step deletes rows from, so its next run meets a commit that isn't an append.",
+    "planted": [
+      {
+        "where": "answer.py, step 2",
+        "what": "the Silver stream uses Files/checkpoints/orders, the checkpoint the Bronze stream already wrote"
+      },
+      {
+        "where": "answer.py, steps 2 and 3",
+        "what": "the Silver stream reads bronze.orders with no option for change commits, and step 3 deletes rows from bronze.orders after it"
+      },
+      {
+        "where": "answer.py, step 2",
+        "what": "Silver relies on the Bronze cleanup to remove test orders, but it reads Bronze before the cleanup runs"
+      }
+    ],
+    "symptom": "The first run stops at the Silver step, saying the checkpoint at Files/checkpoints/orders belongs to another source. Once each stream has its own checkpoint, the first run works but Silver holds the test orders, and the second run stops because bronze.orders had rows deleted."
+  },
+  "required": [
+    "Each streaming query has its own checkpoint folder, kept the same from run to run.",
+    "bronze.orders holds the four real orders once, after the cleanup.",
+    "silver.orders holds the four real orders once and never a test order.",
+    "A second run works and leaves both tables as they were. Keep the cleanup step, and keep it last."
+  ],
+  "expected": {
+    "description": "bronze.orders and silver.orders both hold orders 1, 3, 4 and 6, once each."
+  },
+  "verifies": [
+    "After your notebook runs, bronze.orders and silver.orders hold the four real orders once each, with the right types, on this PC.",
+    "A second run of your notebook succeeds after the cleanup's deletes and leaves both tables as they were."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in Fabric. Every stream here runs as availableNow, taking what has arrived and stopping. The error for a shared checkpoint is this lab's own wording, not Spark's.",
+    "New files arriving between runs. The files are fixed, so the second run finds nothing new in the landing folder.",
+    "Where the cleanup runs. Moving it before the Silver stream also passes here, because the files are fixed, but a test order that lands tomorrow would bring the same failure back. Keep it last, as the scenario says.",
+    "That Bronze keeps raw rows. Filtering test orders out in the Bronze stream instead of deleting them also passes here."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "silver.orders",
+      "weight": 2,
+      "required": true,
+      "data": "practice",
+      "pass": "silver.orders holds the four real orders.",
+      "fail": "silver.orders doesn't hold the four real orders. Look for test orders, and for orders that are missing or there twice."
+    },
+    {
+      "kind": "result_matches",
+      "table": "bronze.orders",
+      "weight": 1,
+      "required": true,
+      "data": "practice",
+      "pass": "bronze.orders holds the real orders after the cleanup.",
+      "fail": "bronze.orders doesn't hold the four real orders after the cleanup."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver.orders",
+      "weight": 1,
+      "required": true,
+      "columns": {
+        "order_id": "INT",
+        "customer": "VARCHAR",
+        "amount": "DOUBLE"
+      },
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "order_id",
+        "amount"
+      ],
+      "pass": "silver.orders has one row per order, with the right types.",
+      "fail": "silver.orders has a repeated order, an empty value or a changed type. See the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "silver.orders",
+      "weight": 2,
+      "required": true,
+      "pass": "A second run worked and left silver.orders as it was.",
+      "fail": "A second run failed or changed silver.orders. Read the error, and look at what the Silver stream does with the cleanup's commit."
+    },
+    {
+      "kind": "idempotent",
+      "table": "bronze.orders",
+      "weight": 1,
+      "required": true,
+      "pass": "Another run left bronze.orders as it was.",
+      "fail": "Another run changed bronze.orders. The Bronze stream must remember the files it took."
+    }
+  ],
+  "hints": [
+    "Read the first error. A checkpoint records one query's progress against one source. How many queries does this notebook start?",
+    "Give each query its own checkpoint folder, and keep its name the same on every run.",
+    "Run it twice. A Delta source only accepts appends by default. Which option tells the stream to pass over commits that delete or change rows?",
+    "skipChangeCommits passes over the delete, so it never reaches Silver. Silver has to drop the test orders itself."
+  ],
+  "explanation": "A checkpoint holds one streaming query's progress, meaning which files or table versions it has taken. Each query needs its own checkpoint location, and two queries must never share one. Here the Silver query found the Bronze query's progress in the folder and stopped. A stream that reads a Delta table accepts only appends by default, and fails when a commit updates or deletes rows. The cleanup deletes test orders from Bronze after the Silver stream has read it, so the next run meets that delete commit and stops. The option skipChangeCommits tells the stream to pass over commits that delete or modify rows and to process only appends. It doesn't carry the change downstream, so Silver has to apply the same rule itself, here by filtering out the test customer. ignoreDeletes isn't enough: it only covers deletes of whole partitions. A new checkpoint on every run, or a batch read appended to Silver, makes the error go away but loads the same orders again.",
+  "troubleshooting": [
+    "The checkpoint belongs to another source. Two queries share one checkpointLocation. Give the Silver stream its own folder.",
+    "The second run stops because bronze.orders had rows deleted. Add .option(\"skipChangeCommits\", \"true\") to the Silver stream's readStream.",
+    "ignoreDeletes didn't help. It covers only deletes at partition boundaries. Use skipChangeCommits.",
+    "Silver holds the test orders. The delete in Bronze never reaches Silver. Filter them out in the Silver stream.",
+    "Silver doubles on the second run. Its checkpoint changes on each run, or it reads Bronze as a batch and appends it."
+  ],
+  "remediation": [
+    "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/checkpoints",
+    "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/delta-lake",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data"
+  ],
+  "reset": "Reset removes bronze.orders, silver.orders and the checkpoints, and puts the failing notebook back.",
+  "review_notes": [
+    "Checked on Learn 2026-11-23. azure/databricks/structured-streaming/checkpoints: each query must have a different checkpoint location, and multiple queries should never share one. Deleting a checkpoint or changing to a new location makes the next run begin fresh.",
+    "Checked on Learn 2026-11-23. azure/databricks/structured-streaming/delta-lake: Structured Streaming only accepts appends from a Delta source and throws an exception when an UPDATE, DELETE, MERGE INTO or OVERWRITE modifies it. skipChangeCommits ignores transactions that delete or modify existing records and processes only appends. It doesn't propagate changes, so separate logic must carry them downstream. ignoreDeletes is a legacy option that only handles deletes at partition boundaries. A new stream on a Delta table starts with a snapshot of the table as it is.",
+    "These facts are on the Azure Databricks pages of Learn, which describe Delta Lake and Spark Structured Streaming. Fabric's lakehouse-streaming-data page shows checkpointLocation in its examples but doesn't cover these options. The lab's stream shim (pyspark_stream.py) follows the same rules: a shared checkpoint is refused, a delete commit stops a Delta source unless skipChangeCommits is set, and ignoreDeletes doesn't skip it.",
+    "No hidden data: the files are the same on every run, so the checks are practice data, types and rerun safety."
+  ]
+}

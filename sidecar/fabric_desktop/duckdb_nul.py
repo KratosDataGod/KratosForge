@@ -22,7 +22,7 @@ from typing import Any
 
 import duckdb
 
-REFUSAL = ("The SQL was not run because it holds a NUL character (U+0000) outside a quoted string, and "
+REFUSAL = ("The SQL wasn't run, because it holds a NUL character (U+0000) outside a quoted string, and "
            "DuckDB on this PC reads a query only up to that character. Remove the character, or write it "
            "in a string as CHR(0).")
 

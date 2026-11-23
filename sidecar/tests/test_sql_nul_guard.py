@@ -65,7 +65,7 @@ def test_a_nul_anywhere_else_is_refused_by_name(text):
 
 
 def test_the_refusal_says_what_why_and_what_next():
-    assert "not run because" in duckdb_nul.REFUSAL and "CHR(0)" in duckdb_nul.REFUSAL
+    assert "wasn't run, because" in duckdb_nul.REFUSAL and "CHR(0)" in duckdb_nul.REFUSAL
 
 
 def test_text_without_a_nul_is_passed_on_as_it_is():

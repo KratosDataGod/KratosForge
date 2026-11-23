@@ -10,6 +10,7 @@
 const DBG_WATCH_SECONDS = 2;   // a watch slower than this is paused
 const DBG_HISTORY = 50;        // runs kept in History
 const DBG_TRAIL = 4;           // earlier values shown under a watch
+const DBG_UNREAD = "This value couldn't be read in time, so it isn't shown.";  // the title on a "?" value
 
 // What a cell did to the kernel's variables. `before` and `after` are kernel_variables rows
 // ({name, type, size, value}); the value only decides whether a variable changed, it isn't kept.
@@ -587,7 +588,7 @@ function dbgPausedPanel(cell) {
     h("div", { class: "dbg-frame" },
       h("div", { class: "dbg-head" }, p.stack?.length > 1 ? `Variables in ${p.stack[p.stack.length - 1].function}` : "Variables"),
       p.variables?.length ? h("table", { class: "vars" }, h("tbody", {}, p.variables.map((r) => h("tr", {},
-        h("td", { class: "name" }, r.name), h("td", {}, r.type), h("td", {}, r.size), h("td", { class: "val" }, r.value)))))
+        h("td", { class: "name" }, r.name), h("td", {}, r.type), h("td", {}, r.size), h("td", r.value === "?" ? { class: "val", title: DBG_UNREAD } : { class: "val" }, r.value)))))
         : h("div", { class: "muted-text" }, "None yet."),
       dbgVariablesNote(p),
       p.watches?.length ? h("div", { class: "dbg-head" }, "Watches") : null,

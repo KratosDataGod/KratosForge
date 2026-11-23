@@ -12384,7 +12384,7 @@ Before the "after" run, the new tests passed in a copy of `sidecar/` on its own 
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `integrations/core.py` | test_integrations_core, test_integrations_core_edges, test_integrations_registry, test_integrations_registry_edges, test_integrations_registry_mutation, test_integrations_app, test_integrations_tool_guards (+ test_integrations_core_mutation) | 150 of 175 (142 + 8) | 126 / 24 | **84.0%** | 124/142 → 142/142 | 2/8 → 8/8 | 150 / 0 | **100%** | none |
+| `integrations/core.py` | test_integrations_core, test_integrations_core_edges, test_integrations_registry, test_integrations_registry_edges, test_integrations_registry_mutation, test_integrations_app, test_integrations_tool_guards (+ test_integrations_core_mutation_b) | 150 of 175 (142 + 8) | 126 / 24 | **84.0%** | 124/142 → 142/142 | 2/8 → 8/8 | 150 / 0 | **100%** | none |
 
 No bugs were found.
 
@@ -12399,7 +12399,7 @@ No bugs were found.
   - The message lists ten problems, and the details keep up to 50.
   - A call context gives up exactly at its deadline, not before, as a retryable timeout; so does a call run on its worker thread, which is a daemon thread.
   - Progress goes to the callback when there is one.
-  - → `test_integrations_core_mutation.py`.
+  - → `test_integrations_core_mutation_b.py`.
 
 ### Left
 

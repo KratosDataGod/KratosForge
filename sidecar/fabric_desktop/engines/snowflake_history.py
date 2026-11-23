@@ -73,10 +73,19 @@ def _when(value: Any) -> str:
     return when.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+_TAIL = 256  # longer than any credential redact.secrets looks for
+
+
 def _cut(text: Any, chars: int) -> tuple[str, bool]:
-    """``text`` with credentials removed, then cut to ``chars``, and whether it was cut."""
-    clean = redact.secrets(str(text or ""))
-    return (clean, False) if len(clean) <= chars else (clean[:chars], True)
+    """``text`` with credentials removed, then cut to ``chars``, and whether it was cut. When Snowflake
+    cut the text at ``_FETCH``, a credential may be split at its end, too short to be recognised, so the
+    last ``_TAIL`` characters are dropped first. Redaction then can't move part of one into what's shown."""
+    raw = str(text or "")
+    snowflake_cut = len(raw) >= _FETCH
+    if snowflake_cut:
+        raw = raw[:_FETCH - _TAIL]
+    clean = redact.secrets(raw)
+    return (clean, snowflake_cut) if len(clean) <= chars else (clean[:chars], True)
 
 
 def _row(r: dict[str, Any], chars: int) -> dict[str, Any]:

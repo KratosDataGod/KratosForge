@@ -263,3 +263,27 @@ def test_without_a_role_shows_run_as_the_default_role():
     fake = FakeSnowflake({"SHOW DATABASES": show(DBS)})
     browser(fake, CONN | {"role": ""}).databases()
     assert all("role" not in c["body"] for c in fake.calls if c["body"])
+
+
+def test_a_page_of_exactly_the_limit_has_no_next():
+    page = browser(FakeSnowflake({"SHOW DATABASES": show(DBS[:3])})).databases(limit=3)
+    assert [i["name"] for i in page["items"]] == DBS[:3] and page["next"] == ""
+    one_more = browser(FakeSnowflake({"SHOW DATABASES": show(DBS[:4])})).databases(limit=3)
+    assert one_more["next"] == "DB_002"
+
+
+def test_columns_ending_exactly_at_the_page_have_no_next():
+    b = browser(full_fake())
+    assert b.columns("SALES", "RAW", "orders", limit=4)["next"] is None  # the table has 4 columns
+    last = b.columns("SALES", "RAW", "orders", offset=1, limit=3)
+    assert len(last["items"]) == 3 and last["next"] is None
+    assert b.columns("SALES", "RAW", "orders", offset=0, limit=3)["next"] == 3
+
+
+def test_a_credential_shaped_name_is_removed_from_the_doesnt_exist_message():
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnopqrstuvwxyz123456"  # pragma: allowlist secret
+    fake = full_fake()
+    fake.replies |= {"SHOW DATABASES LIKE": names()}
+    with pytest.raises(sr.SnowflakeError) as err:
+        browser(fake).schemas(jwt)
+    assert jwt not in str(err.value) and "eyJ" not in str(err.value) and "[removed]" in str(err.value)

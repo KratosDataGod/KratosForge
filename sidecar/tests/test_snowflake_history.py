@@ -146,6 +146,16 @@ def test_the_text_is_redacted_before_it_is_cut():
     assert "LEFT(query_text, 4000)" in fake.submitted()[0]["statement"]
 
 
+def test_a_credential_split_at_snowflakes_cut_never_shifts_into_the_shown_text():
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnopqrstuvwxyz123456 "  # pragma: allowlist secret
+    split = "AKIAABCDEF"  # the start of an access key, cut by Snowflake, too short to be recognised
+    text = (jwt * 40 + "x" * 4000)[:sh._FETCH - len(split)] + split  # what LEFT(query_text, 4000) gives
+    assert len(text) == sh._FETCH and len(sh.redact.secrets(text)) < sh.TEXT_MAX  # redaction would pull it in
+    fake = FakeSnowflake([[query("q-1", text=text)]])
+    shown = history(fake, text_chars=sh.TEXT_MAX)["queries"][0]
+    assert "AKIA" not in shown["text"] and "eyJ" not in shown["text"] and shown["text_cut"] is True
+
+
 def test_the_reading_query_is_left_out_and_later_partitions_are_read_up_to_the_limit():
     fake = FakeSnowflake([[query("01b2-0001"), query("q-1")], [query("q-2"), query("q-3")], [query("q-4")]])
     out = history(fake, limit=2)

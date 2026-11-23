@@ -242,7 +242,11 @@ def _datename(args: list[exp.Expression]) -> exp.Expression:
     part, value = seq_get(args, 0), seq_get(args, 1)
     if len(args) != 2 or part is None or value is None or part.name.upper() in _DATENAME_WORDS:
         return TSQL.Parser.FUNCTIONS["DATENAME"](args)
-    number = sqlglot.parse_one(f"DATEPART({part.name}, kf_datename)", read=KfTSQL)
+    name = part.name.upper()
+    if name not in _DATEPARTS:  # only a known date part's name is written into the DATEPART below, never other text
+        raise ValueError(f"DATENAME: '{part.name[:40]}' isn't a date part T-SQL knows, so nothing ran on this PC "
+                         "(T-SQL stops on it too). Write a part such as year, month, day, hour or minute.")
+    number = sqlglot.parse_one(f"DATEPART({name}, kf_datename)", read=KfTSQL)
     for spot in list(number.find_all(exp.Column)):
         if spot.name == "kf_datename":
             spot.replace(value)

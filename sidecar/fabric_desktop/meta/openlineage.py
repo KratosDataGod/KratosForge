@@ -273,11 +273,15 @@ def entity_event(project: Project, names: Names, entity: str, run: dict[str, Any
                                   "transformations": [{"type": t, "subtype": sub, "masking": False,
                                                        **({"description": safe_text(str(rec["expr"]))} if rec.get("expr") else {})}]})
         if in_fields:  # named as readers' events name it: a column named like a path or URL is cleaned the same way
-            fields.setdefault(_safe_column(str(col)), {"inputFields": []})["inputFields"] += in_fields
+            merged = fields.setdefault(_safe_column(str(col)), {"inputFields": []})["inputFields"]
+            # Two columns whose names clean to the same text share one entry, each input listed once.
+            merged += [f for f in in_fields if f not in merged]
+    schema: dict[str, dict[str, Any]] = {}
+    for c in cols:  # the first column under a cleaned name stands for it, as in columnLineage
+        schema.setdefault(_safe_column(str(c)), {"name": _safe_column(str(c)), **({"type": str(types[c])} if c in types else {})})
     out_ns, out_name = names.table(entity)
     output = {"namespace": out_ns, "name": out_name, "facets": {
-        "schema": _facet(SCHEMA_FACET, fields=[{"name": _safe_column(str(c)), **({"type": str(types[c])} if c in types else {})}
-                                             for c in cols]),
+        "schema": _facet(SCHEMA_FACET, fields=list(schema.values())),
         **({"columnLineage": _facet(COLUMN_FACET, fields=fields)} if fields else {}),
     }}
     return {

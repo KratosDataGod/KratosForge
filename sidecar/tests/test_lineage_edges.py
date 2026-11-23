@@ -258,14 +258,16 @@ def test_odd_names_come_through_lineage_impact_and_the_export_unchanged(tmp_path
         assert output["name"] == f"LH_Silver.{e.schema}.{e.table}"
         schema = [f["name"] for f in output["facets"]["schema"]["fields"]]
         assert schema[:len(ODD_COLUMNS)] == ODD_COLUMNS
-        assert schema[len(ODD_COLUMNS):len(ODD_COLUMNS) + 3] == list(CLEANED_COLUMNS.values())
+        # two that clean to one name are one schema field, so the facet never lists a name twice
+        assert schema[len(ODD_COLUMNS):len(ODD_COLUMNS) + 2] == list(dict.fromkeys(CLEANED_COLUMNS.values()))
+        assert len(schema) == len(set(schema))
         fields = output["facets"]["columnLineage"]["fields"]
         for col in ODD_COLUMNS:
             assert [f["field"] for f in fields[col]["inputFields"]] == [col]
         # a column named like a path or URL goes out cleaned on both sides of the edge, so they still meet
-        # (two that clean to one name share it)
+        # (two that clean to one name share it, and the input they share is listed once)
         assert [f["field"] for f in fields["https://example.com/col"]["inputFields"]] == ["https://example.com/col"]
-        assert [f["field"] for f in fields["<this PC>/data.csv"]["inputFields"]] == ["<this PC>/data.csv"] * 2
+        assert [f["field"] for f in fields["<this PC>/data.csv"]["inputFields"]] == ["<this PC>/data.csv"]
         inputs = {f["name"] for i in ev[name]["inputs"] for f in i["facets"]["schema"]["fields"]}
         assert set(ODD_COLUMNS) <= inputs and not set(CLEANED_COLUMNS) & inputs
     assert ev["bronze.raw"]["inputs"][0]["name"] == "landing/ünï cødé/*.csv"  # a relative path stays as it is

@@ -103,6 +103,8 @@ def entity_columns(project: Project, name: str) -> dict[str, dict[str, Any]]:
         elif col in adds:
             rec = {"how": "custom", "label": "opaque", "inputs": [], "note": "added by your Python (hooks adds)"}
         elif col in derives:
+            # A column derived more than once (x = a, then x = x + 1) is traced by its last derive, and its
+            # own name in that expression reads the column as it came in, not the earlier derive: known, kept.
             expr = derives[col].get("expr")
             used = _expr_columns(expr)
             rec = {"how": "derived", "label": "declared", "expr": expr,

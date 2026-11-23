@@ -12072,3 +12072,46 @@ No bugs were found.
 ### Left
 
 None.
+
+# Mutation testing, batch 347
+
+One module, and the first mutation run of it: no earlier batch scored it. Every mutant was run, not a sample of 150 (`--cap 100000 --seed 7 --kinds all`), so the score counts the boundary mutants together with the earlier kinds. The table shows both parts.
+- The notebook debugger: breakpoints, stepping, pausing a cell and evaluating expressions while it is paused (`debugger.py`).
+
+The run and the "after" run were both at `main` 293fb38da (2026-11-23), with `sidecar/tools/mutate.py` as it is since #2902. The module has 174 mutants, and the run ran all 174 of 174 (uncapped). Test files were given as paths relative to `sidecar/`, and each was checked to exist before the run. The set is test_debugger, test_debugger_hardening and test_debugger_robust, about 48 seconds together. A first try without test_debugger_robust was stopped part way and started again with it, because that file covers stepping; only the full run is scored. test_debugger_eval also calls the module, but it takes about 88 seconds on its own, so it was left out; the score counts only the files given.
+
+Each pytest session got a fresh temporary folder of its own, as in batch 331. After the run no folder in it was nested deeper than 40 levels. The run ends on survivors, not on a streak of kills, and its last kills took their usual time. Three kills, picked at random, were checked by hand: each mutant was applied to a copy of `sidecar/` and the set run without `-x`. Each failed a real test.
+
+Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11, on DuckDB 1.5.6 and 2.0.0. They passed both ways. The test that a pause after Stop ends at once runs the pause on a thread with a 5 second limit, so a mutant that keeps it waiting fails the test instead of hanging the run. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `debugger.py` | test_debugger, test_debugger_hardening, test_debugger_robust (+ test_debugger_mutation) | 174 of 174 (164 + 10), uncapped | 135 / 39 | **77.6%** | 129/164 → 158/164 | 6/10 → 8/10 | 166 / 8 | **95.4%** | 8 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **debugger.py**:
+  - A cell takes at most 100 breakpoints. A pause shows the first 200 variables and says how many more there are, keeps the latest 20 evaluations, and leaves out dunder names and the kernel's own names.
+  - An expression is at most 2000 characters, and the kernel waits 10 seconds for its answer. An evaluation re-raises when the cell is stopping.
+  - A command says what it resumed. A command when the cell isn't paused is refused with "The cell isn't paused.". Stop when not paused returns False and marks the cell stopping; when paused it returns True and resumes the cell to stop it; a pause after Stop ends at once.
+  - A plain frame never suspends, and a generator's frame does: at its return events a traced generator gives True, True, then False.
+  - A frame's module name is used only when it is non-empty text.
+  - A step that lands on a breakpoint line says "step".
+  - → `test_debugger_mutation.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `debugger.py` | 125 | `_line` returns None, not itself | Equivalent: CPython keeps a frame's local trace function when it returns None on a line event, so tracing goes on the same way (checked by experiment). |
+| `debugger.py` | 154 | `_stops` returns None, not False | Equivalent: its only caller tests it in an `if`, where None and False are both false. |
+| `debugger.py` | 135 | `_stops_on_return` returns None, not False | Equivalent: its only caller tests it in an `if`, where None and False are both false. |
+| `debugger.py` | 70 | the first `self.depth = 0` to 1 | Equivalent: every pause sets the depth before Step over and Step out read it, and Step and Continue never read it. |
+| `debugger.py` | 139 | `_depth` starts counting at 1, not 0 | Equivalent: every depth moves by the same one, and the pause's depth comes from `_depth` too, so the comparisons don't change. |
+| `debugger.py` | 269 | `0 <= frame.f_lasti` to `1 <=` | Equivalent: only the first instruction differs, and a code object never starts with a return instruction. |
+| `debugger.py` | 269 | `0 <= frame.f_lasti` to `0 <` | Equivalent: the same, at offset 0. |
+| `debugger.py` | 269 | `frame.f_lasti < len(code)` to `<=` | Equivalent: a frame's last instruction is always inside its code, so it never equals the length. |

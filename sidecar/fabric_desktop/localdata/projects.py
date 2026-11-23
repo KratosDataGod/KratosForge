@@ -14,16 +14,25 @@ when it opens, and any tables are gone. Nothing here needs a Fabric sign-in or c
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import re
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .discovery import Source
-from .. import jsonfile
+from .. import jsonfile, win_paths
+from ..redact import describe
+
+_log = logging.getLogger(__name__)
+
+# "id": "folder" in a projects.json, as far as a damaged one can still be read
+_INDEX_PAIR = re.compile(r'"([a-z0-9][a-z0-9-]*)"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
 SCHEMA = "local-project@1"
 STORAGE = ("persistent", "memory")
@@ -76,6 +85,13 @@ class Project:
 
     @property
     def temp_dir(self) -> Path:
+        """DuckDB's spill and dry-run copies: beside the database, unless the project is in OneDrive (made before
+        new projects were kept out of it); then in this PC's temp folder, so OneDrive isn't uploading them."""
+        from .. import known_folders
+        if known_folders.in_onedrive(self.root):
+            # named by the folder, not the id project.json gives, so an edited id can't point anywhere else
+            key = hashlib.sha256(os.path.normcase(os.path.abspath(self.root)).encode("utf-8")).hexdigest()[:16]
+            return Path(tempfile.gettempdir()) / "kratosforge-local" / key / "tmp"
         return self.root / "tmp"
 
     def source(self, path: str) -> Source | None:
@@ -86,6 +102,23 @@ class Project:
         return {"id": self.id, "name": self.name, "folder": self.folder, "storage": self.storage,
                 "settings": asdict(self.settings), "sources": [asdict(s) for s in self.sources],
                 "tables": len(self.catalog), "created_at": self.created_at}
+
+
+def _project(raw: Any, folder: str) -> Project:
+    """The project ``raw`` (project.json as parsed) describes; TypeError or ValueError when it isn't one."""
+    if not isinstance(raw, dict):
+        raise TypeError(f"it holds {type(raw).__name__}, not one JSON object")
+    for key, kind in (("id", str), ("name", str), ("storage", str), ("settings", dict), ("sources", list),
+                      ("overrides", dict), ("catalog", dict), ("refreshed", dict), ("created_at", str)):
+        if key in raw and not isinstance(raw[key], kind):
+            raise TypeError(f"{key} is {type(raw[key]).__name__}, not {kind.__name__}")
+    if not all(isinstance(s, dict) for s in raw.get("sources", [])):
+        raise TypeError("each of sources is one JSON object")
+    return Project(id=raw["id"], name=raw["name"], folder=folder, storage=raw.get("storage", "persistent"),
+                   settings=Settings(**raw.get("settings", {})),
+                   sources=[Source(**s) for s in raw.get("sources", [])],
+                   overrides=raw.get("overrides", {}), catalog=raw.get("catalog", {}),
+                   refreshed=raw.get("refreshed", {}), created_at=raw.get("created_at", ""))
 
 
 def _norm(path: str) -> str:
@@ -101,10 +134,62 @@ class ProjectStore:
 
     def _index(self) -> dict[str, str]:
         try:
-            index = jsonfile.read_json(self.index_file, {})
-            return index if isinstance(index, dict) else {}
-        except (OSError, ValueError):
+            index = json.loads(jsonfile.read_text(self.index_file))
+        except FileNotFoundError:
             return {}
+        except (ValueError, RecursionError):  # cut off by a power cut, NUL bytes, nested too deeply: rebuilt,
+            return self._rebuild_index()        # rather than every project dropped
+        except OSError:
+            return {}
+        if not isinstance(index, dict):  # parses, but isn't the list: rebuilt too, or the next save keeps one project
+            return self._rebuild_index()
+        # Only id -> folder entries: one of another type (a hand edit) is left off, not a crash for every
+        # project. The next save of the list leaves it out, so it is logged with its value here.
+        bad = {k: v for k, v in index.items() if not (isinstance(v, str) and v)}
+        if bad:
+            _log.warning("%s: left out entries that aren't a project folder: %s", self.index_file,
+                         ", ".join(f"{k!r}: {v!r}"[:200] for k, v in bad.items()))
+        return {k: v for k, v in index.items() if k not in bad}
+
+    def _rebuild_index(self) -> dict[str, str]:
+        """The list of projects when projects.json can't be read (a save cut off by a power cut, NUL bytes).
+        The damaged file is moved aside (jsonfile.set_aside), then each project is found again: those in
+        this folder from their own project.json, and those kept elsewhere from the folders the damaged list
+        still names, each only where a project.json with that id is there."""
+        try:
+            damaged = self.index_file.read_bytes().decode("utf-8", "replace")
+        except OSError:
+            damaged = ""
+        try:
+            aside: Path | None = jsonfile.set_aside(self.index_file,
+                                                    then="the projects were found again from their own files")
+        except OSError as exc:
+            _log.warning("%s could not be read or copied aside (%s).", self.index_file, exc)
+            aside = None
+        named: list[tuple[str | None, str]] = []
+        for key, text in _INDEX_PAIR.findall(damaged):
+            try:
+                named.append((key, json.loads(f'"{text}"')))
+            except ValueError:  # an escape cut in half
+                continue
+        folders: list[tuple[str | None, str]] = [(None, str(p.parent)) for p in sorted(self.root.glob("*/project.json"))]
+        folders += named
+        index: dict[str, str] = {}
+        for want, folder in folders:
+            try:
+                pid = json.loads(jsonfile.read_text(Path(folder) / "project.json"))["id"]
+            except (OSError, ValueError, KeyError, TypeError, RecursionError):
+                continue
+            if isinstance(pid, str) and pid not in index and want in (None, pid):
+                index[pid] = str(Path(folder).resolve())
+        try:
+            if index:  # none found: no list is written until a project is made, as for a new PC
+                self._save_index(index)
+        except OSError as exc:
+            _log.warning("The rebuilt list of local data projects couldn't be saved (%s).", exc)
+        _log.warning("The list of local data projects couldn't be read, so it was rebuilt from the projects' own "
+                     "files: %d found%s.", len(index), f"; the damaged list is kept as {aside.name}" if aside else "")
+        return index
 
     def _save_index(self, index: dict[str, str]) -> None:
         jsonfile.write_json(self.index_file, index)
@@ -114,20 +199,26 @@ class ProjectStore:
         for pid in sorted(self._index()):
             try:
                 projects.append(self.load(pid))
-            except (OSError, ValueError, KeyError):
-                continue  # a project folder that was deleted or moved: listed again once it's back
+            except (OSError, ValueError, KeyError) as exc:
+                # A project folder that was deleted or moved (listed again once it's back), or a project.json
+                # that can't be read (load names the file and why).
+                _log.warning("Local data project %s isn't listed: %s", pid, describe(exc))
+                continue
         return projects
 
     def load(self, pid: str) -> Project:
         folder = self._index().get(pid)
         if folder is None:
             raise KeyError(f"No local data project {pid!r}.")
-        raw = json.loads((Path(folder) / "project.json").read_text(encoding="utf-8"))
-        return Project(id=raw["id"], name=raw["name"], folder=folder, storage=raw.get("storage", "persistent"),
-                       settings=Settings(**raw.get("settings", {})),
-                       sources=[Source(**s) for s in raw.get("sources", [])],
-                       overrides=raw.get("overrides", {}), catalog=raw.get("catalog", {}),
-                       refreshed=raw.get("refreshed", {}), created_at=raw.get("created_at", ""))
+        path = Path(folder) / "project.json"
+        try:  # OSError (a folder that's gone or can't be opened) is raised as it is
+            return _project(json.loads(path.read_text(encoding="utf-8")), folder)
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exc:
+            # A torn write, a hand edit or another program's file: named, so the list skips it and logs why,
+            # and the file is left as it is for the person to fix (nothing here writes it back).
+            what = f"{exc.args[0]!r} is missing" if isinstance(exc, KeyError) and exc.args else (
+                "it is nested too deeply" if isinstance(exc, RecursionError) else str(exc))
+            raise ValueError(f"{path} isn't a local data project file that can be read: {what}") from None
 
     def save(self, project: Project) -> None:
         data = asdict(project)
@@ -149,10 +240,13 @@ class ProjectStore:
         while pid in index:
             pid, n = f"{base}-{n}", n + 1
         target = Path(folder).expanduser() if folder else self.root / pid
+        from .. import known_folders
+        if (refusal := known_folders.onedrive_refusal(target, "a local data project")):
+            raise ValueError(refusal)
         if (target / "project.json").exists():
             raise ValueError(f"{target} already holds a local data project. Open it instead.")
         target.mkdir(parents=True, exist_ok=True)
-        project = Project(id=pid, name=name, folder=str(target.resolve()), storage=storage,
+        project = Project(id=pid, name=name, folder=win_paths.keep_drive_letter(str(target), str(target.resolve())), storage=storage,
                           settings=Settings(**(settings or {})),
                           created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         self.save(project)

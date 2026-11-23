@@ -23,6 +23,11 @@ from urllib.parse import quote, urlsplit
 REMOVED = "[removed]"
 
 _SECRETS: list[tuple[re.Pattern[str], str]] = [
+    # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end
+    # line. First, so no rule that runs to the end of a line (a Cookie header, a quoted value) takes its
+    # BEGIN line and leaves the key's body behind.
+    (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),
+     REMOVED),
     # A JSON Web Token: what Entra ID access, refresh-able id and Fabric tokens look like.
     (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*"), REMOVED),
     (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}"), r"\1" + REMOVED),
@@ -79,10 +84,6 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}"), REMOVED),
     # An API Management subscription key (Ocp-Apim-Subscription-Key), as a header or name=value.
     (re.compile(r"(?i)(\b(?:ocp-apim-)?subscription[_-]?key\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1" + REMOVED),
-    # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end
-    # line. Before the quoted-value rules, so a key inside quotes is still found by its BEGIN line.
-    (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),
-     REMOVED),
     # A quoted secret value runs to its closing quote, spaces and all: JSON ("name": "value") and a
     # Python dict's repr ('name': 'value'). The names are the generic rule's, at the end. With a
     # closing quote the value runs to it, across lines; without one it stops at the end of its line,
@@ -121,11 +122,14 @@ _SHAREPOINT_SITE = re.compile(r"(?im)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|te
                               r"[^/\s\"'<>?#]+(?:(?: [^/\s\"'<>?#]+)+(?=[/\"'<>?#\r]|$))?")
 # a OneDrive web address names its owner: /personal/ann_contoso_com/
 _ONEDRIVE_PERSONAL = re.compile(r"(?i)(/personal/)[a-z0-9][a-z0-9_.\-]*")
-_ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:\r\n]+)")
+# A name runs to the next separator or quote, but an apostrophe followed by a letter or a digit is part
+# of it (O'Brien, ann'2, and o''brien as SQL text quotes it), where one before a space, a comma or the end closes a quoted path.
+_NAME_RUN = r"(?:[^\\/\"'<>\r\n]|'{1,2}(?=[^\W_]))+"
+_ONEDRIVE_ORG = re.compile(r"(OneDrive - )((?:[^\\/\"'<>:\r\n]|'{1,2}(?=[^\W_]))+)")
 _SLASH = r"(?:\\\\|\\|/)+"
 # Windows user names can hold spaces ("Ann Lee"), so a drive path's name runs to the next separator.
-_WIN_USER_PATH = re.compile(rf"(?i)([a-z]:{_SLASH}(?:users|documents and settings){_SLASH})([^\\/\"'<>\r\n]+)")
-_UNIX_USER_PATH = re.compile(r"(/home/|/Users/)([^\\/\s\"'<>]+)")
+_WIN_USER_PATH = re.compile(rf"(?i)([a-z]:{_SLASH}(?:users|documents and settings){_SLASH})({_NAME_RUN})")
+_UNIX_USER_PATH = re.compile(r"(/home/|/Users/)((?:[^\\/\s\"'<>]|'{1,2}(?=[^\W_]))+)")
 _GUID = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 
 

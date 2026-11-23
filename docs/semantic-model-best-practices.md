@@ -5,8 +5,11 @@ running [semantic-link-labs](https://github.com/microsoft/semantic-link-labs) in
 is MIT licensed. It needs Microsoft's semantic-link library, which runs only inside Fabric, so the check runs
 there and not on this PC.
 
-The engine is in place. The screens (a Best practices card on **Data mesh > Deploy > Semantic model**, and
-model rows in **Optimize > Opportunities**) come next, once the mockup is approved.
+**Data mesh > Deploy > Semantic model** has a **Best practices check** card (Preview). It shows the model's
+last findings, worst first, with a count per severity. **Show** picks a category, and **Errors and warnings only** (ticked at first) hides Info findings. While a check runs, the card says so and looks again
+every 30 seconds. When a check fails in Fabric, the card shows the error the notebook saved, with its
+traceback and pip's output. **Check in Fabric** runs the risk check first, then asks before it publishes or
+runs anything. A blocked result has only **Close**. Model rows in **Optimize > Opportunities** come later.
 
 ## What a check does
 
@@ -22,7 +25,8 @@ model rows in **Optimize > Opportunities**) come next, once the mockup is approv
    statistics, which some rules need. The model is read through its XMLA endpoint, so the capacity needs
    XMLA read, which is on by default.
 5. The notebook saves the findings to `LH_Meta/Files/_fabric_desktop/results/<request>.json`. The app reads
-   them back once the job finishes and keeps the last result for each model on this PC.
+   them back once the job finishes and keeps the last result for each model on this PC. Any workspace contributor can
+   write that file, so the app reads at most its first 8 MB and refuses a larger one.
 6. If the install or the check fails, the notebook saves the error to the same file instead, with its
    traceback and pip's output, then fails the run. Fabric doesn't return a Python notebook's cell output
    to the app, so this is how the app can say why a check failed without opening the run in Fabric.

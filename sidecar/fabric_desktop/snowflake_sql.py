@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import uuid
 import warnings
 from dataclasses import dataclass
 from typing import Any, cast
@@ -29,7 +30,7 @@ from sqlglot.errors import ParseError, SqlglotError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.11"
+RULES_VERSION = "2026.11.20"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -191,6 +192,34 @@ SFD_NUMBER = _n("SFD-008", "A JSON fraction counts as a decimal",
                 "Write JSON numbers meant as DOUBLE without an exponent check, or cast before testing.",
                 f"{_DOCS}/functions/is_decimal")
 
+def _scalar_kind(node: exp.Expression | None) -> str:
+    """The kind of a value written in the query (or cast to a type): text, number, null, or other."""
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        node = node.this
+    if isinstance(node, exp.Null):
+        return "null"
+    if isinstance(node, exp.Literal):
+        return "text" if node.is_string else "number"
+    if isinstance(node, (exp.Cast, exp.TryCast)) and _scalar_kind(node.this) in ("text", "number"):
+        if node.to.this in exp.DataType.TEXT_TYPES:
+            return "text"
+        if node.to.this in exp.DataType.NUMERIC_TYPES:
+            return "number"
+    return "other"
+
+
+def _mixed_array(node: object) -> bool:
+    """SFN-025: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
+    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one)."""
+    if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
+        values = list(node.expressions)
+    elif isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
+        values = [*node.this.expressions, node.args.get("expression")]
+    else:
+        return False
+    return {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}
+
+
 _ONLY_IN_SNOWFLAKE = "Runs only in Snowflake"
 
 
@@ -300,6 +329,30 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         return _refuse("SFN-020", "INSERT OVERWRITE", "Snowflake empties the table and inserts in one statement "
                        "inside the current transaction; DuckDB has no INSERT OVERWRITE, and a DELETE then INSERT "
                        "written here wouldn't be one statement.", f"{_DOCS}/sql/insert")
+    if isinstance(statement, exp.MultitableInserts):
+        return _refuse("SFN-026", f"INSERT {(statement.args.get('kind') or 'ALL').upper()}",
+                       "DuckDB has no multi-table INSERT, and separate INSERT statements written here wouldn't be "
+                       "one statement. Write one INSERT ... SELECT for each table, with a WHERE that picks the "
+                       "rows it takes.", f"{_DOCS}/sql/insert-multi-table")
+    if isinstance(statement, exp.Create) and any(
+            isinstance(p, exp.LikeProperty) for p in (statement.args.get("properties") or exp.Properties()).expressions):
+        return _refuse("SFN-027", "CREATE TABLE ... LIKE", "Snowflake copies the other table's column names, types, "
+                       "defaults and constraints, and the rewrite can't see that table's definition. Write the "
+                       "column definitions out in CREATE TABLE.", f"{_DOCS}/sql/create-table")
+    if isinstance(statement, exp.TruncateTable) and statement.args.get("exists"):
+        return _refuse("SFN-028", "TRUNCATE TABLE IF EXISTS", "DuckDB's TRUNCATE has no IF EXISTS, and the "
+                       "rewrite can't tell whether the table is there. Leave out IF EXISTS when you know the table is there.",
+                       f"{_DOCS}/sql/truncate-table")
+    if isinstance(statement, exp.Alter) and (statement.args.get("kind") or "").upper() == "TABLE":
+        actions = statement.args.get("actions") or []
+        if any(isinstance(a, exp.SwapTable) for a in actions):
+            return _refuse("SFN-029", "ALTER TABLE ... SWAP WITH", "DuckDB has no SWAP WITH. Rename the two "
+                           "tables one at a time with ALTER TABLE ... RENAME TO.", f"{_DOCS}/sql/alter-table")
+        if len(actions) > 1 or any(isinstance(a, exp.Drop) and len(a.args.get("tables") or []) > 1
+                                   for a in actions):
+            return _refuse("SFN-029", "ALTER TABLE with more than one column", "DuckDB's ALTER TABLE changes one "
+                           "column at a time, and separate statements written here wouldn't change the table in "
+                           "one step. Write one ALTER TABLE for each column.", f"{_DOCS}/sql/alter-table")
     if isinstance(statement, exp.Undrop):
         return _refuse("SFN-007", "UNDROP", "Restoring a dropped object uses Snowflake's Time Travel.")
     if isinstance(statement, (exp.Copy, exp.Put)):
@@ -309,7 +362,9 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
         return _refuse("SFN-009", "USE", "Warehouses, roles, databases and schemas are chosen in Snowflake; the "
                        "session on this PC has one database.")
     if isinstance(statement, (exp.Show, exp.Describe)):
-        return _refuse("SFN-009", "SHOW and DESCRIBE", "These list Snowflake's own objects.")
+        return _refuse("SFN-009", "SHOW and DESCRIBE", "These list Snowflake's own objects, in columns DuckDB's "
+                       "SHOW and DESCRIBE don't give. To see a table this session made, query "
+                       "information_schema.columns or information_schema.tables.")
     if isinstance(statement, exp.Alter) and (statement.args.get("kind") or "").upper() == "SESSION" \
             and _session_time_zone(statement) is None:
         return _refuse("SFN-022", "Session parameters", "Only ALTER SESSION SET TIMEZONE = '...' is rewritten "
@@ -355,6 +410,12 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                 isinstance(node, exp.DataType) and node.this == exp.DataType.Type.DECFLOAT):
             return _refuse("SFN-018", "DECFLOAT", "DuckDB has no decimal floating-point type to hold Snowflake's "
                            "DECFLOAT (38 significant digits with an exponent).", f"{_DOCS}/functions/to_decfloat")
+        if _mixed_array(node) and isinstance(node, exp.Func):
+            name = "ARRAY_CONSTRUCT" if isinstance(node, exp.Array) else _function_name(node)
+            return _refuse("SFN-025", f"{name}: text and numbers in one array",
+                           "A DuckDB list holds values of one type, so an array written with both text and numbers "
+                           "can't be made here. Cast them to one type (for example each value ::VARCHAR), or "
+                           "build the array from a column.", f"{_DOCS}/functions/array_construct")
         if isinstance(node, exp.MatchRecognize):
             return _refuse("SFN-019", "MATCH_RECOGNIZE", "DuckDB has no row pattern matching.",
                            f"{_DOCS}/constructs/match_recognize")
@@ -744,15 +805,6 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
     Arguments may be worked out more than once, which matters only when they aren't deterministic."""
     from .sql import _from_template
     for found in reversed(list(statement.find_all(exp.RegexpExtract))):
-        flags = found.args.get("parameters")
-        if isinstance(flags, exp.Literal) and "m" in flags.name:
-            # Snowflake's m is multi-line (^ and $ at each line); DuckDB's m option isn't, RE2's (?m) is
-            pattern = found.expression
-            found.set("expression", exp.Literal.string("(?m)" + pattern.name) if isinstance(pattern, exp.Literal)
-                      else exp.DPipe(this=exp.Literal.string("(?m)"), expression=pattern.copy()))
-            found.set("parameters", exp.Literal.string(flags.name.replace("m", "")) if flags.name.replace("m", "")
-                      else None)
-            flags = found.args.get("parameters")
         if found.args.get("occurrence") is not None and not (isinstance(found.args["occurrence"], exp.Literal)
                                                              and found.args["occurrence"].name == "1"):
             continue  # a later occurrence is read from REGEXP_EXTRACT_ALL, which is NULL past the last match
@@ -929,6 +981,105 @@ def _rewrite_statements(statement: exp.Expression) -> None:
                        "THEN CAST(json_array_length(CAST(CAST(fj_arg0 AS VARIANT) AS JSON)) AS BIGINT) END", [value])
 
 
+def _merge_set_names(statement: exp.Expression) -> None:
+    """SFX-027: UPDATE SET target.col = ... in a MERGE names the target's column, as Snowflake's own MERGE
+    examples write it; DuckDB takes only the bare column name there."""
+    if not isinstance(statement, exp.Merge) or not isinstance(statement.this, exp.Table):
+        return
+    target = {statement.this.name.upper(), statement.this.alias_or_name.upper()}
+    for when in (statement.args.get("whens") or exp.Whens()).expressions:
+        update = when.args.get("then") if isinstance(when, exp.When) else None
+        if not isinstance(update, exp.Update):
+            continue
+        for assignment in update.expressions:
+            column = assignment.this if isinstance(assignment, exp.EQ) else None
+            if isinstance(column, exp.Column) and column.table and column.table.upper() in target \
+                    and not column.args.get("db"):
+                column.set("table", None)
+
+
+# databricks_builtins_sql.IDENTITY_PREFIXES names it, so DuckDBSession.plan() makes these sequences before it
+# plans the CREATE TABLE, as for a Databricks identity column
+_IDENTITY_SEQUENCE = "__kf_identity_"
+_BIGINT_RANGE = "MINVALUE -9223372036854775808 MAXVALUE 9223372036854775807"
+
+
+def _whole(value: exp.Expression | None, default: int) -> int:
+    if value is None:
+        return default
+    negative = isinstance(value, exp.Neg)
+    number = value.this if negative else value
+    if not (isinstance(number, exp.Literal) and not number.is_string and number.name.isdigit()):
+        raise _Untranslatable(_refuse("SFX-000", "Not rewritten for DuckDB", "AUTOINCREMENT and IDENTITY are "
+                                      "rewritten only with whole numbers written for their start and step."))
+    whole = None if len(number.name) > 19 else (-int(number.name) if negative else int(number.name))
+    if whole is None or not -(2 ** 63) <= whole < 2 ** 63:
+        raise _Untranslatable(_refuse("SFX-000", "Not rewritten for DuckDB", "AUTOINCREMENT and IDENTITY are "
+                                      "rewritten only when their start and step fit in a BIGINT."))
+    return whole
+
+
+def _rewrite_tables(statement: exp.Expression) -> list[exp.Expression]:
+    """SFX-027: CREATE TABLE as Snowflake makes a standard table. Returns statements to run before it.
+    - PRIMARY KEY, UNIQUE and FOREIGN KEY aren't enforced by Snowflake, so they are dropped; a PRIMARY KEY
+      column keeps NOT NULL, which the constraint implies (constraints-overview).
+    - AUTOINCREMENT and IDENTITY (start and step 1 unless given) become a DuckDB sequence the column takes
+      its DEFAULT from. Snowflake's values are unique but not always one after another, so DuckDB's are
+      among those it could give.
+    - TRANSIENT and CLUSTER BY change how Snowflake keeps the table, not what a query reads; both are dropped."""
+    if not (isinstance(statement, exp.Create) and (statement.args.get("kind") or "").upper() == "TABLE"):
+        return []
+    properties = statement.args.get("properties")
+    if isinstance(properties, exp.Properties):
+        for prop in list(properties.expressions):
+            if isinstance(prop, (exp.TransientProperty, exp.ClusterProperty)):
+                prop.pop()
+        if not properties.expressions:
+            statement.set("properties", None)
+    schema = statement.this
+    if not isinstance(schema, exp.Schema):
+        return []
+    columns = {c.name.upper(): c for c in schema.expressions if isinstance(c, exp.ColumnDef)}
+    not_null: set[str] = set()
+    for item in list(schema.expressions):
+        kinds = item.expressions if isinstance(item, exp.Constraint) else [item]
+        keys = [k for k in kinds if isinstance(k, (exp.PrimaryKey, exp.UniqueColumnConstraint, exp.ForeignKey))]
+        if not keys:
+            continue
+        for key in keys:
+            if isinstance(key, exp.PrimaryKey):
+                not_null.update(e.name.upper() for e in key.expressions)
+        if len(keys) == len(kinds):
+            item.pop()
+    sequences: list[exp.Expression] = []
+    for name, column in columns.items():
+        constraints = column.args.get("constraints") or []
+        if any(isinstance(c.kind, exp.PrimaryKeyColumnConstraint) for c in constraints):
+            not_null.add(name)
+        for constraint in list(constraints):
+            kind = constraint.kind
+            if isinstance(kind, (exp.PrimaryKeyColumnConstraint, exp.UniqueColumnConstraint, exp.Reference)):
+                constraint.pop()
+            elif isinstance(kind, (exp.AutoIncrementColumnConstraint, exp.GeneratedAsIdentityColumnConstraint)):
+                start = _whole(kind.args.get("start"), 1) if isinstance(kind, exp.GeneratedAsIdentityColumnConstraint) else 1
+                step = _whole(kind.args.get("increment"), 1) if isinstance(kind, exp.GeneratedAsIdentityColumnConstraint) else 1
+                if step == 0:
+                    raise _Untranslatable(_refuse("SFX-000", "Not rewritten for DuckDB",
+                                                  "An AUTOINCREMENT step of 0 isn't rewritten."))
+                sequence = f"{_IDENTITY_SEQUENCE}{uuid.uuid4().hex}"
+                constraint.set("kind", exp.DefaultColumnConstraint(
+                    this=exp.Anonymous(this="nextval", expressions=[exp.Literal.string(sequence)])))
+                sequences.append(cast(exp.Expression, sqlglot.parse_one(  # this rule's own name, two whole numbers
+                    f"CREATE SEQUENCE {sequence} START WITH {start} INCREMENT BY {step} {_BIGINT_RANGE}",
+                    read="duckdb")))
+    for name in not_null:
+        key_column = columns.get(name)
+        if key_column is not None and not any(isinstance(c.kind, exp.NotNullColumnConstraint)
+                                              for c in key_column.args.get("constraints") or []):
+            key_column.append("constraints", exp.ColumnConstraint(kind=exp.NotNullColumnConstraint()))
+    return sequences
+
+
 def _variant_text(statement: exp.Expression) -> None:
     """SFX-025: a VARIANT column holding an object or array, cast to text (or TO_VARCHAR with no format), is
     JSON text, as Snowflake's TO_VARCHAR gives it; DuckDB writes its own VARIANT its own way ({'k': 1}).
@@ -1028,6 +1179,92 @@ def _json_of_variant_lists(statement: exp.Expression) -> None:
                      else listed)
 
 
+_REGEXP_PARAMETERS = {exp.RegexpLike: "flag", exp.RegexpReplace: "modifiers", exp.RegexpExtract: "parameters",
+                      exp.RegexpExtractAll: "parameters"}
+_QUANTIFIER = re.compile(r"\{\d+(,\d*)?\}")
+
+
+def _rewrite_regexp_patterns(statement: exp.Expression) -> None:
+    """SFX-028 and SFN-031 (WR-257): Snowflake's regular expression parameters and patterns as Snowflake reads
+    them. The m parameter (multi-line: ^ and $ at each line) and s (. matches a line break) become RE2's (?m) and
+    (?s), as regex_flags explains; DuckDB's own m option changed only what . matches, and 'sm' turned s off.
+    An empty pattern "matches nothing, not even an empty subject" in every function but REGEXP_LIKE and its
+    aliases, where it is '^$'; RE2's matched at every position, so REGEXP_REPLACE('abc', '', 'x') gave 'xaxbxcx'.
+    A pattern written in the query with a non-greedy quantifier ("the regular expression functions don't
+    support non-greedy quantifiers"), a backreference ("Snowflake does not support backreferences in regular
+    expression patterns") or a lookaround, which RE2 can't read, is refused by name (functions-regexp)."""
+    from .regex_flags import NO_MATCH, case_flag_only_i, inline_flags
+    for node in list(statement.find_all(exp.RegexpLike, exp.RegexpReplace, exp.RegexpExtract, exp.RegexpExtractAll,
+                                        exp.RegexpCount, exp.RegexpInstr)):
+        pattern = node.expression
+        written = isinstance(pattern, exp.Literal) and pattern.is_string
+        if written:
+            found = _unsupported_regex(pattern.name)
+            if found:
+                what, step = found
+                raise _Untranslatable(_refuse(
+                    "SFN-031", "This regular expression",
+                    f"The pattern '{pattern.name}' uses {what}, so nothing ran. {step}",
+                    f"{_DOCS}/functions-regexp"))
+        key = _REGEXP_PARAMETERS.get(type(node))
+        if key is None:
+            case_flag_only_i(node)  # REGEXP_COUNT and REGEXP_INSTR read '' and m, s, i as Snowflake does
+            continue
+        if not isinstance(node, exp.RegexpLike):
+            if written and pattern.name == "":
+                node.set("expression", exp.Literal.string(NO_MATCH))
+            elif not written:
+                node.set("expression", exp.func("REGEXP_REPLACE", pattern.copy(), exp.Literal.string("^$"),
+                                                 exp.Literal.string(NO_MATCH)))
+        inline_flags(node, key)
+
+
+_REWRITE = "Rewrite the pattern without it."
+
+
+def _unsupported_regex(pattern: str) -> tuple[str, str] | None:
+    """What in ``pattern`` neither Snowflake nor RE2 reads, named for the user, with the step to take, or None."""
+    i, n, in_class, class_start, quantified = 0, len(pattern), False, 0, False
+    unclosed: set[str] = set()  # a [: (or [. [=) with no :] after it: later ones have none either, so no rescan
+    while i < n:
+        c = pattern[i]
+        if c == "\\":
+            d = pattern[i + 1:i + 2]
+            if d and d in "123456789" and not in_class:
+                return ((f"a backreference ('\\{d}'), which Snowflake's regular expressions don't support "
+                        "(a replacement can use one)"), _REWRITE)
+            i, quantified = i + 2, False
+            continue
+        if in_class:
+            if c == "[" and pattern[i + 1:i + 2] in (":", ".", "=") and pattern[i + 1] not in unclosed:
+                end = pattern.find(pattern[i + 1] + "]", i + 2)  # [:alpha:] inside a class
+                if end > 0:
+                    i = end + 2
+                    continue
+                unclosed.add(pattern[i + 1])
+            if c == "]" and i > class_start:
+                in_class = False
+            i += 1
+            continue
+        if c == "[":
+            in_class, quantified = True, False
+            i += 2 if pattern.startswith("^", i + 1) else 1
+            class_start = i  # a ] right here is a character of the class
+            continue
+        if pattern.startswith(("(?=", "(?!", "(?<=", "(?<!"), i):
+            return (("a lookahead or lookbehind ('(?=', '(?!', '(?<=', '(?<!'), which RE2, the engine that runs it here, "
+                    "can't read"), _REWRITE)
+        if c == "?" and quantified:
+            return ("a non-greedy quantifier ('*?', '+?', '??'), which Snowflake's regular expressions don't support",
+                    "Use a narrower class, such as [^,]* in place of .*?.")
+        if c == "{" and (quantifier := _QUANTIFIER.match(pattern, i)):
+            i, quantified = quantifier.end(), True
+            continue
+        quantified = c in "*+?"
+        i += 1
+    return None
+
+
 def _rewrite_regexp_groups(statement: exp.Expression) -> None:
     """SFX-021: REGEXP_SUBSTR and REGEXP_SUBSTR_ALL with the 'e' parameter and no group number give the
     first group, as Snowflake does; sqlglot writes group 0, the whole match. (sqlglot reads group 0 written
@@ -1092,9 +1329,33 @@ def _rewrite_timestamp_parts(statement: exp.Expression) -> None:
             ltz = exp.TimestampLtzFromParts(**{k: v for k, v in tz_parts.args.items() if v is not None})
             tz_parts.replace(ltz)
     for anonymous in list(statement.find_all(exp.Anonymous)):
-        if str(anonymous.this).upper() in ("TO_TIMESTAMP", "TO_TIMESTAMP_NTZ") and len(anonymous.expressions) == 1 \
-                and _written_number(anonymous.expressions[0]):
-            _put(anonymous, "CAST(TO_TIMESTAMP(fj_arg0) AT TIME ZONE 'UTC' AS TIMESTAMP)", [anonymous.expressions[0]])
+        if str(anonymous.this).upper() in ("TO_TIMESTAMP", "TO_TIMESTAMP_NTZ") and len(anonymous.expressions) == 1:
+            if _written_number(anonymous.expressions[0]):
+                _put(anonymous, "CAST(TO_TIMESTAMP(fj_arg0) AT TIME ZONE 'UTC' AS TIMESTAMP)", [anonymous.expressions[0]])
+            else:  # a column or expression, whose type is known only when the query runs
+                _put(anonymous, _TIMESTAMP_OF_ANY, [anonymous.expressions[0]])
+
+
+# TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a value whose type isn't known here (a column), by its type when the query
+# runs: a number is seconds since 1970 with no time zone (fractions to the microsecond, cut off); text holding a
+# whole number is read by its size, as SFX-022 reads one written in the query; anything else (a date, other text)
+# is cast to TIMESTAMP. DuckDB has no TO_TIMESTAMP_NTZ, so a column stopped with its catalog error. The value is
+# read once; each branch binds for any type, and TYPEOF picks one when the query is planned.
+_SF_NUMBER_TYPES = ("'TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', "
+                    "'UBIGINT', 'UHUGEINT', 'FLOAT', 'DOUBLE'")
+_SF_WHOLE_TEXT = r"^\s*-?[0-9]+\s*$"
+_TIMESTAMP_OF_ANY = (
+    "(LIST_TRANSFORM([fj_arg0], kf_ts -> CASE "
+    f"WHEN TYPEOF(kf_ts) IN ({_SF_NUMBER_TYPES}) OR TYPEOF(kf_ts) LIKE 'DECIMAL%' "
+    "THEN MAKE_TIMESTAMP(CAST(TRUNC(TRY_CAST(CAST(kf_ts AS VARCHAR) AS DECIMAL(38, 9)) * 1000000) AS BIGINT)) "
+    f"WHEN TYPEOF(kf_ts) = 'VARCHAR' AND REGEXP_MATCHES(CAST(kf_ts AS VARCHAR), '{_SF_WHOLE_TEXT}') THEN "
+    "(LIST_TRANSFORM([TRY_CAST(TRIM(CAST(kf_ts AS VARCHAR)) AS HUGEINT)], kf_n -> MAKE_TIMESTAMP(CAST(CASE "
+    "WHEN kf_n < 31536000000 THEN kf_n * 1000000 WHEN kf_n < 31536000000000 THEN kf_n * 1000 "
+    "WHEN kf_n < 31536000000000000 THEN kf_n ELSE kf_n // 1000 END AS BIGINT))))[1] "
+    # Text with a UTC offset ('... 03:04:05 +02:00') is read as Snowflake's NTZ reads it: the offset is dropped.
+    # DuckDB 1.5.6 stops on it ("not UTC") where 2.0 drops it, so it is dropped here for both.
+    r"ELSE CAST(REGEXP_REPLACE(CAST(kf_ts AS VARCHAR), '(\d:\d\d(:\d\d(\.\d+)?)?)\s*(Z|[+-]\d\d(:?\d\d)?)$', "
+    r"'\1') AS TIMESTAMP) END))[1]")
 
 
 def _written_number(node: exp.Expression) -> bool:
@@ -1872,9 +2133,9 @@ def _div0_branch(node: exp.Div) -> bool:
         return True
     if isinstance(cond, exp.And):  # DIV0: b = 0 AND NOT a IS NULL
         return zero(cond.this) and isinstance(cond.expression, exp.Not) and cond.expression.this == exp.Is(
-            this=node.this, expression=exp.Null())
+            this=node.this.copy(), expression=exp.Null())
     if isinstance(cond, exp.Or):  # DIV0NULL: b = 0 OR b IS NULL
-        return zero(cond.this) and cond.expression == exp.Is(this=b, expression=exp.Null())
+        return zero(cond.this) and cond.expression == exp.Is(this=b.copy(), expression=exp.Null())
     return False
 
 
@@ -2040,8 +2301,11 @@ CATALOG = (
                 "CURRENT_TIMESTAMP and a cast to TIMESTAMP_TZ or TIMESTAMP_LTZ go through TIMESTAMP, the "
                 "local time; a TIMESTAMP_TZ column stops with DuckDB's cast error, since its type isn't known "
                 "here. TIMESTAMP_FROM_PARTS and TIMESTAMP_NTZ_FROM_PARTS carry a part outside its range over "
-                "(seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number written "
-                "in the query are seconds since 1970, with no time zone. TIMESTAMP_TZ_FROM_PARTS with no time zone "
+                "(seconds of -3600 is an hour earlier). TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a number are seconds "
+                "since 1970, with no time zone; of a column, a number is read that way, text holding a whole "
+                "number by its size, and anything else is cast to TIMESTAMP, with a UTC offset in text dropped. A TIMESTAMP_TZ "
+                "column gives the session time zone's wall clock, since DuckDB doesn't keep a value's own offset, "
+                "where Snowflake gives the value's own local time. TIMESTAMP_TZ_FROM_PARTS with no time zone "
                 "argument is in the session's time zone.")),
     ("SFX-018", "Rewritten", ("CONDITIONAL_TRUE_EVENT and CONDITIONAL_CHANGE_EVENT count events from each "
                 "partition's first row in ORDER BY order (a NULL is neither true nor a change), and "
@@ -2073,6 +2337,19 @@ CATALOG = (
                 "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
     ("SFX-026", "Rewritten", ("REGEXP_SUBSTR is NULL when nothing matches. CEIL and FLOOR with a written scale stay exact for a NUM"
                 "BER. EDITDISTANCE with a negative maximum is 0. NEXT_DAY and PREVIOUS_DAY read the first two letters of the day, after any leading spaces. CONTAINS with NULL is NULL. TIME_SLICE counts slices from 1970-01-01 (weeks from Monday 1969-12-29). TO_DATE and a cast to DATE of a string written in the query read MM/DD/YYYY and DD-MON-YYYY, and TO_DATE of a string holding a whole number reads it as epoch seconds, milliseconds, microseconds or nanoseconds by its size.")),
+    ("SFX-027", "Rewritten", ("CREATE TABLE makes a table as Snowflake does: PRIMARY KEY, UNIQUE and FOREIGN KEY "
+                "aren't enforced, so they are dropped, and a PRIMARY KEY column keeps NOT NULL, which the "
+                "constraint implies. AUTOINCREMENT and IDENTITY columns take their DEFAULT from a sequence that "
+                "starts and steps as written (1 and 1 unless given); Snowflake's values are unique but not always "
+                "one after another, so these are among those it could give. The sequence stays in the session when the "
+                "table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, "
+                "as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the "
+                "target's column. START TRANSACTION is BEGIN.")),
+    ("SFX-028", "Rewritten", ("The regular expression parameters m (^ and $ match at each line) and s (. matches "
+                "a line break) are read as Snowflake reads them, also together ('sm'), in REGEXP_LIKE, RLIKE, "
+                "REGEXP_REPLACE, REGEXP_SUBSTR and REGEXP_SUBSTR_ALL. The c parameter is taken in REGEXP_COUNT and "
+                "REGEXP_INSTR too. An empty pattern matches nothing, except in REGEXP_LIKE and its aliases, where it "
+                "matches only an empty subject.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2130,6 +2407,20 @@ CATALOG = (
     ("SFN-023", "Runs only in Snowflake", ("IDENTIFIER($name) where the same cell doesn't set the variable to a "
                 "string first: its value isn't known here.")),
     ("SFN-024", "Runs only in Snowflake", "PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values."),
+    ("SFN-025", "Runs only in Snowflake", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
+                "ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type.")),
+    ("SFN-026", "Runs only in Snowflake", ("INSERT ALL and INSERT FIRST: DuckDB has no multi-table INSERT, and "
+                "separate INSERTs wouldn't be one statement.")),
+    ("SFN-027", "Runs only in Snowflake", ("CREATE TABLE ... LIKE: Snowflake copies the other table's defaults and "
+                "constraints, which the rewrite can't see.")),
+    ("SFN-028", "Runs only in Snowflake", "TRUNCATE TABLE IF EXISTS: DuckDB's TRUNCATE has no IF EXISTS."),
+    ("SFN-029", "Runs only in Snowflake", ("ALTER TABLE with more than one column, and ALTER TABLE ... SWAP WITH: "
+                "DuckDB's ALTER TABLE changes one column at a time and has no SWAP.")),
+    ("SFN-030", "Runs only in Snowflake", ("CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits "
+                "the open transaction first, and DuckDB doesn't.")),
+    ("SFN-031", "Runs only in Snowflake", ("A regular expression written with a non-greedy quantifier ('*?', '+?', "
+                "'??') or a backreference ('\\1') in the pattern, which Snowflake doesn't support, or with a "
+                "lookahead or lookbehind, which RE2 can't read.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -2181,6 +2472,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_events(tree)
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
+        _rewrite_regexp_patterns(tree)
         _rewrite_documented_edges(tree)
         _rewrite_strings(tree)
         _rewrite_time(tree)
@@ -2188,6 +2480,8 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_arrays(tree)
         _rewrite_variant_reads(tree)
         _rewrite_statements(tree)
+        _merge_set_names(tree)
+        before = _rewrite_tables(tree)
         _rewrite_semi_structured_types(tree)
         _rewrite_regexp_groups(tree)
         _rewrite_string_epochs(tree)
@@ -2198,7 +2492,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_json_text(tree)
         _rewrite_division(tree)
         _json_of_variant_lists(tree)
-        sql = _duck(tree)
+        sql = ";\n".join([_duck(b) for b in before] + [_duck(tree)])
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))
     except SqlglotError as exc:  # UnsupportedError, or sqlglot stopping while it writes (TIME() with no argument)
@@ -2213,7 +2507,34 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
 def translate(code: str) -> Translation:
     """Every statement of ``code`` rewritten for DuckDB, with its verdict. Nothing runs here.
     ValueError when the SQL can't be read at all."""
-    return Translation(tuple(_statement(i, s) for i, s in enumerate(_with_identifiers(parse(code)), 1)))
+    reports, open_transaction = [], False
+    for i, statement in enumerate(_with_identifiers(parse(code)), 1):
+        statement = _start_transaction(statement)
+        if open_transaction and isinstance(statement, (exp.Create, exp.Drop, exp.Alter)) \
+                and _session_time_zone(statement) is None:
+            reports.append(StatementReport(i, "not_translatable", None, (_DDL_IN_TRANSACTION,)))
+            continue
+        if isinstance(statement, exp.Transaction):
+            open_transaction = True
+        elif isinstance(statement, (exp.Commit, exp.Rollback)):
+            open_transaction = False
+        reports.append(_statement(i, statement))
+    return Translation(tuple(reports))
+
+
+_DDL_IN_TRANSACTION = _refuse(
+    "SFN-030", "CREATE, ALTER or DROP inside a transaction", "Snowflake commits the open transaction before "
+    "a CREATE, ALTER or DROP and runs it as its own transaction, where DuckDB keeps it inside the open one, so a "
+    "later ROLLBACK would undo different work here. Put COMMIT before the statement.", f"{_DOCS}/transactions")
+
+
+def _start_transaction(statement: exp.Expression) -> exp.Expression:
+    """SFX-027: START TRANSACTION, Snowflake's synonym for BEGIN, which sqlglot reads as a column named START."""
+    if isinstance(statement, exp.Alias) and isinstance(statement.this, exp.Column) \
+            and not statement.this.table and statement.this.name.upper() == "START" \
+            and statement.alias.upper() == "TRANSACTION":
+        return exp.Transaction()
+    return statement
 
 
 def _with_identifiers(statements: list[exp.Expression]) -> list[exp.Expression]:

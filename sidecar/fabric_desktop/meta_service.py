@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import logging
+import os
+import re
+import shutil
+import threading
 import tomllib
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
@@ -12,9 +17,9 @@ from typing import Any, Callable, Iterator
 
 import polars as pl
 
-from . import audit, duties, lakehouse, risk, sealed_settings
+from . import audit, delta_profile, duties, lakehouse, risk, sealed_settings
 from .meta import keys as keys_mod
-from .meta import change_impact, lineage, release
+from .meta import change_impact, lineage, openlineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
@@ -22,15 +27,16 @@ from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
-from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, validate
+from .meta.project import (DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, prod_name, prod_typed, validate,
+                           with_delta_choice)
 from .meta import diff as diff_mod
 from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
-from .jsonfile import read_json, write_json, write_text
-from . import known_folders
+from .jsonfile import read_object, write_json, write_text
+from . import known_folders, trees
 
 _log = logging.getLogger(__name__)
 
@@ -99,12 +105,28 @@ def _days(value: Any) -> Any:
         return value
 
 
+_ONEDRIVE_LOCK = threading.Lock()
+_COPIED_FROM = ".kratosforge-copied-from"  # written into the copy before its rename, removed once the setting is saved
+
+
+def _copied_from(marker: Path) -> str | None:
+    try:
+        return marker.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def DEFAULT_PROJECT_FOLDER() -> Path:  # noqa: N802 - a constant that depends on the profile
+    """Where a new metadata project goes unless the person picks a folder: in the profile, out of OneDrive."""
+    return known_folders.local_folder() / "metadata"
+
+
 def _project_folder(path: str) -> Path:
     """A project's folder as the app's folder picker gives it: a full path. A relative one would be
     taken from wherever the engine happened to start (#1173)."""
     folder = Path(path)
     if not folder.is_absolute():
-        raise ValueError(f"Choose the project's folder by its full path, such as C:\\Users\\you\\Documents\\metadata, not {path!r}")
+        raise ValueError(f"Choose the project's folder by its full path, such as C:\\Users\\you\\KratosForge\\metadata, not {path!r}")
     return folder
 
 
@@ -122,8 +144,7 @@ class MetaMixin:
         return self.root / "settings.json"
 
     def _settings(self) -> dict[str, Any]:
-        settings = read_json(self.settings_file, {})
-        settings = settings if isinstance(settings, dict) else {}
+        settings = read_object(self.settings_file)  # a file that isn't one object is set aside, not overwritten
         if sealed_settings.needs_sealing(settings):  # saved in the clear by an earlier version
             try:
                 write_json(self.settings_file, sealed_settings.seal(settings))
@@ -144,6 +165,8 @@ class MetaMixin:
 
     def _project(self) -> Project:
         path = self._settings().get("meta_project")
+        if path:
+            path = self._out_of_onedrive(str(path))
         if path and not Path(path).is_absolute():  # saved before full paths were required: where it points depends on the start folder
             raise NoMetadataProject(f"The metadata project was saved as {path!r}, not a full path. Open its folder again.")
         if not path or not (Path(path) / "layers.toml").exists():
@@ -157,6 +180,63 @@ class MetaMixin:
         if remember is not None:  # its Prod workspaces stay marked once it's closed (prod_writes_service.py)
             remember(project)
         return project
+
+    def _out_of_onedrive(self, path: str) -> str:
+        """The project's folder, copied out of OneDrive first when it is still where earlier versions made a new
+        project (Documents\\FabricDesktop\\metadata, which OneDrive's known folder move puts in OneDrive): to
+        KratosForge\\metadata in the profile, and the setting is changed to the copy. The original is left as
+        it was, for the person to delete; nothing is removed. Any other folder is the person's choice and stays
+        (readiness warns about one in OneDrive). Once per folder per run."""
+        with _ONEDRIVE_LOCK:  # one copy at a time: a job thread may ask for the project as the app does
+            return self._copy_out_of_onedrive(path)
+
+    def _copy_out_of_onedrive(self, path: str) -> str:
+        checked = self.__dict__.setdefault("_onedrive_checked", {})
+        if path in checked:
+            return checked[path]
+        checked[path] = path
+        old = known_folders.documents() / "FabricDesktop" / "metadata"
+        if os.path.normcase(os.path.normpath(path)) != os.path.normcase(os.path.normpath(old)) \
+                or not known_folders.in_onedrive(path) or not (Path(path) / "layers.toml").exists():
+            return path
+        new = DEFAULT_PROJECT_FOLDER()
+        marker = new / _COPIED_FROM
+        if new.exists() and _copied_from(marker) == path:
+            return self._switch_to_copy(path, new, marker, checked)  # copied last run; the setting wasn't saved
+        if new.exists():
+            _log.warning("The metadata project in OneDrive (%s) wasn't copied out, because %s already exists.", path, new)
+            return path
+        work = new.with_name(new.name + ".copying")
+        try:
+            if work.exists():
+                trees.remove(work)  # a copy an earlier run didn't finish: only ever this app's own work folder
+            _log.info("Copying the metadata project out of OneDrive, from %s to %s. A large project in "
+                      "Files On-Demand downloads first, so this can take a while.", path, new)
+            shutil.copytree(path, work, symlinks=True)
+            write_text(work / _COPIED_FROM, path)
+            work.rename(new)
+        except OSError as exc:
+            _log.warning("Couldn't copy the metadata project out of OneDrive (%s to %s); it stays where it is: %s",
+                         path, new, describe_error(exc))
+            try:
+                if work.exists():
+                    trees.remove(work)  # a part copy (a full disk, a junction loop) isn't left in the profile
+            except OSError as left:
+                _log.warning("Couldn't remove the part copy %s: %s", work, describe_error(left))
+            return path
+        return self._switch_to_copy(path, new, new / _COPIED_FROM, checked)
+
+    def _switch_to_copy(self, path: str, new: Path, marker: Path, checked: dict[str, str]) -> str:
+        """Point the setting at the finished copy, then drop the marker. If saving fails the marker stays,
+        so the next run recognises this copy as its own and switches then."""
+        self._save_settings(meta_project=str(new), meta_project_moved_from=path)
+        try:
+            marker.unlink()
+        except OSError as exc:
+            _log.warning("Couldn't remove %s: %s", marker, describe_error(exc))
+        _log.info("Copied the metadata project out of OneDrive, from %s to %s. The original is left as it was.", path, new)
+        checked[path] = str(new)
+        return str(new)
 
     def _install_guard(self, project: Project) -> None:
         def guard(lakehouse_name: str, schema: str, table: str) -> str | None:
@@ -174,11 +254,20 @@ class MetaMixin:
         try:
             project = self._project()
         except LookupError:
+            project = None
+        if project is not None:
+            for env in ("test", "prod"):
+                if workspace_id in _env_workspaces(project.environments.get(env, {})):
+                    return (f"This workspace is {env.title()}'s, which changes only by promote. "
+                            "Point the job at a Dev or scratch workspace.")
+        # WR-248: a workspace an earlier project named Prod stays Prod on this PC with no project open, as it does
+        # for a notebook's changes (prod_writes_service); a job's write there would skip every typed-name check
+        marked = getattr(self, "_prod_marked", None)
+        if marked is not None and marked(workspace_id):
+            return ("This workspace was named Prod by a project opened on this PC, and Prod changes only by promote. "
+                    "Point the job at a Dev or scratch workspace.")
+        if project is None:
             return None
-        for env in ("test", "prod"):
-            if workspace_id in _env_workspaces(project.environments.get(env, {})):
-                return (f"This workspace is {env.title()}'s, which changes only by promote. "
-                        "Point the job at a Dev or scratch workspace.")
         return lakehouse.write_guard(lakehouse_name, schema, table) if lakehouse.write_guard else None
 
     def _maintenance_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
@@ -199,7 +288,8 @@ class MetaMixin:
                            "shows what it does first, or run the cell against a Dev workspace. Nothing was changed.")
                 break
         if refusal is None:
-            refusal = self._maintenance_capacity_refusal(operation, workspace_id, table)
+            # Notebook code has no way to accept a warning, so a Warning reading refuses here too (Chris, 2026-11-18).
+            refusal = self._maintenance_capacity_refusal(operation, workspace_id, table, warnings=True)
         return self._maintenance_audit(operation, workspace_id, table, refusal)
 
     def _maintenance_audit(self, operation: str, workspace_id: str, table: str, refusal: str | None) -> str | None:
@@ -223,28 +313,58 @@ class MetaMixin:
             return audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {describe_error(exc)}")
         return None
 
-    def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str) -> str | None:
-        """Blocked by the workspace's capacity, from its last reading (no refresh). A reading that fails is
-        an unknown state, which doesn't stop the run, as in every other risk check."""
+    def _maintenance_capacity(self, workspace_id: str) -> dict[str, Any] | None:
+        """The workspace's capacity finding from its last reading (no refresh), with ``risk_id``, a fingerprint
+        of what it says, so a person who accepted a warning accepted this one. None when it isn't known: no
+        workspace, or a reading that fails, which doesn't stop a run, as in every other risk check."""
         if not workspace_id:
             return None
         try:
             cap = self._risk_capacity(workspace_id, "", False, [])  # type: ignore[attr-defined]
             found = risk.check_capacity({"where": "fabric", "capacity": cap}, dt.datetime.now(dt.timezone.utc))
         except Exception as exc:  # noqa: BLE001 - unknown, as the risk check treats a failed read
-            _log.info("Capacity of %s unknown for %s: %s", workspace_id, operation, describe_error(exc))
+            _log.info("Capacity of %s unknown: %s", workspace_id, describe_error(exc))
             return None
+        if found is None:
+            return None
+        seen = [workspace_id, found["outcome"], found.get("title"), found.get("detail"),
+                (cap or {}).get("observed_at") if isinstance(cap, dict) else None]
+        return dict(found, risk_id=hashlib.sha256(json.dumps(seen, default=str).encode()).hexdigest()[:32])
+
+    def _maintenance_capacity_refusal(self, operation: str, workspace_id: str, table: str,
+                                      warnings: bool = False) -> str | None:
+        """Blocked by the workspace's capacity, from its last reading, and with ``warnings`` a Warning too:
+        notebook code can't accept one, so it is sent to X-ray, which shows the warning and asks."""
+        found = self._maintenance_capacity(workspace_id)
+        if found is not None and warnings and found["outcome"] == risk.WARNING:
+            return (f"{_statement(operation)} on {table} from notebook code didn't run, because the capacity check "
+                    f"has a warning ({found['title']}) and a notebook can't accept one, so nothing was changed. Run "
+                    "Optimize or Vacuum from X-ray, which shows the warning and asks before it starts.")
         if found is None or found["outcome"] != risk.BLOCKED:
             return None
         return (f"{_statement(operation)} on {table} is refused: the capacity check is Blocked ({found['title']}). "
                 f"{found.get('remedy') or ''} Nothing was changed.").replace("  ", " ")
 
+    def _job_v_order_refusal(self, workspace_id: str, table: str) -> str | None:
+        """Why a job's V-Order (an Optimize on the capacity, after its write) mustn't start now, as a clause, or
+        None. A job runs unattended and can't accept a warning, so it starts only on a capacity known to be
+        fine: Blocked, a Warning and an unknown reading all stop it, and X-ray, which shows the capacity and
+        asks, is the way to V-Order the table then."""
+        found = self._maintenance_capacity(workspace_id)
+        if found is not None and found["outcome"] == risk.PASS:
+            return None
+        if found is not None and found["outcome"] == risk.BLOCKED:
+            return f"the capacity check is Blocked ({found['title']})"
+        if found is not None and found["outcome"] == risk.WARNING:
+            return f"the capacity check has a warning ({found['title']}), and a job run can't accept one"
+        # None, risk.UNKNOWN (never read, unreadable or stale) or any outcome this doesn't know: not checked.
+        return "the capacity of its workspace isn't known, and a job run doesn't start an Optimize unchecked"
+
     def meta_project(self) -> dict[str, Any]:
         try:
             project = self._project()
         except LookupError:
-            return {"path": None, "default_path": str(known_folders.documents() / "FabricDesktop" / "metadata"),
-                    **describe()}
+            return {"path": None, "default_path": str(DEFAULT_PROJECT_FOLDER()), **describe()}
         return project.summary() | describe()
 
     def meta_init(self, path: str, preset: str = "3", sample: bool = True) -> dict[str, Any]:
@@ -253,6 +373,8 @@ class MetaMixin:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - not signed in: the owner can be filled in later
             _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
+        if (refusal := known_folders.onedrive_refusal(_project_folder(path), "a metadata project")):
+            raise ValueError(refusal)
         init_project(_project_folder(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
@@ -446,8 +568,10 @@ class MetaMixin:
                               "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql,
                               "keys_from": keys_from}
 
-    def meta_save_entity(self, name: str, text: str) -> dict[str, Any]:
-        """Save an entity file. TOML that doesn't parse is refused; other problems are listed."""
+    def meta_save_entity(self, name: str, text: str, confirm_name: str | None = None) -> dict[str, Any]:
+        """Save an entity file. TOML that doesn't parse is refused; other problems are listed. A Delta
+        table features setting that is wrong, or that breaks one of the table's readers without
+        ``confirm_name`` (the table's full name, typed), is refused too (delta_profile.confirm_choice)."""
         project = self._project()
         try:
             spec = tomllib.loads(text)
@@ -459,6 +583,10 @@ class MetaMixin:
         for n in (name, new_name):
             if problem := entity_name_problem(n):
                 raise ValueError(f"Not saved: {n}: {problem}")
+        old = project.entities[name].spec if name in project.entities else {}
+        accepted = delta_profile.confirm_choice(new_name, old, spec, confirm_name)
+        if accepted is not None:
+            text = with_delta_choice(text, spec.get("delta_features"), spec.get("delta_readers"), accepted)
         path = project.entities_dir / f"{new_name}.toml"
         if new_name != name:
             if path.exists():
@@ -470,6 +598,29 @@ class MetaMixin:
         if new_name != name:  # only once the new file is in place, so a failed save loses neither
             (project.entities_dir / f"{name}.toml").unlink(missing_ok=True)
         return self.meta_entity(new_name)
+
+    def meta_set_delta_features(self, name: str, delta_features: str | None = None,
+                                delta_readers: list[str] | None = None, confirm_name: str | None = None) -> dict[str, Any]:
+        """Set which Delta table features a publish may leave on this entity's table (Preview): None or ""
+        for the default (the modern profile), or one of delta_profile.TABLE_CHOICES. ``delta_readers``
+        replaces the table's readers (None keeps them). A choice that breaks one of the readers is refused
+        unless ``confirm_name`` is the table's full name, as the person typed it."""
+        project = self._project()
+        if name not in project.entities:
+            raise ValueError(f"{name} isn't an entity in this project, so nothing was changed. Open the project "
+                             "that has it, then choose again.")
+        e = project.entities[name]
+        spec = dict(e.spec)
+        spec["delta_features"] = delta_features or None
+        if delta_readers is not None:
+            readers = list(dict.fromkeys(delta_readers))
+            spec["delta_readers"] = None if tuple(readers) == delta_profile.DEFAULT_READERS else readers
+        spec = {k: v for k, v in spec.items() if v is not None}
+        accepted = delta_profile.confirm_choice(name, e.spec, spec, confirm_name)
+        if accepted is not None:
+            text = e.path.read_text(encoding="utf-8")
+            write_text(e.path, with_delta_choice(text, spec.get("delta_features"), spec.get("delta_readers"), accepted))
+        return self.meta_project()
 
     def meta_new_entity(self, template: str, name: str, source: str = "", keys: list[str] | None = None,
                         owner: str = "") -> dict[str, Any]:
@@ -635,6 +786,28 @@ class MetaMixin:
 
     # ---- promote
 
+    def _confirm_name(self, project: Any, env: str) -> str:
+        """The name a promote, rollback or restore in ``env`` waits for, or "" when it asks for none: Prod's
+        workspace name (WR-250), or the workspace's own when a project opened on this PC named it Prod, as
+        another project's Test can be (WR-251)."""
+        if env == "prod":
+            return prod_name(project)
+        cfg = project.environments.get(env, {}) or {}
+        if any(self._prod_marked(ws) for ws in sorted(_env_workspaces(cfg))):  # type: ignore[attr-defined]
+            return str(cfg.get("workspace_name") or cfg.get("workspace_id"))
+        return ""
+
+    def _confirm_typed(self, project: Any, env: str, confirm_name: str, doing: str, nothing: str) -> None:
+        """Refuse unless ``confirm_name`` is exactly the name ``_confirm_name`` asks for. It is a guard parameter,
+        so the audit line is written before the change runs (audit.fails_closed)."""
+        if env == "prod":
+            prod_typed(project, env, confirm_name, doing, nothing)
+            return
+        name = self._confirm_name(project, env)
+        if name and confirm_name != name:
+            raise PermissionError(f"{name} is another project's Prod workspace on this PC, so {doing} runs only after "
+                                  f"you type its name to confirm. {nothing}")
+
     def meta_promote_check(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()
         try:
@@ -662,9 +835,10 @@ class MetaMixin:
         errors += policies["errors"]
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests,
                 "notes": notes + more + duty_notes + policies["notes"], "git": git,
-                "policy_exceptions": policies["excepted"]}
+                "policy_exceptions": policies["excepted"],
+                **({"confirm_name": name} if (name := self._confirm_name(project, target)) else {})}
 
-    def meta_promote(self, source: str, target: str) -> dict[str, Any]:
+    def meta_promote(self, source: str, target: str, confirm_name: str = "") -> dict[str, Any]:
         project = self._project()
         src = self._store(project, source)
         errors = promote_checks(project, src, target, dt.date.today())
@@ -684,6 +858,7 @@ class MetaMixin:
         errors += policies["errors"]
         if errors:
             raise GateError("promote", errors)
+        self._confirm_typed(project, target, confirm_name, "promoting to it", "Nothing was promoted.")
         target_store = self._store(project, target, create=True)
         uses_keys = bool(project.key_tables or project.source_systems)
         keys_store = self._keys_store(project, target, create=True) if uses_keys else None  # fails before promoting
@@ -737,6 +912,34 @@ class MetaMixin:
             return {"entity": name, "changes": []}
         return {"entity": name, "changes": change_impact.edit_impact(self._project(), name, spec)}
 
+    def _openlineage(self, env: str) -> tuple[Project, dict[str, Any]]:
+        project = self._project()
+        store = self._store(project, env)
+        runs = json.loads(store.meta("run_log").select("run_id", "entity", "status", "started_at", "seconds").write_json())
+        workspace = store.workspace_id if isinstance(store, OneLakeStore) else None
+        return project, openlineage.run_events(project, runs, env, workspace)
+
+    def meta_openlineage_preview(self, env: str = "dev") -> dict[str, Any]:
+        """How many OpenLineage events an export would write for ``env``, and which entities it leaves out
+        and why. Writes nothing."""
+        _, out = self._openlineage(env)
+        return {"env": env, "namespace": out["namespace"], "events": len(out["events"]), "left_out": out["left_out"]}
+
+    def meta_openlineage_export(self, env: str = "dev") -> dict[str, Any]:
+        """OpenLineage run events for each entity's last run in ``env``, one JSON event per line (the
+        format OpenLineage's file transport writes), as a new file in Downloads; never replaces a file."""
+        from . import sql_exec
+
+        project, out = self._openlineage(env)
+        if not out["events"]:
+            raise ValueError(f"Nothing to export: no entity has a finished run in {env.title()} yet")
+        folder = known_folders.export_folder()
+        folder.mkdir(parents=True, exist_ok=True)
+        base = re.sub(r"[^\w.-]+", "_", f"{project.root.name}-{env}-openlineage")
+        path = sql_exec._reserve(folder, base, ".jsonl")  # reserved empty, so no other file is overwritten
+        write_text(path, "".join(json.dumps(e, separators=(",", ":")) + "\n" for e in out["events"]), newline="\n")
+        return {"path": str(path), "events": len(out["events"]), "left_out": out["left_out"]}
+
     def meta_lineage(self, name: str, column: str | None = None) -> dict[str, Any]:
         """Column lineage from the project's files: every column of ``name``, or, for one column,
         the steps back to where it starts and every column built from it further on."""
@@ -759,7 +962,8 @@ class MetaMixin:
             history = releases(self._store(project, env))
         except Exception as exc:  # noqa: BLE001 - the environment can't be read: say so
             return {"env": env, "releases": [], "problem": str(exc)}
-        return {"env": env, "releases": history, "problem": None}
+        return {"env": env, "releases": history, "problem": None,
+                **({"confirm_name": name} if (name := self._confirm_name(project, env)) else {})}
 
     def meta_rollback_preview(self, env: str, version: str) -> dict[str, Any]:
         """What rolling ``env`` back to ``version`` changes, by meaning, entity by entity. Reads only."""
@@ -776,7 +980,7 @@ class MetaMixin:
         changes = diff_mod.project_changes(texts(history[0]["version"]), texts(version))
         return {"env": env, "from": history[0]["version"], "to": version, "entities": changes}
 
-    def meta_rollback(self, env: str, version: str) -> dict[str, Any]:
+    def meta_rollback(self, env: str, version: str, confirm_name: str = "") -> dict[str, Any]:
         """Put Test or Prod back on an earlier release, from the files that environment keeps. The
         workspace role check of a promote applies; tables keep their rows until their next run."""
         if env == "dev":
@@ -785,6 +989,7 @@ class MetaMixin:
         errors, _ = self._duties_gate(project, env, env, separation=False)  # undoing a release isn't a second promote
         if errors:
             raise GateError("rollback", errors)
+        self._confirm_typed(project, env, confirm_name, "rolling it back", "Nothing was rolled back.")
         store = self._store(project, env)
         result = rollback(project, store, version, duties.current_user(), self._signed_in_object_id())
         released = result.pop("project")

@@ -31,8 +31,8 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 478 |
-| Differs | 10 |
+| Runs | 480 |
+| Differs | 8 |
 | Refused | 101 |
 | Fails | 0 |
 | Not checked | 0 |
@@ -415,9 +415,9 @@ lists more checks and the differences known in more detail.
 | `bitmap_bit_position` | Runs | `SELECT bitmap_bit_position(1)` |  |
 | `bitmap_bucket_number` | Runs | `SELECT bitmap_bucket_number(123)` |  |
 | `bitmap_count` | Runs | `SELECT bitmap_count(X '1010')` |  |
-| `current_catalog` | Differs | `SELECT current_catalog()` | 'memory' here, DuckDB's own catalog; the session's catalog in Databricks |
-| `current_database` | Differs | `SELECT current_database()` | 'memory' here, DuckDB's own catalog; the session's schema in Databricks |
-| `current_schema` | Differs | `SELECT current_schema()` | 'main' here, DuckDB's own schema; the session's schema in Databricks |
+| `current_catalog` | Differs | `SELECT current_catalog()` | 'main' here, the session's catalog, as in a workspace with Unity Catalog; spark_catalog in Databricks' reference, a workspace without it |
+| `current_database` | Runs | `SELECT current_database()` |  |
+| `current_schema` | Runs | `SELECT current_schema()` |  |
 | `current_user` | Differs | `SELECT current_user()` | 'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference) |
 | `equal_null` | Runs | `SELECT equal_null(3, 3)` |  |
 | `hll_sketch_estimate` | Refused | `SELECT hll_sketch_estimate(hll_sketch_agg(col)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | hll_sketch_agg() can't run on this PC the way it runs in Databricks, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make |
@@ -445,7 +445,7 @@ lists more checks and the differences known in more detail.
 | `between` | Runs | `SELECT 2 BETWEEN 1 AND 3, 4 BETWEEN 1 AND 3, 'b' BETWEEN 'a' AND 'c'` |  |
 | `case` | Runs | `SELECT CASE WHEN 1 > 0 THEN 'a' ELSE 'b' END, CASE 2 WHEN 1 THEN 'x' END` |  |
 | `range` | Runs | `SELECT * FROM range(1, 7, 2)` |  |
-| `sql_keywords` | Refused | `SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2` | sql_keywords() can't run on this PC the way it runs in Databricks, so nothing ran: this PC doesn't have Databricks' list of SQL keywords and which of them are r |
+| `sql_keywords` | Refused | `SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2` | sql_keywords() can't run on this PC the way it runs in Databricks, because this PC doesn't have Spark's list of SQL keywords and which of them are reserved, so  |
 | `\|\|` | Runs | `SELECT 'Spark' \|\| 'SQL', 'a' \|\| NULL` |  |
 
 ## Predicate

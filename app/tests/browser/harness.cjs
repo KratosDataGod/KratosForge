@@ -82,12 +82,14 @@ async function serveWithCsp(page) {
 // sometimes loses the page's localStorage across a reload under load (back-forward.test.cjs).
 // search: added to the page's address, as the shell opens a pop-out window with ?popout=<section>.
 // video: a folder to record the session into as a .webm (the skins demo); saved when close() ends it.
+// scale: the device pixel ratio, for a sharper screenshot (2 for a review image).
 // Shell commands (anything but rpc) are recorded in window.__fdShellCalls; window.__fdEmit(event, payload)
 // delivers an event to the page's listeners, as the shell's emit does.
 async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { width: 1440, height: 940 }, holdCheck = false,
-  csp = false, search = "", video = null } = {}) {
+  csp = false, search = "", video = null, scale = 1 } = {}) {
   const browser = await playwright.chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
-  const page = await browser.newPage(video ? { viewport, recordVideo: { dir: video, size: viewport } } : { viewport });
+  const page = await browser.newPage(video ? { viewport, deviceScaleFactor: scale, recordVideo: { dir: video, size: viewport } }
+    : { viewport, deviceScaleFactor: scale });
   const calls = [];
   mocks = { environment: () => ({ python: "Python 3 (test)", user: null }), ...mocks };
   const real = engine.length ? startEngine() : null;

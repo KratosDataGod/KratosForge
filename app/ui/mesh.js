@@ -471,6 +471,8 @@ async function renderMeshLinksTab(body) {
       h("td", {}, p_usedBy(l.alias)),
       where,
       h("td", {}, btn("Remove", null, async () => {
+        // Always asks: the project shown here can be older than the engine's, which refuses while an entity reads the link.
+        if (!(await confirmDialog(`Remove link ${l.alias}?`, "Its file in metadata/links is deleted, and nothing in Fabric changes. You can bring it back from Source control until you commit.", "Remove", { danger: true }))) return;
         if (await metaCall("mesh_delete_link", { alias: l.alias }, "Not removed")) rerender();
       }, "tool small danger"))) };
   });

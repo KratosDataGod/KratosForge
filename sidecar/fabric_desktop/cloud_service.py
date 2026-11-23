@@ -22,7 +22,7 @@ from typing import Any
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
 
-from . import fabric_step, jsonfile, maintenance, notebook_files, profiling, retrying, semantic
+from . import fabric_step, jsonfile, maintenance, notebook_files, profiling, retrying, risk, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
 from .errors import NotSetUp
 from .fabric_api import FabricClient, FabricError
@@ -300,7 +300,7 @@ class CloudMixin:
                 return None  # deleted in Fabric: Publish makes it again
             raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
                                "published. Try again.") from exc
-        return notebook_files.fabric_changes(base, notebook_files.ipynb_of(definition), doc) | {"item_id": link["item_id"]}
+        return notebook_files.fabric_changes(base, notebook_files.checked(notebook_files.ipynb_of(definition)), doc) | {"item_id": link["item_id"]}
 
     def notebook_publish_check(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                                workspace: dict[str, str] | None = None,
@@ -537,12 +537,17 @@ class CloudMixin:
                 "maintenance": [r for r in self.fabric_runs(100, refresh=not local)
                                 if r.get("kind") == "Table maintenance" and r.get("env") == env][:20]}
 
-    def _maintain(self, store: Any, rows: list[dict[str, Any]], env: str) -> list[dict[str, Any]]:
+    def _maintain(self, store: Any, rows: list[dict[str, Any]], env: str,
+                  risk_ids: dict[str, str] | None = None) -> list[dict[str, Any]]:
         """OPTIMIZE and VACUUM each table: compaction with delta-rs on this PC, or Fabric's table maintenance job.
-        A workspace whose capacity check is Blocked (its last reading: a paused capacity, say) starts no job for
-        any of its tables, as X-ray's Optimize and a notebook's OPTIMIZE are stopped (FINOPS-004)."""
+        Each workspace's capacity check comes first (FINOPS-004), from its last reading. Blocked (a paused
+        capacity, for example) starts no job for any of its tables, as X-ray's Optimize and a notebook's OPTIMIZE
+        are stopped. A Warning starts them only when ``risk_ids`` holds that workspace's ``risk_id`` from
+        meta_optimize_check, the warning the person accepted, and the acceptance is recorded first, as
+        risk_acknowledge records X-ray's; without it (Optimize after a run, which nobody watches) its tables are
+        left, each saying why (Chris, 2026-11-18)."""
         out = []
-        blocked: dict[str, str | None] = {}
+        stop: dict[str, dict[str, Any] | None] = {}
         for t in rows:
             label = f"{t['schema']}.{t['table']}"
             try:
@@ -554,11 +559,10 @@ class CloudMixin:
                     continue
                 lh_id = store.lakehouse_ids[t["lakehouse"]]
                 ws = store.workspace_of(t["lakehouse"])
-                if ws not in blocked:
-                    blocked[ws] = self._maintenance_capacity_refusal(  # type: ignore[attr-defined]
-                        "optimize", ws, "this workspace's tables")
-                if blocked[ws]:
-                    out.append({"table": label, "status": "Failed", "blocked": True, "message": blocked[ws]})
+                if ws not in stop:
+                    stop[ws] = self._maintenance_gate(ws, env, risk_ids or {})
+                if stop[ws]:
+                    out.append({"table": label, "status": "Failed", **stop[ws]})  # type: ignore[dict-item]
                     continue
                 maintenance.check_retention(days)  # before the retention below, which only warns when it fails
                 try:  # so Fabric's own engines keep the same history; the job below vacuums with it too
@@ -575,14 +579,68 @@ class CloudMixin:
                 out.append({"table": label, "status": "Failed", "message": f"{type(exc).__name__}: {exc}"})
         return out
 
-    def meta_optimize(self, env: str = "dev", entities: list[str] | None = None) -> list[dict[str, Any]]:
-        """OPTIMIZE and VACUUM tables: Fabric's maintenance job (with V-Order) in OneLake, delta-rs on this PC."""
+    def _maintenance_gate(self, ws: str, env: str, risk_ids: dict[str, str]) -> dict[str, Any] | None:
+        """Why the workspace's tables don't get table maintenance now, or None when they may. A Warning the
+        person accepted is recorded before anything starts; when that record can't be written, nothing starts."""
+        found = self._maintenance_capacity(ws)  # type: ignore[attr-defined]
+        if found is None or found["outcome"] not in (risk.BLOCKED, risk.WARNING):
+            return None
+        if found["outcome"] == risk.BLOCKED:
+            return {"blocked": True, "message": (f"Not optimized: the capacity check is Blocked ({found['title']}). "
+                                                 f"{found.get('remedy') or ''} Nothing was changed.").replace("  ", " ")}
+        given = risk_ids.get(ws)
+        if not given:
+            return {"warning": True, "risk_id": found["risk_id"],
+                    "message": f"Not optimized (capacity warning): {found['title']}. Optimize it from table health "
+                               "once you've looked at the warning."}
+        if given != found["risk_id"]:
+            return {"warning": True, "risk_id": found["risk_id"],
+                    "message": "Not optimized: the capacity warning changed since you looked. Check it again."}
+        record = {"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "risk_id": given,
+                  "workload_id": f"maintain:{ws}", "workload": f"Optimize tables in {ws}", "action": "meta_optimize",
+                  "env": env, "result": risk.WARNING, "user": self._wl_user(),  # type: ignore[attr-defined]
+                  "warnings": [found["title"]], "note": ""}
+        try:
+            self._risk_ack_write(record)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - an acceptance that isn't recorded starts nothing
+            return {"warning": True, "risk_id": found["risk_id"],
+                    "message": ("Not optimized, because accepting the capacity warning couldn't be recorded "
+                                f"({describe(exc)}), so nothing started. Try Optimize again.")}
+        return None
+
+    def meta_optimize_check(self, env: str = "dev", entities: list[str] | None = None) -> dict[str, Any]:
+        """What Optimize in table health would meet, read only: each workspace's tables and its capacity check
+        from the last reading, with the ``risk_id`` a Warning is accepted by. On this PC there's no capacity."""
+        project = self._project()  # type: ignore[attr-defined]
+        store = self._store(project, env)  # type: ignore[attr-defined]
+        if not isinstance(store, OneLakeStore):
+            return {"env": env, "local": True, "workspaces": []}
+        rows = [t for t in self._managed_tables(project) if (entities is None or t["entity"] in entities)
+                and t["lakehouse"] in store.lakehouse_ids]
+        tables: dict[str, list[str]] = {}
+        for t in rows:
+            tables.setdefault(store.workspace_of(t["lakehouse"]), []).append(f"{t['schema']}.{t['table']}")
+        cfg = self._env_cfg(project, env)
+        names = {cfg.get("workspace_id"): cfg.get("workspace_name") or ""}
+        names |= {w.get("id"): w.get("name") or "" for w in (cfg.get("workspaces") or {}).values() if isinstance(w, dict)}
+        out = []
+        for ws, labels in tables.items():
+            found = self._maintenance_capacity(ws) or {}  # type: ignore[attr-defined]
+            out.append({"workspace_id": ws, "workspace_name": names.get(ws) or "", "tables": labels, "result": found.get("outcome") or risk.UNKNOWN,
+                        "title": found.get("title") or "", "detail": found.get("detail") or "",
+                        "remedy": found.get("remedy") or "", "risk_id": found.get("risk_id") or ""})
+        return {"env": env, "local": False, "workspaces": out}
+
+    def meta_optimize(self, env: str = "dev", entities: list[str] | None = None,
+                      risk_ids: dict[str, str] | None = None) -> list[dict[str, Any]]:
+        """OPTIMIZE and VACUUM tables: Fabric's maintenance job (with V-Order) in OneLake, delta-rs on this PC.
+        ``risk_ids``: per workspace, the capacity warning the person accepted (meta_optimize_check)."""
         project = self._project()  # type: ignore[attr-defined]
         store = self._store(project, env)  # type: ignore[attr-defined]
         rows = [t for t in self._managed_tables(project) if entities is None or t["entity"] in entities]
         if isinstance(store, OneLakeStore):
             rows = [t for t in rows if t["lakehouse"] in store.lakehouse_ids]
-        return self._maintain(store, rows, env)
+        return self._maintain(store, rows, env, risk_ids)
 
     def meta_set_maintenance(self, env: str, optimize_after_run: bool) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -602,7 +660,8 @@ class CloudMixin:
             e = project.entities.get(r["entity"])
             job = jobs.get(f"{e.schema}.{e.table}") if e else None
             if job:
-                r["maintenance"] = job.get("status") if job.get("status") == "Failed" else "queued"
+                r["maintenance"] = ("skipped" if job.get("warning") else job.get("status")
+                                    if job.get("status") == "Failed" else "queued")
                 r["maintenance_message"] = job.get("message", "")
 
     # ---- metadata runs on Fabric capacity (compute = "fabric" in environments.toml)

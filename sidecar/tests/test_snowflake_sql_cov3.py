@@ -72,7 +72,7 @@ def test_timestamp_from_parts_with_nanoseconds_adds_microseconds():
 
 def test_merge_from_an_unnamed_subquery_gets_no_duplicate_check():
     st = one("MERGE INTO t USING (SELECT 1 AS id) ON t.id = id WHEN MATCHED THEN UPDATE SET x = 1")
-    # the subquery's alias is ID, as Snowflake resolves an unquoted name (SFX-031)
+    # the subquery's alias is ID, as Snowflake resolves an unquoted name (SFX-073)
     assert st.duckdb_sql == 'MERGE INTO t USING (SELECT 1 AS "ID") ON t.id = id WHEN MATCHED THEN UPDATE SET x = 1'
 
 
@@ -190,7 +190,7 @@ def test_nonzero_number_of_text_that_isnt_a_number():
     ("SELECT {'a': 1, 2}", "translated", "SELECT {'a': 1, '_1': 2}"),
     ("SELECT ARRAY_INSERT(a, p, 1)", "not_translatable", "SFX-000"),
     ("SELECT $1 FROM t", "translated", "SELECT $1 FROM t"),
-    ("SELECT REGEXP_SUBSTR(s, x, 1, 1, 'e')", "translated", "REGEXP_EXTRACT(s, x)"),
+    ("SELECT REGEXP_SUBSTR(s, x, 1, 1, 'e')", "translated", "REGEXP_EXTRACT(s, REGEXP_REPLACE(x, '^$', 'a^a', 'g'))"),
     ("SELECT TIMESTAMP_TZ_FROM_PARTS(2024, 1, 1, 0, 0, 0, 0, 'UTC')", "not_translatable", "SFX-000"),
     ("SELECT BITAND_AGG(DISTINCT x) FROM t", "translated", "SELECT BIT_AND(DISTINCT x) FROM t"),
     ("SELECT CAST(APPROX_PERCENTILE(x, 0.5) AS DOUBLE) FROM t", "difference",

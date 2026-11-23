@@ -80,10 +80,12 @@ def main(argv: list[str] | None = None) -> None:
                       "create items and use capacity")
     live.add_argument("--check", action="append", default=[], metavar="ID",
                       choices=["delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox",
-                               "lease.onelake", "delta.merge_profile"],
+                               "lease.onelake", "delta.merge_profile", "model.bpa"],
                       help="also run this opt-in check (repeat for more)")
     live.add_argument("--run-in-fabric", action="store_true",
                       help="also run the published test notebook in Fabric; spends Spark capacity")
+    live.add_argument("--bpa-model", default="", metavar="NAME",
+                      help="model.bpa: the semantic model to check (needed when the workspace has more than one)")
     dbx = sub.add_parser("live-test-databricks", help="check sign-in, Unity Catalog, a SQL warehouse and Databricks "
                          "Connect against a test warehouse and cluster")
     dbx.add_argument("--profile", help="the Databricks CLI profile to sign in with (in ~/.databrickscfg)")
@@ -580,7 +582,7 @@ def _live_test(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("The live test will:")
         for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
-                                      extra=extra, run_in_fabric=args.run_in_fabric).plan():
+                                      extra=extra, run_in_fabric=args.run_in_fabric, bpa_model=args.bpa_model).plan():
             print(f"  - {step}")
         print("Dry run: nothing was signed in to, created or written.")
         return 0
@@ -598,7 +600,7 @@ def _live_test(args: argparse.Namespace) -> int:
         return 1 if result["left_behind"] else 0
     test = livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, Path(args.out),
                              protected_ids=livetest.policy_workspace_ids(), extra=extra,
-                             run_in_fabric=args.run_in_fabric)
+                             run_in_fabric=args.run_in_fabric, bpa_model=args.bpa_model)
     print("The live test will:")
     for step in test.plan():
         print(f"  - {step}")

@@ -1,5 +1,5 @@
-"""Snowflake SQL on this PC, rules 2026.11.21: a result's column names (SFX-031), writes to a TIMESTAMP_TZ
-column (SFX-032), and TYPEOF of a timestamp with a time zone (SFX-009, SFN-035). Every expected value is one
+"""Snowflake SQL on this PC, rules 2026.11.23: a result's column names (SFX-073), writes to a TIMESTAMP_TZ
+column (SFX-074), and TYPEOF of a timestamp with a time zone (SFX-009, SFN-073). Every expected value is one
 docs.snowflake.com shows; the page is named at each test."""
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def _columns(code: str) -> list[str]:
     return list(_run(code).columns)
 
 
-# ---------------------------------------------------------------- SFX-031: result column names
+# ---------------------------------------------------------------- SFX-073: result column names
 
 # sql/select: the page's employee_table and department_table (its rows don't change a header)
 _EMPLOYEES = ("CREATE TABLE employee_table (employee_ID INTEGER, last_name VARCHAR, first_name VARCHAR, "
@@ -89,7 +89,7 @@ def test_a_snowflake_cell_shows_upper_case_headers():
         session.close()
 
 
-# ---------------------------------------------------------------- SFX-032: writes to a TIMESTAMP_TZ column
+# ---------------------------------------------------------------- SFX-074: writes to a TIMESTAMP_TZ column
 
 # data-types-datetime's TIMESTAMP_TZ example, in its America/Los_Angeles session: '2024-01-01 16:00:00' is
 # 2024-01-01 16:00:00.000 -0800, HOUR 16
@@ -121,7 +121,7 @@ def test_text_with_another_offset_stops_by_name_where_it_was_stored_without_it(w
     # Snowflake keeps +0000 with the value (data-types-datetime); DuckDB would keep only the instant
     with pytest.raises(duckdb.Error) as raised:
         _run(_TZ_TABLE + write + "; SELECT ts FROM ts_test").fetchall()
-    assert sf.stopped_by_name(raised.value) and "SFN-033" in str(raised.value)
+    assert sf.stopped_by_name(raised.value) and "SFN-071" in str(raised.value)
 
 
 def test_the_pages_own_text_with_a_spaced_offset_is_refused_by_name():
@@ -157,7 +157,7 @@ def test_a_session_remembers_the_tables_snowflake_cells_made():
         assert stored.status == "ok" and stored.outputs[-1]["rows"] == [[16]]
         stopped = session.execute(CellRequest("INSERT INTO ts_test VALUES('2024-01-02T16:00:00+00:00')", "sql",
                                               "snowflake"))
-        assert stopped.status == "error" and "SFN-033" in stopped.outputs[-1]["evalue"]
+        assert stopped.status == "error" and "SFN-071" in stopped.outputs[-1]["evalue"]
         # a column made in DuckDB SQL: TIMESTAMP_TZ or TIMESTAMP_LTZ isn't known, so the write is labelled
         session.execute(CellRequest("CREATE TABLE plain (ts TIMESTAMPTZ)", "sql", "duckdb"))
         labelled = session.execute(CellRequest("INSERT INTO plain VALUES ('2024-01-01 16:00:00')", "sql", "snowflake"))
@@ -167,7 +167,7 @@ def test_a_session_remembers_the_tables_snowflake_cells_made():
         session.close()
 
 
-# ---------------------------------------------------------------- SFX-009 and SFN-035: TYPEOF of a timestamp
+# ---------------------------------------------------------------- SFX-009 and SFN-073: TYPEOF of a timestamp
 
 @pytest.mark.parametrize("value, name", [
     # is_timestamp's example table: TYPEOF of each TO_VARIANT value
@@ -204,10 +204,10 @@ def test_typeof_of_a_zoned_timestamp_whose_kind_isnt_known_stops_by_name(query):
     assert "SFD-007" in [n.id for n in statement.notes]
     with pytest.raises(duckdb.Error) as raised:
         duckdb.sql(statement.duckdb_sql).fetchall()
-    assert sf.stopped_by_name(raised.value) and "SFN-035" in str(raised.value)
+    assert sf.stopped_by_name(raised.value) and "SFN-073" in str(raised.value)
 
 
 def test_rules_version_and_the_new_rules_are_listed():
     table = sf.docs_table()
-    assert sf.RULES_VERSION == "2026.11.21"
-    assert all(f"| {rule} |" in table for rule in ("SFX-031", "SFX-032", "SFN-035"))
+    assert sf.RULES_VERSION == "2026.11.23"
+    assert all(f"| {rule} |" in table for rule in ("SFX-073", "SFX-074", "SFN-073"))

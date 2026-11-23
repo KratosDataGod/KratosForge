@@ -167,3 +167,17 @@ def test_one_version_with_different_labels_is_refused():
         pr.check([a, b])
     with pytest.raises(ValueError, match="different sources or confidence"):
         pr.value(1, "2026-11-20T00:00:00Z", [a, b], LIST)
+
+
+def test_two_different_attributions_of_one_run_are_refused_not_picked_by_order():
+    low, high = run("e1", "2026-11-10T00:00:00Z", 2.0), run("e1", "2026-11-10T00:00:00Z", 9.0)
+    for order in ([low, high], [high, low]):
+        with pytest.raises(ValueError, match="two different attributions"):
+            pr.value_runs(order, [OLD], LIST)
+    same = run("e1", "2026-11-10T00:00:00Z", 2.0)
+    assert pr.value_runs([low, same], [OLD], LIST)["total"]["value"] == pr.value_runs([low], [OLD], LIST)["total"]["value"]
+
+
+def test_no_runs_price_to_a_scenario_zero_not_a_measured_one():
+    total = pr.value_runs([], [OLD], LIST)["total"]
+    assert total["value"] == 0 and total["classification"] == ms.SCENARIO

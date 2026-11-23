@@ -1096,6 +1096,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "with at most 6 significant digits).")]
     pairs = list(zip(here, there, strict=True))
     done: set[int] = set()
+    casts: list[tuple[exp.Expression, exp.DataType | None, exp.DataType | None]] = []
     # Decimal arithmetic first, and inner before outer: a rewrite copies its operands, which by then carry theirs.
     for node, info in reversed(pairs):
         if isinstance(node, tuple(_DECIMAL_OPS)) and (sides := _decimal_operands(info)) is not None:
@@ -1175,8 +1176,12 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             source = _numeric_style(node, info) or info.this.type
             if (unchecked := node.meta.pop("tsql_unchecked_style", None)) is not None:
                 notes.append(_unchecked_style(unchecked))
-            _truncated(node, info.this.type)
-            _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
+            # Once the passes have run, and inner first: these copy the value, so a + inside a cast (text + text
+            # becoming ||) and a cast inside one must be rewritten before (WR-266).
+            casts.append((node, info.this.type, source))
+    for node, kind, source in reversed(casts):
+        _truncated(node, kind)
+        _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
     for again in later:
         again()
     return notes
@@ -1641,9 +1646,15 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     if _is(source, _NUMBERS):
         # A float in T-SQL's style; a number written with a point (1.50) is a decimal there, and keeps its digits.
         shown = _float_text(node.this) if _is(source, _FLOATS) and not _written_decimal(node.this) else text
-        too_long = exp.GT(this=exp.func("LENGTH", shown.copy()), expression=exp.Literal.number(n))
+        # Bound once, as LIST_TRANSFORM([text], v -> ...)[1], so a source that changes each time it's read (RAND)
+        # is measured and shown as the same value.
+        v = exp.to_identifier("kf_shown")
+        too_long = exp.GT(this=exp.func("LENGTH", v.copy()), expression=exp.Literal.number(n))
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
-        cut: exp.Expr = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
+        case = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=v.copy())
+        bound = exp.Anonymous(this="LIST_TRANSFORM", expressions=[exp.Array(expressions=[shown]),
+                                                                  exp.Lambda(this=case, expressions=[v])])
+        cut: exp.Expr = exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1)
     else:
         cut = exp.func("LEFT", text, exp.Literal.number(n))
     if to.this in _PADDED:

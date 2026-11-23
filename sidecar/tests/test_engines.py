@@ -84,20 +84,22 @@ def test_planned_engines_claim_nothing_and_say_what_is_planned():
         assert check_cell(d, "python")["ok"] is False
 
 
-def test_snowflake_engines_are_planned_and_claim_nothing():
+def test_snowpark_engines_are_planned_and_claim_nothing():
     local = {d.family for d in registry.ENGINES.values() if d.platform != "snowflake"}
-    for eid in ("snowflake-sql", "snowpark-local", "snowpark-connect"):
+    for eid in ("snowpark-local", "snowpark-connect"):
         d = registry.get(eid)
         assert d.platform == "snowflake" and not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)
         assert not any(s.available for s in (*d.languages.values(), *d.dialects.values()))
         with pytest.raises(ValueError, match="can't run cells"):
             registry.adapter(eid)
-        # A Snowflake session can't carry variables to or from another engine.
-        assert d.family not in local
+    # A Snowflake session can't carry variables to or from another engine.
+    for eid in ("snowflake-sql", "snowpark-local", "snowpark-connect"):
+        assert registry.get(eid).family not in local
     for eid in ("snowflake-sql", "snowpark-connect"):
         d = registry.get(eid)
-        assert d.remote and d.preview and d.billing == "snowflake_credits" and "credits" in d.planned
+        assert d.remote and d.preview and d.billing == "snowflake_credits"
+    assert "credits" in registry.get("snowpark-connect").planned
     local_snowpark = registry.get("snowpark-local")
     assert not local_snowpark.remote and local_snowpark.billing == "none"
     assert "Simulated" in local_snowpark.planned and "Preview" in local_snowpark.planned

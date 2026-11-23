@@ -348,7 +348,11 @@ How to check: The rewritten filter returns the same rows, and reads less data in
 
 Why: `ROW_NUMBER()` numbers the rows in the order of that run. When a customer is added or removed,
 every number after it moves, and the facts that stored the old numbers now point at other customers.
-Nothing fails; the report is just wrong.
+Nothing fails; the report is just wrong. The key column is the one the number lands in. With an
+`INSERT` column list, that's the column at the `ROW_NUMBER()` item's position (`INSERT INTO d
+(customer_key, ...) SELECT ROW_NUMBER() OVER (...), ...`), whatever alias the item has. Without a
+column list, it's the item's alias, as in `SELECT ... INTO` and `CREATE TABLE ... AS`. An `INSERT`
+with neither isn't reported, because the column can't be told from the script alone.
 
 ```sql
 -- Before
@@ -363,7 +367,9 @@ WHERE NOT EXISTS (SELECT 1 FROM dbo.dim_customer AS d WHERE d.customer_id = s.cu
 ```
 
 The check looks for `ROW_NUMBER()` named `..._key` or `..._sk` in a statement that stores its rows
-(`INSERT`, `MERGE`, `SELECT ... INTO` or `CREATE TABLE ... AS`). In KratosForge, the keys database
+(`INSERT`, `MERGE`, `SELECT ... INTO` or `CREATE TABLE ... AS`). Only a `ROW_NUMBER()` that is the
+whole item, or the whole item inside a `CAST`, is reported. An offset added to it, as in the fix above,
+isn't. In KratosForge, the keys database
 (LH_Keys) gives each business key its number once.
 
 Safe to leave: the facts are rebuilt from the same numbering in the same load, every time.

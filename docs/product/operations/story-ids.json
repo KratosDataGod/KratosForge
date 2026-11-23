@@ -9,7 +9,7 @@
       "thread": "Local data engine and OneLake publishing",
       "workstream": "local-exec",
       "blocks": [{"first": "WR-100", "last": "WR-199"}],
-      "next": "WR-143",
+      "next": "WR-145",
       "note": "WR-123 to WR-129 were never used and stay free."
     },
     {
@@ -25,7 +25,7 @@
       "thread": "Build full warehouse development experience",
       "workstream": "fabric",
       "blocks": [{"first": "WR-200", "last": "WR-269"}],
-      "next": "WR-265"
+      "next": "WR-266"
     },
     {
       "key": "sql-translator",
@@ -39,7 +39,8 @@
       "name": "Dbx parity",
       "thread": "Fabric and Databricks unified development",
       "workstream": "dbx-snow",
-      "blocks": [{"first": "WR-300", "last": "WR-399"}]
+      "blocks": [{"first": "WR-300", "last": "WR-399"}],
+      "next": "WR-321"
     },
     {
       "key": "governance",
@@ -60,7 +61,8 @@
       "name": "Platform",
       "thread": "Codebase audit and hardening",
       "workstream": "platform",
-      "blocks": [{"first": "WR-600", "last": "WR-699"}]
+      "blocks": [{"first": "WR-600", "last": "WR-699"}],
+      "next": "WR-618"
     }
   ],
   "exceptions": [

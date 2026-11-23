@@ -1,7 +1,7 @@
 // Data health: the guard paths the main test file doesn't reach. In an open table, Stop watching and
 // Check again that the engine refuses show the reason as an error and stay on the table; when they
 // work, the list comes back. A changed schema lists what was added, removed and retyped. Mocks only.
-const { test, before, after } = require("node:test");
+const { test, before, beforeEach, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, startupReads } = require("./harness.cjs");
 
@@ -35,6 +35,8 @@ before(async () => {
   app.errors.length = 0;
 });
 after(async () => { if (app) await app.close(); });
+// A failed assert can't leave the engine refusing for the next test.
+beforeEach(() => { fail = false; sent.length = 0; });
 
 async function openOrders() {
   await page().evaluate(() => { dhPage.open = null; dhPage.env = "dev"; monitorPage.panel = "data_health"; go("home"); go("monitor"); });

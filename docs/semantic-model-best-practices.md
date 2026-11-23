@@ -22,7 +22,8 @@ model rows in **Optimize > Opportunities**) come next, once the mockup is approv
    statistics, which some rules need. The model is read through its XMLA endpoint, so the capacity needs
    XMLA read, which is on by default.
 5. The notebook saves the findings to `LH_Meta/Files/_fabric_desktop/results/<request>.json`. The app reads
-   them back once the job finishes and keeps the last result for each model on this PC.
+   them back once the job finishes and keeps the last result for each model on this PC. Any workspace contributor can
+   write that file, so the app reads at most its first 8 MB and refuses a larger one.
 6. If the install or the check fails, the notebook saves the error to the same file instead, with its
    traceback and pip's output, then fails the run. Fabric doesn't return a Python notebook's cell output
    to the app, so this is how the app can say why a check failed without opening the run in Fabric.

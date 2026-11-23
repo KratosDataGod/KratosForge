@@ -109,6 +109,7 @@ function channelLabel() {
 function redactReport(text, level = "support") {
   const slash = "(?:\\\\\\\\|\\\\|/)+";
   const out = String(text)
+    .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
     .replace(/eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*/g, "[removed]")
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
     .replace(/(\bauthorization\s*[:=]\s*basic\s+)[A-Za-z0-9+/=]{4,}/gi, "$1[removed]")
@@ -133,7 +134,6 @@ function redactReport(text, level = "support") {
     .replace(/(?:https?:\/\/)?\bhooks\.slack\.com\/(?:services|workflows|triggers)\/[^\s"'<>]+/gi, "[removed]")
     .replace(/\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}/g, "[removed]")
     .replace(/(\b(?:ocp-apim-)?subscription[_-]?key"?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1[removed]")
-    .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
     .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
@@ -948,13 +948,15 @@ async function renderSettings() {
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
   // Connections (connections.js) is a tab too: Databricks and Snowflake connection profiles.
-  const tab = previewShown() && ["integrations", "connections"].includes(state.settingsTab) ? state.settingsTab : "general";
+  // Environment (kf-environment.js) is the KratosForge Environment this PC uses (CP-010).
+  const tab = previewShown() && ["integrations", "connections", "environment"].includes(state.settingsTab) ? state.settingsTab : "general";
   const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
-    [["general", "General"], ["connections", "Connections"], ["integrations", "Integrations"]].map(([id, label]) =>
+    [["general", "General"], ["connections", "Connections"], ["environment", "Environment"], ["integrations", "Integrations"]].map(([id, label]) =>
       h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
         label, id === "general" ? null : previewTag()))) : null;
   const integrations = h("div", { class: "integrations" });
   const connections = h("div", { class: "connections" });
+  const environment = h("div", { class: "kf-environment" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
   const platform = previewShown() ? h("section", { class: "card pad platform-link" },
     h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
@@ -963,13 +965,17 @@ async function renderSettings() {
   // Usage and Notifications are read above: whoever moved on to another page meanwhile stays there.
   if (state.view !== "settings") return;
   setView(settingsPageView(pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")),
-    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, editor, previews, usage, platform, notify, about, advanced].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : tab === "environment" ? environment : [account, updates, display, editor, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
   if (tab === "connections") {
     renderConnectionsTab(connections);
+    return;
+  }
+  if (tab === "environment") {
+    renderEnvironmentTab(environment);
     return;
   }
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
@@ -1390,7 +1396,7 @@ function readinessCard() {
     box.replaceChildren(head, withHowItWorks(
       h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
       howItWorks("home.ready", {
-        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, your organization's policy file on this PC, and how much room the drive with your data folder has and whether it is a network share. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, your organization's policy file on this PC, and how much room the drive with your data folder has, whether it is a network share, and whether any folder KratosForge keeps files in is in OneDrive. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
         changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
         results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
         anchor: "ready-to-work",

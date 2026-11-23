@@ -2,7 +2,7 @@
  "DM002": {
   "importance": "Critical",
   "area": "Reliability",
-  "why": "`ROW_NUMBER()` numbers the rows in the order of that run. When a customer is added or removed, every number after it moves, and the facts that stored the old numbers now point at other customers. Nothing fails; the report is just wrong. The check looks for `ROW_NUMBER()` named `..._key` or `..._sk` in a statement that stores its rows (`INSERT`, `MERGE`, `SELECT ... INTO` or `CREATE TABLE ... AS`). In KratosForge, the keys database (LH_Keys) gives each business key its number once.",
+  "why": "`ROW_NUMBER()` numbers the rows in the order of that run. When a customer is added or removed, every number after it moves, and the facts that stored the old numbers now point at other customers. Nothing fails; the report is just wrong. The key column is the one the number lands in. With an `INSERT` column list, that's the column at the `ROW_NUMBER()` item's position (`INSERT INTO d (customer_key, ...) SELECT ROW_NUMBER() OVER (...), ...`), whatever alias the item has. Without a column list, it's the item's alias, as in `SELECT ... INTO` and `CREATE TABLE ... AS`. An `INSERT` with neither isn't reported, because the column can't be told from the script alone. The check looks for `ROW_NUMBER()` named `..._key` or `..._sk` in a statement that stores its rows (`INSERT`, `MERGE`, `SELECT ... INTO` or `CREATE TABLE ... AS`). Only a `ROW_NUMBER()` that is the whole item, or the whole item inside a `CAST`, is reported. An offset added to it, as in the fix above, isn't. In KratosForge, the keys database (LH_Keys) gives each business key its number once.",
   "fine": "The facts are rebuilt from the same numbering in the same load, every time.",
   "instead": "",
   "principle": "A key, once given, never changes.",
@@ -52,7 +52,7 @@
   "impact": "Reliability. After promotion, Test or Prod reads and writes the Dev lakehouse.",
   "check": "No path in the notebook holds a workspace or lakehouse id. After you promote it and run it once, the write shows in the Test lakehouse's table history, not Dev's.",
   "language": "python",
-  "before": "df = spark.read.load(\"abfss://3f2a...@onelake.dfs.fabric.microsoft.com/9c1d.../Tables/sales\")",
+  "before": "df = spark.read.load(\"abfss://3f2a6c1e-8b4d-4e2a-9f7c-5d1b0a6e3c48@onelake.dfs.fabric.microsoft.com/\"\n                     \"9c1d7e52-0a3f-4b6c-8d2e-7f4a1b9c0e63/Tables/sales\")",
   "after": "df = spark.read.table(\"sales\")          # or the default lakehouse's \"Tables/sales\""
  },
  "NB003": {
@@ -169,8 +169,8 @@
   "impact": "Performance. Each `count()` reads the data again.",
   "check": "The cell starts one count job for the DataFrame instead of several (the Spark jobs listed under the cell).",
   "language": "python",
-  "before": "if df.count() > 0: print(df.count())",
-  "after": "n = df.count()\nif n > 0: print(n)"
+  "before": "if df.count() > 0:\n    print(f\"Loading {df.count():,} rows\")\n    assert df.count() < 10_000_000",
+  "after": "n = df.count()\nif n > 0:\n    print(f\"Loading {n:,} rows\")\n    assert n < 10_000_000"
  },
  "NB012": {
   "importance": "Recommended",
@@ -201,7 +201,7 @@
  "NB015": {
   "importance": "Educational",
   "area": "Performance",
-  "why": "`pl.read_csv` and `pl.read_parquet` load every row into memory before `.filter()` drops the rows you don't need. A lazy scan may push the filter into the read, so less is read and kept.",
+  "why": "`pl.read_csv` and `pl.read_parquet` load every row into memory before `.filter()` drops the rows you don't need. A lazy scan may push the filter into the read, so less is read and kept. It is also reported when the read is kept in a name, `df = pl.read_csv(...)`, and every use of `df` in the notebook, in any cell, is `df.filter(...)`. A name that's used any other way in any cell, or bound again (assigned, a `for` or `with` target, an argument), isn't reported, because then the whole frame may be needed. Neither is one named in a `%%sql` cell or in a string, such as `duckdb.sql(\"... FROM df\")`.",
   "fine": "The file is small, or you need every row in memory for later steps anyway.",
   "instead": "",
   "principle": "Tell the reader what you need before it reads.",

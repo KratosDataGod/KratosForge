@@ -1375,6 +1375,11 @@ def _spark_decimals(df: DataFrame, cols: Any) -> list[Any]:
     if not at or any(t.strip() == "*" or t.endswith(".*") for t in texts):
         return cols
     from .spark_decimals import spark_decimal_columns
+    from .spark_text_compare import spark_text_comparison_columns
+    for i, compared in zip(at, spark_text_comparison_columns(texts, _types(df)), strict=True):
+        if compared is not None:  # text compared with a number as Spark compares them (WR-254)
+            cols[i] = Column(duckdb.SQLExpression(compared[0]).alias(compared[1] or _bound_name(df, cols[i].expr)))
+            texts[at.index(i)] = str(cols[i].expr)
     for i, new in zip(at, spark_decimal_columns(texts, _types(df)), strict=True):
         if new is not None:
             # The rewritten column keeps the column's name: its alias, or the name DuckDB gives the expression.
@@ -1741,6 +1746,14 @@ class DataFrameNaFunctions:
         return _replace(self._df, to_replace, value, subset)
 
 
+def _df_count(self: DataFrame) -> int:
+    """The number of rows, with the count's result read to its end. DuckDB 1.x's own count() reads it with
+    fetchone(), which leaves the result open; the next statement on the session's connection that fails
+    (a read of a file that isn't there, say) then leaves every later one failing with "Current transaction
+    is aborted", until the notebook restarts."""
+    return int(one_row(self.relation.count("*"))[0])
+
+
 def _describe(self: DataFrame, *cols: str) -> DataFrame:
     """count, mean, stddev, min and max of each column, as text, as Spark's describe() shows them."""
     names = _known(self, list(_flat(cols))) or [c for c, t in _types(self) if _NUMERIC.fullmatch(t) or t.upper() == "VARCHAR"]
@@ -1953,6 +1966,11 @@ def _row_filter(fn: Any) -> Any:
         from .spark_struct_fields import refuse_unresolved
         refuse_unresolved([condition])
         condition = _typed_columns(self, [condition], generators=False)[0]
+        if isinstance(condition, Column):  # text compared with a number as Spark compares them (WR-254)
+            from .spark_text_compare import spark_text_comparison_columns
+            compared = spark_text_comparison_columns([str(condition.expr)], _types(self))[0]
+            if compared is not None:
+                condition = Column(duckdb.SQLExpression(compared[0]))
         if isinstance(condition, Column) and "row_number() OVER ()" in str(condition.expr):
             cols = ", ".join(_col_sql(c) for c in self.columns)
             numbered = self.relation.project(f"*, ({condition.expr}) AS {_KEEP_ROW}")
@@ -2557,6 +2575,7 @@ def install() -> None:
     DataFrame.replace = _replace  # type: ignore[attr-defined]
     DataFrame.na = property(DataFrameNaFunctions)  # type: ignore[attr-defined]
     DataFrame.describe = _describe  # type: ignore[attr-defined]
+    DataFrame.count = _df_count  # type: ignore[method-assign]
     DataFrame.summary = _summary  # type: ignore[attr-defined]
     DataFrame.drop = _drop_cols(DataFrame.drop)  # type: ignore[method-assign]
     DataFrame.withColumnRenamed = _with_column_renamed(DataFrame.withColumnRenamed)  # type: ignore[method-assign]

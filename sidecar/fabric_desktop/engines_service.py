@@ -32,6 +32,9 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
   Asset Bundle with the person's own Databricks CLI, as the connection's CLI profile
   (engines/databricks_bundles.py). Validate and plan change nothing; deploy plans again, stops if the
   plan changed, and needs the target's name typed for a plan that deletes or rebuilds, or for production.
+- ``snowflake_check`` (Preview, SF-002) checks a Snowflake connection from a profile: sign-in, role,
+  database, schema and warehouse, each with what to fix (engines/snowflake_remote.py). It sends no
+  warehouse, so nothing resumes and no warehouse credits are used.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -61,12 +64,18 @@ METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_sel
            "databricks_runs", "databricks_run", "databricks_billing", "databricks_billing_last",
            "databricks_sync_pairs", "databricks_sync_pair_save", "databricks_sync_pair_remove", "databricks_sync_compare",
            "databricks_sync_push", "databricks_sync_pull",
-           "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy"}
+           "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy",
+           "snowflake_check"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
 KERNEL = "local-python"          # the notebook's own kernel; runs through start_cell, not here
-BILLS = {"databricks_dbu": "bills DBUs", "fabric_capacity": "uses Fabric capacity", "none": ""}
+BILLS = {"databricks_dbu": "bills DBUs", "fabric_capacity": "uses Fabric capacity",
+         "snowflake_credits": "uses Snowflake credits", "none": ""}
+# Engines with an adapter that the notebook's engine menu doesn't offer yet, and why. The menu picks
+# Databricks connections only, so it lists these as planned, and choosing one is refused here.
+NOT_IN_PICKER = {"snowflake-sql": "Read-only SQL cells on a Snowflake warehouse are built (Preview), and choosing "
+                                  "them for a notebook comes when the engine menu lists Snowflake connections."}
 _MAGIC = re.compile(r"^\s*(%%sql|%sql)[^\n]*\n?", re.IGNORECASE)
 _WRITES = re.compile(r"\b(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|OPTIMIZE|VACUUM)\b|"
                      r"\.(saveAsTable|insertInto|save)\(|\.write\b", re.IGNORECASE)
@@ -83,6 +92,14 @@ def cell_request(source: str) -> CellRequest:
 
 _COMPUTE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 _NAME_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,255}$")
+
+
+def _pickable(desc: Any) -> None:
+    """Refuse an engine the notebook can't choose in this version, saying what's planned."""
+    if not desc.adapter:
+        raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+    if desc.id in NOT_IN_PICKER:
+        raise ValueError(f"{desc.label} can't be chosen for a notebook in this version. {NOT_IN_PICKER[desc.id]}")
 
 
 def _connection_view(profile_id: str, c: dict[str, Any]) -> dict[str, Any]:
@@ -165,6 +182,8 @@ class EnginesMixin:
         for e in out["engines"]:
             e["bills"] = BILLS.get(e.get("billing", "none"), "")
             e["kernel"] = e["id"] == KERNEL
+            if e["id"] in NOT_IN_PICKER:
+                e["adapter"], e["planned"] = False, NOT_IN_PICKER[e["id"]]
         return out
 
     def engine_connections(self) -> dict[str, Any]:
@@ -266,6 +285,15 @@ class EnginesMixin:
                     "parts": {}, "suggested": {"warehouse_id": "", "cluster_id": ""},
                     "error": redact.secrets(str(exc))}
         return redact.walk(databricks_discovery.Discovery(client, catalogs=bool(catalogs)).run())
+
+    def snowflake_check(self, connection: str) -> dict[str, Any]:
+        """Check a Snowflake connection (a ``profile:<id>:<connection>`` key) field by field: sign-in,
+        role, database, schema, warehouse. Metadata only: no warehouse is resumed."""
+        from .engines import snowflake_remote
+        conn, _, _ = self._connection(connection)
+        if conn.get("platform") != "snowflake":
+            raise ValueError("That connection isn't a Snowflake connection.")
+        return redact.walk(snowflake_remote.check_connection(conn))
 
     def _runs_reader(self, connection: str) -> Any:
         from .engines import databricks_jobs
@@ -564,8 +592,7 @@ class EnginesMixin:
                        lakehouse_id: str = "", lakehouse_name: str = "", cells: list[str] | None = None) -> dict[str, Any]:
         """What choosing ``engine`` for ``notebook`` would do. Starts nothing and changes nothing."""
         desc = registry.get(engine)
-        if not desc.adapter:
-            raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+        _pickable(desc)
         mgr = self._engine_manager()
         current = mgr.engine_of(notebook) or KERNEL
         transition = {"needed": False, "loses": [], "decisions": [], "message": ""}
@@ -660,8 +687,7 @@ class EnginesMixin:
             self._engine_jobs.pop(notebook, None)
             return _with_notes({"engine": KERNEL, "status": "ready"}, mgr.notes(notebook))
         desc = registry.get(engine)
-        if not desc.adapter:
-            raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+        _pickable(desc)
         authorization = None
         config_options: dict[str, Any] = {}
         target = ""

@@ -117,8 +117,22 @@ def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
                 code = pattern[i:i + 4]
                 if not re.fullmatch(r"[0-9A-Fa-f]{4}", code):
                     raise _refuse(fn, "'\\u' without four hex digits after it")
-                out.append(f"\\x{{{code}}}")
                 i += 4
+                unit = int(code, 16)
+                low = re.match(r"\\u(D[C-F][0-9A-F]{2})", pattern[i:i + 6], re.I)
+                if 0xD800 <= unit <= 0xDBFF and low:
+                    # Java reads \uD83D\uDE00 as the one character U+1F600 that its two UTF-16 halves make
+                    code = f"{0x10000 + ((unit - 0xD800) << 10) + (int(low.group(1), 16) - 0xDC00):X}"
+                    i += 6
+                elif 0xD800 <= unit <= 0xDFFF:
+                    raise _refuse(fn, f"half of a UTF-16 pair ('\\u{code}') on its own",
+                                  "Write the whole character, such as \\x{1F600}.")
+                out.append(f"\\x{{{code}}}")
+            elif d == "x" and pattern.startswith("{", i):
+                end = pattern.find("}", i)
+                end = n - 1 if end < 0 else end
+                out.append("\\x" + pattern[i:end + 1])   # \x{1F600} as it is, so its braces aren't a quantifier
+                i = end + 1
             elif d == "e":
                 out.append("\\x{1B}")
             elif d == "c":
@@ -126,6 +140,8 @@ def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
                     raise _refuse(fn, "'\\c' without a letter after it")
                 out.append(f"\\x{{{ord(pattern[i]) ^ 64:X}}}")
                 i += 1
+            elif not d.isascii():
+                out.append(f"\\x{{{ord(d):X}}}")   # Java takes \é as é; RE2 escapes only ASCII
             else:
                 out.append("\\" + d)
             continue
@@ -186,11 +202,16 @@ def java_pattern(pattern: str, fn: str) -> tuple[str, int, dict[str, int]]:
             continue
         if c == "{":
             q = _QUANTIFIER.match(pattern, i)
-            if q:
-                out.append(q.group())
-                i = q.end()
-                quantified = True
-                continue
+            if not q:
+                # Java stops on a { that isn't a repeat such as {2} or {2,5} ("Illegal repetition"); RE2 took it
+                # as the character, so rlike('a{', 'a{') was true here where Spark stops
+                raise ValueError(f"{fn}'s regular expression has a {{ that isn't a repeat such as {{2}} or {{2,5}}, so "
+                                 "nothing ran. Spark stops on it too (\"Illegal repetition\"). Write \\{ for the "
+                                 "character {.")
+            out.append(q.group())
+            i = q.end()
+            quantified = True
+            continue
         if c == "+" and quantified:
             raise _refuse(fn, "a possessive quantifier ('*+', '++', '?+')", "Drop the second + if the match doesn't depend on it.")
         if c == "?" and quantified:
@@ -264,6 +285,113 @@ def java_replacement(text: str, fn: str, groups: int, names: dict[str, int]) -> 
     return "".join(out)
 
 
+# ---- empty matches. Java's Matcher.find takes an empty match where the match before it ended (Python's re does
+# too); RE2's GlobalReplace skips it, so regexp_replace('aaa', 'a*', 'X') was 'X' here and 'XX' in Spark. And
+# DuckDB 1.x's REGEXP_EXTRACT_ALL takes an empty match found after where it started looking twice, so
+# regexp_count('ab', '\\b') was 3 here and 2 in Spark (DuckDB 2.0 gives 2).
+
+_re2: Any = None
+_GROUPING = re.compile(r"\(\?P<\w+>|\(\?[a-zA-Z-]*[:)]|[()|]|[?*+]|\{\d+(,\d*)?\}")
+
+
+def _empty_matches(pattern: str) -> tuple[bool, bool, bool]:
+    """For a pattern in RE2's syntax: whether it can match empty text somewhere, whether it only ever matches
+    empty text (such as ^, $, \\b or (^|$)), and whether it has an anchor or boundary (^ $ \\b \\B \\A \\z).
+    Each anchor is taken as matching anywhere, so 'can match empty text' errs towards yes."""
+    kept: list[str] = []
+    anchors, in_class, i, n, start = False, False, 0, len(pattern), 0
+    unclosed = False  # a [: with no :] after it: later ones have none either, so no rescan
+    while i < n:
+        c = pattern[i]
+        if c == "\\":
+            if not in_class and pattern[i + 1:i + 2] in ("b", "B", "A", "z"):
+                anchors = True
+            else:
+                kept.append(pattern[i:i + 2])
+            i += 2
+            continue
+        if in_class:
+            if c == "[" and pattern.startswith("[:", i) and not unclosed:
+                end = pattern.find(":]", i + 2)
+                if end > 0:
+                    kept.append(pattern[i:end + 2])
+                    i = end + 2
+                    continue
+                unclosed = True
+            in_class = not (c == "]" and i > start)
+        elif c == "[":
+            in_class = True
+            start = i + (2 if pattern.startswith("[^", i) else 1)   # a ] right here is a character of the class
+            kept.append(pattern[i:start])
+            i = start
+            continue
+        elif c in "^$":
+            anchors = True
+            i += 1
+            continue
+        kept.append(c)
+        i += 1
+    stripped = "".join(kept)
+    global _re2
+    import duckdb
+
+    from .duckdb_rows import one_row
+    if _re2 is None:
+        _re2 = duckdb.connect()
+    try:
+        empty = bool(one_row(_re2.cursor().execute("SELECT regexp_full_match('', ?)", [stripped]))[0])
+    except duckdb.Error:   # silent-ok: RE2 can't read it, and DuckDB stops on the pattern itself when it runs
+        return False, False, anchors
+    return empty, empty and _GROUPING.sub("", stripped) == "", anchors
+
+
+def _at_start_only(pattern: str) -> bool:
+    """Whether ``pattern`` can match only at the start of the text: it starts with ^, has no | outside a group or
+    class, and no m flag (which lets ^ match after each line break). Then there is one match at most."""
+    if not pattern.startswith("^") or "(?" in pattern and re.search(r"\(\?[a-zA-Z]*m", pattern):
+        return False
+    depth, in_class, i = 0, False, 1
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+            i += 2 if pattern.startswith("[^", i) else 1
+            i += 1 if pattern.startswith("]", i) else 0   # a ] first in a class is a character of it
+            continue
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif c == "|" and depth == 0:
+            return False
+        i += 1
+    return True
+
+
+def _refuse_empty_matches(fn: str, pattern: str, replacement: str | None = None) -> None:
+    """Refuse by name where Java and this PC take empty matches differently (see above)."""
+    from .duckdb_rows import duckdb_major
+    can, only, anchors = _empty_matches(pattern)
+    if not can or _at_start_only(pattern):
+        return
+    if fn == "regexp_replace":
+        if only or replacement == "":
+            return   # an empty match replaced by nothing changes nothing
+        raise ValueError(f"regexp_replace can't run on this PC with a pattern that can match empty text right after "
+                         f"another match ('{pattern}'), so nothing ran. Java replaces that empty match too, and RE2, "
+                         "which runs it here, skips it. Use a pattern that always matches a character (+ in place of "
+                         "*), or run it in Fabric.")
+    if anchors and duckdb_major() < 2:
+        raise ValueError(f"{fn} can't run on this PC with a pattern that can match empty text at an anchor or word "
+                         f"boundary ('{pattern}'), so nothing ran. This PC's DuckDB counts some of those empty "
+                         "matches twice. Use a pattern that always matches a character, or run it in Fabric.")
+
+
 # ---- the rewrite
 
 _REGEX = {exp.RegexpLike: "rlike", exp.RegexpExtract: "regexp_extract", exp.RegexpExtractAll: "regexp_extract_all",
@@ -316,6 +444,11 @@ def _regex(node: exp.Expression, fn: str) -> exp.Expression | None:
         translated, groups, names = java_pattern(text, fn)
         if translated != text:
             pattern.replace(exp.Literal.string(translated))
+    written_pattern = _text(node.args.get("expression"))
+    if written_pattern is not None and isinstance(node, (exp.RegexpReplace, exp.RegexpExtractAll, exp.RegexpCount)):
+        _refuse_empty_matches(fn, written_pattern, _text(node.args.get("replacement")))
+    if isinstance(node, exp.RegexpInstr):
+        return _instr(node, fn, groups)
     if isinstance(node, (exp.RegexpExtract, exp.RegexpExtractAll)):
         group = node.args.get("group")
         if isinstance(group, exp.Null):
@@ -331,6 +464,9 @@ def _regex(node: exp.Expression, fn: str) -> exp.Expression | None:
         if index is not None and index > 9:
             raise ValueError(f"{fn} asks for group {index}. On this PC a group index can be 0 to 9, so nothing ran. "
                              "Run it in Fabric.")
+        if isinstance(node, exp.RegexpExtractAll) and index != 0:
+            # a group that took no part in a match is '' in Spark's array (as in regexp_extract), not NULL
+            return _around(node, "LIST_TRANSFORM(fj_arg0, kf_g -> COALESCE(kf_g, ''))", [])
     if isinstance(node, exp.RegexpReplace):
         position = node.args.get("position")
         at = _int(position) if position is not None else None
@@ -353,6 +489,41 @@ def _regex(node: exp.Expression, fn: str) -> exp.Expression | None:
                                  "THEN LENGTH(fj_arg0) + 1 ELSE LENGTH(REGEXP_EXTRACT_ALL(fj_arg0, fj_arg1)) END",
                                  [node.this, node.expression]))
     return None
+
+
+def _instr(node: exp.Expression, fn: str, groups: int | None) -> exp.Expression:
+    """regexp_instr(str, regexp[, idx]) as Spark's RegExpInstr: where the first match starts, from 1, or 0. idx is a
+    group number that Spark only checks (sqlglot read it as a start position, so regexp_instr('bcx', '(b)(c)', 2)
+    was 0 here and 1 in Spark), and the start counts UTF-16 units, as a Java String does: a character past
+    U+FFFF counts 2. An empty match counts (regexp_instr('xab', 'a*') is 1); here it was skipped. The text
+    before the match is read with RE2 as ^(.*?)(?:regexp), its shortest lead-in, which is where an
+    unanchored search finds the match."""
+    index_arg = node.args.get("position")
+    index = _int(index_arg) if index_arg is not None else 0
+    if index is not None and (index < 0 or (groups is not None and index > groups)):
+        raise ValueError(f"{fn} asks for group {index}, and the pattern has {_groups(groups or 0)}, so nothing ran. "
+                         f"Spark stops on it too where a row matches. {_use_group(groups or 0)}")
+    pattern = node.expression
+    written = _text(pattern)
+    lead = (exp.Literal.string(f"^((?s:.*?))(?:{written})").sql("duckdb") if written is not None
+            else "'^((?s:.*?))(?:' || kf_ri.p || ')'")
+    match = exp.Literal.string(written).sql("duckdb") if written is not None else "kf_ri.p"
+    checked = index_arg is not None and index is None   # an idx from the data: NULL gives NULL, as in Spark
+    template = (f"CAST((LIST_TRANSFORM([{{'s': kf_put_s, 'p': kf_put_p{', i: kf_put_i' if checked else ''}}}], "
+                f"kf_ri -> CASE WHEN kf_ri.s IS NULL OR kf_ri.p IS NULL{' OR kf_ri.i IS NULL' if checked else ''} "
+                f"THEN NULL WHEN NOT REGEXP_MATCHES(kf_ri.s, {match}) THEN 0 ELSE (LIST_TRANSFORM([REGEXP_EXTRACT("
+                f"kf_ri.s, {lead}, 1)], kf_rl -> LENGTH(kf_rl) + LENGTH(REGEXP_REPLACE(kf_rl, "
+                "'[^\\x{10000}-\\x{10FFFF}]', '', 'g')) + 1))[1] END))[1] AS INT)")
+    new = _swap(node, _with(template.replace("i: kf_put_i", "'i': kf_put_i"), []))
+    for counted in list(new.find_all(exp.Length)):   # already whole numbers, so not each made an int on its own
+        counted.replace(exp.Anonymous(this="LENGTH", expressions=[counted.this]))
+    # the arguments themselves (not copies) go in, so a regexp_instr inside them is still rewritten after this one
+    text = node.this if _text(node.this) is not None else exp.cast(node.this, "VARCHAR", copy=False)
+    for name, arg in (("kf_put_s", text), ("kf_put_p", pattern), ("kf_put_i", index_arg)):
+        slot = next((c for c in new.find_all(exp.Column) if c.name == name and not c.table), None)
+        if slot is not None and arg is not None:
+            slot.replace(arg)
+    return new
 
 
 def _split_part(node: exp.Expression) -> exp.Expression:
@@ -391,8 +562,30 @@ def _locate(node: exp.Expression) -> exp.Expression | None:
     position = node.args.get("position")
     if position is None:
         return None
-    return _around(node, "CASE WHEN fj_arg1 IS NULL THEN 0 WHEN fj_arg2 IS NULL OR fj_arg3 IS NULL THEN NULL "
-                         "WHEN fj_arg1 < 1 THEN 0 ELSE fj_arg0 END", [position, node.args["substr"], node.this])
+    template = ("CASE WHEN fj_arg1 IS NULL THEN 0 WHEN fj_arg2 IS NULL OR fj_arg3 IS NULL THEN NULL "
+                "WHEN fj_arg1 < 1 THEN 0 ELSE fj_arg0 END")
+    parts = {"p": ("position", position), "s": ("substr", node.args["substr"]), "t": ("this", node.this)}
+    bound = {k: v for k, v in parts.items() if not isinstance(v[1], (exp.Column, exp.Literal, exp.Null))}
+    if not bound:
+        return _around(node, template, [position, node.args["substr"], node.this])
+    # An argument that isn't a column or literal is read once, through a lambda over a one-element list: the
+    # NULL checks here and DuckDB's own STRPOS(SUBSTRING(str, pos), substr) twice would otherwise each repeat
+    # it, so nested locate(b, locate(...), 2) grew 3x per level. The arguments themselves (not copies) move
+    # into the list, so the rewrites that follow still see them.
+    names = {"p": "fj_arg1", "s": "fj_arg2", "t": "fj_arg3"}
+    for key in bound:
+        template = re.sub(rf"\b{names[key]}\b", f"kf_loc.{key}", template)
+    fields = ", ".join(f"'{key}': kf_put_{key}" for key in bound)
+    new = _with(f"(LIST_TRANSFORM([{{{fields}}}], kf_loc -> {template}))[1]",
+                [exp.column("kf_hold"), *(v for _, v in parts.values())])
+    _swap(node, new)
+    for key, (arg, value) in bound.items():
+        slot = next(c for c in new.find_all(exp.Column) if c.name == f"kf_put_{key}" and not c.table)
+        node.set(arg, exp.column(key, table="kf_loc"))
+        slot.replace(value)
+    holder = next(c for c in new.find_all(exp.Column) if c.name == "kf_hold")
+    holder.replace(node)
+    return new
 
 
 def _chr(node: exp.Expression) -> exp.Expression | None:
@@ -450,6 +643,7 @@ def spark_text_results(statement: exp.Expression) -> exp.Expression:
         if isinstance(like.parent, exp.Escape) or (_text(pattern) is not None and "\\" not in pattern.name):
             continue
         _swap(like, exp.Escape(this=like.copy(), expression=exp.Literal.string("\\")))
+    tops: list[exp.Expression] = []
     for joined in list(statement.find_all(exp.Concat, exp.DPipe)):
         if any(isinstance(a, _ARRAYS) for a in joined.iter_expressions()):
             continue
@@ -458,9 +652,20 @@ def spark_text_results(statement: exp.Expression) -> exp.Expression:
         for child in nulls:
             if isinstance(child, exp.Null):
                 child.replace(exp.cast(exp.Null(), exp.DataType.build("VARCHAR")))
-        if nulls and joined is not statement and not isinstance(joined.parent, (exp.Concat, exp.DPipe)):
-            # DuckDB types 'a' || CAST(NULL AS VARCHAR) as an INTEGER once it folds it; Spark's is a string
-            _wrap(joined, "VARCHAR")
+        if not nulls:
+            continue
+        # DuckDB types 'a' || CAST(NULL AS VARCHAR) as an INTEGER once it folds it, and so a concatenation
+        # around it too, ('a' || NULL) || 'b'; Spark's is a string. The outermost one, through
+        # parentheses, is cast back.
+        top, up = joined, joined.parent
+        while isinstance(up, (exp.Paren, exp.Concat, exp.DPipe)):
+            if not isinstance(up, exp.Paren):
+                top = up
+            up = up.parent
+        if top is not statement and all(t is not top for t in tops):
+            tops.append(top)
+    for top in tops:
+        _wrap(top, "VARCHAR")
     ints = [cast(exp.Expression, n) for n in statement.find_all(*_INTS, exp.Anonymous)
             if not isinstance(n, exp.Anonymous) or n.name.upper() == "OCTET_LENGTH"]
     for item in ints:
@@ -487,6 +692,9 @@ def java_regex_function(fn_name: str, fn: Callable[..., Any], at: int, replaceme
             pattern, groups, names = java_pattern(args[at], fn_name)
             new = list(args)
             new[at] = pattern
+            if fn_name == "regexp_replace":
+                given = args[replacement_at] if replacement_at is not None and len(args) > replacement_at else None
+                _refuse_empty_matches(fn_name, pattern, given if isinstance(given, str) else None)
             if replacement_at is not None and len(args) > replacement_at and isinstance(args[replacement_at], str):
                 rewritten = java_replacement(args[replacement_at], fn_name, groups, names)
                 if not own_replacement:

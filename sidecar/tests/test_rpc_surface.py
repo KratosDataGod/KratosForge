@@ -26,7 +26,6 @@ _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, Q
 _INCIDENTS = "incident history: the engine is released, its screen is stage 4 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
-_BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
@@ -36,15 +35,13 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
+    # CP-011: the environment's cost, apart from savings. The approved Settings > Environment mockup has no cost panel.
+    "cp_cost": "CP-011 engine call; its panel waits on a mockup (the CP-010 screen shows no cost)",
     # OE-004: the Share button on Optimize > Assessment waits on its mockup.
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
-    # PB-110: the Semantic model card's "Ossie file to TMDL" waits on Chris's mockup reaction (slice 3).
-    "meta_model_ossie_to_tmdl": "engine first; the Semantic model card calls it once the PB-110 mockup is approved",
-    "excellence_assess": "FEA-105 engine call; the Excellence scorecard (FEA-108 mockup) waits on Chris's reaction",
+    # SF-002: the Check button in Settings > Connections waits on its mockup.
+    "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
-    "model_bpa_status": _BPA,
-    "model_bpa_risk": _BPA,
-    "model_bpa_check": _BPA,
     # Local data projects.
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
@@ -142,7 +139,6 @@ def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
 # be (fail closed), the same as when a screen sends it. Every no-screen method that changes something
 # is listed here: with the parameter its destructive step needs, or with why it has none.
 NO_SCREEN_GATE: dict[str, str] = {
-    "meta_model_ossie_to_tmdl": "confirmed",   # without it, only the preview: files, removals, report
     "incidents_history_sync": "approve",       # sets up the central incident tables only when approved
     "incidents_measures": "approve",           # copies through incidents_history_sync first
     "local_change_delta": "confirm",           # UPDATE or DELETE without WHERE
@@ -164,8 +160,6 @@ NOT_DESTRUCTIVE: dict[str, str] = {
     "local_remove_source": "drops the views over a folder; the files are never touched",
     "local_set_types": "changes how a file's columns are read; the file is untouched",
     "local_transform_run": "steps get local_query's checks with no confirm, so a destructive step is refused",
-    "model_bpa_check": ("reads a semantic model in Fabric; the risk check runs first, a blocked one stops it "
-                        "and a warning needs the risk_id the person acknowledged"),
     "platform_notify": "posts notices only to routes an admin saved, once per dedupe key; changes no data",
 }
 

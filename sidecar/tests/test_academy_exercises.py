@@ -109,7 +109,9 @@ def test_result_label_says_what_was_and_was_not_verified():
     ("2.2.9", "local_verified", True),       # portable: local evidence completes it
     ("2.2.9", "simulated", False),
     ("2.2.9", "fabric_verified", True),
-    ("2.2.1", "knowledge_only", True),       # a choice: knowledge is the best this PC gives
+    ("2.2.2", "knowledge_only", True),       # a choice: knowledge is the best this PC gives
+    ("2.2.1", "knowledge_only", False),      # a choice with a SIMULATED exercise (E74): the quiz alone isn't enough
+    ("2.2.1", "simulated", True),
     ("2.3.3", "local_verified", False),      # needs Fabric: only FABRIC VERIFIED completes it
     ("2.3.3", "fabric_verified", True),
     ("1.1.1", "simulated", False),
@@ -172,7 +174,8 @@ def test_missing_reference_solution_is_caught(broken):
 
 
 def test_too_few_wrong_answers_are_caught(broken):
-    found = broken("E36", {}, {"grading/E36/wrong-cube.sql": None, "grading/E36/wrong-order.sql": None})
+    found = broken("E36", {}, {"grading/E36/wrong-cube.sql": None, "grading/E36/wrong-order.sql": None,
+                               "grading/E36/wrong-no-grand-total.sql": None, "grading/E36/wrong-reversed-rollup.sql": None})
     assert any("at least two planted wrong answers" in p for p in found)
 
 

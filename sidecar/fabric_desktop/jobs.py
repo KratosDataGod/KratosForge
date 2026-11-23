@@ -14,6 +14,7 @@ A job is a TOML file. SQL jobs run in DuckDB; Python jobs run a script whose
     schema = "dbo"
     table = "sales_by_region"
     mode = "overwrite"           # or "append"
+    v_order = false              # true: V-Order the table in Fabric after each run (Preview; uses capacity)
 """
 
 from __future__ import annotations
@@ -44,6 +45,10 @@ class Target:
     table: str
     schema: str = "dbo"
     mode: str = "overwrite"
+    # After the write commits, run Fabric's table maintenance job with V-Order (OPTIMIZE only, no VACUUM),
+    # so Direct Lake and the SQL endpoint read the table V-Ordered. Only Fabric writes V-Order; it runs
+    # on the workspace's capacity.
+    v_order: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,8 @@ class Job:
             raise ValueError("polars jobs need a `script` path")
         if self.target.mode not in MODES:
             raise ValueError(f"target.mode must be one of {MODES}")
+        if not isinstance(self.target.v_order, bool):
+            raise ValueError(f"target.v_order must be true or false, not {self.target.v_order!r}")
         check_name("schema", self.target.schema)
         check_name("table", self.target.table)
         # The name is a folder on this PC (publish.stage_locally), so it must stay one plain folder name.

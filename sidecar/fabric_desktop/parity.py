@@ -25,10 +25,17 @@ Rules ``Cell`` enforces, so the matrix can't claim more than the repository show
 - partial needs a note saying what's missing or different.
 - visual and workflow can't rise above missing until a built-in skin targets the platform (skins.py).
 - equivalence is never built: only a recorded comparison counts, so it is partial or verified.
+
+Each area also has a ``Plan`` (``PLANS``): the feature family it belongs to in the three-platform parity
+program (docs/product/platform-parity-assessment.md), its priority, where its work runs, the backlog items
+that move it (docs/product/platform-parity-backlog.md, which a test checks names each one), the workstream
+that owns it and the date the row was last reviewed against the repository. A plan never raises a status:
+it says what's next, not what's done.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -90,6 +97,44 @@ class Area:
 
 MISSING = Cell("missing")
 
+# The program's feature families (Chris's master prompt, 2026-11-19, section 4).
+FAMILIES = {
+    "A": "Authentication and connectivity", "B": "SQL development", "C": "Notebooks and distributed compute",
+    "D": "Data storage and catalog", "E": "Orchestration and transformation", "F": "Source control and deployment",
+    "G": "Monitoring, cost and optimization", "H": "Semantic engineering", "I": "Enterprise shared services",
+}
+PRIORITIES = ("P0", "P1", "P2", "P3")
+# Where the area's work runs in KratosForge today: never stronger than the area's cells show.
+MODES = {
+    "local": "Local only", "cloud": "Cloud only", "hybrid": "Local and cloud",
+    "simulated": "Simulated or validated on this PC", "none": "Not built yet",
+}
+_ITEM = re.compile(r"^(SF|DBX|FAB|PAR)-\d{3}$")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+@dataclass(frozen=True)
+class Plan:
+    family: str
+    priority: str
+    mode: str
+    items: tuple[str, ...] = ()
+    owner: str = "unassigned"
+    reviewed: str = "2026-11-19"
+
+    def __post_init__(self) -> None:
+        if self.family not in FAMILIES:
+            raise ValueError(f"unknown family {self.family!r}")
+        if self.priority not in PRIORITIES:
+            raise ValueError(f"unknown priority {self.priority!r}")
+        if self.mode not in MODES:
+            raise ValueError(f"unknown mode {self.mode!r}")
+        bad = [i for i in self.items if not _ITEM.fullmatch(i)]
+        if bad:
+            raise ValueError(f"backlog items look like SF-001: {bad}")
+        if not _DATE.fullmatch(self.reviewed):
+            raise ValueError("reviewed is a date, like 2026-11-19")
+
 
 # The Fabric-, Databricks- and Snowflake-familiar skins (skins.py, Preview) change the whole app's accent and the
 # rail's order and names, so every area looks partly familiar; the pages keep KratosForge's own layout.
@@ -112,6 +157,9 @@ def _skinned(platform: str, id_: str, label: str, workflow: Cell | None = None, 
 
 AREAS: tuple[Area, ...] = (
     # Microsoft Fabric
+    _skinned("fabric", "connect", "Sign-in and connections",
+       cloud_api=Cell("verified", ("test_auth_edges.py", "test_credentials_config.py"), KUDP_RUN,
+                      "Signing in with the developer's own identity was recorded. No app registration or service principal is used.")),
     _skinned("fabric", "workspaces", "Workspaces and items",
        workflow=Cell("partial", ("test_skins.py",),
                      note="The skin's rail has Workspaces third, after Home and Create, as in Fabric; inside it, the page is KratosForge's own."),
@@ -190,9 +238,16 @@ AREAS: tuple[Area, ...] = (
                       note="Optimize > Cost (Preview) reads DBUs from the billing system tables after a confirm; "
                            "no budgets or alerts. Against fakes, no live run yet.")),
     # Snowflake
-    _skinned("snowflake", "connect", "Sign-in, roles and warehouses", cloud_api=MISSING),
+    _skinned("snowflake", "connect", "Sign-in, roles and warehouses",
+       cloud_api=Cell("partial", ("test_snowflake_auth.py", "test_snowflake_remote.py"),
+                      note="Key-pair and programmatic access token sign-in, and a connection check of role, database, "
+                           "schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser "
+                           "sign-in and Snowflake CLI connections aren't supported yet. Against fakes, no live run yet.")),
     _skinned("snowflake", "worksheets", "SQL worksheets",
-       cloud_api=MISSING,
+       cloud_api=Cell("partial", ("test_snowflake_sql_engine.py", "test_snowflake_remote.py", "test_engine_conformance.py"),
+                      note="The Snowflake SQL warehouse engine (Preview) runs read-only statements (SELECT, WITH, SHOW, "
+                           "DESCRIBE, EXPLAIN) through the SQL API after a confirm, and refuses anything else before it "
+                           "is sent. Not in the notebook's engine picker yet. Against fakes, no live run yet."),
        local=Cell("partial", ("test_snowflake_sql.py", "test_snowflake_sql_parity.py", "test_snowflake_coverage.py"),
                   note="Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. "
                        "docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.")),
@@ -204,13 +259,51 @@ AREAS: tuple[Area, ...] = (
 )
 
 
+def _p(family: str, priority: str, mode: str, *items: str, owner: str = "unassigned") -> Plan:
+    return Plan(family, priority, mode, items, owner)
+
+
+# What's next for each area, and who owns it (docs/product/platform-parity-backlog.md). Reviewed against
+# main 81e70e22 on 2026-11-19. Owners are workstreams in the KratosForge project, not people.
+PLANS: dict[tuple[str, str], Plan] = {
+    ("fabric", "connect"): _p("A", "P0", "cloud", "PAR-003", owner="Platform parity"),
+    ("fabric", "workspaces"): _p("D", "P1", "cloud", "FAB-001", owner="Platform parity"),
+    ("fabric", "lakehouse"): _p("D", "P1", "hybrid", "FAB-001", owner="Local engine"),
+    ("fabric", "warehouse"): _p("B", "P1", "hybrid", "FAB-003", owner="Warehouse"),
+    ("fabric", "notebooks"): _p("C", "P0", "hybrid", "PAR-002", "FAB-001", owner="Platform parity"),
+    ("fabric", "pipelines"): _p("E", "P1", "simulated", "FAB-002"),
+    ("fabric", "dataflows"): _p("E", "P2", "none", "FAB-002"),
+    ("fabric", "taskflows"): _p("E", "P3", "none"),
+    ("fabric", "semantic"): _p("H", "P2", "local", "FAB-004", owner="Semantic engineering (OSSIE)"),
+    ("fabric", "git"): _p("F", "P1", "cloud", "FAB-007"),
+    ("fabric", "monitoring"): _p("G", "P1", "cloud", "FAB-006", owner="Optimization engine"),
+    ("fabric", "governance"): _p("I", "P2", "none", "FAB-005", owner="Governance"),
+    ("databricks", "connect"): _p("A", "P0", "cloud", "DBX-001", "PAR-003", owner="Databricks and Snowflake parity"),
+    ("databricks", "sql"): _p("B", "P0", "hybrid", "DBX-001", "PAR-002", owner="Databricks and Snowflake parity"),
+    ("databricks", "notebooks"): _p("C", "P1", "hybrid", "DBX-001", owner="Databricks and Snowflake parity"),
+    ("databricks", "unity"): _p("D", "P1", "simulated", "DBX-002", owner="Platform parity"),
+    ("databricks", "jobs"): _p("E", "P1", "cloud", "DBX-003", "DBX-004", owner="Platform parity"),
+    ("databricks", "compute"): _p("C", "P2", "none", "DBX-005", owner="Platform parity"),
+    ("databricks", "bundles"): _p("F", "P1", "cloud", "DBX-001", owner="Databricks and Snowflake parity"),
+    ("databricks", "cost"): _p("G", "P1", "cloud", "DBX-006", owner="Optimization engine"),
+    ("snowflake", "connect"): _p("A", "P0", "cloud", "SF-001", "SF-002", "PAR-003", owner="Platform parity"),
+    ("snowflake", "worksheets"): _p("B", "P0", "hybrid", "SF-003", "PAR-002", owner="Platform parity"),
+    ("snowflake", "objects"): _p("D", "P1", "none", "SF-004", owner="Platform parity"),
+    ("snowflake", "snowpark"): _p("C", "P2", "none", "SF-007"),
+    ("snowflake", "loading"): _p("D", "P2", "none", "SF-009"),
+    ("snowflake", "tasks"): _p("E", "P2", "none", "SF-008"),
+    ("snowflake", "history"): _p("G", "P1", "none", "SF-005", "SF-006", owner="Platform parity"),
+}
+
+
 def matrix() -> dict[str, Any]:
     """Every area's five levels, by platform, as the app and docs show them."""
-    out: dict[str, Any] = {"levels": LEVELS, "statuses": STATUSES, "platforms": {}}
+    out: dict[str, Any] = {"levels": LEVELS, "statuses": STATUSES, "families": FAMILIES, "modes": MODES, "platforms": {}}
     for pid, label in PLATFORMS.items():
         out["platforms"][pid] = {"label": label, "areas": [
-            {"id": a.id, "label": a.label, "levels": {lv: vars(a.cell(lv)) | {"tests": list(a.cell(lv).tests)} for lv in LEVELS}}
-            for a in AREAS if a.platform == pid]}
+            {"id": a.id, "label": a.label, "levels": {lv: vars(a.cell(lv)) | {"tests": list(a.cell(lv).tests)} for lv in LEVELS},
+             "plan": vars(plan) | {"items": list(plan.items)}}
+            for a in AREAS if a.platform == pid for plan in (PLANS[(a.platform, a.id)],)]}
     return out
 
 
@@ -237,3 +330,13 @@ def docs_table() -> str:
                       for area, lv, c in notes]
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def plan_table() -> str:
+    """The program table in docs/parity.md: each area's family, priority, mode, next items and owner."""
+    lines = ["| Platform | Area | Family | Priority | Runs | Next items | Owner |", "| --- | --- | --- | --- | --- | --- | --- |"]
+    for a in AREAS:
+        p = PLANS[(a.platform, a.id)]
+        lines.append(f"| {PLATFORMS[a.platform]} | {a.label} | {p.family} {FAMILIES[p.family]} | {p.priority} | "
+                     f"{MODES[p.mode]} | {', '.join(p.items) or '·'} | {p.owner} |")
+    return "\n".join(lines) + "\n"

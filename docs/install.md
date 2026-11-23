@@ -75,7 +75,7 @@ Every build of `main` comes with proof of where it came from and a list of what 
 
     It prints the workflow and commit that built it, or fails if the file was changed. A file promoted to Stable is the same file, so the same check works. Builds made before the repository was renamed (October 2026) name the old repository, so check those with `-R KratosDataGod/fabric-desktop`.
 
-- **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (the engine's Python and every Python package in the engine, read from the engine itself), `sbom-app.cdx.json` (every Rust crate in the exe), `sbom-ui.cdx.json` (the JavaScript packages bundled into the app's notebook editor and charts) and `sbom-vscode.cdx.json` (the VS Code extension: every file in `kratosforge.vsix` and the tools that built it), in CycloneDX format. Most vulnerability scanners and asset tools read it. One piece of third-party code ships inside the engine package instead of as its own package, so it isn't a separate SBOM entry: the Apache Ossie Microsoft converter (Apache License 2.0, upstream commit `82b9eff`, in `fabric_desktop/_vendor/ossie_microsoft` with its LICENSE and NOTICE).
+- **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (the engine's Python and every Python package in the engine, read from the engine itself), `sbom-app.cdx.json` (every Rust crate in the exe), `sbom-ui.cdx.json` (the JavaScript packages bundled into the app's notebook editor and charts) and `sbom-vscode.cdx.json` (the VS Code extension: every file in `kratosforge.vsix` and the tools that built it), in CycloneDX format. Most vulnerability scanners and asset tools read it. Two pieces of third-party code and data ship inside the engine package instead of as their own packages, so they aren't separate SBOM entries: the Apache Ossie Microsoft converter (Apache License 2.0, upstream commit `82b9eff`, in `fabric_desktop/_vendor/ossie_microsoft` with its LICENSE and NOTICE) and the Apache Ossie JSON Schema (Apache License 2.0, upstream commits `21d14d7` and `aa500d3`, in `fabric_desktop/_vendor/ossie_schema` with its LICENSE, NOTICE and SHA-256 hashes).
 
 - **Microsoft's SQL driver.** The engine includes `mssql-python` (MIT), which carries Microsoft ODBC Driver 18 for SQL Server and the Visual C++ runtime (`msvcp140.dll`) under Microsoft's own license terms. Their license files are in the engine at `Lib\site-packages\mssql_python_odbc\libs\windows\x64\`. Nothing connects to a warehouse until you run a warehouse query.
 
@@ -106,7 +106,8 @@ These prove where a file came from; they don't replace code signing, which is st
 | `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. The run histories (`history.jsonl`, `schedule_runs.jsonl`) keep their newest rows: past 8 MB the older ones are dropped. |
 | `%LOCALAPPDATA%\FabricDesktop\replays` | The app's copy of each replay bundle you opened. A bundle can hold a sample of the tables its notebook read, so a copy unused for 30 days (your organization can change that) is deleted like the local copies above; the bundle you opened stays where it was. |
 | `%ProgramData%\FabricDesktop\policy.json` | Settings your organization fixed, if any. |
-| `Documents\FabricDesktop\metadata` | The default folder for a new metadata project. You can pick another, and you should keep it in Git. |
+| `%USERPROFILE%\KratosForge\metadata` | The default folder for a new metadata project. You can pick another, outside OneDrive, and you should keep it in Git. Earlier versions used `Documents\FabricDesktop\metadata`, and a project still there in OneDrive is copied here on first use ([Files in OneDrive](troubleshooting.md#files-in-onedrive)). |
+| `%USERPROFILE%\KratosForge\Exports` | Exports, only when Windows has moved Downloads into OneDrive. Otherwise they go to Downloads. |
 
 ## Uninstall
 
@@ -128,7 +129,7 @@ These prove where a file came from; they don't replace code signing, which is st
 | --- | --- |
 | The app's scheduled tasks (`\FabricDesktop\`, except the agent's task `\FabricDesktop\Agent`) | Your notebooks, settings, stores and backups in `%LOCALAPPDATA%\FabricDesktop`, unless you pass `-RemoveData`; the audit trail, unless you also pass `-RemoveAuditTrail` |
 | The `kratosforge://` link handler (`HKCU\Software\Classes\kratosforge`) | `%ProgramData%\FabricDesktop` (your organization's policy file, the agent's folder) |
-| The engine (`engine`) and the launchers AI tools and VS Code run (`bin`) | `Documents\FabricDesktop` and your Git repositories |
+| The engine (`engine`) and the launchers AI tools and VS Code run (`bin`) | `KratosForge` in your profile, `Documents\FabricDesktop` from earlier versions, and your Git repositories |
 | Every saved sign-in and token: `msal_cache.bin`, `fabric-view-signin.bin`, the Fabric view's browser profile (`fabric-view`), the app window's browser profile (`%LOCALAPPDATA%\com.kratosbi.fabricdesktop`), the link listener's token (`link-port`), the VS Code pairing hello (`editor-port`), sealed copies a cut-off save left behind (`*.tmp`), and the mail server password in Windows Credential Manager (`KratosForge/mail-server`) | VS Code's own settings and the KratosForge extension: remove the `fabric-desktop` MCP server and the extension in VS Code |
 | `kratosforge.exe`, when you give `-AppPath` | Anything in Fabric: lakehouses, tables and notebooks you published stay where they are |
 

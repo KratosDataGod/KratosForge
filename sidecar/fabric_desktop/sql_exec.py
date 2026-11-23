@@ -74,6 +74,7 @@ import bisect
 import datetime as dt
 import decimal
 import itertools
+import logging
 import json
 import os
 import re
@@ -92,14 +93,17 @@ from sqlglot import exp
 
 from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
 from .filenames import file_stem
-from .frames import (EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, plain_decimals, plain_schema,
-                     write_xlsx_batches)
+from .frames import (EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, plain_decimals,
+                     plain_schema, write_xlsx_batches)
 from . import known_folders
+
+_log = logging.getLogger(__name__)
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
 MAX_KEPT = 20  # finished runs whose snapshots are kept, newest first
 MAX_STATEMENTS = 200  # statements one run may hold (S14)
+MAX_EXPORTS_KEPT = 50  # finished exports whose status can still be asked for, newest first; running ones always
 MAX_PINNED = 10  # results kept past MAX_KEPT and retention because the person pinned them (S27)
 EXPORT_FORMATS = ("csv", "parquet", "xlsx", "json")
 EXPORT_BATCH_ROWS = 65_536
@@ -212,6 +216,23 @@ class Execution:
     failed_statement: int = 0  # S14: the statement that failed (1-based), 0 if none
     pinned: bool = False  # kept past MAX_KEPT and the retention time until unpinned (S27)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        # started, ended and created stay the wall-clock times the page shows; each is also stamped on the
+        # monotonic clock, so a run's seconds stay right when the PC's clock is changed mid-run (by hand or
+        # by a time sync). DST doesn't move time.time, but a manual change does.
+        if name in ("created", "started", "ended") and value is not None:
+            object.__setattr__(self, f"_mono_{name}", time.monotonic())
+        object.__setattr__(self, name, value)
+
+    def seconds(self) -> float:
+        """How long the run has taken (or took), from the monotonic clock: never negative, and not moved by a
+        change to the PC's clock. Counted from the start, or from creation for a run that never started."""
+        begin = getattr(self, "_mono_started", None) if self.started else getattr(self, "_mono_created", None)
+        if begin is None:
+            return 0.0
+        end = getattr(self, "_mono_ended", None) if self.ended else None
+        return max(0.0, (end if end is not None else time.monotonic()) - begin)
+
     @property
     def snapshot(self) -> Path:
         if self.units and self.parts:  # S14: the run's own result is its last statement's
@@ -220,12 +241,11 @@ class Execution:
 
     def status(self) -> dict[str, Any]:
         """What the page shows: never the SQL or the token."""
-        end = self.ended or time.time()
         return {"id": self.id, "state": self.state, "target": self.target, "dialect": self.dialect,
                 "lakehouse": self.lakehouse.get("name", ""), "project": self.project_name,
                 "warehouse": self.warehouse.get("database", ""),
                 "created": self.created, "started": self.started, "ended": self.ended,
-                "seconds": round(end - self.started, 2) if self.started else 0.0,
+                "seconds": round(self.seconds(), 2) if self.started else 0.0,
                 "rows": self.rows, "columns": self.columns, "permission": self.permission,
                 "error": self.error, "error_kind": self.error_kind, "refused": self.refused,
                 "time_limit_minutes": round(self.time_limit_s / 60, 2),
@@ -289,7 +309,7 @@ class SqlExecutions:
         self._audit = audit
         self._limits = limits
         self.command = command or [sys.executable, "-m", "fabric_desktop.sql_worker"]
-        self._downloads = downloads or known_folders.downloads
+        self._downloads = downloads or known_folders.export_folder
         self._lock = threading.RLock()
         self._runs: dict[str, Execution] = {}
         self._exports: dict[str, Export] = {}
@@ -302,6 +322,9 @@ class SqlExecutions:
 
     def base(self) -> Path:
         configured = str(self._limits().get("sql_temp_dir") or "")
+        if configured and known_folders.in_onedrive(configured):  # set before OneDrive was refused, or by policy
+            _log.warning("The SQL temp folder %s is in OneDrive, so the app's own folder is used instead.", configured)
+            configured = ""
         return Path(configured) if configured else self.root / "sql-runs"
 
     def _memory_budget(self, percent: int) -> dict[str, Any]:
@@ -843,7 +866,7 @@ class SqlExecutions:
             lh = run.lakehouse
             try:
                 self._audit("sql_execution", "ok" if run.state == "completed" else "error",
-                            (run.ended or time.time()) - (run.started or run.created),
+                            run.seconds(),
                             {"execution": run.id, "state": run.state, "dialect": run.dialect,
                              "permission": run.permission or "", "rows": run.rows, "target": run.target,
                              "workspace_id": lh.get("workspace_id", ""), "lakehouse_id": lh.get("lakehouse_id", ""),
@@ -958,6 +981,9 @@ class SqlExecutions:
         if fmt == "xlsx" and res.rows > EXCEL_MAX_ROWS:
             raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
                              f"{res.rows:,}. Export it as CSV or Parquet instead.")
+        if fmt == "xlsx" and len(res.columns) > EXCEL_MAX_COLUMNS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_COLUMNS:,} columns and this result has "
+                             f"{len(res.columns):,}. Export it as CSV or Parquet instead.")
         if not res.path.exists():
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()
@@ -968,8 +994,17 @@ class SqlExecutions:
                         raw=bool(raw) and fmt == "csv")
         with self._lock:
             self._exports[export.id] = export
+            self._forget_old_exports()
         threading.Thread(target=self._write, args=(res.path, export), daemon=True, name=f"sql-export-{export.id}").start()
         return export.status()
+
+    def _forget_old_exports(self) -> None:
+        """Keep the newest MAX_EXPORTS_KEPT finished exports (the page asks for an export's status only while it
+        runs and just after): each export was kept for the engine's life, so a long session's exports added up.
+        A running export is always kept. Called with ``_lock`` held."""
+        finished = [e.id for e in self._exports.values() if e.state != "running"]  # oldest first: insertion order
+        for export_id in finished[:max(0, len(finished) - MAX_EXPORTS_KEPT)]:
+            del self._exports[export_id]
 
     def export_status(self, export_id: str) -> dict[str, Any]:
         return self._get_export(export_id).status()

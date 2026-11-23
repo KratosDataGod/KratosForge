@@ -579,8 +579,8 @@ business_key = "order_id"
 | `[[lookup]]` | `dim`, `on`, `as`, `at` | A dimension's surrogate key as of the fact's date |
 | `[scd]` | `surrogate_key`, `tracked`, `type1` | Dimension settings |
 | `[model]` | `date_column` | Makes the dimension the semantic model's date table (see [section 10](#10-semantic-model-preview)) |
-| `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point |
-| `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform |
+| `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point; `reads` is a list of the entity names it may read, like `reads = ["silver.customers"]` |
+| `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform; `reads` is a list of the entity names it may read |
 | `[params]` | any | Values your code reads from `ctx.params` |
 | `[freshness]` | `within_hours`, `by`, `envs` | When a successful run is due |
 | `[objectives]` | `criticality`, `success_rate`, `runs`, `envs` | How often runs must succeed (Preview) |

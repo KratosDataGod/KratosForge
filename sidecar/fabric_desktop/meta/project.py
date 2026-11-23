@@ -252,11 +252,21 @@ class Entity:
         # Names only: an odd value saved by hand (a nested list, a table) is a save-gate error, not a crash.
         return [s for s in as_list(self.spec.get("source", {}).get("entity")) if isinstance(s, str)]
 
+    def code_reads(self) -> list[str]:
+        """The entities ``[hooks] reads`` and ``[step] reads`` let custom code read. Names only: an odd value
+        saved by hand (a nested list, a table, a number) is a save-gate error, not a crash, and a bare string
+        is read as one name rather than split into its characters."""
+        out: list[str] = []
+        for section in ("hooks", "step"):
+            part = self.spec.get(section, {})
+            reads = part.get("reads") if isinstance(part, dict) else None
+            out += [r for r in as_list(reads) if isinstance(r, str) and r]
+        return out
+
     def reads(self) -> list[str]:
         """Every entity this one reads, from any part of its config."""
         out = list(self.sources())
-        out += self.spec.get("hooks", {}).get("reads", [])
-        out += self.spec.get("step", {}).get("reads", [])
+        out += self.code_reads()
         for chk in self.spec.get("check", []):
             if "exists_in" in chk:
                 out.append(chk["exists_in"].rsplit(".", 1)[0])
@@ -767,6 +777,11 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 keys_mod.source_entity(e)
             except ValueError as exc:
                 errors.append(str(exc))
+        for section in ("hooks", "step"):
+            part = s.get(section, {})
+            reads = part.get("reads", []) if isinstance(part, dict) else []
+            if not isinstance(reads, list) or not all(isinstance(r, str) and r for r in reads):
+                errors.append(f'{e.name}: [{section}] reads takes a list of entity names, like reads = ["silver.customers"]')
         if e.mode == "incremental" and not s.get("load", {}).get("watermark") and "entity" in s.get("source", {}):
             errors.append(f"{e.name}: incremental loads need a watermark column")
         wm, renames = s.get("load", {}).get("watermark"), s.get("source", {}).get("rename") or {}

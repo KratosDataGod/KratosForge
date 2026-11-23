@@ -289,8 +289,7 @@ class HookContext:
         self.notes: list[str] = []
 
     def read_table(self, name: str) -> pl.DataFrame:
-        allowed = self._entity.spec.get("hooks", {}).get("reads", []) + self._entity.spec.get("step", {}).get("reads", [])
-        if name not in allowed:
+        if name not in self._entity.code_reads():
             raise PermissionError(f"{self._entity.name} custom code read {name} without declaring it in reads")
         df = self._engine.read_entity(name)
         if df is None:

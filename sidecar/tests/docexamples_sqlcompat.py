@@ -128,6 +128,14 @@ CLAIMS: list[Claim] = [
     _ts("ISNULL(int_column, 2.7)", query="SELECT ISNULL(int_column, 2.7) FROM (VALUES (CAST(NULL AS INT))) AS t(int_column)"),
     _ts("ROUND(150.75, 0)"),
     _ts("ROUND(748.58, -1)"),
+    # ISNUMERIC with SQL Server's rules (WR-265)
+    _ts("ISNUMERIC('$')"),
+    _ts("ISNUMERIC(',')"),
+    _ts("ISNUMERIC('1,000')"),
+    _ts("ISNUMERIC('1d5')"),
+    _ts("ISNUMERIC('e5')"),
+    _ts("ISNUMERIC('')"),
+    _ts("ISNUMERIC('1' + CHAR(9))"),
     # Local T-SQL JSON
     _ts("ISJSON('1')"),
     _ts("ISJSON('\"text\"', SCALAR)"),

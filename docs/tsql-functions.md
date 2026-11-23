@@ -21,9 +21,9 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 75 |
+| Runs | 76 |
 | Differs | 0 |
-| Refused | 33 |
+| Refused | 32 |
 | Fails | 0 |
 | Not checked | 70 |
 | **All** | **178** |
@@ -202,7 +202,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `BINARY_CHECKSUM` | Refused | `SELECT BINARY_CHECKSUM(a) FROM dbo.t` | BINARY_CHECKSUM isn't mapped yet. |
 | `CHECKSUM` | Refused |  | CHECKSUM isn't mapped yet. |
 | `HASHBYTES` | Refused | `SELECT HASHBYTES('SHA2_256', 'abc')` | HASHBYTES isn't mapped yet: T-SQL gives the hash as bytes (VARBINARY), and here it would be hex text, so comparison |
-| `ISNUMERIC` | Refused |  | ISNUMERIC of a number: ISNUMERIC isn't mapped yet (its rules accept '$', ',' and '-' alone). Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_ |
+| `ISNUMERIC` | Runs |  | 5 value checks |
 | `NEWID` | Not checked | `SELECT NEWID()` |  |
 
 ## Statements and operators

@@ -84,12 +84,15 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("JSON_QUERY of a scalar, lax", "SELECT JSON_QUERY('{" + DQ + "a" + DQ + ": 1}', '$.a')", None),
     ("JSON_OBJECT keeps NULL", "SELECT JSON_OBJECT('name':'value', 'type':NULL)", '{"name":"value","type":null}'),
     ("JSON_ARRAY leaves NULL out", "SELECT JSON_ARRAY('a', 1, 'b', NULL)", '["a",1,"b"]'),
-]
-# Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
-REFUSED = [
+    # WR-265: ISNUMERIC with SQL Server's rules (more in test_tsql_isnumeric.py)
     ("ISNUMERIC of a number", "SELECT ISNUMERIC('12.5')", 1),
     ("ISNUMERIC of text", "SELECT ISNUMERIC('x')", 0),
+    ("ISNUMERIC of a dollar sign alone", "SELECT ISNUMERIC('$')", 1),
+    ("ISNUMERIC with a thousands separator", "SELECT ISNUMERIC('1,000')", 1),
+    ("ISNUMERIC of d as the exponent", "SELECT ISNUMERIC('1d5')", 1),
 ]
+# Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
+REFUSED: list[tuple[str, str, object]] = []
 GAPS = MAPPED + REFUSED
 
 
@@ -222,7 +225,7 @@ def test_the_refused_list_in_the_docs_names_every_refused_function():
     assert named >= {"ISNUMERIC", "POWER", "DATALENGTH", "STRING_SPLIT", "ROUND", "FORMAT"}
     for name in named:
         assert f"`{name}" in section, f"{name} is refused in tsql.py but not in docs/local-data.md's T-SQL section"
-    for whole in ("ISNUMERIC", "POWER"):  # refused outright, or for a whole kind of argument
+    for whole in ("POWER",):  # refused outright, or for a whole kind of argument (ISNUMERIC runs, WR-265)
         assert f"`{whole}" in refused, f"{whole} is missing from the docs' refused list"
 
 
@@ -256,7 +259,6 @@ def test_a_macro_in_the_database_is_a_known_function(engine):
 REFUSED_IN_THE_DOCS = {
     "CREATE TABLE ... AS CLONE OF": "CREATE TABLE dbo.c AS CLONE OF dbo.t",
     "ALTER DATABASE ... SET TIMESTAMP": "ALTER DATABASE s SET TIMESTAMP = CURRENT_TIMESTAMP",
-    "ISNUMERIC": "SELECT ISNUMERIC('1')",
     "JOIN ... USING": "SELECT * FROM dbo.t JOIN dbo.u USING (s)",
     "POWER": "SELECT POWER(2.5, 2)",
     "DEGREES": "SELECT DEGREES(1.0)",
@@ -373,7 +375,7 @@ def test_every_function_refused_whole_is_in_the_docs_refused_list():
 
     from fabric_desktop.localdata import tsql
     whole = set(re.findall(r'_NOT_YET \+ "([A-Z_]{3,}) isn\'t mapped yet', inspect.getsource(tsql)))
-    assert whole >= {"ISNUMERIC", "SYSDATETIMEOFFSET"}
+    assert whole >= {"SYSDATETIMEOFFSET"}
     listed = _docs_refused_list()
     assert not [n for n in whole if f"`{n}" not in listed], "a function refused whole is missing from the docs' list"
 

@@ -18,7 +18,7 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
 - runs ``BIT`` as a boolean, and ``CHOOSE``, ``ROUND(x, n, 1)``, ``DATALENGTH``, ``STRING_SPLIT`` and
-  ``TOP n WITH TIES``, which DuckDB doesn't have (``ISNUMERIC`` is refused for now);
+  ``TOP n WITH TIES``, which DuckDB doesn't have, and ``ISNUMERIC`` with SQL Server's rules (WR-265);
 - runs ``QUOTENAME``, ``STR`` and ``FORMAT`` (dates, and ``N``, ``F`` and ``D`` for integers and
   decimals, in en-US; see tsql_format), and refuses by name a function DuckDB doesn't have;
 - gives ``POWER`` its first argument's type (an integer base gives an integer; a decimal base is refused);
@@ -2373,6 +2373,9 @@ def _gaps(tree: exp.Expression) -> None:
         options = limit.args.get("limit_options")
         if options is not None and options.args.get("with_ties"):
             _with_ties(limit)
+    for call in reversed(list(tree.find_all(exp.Anonymous))):  # inner first: an outer call copies its argument
+        if call.name.upper() == "ISNUMERIC" and len(call.expressions) == 1:
+            call.replace(_once([call.expressions[0]], _isnumeric))
     for call in list(tree.find_all(exp.Anonymous)):
         name = call.name.upper()
         args = call.expressions
@@ -2387,9 +2390,80 @@ def _gaps(tree: exp.Expression) -> None:
             call.replace(_quotename(args))
         elif name == "STR" and 1 <= len(args) <= 3:
             call.replace(_str(args))
-        elif name == "ISNUMERIC":
-            raise ValueError(_NOT_YET + "ISNUMERIC isn't mapped yet (its rules accept '$', ',' and '-' alone). "
-                             "Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_CAST to the type you need.")
+
+
+# ISNUMERIC (WR-265), as RE2 patterns on the text. The rules are SQL Server's as reported for each character in
+# Jeff Moden's "Why doesn't ISNUMERIC work correctly?" (SQLServerCentral, with the per-character table in its forum)
+# and Microsoft's money page for the currency symbols: before the value spaces, tabs, line feeds and carriage
+# returns; after it spaces, vertical tabs, form feeds and non-breaking spaces ('1' + a tab is 0); a currency
+# symbol or a sign, then digits with commas anywhere before the decimal point ('1,2,3' is 1); or a float with an
+# exponent written e or d ('1d5' is 1, 'e5' and '1e' are 0); or alone one currency symbol, '+', '-', '.' or ',',
+# or one tab, line feed, vertical tab, form feed, carriage return or non-breaking space. '' and spaces are 0.
+_ISNUM_CURRENCY = (r"[$\\\x{A2}-\x{A5}\x{9F2}\x{9F3}\x{E3F}\x{17DB}\x{20A0}-\x{20B1}\x{FDFC}\x{FE69}\x{FF04}"
+                   r"\x{FFE0}\x{FFE1}\x{FFE5}\x{FFE6}]")
+_ISNUM_BEFORE = r"[ \t\n\r]*"
+_ISNUM_AFTER = r"[ \x{0B}\x{0C}\x{A0}]*"
+_ISNUM_SPACES = r"[ \t\n\r\x{0B}\x{0C}\x{A0}]"
+_ISNUM_DIGITS = r"(?:[0-9,]*[0-9][0-9,]*(?:\.[0-9]*)?|[0-9,]*\.[0-9]+)"
+_ISNUM_FLOAT = r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)[eEdD][+-]?[0-9]+"
+_ISNUM_MARKS = f"(?:{_ISNUM_CURRENCY}|[+-]|{_ISNUM_CURRENCY}[+-]|[+-]{_ISNUM_CURRENCY})"
+_ISNUM_YES = (f"{_ISNUM_BEFORE}(?:(?:{_ISNUM_CURRENCY}|[+-])?{_ISNUM_DIGITS}|[+-]?{_ISNUM_FLOAT}){_ISNUM_AFTER}"
+              f"|{_ISNUM_CURRENCY}|[+.,-]|[\\t\\n\\x{{0B}}\\x{{0C}}\\r\\x{{A0}}]")
+# What no source gives SQL Server's answer for: refused when a row has it, rather than guessed.
+_ISNUM_UNSURE = "|".join([
+    f"{_ISNUM_SPACES}*[\\t\\n\\r\\x{{0B}}\\x{{0C}}\\x{{A0}}]{_ISNUM_SPACES}*",  # more than one, with a tab or line break
+    f"{_ISNUM_BEFORE}(?:{_ISNUM_CURRENCY}[+-]?[.,]*|[+-]{_ISNUM_CURRENCY}?[.,]*|[.,]+){_ISNUM_AFTER}",  # no digits
+    f"{_ISNUM_BEFORE}(?:{_ISNUM_CURRENCY}[+-]|[+-]{_ISNUM_CURRENCY}){_ISNUM_DIGITS}{_ISNUM_AFTER}",  # '$-1', '-$1'
+    f"{_ISNUM_BEFORE}{_ISNUM_MARKS} +(?:{_ISNUM_DIGITS}|{_ISNUM_FLOAT}){_ISNUM_AFTER}",  # '- 1', '$ 1'
+    f"{_ISNUM_BEFORE}{_ISNUM_MARKS}?[0-9,]*\\.[0-9,]*,[0-9,]*{_ISNUM_AFTER}",  # a comma after the point
+    f"{_ISNUM_BEFORE}{_ISNUM_MARKS}?(?:[0-9,]+\\.?[0-9,]*|[0-9,]*\\.[0-9,]+)[eEdD][+-]?[0-9]+{_ISNUM_AFTER}",  # '1,000e5'
+])
+_ISNUM_NUMBERS = r"(?:U?(?:TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT)|DECIMAL\(.*\)|DOUBLE|FLOAT|BOOLEAN)"
+_ISNUM_TIMES = r"(?:DATE|TIME|TIMESTAMP)(?:_[A-Z]+| WITH TIME ZONE)?"
+_ISNUM_UNKNOWN = (_NOT_YET + "ISNUMERIC of this value has no documented answer to copy: only blanks with a tab or line "
+                  "break, a sign, currency symbol, '.' or ',' that isn't alone and has no digits, a currency symbol "
+                  "next to a sign, a space after a sign or currency symbol, a comma after the decimal point, a comma "
+                  "or currency symbol with an exponent, or a number too big or too small for a float. Use "
+                  "TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_CAST to the type you need.")
+_ISNUM_OTHER_TYPE = (_NOT_YET + "ISNUMERIC runs here on text, numbers, BIT and dates and times. CAST the value "
+                     "to VARCHAR first.")
+
+
+def _isnumeric(value: exp.Expression) -> exp.Expression:
+    """``ISNUMERIC(x)``: 1 when T-SQL could convert x to one of its number types, else 0 (and 0 for NULL). A number
+    or BIT is 1 and a date or time 0; text follows SQL Server's rules above (``'$'``, ``'-'``, ``','``, ``'1,000'``,
+    ``'1d5'`` and ``' 1 '`` are 1), and text with no documented answer stops the query by name. ``value`` is
+    read once (see _once)."""
+    kind = exp.Anonymous(this="TYPEOF", expressions=[value.copy()])
+    text = exp.cast(value.copy(), "VARCHAR")
+
+    def full(subject: exp.Expression, pattern: str) -> exp.Expression:
+        return exp.Anonymous(this="REGEXP_FULL_MATCH", expressions=[subject.copy(), exp.Literal.string(pattern)])
+
+    # A float that the text overflows or underflows: SQL Server's answer isn't documented, so it's refused too.
+    plain = exp.Anonymous(this="TRANSLATE", expressions=[
+        exp.Anonymous(this="REGEXP_REPLACE", expressions=[text.copy(), exp.Literal.string("[^0-9.eEdD+-]"),
+                                                          exp.Literal.string(""), exp.Literal.string("g")]),
+        exp.Literal.string("dD"), exp.Literal.string("ee")])
+    number = exp.TryCast(this=plain, to=exp.DataType.build("DOUBLE"))
+    mantissa = exp.Anonymous(this="REGEXP_REPLACE", expressions=[text.copy(), exp.Literal.string("[eEdD].*"),
+                                                                exp.Literal.string("")])
+    beyond = exp.or_(exp.Anonymous(this="ISINF", expressions=[number.copy()]),
+                     exp.and_(exp.LT(this=exp.Abs(this=number.copy()),
+                                     expression=exp.Literal.number("2.2250738585072014e-308")),
+                              exp.Anonymous(this="REGEXP_MATCHES", expressions=[mantissa, exp.Literal.string("[1-9]")])))
+    error = exp.func("ERROR", exp.Literal.string(_ISNUM_UNKNOWN))
+    one, zero = exp.Literal.number(1), exp.Literal.number(0)
+    return exp.Case(ifs=[
+        exp.If(this=exp.Is(this=value.copy(), expression=exp.Null()), true=zero.copy()),
+        exp.If(this=full(kind, _ISNUM_NUMBERS), true=one.copy()),
+        exp.If(this=full(kind, _ISNUM_TIMES), true=zero.copy()),
+        exp.If(this=exp.NEQ(this=kind.copy(), expression=exp.Literal.string("VARCHAR")),
+               true=exp.func("ERROR", exp.Literal.string(_ISNUM_OTHER_TYPE))),
+        exp.If(this=full(text, _ISNUM_YES), true=exp.Case(ifs=[exp.If(this=beyond, true=error.copy())],
+                                                          default=one.copy())),
+        exp.If(this=full(text, _ISNUM_UNSURE), true=error.copy()),
+    ], default=zero.copy())
 
 
 _QUOTES = {"[": ("[", "]"), "]": ("[", "]"), '"': ('"', '"'), "'": ("'", "'")}

@@ -161,7 +161,7 @@ class ShortcutMixin:
         if ids is not None:
             by_id = {r["id"]: r for r in rows}
             rows = [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(folder, "KratosForge shortcuts", ".csv")
         # The mark tells Excel it's UTF-8; newline="" keeps the CSV's own \r\n (Windows would make it \r\r\n)

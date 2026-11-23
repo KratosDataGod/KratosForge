@@ -145,9 +145,9 @@ def test_an_append_lands_on_top_of_a_commit_made_after_the_log_was_loaded(store,
     store.write("LH_Bronze", "dbo", "events", rows(1))
     check = delta_profile.check_table
 
-    def meanwhile(table):
+    def meanwhile(table, *args):
         write_deltalake(uri, rows(2).to_arrow(), mode="append")  # another writer commits version 1
-        check(table)
+        check(table, *args)
     monkeypatch.setattr(delta_profile, "check_table", meanwhile)
     assert store.write("LH_Bronze", "dbo", "events", rows(3), mode="append") == 2
     assert sorted(store.read("LH_Bronze", "dbo", "events")["id"].to_list()) == [1, 2, 3]

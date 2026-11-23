@@ -72,3 +72,21 @@ def test_a_bad_timestamp_literal_stops_as_spark_does_and_a_good_one_reads():
     assert sql.run("SELECT CAST('2026-13-01' AS TIMESTAMP) v, to_timestamp('2026-13-01') w").to_pylist() == [
         {"v": None, "w": None}]  # a cast or to_timestamp of text that isn't a timestamp is NULL with ANSI off
     assert str(sql.run("SELECT TIMESTAMP '2026-01-01T10:00:00Z' v").to_pylist()[0]["v"]) == "2026-01-01 10:00:00+00:00"
+
+
+def test_a_shift_of_a_shift_of_an_int_is_an_int_and_wraps_at_each_step():
+    # Java: (3 << 20) << 12 overflows an int to 0; (3 << 31) >>> 1 is 1073741824
+    table = sql.run("SELECT shiftleft(shiftleft(shiftleft(i, 10), 10), 12) a, shiftrightunsigned(shiftleft(i, 31), 1) b, "
+                    "typeof(shiftleft(shiftleft(i, 1), 1)) c, typeof(shiftleft(shiftleft(l, 1), 1)) d, "
+                    "shiftleft(shiftright(l, 1), 1) e FROM VALUES (CAST(3 AS INT), CAST(3 AS BIGINT)) v(i, l)")
+    assert [str(f.type) for f in table.schema][:2] == ["int32", "int32"]
+    assert table.to_pylist() == [{"a": 0, "b": 1073741824, "c": "int", "d": "bigint", "e": 2}]
+
+
+def test_a_shift_of_an_int_is_an_int_in_a_local_data_project_s_spark_sql():
+    from fabric_desktop.engines import local_sql
+    from fabric_desktop.engines.contract import CellRequest, SessionConfig
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    result = session.execute(CellRequest("SELECT typeof(shiftleft(i, 1)) t, shiftleft(i, 31) v "
+                                         "FROM VALUES (CAST(3 AS INT)) v(i)", "sql", "spark"))
+    assert result.status == "ok" and result.outputs[-1]["rows"] == [["int", -2147483648]]

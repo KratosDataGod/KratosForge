@@ -1853,7 +1853,8 @@ def _drop_cols(fn: Any) -> Any:  # noqa: ARG001 - DuckDB's drop is replaced; kep
       drops the column named ``a.b.c``; a name that isn't there is skipped.
     - A column drops that column: after ``df.join(df2, ...)``, ``drop(df2.name)`` drops df2's name and
       keeps df's. ``col("name")`` that two columns answer to is Spark's AMBIGUOUS_REFERENCE error, and
-      a column the frame doesn't have, or an expression that isn't a column, is skipped.
+      a column the frame doesn't have, or an expression that isn't a column, is skipped. After a join on
+      names (``df.join(df2, "k")``), ``drop(df.k)`` and ``drop(df2.k)`` both drop the one merged key.
     - Once the frame was selected or changed after the join, this PC no longer knows which DataFrame
       a column came from, so ``drop(df2.name)`` drops the one column called name, as before; with
       two columns of that name it is refused by name rather than guessing. (Spark would also keep a
@@ -1884,6 +1885,10 @@ def _drop_cols(fn: Any) -> Any:  # noqa: ARG001 - DuckDB's drop is replaced; kep
             if not matches:
                 continue
             ref = ".".join(_ident(p) for p in parts)
+            if len(parts) > 1 and matches == 1:
+                # one column of that name: after df.join(df2, "k"), df.k and df2.k both name the one merged
+                # key, as in Spark (DuckDB's EXCLUDE (df.k) would drop it and bring back df2's hidden k)
+                parts = [name]
             if len(parts) > 1:
                 try:
                     self.relation.project(f"* EXCLUDE ({ref})")

@@ -91,6 +91,19 @@ def test_each_sides_column_of_a_shared_name_resolves_and_drops_after_a_keys_firs
     assert frame(kernel, "a.join(b3, 'k').drop('v')") == "['k', 'l', 'z'] [(2, 1, 9)]"
 
 
+@pytest.mark.parametrize("how", ["inner", "left", "right", "full"])
+def test_dropping_either_sides_key_drops_the_one_merged_key(kernel, how):
+    kernel.run("b3 = spark.createDataFrame([('p', 2, 9), ('q', 5, 8)], ['v', 'k', 'z'])")
+    rows = {"inner": "[(1, 'x', 'p', 9)]", "left": "[(1, 'x', 'p', 9), (3, 'y', None, None)]",
+            "right": "[(1, 'x', 'p', 9), (None, None, 'q', 8)]",
+            "full": "[(1, 'x', 'p', 9), (3, 'y', None, None), (None, None, 'q', 8)]"}[how]
+    for side in ("a", "b3"):
+        assert frame(kernel, f"a.join(b3, 'k', '{how}').drop({side}.k)") == f"['l', 'v', 'v', 'z'] {rows}"
+    assert frame(kernel, "a.join(b3, ['k']).drop(b3.k, a.v)") == "['l', 'v', 'z'] [(1, 'p', 9)]"
+    # an expression join keeps both keys, and each side's drops its own
+    assert frame(kernel, "a.join(b3, a.k == b3.k).drop(b3.k)") == "['l', 'k', 'v', 'v', 'z'] [(1, 2, 'x', 'p', 9)]"
+
+
 @pytest.mark.parametrize(("how", "expected"), [
     ("", "['k', 'l', 'v', 'w', 'z'] [(2, 1, 'x', 'p', 9)]"),
     ("LEFT", "['k', 'l', 'v', 'w', 'z'] [(2, 1, 'x', 'p', 9), (4, 3, 'y', None, None)]"),

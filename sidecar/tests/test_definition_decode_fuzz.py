@@ -293,6 +293,26 @@ def test_save_tmdl_never_writes_an_empty_file_for_a_null_part(svc):  # noqa: F81
     assert (folder / "definition" / "tables" / "fact_sales.tmdl").read_text() == "table fact_sales\n"
 
 
+@pytest.mark.parametrize("payload", ["", "IA=="], ids=["empty", "one-space"])
+def test_save_tmdl_never_blanks_a_file_for_an_empty_part(svc, payload):  # noqa: F811
+    """Fifth quality on #3241: "" is valid base64 of nothing, and was written over the model's file."""
+    good = svc.fake.get_item_definition("ws", "m1", "TMDL")
+    svc.meta_model_tmdl_save("test", "SM_Gold")
+    folder = Path(svc._project().root) / "semantic" / "SM_Gold.SemanticModel"
+    good["definition"]["parts"][1]["payload"] = payload
+    svc.fake.get_item_definition = lambda ws, item, fmt=None: good
+    with pytest.raises(RuntimeError, match="wasn't saved, because Fabric sent definition/tables/fact_sales.tmdl empty"):
+        svc.meta_model_tmdl_save("test", "SM_Gold")
+    assert (folder / "definition" / "tables" / "fact_sales.tmdl").read_text() == "table fact_sales\n"
+
+
+def test_an_empty_model_bim_is_refused(svc):  # noqa: F811
+    svc.fake.get_item_definition = lambda ws, item, fmt=None: {"definition": {"parts": [
+        {"path": "model.bim", "payload": "", "payloadType": "InlineBase64"}]}}
+    with pytest.raises(RuntimeError, match="didn't return SM_Gold's model.bim"):
+        svc._model_bim("ws-test", {"id": "m1", "displayName": "SM_Gold"})
+
+
 def test_ossie_model_bim_with_junk_in_its_base64_is_refused(svc):  # noqa: F811
     svc.fake.get_item_definition = lambda ws, item, fmt=None: {"definition": {"parts": [
         {"path": "model.bim", "payload": b64(json.dumps(_bim()))[:8] + "!" + b64(json.dumps(_bim()))[8:]}]}}

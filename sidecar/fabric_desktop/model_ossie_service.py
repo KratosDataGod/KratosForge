@@ -286,7 +286,7 @@ class ModelOssieMixin:
             raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
                                f"({type(exc).__name__}: {exc}). Try again.") from exc
         bim = definition_text(got).get("model.bim")  # a part that isn't whole base64 is FabricError, never empty
-        if bim is None:
+        if bim is None or not bim.strip():  # empty base64 decodes to nothing; never an empty model
             raise RuntimeError(f"Fabric didn't return {model.get('displayName') or 'the model'}'s model.bim")
         return json.loads(bim)
 
@@ -462,6 +462,11 @@ class ModelOssieMixin:
         parts = definition_text(got, "utf-8")
         if not parts:
             raise RuntimeError(f"Fabric returned no definition for {name}")
+        empty = sorted(path for path, content in parts.items() if path.endswith(".tmdl") and not content.strip())
+        if empty:  # valid base64 of nothing: written, it would blank the file in the project
+            raise RuntimeError(f"{name} wasn't saved, because Fabric sent {empty[0]} empty, and a TMDL file is never "
+                               "empty. Nothing in the project was changed. Try again, and if it keeps happening, open "
+                               "the model in Fabric to check it still loads.")
         folder = Path(project.root, FOLDER, f"{_SAFE.sub('_', name).strip() or 'model'}.SemanticModel")
         for path in parts:
             rel = PurePosixPath(path)

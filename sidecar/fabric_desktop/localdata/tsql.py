@@ -2090,12 +2090,8 @@ def _collated(here: list[exp.Expression], there: list[exp.Expression], later: li
     notes: list[str] = []
     for node, info in zip(here, there, strict=True):
         if isinstance(node, exp.Nullif):
-            if _is(info.this.type, _TEXT) and _is(info.expression.type, _TEXT) and not _volatile(node.this):
-                twin = node.this.copy()  # NULLIF's value is read twice: compared through RTRIM, and shown
-                case = exp.Case(ifs=[exp.If(this=exp.EQ(this=_rtrim(twin), expression=_rtrim(node.expression)),
-                                            true=exp.null())], default=node.this)
-                node.replace(case)
-                later.append(functools.partial(_again_default, twin, case))
+            if _is(info.this.type, _TEXT) and _is(info.expression.type, _TEXT):
+                node.replace(_padded_nullif(node))
         elif isinstance(node, exp.Case):
             if node.this is None or not _is(info.this.type, _TEXT):
                 continue
@@ -2134,8 +2130,31 @@ def _again(twin: exp.Expression, source: exp.Expression | None) -> None:
         twin.replace(source.copy())
 
 
-def _again_default(twin: exp.Expression, case: exp.Case) -> None:
-    _again(twin, case.args.get("default"))
+_NULLIF = "__kf_nullif"  # NULLIF's bound value: a lambda parameter no user column is likely to share
+
+
+def _padded_nullif(node: exp.Nullif) -> exp.Expression:
+    """``NULLIF(a, b)`` on text as T-SQL gives it: NULL when a and b are equal without their trailing spaces, and
+    otherwise a as it is, spaces and all. ``a`` is read twice, compared and shown, so it is bound once, as
+    LIST_TRANSFORM([a], __kf_nullif -> CASE WHEN RTRIM(__kf_nullif) = RTRIM(b) THEN NULL ELSE __kf_nullif END)[1]:
+    a copy of it would double at each level of nested NULLIFs (WR-254), and RAND or NEWID in it would be read twice.
+    A ``b`` with a subquery is bound with it, in a struct, since DuckDB allows no subquery in a lambda's body. The
+    values themselves go in, not copies, so the passes that run later (+ on text becoming ||) still find them."""
+    v = exp.to_identifier(_NULLIF)
+    if any(True for _ in node.expression.find_all(exp.Query)):
+        pack = exp.Anonymous(this="STRUCT_PACK", expressions=[
+            exp.PropertyEQ(this=exp.to_identifier("a"), expression=node.this),
+            exp.PropertyEQ(this=exp.to_identifier("b"), expression=node.expression)])
+        value: exp.Expression = exp.column("a", table=_NULLIF)
+        other: exp.Expression = exp.column("b", table=_NULLIF)
+        bound: exp.Expression = pack
+    else:
+        value, other, bound = exp.column(_NULLIF), node.expression, node.this
+    case = exp.Case(ifs=[exp.If(this=exp.EQ(this=_rtrim(value.copy()), expression=_rtrim(other)), true=exp.null())],
+                    default=value.copy())
+    listed = exp.Anonymous(this="LIST_TRANSFORM", expressions=[exp.Array(expressions=[bound]),
+                                                               exp.Lambda(this=case, expressions=[v])])
+    return exp.Bracket(this=listed, expressions=[exp.Literal.number(1)], offset=1)  # DuckDB lists count from 1
 
 
 def _again_shown(twin: exp.Expression, select: exp.Select, at: int) -> None:

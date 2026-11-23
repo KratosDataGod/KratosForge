@@ -138,8 +138,9 @@ _RULES = [
     _r("DDL-011", "error", "ddl", (WH, EP), "CREATE USER isn't supported",
        "{engine} doesn't support CREATE USER.", "Share the item in the Fabric workspace, or grant access with GRANT.",
        "surface"),
-    _r("DDL-012", "unverified", "ddl", (WH,), "Not checked: {name}",
-       "The {engine} documentation doesn't say whether {name} is supported.", "Test it in {engine}.", "tables", "low"),
+    _r("DDL-012", "error", "ddl", (WH, EP), "DEFAULT isn't supported",
+       "{engine} doesn't support default constraints, so a column can't have a DEFAULT and INSERT or UPDATE can't "
+       "ask for one.", "{fix}", "constraints"),
     _r("DDL-013", "error", "ddl", (WH, EP), "External tables aren't supported",
        "{engine} doesn't support CREATE EXTERNAL TABLE.", "Read files with OPENROWSET, or load them with COPY INTO.",
        "surface"),
@@ -148,6 +149,8 @@ _RULES = [
        "Rename the column.", "sqldb"),
     _r("DDL-015", "error", "ddl", TSQL, "Logins aren't supported",
        "{engine} doesn't support logins.", "Use Microsoft Entra users and Fabric workspace roles.", "sqldb"),
+    _r("DDL-016", "unverified", "ddl", (WH,), "Not checked: {name}",
+       "The {engine} documentation doesn't say whether {name} is supported.", "Test it in {engine}.", "tables", "low"),
 
     # ---- SQL analytics endpoint
     _r("EP-001", "error", "endpoint", (EP,), "The SQL analytics endpoint can't change tables",
@@ -828,11 +831,12 @@ def _ddl(s: Stmt) -> Iterator[Hit]:
             yield _hit("DDL-003", toks[i], toks[i + 1])
     for i in s.find("CREATE", ("CLUSTERED", "NONCLUSTERED", "COLUMNSTORE", "INDEX")):
         if s.has("INDEX") and "UNIQUE" not in kws:
-            yield _hit("DDL-012", toks[i], toks[i + 1], name="CREATE INDEX")
+            yield _hit("DDL-016", toks[i], toks[i + 1], name="CREATE INDEX")
     if kws[:2] in (["CREATE", "TABLE"], ["ALTER", "TABLE"]):
         yield from _constraints(s)
         for i in s.find("DEFAULT"):
-            yield _hit("DDL-012", toks[i], name="DEFAULT constraints")
+            first = toks[i - 2] if i >= 2 and toks[i - 2].kw == "CONSTRAINT" else toks[i]
+            yield _hit("DDL-012", first, toks[i], fix=_DEFAULT_FIX)
         names = [p for j, p in _column_defs(s)]
         if len(names) > 1024:
             yield _hit("DDL-009", toks[0], toks[1], count=f"{len(names):,}")
@@ -865,6 +869,63 @@ def _ddl(s: Stmt) -> Iterator[Hit]:
         yield _hit("DDL-013", toks[i], toks[i + 2])
     for i in s.find(("CREATE", "ALTER", "DROP"), "LOGIN"):
         yield _hit("DDL-015", toks[i], toks[i + 1])
+    yield from _default_in_dml(s)
+
+
+_DEFAULT_FIX = "Leave DEFAULT out and give the value when loading the table, for example with COALESCE in the " \
+               "INSERT ... SELECT."
+
+
+def _default_in_dml(s: Stmt) -> Iterator[Hit]:
+    """DEFAULT asked for by INSERT or UPDATE (MERGE's too): INSERT ... DEFAULT VALUES, DEFAULT in a VALUES row,
+    and SET col = DEFAULT. EXEC p @a = DEFAULT and a function's f(DEFAULT) are left alone."""
+    toks = s.toks
+    verbs = _verbs(s)
+    for i, t in enumerate(toks):
+        if t.kw != "DEFAULT" or not i:
+            continue
+        verb = next((v for j, v in reversed(verbs) if j < i), "")
+        if verb not in {"INSERT", "UPDATE", "MERGE"}:
+            continue
+        prev, nxt = toks[i - 1], toks[i + 1] if i + 1 < len(toks) else None
+        if nxt is not None and nxt.kw == "VALUES" and verb in {"INSERT", "MERGE"}:
+            yield _hit("DDL-012", t, nxt, fix=_DEFAULT_FIX)
+        elif prev.type == TokenType.EQ and verb in {"UPDATE", "MERGE"} and _in_set(s, i):
+            yield _hit("DDL-012", t, fix=_DEFAULT_FIX)
+        elif prev.type in (TokenType.L_PAREN, TokenType.COMMA) and verb in {"INSERT", "MERGE"} and _in_values_row(s, i):
+            yield _hit("DDL-012", t, fix=_DEFAULT_FIX)
+
+
+def _in_set(s: Stmt, i: int) -> bool:
+    """Whether the token at ``i`` is in the SET list of an UPDATE (or of MERGE's THEN UPDATE)."""
+    d = s.toks[i].depth
+    for k in range(i - 1, -1, -1):
+        t = s.toks[k]
+        if t.depth < d:
+            return False
+        if t.depth == d and t.kw == "SET":
+            return True
+        if t.depth == d and t.kw in {"FROM", "WHERE", "WHEN", "THEN", "SELECT", "VALUES", "OUTPUT"}:
+            return False
+    return False
+
+
+def _in_values_row(s: Stmt, i: int) -> bool:
+    """Whether the token at ``i`` is an item of a VALUES (...) row, not an argument of a call inside it."""
+    toks = s.toks
+    d = toks[i].depth
+    p = next((k for k in range(i - 1, -1, -1) if toks[k].type == TokenType.L_PAREN and toks[k].depth == d - 1), -1)
+    while p >= 1:
+        before = toks[p - 1]
+        if before.kw == "VALUES":
+            return True
+        if not (before.type == TokenType.COMMA and p >= 2 and toks[p - 2].type == TokenType.R_PAREN):
+            return False
+        # a later row of VALUES (...), (...): look at the row before it
+        r = p - 2
+        p = next((k for k in range(r - 1, -1, -1) if toks[k].type == TokenType.L_PAREN and toks[k].depth == toks[r].depth),
+                 -1)
+    return False
 
 
 def _constraints(s: Stmt) -> Iterator[Hit]:
@@ -906,7 +967,8 @@ def _alter_table(s: Stmt) -> Iterator[Hit]:
     if op.kw == "ADD":
         if nxt in {"PRIMARY", "UNIQUE", "FOREIGN", "CONSTRAINT"}:
             # a named constraint: CHECK and DEFAULT aren't among the allowed ones
-            if nxt == "CONSTRAINT" and k + 3 < len(toks) and toks[k + 3].kw in {"CHECK", "DEFAULT"}:
+            # (ADD CONSTRAINT c DEFAULT is DDL-012's)
+            if nxt == "CONSTRAINT" and k + 3 < len(toks) and toks[k + 3].kw == "CHECK":
                 yield _hit("DDL-007", op, toks[k + 3], name=f"ADD {toks[k + 3].kw} isn't supported",
                            reason="Fabric Data Warehouse's ALTER TABLE can add nullable columns and NOT ENFORCED keys, "
                                   "nothing else.", fix="Check the rule when loading the table instead.")

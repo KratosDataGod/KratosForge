@@ -4,14 +4,15 @@ A profile is the summary a person reads (Compatibility panel, docs/sql-compatibi
 checks that act on it are the rules in rules.py, which name the profiles they apply to. When
 Microsoft changes a page, change the rule and the profile together and move RULE_VERSION on.
 
-Sources were read on 2026-10-17. Their "last updated" dates are kept beside each link.
+Sources were read on 2026-10-17, and the table constraints page on 2026-11-23. Their "last updated" dates are
+kept beside each link.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-RULE_VERSION = "2026.10.3"
+RULE_VERSION = "2026.11.1"
 CHECKED_ON = "2026-10-17"
 
 LEARN = "https://learn.microsoft.com"
@@ -22,6 +23,7 @@ DOCS = {
     "collation": (f"{LEARN}/fabric/data-warehouse/collation", "2025-08-14"),
     "temp": (f"{LEARN}/fabric/data-warehouse/temp-tables", "2026-07-27"),
     "tables": (f"{LEARN}/fabric/data-warehouse/tables", "2026-08-26"),
+    "constraints": (f"{LEARN}/fabric/data-warehouse/table-constraints", "2026-09-08"),
     "crossdb": (f"{LEARN}/fabric/data-warehouse/query-warehouse", "2026-02-13"),
     "sqldb": (f"{LEARN}/fabric/database/sql/limitations", "2026-08-24"),
     "top": (f"{LEARN}/sql/t-sql/queries/top-transact-sql", ""),
@@ -74,6 +76,7 @@ _WAREHOUSE: dict[str, Any] = {
         "IDENTITY columns": "supported",
         "triggers, synonyms, materialized views, sequences, computed columns, external tables, unique indexes": "not supported",
         "FOR XML, SET ROWCOUNT, SET TRANSACTION ISOLATION LEVEL, PREDICT, BULK LOAD, CREATE USER": "not supported",
+        "DEFAULT constraints, and DEFAULT in INSERT or UPDATE": "not supported",
         "query and join hints": "a subset",
     },
     "unsupported_types": _TSQL_TYPES_NOT_IN_TABLES,
@@ -89,7 +92,7 @@ _WAREHOUSE: dict[str, Any] = {
     "semantic_differences": ["Case-sensitive comparisons by default.", "T-SQL integer division truncates (7 / 2 = 3).",
                              "Cross-database queries use three-part names, for items in the same workspace and region."],
     "confidence": "Documented rules from Microsoft Learn, checked statically. Not a substitute for running in the Warehouse.",
-    "docs": ["surface", "types", "transactions", "collation", "temp", "tables", "crossdb"],
+    "docs": ["surface", "types", "transactions", "collation", "temp", "tables", "constraints", "crossdb"],
 }
 
 _ENDPOINT = {

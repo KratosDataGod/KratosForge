@@ -57,7 +57,8 @@ The paused line is highlighted, and a panel under the cell shows:
 
 - **Call stack**: where the cell is, outermost first, such as `(cell) line 5 › double line 3`.
 - **Variables** in the paused frame: names, types, sizes and a short value. A variable whose name
-  looks like a secret, or whose value came from `getSecret`, shows as `hidden`. A frame with more
+  looks like a secret, or whose value came from `getSecret` or holds such a value (in a list, a longer
+  text or an object), shows as `hidden`. A frame with more
   than 200 variables lists the first 200 by name and says how many there are. A data frame shows
   its size and first columns, not its rows (evaluate its head(), such as `df.head()`, for those), and a long list or
   text shows its first items, so pausing next to large data stays quick.
@@ -107,7 +108,8 @@ The automated checks are `sidecar/tests/test_debugger.py`, `sidecar/tests/test_d
 large frames and values), `sidecar/tests/test_debugger_robust.py` (malformed debugger and process
 messages, a process that dies or a cell that hangs while paused, the stack through errors and
 recursion), `sidecar/tests/test_debugger_soak.py` (a thousand pauses and steps, and runs mixing
-Stop, Continue and restart, leave no trace hook, thread or memory behind) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
+Stop, Continue and restart, leave no trace hook, thread or memory behind), `sidecar/tests/test_debugger_midstep.py`
+(Stop, a restart or the process dying while a step runs) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
 Windows, with **Run notebooks in their own process** both on and off:
 
 1. Set breakpoints in two cells, save, close the notebook and reopen it. The red bars are on the

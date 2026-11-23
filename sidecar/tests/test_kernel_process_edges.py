@@ -113,8 +113,10 @@ def test_a_cell_that_ignores_the_interrupt_past_the_time_limit_is_ended(child, m
     monkeypatch.setattr(kernel_proc, "WATCH_SECONDS", 0.05)
     monkeypatch.setattr(kernel_proc, "TIME_GRACE_SECONDS", 0.3)
     child.time_limit = 0.2
+    # The process, taken before the cell's clock starts: by the time start() returns, the watcher may
+    # have ended it already and the reader cleared child._proc.
+    proc = child._ensure()
     child.start("while True: pass")
-    proc = child._proc
     proc.wait(15)  # the limit's watcher ends it; the interrupt's error didn't stop the watcher
     deadline = time.monotonic() + 10
     while child._proc is proc and time.monotonic() < deadline:

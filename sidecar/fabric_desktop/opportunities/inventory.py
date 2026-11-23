@@ -17,13 +17,13 @@ A workload::
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import json
 import re
 import statistics
 from typing import Any
 
+from .. import b64
 from ..notebook_formats import parse_source
 from ..orchestration.definition import DefinitionError, loads
 from ..timeutil import parse_time
@@ -80,7 +80,7 @@ def _decode(part: dict[str, Any]) -> str:
     payload = part.get("payload") or ""
     if part.get("payloadType", "InlineBase64") != "InlineBase64":
         return str(payload)
-    return base64.b64decode(payload, validate=True).decode("utf-8", "replace")
+    return b64.decode_exact(payload).decode("utf-8", "replace")
 
 
 def notebook_content(definition: dict[str, Any]) -> tuple[list[str], str | None]:

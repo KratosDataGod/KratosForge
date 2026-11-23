@@ -103,6 +103,8 @@ _OSSIE_ANNOTATIONS = frozenset({"OssieAIContext", "OssieExpressionDialect", PLAC
 _TABLE_ALWAYS_KEPT = ("hierarchies", "calculationGroup", "refreshPolicy")  # kept even over a Power BI section
 # warnings.catch_warnings swaps process-wide state, so conversions run one at a time.
 _LOCK = threading.Lock()
+# The file name every converter warning carries (ossie_microsoft._common.warn): only those are the report.
+CONVERTER_WARNINGS = "ossie_microsoft"
 # A large real model is a few MB of YAML; this keeps a mistaken pick (a data file) from filling memory.
 MAX_CHARS = 20_000_000
 
@@ -132,6 +134,10 @@ def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, st
         result = fn(*args, **kwargs)
     report = []
     for w in caught:
+        if w.filename != CONVERTER_WARNINGS:  # not the converter's: a warning Python raised meanwhile, such as
+            # a ResourceWarning for another thread's socket the garbage collector closed. Passed on, not reported.
+            warnings.showwarning(w.message, w.category, w.filename, w.lineno, w.file, w.line)
+            continue
         text = str(w.message)
         scope, _, message = text[1:].partition("] ") if text.startswith("[") else ("model", "", text)
         report.append({"object": scope, "message": message or text,

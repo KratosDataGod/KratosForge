@@ -1000,7 +1000,9 @@ class LocalEngine:
                     parsed = delta_dml.parse(rewritten, "duckdb")
                 except ValueError:
                     # What delta-rs can't run (UPDATE ... FROM, DELETE ... USING) runs in DuckDB on a database table.
-                    if not self._database_table(_dml_target(rewritten)):
+                    # A T-SQL MERGE isn't one of those: what delta_dml refuses in it, a warehouse refuses too, so
+                    # it is refused on a database table as well rather than run as DuckDB takes it (WR-259).
+                    if not self._database_table(_dml_target(rewritten)) or (tsql and _kind(rewritten) == "merge"):
                         raise
                     parsed = None
                     joined = rewritten  # an UPDATE ... FROM is checked before it runs (_updated_once)

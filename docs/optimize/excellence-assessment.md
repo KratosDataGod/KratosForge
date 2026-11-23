@@ -26,8 +26,8 @@ collected, and how sure it is:
 
 Secrets are removed from evidence before it is stored. Each record carries a hash of its content, so a
 record that was changed after collection is rejected and can't decide a control. So is a record that
-isn't shaped as its kind of evidence (a list that isn't a list, a missing field): the controls that need
-it are not evaluated, never passed.
+isn't shaped as its kind of evidence, such as a field that should be a list but isn't, or a missing
+field. The controls that need it are not evaluated, never passed.
 
 ## Control outcomes
 

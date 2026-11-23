@@ -21,6 +21,7 @@ from typing import Any
 from . import b64
 from . import app_settings, jsonfile, pdfreport, progress, ranks, roadmap
 from .learn import content as learn_content
+from .mastery import catalog as mastery_catalog, levels as mastery_levels
 from .redact import describe
 from . import known_folders
 from . import trees
@@ -30,7 +31,7 @@ _log = logging.getLogger(__name__)
 METHODS = {"profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report",
            "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set",
            "profile_avatar_remove", "profile_report_pdf", "profile_goal_add", "profile_goal_remove",
-           "profile_goal_done"}
+           "profile_goal_done", "profile_mastery"}
 
 # The picture the app made: a 256 px square PNG, re-encoded in the app from what the person chose, so
 # photo metadata such as location never reaches the file (PB-125).
@@ -114,6 +115,47 @@ class ProgressMixin:
 
     def profile_get(self) -> dict[str, Any]:
         return self._profile_view(progress.load(self._profile_path()))
+
+    def profile_mastery(self, class_id: str | None = None) -> dict[str, Any]:
+        """Developer classes (PB-134): every class's mastery, and one class's talent trees with each
+        talent's level, state and counted evidence. Worked out from the profile's verified rows every
+        time; nothing is stored. Without ``class_id`` it shows the class with the most progress."""
+        profile = progress.load(self._profile_path())
+        cat = mastery_catalog.load()
+        ev = mastery_levels.evaluate(profile, cat)
+        classes = [{"id": cid, "title": c["title"], "professional": c["professional"],
+                    "mastery": ev["classes"][cid]["mastery"], "mastery_name": ev["classes"][cid]["mastery_name"],
+                    "mastered": ev["classes"][cid]["mastered"],
+                    "talents": sum(len(sp["nodes"]) for sp in c["specializations"])}
+                   for cid, c in sorted(cat["classes"].items(), key=lambda kv: kv[1]["title"])]
+        if class_id is None:
+            class_id = max(classes, key=lambda c: (c["mastered"], ev["classes"][c["id"]]["at_journeyman"],
+                                                   c["id"] == "lakehouse-warden"))["id"]
+        if class_id not in cat["classes"]:
+            raise ValueError(f"{class_id} isn't a developer class")
+        cls, view = cat["classes"][class_id], ev["classes"][class_id]
+        talents = {t["id"]: t for t in view["talents"]}
+
+        def talent(n: dict[str, Any]) -> dict[str, Any]:
+            t, sk = talents[n["id"]], ev["skills"][n["skill"]]
+            hooks = cat["skills"][n["skill"]]["evidence"]
+            return {**t, "title": sk["title"], "capstone": bool(n.get("capstone")),
+                    "level_name": mastery_levels.LEVELS[t["level"]],
+                    "banked_name": mastery_levels.LEVELS[t["banked"]] if t["banked"] else "",
+                    "ceiling": sk["ceiling"], "ceiling_reason": sk["ceiling_reason"],
+                    "next": mastery_levels.NEXT_STEP[min(t["level"], sk["ceiling"])] if t["level"] < sk["ceiling"] else sk["ceiling_reason"],
+                    "learn": list(hooks.get("learn", [])), "academy": list(hooks.get("academy", [])),
+                    "evidence": [{"id": r["evidence"], "at": r["at"], "type": r["type"], "category": r["category"],
+                                  "source": r["source"]} for r in sk["evidence"]]}
+
+        return {"rules_version": ev["rules_version"], "catalog_version": ev["catalog_version"],
+                "levels": list(mastery_levels.LEVELS), "classes": classes,
+                "class": {"id": class_id, "title": cls["title"], "professional": cls["professional"], "fantasy": cls["fantasy"],
+                          "competency": cls["competency"], "mastery": view["mastery"], "mastery_name": view["mastery_name"],
+                          "mastered": view["mastered"],
+                          "achievements": [{"id": a["id"], "name": a["name"], "criteria": a["criteria"]} for a in cls["achievements"]],
+                          "specializations": [{"id": sp["id"], "title": sp["title"], "professional": sp["professional"],
+                                               "nodes": [talent(n) for n in sp["nodes"]]} for sp in cls["specializations"]]}}
 
     def profile_save(self, settings: dict[str, Any] | None = None, identity: dict[str, Any] | None = None,
                      report_summary: str | None = None, dismiss_notice: bool = False) -> dict[str, Any]:

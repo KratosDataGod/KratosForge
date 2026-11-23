@@ -112,7 +112,7 @@ def test_readiness_without_a_client_id_shows_not_signed_in(svc, monkeypatch):
     seen = {}
     from fabric_desktop import readiness
 
-    def checks(user, workspaces, capacities, settings, clock, folder):
+    def checks(user, workspaces, capacities, settings, clock, folder, local_folders=None):
         seen.update(user=user, workspaces=workspaces)
         return [{"id": "sign_in"}]
     monkeypatch.setattr(readiness, "checks", checks)

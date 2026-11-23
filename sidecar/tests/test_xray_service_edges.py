@@ -184,7 +184,7 @@ def test_definitions_decode_every_part_and_no_parts_is_unreadable():
     # Searched as it is, a part that isn't whole base64 can't name the lakehouse: unreadable, not proof.
     with pytest.raises(FabricError, match="b.json wasn't whole base64"):
         xs._definition_text({"definition": {"parts": [{"path": "b.json", "payload": "abc"}]}})
-    with pytest.raises(ValueError, match="no definition parts"):
+    with pytest.raises(ValueError, match="because Fabric returned no parts"):
         xs._definition_text({"definition": {}})
 
 

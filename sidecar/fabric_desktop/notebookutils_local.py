@@ -873,7 +873,8 @@ def _make_udf(host: Host) -> types.SimpleNamespace:
         from .fabric_api import definition_parts  # a part that isn't whole base64 is FabricError
         got = definition_parts(client.get_item_definition(ws, item["id"]))
         if not got:
-            raise LookupError(f"Fabric returned no files for the User data functions item {udf}.")
+            raise LookupError(f"The functions in {udf} couldn't be listed, because Fabric returned no files for it. "
+                              "Open the item in Fabric to check it still loads.")
         return UdfFunctions(item, _udf_functions({p: data.decode("utf-8-sig", "replace") for p, data in got.items()}))
 
     return types.SimpleNamespace(

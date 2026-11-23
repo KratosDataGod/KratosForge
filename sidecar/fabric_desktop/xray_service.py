@@ -676,7 +676,8 @@ def _definition_text(definition: dict[str, Any]) -> str:
     proof of anything: read short, it could miss the lakehouse's name."""
     parts = definition_parts(definition)
     if not parts:
-        raise ValueError("Fabric returned no definition parts")
+        raise ValueError("Fabric's definition couldn't be read, because Fabric returned no parts. Open the item in Fabric "
+                         "to check it still loads.")
     return "\n".join(f"{data.decode('utf-8', 'replace')}\n{path}" for path, data in parts.items())
 
 

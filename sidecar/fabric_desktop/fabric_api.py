@@ -196,7 +196,7 @@ def definition_parts(got: Mapping[str, Any]) -> dict[str, bytes]:
         except ValueError:
             shown = _part(path) if isinstance(path, str) else "a part"
             raise FabricError(f"Fabric's definition couldn't be read because {shown or 'a part'} wasn't whole "
-                              "base64, so nothing was saved from it. Try again; if it keeps happening, open the "
+                              "base64, so nothing was saved from it. Try again, and if it keeps happening, open the "
                               "item in Fabric to check it still loads.", BAD_DEFINITION) from None
     return parts
 

@@ -63,7 +63,8 @@ def definition_parts(result: dict[str, Any]) -> list[Any]:
     counts the item as missed, not as using no connection."""
     parts = fabric_api.definition_parts(result or {})
     if not parts:
-        raise ValueError("Fabric returned no definition parts")
+        raise ValueError("Fabric's definition couldn't be read, because Fabric returned no parts. Open the item in Fabric "
+                         "to check it still loads.")
     out = []
     for data in parts.values():
         try:

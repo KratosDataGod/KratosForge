@@ -2,9 +2,11 @@
 
 ``threading.Timer`` waits on the monotonic clock, which on Windows keeps counting while the PC sleeps
 (GetTickCount64). A run with a 30-minute limit that was making progress when the lid closed would be
-stopped the moment the PC woke, hours later, for time it never ran. ``AwakeTimer`` waits in short
-steps and leaves out any step that took far longer than asked: that gap is the PC asleep (or the
-process suspended), not the run. A run that really runs past its limit is still stopped on time,
+stopped the moment the PC woke, hours later, for time it never ran. On Windows ``AwakeTimer`` and
+``awake_monotonic`` count on QueryUnbiasedInterruptTime, which leaves out only sleep and
+hibernation, so a process that is suspended or starved still has that time counted against its
+limit. Where that clock can't be had, they wait in short steps and leave out any step that took far
+longer than asked: that gap is taken as the PC asleep. A run that really runs past its limit is still stopped on time,
 give or take a step. ``awake_monotonic`` is a clock for deadlines that leaves sleep out the same
 way, for limits checked against a deadline rather than waited out by a timer. A leaf module: it
 imports nothing from the package.
@@ -12,12 +14,50 @@ imports nothing from the package.
 
 from __future__ import annotations
 
+import sys
 import threading
 from time import monotonic as _monotonic
 from typing import Any, Callable
 
 STEP = 1.0  # seconds between checks
-SLEEP_GAP = 5.0  # a step this much longer than STEP was the PC asleep, not counted
+SLEEP_GAP = 5.0  # a step this much longer than STEP was the PC asleep, not counted (without _UNBIASED)
+
+
+def _unbiased_clock() -> Callable[[], float] | None:
+    """Windows' QueryUnbiasedInterruptTime in seconds: a monotonic clock that stops while the PC sleeps
+    or hibernates, and only then. None off Windows, or if kernel32 doesn't have it."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+
+    try:
+        query = ctypes.WinDLL("kernel32").QueryUnbiasedInterruptTime
+    except (OSError, AttributeError):
+        return None
+    query.argtypes = [ctypes.POINTER(ctypes.c_ulonglong)]
+    query.restype = ctypes.c_int
+
+    def read() -> float:
+        ticks = ctypes.c_ulonglong()
+        if not query(ctypes.byref(ticks)):
+            raise OSError("QueryUnbiasedInterruptTime failed")
+        return ticks.value / 10_000_000  # 100 ns units
+
+    return read
+
+
+_UNBIASED = _unbiased_clock()  # tests/conftest.py's sleep_jump sets it to None, to jump the other clock
+
+
+def _os_clock() -> float:
+    """Awake time where Windows gives it (_UNBIASED), else the monotonic clock, read for each call so a
+    test can swap either."""
+    return _UNBIASED() if _UNBIASED is not None else _monotonic()
+
+
+def _gap() -> float:
+    """The longest step counted: any, on a clock that already leaves sleep out; else STEP + SLEEP_GAP."""
+    return float("inf") if _UNBIASED is not None else STEP + SLEEP_GAP
 
 
 class AwakeTimer(threading.Thread):
@@ -31,9 +71,10 @@ class AwakeTimer(threading.Thread):
         self.function = function
         self.args = args
         self.finished = threading.Event()
-        # The OS's clock, bound here rather than read as time.monotonic: tests that replace time.monotonic
-        # for their own module don't reach these threads; tests/conftest.py's sleep_jump moves it.
-        self._clock = clock or (lambda: _monotonic())
+        # The OS's clock (_os_clock), not time.monotonic: tests that replace time.monotonic for their own
+        # module don't reach these threads; tests/conftest.py's sleep_jump moves it.
+        self._own_clock = clock is not None
+        self._clock = clock or _os_clock
 
     def cancel(self) -> None:
         self.finished.set()
@@ -41,7 +82,10 @@ class AwakeTimer(threading.Thread):
     def awake_after(self, before: float, after: float, counted: float) -> float:
         """``counted`` plus the step from ``before`` to ``after``, unless that step was the PC asleep."""
         step = after - before
-        return counted + step if 0 <= step <= STEP + SLEEP_GAP else counted
+        return counted + step if 0 <= step <= self._limit() else counted
+
+    def _limit(self) -> float:
+        return STEP + SLEEP_GAP if self._own_clock else _gap()
 
     def run(self) -> None:
         counted = 0.0
@@ -64,9 +108,10 @@ class AwakeClock:
     never goes back."""
 
     def __init__(self, clock: Callable[[], float] | None = None) -> None:
-        # The OS's clock, bound here rather than read as time.monotonic: tests that replace time.monotonic
-        # for their own module don't reach these threads; tests/conftest.py's sleep_jump moves it.
-        self._clock = clock or (lambda: _monotonic())
+        # The OS's clock (_os_clock), not time.monotonic: tests that replace time.monotonic for their own
+        # module don't reach these threads; tests/conftest.py's sleep_jump moves it.
+        self._own_clock = clock is not None
+        self._clock = clock or _os_clock
         self._lock = threading.Lock()
         self._awake = 0.0
         self._last = self._clock()
@@ -80,7 +125,8 @@ class AwakeClock:
         step = now - self._last
         # A step far longer than asked was the PC asleep: count one ordinary step for it, which
         # keeps the clock from going back after now() read up to a STEP past the last one.
-        self._awake += step if 0 <= step <= STEP + SLEEP_GAP else (STEP if step > 0 else 0.0)
+        limit = STEP + SLEEP_GAP if self._own_clock else _gap()
+        self._awake += step if 0 <= step <= limit else (STEP if step > 0 else 0.0)
         self._last = now
 
     def _tick(self) -> None:

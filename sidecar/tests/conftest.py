@@ -303,6 +303,7 @@ def sleep_jump(monkeypatch):
     monkeypatch.setattr(time, "monotonic", lambda: real() + offset[0])
     from fabric_desktop import awake_timer
     monkeypatch.setattr(awake_timer, "_monotonic", lambda: real() + offset[0])  # its own binding
+    monkeypatch.setattr(awake_timer, "_UNBIASED", None)  # on Windows, so the jumped clock is the one read
     event_wait = threading.Event.wait
 
     def windows_wait(self, timeout=None):

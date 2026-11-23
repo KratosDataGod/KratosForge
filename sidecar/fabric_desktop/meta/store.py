@@ -25,7 +25,7 @@ from deltalake.exceptions import TableNotFoundError
 from .. import delta_profile, delta_read, durable
 from ..errors import NotSetUp
 from ..leases import LeaseBusy, LeaseLost, Leases, LocalBackend, check_held, table_key
-from ..retrying import local_retry, staged_commit_race
+from ..retrying import commit_conflict, local_retry, lost_commit, staged_commit_race
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
 
@@ -176,6 +176,19 @@ class Store:
     # so [source] landing reads this environment's own LH_Landing, as before.
     landing_zones: Callable[[], dict[str, Any] | None] | None = None
     _landing: dict[str, Any] | None = None
+    # Each entity table's own Delta profile and readers ((lakehouse, schema, table) -> (profile, readers)),
+    # from its delta_features (Project.delta_policies; the Engine sets it). A table not here, like the run
+    # log, is checked with the default profile and readers. Replaced whole, never changed in place.
+    delta_policies: dict[tuple[str, str, str], tuple[delta_profile.Profile, tuple[str, ...]]] = {}
+
+    def delta_policy(self, lakehouse: str, schema: str, table: str) -> tuple[delta_profile.Profile | None, tuple[str, ...] | None]:
+        """The profile and readers a write to this table is checked with (None, None: the defaults)."""
+        return self.delta_policies.get((lakehouse, schema, table), (None, None))
+
+    def _check_delta(self, lakehouse: str, schema: str, table: str, current: DeltaTable) -> None:
+        """Refuse a write to ``current`` before anything is committed when it is outside the table's
+        profile, or uses a feature one of its readers can't read (delta_profile.check_table)."""
+        delta_profile.check_table(current, *self.delta_policy(lakehouse, schema, table))
 
     def landing_map(self) -> dict[str, Any] | None:
         if self.landing_zones is None:
@@ -293,7 +306,7 @@ class Store:
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
         if current is not None:
-            delta_profile.check_table(current)
+            self._check_delta(lakehouse, schema, table, current)
         wanted = {"overwrite": "overwrite", "error": None}.get(
             "error" if mode == "overwrite" and read_version is None else mode, "merge")
         schema_mode = delta_read.schema_mode_for(current, data.schema.names, wanted, f"{schema}.{table}")
@@ -321,8 +334,11 @@ class Store:
                                     if metadata or retries else None)
                     break
                 except OSError as exc:  # on Windows that same race can surface as the staged commit refused
-                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 or not staged_commit_race(exc):
+                    if not staged_commit_race(exc):
                         raise
+                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1:
+                        # Nothing was committed: the conflict delta-rs reports elsewhere, in its own type.
+                        raise commit_conflict(f"{schema}.{table}'s next version") from exc
                     time.sleep(0.05 * (attempt + 1))
                 except CommitFailedError as exc:
                     # Two first appends to a table not made yet each create it; the one that loses is
@@ -338,7 +354,7 @@ class Store:
                     current = open_table(uri, self.options())
                     if current is None:
                         raise
-                    delta_profile.check_table(current)
+                    self._check_delta(lakehouse, schema, table, current)
                     safe = self._delta_safe(uri, schema, table, data.schema, True, current)
                     if safe != data.schema:
                         data = data.cast(safe)
@@ -361,7 +377,7 @@ class Store:
             rows = pa.RecordBatchReader.from_batches(safe, (b.cast(safe) for b in rows))
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
-        current = delta_profile.open_target(uri, self.options())
+        current = delta_profile.open_target(uri, self.options(), *self.delta_policy(lakehouse, schema, table))
         target: Any = uri
         extra: dict[str, Any] = {"mode": "error"}
         if read_version is not None:
@@ -395,6 +411,8 @@ class Store:
                 self.last_cleanup = self._remove_unwritten(lakehouse, schema, table, before, read_version)
             if read_version is None and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
+            if (conflict := lost_commit(exc, f"{schema}.{table}'s next version")) is not None:
+                raise conflict from exc  # Windows: lost the staged-commit race; nothing was committed
             raise
         return self._committed(uri, target if isinstance(target, DeltaTable) else DeltaTable(uri, storage_options=self.options()))
 
@@ -569,7 +587,7 @@ class Store:
             self.create_if_absent(lakehouse, schema, table, dict(empty.schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
         current = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(current)
+        self._check_delta(lakehouse, schema, table, current)
         if version is not None and current.version() != version:
             raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
@@ -602,7 +620,7 @@ class Store:
         current = open_table(uri, self.options())
         data = self._merge_source(uri, schema, table, df, current)
         if current is not None:
-            delta_profile.check_table(current)
+            self._check_delta(lakehouse, schema, table, current)
         target = _at(current, uri, self.options(), read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
         # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).

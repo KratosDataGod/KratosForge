@@ -19,7 +19,7 @@ import json
 import re
 import threading
 import warnings
-from typing import Any
+from typing import Any, Literal
 
 import sqlglot
 from sqlglot import exp
@@ -223,8 +223,10 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
     ``translate_dax`` also writes single-column aggregate measures (SUM, AVERAGE, MIN, MAX, COUNTA,
     DISTINCTCOUNTNOBLANK) as portable SQL, keeping the DAX beside it. ``read_report`` (what the TMDL reader left
     out) leads the report. ``validate`` also runs the round trip (``round_trip_check``): its rows are
-    ``round_trip`` and its result is the fidelity report's validation."""
+    ``round_trip`` and its result is the fidelity report's validation. A part of the wrong type is refused by
+    path before conversion (``_refuse_shape``)."""
     require()
+    _refuse_shape(bim, _BIM_SHAPE, "export")
     try:
         text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
     except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a number for tables)
@@ -314,12 +316,14 @@ def _parsed(text: str | dict[str, Any]) -> dict[str, Any]:
 
 def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """An Ossie document (its text, or what ``parse`` made of it) as a parsed ``model.bim``, and the report.
-    ``source`` is the lakehouse new Direct Lake tables read: ``{"workspaceId": ..., "itemId": ...}``."""
+    ``source`` is the lakehouse new Direct Lake tables read: ``{"workspaceId": ..., "itemId": ...}``. A part of
+    the wrong type is refused by path before conversion (``_refuse_shape``)."""
     lifted: list[dict[str, str]] = []
     parsed = _parsed(text)
     refusal = not_convertible(parsed)
     if refusal:  # never fed to the 0.2 converter as if it were 0.2
         raise ValueError(refusal)
+    _refuse_shape(parsed, _OSSIE_SHAPE, "ossie")
     try:
         doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
         bim, report = _convert(convert_ossie_to_semantic_model, yaml.safe_dump(doc, sort_keys=False), source=source)
@@ -340,6 +344,110 @@ def _wrong_shape(doc: dict[str, Any]) -> str:
     where = f": {found[0]['path']} {found[0]['message']}" if found else ""
     return (f"The Ossie file couldn't be converted, because part of it isn't the shape Ossie {OSSIE_VERSION} gives it{where}. "
             "Fix that part, then try again.")
+
+
+# ---- shape checks: the types of the keys the conversion reads, checked once before it runs
+# A shape maps a key to what its value must be: a type (or a tuple of types), a dict (an object of that shape) or a
+# one-item list (a list whose items are each that). A key that is absent, null or empty ("", [] or {}) isn't checked:
+# the converter reads it as missing. Keys not named here aren't read, so they aren't checked.
+Shape = dict[str, Any]
+_TEXT = (str, list)  # TMSL keeps multi-line text as a string or as a list of lines
+_EXTENSIONS: list[Shape] = [{"vendor_name": str}]  # data: read and refused by name where it is used
+_EXPRESSION: Shape = {"dialects": [{"dialect": str, "expression": str}]}
+_METRIC: Shape = {"name": str, "description": str, "datatype": str, "expression": _EXPRESSION,
+                  "custom_extensions": _EXTENSIONS}
+_OSSIE_SHAPE: Shape = {
+    "name": str, "description": str, "custom_extensions": _EXTENSIONS, "metrics": [_METRIC],
+    "datasets": [{"name": str, "description": str, "source": str, "primary_key": [str], "unique_keys": [[str]],
+                  "custom_extensions": _EXTENSIONS, "metrics": [_METRIC],
+                  "fields": [{"name": str, "description": str, "datatype": str, "expression": _EXPRESSION,
+                              "dimension": dict, "custom_extensions": _EXTENSIONS}]}],
+    "relationships": [{"name": str, "from": str, "to": str, "from_columns": [str], "to_columns": [str],
+                       "custom_extensions": _EXTENSIONS}],
+}
+_ANNOTATIONS: list[Shape] = [{"name": str, "value": _TEXT}]
+_NAMED: list[Shape] = [{"name": str}]
+_BIM_SHAPE: Shape = {
+    "name": str, "description": _TEXT, "compatibilityLevel": int,
+    "model": {
+        "description": _TEXT, "annotations": _ANNOTATIONS, "roles": _NAMED, "perspectives": _NAMED,
+        "cultures": _NAMED, "expressions": [{"name": str, "kind": str, "expression": _TEXT}],
+        "relationships": [{"name": str, "fromTable": str, "fromColumn": str, "toTable": str, "toColumn": str,
+                           "fromCardinality": str, "toCardinality": str}],
+        "tables": [{
+            "name": str, "description": _TEXT, "annotations": _ANNOTATIONS, "hierarchies": _NAMED,
+            "calculationGroup": dict,
+            "columns": [{"name": str, "type": str, "dataType": str, "sourceColumn": str, "expression": _TEXT,
+                         "description": _TEXT, "formatString": str, "dataCategory": str, "annotations": _ANNOTATIONS}],
+            "measures": [{"name": str, "expression": _TEXT, "description": _TEXT, "dataType": str,
+                          "formatString": str, "annotations": _ANNOTATIONS}],
+            "partitions": [{"name": str, "mode": str,
+                            "source": {"type": str, "query": _TEXT, "expression": _TEXT, "entityName": str,
+                                       "schemaName": str, "expressionSource": str}}],
+        }],
+    },
+}
+_WORDS = {str: "text", int: "a whole number", float: "a number", bool: "true or false", list: "a list",
+          dict: "an object", type(None): "empty"}
+
+
+# How a refusal starts, by what was refused; the first two as the converter's own refusals start.
+_SHAPE_LEADS = {
+    "ossie": "The Ossie file couldn't be converted, because part of it isn't the shape Ossie gives it",
+    "export": "This model couldn't be converted to Ossie, because part of it isn't the shape a semantic model's part has",
+    "update": "The model couldn't be updated, because part of it isn't the shape a semantic model's part has",
+}
+
+
+def _what(value: Any) -> str:
+    """What a value is, in words, never the value itself."""
+    if isinstance(value, bool):
+        return "true or false"
+    if isinstance(value, (int, float)):
+        return "a number"
+    return _WORDS.get(type(value), "a " + type(value).__name__)
+
+
+def _wanted(spec: Any) -> str:
+    if isinstance(spec, dict):
+        return "an object"
+    if isinstance(spec, list):
+        return "a list"
+    return " or ".join(_WORDS.get(t, t.__name__) for t in (spec if isinstance(spec, tuple) else (spec,)))
+
+
+def _fits(value: Any, spec: Any) -> bool:
+    if isinstance(spec, dict):
+        return isinstance(value, dict)
+    if isinstance(spec, list):
+        return isinstance(value, list)
+    return isinstance(value, spec) and not (isinstance(value, bool) and bool not in
+                                            (spec if isinstance(spec, tuple) else (spec,)))
+
+
+def _empty(value: Any) -> bool:
+    return value is None or (isinstance(value, (str, list, dict)) and not value)
+
+
+def _refuse_shape(doc: Any, shape: Shape, kind: Literal["ossie", "export", "update"]) -> None:
+    """Refuse ``doc`` (ValueError naming the path, never a value) when a key ``shape`` names has a value of
+    another type, such as text where a list of datasets goes or a list where an object goes. One pass, without
+    recursion: only as deep as ``shape`` goes, so a deeply nested value is never walked."""
+    todo: collections.deque[tuple[Any, Any, str]] = collections.deque([(doc, shape, "$")])
+    while todo:
+        value, spec, path = todo.popleft()
+        if not _fits(value, spec):
+            hint = " (a name that is a number goes in quotes)" if isinstance(value, (int, float)) and \
+                not isinstance(value, bool) and _fits("", spec) else ""
+            raise ValueError(f"{_SHAPE_LEADS[kind]}: {path} is {_what(value)} where it should be {_wanted(spec)}{hint}. "
+                             "Fix that part, then try again.")
+        if isinstance(spec, dict):
+            todo.extend((value[key], want, f"{path}.{key}")
+                        for key, want in spec.items() if not _empty(value.get(key)))
+        elif isinstance(spec, list):
+            for i, item in enumerate(value):
+                name = item.get("name") if isinstance(item, dict) else None
+                todo.append((item, spec[0], f"{path}[{_q(name) if isinstance(name, str) else i}]"))
 
 
 def _has_stash(obj: Any) -> bool:
@@ -370,6 +478,7 @@ def stashed(text: str | dict[str, Any]) -> set[str]:
     one of the model section's excluded tables), and otherwise the first dataset is its home. ``text`` may be
     what ``parse`` made of the file; it is only read."""
     doc = _parsed(text)
+    _refuse_shape(doc, _OSSIE_SHAPE, "ossie")
     datasets = [d for d in doc.get("datasets") or [] if isinstance(d, dict) and d.get("name")]
     if not datasets:
         return set()
@@ -610,6 +719,8 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
     (``_FROM_SOURCE``). A carried property naming an object the merged model doesn't have, or DAX naming one
     the merge took out, is taken back out (``_check_references``). Each property not carried is named in
     ``report``, so nothing is dropped silently."""
+    _refuse_shape(current, _BIM_SHAPE, "update")
+    _refuse_shape(incoming, _BIM_SHAPE, "update")
     remove_set = set(remove or [])
     stashed = stashed or set()
     report = report if report is not None else []
@@ -700,6 +811,9 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
 def plan(current: dict[str, Any] | None, final: dict[str, Any]) -> list[dict[str, str]]:
     """What writing ``final`` changes in ``current`` (None: a new model), one row per object:
     ``change`` is add, change, remove or needs_dax (a BLANK() placeholder someone has to write in DAX)."""
+    if current is not None:
+        _refuse_shape(current, _BIM_SHAPE, "update")
+    _refuse_shape(final, _BIM_SHAPE, "update")
     rows: list[dict[str, str]] = []
     cur = _by_name(((current or {}).get("model") or {}).get("tables"))
     new = _by_name((final.get("model") or {}).get("tables"))

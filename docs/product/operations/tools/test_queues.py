@@ -231,6 +231,14 @@ class LedgerTest(_Base):
         self.assertEqual(errors, [("WR-131 is in the a backlog, but story-ids.json gives WR-131 to Notebook "
                                   "(WR-130 to WR-134, workstream b)")])
 
+    def test_a_lanes_next_id_is_in_its_own_blocks(self) -> None:
+        ledger = _ledger()
+        ledger["lanes"][0]["next"] = "WR-120"
+        self.assertEqual(self.run_check(_wr_queues(), ledger)[0], [])
+        ledger["lanes"][0]["next"] = "WR-250"
+        self.assertEqual(self.run_check(_wr_queues(), ledger)[0],
+                         [f"story-ids.json: lane {ledger['lanes'][0]['key']}: next WR-250 isn't a WR id in its own blocks"])
+
     def test_id_in_no_block_is_an_error_even_unqueued(self) -> None:
         data = _wr_queues()
         data["new_stories"]["WR-700"] = _wr("Nobody's")

@@ -261,6 +261,11 @@ def check_ids(queues: dict[str, Any], ledger: dict[str, Any]) -> list[str]:
                 errors.append(f"story-ids.json: lane {lk}: a block needs a first and a last WR id, first not after last")
             else:
                 blocks.append((*r, lane))
+        if "next" in lane:
+            n = _wr_number(lane["next"])
+            own = [r for b in lane.get("blocks") or [] if (r := _span(b)) is not None]
+            if n is None or not any(b0 <= n <= b1 for b0, b1 in own):
+                errors.append(f"story-ids.json: lane {lk}: next {lane['next']} isn't a WR id in its own blocks")
     for i, (a0, a1, la) in enumerate(blocks):
         for b0, b1, lb in blocks[i + 1:]:
             nested = (a0 <= b0 and b1 <= a1) or (b0 <= a0 and a1 <= b1)

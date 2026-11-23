@@ -23,12 +23,12 @@ four original exam questions (ACD-013).
 | Id | Objective | Exercises | Best local | Fabric | Lessons |
 | --- | --- | --- | --- | --- | --- |
 | 1.1.1 | Configure Spark workspace settings | E01, E02 | SIM | Yes | |
-| 1.1.2 | Configure domain workspace settings | E03 | SIM | Yes | |
-| 1.1.3 | Configure OneLake workspace settings | E04 | SIM | Yes | LM-07 |
-| 1.1.4 | Configure data workflow workspace settings | E05 | KO | Yes | |
+| 1.1.2 | Configure domain workspace settings | E03, E85 | SIM | Yes | |
+| 1.1.3 | Configure OneLake workspace settings | E04, E86 | SIM | Yes | LM-07 |
+| 1.1.4 | Configure data workflow workspace settings | E05, E87 | SIM | Yes | |
 | 1.2.1 | Configure version control | E06, E07, C3 | LV | Yes | |
 | 1.2.2 | Implement database projects | E08 | LV | Yes | LM-23 |
-| 1.2.3 | Create and configure deployment pipelines | E09, C3 | SIM | Yes | |
+| 1.2.3 | Create and configure deployment pipelines | E09, E88, C3 | SIM | Yes | |
 | 1.3.1 | Implement workspace-level access controls | E10, C3 | SIM | Yes | |
 | 1.3.2 | Implement item-level access controls | E11, C3 | SIM | Yes | LM-24 |
 | 1.3.3 | Implement row-level, column-level, object-level, and file-level access controls | E12, E13, E14, C3 | LV (row filter logic only) | Yes | LM-24 |
@@ -88,8 +88,8 @@ four original exam questions (ACD-013).
 | --- | --- |
 | Covered by at least one exercise | 49 of 49 |
 | Best local class LOCAL VERIFIED (all or part) | 19 |
-| Best local class SIMULATED | 19 |
-| KNOWLEDGE ONLY on this PC | 11 |
+| Best local class SIMULATED | 20 |
+| KNOWLEDGE ONLY on this PC | 10 |
 | Stay incomplete until FABRIC VERIFIED | 36 |
 
 ## Coverage gap records
@@ -107,7 +107,7 @@ on the objective.
 | G-04 Workspace, tenant and domain settings, roles and endorsement | 1.1.1–1.1.4, 1.3.1, 1.3.2, 1.3.6 | Settings and permissions live in Fabric; some need admin roles | SIMULATED settings models locally, read-only checks in the learner's own workspace |
 | G-05 Sensitivity labels | 1.3.5 | Needs sensitivity labels published in the tenant | FABRIC VERIFIED only where the learner's tenant has labels; otherwise KO |
 | G-06 Mirroring | 2.2.4 | Needs a source database and capacity | KO locally; Fabric exercise with a free-tier source is a cost decision for Chris |
-| G-07 Data workflows (Apache Airflow jobs) | 1.1.4 | No local Airflow job runtime in KratosForge | KO; Fabric exercise later |
+| G-07 Data workflows (Apache Airflow jobs) | 1.1.4 | No local Airflow job runtime in KratosForge | SIMULATED runtime settings model locally (E87); Fabric exercise later |
 | G-08 Spark engine and continuous streaming | 1.1.1, 2.1.3, 2.3.3, 3.3.5 | The local PySpark API is DuckDB: no executors, shuffles or AQE; streams run only as availableNow here | File layout lessons locally; Spark tuning verified in Fabric |
 | G-09 Monitoring hub, alerts, refresh | 3.1.1–3.1.4 | Service telemetry | Recorded run histories (SIMULATED), live read-only checks later |
 | G-10 Item behavior only the service shows | 1.2.1, 1.2.3, 1.4.2, 2.2.3, 2.2.5, 3.3.1, 3.3.2 | Workspace Git sync, deployment, triggers, shortcuts, copy throughput and V-Order happen in Fabric; locally the learner works with the files and the logic | Fabric exercises (ACD-014) |

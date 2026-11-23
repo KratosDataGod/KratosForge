@@ -119,6 +119,7 @@ CLAIMS: list[Claim] = [
     _ts("1.0 / 3"),
     # Local T-SQL arithmetic and conversion
     _ts("-7 / 2"),
+    _ts("CAST(255 AS TINYINT) * 100"),
     _ts("-7 % 2"),
     _ts("NULL / 0"),
     _ts("'1' + 1"),

@@ -980,18 +980,22 @@ def _table_columns(tree: exp.Expression) -> None:
 
 
 def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
+    """``columns`` as sqlglot reads them. A #temp table, which DuckDB keeps in its temp catalog's main schema, is
+    under dbo too, where a name without a schema is looked up (WR-704)."""
     from sqlglot.schema import MappingSchema
     clean: dict[str, dict[str, dict[str, str]]] = {}
-    for schema, tables in columns.items():
-        for table, cols in tables.items():
-            kept = {}
-            for col, kind in cols.items():
-                try:
-                    exp.DataType.build(kind, dialect="duckdb")
-                except SqlglotError:
-                    continue  # a nested type sqlglot can't read; that column stays untyped
-                kept[col] = kind
-            clean.setdefault(schema, {})[table] = kept
+    listed = [(schema, table, cols) for schema, tables in columns.items() for table, cols in tables.items()]
+    listed += [("dbo", table, cols) for schema, tables in columns.items() if schema.lower() != "dbo"
+               for table, cols in tables.items() if table.startswith("#")]
+    for schema, table, cols in listed:
+        kept = {}
+        for col, kind in cols.items():
+            try:
+                exp.DataType.build(kind, dialect="duckdb")
+            except SqlglotError:
+                continue  # a nested type sqlglot can't read; that column stays untyped
+            kept[col] = kind
+        clean.setdefault(schema, {})[table] = kept
     return MappingSchema(cast(dict[str, object], clean), dialect="duckdb", normalize=True)
 
 
@@ -1138,6 +1142,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     for node, info in pairs:
         if id(node) in done:
             continue
+        if isinstance(node, _INT_OPS):
+            _promoted(node, info)
         if isinstance(node, exp.Sub | exp.Mul):
             pass  # numbers, as DuckDB does them; only decimals need T-SQL's precision and scale
         elif isinstance(node, exp.WithinGroup):
@@ -1331,7 +1337,61 @@ def _tsql_aggregate_types() -> dict:
 
     rules[exp.Sum] = {"annotator": total}
     rules[exp.Avg] = {"annotator": average}
+    for op in _INT_OPS:
+        rules[op] = {"annotator": _ranked(rules[op]["annotator"])}
     return rules
+
+
+_INT_OPS = (exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod)
+
+
+def _ranked(annotate: Callable[..., Any]) -> Callable[..., Any]:
+    """WR-704: an integer ``+``, ``-``, ``*``, ``/`` or ``%`` has the type of its operand with the higher precedence
+    in T-SQL (Microsoft Learn, "Data type precedence" and "+ (Addition)"), with an integer literal an int: a tinyint
+    times 100 is an int. sqlglot gave the left operand's type (a tinyint, there) and a float for ``/``."""
+    def ranked(annotator: Any, node: exp.Binary) -> exp.Binary:
+        annotate(annotator, node)
+        if (to := _int_rank(node.this, node.expression)) is not None:
+            annotator._set_type(node, to.copy())
+        return node
+    return ranked
+
+
+def _int_rank(a: exp.Expression, b: exp.Expression) -> exp.DataType | None:
+    """The T-SQL type of integer arithmetic on ``a`` and ``b`` (typed): the one with the higher precedence, or None
+    when either isn't an integer."""
+    kinds = [k.type if k is not None else None for k in (a, b)]
+    if not all(k is not None and k.this in _INT_RANK for k in kinds):
+        return None
+    return max(kinds, key=lambda k: _INT_RANK.index(k.this))  # type: ignore[union-attr]
+
+
+def _promoted(node: exp.Binary, info: exp.Expression) -> None:
+    """WR-704: each operand of integer arithmetic whose type ranks below the result's is cast to it, so DuckDB works
+    it out in T-SQL's type. DuckDB keeps a tinyint (UTINYINT) or smallint for ``ti * 100`` and ``si + 1``, since its
+    integer literal takes the other operand's type, and stopped past 255 where T-SQL gives an int. A tinyint plus a
+    tinyint stays a tinyint, as in T-SQL, and stops past 255 (or below 0) with error 8115."""
+    to = _int_rank(info.this, info.expression)
+    if to is None:
+        return
+    for key, typed in (("this", info.this), ("expression", info.expression)):
+        side = node.args[key]
+        if typed.type is not None and typed.type.this != to.this and not isinstance(side, exp.Literal):
+            node.set(key, exp.Cast(this=side, to=to.copy()))
+    if isinstance(node, exp.Div) and to.this in _DIVIDED_IN and _number(node.expression) in (None, -1):
+        # The smallest value divided by -1 is 8115 in T-SQL; DuckDB's "Overflow in division of -32768 / -1" doesn't
+        # name the type. So it is divided a size wider and checked on the way back, as _negated does.
+        kind, wider, name = _DIVIDED_IN[to.this]
+        for key in ("this", "expression"):
+            if _number(side := node.args[key]) is None:
+                node.set(key, exp.Cast(this=side, to=exp.DataType.build(wider)))
+        _checked(node, f"CASE WHEN kf_value IS NOT NULL AND TRY_CAST(kf_value AS {kind}) IS NULL "
+                       f"THEN CAST(error('{_OVERFLOW.format(kind=name)}') AS {kind}) ELSE CAST(kf_value AS {kind}) END")
+
+
+_DIVIDED_IN = {exp.DataType.Type.SMALLINT: ("SMALLINT", "INT", "smallint"),
+               exp.DataType.Type.INT: ("INT", "BIGINT", "int"),
+               exp.DataType.Type.BIGINT: ("BIGINT", "HUGEINT", "bigint")}
 
 
 _TSQL_AGGREGATES = _tsql_aggregate_types()

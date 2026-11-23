@@ -37,7 +37,7 @@ _OBJECT = [
 _RAISED = "Invalid Input Error: "  # how DuckDB's error() gives a message the translator wrote in SQL Server's words
 _INTEGERS = {"INT32": "int", "INT64": "bigint", "INT16": "smallint", "UINT8": "tinyint"}
 _ARITHMETIC = re.compile(r"^Out of Range Error: Overflow in (?:addition|subtraction|multiplication) of "
-                         r"(?P<kind>INT32|INT64|DECIMAL\(\d+\)) \(")
+                         r"(?P<kind>INT32|INT64|INT16|UINT8|DECIMAL\(\d+\)) \(")
 _ABS = re.compile(r"^Out of Range Error: Overflow on abs\((?P<value>-\d+)\)$")
 _ABS_KINDS = {str(-2 ** 31): "int", str(-2 ** 63): "bigint"}  # the one value of each whose ABS overflows
 # A column's value that doesn't fit an integer type; a constant has its own words in SQL Server (220).

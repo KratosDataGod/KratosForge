@@ -77,10 +77,10 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Confirm dialog | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
 | Confirm dialog | zoom-200 | 14 | 0 (0) | none | 3 | 0 | 0 |
 | Confirm dialog | high-contrast | 13 | 0 (0) | none | 3 | 0 | 0 |
-| Profile | light | 20 | 0 (0) | color-contrast (2) | 12 | 0 | 0 |
+| Profile | light | 20 | 0 (0) | color-contrast (2) | 13 | 0 | 0 |
 | Profile | dark | 20 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Profile | zoom-200 | 20 | 0 (0) | color-contrast (1) | 12 | 0 | 0 |
-| Profile | high-contrast | 19 | 0 (0) | none | 12 | 0 | 0 |
+| Profile | zoom-200 | 20 | 0 (0) | color-contrast (1) | 13 | 0 | 0 |
+| Profile | high-contrast | 19 | 0 (0) | none | 13 | 0 | 0 |
 | Learn lab | light | 17 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
 | Learn lab | dark | 17 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
 | Learn lab | zoom-200 | 17 | 0 (0) | none | 8 | 0 | 0 |

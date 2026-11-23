@@ -1568,7 +1568,8 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 }
 .seg button.on .preview-tag, .tool.primary .preview-tag { background: var(--surface); }
 .learn-more { font-size: 13px; color: var(--accent); white-space: nowrap; }
-.subtabs .learn-more { align-self: center; padding-right: 4px; }
+/* 24 px tall, so it is a big enough target where the tabs wrap and it sits just under one (WCAG 2.5.8, at 200%). */
+.subtabs .learn-more { align-self: center; display: inline-flex; align-items: center; min-height: 24px; padding-right: 4px; }
 .meta-tabs { margin: -6px 0 16px; }
 
 /* Command bar (Ctrl+K) */

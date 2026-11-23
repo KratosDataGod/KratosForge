@@ -239,6 +239,18 @@ class LedgerTest(_Base):
         self.assertEqual(self.run_check(_wr_queues(), ledger)[0],
                          [f"story-ids.json: lane {ledger['lanes'][0]['key']}: next WR-250 isn't a WR id in its own blocks"])
 
+    def test_a_lane_can_hold_more_than_one_block(self) -> None:
+        ledger = _ledger()
+        ledger["lanes"][2]["blocks"].append({"first": "WR-700", "last": "WR-749"})
+        ledger["lanes"][2]["next"] = "WR-701"
+        data = _wr_queues()
+        data["new_stories"]["WR-701"] = _wr("Warehouse, second block")
+        data["workstreams"][2]["ready"].append({"story": "WR-701"})
+        self.assertEqual(self.run_check(data, ledger)[0], [])
+        data["workstreams"][0]["backlog"].append("WR-701")
+        self.assertEqual(self.run_check(data, ledger)[0], [
+            "WR-701 is in the a backlog, but story-ids.json gives WR-701 to Warehouse (WR-700 to WR-749, workstream c)"])
+
     def test_id_in_no_block_is_an_error_even_unqueued(self) -> None:
         data = _wr_queues()
         data["new_stories"]["WR-700"] = _wr("Nobody's")

@@ -57,7 +57,7 @@ WR story ids come from a ledger, [story-ids.json](story-ids.json), so two lanes 
 | --- | --- | --- |
 | Local engine | Local Execution | WR-100 to WR-199, apart from Notebook parity's block; next WR-145, and WR-123 to WR-129 stay free |
 | Notebook parity | Developer Experience | WR-130 to WR-134 |
-| Warehouse | Microsoft Fabric | WR-200 to WR-269; next WR-266 |
+| Warehouse | Microsoft Fabric | WR-200 to WR-269 (used up) and WR-700 to WR-749; next WR-701 |
 | SQL translator | Microsoft Fabric | WR-270 to WR-299 |
 | Dbx parity | Databricks and Snowflake | WR-300 to WR-399; next WR-322 |
 | Governance | Enterprise Services | WR-400 to WR-499 |

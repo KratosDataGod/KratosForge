@@ -24,8 +24,8 @@
       "name": "Warehouse",
       "thread": "Build full warehouse development experience",
       "workstream": "fabric",
-      "blocks": [{"first": "WR-200", "last": "WR-269"}],
-      "next": "WR-266"
+      "blocks": [{"first": "WR-200", "last": "WR-269"}, {"first": "WR-700", "last": "WR-749"}],
+      "next": "WR-701"
     },
     {
       "key": "sql-translator",

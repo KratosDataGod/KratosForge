@@ -54,6 +54,9 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E71 | Dynamic data masking: work out what each person's SELECT returns | 1.3.4 | C | SIM +FV | duckdb | 20 | |
 | E73 | Pipeline, notebook or something else: choose the tool for five jobs | 1.4.1 | C | SIM | config | 20 | LM-08 |
 | E76 | Govern a workspace: who can endorse, and where labels end up | 1.3.5, 1.3.6 | C | SIM +FV | config | 20 | Governance |
+| E81 | The least workspace role for four groups and two apps | 1.3.1 | C | SIM +FV | config | 20 | |
+| E82 | Share a warehouse and a semantic model: ReadData, ReadAll and Build | 1.3.2 | C | SIM +FV | config | 20 | |
+| E83 | A schedule or a storage event trigger for six pipelines | 1.4.2 | C | SIM +FV | config | 25 | |
 
 ## 2. Ingest and transform data
 
@@ -87,6 +90,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E70 | Running totals per customer with a PySpark window | 2.2.8 | C | LV | pyspark | 20 | |
 | E74 | Six workloads, four stores: lakehouse, warehouse, eventhouse or SQL database | 2.2.1 | C | SIM | config | 20 | LM-06, LM-23 |
 | E75 | Five streaming flows: eventstream, Spark Structured Streaming or KQL | 2.3.1 | C | SIM | config | 20 | |
+| E84 | Five shortcuts: type, location, identity and cache | 2.2.3 | C | SIM +FV | config | 25 | |
 
 ## 3. Monitor and optimize an analytics solution
 
@@ -138,11 +142,11 @@ validation checks both the fix and that nothing else changed.
 
 | | Count |
 | --- | --- |
-| Exercises | 76 (62 Guided or Challenge, 14 Troubleshoot) |
+| Exercises | 80 (66 Guided or Challenge, 14 Troubleshoot) |
 | LOCAL VERIFIED | 36 |
-| SIMULATED | 30 |
+| SIMULATED | 34 |
 | KNOWLEDGE ONLY | 10 |
-| With a planned FABRIC VERIFIED version | 38 |
+| With a planned FABRIC VERIFIED version | 42 |
 | Capstones | 3 |
 | Built from existing Learn lessons or labs | 26 |
 

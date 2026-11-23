@@ -1,0 +1,180 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E82",
+  "title": "Share a warehouse and a semantic model: ReadData, ReadAll and Build",
+  "objectives": [
+    "1.3.2"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "E11"
+  ],
+  "objective_text": "Share a warehouse and a semantic model with five people from other teams, choosing Read, ReadData, ReadAll or Build for each, and give the one person who writes data the right access.",
+  "scenario": "Other teams want the Sales warehouse and the Sales semantic model. An analyst queries with T-SQL, a data scientist reads the files with Spark, an auditor may see only two views, a report author builds on the model and a manager only opens reports. A new engineer has to load tables. Each one should get only what their work needs.",
+  "engine_label": "A model of item permissions for a warehouse and a semantic model, checked on this PC",
+  "verifies": [
+    "Your share for each person has the item permissions their work needs and no more, as the warehouse sharing page and the semantic model permissions page describe Read, ReadData, ReadAll, Build and Write, and the person who writes data gets a workspace role instead of a share, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That anything is shared in Fabric. Nothing is set on a warehouse or a model here.",
+    "The T-SQL GRANT that gives the auditor her two views, and row-level security on the model.",
+    "Licenses and capacity, which a report author also needs before he can use Build.",
+    "The Subscribe to events box, which this exercise leaves out."
+  ],
+  "expected": {
+    "description": "Hana: warehouse Read and ReadData. Ivo: warehouse Read and ReadAll. Jun: warehouse Read only. Kai: semantic model Read and Build, no warehouse share. Lia: semantic model Read only. Max: Contributor and no share. Nobody else gets a workspace role."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Someone who reads the warehouse can't do their job, or can do more than it needs.",
+      "pass": "Hana, Ivo and Jun each get a warehouse share with just what their work needs.",
+      "rules": [
+        {
+          "path": "people.Hana.warehouse",
+          "contains": "ReadData",
+          "why": "Read all data using SQL (ReadData) lets her read every table and view with T-SQL."
+        },
+        {
+          "path": "people.Hana.warehouse",
+          "not_contains": "ReadAll",
+          "why": "ReadAll is for complete access to the warehouse files with Spark. ReadData and ReadAll don't overlap."
+        },
+        {
+          "path": "people.Hana.warehouse",
+          "count": 2
+        },
+        {
+          "path": "people.Ivo.warehouse",
+          "contains": "ReadAll",
+          "why": "Read all data using Apache Spark (ReadAll) is what gives access to the files with Spark."
+        },
+        {
+          "path": "people.Ivo.warehouse",
+          "not_contains": "ReadData",
+          "why": "Ivo never uses T-SQL, so ReadData would be more than he needs."
+        },
+        {
+          "path": "people.Ivo.warehouse",
+          "count": 2
+        },
+        {
+          "path": "people.Jun.warehouse",
+          "contains": "Read",
+          "why": "A share with no extra permissions gives Read, which lets her connect. The GRANT then gives her the two views."
+        },
+        {
+          "path": "people.Jun.warehouse",
+          "count": 1,
+          "why": "ReadData would let her read every table and view, past the DBA's GRANT."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Someone who uses the semantic model has the wrong permissions on it.",
+      "pass": "Kai can build on the model and Lia can open its reports.",
+      "rules": [
+        {
+          "path": "people.Kai.semantic_model",
+          "contains": "Build",
+          "why": "Build lets a user build new content from the model and analyze it in Excel. Read alone doesn't."
+        },
+        {
+          "path": "people.Kai.semantic_model",
+          "not_contains": "Write",
+          "why": "Write is for republishing the model and changing its settings, which Kai doesn't do."
+        },
+        {
+          "path": "people.Kai.semantic_model",
+          "count": 2
+        },
+        {
+          "path": "people.Kai.warehouse",
+          "equals": null,
+          "why": "An import mode model needs no permission on the warehouse for its report users."
+        },
+        {
+          "path": "people.Lia.semantic_model",
+          "contains": "Read",
+          "why": "Read lets her open the reports and use Explore on them."
+        },
+        {
+          "path": "people.Lia.semantic_model",
+          "count": 1,
+          "why": "She builds nothing and doesn't share the model, so Build and Reshare are more than she needs."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Max can't load tables with that, or a reader got a workspace role.",
+      "pass": "Max gets a workspace role that writes, and the readers get shares only.",
+      "rules": [
+        {
+          "path": "people.Max.workspace_role",
+          "equals": "Contributor",
+          "why": "Write on a warehouse can't be shared. Contributor is the least workspace role that has it."
+        },
+        {
+          "path": "people.Max.warehouse",
+          "equals": null,
+          "why": "His workspace role already covers SalesDW, so he needs no share."
+        },
+        {
+          "path": "people.Hana.workspace_role",
+          "equals": null,
+          "why": "A workspace role reaches every item in the workspace. A share reaches only the item that was shared."
+        },
+        {
+          "path": "people.Ivo.workspace_role",
+          "equals": null,
+          "why": "A workspace role reaches every item in the workspace. A share reaches only the item that was shared."
+        },
+        {
+          "path": "people.Jun.workspace_role",
+          "equals": null,
+          "why": "A workspace role reaches every item in the workspace. A share reaches only the item that was shared."
+        },
+        {
+          "path": "people.Kai.workspace_role",
+          "equals": null,
+          "why": "A workspace role reaches every item in the workspace. A share reaches only the item that was shared."
+        },
+        {
+          "path": "people.Lia.workspace_role",
+          "equals": null,
+          "why": "A workspace role reaches every item in the workspace. A share reaches only the item that was shared."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which share box reads with T-SQL, and which reads the files with Spark?",
+    "What does a share with no extra boxes give, and how does a GRANT add to it?",
+    "Which semantic model permission lets someone build a new report?",
+    "Can Write on a warehouse be given by sharing it?"
+  ],
+  "explanation": "Sharing a warehouse always gives Read, which only lets the person connect. Read all data using SQL adds ReadData, so Hana can read every table and view with T-SQL. Read all data using Apache Spark adds ReadAll, so Ivo can read the files with Spark. The two don't overlap. Jun gets a share with no extra boxes, and the DBA's GRANT gives her the two views. On the semantic model, Read lets Lia open reports and use Explore, and Build lets Kai build new reports and analyze in Excel. Because the model uses import mode, Kai needs nothing on the warehouse. Write on a warehouse can't be shared, so Max needs a workspace role, and Contributor is the least one that writes.",
+  "remediation": [
+    "LM-24",
+    "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
+    "https://learn.microsoft.com/en-us/power-bi/connect-data/service-datasets-permissions",
+    "https://learn.microsoft.com/en-us/fabric/security/permission-model"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23: share-warehouse-manage-permissions (last updated 2026-01-08). A share gives Read by default, which only lets the recipient connect. Read all data using SQL is ReadData and reads all tables and views. Read all data using Apache Spark is ReadAll and gives access to the files with Spark. ReadData and ReadAll are separate and don't overlap. Granular access is a share with no extra permissions plus a T-SQL GRANT. Write is given by default to Admin, Member and Contributor and isn't shareable. Shared recipients can't reshare a warehouse. For an import mode model no extra warehouse permission is needed.",
+    "Checked on Learn 2026-11-23: service-datasets-permissions (last updated 2026-09-24). Read lets users open reports on the model and use Explore. Build lets users build new content, use Analyze in Excel and query through XMLA. Write lets users republish the model and change its settings. Admin, Member and Contributor have Build and Viewer doesn't. permission-model (last updated 2026-03-31) says sharing an item gives Read by default and item permissions apply only to that item.",
+    "Not graded: whether Write on a semantic model can be granted through sharing, and the Subscribe to events box (which the warehouse page says comes with ReadAll today)."
+  ]
+}

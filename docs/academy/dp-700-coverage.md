@@ -29,14 +29,14 @@ four original exam questions (ACD-013).
 | 1.2.1 | Configure version control | E06, E07, C3 | LV | Yes | |
 | 1.2.2 | Implement database projects | E08 | LV | Yes | LM-23 |
 | 1.2.3 | Create and configure deployment pipelines | E09, C3 | SIM | Yes | |
-| 1.3.1 | Implement workspace-level access controls | E10, C3 | SIM | Yes | |
-| 1.3.2 | Implement item-level access controls | E11, C3 | SIM | Yes | LM-24 |
+| 1.3.1 | Implement workspace-level access controls | E10, E81, C3 | SIM | Yes | |
+| 1.3.2 | Implement item-level access controls | E11, E82, C3 | SIM | Yes | LM-24 |
 | 1.3.3 | Implement row-level, column-level, object-level, and file-level access controls | E12, E13, E14, C3 | LV (row filter logic only) | Yes | LM-24 |
 | 1.3.4 | Implement dynamic data masking | E15, E71, C3 | SIM | Yes | |
 | 1.3.5 | Apply sensitivity labels to items | E16, E76 | SIM | Yes | |
 | 1.3.6 | Endorse items | E16, E76 | SIM | Yes | |
 | 1.4.1 | Choose between a pipeline and a notebook | E17, E73 | SIM | No | LM-08 |
-| 1.4.2 | Design and implement schedules and event-based triggers | E18 | SIM | Yes | |
+| 1.4.2 | Design and implement schedules and event-based triggers | E18, E83 | SIM | Yes | |
 | 1.4.3 | Implement orchestration patterns with notebooks and pipelines, including parameters and dynamic expressions | E19, E20, C1 | LV | No | |
 
 ## 2. Ingest and transform data (30–35%)
@@ -48,7 +48,7 @@ four original exam questions (ACD-013).
 | 2.1.3 | Design and implement a loading pattern for streaming data | E26, C2 | LV | Yes | |
 | 2.2.1 | Choose an appropriate data store | E27, E74 | SIM | No | LM-06, LM-23 |
 | 2.2.2 | Choose between dataflows, notebooks, and T-SQL for data transformation | E17, E28 | KO | No | |
-| 2.2.3 | Create and manage shortcuts to data | E29 | SIM | Yes | LM-24 |
+| 2.2.3 | Create and manage shortcuts to data | E29, E84 | SIM | Yes | LM-24 |
 | 2.2.4 | Implement mirroring | E30 | KO | Yes | |
 | 2.2.5 | Ingest data by using pipelines | E31 | SIM | Yes | |
 | 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, E69, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |

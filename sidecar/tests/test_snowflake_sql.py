@@ -238,7 +238,7 @@ def test_sfx004_object_construct_star_is_refused():
     ("select l[i] from t", "SFD-009"),
     ("select approx_percentile(x, 0.5) from t", "SFD-010"),
     ("select hll(x) from t", "SFD-010"),
-    ("select v['a']::string from t", "SFD-009"),
+    ("select v[0]::string from t", "SFD-009"),
 ])
 def test_each_known_difference_is_named(code, note):
     (report,) = sf.translate(code).statements
@@ -695,10 +695,15 @@ def test_brackets_index_json_from_zero_and_lists_from_an_integer_column():
 
 
 def test_a_column_whose_type_the_statement_does_not_show_is_left_as_written():
-    sql = sf.translate("SELECT v['a']::string, x[0] FROM t").duckdb_sql
-    assert sql == "SELECT CAST(v['a'] AS TEXT), x[1] FROM t"
+    sql = sf.translate("SELECT v['a'], x[0] FROM t").duckdb_sql
+    assert sql == "SELECT v['a'], x[1] FROM t"
     (report,) = sf.translate("SELECT v['a']::string, x[0] FROM t").statements
     assert report.verdict == "difference" and [n.id for n in report.notes] == ["SFD-009"]
+    # SFX-081: cast to text, its type is read when the query runs, so a JSON string loses its quotes
+    import duckdb
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT '{\"a\": \"Pine\"}'::JSON AS v, [7, 8] AS x")
+    assert con.execute(report.duckdb_sql).fetchone() == ("Pine", 7)
 
 
 @pytest.mark.parametrize("code", [
@@ -713,10 +718,16 @@ def test_brackets_whose_value_type_is_known_raise_no_note(code):
     assert "SFD-009" not in [n.id for n in sf.translate(code).statements[0].notes]
 
 
-@pytest.mark.parametrize("code", ["SELECT l[0] FROM t", "SELECT (v['a'])::varchar FROM t",
-                                  "SELECT to_varchar(v['a']) FROM t", "SELECT v['a'][0] FROM t"])
+@pytest.mark.parametrize("code", ["SELECT l[0] FROM t", "SELECT (v[0])::varchar FROM t",
+                                  "SELECT to_varchar(v[0]) FROM t", "SELECT v['a'][0] FROM t"])
 def test_brackets_on_a_column_of_unknown_type_are_labelled(code):
     assert "SFD-009" in [n.id for n in sf.translate(code).statements[0].notes]
+
+
+@pytest.mark.parametrize("code", ["SELECT (v['a'])::varchar FROM t", "SELECT to_varchar(v['a']) FROM t"])
+def test_a_string_key_cast_to_text_is_no_longer_labelled(code):
+    # SFX-081 reads the value's type when the query runs, so a JSON or VARIANT string comes without its quotes
+    assert "SFD-009" not in [n.id for n in sf.translate(code).statements[0].notes]
 
 
 _SKETCH_ARGS = {"APPROX_TOP_K": "x, 2", "APPROX_TOP_K_ACCUMULATE": "x, 2", "APPROX_TOP_K_ESTIMATE": "x, 2",

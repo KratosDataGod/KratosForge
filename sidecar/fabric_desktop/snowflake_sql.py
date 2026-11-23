@@ -139,7 +139,7 @@ SFD_BRACKET = _n("SFD-009", "[i] on a value whose type isn't known",
                  "[i] is 0-based in Snowflake. Here [i] on a table's column whose type the statement doesn't show "
                  "is taken for an ARRAY: a literal index such as [0] is moved to DuckDB's 1-based lists, and an "
                  "integer column or expression as the index isn't. On a JSON (VARIANT) column [0] then reads the "
-                 "second element, and v['a']::string keeps the JSON quotes ('\"Pine\"', not 'Pine').",
+                 "second element. (v['a']::string is the string without its JSON quotes, SFX-081.)",
                  "Cast the column in the query (v::variant, PARSE_JSON(v), or l::array) so its type is known, "
                  "or check the result.", f"{_DOCS}/data-types-semistructured")
 SFD_TYPEOF = _n("SFD-007", "TYPEOF can't always name Snowflake's type",
@@ -1007,7 +1007,7 @@ def _rewrite_statements(statement: exp.Expression) -> None:
     - $name reads the session variable (DuckDB's getvariable).
     - ARRAY_SIZE of a JSON or VARIANT value counts a JSON array, and is NULL for anything else.
     - SAMPLE ROW and SAMPLE BLOCK are Snowflake's names for BERNOULLI and SYSTEM, which DuckDB reads.
-    (A VARIANT column cast to text: _variant_text.)"""
+    (A VARIANT column cast to text: _mark_semi_text, SFX-081.)"""
     for sample in statement.find_all(exp.TableSample):
         method = sample.args.get("method")
         if isinstance(method, exp.Var) and method.name.upper() in ("ROW", "BLOCK"):
@@ -1208,30 +1208,244 @@ def _rewrite_names(statement: exp.Expression) -> bool:
     return named
 
 
-def _variant_text(statement: exp.Expression) -> None:
-    """SFX-025: a VARIANT column holding an object or array, cast to text (or TO_VARCHAR with no format), is
-    JSON text, as Snowflake's TO_VARCHAR gives it; DuckDB writes its own VARIANT its own way ({'k': 1}).
-    Run first, so only a cast written in the query is read (not one another rewrite writes)."""
-    for to_text_node in list(statement.find_all(exp.Cast, exp.TryCast, exp.ToChar)):
-        to_text = (isinstance(to_text_node, exp.ToChar) and to_text_node.args.get("format") is None
-                   and not to_text_node.args.get("nlsparam")) or (isinstance(to_text_node, exp.Cast)
-                                                         and to_text_node.to.this in _TEXT_TYPES)
-        if isinstance(to_text_node.this, exp.Column) and to_text:
-            column = to_text_node.this
-            kind = exp.Anonymous(this="variant_typeof", expressions=[
-                exp.Cast(this=column.copy(), to=exp.DataType.build("VARIANT"))])
-            compound = exp.and_(
-                exp.EQ(this=exp.Anonymous(this="typeof", expressions=[column.copy()]),
-                       expression=exp.Literal.string("VARIANT")),
-                exp.RegexpLike(this=kind, expression=exp.Literal.string("^(OBJECT|ARRAY)")))
-            # TRY_CAST: DuckDB may work out a shared part of several columns once for every row, before the
-            # CASE picks its branch, and a text column that isn't JSON mustn't stop the query there
-            written: exp.Expression = exp.Case(ifs=[exp.If(this=compound, true=exp.Cast(
-                this=exp.TryCast(this=column.copy(), to=exp.DataType.build("JSON")),
-                to=to_text_node.to.copy() if isinstance(to_text_node, exp.Cast) else exp.DataType.build("VARCHAR")))],
-                default=to_text_node.copy())
-            _keep_name(to_text_node)
-            to_text_node.replace(written)
+# SFX-081, SFN-078 and SFN-079 (2026.11.21): an ARRAY, OBJECT or VARIANT as text. Snowflake writes it as JSON
+# (to_char: "For VARIANT, ARRAY, or OBJECT inputs, the output is the string containing a JSON document or JSON
+# elementary value"; "A string stored in VARIANT is preserved as is"); DuckDB wrote its own list form ([1, a]).
+_TEXT_MARK = "__KF_SF_TEXT"   # early: a cast to text (or a || operand) of a value that may be semi-structured
+_LEAF_MARK = "__KF_SF_LEAF"   # early: a value an OBJECT keeps as JSON, so its type is checked before it is lost
+_SEMI_TEXT_REFUSED = _refuse(
+    "SFN-078", "An ARRAY, OBJECT or VARIANT as text that can't match", "Snowflake writes an ARRAY, OBJECT or VARIANT "
+    "cast to text as compact JSON, and this PC writes the same only when it holds whole numbers, text, booleans, "
+    "JSON null and arrays and objects of those. Snowflake's docs show 3::DOUBLE in an array as 3.000000000000000e+00 "
+    "and a SQL NULL element as undefined, and don't show how it writes a date, time, timestamp or binary value, a "
+    "control character in text, or such a value cast to VARCHAR(n), so the query stops at a row holding one. An "
+    "object inside an object or array worked out by a window function or inside a lambda (TRANSFORM's) stops too: "
+    "its keys can't be sorted there. Cast "
+    "the numbers to whole numbers, or the values to text, first.",
+    f"{_DOCS}/functions/array_construct")
+_COERCE_REFUSED = _refuse(
+    "SFN-079", "An ARRAY or OBJECT joined with || or CONCAT", "Snowflake turns an ARRAY or OBJECT into text only when "
+    "the query casts it (ARRAY and OBJECT to VARCHAR are castable but not coercible), where DuckDB would join its own "
+    "form of it. A VARIANT is coercible and is joined as TO_VARCHAR writes it. A column holding a JSON object could "
+    "be either here, so the query stops at such a row. Cast it first: arr::VARCHAR || 'x'.",
+    f"{_DOCS}/data-type-conversion")
+_ARRAY_NODES = tuple(c for c in (getattr(exp, n, None) for n in (
+    "Array", "ArrayConstructCompact", "ArrayAgg", "ArrayAppend", "ArrayPrepend", "ArrayInsert", "ArrayCompact",
+    "ArrayConcat", "ArrayDistinct", "ArrayExcept", "ArrayIntersect", "ArrayRemove", "ArrayRemoveAt", "ArrayReverse",
+    "ArraySlice", "ArraySort", "SortArray", "Flatten", "Split", "GenerateSeries", "ToArray", "ArrayUniqueAgg",
+    "ArrayUnionAgg")) if isinstance(c, type))
+_OBJECT_NODES = tuple(c for c in (getattr(exp, n, None) for n in (
+    "Struct", "StarMap", "JSONObject", "ObjectAgg", "ObjectInsert")) if isinstance(c, type))
+_VARIANT_NODES = (exp.ParseJSON, exp.ToVariant, exp.JSONExtract, exp.GetExtract, exp.StripNullValue)
+# a column, or what gives back one of the values it is given, whose type only the run tells
+_PASSED_ON = tuple(c for c in (getattr(exp, n, None) for n in (
+    "Column", "Bracket", "Max", "Min", "AnyValue", "FirstValue", "LastValue",
+    "NthValue", "Lag", "Lead", "Subquery")) if isinstance(c, type))
+
+
+def _semi_kind(node: exp.Expression) -> str:
+    """What ``node`` is, as Snowflake types it: 'array_object' (plainly an ARRAY or OBJECT), 'variant' (plainly a
+    VARIANT), 'unknown' (a column or [...], whose type only the run tells) or 'other' (left as it is)."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.Window):  # ARRAY_AGG(x) OVER (...) is the aggregate's type; LAG(v) OVER (...) v's
+        return {"other": "unknown"}.get(_semi_kind(node.this), _semi_kind(node.this))
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        if node.to.this in (exp.DataType.Type.ARRAY, exp.DataType.Type.OBJECT):
+            return "array_object"
+        return "variant" if node.to.this == exp.DataType.Type.VARIANT else "other"
+    if isinstance(node, _ARRAY_NODES + _OBJECT_NODES) or (
+            isinstance(node, exp.Anonymous) and node.name.upper() in (*_OBJECT_FUNCTIONS, "OBJECT_CONSTRUCT_KEEP_NULL",
+                                                                      "AS_ARRAY", "AS_OBJECT")):
+        return "array_object"
+    if isinstance(node, _VARIANT_NODES):
+        return "variant"
+    if isinstance(node, (exp.Coalesce, exp.Case, exp.If, exp.Nullif)):  # one of its values: unknown if any may be
+        values = ([node.this, *node.expressions] if isinstance(node, exp.Coalesce) else [node.this]
+                  if isinstance(node, exp.Nullif) else [node.args.get("true"), node.args.get("false")]
+                  if isinstance(node, exp.If) else [*(i.args.get("true") for i in node.args.get("ifs") or []),
+                                                    node.args.get("default")])
+        kinds = {_semi_kind(v) for v in values if v is not None}
+        return "other" if kinds <= {"other"} else "unknown"
+    return "unknown" if isinstance(node, _PASSED_ON) else "other"
+
+
+def _text_mark(node: exp.Expression, value: exp.Expression, mode: str) -> None:
+    """``node`` becomes the mark: its value and how it is turned into text. The value's own nodes move into it
+    (not a copy), so a [...] the query wrote is still known as one (SFD-009)."""
+    mark = exp.Anonymous(this=_TEXT_MARK)
+    node.replace(mark)
+    mark.set("expressions", [value, exp.Literal.string(mode)])
+
+
+def _mark_semi_text(statement: exp.Expression) -> None:
+    """SFX-081, first, on the Snowflake tree: a cast to text (::VARCHAR, ::STRING, ::TEXT, CAST, TRY_CAST, and
+    TO_VARCHAR or TO_CHAR with no format) of a value that is or may be an ARRAY, OBJECT or VARIANT, and a VARIANT
+    or column joined with || or CONCAT, is marked; _semi_text writes it once the value is rewritten. An ARRAY or
+    OBJECT joined with || or CONCAT is refused (SFN-079). Each value an OBJECT keeps as JSON inside a marked cast
+    is marked too, so its type is checked before it is lost (_LEAF_MARK). Run first, so only what the query
+    wrote is read. A VARIANT column cast to text was SFX-025."""
+    # innermost first: an outer cast copies its value with the inner ones already marked
+    for node in reversed([cast(exp.Expression, n) for n in statement.find_all(exp.Cast, exp.TryCast, exp.ToChar)]):
+        if isinstance(node, exp.ToChar):
+            if node.args.get("format") is not None or node.args.get("nlsparam"):
+                continue
+            sized = False
+        elif isinstance(node, (exp.Cast, exp.TryCast)) and node.to.this in (
+                exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR):
+            sized = bool(node.to.expressions)
+        else:
+            continue
+        value = node.this
+        if _semi_kind(value) == "other":
+            continue
+        _keep_name(node)
+        for built in list(value.find_all(*_OBJECT_NODES)):
+            _mark_leaves(built)
+        _text_mark(node, value, "sized" if sized else "cast")
+    for joined in reversed(list(statement.find_all(exp.DPipe, exp.Concat))):
+        operands = [joined.this, joined.expression] if isinstance(joined, exp.DPipe) else list(joined.expressions)
+        for operand in operands:
+            kind = _semi_kind(operand)
+            if kind == "array_object":
+                raise _Untranslatable(_COERCE_REFUSED)
+            if kind in ("variant", "unknown"):
+                _keep_name(joined)
+                _text_mark(operand, operand, "cast" if kind == "variant" else "concat")
+
+
+def _mark_leaves(built: exp.Expression) -> None:
+    """The values an OBJECT built in the query keeps as JSON (OBJECT_CONSTRUCT's, OBJECT_INSERT's, OBJECT_AGG's),
+    each marked so _semi_text checks its type while it is still known."""
+    if isinstance(built, exp.Struct):
+        values = [p.expression for p in built.expressions if isinstance(p, exp.PropertyEQ)]
+    elif isinstance(built, exp.ObjectInsert):
+        values = [built.args.get("value")]
+    elif isinstance(built, exp.ObjectAgg):
+        values = [built.expression]
+    else:
+        values = []
+    for value in values:
+        if value is None or isinstance(value, (exp.Literal, exp.Null, exp.Boolean, exp.Struct)) or (
+                isinstance(value, exp.Anonymous) and value.name == _LEAF_MARK):
+            continue
+        value.replace(exp.Anonymous(this=_LEAF_MARK, expressions=[value.copy()]))
+
+
+# The checks _semi_text makes of a value (__sf_t, a lambda's parameter) as JSON (J):
+_SF_TYPE = "typeof(__sf_t)"
+_SF_J = (f"(CASE WHEN {_SF_TYPE} = 'JSON' THEN json(TRY_CAST(__sf_t AS JSON)) "  # json(): compact
+         "ELSE CAST(CAST(__sf_t AS VARIANT) AS JSON) END)")
+# an array or object: JSON's, a VARIANT's, or a DuckDB list, struct or map
+_SF_CONTAINER = (f"(CASE WHEN {_SF_TYPE} = 'JSON' THEN coalesce(json_type(TRY_CAST(__sf_t AS JSON)) IN ('ARRAY', "
+                 f"'OBJECT'), FALSE) WHEN {_SF_TYPE} = 'VARIANT' THEN regexp_matches(variant_typeof(CAST(__sf_t AS "
+                 f"VARIANT)), '^(ARRAY|OBJECT)') ELSE {_SF_TYPE} LIKE '%]' OR {_SF_TYPE} LIKE 'STRUCT(%' "
+                 f"OR {_SF_TYPE} LIKE 'MAP(%' END)")
+# every value in it is a whole number, text or boolean (or JSON): a DuckDB list of those by its type, anything
+# else by a round trip through JSON, which a date, time, timestamp, binary value or number with a fraction fails
+_SF_PLAIN = ("(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT|UHUGEINT|VARCHAR|BOOLEAN"
+             "|DECIMAL\\([0-9]+,0\\))(\\[[0-9]*\\])*")
+_SF_TYPES_OK = (f"({_SF_TYPE} = 'JSON' OR regexp_full_match({_SF_TYPE}, '{_SF_PLAIN}') OR coalesce(try(CAST({_SF_J} "
+                "AS VARIANT) IS NOT DISTINCT FROM CAST(__sf_t AS VARIANT)), FALSE))")
+# J's text without escaped quotes and backslashes (another escape is a control character), then without strings
+# and booleans: what is left is null, whole numbers and punctuation, or it holds a fraction or exponent
+_SF_UNESCAPED = f"regexp_replace(CAST({_SF_J} AS VARCHAR), '\\\\[\\\\\"]', '', 'g')"
+_SF_BARE = f"regexp_replace(regexp_replace({_SF_UNESCAPED}, '\"[^\"]*\"', '', 'g'), 'true|false', '', 'g')"
+_SF_FAILS = (f"(NOT {_SF_TYPES_OK} OR contains({_SF_UNESCAPED}, '\\') "
+             f"OR ({_SF_TYPE} <> 'JSON' AND contains({_SF_BARE}, 'null')) "
+             f"OR regexp_matches(replace({_SF_BARE}, 'null', ''), '[^-0-9,:\\[\\]{{}}\\s]'))")
+
+
+def _semi_text_template(mode: str, windowed: bool) -> str:
+    """The lambda body that gives {'s': the text of a scalar, 'j': the JSON of an array or object, 'f': 78 or 79
+    when the value is refused by SFN-078 or SFN-079} for __sf_t. The refusal is raised outside the lambda (DuckDB
+    2.0 fails inside with an error() there when json_tree reads the result). 'j' is written with sorted keys after
+    (SFX-028's writer). Where that writer can't run (``windowed``: a window function's value, or one inside a
+    lambda or a window's definition), 'j' is the text, with the outer object's keys sorted here, and an object
+    inside an object or array is refused (SFN-078)."""
+    scalar = (f"CASE WHEN {_SF_TYPE} = 'JSON' THEN CASE json_type({_SF_J}) WHEN 'VARCHAR' THEN "
+              f"json_extract_string({_SF_J}, '$') WHEN 'NULL' THEN NULL ELSE CAST({_SF_J} AS VARCHAR) END "
+              "ELSE CAST(__sf_t AS VARCHAR) END")
+    fails, written = _SF_FAILS, _SF_J
+    if windowed:  # only the outer object's keys are sorted here, so an object inside one, or in an array, stops
+        fails = (f"({_SF_FAILS} OR json_type({_SF_J}) = 'ARRAY' AND contains({_SF_BARE}, '{{') "
+                 f"OR json_type({_SF_J}) = 'OBJECT' AND contains(substr({_SF_BARE}, 2), '{{'))")
+        written = (f"CASE WHEN json_type({_SF_J}) = 'OBJECT' THEN '{{' || array_to_string(list_transform(list_sort("
+                   f"map_entries(CAST({_SF_J} AS MAP(VARCHAR, JSON)))), lambda __sf_e: CAST(to_json(__sf_e.key) AS "
+                   f"VARCHAR) || ':' || coalesce(CAST(__sf_e.value AS VARCHAR), 'null')), ',') || '}}' "  # JSON null: SQL NULL
+                   f"ELSE CAST({_SF_J} AS VARCHAR) END")
+    refused = "78" if mode == "sized" else f"CASE WHEN {fails} THEN 78 END"
+    if mode == "concat":  # only a VARIANT is coercible; a JSON object may be an OBJECT column (SFX-024)
+        refused = (f"CASE WHEN {_SF_TYPE} NOT IN ('JSON', 'VARIANT') OR json_type({_SF_J}) = 'OBJECT' AND "
+                   f"{_SF_TYPE} = 'JSON' THEN 79 ELSE {refused} END")
+    return (f"{{'s': CASE WHEN NOT {_SF_CONTAINER} THEN {scalar} END, "
+            f"'j': CASE WHEN {_SF_CONTAINER} THEN {written} END, "
+            f"'f': CASE WHEN {_SF_CONTAINER} THEN {refused} END}}")
+
+
+def _stop_cast(note: Note) -> str:
+    """_stop_sql's refusal as a cast that fails (its message holds the refusal's text), for where DuckDB takes no
+    volatile error(): a window's ORDER BY."""
+    text = f"{note.id} {note.title}: {note.reason} {note.action}"
+    return "CAST(CAST(" + _quoted(text) + " AS INTEGER) AS VARCHAR)"
+
+
+def _error_in_lambda(value: exp.Expression) -> bool:
+    """Whether a lambda in ``value`` can stop with error() (ARRAYS_TO_OBJECT's unequal lengths): DuckDB 2.0 fails
+    with an internal error when json_tree reads such a value."""
+    return any(isinstance(f, exp.Func) and _function_name(f) == "ERROR" and f.find_ancestor(exp.Lambda) is not None
+               for f in value.find_all(exp.Func))
+
+
+def _outer_name_in_lambda(value: exp.Expression) -> bool:
+    """Whether a lambda in ``value`` reads a column that isn't one of its parameters (OBJECT_PICK(o, k) reads k
+    in one): DuckDB can't bind that inside the subquery that sorts keys."""
+    for column in value.find_all(exp.Column):
+        names: set[str] = set()
+        lam = column.find_ancestor(exp.Lambda)
+        inside = False
+        while lam is not None:
+            inside = True
+            names |= {e.name for e in lam.expressions}
+            lam = lam.find_ancestor(exp.Lambda)
+        if inside and column.parts[0].name not in names:
+            return True
+    return False
+
+
+def _semi_text(statement: exp.Expression) -> None:
+    """SFX-081, on the DuckDB tree after the rewrites (so a value is as its rules made it): each marked cast is
+    Snowflake's text. An array or object is compact JSON with every object's keys sorted, as Snowflake keeps them,
+    when it holds only whole numbers, text, booleans and JSON null (and arrays and objects of those), and stops
+    the query by name otherwise (SFN-078). A VARIANT holding text is the text itself, JSON null is SQL NULL (the
+    semi-structured considerations page's TO_CHAR example), and anything else is cast as before. The value is
+    worked out once a row in a lambda; its text is read twice, which matters only when it isn't deterministic."""
+    from .sql import _with_args
+    for leaf in reversed([n for n in statement.find_all(exp.Anonymous) if n.name == _LEAF_MARK]):
+        value = leaf.expressions[0]
+        leaf.replace(_with_args(f"CASE WHEN list_transform([fj_arg0], lambda __sf_t: __sf_t IS NOT NULL AND "
+                                f"{_SF_FAILS})[1] THEN {_stop_sql(_SEMI_TEXT_REFUSED)} ELSE fj_arg1 END",
+                                [value, value.copy()]))
+    for mark in reversed([n for n in statement.find_all(exp.Anonymous) if n.name == _TEXT_MARK]):
+        value, mode = mark.expressions[0], mark.expressions[1].name
+        # DuckDB can't run the subquery that sorts an object's keys on a window function's value, inside a
+        # lambda (TRANSFORM's, or a rule's) or inside a window's definition
+        in_window = mark.find_ancestor(exp.Window) is not None
+        windowed = (any(value.find_all(exp.Window)) or _outer_name_in_lambda(value) or _error_in_lambda(value)
+                    or in_window or mark.find_ancestor(exp.Lambda) is not None)
+        parts = _with_args(f"list_transform([fj_arg0], lambda __sf_t: {_semi_text_template(mode, windowed)})[1]",
+                           [value])
+
+        def field(name: str, parts: exp.Expression = parts) -> exp.Expression:
+            return exp.Anonymous(this="struct_extract", expressions=[parts.copy(), exp.Literal.string(name)])
+
+        json_part = field("j")
+        if not windowed:  # written already where it is
+            json_part.meta[_SNOWFLAKE_TO_JSON] = True
+        text = exp.Coalesce(this=json_part, expressions=[field("s")])
+        stop = _stop_cast if in_window else _stop_sql  # a window's ORDER BY can't hold error(), which is volatile
+        mark.replace(_with_args(f"CASE fj_arg0 WHEN 78 THEN {stop(_SEMI_TEXT_REFUSED)} WHEN 79 THEN "
+                                f"{stop(_COERCE_REFUSED)} ELSE fj_arg1 END", [field("f"), text]))
 
 
 def _keep_name(node: exp.Expr) -> None:
@@ -1975,7 +2189,7 @@ def _type_values(statement: exp.Expression, written: set[int] | None = None) -> 
     l[i + 1] on a list.
 
     True when a [...] is on a value whose type isn't known (a table's column): SFD-009. A string key
-    raises it only under a cast to text, since v['a'] alone is right on JSON and on a MAP. Only the
+    doesn't raise it: v['a'] is right on JSON and on a MAP, and cast to text SFX-081 unquotes it. Only the
     [...] the user wrote count (``written``, their ids), not ones an earlier rewrite made."""
     kinds = (exp.Bracket, exp.Cast, exp.ToChar)
     mine = [n for n in statement.find_all(*kinds)]
@@ -2014,15 +2228,10 @@ def _written(node: exp.Expression, written: set[int] | None) -> bool:
 
 
 def _bracket_may_differ(node: exp.Bracket) -> bool:
-    """A [...] on a value whose type isn't known: a key that isn't a string (the 0- or 1-based question),
-    or any key under a cast to text (the JSON quotes)."""
-    if not (len(node.expressions) == 1 and node.expressions[0].is_string):
-        return True
-    parent = node.parent
-    while isinstance(parent, exp.Paren):
-        parent = parent.parent
-    return (isinstance(parent, exp.Cast) and parent.to.this in _TEXT_TYPES) or \
-        (isinstance(parent, exp.ToChar) and parent.args.get("format") is None)
+    """A [...] on a value whose type isn't known with a key that isn't a string (the 0- or 1-based question).
+    A string key under a cast to text no longer differs: SFX-081 reads the value's type when the query runs, so
+    a JSON or VARIANT string is cast without its quotes."""
+    return not (len(node.expressions) == 1 and node.expressions[0].is_string)
 
 
 # DuckDB's typeof -> Snowflake's TYPEOF, where the name is the same whatever the value.
@@ -2491,8 +2700,8 @@ CATALOG = (
                 "source row, as Snowflake does by default (here also when those rows would give the same values, or a "
                 "DELETE clause would take the row). PIVOT ... IN ('a', ...) names its columns 'a' with the quotes. "
                 "$name reads the session variable, and IDENTIFIER($name) the name the same cell sets it to. "
-                "ARRAY_SIZE of a JSON or VARIANT value is NULL when it isn't an array. A VARIANT column holding an object or "
-                "array, cast to text, is JSON text. SAMPLE ROW and SAMPLE BLOCK are BERNOULLI and SYSTEM sampling.")),
+                "ARRAY_SIZE of a JSON or VARIANT value is NULL when it isn't an array. (A VARIANT column holding an object "
+                "or array, cast to text, is SFX-081.) SAMPLE ROW and SAMPLE BLOCK are BERNOULLI and SYSTEM sampling.")),
     ("SFX-024", "Rewritten", ("An ARRAY column or cast becomes a list of VARIANT values, so it holds what "
                 "ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON.")),
     ("SFX-026", "Rewritten", ("REGEXP_SUBSTR is NULL when nothing matches. CEIL and FLOOR with a written scale stay exact for a NUM"
@@ -2522,6 +2731,15 @@ CATALOG = (
                 "SFN-025, which refused it, is retired.")),
     ("SFX-041", "Rewritten", ("CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time "
                 "cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all.")),
+    ("SFX-081", "Rewritten", ("An ARRAY, OBJECT or VARIANT cast to text (::VARCHAR, ::STRING, ::TEXT, CAST, TRY_CAST, "
+                "TO_VARCHAR and TO_CHAR with no format), and a VARIANT joined with \\|\\| or CONCAT, is Snowflake's text: an "
+                "array or object is compact JSON ([1,\"a\"], not DuckDB's [1, a]) with every object's keys sorted, "
+                "as Snowflake keeps them; a VARIANT holding text is the text without quotes; JSON null is SQL NULL. A "
+                "column's or [...]'s type is read when the query runs. Only whole numbers, text, booleans and JSON null "
+                "are written this way, and anything else stops the query (SFN-078). An OBJECT stored in a table, or built "
+                "by OBJECT_INSERT, OBJECT_AGG or ARRAYS_TO_OBJECT from a column, keeps a date or time as text here, so it "
+                "is written as that text. Inside a lambda, or from a window function, only the outer object's keys can "
+                "be sorted. The value's text is worked out twice, which matters only when it isn't deterministic.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2600,6 +2818,14 @@ CATALOG = (
                 "of database.schema names; DuckDB's is a list of its own search path.")),
     ("SFN-042", "Runs only in Snowflake", ("RANDOM with a seed: Snowflake's series for a seed comes from its own "
                 "generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs.")),
+    ("SFN-078", "Runs only in Snowflake", ("An ARRAY, OBJECT or VARIANT cast to text that holds a number with a "
+                "fraction or exponent, a date, time, timestamp or binary value, a SQL NULL element (Snowflake's "
+                "undefined) or text with a control character, or is cast to VARCHAR(n) (the query stops at that "
+                "row): Snowflake's docs show 3::DOUBLE in an array as 3.000000000000000e+00 and don't show the rest. "
+                "Also an object inside an object or array worked out inside a lambda or by a window function.")),
+    ("SFN-079", "Runs only in Snowflake", ("An ARRAY or OBJECT joined with \\|\\| or CONCAT: Snowflake converts them to "
+                "text only when cast. A column holding an array or a JSON object stops the query at that row (a JSON "
+                "object here may be an OBJECT column). Cast it first.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -2641,7 +2867,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     written = {id(b) for b in brackets}
     try:
         _mark_offsets_and_json(tree)
-        _variant_text(tree)
+        _mark_semi_text(tree)
         _rewrite_flatten(tree)
         _rewrite_to_char(tree)
         _rewrite_date_trunc(tree)
@@ -2672,6 +2898,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_json_text(tree)
         _rewrite_division(tree)
         _json_of_variant_lists(tree)
+        _semi_text(tree)
         tree = _sort_json_keys(_check_offsets(tree))
         sql = ";\n".join([_duck(b) for b in before] + [_duck(tree)])
     except _Untranslatable as exc:

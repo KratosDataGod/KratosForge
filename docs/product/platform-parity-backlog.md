@@ -184,6 +184,11 @@ as Snowflake runtime equivalence. Needs Chris's go before any runtime.
 
 After SF-001..005. Author and validate locally; deploy only through Snowflake's own statements.
 
+- **First increment (validation on this PC):** `sidecar/fabric_desktop/snowflake_objects_validate.py`
+  checks CREATE TASK, CREATE STREAM and CREATE DYNAMIC TABLE statements and their task graphs against
+  Snowflake's documented rules, labeled as a local check. No screen, no RPC, nothing sent.
+- **Next increment:** deploy the checked CREATE statements through the SF-003 engine after a confirm.
+
 ### SF-009 Stages and data loading (P2)
 
 Stages, file formats and `COPY INTO`, after SF-004.

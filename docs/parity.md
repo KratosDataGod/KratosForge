@@ -102,7 +102,7 @@ Notes:
 | Databases, schemas and object browser | Partial | Missing | · | · | · |
 | Snowpark | Partial | Missing | · | Missing | · |
 | Stages and data loading | Partial | Missing | · | · | · |
-| Streams, tasks and dynamic tables | Partial | Missing | · | · | · |
+| Streams, tasks and dynamic tables | Partial | Missing | · | Partial | · |
 | Query history, profiling and credits | Partial | Missing | · | · | · |
 
 Notes:
@@ -111,6 +111,7 @@ Notes:
 - **Sign-in, roles and warehouses, Cloud API integration:** Key-pair and programmatic access token sign-in, and a connection check of role, database, schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser sign-in and Snowflake CLI connections aren't supported yet. Against fakes, no live run yet.
 - **SQL worksheets, Cloud API integration:** The Snowflake SQL warehouse engine (Preview) runs read-only statements (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) through the SQL API after a confirm, and refuses anything else before it is sent. Not in the notebook's engine picker yet. Against fakes, no live run yet.
 - **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.
+- **Streams, tasks and dynamic tables, Local execution:** Validation only: CREATE TASK, CREATE STREAM and CREATE DYNAMIC TABLE statements are checked on this PC against Snowflake's documented syntax and rules, with task graphs across statements (Preview, no screen yet). Nothing runs or refreshes here, and nothing is deployed to Snowflake.
 <!-- END GENERATED: parity -->
 
 Areas marked · are the parity backlog: each gets assessed against the platform's current
@@ -152,6 +153,6 @@ and it never raises a status. This table is generated from `PLANS` in the same m
 | Snowflake | Databases, schemas and object browser | D Data storage and catalog | P1 | Not built yet | SF-004 | Platform parity |
 | Snowflake | Snowpark | C Notebooks and distributed compute | P2 | Not built yet | SF-007 | unassigned |
 | Snowflake | Stages and data loading | D Data storage and catalog | P2 | Not built yet | SF-009 | unassigned |
-| Snowflake | Streams, tasks and dynamic tables | E Orchestration and transformation | P2 | Not built yet | SF-008 | unassigned |
+| Snowflake | Streams, tasks and dynamic tables | E Orchestration and transformation | P2 | Simulated or validated on this PC | SF-008 | unassigned |
 | Snowflake | Query history, profiling and credits | G Monitoring, cost and optimization | P1 | Not built yet | SF-005, SF-006 | Platform parity |
 <!-- END GENERATED: parity-plan -->

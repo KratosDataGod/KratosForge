@@ -254,7 +254,11 @@ AREAS: tuple[Area, ...] = (
     _skinned("snowflake", "objects", "Databases, schemas and object browser"),
     _skinned("snowflake", "snowpark", "Snowpark", local=MISSING),
     _skinned("snowflake", "loading", "Stages and data loading"),
-    _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
+    _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables",
+       local=Cell("partial", ("test_snowflake_objects_validate.py",),
+                  note="Validation only: CREATE TASK, CREATE STREAM and CREATE DYNAMIC TABLE statements are checked on "
+                       "this PC against Snowflake's documented syntax and rules, with task graphs across statements "
+                       "(Preview, no screen yet). Nothing runs or refreshes here, and nothing is deployed to Snowflake.")),
     _skinned("snowflake", "history", "Query history, profiling and credits"),
 )
 
@@ -291,7 +295,7 @@ PLANS: dict[tuple[str, str], Plan] = {
     ("snowflake", "objects"): _p("D", "P1", "none", "SF-004", owner="Platform parity"),
     ("snowflake", "snowpark"): _p("C", "P2", "none", "SF-007"),
     ("snowflake", "loading"): _p("D", "P2", "none", "SF-009"),
-    ("snowflake", "tasks"): _p("E", "P2", "none", "SF-008"),
+    ("snowflake", "tasks"): _p("E", "P2", "simulated", "SF-008"),
     ("snowflake", "history"): _p("G", "P1", "none", "SF-005", "SF-006", owner="Platform parity"),
 }
 

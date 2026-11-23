@@ -436,6 +436,8 @@ def build(bank: dict[str, Any], *, cert_version: str, objectives: list[str] | No
         if q["type"] in PART_TYPES:      # what each part may take, so answer() can check without the bank
             item["type"] = q["type"]
             item["parts"] = [[o["id"] for o in opts] for opts in _part_options(q, item["options"])]
+            if q["type"] == "hotarea":   # each blank's choices in its own order, so position gives nothing away
+                item["parts"] = [rng.sample(ids_, len(ids_)) for ids_ in item["parts"]]
         items.append(item)
     t = _iso(now or _now())
     return {"schema": SESSION_SCHEMA, "id": secrets.token_hex(16), "pack": bank["pack"], "cert_version": str(cert_version),
@@ -660,9 +662,16 @@ def _shown(q: dict[str, Any], it: dict[str, Any]) -> dict[str, Any]:
     if q["type"] not in PART_TYPES:
         return out
     labels = q.get("parts") or [{} for _ in q["answer"]]
+    choices = _part_options(q, it["options"])
+    if q["type"] == "hotarea" and it.get("parts"):     # the session's order for each blank
+        reordered: list[list[dict[str, Any]]] = []
+        for opts, ids in zip(choices, it["parts"], strict=True):
+            rank = {i: n for n, i in enumerate(ids)}
+            reordered.append(sorted(opts, key=lambda o: rank.get(o["id"], len(rank))))
+        choices = reordered
     out["parts"] = [{"n": n, "text": p.get("text"), "label": p.get("label"),
                      "options": [{"id": o["id"], "text": o["text"]} for o in opts]}
-                    for n, (p, opts) in enumerate(zip(labels, _part_options(q, it["options"]), strict=True), 1)]
+                    for n, (p, opts) in enumerate(zip(labels, choices, strict=True), 1)]
     if q.get("snippet") is not None:
         out["snippet"] = q["snippet"]
         out["snippet_label"] = q.get("snippet_label") or f"{CODE_LANGUAGES.get(q.get('language', ''), 'The')} code"

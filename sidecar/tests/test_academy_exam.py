@@ -635,6 +635,27 @@ def test_view_never_carries_a_multi_part_key():
             assert set(it) >= {"parts", "answered"} and all(set(p) == {"n", "text", "label", "options"} for p in it["parts"])
 
 
+def test_a_hot_area_shuffles_each_blanks_choices_per_session_and_the_screen_follows():
+    """Position must not give a hot area answer away to someone who retakes: each blank's choices are
+    shuffled per session, like matching items and code tokens, and the screen shows that order."""
+    bank = _multi_bank()
+    orders = set()
+    for seed in range(40):
+        s = exam.resume(exam.build(bank, cert_version="v", seed=seed, now=T0), T0)
+        it = next(i for i in s["items"] if i["q"] == "2.2.9-q1")
+        assert [sorted(p) for p in it["parts"]] == [["a", "b"], ["a", "b", "c"]]
+        shown = next(i for i in exam.view(s, bank)["items"] if i["q"] == "2.2.9-q1")
+        assert [[o["id"] for o in p["options"]] for p in shown["parts"]] == it["parts"]
+        orders.add(tuple(tuple(p) for p in it["parts"]))
+    assert len(orders) > 1
+    # A session saved before the shuffle, in the bank's order, still shows and scores the same way.
+    s = _multi_session(bank)
+    it = next(i for i in s["items"] if i["q"] == "2.2.9-q1")
+    it["parts"] = [["a", "b"], ["a", "b", "c"]]
+    shown = next(i for i in exam.view(s, bank)["items"] if i["q"] == "2.2.9-q1")
+    assert [[o["text"] for o in p["options"]] for p in shown["parts"]] == [["45", "0.00:45:00"], ["1", "3", "4"]]
+
+
 def test_multi_part_answers_keep_empty_parts_and_count_as_answered_only_when_full():
     bank = _multi_bank()
     s = _multi_session(bank)

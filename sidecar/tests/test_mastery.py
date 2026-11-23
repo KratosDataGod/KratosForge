@@ -545,3 +545,35 @@ def test_profile_mastery_gives_each_talent_the_step_for_its_own_level(plain):  #
             want = levels.NEXT_STEP[n["level"]] if n["level"] < n["ceiling"] else n["ceiling_reason"]
             assert n["next"] == want, n["id"]
     assert any(n["level"] >= 1 for sp in out["class"]["specializations"] for n in sp["nodes"])
+
+
+def test_an_achievement_counts_the_talents_it_has_met_out_of_those_it_needs():
+    cat = award_cat({"level": 3, "talents": ["alpha.01", "beta.01", "gamma.01"]},
+                    {"level": 3, "talents": ["alpha.01", "beta.01"], "any": True},
+                    {"level": 2, "any_specialization": True})
+    a = awards(profile(lab_pass("LM-00", DAY1), lab_pass("LM-10", DAY1)), cat)
+    assert (a["a0"]["met"], a["a0"]["of"], a["a0"]["earned"]) == (2, 3, False)
+    assert (a["a1"]["met"], a["a1"]["of"], a["a1"]["earned"]) == (1, 1, True)
+    assert (a["a2"]["met"], a["a2"]["of"]) == (1, 10)        # the closest specialization: alpha or beta, 1 of 10
+    assert (awards(progress.empty(), cat)["a0"]["met"]) == 0
+
+
+def test_an_achievement_is_dated_the_first_day_its_rule_was_met():
+    cat = award_cat({"level": 3, "talents": ["alpha.01"]}, {"level": 4, "talents": ["alpha.01"]},
+                    {"level": 3, "talents": ["alpha.02"]})
+    cls = cat["classes"]["test-class"]
+    rows = [lab_pass("LM-00", DAY1), lab_pass("LAB-00", DAY9), lab_pass("LM-01", "2026-09-20T10:00:00+00:00")]
+    on = levels.earned_on(profile(*rows), cls, cat)
+    assert on == {"a0": "2026-09-01", "a1": "2026-09-09", "a2": "2026-09-20"}  # Adept needs a second source a week on
+    assert levels.earned_on(profile(*rows[:2]), cls, cat)["a2"] is None
+    shuffled = rows[::-1]
+    assert levels.earned_on(profile(*shuffled), cls, cat) == on
+    # A row without a date can't be placed, so the day is left out, never guessed.
+    undated = {**lab_pass("LM-00", DAY1), "at": None}
+    assert levels.earned_on(profile(undated), cls, cat)["a0"] is None
+    assert awards(profile(undated), cat)["a0"]["earned"]
+
+
+def test_profile_mastery_dates_earned_achievements_only(plain):  # noqa: F811 - the fixture
+    out = call(plain, "profile_mastery", class_id="lakehouse-warden")
+    assert all(a["earned_on"] is None and "met" in a and "of" in a for a in out["class"]["achievements"])

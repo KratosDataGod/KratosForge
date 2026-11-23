@@ -198,7 +198,7 @@ class Execution:
     notes: list[str] = field(default_factory=list)  # local T-SQL: where this PC's answer can differ from a warehouse's
     proc: subprocess.Popen[str] | None = field(default=None, repr=False)
     timer: AwakeTimer | None = field(default=None, repr=False)
-    reader: threading.Thread | None = field(default=None, repr=False)  # follows the process; writes the audit line
+    reader: threading.Thread | None = field(default=None, repr=False)  # follows the run; writes the audit line
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
     time_limit_s: float = 0.0
     time_limit_from: str = ""  # "sql" (Settings › SQL), "policy" (the organization's); local also "caller" or "project"
@@ -825,7 +825,9 @@ class SqlExecutions:
                 seconds = 0.0
             run.time_limit_s, run.time_limit_from = seconds, "project" if seconds else ""
         run.state, run.started = "running", time.time()
-        threading.Thread(target=self._run_local, args=(run,), daemon=True, name=f"sql-run-{run.id}").start()
+        # Kept as the run's reader, as for a worker process: shutdown() waits for it to write the audit line.
+        run.reader = threading.Thread(target=self._run_local, args=(run,), daemon=True, name=f"sql-run-{run.id}")
+        run.reader.start()
 
     def _run_local(self, run: Execution) -> None:
         """Run in the project's own database, streaming the last statement's result to the

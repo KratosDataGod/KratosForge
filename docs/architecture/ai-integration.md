@@ -97,6 +97,8 @@ Why separate processes and not the app's own engine: the app's engine is owned b
 
 The MCP server is built on the official MCP Python SDK (`mcp`, pinned in `constraints.txt`) using its low-level `Server`, because the tool list is generated from the registry at run time. It serves both protocol eras the SDK supports: the handshake era (2025-06-18 and 2025-11-25, which current desktop clients speak) and 2026-07-28.
 
+Over HTTP, the handshake era keeps a session per client, with at most 20 open at once. A session with no request in flight and no open event stream for 5 minutes is closed, and the client starts a new one. A tool that was stopped without closing its session therefore holds its place for 5 minutes, not the SDK's default of 30. The 2026-07-28 protocol keeps no sessions.
+
 ### Trying the MCP server from source
 
 **Settings > Integrations** writes the configuration for you ([Connect your AI tool](../ai/README.md)). A developer with the engine installed from source (`pip install -e sidecar`) can also point any MCP client at:

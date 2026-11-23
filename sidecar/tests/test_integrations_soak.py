@@ -514,7 +514,7 @@ def test_mcp_over_http_sessions_come_and_go_without_leaking(api):
     closed ones are forgotten at once, abandoned ones once idle, and threads return to baseline."""
     port, tools, manager = api["port"], api["tools"], api["manager"]
     # Production reaps abandoned sessions eventually (the SDK's default, 30 minutes): never "forever".
-    assert manager.production_idle is not None and 0 < manager.production_idle <= 30 * 60
+    assert manager.production_idle == local_api.MCP_SESSION_IDLE_SECONDS <= 5 * 60
 
     def sessions(mode, count, calls):
         failures: list = []

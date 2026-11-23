@@ -48,6 +48,12 @@ from .store import IntegrationStore
 
 MAX_BODY_BYTES = 1024 * 1024
 REFUSED_EVERY = 10.0  # seconds between audit lines for the same refused request
+# MCP over HTTP (the 2025-11-25 protocol) keeps a session per tool, at most MCP_SESSIONS at once. One
+# with no request in flight and no open GET stream for MCP_SESSION_IDLE_SECONDS is closed, and the tool
+# starts a new one (its old id answers 404). A tool killed without a DELETE frees its place after that,
+# not after the SDK's 30 minutes, so 20 such tools can't lock the others out for half an hour.
+MCP_SESSIONS = 20
+MCP_SESSION_IDLE_SECONDS = 300.0
 PRUNE_AT = 256        # entries in a per-tool map before what it no longer needs is let go
 MAX_RESULT_BYTES = 1_000_000
 RATE_PER_SECOND = 5.0      # sustained requests per tool
@@ -425,7 +431,8 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
 
     mcp = build_server(registry, service_factory, caller_for=mcp_caller, refresh=refresh)
     manager = StreamableHTTPSessionManager(
-        app=mcp, max_request_body_size=MAX_BODY_BYTES, max_sessions=20,
+        app=mcp, max_request_body_size=MAX_BODY_BYTES, max_sessions=MCP_SESSIONS,
+        session_idle_timeout=MCP_SESSION_IDLE_SECONDS,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=sorted(Guard(None, store, port).hosts),  # type: ignore[arg-type]
                                                     allowed_origins=[]))
 

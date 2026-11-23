@@ -176,6 +176,32 @@ prod_guard: Callable[[str, str, str, str, str], str | None] | None = None
 # For the engine's own kernel: the notebook a cell runs for and the workspaces the person typed the name of
 # for that one run, by the cell's thread (notebook.Kernel). A process kernel answers the engine's call itself.
 cell_prod_context: "weakref.WeakKeyDictionary[threading.Thread, tuple[str, frozenset[str]]]" = weakref.WeakKeyDictionary()
+# Threads a cell's code started (by the cell's thread, a widget handler's, or one of these in turn, at any depth,
+# a thread pool's workers included): their writes are a cell's code but not a running cell's own, so they are asked
+# under NO_CELL for as long as they live. Filled as each thread starts (tag_cell_threads), so only a thread whose
+# parent is a cell's or one of these is tagged: the app's own threads started meanwhile aren't. Limits: work a cell
+# hands to a pool that was already running (the app's or an engine module's) runs on that pool's existing, untagged
+# worker; a pool's worker that a cell's call starts first stays tagged, so the app's later Prod writes on it are
+# refused (fail-closed); threads from _thread or native code don't pass through Thread.start.
+cell_started_threads: "weakref.WeakSet[threading.Thread]" = weakref.WeakSet()
+_untagged_start: Callable[[threading.Thread], None] | None = None
+
+
+def tag_cell_threads() -> None:
+    """Have every thread that a cell's thread, or a thread one started, starts join cell_started_threads. Once per
+    process (the engine's, or a notebook's own), from notebook.Kernel."""
+    global _untagged_start
+    if _untagged_start is not None:
+        return
+    _untagged_start = original = threading.Thread.start
+
+    def start(self: threading.Thread) -> None:
+        parent = threading.current_thread()
+        if parent in cell_prod_context or parent in cell_started_threads:
+            cell_started_threads.add(self)
+        original(self)
+
+    threading.Thread.start = start  # type: ignore[method-assign]
 # The notebook a write with no cell of its own is asked under: no notebook is named this, so nothing confirms it.
 NO_CELL = "\x00no cell"
 # The operations that ask: they delete or replace rows or files (OPTIMIZE rewrites files but keeps the rows).
@@ -196,7 +222,10 @@ def prod_refusal(operation: str, lh: "Attached", table: str, cells_only: bool = 
     guard = prod_guard
     if guard is None or operation not in PROD_CONFIRMED_OPS:
         return None
-    context = cell_prod_context.get(threading.current_thread())
+    current = threading.current_thread()
+    context = cell_prod_context.get(current)
+    if context is None and current in cell_started_threads:
+        context = (NO_CELL, frozenset())  # outlived its cell: a cell's code, asked with no cell's allowance
     if context is None:
         # A thread with no context of its own while any cell runs (one a cell started, a pool, a callback, another
         # notebook's or the app's own writer) is asked as a cell would be, and fails closed: it borrows no cell's

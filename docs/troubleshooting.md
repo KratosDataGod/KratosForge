@@ -154,6 +154,17 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "The engine couldn't be saved: the drive that holds ... is full" or "Windows won't let KratosForge write to ..." | The drive filled up during the download or unpack, or the profile disk is attached read-only. | Free some space, or sign out and in again, then choose **Retry**. |
 | **Ready to work** says your data folder "is on a network share" | `%LOCALAPPDATA%` is redirected to a share. | Ask IT to keep `%LOCALAPPDATA%` on the PC. |
 
+## Files in OneDrive
+
+KratosForge keeps the files it stores or works on out of OneDrive, so OneDrive isn't uploading the same files the app reads, writes and publishes to Fabric, and its sync can't lock them part way through a write.
+
+| You see | Why | What to do |
+| --- | --- | --- |
+| **Ready to work** says folders "are in OneDrive" | A metadata project, a local data project, a repository or the SQL page's temp folder is in a folder OneDrive syncs. Windows can move Documents and Desktop into OneDrive (known folder move). | Move each one to a folder on this PC outside OneDrive, such as `C:\Users\<you>\KratosForge`, then open it from there. |
+| "... is in OneDrive (...), so ... can't be kept there" | A new metadata project, local data project or repository, the SQL page's temp folder, or the support bundle was given a folder in OneDrive. | Pick a folder outside OneDrive. |
+| The metadata project is now in `KratosForge\metadata` | Earlier versions put a new project in `Documents\FabricDesktop\metadata`, which Windows can move into OneDrive. On first use the app copied it to `KratosForge\metadata` in your profile and opens the copy. The original is left as it was. | Check the copy, then delete the original in OneDrive. **Ready to work** lists it until you do. |
+| Exports go to `KratosForge\Exports` | Windows has moved your Downloads folder into OneDrive, so exports are written to `KratosForge\Exports` in your profile instead. | Nothing. Open the file from the path the app shows. |
+
 ## This PC's clock is wrong
 
 Sign-in, HTTPS certificates, schedules and the audit trail all use the PC's clock. When it is off by more than a few minutes:

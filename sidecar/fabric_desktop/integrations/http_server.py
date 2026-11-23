@@ -384,9 +384,16 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         cap = registry.get(cap_id)
         ctx = CallContext(caller_of(request), timeout=cap.timeout if cap else 60.0)
 
+        def sized(value: Any) -> str:
+            text = json.dumps({"ok": True, "capability": cap_id, "seconds": ctx.seconds, "result": value}, default=str)
+            if len(text.encode()) > MAX_RESULT_BYTES:  # refused before the line is written, so it says so
+                raise IntegrationError("too_large", "The result is bigger than the API returns.",
+                                       hint="Ask for a smaller page (limit).")
+            return text
+
         def run() -> Any:
             service = holder.get() if cap is not None and cap.needs_service else None
-            return registry.invoke(service, cap_id, arguments, ctx)
+            return registry.invoke(service, cap_id, arguments, ctx, finish=sized)
 
         with anyio.move_on_after(QUEUE_WAIT_SECONDS) as waiting:
             await slots.acquire()
@@ -418,12 +425,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
             slots.release()
         if "error" in result:
             return error_response(error_from(result["error"]))
-        payload = {"ok": True, "capability": cap_id, "seconds": ctx.seconds, "result": result.get("value")}
-        text = json.dumps(payload, default=str)
-        if len(text.encode()) > MAX_RESULT_BYTES:
-            return error_response(IntegrationError("too_large", "The result is bigger than the API returns.",
-                                                   hint="Ask for a smaller page (limit)."))
-        return Response(text, media_type="application/json")
+        return Response(result["value"], media_type="application/json")
 
     def mcp_caller(ctx: Any) -> Caller:
         client = ctx.request.scope["state"]["fd_client"]

@@ -24,11 +24,13 @@ back to the client that asked.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import sys
 import threading
 import weakref
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Callable
 
@@ -39,6 +41,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, ResourcesListChanged, ToolsListChanged
 from mcp.shared.exceptions import MCPError
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from pydantic import ValidationError
 
 from .. import __version__
 from ..redact import describe
@@ -206,12 +209,24 @@ def build_server(registry: Registry | None = None, service_factory: Callable[[],
         cap = reg.get(params.name)
         call = CallContext(caller(ctx), timeout=cap.timeout if cap else 60.0)
 
+        reached = _REACHED.get()
+        if reached is not None:
+            reached.append(True)  # the SDK accepted the params: invoke writes this call's line
+
+        def sized(result: Any) -> tuple[Any, str]:
+            text = _text(result)
+            if len(text.encode()) > MAX_RESULT_BYTES:  # refused before the line is written, so it says so
+                raise IntegrationError(
+                    "too_large", f"The result is {len(text.encode()) // 1000} KB, more than the {MAX_RESULT_BYTES // 1000} KB allowed.",
+                    hint="Ask for a smaller page (limit) or fewer columns.")
+            return result, text
+
         def run() -> Any:
             service = holder.get() if cap is not None and cap.needs_service else None
-            return reg.invoke(service, params.name, params.arguments or {}, call)
+            return reg.invoke(service, params.name, params.arguments or {}, call, finish=sized)
 
         try:
-            result = await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+            result, text = await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
         except IntegrationError as err:
             return error_result(err)
         except anyio.get_cancelled_exc_class():
@@ -220,11 +235,6 @@ def build_server(registry: Registry | None = None, service_factory: Callable[[],
         except Exception as exc:  # noqa: BLE001 - never let a failure end the connection
             from .core import error_from
             return error_result(error_from(exc))
-        text = _text(result)
-        if len(text.encode()) > MAX_RESULT_BYTES:
-            return error_result(IntegrationError(
-                "too_large", f"The result is {len(text.encode()) // 1000} KB, more than the {MAX_RESULT_BYTES // 1000} KB allowed.",
-                hint="Ask for a smaller page (limit) or fewer columns."))
         return types.CallToolResult(content=[types.TextContent(type="text", text=text)], structured_content=result)
 
     def usable(ctx: Any) -> list[Capability]:
@@ -253,20 +263,27 @@ def build_server(registry: Registry | None = None, service_factory: Callable[[],
                 reg.refused(CallContext(caller(ctx)), "resources/read", {"uri": uri}, refusal)
                 raise
             call = CallContext(caller(ctx), timeout=cap.timeout)
-            result = await anyio.to_thread.run_sync(
-                lambda: reg.invoke(holder.get() if cap.needs_service else None, cap.id, args, call), abandon_on_cancel=True)
+
+            def sized(result: Any) -> str:
+                text = _text(result)
+                if len(text.encode()) > MAX_RESULT_BYTES:  # refused before the line is written, so it says so
+                    raise IntegrationError("too_large", f"The resource is more than {MAX_RESULT_BYTES // 1000} KB.",
+                                           hint="Add ?limit= to read a smaller page.")
+                return text
+
+            text = await anyio.to_thread.run_sync(
+                lambda: reg.invoke(holder.get() if cap.needs_service else None, cap.id, args, call, finish=sized),
+                abandon_on_cancel=True)
         except anyio.get_cancelled_exc_class():
             raise
         except Exception as exc:  # noqa: BLE001 - every failure is a JSON-RPC error with the code and hint
             from .core import error_from
             err = error_from(exc)
+            if err.code == "too_large":
+                raise MCPError(types.INTERNAL_ERROR, err.message, {"code": err.code, "hint": err.hint}) from None
             code = RESOURCE_NOT_FOUND if err.code == "not_found" else (
                 types.INVALID_PARAMS if err.code == "invalid_input" else types.INTERNAL_ERROR)
             raise MCPError(code, err.message + (f" What to do: {err.hint}" if err.hint else ""), err.to_dict()) from None
-        text = _text(result)
-        if len(text.encode()) > MAX_RESULT_BYTES:
-            raise MCPError(types.INTERNAL_ERROR, f"The resource is more than {MAX_RESULT_BYTES // 1000} KB.",
-                           {"code": "too_large", "hint": "Add ?limit= to read a smaller page."})
         return types.ReadResourceResult(contents=[types.TextResourceContents(uri=uri, text=text, mime_type="application/json")])
 
     async def list_prompts(ctx: Any, params: types.PaginatedRequestParams | None) -> types.ListPromptsResult:
@@ -303,8 +320,52 @@ def build_server(registry: Registry | None = None, service_factory: Callable[[],
                     on_list_resources=list_resources, on_list_resource_templates=list_resource_templates,
                     on_read_resource=read_resource, on_list_prompts=list_prompts, on_get_prompt=get_prompt,
                     on_subscriptions_listen=changes.listen, lifespan=lifespan)
+    server.middleware.append(_RefusedCalls(reg, caller))
     server.changes = changes  # type: ignore[attr-defined]
     return server
+
+
+# Set by _RefusedCalls for each tools/call; call_tool adds to it once the SDK has handed it the
+# params, so a refusal that never reached it is told from one that did (whose line invoke writes).
+_REACHED: contextvars.ContextVar[list[bool] | None] = contextvars.ContextVar("fabric_desktop_reached", default=None)
+
+
+class _RefusedCalls:
+    """The audit line for a ``tools/call`` the MCP SDK refuses before ``call_tool`` runs (params of
+    the wrong shape, no name, a call before the handshake). The SDK's documented server middleware
+    sees that refusal (an MCPError, or pydantic's ValidationError) on its way out. It is recorded
+    through ``Registry.refused`` like any call refused before invoke: under the name the call gave
+    when it is a string (redacted and capped there like an unknown name), else ``tools/call``, and
+    without its arguments, which never passed a check."""
+
+    def __init__(self, registry: Registry, caller: Callable[[Any], Caller]):
+        self.registry = registry
+        self.caller = caller
+
+    async def __call__(self, ctx: Any, call_next: Any) -> Any:
+        if ctx.method != "tools/call" or ctx.request_id is None:
+            return await call_next(ctx)
+        reached: list[bool] = []
+        token = _REACHED.set(reached)
+        try:
+            return await call_next(ctx)
+        except (MCPError, ValidationError):
+            if not reached:
+                self._record(ctx)
+            raise
+        finally:
+            _REACHED.reset(token)
+
+    def _record(self, ctx: Any) -> None:
+        params = ctx.params if isinstance(ctx.params, Mapping) else {}
+        name = params.get("name")
+        try:
+            call = CallContext(self.caller(ctx))
+        except Exception as exc:  # noqa: BLE001 - no caller to name; the SDK's refusal still goes out
+            _log.warning("MCP refused call not recorded: %s", describe(exc))
+            return
+        self.registry.refused(call, name if isinstance(name, str) else "tools/call", None,
+                              IntegrationError("invalid_input", "The tools/call request's params aren't valid MCP."))
 
 
 def initialization_options(server: Server[Any]) -> InitializationOptions:

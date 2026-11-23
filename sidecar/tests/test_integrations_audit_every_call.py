@@ -11,15 +11,17 @@ What writes a line, pinned here:
 - Every call that reaches ``Registry.invoke``, on every transport: done, bad arguments, an unknown
   tool, refused by permissions, waiting for approval, timed out, cancelled, failed. One line each
   (an approved call writes a "started" line too: test_integrations_audit.py).
-- A result too big to send is recorded as the call ended, ``ok``: the handler ran and finished; the
-  transport then refused to send it (the caller sees too_large, nothing of the result went out).
+- A result too big to send is recorded as the caller saw it, ``too_large``: the transport's size
+  check runs inside ``Registry.invoke`` (its ``finish``), before the line is written.
 - A REST call refused before invoke for its body (not JSON, the wrong shape), a resource URI that
   names nothing, and a call refused because the server is busy: one line each, for that client.
 - A request the guard refuses (not this PC, wrong Host, a browser Origin, too big, no or a bad
   token, rate limited): one ``http_request`` line, at most one per reason and caller every
   REFUSED_EVERY seconds, the next line counting the rest.
-- Not recorded: listings (tools/list, GET /capabilities) and the open endpoints, which aren't calls;
-  and a JSON-RPC message the MCP SDK refuses before KratosForge sees it (params of the wrong shape).
+- A ``tools/call`` whose params the MCP SDK refuses before KratosForge's handler runs (the wrong
+  shape, no name): one ``invalid_input`` line, seen through the SDK's ``Server.middleware``, under
+  the name it gave (redacted and capped like an unknown name) or ``tools/call`` if it gave none.
+- Not recorded: listings (tools/list, GET /capabilities) and the open endpoints, which aren't calls.
 
 No line ever holds a secret, code or long text from the arguments, the URI or an error message.
 """
@@ -50,7 +52,7 @@ from fabric_desktop.integrations.core import CallContext, Caller, IntegrationErr
 from fabric_desktop.integrations.http_server import RateLimiter, build_app
 from fabric_desktop.integrations.mcp_server import build_server
 from fabric_desktop.integrations.permissions import OFFERED, PermissionAuthorizer
-from fabric_desktop.integrations.registry import Registry
+from fabric_desktop.integrations.registry import MAX_AUDITED_NAME, Registry
 from fabric_desktop.integrations.store import IntegrationStore
 
 from test_integrations_framing_fuzz import Stdio
@@ -245,10 +247,8 @@ def execution_of(tools, cap_id, args) -> str:
 def check_lines(lines, calls, seen, client_id, channel, tools):
     assert len(lines) == len(calls), (len(lines), len(calls))
     wrong = []
-    for line, (cap_id, args, mode), code in zip(lines, calls, seen, strict=True):
-        # A result too big to send was refused by the transport after the call ended well.
-        outcome = "ok" if code == "too_large" and mode == "big" else code
-        want = (cap_id, outcome, client_id, channel, execution_of(tools, cap_id, args))
+    for line, (cap_id, args, _mode), code in zip(lines, calls, seen, strict=True):
+        want = (cap_id, code, client_id, channel, execution_of(tools, cap_id, args))
         got = (line["capability"], line["outcome"], line["client_id"], line["channel"], line["execution_id"])
         if got != want:
             wrong.append(f"{want} -> {got}")
@@ -500,6 +500,61 @@ def test_a_resource_uri_that_cant_be_read_over_mcp_is_recorded(store):
         ("fabric_desktop_list_notebooks", "ok", "cl_mcp", "mcp-stdio")]
 
 
+def test_a_resource_too_large_to_send_is_recorded_as_the_caller_saw_it(store):
+    """The size check runs before the line is written, so the line says too_large, not ok."""
+    tools = Tools(store)
+    client, token = http_client(store)
+    tools.mode = "big"
+
+    async def go():
+        async with Client(build_server(tools.reg, ENGINE, "cl_mcp")) as c:
+            with pytest.raises(MCPError) as raised:
+                await c.read_resource("fabric-desktop://notebooks")
+            assert raised.value.error.data == {"code": "too_large", "hint": "Add ?limit= to read a smaller page."}
+    anyio.run(go)
+    res = rest_client(api(tools, store)).get("/api/v1/resources/read", params={"uri": "fabric-desktop://notebooks"},
+                                              headers={"Authorization": f"Bearer {token}"})
+    assert (res.status_code, res.json()["error"]["code"]) == (413, "too_large")
+    lines = tools.trail.lines
+    assert [(line["capability"], line["outcome"], line["decision"], line["client_id"], line["channel"]) for line in lines] == [
+        ("fabric_desktop_list_notebooks", "too_large", "allowed", "cl_mcp", "mcp-stdio"),
+        ("fabric_desktop_list_notebooks", "too_large", "allowed", client["id"], "api")]
+    assert tools.ran == ["fabric_desktop_list_notebooks"] * 2 and "xxxxxxxx" not in json.dumps(lines)
+
+
+def test_malformed_tool_call_params_over_mcp_over_http_are_recorded(store):
+    """The MCP SDK refuses these before KratosForge's handler runs; the middleware still writes one
+    line each, under the token's client, and the session keeps working."""
+    tools = Tools(store)
+    client, token = http_client(store)
+    accept = {"Accept": "application/json, text/event-stream", "Authorization": f"Bearer {token}",
+              "Host": f"127.0.0.1:{PORT}", "Content-Type": "application/json"}
+    with TestClient(api(tools, store), base_url=f"http://127.0.0.1:{PORT}", client=("127.0.0.1", 50000),
+                    raise_server_exceptions=False) as c:
+        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "raw", "version": "1"}}}
+        res = c.post("/mcp", json=init, headers=accept)
+        assert res.status_code == 200
+        session = {"mcp-session-id": res.headers["mcp-session-id"], "mcp-protocol-version": "2025-11-25", **accept}
+        c.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=session)
+        for rid, params in enumerate(({"name": "fabric_desktop_get_status", "arguments": "x"},
+                                      {"name": {"token": JWT}}, {"name": f"Bearer {JWT}", "arguments": 5}), start=2):
+            res = c.post("/mcp", json={"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": params}, headers=session)
+            assert '"code":-32602' in res.text.replace(" ", ""), res.text[:300]
+        res = c.post("/mcp", json={"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                                   "params": {"name": "fabric_desktop_get_status", "arguments": {}}}, headers=session)
+        assert '"ran":"fabric_desktop_get_status"' in res.text.replace(" ", "")
+    lines = tools.trail.lines
+    assert [(line["capability"], line["outcome"], line["client_id"], line["channel"]) for line in lines[:2]] == [
+        ("fabric_desktop_get_status", "invalid_input", client["id"], "mcp-http"),
+        ("tools/call", "invalid_input", client["id"], "mcp-http")]
+    assert (lines[2]["outcome"], lines[2]["client_id"]) == ("invalid_input", client["id"])
+    assert lines[2]["capability"].startswith("Bearer ") and len(lines[2]["capability"]) <= MAX_AUDITED_NAME
+    assert [(line["capability"], line["outcome"]) for line in lines[3:]] == [("fabric_desktop_get_status", "ok")]
+    assert all(line["arguments"] == {} and line["permission"] in ("", "READ_METADATA") for line in lines[:3])
+    assert JWT not in json.dumps(lines) and tools.ran == ["fabric_desktop_get_status"]
+
+
 def test_a_rest_call_refused_because_the_server_is_busy_is_recorded(store, monkeypatch):
     monkeypatch.setattr(http_server, "MAX_CONCURRENT", 1)
     monkeypatch.setattr(http_server, "QUEUE_WAIT_SECONDS", 0.1)
@@ -657,15 +712,24 @@ def test_a_sample_over_the_real_stdio_process(tmp_path):
             assert (result["structuredContent"]["error"]["code"] if result.get("isError") else "ok") == code, answer
         answer, _ = proc.call("resources/read", {"uri": "fabric-desktop://nothing/here"})
         assert answer["error"]["code"] == -32002
-        # Refused by the MCP SDK before KratosForge sees it: no line (nothing names a call it could make).
-        for params in ({"name": "fabric_desktop_get_status", "arguments": "x"}, {"name": 5}):
+        # Refused by the MCP SDK before KratosForge's handler runs: still one line each.
+        long_name = f"Bearer {JWT} " + "n" * 500
+        malformed = [({"name": "fabric_desktop_get_status", "arguments": "x"}, "fabric_desktop_get_status"),
+                     ({"name": 5}, "tools/call"), ({"arguments": {"code": "print('SECRET-FIVE')"}}, "tools/call"),
+                     ({"name": long_name, "arguments": ["SECRET-FIVE"]}, None)]
+        for params, _ in malformed:
             answer, _ = proc.call("tools/call", params)
             assert answer["error"]["code"] == -32602, answer
         audit = IntegrationAudit(store)
         lines = audit.recent(100)[::-1]
-        assert [(line["capability"], line["outcome"], line["client_id"], line["channel"], line["execution_id"])
-                for line in lines] == [(name, code, client["id"], "mcp-stdio", "") for name, _, code in calls] + [
-            ("resources/read", "not_found", client["id"], "mcp-stdio", "")]
+        got = [(line["capability"], line["outcome"], line["client_id"], line["channel"], line["execution_id"])
+               for line in lines]
+        assert got[:-1] == [(name, code, client["id"], "mcp-stdio", "") for name, _, code in calls] + [
+            ("resources/read", "not_found", client["id"], "mcp-stdio", "")] + [
+            (name, "invalid_input", client["id"], "mcp-stdio", "") for _, name in malformed[:-1]]
+        last = lines[-1]
+        assert (last["outcome"], last["decision"], last["channel"]) == ("invalid_input", "invalid", "mcp-stdio")
+        assert len(last["capability"]) <= MAX_AUDITED_NAME and last["capability"].startswith("Bearer ")
         assert lines[0]["client"] == "Stdio tool" and audit.verify()["ok"]
         assert JWT not in json.dumps(lines) and "SECRET-FIVE" not in json.dumps(lines)
     finally:
@@ -713,7 +777,7 @@ def test_a_sample_over_real_mcp_over_http_and_a_rest_client_that_hangs_up(store)
         anyio.run(go)
         lines = tools.trail.since(0)
         assert [(line["capability"], line["outcome"], line["client_id"], line["channel"], line["execution_id"]) for line in lines] == [
-            (name, "ok" if code == "too_large" else code, client["id"], "mcp-http", EXECUTION if "execution_id" in args else "")
+            (name, code, client["id"], "mcp-http", EXECUTION if "execution_id" in args else "")
             for name, args, _, code in calls]
         # A refused token on the real socket: one http_request line on the MCP channel.
         mark = tools.trail.mark()

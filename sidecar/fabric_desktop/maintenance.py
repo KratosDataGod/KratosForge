@@ -395,15 +395,20 @@ def _stale_staged(uri: str) -> list[str]:
 def _unnamed(uri: str, table: DeltaTable, hours: float) -> list[str]:
     """Data files untouched for ``hours`` that neither the table's current version names nor a commit
     removed (those are VACUUM's), as paths relative to the table folder."""
-    named = {unquote(p) for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist())}
+    # Every spelling of a named file counts (as written, and decoded), compared as the disk does (on Windows,
+    # ignoring case): a second spelling can only keep a file, never delete one, however a writer escaped it.
+    named: set[str] = set()
+    for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
+        named |= {p, unquote(p)}
     # VACUUM lists a file by its name on disk (relative_to_table); its decoded spelling is kept too, so a
     # file a commit removed is never taken for a leftover however delta-rs spells it.
     for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False):
         named |= {relative_to_table(uri, p), unquote(p)}
+    named = {os.path.normcase(p.replace("\\", "/")) for p in named}
     out = []
     for e in _data_folder_files(uri):
         rel = Path(e.path).relative_to(uri).as_posix()
-        if _DATA_FILE.fullmatch(e.name) and rel not in named and _older_than(e, hours):
+        if _DATA_FILE.fullmatch(e.name) and os.path.normcase(rel) not in named and _older_than(e, hours):
             out.append(rel)
     return sorted(out)
 

@@ -370,3 +370,32 @@ def test_a_first_append_that_lost_to_a_table_outside_the_profile_isnt_made_again
     with pytest.raises(delta_profile.ProfileViolation):
         store.write("LH_Bronze", "dbo", "fresh", frame(0), mode="append")
     assert calls == [1] and DeltaTable(uri).version() == 0
+
+
+def _named_only_by(adds: list[str]) -> SimpleNamespace:
+    """A table whose current version names ``adds`` (as its log spells them) and whose VACUUM lists nothing."""
+    return SimpleNamespace(get_add_actions=lambda flatten=True: pa.table({"path": adds}),
+                           vacuum=lambda **k: [])
+
+
+def _old_file(root: Path, rel: str) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    _age(path, 30 * 24)
+
+
+def test_a_file_a_commit_names_as_written_on_disk_is_never_a_leftover(tmp_path):
+    """A writer that didn't escape the partition folder's name again in the log: the add's path is the name on
+    disk, and decoding it (region=a/b) would name nothing there. Every spelling counts, so it's kept."""
+    rel = "region=a%2Fb/part-00000-0b1d6a52-6f0e-4c3b-9d0a-5f8c2e7a9b10-c000.snappy.parquet"
+    _old_file(tmp_path, rel)
+    assert maintenance._unnamed(str(tmp_path), _named_only_by([rel]), 7 * 24) == []
+    assert maintenance._unnamed(str(tmp_path), _named_only_by([]), 7 * 24) == [rel]  # an unnamed one still goes
+
+
+def test_a_file_a_commit_names_in_another_case_is_never_a_leftover_on_windows(tmp_path, windows_case):
+    rel = "region=EU/part-00000-0b1d6a52-6f0e-4c3b-9d0a-5f8c2e7a9b10-c000.snappy.parquet"
+    _old_file(tmp_path, rel)
+    named = _named_only_by(["Region=eu/PART-00000-0B1D6A52-6F0E-4C3B-9D0A-5F8C2E7A9B10-C000.SNAPPY.PARQUET"])
+    assert maintenance._unnamed(str(tmp_path), named, 7 * 24) == []

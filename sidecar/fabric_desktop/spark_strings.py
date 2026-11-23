@@ -334,10 +334,12 @@ def _empty_matches(pattern: str) -> tuple[bool, bool, bool]:
     stripped = "".join(kept)
     global _re2
     import duckdb
+
+    from .duckdb_rows import one_row
     if _re2 is None:
         _re2 = duckdb.connect()
     try:
-        empty = bool(_re2.cursor().execute("SELECT regexp_full_match('', ?)", [stripped]).fetchone()[0])
+        empty = bool(one_row(_re2.cursor().execute("SELECT regexp_full_match('', ?)", [stripped]))[0])
     except duckdb.Error:   # silent-ok: RE2 can't read it, and DuckDB stops on the pattern itself when it runs
         return False, False, anchors
     return empty, empty and _GROUPING.sub("", stripped) == "", anchors

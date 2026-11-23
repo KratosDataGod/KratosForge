@@ -93,14 +93,17 @@ def vorder_files(uri: str, options: dict[str, str] | None = None, limit: int = F
     return {"files": len(paths), "checked": min(len(paths), limit), "v_ordered": v_ordered}
 
 
-def health(uri: str, options: dict[str, str] | None = None, local: bool = False) -> dict[str, Any]:
+def health(uri: str, options: dict[str, str] | None = None, local: bool = False,
+           table: DeltaTable | None = None) -> dict[str, Any]:
     """File, size and history numbers for one Delta table, plus what maintenance would help.
 
-    V-Order only matters to Fabric readers, so it isn't advised for a table on this PC."""
-    try:
-        table = DeltaTable(uri, storage_options=options)
-    except TableNotFoundError:
-        return {"exists": False, "advice": [], "status": "missing"}
+    V-Order only matters to Fabric readers, so it isn't advised for a table on this PC. ``table``,
+    when given, is that table already loaded, so its log isn't read a second time."""
+    if table is None:
+        try:
+            table = DeltaTable(uri, storage_options=options)
+        except TableNotFoundError:
+            return {"exists": False, "advice": [], "status": "missing"}
     actions = table.get_add_actions(flatten=True)
     sizes = cast(list[int], actions.column("size_bytes").to_pylist()) if actions.num_rows else []
     files, total = len(sizes), sum(sizes)
@@ -280,7 +283,9 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None, al
     config = table.metadata().configuration or {}
     if all(config.get(k) == v for k, v in wanted.items()):
         return False
-    table.alter.set_table_properties(wanted, raise_if_not_exists=False)
+    # A commit like any other: on Windows it can lose the staged-commit race to a writer (retrying.local_commit).
+    retrying.local_commit(lambda: DeltaTable(uri, storage_options=options).alter.set_table_properties(
+        wanted, raise_if_not_exists=False), "this table's next version")
     return True
 
 
@@ -296,15 +301,18 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     # On Windows a writer committing the same next version at the same moment makes this commit fail to open
     # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
     # so compacting again is safe.
-    metrics = retrying.local_retry(lambda: DeltaTable(uri).optimize.compact())
+    # One that still loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
+    metrics = retrying.local_commit(lambda: DeltaTable(uri).optimize.compact(), "this table's next version")
     table = DeltaTable(uri)
     present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}
     keep, _oldest = skewed_versions(table, retention_hours(days))
-    listed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,
-                          **vacuum_keep(keep))
+    # VACUUM commits too (its start and end), so it can lose the same race; deleting again what is already
+    # gone is a no-op, so it is safe to repeat on the table's latest version.
+    listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
+        retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
+        "this table's next version")
     # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
-    root = uri.rstrip("/") + "/"
-    listed = [unquote(p[len(root):] if p.startswith(root) else p) for p in listed]
+    listed = [relative_to_table(uri, p) for p in listed]
     removed = [p for p in listed if p in present and not (Path(uri) / p).exists()]
     # A data file no commit names (a write stopped before its commit) goes once it's as old as the
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
@@ -328,6 +336,32 @@ def _is_link(entry: os.DirEntry[str]) -> bool:
     except OSError:  # silent-ok: gone meanwhile; skipped like a link
         return True
     return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def path_key(path: str) -> str:
+    """A path relative to a table as this PC's disk compares it: forward slashes, and on Windows lower case
+    (os.path.normcase, which there also turns every slash into a backslash, so they're turned back)."""
+    return os.path.normcase(path.replace("\\", "/")).replace("\\", "/")
+
+
+def table_files(uri: str) -> set[str]:
+    """Every data file in a table folder on this PC (deletion vectors included, the log and linked folders
+    left out), relative to the table, as path_key compares them (Windows paths ignore case)."""
+    return {path_key(Path(e.path).relative_to(uri).as_posix()) for e in _data_folder_files(uri)}
+
+
+def relative_to_table(uri: str, path: str) -> str:
+    """``path`` as delta-rs lists it (whole, a percent-encoded file:// URL, or relative; either slash), relative
+    to the table folder ``uri`` with forward slashes. Only a URL is decoded: a path is the file's name on disk,
+    where a partition value is already escaped (region=North%20America is that folder's name)."""
+    text = unquote(path[len("file://"):]) if path.startswith("file://") else path
+    text = text.replace("\\", "/")
+    root = uri.rstrip("/\\").replace("\\", "/") + "/"
+    if os.path.normcase(text).startswith(os.path.normcase(root)):
+        return text[len(root):]
+    if text.startswith("/") and os.path.normcase(text[1:]).startswith(os.path.normcase(root)):  # file:///C:/...
+        return text[1 + len(root):]
+    return text
 
 
 def _data_folder_files(uri: str) -> Any:
@@ -369,12 +403,20 @@ def _stale_staged(uri: str) -> list[str]:
 def _unnamed(uri: str, table: DeltaTable, hours: float) -> list[str]:
     """Data files untouched for ``hours`` that neither the table's current version names nor a commit
     removed (those are VACUUM's), as paths relative to the table folder."""
-    named = {unquote(p) for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist())}
-    named |= {unquote(p) for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False)}
+    # Every spelling of a named file counts (as written, and decoded), compared as the disk does (on Windows,
+    # ignoring case): a second spelling can only keep a file, never delete one, however a writer escaped it.
+    named: set[str] = set()
+    for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
+        named |= {p, unquote(p)}
+    # VACUUM lists a file by its name on disk (relative_to_table); its decoded spelling is kept too, so a
+    # file a commit removed is never taken for a leftover however delta-rs spells it.
+    for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False):
+        named |= {relative_to_table(uri, p), unquote(p)}
+    named = {path_key(p) for p in named}
     out = []
     for e in _data_folder_files(uri):
         rel = Path(e.path).relative_to(uri).as_posix()
-        if _DATA_FILE.fullmatch(e.name) and rel not in named and _older_than(e, hours):
+        if _DATA_FILE.fullmatch(e.name) and path_key(rel) not in named and _older_than(e, hours):
             out.append(rel)
     return sorted(out)
 

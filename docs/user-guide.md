@@ -25,7 +25,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Optimize (Preview), Monitor, and at the bottom Academy (Preview), Source control (Preview) and Settings. In a window under 640 px tall the rail shows icons only, so every page fits; each one's name shows as a tooltip. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
+| **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Optimize (Preview), Monitor, and at the bottom Academy (Preview), Source control (Preview) and Settings. A [skin](skins.md#choosing-a-skin-preview) (Preview) can change their order and names. In a window under 640 px tall the rail shows icons only, so every page fits; each one's name shows as a tooltip. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
 | **Back and Forward** | Top bar, left | Go back to the page you were on before, tab included, and forward again (**Alt+Left** and **Alt+Right**). The arrows appear once you have opened a second page, so there is somewhere to go back to. Back after **Open in Fabric** returns to the page you opened it from. When you start the app again, it opens on the page you were on last, or on Home if that page is hidden or gone. |
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
@@ -90,11 +90,13 @@ Click your initial at the top right:
 
 | Item | What it does |
 | --- | --- |
-| Signed in as ... | Who you are signed in as |
+| Signed in as ... | Who you are signed in as. Signed out, **Sign in** is here instead |
+| **Profile (Preview)** | Opens [Profile](#profile-preview). Shown while preview features are shown |
 | **Settings** | Opens [Settings](#settings) |
 | **Help and user guide** | Opens this guide |
 | **Report a problem** | See [Report a problem](#report-a-problem) |
 | **What's new** | The release notes of the build you're running, and everything new in the 30 days before it |
+| **Check for updates** | Looks for a newer build on your channel. See [Updates](#updates) |
 | Build and channel | Which build you're on, and Stable or Preview |
 | **Sign out** | Forgets your sign-in on this PC, in the app and in the embedded Fabric pages. Notebooks and settings stay. |
 
@@ -111,7 +113,7 @@ Home shows **Getting started with KratosForge** under **Start something**: one s
 
 Home answers "what happened since I was last here".
 
-**Living Experience on Home (Preview).** With Preview features on and an **Experience mode** other than **Professional**, Home starts with a hero band: the welcome, with **Continue** and **New notebook**, on the sky of the Kratos and wolf art at left. In a window under 640 px tall the band is one strip with the welcome and its buttons, without the art. In a Windows contrast theme the art is hidden. **Start something** keeps the rest of its buttons. Beside the sections is a **Your progress** panel showing your rank, level, XP to the next level, the checks for the next rank, your latest achievement with its evidence, and your measured Forge stats. Capacity shows **Not measured**. The panel's hide button puts it away, and the link at the top of Home shows it again. With **Settings > Developer progression** off, the panel isn't shown. In Professional mode, or with Preview features off, Home is the plain page described below.
+**Living Experience on Home (Preview).** With Preview features on and an **Experience mode** other than **Professional**, Home starts with a hero band: the welcome, with **Continue** and **New notebook**, on the sky of the Kratos and wolf art at left. In a window under 640 px tall the band is one strip with the welcome and its buttons, without the art. In a Windows contrast theme the art is hidden. **Start something** keeps the rest of its buttons. Beside the sections is a **Your progress** panel showing your rank, level, XP to the next level, the checks for the next rank, your latest achievement with its evidence, and your measured Forge stats. Capacity shows **Not measured**. The panel's hide button puts it away, and the link at the top of Home shows it again. With **Profile > Settings > Developer progression** off, the panel isn't shown. In Professional mode, or with Preview features off, Home is the plain page described below.
 
 **Page headers (Preview).** With the same settings, Create, Workspaces, Platform, Data mesh, Optimize, Monitor, Academy, Source control, Settings and Profile start with the same kind of band: the page's title and main buttons on the left, beside a picture from that page's own set. A page keeps the same picture all day. In a window narrower than 960 px, or in a Windows contrast theme, the picture is hidden and the band is only as tall as its title and buttons. Monitor shows no header above the **Forge view** band or the docked Fabric hub, and Profile shows none on **Ranks**, which has its own banner.
 
@@ -182,7 +184,9 @@ New items:
 - **Notebook:** a new Python notebook, saved on this PC. See [Notebooks](notebooks.md).
 - **Notebook from a template** (Preview): a notebook written from a fixed template (clean a table, join and aggregate, load a file) with key checks and the columns a proof matches rows by. See [Notebooks](notebooks.md#your-first-notebook).
 - **Lakehouse:** asks for a workspace and a name, then creates a schema-enabled lakehouse in Fabric (tables live under schemas, `dbo` by default) and opens it. Needs a workspace on a capacity, and Contributor or higher on it.
+- **Open replay bundle** (Preview): runs a notebook that failed again, up to the failed cell, against the same table versions. See [Failure replay bundles](notebooks.md#failure-replay-bundles-preview).
 - **Pipeline** (Preview): opens a Fabric pipeline read-only and runs it on this PC. See [Pipelines](#pipelines-preview).
+- **Applications > App Studio** (Preview): describe an app, build it from a template and preview it on this PC, with every version kept. See [App Studio](app-studio.md).
 
 ## Pipelines (Preview)
 
@@ -266,7 +270,7 @@ In a notebook, select lines of a cell's code (or none, for the whole cell) and c
 
 ## Workspaces
 
-Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
+Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app. While preview features are shown, two more follow: **Power BI** (Preview), the reports and dashboards you can open in [Embed Studio](embed-studio.md), and **Databricks** (Preview), folders of notebooks on this PC kept in step with a Databricks workspace folder ([Databricks workspace sync](engines.md#databricks-workspace-sync-preview)).
 
 - **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**. The pin on an item's row pins it to Home (Preview, see [Pinned items](home-notebooks.md#pinned-items-preview)).
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
@@ -427,7 +431,9 @@ The full walkthrough, from setting up a project to promoting to Prod, and a refe
 
 The Platform page (Preview) is the central data team's setup: the landing zone, business keys, glossary, governance, audit and the platform's settings. Every other team sees what the platform offers there. **Platform admins** (the central team) create business key tables and landing zone sources, and decide requests on Data mesh > Requests; everyone else sees the same screens and sends requests. The platform itself checks who may do what, so hiding a button is only a convenience. Details in [The platform](platform.md#the-platform-page).
 
-| Tab | What's there |
+The page has four tabs: **Overview**, **Set up**, **Govern** and **Settings**. **Set up** holds Landing zone, Business keys and Glossary, and **Govern** holds Governance and Audit. Pick one on the switcher under the tabs. Each is still a page of its own, so a link such as Platform > Business keys opens it.
+
+| Page | What's there |
 | --- | --- |
 | **Overview** | Counts of domains, projects, key tables, data products and waiting requests; requests that need you; each environment's platform; the landing zone's sources and which are late; recent changes |
 | **Landing zone** | The one list of source systems for every project, each with its id, and what landed in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source**. Projects pick theirs on Data mesh > Source systems ([One list of source systems](platform.md#one-list-of-source-systems-preview)) |
@@ -460,7 +466,7 @@ A policy's **Where it applies** tab lists its exceptions in force. One that ends
 **Workspaces > Fabric portal** is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Open in KratosForge**, **Full screen**, **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
 
 - **Full screen** hides the app's top bar, left rail and tabs, so Fabric fills the window under a slim row of these buttons. **Exit full screen**, or Esc when the app (not Fabric) has the keys, brings them back. The app remembers it: the tab opens in full screen until you leave it. Keys you press inside Fabric go to Fabric, so the button is the sure way out.
-- **Open in KratosForge** opens the warehouse or SQL analytics endpoint Fabric is showing on the app's own [Warehouse page](warehouse.md). On any other Fabric page it says to open one first. It reads only the address of the page Fabric shows.
+- **Open in KratosForge** (Preview) opens the warehouse or SQL analytics endpoint Fabric is showing on the app's own [Warehouse page](warehouse.md). On any other Fabric page it says to open one first. It reads only the address of the page Fabric shows.
 
 It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. It opens in the tenant of your app sign-in, which skips Fabric's email page. Otherwise sign in once; the app keeps that sign-in's cookies between launches, encrypted for your Windows account (DPAPI) in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
 
@@ -481,7 +487,7 @@ What your Fabric estate could do better, what was fixed and what it could save, 
 
 ## Monitor
 
-Monitor has a tab for each source: **KratosForge** and **Fabric**. Another source, such as Databricks or Snowflake, would be a tab beside them. Each tab's pages are on the switcher under the tabs, as on Data mesh.
+Monitor has a tab for each source: **KratosForge** and **Fabric**, and **Databricks** (Preview) while preview features are shown. **Databricks** lists the job runs and Lakeflow pipeline updates in your Databricks workspace, read without starting anything ([Databricks jobs and Lakeflow in Monitor](engines.md#databricks-jobs-and-lakeflow-in-monitor-preview)). Each tab's pages are on the switcher under the tabs, as on Data mesh.
 
 **KratosForge** has three pages:
 
@@ -666,6 +672,10 @@ Monitor > KratosForge > Operations > Data health checks the tables you watch fro
 
 Open alerts are listed at the top, in the app only. Click a table for a chart of rows per load against the usual band, and for each alert: **Open the run that wrote it** (when this app's run wrote it), **Acknowledge** (until a newer version alerts), **Snooze 1 day** and **Open an incident**, which opens [Report an incident](#incidents-preview) with the alert filled in, for the environment's shared list. Watch, Acknowledge and Snooze change only this PC's list, in `data_health.json` in the app's folder; an acknowledgement is forgotten once no current alert matches it. If that file can't be read (cut short by a crash, say), it is kept as `data_health.json.corrupt-<time>` and the list says it started again empty. A table renamed or removed in the metadata project shows **Not in the project**, and its acknowledgements are forgotten, so it alerts again if it comes back. Stop watching it to take it off the list. A table whose log can't be read shows **Can't read** with the reason, never as healthy. The list waits at most 2 minutes for its checks. A table whose check hasn't finished by then (OneLake not answering, say) shows that it didn't finish, never as healthy, and the next refresh waits on that same check rather than starting another. A number the log doesn't hold shows **Can't tell**; it is never estimated. How the numbers are worked out is in [Data health](metadata-guide.md#data-health-preview).
 
+## Academy (Preview)
+
+**Academy**, at the bottom of the left rail, prepares you for a certification, starting with DP-700, with exercises you do on this PC. Its tabs are **Home**, **Path**, **Practice**, **Assessments**, **Readiness** and **Portfolio**. Learn's lessons and labs open from **Practice**. Exercises use data generated on this PC, and nothing reads or writes OneLake or starts anything in Fabric. A passed exercise is recorded in Profile. The whole page is described in [Academy](academy-guide.md), and Learn in [Learn](learn.md).
+
 ## Source control (Preview)
 
 **Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit (a whole file, or one block of changed lines at a time), make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and, in words, how many changes you haven't committed yet (for example "main · 3 unsaved changes"). Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. A platform repository holds the platform's definitions as files: compare them with what each environment has deployed, export the platform into them, and deploy committed changes after one confirm. The whole page is described in [Source control](source-control.md).
@@ -673,6 +683,10 @@ Open alerts are listed at the top, in the app only. Click a table for a chart of
 ### Capacity repository
 
 A capacity repository holds `capacity.toml`: the capacities there should be, the size, region and state each should have, and the workspaces each should hold. Its **Capacity** tab is a drift report. It compares the file with the capacities and workspaces Fabric shows you, and for each capacity it says **same**, **differs** (which setting, or which workspace is elsewhere or not in the file), **not in Git** or **not visible to you**. It only reads: it never resizes, pauses, resumes or assigns a capacity, and it starts no Fabric job. **Write Fabric's state to capacity.toml** replaces the file with what Fabric shows, after you confirm, as a change to review and commit. Capacities and workspaces you can't see stay in the file as they are. See [Capacity repository](source-control.md#capacity-repository).
+
+### Fabric workspace
+
+A repository's **Fabric workspace** tab shows how a Fabric workspace's own Git connection relates to the repository on this PC. **Link a workspace…** links one for Dev, Test or Prod. The link is saved in `fabric-desktop.toml` in the repository as a change to commit. **Check status in Fabric** lists the items that differ between the workspace and Git. Linking and checking change nothing in Fabric and nothing in Git, and pushing to Git never updates the workspace. See [Fabric workspace](source-control.md#fabric-workspace).
 
 ## Profile (Preview)
 
@@ -686,13 +700,15 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | --- | --- |
 | **Account** | Who you're signed in as and **Sign out**. When sign-in uses your organization's own app, **Admin approval** copies the link a Microsoft Entra admin opens once to approve it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
-| **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
+| **Appearance** | **Skin** (Preview, see [Choosing a skin](skins.md#choosing-a-skin-preview)), **Color mode** (Preview), then [Layout](#layout) and [Living Experience](#motion-and-effects). |
+| **Editor** | Word wrap, font size, key bindings and shortcuts for notebook cells and SQL editors. See [Editor settings](#editor-settings). |
+| **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay, the risk check before a run, VS Code pairing and Create workspace are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Hidden for now: usage data is off and this build sends nothing. It shows only while usage data is on, such as when your organization's policy turns it on, with **See what's sent**. When the policy sets it, only your organization can turn it off. See [Usage data](telemetry.md). |
 | **Notifications** | **Incident alerts**: send new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, a Power Automate flow (`flow:https://...`) or email (`mailto:a@x;b@y`, through the company mail server), unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). **Platform notices** (Preview): Teams channels, Power Automate flows or email for platform requests and broken shortcuts. See [Platform notices](#platform-notices-preview). |
 | **Help and about** | This guide, **Report a problem**, **Save support bundle** (a zip with the engine's log and where each setting comes from, with the same details taken out, saved to a folder you choose and never sent from the app), the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
-| **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, and the SQL query limits. See [Advanced settings](#advanced-settings). |
+| **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, OneLake writes, the Academy exercise sandbox, and the SQL query limits. See [Advanced settings](#advanced-settings). |
 
 Anything your organization has set shows "Set by your organization's policy" and can't be changed there.
 
@@ -736,6 +752,7 @@ At the bottom of **Settings > General**, folded. Click **Advanced** to open it; 
 | **Sign-in** | The **App (client) ID**. Leave it empty: KratosForge then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)). When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Notebooks** | **Run notebooks in their own process** (Preview) and, with it on, the **Cell time limit** and **Notebook memory limit**. |
 | **OneLake writes** | How notebooks on this PC write tables: **New notebooks write** (here, then upload in the background; or straight to OneLake, for a fast upload line), **Compression** (Zstandard or Snappy) and **Skip unchanged tables**. Each notebook can choose its own under **Runs on**. **Files on this PC** shows what local writes hold (normally nothing: a write is deleted once it has uploaded) and opens the folder in File Explorer, along with any TPC-H data a run ended mid-way left in the temp folder. **Delete left-overs** deletes all of it after you confirm (your tables in OneLake aren't touched); it's refused while a notebook is running, and what a run still going in another process (a scheduled run) wrote is left, as is any file in use; the notebook's **Runs on** menu has the same **Open the folder of local writes**. See [Writing to OneLake](architecture.md#writing-to-onelake). |
+| **Exercise sandbox** | Whether Academy exercise scripts run in a Windows AppContainer, with no network and no access to your own files. To make that work, KratosForge lets the sandbox read KratosForge's Python on this PC. **Remove exercise permissions** takes that away after you confirm; the next exercise you run adds it back. |
 | **SQL queries** | Rows per page, time limit, memory, queries at once, how long results are kept, and the **Temp folder**. See [Running SQL queries on this PC](sql-execution.md#limits). |
 
 When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_CLIENT_ID` environment variable sets the App ID, the field shows the value it uses, can't be edited and says which: "Set by your organization's policy" or "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable". To change an ID the variable sets, remove the variable (`setx FABRIC_DESKTOP_CLIENT_ID ""`) and restart KratosForge.

@@ -62,6 +62,10 @@ _RLS = {"title": "Row-level security with Power BI",
         "url": "https://learn.microsoft.com/power-bi/enterprise/service-admin-rls"}
 _GIT = {"title": "Notebook source control and deployment",
         "url": "https://learn.microsoft.com/fabric/data-engineering/notebook-source-control-deployment"}
+_GIT_START = {"title": "Get started with Git integration",
+              "url": "https://learn.microsoft.com/fabric/cicd/git-integration/git-get-started"}
+_GIT_PROCESS = {"title": "Basic concepts in Git integration",
+                "url": "https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process"}
 
 
 def _p(role: str, where: str, *, also: tuple[str, ...] = (), refs: tuple[dict[str, str], ...] = (_ROLES,),
@@ -73,6 +77,7 @@ _CONTENT = "Contributor"  # create, edit and delete items in a workspace: the lo
 _ACCESS_NOTE = ("Removing or lowering a role can stop someone's work at once, including scheduled work that runs "
                 "as them.")
 _SCHEDULE_NOTE = "Items that run on a schedule as the item's owner keep that owner after the change."
+_RUN_AGAIN = "The change takes effect on the pipeline's next run, scheduled or triggered."
 _REPUBLISH = "Readers of the model's reports see the change after the model is saved and refreshed."
 
 # What each control's change needs, beyond its template. A control missing here gets a generic plan
@@ -126,6 +131,27 @@ SPECIFIC: dict[str, dict[str, Any]] = {
                                 "every stage."),)),
     "FEA-DEVOPS-002": _p(_CONTENT, "workspace", notes=(("Each stage needs its parameter or variable value set, or the "
                                                        "activity fails."),)),
+    "FEA-DEVOPS-003": _p("Admin", "workspace", refs=(_ROLES, _GIT_START, _GIT_PROCESS),
+                         also=("Permission to read and write the branch in the Azure DevOps or GitHub repository.",),
+                         notes=(("The first sync copies one way: committing writes the workspace's items to the "
+                                "branch, and updating from the branch overwrites the workspace's items. Choose the "
+                                "direction on purpose."),)),
+    "FEA-DEVOPS-004": _p(_CONTENT, "workspace", refs=(_ROLES, _GIT_PROCESS),
+                         also=("Permission to write to the connected branch in the Git repository.",),
+                         notes=(("A commit puts the change on the branch, so whatever deploys or syncs from that "
+                                "branch picks it up."), "Undoing a change in the workspace discards it.")),
+    "FEA-DEVOPS-005": _p(_CONTENT, "workspace", refs=(_ROLES, _GIT_PROCESS),
+                         also=("Permission to read the connected branch in the Git repository.",),
+                         notes=(("Updating overwrites the workspace's version of each changed item, and removes "
+                                "items the branch no longer has."),
+                                ("An item changed in the workspace too is a conflict: resolve it before updating, "
+                                 "or the workspace's change can be lost."))),
+    "FEA-REL-004": _p(_CONTENT, "workspace", notes=(_RUN_AGAIN, ("A retried step runs its work again, including "
+                                                   "any writes it made before it failed."))),
+    "FEA-REL-005": _p(_CONTENT, "workspace", notes=(_RUN_AGAIN, ("A timeout shorter than a normal run fails runs "
+                                                   "that would have finished."))),
+    "FEA-REL-006": _p(_CONTENT, "workspace", notes=(_RUN_AGAIN, ("The failure path runs on every failure, so its "
+                                                   "alerts reach the people it names each time."))),
     "FEA-REL-001": _p(_CONTENT, "workspace", notes=(("Runs that succeed today while ignoring an error will fail after "
                                                     "the change, and alerts on them start."),)),
     "FEA-REL-002": _p(_CONTENT, "workspace", notes=(("Pinning stops picking up fixes in newer releases until you "

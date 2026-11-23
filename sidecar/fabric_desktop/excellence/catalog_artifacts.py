@@ -362,7 +362,7 @@ CONTROLS = (
                        "fails the run, and the tables it loads stay late until someone reruns it.",
                        "Set a retry (for example 2) and a retry interval (for example 60 seconds) on the activity.",
                        ["Open the activities named in the finding.",
-                        ("Check the step can safely run twice (a stored procedure or Web call that isn't "
+                        ("Check that running the step twice does no harm (a stored procedure or Web call that isn't "
                          "idempotent may need changing first)."),
                         "On General settings, set Retry and Retry interval.", "Run once.", "Assess again."],
                        "Transient failures are retried instead of failing the run.", "low", "medium",

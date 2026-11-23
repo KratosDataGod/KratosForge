@@ -283,7 +283,7 @@ Outlook and Teams activities aren't counted as calling out, because a retry can 
 twice, nor are child pipelines (their own activities carry the policy) or control-flow activities.
 The 12-hour line is KratosForge's, because Microsoft gives the default, not a number to use, and only the
 pipeline's owner knows how long a step should take, so any explicit timeout under the default passes.
-Before adding a retry to a stored procedure or Web call, check the step can safely run twice.
+Before adding a retry to a stored procedure or Web call, check that running the step twice does no harm.
 
 ### Semantic model inspection
 

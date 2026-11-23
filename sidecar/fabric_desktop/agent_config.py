@@ -67,6 +67,7 @@ environment variable that holds it.
 from __future__ import annotations
 
 import fnmatch
+import math
 import os
 import re
 import socket
@@ -210,6 +211,15 @@ def _secret_keys(table: Any, where: str) -> list[str]:
     return found
 
 
+def _strings(table: dict[str, Any], key: str, default: Any, where: str, errors: list[str]) -> list[str]:
+    """``table[key]`` as a list of strings; a value that isn't a list is named, and ``default`` used."""
+    value = table.get(key) or default
+    if not isinstance(value, list):
+        errors.append(f'{where}.{key}: a list, like ["{key}"]')
+        return [str(v) for v in default]
+    return [str(v) for v in value]
+
+
 _QUIET = re.compile(r"([01]?\d|2[0-3]):[0-5]\d-([01]?\d|2[0-3]):[0-5]\d")
 _ROUTE_FILTERS = ("teams", "owners", "criticality", "kinds", "envs")
 
@@ -236,7 +246,7 @@ def _routes(raw: Any, errors: list[str]) -> tuple[dict[str, Any], ...]:
         if unknown:
             errors.append(f"{where}: doesn't know {', '.join(sorted(unknown))}")
         out.append({"name": name, "webhook_env": str(r["webhook_env"]),
-                    **{k: tuple(str(x) for x in r.get(k) or []) for k in _ROUTE_FILTERS}})
+                    **{k: tuple(_strings(r, k, [], where, errors)) for k in _ROUTE_FILTERS}})
     names = [r["name"] for r in out]
     errors += [f"incidents.route {n}: the name is used twice" for n in sorted({n for n in names if names.count(n) > 1})]
     return tuple(out)
@@ -264,8 +274,11 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
         errors.append(f"{where}: weekly is {{ days = [\"Monday\"], times = [\"06:00\"] }}")
         return None
     times = value.get("times", []) if kinds[0] == "weekly" else value
-    if kinds[0] != "every_minutes" and not isinstance(times, list):  # list("06:00") is five one-letter "times"
-        errors.append(f"{where}: times are a list, like [\"06:00\"]")
+    if kinds[0] != "every_minutes" and not (isinstance(times, list) and all(isinstance(t, str) for t in times)):
+        errors.append(f"{where}: times are a list, like [\"06:00\"]")  # list("06:00") is five one-letter "times"
+        return None
+    if kinds[0] == "weekly" and not all(isinstance(d, str) for d in value.get("days", [])):
+        errors.append(f"{where}: days are a list of day names, like [\"Monday\"]")
         return None
     # Said here for agent.toml, naming the key: the shared checks below word them for the app's form.
     if kinds[0] == "every_minutes" and not 1 <= value <= MAX_EVERY_MINUTES:
@@ -294,7 +307,7 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
         errors.append(f"{where}: {exc}")
         return None
     del fabric_cfg  # validated; the agent keeps local time, as Task Scheduler does
-    entities = [str(e) for e in raw.get("entities") or []]
+    entities = _strings(raw, "entities", [], where, errors)
     shared = raw.get("shared", False)
     if not isinstance(shared, bool):
         errors.append(f"{where}: shared is true or false")
@@ -348,6 +361,8 @@ def load(path: Path | str | None = None) -> AgentConfig:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(path, [f"not valid TOML: {exc}"]) from None
+    except RecursionError:
+        raise ConfigError(path, ["not valid TOML: it is nested too deeply to read"]) from None
     return parse(raw, path)
 
 
@@ -361,14 +376,22 @@ def _is_file(path: Path) -> bool:
 
 def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors = _secret_keys(raw, "")
-    agent, auth, retry, alerts, pipe, inc, sh = (raw.get(k) or {} for k in ("agent", "auth", "retry", "alerts", "pipeline",
-                                                                          "incidents", "shortcut_health"))
+    tables = ("agent", "auth", "retry", "alerts", "pipeline", "incidents", "shortcut_health")
+    # A key written as a value (agent = 5) rather than a table is named, and read as an empty table.
+    errors += [f"{k}: a table, like [{k}]" for k in tables if raw.get(k) and not isinstance(raw[k], dict)]
+    agent, auth, retry, alerts, pipe, inc, sh = (v if isinstance(v := raw.get(k), dict) else {} for k in tables)
     project = agent.get("project", "")
-    if not project:
+    if not isinstance(project, str):
+        errors.append("agent.project: the metadata project folder, as a string")
+        project = ""
+    elif not project:
         errors.append("agent.project: the metadata project folder is required")
     elif not _is_file(Path(project) / "layers.toml"):
         errors.append(f"agent.project: {one_line(project, 200)} isn't a metadata project (no layers.toml)")
-    envs = list(agent.get("environments") or [])
+    envs = agent.get("environments") or []
+    if not isinstance(envs, list):
+        errors.append('agent.environments: a list, like ["prod"]')
+        envs = []
     if not envs:
         errors.append("agent.environments: list the environments this agent may run, e.g. [\"prod\"]")
     errors += [f"agent.environments: {e!r} isn't one of {', '.join(ENVIRONMENTS)}" for e in envs if e not in ENVIRONMENTS]
@@ -379,28 +402,34 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
             errors.append("auth: a service principal needs tenant_id and client_id")
         if not auth.get("certificate_path") and not auth.get("client_secret_env"):
             errors.append("auth: give certificate_path (preferred) or client_secret_env")
+        elif auth.get("certificate_path") and not isinstance(auth["certificate_path"], str):
+            errors.append("auth.certificate_path: a file, as a string")
         elif auth.get("certificate_path") and not _is_file(Path(auth["certificate_path"])):
             errors.append(f"auth.certificate_path: {one_line(auth['certificate_path'], 200)} doesn't exist")
 
     def number(table: dict[str, Any], key: str, default: float, low: float, where: str) -> float:
         value = table.get(key, default)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < low:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < low:
             errors.append(f"{where}.{key}: a number of at least {low:g}")
             return default
         return float(value)
 
     concurrency = int(number(agent, "concurrency", 1, 1, "agent"))
-    schedules = [s for i, r in enumerate(raw.get("schedule") or []) if (s := _schedule(r, i, errors))]
+    given = raw.get("schedule") or []
+    if not isinstance(given, list) or not all(isinstance(r, dict) for r in given):
+        errors.append("schedule: each schedule is a [[schedule]] table")
+        given = [r for r in given if isinstance(r, dict)] if isinstance(given, list) else []
+    schedules = [s for i, r in enumerate(given) if (s := _schedule(r, i, errors))]
     ids = [s.id for s in schedules]
     errors += [f"schedule {i}: the id is used twice" for i in sorted({i for i in ids if ids.count(i) > 1})]
     errors += [f"schedule {s.id}: {s.env} isn't in agent.environments" for s in schedules if s.env not in envs]
-    pipe_envs = [str(e) for e in pipe.get("environments") or envs]
+    pipe_envs = _strings(pipe, "environments", envs, "pipeline", errors)
     errors += [f"pipeline.environments: {one_line(e, 80)} isn't in agent.environments" for e in pipe_envs if e not in envs]
     for key in ("enabled", "allow_backfill", "take_over", "require_run"):
         if not isinstance(pipe.get(key, False), bool):
             errors.append(f"pipeline.{key}: true or false")
     pipeline = PipelineConfig(enabled=pipe.get("enabled") is True, environments=pipe_envs,
-                              entities=[str(e) for e in pipe.get("entities") or []],
+                              entities=_strings(pipe, "entities", [], "pipeline", errors),
                               allow_backfill=pipe.get("allow_backfill") is True,
                               poll_seconds=number(pipe, "poll_seconds", 30, 1, "pipeline"),
                               retention_days=number(pipe, "retention_days", 14, 1, "pipeline"),
@@ -439,15 +468,17 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     incidents = IncidentsConfig(enabled=inc.get("enabled") is True,
                                 seconds=number(inc, "seconds", 300, 30, "incidents"),
                                 digest_over=int(number(inc, "digest_over", 5, 1, "incidents")),
-                                quiet_hours=quiet, quiet_except=tuple(str(x).lower() for x in inc.get("quiet_except", ["critical"])),
+                                quiet_hours=quiet, quiet_except=tuple(x.lower() for x in _strings(inc, "quiet_except", ["critical"], "incidents", errors)),
                                 escalate_after_minutes=escalate_after, escalate_to=escalate_to, routes=routes)
     shortcut_health = _shortcut_health(sh, envs, str(alerts.get("teams_webhook_env", "")), number, errors)
+    if agent.get("home") and not isinstance(agent["home"], str):
+        errors.append("agent.home: a folder, as a string")
     name = agent.get("name") or host_name()
     if not isinstance(name, str) or not _ID.fullmatch(name):  # the mailbox takes over only such names
         errors.append(f"agent.name: {name!r} isn't 1 to 64 letters, digits, . _ or - (it names agents/<name>.json)")
     cfg = AgentConfig(
         path=Path(path), name=name,
-        home=Path(agent["home"]) if agent.get("home") else default_home(),
+        home=Path(agent["home"]) if isinstance(agent.get("home"), str) and agent["home"] else default_home(),
         project=Path(project), environments=envs, auth=dict(auth), owner=str(agent.get("owner") or "").strip(),
         concurrency=concurrency,
         poll_seconds=number(agent, "poll_seconds", 5, 0.1, "agent"),
@@ -459,7 +490,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
         max_attempts=int(number(retry, "max_attempts", 3, 1, "retry")),
         backoff_seconds=number(retry, "backoff_seconds", 60, 0, "retry"),
         max_backoff_seconds=number(retry, "max_backoff_seconds", 1800, 0, "retry"),
-        workspaces=[str(w) for w in agent.get("workspaces") or []],
+        workspaces=_strings(agent, "workspaces", [], "agent", errors),
         teams_webhook_env=str(alerts.get("teams_webhook_env", "")),
         log_level=str(agent.get("log_level", "INFO")).upper(), schedules=schedules, pipeline=pipeline,
         incidents=incidents, shortcut_health=shortcut_health)

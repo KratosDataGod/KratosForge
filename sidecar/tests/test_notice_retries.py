@@ -54,7 +54,7 @@ def test_an_alert_sent_with_no_answer_is_never_sent_twice_and_is_named(tmp_path,
     teams = Teams(exc)
     out = notify.send([_change()], single(HOOK), outbox, "KratosForge", teams)
     assert (out["sent"], out["queued"], out["unconfirmed"], out["waiting"]) == (0, 0, 1, 0)
-    assert "may have arrived; it isn't sent again" in out["error"] and "SECRET" not in out["error"]
+    assert "may have arrived. It isn't sent again" in out["error"] and "SECRET" not in out["error"]
     teams.fail = None
     for _ in range(5):  # later sends, well past every backoff: it never goes again
         t[0] += BACKOFF_MAX + 1

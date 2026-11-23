@@ -10,8 +10,8 @@ wall clock the change skips (02:30 when clocks spring forward) is moved forward 
 date_trunc keeps the offset of the time it truncates, as Java's ZonedDateTime.truncatedTo does, so it never
 gives a time after the one it was given.
 
-Both passes slow every cast to a timestamp and every date_trunc, so they run only while a session in this
-process has a zone whose offset changes (session_zone); UTC, Fabric's default, keeps DuckDB's own casts.
+Both passes slow every cast to a timestamp and every date_trunc, so they run only while the session the SQL
+is for has a zone whose offset changes (session_zone); UTC, Fabric's default, keeps DuckDB's own casts.
 
 An interval of hours, minutes or seconds added to a timestamp is split into whole days and the rest, as
 Spark's DayTimeInterval is (DateTimeUtils.timestampAddDayTime): INTERVAL 24 HOURS adds a calendar day in the
@@ -20,8 +20,12 @@ session's zone, which is 23 hours of real time on the day clocks spring forward.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import functools
 import re
+import sys
+from collections.abc import Iterator
 from typing import Any, cast
 
 import sqlglot
@@ -53,6 +57,11 @@ def zone_id(zone: str) -> str:
     if match is None:
         return text
     sign, hours, minutes, seconds = match.groups()
+    if int(minutes or 0) > 59 or int(seconds or 0) > 59 or \
+            int(hours) * 3600 + int(minutes or 0) * 60 + int(seconds or 0) > 18 * 3600:
+        raise ValueError(f"The time zone {zone!r} isn't a zone Spark reads, so nothing ran. An offset is hours "
+                         "and minutes from -18:00 to +18:00. Use an offset in that range, or a zone id such as "
+                         "Europe/Paris.")
     if int(minutes or 0) or int(seconds or 0):
         raise ValueError(f"The time zone {zone!r} can't be used on this PC the way it is in Fabric, because the "
                          "engine here has a zone for an offset of whole hours only, so nothing ran. Use the "
@@ -64,11 +73,14 @@ def zone_id(zone: str) -> str:
     return f"Etc/GMT{'-' if sign == '+' else '+'}{int(hours)}"
 
 
-# The sessions in this process whose zone changes its offset (daylight saving, or a change of standard
-# time), by id(session). Only while one is set can a wall clock be repeated or a truncation move an
+# A session's gaps (how far back, in seconds, a repeated wall clock's earlier instant can be; () in a zone
+# that keeps its offset) are kept on the session itself, so they end with it and no later session inherits
+# them. Only while the session the SQL is for has some can a wall clock be repeated or a truncation move an
 # instant, so the cast and date_trunc passes below, which slow every such cast, run only then.
-# Each such session's gaps: how far back (in seconds) a repeated wall clock's earlier instant can be.
-_SHIFTING: dict[int, tuple[int, ...]] = {}
+_GAPS = "_kf_zone_gaps"
+# The session whose SQL is being written (for_session): spark.sql's own. Elsewhere (a column expression,
+# F.expr) it is the process's active session (spark_local.session()).
+_CURRENT: contextvars.ContextVar[Any] = contextvars.ContextVar("kf_spark_time_zone_session", default=None)
 
 
 @functools.lru_cache(maxsize=64)
@@ -97,19 +109,35 @@ def shifts(zone: str) -> bool:
 
 def session_zone(session: Any, zone: str | None) -> None:
     """Note DuckDB zone ``zone`` (None: back to UTC) as the session time zone of ``session``."""
-    if zone is not None and shifts(zone):
-        _SHIFTING[id(session)] = gaps(zone)
-    else:
-        _SHIFTING.pop(id(session), None)
+    setattr(session, _GAPS, gaps(zone) if zone is not None else ())
 
 
-def _earlier(t: str) -> str:
+@contextlib.contextmanager
+def for_session(session: Any) -> Iterator[None]:
+    """SQL written inside this block is for ``session``: fix() reads its gaps."""
+    token = _CURRENT.set(session)
+    try:
+        yield
+    finally:
+        _CURRENT.reset(token)
+
+
+def current_gaps() -> tuple[int, ...]:
+    """The gaps of the session the SQL is for (for_session, else the active session), () for none."""
+    session = _CURRENT.get()
+    if session is None:  # read only if spark_local is already imported: with no session, nothing shifts
+        local = sys.modules.get(__name__.rpartition(".")[0] + ".spark_local")
+        session = getattr(local, "_session", None)
+    return cast(tuple[int, ...], getattr(session, _GAPS, ()))
+
+
+def _earlier(t: str, shifting: tuple[int, ...]) -> str:
     """SQL for the earlier of the two instants that show the wall clock of TIMESTAMPTZ ``t``, or ``t``."""
     # t - gap shows the same wall clock as t when the zone's offset (in seconds) was gap more then: an offset
     # is read with date_part, far cheaper than writing both wall clocks out
     def offset(x: str) -> str:
         return f"date_part('timezone', {x})"
-    wanted = sorted({g for zone in _SHIFTING.values() for g in zone}, reverse=True) or [3600, 1800]
+    wanted = sorted(shifting, reverse=True) or [3600, 1800]
     return " ".join(f"WHEN {offset(f'{t} - INTERVAL {gap} SECOND')} - {offset(t)} = {gap} THEN {t} - INTERVAL {gap} SECOND"
                     for gap in wanted)
 
@@ -148,7 +176,7 @@ def _depth(node: exp.Expression) -> int:
     return 1 + max((_depth(c) for c in node.iter_expressions()), default=0)
 
 
-def _wall_casts(statement: exp.Expression) -> None:
+def _wall_casts(statement: exp.Expression, shifting: tuple[int, ...]) -> None:
     for node in reversed(list(statement.find_all(exp.Cast))):  # TryCast is a Cast; the deepest first
         to = node.args.get("to")
         if not isinstance(to, exp.DataType) or to.this != _T.TIMESTAMPTZ or node.meta.get(_DONE):
@@ -170,14 +198,14 @@ def _wall_casts(statement: exp.Expression) -> None:
         inner.set("this", exp.column("w", table=w))
         inner.meta[_DONE] = True
         tree = _parse(f"(LIST_TRANSFORM([{{'w': kf_tz_operand}}], {w} -> (LIST_TRANSFORM([kf_tz_cast], {t} -> "
-                      f"CASE WHEN NOT {wall} THEN {t} {_earlier(t)} ELSE {t} END))[1]))[1]")
+                      f"CASE WHEN NOT {wall} THEN {t} {_earlier(t, shifting)} ELSE {t} END))[1]))[1]")
         _put(tree, "kf_tz_cast", inner)
         _put(tree, "kf_tz_operand", operand.copy())
         _typed(tree, exp.DataType.build("TIMESTAMPTZ"))
         node.replace(tree)
 
 
-def _truncs(statement: exp.Expression) -> None:
+def _truncs(statement: exp.Expression, shifting: tuple[int, ...]) -> None:
     for trunc in reversed(list(statement.find_all(exp.TimestampTrunc, exp.DateTrunc))):
         if trunc.meta.get(_DONE):
             continue
@@ -189,7 +217,7 @@ def _truncs(statement: exp.Expression) -> None:
         inner.meta[_DONE] = True
         tree = _parse(f"(LIST_TRANSFORM([{{'i': kf_tz_given}}], {d} -> (LIST_TRANSFORM([kf_tz_trunc], {r} -> "
                       f"CASE WHEN typeof({r}) <> 'TIMESTAMP WITH TIME ZONE' OR NOT ({r} > {d}.i) THEN {r} "
-                      f"{_earlier(r)} ELSE {r} END))[1]))[1]")
+                      f"{_earlier(r, shifting)} ELSE {r} END))[1]))[1]")
         _put(tree, "kf_tz_trunc", cast(exp.Expression, inner))
         _put(tree, "kf_tz_given", given.copy())
         if isinstance(trunc.type, exp.DataType) and trunc.type.this != _T.UNKNOWN:
@@ -218,10 +246,13 @@ def _intervals(statement: exp.Expression) -> None:
         interval.replace(_parse(f"(INTERVAL {days} DAY + INTERVAL {rest} SECOND)"))
 
 
-def fix(statement: exp.Expression) -> exp.Expression:
-    """Spark's session-time-zone answers in ``statement`` (DuckDB SQL, after spark_fixes' other passes)."""
+def fix(statement: exp.Expression, shifting: tuple[int, ...] | None = None) -> exp.Expression:
+    """Spark's session-time-zone answers in ``statement`` (DuckDB SQL, after spark_fixes' other passes), for
+    a session whose zone has gaps ``shifting`` (None: the current session's, current_gaps)."""
     _intervals(statement)
-    if _SHIFTING:  # in UTC, or another zone that keeps its offset, no wall clock repeats
-        _truncs(statement)
-        _wall_casts(statement)
+    if shifting is None:
+        shifting = current_gaps()
+    if shifting:  # in UTC, or another zone that keeps its offset, no wall clock repeats
+        _truncs(statement, shifting)
+        _wall_casts(statement, shifting)
     return statement

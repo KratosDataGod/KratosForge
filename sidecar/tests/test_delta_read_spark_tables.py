@@ -40,6 +40,9 @@ EXPECTED = {
     "cm_id": {"columns": ["id", "total", "label", "p"], "rows": _ALL},
     # Both: DELETE id IN (2, 5), then amount renamed total.
     "dv_cm": {"columns": ["id", "total", "label", "p"], "rows": [r for r in _ALL if r[0] not in (2, 5)]},
+    # Column mapping by name with the legacy protocol (reader 2, writer 5, no feature lists); amount renamed
+    # total, then INSERT (10, 100, 'n10', 'b').
+    "cm_legacy": {"columns": ["id", "total", "label", "p"], "rows": _ALL + [(10, 100, "n10", "b")]},
 }
 NAMES = sorted(EXPECTED)
 
@@ -62,6 +65,9 @@ def test_the_fixtures_use_the_features_they_stand_for():
         assert ("deletion vectors" in reasons) == name.startswith("dv"), name
         assert ("column mapping" in reasons) == ("cm" in name), name
     assert list((FIXTURES / "dv").glob("deletion_vector_*.bin")), "the deletion vector files are part of the fixture"
+    legacy = DeltaTable(str(FIXTURES / "cm_legacy")).protocol()
+    assert (legacy.min_reader_version, legacy.min_writer_version) == (2, 5)
+    assert not legacy.reader_features and not legacy.writer_features
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -98,17 +104,17 @@ def test_an_older_version_is_read_with_the_deletion_vector_it_had_then():
     table = DeltaTable(str(FIXTURES / "dv"), version=1)  # before DELETE id = 8
     assert [r[0] for r in _sorted(delta_read.arrow(table))] == [0, 1, 2, 4, 5, 6, 8, 9]
     sql, info = eng.delta_select(str(FIXTURES / "dv"), version=1)
-    assert [r[0] for r in duckdb.sql(sql + " ORDER BY id").fetchall()] == [0, 1, 2, 4, 5, 6, 8, 9]
+    assert [r[0] for r in duckdb.connect().sql(sql + " ORDER BY id").fetchall()] == [0, 1, 2, 4, 5, 6, 8, 9]
     assert info["deleted_rows"] == 2
 
 
 @pytest.mark.parametrize("name", NAMES)
 def test_the_local_view_reads_the_rows_spark_reads(name):
     sql, info = eng.delta_select(str(FIXTURES / name))
-    rel = duckdb.sql(sql)
+    rel = duckdb.connect().sql(sql)
     assert rel.columns == EXPECTED[name]["columns"]
     assert sorted(rel.fetchall()) == EXPECTED[name]["rows"]
-    deleted = 10 - len(EXPECTED[name]["rows"])
+    deleted = 10 - len(EXPECTED[name]["rows"]) if name.startswith("dv") else 0
     assert info.get("deleted_rows", 0) == deleted
 
 

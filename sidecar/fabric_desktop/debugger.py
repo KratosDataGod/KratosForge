@@ -22,17 +22,26 @@ MAX_LOCALS by name and says how many there are (``variables_total``).
 
 from __future__ import annotations
 
+import dis
+import inspect
 import queue
 import threading
 import types
 from typing import Any, Callable
 
 ACTIONS = ("continue", "step", "next", "out")
+# A generator or coroutine "returns" each time it yields or awaits, not only when it ends.
+SUSPENDS = inspect.CO_GENERATOR | inspect.CO_COROUTINE | inspect.CO_ASYNC_GENERATOR | inspect.CO_ITERABLE_COROUTINE
+# The instructions a frame really returns with; any other "return" event of a generator or
+# coroutine is it suspending at a yield or an await (YIELD_VALUE on 3.12, the RESUME after it on 3.13).
+_RETURNS = frozenset(dis.opmap[name] for name in ("RETURN_VALUE", "RETURN_CONST") if name in dis.opmap)
 CELL_FILE = "<cell>"  # the file name cells are compiled with (notebook._CELL_FILE)
 MAX_BREAKPOINTS = 100
 MAX_LOCALS = 200
 MAX_SKIPPED = 5  # names of stepped-over functions reported with a pause
 EVAL_SECONDS = 10.0
+MAX_EVALS = 20  # evaluations a pause keeps, the latest ones
+MAX_EXPRESSION = 2000  # characters in an expression to evaluate (the panel's box takes 500)
 
 
 def check_breakpoints(lines: Any) -> list[int]:
@@ -69,6 +78,8 @@ class Debugger:
         self.resumed = threading.Event()  # set when the cell's thread leaves a pause
         self.skip: set[str] = set()  # names not shown as variables (the kernel's own)
         self.skipped: list[str] = []  # functions Step into didn't enter since the last pause
+        self._raising: types.FrameType | None = None  # the frame an exception is leaving, if any
+        self.stopping = False  # Stop was asked for: its interrupt ends an expression instead of being its answer
 
     # ---- set up by the kernel, on the cell's thread
 
@@ -103,9 +114,26 @@ class Debugger:
     # ---- the trace
 
     def _line(self, frame: types.FrameType, event: str, arg: Any) -> Any:
+        if event == "exception":
+            self._raising = frame  # unwinding: its return event isn't a step's place to stop
+        elif event == "line":
+            self._raising = None  # caught, and running on
         if event == "line" and self._stops(frame):
             self._pause(frame, "breakpoint" if frame.f_lineno in self.lines and self.mode == "continue" else "step")
+        elif event == "return" and self._stops_on_return(frame):
+            self._pause(frame, "step")
         return self._line
+
+    def _stops_on_return(self, frame: types.FrameType) -> bool:
+        """A function that a step came back into returns without running another line, as in
+        ``return n * fact(n - 1)``: the step stops as it leaves, so the step never runs on to the end.
+        The cell's own frame is left alone, so a step past the cell's last line ends the cell. So is a
+        generator or coroutine: its return event is mostly a yield or an await giving way to the event
+        loop, and a pause there would show it at a line it hasn't left; the step stops at the next line."""
+        if (self.mode == "continue" or frame is self._raising or frame.f_code.co_name in ("<module>", "<cell>")
+                or _suspends(frame)):
+            return False
+        return self._depth(frame) < self.depth
 
     def _depth(self, frame: types.FrameType | None) -> int:
         n = 0
@@ -151,7 +179,9 @@ class Debugger:
     def _evaluate(self, frame: types.FrameType, expr: str) -> dict[str, Any]:
         try:
             value = eval(compile(expr, "<debug>", "eval"), frame.f_globals, frame.f_locals)  # noqa: S307 - the person's own notebook code
-        except Exception as exc:  # noqa: BLE001 - shown next to the expression
+        except BaseException as exc:  # noqa: BLE001 - exit(), KeyboardInterrupt and the like too: shown next to the expression
+            if self.stopping:
+                raise  # Stop's interrupt, landing in an expression that ran on: it ends the cell
             return {"expr": expr, "error": self.redact(f"{type(exc).__name__}: {exc}")}
         return {"expr": expr, **self._row(expr, value)}
 
@@ -173,6 +203,8 @@ class Debugger:
         self.on_change(self.paused)
         try:
             while True:
+                if self.stopping:
+                    raise Stopped()
                 try:
                     action, arg = self.commands.get(timeout=0.1)  # short waits, so an interrupt still lands
                 except queue.Empty:
@@ -182,7 +214,7 @@ class Debugger:
                 if action == "eval":
                     expr, slot = arg
                     result = self._evaluate(frame, expr)
-                    self.paused["evals"] = (self.paused["evals"] + [result])[-20:]
+                    self.paused["evals"] = (self.paused["evals"] + [result])[-MAX_EVALS:]
                     slot["result"] = result
                     slot["done"].set()
                     self.on_change(self.paused)
@@ -200,9 +232,13 @@ class Debugger:
     def command(self, action: str, expression: str | None = None) -> dict[str, Any]:
         if self.paused is None:
             raise RuntimeError("The cell isn't paused.")
+        if not isinstance(action, str):
+            raise ValueError("A debugger action is text: continue, step, next, out or eval.")
         if action == "eval":
             if not isinstance(expression, str) or not expression.strip():
                 raise ValueError("Type an expression to evaluate.")
+            if len(expression) > MAX_EXPRESSION:
+                raise ValueError(f"An expression to evaluate is at most {MAX_EXPRESSION} characters.")
             compile(expression, "<debug>", "eval")  # a syntax error is the caller's to see now
             slot: dict[str, Any] = {"done": threading.Event()}
             self.commands.put(("eval", (expression, slot)))
@@ -218,7 +254,16 @@ class Debugger:
 
     def stop(self) -> bool:
         """Cancel while paused; False when the cell isn't paused (interrupt it the usual way)."""
+        self.stopping = True
         if self.paused is None:
             return False
         self.commands.put(("stop", None))
         return True
+
+
+def _suspends(frame: types.FrameType) -> bool:
+    """A generator's or coroutine's "return" event that is it yielding or awaiting, not ending."""
+    if not frame.f_code.co_flags & SUSPENDS:
+        return False
+    code = frame.f_code.co_code
+    return not (0 <= frame.f_lasti < len(code) and code[frame.f_lasti] in _RETURNS)

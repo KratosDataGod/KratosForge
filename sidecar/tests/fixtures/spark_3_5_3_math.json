@@ -1,0 +1,232 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "values_from": "spark 3.5.3 probe, /mnt/project-files/sql-differential/spark-probe-findings-2026-11-18.md",
+ "cases": [
+  {
+   "sql": "SELECT round(1.005D, 2)",
+   "value": [
+    [
+     "float:1.01"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT round(9.995D, 2)",
+   "value": [
+    [
+     "float:10"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log(2, 0)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log(2, -1)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log(0, 8)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log(1, 8)",
+   "value": [
+    [
+     "float:inf"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log(-2, 8)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log(0)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log(-1)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT ln(0)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT ln(-1)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log10(0)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log10(-5)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log2(0)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT log2(-1)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT pow(1, double('NaN'))",
+   "value": [
+    [
+     "float:nan"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT pow(-1, double('Infinity'))",
+   "value": [
+    [
+     "float:nan"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hypot(double('Infinity'), double('NaN'))",
+   "value": [
+    [
+     "float:inf"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hypot(1e200, 1e200)",
+   "value": [
+    [
+     "float:1.41421356237e+200"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT factorial(21)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT factorial(-1)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT factorial(CAST(5 AS BIGINT))",
+   "value": [
+    [
+     120
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT factorial(3.7)",
+   "value": [
+    [
+     6
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT atan2(0.0D, -0.0D)",
+   "value": [
+    [
+     "float:0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT acos(2)",
+   "value": [
+    [
+     "float:nan"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT asin(-2)",
+   "value": [
+    [
+     "float:nan"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT cot(0)",
+   "value": [
+    [
+     "float:inf"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT try_subtract(-2147483648, 1)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  }
+ ]
+}

@@ -38,7 +38,27 @@ def test_negative_thresholds_are_refused():
     with pytest.raises(ValueError, match="warn failed runs can't be negative"):
         svc.set_risk_settings(warn_failed_runs=-2)
     assert svc.set_risk_settings(warn_run_cu_hours=0)["warn_run_cu_hours"] is None
+    with pytest.raises(ValueError, match="CU hours threshold can't be negative"):
+        svc.set_risk_settings(warn_run_cu_hours="-0.5")
     assert svc.set_risk_settings(warn_failed_runs="3", schedule_window_minutes=0)["warn_failed_runs"] == 3
+
+
+@pytest.mark.parametrize("off", [0, 0.0, "0", "0.0", " 0 ", "", "  ", -0.0])
+def test_a_zero_or_empty_threshold_given_any_way_turns_the_warning_off(off):
+    svc = Svc()
+    svc.set_risk_settings(warn_run_cu_hours=2)
+    assert svc.set_risk_settings(warn_run_cu_hours=off)["warn_run_cu_hours"] is None
+
+
+@pytest.mark.parametrize("given, kept", [(2.5, 2.5), ("2.5", 2.5), (" 3 ", 3.0), (1, 1.0)])
+def test_a_threshold_given_as_text_or_a_number_is_kept_as_a_number(given, kept):
+    assert Svc().set_risk_settings(warn_run_cu_hours=given)["warn_run_cu_hours"] == kept
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", float("nan"), float("-inf")])
+def test_a_threshold_that_isnt_a_finite_number_is_refused(bad):
+    with pytest.raises(ValueError, match="must be a number"):
+        Svc().set_risk_settings(warn_run_cu_hours=bad)
 
 
 def test_a_failed_environment_reading_falls_back_to_no_reading_when_signed_out(monkeypatch):

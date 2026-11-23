@@ -30,6 +30,7 @@ from typing import Any
 
 import polars as pl
 
+from .. import delta_profile
 from . import freshness as freshness_mod
 from . import objectives as objectives_mod
 from . import keys as keys_mod
@@ -216,6 +217,24 @@ class Entity:
         return self.spec.get("scd", {}).get("surrogate_key")
 
     @property
+    def delta_features(self) -> str | None:
+        """delta_features: which Delta table features a write may leave on, None for the default (Preview)."""
+        value = self.spec.get("delta_features")
+        return value if isinstance(value, str) else None
+
+    def delta_summary(self) -> dict[str, Any]:
+        """The table's Delta feature choice, its readers, and why each choice would break one of them."""
+        readers = list(delta_profile.table_readers(self.spec)) if not delta_profile.choice_problems(self.spec) \
+            else list(delta_profile.DEFAULT_READERS)
+        return {"features": self.delta_features, "readers": readers,
+                "reader_names": [delta_profile.READERS[r] for r in readers],
+                "accepted": list(self.spec.get("delta_accepted") or []),
+                "default": delta_profile.DEFAULT_PROFILE.name,
+                "reasons": {c or "default": delta_profile.choice_reasons(c, readers)
+                            for c in (None, *delta_profile.TABLE_CHOICES)},
+                "problems": delta_profile.choice_problems(self.spec)}
+
+    @property
     def date_column(self) -> str | None:
         """The date column that makes this dimension the semantic model's date table ([model] date_column)."""
         model = self.spec.get("model")
@@ -285,6 +304,7 @@ class Entity:
             "objective": objectives_mod.objective(s), "criticality": (s.get("objectives") or {}).get("criticality")
             if isinstance(s.get("objectives"), dict) else None,
             "link": src.get("link"), "description": mesh_mod.entity_catalog(self)["description"],
+            "delta": self.delta_summary(),
         }
 
 
@@ -400,6 +420,12 @@ class Project:
 
     def layer(self, name: str) -> Layer:
         return self.layers[self.layer_index(name)]
+
+    def delta_policies(self) -> dict[tuple[str, str, str], tuple[delta_profile.Profile, tuple[str, ...]]]:
+        """Each entity table's Delta profile and readers, by (lakehouse, schema, table), for Store.delta_policies."""
+        names = set(self.layer_names())
+        return {(self.layer(e.layer).lakehouse, e.schema, e.table): delta_profile.table_policy(e.spec)
+                for e in self.entities.values() if e.layer in names}
 
     # ---- layer management
 
@@ -523,9 +549,38 @@ def describe_exceptions(project: Project, today: dt.date | None = None,
 # --------------------------------------------------------------------------- gate 1: on save
 
 
+# Polars parses a chain of operators (a + b + c ...) recursively, and a long enough one overflows the
+# stack and kills the process instead of raising: about 2,000 links on an 8 MB stack, 250 on a 1 MB
+# thread stack. An expression with more operators than this is refused before Polars sees it.
+MAX_EXPR_OPERATORS = 200
+# Polars' parser takes exponential time on deep nesting (CAST(CAST(... 50 deep runs for minutes), with no operator.
+MAX_EXPR_DEPTH = 32
+_QUOTED_PART = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`")
+_OPERATOR = re.compile(r"[-+*/%<>=|&^~!]+|\b(?:AND|OR|NOT|IS|IN|LIKE|ILIKE|BETWEEN)\b", re.IGNORECASE)
+
+
+def sql_expr(expr: str) -> pl.Expr:
+    """``pl.sql_expr``, but raising ValueError for an expression too long to parse without crashing."""
+    if not isinstance(expr, str):
+        raise TypeError("an expression must be text")
+    bare = _QUOTED_PART.sub("''", expr)
+    if len(_OPERATOR.findall(bare)) > MAX_EXPR_OPERATORS:
+        raise ValueError(f"expression has more than {MAX_EXPR_OPERATORS} operators, so split it into steps")
+    depth = deepest = 0
+    for ch in bare:
+        if ch == "(":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif ch == ")":  # an unmatched ) never hides the nesting after it
+            depth = max(0, depth - 1)
+    if deepest > MAX_EXPR_DEPTH:
+        raise ValueError(f"expression nests more than {MAX_EXPR_DEPTH} brackets deep, so split it into steps")
+    return pl.sql_expr(expr)
+
+
 def check_expr(expr: str, available: set[str]) -> list[str]:
     try:
-        roots = pl.sql_expr(expr).meta.root_names()
+        roots = sql_expr(expr).meta.root_names()
     except Exception as ex:  # noqa: BLE001 - any parse failure is reported as a problem with the expression
         return [f"expression {expr!r} does not parse ({type(ex).__name__})"]
     return [f"uses unknown column {c}" for c in roots if c not in available]
@@ -640,6 +695,43 @@ def entity_name_problem(name: str) -> str | None:
         return "each part of the name needs at least one character, and none can hold / \\ or :"
     return None
 
+_DELTA_LINE = re.compile(r"^(" + "|".join(delta_profile.TABLE_KEYS) + r")\s*=")
+_TOML_HEADER = re.compile(r"^\s*\[")
+_TOML_KEY = re.compile(r"^[A-Za-z0-9_\"'-]+\s*=")
+
+
+def with_delta_choice(text: str, features: str | None, readers: list[str] | None, accepted: list[str]) -> str:
+    """The entity file ``text`` with its delta_features, delta_readers and delta_accepted set (each left
+    out when None or empty), and every other line as it was. They are top-level keys, so they go after
+    the name, before the first [section]. ValueError when the file's own layout of them can't be
+    changed line by line (a reader list over several lines): then nothing is changed."""
+    lines = text.splitlines()
+    first = next((i for i, line in enumerate(lines) if _TOML_HEADER.match(line)), len(lines))
+    top = [line for line in lines[:first] if not _DELTA_LINE.match(line.strip())]
+    new = ([f"delta_features = {json.dumps(features)}"] if features is not None else []) \
+        + ([f"delta_readers = {json.dumps(list(readers))}"] if readers else []) \
+        + ([f"delta_accepted = {json.dumps(list(accepted))}"] if accepted else [])
+    at = next((i + 1 for i, line in enumerate(top) if re.match(r"^name\s*=", line.strip())), None)
+    if at is None:
+        keys = [i + 1 for i, line in enumerate(top) if _TOML_KEY.match(line.strip())]
+        at = keys[-1] if keys else 0
+    top[at:at] = new
+    out = "\n".join(top + lines[first:]) + ("\n" if text.endswith("\n") or not text else "")
+    before = tomllib.loads(text)
+    try:
+        after = tomllib.loads(out)
+    except tomllib.TOMLDecodeError:
+        after = None
+    want = {k: v for k, v in before.items() if k not in delta_profile.TABLE_KEYS}
+    want |= {k: v for k, v in (("delta_features", features), ("delta_readers", list(readers or []) or None),
+                                ("delta_accepted", list(accepted) or None)) if v is not None}
+    if after != want:
+        raise ValueError("The Delta table features weren't changed, because the entity file sets them in a way "
+                         "KratosForge can't change line by line. Put each delta_ setting on one line in the file, "
+                         "then choose again.")
+    return out
+
+
 def validate(project: Project, today: dt.date | None = None) -> list[str]:
     """The save gate. Every problem in the project; an empty list means it is clean."""
     today = today or dt.date.today()
@@ -701,6 +793,7 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
         errors += objectives_mod.problems(e.name, s, ENVIRONMENTS)
         errors += _batch_by_problems(e)
         errors += _late_and_delete_problems(e)
+        errors += [f"{e.name}: {m}" for m in delta_profile.choice_problems(s)]
         own_drift = s.get("contract", {}).get("drift")
         if own_drift is not None and own_drift not in DRIFT_POLICIES:
             errors.append(f"{e.name}: contract drift must be one of {', '.join(DRIFT_POLICIES)}")
@@ -865,3 +958,21 @@ def impact(project: Project, entity: str) -> list[str]:
                     nxt.append(n)
         frontier = nxt
     return out
+
+
+def prod_name(project: Any) -> str:
+    """What a person types to confirm a change to Prod: its workspace's name, else its id (WR-250)."""
+    cfg = project.environments.get("prod", {}) or {}
+    return str(cfg.get("workspace_name") or cfg.get("workspace_id") or "Prod")
+
+
+def prod_typed(project: Any, env: str, confirm_name: str, doing: str, nothing: str) -> None:
+    """Refuse a change to Prod unless ``confirm_name`` is its workspace's name exactly, as Prod writes ask
+    (WR-250, the product owner's card 2026-11-19). ``confirm_name`` is a guard parameter, so the audit line
+    is written before the change runs (audit.fails_closed)."""
+    if env != "prod":
+        return
+    name = prod_name(project)
+    if confirm_name != name:
+        raise PermissionError(f"{name} is the Prod workspace, so {doing} runs only after you type its name to confirm. "
+                              f"{nothing}")

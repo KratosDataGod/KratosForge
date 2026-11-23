@@ -99,7 +99,8 @@ Test or Prod, it still reads and writes the Dev lakehouse.
 
 ```python
 # Before
-df = spark.read.load("abfss://3f2a...@onelake.dfs.fabric.microsoft.com/9c1d.../Tables/sales")
+df = spark.read.load("abfss://3f2a6c1e-8b4d-4e2a-9f7c-5d1b0a6e3c48@onelake.dfs.fabric.microsoft.com/"
+                     "9c1d7e52-0a3f-4b6c-8d2e-7f4a1b9c0e63/Tables/sales")
 # After
 df = spark.read.table("sales")          # or the default lakehouse's "Tables/sales"
 ```
@@ -290,10 +291,14 @@ Why: every `count()` runs the whole query again. Three counts read the data thre
 
 ```python
 # Before
-if df.count() > 0: print(df.count())
+if df.count() > 0:
+    print(f"Loading {df.count():,} rows")
+    assert df.count() < 10_000_000
 # After
 n = df.count()
-if n > 0: print(n)
+if n > 0:
+    print(f"Loading {n:,} rows")
+    assert n < 10_000_000
 ```
 
 Principle: Work a value out once and keep it.
@@ -356,7 +361,11 @@ How to check: Both forms give the same column, and the cell runs faster on the s
 **Polars reads the whole file, then filters** · Info · Performance · Educational
 
 Why: `pl.read_csv` and `pl.read_parquet` load every row into memory before `.filter()` drops the
-rows you don't need. A lazy scan may push the filter into the read, so less is read and kept.
+rows you don't need. A lazy scan may push the filter into the read, so less is read and kept. It is
+also reported when the read is kept in a name, `df = pl.read_csv(...)`, and every use of `df` in the
+notebook, in any cell, is `df.filter(...)`. A name that's used any other way in any cell, or bound
+again (assigned, a `for` or `with` target, an argument), isn't reported, because then the whole frame may
+be needed. Neither is one named in a `%%sql` cell or in a string, such as `duckdb.sql("... FROM df")`.
 
 ```python
 # Before

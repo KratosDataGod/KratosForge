@@ -71,6 +71,7 @@ from .risk_service import RiskMixin
 from .model_bpa_service import ModelBpaMixin
 from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
+from .controlplane_service import ControlPlaneMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
@@ -144,7 +145,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -241,13 +242,15 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def support_bundle_preview(self) -> dict[str, Any]:
         from . import support_bundle
         shown = support_bundle.preview(self.root, self._bundle_agent_home())
-        return shown | {"folder": str(known_folders.downloads())}
+        return shown | {"folder": str(known_folders.export_folder())}
 
     def support_bundle_save(self, folder: str = "") -> dict[str, Any]:
         from . import support_bundle
-        target = Path(folder) if folder else known_folders.downloads()
+        target = Path(folder) if folder else known_folders.export_folder()
         if not target.is_absolute():
             raise ValueError("Choose a full folder path, such as C:\\Users\\you\\Downloads.")
+        if (refusal := known_folders.onedrive_refusal(target, "the support bundle")):
+            raise ValueError(refusal)
         try:
             path = support_bundle.create(target, self.root, self._bundle_agent_home())
         except OSError as exc:
@@ -552,7 +555,30 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         from .http_session import clock_offset
         return readiness.checks(user, fabric.list_workspaces if fabric else unreachable if offline else list,
                                 capacities, self.app_settings(),
-                                clock=clock_offset, folder=self.root)
+                                clock=clock_offset, folder=self.root, local_folders=self._local_folders())
+
+    def _local_folders(self) -> dict[str, str]:
+        """The folders the app keeps files in, for the OneDrive row: what each holds, and where."""
+        folders = {"The app's data folder": str(self.root)}
+        settings = self._settings()
+        if settings.get("meta_project"):
+            folders["The metadata project"] = str(settings["meta_project"])
+        if settings.get("meta_project_moved_from"):  # copied out of OneDrive; the original is left to delete
+            folders["The metadata project's old copy, which you can delete"] = str(settings["meta_project_moved_from"])
+        from .app_settings import sql_limits
+        sql_temp = str(sql_limits().get("sql_temp_dir") or "")
+        if sql_temp:
+            folders["The SQL page's temp folder"] = sql_temp
+        try:
+            for p in self.list_local_projects():
+                if p.get("folder"):
+                    folders[f"Local data project {p.get('name')}"] = str(p["folder"])
+        except Exception as exc:  # noqa: BLE001 - the row lists what it can read
+            _log.info("Local data projects not read for the OneDrive row: %s", describe(exc))
+        for r in self._git_saved().get("repos", []):
+            if r.get("path"):
+                folders[f"Repository {Path(r['path']).name}"] = str(r["path"])
+        return folders
 
     def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
         """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""
@@ -742,7 +768,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def run_job(self, path: str) -> dict[str, Any]:
         record = run_job(Job.load(path), self.fabric, self.auth.storage_token,
-                         work_dir=self.root, history_file=self.history_file, guard=self._job_guard)
+                         work_dir=self.root, history_file=self.history_file, guard=self._job_guard,
+                         capacity_gate=self._job_v_order_refusal)
         return record.__dict__
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -983,7 +1010,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         A CSV protects text cells that start like a formula unless ``raw`` (Keep raw values, WR-228)."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
@@ -1080,7 +1107,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         Never replaces a file: a name that is taken gets a number."""
         report = sqlcompat.analyze(query, target)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
@@ -1136,7 +1163,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         problem = self._diagram_problem(svg)
         if problem:
             raise ValueError(f"The diagram has {problem}, so it wasn't saved.")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name, 'Diagram')} {time.strftime('%Y-%m-%d %H%M%S')}"
         for n in range(1, 1000):
@@ -1287,21 +1314,38 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
-                 dialect: str = "spark") -> dict[str, Any]:
+                 dialect: str = "spark", confirm_name: str = "") -> dict[str, Any]:
         """Write the query result as a table. "new" (the default) writes nothing when the table
-        exists and says so, so the page can ask before replacing it."""
+        exists and says so, so the page can ask before replacing it. Replacing a table that exists ("overwrite")
+        needs ``confirm_name``, the table's name as the person typed it on the page (WR-248): the engine checks it,
+        so no caller replaces a table's rows without it. In a workspace marked Prod (WR-249) every write needs
+        the workspace's name typed instead, as a notebook cell's change there does: "new" then writes nothing and
+        answers with ``prod`` (the name to type) and whether the table exists, and any other mode without that
+        name is refused. In Prod the workspace's typed name covers a replace too: it is the stronger check."""
         self._attach(lakehouse_ref)
+        if mode not in ("new", "overwrite", "append"):
+            raise ValueError(f"mode must be new, overwrite or append, not {mode!r}")
+        attached = lakehouse._attached
+        prod = (attached.workspace_name or attached.workspace_id) if (
+            attached is not None and self._prod_marked(attached.workspace_id)) else ""
         if mode == "new":
-            if lakehouse.table_exists(table):
-                return {"table": table, "exists": True}
+            exists = lakehouse.table_exists(table)
+            if exists or (prod and confirm_name != prod):  # "new" never replaces, and asks first in Prod
+                return {"table": table, "exists": exists, **({"prod": prod} if prod else {})}
             mode = "overwrite"
+        elif prod and confirm_name != prod:
+            raise PermissionError(f"{prod} is a Prod workspace, so writing {table} there runs only after you type "
+                                  "the workspace's name to confirm. Nothing was written.")
+        elif mode == "overwrite" and not prod and confirm_name != table and lakehouse.table_exists(table):
+            raise PermissionError(f"Replacing {table} deletes all of its rows, so it runs only after you type its "
+                                  "name to confirm. Nothing was written.")
         written = lakehouse.write_table(sql.run(query, dialect), table, mode)
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
         """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
         # folder (HD-038, finding EN-11), and an existing file is never replaced.

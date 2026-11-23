@@ -8,7 +8,6 @@ Replies can arrive in a different order from the requests (see QUICK); the shell
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import math
@@ -21,7 +20,7 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import app_control, audit, disk_full, net_trust, rpc_params, sqlitefile
+from . import app_control, audit, disk_full, net_trust, rpc_params, secret_redaction, sqlitefile
 from .redact import secrets
 from .service import Service, data_dir
 
@@ -52,12 +51,12 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
-           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
-           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_impact", "meta_edit_impact", "meta_keys", "meta_set_keys_workspace",
+           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_set_delta_features", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
+           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_impact", "meta_edit_impact", "meta_openlineage_preview", "meta_openlineage_export", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_source_read", "meta_sources_move", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "notebook_fabric_step_check", "notebook_vorder_cell", "run_notebook_fabric_step", "notebook_fabric_step_result", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
-           "delete_notebook_schedule", "meta_health", "meta_optimize", "meta_set_maintenance", "meta_model_plan",
+           "delete_notebook_schedule", "meta_health", "meta_optimize", "meta_optimize_check", "meta_set_maintenance", "meta_model_plan",
            "meta_build_model", "meta_profile", "meta_profile_preview", "meta_add_rules",
            "meta_set_compute", "meta_fabric_result", "meta_schedules", "meta_add_schedule", "meta_delete_schedule",
            "meta_versions", "meta_compare", "meta_promote_impact", "meta_quarantine", "meta_replay",
@@ -125,6 +124,11 @@ METHODS |= INTEGRATION_METHODS
 from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
 
 METHODS |= LOCAL_DATA_METHODS
+
+# The KratosForge Environment (controlplane_service.py, CP-009).
+from .controlplane_service import METHODS as CONTROL_PLANE_METHODS  # noqa: E402
+
+METHODS |= CONTROL_PLANE_METHODS
 
 # Optimize's shared lakehouse (optimize_service.py).
 from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
@@ -501,54 +505,11 @@ def _log_file() -> IO[str]:
 
 class _SafeFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        return secrets(super().format(record))
+        return secret_redaction.redact(secrets(super().format(record)))
 
 
-class _RedactedStream(io.TextIOBase):
-    """The engine's stderr, which the shell keeps in sidecar.log: every line passes through
-    ``redact.secrets`` first. Log records already do; this covers what doesn't go through them:
-    tracebacks, ``warnings``, third-party loggers' last-resort handler and anything a library prints.
-    Writes are held until a newline, so a credential split across writes (``print("Bearer", token)``)
-    is redacted whole; ``flush`` writes out a part line, and a line past ``HOLD`` characters goes out
-    as it is. Native code writing to the file descriptor directly isn't seen here."""
-
-    HOLD = 64 * 1024
-
-    def __init__(self, stream: IO[str]):
-        self.stream = stream
-        self._part = ""
-        self._lock = threading.Lock()
-
-    def writable(self) -> bool:
-        return True
-
-    @property
-    def encoding(self) -> str:  # type: ignore[override]
-        return getattr(self.stream, "encoding", None) or "utf-8"
-
-    def fileno(self) -> int:
-        return self.stream.fileno()
-
-    def isatty(self) -> bool:
-        return False
-
-    def write(self, text: str) -> int:
-        with self._lock:
-            held = self._part + text
-            cut = held.rfind("\n") + 1
-            if len(held) - cut > self.HOLD:
-                cut = len(held)
-            self._part = held[cut:]
-            if cut:
-                self.stream.write(secrets(held[:cut]))
-        return len(text)
-
-    def flush(self) -> None:
-        with self._lock:
-            part, self._part = self._part, ""
-            if part:
-                self.stream.write(secrets(part))
-        self.stream.flush()
+# The engine's stderr, which the shell keeps in sidecar.log (secret_redaction.RedactedStream).
+_RedactedStream = secret_redaction.RedactedStream
 
 
 def _log_to_stderr() -> None:

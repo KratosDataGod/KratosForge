@@ -1,7 +1,7 @@
 {
   "schema": "kratosforge/academy-exercise@1",
   "id": "E59",
-  "version": 1,
+  "version": 2,
   "status": "draft",
   "title": "Broken: a query that got slow because its filter can't skip data",
   "objectives": [

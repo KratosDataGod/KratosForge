@@ -8,9 +8,10 @@ INSERT INTO dim_customer VALUES
     (3, 103, 'Boston',  'chen@example.com', DATE '2025-01-01', NULL, true),
     (4, 101, 'Tacoma',  'ana@example.com',  DATE '2025-06-01', NULL, true);
 
+-- Customer 104 signed up a few days before the others' changes came in.
 CREATE TABLE customer_changes (customer_id INTEGER, city VARCHAR, email VARCHAR, changed_on DATE);
 INSERT INTO customer_changes VALUES
     (101, 'Portland', 'ana.ruiz@example.com', DATE '2026-03-01'),
     (102, 'Austin',   'ben.o@example.com',    DATE '2026-03-01'),
     (103, 'Boston',   'chen@example.com',     DATE '2026-03-01'),
-    (104, 'Denver',   'dee@example.com',      DATE '2026-03-01');
+    (104, 'Denver',   'dee@example.com',      DATE '2026-02-27');

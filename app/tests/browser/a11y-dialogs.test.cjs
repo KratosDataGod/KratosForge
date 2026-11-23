@@ -31,12 +31,12 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: meta.js:pickKeysWorkspace, mesh.js:pickDesignationWorkspace, mesh.js:keysSetupDialog
 // axe covers dialogs: dataops.js:columnLineage, df-dataflows.js:dfRunInFabric, meta.js:metaRiskGate, meta.js:readSourceDialog
 // axe covers dialogs: governance.js:policyDialog, prove.js:showScorecard, xray.js:vacuumAll, optimize.js:optimizeMove
-// axe covers dialogs: platform.js:landingSetupDialog, meta.js:ossieImportDialog, platform.js:confirmApproval, git.js:gitPlatformDeploy
+// axe covers dialogs: platform.js:landingSetupDialog, meta.js:ossieImportDialog, meta.js:ossieToTmdlDialog, platform.js:confirmApproval, git.js:gitPlatformDeploy
 // axe covers dialogs: optimize.js:optimizeSyncDetails, meta.js:profileEntity, platform.js:confirmCopyJob, product-items.js:productItemDialog
 // axe covers dialogs: whmonitor.js:whMonitorBuild, xray.js:stagingDialog, optimize.js:optimizeCreateFlow, meta.js:moveSourcesToPlatform
 // axe covers dialogs: dataops.js:quarantinePanel, fabricstep.js:insertVOrderCell, governance.js:governancePolicy, mesh.js:keysPlatformCard
 // axe covers dialogs: platform.js:platformGlossaryTab, platform.js:requestTable, shortcuts.js:renderShortcuts
-// axe covers dialogs: whproject.js:whProjectDeploy, whproject.js:whProjectImport, whssms.js:ssmsNotFound
+// axe covers dialogs: whproject.js:whProjectDeploy, whproject.js:whProjectImport, whssms.js:ssmsNotFound, meta.js:maintainWarningDialog
 
 // "dialog: mode: finding" at 200% or in a contrast theme that needs more than a small fix (docs/ux/accessibility-zoom-contrast.md).
 const KNOWN_ZOOM_CONTRAST = new Set([]);
@@ -285,6 +285,12 @@ const CASES = [
   ["df-dataflows.js:dfRunInFabric", "Run Orders flow?", () => {
     dfRunInFabric({ id: "w9", displayName: "Other" }, { item_id: "df1", name: "Orders flow" }, "Run", () => {}); }],
   ["meta.js:metaRiskGate", "Run Daily load in Dev?", () => { metaRiskGate(state.meta, ["silver.orders"], "dev", "Daily load"); }],
+  ["meta.js:maintainWarningDialog", "Optimize 3 tables in Fabric?", () => {
+    maintainWarningDialog({ env: "dev", local: false, workspaces: [
+      { workspace_id: "ws-dev", workspace_name: "Sales Silver - Dev", tables: ["dbo.orders", "dbo.lines"], result: "warning",
+        title: "fabcapdev looked paused when last read", detail: "Read 2 hours ago", remedy: "", risk_id: "r1" },
+      { workspace_id: "ws-serve", workspace_name: "Sales Gold - Dev", tables: ["dbo.sales"], result: "pass",
+        title: "", detail: "", remedy: "", risk_id: "" }] }, () => {}); }],
   ["meta.js:readSourceDialog", "Add a source this project reads", () => {
     readSourceDialog([{ code: "sap", title: "SAP ERP", system_type: "SAP", owner: "ERP team", id: 3, read: false }], "dev", () => {}); }],
   ["governance.js:policyDialog", "New policy", () => {
@@ -295,6 +301,7 @@ const CASES = [
   ["optimize.js:optimizeMove", "Dismiss this improvement?", () => { optimizeMove({ id: "rec1" }, "dismissed"); }],
   ["platform.js:landingSetupDialog", "Move to one landing workspace", () => { landingSetupDialog({ default_landing_name: "KratosForge Landing" }, () => {}); }],
   ["meta.js:ossieImportDialog", "Import from Ossie", () => { ossieImportDialog({ name: "Sales model", existing: true, workspace_name: "Sales Dev" }, null); }],
+  ["meta.js:ossieToTmdlDialog", "Ossie file to TMDL", () => { ossieToTmdlDialog(null); }],
   ["platform.js:confirmApproval", "Pick a capacity for Sales Dev", () => { confirmApproval({ kind: "workspace", target: "Sales Dev", detail: {} }); }],
   ["git.js:gitPlatformDeploy", "Deploy the platform repository", () => { gitPlatformDeploy("C:/repos/platform"); }],
   // Batch 7: the last dialogs, several opened from a step before them (next() presses that step's main button).

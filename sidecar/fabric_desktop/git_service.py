@@ -49,6 +49,14 @@ def _newer_op(cat: Any, op: str, **kwargs: Any) -> Any:
         raise
 
 
+
+def _not_in_onedrive(path: str) -> None:
+    """A new repository (made, or cloned into ``path``) isn't put in OneDrive: Git and OneDrive both writing a
+    repository's files is how they get damaged, and the app reads and writes them too. One already there opens."""
+    from . import known_folders
+    if path and Path(path).is_absolute() and (refusal := known_folders.onedrive_refusal(path, "a new repository")):
+        raise GitError(refusal, kind="invalid")
+
 class GitMixin:
     root: Path
 
@@ -169,6 +177,7 @@ class GitMixin:
     def git_init(self, path: str, branch: str = "main", kind: str | None = None) -> dict[str, Any]:
         """Makes an existing folder a repository. With ``kind``, also writes the marker saying what
         it holds (the folder's own files are left as they are)."""
+        _not_in_onedrive(path)
         if kind:
             scopes.check_kind(kind)
             if (_folder(path, must_exist=False) / scopes.MARKER).exists():
@@ -182,6 +191,7 @@ class GitMixin:
 
     def git_create(self, path: str, kind: str, branch: str = "main") -> dict[str, Any]:
         """A new, empty folder made a repository of ``kind`` with that kind's starting files."""
+        _not_in_onedrive(path)
         repo = scopes.create(path, kind, branch)
         self._git_remember(repo)
         return repo.status()
@@ -380,6 +390,7 @@ class GitMixin:
     # ---- the work that talks to a remote (background)
 
     def git_clone_start(self, url: str, parent: str, name: str | None = None) -> dict[str, Any]:
+        _not_in_onedrive(parent)
         return self._git_ops.clone(url, parent, name)
 
     def git_fetch(self, repo: str, remote: str | None = None) -> dict[str, Any]:

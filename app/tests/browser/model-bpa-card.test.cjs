@@ -11,13 +11,15 @@ const skip = !playwright && "Playwright is not installed";
 const PLAN = { layer: "gold", layers: ["gold"], name: "SM_Gold", workspace_name: "Sales Test", workspace_id: "ws",
   lakehouse: "LH_Gold", existing: { id: "m1", url: "https://app.fabric.microsoft.com/x" }, tables: [], relationships: [] };
 const LAST = { request_id: "bpa-1", checked_at: new Date().toISOString(), package: "semantic-link-labs", version: "0.17.1",
-  no_tables: false, counts: { Error: 1, Warning: 1, Info: 0 },
+  no_tables: false, counts: { Error: 1, Warning: 1, Info: 1 },
   findings: [
     { severity: "Error", category: "Performance", rule: "Hide foreign keys", object_type: "Column", object: "'FactSales'[customer_sk]",
       description: "Foreign keys should be hidden.", url: "https://learn.microsoft.com/x" },
     { severity: "Warning", category: "Formatting", rule: "Mark primary keys", object_type: "Column", object: "'DimCustomer'[customer_sk]",
-      description: "Set IsKey on the primary key column.", url: "javascript:alert(1)" }] };
-const STATUS = { model: "SM_Gold", model_id: "m1", env: "test", workspace_id: "ws", workspace_name: "Sales Test",
+      description: "Set IsKey on the primary key column.", url: "javascript:alert(1)" },
+    { severity: "Info", category: "Maintenance", rule: "Add descriptions", object_type: "Table", object: "'FactSales'",
+      description: "Visible objects should have a description.", url: "" }] };
+const STATUS = { model: "SM_Gold", model_id: "m1", env: "test", workspace_id: "ws", workspace_name: "Sales Test", version: "0.17.1",
   last: LAST, running: null, failed: null };
 const RISK_WARN = { id: "r1", result: "warning", label: "Warning", summary: "The capacity is busy",
   findings: [{ check: "capacity", outcome: "warning", title: "Capacity at 85%" }], note: "Going ahead is recorded." };
@@ -55,7 +57,17 @@ test("the card shows the last findings worst first, and only safe rule links", {
   assert.match(rows[0], /^Error.*Hide foreign keys/);
   assert.match(rows[0], /About this rule/);
   assert.doesNotMatch(rows[1], /About this rule/, "a javascript: link from the results file isn't offered");
-  assert.match(await card.textContent(), /semantic-link-labs 0\.17\.1/);
+  assert.strictEqual(rows.length, 2, "errors and warnings only, by default");
+  assert.deepStrictEqual(await card.locator(".bpa-out thead th").allTextContents(),
+    ["Severity", "Rule", "Object", "Category", "What the rule asks"]);
+  await card.locator("label:has-text('Errors and warnings only') input").uncheck();
+  assert.strictEqual(await card.locator(".bpa-out tbody tr").count(), 3);
+  await card.locator("select[aria-label='Category']").selectOption("Maintenance");
+  assert.match(await card.locator(".bpa-out tbody").textContent(), /^Info.*Add descriptions/s);
+  const text = await card.textContent();
+  assert.match(text, /Checked .* with semantic-link-labs 0\.17\.1\./);
+  assert.match(text, /fixed by the next Update model, not by editing in Fabric/);
+  assert.match(text, /Open the run in Monitor/);
   assert.deepStrictEqual(errors, []);
 });
 
@@ -67,6 +79,14 @@ test("a failed check shows the saved error as text", { skip }, async () => {
   await box.waitFor();
   assert.match(await box.textContent(), /XMLA <b>off<\/b>/, "shown as text, not markup");
   assert.strictEqual(await box.locator("details").count(), 2);
+});
+
+test("a failed check with no reason says what to do next", { skip }, async () => {
+  const { page } = await open({ model_bpa_status: () => ({ ...STATUS, last: null,
+    failed: { status: "Failed", message: "", url: "", traceback: "", pip: "" } }) });
+  const box = page.locator("#model-under-test .bpa-failed");
+  await box.waitFor();
+  assert.match(await box.textContent(), /Fabric gave no reason\. Check again, and if it fails again, open the run in Fabric\./);
 });
 
 test("Check in Fabric runs the risk check, confirms, and starts one check with the risk id", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
@@ -82,7 +102,10 @@ test("Check in Fabric runs the risk check, confirms, and starts one check with t
   await card.locator("button:has-text('Check in Fabric')").click();
   const dialog = page.locator(".dialog");
   await dialog.waitFor();
-  assert.match(await dialog.textContent(), /Capacity at 85%/);
+  const said = await dialog.textContent();
+  assert.match(said, /Capacity at 85%/);
+  assert.match(said, /What it writes.*nb_fabric_desktop_bpa.*semantic-link-labs 0\.17\.1 into that notebook's session only.*LH_Meta\/Files\/_fabric_desktop\/results/s);
+  assert.match(said, /What it doesn't change.*SM_Gold, its reports and its data.*XMLA read on the capacity/s);
   assert.deepStrictEqual(await axeFindings(page, ".dialog"), []);
   assert.deepStrictEqual(calls, [["risk", { env: "test", layer: "gold", name: "SM_Gold", refresh: true }]], "nothing starts before the confirm");
   await dialog.locator("button:has-text('Check in Fabric')").click();

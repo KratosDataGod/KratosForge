@@ -2528,12 +2528,15 @@ function modelBpaCard(plan) {
     return card;
   }
   let timer = null;
+  let version = "";  // the semantic-link-labs version a check installs, from the status
+  const view = { category: "", serious: true };  // the findings filter, kept across refreshes
   const load = async () => {
     clearTimeout(timer);
     const status = await metaCall("model_bpa_status", target, "Last check not read");
     if (!card.isConnected && timer !== null) return;  // the tab was left: stop asking
     if (!status) { fill(result); return; }
-    fill(result, bpaStatus(status));
+    version = status.version || version;
+    fill(result, bpaStatus(status, view));
     checkBtn.disabled = !!status.running;
     if (status.running) timer = setTimeout(() => { if (card.isConnected) load(); }, BPA_POLL_MS);
   };
@@ -2541,7 +2544,7 @@ function modelBpaCard(plan) {
     checkBtn.disabled = true;
     try {
       const risk = await rpc("model_bpa_risk", { ...target, refresh: true }).catch(riskCheckFailed);
-      if (!(await bpaConfirm(plan, risk))) return;
+      if (!(await bpaConfirm(plan, risk, version))) return;
       const res = await metaCall("model_bpa_check", { ...target, risk_id: risk.failed ? "" : risk.id || "" }, "Check not started");
       if (!res) return;
       toast(res.message);
@@ -2557,8 +2560,8 @@ function modelBpaCard(plan) {
   return card;
 }
 
-// The confirm before a check: what it runs and where, with the risk check. Resolves true to go ahead.
-function bpaConfirm(plan, risk) {
+// The confirm before a check: what it writes, what it doesn't change, and the risk check. Resolves true to go ahead.
+function bpaConfirm(plan, risk, version) {
   return new Promise((resolve) => {
     const done = (v) => { closeDialog(); resolve(v); };
     const box = riskAckBox(risk);
@@ -2571,7 +2574,13 @@ function bpaConfirm(plan, risk) {
     };
     const blocked = risk?.result === "blocked";
     showDialog(`Check ${plan.name} in Fabric?`, h("div", { class: "wl-confirm" },
-      h("p", {}, `This publishes the notebook nb_fabric_desktop_bpa to ${plan.workspace_name || "the workspace"}, unless it's already there, and runs it once on the workspace's capacity. A check usually takes a few minutes. The model isn't changed.`),
+      h("b", {}, "What it writes"),
+      h("ul", { class: "gate-list" },
+        h("li", {}, `Publishes or updates the notebook nb_fabric_desktop_bpa in ${plan.workspace_name || "the workspace"}`),
+        h("li", {}, `Installs semantic-link-labs${version ? ` ${version}` : ""} into that notebook's session only`),
+        h("li", {}, "Saves the findings as one file in LH_Meta/Files/_fabric_desktop/results")),
+      h("b", {}, "What it doesn't change"),
+      h("p", {}, `${plan.name}, its reports and its data. The model is read through its XMLA endpoint, which needs XMLA read on the capacity (on by default).`),
       riskPanel(risk, { box }),
       risk?.note ? h("p", { class: "muted-text small" }, risk.note) : null),
       blocked ? [btn("Close", null, () => done(false), "tool primary")]
@@ -2579,7 +2588,24 @@ function bpaConfirm(plan, risk) {
   });
 }
 
-function bpaStatus(s) {
+// semantic-link-labs' rule categories, as the filter names them.
+const BPA_CATEGORIES = ["Performance", "DAX expressions", "Error prevention", "Formatting", "Maintenance", "Naming conventions"];
+
+function bpaFindingsTable(findings, view) {
+  const shown = findings.filter((f) => (!view.serious || f.severity === "Error" || f.severity === "Warning")
+    && (!view.category || f.category.toLowerCase() === view.category.toLowerCase()));
+  if (!shown.length) return h("p", { class: "muted-text" }, "No findings match the filter.");
+  return h("table", { class: "mini" },
+    h("thead", {}, h("tr", {}, ["Severity", "Rule", "Object", "Category", "What the rule asks"].map((x) => h("th", {}, x)))),
+    h("tbody", {}, shown.map((f) => h("tr", {},
+      h("td", {}, h("span", { class: `pill-s ${(BPA_SEVERITY[f.severity] || BPA_SEVERITY.Info)[1]}` }, f.severity)),
+      h("td", {}, f.rule),
+      h("td", {}, h("span", { class: "muted-text" }, f.object_type ? `${f.object_type} ` : ""), h("span", { class: "mono" }, f.object)),
+      h("td", {}, f.category),
+      h("td", {}, f.description, f.url ? [" ", bpaRuleLink(f.url)] : null)))));
+}
+
+function bpaStatus(s, view = { category: "", serious: true }) {
   const parts = [];
   if (s.running) {
     parts.push(h("div", { class: "info-box bpa-running" }, icon("info", 16),
@@ -2590,7 +2616,7 @@ function bpaStatus(s) {
     const f = s.failed;
     parts.push(h("div", { class: "card pad warn-box bpa-failed" },
       h("b", {}, `The last check didn't finish (${f.status || "unknown"})`),
-      h("p", {}, f.message || "Fabric gave no reason."),
+      h("p", {}, f.message || "Fabric gave no reason. Check again, and if it fails again, open the run in Fabric."),
       f.traceback ? h("details", {}, h("summary", {}, "Traceback"), h("pre", { class: "mono small" }, f.traceback)) : null,
       f.pip ? h("details", {}, h("summary", {}, "pip output"), h("pre", { class: "mono small" }, f.pip)) : null,
       f.url ? btn("Open the run in Fabric", "open", () => openInFabric(f.url), "tool link small") : null));
@@ -2603,17 +2629,26 @@ function bpaStatus(s) {
   const c = last.counts || {};
   const tile = (sev) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, BPA_SEVERITY[sev][0]),
     h("b", { class: `${BPA_SEVERITY[sev][1]}-text` }, String(c[sev] || 0)));
+  const table = h("div", { class: "bpa-table" });
+  const redraw = () => fill(table, bpaFindingsTable(last.findings, view));
+  const category = h("select", { "aria-label": "Category", onchange: (e) => { view.category = e.target.value; redraw(); } },
+    h("option", { value: "" }, "All categories"),
+    BPA_CATEGORIES.map((x) => h("option", { value: x, selected: x === view.category ? true : null }, x)));
+  const serious = h("input", { type: "checkbox", checked: view.serious ? true : null,
+    onchange: (e) => { view.serious = e.target.checked; redraw(); } });
+  redraw();
+  const when = `Checked ${relTime(last.checked_at)} with ${last.package || "semantic-link-labs"} ${last.version || ""}`.trim()
+    + (last.rules ? `, ${last.rules} rules.` : ".");
   parts.push(h("div", { class: "bpa-out" },
     h("div", { class: "dl-tiles" }, ["Error", "Warning", "Info"].map(tile)),
     last.no_tables ? h("p", { class: "muted-text" }, "The model has no tables yet, so most rules had nothing to check.") : null,
-    last.findings.length ? h("table", { class: "mini" },
-      h("thead", {}, h("tr", {}, ["Severity", "Category", "Rule", "Object", "What the rule asks"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, last.findings.map((f) => h("tr", {},
-        h("td", {}, h("span", { class: `pill-s ${(BPA_SEVERITY[f.severity] || BPA_SEVERITY.Info)[1]}` }, f.severity)),
-        h("td", {}, f.category), h("td", {}, f.rule),
-        h("td", {}, h("span", { class: "muted-text" }, f.object_type ? `${f.object_type} ` : ""), h("span", { class: "mono" }, f.object)),
-        h("td", {}, f.description, f.url ? [" ", bpaRuleLink(f.url)] : null)))))
+    last.findings.length ? [
+      h("div", { class: "row wrap bpa-filters" }, h("label", { class: "field" }, "Show", category),
+        h("label", { class: "check" }, serious, " Errors and warnings only")),
+      table,
+      h("p", { class: "muted-text" }, "Findings fixed by KratosForge's generator are fixed by the next Update model, not by editing in Fabric.")]
       : h("div", { class: "pass-box" }, icon("ok", 16), " No rule found anything."),
-    h("p", { class: "muted-text" }, `Checked ${relTime(last.checked_at)} with ${last.package || "semantic-link-labs"} ${last.version || ""}.`.replace(" .", "."))));
+    h("p", { class: "muted-text" }, when, " ",
+      h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); monitorPage.panel = "runs"; go("monitor"); } }, "Open the run in Monitor"))));
   return h("div", {}, parts);
 }

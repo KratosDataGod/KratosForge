@@ -478,7 +478,7 @@ async function kfeAdoptRun(el) {
   const where = a.environment.lakehouse_name || "this lakehouse";
   const typed = a.typed_name;
   const prodStore = a.operational_prod
-    ? ` It also links your Prod Platform's database as the environment's operational store. Only its ids are recorded; nothing is written to it.`
+    ? ` Adopting also links your Prod Platform's database as the environment's operational store. Only the database's ids are recorded, and nothing is written to it.`
     : "";
   const ok = typed
     ? await confirmDialog(`Adopt ${where}?`, `${typed} is a Prod workspace, so this runs only after you type its name exactly to confirm. This writes Files/_kratosforge/environment.json in ${where} and connects this PC to ${a.environment.name}. No table is created or changed.${prodStore}`,

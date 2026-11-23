@@ -249,7 +249,7 @@ test("Adopt says plainly when it links the Prod Platform's database", { skip }, 
     await card().locator("button", { hasText: "Adopt..." }).click();
     const dialog = page().locator("#dialog-root .dialog");
     await dialog.waitFor();
-    assert.match(await dialog.textContent(), /links your Prod Platform's database as the environment's operational store\. Only its ids are recorded; nothing is written to it\./);
+    assert.match(await dialog.textContent(), /Adopting also links your Prod Platform's database as the environment's operational store\. Only the database's ids are recorded, and nothing is written to it\./);
     await dialog.locator("button", { hasText: "Cancel" }).click();
   } finally {
     world.prodStore = false;

@@ -299,19 +299,20 @@ def _forge_with_head(service):
 
 def test_a_forgery_that_also_rewrites_the_head_is_caught_by_the_event_log(anchored):
     _forge_with_head(anchored)
-    assert _check(anchored)["problems"] == [
-        (f"event log: line {COUNT} isn't the line the Windows event log recorded, so the trail was re-sealed "
-        f"at or before line {COUNT}")]
+    [problem] = _check(anchored)["problems"]
+    assert problem.startswith(f"event log: line {COUNT} isn't the line the Windows event log recorded, so the "
+                              f"trail was re-sealed at or before line {COUNT}. Its hash is ")
 
 
 def test_lines_cut_from_the_end_with_the_head_deleted_are_caught_by_the_event_log(anchored):
     path = _file(anchored)
     _write(path, _read(path)[:COUNT - 2])
     (anchored.audit.folder / audit_chain.HEAD).unlink()
-    assert _check(anchored)["problems"] == [
-        "head.json: missing, so the end of the trail can't be confirmed",
-        (f"event log: the trail ends before the newest line the Windows event log recorded (line {COUNT}), so "
-        "lines were deleted from the end")]
+    missing, cut = _check(anchored)["problems"]
+    assert missing == "head.json: missing, so the end of the trail can't be confirmed"
+    assert cut.startswith(f"event log: the trail ends before the newest line the Windows event log recorded "
+                          f"(line {COUNT}), so lines were deleted from the end. The event log recorded {COUNT} lines")
+    assert cut.endswith(f", and the trail has {COUNT - 2}")
 
 
 def test_the_head_deleted_alone_is_caught_by_the_event_log(anchored):

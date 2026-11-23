@@ -4,6 +4,8 @@ How KratosForge is organized today, what goes wrong, and a target that keeps wha
 
 ## Current structure (main `3bee0db`)
 
+This section is a snapshot from that commit, kept to explain the problems below. Today's pages and tabs are in the [user guide](../user-guide.md#the-window).
+
 Clicks are counted from launch, which always opens Home.
 
 - **Home** (0): Ready to work, sign-in callout, needs your attention, freshness, your workloads, running now and coming up, data mesh map, environments, start something, recent notebooks (8), Estate X-ray

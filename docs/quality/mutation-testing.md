@@ -10702,3 +10702,135 @@ No bugs were found.
 | `incident_desk.py` | 95 | the bell's rank for any other SLA state from 2 to 3 | Equivalent: every ranked state is 0 or 1, so 2 and 3 sort the same. |
 | `incident_desk.py` | 237 | the history's rank for `resolved` from 2 to 3 | Equivalent: it is still the highest, so the same row wins. |
 | `incident_desk.py` | 258 | the measures' history limit from 5,000 to 5,001 | Equivalent: the history itself shows at most 5,000 (`min(int(limit), 5000)`). |
+
+# Mutation testing, batch 256: dataops_service.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 197 sampled 150 of its then 320 mutants (74.7% before, 99.3% after).
+- The service side of Data health and day-to-day data engineering (`dataops_service.py`): the tables each PC watches and the alerts acknowledged or snoozed there, one table's health from its Delta log, compare before a promote, meaningful diffs, schema drift, quarantine replay, alert settings and Teams cards.
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 320 of 320 mutants ran (313 point + 7 boundary). The mutants were split into shards with `--only`, run side by side, and merged. Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The first 48 mutants scored ran with `--basetemp` in a folder of this run's own, which was checked afterwards: nothing in it was nested 40 or more folders deep. The rest, and the "after" run, gave each pytest session a new temporary folder of its own (a small plugin, not committed), removed when the session ended. In each shard the last survivors still took about a minute to run the whole set, so no streak of false kills came from a broken folder, and two late kills (indexes 316 and 318) were run again by hand: each fails a real assertion.
+
+The set is batch 197's files with test_dataops_service_cov3, the quick files first so most mutants are killed in seconds. The tests that reach the hung-check path lower the list's time limit (`DATA_HEALTH_LIST_SECONDS`, 120 s), so no mutant waited on it. The score counts only the files given. Before the "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `dataops_service.py` | test_dataops_service_mutation, test_dataops_service_cov3, test_data_health_mutation, test_dataops_edges, test_dataops, test_data_health (+ test_dataops_service_uncapped) | 320 of 320 (313 + 7) | 304 / 16 | **95.0%** | 299/313 → 310/313 | 5/7 → 7/7 | 317 / 3 | **99.1%** | 3 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **dataops_service.py**:
+  - Default page sizes: a table's versions are its last 15, quarantine shows its first 500 rows, drift shows that entity's last 10 schema changes (and only that entity's), and freshness reads up to 100000 runs.
+  - The deployed entities are those of the last promote to that environment, not the first.
+  - A quarantined row held before ids existed gets `old-` and 16 hex digits of its values.
+  - A table whose file statistics add up to 0 rows has 0 rows, not 1.
+  - A committed entity file is named by the name inside it, not by its file name.
+  - Email alerts are refused until the company mail server is set.
+  - A reset note is said until exactly a week has passed, and a snooze that ends now is over.
+  - → `test_dataops_service_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `dataops_service.py` | 49 | `get_add_actions(flatten=True)` to `False` | Equivalent (as in batch 197): `num_records` is a top-level column either way; flattening only splits the per-column statistics, which aren't read. |
+| `dataops_service.py` | 265 | `hashlib.sha1(..., usedforsecurity=False)` to `True` | Equivalent: the flag only matters on a Python built to refuse SHA-1 for security (FIPS); the digest is the same. |
+| `dataops_service.py` | 471 | `zip(watched, futures, strict=True)` to `False` | Equivalent: the two lists are built in the same loop, one future per watched table, so they are always the same length. |
+
+# Mutation testing, batch 257: meta/data_health.py (every mutant)
+
+One module, run uncapped: every mutant. Batch 95 ran all of its 146 mutants already (81.5% before, 99.3% after); this run checks the score on the module as it is now.
+- Data health from the Delta log: freshness, rows written per load against the usual, schema changes and the alerts they raise (`meta/data_health.py`).
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 146 of 146 mutants ran (140 point + 6 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. pytest was given `--basetemp` in a folder of this run's own, and that folder was checked afterwards: nothing in it was nested 40 or more folders deep. The last mutant scored was the survivor, which ran the whole set, so the set still worked at the end. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `meta/data_health.py` | test_data_health_mutation, test_data_health | 146 of 146 (140 + 6) | 145 / 1 | **99.3%** | no change needed | no change needed | 145 / 1 | **99.3%** | 1 equivalent |
+
+No bugs were found. No new tests were needed: the one survivor is equivalent.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `meta/data_health.py` | 163 | `distance > 0` to `>=` for high or low | Equivalent (as in batch 95): it is reached only for an unusual load, whose distance is beyond the band (at least 0), so it is never 0. |
+
+# Mutation testing, batch 258: workload_service.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 196 sampled 150 of its then 449 mutants (70.0% before, 100% after).
+- Workloads as the desktop UI lists them (`workload_service.py`): reading the metadata project, notebooks, pipelines and Fabric items into one inventory, a workload's page and timeline, the preflight and the actions, settling them from run records, and the audit lines sent to the platform.
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 449 of 449 mutants ran (444 point + 5 boundary). The mutants were split into shards with `--only` and merged, with the same temporary folders and checks as batch 256; a late kill (index 448) was run again by hand and fails a real assertion. Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Before the "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11. They passed both ways. No `-k` filter was used.
+
+A mutant whose run times out counts as killed, as in earlier batches. Four timed out, before and after, and each was run again by hand without the 120 s limit: each hung until the tests' own per-test limit (`FD_TEST_TIME_LIMIT` in conftest.py, 300 s) stopped it, so each is a real hang, not a slow run. They are `_wl_record`'s `refresh` default made True (line 314), the preflight's risk check run when `assess` is false (line 579), the action's preflight asked to assess (line 584), and the audit send waiting for the lock instead of leaving its lines to the send already running (line 725).
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workload_service.py` | test_workload_service_mutation, test_workload_service_paths, test_workloads, test_workload_pipelines, test_workload_audit, test_workload_query, test_workload_capacity_use (+ test_workload_service_uncapped) | 449 of 449 (444 + 5) | 439 / 10 | **97.8%** | 436/444 → 444/444 | 3/5 → 5/5 | 449 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workload_service.py**:
+  - Audit lines go to the platform 50 at a time, oldest first.
+  - Unlinking a notebook says which one.
+  - A OneLake run log read exactly two minutes ago isn't reused; it is read again.
+  - Capacity use counts a run that started exactly the period ago.
+  - A run in Fabric needs a sign-in, names the workspace (or "its workspace"), and is risk-checked unless told not to.
+  - Only an item Fabric refused to start (`run_item`, unauthorized) says "Not authorized"; another failure of `run_item`, or an unauthorized cancel, doesn't.
+  - Only open actions are read for settling, so 200 newer settled ones don't crowd out an open one.
+  - A schedule action is settled by the newest manual run.
+  - → `test_workload_service_uncapped.py`.
+
+### Left
+
+None.
+
+# Mutation testing, batch 259: workloads/sla.py (every mutant)
+
+One module, run uncapped: every mutant. Batch 138 ran all of its 70 mutants already (75.7% before, 98.6% after); this run checks the score on the module as it is now.
+- SLA targets for incidents, from the policy or the defaults, and where an incident stands against them (`workloads/sla.py`).
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 70 of 70 mutants ran (65 point + 5 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. pytest was given `--basetemp` in a folder of this run's own, and that folder was checked afterwards: nothing in it was nested 40 or more folders deep. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/sla.py` | test_incident_sla_mutation, test_incident_history_mutation, test_incident_desk | 70 of 70 (65 + 5) | 69 / 1 | **98.6%** | no change needed | no change needed | 69 / 1 | **98.6%** | 1 equivalent |
+
+No bugs were found. No new tests were needed: the one survivor is equivalent.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/sla.py` | 51 | `0 < value` to `0 <= value` | Equivalent (as in batch 138): a value of 0 is taken as "no target" just before, so it never reaches this check. |
+
+# Mutation testing, batch 260: workloads/evaluate.py (every mutant)
+
+One module, run uncapped: every mutant. Batch 136 ran all of its 116 mutants already (76.7% before, 100% after); this run checks the score on the module as it is now.
+- What an evaluation looks for in one environment: failed runs, runs waiting for a decision, lateness, data product promises, success objectives and agents that stopped reporting, and the one line each change becomes in a Teams message (`workloads/evaluate.py`).
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 116 of 116 mutants ran (113 point + 3 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. pytest was given `--basetemp` in a folder of this run's own, and that folder was checked afterwards: nothing in it was nested 40 or more folders deep. Since every mutant was killed, seven of them (indexes 60, 90, 105, 110, 113, 114 and 115, among the last run) were run again with a new temporary folder for each pytest session: all seven were killed again. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/evaluate.py` | test_evaluate_mutation, test_incidents, test_incident_desk, test_agent_clock_and_folder, test_not_set_up, test_incident_desk_mutation, test_incident_service_mutation, test_product_promises | 116 of 116 (113 + 3) | 116 / 0 | **100%** | no change needed | no change needed | 116 / 0 | **100%** | none |
+
+No bugs were found. No new tests were needed: every mutant was killed.
+
+### Left
+
+None.

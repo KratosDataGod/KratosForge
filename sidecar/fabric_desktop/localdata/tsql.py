@@ -190,6 +190,11 @@ class Script:
     places: list[int] = field(default_factory=list)
     kinds: list[str] = field(default_factory=list)
     count: int = 0
+    settings: list[int] = field(default_factory=list)  # the places of the session settings that were skipped
+
+    def only_settings_before(self, place: int) -> bool:
+        """Every statement before ``place`` is a skipped session setting (and there is at least one)."""
+        return place > 0 and len([s for s in self.settings if s < place]) == place
 
 
 def translate_script(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None,
@@ -271,6 +276,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
         try:
             if _harmless_setting(tree):
                 skipped = True
+                script.settings.append(index)
                 continue
             text, more = _one(batch, tree, columns, known, schema)
         except ValueError as exc:

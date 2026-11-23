@@ -66,8 +66,8 @@ def test_nothing_ran_when_a_statement_after_a_setting_is_refused(engine):
      ("Statement 2 of 3 (INSERT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and "
       "what it changed is kept; the last statement didn't run.")),
     ("SET NOCOUNT ON;\nSELECT 1/0",
-     ("Statement 2 of 2 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and "
-      "what it changed is kept.")),
+     ("Statement 2 of 2 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Only session settings "
+      "came before it, and they change no data.")),
     ("SELECT 1/0;\nSET NOCOUNT ON;\nSET ANSI_WARNINGS ON",
      ("Statement 1 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Nothing before it ran; "
       "the 2 after it didn't run.")),
@@ -188,3 +188,40 @@ def test_one_batch_that_cant_be_read_keeps_its_plain_message(engine):
 
 def test_one_statement_that_fails_as_it_runs_keeps_its_plain_error(engine):
     assert error(engine, "SELECT 1/0") == "Msg 8134, Level 16: Divide by zero error encountered."
+
+
+# ---------------------------------------------------------------- only settings before the error
+
+@pytest.mark.parametrize("sql, words", [
+    ("SET NOCOUNT ON;\nSET ANSI_NULLS ON;\nSELECT 1/0;\nSELECT 2",
+     ("Statement 3 of 4 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Only session settings "
+      "came before it, and they change no data; the last statement didn't run.")),
+    ("SET NOCOUNT ON\nGO\nWITH c AS (SELECT 0 AS x) SELECT 1 / x FROM c",
+     ("Statement 2 of 2 (WITH) failed: Msg 8134, Level 16: Divide by zero error encountered. Only session settings "
+      "came before it, and they change no data.")),
+])
+def test_when_only_settings_came_before_no_change_is_claimed(engine, sql, words):
+    assert error(engine, sql) == words
+
+
+@pytest.mark.parametrize("sql, ran", [
+    ("SET NOCOUNT ON;\nCREATE TABLE t (x INT);\nSELECT 1/0", "Statements 1 to 2 ran, and what they changed is kept."),
+    ("CREATE TABLE t (x INT);\nSET NOCOUNT ON;\nSELECT 1/0", "Statements 1 to 2 ran, and what they changed is kept."),
+    ("SELECT 1;\nSELECT 1/0", "Statement 1 ran, and what it changed is kept."),
+])
+def test_when_a_statement_before_ran_the_ran_wording_stays(engine, sql, ran):
+    assert error(engine, sql).endswith(ran)
+
+
+def test_the_script_knows_where_only_settings_came_before():
+    script = tsql.translate_script("SET NOCOUNT ON;\nSET ANSI_NULLS ON;\nSELECT 1 AS a;\nSELECT 2 AS b")
+    assert script.settings == [0, 1]
+    assert [script.only_settings_before(p) for p in script.places] == [True, False]
+    assert script.only_settings_before(0) is False
+
+
+def test_a_script_error_with_only_settings_before_it():
+    from fabric_desktop.localdata import engine as eng
+    assert str(eng._in_script(ValueError("boom"), 1, 3, "select", True)) == (
+        "Statement 2 of 3 (SELECT) failed: boom. Only session settings came before it, and they change no data; the "
+        "last statement didn't run.")

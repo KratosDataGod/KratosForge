@@ -885,7 +885,7 @@ class LocalEngine:
                             if said is exc:
                                 raise
                             raise said from None
-                        raise _in_script(said, place, count, kind) from None
+                        raise _in_script(said, place, count, kind, step.get("settings_before", False)) from None
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 try:
@@ -899,7 +899,7 @@ class LocalEngine:
                         raise
                     place, count, kind = _place_in_script(statements[-1], len(statements) - 1, len(statements))
                     if count > 1:
-                        said = _in_script(said, place, count, kind)
+                        said = _in_script(said, place, count, kind, statements[-1].get("settings_before", False))
                     raise said from None
                 finished = True
             except (duckdb.InterruptException, OSError) as exc:
@@ -969,6 +969,7 @@ class LocalEngine:
             steps = self._duckdb_steps(con, script.texts, n, tsql=True)
             for step, place, kind in zip(steps, script.places, script.kinds, strict=True):
                 step["place"] = (place, script.count, kind)  # WR-256: in the user's count, SET NOCOUNT included
+                step["settings_before"] = script.only_settings_before(place)
             return steps
         try:
             texts = [s.query for s in con.extract_statements(sql)]
@@ -2008,11 +2009,14 @@ def _place_in_script(step: dict[str, Any], i: int, n: int) -> tuple[int, int, st
     return step.get("place") or (i, n, step["kind"])
 
 
-def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:
+def _in_script(exc: Exception, i: int, n: int, kind: str, settings_before: bool = False) -> Exception:
     """``exc`` from statement ``i`` (from 0) of a T-SQL script of ``n``, naming the statement and what already ran.
     A script stops at the first error, and the statements before it stay done, as a batch does in a warehouse
-    when nothing wraps it in a transaction."""
-    ran = ("Nothing before it ran" if i == 0 else "Statement 1 ran, and what it changed is kept" if i == 1 else
+    when nothing wraps it in a transaction. ``settings_before``: every statement before it is a session setting the
+    local engine skips, such as SET NOCOUNT ON, so none changed data (WR-256)."""
+    ran = ("Nothing before it ran" if i == 0 else
+           "Only session settings came before it, and they change no data" if settings_before else  # WR-256
+           "Statement 1 ran, and what it changed is kept" if i == 1 else
            f"Statements 1 to {i} ran, and what they changed is kept")
     left = n - i - 1
     if left:

@@ -70,6 +70,8 @@ def imports(source: str) -> dict[str, Any]:
         tree = ast.parse(code)
     except SyntaxError as exc:
         return {"parsed": False, "modules": [], "dynamic": dynamic, "error": f"line {exc.lineno}: {exc.msg}"}
+    except (RecursionError, MemoryError, ValueError):  # nested too deep for Python's parser; a lone surrogate
+        return {"parsed": False, "modules": [], "dynamic": dynamic, "error": "the cell is too complex to check"}
     found: dict[str, dict[str, Any]] = {}
 
     def visit(node: ast.AST, optional: bool) -> None:
@@ -95,7 +97,10 @@ def imports(source: str) -> dict[str, Any]:
             return
         for child in ast.iter_child_nodes(node):
             visit(child, optional)
-    visit(tree, False)
+    try:
+        visit(tree, False)
+    except RecursionError:  # parsed, but nested deeper than this walk goes
+        return {"parsed": False, "modules": [], "dynamic": dynamic, "error": "the cell is too complex to check"}
     return {"parsed": True, "modules": sorted(found.values(), key=lambda m: m["line"]), "dynamic": dynamic}
 
 

@@ -664,6 +664,29 @@ it costs about L1 plus L2 plus DuckDB's run of at most 200 measures a side. The 
 size. A profile of Export with the round trip shows about two thirds of the time is reading and writing
 YAML with PyYAML's pure-Python code, not the conversion itself.
 
+### YAML on libyaml
+
+When the engine's PyYAML has libyaml (its C extension), Ossie YAML is read and written with it, several
+times faster than PyYAML's pure-Python code. The two don't agree on every text, so libyaml is used only
+where it gives exactly what the pure code gives, and the pure code decides everything else:
+
+- A file someone gives (`load_text`) is scanned and parsed by libyaml, but composed and built by the same
+  Python code as before, so aliases, a key given twice, nesting and the 20 MB limit are refused as before.
+  A text with a tab, a byte order mark after its start, or a block scalar header followed straight by `#`
+  is read by the pure code, and so is a plain scalar holding `?` inside `[ ]` or `{ }` (libyaml reads
+  it, PyYAML refuses it), and anything nested more than 128 levels. Whatever libyaml refuses is read
+  again by the pure code, so a refusal has the same words either way.
+- Writing (Export, the Semantic View files, the copy `to_tmsl` hands the converter) uses libyaml for a
+  document of plain values whose text has no carriage return, lone surrogate or character past U+FFFF,
+  and whose keys are 1 to 100 bytes. Its output is the same byte for byte. libyaml ends a document that
+  holds a `|+` block with `...` where PyYAML may not, so such a document is written by the pure code.
+- YAML the engine wrote itself is read back with libyaml's SafeLoader.
+
+Without libyaml the pure code runs alone, as before. `tests/test_ossie_fast_yaml.py` runs the fixture
+corpus, hostile text (aliases, repeated keys, deep nesting, huge names, tabs, odd line breaks, unicode)
+and random text and documents both ways and checks the results, refusals and bytes are the same. Before
+the change, 900,000 random texts were read both ways with no difference.
+
 ### Semantic CI lane (proposed)
 
 The main `sidecar` job already runs these tests with the rest of the suite. Release management owns

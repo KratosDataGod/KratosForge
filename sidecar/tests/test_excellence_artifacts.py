@@ -30,7 +30,8 @@ NOTEBOOK_CASES = [
     ("FEA-DE-003", 'spark.sql("VACUUM t RETAIN 1 HOURS")\n', 'spark.sql("VACUUM t RETAIN 168 HOURS")\n'),
 ]
 NOTEBOOK_CONTROLS = [c for c, _, _ in NOTEBOOK_CASES]
-PIPELINE_CONTROLS = ["FEA-REL-003", "FEA-DEVOPS-002"]
+POLICY_CONTROLS = ["FEA-REL-004", "FEA-REL-005", "FEA-REL-006"]
+PIPELINE_CONTROLS = ["FEA-REL-003", "FEA-DEVOPS-002", *POLICY_CONTROLS]
 
 
 def notebook(item: str, cells: list[str] | None, definition: str = "read") -> dict:
@@ -41,11 +42,19 @@ def notebook(item: str, cells: list[str] | None, definition: str = "read") -> di
     return w
 
 
-def activity(name: str, inactive: bool = False, workspace: object = None, kind: str = "TridentNotebook") -> dict:
+GOOD_POLICY = {"retry": 2, "retryIntervalInSeconds": 60, "timeout": "0.01:00:00"}
+
+
+def activity(name: str, inactive: bool = False, workspace: object = None, kind: str = "TridentNotebook",
+             policy: object = GOOD_POLICY, depends_on: object = ()) -> dict:
     tp = {"notebookId": "aaaaaaaa-2222-3333-4444-555555555555"}
     if workspace is not None:
         tp["workspaceId"] = workspace
-    return {"name": name, "type": kind, "inactive": inactive, "type_properties": tp, "path": "$"}
+    a = {"name": name, "type": kind, "inactive": inactive, "type_properties": tp, "path": "$",
+         "depends_on": [{"activity": d, "conditions": [c]} for d, c in depends_on]}
+    if policy is not None:
+        a["policy"] = dict(policy)
+    return a
 
 
 def pipeline(item: str, acts: list[dict] | None, definition: str = "read") -> dict:
@@ -86,7 +95,7 @@ def test_the_artifact_controls_are_registered_and_complete():
     r = catalog.registry()
     ids = {c.id for c in catalog_artifacts.CONTROLS}
     assert ids == set(NOTEBOOK_CONTROLS) | set(PIPELINE_CONTROLS)
-    assert 4 <= len(ids) <= 7 and ids <= set(r.versions())
+    assert len(ids) == 10 and ids <= set(r.versions())
     for c in catalog_artifacts.CONTROLS:
         assert c.references and all(ref["url"].startswith("https://") for ref in c.references)
         assert c.evaluate.__doc__ and c.severity.capitalize() in c.evaluate.__doc__  # severity justified
@@ -179,7 +188,120 @@ def test_fixed_workspace_is_found_nested_and_missing_properties_are_not_evaluate
 def test_pipeline_inspection_keeps_names_and_counts_only():
     got = inspect_items.inspect(pipeline("p", [activity("A", inactive=True, workspace=OTHER_WS)]))
     assert got == {"read": True, "kind": "pipeline", "activities": 1, "inactive": ["A"], "inactive_count": 1,
-                   "fixed_workspace": ["A"], "fixed_workspace_count": 1, "state_unknown": [], "properties_unknown": []}
+                   "fixed_workspace": ["A"], "fixed_workspace_count": 1, "state_unknown": [], "properties_unknown": [],
+                   "calls_out": 0, "no_retry": [], "no_retry_count": 0, "no_timeout": [], "no_timeout_count": 0,
+                   "retry_unknown": [], "timeout_unknown": [], "failure_path": False, "failure_path_unknown": False,
+                   "depends_unknown": []}
+
+
+# ---- pipeline retry, timeout and failure path (FEA-302)
+
+
+def _policy_outcomes(acts: list[dict]) -> dict[str, dict]:
+    snap = run([pipeline("p", acts)])
+    return {cid: outcome_of(snap, cid, "p") for cid in POLICY_CONTROLS}
+
+
+ALERT = ("Copy", "Failed")
+
+
+def test_policy_controls_pass_when_retry_timeout_and_a_failure_path_are_set():
+    got = _policy_outcomes([activity("Copy", kind="Copy"),
+                            activity("Alert", kind="Office365Outlook", policy={}, depends_on=[ALERT])])
+    assert {c: o["outcome"] for c, o in got.items()} == dict.fromkeys(POLICY_CONTROLS, "pass")
+    assert got["FEA-REL-004"]["text"].startswith("All 1 of its")  # Outlook isn't counted: a retry can send twice
+
+
+@pytest.mark.parametrize("policy, retry, timeout", [
+    ({}, "fail", "fail"),  # nothing set: Fabric's defaults, no retry and 12 hours
+    ({"retry": 0, "timeout": "0.12:00:00"}, "fail", "fail"),  # the defaults written out
+    ({"retry": 3, "timeout": "1.00:00:00"}, "pass", "fail"),  # longer than the default
+    ({"retry": 3, "timeout": "12:00:00"}, "pass", "fail"),
+    ({"retry": "2", "timeout": "11:59:59"}, "pass", "pass"),
+    ({"retry": "@pipeline().parameters.r", "timeout": {"value": "@variables('t')", "type": "Expression"}},
+     "pass", "pass"),  # set by an expression: its value is only known at run time
+    ({"retry": 1, "timeout": "0.00:00:00"}, "pass", "fail"),
+    ({"retry": 1, "timeout": "01:60:00"}, "pass", "not_evaluated"),  # 60 minutes isn't a timespan Fabric writes
+    ({"retry": 1, "timeout": "01:00:60"}, "pass", "not_evaluated"),
+    ({"retry": 1, "timeout": "01:00:00\n"}, "pass", "pass"),  # surrounding space is stripped
+    ({"retry": 1, "timeout": "01:00:00x"}, "pass", "not_evaluated"),
+])
+def test_retry_and_timeout_controls(policy, retry, timeout):
+    got = _policy_outcomes([activity("Load", kind="Copy", policy=policy), activity("Wait", kind="Wait", policy={})])
+    assert got["FEA-REL-004"]["outcome"] == retry and got["FEA-REL-005"]["outcome"] == timeout
+    for cid, outcome in (("FEA-REL-004", retry), ("FEA-REL-005", timeout)):
+        o = got[cid]
+        if outcome == "fail":
+            assert "Load" in o["text"] and "Wait" not in o["text"] and o["detail"] == {"activities": ["Load"], "count": 1}
+            assert o["basis"] == "verified_configuration"
+
+
+def test_failure_path_control():
+    def fp(acts):
+        return _policy_outcomes(acts)["FEA-REL-006"]
+    assert fp([activity("Copy", kind="Copy"), activity("Log", kind="Script", depends_on=[("Copy", "Succeeded")])
+               ])["outcome"] == "fail"
+    assert fp([activity("Copy", kind="Copy"), activity("Tidy", kind="Script", depends_on=[("Copy", "Completed")])
+               ])["outcome"] == "pass"
+    assert fp([activity("Copy", kind="Copy"), activity("Mail", kind="Teams", depends_on=[("Copy", "failed")])
+               ])["outcome"] == "pass"  # conditions are matched without regard to case
+
+
+def test_policy_controls_are_not_applicable_without_an_activity_that_calls_out():
+    got = _policy_outcomes([activity("Wait", kind="Wait", policy=None), activity("Child", kind="InvokePipeline")])
+    assert {c: o["outcome"] for c, o in got.items()} == dict.fromkeys(POLICY_CONTROLS, "not_applicable")
+
+
+def test_a_missing_policy_or_depends_on_key_is_not_evaluated_never_a_pass():
+    no_policy = activity("Old", kind="Copy", policy=None)  # an older engine kept no policy
+    got = _policy_outcomes([no_policy, activity("Mail", kind="Teams", depends_on=[("Old", "Failed")])])
+    assert got["FEA-REL-004"]["outcome"] == got["FEA-REL-005"]["outcome"] == "not_evaluated"
+    assert "Old" in got["FEA-REL-004"]["text"] and got["FEA-REL-006"]["outcome"] == "pass"
+    unreadable = _policy_outcomes([activity("Odd", kind="Copy", policy={"retry": 2, "timeout": "soon"})])
+    assert unreadable["FEA-REL-005"]["outcome"] == "not_evaluated"
+    assert unreadable["FEA-REL-004"]["outcome"] == "pass"  # its retry was read, so only the timeout is unknown
+    no_retry = _policy_outcomes([activity("Odd", kind="Copy", policy={"retry": 0, "timeout": "soon"})])
+    assert no_retry["FEA-REL-004"]["outcome"] == "fail" and no_retry["FEA-REL-005"]["outcome"] == "not_evaluated"
+    odd_retry = _policy_outcomes([activity("Odd", kind="Copy", policy={"retry": [], "timeout": "0.01:00:00"})])
+    assert odd_retry["FEA-REL-004"]["outcome"] == "not_evaluated" and odd_retry["FEA-REL-005"]["outcome"] == "pass"
+    no_deps = activity("Copy", kind="Copy")
+    del no_deps["depends_on"]
+    got = _policy_outcomes([no_deps])
+    assert got["FEA-REL-006"]["outcome"] == "not_evaluated" and got["FEA-REL-004"]["outcome"] == "pass"
+
+
+def test_policy_controls_are_not_evaluated_without_a_definition_or_an_older_inspection():
+    snap = run([pipeline("unread", None, definition="not_read"), pipeline("gone", None)])
+    for cid in POLICY_CONTROLS:
+        assert outcome_of(snap, cid, "unread")["outcome"] == "not_evaluated"
+        assert outcome_of(snap, cid, "gone")["outcome"] == "not_evaluated"
+    old = finish([pipeline("old", [activity("Copy", kind="Copy")])])
+    for k in ("calls_out", "no_retry", "no_retry_count", "no_timeout", "no_timeout_count", "retry_unknown",
+              "timeout_unknown", "failure_path", "failure_path_unknown", "depends_unknown"):
+        old["workloads"][0]["inspected"].pop(k)  # evidence from before these settings were kept
+    items = [{"id": "old", "type": "DataPipeline", "displayName": "old"}]
+    records = (adapters.workspace({"id": WSID, "displayName": "Sales"}, items, collected_at=AT)
+               + adapters.inspection(old, collected_at=AT))
+    snap = assess.assess(records, catalog.registry(), assessed_at=AT, scope={"workspaces": [{"id": WSID}]})
+    for cid in POLICY_CONTROLS:
+        assert outcome_of(snap, cid, "old")["outcome"] == "not_evaluated"
+
+
+def test_policy_inspection_keeps_capped_names_and_counts_never_the_settings():
+    long = "A" * 400  # sorts first, so it is among the names kept
+    acts = [activity(f"Copy {i:03}", kind="Copy", policy={"retry": 0, "timeout": "7.00:00:00",
+                                                          "secureInput": True}) for i in range(60)]
+    acts.append(activity(long, kind="WebActivity", policy={}))
+    got = inspect_items.inspect(pipeline("p", acts))
+    assert got["calls_out"] == 61 and got["no_retry_count"] == got["no_timeout_count"] == 61
+    assert len(got["no_retry"]) == len(got["no_timeout"]) == inspect_items.MAX_NAMES
+    assert all(isinstance(n, str) and len(n) <= 256 for n in got["no_retry"] + got["no_timeout"])
+    assert "A" * 256 in got["no_retry"] and long not in got["no_retry"]
+    text = json.dumps(got)
+    assert "7.00:00:00" not in text and "secureInput" not in text and "retryInterval" not in text
+    snap = run([pipeline("p", acts)])
+    ev_text = json.dumps(snap["evidence"]) + json.dumps(snap["outcomes"])
+    assert "7.00:00:00" not in ev_text and "secureInput" not in ev_text and long not in ev_text
 
 
 # ---- scope: other item types, coverage, evidence
@@ -294,6 +416,8 @@ def test_the_demo_shows_the_new_controls_with_no_fabric_call(tmp_path, monkeypat
     assert fake.calls == [] and r["fixture"] is True
     decided = {o["control_id"] for o in r["outcomes"] if o["outcome"] in ("pass", "fail")}
     assert set(NOTEBOOK_CONTROLS) | set(PIPELINE_CONTROLS) <= decided
+    # The demo's pipelines set no policy and no failure path: Fabric's defaults, so these fail there.
+    assert {o["outcome"] for o in r["outcomes"] if o["control_id"] in POLICY_CONTROLS} == {"fail"}
     assert assess.rescore(json.loads(json.dumps(r)), catalog.registry())["scores"] == r["scores"]
 
 
@@ -316,3 +440,21 @@ def test_an_unknown_schedule_leaves_the_scheduled_only_rules_unchecked():
     assert got["scheduled"] is None and "NB004" in got["unchecked"]
     known = inspect_items.inspect({**w, "runs": {"read": True, "scheduled": 0}})
     assert known["scheduled"] is False and known["unchecked"] == []
+
+
+def test_a_deactivated_activity_doesnt_count_toward_retry_or_timeout():
+    got = inspect_items.inspect(pipeline("p", [activity("Off", inactive=True, policy={}), activity("On")]))
+    assert got["calls_out"] == 1 and got["no_retry"] == [] and got["no_timeout"] == []
+
+
+def test_a_deactivated_activity_is_no_failure_path():
+    def fp(acts):
+        return _policy_outcomes(acts)["FEA-REL-006"]
+    off = activity("Mail", kind="Teams", inactive=True, depends_on=[("Copy", "Failed")])
+    assert fp([activity("Copy", kind="Copy"), off])["outcome"] == "fail"  # it never runs, so nothing alerts
+    on = activity("Log", kind="Script", depends_on=[("Copy", "Completed")])
+    assert fp([activity("Copy", kind="Copy"), off, on])["outcome"] == "pass"
+    unknown = activity("Mail", kind="Teams", depends_on=[("Copy", "Failed")])
+    unknown["inactive"] = None  # its state wasn't read
+    got = fp([activity("Copy", kind="Copy"), unknown])
+    assert got["outcome"] == "not_evaluated" and "activated" in got["text"]

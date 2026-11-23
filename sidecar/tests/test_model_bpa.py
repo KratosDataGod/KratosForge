@@ -94,8 +94,9 @@ def svc(tmp_path, monkeypatch):
         def __init__(self, token):
             pass
 
-        def read_bytes(self, ws, lh, path):
-            return files.get((ws, lh, path))
+        def read_bytes(self, ws, lh, path, length=None):
+            data = files.get((ws, lh, path))
+            return data[:length] if data is not None and length else data
 
     monkeypatch.setattr(model_bpa_service, "FileStore", FakeFiles)
     s.files = files
@@ -274,6 +275,12 @@ def test_a_check_that_saved_its_error_shows_it(svc):
     assert failed["message"] == "The check failed in Fabric: ValueError: XMLA endpoint is read-only"
     assert (failed["traceback"], failed["pip"]) == ("Traceback ...", "ok")
     assert svc.model_bpa_status("test")["last"] is None
+
+
+def test_a_results_file_past_the_cap_isnt_read(svc):
+    _finish(svc, "Completed", b'{"rows": [], "pad": "' + b"x" * model_bpa.RESULTS_MAX_BYTES + b'"}')
+    status = svc.model_bpa_status("test")
+    assert "larger than 8 MB, so it wasn't read" in status["failed"]["message"] and status["last"] is None
 
 
 def test_a_completed_check_that_saved_nothing_says_so(svc):

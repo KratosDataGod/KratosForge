@@ -179,9 +179,9 @@ def test_view_metadata_is_refused_by_name():
         translate("CREATE VIEW v WITH VIEW_METADATA AS SELECT 1")
 
 
-def test_text_in_a_subquery_is_compared_as_duckdb_does():
+def test_text_in_a_subquery_is_compared_with_tsqls_padding():  # WR-246: 'a' IN (SELECT 'a ') is true in T-SQL
     out, notes = translate("SELECT 1 WHERE 'a' IN (SELECT 'a ')")
-    assert out == ["SELECT 1 WHERE 'a' IN (SELECT 'a ')"]
+    assert out == ["SELECT 1 WHERE 'a' IN (SELECT 'a')"]
 
 
 def test_a_table_with_a_check_constraint_keeps_it(engine):

@@ -141,6 +141,30 @@ CLAIMS: list[Claim] = [
         note="WR-246: IN (SELECT ...) ignores trailing spaces"),
     _ts("NULLIF('a ', 'a')"),
     _ts("UPPER('é')"),
+    # WR-241: datetimeoffset, SWITCHOFFSET, AT TIME ZONE and DATENAME
+    _ts("datetimeoffset(0)", query="SELECT LEN(CAST(CAST('2024-01-01 10:00 +01:00' AS DATETIMEOFFSET(0)) AS VARCHAR(34)))",
+        note="its text's length"),
+    _ts("2025-12-10 12:32:10.1237 +01:00",
+        query="SELECT CAST(CAST('2025-12-10 12:32:10.1237 +01:00' AS DATETIMEOFFSET) AS DATE)"),
+    _ts("DATEPART(tzoffset, '2007-05-10 00:00:01.1234567 +05:10')"),
+    _ts("DATENAME(tzoffset, ...)", query="SELECT DATENAME(tzoffset, '2007-05-10 00:00:01.1234567 +05:10')"),
+    _ts("1998-09-20 07:45:50.71345 -05:00",
+        query="SELECT CAST(SWITCHOFFSET(CAST('1998-09-20 07:45:50.71345 -05:00' AS DATETIMEOFFSET), '-08:00') "
+              "AS VARCHAR(34))"),
+    _ts("2024-12-31 23:30 +00:00",
+        query="SELECT CONCAT(LEFT(v, 16), ' ', RIGHT(v, 6)) FROM (SELECT CAST(SWITCHOFFSET(CAST('2024-12-31 23:30 +00:00' "
+              "AS DATETIMEOFFSET(0)), '+14:00') AS VARCHAR(34)) AS v) AS t", note="written without seconds"),
+    _ts("2026-03-08 02:30",
+        query="SELECT CONCAT(SUBSTRING(v, 12, 5), ' ', RIGHT(v, 6)) FROM (SELECT CAST(CAST('2026-03-08 02:30' AS "
+              "DATETIME2(0)) AT TIME ZONE 'Pacific Standard Time' AS VARCHAR(34)) AS v) AS t",
+        note="the skipped hour"),
+    _ts("2026-11-01 01:30",
+        query="SELECT CONCAT(SUBSTRING(v, 12, 5), ' ', RIGHT(v, 6)) FROM (SELECT CAST(CAST('2026-11-01 01:30' AS "
+              "DATETIME2(0)) AT TIME ZONE 'Pacific Standard Time' AS VARCHAR(34)) AS v) AS t",
+        note="the repeated hour"),
+    _ts("DATENAME(hour, ...)", query="SELECT DATENAME(hour, CAST('2024-01-05 07:00' AS DATETIME2))"),
+    _ts("DATENAME(day, ...)", query="SELECT DATENAME(day, CAST('2024-01-05 07:00' AS DATETIME2))"),
+    _ts("DATENAME(quarter, ...)", query="SELECT DATENAME(quarter, CAST('2024-01-05 07:00' AS DATETIME2))"),
 ]
 
 # (page, expression) -> why it isn't run here

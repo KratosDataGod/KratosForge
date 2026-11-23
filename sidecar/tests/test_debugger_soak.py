@@ -5,6 +5,7 @@ Continue and a restart leaves nothing paused; and a poll waits for an ended proc
 from __future__ import annotations
 
 import gc
+import threading
 import time
 import tracemalloc
 from collections import Counter
@@ -192,3 +193,24 @@ def test_a_thread_that_stays_is_named(kernel):
         assert_no_threads_left(kernel, before, seconds=0.5)
     kernel.start("stay2.set()")
     assert wait(kernel)["status"] == "ok"
+
+
+# ---------- a finished cell is free at once ----------
+
+def test_a_cell_is_marked_done_with_its_final_status_never_after():
+    # A poll that sees a final status must never find the run still running: the next cell would be
+    # refused ("A cell is already running") in the gap. done is set while the status is held.
+    from fabric_desktop import notebook
+
+    seen = []
+
+    class Done(threading.Event):
+        def set(self):
+            seen.append((run.lock.locked(), run.status))
+            super().set()
+
+    run = notebook._Run(1)
+    run.done = Done()
+    run.finish("ok")
+    assert seen == [(True, "ok")]
+

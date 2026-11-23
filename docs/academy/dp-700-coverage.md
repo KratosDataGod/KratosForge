@@ -45,20 +45,20 @@ four original exam questions (ACD-013).
 | --- | --- | --- | --- | --- | --- |
 | 2.1.1 | Design and implement full and incremental data loads | E21, E22, E57, E67, C1 | LV | No | LM-12, LM-21 |
 | 2.1.2 | Prepare data for loading into a dimensional model | E23, E24, E25, C1 | LV | No | LAB-03, LAB-05 |
-| 2.1.3 | Design and implement a loading pattern for streaming data | E26, C2 | LV | Yes | |
+| 2.1.3 | Design and implement a loading pattern for streaming data | E26, E93, C2 | LV | Yes | |
 | 2.2.1 | Choose an appropriate data store | E27, E74 | SIM | No | LM-06, LM-23 |
 | 2.2.2 | Choose between dataflows, notebooks, and T-SQL for data transformation | E17, E28 | KO | No | |
 | 2.2.3 | Create and manage shortcuts to data | E29 | SIM | Yes | LM-24 |
-| 2.2.4 | Implement mirroring | E30 | KO | Yes | |
+| 2.2.4 | Implement mirroring | E30, E94 | SIM | Yes | |
 | 2.2.5 | Ingest data by using pipelines | E31, E89 | LV | Yes | |
 | 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, E69, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
 | 2.2.7 | Denormalize data | E35, C1 | LV | No | LAB-07 |
 | 2.2.8 | Group and aggregate data | E36, E70, C1 | LV | No | LM-04 |
 | 2.2.9 | Handle duplicate, missing, and late-arriving data | E25, E37, E38, E39, E57, E58, E68, C1, C2 | LV | No | LM-13, LM-17, LAB-04, LAB-06 |
 | 2.3.1 | Choose an appropriate streaming engine | E40, E75 | SIM | No | |
-| 2.3.2 | Process data by using eventstreams | E41 | SIM | Yes | |
+| 2.3.2 | Process data by using eventstreams | E41, E95 | SIM | Yes | |
 | 2.3.3 | Process data by using Spark structured streaming | E26, E42, C2 | LV (availableNow only) | Yes | |
-| 2.3.4 | Process data by using KQL | E34 | KO | Yes | |
+| 2.3.4 | Process data by using KQL | E34, E96 | SIM (SQL equivalent of KQL) | Yes | |
 | 2.3.5 | Create windowing functions | E43, C2 | LV (SQL windows); KO (KQL, Eventstream) | Yes | LM-15 |
 
 ## 3. Monitor and optimize an analytics solution (30–35%)
@@ -88,8 +88,8 @@ four original exam questions (ACD-013).
 | --- | --- |
 | Covered by at least one exercise | 49 of 49 |
 | Best local class LOCAL VERIFIED (all or part) | 19 |
-| Best local class SIMULATED | 20 |
-| KNOWLEDGE ONLY on this PC | 10 |
+| Best local class SIMULATED | 22 |
+| KNOWLEDGE ONLY on this PC | 8 |
 | Stay incomplete until FABRIC VERIFIED | 36 |
 
 ## Coverage gap records
@@ -101,12 +101,12 @@ on the objective.
 
 | Gap | Objectives | Why | Closes with |
 | --- | --- | --- | --- |
-| G-01 No local KQL engine | 2.2.6 (KQL), 2.3.4, 2.3.5 (KQL), 3.2.4, 3.3.4 | Nothing in the repository runs KQL | Fabric Eventhouse exercises (ACD-014), or embedding Microsoft's Kusto emulator if Chris approves installing it (ACD-016) |
+| G-01 No local KQL engine | 2.2.6 (KQL), 2.3.4, 2.3.5 (KQL), 3.2.4, 3.3.4 | Nothing in the repository runs KQL. E96 practises KQL by writing its SQL equivalent (SIMULATED) | Fabric Eventhouse exercises (ACD-014), or embedding Microsoft's Kusto emulator if Chris approves installing it (ACD-016) |
 | G-02 No Eventstream runtime | 2.3.2, 3.2.5, 3.3.4 | Eventstream is a Fabric service | Topology checks locally (SIMULATED), real runs in Fabric (ACD-014) |
 | G-03 T-SQL never runs here | 1.2.2 (deploy), 1.3.3 (security policy), 1.3.4, 3.2.6, 3.3.3 | DuckDB is not the Warehouse engine (`sql_dialects.py`) | Fabric Warehouse exercises (ACD-014) |
 | G-04 Workspace, tenant and domain settings, roles and endorsement | 1.1.1–1.1.4, 1.3.1, 1.3.2, 1.3.6 | Settings and permissions live in Fabric; some need admin roles | SIMULATED settings models locally, read-only checks in the learner's own workspace |
 | G-05 Sensitivity labels | 1.3.5 | Needs sensitivity labels published in the tenant | FABRIC VERIFIED only where the learner's tenant has labels; otherwise KO |
-| G-06 Mirroring | 2.2.4 | Needs a source database and capacity | KO locally; Fabric exercise with a free-tier source is a cost decision for Chris |
+| G-06 Mirroring | 2.2.4 | Needs a source database and capacity | SIMULATED setup and table-choice model locally (E94); Fabric exercise with a free-tier source is a cost decision for Chris |
 | G-07 Data workflows (Apache Airflow jobs) | 1.1.4 | No local Airflow job runtime in KratosForge | SIMULATED runtime settings model locally (E87); Fabric exercise later |
 | G-08 Spark engine and continuous streaming | 1.1.1, 2.1.3, 2.3.3, 3.3.5 | The local PySpark API is DuckDB: no executors, shuffles or AQE; streams run only as availableNow here | File layout lessons locally; Spark tuning verified in Fabric |
 | G-09 Monitoring hub, alerts, refresh | 3.1.1–3.1.4 | Service telemetry | Recorded run histories (SIMULATED), live read-only checks later |

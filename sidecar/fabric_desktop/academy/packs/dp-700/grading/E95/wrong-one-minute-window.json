@@ -1,0 +1,95 @@
+{
+  "_about": "A model of one eventstream. sources lists each source with its fields and their data types. operators, derived_streams and destinations are keyed by name. Each operator and destination has an input (a source's, operator's or derived stream's name), and a Union has inputs, a list. Manage fields has fields, a list of {source_field, name, type}. It outputs only those fields, renaming source_field to name and changing it to type (String, Int64, Double, Boolean, DateTime). Group by has group_by (fields), aggregations ({function, field}, function Sum, Average, Minimum or Maximum) and a window with a type (Tumbling or Sliding) and minutes. An Eventhouse destination has an ingestion_mode: \"Direct ingestion\" or \"Event processing before ingestion\". south_fields is a Manage fields operator that isn't connected yet. Fill it in if you need it.",
+  "needs": [
+    "Both docks' readings go into one Lakehouse table, dock_readings, with the north dock's field names and types: EventTime, SensorId, TempC and DoorOpen.",
+    "The cold-chain dashboard reads the Eventhouse table sensor_temps, which holds each sensor's average TempC for each 5-minute block of time, one figure per block, with blocks that don't overlap.",
+    "The south dock's sensors are from another vendor, and their feed can't be changed."
+  ],
+  "symptom": "Since the south dock went live, dock_readings has south rows with no temperature and SensorId empty, and sensor_temps shows no south sensors at all. The dashboard also shows several overlapping figures for each sensor.",
+  "sources": [
+    {
+      "name": "dock-north",
+      "fields": {
+        "EventTime": "DateTime",
+        "SensorId": "String",
+        "TempC": "Double",
+        "DoorOpen": "Boolean"
+      }
+    },
+    {
+      "name": "dock-south",
+      "fields": {
+        "EventTime": "DateTime",
+        "SensorId": "Int64",
+        "Temperature": "Double",
+        "DoorOpen": "Boolean"
+      }
+    }
+  ],
+  "operators": {
+    "south_fields": {
+      "type": "Manage fields",
+      "input": "dock-south",
+      "fields": [
+        {
+          "source_field": "EventTime",
+          "name": "EventTime",
+          "type": "DateTime"
+        },
+        {
+          "source_field": "SensorId",
+          "name": "SensorId",
+          "type": "String"
+        },
+        {
+          "source_field": "Temperature",
+          "name": "TempC",
+          "type": "Double"
+        },
+        {
+          "source_field": "DoorOpen",
+          "name": "DoorOpen",
+          "type": "Boolean"
+        }
+      ]
+    },
+    "all_docks": {
+      "type": "Union",
+      "inputs": [
+        "dock-north",
+        "south_fields"
+      ]
+    },
+    "sensor_temps": {
+      "type": "Group by",
+      "input": "all_docks",
+      "group_by": [
+        "SensorId"
+      ],
+      "aggregations": [
+        {
+          "function": "Average",
+          "field": "TempC"
+        }
+      ],
+      "window": {
+        "type": "Tumbling",
+        "minutes": 1
+      }
+    }
+  },
+  "derived_streams": {},
+  "destinations": {
+    "lakehouse": {
+      "type": "Lakehouse",
+      "input": "all_docks",
+      "table": "dock_readings"
+    },
+    "eventhouse": {
+      "type": "Eventhouse",
+      "input": "sensor_temps",
+      "ingestion_mode": "Event processing before ingestion",
+      "table": "sensor_temps"
+    }
+  }
+}

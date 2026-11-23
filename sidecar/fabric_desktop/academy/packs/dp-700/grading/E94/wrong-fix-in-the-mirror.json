@@ -1,0 +1,107 @@
+{
+  "_about": "A model of mirroring one Azure SQL Database into a Fabric workspace. source describes the database as it is today, and you change the other sections. Table names are schema.table. columns_in_onelake lists the columns you expect each table to have once mirrored. In using_the_copy, fix_wrong_rows_in is \"Source database\" or \"Mirrored database\". report_join is \"Cross-database query\" (one T-SQL query that joins the mirrored database and the warehouse) or \"Nightly pipeline copy\" (copy the mirrored tables into the warehouse first). regional_security is \"Carried over by mirroring\" or \"Set up again in Fabric\".",
+  "needs": [
+    "Reports need dbo.orders, dbo.order_lines and dbo.products in OneLake. The auditors asked for dbo.orders_history too.",
+    "HR data must never leave the source. That covers hr.salaries today and the hr.reviews table HR adds next month.",
+    "Nothing has been set up for mirroring on the server yet. Sam creates the mirrored database and is a Contributor in the workspace today. The connection uses a new SQL login, and its database user should get only what mirroring needs.",
+    "The report builder wants to know which columns of dbo.order_lines and dbo.products will be there, and whether dbo.orders_history can be mirrored at all.",
+    "Finance found an order with the wrong status. Reports join the mirrored orders with the targets table in SalesWarehouse, a warehouse in the same workspace, and should see changes within minutes. Regional managers see only their own region in the source, through row-level security."
+  ],
+  "source": {
+    "server": "sql-retail-prod, Azure SQL Database, vCore",
+    "tables": [
+      {
+        "name": "dbo.orders",
+        "columns": [
+          "order_id int (primary key)",
+          "customer_id int",
+          "region nvarchar(20)",
+          "status nvarchar(20)",
+          "order_date date"
+        ]
+      },
+      {
+        "name": "dbo.order_lines",
+        "columns": [
+          "order_id int (primary key, part 1)",
+          "line_no int (primary key, part 2)",
+          "product_id int",
+          "quantity int",
+          "unit_price decimal(10,2)",
+          "line_total, computed as quantity * unit_price"
+        ]
+      },
+      {
+        "name": "dbo.products",
+        "columns": [
+          "product_id int (primary key)",
+          "name nvarchar(100)",
+          "description ntext",
+          "list_price decimal(10,2)",
+          "row_version rowversion"
+        ]
+      },
+      {
+        "name": "dbo.orders_history",
+        "columns": [
+          "the same columns as dbo.orders, plus valid_from and valid_to"
+        ],
+        "note": "the temporal history table of dbo.orders"
+      },
+      {
+        "name": "hr.salaries",
+        "columns": [
+          "employee_id int (primary key)",
+          "salary decimal(10,2)"
+        ]
+      }
+    ]
+  },
+  "source_server": {
+    "system_assigned_managed_identity": "On",
+    "sami_is_primary_identity": true
+  },
+  "create_mirrored_database": {
+    "created_by": "Sam",
+    "workspace_role": "Member"
+  },
+  "database_user": {
+    "login": "fabric_login",
+    "permissions": [
+      "SELECT",
+      "ALTER ANY EXTERNAL MIRROR",
+      "VIEW DATABASE PERFORMANCE STATE",
+      "VIEW DATABASE SECURITY STATE"
+    ]
+  },
+  "mirroring": {
+    "mirror_all_data": false,
+    "tables": [
+      "dbo.orders",
+      "dbo.order_lines",
+      "dbo.products"
+    ]
+  },
+  "cannot_mirror": [
+    "dbo.orders_history"
+  ],
+  "columns_in_onelake": {
+    "order_lines": [
+      "order_id",
+      "line_no",
+      "product_id",
+      "quantity",
+      "unit_price"
+    ],
+    "products": [
+      "product_id",
+      "name",
+      "list_price"
+    ]
+  },
+  "using_the_copy": {
+    "fix_wrong_rows_in": "Mirrored database",
+    "report_join": "Cross-database query",
+    "regional_security": "Set up again in Fabric"
+  }
+}

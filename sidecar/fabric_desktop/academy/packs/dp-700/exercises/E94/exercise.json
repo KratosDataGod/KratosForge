@@ -1,0 +1,199 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E94",
+  "title": "Mirror an Azure SQL Database: prerequisites, which tables, what replicates and how to query it",
+  "objectives": [
+    "2.2.4"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Plan the mirroring of an Azure SQL Database: set the server identity, the creator's role and the database user's permissions, choose the tables to mirror, say which tables and columns can't come across, and decide where fixes, joins and row security happen.",
+  "scenario": "Reports at a retailer read straight from the production Azure SQL Database and slow it down. The team wants the sales tables mirrored into Fabric and queried there, with HR data kept out. The first draft of the plan mirrors everything, expects every column to arrive, and assumes the copy can be fixed and secured like the source.",
+  "engine_label": "A model of a mirrored database's setup and table choices, checked on this PC",
+  "verifies": [
+    "Your plan turns on the server's managed identity, has a Member create the mirrored database, gives the database user the four permissions mirroring needs, and mirrors only the three sales tables with Mirror all data off, as the mirroring tutorial on Learn describes them, checked against a model on this PC.",
+    "Your plan names the temporal history table as one that can't be mirrored, leaves out the computed, ntext and rowversion columns, fixes data in the source, joins through a cross-database query and sets row security up again in Fabric, as the mirroring overview and limitations pages describe them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That anything replicates. Nothing connects to a database here, and no mirrored database is made.",
+    "A user-assigned managed identity, which can also be the server's primary identity. This model only has the system-assigned one.",
+    "Network setup for a server that isn't publicly reachable, such as a data gateway.",
+    "The exact T-SQL of the cross-database query, or how fast changes arrive."
+  ],
+  "expected": {
+    "description": "System-assigned managed identity On and primary. Sam a Member. The user gets SELECT, ALTER ANY EXTERNAL MIRROR, VIEW DATABASE PERFORMANCE STATE and VIEW DATABASE SECURITY STATE. Mirror all data off, with dbo.orders, dbo.order_lines and dbo.products. dbo.orders_history can't be mirrored. order_lines without line_total, products without description and row_version. Fix rows in the source, join with a cross-database query, set row security up again in Fabric."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The server or the people setting it up aren't ready for mirroring.",
+      "pass": "The server identity, the creator's role and the database user's permissions are right.",
+      "rules": [
+        {
+          "path": "source_server.system_assigned_managed_identity",
+          "equals": "On",
+          "why": "To publish data to OneLake, a managed identity must be turned on for the Azure SQL logical server."
+        },
+        {
+          "path": "source_server.sami_is_primary_identity",
+          "equals": true,
+          "why": "The managed identity must also be the server's primary identity."
+        },
+        {
+          "path": "create_mirrored_database.workspace_role",
+          "one_of": [
+            "Member",
+            "Admin"
+          ],
+          "why": "Creating a mirrored database needs the Member or Admin role. A Contributor doesn't have the Reshare permission that step needs."
+        },
+        {
+          "path": "database_user.permissions",
+          "count": 4,
+          "why": "The user needs exactly the permissions mirroring asks for, nothing broader such as db_owner."
+        },
+        {
+          "path": "database_user.permissions",
+          "contains": "SELECT"
+        },
+        {
+          "path": "database_user.permissions",
+          "contains": "ALTER ANY EXTERNAL MIRROR"
+        },
+        {
+          "path": "database_user.permissions",
+          "contains": "VIEW DATABASE PERFORMANCE STATE"
+        },
+        {
+          "path": "database_user.permissions",
+          "contains": "VIEW DATABASE SECURITY STATE"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The mirrored tables aren't the ones the reports need, or HR data can reach OneLake.",
+      "pass": "Only the three sales tables are mirrored, and new tables won't be added on their own.",
+      "rules": [
+        {
+          "path": "mirroring.mirror_all_data",
+          "equals": false,
+          "why": "Mirror all data also mirrors every table created after mirroring starts, so HR's new table would follow. Turn it off and pick tables."
+        },
+        {
+          "path": "mirroring.tables",
+          "count": 3
+        },
+        {
+          "path": "mirroring.tables",
+          "contains": "dbo.orders"
+        },
+        {
+          "path": "mirroring.tables",
+          "contains": "dbo.order_lines"
+        },
+        {
+          "path": "mirroring.tables",
+          "contains": "dbo.products"
+        },
+        {
+          "path": "mirroring.tables",
+          "not_contains": "hr.salaries"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The plan expects a table or columns that mirroring can't bring over.",
+      "pass": "The plan knows what can't be mirrored.",
+      "rules": [
+        {
+          "path": "mirroring.tables",
+          "not_contains": "dbo.orders_history",
+          "why": "Temporal history tables can't be mirrored."
+        },
+        {
+          "path": "cannot_mirror",
+          "count": 1
+        },
+        {
+          "path": "cannot_mirror",
+          "contains": "dbo.orders_history"
+        },
+        {
+          "path": "columns_in_onelake.order_lines",
+          "count": 5
+        },
+        {
+          "path": "columns_in_onelake.order_lines",
+          "not_contains": "line_total",
+          "why": "Computed columns can't be mirrored. The table comes across without them."
+        },
+        {
+          "path": "columns_in_onelake.products",
+          "count": 3
+        },
+        {
+          "path": "columns_in_onelake.products",
+          "not_contains": "description",
+          "why": "Columns of type ntext can't be mirrored."
+        },
+        {
+          "path": "columns_in_onelake.products",
+          "not_contains": "row_version",
+          "why": "Columns of type rowversion can't be mirrored."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The plan treats the mirrored database like the source.",
+      "pass": "Fixes go to the source, reports join with one query, and row security is set up again.",
+      "rules": [
+        {
+          "path": "using_the_copy.fix_wrong_rows_in",
+          "equals": "Source database",
+          "why": "The mirrored data is a read-only copy. T-SQL there can query it but not change it. Fix the row in the source and mirroring carries the change over."
+        },
+        {
+          "path": "using_the_copy.report_join",
+          "equals": "Cross-database query",
+          "why": "One T-SQL query can join a mirrored database with a warehouse. A nightly copy would also miss the need to see changes within minutes."
+        },
+        {
+          "path": "using_the_copy.regional_security",
+          "equals": "Set up again in Fabric",
+          "why": "Granular security set in the source database must be configured again in the mirrored database."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "What does the server need before it can publish to OneLake, and which workspace roles can create a mirrored database?",
+    "Mirror all data covers tables created later too. Is that what HR wants?",
+    "Look at each source table's features and each column's type. Which ones does the limitations page say can't be mirrored?",
+    "Can you run an UPDATE against a mirrored table? Does row-level security travel with the data?"
+  ],
+  "explanation": "Mirroring keeps a read-only copy of chosen tables in OneLake as Delta tables and keeps it in sync. Before it can publish, the Azure SQL logical server needs a managed identity turned on as its primary identity, the person creating the mirrored database needs the Member or Admin role, and the database user needs SELECT, ALTER ANY EXTERNAL MIRROR, VIEW DATABASE PERFORMANCE STATE and VIEW DATABASE SECURITY STATE. Mirror all data mirrors every table, including ones created later, so keeping HR out means turning it off and picking tables. Some things never come across. Temporal history tables can't be mirrored, and columns that are computed or of types such as ntext and rowversion are left out. The copy is read-only, so a wrong row is fixed in the source. A cross-database query can join the mirrored database with a warehouse in one T-SQL query. Granular security such as row-level security has to be set up again in Fabric.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+    "https://learn.microsoft.com/en-us/fabric/mirroring/azure-sql-database",
+    "https://learn.microsoft.com/en-us/fabric/mirroring/azure-sql-database-tutorial",
+    "https://learn.microsoft.com/en-us/fabric/mirroring/azure-sql-database-limitations"
+  ],
+  "review_notes": [
+    "SIMULATED: a model of one plan. Nothing connects to Azure SQL Database or Fabric.",
+    "Checked on Learn 2026-11-23. mirroring/overview: you choose to replicate an entire database or individual tables, data lands in OneLake in Delta format, mirroring creates a SQL analytics endpoint, and cross-database queries can join mirrored databases, warehouses and lakehouse SQL analytics endpoints in one T-SQL query. mirroring/azure-sql-database: the SQL analytics endpoint is a read-only copy, T-SQL can query but not manipulate the data. mirroring/azure-sql-database-tutorial: SAMI or UAMI must be on and the primary identity of the logical server. The user needs SELECT, ALTER ANY EXTERNAL MIRROR, VIEW DATABASE PERFORMANCE STATE and VIEW DATABASE SECURITY STATE. Member or Admin creates the mirrored database, a Contributor lacks Reshare. Mirror all data means tables created after mirroring starts are mirrored. Granular security in the source must be reconfigured in Fabric. mirroring/azure-sql-database-limitations: temporal and ledger history tables can't be mirrored. Computed columns and columns of image, text, ntext, xml, rowversion, sql_variant, UDT, geometry and geography types can't be mirrored. At most 1,000 tables.",
+    "Not graded: the exact wording of the Configure mirroring screen beyond Mirror all data, and whether db_owner would also work. The rule counts four permissions because the tutorial lists those four."
+  ]
+}

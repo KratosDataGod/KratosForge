@@ -518,8 +518,9 @@ def _flatten_parts(node: exp.Expression) -> tuple[exp.Expression, bool, str] | N
     return (source, outer, path) if source is not None else None
 
 
-def _flattened(source: exp.Expression, path: str, outer: bool) -> exp.Expression:
-    """FLATTEN's rows as a subquery over json_each, with Snowflake's columns (KEY, PATH, INDEX, VALUE, THIS):
+def _flattened(source: exp.Expression, path: str, outer: bool, seq: bool = False) -> exp.Expression:
+    """FLATTEN's rows as a subquery over json_each, with Snowflake's columns (SEQ when ``seq``, KEY, PATH, INDEX,
+    VALUE, THIS): SEQ is 1, the number of the one input record (SFX-083);
     KEY is NULL for an array element and INDEX for an object field, and PATH is written as Snowflake
     writes it. Only these columns come out, so json_each's own (id, type, parent...) can't clash with the
     person's. A scalar has nothing to flatten. With OUTER, a value with nothing to flatten gives one row: NULL KEY, INDEX and VALUE, and the
@@ -535,22 +536,34 @@ def _flattened(source: exp.Expression, path: str, outer: bool) -> exp.Expression
     # would give a scalar one row), and one row of NULLs with OUTER
     compound = "coalesce(json_type(CAST(fj_arg0 AS JSON)) IN ('ARRAY', 'OBJECT'), FALSE)"
     field = "__sf_e.key" if not path else f"'{path}.' || __sf_e.key"
-    return _with_args(f"(SELECT CASE WHEN {array} THEN NULL ELSE __sf_e.key END AS key, "
+    first = "1 AS seq, " if seq else ""
+    return _with_args(f"(SELECT {first}CASE WHEN {array} THEN NULL ELSE __sf_e.key END AS key, "
                       f"CASE WHEN {array} THEN '{path}[' || __sf_e.key || ']' ELSE {field} END AS path, "
                       f"CASE WHEN {array} THEN CAST(__sf_e.key AS INT) END AS index, __sf_e.value AS value, "
                       f"CAST(fj_arg0 AS JSON) AS this FROM json_each(CAST(fj_arg0 AS JSON)) AS __sf_e WHERE {compound}"
-                      + (f" UNION ALL SELECT NULL, '{path}', NULL, NULL, CAST(fj_arg0 AS JSON) WHERE NOT {compound} "
+                      + (f" UNION ALL SELECT {'1, ' if seq else ''}NULL, '{path}', NULL, NULL, CAST(fj_arg0 AS JSON) "
+                         f"WHERE NOT {compound} "
                          "OR NOT EXISTS (SELECT 1 FROM json_each(CAST(fj_arg0 AS JSON)))" if outer else "") + ")",
                       [this])
 
 
+_SEQ_REFUSED = _refuse(
+    "SFN-081", "FLATTEN's SEQ column over more than one input row", "SEQ is \"a unique sequence number associated with "
+    "the input record\". This PC gives it (1) when FLATTEN is the query's only source and its input reads no column, "
+    "so there is one input record. Beside a table, or of a column, each row is an input record, and the number "
+    "Snowflake gives each isn't documented (\"not guaranteed to be gap-free or ordered\"), so SEQ, and a * that "
+    "would hold it, aren't given here.", f"{_DOCS}/functions/flatten")
+
+
 def _rewrite_flatten(statement: exp.Expression) -> None:
     """SFX-001: LATERAL FLATTEN and TABLE(FLATTEN(...)) become a lateral subquery over DuckDB's json_each
-    with Snowflake's columns and OUTER rule (see _flattened)."""
+    with Snowflake's columns and OUTER rule (see _flattened). SFX-083: SEQ is 1 when FLATTEN is the only source
+    and its input reads no column; otherwise SEQ, and a * over FLATTEN's columns, stop by name (SFN-081)."""
     for select in list(statement.find_all(exp.Select)):
         source_node = select.args.get("from_")
         joins = select.args.get("joins") or []
         aliases: list[str] = []
+        unnumbered: list[str] = []
         items: list[tuple[int | None, exp.Expression]] = [(None, source_node.this)] if source_node is not None else []
         items += [(i, j.this) for i, j in enumerate(joins)]
         for i, item in items:
@@ -561,7 +574,8 @@ def _rewrite_flatten(statement: exp.Expression) -> None:
             alias_node = item.args.get("alias")
             alias = alias_node.name if alias_node is not None and alias_node.name else "flatten"
             _duck(source)  # refused here when DuckDB can't take the input
-            rows = exp.Subquery(this=_flattened(source, path, outer).unnest(),
+            seq = i is None and not joins and not any(source.find_all(exp.Column))  # one input record
+            rows = exp.Subquery(this=_flattened(source, path, outer, seq).unnest(),
                                 alias=exp.TableAlias(this=exp.to_identifier(alias)))
             if i is None:
                 if source_node is not None:
@@ -573,13 +587,18 @@ def _rewrite_flatten(statement: exp.Expression) -> None:
                 lateral.set("this", exp.Subquery(this=rows.this))
                 lateral.set("alias", rows.args["alias"])
             aliases.append(alias.lower())
-        if not aliases:
+            if not seq:
+                unnumbered.append(alias.lower())
+        if not unnumbered:
             continue
         for col in list(select.find_all(exp.Column)):
             table = col.table.lower()
-            if col.name.lower() == "seq" and (table in aliases or (not table and len(aliases) == 1)):
-                raise _Untranslatable(_refuse("SFX-001", "FLATTEN's SEQ column", "json_each has no SEQ column.",
-                                              f"{_DOCS}/functions/flatten"))
+            if col.name.lower() == "seq" and (table in unnumbered or (not table and len(aliases) == 1)):
+                raise _Untranslatable(_SEQ_REFUSED)
+        for projection in select.expressions:
+            if isinstance(projection, exp.Star) or (isinstance(projection, exp.Column) and isinstance(
+                    projection.this, exp.Star) and projection.table.lower() in unnumbered):
+                raise _Untranslatable(_SEQ_REFUSED)
 
 
 # Snowflake date and time format elements -> strftime, longest first. Matched without case.
@@ -718,6 +737,113 @@ def _rewrite_values(statement: exp.Expression) -> None:
         width = len(first.expressions) if isinstance(first, exp.Tuple) else 1
         node.set("alias", exp.TableAlias(this=alias.this if alias is not None else exp.to_identifier("_values"),
                                          columns=[exp.to_identifier(f"column{i}") for i in range(1, width + 1)]))
+
+
+# SFX-082 and SFN-080 (2026.11.23): $1, $2... is a column by its position in the FROM clause (select: "$col_position
+# Specifies the position of the column (1-based) as defined in the FROM clause"; values: SELECT column1, $2 FROM
+# (VALUES ...) has the columns COLUMN1 and $2). DuckDB read $2 as a prepared statement's parameter.
+_POSITIONS_REFUSED = _refuse(
+    "SFN-080", "A positional column ($1) over more than one source", "$1, $2... is a column by its position in "
+    "the FROM clause. This PC numbers the columns of a FROM clause with one table, view, subquery or VALUES list "
+    "only; with a join, a second source or a set operation's ORDER BY, which source's column it is isn't worked out "
+    "here.", f"{_DOCS}/sql/select")
+
+
+def _position(node: exp.Expression) -> int | None:
+    """n for $n (a column's 1-based position), or None for anything else ($name is a session variable)."""
+    if isinstance(node, exp.Parameter) and isinstance(node.this, exp.Literal) and not node.this.is_string \
+            and node.this.name.isdigit():
+        return int(node.this.name)
+    return None
+
+
+def _rewrite_positions(statement: exp.Expression) -> None:
+    """SFX-082: $n over a FROM clause with one source is that source's nth column. The source becomes a subquery
+    that adds each position the query reads as a column named "$n" (DuckDB's #n is the nth column of its FROM), under
+    the source's own name, so its other columns are read as before; a * leaves the added columns out, and an
+    unaliased $n is named $n, as Snowflake names it. Anything else stops by name (SFN-080)."""
+    scopes: dict[int, tuple[exp.Select, list[tuple[exp.Expression, int, str]]]] = {}
+    for parameter in list(statement.find_all(exp.Parameter)):
+        n = _position(parameter)
+        if n is None:
+            continue
+        node: exp.Expression = parameter
+        qualifier = ""
+        if isinstance(parameter.parent, exp.Column) and parameter.parent.this is parameter:
+            node, qualifier = parameter.parent, parameter.parent.table
+        scope = node.find_ancestor(exp.Select, exp.SetOperation)
+        if not isinstance(scope, exp.Select):
+            raise _Untranslatable(_POSITIONS_REFUSED)
+        scopes.setdefault(id(scope), (scope, []))[1].append((node, n, qualifier))
+    for select, found in scopes.values():
+        source = select.args.get("from_")
+        if source is None or select.args.get("joins") or select.args.get("laterals"):
+            raise _Untranslatable(_POSITIONS_REFUSED)
+        item = source.this
+        name = item.alias_or_name if isinstance(item, (exp.Table, exp.Subquery, exp.Values)) else ""
+        if any(q and q.lower() != name.lower() for _, _, q in found):
+            raise _Untranslatable(_POSITIONS_REFUSED)
+        positions = sorted({n for _, n, _ in found})
+        added = [exp.alias_(exp.Var(this=f"#{n}"), exp.to_identifier(f"${n}", quoted=True)) for n in positions]
+        inner = exp.select(exp.Star(), *added).from_(item.copy())
+        alias = name or "__sf_from"
+        source.set("this", exp.Subquery(this=inner, alias=exp.TableAlias(this=exp.to_identifier(alias))))
+        for node, n, qualifier in found:
+            node.replace(exp.column(exp.to_identifier(f"${n}", quoted=True),
+                                    table=exp.to_identifier(alias) if qualifier else None))
+        hidden = [exp.column(exp.to_identifier(f"${n}", quoted=True)) for n in positions]
+        for projection in select.expressions:
+            star = projection.this if isinstance(projection, exp.Column) else projection
+            if isinstance(star, exp.Star) and (not isinstance(projection, exp.Column)
+                                               or projection.table.lower() == alias.lower()):
+                star.set("except_", [*(star.args.get("except_") or []), *(h.copy() for h in hidden)])
+
+
+# SFX-084 and SFN-082 (2026.11.23): sql/select: "You can specify the same column name in REPLACE and RENAME", as in
+# SELECT * REPLACE ('DEPT-' || department_id AS department_id) RENAME department_id AS department. DuckDB stops
+# with a parser error when one column is in both lists.
+_REPLACE_RENAME_REFUSED = _refuse(
+    "SFN-082", "The same column in * REPLACE and RENAME beside another column of that name",
+    "Snowflake lets one column be in both * REPLACE and RENAME (the value replaced, under the new name). This PC "
+    "renames that column after the query, so it does so only when no other column of the query may have the same "
+    "name: not beside another *, or a column named as the old or new name.", f"{_DOCS}/sql/select")
+
+
+def _rewrite_replace_rename(statement: exp.Expression) -> exp.Expression:
+    """SFX-084: a column in both * REPLACE and * RENAME is replaced by the query, which keeps its place, and then
+    renamed by a query around it (SELECT * RENAME (c AS d) FROM (the query)). Its ORDER BY and LIMIT stay inside,
+    where the rows are put in order; a WITH moves outside. Anything else stops by name (SFN-082)."""
+    while True:
+        for star in statement.find_all(exp.Star):
+            replaced = {a.alias.lower() for a in star.args.get("replace") or [] if isinstance(a, exp.Alias)}
+            both = [r for r in star.args.get("rename") or []
+                    if isinstance(r, exp.Alias) and isinstance(r.this, exp.Column) and r.this.name.lower() in replaced]
+            if both:
+                break
+        else:
+            return statement
+        item = star.parent if isinstance(star.parent, exp.Column) else star
+        select = item.parent
+        if not isinstance(select, exp.Select) or not any(e is item for e in select.expressions):
+            raise _Untranslatable(_REPLACE_RENAME_REFUSED)
+        names = {r.this.name.lower() for r in both} | {r.alias.lower() for r in both}
+        for other in select.expressions:
+            if other is item:
+                continue
+            if isinstance(other, exp.Star) or isinstance(other.this, exp.Star) or other.alias_or_name.lower() in names:
+                raise _Untranslatable(_REPLACE_RENAME_REFUSED)
+        star.set("rename", [r for r in star.args["rename"] if all(r is not b for b in both)] or None)
+        with_ = select.args.get("with_")
+        inner = select.copy()
+        inner.set("with_", None)
+        outer = exp.select(exp.Star(rename=[r.copy() for r in both])).from_(
+            exp.Subquery(this=inner, alias=exp.TableAlias(this=exp.to_identifier("__sf_renamed"))))
+        if with_ is not None:
+            outer.set("with_", with_.copy())
+        if select is statement:
+            statement = outer
+        else:
+            select.replace(outer)
 
 
 def _rewrite_ratio_to_report(statement: exp.Expression) -> None:
@@ -1305,9 +1431,10 @@ def _mark_semi_text(statement: exp.Expression) -> None:
                 _text_mark(operand, operand, "cast" if kind == "variant" else "concat")
 
 
-def _mark_leaves(built: exp.Expression) -> None:
+def _mark_leaves(built: exp.Expression, mark: str = _LEAF_MARK) -> None:
     """The values an OBJECT built in the query keeps as JSON (OBJECT_CONSTRUCT's, OBJECT_INSERT's, OBJECT_AGG's),
-    each marked so _semi_text checks its type while it is still known."""
+    each marked so _semi_text (or _check_json_doubles, for ``mark`` _DOUBLE_LEAF) checks its type while it is still
+    known."""
     if isinstance(built, exp.Struct):
         values = [p.expression for p in built.expressions if isinstance(p, exp.PropertyEQ)]
     elif isinstance(built, exp.ObjectInsert):
@@ -1318,9 +1445,9 @@ def _mark_leaves(built: exp.Expression) -> None:
         values = []
     for value in values:
         if value is None or isinstance(value, (exp.Literal, exp.Null, exp.Boolean, exp.Struct)) or (
-                isinstance(value, exp.Anonymous) and value.name == _LEAF_MARK):
+                isinstance(value, exp.Anonymous) and value.name == mark):
             continue
-        value.replace(exp.Anonymous(this=_LEAF_MARK, expressions=[value.copy()]))
+        value.replace(exp.Anonymous(this=mark, expressions=[value.copy()]))
 
 
 # The checks _semi_text makes of a value (__sf_t, a lambda's parameter) as JSON (J):
@@ -1439,6 +1566,58 @@ def _semi_text(statement: exp.Expression) -> None:
                                 f"{stop(_COERCE_REFUSED)} ELSE fj_arg1 END", [field("f"), text]))
 
 
+# SFN-083 (2026.11.23): TO_JSON of an ARRAY or OBJECT holding a DOUBLE. The ARRAY_CONSTRUCT and
+# ARRAY_CONSTRUCT_COMPACT pages show 3::DOUBLE in an array as 3.000000000000000e+00; DuckDB writes 3.0, and TO_JSON's
+# page shows no double, so how Snowflake writes another double there isn't documented.
+_DOUBLE_LEAF = "__KF_SF_DOUBLE"   # early: a value an OBJECT under TO_JSON keeps, checked before its type is lost
+_DOUBLE_TOP = "kf_sf_double_top"  # early: a TO_JSON whose value isn't an object built in the query, checked whole
+_JSON_DOUBLE_REFUSED = _refuse(
+    "SFN-083", "TO_JSON of an ARRAY or OBJECT holding a DOUBLE", "The ARRAY_CONSTRUCT and ARRAY_CONSTRUCT_COMPACT "
+    "pages show 3::DOUBLE in an array as 3.000000000000000e+00, where DuckDB writes 3.0, and Snowflake's docs don't "
+    "show how it writes another DOUBLE, so the query stops at a row holding one. A list of VARIANT values (an array "
+    "of text and numbers, or an ARRAY column) stops at any number with a fraction or exponent, whose type isn't kept "
+    "here. Cast the numbers to NUMBER or to whole numbers first.", f"{_DOCS}/functions/array_construct")
+_SF_DT = "typeof(__sf_d)"
+_SF_VT = "variant_typeof(CAST(__sf_d AS VARIANT))"
+# a DOUBLE or FLOAT in a typed value (DOUBLE, DOUBLE[], STRUCT(a DOUBLE), MAP(.., DOUBLE)); in a VARIANT scalar by its
+# type; in a list or container of VARIANT values by its JSON, a number with a fraction or an exponent outside strings
+_SF_DOUBLE = (f"({_SF_DT} <> 'JSON' AND (regexp_matches({_SF_DT}, '\\b(DOUBLE|FLOAT)\\b') OR {_SF_DT} LIKE '%VARIANT%' "
+              f"AND CASE WHEN {_SF_DT} = 'VARIANT' AND NOT regexp_matches({_SF_VT}, '^(ARRAY|OBJECT)') "
+              f"THEN {_SF_VT} IN ('DOUBLE', 'FLOAT') ELSE regexp_matches(regexp_replace(CAST(CAST(CAST(__sf_d AS "
+              f"VARIANT) AS JSON) AS VARCHAR), '\"([^\"\\\\]|\\\\.)*\"', '', 'g'), '[0-9][.eE]') END))")
+_SF_IS_CONTAINER = (f"({_SF_DT} LIKE '%]' OR {_SF_DT} LIKE 'STRUCT(%' OR {_SF_DT} LIKE 'MAP(%' OR {_SF_DT} = 'VARIANT' "
+                    f"AND regexp_matches({_SF_VT}, '^(ARRAY|OBJECT)'))")
+
+
+def _mark_json_doubles(statement: exp.Expression) -> None:
+    """SFN-083, first, on the Snowflake tree: each value an OBJECT built inside Snowflake's TO_JSON keeps is marked,
+    so its type is checked before OBJECT_CONSTRUCT makes it JSON. Any other value is marked to be checked whole
+    (an object built in the query is JSON, which its leaves' checks cover, so it isn't worked out twice)."""
+    for node in list(statement.find_all(exp.JSONFormat)):
+        if node.meta.get(_SNOWFLAKE_TO_JSON) and node.this is not None:
+            for built in list(node.this.find_all(*_OBJECT_NODES)):
+                _mark_leaves(built, _DOUBLE_LEAF)
+            if _semi_kind(node.this) != "array_object" or not isinstance(node.this, _OBJECT_NODES + (exp.Anonymous,)):
+                node.meta[_DOUBLE_TOP] = True
+
+
+def _check_json_doubles(statement: exp.Expression) -> None:
+    """SFN-083, on the DuckDB tree after the rewrites: Snowflake's TO_JSON of an array or object that holds a DOUBLE
+    (its type read when the query runs), or of an object with a DOUBLE value, stops the query by name. The value is
+    worked out twice, which matters only when it isn't deterministic."""
+    from .sql import _with_args
+    stop = _stop_sql(_JSON_DOUBLE_REFUSED)
+    for leaf in reversed([n for n in statement.find_all(exp.Anonymous) if n.name == _DOUBLE_LEAF]):
+        value = leaf.expressions[0]
+        leaf.replace(_with_args(f"CASE WHEN list_transform([fj_arg0], lambda __sf_d: {_SF_DOUBLE})[1] THEN {stop} "
+                                "ELSE fj_arg1 END", [value, value.copy()]))
+    for node in list(statement.find_all(exp.JSONFormat)):
+        if node.meta.pop(_DOUBLE_TOP, None) and node.this is not None:
+            value = node.this
+            node.set("this", _with_args(f"CASE WHEN list_transform([fj_arg0], lambda __sf_d: {_SF_IS_CONTAINER} AND "
+                                        f"{_SF_DOUBLE})[1] THEN {stop} ELSE fj_arg1 END", [value, value.copy()]))
+
+
 def _keep_name(node: exp.Expr) -> None:
     """Name the select-list item ``node`` is in as it reads now, when it has no name of its own, so a
     rewrite that writes a long CASE in its place doesn't give the column that CASE's text as its name. The
@@ -1451,7 +1630,9 @@ def _keep_name(node: exp.Expr) -> None:
         select = item.parent
         if select is None:
             return
-        if not isinstance(item, exp.Alias) and any(e is item for e in select.expressions):
+        # a * (its REPLACE's value) names its own columns: an alias would give them all one name
+        star = isinstance(item, exp.Star) or isinstance(item, exp.Column) and isinstance(item.this, exp.Star)
+        if not isinstance(item, exp.Alias) and not star and any(e is item for e in select.expressions):
             named = exp.Alias(alias=exp.to_identifier(sql.duckdb_sql(item), quoted=True))
             item.replace(named)
             named.set("this", item)
@@ -2679,7 +2860,7 @@ CATALOG = (
                 "Snowflake writes it (b, b[0], c.d), THIS is the value flattened, OUTER gives one row of NULLs for a value "
                 "with nothing to flatten, and PATH => "
                 "takes plain names and [n]. A scalar has nothing to flatten (no row, or the OUTER row). A key that isn't a plain name is written in PATH as it is, since "
-                "Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; "
+                "Snowflake's docs don't show how it writes one. SEQ is SFX-083; RECURSIVE and MODE aren't rewritten; "
                 "SFD-005 is retired.")),
     ("SFX-002", "Rewritten", ("TO_VARCHAR and TO_CHAR with a date or time format written in the query become "
                 "strftime. Elements with no equivalent (quarter, week) aren't rewritten.")),
@@ -2822,6 +3003,16 @@ CATALOG = (
                 "by OBJECT_INSERT, OBJECT_AGG or ARRAYS_TO_OBJECT from a column, keeps a date or time as text here, so it "
                 "is written as that text. Inside a lambda, or from a window function, only the outer object's keys can "
                 "be sorted. The value's text is worked out twice, which matters only when it isn't deterministic.")),
+    ("SFX-082", "Rewritten", ("$1, $2... over a FROM clause with one table, view, subquery or VALUES list is that "
+                "source's column at that position (1-based), as Snowflake reads it, in any clause; an unaliased $2 is "
+                "named $2, and * gives the source's own columns. Over a join or a second source it stops (SFN-080).")),
+    ("SFX-083", "Rewritten", ("FLATTEN's SEQ column, first, as in Snowflake's output: 1 when FLATTEN is the query's "
+                "only source and its input reads no column (one input record, as the FLATTEN page's examples show). "
+                "Otherwise SEQ, and a * over FLATTEN's columns, stop (SFN-081).")),
+    ("SFX-084", "Rewritten", ("A column in both * REPLACE and * RENAME (SELECT * REPLACE ('DEPT-' \\|\\| d AS d) "
+                "RENAME d AS dept) gives the replaced value under the new name, in the column's place, as Snowflake "
+                "does; DuckDB stopped with a parser error. Beside another * or a column of the old or new name it "
+                "stops (SFN-082).")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2911,6 +3102,17 @@ CATALOG = (
     ("SFN-079", "Runs only in Snowflake", ("An ARRAY or OBJECT joined with \\|\\| or CONCAT: Snowflake converts them to "
                 "text only when cast. A column holding an array or a JSON object stops the query at that row (a JSON "
                 "object here may be an OBJECT column). Cast it first.")),
+    ("SFN-080", "Runs only in Snowflake", ("$1, $2... over a join, more than one source or a set operation's "
+                "ORDER BY: which source's column it is isn't worked out here.")),
+    ("SFN-081", "Runs only in Snowflake", ("FLATTEN's SEQ column, and a * over FLATTEN's columns, when FLATTEN is beside "
+                "another source or its input reads a column: each row is an input record, and the number Snowflake "
+                "gives each isn't documented (not gap-free or ordered).")),
+    ("SFN-082", "Runs only in Snowflake", ("A column in both * REPLACE and * RENAME beside another * or a column "
+                "named as its old or new name: the rename would be ambiguous here.")),
+    ("SFN-083", "Runs only in Snowflake", ("TO_JSON of an ARRAY or OBJECT holding a DOUBLE (the query stops at that "
+                "row): the ARRAY_CONSTRUCT pages show 3::DOUBLE in an array as 3.000000000000000e+00, where DuckDB "
+                "writes 3.0, and no page shows how TO_JSON writes another. In a list of VARIANT values any number with "
+                "a fraction or exponent stops it, since its type isn't kept here.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -2953,11 +3155,14 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     try:
         _mark_offsets_and_json(tree)
         _mark_semi_text(tree)
+        _mark_json_doubles(tree)
         _rewrite_flatten(tree)
         _rewrite_to_char(tree)
         _rewrite_date_trunc(tree)
         _rewrite_object_construct(tree)
         _rewrite_values(tree)
+        _rewrite_positions(tree)
+        tree = _rewrite_replace_rename(tree)
         _rewrite_soundex(tree)
         _rewrite_ratio_to_report(tree)
         _rewrite_events(tree)
@@ -2983,6 +3188,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         unknown_brackets = _type_values(tree, written)
         _rewrite_json_text(tree)
         _rewrite_division(tree)
+        _check_json_doubles(tree)
         _json_of_variant_lists(tree)
         _semi_text(tree)
         tree = _sort_json_keys(_check_offsets(tree))

@@ -131,8 +131,9 @@ def test_sfx001_flatten_over_an_object_gives_its_keys(session):
 @pytest.mark.parametrize("code", ["select f.seq from t, lateral flatten(input => v:arr) f",
                                   "select seq from t, lateral flatten(input => v:arr) f"])
 def test_sfx001_flatten_seq_is_refused(code):
+    # one SEQ per table row, whose numbers Snowflake doesn't document (SFN-081; SFX-083 gives it for one input)
     t = sf.translate(code)
-    assert not t.runnable and t.statements[0].notes[0].id == "SFX-001"
+    assert not t.runnable and t.statements[0].notes[0].id == "SFN-081"
 
 
 def _flat(code):
@@ -151,8 +152,9 @@ def test_sfx001_flatten_columns_are_snowflakes():
 
 
 def test_sfx001_flatten_outer_gives_one_row_for_an_empty_value_wherever_it_is():
+    # the flatten page's example: SEQ 1, KEY NULL, PATH empty, INDEX NULL, VALUE NULL, THIS [] (SFX-083 adds SEQ)
     assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]'), OUTER => TRUE)) f") == [
-        (None, "", None, None, "[]")]
+        (1, None, "", None, None, "[]")]
     assert _flat("SELECT * FROM TABLE(FLATTEN(INPUT => PARSE_JSON('[]'))) f") == []
 
 

@@ -31,10 +31,12 @@ def test_the_array_pages_examples_answer_as_documented(name):
 
 
 def test_an_array_of_text_and_numbers_keeps_each_elements_type():
-    row, _ = _run("SELECT TO_JSON(ARRAY_CONSTRUCT_COMPACT(NULL, 'hello', 3::double, 4, 5)), "
+    # TO_JSON of the compact page's array isn't checked as text: the page shows 3::double as 3.000000000000000e+00,
+    # not 3.0, and TO_JSON's page shows no double, so it stops by name (SFN-083, test_snowflake_small_gaps)
+    row, _ = _run("SELECT TO_JSON(ARRAY_CONSTRUCT_COMPACT(NULL, 'hello', 3, 4, 5)), "
                   "TO_JSON(ARRAY_APPEND(ARRAY_CONSTRUCT(1, 2), 'a')), TO_JSON(ARRAY_CONSTRUCT(1, 'a')), "
                   "ARRAY_SIZE(ARRAY_CONSTRUCT(1, 'a')), ARRAY_CONSTRUCT(1, 'a')[1]::VARCHAR")
-    assert row == ('["hello",3.0,4,5]', '[1,2,"a"]', '[1,"a"]', 2, "a")
+    assert row == ('["hello",3,4,5]', '[1,2,"a"]', '[1,"a"]', 2, "a")
 
 
 def test_an_array_of_one_kind_stays_a_plain_list():

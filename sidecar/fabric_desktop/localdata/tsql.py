@@ -195,6 +195,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
             tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
+            _null_dates(tree)  # WR-270: before CONVERT's rewrite and the casts' sizes, which hide a NULL
             notes += _converts(tree)
             _regexps(tree)
             notes += _types(tree, schema)
@@ -250,7 +251,7 @@ class KfTSQL(TSQL):
         # PARSE and TRY_PARSE take "x AS type USING culture", which sqlglot can't read (WR-229).
         FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
                             "TRY_PARSE": tsql_format.parser(True)}
-        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
+        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build, "DATENAME": lambda args: _datename(args),
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
                      "JSON_VALUE": lambda args: exp.JSONExtractScalar(this=seq_get(args, 0), expression=seq_get(args, 1),
@@ -1054,7 +1055,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
-    kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
+    kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc,
+             exp.Extract, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup)
     here = _in_order(tree, kinds)
@@ -1148,8 +1150,15 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             tsql_format.rewrite(node, info.this.type)
         elif isinstance(node, (exp.Concat, exp.ConcatWs)):
             notes += _floats_joined(node, info)
-        elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc)):
-            if _is(info.this.type, {exp.DataType.Type.DATE}):
+        elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc, exp.Extract)):
+            key = "expression" if isinstance(node, exp.Extract) else "this"
+            value = node.args.get(key)
+            if _is(info.args[key].type if info.args.get(key) is not None else None, _TEXT) \
+                    and isinstance(value, exp.Expression) and not (isinstance(value, exp.Literal) and value.is_string):
+                # WR-270: T-SQL reads a text column as a datetime here (data-type-conversion-database-engine);
+                # DuckDB had no overload for text, so even a NULL one stopped with a binder error.
+                node.set(key, exp.cast(value, "TIMESTAMP"))
+            elif not isinstance(node, exp.Extract) and _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
@@ -1209,6 +1218,7 @@ def _round_keeps_type(node: exp.Round, info: exp.Expression) -> None:
     gives a decimal of another scale, or a BIGINT for an integer. A float stays as DuckDB rounds it."""
     kind = info.this.type
     number = _tsql_number(info.this)
+    _round_length(node, info, number is not None and number[2])
     if number is not None and number[2]:
         precision, scale = number[0], number[1]
         to, name = f"DECIMAL({precision}, {scale})", "numeric"
@@ -1224,6 +1234,34 @@ def _round_keeps_type(node: exp.Round, info: exp.Expression) -> None:
     message = _OVERFLOW.format(kind=name)
     _fill_in_one(node, f"CASE WHEN (__x) IS NOT NULL AND TRY_CAST((__x) AS {to}) IS NULL "
                        f"THEN CAST(error('{message}') AS {to}) ELSE CAST((__x) AS {to}) END")
+
+
+_ROUND_LENGTH = ("This T-SQL can't be run on the local engine: ROUND of a decimal needs its length written in the query, such as ROUND(x, 2): the "
+                 "local engine can't round a decimal to a length read from a column or worked out. Nothing ran. "
+                 "Write the length as a number, or use a CASE with one ROUND for each length.")
+_FIXED = (exp.Literal, exp.Null, exp.Cast, exp.Neg, exp.Paren, exp.DataType, exp.DataTypeParam)
+
+
+def _round_length(node: exp.Round, info: exp.Expression, decimal: bool) -> None:
+    """WR-270: ROUND's length is an int in T-SQL (functions/round-transact-sql: "length ... must be an expression
+    of type tinyint, smallint, or int"), and a bigint converts to one; DuckDB had no ROUND for a BIGINT length, so
+    ROUND(x, CAST(NULL AS BIGINT)) was a binder error, where T-SQL gives NULL. DuckDB rounds a decimal only to a
+    length it knows before it runs, so any other length of a decimal is refused by name, not left to its
+    "not implemented" error."""
+    length = node.args.get("decimals")
+    if length is None:
+        return
+    if decimal and not all(isinstance(n, _FIXED) for n in length.walk()):
+        raise ValueError(_ROUND_LENGTH)
+    if isinstance(length, exp.Null) or isinstance(length, exp.Cast) and isinstance(length.this, exp.Null):
+        # A NULL length gives NULL; DuckDB 2.0 refuses a NULL length for a decimal. CASE WHEN FALSE THEN x END is
+        # NULL of x's type, so the result keeps its type.
+        node.set("this", exp.Case(ifs=[exp.If(this=exp.false(), true=node.this)]))
+        node.set("decimals", exp.Literal.number(0))
+        return
+    kind = info.args["decimals"].type if info.args.get("decimals") is not None else None
+    if not isinstance(length, exp.Literal) and _is(kind, _INTEGERS - {exp.DataType.Type.INT}):
+        node.set("decimals", exp.cast(length, "INT"))
 
 
 def _fill_in_one(node: exp.Expression, text: str) -> None:
@@ -2633,6 +2671,12 @@ def _refused_by_name(tree: exp.Expression) -> None:
         raise ValueError(_NOT_YET + "GET_BIT isn't mapped yet. Use & with a power of 2, such as x & 4.")
     if any(a.name.upper() == "SET_BIT" for a in tree.find_all(exp.Anonymous)):
         raise ValueError(_NOT_YET + "SET_BIT isn't mapped yet. Use | with a power of 2, such as x | 4.")
+    # WR-270: functions/string-agg-transact-sql takes a separator that is "literal or variable"; DuckDB stopped with
+    # its own binder error for a column.
+    if any(not all(isinstance(n, _FIXED) for n in agg.args["separator"].walk())
+           for agg in tree.find_all(exp.GroupConcat) if agg.args.get("separator") is not None):
+        raise ValueError(_NOT_YET + "STRING_AGG's separator has to be text written in the query, such as ', ', as "
+                         "T-SQL takes it. Nothing ran. Write the separator as text.")
 
 
 def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
@@ -2847,8 +2891,12 @@ def _left_right(node: exp.Left | exp.Right) -> None:
         whole = _whole_count(n)
         longest = exp.func("LEAST", whole.copy(), exp.Literal.number(_LONGEST))
         call = type(node)(this=text, expression=longest)
-        negative = exp.LT(this=whole, expression=exp.Literal.number(0))
-        return exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))], default=call)
+        negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+        # WR-270: a NULL length gives NULL in T-SQL (functions/left-transact-sql, right-transact-sql), where
+        # LEAST skipped it and gave the whole text.
+        unknown = exp.Is(this=whole, expression=exp.null())
+        return exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message))),
+                             exp.If(this=unknown, true=exp.null())], default=call)
     node.replace(_once([node.this, length], build))
 
 
@@ -3153,11 +3201,15 @@ def _int_datediff(node: exp.DateDiff) -> None:
     """``DATEDIFF`` is an int in T-SQL, and a count past an int's range is an error there (WR-208:
     ``DATEDIFF(millisecond, ...)`` over more than 24 days), where DuckDB gives a BIGINT. ``DATEDIFF_BIG``
     keeps the BIGINT."""
-    fits = exp.Between(this=node.copy(), low=exp.Literal.number(-(2 ** 31)), high=exp.Literal.number(2 ** 31 - 1))
-    whole = exp.Case(ifs=[exp.If(this=fits, true=exp.cast(node.copy(), "INT"))],
-                     default=exp.cast(exp.Anonymous(this="error", expressions=[exp.Literal.string(_DATEDIFF_OVERFLOW)]),
-                                      "INT"))
-    node.replace(whole)
+    def build(count: exp.Expression) -> exp.Expression:
+        # WR-270: a NULL date gives NULL (functions/datediff-transact-sql), so only a count known to be out of
+        # range is the error; the count is read once.
+        fits = exp.Between(this=count.copy(), low=exp.Literal.number(-(2 ** 31)),
+                           high=exp.Literal.number(2 ** 31 - 1))
+        error = exp.cast(exp.Anonymous(this="error", expressions=[exp.Literal.string(_DATEDIFF_OVERFLOW)]), "INT")
+        return exp.Case(ifs=[exp.If(this=exp.Not(this=exp.paren(fits, copy=False)), true=error)],
+                        default=exp.cast(count, "INT"))
+    node.replace(_once([node.copy()], build))
 
 
 def _sunday_weeks(node: exp.DateDiff, shift: int = 1) -> None:
@@ -3219,6 +3271,44 @@ def _stays_a_date(node: exp.Expression) -> None:
     wrapper = exp.Cast(to=exp.DataType.build("DATE"))
     node.replace(wrapper)
     wrapper.set("this", node)  # the same node, so a later step still finds what's inside it
+
+
+def _datename(args: list) -> exp.Expression:
+    """``DATENAME(part, d)``: the month's and the weekday's names, and every other part as its number written as
+    text, unpadded (functions/datename-transact-sql: hour 12, dayofyear 303, quarter 4). sqlglot wrote these
+    with STRFTIME patterns, so DATENAME(hour, ...) was the month's short name ('Jan'), day '02', quarter the
+    word 'quarter' (WR-270). The number is DATEPART's, so it counts weeks and weekdays as DATEPART does."""
+    part = seq_get(args, 0)
+    name = part.name.upper() if isinstance(part, exp.Expression) else ""
+    if _DATEPARTS.get(name) in (None, "MONTH", "WEEKDAY", "NANOSECOND") or len(args) != 2:
+        return TSQL.Parser.FUNCTIONS["DATENAME"](args)
+    unit = KfTSQL.DATE_PART_MAPPING.get(name, name)
+    return exp.cast(exp.Extract(this=exp.var(unit), expression=args[1]), "TEXT")
+
+
+def _null_text(node: exp.Expression | None) -> bool:
+    """An untyped NULL, or a NULL cast to text: DuckDB can't pick a date function's overload for either."""
+    if isinstance(node, exp.Null):
+        return True
+    return isinstance(node, (exp.Cast, exp.TryCast)) and isinstance(node.this, exp.Null) \
+        and node.to.this in exp.DataType.TEXT_TYPES
+
+
+def _null_dates(tree: exp.Expression) -> None:
+    """WR-270: a NULL where a date function takes its date gives NULL in T-SQL (functions/datepart-transact-sql,
+    dateadd-transact-sql, datetrunc-transact-sql, datename-transact-sql), where DuckDB couldn't choose among
+    its overloads for an untyped NULL or a NULL written as text, and stopped with a binder error. Such a NULL
+    is made a timestamp, which T-SQL converts text to there. ``CONVERT(type, NULL, style)`` is NULL of the
+    type whatever the style (functions/cast-and-convert-transact-sql)."""
+    timestamp = exp.DataType.build("TIMESTAMP")
+    for node in list(tree.find_all(exp.Extract, exp.DateAdd, exp.TimestampTrunc, exp.Convert)):
+        if isinstance(node, exp.Convert):
+            if isinstance(node.expression, exp.Null) and isinstance(node.this, exp.DataType):
+                node.replace(exp.Cast(this=exp.null(), to=node.this.copy()))
+            continue
+        key = "expression" if isinstance(node, exp.Extract) else "this"
+        if _null_text(node.args.get(key)):
+            node.set(key, exp.Cast(this=exp.null(), to=timestamp.copy()))
 
 
 def _sunday_week_start(node: exp.TimestampTrunc) -> None:

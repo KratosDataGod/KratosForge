@@ -180,7 +180,7 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("CONCAT", f"CONCAT({listed})", "".join(x or "" for x in args)))
         out.append(("CONCAT_WS", f"CONCAT_WS('-', {listed})", "-".join(x for x in args if x is not None)))
         out.append(("PLUS", " + ".join(map(q, args)), None if None in args else "".join(x or "" for x in args)))
-    return out + _regex_cases(random.Random(SEED + 3), q)
+    return out + _regex_cases(random.Random(SEED + 3), q) + _null_cases(random.Random(SEED + 4), q)
 
 
 def _regex(pattern: str, flags: str) -> re.Pattern[str]:
@@ -212,6 +212,100 @@ def _regex_cases(r: random.Random, q) -> list[tuple[str, str, object]]:
         out.append(("REGEXP_COUNT", f"REGEXP_COUNT({text}, {q(p)}) / 2", len(list(re.finditer(_regex(p, "c"), s))) // 2))
         out.append(("REGEXP_INSTR", f"REGEXP_INSTR({text}, {q(p)}, 1, 1, 0, {q(flags)}) / 2",
                     (found[0].start() + 1 if found else 0) // 2))
+    return out
+
+
+# WR-270: a NULL in any argument of a date or text function. functions/datepart-transact-sql, datename-, dateadd-,
+# datediff-, datediff-big-, datetrunc-, eomonth-, datefromparts-, datetimefromparts-, year-, month-, day-,
+# cast-and-convert-, left-, right-, substring-, charindex-, replicate-, stuff-, translate-, replace-, upper-, len-,
+# round-, string-agg-transact-sql: NULL in gives NULL out (STUFF's insert is the exception: a NULL one deletes).
+# ISNULL (functions/isnull-transact-sql) gives the other argument. Each kind of NULL: untyped, CAST to a type,
+# and a column holding NULL.
+_NULLS = {"date": ["CAST(NULL AS DATE)", "CAST(NULL AS DATETIME2)", "CAST(NULL AS VARCHAR(20))"],
+          "time": ["CAST(NULL AS DATETIME2)", "CAST(NULL AS DATETIME)"],
+          "int": ["CAST(NULL AS INT)", "CAST(NULL AS BIGINT)", "CAST(NULL AS SMALLINT)"],
+          "num": ["CAST(NULL AS DECIMAL(10, 2))", "CAST(NULL AS FLOAT)", "CAST(NULL AS INT)"],
+          "text": ["CAST(NULL AS VARCHAR(10))", "CAST(NULL AS NVARCHAR(10))", "CAST(NULL AS CHAR(3))"],
+          "dec": ["CAST(NULL AS DECIMAL(10, 2))", "CAST(NULL AS INT)"]}
+_GOOD = {"date": ["'2024-01-02'", "CAST('2023-12-31' AS DATE)", "CAST('2024-02-29 13:04:05' AS DATETIME2)"],
+         "time": ["'2024-01-02 03:04:05'", "CAST('2024-02-29 13:04:05' AS DATETIME2)"],
+         "int": ["1", "2", "3"], "num": ["1.55", "CAST(2.5 AS DECIMAL(5, 1))", "7"], "text": ["abc", "b", "Hello"],
+         "dec": ["1.55"]}
+_DATE_PARTS = ["year", "quarter", "month", "dayofyear", "day", "week", "weekday", "iso_week"]
+# (family, template, argument kinds, positions where a column of NULL isn't tried: a column there is refused by name)
+_NULL_CALLS: list[tuple[str, str, list[str], set[int]]] = [
+    ("DATEPART", "DATEPART({part}, {0})", ["date"], set()),
+    ("DATEPART", "DATEPART({tpart}, {0})", ["time"], set()),
+    ("DATENAME", "DATENAME({part}, {0})", ["date"], set()),
+    ("DATENAME", "DATENAME({tpart}, {0})", ["time"], set()),
+    ("YEAR", "YEAR({0}) + MONTH({0}) + DAY({0})", ["date"], set()),
+    ("DATEADD", "DATEADD({dpart}, {0}, {1})", ["int", "date"], set()),
+    ("DATEADD", "DATEADD({tpart}, {0}, {1})", ["int", "time"], set()),
+    ("DATEDIFF", "DATEDIFF({part}, {0}, {1})", ["date", "date"], set()),
+    ("DATEDIFF", "DATEDIFF({tpart}, {0}, {1})", ["time", "time"], set()),
+    ("DATEDIFF_BIG", "DATEDIFF_BIG({part}, {0}, {1})", ["date", "date"], set()),
+    ("DATETRUNC", "DATETRUNC({dpart}, {0})", ["date"], set()),
+    ("DATETRUNC", "DATETRUNC({tpart}, {0})", ["time"], set()),
+    ("EOMONTH", "EOMONTH({0}, {1})", ["date", "int"], set()),
+    ("DATEFROMPARTS", "DATEFROMPARTS(2024, {0}, {1})", ["int", "int"], set()),
+    ("DATETIMEFROMPARTS", "DATETIMEFROMPARTS({0}, 1, {1}, 3, {2}, 5, 0)", ["int", "int", "int"], set()),
+    ("CONVERT", "CONVERT(VARCHAR(30), {0}, {style})", ["time"], set()),
+    ("FORMAT", "FORMAT({0}, 'N2')", ["dec"], set()),  # FORMAT of a float is refused by name
+    ("LEFT", "LEFT({0}, {1})", ["text", "int"], set()),
+    ("RIGHT", "RIGHT({0}, {1})", ["text", "int"], set()),
+    ("SUBSTRING", "SUBSTRING({0}, {1}, {2})", ["text", "int", "int"], set()),
+    ("CHARINDEX", "CHARINDEX({0}, {1}, {2})", ["text", "text", "int"], set()),
+    ("REPLICATE", "REPLICATE({0}, {1})", ["text", "int"], set()),
+    ("STUFF", "STUFF({0}, {1}, {2}, 'x')", ["text", "int", "int"], set()),
+    ("TRANSLATE", "TRANSLATE({0}, 'ab', 'xy')", ["text"], set()),
+    ("TRANSLATE", "TRANSLATE('abc', {0}, 'xy')", ["text"], set()),
+    ("TRANSLATE", "TRANSLATE('abc', 'ab', {0})", ["text"], set()),
+    ("REPLACE", "REPLACE({0}, {1}, {2})", ["text", "text", "text"], set()),
+    ("TEXT1", "UPPER({0}) + LOWER({0}) + LTRIM({0}) + RTRIM({0}) + REVERSE({0})", ["text"], set()),
+    ("LEN", "LEN({0}) + DATALENGTH({0}) + ASCII({0}) + UNICODE({0})", ["text"], set()),
+    ("ROUND", "ROUND({0}, {1})", ["num", "int"], {1}),
+    ("ROUND", "ROUND({0}, {1}, 1)", ["num", "int"], {1}),
+    ("STRING_AGG", "STRING_AGG({0}, ',')", ["text"], set()),
+]
+
+
+def _null_cases(r: random.Random, q) -> list[tuple[str, str, object]]:
+    out: list[tuple[str, str, object]] = []
+    for _ in range(300):
+        family, template, kinds, no_column = r.choice(_NULL_CALLS)
+        at = r.randrange(len(kinds))
+        values = [q(g) if k == "text" else g for k, g in ((k, r.choice(_GOOD[k])) for k in kinds)]
+        null = r.choice(_NULLS[kinds[at]] + ["NULL"] * (family != "FORMAT"))
+        column = at not in no_column and r.random() < 0.4
+        values[at] = "c" if column else null
+        parts = {"part": r.choice(_DATE_PARTS), "dpart": r.choice(["year", "quarter", "month", "day", "week"]),
+                 "tpart": r.choice(["hour", "minute", "second", "millisecond", "microsecond"]),
+                 "style": r.choice(["0", "101", "103", "112", "120", "121", "126"])}
+        call = template.format(*values, **parts)
+        if column:  # a column of the NULL's type
+            typed = null if null != "NULL" else _NULLS[kinds[at]][0]
+            call = f"(SELECT {call} FROM (VALUES ({typed})) AS t(c))"
+        out.append(("NULL " + family, call, None))
+    for _ in range(40):
+        a, b = r.choice(_NULLS["int"] + ["NULL"]), r.choice(["2", "-7"])
+        out.append(("ISNULL", f"ISNULL({a}, {b})", int(b)))
+        out.append(("ISNULL", f"ISNULL({b}, {a})", int(b)))
+        s = r.choice(["b", "xy", ""])
+        out.append(("ISNULL", f"ISNULL(CAST(NULL AS VARCHAR(10)), {q(s)})", s))
+    for _ in range(60):
+        # functions/datename-transact-sql: the month's and the weekday's names; every other part is its number as
+        # text (its example: hour 12, dayofyear 303, quarter 4, week 44), with DATEPART's week (DATEFIRST 7).
+        d = dt.datetime(2023, 12, 25, r.randint(0, 23), r.randint(0, 59), r.randint(0, 59)) + \
+            dt.timedelta(days=r.randint(-500, 500))
+        day = d.date()
+        names = {"year": d.year, "quarter": (d.month - 1) // 3 + 1, "month": d.strftime("%B"),
+                 "dayofyear": d.timetuple().tm_yday, "day": d.day,
+                 "week": _boundaries("week", dt.date(d.year, 1, 1), day) + 1, "weekday": d.strftime("%A"),
+                 "hour": d.hour, "minute": d.minute, "second": d.second, "iso_week": day.isocalendar()[1]}
+        part = r.choice(sorted(names))
+        # + '|' keeps a number's text from reading back as a number
+        out.append(("DATENAME", f"DATENAME({part}, CAST('{d:%Y-%m-%d %H:%M:%S}' AS DATETIME2)) + '|'",
+                    f"{names[part]}|"))
     return out
 
 

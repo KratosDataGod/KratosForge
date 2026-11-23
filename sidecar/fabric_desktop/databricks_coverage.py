@@ -111,11 +111,10 @@ DATABRICKS_CHECKS: dict[str, dict[str, Any]] = {
              "value": [["Bob", 5, 1], ["Alice", 2, 1], ["Alice", None, 1], [None, 2, 1], [None, None, 2],
                        ["Bob", None, 1], [None, 5, 1]]},
     "current_catalog": {"example": "SELECT current_catalog()", "value": [["spark_catalog"]],
-                        "note": "'memory' here, DuckDB's own catalog; the session's catalog in Databricks"},
-    "current_database": {"example": "SELECT current_database()", "value": [["default"]],
-                         "note": "'memory' here, DuckDB's own catalog; the session's schema in Databricks"},
-    "current_schema": {"example": "SELECT current_schema()", "value": [["default"]],
-                       "note": "'main' here, DuckDB's own schema; the session's schema in Databricks"},
+                        "note": ("'main' here, the session's catalog, as in a workspace with Unity Catalog; "
+                                 "spark_catalog in Databricks' reference, a workspace without it")},
+    "current_database": {"example": "SELECT current_database()", "value": [["default"]]},
+    "current_schema": {"example": "SELECT current_schema()", "value": [["default"]]},
     "current_time": {"example": "SELECT current_time(0)", "pattern": r"time:\d\d:\d\d:\d\d",
                      "note": ("a TIME WITH TIME ZONE here, with its microseconds: the precision isn't applied. "
                               "Databricks gives a TIME (16:57:04 in its reference)")},

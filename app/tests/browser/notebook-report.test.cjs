@@ -73,7 +73,7 @@ test("the report's window shows the outputs without the code, then the out-of-da
   await p.getByText("The notebook changed after this run.").waitFor();
 
   await p.getByRole("button", { name: "Export as HTML" }).click();
-  const saved = (await p.getByText(/Saved to .*\.html/).textContent()).match(/Saved to (.*\.html)/)[1];
+  const saved = (await p.locator("#toast").filter({ hasText: /Saved to .*\.html/ }).textContent()).match(/Saved to (.*\.html)/)[1];
   assert.match(saved, /Weekly sales review report\.html$/);
   assert.strictEqual(fs.readFileSync(saved, "utf8"), (await p.evaluate(() => rpc("notebook_report_page"))).html);
 

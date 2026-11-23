@@ -430,16 +430,30 @@ _ARRAYS = tuple(getattr(exp, name) for name in (
     "ArrayUniqueAgg", "ArrayRemove", "Flatten") if hasattr(exp, name))
 
 
+def _listed(part: exp.Expression) -> bool:
+    """Whether a part of concat_ws is joined as an array: an array call, a cast to an array, or a column's
+    value spark_builtins_sql.check_nested_concat_ws gave as a list of text."""
+    return isinstance(part, _ARRAYS) or bool(part.meta.get("kf_text_list")) or (
+        isinstance(part, (exp.Cast, exp.TryCast)) and part.to.is_type(exp.DataType.Type.ARRAY))
+
+
 def _concat_ws(node: exp.Expression) -> exp.Expression | None:
     """concat_ws(sep, ...) with an array: its elements joined, NULLs left out, as Spark gives."""
     args = list(node.expressions)
-    if len(args) < 2 or not any(isinstance(a, _ARRAYS) for a in args[1:]):
+    if len(args) < 2 or not any(_listed(a) for a in args[1:]):
         return None
-    parts = [f"CAST(fj_arg{k} AS VARCHAR[])" if isinstance(a, _ARRAYS) else f"[CAST(fj_arg{k} AS VARCHAR)]"
+    parts = [f"CAST(fj_arg{k} AS VARCHAR[])" if _listed(a) else f"[CAST(fj_arg{k} AS VARCHAR)]"
              for k, a in enumerate(args) if k]
     joined = parts[0] if len(parts) == 1 else f"LIST_CONCAT({', '.join(parts)})"
-    return _swap(node, _with(f"CASE WHEN fj_arg0 IS NULL THEN NULL ELSE ARRAY_TO_STRING({joined}, fj_arg0) END",
-                             args))
+    if isinstance(args[0], exp.Literal) and args[0].is_string:
+        return _swap(node, _with(f"CASE WHEN fj_arg0 IS NULL THEN NULL ELSE ARRAY_TO_STRING({joined}, fj_arg0) END",
+                                 args))
+    # DuckDB's ARRAY_TO_STRING takes only a constant separator: one from the data joins the parts itself,
+    # read once with them.
+    return _swap(node, _with(
+        f"(LIST_TRANSFORM([{{'s': CAST(fj_arg0 AS VARCHAR), 'l': LIST_FILTER({joined}, kf_cws_x -> kf_cws_x IS NOT NULL)}}], "
+        "kf_cws -> CASE WHEN kf_cws.s IS NULL THEN NULL WHEN ARRAY_LENGTH(kf_cws.l) = 0 THEN '' "
+        "ELSE LIST_REDUCE(kf_cws.l, (kf_cws_a, kf_cws_b) -> kf_cws_a || kf_cws.s || kf_cws_b) END))[1]", args))
 
 
 def _wrap(node: exp.Expression, kind: str) -> None:
@@ -454,7 +468,9 @@ def spark_text_results(statement: exp.Expression) -> exp.Expression:
     """Spark's regular expressions and string results on DuckDB (see the module's docstring)."""
     for regex in list(statement.find_all(*_REGEX)):
         _regex(cast(exp.Expression, regex), _REGEX[type(regex)])
-    for found in list(statement.find_all(exp.SplitPart, exp.Left, exp.Right, exp.Pad, exp.Chr, exp.ConcatWs)):
+    # Deepest first: a rewrite copies its arguments, so a call inside one is rewritten before it is copied
+    # (concat_ws(',', concat_ws('-', a), a) joined the inner one's array as DuckDB writes it).
+    for found in reversed(list(statement.find_all(exp.SplitPart, exp.Left, exp.Right, exp.Pad, exp.Chr, exp.ConcatWs))):
         call = cast(exp.Expression, found)
         if isinstance(call, exp.SplitPart):
             _split_part(call)

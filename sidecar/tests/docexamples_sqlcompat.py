@@ -52,6 +52,9 @@ CLAIMS: list[Claim] = [
     Claim("sql-compatibility.md", "substring_index('aaa', 'aa', -1)", "notebook"),
     Claim("sql-compatibility.md", "upper('ß')", "notebook"),
     Claim("sql-compatibility.md", "lower('İ')", "notebook"),
+    # Values of more than one type in one call, as Spark 3.5.3 types them (spark_coercion)
+    _nb("array(1, 1.5)", typeof=True),
+    _nb("array_except(array(1, 2), array(1.0D))", typeof=True),
     # ANSI mode on this PC: Spark SQL here, ANSI off
     _nb("CAST(2147483648 AS INT)"),
     _nb("CAST(1e10 AS INT)"),

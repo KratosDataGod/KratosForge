@@ -10,6 +10,9 @@ gives in Fabric, where DuckDB's own aggregate answers differently.
   percentages), as Spark does; percentile_approx and percentile_disc keep the column's type, as
   Databricks documents (percentile_disc(0.5) of ints is 6).
 - grouping() is a tinyint, count_if() and regr_count() a bigint.
+- max_by(x, y) and min_by(x, y) give x from the row with the largest (smallest) y even when that x is
+  NULL, as aggregates and over a window; DuckDB's arg_max and arg_min skip a row whose x is NULL. Rows
+  whose y is NULL are skipped in both.
 
 DuckDB's sum of an int or bigint is a 128-bit integer, which Spark doesn't have; spark_local's writes
 store it as a bigint, and typeof and the schema name it bigint.
@@ -82,6 +85,10 @@ def spark_aggregate_results(statement: exp.Expression) -> exp.Expression:
             _cast(target, "DOUBLE")
         else:
             _cast(node, "DOUBLE[]" if _quantile_is_array(node) else "DOUBLE")
+    for node in list(statement.find_all(exp.ArgMax, exp.ArgMin)):
+        if node.args.get("count") is None and node.expression is not None:
+            name = "ARG_MAX_NULL" if isinstance(node, exp.ArgMax) else "ARG_MIN_NULL"
+            node.replace(exp.Anonymous(this=name, expressions=[node.this, node.expression]))
     for node in list(statement.find_all(exp.Grouping)):
         _cast(node, "TINYINT")
     for node in list(statement.find_all(exp.CountIf, exp.RegrCount)):

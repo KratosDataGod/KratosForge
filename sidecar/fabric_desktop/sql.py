@@ -23,7 +23,7 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
+from . import (spark_aggregates, spark_builtins_sql, spark_coercion, spark_complex, spark_datetime, spark_decimals, spark_hash,
                spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
@@ -200,7 +200,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     statement = _try_divisions(statement)
     statement = _spark_date_results(statement, ansi=databricks)
     statement = _spark_timestampdiff(spark_builtins_sql.rewrite(
-        _spark_functions(databricks, _spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(_spark_names(spark_windows.check_windows(statement)))))))))))),
+        _spark_functions(databricks, _spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_concat_text(_spark_cast_functions(spark_strings.spark_text_results(spark_aggregates.spark_aggregate_results(spark_complex.mark_calls(spark_coercion.mark(_spark_names(spark_windows.check_windows(statement))))))))))))),
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
     if databricks:
@@ -2453,6 +2453,7 @@ written from its argument's type as Spark writes it (spark_json), and a shift of
     if sql_dialects.get(dialect)["id"] != "spark":
         return statement
     from . import spark_text_compare
+    statement = cast(exp.Expression, spark_coercion.spark_coercions(statement, con))
     statement = cast(exp.Expression, spark_text_compare.spark_text_comparisons(statement, con))
     statement = cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
     return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json", "int_shift")))

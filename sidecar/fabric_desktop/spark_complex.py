@@ -27,7 +27,7 @@ from typing import Any, cast
 
 from sqlglot import exp
 
-from . import spark_json, spark_sql_names, sql_dialects
+from . import spark_coercion, spark_json, spark_sql_names, sql_dialects
 
 log = logging.getLogger(__name__)
 
@@ -115,12 +115,15 @@ def spark_complex_results(statement: exp.Expression) -> exp.Expression:
     """``statement`` with the fixes in the module docstring that don't need its types."""
     holder = exp.Tuple(expressions=[statement])  # so the statement itself can be replaced, as in spark_expr
     for node in _mine(list(statement.find_all(exp.ArrayContains))):
-        _put(node, _once("CASE WHEN {a} IS NULL OR {v} IS NULL THEN NULL WHEN LIST_CONTAINS({a}, {v}) THEN TRUE "
-                         "WHEN LIST_COUNT({a}) < ARRAY_LENGTH({a}) THEN NULL ELSE FALSE END",
-                         a=node.this, v=node.expression))
+        new = _put(node, _once("CASE WHEN {a} IS NULL OR {v} IS NULL THEN NULL WHEN LIST_CONTAINS({a}, {v}) THEN TRUE "
+                               "WHEN LIST_COUNT({a}) < ARRAY_LENGTH({a}) THEN NULL ELSE FALSE END",
+                               a=node.this, v=node.expression))
+        spark_coercion.carry(node, new, "ARRAY_CONTAINS")
     for node in _mine(list(statement.find_all(exp.ArrayPosition))):
-        _put(node, _once("CASE WHEN {a} IS NULL OR {v} IS NULL THEN NULL "
-                         "ELSE CAST(COALESCE(LIST_POSITION({a}, {v}), 0) AS BIGINT) END", a=node.this, v=node.expression))
+        new = _put(node, _once("CASE WHEN {a} IS NULL OR {v} IS NULL THEN NULL "
+                               "ELSE CAST(COALESCE(LIST_POSITION({a}, {v}), 0) AS BIGINT) END",
+                               a=node.this, v=node.expression))
+        spark_coercion.carry(node, new, "LIST_POSITION")
     for node in _mine(list(statement.find_all(exp.Flatten))):
         _put(node, _once("CASE WHEN {a} IS NULL OR LIST_COUNT({a}) < ARRAY_LENGTH({a}) THEN NULL ELSE FLATTEN({a}) END",
                          a=node.this))

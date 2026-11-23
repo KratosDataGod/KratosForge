@@ -381,6 +381,7 @@ class DuckDBSession(_SqlSession):
             raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL, Databricks SQL, Snowflake SQL "
                               "or DuckDB SQL.")
         from .. import sql
+        from ..spark_coercion import spark_coercions
         from ..spark_decimals import spark_decimal_types
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
         if dialect == "databricks":
@@ -392,8 +393,9 @@ class DuckDBSession(_SqlSession):
         try:
             # Spark's (and Databricks') decimal result types, from the session's tables as they are now: a
             # table the same cell creates isn't there yet, so a statement reading it keeps DuckDB's types
-            return ";\n".join(sql.duckdb_sql(self._spark_types(spark_decimal_types(s, self._con, ansi=dialect == "databricks"),
-                                                            dialect)) for s in statements)
+            return ";\n".join(sql.duckdb_sql(self._spark_types(spark_decimal_types(
+                spark_coercions(s, self._con) if dialect == "spark" else s, self._con, ansi=dialect == "databricks"),
+                dialect)) for s in statements)
         except ValueError as exc:
             raise Unsupported(_databricks_wording(str(exc)) if dialect == "databricks" else str(exc)) from None
 

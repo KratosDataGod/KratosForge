@@ -206,7 +206,7 @@ These cases still differ:
 
 ## Window functions on this PC
 
-Spark SQL and the DataFrame API run on this PC give Spark's answers for window functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_windows.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+Spark SQL and the DataFrame API run on this PC give Spark's answers for window functions, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_windows.py`, and the `RANGE` frames with an `INTERVAL` against Apache Spark 3.5.3 in `sidecar/tests/test_spark_type_mixes.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
 
 | What | On this PC, as in Spark |
 | --- | --- |
@@ -218,6 +218,8 @@ Spark SQL and the DataFrame API run on this PC give Spark's answers for window f
 | Column names | Spark's, with the frame written out: `row_number() OVER (PARTITION BY p ORDER BY v ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)` |
 | A ranking function, `lag` or `lead` with no `ORDER BY` in its window | Stops, as in Spark: nothing runs |
 | `lag` or `lead` given a frame, or a ranking function given a frame other than its own | Stops, as in Spark: nothing runs |
+| A `RANGE` frame with an `INTERVAL` in days, hours, minutes or seconds, ordered by a `date` | Stops, as in Spark (`RANGE_FRAME_INVALID_TYPE`): nothing runs. An `INTERVAL` in months or years, or a number of days (`RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`), runs over a `date`; any `INTERVAL` runs over a timestamp |
+| A `RANGE` frame between intervals of two units, such as `INTERVAL 1 DAY PRECEDING AND INTERVAL 2 HOUR FOLLOWING` | Stops, as in Spark (`SPECIFIED_WINDOW_FRAME_DIFF_TYPES`): nothing runs. Give both bounds in one unit |
 
 These cases still differ:
 
@@ -228,6 +230,8 @@ These cases still differ:
 | A DataFrame window function Spark stops on | Stops at the `select` | Stops when `.over(...)` is called, before the `select` |
 | A DataFrame window with `rangeBetween` and numbers, such as `rangeBetween(-1, 0)` | Named after its frame as Spark writes it for the column's type | Named `... RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`. Give it an `alias` |
 | `ntile(0)`, or `ntile` of a column | Stops with Spark's message | Stops with DuckDB's message |
+| A `RANGE` frame with an `INTERVAL` in days ordered by a `date`, when the query reads no rows | Stops | Gives no rows: the order's type is checked when a row is read |
+| A `RANGE` frame with a number, ordered by a timestamp | Stops (`RANGE_FRAME_INVALID_TYPE`) | Stops with DuckDB's binder error. Give the frame as an `INTERVAL` |
 
 ## Aggregates on this PC
 
@@ -242,6 +246,7 @@ Spark SQL and the DataFrame API run on this PC give Spark's values and types for
 | `stddev`, `stddev_samp`, `variance`, `var_samp` | NULL for a group of one row; `stddev_pop` and `var_pop` give 0.0 |
 | `sum` of an `int` or `bigint`, `count_if`, `regr_count` | A `bigint`, in the schema and in `typeof`. A table written from them has a `bigint` column |
 | `grouping` | A `tinyint`; `grouping_id` is a `bigint` |
+| `max_by(x, y)`, `min_by(x, y)` | `x` from the row with the largest (smallest) `y`, NULL when that row's `x` is NULL. Rows whose `y` is NULL are left out. As an aggregate, with `FILTER` and over a window (checked against Apache Spark 3.5.3 in `sidecar/tests/test_spark_type_mixes.py`) |
 | `GROUP BY a, b WITH ROLLUP`, `WITH CUBE` | Run as `ROLLUP(a, b)` and `CUBE(a, b)`. A NULL in the data and a subtotal row both show NULL; `grouping(a)` is 1 only for the subtotal |
 
 These cases still differ:
@@ -254,10 +259,11 @@ These cases still differ:
 | `GROUP BY a, b GROUPING SETS ((a, b), a)` and `grouping__id` | Hive's form runs | Refused, and nothing runs. Write `GROUP BY GROUPING SETS ((a, b), (a))` and `grouping_id()` |
 | A `sum` past a `bigint`'s range | Wraps around | Kept as a 128-bit number; writing it to a table stops with a message |
 | `histogram_numeric` | Spark's streaming bins | Refused by name |
+| `max_by(x, y)` and `min_by(x, y)` when rows tie on `y` | `x` from the tied row it reads last | `x` from the tied row DuckDB reads first. Neither order is promised. Break the tie with another column, such as `max_by(x, struct(y, id))` |
 
 ## Arrays, maps and structs on this PC
 
-Spark SQL run on this PC gives Spark's values and types for its array, map and struct functions and its generators, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_complex.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC gives Spark's values and types for its array, map and struct functions and its generators, with ANSI mode off as Fabric runs it. Each case below is checked against Spark 3.5's documented behaviour in `sidecar/tests/test_spark_complex.py`, and values of more than one type against Apache Spark 3.5.3 in `sidecar/tests/test_spark_type_mixes.py`. None has been compared with a Fabric run since the change, so treat them as UNVERIFIED in Fabric.
 
 | Function | On this PC, as in Spark |
 | --- | --- |
@@ -273,6 +279,11 @@ Spark SQL run on this PC gives Spark's values and types for its array, map and s
 | `explode`, `explode_outer`, `inline` | One row per element; a map gives `key` and `value` columns. `explode` of an empty or NULL array gives no rows, `explode_outer` one row of NULLs |
 | `LATERAL VIEW explode(...)`, `LATERAL VIEW OUTER` | One row per element or map entry, joined to its row. `OUTER` keeps a row whose array or map is empty or NULL, with NULLs. `stack`, `json_tuple` and `inline` after `LATERAL VIEW` give one column per name, as in Spark |
 | Struct fields | `s.a`, `named_struct`, `struct(1 AS a)`; written to a Delta table as Spark's `struct<a:int,b:string>`, with arrays and maps keeping their element types |
+| Values of more than one type in `array`, `map`'s keys or values, `coalesce`, `nvl`, `CASE`, `if` and `concat` of arrays | One type, as Spark finds it. A string next to a number, a date or a timestamp makes them all strings, written as Spark writes them: `array(1, 'a')` holds the strings `'1'` and `'a'`, and `coalesce(1, 'a')` the string `'1'`. Numbers widen to one decimal or double: `array(1, 1.5)` is an `array<decimal(11,1)>` |
+| Values Spark finds no one type for, such as a boolean and a number in `array(true, 1)` or `true IN (1)`, a binary and a string, or a date and a number, in the calls above, `IN`, `greatest` or `least` | Stops, as in Spark (`DATATYPE_MISMATCH`): nothing runs. Cast the values to one type first |
+| `array_contains` | Takes a value that widens with the elements without making strings: `array_contains(array(1, 2), 1.0)` runs; a string or a boolean against numbers stops |
+| `array_position`, `array_remove`, `array_union`, `array_intersect`, `array_except`, `arrays_overlap` | Take only elements that fit one type without losing digits: an `int` and a `double` give a `double` (`array_except(array(1, 2), array(1.0D))` is an `array<double>`), and an `int` with a `decimal(2,1)`, a string or a boolean stops |
+| `typeof` of an array of decimals or of arrays | `array<decimal(11,1)>`, `array<array<int>>` |
 
 These cases still differ:
 
@@ -280,7 +291,8 @@ These cases still differ:
 | --- | --- | --- |
 | `posexplode` and `LATERAL VIEW posexplode` | `pos` is an `int` | `pos` is a `bigint` |
 | A map that only comes from a computed expression, such as `size(map_filter(m, ...))` or `explode(map_from_arrays(...))`, in a view or subquery the types can't be read through | Counted or exploded as a map | Can stop with a DuckDB error naming the function. A map column, or a map written in the query, works |
-| `array(1, 'a')` and other arrays that mix types | The elements are cast to a common type (`array<string>`) | Stops with a conversion error. Cast the elements to one type first |
+| Values of more than one type whose types can't be worked out here: a lambda's argument, or a function's result other than a comparison, such as `array(upper(s), 1)` | One type, as above | DuckDB's own: the mix can stop with DuckDB's conversion error, or run where Spark stops. Cast the values to one type first |
+| Structs of more than one type in one array, such as `array(named_struct('a', 1), named_struct('a', 'x'))` | `array<struct<a:string>>` | Stops with DuckDB's binder error. Cast the fields to one type first |
 | The DataFrame API's `F.size`, `F.cardinality`, `F.reverse` and `F.sequence` used in `agg`, `groupBy` or `orderBy`, and `F.explode` or `F.posexplode` of a map used anywhere but `select` | As in Spark SQL | They're read as arrays here: a map stops with a DuckDB error, and a count down gives `[]`. In `select`, `withColumn`, `withColumns` and `filter` they give Spark's answer. Work the column out in a `select` first |
 | Databricks SQL on the DuckDB engine | As in Spark SQL | The fixes that don't need column types apply; `size`, `explode` and `reverse` of a map or array column keep DuckDB's forms |
 | `explode` of a map that holds `rand()` or `shuffle()`, in a select list | The map is read once | Its keys and values are read separately, so they can come from different reads. Use `LATERAL VIEW explode`, which reads it once |
@@ -590,7 +602,7 @@ String functions that give Spark's answer on this PC, where DuckDB's own differs
 | `chr`, `char` | `''` below 0, and the character for n % 256 from 256 on: `chr(321)` is `A` |
 | `LIKE`, `ILIKE` | `\` escapes the next `_` or `%`, as Spark's default escape does |
 | `concat` with a NULL | NULL, as a `string` |
-| `concat_ws` with an array, such as `array(...)`, `split(...)` or `collect_list(...)` | The array's elements joined, NULLs left out |
+| `concat_ws` with an array, such as `array(...)`, `split(...)`, `collect_list(...)` or an array column | The array's elements joined, NULLs left out. A separator taken from the data works too. An array of arrays stops, as in Spark, and nothing runs |
 
 These cases can still differ. LOC-002 warns wherever a pattern is used:
 
@@ -603,7 +615,7 @@ These cases can still differ. LOC-002 warns wherever a pattern is used:
 | `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
 | `split` with a pattern that can match no text, taken from the data or given to the DataFrame API's `F.split` | The array ends with an empty part | No empty part at the end. One written in the query is refused (see above) |
 | `regexp_replace` with a replacement taken from the data that has a `$` or `\` | Read as groups and escapes | Refused by name |
-| `concat_ws` with an array column (not an array expression in SQL), or any array in the DataFrame API's `F.concat_ws` | The elements joined | The array written as text, such as `[a, b]` |
+| Any array in the DataFrame API's `F.concat_ws` | The elements joined | The array written as text, such as `[a, b]`. Use `F.expr("concat_ws(...)")` for Spark's |
 | A pattern in the DataFrame API given as a column, such as `F.regexp_like(c, F.lit('...'))` | Java's syntax | RE2's: only a pattern given as a Python string is translated |
 | The DataFrame API's `F.split_part` with an empty delimiter, and `F.concat` with a NULL | As in the table above | `''`, and an `int` NULL. The DataFrame API's other string functions weren't compared. Use the SQL form, `F.expr(...)`, for Spark's |
 | The DataFrame API's `F.upper` of `'ß'` | `SS` | `ẞ`. Use `F.expr("upper(...)")` for Spark's |

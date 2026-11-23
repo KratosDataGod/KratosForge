@@ -381,9 +381,10 @@ def _typeof(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression 
     scalar = "CASE kf_t " + " ".join(f"WHEN '{d}' THEN '{s}'" for d, s in _TYPE_NAMES) + \
              " ELSE CASE WHEN kf_t LIKE 'DECIMAL(%' THEN REPLACE(LOWER(kf_t), ' ', '') " \
              f"WHEN kf_t LIKE 'STRUCT(%' OR kf_t LIKE 'MAP(%' THEN ERROR({stop}) ELSE LOWER(kf_t) END END"
-    whole = (f"(LIST_TRANSFORM([TYPEOF(fj_arg0)], kf_x -> CASE WHEN kf_x LIKE '%[]' AND kf_x NOT LIKE '%[][]' "
-             f"AND kf_x NOT LIKE '%(%' THEN 'array<' || (LIST_TRANSFORM([LEFT(kf_x, LENGTH(kf_x) - 2)], kf_t -> {scalar}))[1] "
-             f"|| '>' ELSE (LIST_TRANSFORM([kf_x], kf_t -> {scalar}))[1] END))[1]")
+    # A list of lists (INTEGER[][]) or of decimals (DECIMAL(5,2)[]) is array<array<int>>, array<decimal(5,2)>.
+    whole = (f"(LIST_TRANSFORM([{{'base': RTRIM(TYPEOF(fj_arg0), '[]'), 'all': TYPEOF(fj_arg0)}}], kf_x -> "
+             f"REPEAT('array<', (LENGTH(kf_x.all) - LENGTH(kf_x.base)) // 2) || "
+             f"(LIST_TRANSFORM([kf_x.base], kf_t -> {scalar}))[1] || REPEAT('>', (LENGTH(kf_x.all) - LENGTH(kf_x.base)) // 2)))[1]")
     arg = args[0].copy()
     arg.meta["kf_complex_arg"] = True  # spark_complex._mark: named from its type there
     named = _with_args(whole, [arg])
@@ -763,9 +764,18 @@ def refuse_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+_CONCAT_WS_ARRAYS = ("concat_ws() takes only text or arrays of text, and this is an array of arrays, so nothing ran "
+                     "on this PC. Spark stops on it too, with a data type mismatch. Flatten it first, such as "
+                     "concat_ws(',', flatten(a)).")
+# A part of concat_ws that isn't written as text or an array, as the text it adds: an array column's elements
+# (array<int> as text), one value otherwise; a map or struct, or an array of them or of arrays, is refused.
+TEXT_LIST = "kf_text_list"  # spark_strings joins the parts of a concat_ws with one of these as arrays
+
+
 def check_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
     """concat_ws's parts that aren't literals or arrays, checked by their DuckDB type when the query runs (a
-    map or struct column is refused as refuse_nested_concat_ws refuses a written one). sql.spark_fixes runs it
+    map or struct column is refused as refuse_nested_concat_ws refuses a written one) and given as a list
+    of text: an array column's elements, as Spark joins them, or the one value. sql.spark_fixes runs it
     once the names the person wrote are checked, since it adds a lambda of its own (kf_cw)."""
     from .spark_strings import _ARRAYS
     for node in list(statement.find_all(exp.ConcatWs)):
@@ -775,10 +785,13 @@ def check_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
             # The part is read once, through a lambda, so nested concat_ws doesn't repeat it at each level.
             check = sqlglot.parse_one(
                 "(LIST_TRANSFORM([fj_part], kf_cw -> CASE WHEN TYPEOF(kf_cw) LIKE 'STRUCT(%' OR TYPEOF(kf_cw) "
-                "LIKE 'MAP(%' THEN ERROR(fj_why) ELSE kf_cw END))[1]", read="duckdb")
-            why = next(c for c in check.find_all(exp.Column) if c.name == "fj_why")
-            why.replace(exp.Literal.string(_CONCAT_WS_NESTED))
+                "LIKE 'MAP(%' THEN ERROR(fj_why) WHEN TYPEOF(kf_cw) LIKE '%[][]' THEN ERROR(fj_arrays) "
+                "WHEN TYPEOF(kf_cw) LIKE '%[]' THEN COALESCE(TRY_CAST(kf_cw AS VARCHAR[]), CAST([] AS VARCHAR[])) "
+                "ELSE [CAST(kf_cw AS VARCHAR)] END))[1]", read="duckdb")
+            for name, text in (("fj_why", _CONCAT_WS_NESTED), ("fj_arrays", _CONCAT_WS_ARRAYS)):
+                next(c for c in check.find_all(exp.Column) if c.name == name).replace(exp.Literal.string(text))
             slot = next(c for c in check.find_all(exp.Column) if c.name == "fj_part")
+            check.meta[TEXT_LIST] = True
             part.replace(check)
             slot.replace(part)
     return statement

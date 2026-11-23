@@ -151,15 +151,17 @@ def _columns_of(target: exp.Table, columns: dict[str, dict[str, dict[str, str]]]
 
 
 def _insert(then: exp.Insert, table: list[str] | None) -> None:
+    # sqlglot gives a MERGE's INSERT with no VALUES the expression False, not None
+    given = then.expression if isinstance(then.expression, exp.Expression) else None
     columns = then.this.expressions if isinstance(then.this, exp.Tuple) else []
     if len(columns) == 1 and isinstance(columns[0], exp.Column) and not columns[0].this.quoted \
-            and columns[0].name.upper() == "DEFAULT" and then.expression is None:
+            and columns[0].name.upper() == "DEFAULT" and given is None:
         raise ValueError("A Fabric Warehouse's MERGE doesn't take INSERT DEFAULT VALUES. Its WHEN NOT MATCHED "
                          "inserts with INSERT (columns) VALUES (...). Give the values, or NULL where a column has "
                          "none.")
-    if then.expression is None and not isinstance(then.this, exp.Star):
+    if given is None and not isinstance(then.this, exp.Star):
         raise ValueError("A MERGE's INSERT needs VALUES (...) in T-SQL, so write INSERT (columns) VALUES (...).")
-    values = then.expression.expressions if isinstance(then.expression, exp.Tuple) else []
+    values = given.expressions if isinstance(given, exp.Tuple) else []
     if not columns and table is not None and values and len(values) != len(table):
         raise ValueError(f"INSERT VALUES without a column list gives a value for each column of the table in "
                          f"order, and it has {len(table)} ({', '.join(table)}), but VALUES gives {len(values)}. "

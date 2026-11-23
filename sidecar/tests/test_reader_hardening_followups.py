@@ -159,15 +159,14 @@ def test_a_push_of_a_damaged_ipynb_is_refused_by_name_and_its_notes_never_crash(
 # ---------------------------------------------------------------- 6: a folder named like an audit file
 
 
-def test_a_folder_named_like_an_audit_file_is_skipped_and_reported(tmp_path):
+def test_a_folder_named_like_an_audit_file_is_skipped(tmp_path):
+    """main's audit_chain.files() reads only regular files, so the folder never crashes a reader."""
     log = AuditLog(tmp_path)
     log.record("run", "ok", 0.1)
     (tmp_path / "audit-1999-01.jsonl").mkdir()
     assert [e["action"] for e in log.entries()] == ["run"]
     result = log.verify()
-    assert result["lines"] == 1
-    assert ("audit-1999-01.jsonl was skipped, because it's a folder, not an audit file. Move it out of the audit "
-            "folder.") in result["problems"]
+    assert result["lines"] == 1 and result["ok"]
 
 
 # ---------------------------------------------------------------- 7: event log anchors

@@ -317,9 +317,11 @@ def test_every_hostile_call_still_gets_its_audit_line(tmp_path):
 def test_nesting_over_mcp_is_refused_and_the_connection_keeps_working():
     rec = Recorder()
     reg = rec.registry()
-    # The MCP client serializes arguments itself and gives up long before 10,000 levels; 200 is past
-    # MAX_DEPTH and as deep as it goes. 10,000 deep over MCP is the HTTP test below.
-    n = 200
+    # The MCP client serializes arguments itself and gives up long before 10,000 levels; on Windows,
+    # with its smaller stack, pydantic's serializer already gives up near 200 ("Circular reference
+    # detected (depth exceeded)"). A few levels past MAX_DEPTH is what this test is about; 10,000
+    # deep over MCP is the HTTP test below.
+    n = MAX_DEPTH + 8
 
     async def go():
         async with Client(build_server(reg, lambda: object(), "cl_t")) as c:

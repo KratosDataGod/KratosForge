@@ -58,7 +58,7 @@ from test_integrations_limits import AllowAll, valid_args
 from test_integrations_tool_guards import spied
 
 PORT = 47615
-JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
+JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"  # pragma: allowlist secret
 EXECUTION = "ex_" + "b" * 20
 _EXECUTION_ID = re.compile(r"ex_[0-9a-f]{20}")
 SHORT = 0.1  # a tool's time limit for the timeout tests
@@ -600,9 +600,9 @@ def test_no_line_holds_a_secret_code_or_long_text_from_the_arguments(store):
     tools = Tools(store)
     client, token = http_client(store)
     secrets_ = ("SECRET-ONE", "SECRET-TWO", "SECRET-THREE", "SECRET-FOUR", JWT)
-    extra = {"token": "SECRET-ONE", "client_secret": "SECRET-TWO", "password": "x", "query": "SELECT 'SECRET-THREE'",
+    extra = {"token": "SECRET-ONE", "client_secret": "SECRET-TWO", "password": "x", "query": "SELECT 'SECRET-THREE'",  # pragma: allowlist secret
              "code": "print('SECRET-THREE')", "note": f"Authorization: Bearer {JWT}", "long": "y" * 500 + "SECRET-FOUR",
-             "nested": {"api_token": "SECRET-ONE", "deeper": {"password": "SECRET-TWO"}}, "cells": ["SECRET-THREE"]}
+             "nested": {"api_token": "SECRET-ONE", "deeper": {"password": "SECRET-TWO"}}, "cells": ["SECRET-THREE"]}  # pragma: allowlist secret
     calls = []
     for cap in tools.caps():
         good = valid_args(cap)
@@ -744,7 +744,7 @@ def test_a_name_that_names_no_tool_is_redacted_and_capped_on_its_line():
     reg, _ = spied()
     names = []
     reg.audit = lambda ctx, cap_id, *line, **kw: names.append(cap_id)
-    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2lnbmF0dXJl"
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2lnbmF0dXJl"  # pragma: allowlist secret
     for name in (f"Bearer {token}", "x" * 5000):
         with pytest.raises(IntegrationError):
             reg.invoke(object(), name, {}, CallContext(Caller("t", "test"), timeout=5))

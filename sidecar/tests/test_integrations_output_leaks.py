@@ -48,7 +48,7 @@ from test_integrations_tool_guards import spied
 TEXT = [
     ("Authorization: Bearer Zq9bearerTOKENvalue123", "Zq9bearer"),
     ("Authorization: Basic Zq9basicQWxhZGRpbjpvcGVu", "Zq9basic"),
-    ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJacTlqd3QifQ.Zq9jwtSIGNATUREabc", "Zq9jwtSIG"),
+    ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJacTlqd3QifQ.Zq9jwtSIGNATUREabc", "Zq9jwtSIG"),  # pragma: allowlist secret
     ("fdt_Zq9fdtTOKENaaaaaaaaaaaaaaaaaaaa", "Zq9fdt"),
     ("kfp_Zq9kfpTOKENaaaaaaaaaaaaaaaaaaaa", "Zq9kfp"),
     ("https://acct.blob.core.windows.net/c/f.csv?sv=2022-11-02&ss=b&sig=Zq9sasSIG%2Babc%3D&se=2030-01-01", "Zq9sasSIG"),
@@ -57,22 +57,22 @@ TEXT = [
      "Zq9accountKEY"),
     ("Endpoint=sb://x.servicebus.windows.net/;SharedAccessKeyName=k;SharedAccessKey=Zq9sharedKEY123=", "Zq9sharedKEY"),
     ("Server=x;User Id=u;Password=Zq9pwKV;", "Zq9pwKV"),
-    ('{"password": "Zq9pwJSON two words"}', "Zq9pwJSON"),
-    ("{'client_secret': 'Zq9pyREPR words'}", "Zq9pyREPR"),
+    ('{"password": "Zq9pwJSON two words"}', "Zq9pwJSON"),  # pragma: allowlist secret
+    ("{'client_secret': 'Zq9pyREPR words'}", "Zq9pyREPR"),  # pragma: allowlist secret
     ("client_secret=Zq9clientSECRET", "Zq9clientSECRET"),
     ("api_key: Zq9apiKEY", "Zq9apiKEY"),
     ("access_token=Zq9accessTOK", "Zq9accessTOK"),
     ("x-auth-token: Zq9xauthTOK", "Zq9xauthTOK"),
     ("Ocp-Apim-Subscription-Key: Zq9apimKEY", "Zq9apimKEY"),
-    ("https://user:Zq9urlTOKEN@dev.azure.com/org", "Zq9urlTOKEN"),
-    ("ghp_Zq9ghaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Zq9gh"),
-    ("AKIAZQ9AWSKEY1234567", "ZQ9AWSKEY"),
+    ("https://user:Zq9urlTOKEN@dev.azure.com/org", "Zq9urlTOKEN"),  # pragma: allowlist secret
+    ("ghp_Zq9ghaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Zq9gh"),  # pragma: allowlist secret
+    ("AKIAZQ9AWSKEY1234567", "ZQ9AWSKEY"),  # pragma: allowlist secret
     ("sk-Zq9skKEYaaaaaaaaaaaaaaaaaaa", "Zq9skKEY"),
     ("Cookie: session=Zq9cookieVAL; other=1", "Zq9cookieVAL"),
     ("--password Zq9cliPW", "Zq9cliPW"),
     ("https://localhost/cb?code=Zq9oauthCODE&state=1", "Zq9oauthCODE"),
-    ("-----BEGIN PRIVATE KEY-----\nMIIZq9pemBODYabc\n-----END PRIVATE KEY-----", "Zq9pemBODY"),
-    ("-----BEGIN RSA PRIVATE KEY-----\nZq9rsaBODY cut off before its end", "Zq9rsaBODY"),
+    ("-----BEGIN PRIVATE KEY-----\nMIIZq9pemBODYabc\n-----END PRIVATE KEY-----", "Zq9pemBODY"),  # pragma: allowlist secret
+    ("-----BEGIN RSA PRIVATE KEY-----\nZq9rsaBODY cut off before its end", "Zq9rsaBODY"),  # pragma: allowlist secret
 ]
 # Fields whose value is a secret whatever it looks like: plain words no pattern would find.
 KEYS = ["password", "Password", "passwd", "passphrase", "token", "access_token", "Refresh-Token", "secret",
@@ -285,7 +285,7 @@ def raising():
         ("chained", chained),
         ("integration_error", lambda: _deep_raise(5, IntegrationError(
             "failed", SECRET_TEXT, hint=SECRET_TEXT,
-            details={"why": [SECRET_TEXT], "password": "Zq9plain detail", "nested": {"token": ["Zq9plain list"]}}))),
+            details={"why": [SECRET_TEXT], "password": "Zq9plain detail", "nested": {"token": ["Zq9plain list"]}}))),  # pragma: allowlist secret
         ("os_error", lambda: _deep_raise(5, OSError(13, SECRET_TEXT, "C:\\Users\\chris\\Zq9plain\\x.txt"))),
     ]
 

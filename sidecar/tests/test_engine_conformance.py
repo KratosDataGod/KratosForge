@@ -14,6 +14,7 @@ import pytest
 import test_databricks_sql as dbsql_t
 import test_dbconnect as dbc_t
 import test_fabric_spark as fs_t
+import test_snowflake_sql_engine as sf_t
 from engine_conformance import CHECKS, Harness
 from fabric_desktop import app_settings, connprofiles
 from fabric_desktop.engines import dbconnect as dbc
@@ -128,6 +129,18 @@ def fabric_spark(tmp_path, monkeypatch):
         secrets=(fs_t.TOKEN, _JWT))
 
 
+def snowflake_sql(tmp_path, monkeypatch):
+    fake = sf_t.FakeSnowflake()
+    failing = sf_t.FakeSnowflake(fail="SQL compilation error: NO_SUCH_TABLE; " + sf_t.TOKEN + " " + _JWT)
+    return Harness(
+        "snowflake-sql", lambda: sf_t.adapter(fake), lambda a: a.open_session(sf_t.CONFIG, sf_t.ok()),
+        ok_cell=sql("SELECT id, name FROM orders"), error_cell=sql("SELECT * FROM no_such_table"),
+        refused_cells=(CellRequest("print(1)", "python"), sql("SELECT 1", "tsql"), sql("SELECT 1", "spark")),
+        open_failing=lambda _a: sf_t.adapter(failing).open_session(sf_t.CONFIG, sf_t.ok()),
+        open_unauthorized=lambda a: a.open_session(sf_t.CONFIG), contacted=lambda: len(fake.calls),
+        secrets=(sf_t.TOKEN, _JWT))
+
+
 def _runtimes(tmp_path):
     r = dbc.Runtimes(tmp_path)
     folder = r.folder("16.4")
@@ -143,6 +156,7 @@ def _runtimes(tmp_path):
 HARNESSES = {
     "local-python": python, "local-duckdb": duckdb, "local-sqlite": sqlite, "local-polars": polars,
     "databricks-sql": databricks_sql, "databricks-connect": databricks_connect, "fabric-spark": fabric_spark,
+    "snowflake-sql": snowflake_sql,
 }
 
 

@@ -1715,6 +1715,15 @@ class LocalSparkSession(SparkSession):
         inferred = schema is None or (isinstance(schema, (list, tuple)) and all(isinstance(n, str) for n in schema))
         return self._ints_as_long(df) if inferred and isinstance(data, (list, tuple)) else df
 
+    def _createDataFrameFromPandas(self, data: Any, types: Any, names: Any) -> DataFrame:  # noqa: N802
+        """DuckDB 1.x casts a pandas frame's columns to the schema's types as ``name::TYPE as name``
+        with the names unquoted, so a column called left, order or select is a ParserException there,
+        where Spark takes any name. The frame's columns are given plain positional names for that cast;
+        the schema's names come back after it, quoted."""
+        if types and names and len(data.columns) == len(names):
+            data = data.set_axis([f"_fd_col{i}" for i in range(len(data.columns))], axis=1)
+        return super()._createDataFrameFromPandas(data, types, names)
+
     def _ints_as_long(self, df: DataFrame) -> DataFrame:
         """Spark infers every Python int as bigint (LongType); DuckDB 1.x makes an int that fits INTEGER,
         so a column of them (or of lists of them) says int where Spark says bigint. DuckDB 2.0 says bigint."""

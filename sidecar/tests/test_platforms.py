@@ -44,10 +44,11 @@ def test_the_manifest_comes_from_the_registries_it_names():
     m = platforms.manifest("databricks")
     assert m["sign_in"] == list(connprofiles.METHODS["databricks"])
     assert {e["id"] for e in m["engines"]} == {d.id for d in registry.ENGINES.values() if d.platform == "databricks"}
-    # Engines without an adapter are listed but give no evidence.
+    # Engines without an adapter are listed but give no evidence; the Snowflake SQL engine gives its tests'.
     sf = platforms.manifest("snowflake")
-    assert sf["engines"] and not any(e["adapter"] for e in sf["engines"])
-    assert all(a["evidence"] == "none" for a in sf["areas"].values())
+    assert [e["id"] for e in sf["engines"] if e["adapter"]] == ["snowflake-sql"]
+    assert {k for k, a in sf["areas"].items() if a["evidence"] != "none"} == {"execute", "catalog"}
+    assert all(s["source"] == "engine snowflake-sql" for a in sf["areas"].values() for s in a["sources"])
     assert sum(platforms.manifest("fabric")["pipeline_activities"].values()) > 0
 
 

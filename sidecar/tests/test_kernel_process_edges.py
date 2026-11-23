@@ -102,6 +102,22 @@ def test_a_process_that_never_says_its_ready_is_ended(tmp_path, monkeypatch):
     k.close()
 
 
+def test_a_process_that_ends_before_starting_is_finished_is_marked_gone(monkeypatch):
+    k = ProcessKernel(command=[sys.executable, "-c", "pass"])
+
+    class Thread(threading.Thread):
+        def start(self):  # the reader sees the end before _ensure goes on, as a fast exit can
+            super().start()
+            if self.name == "kernel-reader":
+                self.join(10)
+    monkeypatch.setattr(kernel_proc, "threading", SimpleNamespace(Event=threading.Event, Thread=Thread,
+                                                                  Lock=threading.Lock, local=threading.local))
+    proc = k._ensure()
+    assert proc.poll() is not None
+    assert k._proc is None  # the reader marked it gone: no ended process is kept as the kernel's
+    k.close()
+
+
 def test_starting_while_a_cell_runs_is_refused(child):
     assert child.start("while True: pass")["status"] == "running"
     with pytest.raises(RuntimeError, match="already running"):

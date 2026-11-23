@@ -244,11 +244,12 @@ class ProcessKernel:
             self._send_lock(proc)
             ready = threading.Event()
             self._waiting["ready"] = {"done": ready}
-            threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
-            threading.Thread(target=self._watch, args=(proc,), daemon=True, name="kernel-limits").start()
             self.pid = None  # until this process reports its own (the watcher reads proc.pid meanwhile)
+            # Set before the reader starts: a process that ends at once is then marked gone, not kept.
             self._proc = proc
             self._attached = object()
+            threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
+            threading.Thread(target=self._watch, args=(proc,), daemon=True, name="kernel-limits").start()
             if not ready.wait(60):
                 self._tree.kill()
                 raise KernelGone("The notebook's Python process didn't start.")

@@ -366,9 +366,11 @@ class SqlExecutions:
                 raise ValueError("Query parameters are for a lakehouse or a warehouse query.")
             tsql = target == "warehouse"
             backslash = not tsql and dialect == "spark"  # only Spark strings take \' (sql_params.py)
-            query = sql_params.as_colons(query, tsql, backslash) if isinstance(query, str) else query
+            dollar = not tsql and dialect == "duckdb"  # sqlglot reads DuckDB's SELECT :a as an alias
+            query = sql_params.as_colons(query, tsql, backslash, dollar) if isinstance(query, str) else query
             if isinstance(statements, list):
-                statements = [sql_params.as_colons(t, tsql, backslash) if isinstance(t, str) else t for t in statements]
+                statements = [sql_params.as_colons(t, tsql, backslash, dollar) if isinstance(t, str) else t
+                              for t in statements]
         units: list[str] = []
         if statements is not None:
             if (not isinstance(statements, list) or not statements or len(statements) > MAX_STATEMENTS

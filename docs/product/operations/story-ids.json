@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "updated": "2026-11-23",
+  "about": "Ledger of WR story ids: each lane (a lead thread or a long-running member thread) owns blocks of ids, so two lanes never give two stories the same id. A lane takes its next id from its own block. A smaller block inside a larger one belongs to its own lane. queues.py check fails when a queued story's id is outside its workstream's lanes, or when one id names two stories. Exceptions record past collisions, which keep their ids: never rename a merged story's id.",
+  "lanes": [
+    {
+      "key": "local-engine",
+      "name": "Local engine",
+      "thread": "Local data engine and OneLake publishing",
+      "workstream": "local-exec",
+      "blocks": [{"first": "WR-100", "last": "WR-199"}]
+    },
+    {
+      "key": "notebook-parity",
+      "name": "Notebook parity",
+      "thread": "Build notebook parity items",
+      "workstream": "devex",
+      "blocks": [{"first": "WR-130", "last": "WR-134"}]
+    },
+    {
+      "key": "warehouse",
+      "name": "Warehouse",
+      "thread": "Build full warehouse development experience",
+      "workstream": "fabric",
+      "blocks": [{"first": "WR-200", "last": "WR-269"}]
+    },
+    {
+      "key": "sql-translator",
+      "name": "SQL translator",
+      "thread": "SQL translator",
+      "workstream": "fabric",
+      "blocks": [{"first": "WR-270", "last": "WR-299"}]
+    },
+    {
+      "key": "dbx-parity",
+      "name": "Dbx parity",
+      "thread": "Fabric and Databricks unified development",
+      "workstream": "dbx-snow",
+      "blocks": [{"first": "WR-300", "last": "WR-399"}]
+    },
+    {
+      "key": "governance",
+      "name": "Governance",
+      "thread": "Finish governance follow-ups",
+      "workstream": "enterprise",
+      "blocks": [{"first": "WR-400", "last": "WR-499"}]
+    },
+    {
+      "key": "devex",
+      "name": "DevEx",
+      "thread": "UX and simplicity oversight",
+      "workstream": "devex",
+      "blocks": [{"first": "WR-500", "last": "WR-599"}]
+    },
+    {
+      "key": "platform",
+      "name": "Platform",
+      "thread": "Codebase audit and hardening",
+      "workstream": "platform",
+      "blocks": [{"first": "WR-600", "last": "WR-699"}]
+    }
+  ],
+  "exceptions": [
+    {
+      "first": "WR-250",
+      "last": "WR-259",
+      "lanes": ["warehouse", "sql-translator"],
+      "note": "Week of 11-16: Warehouse used WR-250 to WR-252 for the Prod typed-name fixes (#3114, #3129, #3144) while the SQL translator used WR-250 to WR-259 for silent wrong answers and regular expressions (#3101, #3181, #3188). Both keep their ids; the SQL translator's new stories start at WR-270."
+    },
+    {
+      "first": "WR-410",
+      "last": "WR-410",
+      "lanes": ["governance"],
+      "note": "WR-410 names the capacity hard stop on table maintenance (#2947, #3173; publish.py and the capacity tests) and also Governance's audit fail-closed coverage story. Both keep the id."
+    }
+  ]
+}

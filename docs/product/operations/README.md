@@ -49,6 +49,23 @@ A side program is a separate thread's work that Chris approved under one workstr
 | --- | --- | --- | --- | --- |
 <!-- END GENERATED: side-programs -->
 
+### Story ids
+
+WR story ids come from a ledger, [story-ids.json](story-ids.json), so two lanes never give two stories the same id. Each lane owns blocks of ids and takes its next id from them; a smaller block inside a larger one belongs to its own lane.
+
+| Lane | Workstream | Ids |
+| --- | --- | --- |
+| Local engine | Local Execution | WR-100 to WR-199, apart from Notebook parity's block |
+| Notebook parity | Developer Experience | WR-130 to WR-134 |
+| Warehouse | Microsoft Fabric | WR-200 to WR-269 |
+| SQL translator | Microsoft Fabric | WR-270 to WR-299 |
+| Dbx parity | Databricks and Snowflake | WR-300 to WR-399 |
+| Governance | Enterprise Services | WR-400 to WR-499 |
+| DevEx | Developer Experience | WR-500 to WR-599 |
+| Platform | Platform Engineering | WR-600 to WR-699 |
+
+`queues.py check` fails when a WR id in [workstreams.json](workstreams.json) is in no block, when a queued story's id is outside the blocks of its workstream's lanes, or when one id names two stories (two `new_stories` entries, or a slot or side-program title that starts with an id another story already has). Each error names the id and both places. Past collisions keep their ids and are recorded under `exceptions` with a note: WR-250 to WR-259 (Warehouse and the SQL translator) and WR-410 (the capacity hard stop and Governance's audit story). A new lane, or a lane that runs out of ids, gets a block in the ledger before its first story.
+
 ## One backlog
 
 - **Stories live in GitHub Issues**, labelled `story`, a priority (`P0` to `P4`), a workstream (`ws:local-exec`, `ws:fabric`, `ws:dbx-snow`, `ws:enterprise`, `ws:devex`, `ws:platform`), a pillar and a status (`status:active`, `status:ready`, `status:blocked`, `status:review`). `queues.py body <story>` writes the issue body: workstream, platform, business value, requirements, acceptance criteria, dependencies, priority, agent, tests required and definition of done.

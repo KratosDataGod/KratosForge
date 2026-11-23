@@ -1255,6 +1255,13 @@ def _user_size(arg: exp.Expression) -> exp.Expression:
     return size
 
 
+# shiftrightunsigned (>>> in Java): the bits move as an unsigned long or int, by the count mod 64 or 32
+_SHIFT_UNSIGNED = ("CASE WHEN TYPEOF(fj_arg0) = 'BIGINT' THEN CAST(CASE WHEN fj_arg1 % 64 = 0 "
+                   "THEN fj_arg0::HUGEINT ELSE (fj_arg0::HUGEINT & 18446744073709551615) >> (fj_arg1 % 64) END AS BIGINT) "
+                   "ELSE CAST(CASE WHEN fj_arg1 % 32 = 0 THEN fj_arg0::BIGINT "
+                   "ELSE (fj_arg0::BIGINT & 4294967295) >> (fj_arg1 % 32) END AS INTEGER) END")
+_shift_unsigned = _template(_SHIFT_UNSIGNED, 2)
+
 _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **_AGGREGATES,
     "ARRAY_REPEAT": _template("CASE WHEN fj_arg1 IS NULL THEN NULL ELSE LIST_TRANSFORM(RANGE(GREATEST(fj_arg1, 0)), "
@@ -1288,10 +1295,7 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "MASK": _mask,
     "OCTET_LENGTH": _octet_length,
     "POSITIVE": _template("(+fj_arg0)", 1),
-    "SHIFTRIGHTUNSIGNED": _template("CASE WHEN TYPEOF(fj_arg0) = 'BIGINT' THEN CAST(CASE WHEN fj_arg1 % 64 = 0 "
-                                    "THEN fj_arg0::HUGEINT ELSE (fj_arg0::HUGEINT & 18446744073709551615) >> (fj_arg1 % 64) END AS BIGINT) "
-                                    "ELSE CAST(CASE WHEN fj_arg1 % 32 = 0 THEN fj_arg0::BIGINT "
-                                    "ELSE (fj_arg0::BIGINT & 4294967295) >> (fj_arg1 % 32) END AS INTEGER) END", 2),
+    "SHIFTRIGHTUNSIGNED": lambda n, a: None if (u := _shift_unsigned(n, a)) is None else _int_when_int(exp.paren(u), a[0]),
     "TIMESTAMP_MICROS": _timestamp_from(1),
     "TIMESTAMP_MILLIS": _timestamp_from(1000),
     "TIMESTAMP_SECONDS": _timestamp_from(1000000),
@@ -1404,9 +1408,21 @@ def _shift(left: bool) -> Callable[..., exp.Expression | None]:
         literal = _int_literal(node.this)
         if literal is not None:
             return exp.paren(_with_args(_shift_sql(left, 32 if -2 ** 31 <= literal < 2 ** 31 else 64), operands))
-        return exp.paren(_with_args(f"CASE WHEN TYPEOF(fj_arg0) IN {_LONG_TYPES} THEN {_shift_sql(left, 64)} "
-                                    f"ELSE {_shift_sql(left, 32)} END", operands))
+        return _int_when_int(exp.paren(_with_args(f"CASE WHEN TYPEOF(fj_arg0) IN {_LONG_TYPES} THEN {_shift_sql(left, 64)} "
+                                                  f"ELSE {_shift_sql(left, 32)} END", operands)), node.this)
     return build
+
+
+
+def _int_when_int(new: exp.Expression, value: exp.Expression) -> exp.Expression:
+    """``new``, a shift that picks its int or long path by ``value``'s type when the query runs, so DuckDB
+    types it BIGINT either way: marked for spark_complex_types, which casts it to INT where ``value`` is
+    a tinyint, smallint or int, as Spark's shiftleft, shiftright and shiftrightunsigned of one is an int."""
+    from . import spark_complex
+    arg = next((n for n in new.walk() if n is not new and n == value), None)
+    if arg is not None:
+        spark_complex._mark(new, "int_shift", arg)
+    return new
 
 
 def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
@@ -1438,17 +1454,20 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Format", _format_string),
         # from_utc_timestamp and to_utc_timestamp: Spark's timestamp (with time zone), whose wall time in
         # the session's zone is the converted one
-        ("AtTimeZone", lambda n, a: _with_args("CAST(TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP))) "
-                                               "AS TIMESTAMPTZ)", [_uncast(n.this), _zone(n.args["zone"])])),
-        ("FromTimeZone", lambda n, a: _with_args(
+        ("AtTimeZone", lambda n, a: _utc_shift(n, 1) or _with_args(
+            "CAST(TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP))) AS TIMESTAMPTZ)",
+            [_uncast(n.this), _zone(n.args["zone"])])),
+        ("FromTimeZone", lambda n, a: _utc_shift(n, -1) or _with_args(
             "CAST(TIMEZONE('UTC', " + spark_time_zone.earlier_in("fj_arg1", "TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP))")
             + ") AS TIMESTAMPTZ)", [_uncast(n.this), _zone(n.args["zone"])])),
+        ("UnixSeconds", _template(_floor_div(_EPOCH_US, 1_000_000), 1)),
+        ("UnixMillis", _template(_floor_div(_EPOCH_US, 1_000), 1)),
         ("TimestampFromParts", _make_timestamp),
         ("ToNumber", lambda n, a: _to_number(False)(n, [n.this, n.args["format"]] if n.args.get("format") else [n.this])),
         ("ToChar", lambda n, a: _to_char("to_char")(n, [n.this, n.args["format"]]) if n.args.get("format") else None),
         ("ParseUrl", _parse_url),
         ("Extract", _extract),
-        ("Hour", _template(f"HOUR({_TS})", 1)),
+        ("Hour", _time_field("HOUR")),
         # Spark casts a number, boolean or date to text where these take text (upper(14) = '14'). Not initcap:
         # sqlglot writes its DuckDB SQL by reading the argument back, which this one can't be.
         *((name, _text_this(fn)) for name, fn in (
@@ -1469,8 +1488,8 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Hex", lambda n, a: _with_args(_HEX.replace("kf_spark_whole", _spark_whole("fj_arg0", "BIGINT")), [n.this])),
         ("Unhex", _template(_UNHEX, 1)),
         ("SHA2", _sha2),
-        ("Minute", _template(f"MINUTE({_TS})", 1)),
-        ("Second", _template(f"SECOND({_TS})", 1)),
+        ("Minute", _time_field("MINUTE")),
+        ("Second", _time_field("SECOND")),
         ("Quarter", _template(f"QUARTER({_DATE})", 1)),
         ("Inline", _template(_INLINE, 1)),
         ("Kurtosis", _template(_KURTOSIS, 1)),
@@ -1512,8 +1531,9 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("IsNan", _template("COALESCE(ISNAN(fj_arg0), FALSE)", 1)),
         ("PosexplodeOuter", _template(_POSEXPLODE_OUTER, 1)),
         ("ExplodeOuter", _template(_EXPLODE_OUTER, 1)),
+        # Spark's RegExpSubStr is NullIf(RegExpExtract(str, regexp, 0), ''): NULL with no match, and for an empty one
         ("RegexpSubstr", lambda n, a: None if len(a) != 2 else _with_args(
-            "CASE WHEN REGEXP_MATCHES(fj_arg0, fj_arg1) THEN REGEXP_EXTRACT(fj_arg0, fj_arg1) END", a)),
+            "NULLIF(REGEXP_EXTRACT(fj_arg0, fj_arg1, 0), '')", a)),
         ("Rint", _template("ROUND_EVEN(CAST(fj_arg0 AS DOUBLE), 0)", 1)),
         ("Sign", _sign),
         ("Stack", _stack),
@@ -1791,6 +1811,52 @@ def _date_part(node: exp.Expression, args: list[exp.Expression]) -> exp.Expressi
     if len(args) != 2 or not (isinstance(args[0], exp.Literal) and args[0].is_string):
         return None
     return _extract(exp.Extract(this=exp.var(args[0].name.upper()), expression=args[1].copy()), [])
+
+
+# unix_seconds and unix_millis round down, as Spark's Math.floorDiv of the microseconds does (DuckDB's
+# EPOCH rounds to the nearest second, and EPOCH_MS toward zero, so 1969's last half second was 0, not -1).
+_EPOCH_US = "EPOCH_US(TRY_CAST(fj_arg0 AS TIMESTAMPTZ))"
+
+
+def _floor_div(value: str, by: int) -> str:
+    return f"CAST({value} // {by} - CAST({value} % {by} < 0 AS BIGINT) AS BIGINT)"  # // rounds toward zero
+
+
+def _utc_shift(node: exp.Expression, sign: int) -> exp.Expression | None:
+    """from_utc_timestamp (``sign`` 1) or to_utc_timestamp (-1) to a zone written as a fixed offset that
+    DuckDB's zones don't take ('GMT+2', '+05:30'; 'UTC+05:30' was read as UTC+5): the time moves by the offset."""
+    from . import spark_datetime
+    zone = node.args.get("zone")
+    if not (isinstance(zone, exp.Literal) and zone.is_string):
+        return None
+    seconds = spark_datetime.fixed_offset(zone.name)
+    if seconds is None:
+        return None
+    return _with_args(f"CAST(TRY_CAST(fj_arg0 AS TIMESTAMP) + TO_SECONDS({sign * seconds}) AS TIMESTAMPTZ)",
+                      [_uncast(node.this)])
+
+
+# Spark reads text that is a time of day only ('13:45:12', 'T13:45'), as that time today; DuckDB's
+# TIMESTAMP doesn't read it. A time with a zone ('13:45:12Z') is left NULL, as before.
+_TIME_ONLY = r"^\s*T?[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2}(\.[0-9]{1,6})?)?\s*$"
+
+
+def _time_field(field: str) -> Callable[..., exp.Expression | None]:
+    """hour, minute and second of a timestamp, or of text read as one, as Spark casts it."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        if len(args) != 1:
+            return None
+        value = args[0]
+        plain = f"{field}({_TS})"
+        if isinstance(value, (exp.Cast, exp.TryCast)) and not value.to.is_type(*exp.DataType.TEXT_TYPES):
+            return _with_args(plain, args)  # TIMESTAMP'...', a cast to a timestamp or date: never text
+        # TYPEOF is fixed when DuckDB plans the query, so a timestamp column runs the plain branch only
+        text = "CAST(fj_arg0 AS VARCHAR)"
+        # read once: the CASE names its argument five times, so nested calls would multiply its SQL
+        return _read_once(f"CASE WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN COALESCE({plain}, CASE WHEN REGEXP_FULL_MATCH("
+                          f"{text}, '{_TIME_ONLY}') THEN {field}(TRY_CAST(LTRIM(TRIM({text}), 'T') AS TIME)) END) "
+                          f"ELSE {plain} END", args)
+    return build
 
 
 def _uncast(node: exp.Expression) -> exp.Expression:

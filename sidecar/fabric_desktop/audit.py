@@ -52,7 +52,7 @@ mesh_workspace_domains meta_alerts meta_compare meta_drift meta_entity meta_enti
 meta_data_health meta_data_health_list meta_freshness meta_health meta_last_release meta_releases meta_rollback_preview meta_key_lookup meta_key_notebook meta_keys meta_model_plan
 meta_model_ossie_models meta_model_ossie_export meta_model_ossie_read meta_model_ossie_preview
 meta_model_directlake_setup meta_model_directlake_check
-meta_model_ossie_folders meta_model_ossie_export_folder
+meta_model_ossie_folders meta_model_ossie_export_folder meta_model_semantic_view_status
 meta_model_dictionary meta_model_dictionary_preview
 meta_openlineage_preview meta_preflight meta_profile_preview meta_project meta_promote_check meta_promote_impact
 meta_quarantine meta_run_detail meta_runs meta_runs_all meta_schedules meta_table_history meta_varlib
@@ -88,7 +88,7 @@ local_writes
 notebook_folders
 notebook_file_path notebook_disk_stamp notebook_name_for_path notebook_listing notebook_search notebook_import_check notebook_delete_check notebook_deleted notebook_fabric_check notebook_fabric_step_check notebook_vorder_cell notebook_fabric_step_result notebook_publish_check
 notebook_formats_import_check notebook_print_page notebook_report_open notebook_report_page notebook_prod_pending
-profile_get profile_report profile_avatar
+profile_get profile_report profile_avatar profile_mastery
 notebook_comments_list
 engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan snowflake_check
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
@@ -271,7 +271,7 @@ class AuditLog:
                     continue
                 try:
                     entry = json.loads(line)
-                except ValueError:  # reported by verify()
+                except (ValueError, RecursionError):  # reported by verify(); RecursionError: nested too deep
                     entry = None
                 if isinstance(entry, dict):
                     yield entry

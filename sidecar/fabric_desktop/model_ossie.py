@@ -72,6 +72,20 @@ def _load() -> None:
                                      "write them out in full")
                 return super().compose_node(parent, index)
 
+            def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+                """A key given twice in one object is refused: YAML's keys are unique, and the later one would
+                silently replace the earlier (a second ``datasets:`` dropping the first)."""
+                seen: set[Any] = set()
+                for key_node, _ in node.value:
+                    if not isinstance(key_node, _yaml.ScalarNode) or key_node.tag == "tag:yaml.org,2002:merge":
+                        continue
+                    key = self.construct_object(key_node)
+                    if key in seen:
+                        raise ValueError(f"This file gives {str(key)[:80]!r} twice in one object (line "
+                                         f"{key_node.start_mark.line + 1}). Keep one.")
+                    seen.add(key)
+                return super().construct_mapping(node, deep)
+
         yaml, OSSIE_VERSION, ConversionError = _yaml, _version, _error
         convert_ossie_to_semantic_model, convert_semantic_model_to_ossie = _to_model, _to_ossie
         _NoAliasLoader = _NoAlias
@@ -103,6 +117,8 @@ _OSSIE_ANNOTATIONS = frozenset({"OssieAIContext", "OssieExpressionDialect", PLAC
 _TABLE_ALWAYS_KEPT = ("hierarchies", "calculationGroup", "refreshPolicy")  # kept even over a Power BI section
 # warnings.catch_warnings swaps process-wide state, so conversions run one at a time.
 _LOCK = threading.Lock()
+# The file name every converter warning carries (ossie_microsoft._common.warn): only those are the report.
+CONVERTER_WARNINGS = "ossie_microsoft"
 # A large real model is a few MB of YAML; this keeps a mistaken pick (a data file) from filling memory.
 MAX_CHARS = 20_000_000
 
@@ -132,6 +148,10 @@ def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, st
         result = fn(*args, **kwargs)
     report = []
     for w in caught:
+        if w.filename != CONVERTER_WARNINGS:  # not the converter's: a warning Python raised meanwhile, such as
+            # a ResourceWarning for another thread's socket the garbage collector closed. Passed on, not reported.
+            warnings.showwarning(w.message, w.category, w.filename, w.lineno, w.file, w.line)
+            continue
         text = str(w.message)
         scope, _, message = text[1:].partition("] ") if text.startswith("[") else ("model", "", text)
         report.append({"object": scope, "message": message or text,
@@ -205,7 +225,14 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
     out) leads the report. ``validate`` also runs the round trip (``round_trip_check``): its rows are
     ``round_trip`` and its result is the fidelity report's validation."""
     require()
-    text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
+    try:
+        text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
+    except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a number for tables)
+        raise ValueError("This model couldn't be converted to Ossie, because part of it isn't the shape a semantic model's "
+                         f"part has ({exc}). Fix that part, then try again.") from exc
+    except RecursionError:  # the converter recurses (and json-encodes) each part; Windows' C stack ends it soonest
+        raise ValueError("This model couldn't be converted to Ossie, because part of it is nested too deeply to read. "
+                         "Flatten that part (often an annotation value), then try again.") from None
     report = list(read_report or []) + report
     doc = yaml.safe_load(text)
     datasets = doc.get("datasets") or []
@@ -261,7 +288,15 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
                     except sqlglot.errors.SqlglotError:  # ParseError or TokenError (e.g. an unclosed quote)
                         pass  # left as written: the converter reports SQL it can't translate
             stash = next((e for e in m.get("custom_extensions") or [] if e.get("vendor_name") == "POWER_BI"), None)
-            data = json.loads(stash["data"]) if stash else {"_v": 2}
+            raw = stash.get("data") if stash else None
+            try:  # refused as the converter refuses a model-level metric's data
+                data = json.loads(raw) if raw is not None else {"_v": 2}
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"The Ossie file couldn't be converted, because the POWER_BI custom_extensions data "
+                                 f"in {scope} isn't valid JSON ({exc}). Fix it, then try again.") from None
+            if not isinstance(data, dict):
+                raise ValueError(f"The Ossie file couldn't be converted, because the POWER_BI custom_extensions data "
+                                 f"in {scope} isn't a JSON object. Fix it, then try again.")
             data.setdefault("table", d["name"])
             m["custom_extensions"] = [e for e in m.get("custom_extensions") or [] if e is not stash] + \
                 [{"vendor_name": "POWER_BI", "data": json.dumps(data, sort_keys=True)}]
@@ -285,14 +320,26 @@ def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) ->
     refusal = not_convertible(parsed)
     if refusal:  # never fed to the 0.2 converter as if it were 0.2
         raise ValueError(refusal)
-    doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
     try:
+        doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
         bim, report = _convert(convert_ossie_to_semantic_model, yaml.safe_dump(doc, sort_keys=False), source=source)
     except ConversionError as exc:
         raise ValueError(f"The Ossie file couldn't be converted: {exc}") from exc
+    except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a list for a name)
+        raise ValueError(_wrong_shape(parsed)) from exc
     # The caller always passes the lakehouse when it has one; without it the ids are placeholders it reports itself.
     report = lifted + [r for r in report if "placeholder ids" not in r["message"]]
     return bim, report
+
+
+def _wrong_shape(doc: dict[str, Any]) -> str:
+    """Why a document the converter tripped on can't be converted: the schema check's first finding, by path."""
+    from . import ossie_validate
+
+    found = ossie_validate.validate(doc)["diagnostics"]
+    where = f": {found[0]['path']} {found[0]['message']}" if found else ""
+    return (f"The Ossie file couldn't be converted, because part of it isn't the shape Ossie {OSSIE_VERSION} gives it{where}. "
+            "Fix that part, then try again.")
 
 
 def _has_stash(obj: Any) -> bool:
@@ -518,6 +565,20 @@ def _rel_key(r: dict[str, Any]) -> str:
     return f"{r.get('fromTable')}.{r.get('fromColumn')} -> {r.get('toTable')}.{r.get('toColumn')}"
 
 
+def ends_key(a_table: Any, a_columns: Any, b_table: Any, b_columns: Any) -> tuple[str, str]:
+    """A relationship's two ends (each a table and its list of columns) as one key, the same whichever end is
+    written first: an Ossie relationship and the TMSL relationship it converts to share it."""
+    def end(table: Any, columns: Any) -> str:
+        return _canon([table, columns if isinstance(columns, list) else [columns]])
+    a, b = end(a_table, a_columns), end(b_table, b_columns)
+    return (a, b) if a <= b else (b, a)
+
+
+def tmsl_ends_key(r: dict[str, Any]) -> tuple[str, str]:
+    """``ends_key`` of a TMSL relationship."""
+    return ends_key(r.get("fromTable"), [r.get("fromColumn")], r.get("toTable"), [r.get("toColumn")])
+
+
 def _is_placeholder(obj: dict[str, Any]) -> bool:
     """A BLANK() the converter put in place of SQL it couldn't translate."""
     return str(obj.get("expression") or "").strip().upper() == "BLANK()" and any(a.get("name") == PLACEHOLDER_ANNOTATION for a in obj.get("annotations") or [] if isinstance(a, dict))
@@ -727,6 +788,7 @@ _STASH_CONTROL = frozenset({"_v", "excludedTables", "excludedMeasures", "exclude
                             "document", "descriptionSource", "table", "name", "flipped", "normalizedEndpoints",
                             "sourceColumn", "dataType", *(key for key, _ in _STASHED_OBJECTS), "hierarchies"})
 _DIALECT_ANNOTATION = "OssieExpressionDialect"
+RESTORED = "restored from the POWER_BI extension"  # the note on an object that lives only in that extension
 _COLLECTION_ROWS = (*_STASHED_OBJECTS, ("hierarchies", "hierarchy"))
 
 
@@ -847,9 +909,13 @@ class _Objects:
         self.lengths: set[int] = set()  # of the ids and aliases, so find tries only cuts that can match
         self._next: dict[str, int] = {}  # the next number to try for a name used again
         self._cuts: list[int] | None = None  # lengths, longest first, sorted once for every find
+        # id -> the object's structural key (its full names, never cut short), for the enumerations that set one;
+        # kept beside the report's objects, not in them, so the report's shape is unchanged (structural parity)
+        self.keys: dict[str, tuple[Any, ...]] = {}
 
     def add(self, kind: str, ident: str, cls: str, changes: list[str] | None = None, notes: list[str] | None = None,
-            aliases: tuple[str, ...] = (), in_extension: list[str] | None = None, parent: str = "model") -> dict[str, Any]:
+            aliases: tuple[str, ...] = (), in_extension: list[str] | None = None, parent: str = "model",
+            key: tuple[Any, ...] | None = None) -> dict[str, Any]:
         base = ident
         if ident in self.ids:  # the same name twice (a file can say anything): still one row each
             n = self._next.get(base, 2)
@@ -872,6 +938,8 @@ class _Objects:
         self.lengths.add(len(ident))
         self._cuts = None
         self.children.setdefault((parent, kind), []).append(obj)
+        if key is not None:
+            self.keys[ident] = key
         for alias in (base, *aliases):
             if alias != ident:
                 self.aliases[alias] = obj if self.aliases.get(alias, obj) is obj else None
@@ -1054,7 +1122,7 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
         return home, member(home, "measures", name)
 
     added = sorted(_names(model.get("expressions")) - _names(stash.get("expressions")))
-    objs.add("model", "model", "fully_preserved", _ossie_drops(doc), aliases=("document",),
+    objs.add("model", "model", "fully_preserved", _ossie_drops(doc), aliases=("document",), key=("model",),
              notes=[f"the converter added the shared expression {_q(n)} (the Direct Lake source)" for n in added])
     datasets = _named_items(doc.get("datasets"))
     model_metrics = _named_items(doc.get("metrics"))
@@ -1074,7 +1142,7 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
         changes += ["composite unique key not marked: Power BI has no composite unique constraint"
                     for k in d.get("unique_keys") or [] if isinstance(k, list) and len(k) > 1]
         objs.add("table", did, "fully_preserved" if name in tables else "unsupported",
-                 changes if name in tables else [], aliases=(f"table {_q(name)}",))
+                 changes if name in tables else [], aliases=(f"table {_q(name)}",), key=("table", name))
         for f in _named_items(d.get("fields")):
             col = member(name, "columns", f["name"])
             changes, notes = _ossie_drops(f), list[str]()
@@ -1086,20 +1154,22 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
                 changes.append(f"data type {dt} has no Power BI type; left unspecified")
             cls = _expression_class(col, changes, notes)
             objs.add("column", f"{did} field {_q(f['name'])}", cls, changes if col is not None else [], notes,
-                     aliases=(f"table {_q(name)} column {_q(f['name'])}", f"{_short(name)}[{_short(f['name'])}]"))
+                     aliases=(f"table {_q(name)} column {_q(f['name'])}", f"{_short(name)}[{_short(f['name'])}]"),
+                     key=("column", name, f["name"]))
         for c in _named_items(ds_stash.get("excludedColumns")):
             objs.add("column", f"table {_q(name)} column {_q(c['name'])}",
                      "fully_preserved" if member(name, "columns", c["name"]) else "unsupported",
-                     notes=["restored from the POWER_BI extension"])
+                     notes=[RESTORED], key=("column", name, c["name"]))
         for h in _named_items(ds_stash.get("hierarchies")):
             objs.add("hierarchy", f"table {_q(name)} hierarchy {_q(h['name'])}",
                      "fully_preserved" if member(name, "hierarchies", h["name"]) else "unsupported",
-                     notes=["restored from the POWER_BI extension"], parent=did)
+                     notes=[RESTORED], parent=did, key=("hierarchy", name, h["name"]))
         for m in _named_items(d.get("metrics")):
             mid = f"{did} metric {_q(m['name'])}"
             if id(m) not in lifted:
                 objs.add("measure", mid, "unsupported",
-                         notes=["a model-level metric has the same name, so this one was left out"])
+                         notes=["a model-level metric has the same name, so this one was left out"],
+                         key=("measure", m["name"]))
                 continue
             _metric(objs, m, mid, lifted[id(m)], placed, (f"metric {_q(m['name'])}",))
     for m in model_metrics:
@@ -1138,7 +1208,8 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
             for pair in (ends, (ends[2], ends[3], ends[0], ends[1])):
                 hit = hit or claim(by_ends.get(_canon(pair)))
         objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if hit else "unsupported",
-                 _ossie_drops(r) if hit else [])
+                 _ossie_drops(r) if hit else [],
+                 key=("relationship", ends_key(r.get("from"), r.get("from_columns"), r.get("to"), r.get("to_columns"))))
     for key, kind in _STASHED_OBJECTS:
         have: dict[str, dict[str, Any]] = {}
         for i in _named_items(model.get(key)):
@@ -1147,32 +1218,34 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
             restored_item = have.get(item["name"])
             objs.add(kind, f"{kind} {_q(item['name'])}", "fully_preserved" if restored_item is not None else "unsupported",
                      _role_changes(item, restored_item) if restored_item is not None and kind == "role" else [],
-                     notes=["restored from the POWER_BI extension"], aliases=(f"{kind} {_short(item['name'])!r}",))
+                     notes=[RESTORED], aliases=(f"{kind} {_short(item['name'])!r}",), key=(kind, item["name"]))
     for t in _named_items(stash.get("excludedTables")):
         tid = f"table {_q(t['name'])}"
         out_table = tables.get(t["name"])
         group = bool(t.get("calculationGroup"))
         objs.add("calculation_group" if group else "table", tid, "fully_preserved" if out_table else "unsupported",
                  _calc_changes(t, out_table) if out_table is not None and group else [],
-                 notes=["restored from the POWER_BI extension"])
+                 notes=[RESTORED], key=("table", t["name"]))
         for key, kind in (("columns", "column"), ("measures", "measure"), ("hierarchies", "hierarchy")):
             for i in _named_items(t.get(key)):
                 objs.add(kind, f"{tid} {kind} {_q(i['name'])}",
                          "fully_preserved" if member(t["name"], key, i["name"]) else "unsupported",
-                         notes=["restored from the POWER_BI extension"], parent=tid,
-                         aliases=(f"{_short(t['name'])}[{_short(i['name'])}]",))
+                         notes=[RESTORED], parent=tid,
+                         aliases=(f"{_short(t['name'])}[{_short(i['name'])}]",),
+                         key=("measure", i["name"]) if kind == "measure" else (kind, t["name"], i["name"]))
     for e in _dicts(stash.get("excludedMeasures")):
         kept = e.get("measure")
         if not isinstance(kept, dict) or not isinstance(kept.get("name"), str):
             continue
         objs.add("measure", f"table {_q(e.get('table'))} measure {_q(kept['name'])}",
                  "fully_preserved" if member(e.get("table"), "measures", kept["name"]) else "unsupported",
-                 notes=["restored from the POWER_BI extension"],
-                 aliases=(f"excluded measure {_q(kept['name'])}", f"{_short(e.get('table'))}[{_short(kept['name'])}]"))
+                 notes=[RESTORED],
+                 aliases=(f"excluded measure {_q(kept['name'])}", f"{_short(e.get('table'))}[{_short(kept['name'])}]"),
+                 key=("measure", kept["name"]))
     for r, back in set_aside:
         label = r.get("name") if isinstance(r.get("name"), str) and r.get("name") else _rel_key(r)
         objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if back else "unsupported",
-                 notes=["restored from the POWER_BI extension"])
+                 notes=[RESTORED], key=("relationship", tmsl_ends_key(r)))
 
 
 def _metric(objs: _Objects, m: dict[str, Any], mid: str, home: Any, placed: Any, aliases: tuple[str, ...]) -> None:
@@ -1191,7 +1264,8 @@ def _metric(objs: _Objects, m: dict[str, Any], mid: str, home: Any, placed: Any,
     if measure is None and not _dialect_entries(m):
         notes.append("the metric has no expression")
     objs.add("measure", mid, cls, changes, notes,
-             aliases=aliases + ((f"{_short(table)}[{_short(measure['name'])}]",) if measure else ()))
+             aliases=aliases + ((f"{_short(table)}[{_short(measure['name'])}]",) if measure else ()),
+             key=("measure", data.get("name", m["name"])))
 
 
 def _dialect_entries(m: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1364,7 +1438,8 @@ def round_trip_check(bim: dict[str, Any]) -> dict[str, Any]:
                 "reason": "model too large for round-trip check", "rows": []}
     try:
         rows = round_trip(bim)
-    except _SHAPE_ERRORS as exc:  # narrow: what the converter refuses or trips on, kept in the result and shown
+    except (*_SHAPE_ERRORS, RecursionError) as exc:  # narrow: what the converter refuses or trips on (or nesting too
+        # deep to compare), kept in the result and shown
         return {"check": "round_trip", "ran": False, "passed": None, "error": f"{type(exc).__name__}: {exc}",
                 "reason": "the round trip couldn't run", "rows": []}
     return {"check": "round_trip", "ran": True, "passed": not rows, "error": "", "reason": "", "rows": rows}

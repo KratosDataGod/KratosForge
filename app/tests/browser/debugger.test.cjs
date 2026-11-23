@@ -325,3 +325,35 @@ test("Debug from here over 20 cells: Stop ends the run there, and Continue runs 
   assert.strictEqual(await p.locator(".cm-line.cm-paused").count(), 0);
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("a cell edited while it waits its turn in Debug from here runs with its new code and breakpoints", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Waiting", cells: [
+      { type: "code", cell_id: "q1", source: "a = 1\nb = 2", meta: {} },
+      { type: "code", cell_id: "q2", source: "c = a + 1\nd = c + 1", meta: { breakpoints: [2] } },
+    ] });
+    go("notebook");
+  });
+  const ids = await p.evaluate(() => state.notebook.cells.map((c) => c.id));
+  const panel = (i) => p.locator(`[data-cell="${i}"] .dbg-paused`);
+  await p.evaluate(() => { debugFromHere(state.notebook.cells[0]); });
+  await panel(ids[0]).getByText("Paused at line 1").waitFor({ timeout: 30000 });
+  // While cell 1 is paused, cell 2 is rewritten: two lines above its breakpoint, and a second breakpoint.
+  await p.evaluate(() => {
+    const c = state.notebook.cells[1];
+    setSource(c, "# checked\n# twice\nc = a + 1\nd = c + 1\ne = d + 1");
+    dbgToggleBreakpoint(c, 5);
+  });
+  assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells[1].meta.breakpoints), [4, 5]);
+  await p.keyboard.press("F5");  // Continue: cell 2 runs to its breakpoints only
+  await panel(ids[1]).getByText("Paused at line 4 (breakpoint)").waitFor({ timeout: 30000 });
+  assert.match(await p.locator(`[data-cell="${ids[1]}"] .cm-line.cm-paused`).innerText(), /^d = c \+ 1$/);
+  assert.strictEqual(await panel(ids[1]).locator(".dbg-edited").count(), 0);  // it runs the code as edited
+  await p.keyboard.press("F5");
+  await panel(ids[1]).getByText("Paused at line 5 (breakpoint)").waitFor({ timeout: 30000 });
+  await p.keyboard.press("F5");
+  await p.waitForFunction(() => !state.notebook.runningAll && !state.notebook.dbgRun, null, { timeout: 30000 });
+  assert.deepStrictEqual(await p.evaluate(() => state.notebook.cells.map((c) => c.status)), ["ok", "ok"]);
+  assert.deepStrictEqual(app.errors, []);
+});

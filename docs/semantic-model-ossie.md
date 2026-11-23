@@ -150,6 +150,117 @@ conversion still goes ahead, and the report says so with `status` "unverified" a
 
 The `kind` (kept or lost) of the existing rows is unchanged, so the current card still works.
 
+## Structural parity (L1)
+
+`semantic_parity.parity_l1(left, right)` compares two semantic definitions object by object
+(OSSIE-006a, engine only: no engine method and no screen yet; the results panel is OSSIE-006e).
+Each side can be a `model.bim` (TMSL), a TMDL folder's files, or an Ossie document in any profile
+KratosForge reads. An Ossie 0.2.0.dev0 document goes through the converter, and each of its objects
+carries its fidelity class; an Ossie 0.3.0.dev0 document or Snowflake's 0.1.1 wrapper is compared as
+written, without conversion. A Fabric Semantic View is a fourth kind, named
+`semantic_view` because it has the same version as Ossie 0.2.0.dev0. It's compared as written, and
+anything the view has no place for is Unsupported (see Semantic View files).
+
+It compares the model, tables, columns, measures, relationships, roles, calculation groups,
+hierarchies and perspectives: whether each is there, its name, its data type (through the
+converter's own type maps only, so Ossie `Time` is never the same as `dateTime`), each
+relationship's endpoints, cardinality, active flag and cross-filter direction, each role's
+permission, filters and members, and each calculation item. Measures are compared by name and
+home table only. Each object gets one of the plan's results:
+
+| Result | When |
+| --- | --- |
+| Structurally compatible but behavior unverified | The structure matches. This is the best L1 result. |
+| Different results | Missing on one side (the side is named), or a change, each listed. |
+| Unsupported | The conversion couldn't carry it, or the other side has no place for it (a role, calculation group or inactive relationship against Ossie 0.3). Never counted as a match. |
+| Test failed | A side couldn't be read. The reason is in `error`. |
+
+**L1 never claims equivalence.** It never reports Verified equivalent or Equivalent within
+tolerance: matching structure says nothing about what the expressions compute (L2, OSSIE-006b),
+what a query returns (L3) or how fast (L4), and the report lists these under `not_checked`. When
+behavior is checked later, DuckDB runs the SQL side only: DuckDB is not a DAX engine, so a DAX
+side with no execution path stays "behavior unverified". The report's `summary` is the worst
+object result, `counts` counts each result, and `tolerances` echoes the configured tolerances
+with their defaults (unused at L1). A Different results summary can hide Unsupported rows, so read
+`counts`, which has both. Model names are only noted, never counted as a difference.
+
+The report can name role members and quote row-level security filters. Anything that shows it
+outside the local pane (a log, a support bundle, a CI artifact, GitHub text) must use
+`semantic_parity.redacted(report)`, which gives counts of members and a length and hash of each
+filter instead.
+
+### Expression parity (L2)
+
+`semantic_parity.parity_l2(left, right)` (OSSIE-006b, engine only) runs L1 and keeps all its rows.
+For each measure or metric on both sides, it also compares the expressions. Each expression is
+read into a small canonical form, but only inside the subset the converter itself translates
+between DAX and SQL. An Ossie metric is compared through its SQL when it has SQL the converter
+reads, otherwise through its DAX. DAX is read by a small tokenizer that knows only this subset.
+SQL is read by the converter's SQL reader, after a size check. Nothing is run or evaluated.
+
+| DAX | SQL | Result |
+| --- | --- | --- |
+| `SUM`, `AVERAGE`, `MIN`, `MAX` over `'Table'[Column]` | `SUM`, `AVG`, `MIN`, `MAX` over the column | Structurally compatible but behavior unverified |
+| `COUNTA` (or `COUNT` on a column that isn't a boolean) | `COUNT(column)` | Compatible, with a note that a blank and an empty string can differ |
+| `COUNT` | `COUNTA` | Compatible only on a column known not to be a boolean; otherwise Unsupported |
+| `DISTINCTCOUNTNOBLANK` | `COUNT(DISTINCT column)` | Compatible: the converter maps these two; NULL handling is left to L3 |
+| `DISTINCTCOUNT` | `COUNT(DISTINCT column)` | Different results: DISTINCTCOUNT counts BLANK as a value |
+| `COUNTROWS('Table')` | `COUNT(*)` | Compatible |
+| `DIVIDE(a, b)` | `a / NULLIF(b, 0)`, or a safe division | Compatible: the converter's own form |
+| `DIVIDE(a, b)`, `DIVIDE(a, b, x)` or `a / b` | `a / b`, or any division for the last two | Different results: a zero divisor gives a different answer |
+| `[Measure]` | the metric's name | Compatible, by name only (a bare `[X]` that isn't a measure, or a SQL name that is both a metric and a column, is Unsupported) |
+
+L2 is Unsupported, never Different, when either side is outside the subset. That covers CALCULATE
+and other filters, TOTALYTD and the rest of time intelligence, iterators such as SUMX, variables,
+IF and SWITCH, window functions, filtered aggregates (`FILTER (WHERE ...)`), CASE, COALESCE, other
+arithmetic, a column that doesn't resolve to exactly one field, a DIVIDE alternate that isn't a
+plain decimal number, and anything past the caps
+(4,096 characters, 64 tokens, 8 levels of parentheses) or holding invisible characters. Identifiers
+are compared without case, as DAX does. Each measure row carries `expressions` (`left`, `right`,
+`left_form`, `right_form`, cut short like every other name), and the report lists the subset
+under `subset`.
+
+**No L2 result means the numbers match.** L2 compares the shape of two expressions, never what they
+return. The best result is still Structurally compatible but behavior unverified. Behavior (L3) and
+performance (L4) are listed under `not_checked`. Expressions can hold literals, so `redacted()`
+replaces their text and forms with a length and a hash.
+
+### Behavioral parity, SQL side (L3)
+
+`semantic_parity_l3.parity_l3(left, right)` (OSSIE-006c, engine only) runs L2 and keeps all its
+rows. For each measure or metric that L2 could read, it runs the SQL side on DuckDB, in memory
+with external access off, against seven small controlled datasets: plain values, NULLs, NULLs
+only, no rows, repeated values, zeros (a zero divisor, empty text, DAX's zero date) and precision
+(decimal fractions, integers past 2^53). The datasets are generated from the tables and columns the
+measures name, typed as each side types them, so a type change between sides is part of the run.
+They are never customer data, and nothing touches disk. The query is built from L2's canonical
+form with quoted names, never from the expression's own text. A referenced measure is computed
+once per dataset and read by each reference. Each measure is capped at 64 aggregates and each side at 2,000.
+A measure past either cap is not run, and the row gives the reason.
+
+| Sides | Result |
+| --- | --- |
+| Both SQL, same value on every dataset | Verified equivalent, on these datasets run on DuckDB only (the row says so) |
+| Both SQL, some values differ within the tolerances | Equivalent within tolerance |
+| Both SQL, a value differs past the tolerances | Different results, naming the dataset and both values |
+| One side DAX | The L2 result stands. The SQL values are evidence, and the DAX side is "not run" |
+| DuckDB refuses both sides' query on a dataset | The L2 result stands, with a note. The same error on both sides is never a match |
+| DuckDB refuses one side's query only | Different results, naming the dataset |
+
+**A DAX side never runs on this PC**, because there is no DAX engine here and DuckDB isn't one. A
+report never holds a DAX-side value without an executed DAX query. OSSIE-006d runs that side in
+`kf_tenant_test`. L3 never improves a row that L1 or L2 already found worse, but values that differ
+still mark the row Different results. Both SQL sides run with DuckDB's semantics, not their own
+engine's. For example, DuckDB gives infinity for 1/0 where T-SQL raises an error, and integer
+division and NULL order can differ too. Relationships, filter context and time intelligence aren't exercised, because the subset aggregates whole tables, so
+these are listed under `not_checked`.
+
+Tolerances are configuration, and the report states them: `absolute` 0 and `relative` 1e-9 by
+default, so only floating-point noise passes. A column type with no controlled values (binary,
+time of day, time zones) is not run, with the reason. Neither is SUM or AVERAGE over a text,
+Boolean, date or time column, because DuckDB sums a Boolean, where DAX and T-SQL refuse it. `semantic_parity_l3.redacted()` also replaces
+each built query with a length and a hash.
+
 ## Schema validation
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the
@@ -233,6 +344,122 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   result gives the `profile`, a `status` (Valid, Invalid, Unverified or Not checked), `warnings`,
   `notes` and the `rules` that ran. It still only informs.
 
+## Semantic View files (Preview)
+
+Fabric Semantic Views (Preview) take Fabric's own profile of Ossie: version 0.2.0.dev0, a flat
+root and a DAX expression on every metric. KratosForge can write the files of a view on this PC
+and check them (OSSIE-005a; `sidecar/fabric_desktop/semantic_view.py`). The card below saves them and shows
+the steps to publish them.
+
+**KratosForge doesn't publish Semantic Views.** It never writes to a lakehouse's `Context/` folder,
+where Fabric reads a view's YAML, and it never calls Fabric for a view. Publishing is manual, in
+Fabric: a person uploads the files to the view's folder in the lakehouse, then saves and
+publishes it. The steps, with links to each Learn page, are on the card in
+[Publish the view in Fabric](#publish-the-view-in-fabric-preview).
+
+What's written:
+
+- The view is made from a model (a `model.bim`, or a model folder under `semantic/`) or from an
+  Ossie 0.2.0.dev0 file. A model goes to Ossie first, as Export does.
+- The files go to `semantic-views/<view>/` in the project's folder, and only `.yaml` files are
+  written. Each file has `version: 0.2.0.dev0` and `name`. Fabric names the view and its model
+  after the folder, so the view's name is a folder name. A name with `/`, `\` or `..` is refused,
+  and so is a Windows device name such as `CON`, or a name that starts or ends with a space or a dot
+  (Windows drops those, so "Sales." would share the folder of "Sales"). Other characters Windows
+  doesn't allow become `_`.
+  Nothing is ever written to a path that has a folder named `Context` or `SystemContext`.
+- **Single file** writes the whole view as `<view>.yaml`. **One file per dataset** writes the
+  description, relationships and any metric with no home dataset to `00_model.yaml`. Each other
+  file holds one dataset and the metrics whose home it is. That follows the YAML reference's
+  rules for a view split across files. A view never has more than 20 files. Past 19 datasets,
+  several datasets share a file, and the report says so. **Schema and metrics** writes
+  `schema.yaml` (description, datasets, relationships) and `metrics.yaml` (the metrics), the two
+  parts of
+  [Separate schema from metrics](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#separate-schema-from-metrics),
+  flat in the view folder. Learn documents uploading files to the view folder but not making a
+  subfolder under it, so the subfolder form that page offers for shortcuts isn't written. `files_summary` in the report gives each file's path,
+  size in bytes and how many datasets, relationships and metrics it holds, and how many of the
+  metrics have DAX.
+- Characters YAML reads as a line break (U+0085, U+2028, U+2029) are written as escapes, never
+  raw, and each file is read back before it's returned; one that wouldn't read back exactly is
+  refused.
+- Each metric's DAX is written first. A metric with SQL only is translated to DAX by the same
+  converter Import uses, and the DAX goes beside the SQL. That metric is **Unverified**, because
+  the two expressions aren't compared. Its other dialects stay in the file: Fabric recognizes them
+  but publishes only DAX.
+- The files are checked with `validate_files` and the `fabric-semantic-view` profile (see
+  Version profiles). The result is in the report, and it informs only.
+- Writing previews first. The preview lists the files, any `.yaml` file in the folder that would
+  be removed (Fabric merges every `.yaml` file in a view's folder, so an old file would join the
+  view) and a token. A write needs `confirmed` and that token, so it writes exactly what the
+  preview showed. Each file is written whole and swapped in, and links and junctions are never
+  followed.
+
+What's left out, and why. Each item is a report row in the class **Unsupported**, with the rule
+and the Learn page it comes from
+([YAML reference](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-yaml-reference),
+updated 2026-11-17):
+
+| Left out | Why |
+| --- | --- |
+| `custom_extensions`, everywhere | "omitted with warnings", including Microsoft's own |
+| Dataset `fields`, `primary_key`, `unique_keys` | "omitted with warnings". Fabric reads the columns from the lakehouse table |
+| Every `ai_context` | "omitted with warnings" |
+| A metric's `datatype` | Fabric ignores it |
+| Any other key | not in the YAML reference's supported list |
+| Security roles, calculation groups, perspectives, cultures, shared expressions, hierarchies, and the tables, columns, measures and relationships the converter set aside | They live only in the Power BI section (`custom_extensions`), which Fabric omits. Each is named. A role is a prominent **security warning**: the published view's model has no row-level security for it |
+| A metric whose SQL can't be translated to DAX, or that has no expression | "Published metrics require DAX". It's flagged before any file is written, left out and listed in `excluded` with the converter's reason. Add a DAX expression to include it |
+| A relationship with more than one column on a side | "Relationships are single-column only". It's left out and listed in `excluded` |
+| A dataset whose source is a query, with its metrics and relationships | "Query sources are not supported". They're left out and listed in `excluded` |
+
+Structural parity can compare a model with its view: pass the view as `semantic_view`
+(`parity_l1(model, view, right_kind="semantic_view")`), as its files or as what the emitter
+returned. Everything the view leaves out is **Unsupported** in that report, never a match. What
+the view leaves out is worked out again from the other side, so a report passed in is never
+trusted: a metric taken out of the files by hand stays **Different results**.
+
+## Publish the view in Fabric (Preview)
+
+On **Data mesh > Deploy > Semantic model**, under the Apache Ossie card, the card **Publish the
+`<view>` semantic view in Fabric** shows the steps to publish a view's saved files by hand
+(OSSIE-005b). Nothing on it writes to Fabric or calls Fabric. Its only buttons copy text, open the
+view's folder on this PC, or save the view's files in the project's folder.
+
+- **No files yet.** The card shows only **Save the view's files first**. **Save view files** makes
+  the files on this PC from a model under `semantic/` (Schema and metrics, so `schema.yaml` and
+  `metrics.yaml`). It lists the files it writes, and any it deletes, in a confirm first, and
+  writes nothing until you confirm.
+- **1. The files.** The files in `semantic-views\<view>\` are checked as Fabric reads them
+  (`validate_files`, `fabric-semantic-view`). **Ready** means every documented check passed:
+  version 0.2.0.dev0, DAX on every metric, single-column relationships, at most 20 files and
+  16 MB. A table shows each file, what it holds and its size. **Open folder** opens that folder in
+  File Explorer. When the view has a model of the same name under `semantic/`, the card converts
+  it again on this PC. If the files differ from what it gives now, it says so and offers **Save
+  view files** again. If they match, a **left out** line counts what the view leaves out, with the
+  report.
+- **A check fails.** The card lists each failure with its fix, and steps 2 to 5 wait with **Fix
+  the files first**.
+- **2. Where they go.** `<lakehouse> > Context/Semantic Views/<view>/`, with **Copy path**. The
+  lakehouse and workspace are named only when the view comes from this layer's model, which
+  reads that lakehouse. Otherwise the card says "the lakehouse the view's datasets read".
+- **3. The steps in Fabric.** Create the view's folder, upload the files, save if you edit one in
+  Fabric, publish, then check the result. Each step links its Learn section:
+  [Create a view](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#create-a-view-with-the-starter-file),
+  [Upload files](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#upload-existing-yaml-files),
+  [Edit and save](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#edit-and-save),
+  [Publish a view](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#publish-a-view)
+  and [Check the result](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#check-the-result).
+  The card also lists the permissions each step needs and what to know before you publish, from
+  the same pages and the
+  [overview](https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-overview).
+- **Published model: not read.** KratosForge doesn't read the model Fabric makes yet, so it
+  can't compare it with the files.
+
+The card reads with `meta_model_semantic_view_status`. It reads only `semantic-views/<view>/` in
+the project's folder, refuses a link or junction there, and reads nothing past 200 entries or
+16 MB of YAML. **Open folder** uses `meta_model_semantic_view_reveal`, which opens only that view's
+existing folder in File Explorer and is written to the audit log, as the other Open folder buttons are.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it
@@ -302,3 +529,6 @@ see the preview and confirm.
 | `meta_model_tmdl_save` | The model's TMDL into `semantic/<model>.SemanticModel/` | Files |
 | `meta_model_ossie_folders` | Models kept under `semantic/` in the project's folder | Nothing |
 | `meta_model_ossie_export_folder` | A model kept in Git as Ossie YAML, read on this PC | Nothing |
+| `meta_model_semantic_view_save` | A Fabric Semantic View's YAML files in `semantic-views/<view>/`, made on this PC from an Ossie file or a model (Preview; **Save view files** on the publish-steps card). It shows the files, removals and report first, and writes only when confirmed with the preview's token. It never publishes and never writes a lakehouse's `Context/` folder | Files |
+| `meta_model_semantic_view_status` | The saved view's files: what each holds and Fabric's documented checks, and, given its model, whether the files still match and what the view leaves out (Preview) | Nothing |
+| `meta_model_semantic_view_reveal` | Opens one saved view's folder, `semantic-views/<view>/`, in File Explorer, only if it exists (Preview; **Open folder** on the publish-steps card). Audited | Nothing |

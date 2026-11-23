@@ -164,7 +164,7 @@ class AppStudioMixin:
         """The project as a new .zip in Downloads; never replaces a file."""
         folder = self._appstudio_project(project_name)
         data = project.export(folder)
-        out = known_folders.downloads()
+        out = known_folders.export_folder()
         out.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(out, folder.name[:-len(project.SUFFIX)] + " (App Studio)", ".zip")
         write_bytes(path, data)  # swapped in over the empty name reserved for it

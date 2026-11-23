@@ -33,6 +33,8 @@ REVIEWED = {
                                        "local branch is a PC-only table",
     ("lakehouse.py", "maintain_table"): "gate: maintenance_guard -> MetaMixin._maintenance_refusal (notebook "
                                         "OPTIMIZE, ZORDER BY, VACUUM, RESTORE)",
+    ("lakehouse.py", "vacuum"): "inside maintain_table: its VACUUM, run again on the Windows log race, reached "
+                                "only after maintain_table's own maintenance_guard check",
     ("lakehouse.py", "once"): "inside maintain_table: its retry of OPTIMIZE / ZORDER BY on the Windows log race, "
                               "reached only after maintain_table's own maintenance_guard check",
     ("fabric_compute.py", "_optimize"): "none needed: runs inside a Fabric notebook on the capacity itself, after "

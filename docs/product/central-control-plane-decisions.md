@@ -54,7 +54,7 @@ environments); a Fabric item tag or description (not reliable, editable by anyon
 
 ## CP-ADR-005 Operational store: reuse the Prod Platform database when one exists
 
-**Proposed (recommendation; proceeding on it for design, nothing built depends on it in Phase 1).**
+**Accepted (2026-11-20, chosen on the decision card).** A new organization's environment uses one KratosForge workspace.
 When an organization already runs a Platform, the environment's operational store is the Prod
 `SQL_Platform` reached through `UDF_Platform`, where the catalog already lives (`CATALOG_ENV =
 "prod"` in `central/service.py`). Only an organization with no Platform gets a new
@@ -63,10 +63,11 @@ When an organization already runs a Platform, the environment's operational stor
 Why: guardrail 9 (reuse a supported database), guardrail 2 (no competing registries), and the
 catalog is already Prod-scoped.
 
-Open question for Chris: should a brand new organization get the Platform layout (a Platform
-workspace per Dev/Test/Prod) or the single `KratosForge` workspace from the brief? This plan
-recommends the single workspace for the environment, with Platform workspaces added later per
-deployment environment exactly as today.
+Decided 2026-11-20 on the decision card: a brand new organization gets the single `KratosForge`
+workspace for its environment, not a Platform workspace per Dev/Test/Prod. The environment holds
+shared history and settings, not data, so it needs no promotion. Platform workspaces are added later
+per deployment environment exactly as today, and Adopt links an existing Prod Platform's database as
+the operational store.
 
 ## CP-ADR-006 Lakehouse-only is a valid environment
 

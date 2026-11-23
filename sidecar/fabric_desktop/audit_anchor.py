@@ -233,7 +233,12 @@ def newest(folder: Path | str, key: object = None) -> tuple[Anchor | None, str]:
     """The newest anchor for ``folder``, and a note when none could be read (empty off Windows). With
     ``key`` (what the trail's head file is now, such as its size and time), a read made for the same key in
     the last CACHE_SECONDS is reused; writing an anchor here for the folder drops it."""
-    want = fingerprint(folder)
+    return newest_for(fingerprint(folder), key)
+
+
+def newest_for(want: str, key: object = None) -> tuple[Anchor | None, str]:
+    """``newest`` for a folder fingerprint: a trail moved to another folder is checked against the records
+    for the folder it was written in (``head.json`` names it)."""
     if key is not None:
         with _cache_lock:
             hit = _cache.get(want)

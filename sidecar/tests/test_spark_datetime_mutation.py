@@ -42,9 +42,10 @@ def test_the_first_and_last_letters_are_read_as_letters(letter):
     if letter == "A":
         with pytest.raises(ValueError, match="Spark refuses this letter"):
             sd.tokens(letter)
-    elif letter == "z":
+    elif letter == "z":  # a zone's short name; its long name (zzzz) is refused
+        assert sd.tokens(letter) == [("letter", letter)]
         with pytest.raises(ValueError, match="time zone names"):
-            sd.tokens(letter)
+            sd.tokens(letter * 4)
     else:
         assert sd.tokens(letter) == [("letter", letter)]
 

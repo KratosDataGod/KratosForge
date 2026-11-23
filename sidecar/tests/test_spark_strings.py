@@ -229,6 +229,7 @@ STILL_DIFFERS = {
     "A pattern taken from the data": "SELECT rlike(s, p) FROM t",
     "`$` without the `m` flag": "SELECT rlike(s, 'a$') FROM t",
     "`.` and": "SELECT rlike(s, 'a.b') FROM t",
+    "`(?m)` with `^` and `$`": "SELECT rlike(s, '(?m)a$') FROM t",
     "`(?i)` with letters outside ASCII": "SELECT rlike(s, '(?i)é') FROM t",
     "`\\b` next to a letter outside ASCII": "SELECT rlike(s, '\\\\bé') FROM t",
     "`split` with a pattern that can match no text": "SELECT split(s, 'x*') FROM t",

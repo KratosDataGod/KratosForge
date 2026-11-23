@@ -1539,8 +1539,9 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("IsNan", _template("COALESCE(ISNAN(fj_arg0), FALSE)", 1)),
         ("PosexplodeOuter", _template(_POSEXPLODE_OUTER, 1)),
         ("ExplodeOuter", _template(_EXPLODE_OUTER, 1)),
+        # Spark's RegExpSubStr is NullIf(RegExpExtract(str, regexp, 0), ''): NULL with no match, and for an empty one
         ("RegexpSubstr", lambda n, a: None if len(a) != 2 else _with_args(
-            "CASE WHEN REGEXP_MATCHES(fj_arg0, fj_arg1) THEN REGEXP_EXTRACT(fj_arg0, fj_arg1) END", a)),
+            "NULLIF(REGEXP_EXTRACT(fj_arg0, fj_arg1, 0), '')", a)),
         ("Rint", _template("ROUND_EVEN(CAST(fj_arg0 AS DOUBLE), 0)", 1)),
         ("Sign", _sign),
         ("Stack", _stack),

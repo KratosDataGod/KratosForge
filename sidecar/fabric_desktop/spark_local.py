@@ -1744,9 +1744,10 @@ def _using_star(statement: Any, conn: Any) -> Any:
     """``SELECT *`` over a JOIN ... USING (k) or a NATURAL JOIN in Spark 3.5's order: the join keys first,
     then the rest of the left's columns, then the right's (the key the left's for an inner or left join, the
     right's for a right join, either side's for a full join); DuckDB keeps the left's order. Each such ``*``
-    is written out as the columns it stands for, each side's read from DuckDB with no rows. ``ta.*`` and a
-    semi or anti join are left as they are; so is any select this can't read (an unnamed or lateral
-    source), which DuckDB then answers in its own order."""
+    is written out as the columns it stands for, each side's read from DuckDB with no rows. A semi or anti
+    join's is the left's keys, then the rest of the left's columns (as Spark 3.5's analyzer writes it, read
+    from its source, not run against Spark). ``ta.*`` is left as it is; so is any select this can't read
+    (an unnamed or lateral source), which DuckDB then answers in its own order."""
     from sqlglot import exp
     for select in reversed(list(statement.find_all(exp.Select))):  # the innermost first: an outer * reads it
         joins = select.args.get("joins") or []
@@ -1768,16 +1769,15 @@ def _using_star(statement: Any, conn: Any) -> Any:
             out = _source_columns(sources[0], ctes, conn)
             for join in joins:
                 right = _source_columns(join.this, ctes, conn)
-                if str(join.kind).upper() in ("SEMI", "ANTI"):
-                    continue
+                existence = str(join.kind).upper() in ("SEMI", "ANTI")  # the left's columns only
                 if join.method == "NATURAL":
                     keys = [n for n, _ in out if n.lower() in {r.lower() for r, _ in right}]
                 elif join.args.get("using"):
                     keys = [k.name for k in join.args["using"]]
                 else:
-                    out += right
+                    out += [] if existence else right
                     continue
-                side = str(join.side).upper()
+                side = "LEFT" if existence else str(join.side).upper()
                 merged = []
                 for key in keys:
                     lhs = [c for c in out if c[0].lower() == key.lower()]
@@ -1791,7 +1791,7 @@ def _using_star(statement: Any, conn: Any) -> Any:
                         merged.append((rhs if side == "RIGHT" else lhs)[0])
                 lowered = {k.lower() for k in keys}
                 out = merged + [c for c in out if c[0].lower() not in lowered] + \
-                    [c for c in right if c[0].lower() not in lowered]
+                    ([] if existence else [c for c in right if c[0].lower() not in lowered])
         except (duckdb.Error, LookupError):  # silent-ok: DuckDB answers (or reports) the query as written
             continue
         projections: list[Any] = []

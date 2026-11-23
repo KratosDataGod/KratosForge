@@ -1,7 +1,7 @@
 """A join on column names (``df.join(other, "k")`` or ``on=["k1", "k2"]``) as Spark 3.5's: the keys come
 first, in ``on``'s order, then the rest of the left's columns, then the right's (spark_compat._keys_first).
 The key is the left's for an inner or left join, the right's for a right join and either side's for a
-full join; a semi or anti join keeps the left's columns as they are. spark.sql's ``SELECT *`` over
+full join; a semi or anti join gives the left's keys, then the rest of the left's columns. spark.sql's ``SELECT *`` over
 JOIN ... USING or NATURAL JOIN puts them in the same order (spark_local._using_star)."""
 
 import pytest
@@ -49,14 +49,29 @@ def test_the_key_comes_first(kernel, how, expected):
     assert frame(kernel, f"a.join(b, on=['k'], how='{how}')") == expected
 
 
+# Spark 3.5's Analyzer.commonNaturalJoinProcessing: `case LeftExistence(_) => (leftKeys ++ lUniqueOutput,
+# Seq.empty)`. Inferred from the analyzer's source, not run against Spark.
 @pytest.mark.parametrize(("how", "expected"), [
-    ("left_semi", "['l', 'k', 'v'] [(1, 2, 'x')]"),
-    ("semi", "['l', 'k', 'v'] [(1, 2, 'x')]"),
-    ("left_anti", "['l', 'k', 'v'] [(3, 4, 'y')]"),
-    ("leftanti", "['l', 'k', 'v'] [(3, 4, 'y')]"),
+    ("left_semi", "['k', 'l', 'v'] [(2, 1, 'x')]"),
+    ("semi", "['k', 'l', 'v'] [(2, 1, 'x')]"),
+    ("leftsemi", "['k', 'l', 'v'] [(2, 1, 'x')]"),
+    ("left_anti", "['k', 'l', 'v'] [(4, 3, 'y')]"),
+    ("anti", "['k', 'l', 'v'] [(4, 3, 'y')]"),
+    ("leftanti", "['k', 'l', 'v'] [(4, 3, 'y')]"),
 ])
-def test_a_semi_or_anti_join_keeps_the_lefts_columns_as_they_are(kernel, how, expected):
+def test_a_semi_or_anti_join_gives_the_lefts_keys_then_the_rest_of_the_left(kernel, how, expected):
     assert frame(kernel, f"a.join(b, 'k', '{how}')") == expected
+    assert frame(kernel, f"a.join(b, on=['k'], how='{how}')") == expected
+
+
+def test_sql_semi_and_anti_joins_give_the_lefts_keys_then_the_rest_of_the_left(kernel):
+    # as Spark 3.5's analyzer writes a LeftExistence join (inferred from its source, not run against Spark)
+    for join in ("LEFT SEMI JOIN tb USING (k)", "SEMI JOIN tb USING (k)", "NATURAL LEFT SEMI JOIN tb"):
+        assert frame(kernel, f'spark.sql("SELECT * FROM ta {join}")') == "['k', 'l', 'v'] [(2, 1, 'x')]"
+    for join in ("LEFT ANTI JOIN tb USING (k)", "ANTI JOIN tb USING (k)", "NATURAL LEFT ANTI JOIN tb"):
+        assert frame(kernel, f'spark.sql("SELECT * FROM ta {join}")') == "['k', 'l', 'v'] [(4, 3, 'y')]"
+    assert frame(kernel, 'spark.sql("SELECT * FROM ta LEFT SEMI JOIN tb ON ta.k = tb.k")') == "['l', 'k', 'v'] [(1, 2, 'x')]"
+    assert frame(kernel, 'spark.sql("SELECT ta.* FROM ta LEFT SEMI JOIN tb USING (k)")') == "['l', 'k', 'v'] [(1, 2, 'x')]"
 
 
 def test_several_keys_come_first_in_the_order_given(kernel):
@@ -115,12 +130,11 @@ def test_sql_star_over_a_using_or_natural_join_puts_the_keys_first(kernel, how, 
     assert frame(kernel, f'spark.sql("SELECT * FROM ta NATURAL {how} JOIN tb")') == expected
 
 
-def test_sql_side_stars_and_a_semi_join_keep_each_sides_own_columns(kernel):
+def test_sql_side_stars_keep_each_sides_own_columns(kernel):
     assert frame(kernel, 'spark.sql("SELECT ta.*, tb.* FROM ta JOIN tb USING (k)")') == \
         "['l', 'k', 'v', 'w', 'k', 'z'] [(1, 2, 'x', 'p', 2, 9)]"
     assert frame(kernel, 'spark.sql("SELECT tb.*, *, 1 AS one FROM ta t JOIN tb USING (K)")') == \
         "['w', 'k', 'z', 'k', 'l', 'v', 'w', 'z', 'one'] [('p', 2, 9, 2, 1, 'x', 'p', 9, 1)]"
-    assert frame(kernel, 'spark.sql("SELECT * FROM ta LEFT SEMI JOIN tb USING (k)")') == "['l', 'k', 'v'] [(1, 2, 'x')]"
 
 
 def test_sql_star_over_chained_and_nested_using_joins(kernel):

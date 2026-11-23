@@ -2012,9 +2012,6 @@ def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, va
     return _frame(self, out.project(", ".join(_col_sql(c) for c in keep)))
 
 
-_SEMI_ANTI = {"semi", "leftsemi", "anti", "leftanti"}
-
-
 def _keys_first(df: DataFrame, keys: list[str]) -> DataFrame:
     """A join on column names puts the keys first, in ``on``'s order, then the rest of the left's columns,
     then the right's, as Spark does; DuckDB keeps the left's order. So the left goes in keys first (under
@@ -2049,7 +2046,7 @@ def _same_self(fn: Any) -> Any:
                 given["how"] = "inner"  # DuckDB's join needs a condition; with a how it joins on true
             on, how = given.get("on"), given.get("how")
             keys = [on] if isinstance(on, str) else on if isinstance(on, list) and all(isinstance(k, str) for k in on) else []
-            if keys and str(how or "inner").lower().replace("_", "") not in _SEMI_ANTI:
+            if keys:  # a semi or anti join too: the left's keys, then the rest of its columns
                 self = _keys_first(self, keys)
             return fn(self, other, on, how, *args[2:], **kwargs)
         return fn(self, other, *args, **kwargs)

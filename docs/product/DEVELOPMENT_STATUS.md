@@ -3,10 +3,14 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-23 11:42 UTC, main 0fdeb4d7.** Covers the PRs merged from #135 to #3205.
+**Product check of 2026-11-23 23:42 UTC, main 293fb38d.** Covers the PRs merged from #135 to #3222.
 
 ## Summary
 
+- Evening check, 2026-11-23: 16 PRs merged after 0fdeb4d7. 1 was a product data PR, and the other 15 were linked.
+  The semantic model Best practices check card shipped in Preview from the approved mockup (#3210, PB-115). Databricks
+  SQL cells on this PC read Unity Catalog names (WR-316, PB-120). Parity cases now have a local runner and run records
+  (PAR-002, PB-140). Regular expressions answer as each platform does or stop by name (WR-257). No item changed state.
 - Check, 2026-11-23 (main didn't move between 11-20 and 11-23, so the weekend checks had nothing to refresh): 42
   PRs merged after ea988e99. 2 were product data and docs PRs, and the other 40 were linked. PB-115 moved to In
   progress: the live test can run the semantic model best practices check (#2913), and the product owner typed 'yes, run

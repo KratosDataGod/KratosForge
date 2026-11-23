@@ -644,25 +644,29 @@ counts, each stage's result, and the Python, DuckDB, sqlglot and PyYAML versions
     cd sidecar
     python tools/ossie_large_timing.py --size 10x50x20 --size 40x50x20
 
-The scenario 18 baseline below was measured once on 2026-11-23 on this project's Linux build container
-(x86_64, CPython 3.13.18, DuckDB 1.5.6, sqlglot 30.23.0), not on Windows. A Windows PC or runner will be
-slower. Times are seconds, one run each; sizes are tables x columns x measures per table.
+The scenario 18 baseline below was measured on 2026-11-23 on this project's Linux build container
+(x86_64, CPython 3.13.18, DuckDB 1.5.6, sqlglot 30.23.0, PyYAML 6.0.3 with libyaml), not on Windows. A
+Windows PC or runner will be slower. Times are seconds, one run each; sizes are tables x columns x measures
+per table. Each cell is before → after the two speed-ups below (YAML on libyaml, and L3 reusing L2's
+sides), both measured the same day on the same container; the "before" numbers were taken again rather
+than copied from the first baseline, which they match to within about 10 percent.
 
 | Size | Columns | Measures | Ossie to TMSL | Export | Export with round trip | L1 | L2 | L3 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 10x50x20 | 500 | 200 | 0.38 | 0.40 | 1.58 | 0.72 | 0.83 | 2.54 |
-| 20x50x20 | 1,000 | 400 | 0.84 | 0.87 | 3.13 | 1.57 | 1.60 | 4.28 |
-| 40x50x20 | 2,000 | 800 | 1.76 | 1.87 | 6.53 | 3.03 | 3.16 | 7.91 |
-| 80x50x20 | 4,000 | 1,600 | 3.62 | 3.98 | 13.15 | 6.25 | 6.79 | 14.84 |
-| 20x200x20 | 4,000 | 400 | 2.36 | 2.51 | 8.72 | 4.47 | 4.45 | 10.21 |
-| 20x50x80 | 1,000 | 1,600 | 1.82 | 1.86 | 6.40 | 3.17 | 3.68 | 8.18 |
+| 10x50x20 | 500 | 200 | 0.44 → 0.08 | 0.43 → 0.10 | 1.58 → 0.29 | 0.76 → 0.18 | 0.76 → 0.24 | 2.41 → 1.49 |
+| 20x50x20 | 1,000 | 400 | 0.84 → 0.23 | 0.92 → 0.22 | 3.19 → 0.83 | 1.41 → 0.38 | 1.40 → 0.48 | 3.82 → 1.75 |
+| 40x50x20 | 2,000 | 800 | 1.71 → 0.45 | 1.72 → 0.49 | 6.42 → 1.81 | 2.92 → 0.93 | 3.17 → 1.07 | 7.36 → 2.25 |
+| 80x50x20 | 4,000 | 1,600 | 3.40 → 1.07 | 3.82 → 1.07 | 13.04 → 4.40 | 5.82 → 2.41 | 6.73 → 2.89 | 14.41 → 4.38 |
+| 20x200x20 | 4,000 | 400 | 2.12 → 0.61 | 2.46 → 0.65 | 8.90 → 2.43 | 4.03 → 1.38 | 4.18 → 1.58 | 9.84 → 2.97 |
+| 20x50x80 | 1,000 | 1,600 | 1.77 → 0.65 | 1.85 → 0.50 | 6.49 → 1.69 | 3.32 → 0.96 | 3.58 → 1.39 | 7.79 → 2.75 |
 
-Every stage grows about linearly: eight times the tables take 8 to 10 times as long, and L3 about 6 times,
-because its DuckDB run is capped. The fidelity report of an Ossie import adds at most 0.04 s. Export with
-the round-trip check takes about 3.3 times as long as Export. L3 includes L2 and reads both sides again, so
-it costs about L1 plus L2 plus DuckDB's run of at most 200 measures a side. The round trip passed at every
-size. A profile of Export with the round trip shows about two thirds of the time is reading and writing
-YAML with PyYAML's pure-Python code, not the conversion itself.
+Every stage still grows about linearly. Reading and writing YAML with libyaml makes conversion, Export and
+the round trip 3 to 5 times as fast, and L1 and L2 2.3 to 4 times. L3 builds its queries from the sides
+L2 read instead of reading and converting both again, so it costs about L2 plus DuckDB's run of at most
+200 measures a side: 1.6 to 3.3 times as fast. The fidelity report of an Ossie import adds at most
+0.04 s. The round trip passed at every size, and every stage's result (fidelity status, round trip, and
+the L1, L2 and L3 summaries and counts) was the same before and after. The report L3 gives is the same
+as when it read both sides again (`tests/test_semantic_parity_l3_reuse.py`).
 
 ### YAML on libyaml
 
@@ -728,8 +732,9 @@ fails the build:
           if-no-files-found: ignore
 ```
 
-The timing step takes about 40 seconds on this container. Its numbers are for watching a trend, not a
-gate: runners vary too much for a time limit, which is why the tests count work instead.
+The timing step takes about 12 seconds on this container (40 before the speed-ups). Its numbers are for
+watching a trend, not a gate: runners vary too much for a time limit, which is why the tests count work
+instead.
 
 ## Converter upgrade check
 

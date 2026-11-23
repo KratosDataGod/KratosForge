@@ -1545,6 +1545,20 @@ def parity_l2(left: Any, right: Any, *, tolerances: dict[str, Any] | None = None
 
 def _parity(left: Any, right: Any, tolerances: dict[str, Any] | None, left_kind: str | None,
             right_kind: str | None, level: str) -> dict[str, Any]:
+    return _parity_sides(left, right, tolerances, left_kind, right_kind, level)[0]
+
+
+def _parity_l2_sides(left: Any, right: Any, left_kind: str | None = None,
+                     right_kind: str | None = None) -> tuple[dict[str, Any], list[_Side]]:
+    """``parity_l2``'s report and the two sides it read, so L3 builds its queries from them rather than reading
+    (and converting) both sides again. Reading is deterministic, and the comparison only reads a side (its caches
+    of SQL columns and column types are what a fresh read would build), so the sides are as a fresh read leaves
+    them."""
+    return _parity_sides(left, right, None, left_kind, right_kind, LEVEL_L2)
+
+
+def _parity_sides(left: Any, right: Any, tolerances: dict[str, Any] | None, left_kind: str | None,
+                  right_kind: str | None, level: str) -> tuple[dict[str, Any], list[_Side]]:
     tol = _tolerances(tolerances, level)
     sides = [_Side("left"), _Side("right")]
     for side, value, kind in ((sides[0], left, left_kind), (sides[1], right, right_kind)):
@@ -1558,14 +1572,14 @@ def _parity(left: Any, right: Any, tolerances: dict[str, Any] | None, left_kind:
     failed = [s for s in sides if s.error]
     if failed:
         reason = "; ".join(f"the {s.which} side couldn't be read: {s.error}" for s in failed)
-        return _report(sides[0], sides[1], _whole(TEST_FAILED, reason, failed), tol, reason, level)
+        return _report(sides[0], sides[1], _whole(TEST_FAILED, reason, failed), tol, reason, level), sides
     unsupported = [s for s in sides if s.unsupported]
     if unsupported:
         reason = "; ".join(f"the {s.which} side: {s.unsupported}" for s in unsupported)
-        return _report(sides[0], sides[1], _whole(UNSUPPORTED, reason, unsupported), tol, reason, level)
+        return _report(sides[0], sides[1], _whole(UNSUPPORTED, reason, unsupported), tol, reason, level), sides
     try:
         objects = _compare(sides[0], sides[1], level)
     except _SHAPE_ERRORS as exc:  # narrow: a shape the comparison trips on is a failed test, never a crash
         reason = f"the comparison couldn't be completed: {type(exc).__name__}: {mo._short(exc)}"
-        return _report(sides[0], sides[1], _whole(TEST_FAILED, reason, []), tol, reason, level)
-    return _report(sides[0], sides[1], objects, tol, level=level)
+        return _report(sides[0], sides[1], _whole(TEST_FAILED, reason, []), tol, reason, level), sides
+    return _report(sides[0], sides[1], objects, tol, level=level), sides

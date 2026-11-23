@@ -382,8 +382,7 @@ def verify(folder: Path) -> dict[str, Any]:
     except OSError:
         key = ("no head", count)
     missed = head.get("anchor_missed")
-    if isinstance(missed, dict):
-        notes.append(_missed_note(missed))
+    missed_at = len(notes)  # the missed note goes first, once the problems are known
     anchors, note = _recorded(folder, head, key, notes)
     if note:
         notes.append(note)
@@ -394,6 +393,8 @@ def verify(folder: Path) -> dict[str, Any]:
         for problem in _against(anchor, head, seen, count, missing=not (Path(folder) / HEAD).exists()):
             if problem not in problems:
                 problems.append(problem)
+    if isinstance(missed, dict):
+        notes.insert(missed_at, _missed_note(missed, complete=not problems))
     result: dict[str, Any] = {"lines": count, "ok": not problems, "problems": problems}
     if notes:  # only when there is something to say: the usual result keeps its shape
         result["notes"] = notes
@@ -413,14 +414,21 @@ def _missed_writes(missed: dict[str, Any] | None) -> int:
     return writes if isinstance(writes, int) and not isinstance(writes, bool) and writes >= 0 else 0
 
 
-def _missed_note(missed: dict[str, Any]) -> str:
+_SINCE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")  # as _anchor writes it
+
+
+def _missed_note(missed: dict[str, Any], complete: bool) -> str:
+    """Why the newest lines are checked against head.json only. head.json can be edited, so only a time in the
+    form _anchor writes is shown, and "the trail itself is complete" only when verify found no problems."""
     why = str(missed.get("why") or audit_anchor.UNAVAILABLE)
     fix = audit_anchor.FIX.get(why, audit_anchor.FIX[audit_anchor.UNAVAILABLE])
     n = max(_missed_writes(missed), 1)
     writes = "write" if n == 1 else f"{n} writes"
+    since = missed.get("since")
+    since = since if isinstance(since, str) and _SINCE.fullmatch(since) else "an earlier write"
     return (f"event log: the trail's end wasn't recorded in the Windows Application event log for the last "
-            f"{writes} (since {missed.get('since') or 'an earlier write'}), so the newest lines "
-            f"are checked against head.json only, because {fix}. The trail itself is complete")
+            f"{writes} (since {since}), so the newest lines are checked against head.json only, because {fix}."
+            + (" The trail itself is complete" if complete else ""))
 
 
 def _recorded(folder: Path, head: dict[str, Any], key: object,

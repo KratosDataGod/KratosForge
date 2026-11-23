@@ -93,3 +93,32 @@ def test_a_damaged_count_in_head_json_never_stops_an_audit_write(tmp_path, event
     assert _head(tmp_path)["anchor_missed"]["writes"] == 1
     [note] = [n for n in log.verify()["notes"] if "wasn't recorded" in n]
     assert "for the last write (since " in note
+
+
+def _missed(tmp_path, event_log, **change):
+    log = AuditLog(tmp_path)
+    event_log.fail = OSError(5, "ReportEventW failed")
+    log.record("meta_run", "ok", 0.1)
+    log.record("meta_promote", "ok", 0.1)
+    head = _head(tmp_path)
+    head["anchor_missed"].update(change)
+    (tmp_path / audit_chain.HEAD).write_text(json.dumps(head), encoding="utf-8")
+    return log
+
+
+@pytest.mark.parametrize("since", ["x" * 5000, 12, "2026-11-23T09:00:00Z; and more", None])
+def test_a_since_that_isnt_the_time_written_is_never_shown(tmp_path, event_log, since):
+    log = _missed(tmp_path, event_log, since=since)
+    [note] = [n for n in log.verify()["notes"] if "wasn't recorded" in n]
+    assert "(since an earlier write)" in note and len(note) < 600
+
+
+def test_a_trail_with_problems_isnt_called_complete(tmp_path, event_log):
+    log = _missed(tmp_path, event_log)
+    path = audit_chain.files(tmp_path / "audit" if (tmp_path / "audit").is_dir() else tmp_path)[-1]
+    lines = path.read_text(encoding="utf-8").splitlines()
+    path.write_text(lines[0] + "\n" + lines[1].replace('"ok"', '"error"', 1) + "\n", encoding="utf-8")
+    result = log.verify()
+    assert result["problems"]
+    [note] = [n for n in result["notes"] if "wasn't recorded" in n]
+    assert "complete" not in note

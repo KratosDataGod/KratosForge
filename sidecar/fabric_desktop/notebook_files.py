@@ -247,7 +247,7 @@ def from_fabric(shelf: NotebookShelf, definition: dict[str, Any], item: dict[str
 
 def ipynb_of(definition: dict[str, Any]) -> dict[str, Any]:
     """The .ipynb JSON in a getDefinition result."""
-    import base64
+    from . import b64
     root = (definition.get("definition") if isinstance(definition, dict) else None) or definition
     parts = root.get("parts") if isinstance(root, dict) else None
     part = next((p for p in parts if isinstance(p, dict) and str(p.get("path", "")).endswith(".ipynb")), None) \
@@ -255,7 +255,7 @@ def ipynb_of(definition: dict[str, Any]) -> dict[str, Any]:
     if part is None or not isinstance(part.get("payload"), str):
         raise ValueError("Fabric didn't return the notebook's cells.")
     try:  # validate: junk inside the base64 is refused, never decoded short
-        nb = json.loads(base64.b64decode(part["payload"], validate=True))
+        nb = json.loads(b64.decode_exact(part["payload"]))
     except (ValueError, RecursionError):  # not base64, not UTF-8, not JSON, or nested too deep
         raise ValueError("Fabric returned the notebook's cells in a form that can't be read. Open the notebook in Fabric to "
                          "check it, then try again.") from None

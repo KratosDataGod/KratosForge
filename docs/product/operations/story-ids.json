@@ -40,7 +40,7 @@
       "thread": "Fabric and Databricks unified development",
       "workstream": "dbx-snow",
       "blocks": [{"first": "WR-300", "last": "WR-399"}],
-      "next": "WR-321"
+      "next": "WR-322"
     },
     {
       "key": "governance",

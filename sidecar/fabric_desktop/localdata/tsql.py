@@ -169,6 +169,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
     notes: list[str] = []
     skipped = False
     schema = _schema(columns or {})
+    made: dict[str, bool] = {}  # WR-260: each #temp table the script makes, and whether it is distributed
     for batch in split_batches(sql):
         for tree in _parse(batch):
             if isinstance(tree, exp.Semicolon):  # WR-236: only a comment after the last ``;``, not a statement
@@ -185,7 +186,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
             notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
             tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
-            _temp_tables(tree)
+            _temp_tables(tree, made)
             notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
             _joined_changes(tree)
             tree = _views(tree, columns)
@@ -708,6 +709,7 @@ def _harmless_setting(tree: exp.Expression) -> bool:
 
 
 def _refuse(tree: exp.Expression) -> None:
+    _table_variables(tree)
     for kind, what in _REFUSED.items():
         if isinstance(tree, kind):
             raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {_LATER}")
@@ -877,17 +879,75 @@ def _views(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] |
     return tree
 
 
-def _temp_tables(tree: exp.Expression) -> None:
-    """``#t`` reads and makes the temporary table ``"#t"``, not an ordinary table ``t``."""
+_TABLE_VARIABLES = ("table variables ({what}) aren't supported in a Fabric Warehouse. Use a #temp table "
+                    "(CREATE TABLE #t ...), which lasts for the run.")
+
+
+def _table_variables(tree: exp.Expression) -> None:
+    """WR-260: ``DECLARE @t TABLE (...)`` and a read of or write to ``@t``, refused by name. Microsoft's Fabric
+    Warehouse pages list #temp tables and no table variables."""
+    if isinstance(tree, exp.Declare):
+        for item in tree.expressions:
+            if isinstance(item, exp.DeclareItem) and isinstance(item.args.get("kind"), exp.Schema):
+                names = item.this if isinstance(item.this, list) else [item.this]
+                name = names[0].sql(dialect="tsql") if names else "@t"
+                raise ValueError(_NOT_YET + _TABLE_VARIABLES.format(what=f"DECLARE {name} TABLE"))
+    for table in tree.find_all(exp.Table):
+        if isinstance(table.this, exp.Parameter):
+            raise ValueError(_NOT_YET + _TABLE_VARIABLES.format(what=table.this.sql(dialect="tsql")))
+
+
+_TEMP_VIEW = ("Views or functions are not allowed on temporary tables. Table names that begin with '#' denote "
+              "temporary tables.")
+
+
+def _temp_tables(tree: exp.Expression, made: dict[str, bool] | None = None) -> None:
+    """``#t`` reads and makes the temporary table ``"#t"``, not an ordinary table ``t``. A #temp table lasts for the
+    run, as a Fabric Warehouse session's does (the engine drops it after the run).
+
+    Refused by name, as a warehouse refuses them (WR-260):
+
+    - a schema or database on a #temp table (``dbo.#t``, ``tempdb..#t``);
+    - a view that reads a #temp table, or is named as one, with SQL Server's error 4508;
+    - ``ALTER TABLE`` of a #temp table the script made without ``WITH (DISTRIBUTION = ROUND_ROBIN)``: a warehouse
+      alters only a distributed #temp table. ``made`` holds each #temp table the script made so far, by lower-case
+      name, with True for a distributed one."""
     for ident in tree.find_all(exp.Identifier):
         if ident.args.get("temporary"):
             ident.set("this", "#" + ident.this)
             ident.set("quoted", True)
             ident.set("temporary", None)
+    temps = [t for t in tree.find_all(exp.Table) if isinstance(t.this, exp.Identifier) and t.name.startswith("#")]
+    for table in temps:
+        if table.db or table.catalog:
+            written = ".".join([table.catalog, table.db, table.name] if table.catalog else [table.db, table.name])
+            raise ValueError(_NOT_YET + f"a #temp table takes no schema or database name ({written}), in a Fabric "
+                             f"Warehouse either. Write {table.name} alone.")
+    kind = (tree.args.get("kind") or "").upper() if isinstance(tree, (exp.Create, exp.Alter)) else ""
+    if kind == "VIEW" and temps:
+        named = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
+        if isinstance(named, exp.Table) and named.name.startswith("#"):
+            raise ValueError(_NOT_YET + f"a view can't be temporary ({named.name}), in a Fabric Warehouse either. "
+                             "Make it a #temp table with SELECT ... INTO, or give the view a name without #.")
+        raise ValueError(_TEMP_VIEW)
+    if made is None:
+        made = {}
+    if isinstance(tree, exp.Alter) and kind == "TABLE" and isinstance(tree.this, exp.Table) \
+            and tree.this.name.startswith("#") and made.get(tree.this.name.lower()) is False:
+        raise ValueError(_NOT_YET + f"ALTER TABLE {tree.this.name} isn't supported in a Fabric Warehouse, because a "
+                         "warehouse alters only a distributed #temp table. Make it with CREATE TABLE "
+                         f"{tree.this.name} (...) WITH (DISTRIBUTION = ROUND_ROBIN), or declare every column in its "
+                         "CREATE TABLE.")
+    into = tree.args.get("into") if isinstance(tree, exp.Select) else None
+    if isinstance(into, exp.Into) and isinstance(into.this, exp.Table) and into.this.name.startswith("#"):
+        made[into.this.name.lower()] = False  # SELECT ... INTO #t makes a non-distributed #temp table
     if isinstance(tree, exp.Create):
         name = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
         if isinstance(name, exp.Table) and name.name.startswith("#"):
             props = tree.args.get("properties") or exp.Properties(expressions=[])
+            if kind == "TABLE":
+                made[name.name.lower()] = any(isinstance(p, exp.Property) and p.name.upper() == "DISTRIBUTION"
+                                              for p in props.expressions)
             if not any(isinstance(p, exp.TemporaryProperty) for p in props.expressions):
                 props.append("expressions", exp.TemporaryProperty())
                 tree.set("properties", props)

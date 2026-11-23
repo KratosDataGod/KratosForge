@@ -2,7 +2,7 @@
 
 What Fabric Warehouse documents (Microsoft Learn, read 2026-11-17: identity 2026-08-26, temp-tables 2026-07-27,
 tsql-surface-area 2026-09-29):
-- #temp tables last for the session, and ``WITH (DISTRIBUTION = ROUND_ROBIN)`` makes one stored as Parquet;
+- #temp tables last for the run (the session, WR-260), and ``WITH (DISTRIBUTION = ROUND_ROBIN)`` makes one stored as Parquet;
   ``##global`` temp tables aren't supported.
 - IDENTITY is BIGINT only, with no seed or increment.
 - TRUNCATE TABLE is supported.
@@ -100,10 +100,10 @@ def test_a_temp_table_lasts_for_the_session(tmp_path):
     local = LocalData(tmp_path / "temp" / "local-data")
     project = local.create("Temp")["id"]
     e = local.engine(project)
-    e.execute("CREATE TABLE #t (id INT) WITH (DISTRIBUTION = ROUND_ROBIN)", dialect="tsql")
-    e.execute("INSERT INTO #t VALUES (1), (2)", dialect="tsql")
-    assert run(e, "SELECT COUNT(*) FROM #t") == [[2]]
-    e.execute("DROP TABLE #t", dialect="tsql")
+    # WR-260: a run is the session, so the table is made, filled and read in one script
+    assert run(e, "CREATE TABLE #t (id INT) WITH (DISTRIBUTION = ROUND_ROBIN);\nINSERT INTO #t VALUES (1), (2)\n"
+                  "GO\nSELECT COUNT(*) FROM #t") == [[2]]
+    e.execute("CREATE TABLE #t (id INT); DROP TABLE #t", dialect="tsql")
     with pytest.raises(Exception, match=r"Invalid object name '#t'\."):
         e.execute("SELECT * FROM #t", dialect="tsql")
     e.execute("CREATE TABLE #u (id INT)", dialect="tsql")

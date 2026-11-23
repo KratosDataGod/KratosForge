@@ -856,7 +856,7 @@ When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric
 | --- | --- |
 | `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)`, `BINARY(n)` in `CREATE TABLE` | At most n bytes, as UTF-8 text: `'ééé'` doesn't fit in `VARCHAR(5)`. A longer value stops the `INSERT` or `UPDATE` with T-SQL's "String or binary data would be truncated in table 'dbo.t', column 'v'.", and nothing changes. Trailing blanks past the length don't count, as in T-SQL. `VARCHAR(MAX)` has no limit |
 | `NOT NULL` | Kept: a `NULL` stops the `INSERT` |
-| `#temp` tables | Last until the project is closed (the session), and are gone when it's opened again. `WITH (DISTRIBUTION = ROUND_ROBIN)`, which a warehouse takes only on a #temp table, is accepted and changes nothing here |
+| `#temp` tables | Last for the run, as a warehouse session's do: every batch of the script sees them, and they're dropped when it ends, so the next run starts without them. `WITH (DISTRIBUTION = ROUND_ROBIN)` makes a distributed #temp table, which `ALTER TABLE` can change; a non-distributed one (the default, and what `SELECT ... INTO #t` makes) can't be altered, as in a warehouse |
 | `CREATE TABLE ... AS SELECT`, `SELECT ... INTO` | A table with the select's columns and types: `1` is an `int`, `1.5` a `decimal(2,1)`, a cast keeps its type |
 | `DROP TABLE IF EXISTS`, `TRUNCATE TABLE` | As in a warehouse |
 
@@ -864,6 +864,10 @@ Refused by name:
 
 - `IDENTITY`. A warehouse takes only `BIGINT IDENTITY`, with no seed or increment, and numbers rows uniquely but not always in order. The local engine doesn't number rows that way yet, so give the column its values in the `INSERT`. `SET IDENTITY_INSERT` and `DBCC` are refused too.
 - `##global` temporary tables, which a warehouse doesn't have either.
+- Table variables (`DECLARE @t TABLE (...)`, and reading or writing `@t`), which Microsoft's warehouse pages don't list. Use a #temp table.
+- A schema or database on a #temp table (`dbo.#t`, `tempdb..#t`). Write `#t`.
+- A view on a #temp table, with SQL Server's error 4508: "Views or functions are not allowed on temporary tables. Table names that begin with '#' denote temporary tables." A view named `#v` is refused too.
+- `ALTER TABLE` of a #temp table made without `WITH (DISTRIBUTION = ROUND_ROBIN)`, which a warehouse refuses too.
 - `WITH (DISTRIBUTION = ...)` on a table that isn't a #temp table.
 - `ALTER TABLE ... ADD` of a `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)` or `BINARY(n)` column, since the local engine can't hold an added column to its length. Declare it in `CREATE TABLE`. Adding a column of another type, or `VARCHAR(MAX)`, works.
 
@@ -872,7 +876,7 @@ What can still differ:
 - A table made by `CREATE TABLE ... AS SELECT` or `SELECT ... INTO` keeps no text length and no `NOT NULL`: every column accepts `NULL` and text of any length. In T-SQL, a column copied from a `NOT NULL` column stays `NOT NULL`.
 - `CHAR(n)` isn't padded with spaces to n characters. `LEN` gives the same answer either way, but `DATALENGTH` of a stored `CHAR` value doesn't.
 - Trailing blanks past a text column's length are kept here. A warehouse drops them, so `DATALENGTH` differs.
-- A #temp table is shared by every query in the open project. In a warehouse it belongs to one connection.
+- A run here is one session. A tool that keeps one warehouse connection open across runs keeps its #temp tables between them; here the next run doesn't see them.
 
 ## Local T-SQL data types
 

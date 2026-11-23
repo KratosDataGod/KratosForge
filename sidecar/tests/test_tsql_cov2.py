@@ -108,9 +108,7 @@ def test_text_plus_a_float_reads_the_text_as_a_float(engine):
 
 
 def test_a_temp_table_is_made_temporary(engine):
-    tsql(engine, "CREATE TABLE #t (a INT)")
-    tsql(engine, "INSERT INTO #t VALUES (1)")
-    assert tsql(engine, "SELECT a FROM #t")["rows"] == [[1]]
+    assert tsql(engine, "CREATE TABLE #t (a INT); INSERT INTO #t VALUES (1); SELECT a FROM #t")["rows"] == [[1]]
 
 
 def test_two_decimal_averages_note_floating_point_once():

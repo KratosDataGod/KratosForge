@@ -97,8 +97,7 @@ def test_a_cte_a_temp_table_and_an_alias_are_not_schema_names(engine):
     run(engine, "CREATE SCHEMA sales")
     run(engine, "CREATE TABLE sales.c (x INT)")
     assert run(engine, "WITH c AS (SELECT 5 AS x) SELECT x FROM c") == [[5]]
-    run(engine, "CREATE TABLE #c (x INT)")
-    assert run(engine, "SELECT COUNT(*) FROM #c") == [[0]]
+    assert run(engine, "CREATE TABLE #c (x INT); SELECT COUNT(*) FROM #c") == [[0]]  # WR-260: one run, one session
     assert run(engine, "SELECT c.id FROM dbo.t AS c") == [[1]]
     from fabric_desktop.localdata.tsql import translate  # the alias c names dbo.t, never sales.c
     texts, _ = translate("UPDATE c SET id = 2 FROM dbo.t AS c", {"dbo": {"t": {"id": "INTEGER"}},

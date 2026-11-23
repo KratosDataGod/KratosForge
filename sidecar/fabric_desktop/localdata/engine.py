@@ -1,8 +1,8 @@
 """The local SQL engine for one project: DuckDB on this PC, no Fabric sign-in or capacity (FD-LDE-001).
 
 One engine per open project, holding one DuckDB connection. Requests from the app share it one at a
-time (DuckDB connections aren't for concurrent use), so temporary tables last for the session;
-catalog reads use their own cursor and don't wait for a running query. A query can be cancelled or
+time (DuckDB connections aren't for concurrent use). A T-SQL run's #temp tables are dropped when it ends, as a
+warehouse session's are. Catalog reads use their own cursor and don't wait for a running query. A query can be cancelled or
 given a time limit, and every query returns its columns, rows, row count and timings.
 
 The database file is DuckDB's: another process (a second copy of the app, a notebook) can't open it
@@ -918,6 +918,8 @@ class LocalEngine:
                         con.execute(f"DROP VIEW IF EXISTS temp.{q(name)}")
                     except duckdb.Error:
                         pass
+                if dialect == "tsql" and "#" in sql:
+                    _drop_temp_tables(con)
 
     # Statements, and the project's own Delta tables
 
@@ -1664,6 +1666,18 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+def _drop_temp_tables(con: duckdb.DuckDBPyConnection) -> None:
+    """WR-260: drop the #temp tables a T-SQL run made. A Fabric Warehouse keeps a #temp table for its session, and
+    each run here is one session, so the next run, or another page of the project, doesn't see it."""
+    try:
+        names = [r[0] for r in con.execute("SELECT table_name FROM duckdb_tables() WHERE temporary "
+                                           "AND starts_with(table_name, '#')").fetchall()]
+        for name in names:
+            con.execute(f"DROP TABLE IF EXISTS temp.main.{q(name)}")
+    except duckdb.Error:
+        _log.warning("Couldn't drop the #temp tables a T-SQL run made", exc_info=True)
 
 
 def _lines_above_problem(above: int, table: Found) -> str:

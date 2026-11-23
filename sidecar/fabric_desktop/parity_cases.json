@@ -138,10 +138,10 @@
  "dataset": {"table": "t", "columns": [["s", "string"]], "rows": [["abc"]]},
  "dialects": {
   "spark": {"statement": "SELECT CAST(s AS INT) AS i FROM t", "schema": [["i", "int"]], "rows": [[null]], "source": "Apache Spark ANSI compliance: with spark.sql.ansi.enabled false (Spark 3.5's default, as Fabric runs), CAST('a' AS INT) is NULL."},
-  "databricks": {"statement": "SELECT CAST(s AS INT) AS i FROM t", "expect_error": true, "source": "Databricks SQL cast function and ANSI_MODE: invalid input raises CAST_INVALID_INPUT (cast('a' AS INTEGER) is an error with ANSI mode on, the default)."},
-  "snowflake": {"statement": "SELECT CAST(s AS INT) AS i FROM t", "expect_error": true, "source": "Snowflake data type conversion: the VARCHAR value 'xyz' can't be converted to a numeric value."},
-  "tsql": {"statement": "SELECT CAST(s AS int) AS i FROM t", "expect_error": true, "source": "T-SQL CAST and CONVERT: the Database Engine returns an error when converting nonnumeric varchar data to int."},
-  "duckdb": {"statement": "SELECT CAST(s AS INTEGER) AS i FROM t", "expect_error": true, "source": "DuckDB casting: CAST('hello' AS INTEGER) raises a Conversion Error; TRY_CAST gives NULL."}}},
+  "databricks": {"statement": "SELECT CAST(s AS INT) AS i FROM t", "expect_error": true, "error_like": "convert|conversion|CAST_INVALID_INPUT", "source": "Databricks SQL cast function and ANSI_MODE: invalid input raises CAST_INVALID_INPUT (cast('a' AS INTEGER) is an error with ANSI mode on, the default)."},
+  "snowflake": {"statement": "SELECT CAST(s AS INT) AS i FROM t", "expect_error": true, "error_like": "convert|conversion|CAST_INVALID_INPUT", "source": "Snowflake data type conversion: the VARCHAR value 'xyz' can't be converted to a numeric value."},
+  "tsql": {"statement": "SELECT CAST(s AS int) AS i FROM t", "expect_error": true, "error_like": "convert|conversion|CAST_INVALID_INPUT", "source": "T-SQL CAST and CONVERT: the Database Engine returns an error when converting nonnumeric varchar data to int."},
+  "duckdb": {"statement": "SELECT CAST(s AS INTEGER) AS i FROM t", "expect_error": true, "error_like": "convert|conversion|CAST_INVALID_INPUT", "source": "DuckDB casting: CAST('hello' AS INTEGER) raises a Conversion Error; TRY_CAST gives NULL."}}},
 {"id": "float_to_int", "title": "Casting a double to an integer: truncate or round",
  "dataset": {"table": "t", "columns": [["id", "int"], ["x", "double"]], "rows": [[1, 2.7], [2, -2.7]]},
  "dialects": {
@@ -170,10 +170,10 @@
  "dataset": {"table": "t", "columns": [["a", "int"]], "rows": [[2147483647]]},
  "dialects": {
   "spark": {"statement": "SELECT a + 1 AS s FROM t", "schema": [["s", "int"]], "rows": [[-2147483648]], "source": "Apache Spark ANSI compliance: with spark.sql.ansi.enabled false, whole-number arithmetic wraps as in Java (2147483647 + 1 is -2147483648)."},
-  "databricks": {"statement": "SELECT a + 1 AS s FROM t", "expect_error": true, "source": "Databricks SQL ANSI_MODE: with ANSI mode on (the default) arithmetic overflow is an error (100Y * 100Y)."},
+  "databricks": {"statement": "SELECT a + 1 AS s FROM t", "expect_error": true, "error_like": "overflow|out of range", "source": "Databricks SQL ANSI_MODE: with ANSI mode on (the default) arithmetic overflow is an error (100Y * 100Y)."},
   "snowflake": {"statement": "SELECT a + 1 AS s FROM t", "schema": [["S", "decimal(38,0)"]], "rows": [["2147483648"]], "normalize": ["column_name_case", "integer_width"], "source": "Snowflake numeric data types: INT is a synonym for NUMBER(38,0), so there is no 32-bit limit."},
-  "tsql": {"statement": "SELECT a + 1 AS s FROM t", "expect_error": true, "source": "T-SQL SET ANSI_WARNINGS: when ON, arithmetic overflow errors roll back the statement with an error; int + int is int."},
-  "duckdb": {"statement": "SELECT a + 1 AS s FROM t", "expect_error": true, "unconfirmed": true, "source": "DuckDB numeric types: storing a value outside the type's range is an error.", "note": "The page states the error for storing values and for decimal arithmetic, not for INTEGER addition."}}},
+  "tsql": {"statement": "SELECT a + 1 AS s FROM t", "expect_error": true, "error_like": "overflow|out of range", "source": "T-SQL SET ANSI_WARNINGS: when ON, arithmetic overflow errors roll back the statement with an error; int + int is int."},
+  "duckdb": {"statement": "SELECT a + 1 AS s FROM t", "expect_error": true, "error_like": "overflow|out of range", "unconfirmed": true, "source": "DuckDB numeric types: storing a value outside the type's range is an error.", "note": "The page states the error for storing values and for decimal arithmetic, not for INTEGER addition."}}},
 {"id": "modulo_negative", "title": "The remainder of a negative number",
  "dataset": {"table": "t", "columns": [["id", "int"], ["a", "int"], ["b", "int"]], "rows": [[1, -7, 3], [2, 7, -3]]},
  "dialects": {
@@ -250,8 +250,8 @@
  "dataset": {"table": "t", "columns": [["a", "int"], ["b", "int"]], "rows": [[1, 0]]},
  "dialects": {
   "spark": {"statement": "SELECT a / b AS q FROM t", "schema": [["q", "double"]], "rows": [[null]], "unconfirmed": true, "source": "Apache Spark ANSI compliance (try_divide is / without the exception) and Databricks Runtime: with spark.sql.ansi.enabled false, / returns NULL for a zero divisor.", "note": "Spark's own reference doesn't state the ANSI-off result of /; Databricks' / page does."},
-  "databricks": {"statement": "SELECT a / b AS q FROM t", "expect_error": true, "source": "Databricks SQL / (slash sign) operator: if the divisor is 0, raises DIVIDE_BY_ZERO; ANSI_MODE: 1/0 is an error with ANSI mode on."},
-  "snowflake": {"statement": "SELECT a / b AS q FROM t", "expect_error": true, "source": "Snowflake DIV0: like the division operator but returns 0 rather than reporting an error; select 1/0 fails with Division by zero."},
-  "tsql": {"statement": "SELECT a / b AS q FROM t", "expect_error": true, "source": "T-SQL SET ANSI_WARNINGS: when ON, divide-by-zero errors roll back the statement with an error message."},
+  "databricks": {"statement": "SELECT a / b AS q FROM t", "expect_error": true, "error_like": "divi(de|sion) by zero|DIVIDE_BY_ZERO", "source": "Databricks SQL / (slash sign) operator: if the divisor is 0, raises DIVIDE_BY_ZERO; ANSI_MODE: 1/0 is an error with ANSI mode on."},
+  "snowflake": {"statement": "SELECT a / b AS q FROM t", "expect_error": true, "error_like": "divi(de|sion) by zero|DIVIDE_BY_ZERO", "source": "Snowflake DIV0: like the division operator but returns 0 rather than reporting an error; select 1/0 fails with Division by zero."},
+  "tsql": {"statement": "SELECT a / b AS q FROM t", "expect_error": true, "error_like": "divi(de|sion) by zero|DIVIDE_BY_ZERO", "source": "T-SQL SET ANSI_WARNINGS: when ON, divide-by-zero errors roll back the statement with an error message."},
   "duckdb": {"statement": "SELECT isinf(a / b) AS q FROM t", "schema": [["q", "boolean"]], "rows": [[true]], "unconfirmed": true, "source": "DuckDB numeric functions: / is float division, and only // and % are listed as throwing on division by zero; configuration: ieee_floating_point_ops (default true) returns NAN/INF instead of errors/NULL.", "note": "No page shows 1 / 0. error_on_division_by_zero (default true) says it throws instead of returning NULL, but the numeric page lists only // and % as throwing. isinf shows the value, since JSON has no infinity."}}}
 ]}

@@ -61,8 +61,9 @@ def test_the_seeded_cases_load_and_cover_the_list():
     (lambda c: c["dialects"]["duckdb"].update(expect_error=False), "expect_error must be true"),
     (lambda c: c["dialects"]["duckdb"].update(expect_error="yes"), "expect_error must be true"),
     (lambda c: c["dialects"]["duckdb"].update(expect_error=True), "no schema, rows or normalize"),
+    (lambda c: c["dialects"]["duckdb"].update(error_like="overflow"), "error_like goes with expect_error"),
     (lambda c: c["dialects"]["duckdb"].pop("rows"), "rows missing"),
-], ids=["key", "norm", "dkey", "dialect", "type", "value", "source", "flag", "id", "err-false", "err-text", "err-schema",
+], ids=["key", "norm", "dkey", "dialect", "type", "value", "source", "flag", "id", "err-false", "err-text", "err-schema", "err-like",
         "rows"])
 def test_a_case_that_breaks_the_format_is_refused(change, words):
     c = copy.deepcopy(CASE)
@@ -147,6 +148,26 @@ def test_an_expected_error_matches_only_when_the_statement_fails():
     assert r["actual"] == {"schema": [["i", "int"]], "rows": [[1]]}
 
 
+def test_error_like_names_the_expected_error():
+    assert h.run_one(_error_case("SELECT CAST('x' AS INTEGER) AS i", error_like="conver"), "duckdb")["outcome"] == "match"
+    assert h.run_one(_error_case("SELECT CAST('x' AS INTEGER) AS i", error_like="CONVERSION"), "duckdb")["outcome"] == "match"
+    r = h.run_one(_error_case("SELECT nope FROM t", error_like="conver"), "duckdb")   # fails, but on a name
+    assert r["outcome"] == "differs" and r["differences"][0]["expected"] == "an error like conver"
+    assert "nope" in r["differences"][0]["actual"]
+    assert h.run_one(_error_case("SELECT nope FROM t"), "duckdb")["outcome"] == "match"   # without it, any failure
+    for bad, msg in [("", "as text"), (3, "as text"), ("(", "isn't a regular expression")]:
+        with pytest.raises(h.CaseError, match=msg):
+            _error_case("SELECT 1", error_like=bad)
+
+
+def test_a_failure_on_the_data_is_a_difference_when_a_result_is_expected():
+    c = copy.deepcopy(CASE)
+    c["dialects"]["duckdb"]["statement"] = "SELECT CAST('x' AS INTEGER) AS d FROM t"
+    r = h.run_one(h.validate(c), "duckdb")
+    assert r["outcome"] == "differs" and r["differences"][0]["what"] == "error"
+    assert r["differences"][0]["expected"] == "a result" and "Conversion" in r["differences"][0]["actual"]
+
+
 def test_an_expected_error_is_still_refused_or_an_error_when_the_run_breaks_elsewhere():
     c = copy.deepcopy(CASE)
     c["dialects"] = {"snowflake": {"statement": "PUT file:///tmp/x @stage", "expect_error": True, "source": "test"}}
@@ -173,7 +194,9 @@ def test_every_seeded_case_runs_locally_and_unconfirmed_ones_say_so():
     assert {r["outcome"] for r in records} <= {"match", "unconfirmed", "differs", "refused", "error"}
     by = {(r["case"], r["engine"]["dialect"]): r for r in records}
     # INT is NUMBER(38,0) on Snowflake; on this PC the translation keeps a 32-bit INTEGER and overflows.
-    assert [k for k, r in by.items() if r["outcome"] == "error"] == [("integer_overflow", "snowflake")]
+    assert [k for k, r in by.items() if r["outcome"] == "error"] == []
+    overflow = by[("integer_overflow", "snowflake")]   # INT kept 32-bit here; NUMBER(38,0) on Snowflake
+    assert overflow["outcome"] == "differs" and "INT32" in overflow["differences"][0]["actual"]
     assert all(r["outcome"] != "match" for r in records if r["expected"]["unconfirmed"])
     # Known gaps on this PC, reported, not normalized away.
     assert by[("decimal_division", "snowflake")]["outcome"] == "differs"

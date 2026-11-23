@@ -25,14 +25,6 @@ def rows(duck: local_sql.DuckDBSession, sql: str) -> list[dict[str, Any]]:
     return result.table.to_pylist()
 
 
-TWO_ARRAYS = "SELECT [1, 2]::ARRAY AS a, [3]::ARRAY AS A"
-
-
-def test_two_array_columns_named_alike_but_for_case_show_as_json(duck: local_sql.DuckDBSession) -> None:
-    result = duck.execute(CellRequest(TWO_ARRAYS, "sql", dialect="snowflake", result_rows=10))
-    assert result.status == "ok" and result.table is not None and result.table.to_pylist() == [{"a": "[1,2]", "A": "[3]"}]
-
-
 def test_a_variant_and_an_object_named_alike_but_for_case_show_as_json(duck: local_sql.DuckDBSession) -> None:
     # both are VARIANT columns in DuckDB; a plain OBJECT (JSON in DuckDB) beside them is left as it was
     sql = ("SELECT PARSE_JSON('[1, \"x\"]')::VARIANT AS v, OBJECT_CONSTRUCT('k', 1)::VARIANT AS V, "

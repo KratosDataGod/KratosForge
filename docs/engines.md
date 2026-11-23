@@ -8,7 +8,7 @@ yet, and a Databricks connection comes from a saved profile or the Databricks CL
 
 - An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite and Polars, and,
   as Preview engines tested against fakes, a Databricks SQL warehouse, Databricks Connect on a
-  cluster and a Fabric Spark session.
+  cluster, a Fabric Spark session and a Snowflake SQL warehouse (read-only).
 - A **connection profile** says which platforms a piece of work uses, where, how it signs in,
   which engine it runs on by default, and whether it may start remote compute.
 
@@ -37,7 +37,8 @@ same way in [PySpark DataFrame API on this PC](spark-dataframe-api.md), and the 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
 here has run against a Fabric tenant or a Databricks workspace yet: the Databricks SQL warehouse,
 Databricks Connect and Fabric Spark engines are tested against fakes of the platforms' documented
-APIs and clients, and stay Preview until they have.
+APIs and clients, and stay Preview until they have. The same goes for the Snowflake SQL warehouse
+engine, which hasn't run against a Snowflake account yet.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Whole result | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -49,7 +50,7 @@ APIs and clients, and stay Preview until they have.
 | Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Partial (SQL cells) | Fabric capacity | Preview, tested against fakes |
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
 | Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | Partial (up to 25 MB) | DBUs | Preview, tested against fakes |
-| Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
+| Snowflake SQL warehouse (remote) | Your Snowflake warehouse | SQL | Snowflake SQL native, read-only statements only | Native | Partial (EXPLAIN USING TEXT) | No | Partial (every partition) | Snowflake credits | Preview, tested against fakes |
 | Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 
@@ -321,6 +322,57 @@ A table a Databricks SQL cell makes on this PC is a DuckDB table in the session.
 - **ALTER TABLE ... ADD COLUMNS (a, b)** and **DROP COLUMNS (a, b)** change each column in turn, and an added column's `COMMENT` is kept. Added columns are NULL in the rows already there. `ADD COLUMN ... DEFAULT` is refused, because Databricks takes no default when it adds a column to a Delta table (the rows already there stay NULL) and DuckDB would fill them. Add the column, then `ALTER COLUMN ... SET DEFAULT`, which changes new rows only, as on Databricks. `FIRST` and `AFTER` are refused, since DuckDB adds a column at the end only.
 - **Session variables** (`DECLARE VARIABLE`, `SET VAR`) are refused, because a query reads a Databricks variable by its name and DuckDB can't, so write the value into the query.
 - **CACHE TABLE**, **UNCACHE TABLE**, **OPTIMIZE** (with or without `ZORDER BY`) and **VACUUM** are refused by name, because they work on Apache Spark's cache or a Delta table's files, which a table here doesn't have. Leave them out. For `CACHE TABLE name AS query`, write `CREATE TEMPORARY VIEW name AS query`.
+
+## Snowflake SQL warehouse (Preview)
+
+SQL cells can run on a Snowflake warehouse through Snowflake's documented SQL API, with the role,
+database, schema and warehouse of a Snowflake connection in your connection profile. Only read-only
+statements run for now. A cell may hold several statements, they run in order, and the last one's
+result is shown with Snowflake's row count. **Cancel** cancels the statement on Snowflake. **Catalog**
+lists databases, schemas, or the tables and views of the connection's schema, with SHOW commands that
+don't use the warehouse. **Plan** runs EXPLAIN USING TEXT, which doesn't use the warehouse either.
+
+This engine is built and tested, but the notebook's engine picker doesn't offer it yet, because the
+picker lists Databricks connections only. It shows the engine under **More** as planned until it
+lists Snowflake connections.
+
+- **It uses credits.** A statement on a suspended warehouse resumes it, and a running warehouse uses
+  Snowflake credits until its own auto-suspend. KratosForge never suspends your warehouse and never
+  sends a cell there without your confirmation, for that account and warehouse, or your profile's policy.
+- **Read-only first.** Before anything is sent, every statement in the cell is read with sqlglot as
+  Snowflake SQL. SELECT, WITH, UNION and the other set operations, VALUES, SHOW, DESCRIBE and EXPLAIN
+  run. Anything else is refused by name, for example "INSERT changes data on Snowflake, and this engine
+  runs read-only statements for now". Run such a statement in Snowsight. SELECT ... INTO and SYSTEM$
+  functions are refused too, because some of those change state. SQL that sqlglot can't read is
+  refused rather than guessed at, so check its syntax. The check reads the SQL only, so a
+  user-defined function a query calls still runs whatever it holds. What your role may do is still
+  up to Snowflake.
+- **Never another engine.** A cell that's refused, or fails on Snowflake, is reported as it is. It
+  never moves to DuckDB, and this engine doesn't use the Snowflake SQL translator on this PC
+  ([above](#snowflake-sql-on-this-pc-preview)).
+- **Sign-in** is key pair or a programmatic access token, as in
+  [Checking a Snowflake connection](#checking-a-snowflake-connection-preview). A refused sign-in
+  keeps Snowflake's error code and says what to check, and never repeats the token.
+- **Errors keep Snowflake's code.** A statement Snowflake refuses (HTTP 422) shows its code and
+  message, for example "code 002003" for an object that doesn't exist or that your role can't see.
+  Check the name, or ask for the privilege, then run the cell again.
+- **Busy or briefly unavailable.** Looking at a statement, reading a result partition and cancelling
+  are tried again through throttling (HTTP 429), gateway errors and a dropped connection, as for the
+  connection check. A statement is never sent twice after a server error, because it may have started.
+- **Results.** Values are typed from Snowflake's result metadata. NUMBER is an integer, or a decimal
+  with its scale, FLOAT is a float, and BOOLEAN, DATE, TIME and the three timestamp types are typed
+  too. TIMESTAMP_TZ values are shown in UTC, without their offset. VARIANT, OBJECT, ARRAY and
+  BINARY come back as text. A value that won't read as its type keeps its column as text. The
+  preview reads only the result partitions it needs for its rows.
+- **Whole results, to compare engines.** Every partition is read, in order. More rows than asked for,
+  or more than 256 MB, is an error, never a cut table. Snowflake's own row count is checked before
+  any further partition is read. The rows are copied onto this PC, so a comparison asks for them only
+  after its own confirm.
+- **Limits.** Snowflake stops a statement after two hours, and this PC stops following it a minute
+  later and cancels it. Credits are metered per warehouse, so the engine reports measured seconds only.
+- **Not confirmed yet.** This engine follows Snowflake's SQL API documentation and is tested against
+  a fake of it, not a live account. How TIME and TIMESTAMP_TZ values look on the wire, and that
+  EXPLAIN runs without a warehouse, come from the documentation and haven't been checked live.
 
 ## Databricks workspace discovery (Preview)
 

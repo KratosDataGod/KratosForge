@@ -9,6 +9,9 @@ from collections import Counter
 import pytest
 from docexamples import (CLAIM_PAGES, PRACTICE_PAGES, Claim, Statement, fenced_blocks, inline_claims, inline_statements,
                          render, same)
+from docexamples_more import CLAIMS as MORE_CLAIMS
+from docexamples_more import ILLUSTRATIVE as MORE_ILLUSTRATIVE
+from docexamples_more import STATEMENTS as MORE_STATEMENTS
 from docexamples_pages import CLAIMS as PAGE_CLAIMS
 from docexamples_pages import ILLUSTRATIVE as PAGE_ILLUSTRATIVE
 from docexamples_pages import STATEMENTS as PAGE_STATEMENTS
@@ -16,9 +19,9 @@ from docexamples_sqlcompat import CLAIMS as COMPAT_CLAIMS
 from docexamples_sqlcompat import ILLUSTRATIVE as COMPAT_ILLUSTRATIVE
 from docexamples_sqlcompat import STATEMENTS as COMPAT_STATEMENTS
 
-CLAIMS = COMPAT_CLAIMS + PAGE_CLAIMS
-ILLUSTRATIVE = {**COMPAT_ILLUSTRATIVE, **PAGE_ILLUSTRATIVE}
-STATEMENTS = COMPAT_STATEMENTS + PAGE_STATEMENTS
+CLAIMS = COMPAT_CLAIMS + PAGE_CLAIMS + MORE_CLAIMS
+ILLUSTRATIVE = {**COMPAT_ILLUSTRATIVE, **PAGE_ILLUSTRATIVE, **MORE_ILLUSTRATIVE}
+STATEMENTS = COMPAT_STATEMENTS + PAGE_STATEMENTS + MORE_STATEMENTS
 BLOCKS = [b for b in fenced_blocks() if b.page not in PRACTICE_PAGES]
 
 

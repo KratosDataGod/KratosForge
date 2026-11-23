@@ -1,7 +1,7 @@
 // A VS Code window's request to write to OneLake, in a real browser (see harness.cjs for how to run it):
 // the person's answer reaches the engine, and a request that comes while another dialog is open waits
 // with a note instead of covering it. The engine's editor calls are mocked.
-const { test, before, after } = require("node:test");
+const { test, before, beforeEach, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp } = require("./harness.cjs");
 
@@ -29,7 +29,22 @@ before(async () => {
 
 after(async () => { await app?.close(); });
 
+// Each test starts with nothing pending and no dialog open, so they pass in any order or alone.
+beforeEach(async () => {
+  if (skip) return;
+  pending.writes = [];
+  pending.pairing = [];
+  await page().evaluate(() => { if (document.getElementById("dialog-root")?.children.length) closeDialog(); });
+  await page().waitForFunction(() => !document.getElementById("dialog-root")?.children.length);
+});
+
+// Waits until editor_decide_write has been called at least n times.
+async function decided(n) {
+  for (const end = Date.now() + 5000; calls("editor_decide_write").length < n && Date.now() < end;) await new Promise((r) => setTimeout(r, 10));
+}
+
 test("a write from VS Code asks here, names the notebook, window and target, and Deny says no", { skip }, async () => {
+  const start = calls("editor_decide_write").length;
   pending.writes = [WRITE];
   await poll();
   const dialog = page().getByRole("dialog", { name: "VS Code wants to write to OneLake" });
@@ -39,19 +54,26 @@ test("a write from VS Code asks here, names the notebook, window and target, and
   assert.match(text, /waits up to 5 minutes/);
   await dialog.getByRole("button", { name: "Deny" }).click();
   await dialog.waitFor({ state: "detached" });
-  for (const end = Date.now() + 5000; !calls("editor_decide_write").length && Date.now() < end;) await new Promise((r) => setTimeout(r, 10));
+  await decided(start + 1);
   assert.deepStrictEqual(calls("editor_decide_write").at(-1).params, { ask_id: "w1", approve: false });
 });
 
 test("the same request isn't asked twice, and a new one can be allowed once", { skip }, async () => {
+  const start = calls("editor_decide_write").length;
+  const dialog = page().getByRole("dialog", { name: "VS Code wants to write to OneLake" });
+  // Answer a request here first, so this test doesn't lean on another one.
+  pending.writes = [{ ...WRITE, id: "w2a" }];
   await poll();
-  assert.strictEqual(await page().getByRole("dialog").count(), 0, "w1 was answered, so it isn't shown again");
+  await dialog.getByRole("button", { name: "Deny" }).click();
+  await dialog.waitFor({ state: "detached" });
+  await decided(start + 1);
+  await poll();
+  assert.strictEqual(await page().getByRole("dialog").count(), 0, "w2a was answered, so it isn't shown again");
   pending.writes = [{ ...WRITE, id: "w2" }];
   await poll();
-  const dialog = page().getByRole("dialog", { name: "VS Code wants to write to OneLake" });
   await dialog.getByRole("button", { name: "Allow once" }).click();
   await dialog.waitFor({ state: "detached" });
-  for (const end = Date.now() + 5000; calls("editor_decide_write").length < 2 && Date.now() < end;) await new Promise((r) => setTimeout(r, 10));
+  await decided(start + 2);
   assert.deepStrictEqual(calls("editor_decide_write").at(-1).params, { ask_id: "w2", approve: true });
 });
 

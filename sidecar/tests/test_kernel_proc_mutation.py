@@ -225,17 +225,38 @@ def test_the_result_viewer_asks_for_the_first_100_rows_and_gives_back_the_answer
 # ---- a real process
 
 
-def test_stop_returns_once_the_process_has_ended_and_close_ends_one_that_runs():
+class _StopsWaits:
+    """kernel_proc's time, keeping each wait ProcessKernel.stop starts once the reader has marked the process
+    gone."""
+
+    def __init__(self, marked: threading.Event):
+        self.marked, self.after = marked, []
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+    def sleep(self, seconds):
+        if self.marked.is_set() and sys._getframe(1).f_code.co_name == "stop":
+            self.after.append(seconds)
+        time.sleep(seconds)
+
+
+def test_stop_returns_once_the_process_has_ended_and_close_ends_one_that_runs(monkeypatch):
     k = ProcessKernel()
     try:
         assert k.run("x = 1")["status"] == "ok"
         readers = [t for t in threading.enumerate() if t.name == "kernel-reader" and t.is_alive()]
         assert readers and all(t.daemon for t in readers)  # never holds the engine open
-        gone = k._gone
-        k._gone = lambda why: (time.sleep(0.5), gone(why))  # type: ignore[method-assign]  # a slow reader
-        began = time.monotonic()
+        gone, marked = k._gone, threading.Event()
+        k._gone = lambda why: (time.sleep(0.5), gone(why), marked.set())  # type: ignore[method-assign]  # a slow reader
+        waits = _StopsWaits(marked)
+        monkeypatch.setattr(kp, "time", waits)
         assert k.stop() == {"stopped": True}
-        assert time.monotonic() - began < 4 and k._proc is None  # stop waited for the reader
+        monkeypatch.undo()
+        # Stop waited for the reader, and returned once it had marked the process gone rather than at the end of its
+        # own 5 s wait: counted in the waits it started after that, not timed (a time limit failed on busy runners).
+        assert marked.is_set() and k._proc is None
+        assert len(waits.after) <= 1, f"stop waited on {len(waits.after)} more times after the reader marked it gone"
         del k._gone
         assert k.run("x = 2")["status"] == "ok"
         proc = k._proc

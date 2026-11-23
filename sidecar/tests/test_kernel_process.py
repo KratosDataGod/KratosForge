@@ -494,16 +494,19 @@ def test_the_run_meter_measures_the_kernel_process_not_the_engine(kernel):
     from fabric_desktop.measure import RunMeter, cpu_seconds
     kernel.run("x = 1")  # started, so its start-up isn't part of this run
     before = cpu_seconds(kernel.pid)
-    engine_before = time.process_time()
     with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
-        out = kernel.run("import time\nheld = bytearray(300 * 1024 * 1024)\n"
-                         "end = time.process_time() + 1.5\nwhile time.process_time() < end:\n    pass\nprint('ok')")
+        out = kernel.run("import os, time\nheld = bytearray(300 * 1024 * 1024)\n"
+                         "end = time.process_time() + 1.5\nwhile time.process_time() < end:\n    pass\n"
+                         "print('ok', os.getpid())")
     after = cpu_seconds(kernel.pid)
-    assert text(out).strip() == "ok"
+    said, ran_in = text(out).split()
+    assert said == "ok"
+    # The cell's CPU is spent in the kernel process, not the engine's: told by where it ran, not by the engine's
+    # CPU time (a CPU-time bound on this process failed beside busy test workers).
+    assert int(ran_in) == kernel.pid != os.getpid()
     result = meter.result()
     # The kernel's own CPU time, as the process reports it, and none of the engine's.
     assert result["cpu_seconds"] >= 1.4 and abs(result["cpu_seconds"] - (after - before)) < 0.2
-    assert time.process_time() - engine_before < 1.0
     assert result["peak_memory_mb"] >= 300 and result["measured"] == "the notebook's own kernel process on this PC"
 
 

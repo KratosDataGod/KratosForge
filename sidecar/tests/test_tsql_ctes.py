@@ -7,8 +7,6 @@ query that runs until memory runs out), and the forms a warehouse runs must give
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from fabric_desktop.localdata import LocalData, tsql, tsql_ctes
@@ -52,11 +50,36 @@ def test_a_recursive_cte_is_refused_by_name_as_a_warehouse_refuses_it(engine, sq
     assert "a Fabric Warehouse doesn't run recursive queries" in text and "Unroll" in text
 
 
+class _Recording:
+    """The project's DuckDB connection, recording each statement given to it. One that reads the CTE n is
+    refused here instead of run, since a query with no end would never come back."""
+
+    def __init__(self, con):
+        self._real, self.statements = con, []
+
+    def __getattr__(self, name):
+        real = getattr(self._real, name)
+        if name not in ("execute", "sql", "query"):
+            return real
+
+        def run(query, *args, **kwargs):
+            self.statements.append(query)
+            if "FROM n" in query:
+                raise AssertionError(f"the recursive CTE reached DuckDB: {query}")
+            return real(query, *args, **kwargs)
+        return run
+
+
 def test_a_recursive_cte_with_no_end_stops_at_once_and_changes_nothing(engine):
-    started = time.monotonic()
-    refused(engine, "WITH n AS (SELECT 1 AS i UNION ALL SELECT i + 1 FROM n) INSERT INTO t (id) SELECT i FROM n",
-            "makes it recursive")
-    assert time.monotonic() - started < 10
+    # "At once" is that DuckDB never sees it, checked by recording what reaches the connection rather than by a
+    # time limit (a wall-clock limit fails on a busy runner with nothing changed).
+    recording = engine._con = _Recording(engine.con)
+    try:
+        refused(engine, "WITH n AS (SELECT 1 AS i UNION ALL SELECT i + 1 FROM n) INSERT INTO t (id) SELECT i FROM n",
+                "makes it recursive")
+    finally:
+        engine._con = recording._real
+    assert not [q for q in recording.statements if "FROM n" in q], recording.statements
     assert rows(engine, "SELECT COUNT(*) FROM t") == [[3]]
 
 

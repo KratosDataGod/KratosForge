@@ -11,7 +11,7 @@ import copy
 import json
 import logging
 import random
-import time
+import sys
 
 import pytest
 import yaml
@@ -108,6 +108,41 @@ def test_scenario_7_sql_and_the_dax_the_converter_writes_for_it_are_compatible(s
     assert m["expressions"]["left"] == dax and m["expressions"]["right"] == sql
     assert m["expressions"]["left_dialect"] == "DAX" and m["expressions"]["right_dialect"] == "ANSI_SQL"
     assert not any("expressions weren't compared: that is L2" in n for n in m["notes"])
+
+
+# A blow-up guard, not a speed budget, counted rather than timed (a wall-clock limit fails on a busy runner with
+# nothing changed). The whole export and comparison makes about 91,000 Python calls for a short expression and
+# about 2 more per character of a long one (the model's JSON and YAML are read once), so more than
+# _CALLS + _CALLS_PER_CHAR * len(text) is a blow-up; a read that passes it is stopped there instead of running on.
+# L2's own reading (semantic_parity's code, the built-in calls it makes included) is bounded whatever the length:
+# its caps (MAX_EXPRESSION_CHARS, MAX_EXPRESSION_TOKENS, MAX_SQL_PAREN_DEPTH) stop it at under 5,300 steps here.
+_CALLS, _CALLS_PER_CHAR, _OWN_STEPS = 250_000, 10, 10_000
+
+
+class _TooMuchWork(BaseException):
+    """Stops a comparison that made more calls than its bound (a BaseException, so no `except Exception` keeps it)."""
+
+
+def _counted(text, compare):
+    """``compare()``'s result, after checking the work it took against the bounds above."""
+    bound, calls, own = _CALLS + _CALLS_PER_CHAR * len(text), 0, 0
+
+    def profile(frame, event, arg):
+        nonlocal calls, own
+        if event == "call":
+            calls += 1
+            if calls > bound:
+                raise _TooMuchWork(f"more than {bound} calls")
+        if event in ("call", "c_call") and frame.f_code.co_filename == sp.__file__:
+            own += 1
+    sys.setprofile(profile)
+    try:
+        report = compare()
+    finally:
+        sys.setprofile(None)
+    assert calls <= bound, f"{calls} calls for {len(text)} characters"
+    assert own <= _OWN_STEPS, f"L2's own reading took {own} steps for {len(text)} characters"
+    return report
 
 
 @pytest.mark.parametrize("dax", [
@@ -312,9 +347,7 @@ def _short_id(v):
 ], ids=_short_id)
 def test_hostile_dax_is_unsupported_quickly_without_recursion(dax):
     bim = _model(dax)
-    start = time.perf_counter()
-    m = _measure(_assert_l2(sp.parity_l2(bim, _ossie(bim, "SUM(amount)"))))
-    assert time.perf_counter() - start < 30  # a blow-up guard, not a speed budget
+    m = _measure(_assert_l2(_counted(dax, lambda: sp.parity_l2(bim, _ossie(bim, "SUM(amount)")))))
     assert m["result"] == sp.UNSUPPORTED, m
     assert len(m["expressions"]["left"]) < 2 * model_ossie.MAX_NAME
 
@@ -325,9 +358,7 @@ def test_hostile_dax_is_unsupported_quickly_without_recursion(dax):
 ], ids=_short_id)
 def test_hostile_sql_is_unsupported_quickly_without_recursion(sql):
     bim = _model("SUM('fact_sales'[amount])")
-    start = time.perf_counter()
-    m = _measure(_assert_l2(sp.parity_l2(bim, _ossie(bim, sql))))
-    assert time.perf_counter() - start < 30  # a blow-up guard, not a speed budget
+    m = _measure(_assert_l2(_counted(sql, lambda: sp.parity_l2(bim, _ossie(bim, sql)))))
     assert m["result"] == sp.UNSUPPORTED, m
 
 

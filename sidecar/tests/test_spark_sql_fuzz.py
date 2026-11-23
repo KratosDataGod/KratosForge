@@ -11,10 +11,10 @@ The cases fuzzing found are kept below by name: each crashed or ran for minutes 
 
 from __future__ import annotations
 
+import contextlib
 import random
 import re
 import sys
-import time
 
 import duckdb
 import pytest
@@ -53,7 +53,38 @@ PIECES = ["(", ")", "'", '"', "`", ";", "--", "/*", "*/", "\x00", "\x1b", "\\", 
 # What a query may be refused with: a ValueError says why (sql.parse, duckdb_sql, the engine), a PermissionError
 # that only reads may run, and DuckDB's own errors name what it couldn't bind or run.
 REFUSALS = (ValueError, PermissionError, duckdb.Error)
-SLOW = 5.0  # seconds one query may take
+# The most Python calls one query may make (generators resumed included). Counted, not timed: a limit of 5 s a
+# query failed on busy CI runners with nothing changed. The most any query here makes is about 3 million (the
+# type calls at the limit, run), about a second's work on a quiet PC; 10 million is about 3 s, so the bound is
+# no looser than the 5 s it replaces. A read that goes past it is stopped there, so a regression fails at once
+# instead of hanging.
+CALLS = 10_000_000
+
+
+class _TooMuchWork(BaseException):
+    """Stops a read that made more calls than its bound (a BaseException, so no `except Exception` keeps it)."""
+
+
+class _Counted:
+    calls = 0
+
+
+@contextlib.contextmanager
+def _counting(bound: int):
+    """Counts the Python calls made inside the block; past ``bound`` the work is stopped with _TooMuchWork.
+    The count stays past the bound if the code inside catches the stop, so assert on it afterwards."""
+    counted = _Counted()
+
+    def profile(frame, event, arg):
+        if event == "call":
+            counted.calls += 1
+            if counted.calls > bound:
+                raise _TooMuchWork(f"more than {bound} calls")
+    sys.setprofile(profile)
+    try:
+        yield counted
+    finally:
+        sys.setprofile(None)
 
 
 def mutate(r: random.Random, text: str) -> str:
@@ -82,16 +113,18 @@ def _cases(seed: int, n: int) -> list[str]:
 
 
 def _read_or_refused(call, query: str) -> None:
-    start = time.monotonic()
     try:
-        call(query)
+        with _counting(CALLS) as counted:
+            call(query)
+    except _TooMuchWork:
+        pytest.fail(f"more than {CALLS} calls: {query!r}")
     except REFUSALS:
         pass
     except RuntimeError as exc:  # a table name that isn't on this PC: sql.run looks for it in the lakehouse
         assert str(exc).startswith("No lakehouse is attached"), (query, exc)
     except Exception as exc:  # noqa: BLE001 - the point of the test
         pytest.fail(f"{type(exc).__name__}: {exc} for {query!r}")
-    assert time.monotonic() - start < SLOW, f"took {time.monotonic() - start:.1f}s: {query!r}"
+    assert counted.calls <= CALLS, f"more than {CALLS} calls: {query!r}"
 
 
 def _translate(query: str) -> None:
@@ -106,6 +139,7 @@ def test_mutated_spark_sql_is_translated_or_refused_by_name(seed):
 
 
 def test_mutated_spark_sql_runs_or_is_refused_by_name():
+    sql.run("SELECT 1", "spark")  # anything set up once per process is set up before counting
     for query in _cases(11, 150):
         _read_or_refused(lambda q: sql.run(q, "spark"), query)
 
@@ -122,6 +156,7 @@ def engine(tmp_path):
 
 
 def test_mutated_spark_sql_in_a_local_data_project_runs_or_is_refused_by_name(engine):
+    engine.execute("SELECT 1", dialect="spark")  # the project's engine is set up before counting
     for query in _cases(13, 150):
         _read_or_refused(lambda q: engine.execute(q, dialect="spark"), query)
 
@@ -138,37 +173,26 @@ DEEP = [
 ]
 
 
-class _TooMuchWork(Exception):
-    pass
-
-
 @pytest.mark.parametrize("query", DEEP)
 def test_a_query_nested_too_deeply_is_refused_by_name_and_quickly(query):
     # Counted, not timed (a wall-clock limit failed on busy CI runners with nothing changed): the refusal comes
     # after a number of Python calls that grows with the query's length (the most, 20,000 terms added, makes
     # about 120 a character), never a factor per level. A read that goes past the bound is stopped there.
-    bound, calls = 200 * len(query), 0
-
-    def profile(frame, event, arg):
-        nonlocal calls
-        if event == "call":
-            calls += 1
-            if calls > bound:
-                raise _TooMuchWork(f"more than {bound} calls")
-    sys.setprofile(profile)
-    try:
-        with pytest.raises(ValueError, match="nested too deeply"):
-            _translate(query)
-    finally:
-        sys.setprofile(None)
-    assert calls <= bound
+    bound = 200 * len(query)
+    with _counting(bound) as counted, pytest.raises(ValueError, match="nested too deeply"):
+        _translate(query)
+    assert counted.calls <= bound
 
 
 def test_type_calls_nested_up_to_the_limit_still_read():
+    # sqlglot's reading doubles with each level of type calls: at the limit, read and run make about 3 million
+    # calls (0.7 million of them sqlglot's parse); four levels more would be over 11 million in the parse alone.
     depth = sql_dialects.TYPE_CALL_DEPTH
-    start = time.monotonic()
-    assert sql.run("SELECT " + "string(" * depth + "1" + ")" * depth + " AS s", "spark").to_pylist() == [{"s": "1"}]
-    assert time.monotonic() - start < SLOW
+    sql.run("SELECT 1", "spark")  # anything set up once per process is set up before counting
+    with _counting(CALLS) as counted:
+        got = sql.run("SELECT " + "string(" * depth + "1" + ")" * depth + " AS s", "spark").to_pylist()
+    assert got == [{"s": "1"}]
+    assert counted.calls <= CALLS
 
 
 class _Text(str):

@@ -12,6 +12,7 @@ from collections import Counter
 
 import pytest
 
+from fabric_desktop import kernel_proc
 from fabric_desktop.kernel_proc import ProcessKernel
 from fabric_desktop.notebook import Kernel
 
@@ -153,21 +154,37 @@ class _Ended:
         return 1
 
 
-def test_a_poll_waits_for_an_ended_process_once_and_holds_it_weakly():
+class _Clock:
+    """kernel_proc's time for one test: sleeping moves it on at once, and each sleep is kept."""
+
+    def __init__(self):
+        self.now, self.sleeps = 1000.0, []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def test_a_poll_waits_for_an_ended_process_once_and_holds_it_weakly(monkeypatch):
+    # The waits are counted on a clock of the test's own (a real one failed on busy CI runners): the first
+    # poll of an ended process waits out its 0.3 s, a second poll of it doesn't wait at all.
     k = ProcessKernel()
+    clock = _Clock()
+    monkeypatch.setattr(kernel_proc, "time", clock)
     ended = _Ended()
     k._proc = ended
-    started = time.monotonic()
     k._await_gone(0.3)
-    assert time.monotonic() - started >= 0.3
-    started = time.monotonic()
+    assert sum(clock.sleeps) >= 0.3
+    clock.sleeps.clear()
     k._await_gone(0.3)
-    assert time.monotonic() - started < 0.1  # the same process: no second wait
+    assert clock.sleeps == []  # the same process: no second wait
     other = _Ended()
     k._proc = other
-    started = time.monotonic()
     k._await_gone(0.3)
-    assert time.monotonic() - started >= 0.3  # a later process gets its own
+    assert sum(clock.sleeps) >= 0.3  # a later process gets its own
     k._proc = None
     del ended, other
     gc.collect()

@@ -136,12 +136,24 @@ def test_an_expression_that_changes_state_runs_as_notebook_code_and_the_pause_st
     continue_finishes(kernel)
 
 
-def test_an_expression_calling_a_function_with_a_breakpoint_does_not_pause_again(kernel):
+# Run in the paused cell (in its kernel process too): every pause from here on is counted, by line, in _pauses.
+COUNT_PAUSES = ('exec("import fabric_desktop.debugger as _d\\n_pauses = []\\n_real = _d.Debugger._pause\\n'
+                'def _counted(self, frame, reason):\\n    _pauses.append(frame.f_lineno)\\n'
+                '    return _real(self, frame, reason)\\n_d.Debugger._pause = _counted")')
+
+
+def test_an_expression_calling_a_function_with_a_breakpoint_does_not_pause_again(kernel, monkeypatch):
+    monkeypatch.setattr(debugger.Debugger, "_pause", debugger.Debugger._pause)  # put back after, if counted here
     kernel.start(CODE, breakpoints=[3, 5])
     assert wait(kernel)["paused"]["line"] == 5
-    started = time.monotonic()
-    assert kernel.debug("eval", "grow(7)")["value"] == "3"  # ran through line 3 without stopping
-    assert time.monotonic() - started < 5
+    assert "error" not in kernel.debug("eval", COUNT_PAUSES)
+    # Counted, not timed (a clock read around it failed on busy CI runners): a pause at line 3 inside the
+    # expression would hold it until a command came, so it would answer pending after EVAL_SECONDS; a 5 s
+    # limit was how that showed. The pauses are now counted: a pause inside it would take the next command
+    # (the read of _pauses) at line 3, so it shows there as well as in the answer.
+    answer = kernel.debug("eval", "grow(7)")
+    assert kernel.debug("eval", "_pauses")["value"] == "[]"  # no pause since the one at line 5
+    assert answer["value"] == "3"  # ran through line 3 without stopping
     p = wait(kernel)["paused"]
     assert p["line"] == 5 and len(p["stack"]) == 1
     kernel.debug("continue")

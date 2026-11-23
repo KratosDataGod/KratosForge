@@ -47,3 +47,17 @@ def test_a_whole_number_as_a_date_counts_days_from_1900(engine):
 
 def test_reverse_of_a_number_reverses_its_text(engine):
     assert rows(engine, "SELECT REVERSE(1234), REVERSE('abc'), REVERSE(''), REVERSE(NULL)") == [["4321", "cba", "", None]]
+
+
+@pytest.mark.parametrize("zone", ["'Pacific Standard Time'", "'America/Los_Angeles'", "'Central European Standard Time'"])
+def test_at_time_zone_other_than_utc_is_refused_by_name(engine, zone):
+    """T-SQL takes Windows zone names, which DuckDB doesn't know (it stopped with its own error), and DuckDB's
+    names convert a datetime2 where T-SQL only adds the zone's offset."""
+    with pytest.raises(ValueError, match=rf"AT TIME ZONE {zone} isn't mapped yet. The local engine knows only 'UTC'"):
+        rows(engine, f"SELECT CAST(CAST('2024-03-06 12:00' AS datetime2) AT TIME ZONE {zone} AS datetime2)")
+
+
+def test_at_time_zone_utc_runs(engine):
+    sql = ("SELECT DATEPART(tzoffset, CAST('2024-03-06 12:00' AS datetime2) AT TIME ZONE 'UTC'), "
+           "CONVERT(varchar(19), CAST(CAST('2024-03-06 12:00' AS datetime2) AT TIME ZONE 'UTC' AS datetime2), 120)")
+    assert rows(engine, sql) == [[0, "2024-03-06 12:00:00"]]

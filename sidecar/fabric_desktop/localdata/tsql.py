@@ -2643,6 +2643,13 @@ def _refused_by_name(tree: exp.Expression) -> None:
         raise ValueError(_NOT_YET + "GET_BIT isn't mapped yet. Use & with a power of 2, such as x & 4.")
     if any(a.name.upper() == "SET_BIT" for a in tree.find_all(exp.Anonymous)):
         raise ValueError(_NOT_YET + "SET_BIT isn't mapped yet. Use | with a power of 2, such as x | 4.")
+    for at in tree.find_all(exp.AtTimeZone):
+        # T-SQL takes Windows time zone names ('Pacific Standard Time'), which DuckDB doesn't know, and DuckDB's
+        # names ('America/Los_Angeles') would convert a datetime2 where T-SQL only adds the zone's offset (WR-701).
+        zone = at.args.get("zone")
+        if not (isinstance(zone, exp.Literal) and zone.is_string and zone.name.strip().upper() == "UTC"):
+            raise ValueError(_NOT_YET + f"AT TIME ZONE {zone.sql(dialect='tsql') if zone else ''} isn't mapped yet. "
+                             "The local engine knows only 'UTC'. Run it in a Fabric Warehouse.")
 
 
 def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:

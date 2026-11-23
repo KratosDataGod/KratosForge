@@ -239,7 +239,7 @@ class SqlTemplatesMixin:
         """Copies a template to a new file in Downloads; an existing file is never replaced."""
         src = self._template_file(place, name)
         text = src.read_text(encoding="utf-8")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         stem = file_stem(src.stem, "Template")
         for n in range(1, 1000):

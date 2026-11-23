@@ -150,14 +150,14 @@ def _result_rows(data: Any, seen: int) -> list[list[Any]]:
     return rows
 
 
-def split_statements(code: str) -> list[str]:
+def split_statements(code: str, dialect: str = "databricks") -> list[str]:
     """``code``'s statements as written, split on top-level semicolons (sqlglot's tokenizer, so a
     semicolon in a string or comment doesn't split). Unreadable SQL is sent whole: the warehouse decides.
     A part that is only comments is left out: sending it would wake a stopped warehouse for nothing."""
     import sqlglot
     from sqlglot.tokens import TokenType
     try:
-        tokens = sqlglot.tokenize(code, read="databricks")
+        tokens = sqlglot.tokenize(code, read=dialect)
     except Exception:  # noqa: BLE001 - the warehouse reports what's wrong with SQL sqlglot can't read
         return [code.strip()] if code.strip() else []
     parts, start, has_sql = [], 0, False

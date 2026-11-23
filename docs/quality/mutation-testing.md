@@ -11630,3 +11630,7 @@ No test file names the module; it is reached through `localdata/tsql.py`. The se
 | --- | --- | --- | --- |
 | `localdata/tsql_merge.py` | 118 | the message names `_action(whens[1])` instead of `whens[0]` | Equivalent: it is raised only when the two actions are the same. |
 | `localdata/tsql_merge.py` | 161 | the "needs VALUES" raise → `pass` | Not reached because of the bug above: sqlglot never gives None there. The xfail test kills it once the check is fixed. |
+
+# Mutation testing, batch 329
+
+`orchestration/windows_zones.py` (Windows time zone ids and the IANA zone each one means, generated from Unicode CLDR) was given to this batch and not run: it is one dict of string constants and has no code, so `sidecar/tools/mutate.py` (at `main` 3424d8f33, `--cap 100000 --seed 7 --kinds all`) makes 0 mutants of it. Its table is read by test_pipeline_time_zones through the pipeline functions that use it. No score, no new tests and no doc beyond this note.

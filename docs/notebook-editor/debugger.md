@@ -111,7 +111,7 @@ variables the stopped cell left.
   pauses once per item, as in a loop. Paused inside one at the top of a cell or in a class body,
   its loop variable isn't listed, and evaluating it gives the cell's own variable of that name.
 - **`breakpoint()` in a cell** pauses there when the cell runs under the debugger, and otherwise
-  runs on with a note. `pdb` itself has nothing to type into here: `pdb.set_trace()` ends the cell
+  runs on with a note. `pdb` itself has nothing to type into here, so `pdb.set_trace()` ends the cell
   with an error.
 - **A RecursionError, or a cell that sets its own `sys.settrace`**, turns the debugger off for the
   rest of that cell (Python does this), so later breakpoints may not pause. The cell's output says

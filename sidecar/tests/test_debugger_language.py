@@ -422,7 +422,7 @@ def test_breakpoint_in_the_cell_pauses_there_under_the_debugger(kernel):
 def test_breakpoint_in_a_cell_without_the_debugger_carries_on_with_a_note(kernel):
     kernel.start("x = 1\nbreakpoint()\nprint(x + 1)")
     snap = finished(kernel)
-    assert "breakpoint() doesn't pause" in text(snap) and text(snap).endswith("2\n") and "Pdb" not in text(snap)
+    assert "breakpoint() pauses only when the cell runs with the debugger" in text(snap) and text(snap).endswith("2\n") and "Pdb" not in text(snap)
     untraced(kernel)
 
 

@@ -683,8 +683,9 @@ def _cell_running() -> bool:
 
 chart_output.install(_to_running_cell, _cell_running)  # bokeh's show() draws in the cell
 
-_DEBUG_LOST = ("The debugger lost track of this cell partway, so breakpoints after that may not have paused: "
-               "Python turns the debugger off at a RecursionError, and the cell's own sys.settrace replaces it.")
+_DEBUG_LOST = ("The debugger lost track of this cell partway, so breakpoints after that point may not have paused. "
+               "This happens when the cell hits a RecursionError or sets its own sys.settrace. Remove that from the "
+               "cell to debug all of it, and the next cell debugs as usual.")
 
 
 def _breakpoint_hook(*args: Any, **kwargs: Any) -> Any:
@@ -699,7 +700,8 @@ def _breakpoint_hook(*args: Any, **kwargs: Any) -> Any:
         if not run.debugger.pause_here(frame):
             return None  # an evaluation while paused, or code that isn't the cell's: it carries on
     else:
-        print("breakpoint() doesn't pause a cell. Set a breakpoint on the line (F9) and run the cell to pause there.")
+        print("breakpoint() pauses only when the cell runs with the debugger, so this cell carried on. "
+              "Run it with the debugger to pause there.")
     return None
 
 
@@ -1325,8 +1327,8 @@ class Kernel:
                     if tail is not None:
                         debugger.add(tail)
                     for n in debugger.unplaced:
-                        self._emit(run, {"type": "text", "text": f"The breakpoint on line {n} can't pause: "
-                                                                 "no code runs from there to the end of the cell."})
+                        self._emit(run, {"type": "text", "text": f"The breakpoint on line {n} can't pause, because no code "
+                                                                 "runs from there to the end of the cell. Move it to a line with code."})
                 exec(body, namespace)  # noqa: S102 - the person's own cell
                 value = None
                 if tail is not None:

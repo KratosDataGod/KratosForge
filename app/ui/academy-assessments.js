@@ -645,7 +645,7 @@ function assessYesNo(v, it, stemId, locked) {
             h("span", { id: lid }, o.text)));
         }));
     })));
-  const hint = " Each statement is a radio group: arrow keys choose Yes or No.";
+  const hint = " Each statement is a radio group, and arrow keys choose Yes or No.";
   return h("div", { class: "assess-parts" }, table,
     assessPartStatus(it, locked, { empty: `Not answered yet. Answer all ${n} statements.${hint}`,
       some: (k) => `${k} of ${n} answered. The question counts as answered when all ${n} are.${hint}`, done: `Answered.${hint}` }));

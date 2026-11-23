@@ -291,7 +291,7 @@ test("Yes or no: one radio group per statement, arrow keys choose Yes or No", { 
     await page().waitForFunction(([j, k]) => assess.view.items[j].answer?.[k] === "yes", [n, i]);
   }
   assert.strictEqual((await item(n)).answered, true);
-  assert.match(await page().locator(".assess-qpanel").textContent(), /Answered\. Each statement is a radio group: arrow keys choose Yes or No\./);
+  assert.match(await page().locator(".assess-qpanel").textContent(), /Answered\. Each statement is a radio group, and arrow keys choose Yes or No\./);
   assert.match(await page().locator(".assess-keys").textContent(), /Number keys choose only in single and multiple answer questions\./);
   if (axeSource) await axe();
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "assess-yesno.png") });

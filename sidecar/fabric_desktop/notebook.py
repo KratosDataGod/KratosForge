@@ -2665,14 +2665,17 @@ def _charts_meta(charts: Any) -> list[dict[str, Any]]:
     return [c for c in map(_chart_meta, charts) if c][:MAX_EXTRA_CHARTS]
 
 
-def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
+def _cell_meta(md: Any) -> dict[str, Any]:
     meta: dict[str, Any] = {}
-    if md.get("tags"):
+    if not isinstance(md, dict):  # a file edited by hand: its settings are dropped, the cell still opens
+        return meta
+    if isinstance(md.get("tags"), list) and md["tags"]:
         meta["tags"] = [t for t in md["tags"] if isinstance(t, str)]
+    jupyter: dict[str, Any] = md["jupyter"] if isinstance(md.get("jupyter"), dict) else {}
     for k in ("source_hidden", "outputs_hidden"):
-        if (md.get("jupyter") or {}).get(k):
+        if jupyter.get(k):
             meta[k] = True
-    if (md.get("run_control") or {}).get("frozen"):
+    if isinstance(md.get("run_control"), dict) and md["run_control"].get("frozen"):
         meta["frozen"] = True
     if md.get(_HEADING_COLLAPSED) is True:
         meta["heading_collapsed"] = True
@@ -2953,6 +2956,22 @@ def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     return {"nbformat": 4, "nbformat_minor": 5, "metadata": metadata, "cells": nb_cells}
 
 
+def ipynb_cell_problem(cells: list[Any]) -> str | None:
+    """Why a .ipynb file's cells can't be read, or None: every cell is an object whose source is
+    text or a list of text (a missing source is an empty cell)."""
+    for n, c in enumerate(cells, 1):
+        if not isinstance(c, dict):
+            return "a cell isn't readable"
+        source = c.get("source", "")
+        if not isinstance(source, str) and not (isinstance(source, list) and all(isinstance(x, str) for x in source)):
+            return f"cell {n}'s source isn't text"
+        try:
+            (source if isinstance(source, str) else "".join(source)).encode("utf-8")
+        except UnicodeEncodeError:  # a lone surrogate, written as a \ud800 escape: it can't be saved
+            return f"cell {n}'s source has characters that aren't valid Unicode"
+    return None
+
+
 def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
     cells = []
     for c in nb.get("cells", []):
@@ -2972,7 +2991,9 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
     # Notebooks saved before cells had ids (or by tools that don't write them) get ids here, the
     # same on every load until the next save writes them.
     assign_cell_ids(cells, _derived_id)
-    ours = nb.get("metadata", {}).get("fabric_desktop", {})
+    nb_meta = nb.get("metadata")
+    ours = nb_meta.get("fabric_desktop") if isinstance(nb_meta, dict) else None
+    ours = ours if isinstance(ours, dict) else {}
     compute = ours.get("compute") if ours.get("compute") in COMPUTE else "default"
     return {"cells": cells, "lakehouse": ours.get("lakehouse"), "compute": compute,
             "workspace": ours.get("workspace")}

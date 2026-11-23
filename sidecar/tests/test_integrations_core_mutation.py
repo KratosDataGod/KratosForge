@@ -17,7 +17,7 @@ import pytest
 
 from fabric_desktop.integrations import core
 from fabric_desktop.integrations.core import (MAX_DEPTH, MAX_RESULT_DEPTH, CallContext, Caller, IntegrationError,
-                                              error_from, redact_result, redacted, run_call, too_deep, validate)
+                                              error_from, plain_message, redact_result, redacted, run_call, too_deep, validate)
 from fabric_desktop.redact import REMOVED
 
 JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlc2lnbmF0dXJl"  # pragma: allowlist secret (a made-up token)
@@ -479,3 +479,14 @@ def test_check_gives_up_at_the_deadline_itself(monkeypatch):
     with pytest.raises(IntegrationError) as err:
         ctx.check()
     assert err.value.code == "timeout" and err.value.message == "Gave up after 5 seconds."
+
+
+@pytest.mark.parametrize("text, plain", [
+    ("rows 10 /20", "rows 10 /20"),  # a slash between numbers isn't a path
+    ("/x.txt missing", "/x.txt missing"),  # a file at the root names no folder
+    ("cannot read /home/ann/x.txt", "cannot read x.txt"),
+    ("see file:///home/a/b.txt", "see b.txt"),
+    (r"bad C:\Users\a\x.csv", "bad x.csv"),
+])
+def test_only_a_path_with_folders_is_cut_to_its_file(text, plain):
+    assert plain_message(text) == plain

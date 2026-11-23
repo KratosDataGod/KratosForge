@@ -121,7 +121,9 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _FRAME = re.compile(r"^(\s+\d+: |\s+at \S+:\d+|\s*Stack backtrace:|Traceback \(most recent call last\))")
 _PATH = r"(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|/)"
 _QUOTED_PATH = re.compile(r"""(['"])(""" + _PATH + r"""[^'"\n]*)\1""")
-_BARE_PATH = re.compile(r"(?<![\w.:/\\%])" + _PATH + r"""[^\s'"<>|,;()\[\]{}]+""")
+# Unquoted, a path from the root needs a folder in it ("/home/x", not "/20" as in "rows 10 /20").
+_BARE_PATH = re.compile(r"""(?<![\w.:/\\%])(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|/(?=[^\s/'"]+/))"""
+                        r"""[^\s'"<>|,;()\[\]{}]+""")
 
 
 def _last_part(path: str) -> str:

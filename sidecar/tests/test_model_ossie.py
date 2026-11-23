@@ -1100,13 +1100,35 @@ def test_stashed_names_each_measure_where_the_converter_puts_it():
     "a" + " b" * 3000 + "[",
     "'" + "''" * 3000,
 ])
-def test_a_crafted_reference_is_read_quickly_and_a_long_one_is_not_a_reference(value):
+def test_a_crafted_reference_is_read_quickly_and_a_long_one_is_not_a_reference(monkeypatch, value):
     """A model from Fabric or a TMDL folder can hold any text here: reading it never backtracks slowly."""
     import time
-    start = time.perf_counter()
+    pattern, matched = model_ossie._TMDL_REF, []
+
+    class Counted:
+        def match(self, text):
+            matched.append(len(text))
+            return pattern.match(text)
+
+    monkeypatch.setattr(model_ossie, "_TMDL_REF", Counted())
     assert model_ossie._parse_ref(value, "t") is None
-    model_ossie._TMDL_REF.match(value.strip())  # the pattern itself, past the length cap, is quick too
-    assert time.perf_counter() - start < 0.5
+    assert matched == []  # past the length cap: not even matched
+    model_ossie._parse_ref(value[:model_ossie.MAX_REF], "t")  # within it: matched
+    assert matched and max(matched) <= model_ossie.MAX_REF
+
+    # The pattern itself takes time in step with the text, not its square or worse: eight times the text,
+    # well under 32 times the time. Each side keeps its quickest of several tries, so a busy runner that
+    # pauses the test can't fail it (a backtracking pattern is 64 times or far more here).
+    def quickest(text: str) -> float:
+        best = float("inf")
+        for _ in range(7):
+            start = time.perf_counter()
+            pattern.match(text)
+            best = min(best, time.perf_counter() - start)
+        return best
+
+    longer = value[:1] + value[1:-1] * 8 + value[-1:]
+    assert quickest(longer.strip()) < 32 * max(quickest(value.strip()), 1e-6)
 
 
 def test_ordinary_references_still_read():

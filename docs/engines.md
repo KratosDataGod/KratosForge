@@ -502,20 +502,32 @@ C:\repos\sales-etl\resources\nightly.yml:14:1: error: resources.jobs.nightly.tas
 It exits 1 when there are errors, and `--json` prints every finding (severity, path, message, file,
 line, column). It checks:
 
-- YAML that can't be read, with its line and column.
+- YAML that can't be read, with its line and column, and a key given twice in one mapping (both lines
+  are named; YAML would quietly keep the second).
 - `bundle.name` is set.
 - Unknown keys at the top level and under `bundle`, `targets.<name>`, `variables.<name>`, a job, a job
-  task and a pipeline, and unknown resource types. These are **warnings**: Databricks adds fields, and
-  a newer one isn't wrong. Other resource types' own fields aren't checked yet.
+  task, a pipeline, an alert, an app, a catalog, an experiment, a model and a SQL warehouse, and unknown
+  resource types. These are **warnings**: Databricks adds fields, and a newer one isn't wrong. The other
+  resource types' own fields aren't checked yet: their field lists couldn't all be read from the
+  documentation.
+- Field types: a job's `max_concurrent_runs` and `timeout_seconds` are integers, `tasks` is a list and
+  `email_notifications` a mapping; a task's `depends_on` and `libraries` are lists, `timeout_seconds` and
+  `max_retries` integers and `email_notifications` a mapping; a pipeline's `libraries`, `clusters` and
+  `notifications` are lists and `configuration` a mapping. A `${...}` value isn't type-checked.
 - Each job task has a `task_key`, no two tasks in a job share one, each task has exactly one task type
   (a target's task that overrides a task with the same `task_key` may leave the type out), and every
   `depends_on` names a task in the job.
 - `${var.<name>}` names a variable declared under `variables`, a target only sets declared variables,
   a variable's `type` is `complex` or left out, and a complex variable's default isn't a single value.
 - `${resources.<type>.<name>...}` names a resource the bundle defines (at the top level or in a target).
+- `${bundle.<field>}` and `${workspace.<field>}` name a documented field, such as `bundle.name`,
+  `bundle.target`, `workspace.file_path` or `workspace.current_user.userName`. `${bundle.environment}` is a
+  warning: the documentation says to use `${bundle.target}`.
 - A target's `mode` is `development` or `production`, `default` is true or false, and at most one
   target is the default.
 - Every `include` glob matches a file. Globs are relative to `databricks.yml`.
+- `sync.include` and `sync.exclude` are lists of strings, and a relative `artifacts.<name>.path` is a
+  folder on this PC, relative to the YAML file that names it.
 - A relative `notebook_path`, `python_file`, `sql_task` file path or pipeline `notebook` or `file`
   library path names a file on this PC, relative to the YAML file that names it (a notebook may leave
   out its extension). Workspace paths (`/Workspace/...`), paths with a `${...}` substitution, and paths
@@ -525,8 +537,9 @@ The checks are written from Databricks' configuration reference
 ([bundle settings](https://docs.databricks.com/aws/en/dev-tools/bundles/settings),
 [configuration reference](https://docs.databricks.com/aws/en/dev-tools/bundles/reference),
 [task types](https://docs.databricks.com/aws/en/dev-tools/bundles/job-task-types),
-[variables](https://docs.databricks.com/aws/en/dev-tools/bundles/variables)) and the Jobs and
-Pipelines APIs. The CLI's own JSON schema isn't used: it is under the Databricks License, which allows
+[variables](https://docs.databricks.com/aws/en/dev-tools/bundles/variables),
+[resources](https://docs.databricks.com/aws/en/dev-tools/bundles/resources)) and the REST API create
+pages for jobs, pipelines, experiments, models and SQL warehouses. The CLI's own JSON schema isn't used: it is under the Databricks License, which allows
 use only with the Databricks Services. So this is not `databricks bundle validate`: it doesn't merge
 targets, resolve variables or know fields added after it was written, and its messages are its own.
 Run **Validate** in Source control > Bundles, which runs the CLI, before you deploy.

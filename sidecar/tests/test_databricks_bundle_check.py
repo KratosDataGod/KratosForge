@@ -497,6 +497,295 @@ resources:
     assert found(validate(tmp_path)) == {"resources.pipelines.p.libraries[1].file.path"}
 
 
+# ---------------------------------------------------------------- more resource types' keys
+
+OTHER_RESOURCES = """bundle:
+  name: x
+resources:
+  experiments:
+    exp:
+      name: /Workspace/Users/someone@example.com/exp
+      artifact_location: dbfs:/exp
+      tags: [{key: team, value: data}]
+      permissions: [{level: CAN_READ, group_name: users}]
+  models:
+    m:
+      name: my-model
+      description: a model
+      tags: [{key: team, value: data}]
+  sql_warehouses:
+    wh:
+      name: wh
+      cluster_size: 2X-Small
+      max_num_clusters: 1
+      auto_stop_mins: 10
+      enable_serverless_compute: true
+  apps:
+    app:
+      name: my-app
+      source_code_path: ./app
+      description: an app
+  alerts:
+    a:
+      display_name: a
+      query_text: select 1
+      warehouse_id: abc
+      evaluation: {}
+  catalogs:
+    c:
+      name: c
+      comment: a catalog
+      grants: []
+"""
+
+
+def test_other_resource_types_with_documented_keys_are_clean(tmp_path):
+    write(tmp_path, {"databricks.yml": OTHER_RESOURCES})
+    assert validate(tmp_path) == []
+
+
+def test_unknown_keys_in_other_resource_types(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+resources:
+  experiments:
+    exp:
+      name: e
+      artifact_locaton: dbfs:/exp
+  models:
+    m:
+      name: m
+      descripton: typo
+  sql_warehouses:
+    wh:
+      name: wh
+      clustr_size: Small
+  apps:
+    app:
+      name: a
+      source_path: ./app
+  alerts:
+    a:
+      display_name: a
+      query: select 1
+  catalogs:
+    c:
+      name: c
+      permissions: []
+"""})
+    findings = validate(tmp_path)
+    expected = {"resources.experiments.exp.artifact_locaton": 7, "resources.models.m.descripton": 11,
+                "resources.sql_warehouses.wh.clustr_size": 15, "resources.apps.app.source_path": 19,
+                "resources.alerts.a.query": 23, "resources.catalogs.c.permissions": 27}
+    assert {f.path: f.line for f in findings} == expected
+    assert {f.severity for f in findings} == {WARNING}
+
+
+# ---------------------------------------------------------------- duplicate keys
+
+
+def test_a_key_given_twice_is_an_error_with_both_lines(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+resources:
+  jobs:
+    nightly:
+      name: nightly
+      tasks:
+        - task_key: a
+          notebook_task: {notebook_path: /a}
+          task_key: b
+      name: again
+"""})
+    findings = validate(tmp_path)
+    assert found(findings) == {"resources.jobs.nightly.name", "resources.jobs.nightly.tasks[0].task_key"}
+    f = one(findings, "resources.jobs.nightly.name")
+    assert (f.severity, f.line, f.file) == (ERROR, 11, "databricks.yml")
+    assert "lines 6 and 11" in f.message
+    g = one(findings, "resources.jobs.nightly.tasks[0].task_key")
+    assert (g.severity, g.line) == (ERROR, 10) and "lines 8 and 10" in g.message
+
+
+def test_the_same_key_in_different_mappings_is_fine(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+resources:
+  jobs:
+    a:
+      name: a
+    b:
+      name: b
+targets:
+  dev:
+    default: true
+  prod:
+    default: false
+"""})
+    assert validate(tmp_path) == []
+
+
+def test_a_key_given_twice_in_an_included_file(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - more.yml\n",
+                     "more.yml": "variables:\n  env:\n    default: dev\n  env:\n    default: prod\n"})
+    [f] = validate(tmp_path)
+    assert (f.severity, f.path, f.file, f.line) == (ERROR, "variables.env", "more.yml", 4)
+
+
+# ---------------------------------------------------------------- ${bundle.*} and ${workspace.*}
+
+
+def test_documented_bundle_and_workspace_references_are_clean(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+workspace:
+  host: https://example.cloud.databricks.com
+resources:
+  jobs:
+    nightly:
+      name: ${bundle.name}-${bundle.target}
+      description: ${workspace.host} ${workspace.current_user.short_name} ${workspace.current_user.domain_friendly_name}
+      tasks:
+        - task_key: a
+          notebook_task:
+            notebook_path: ${workspace.file_path}/a
+            base_parameters: {root: '${workspace.root_path}', git: '${bundle.git.branch}'}
+"""})
+    assert validate(tmp_path) == []
+
+
+def test_undocumented_bundle_and_workspace_references(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+resources:
+  jobs:
+    nightly:
+      name: ${bundle.nme}
+      description: ${workspace.currentUser.userName}
+      tags:
+        env: ${bundle.environment}
+"""})
+    findings = validate(tmp_path)
+    assert {(f.path, f.severity, f.line) for f in findings} == {
+        ("resources.jobs.nightly.name", ERROR, 6),
+        ("resources.jobs.nightly.description", ERROR, 7),
+        ("resources.jobs.nightly.tags.env", WARNING, 9)}
+    assert "bundle.nme" in one(findings, "resources.jobs.nightly.name").message
+
+
+# ---------------------------------------------------------------- field types
+
+
+TYPED = """bundle:
+  name: x
+variables:
+  tasks_list:
+    type: complex
+    default: []
+resources:
+  jobs:
+    nightly:
+      name: nightly
+      max_concurrent_runs: {runs}
+      timeout_seconds: {timeout}
+      email_notifications: {email}
+      tasks:
+        - task_key: a
+          notebook_task: {{notebook_path: /a}}
+          depends_on: {deps}
+          libraries: {libs}
+          timeout_seconds: 60
+          max_retries: {retries}
+    other:
+      name: other
+      tasks: {tasks}
+  pipelines:
+    p:
+      name: p
+      libraries: {plibs}
+      configuration: {conf}
+"""
+
+
+def test_documented_field_types_are_clean(tmp_path):
+    write(tmp_path, {"databricks.yml": TYPED.format(
+        runs=1, timeout=3600, email="{on_failure: [a@example.com]}", deps="[]", libs="[{whl: /a.whl}]",
+        retries=2, tasks="${var.tasks_list}", plibs="[]", conf="{a: b}")})
+    assert validate(tmp_path) == []
+
+
+def test_wrong_field_types_name_the_path_and_the_type(tmp_path):
+    write(tmp_path, {"databricks.yml": TYPED.format(
+        runs="'5'", timeout=1.5, email="[a@example.com]", deps="a", libs="{whl: /a.whl}",
+        retries="true", tasks="{a: 1}", plibs="{notebook: {path: /a}}", conf="[a]")})
+    findings = validate(tmp_path)
+    assert {(f.path, f.severity, f.line) for f in findings} == {
+        ("resources.jobs.nightly.max_concurrent_runs", ERROR, 11),
+        ("resources.jobs.nightly.timeout_seconds", ERROR, 12),
+        ("resources.jobs.nightly.email_notifications", ERROR, 13),
+        ("resources.jobs.nightly.tasks[0].depends_on", ERROR, 17),
+        ("resources.jobs.nightly.tasks[0].libraries", ERROR, 18),
+        ("resources.jobs.nightly.tasks[0].max_retries", ERROR, 20),
+        ("resources.jobs.other.tasks", ERROR, 23),
+        ("resources.pipelines.p.libraries", ERROR, 27),
+        ("resources.pipelines.p.configuration", ERROR, 28)}
+    assert one(findings, "resources.jobs.nightly.max_concurrent_runs").message == \
+        "max_concurrent_runs is an integer, not a string."
+    assert one(findings, "resources.jobs.nightly.email_notifications").message == \
+        "email_notifications is a mapping, not a list."
+
+
+# ---------------------------------------------------------------- sync and artifacts
+
+
+def test_sync_lists_and_artifact_folders_that_exist_are_clean(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+sync:
+  include: ['dist/*.whl']
+  exclude: [scratch/**]
+artifacts:
+  wheel:
+    type: whl
+    path: ./pkg
+  remote:
+    path: /Workspace/Shared/pkg
+targets:
+  dev:
+    sync:
+      exclude: []
+""", "pkg/setup.py": ""})
+    assert validate(tmp_path) == []
+
+
+def test_sync_entries_must_be_lists_of_strings(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+sync:
+  include: dist/*.whl
+  exclude:
+    - scratch
+    - 7
+targets:
+  dev:
+    sync:
+      include: {a: b}
+"""})
+    findings = validate(tmp_path)
+    assert {(f.path, f.severity, f.line) for f in findings} == {
+        ("sync.include", ERROR, 4), ("sync.exclude[1]", ERROR, 7), ("targets.dev.sync.include", ERROR, 11)}
+
+
+def test_relative_artifact_path_must_be_a_folder(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - conf/*.yml\n",
+                     "conf/artifacts.yml": "artifacts:\n  wheel:\n    path: ../pkg\n  other:\n    path: ./setup.py\n",
+                     "conf/setup.py": ""})
+    findings = validate(tmp_path)
+    assert {(f.path, f.severity, f.file, f.line) for f in findings} == {
+        ("artifacts.wheel.path", ERROR, "conf/artifacts.yml", 3),
+        ("artifacts.other.path", ERROR, "conf/artifacts.yml", 5)}
+    assert "no folder at pkg" in one(findings, "artifacts.wheel.path").message
+
+
 # ---------------------------------------------------------------- the command line
 
 

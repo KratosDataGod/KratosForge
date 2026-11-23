@@ -217,3 +217,38 @@ def test_compact_local_after_a_compaction_whose_vacuum_never_ran_changes_no_rows
     out = maintenance.compact_local(uri, maintenance.MIN_RETENTION_DAYS)
     assert out["files_added"] == 0 and out["vacuumed"] == 0, out
     assert_same_rows(uri, expected)
+
+
+# ---- what a notebook VACUUM reports it deleted
+
+@pytest.mark.parametrize("listed,want", [
+    ("C:\\Lake\\Tables\\dbo\\events\\part-1.parquet", "part-1.parquet"),
+    ("c:/lake/tables/DBO/events/part-1.parquet", "part-1.parquet"),  # Windows paths ignore case
+    ("file:///C:/Lake/Tables/dbo/events/region=EU/part%202.parquet", "region=EU/part 2.parquet"),
+    ("part-1.parquet", "part-1.parquet"),
+    ("deletion_vector_1.bin", "deletion_vector_1.bin"),
+])
+def test_a_listed_file_is_named_relative_to_the_table_however_delta_rs_spells_it(monkeypatch, listed, want):
+    import ntpath
+    monkeypatch.setattr(maintenance.os.path, "normcase", ntpath.normcase)
+    assert maintenance.relative_to_table("C:\\Lake\\Tables\\dbo\\events", listed) == want
+
+
+def test_table_files_hold_every_data_file_not_only_parquet(tmp_path):
+    (tmp_path / "_delta_log").mkdir()
+    (tmp_path / "_delta_log" / "00000000000000000000.json").write_text("{}")
+    (tmp_path / "region=EU").mkdir()
+    for name in ("a.parquet", "region=EU/b.parquet", "deletion_vector_x.bin"):
+        (tmp_path / name).write_bytes(b"x")
+    # as this PC's disk compares names: on Windows, ignoring case
+    assert maintenance.table_files(str(tmp_path)) == {
+        maintenance.path_key(p) for p in ("a.parquet", "region=EU/b.parquet", "deletion_vector_x.bin")}
+
+
+def test_table_files_on_windows_ignore_case_and_keep_forward_slashes(tmp_path, monkeypatch):
+    import ntpath
+    monkeypatch.setattr(maintenance.os.path, "normcase", ntpath.normcase)
+    (tmp_path / "region=EU").mkdir()
+    (tmp_path / "region=EU" / "B.parquet").write_bytes(b"x")
+    assert maintenance.table_files(str(tmp_path)) == {"region=eu/b.parquet"}
+    assert maintenance.path_key("Region=EU\\B.parquet") == "region=eu/b.parquet"

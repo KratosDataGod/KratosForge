@@ -234,6 +234,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
         parts.replace(_timefromparts(parts))
     tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
     notes += _converts(tree)
+    _regexps(tree)
     notes += _types(tree, schema)
     _percentiles(tree)
     notes += _likes(tree)
@@ -1776,6 +1777,23 @@ def _likes(tree: exp.Expression) -> list[str]:
             match = exp.Not(this=match)
         (escape or like).replace(match)
     return notes
+
+
+def _regexps(tree: exp.Expression) -> None:
+    """T-SQL's regular expression flags and result types (WR-257). functions/regexp-like-transact-sql: "m
+    Multi-line mode: ^ and $ match begin/end line in addition to begin/end text", "s Let . match \\n", and
+    for c and i "SQL Server uses the last character". DuckDB's m option changed only what . matches, and 'sm'
+    turned s off again, so m and s become RE2's (?m) and (?s) in the pattern (regex_flags). REGEXP_COUNT and
+    REGEXP_INSTR return int (functions/regexp-instr-transact-sql: "Return value int"), so REGEXP_COUNT(...) / 2
+    divides as integers; here their type was BIGINT or HUGEINT, which a division read as a decimal. Their c flag
+    stopped the query (regex_flags.case_flag_only_i)."""
+    from ..regex_flags import case_flag_only_i, inline_flags
+    for node in list(tree.find_all(exp.RegexpLike, exp.RegexpReplace)):
+        inline_flags(node, "flag" if isinstance(node, exp.RegexpLike) else "modifiers")
+    for counted in list(tree.find_all(exp.RegexpCount, exp.RegexpInstr)):
+        case_flag_only_i(counted)
+        if not (isinstance(counted.parent, exp.Cast) and counted.parent.to.is_type(exp.DataType.Type.INT)):
+            counted.replace(exp.cast(counted.copy(), exp.DataType.Type.INT))
 
 
 def _patindex(tree: exp.Expression) -> None:

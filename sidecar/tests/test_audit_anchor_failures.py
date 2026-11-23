@@ -106,7 +106,7 @@ def _missed(tmp_path, event_log, **change):
     return log
 
 
-@pytest.mark.parametrize("since", ["x" * 5000, 12, "2026-11-23T09:00:00Z; and more", None])
+@pytest.mark.parametrize("since", ["x" * 5000, 12, "2026-11-23T09:00:00Z; and more", "2026-11-23T09:00:00Z\n", None])
 def test_a_since_that_isnt_the_time_written_is_never_shown(tmp_path, event_log, since):
     log = _missed(tmp_path, event_log, since=since)
     [note] = [n for n in log.verify()["notes"] if "wasn't recorded" in n]

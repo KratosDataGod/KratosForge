@@ -487,6 +487,8 @@ the CLI signs in and KratosForge never handles a token. Install the Databricks C
 
 ### Check a bundle on this PC (Preview)
 
+This is a command, with no screen in the app yet.
+
 `fabric-desktop databricks-bundle validate <folder>` checks `databricks.yml` and the files its
 `include:` globs name without the Databricks CLI, a sign-in, a workspace or the network. Each finding
 names the field by its path, with the file and line:

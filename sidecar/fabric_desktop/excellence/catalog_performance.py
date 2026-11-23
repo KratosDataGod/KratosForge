@@ -134,7 +134,7 @@ def _unread(p: dict[str, Any], what: str) -> dict[str, Any] | None:
         parts.append(f"{len(names)} table{'s' if len(names) != 1 else ''} couldn't be read ({_list(names)})")
     if past:
         parts.append(f"{past} table{'s' if past != 1 else ''} past the assessment's read budget weren't read")
-    return ct.not_evaluated(f"No table that was read has {what}, but " + "; ".join(parts) + ".",
+    return ct.not_evaluated(f"No table that was read has {what}, but " + ", and ".join(parts) + ".",
                             needs="the Delta logs of " + (_list(names) if names else f"the other {past} tables"))
 
 
@@ -200,7 +200,7 @@ def _features(ctx: ct.Context) -> dict[str, Any]:
     unsure = [(t, f) for t, f in unsure if f]
     if unsure:
         shown = [f"{t['name']} ({', '.join(f)})" for t, f in unsure]
-        return ct.not_evaluated(f"No source we found says whether {readers} can read the Delta features of "
+        return ct.not_evaluated(f"No Microsoft source says whether {readers} can read the Delta features of "
                                 f"{_list(shown)}.", needs="a Microsoft source on those features")
     return _unread(p, f"a Delta feature {readers} can't read") or ct.passed(
         [rid], f"None of the {len(tables)} table{'s' if len(tables) != 1 else ''} uses a Delta feature {readers} "
@@ -213,7 +213,7 @@ def _t(why: str, solution: str, steps: list[str], benefit: str, effort: str, ris
             "validation": validation, "rollback": rollback}
 
 
-_KF_THRESHOLD = "The threshold is KratosForge's, the one X-ray uses; Microsoft gives no number."
+_KF_THRESHOLD = "The threshold is KratosForge's, the one X-ray uses, because Microsoft gives no number."
 
 CONTROLS = (
     ct.Control(
@@ -275,8 +275,8 @@ CONTROLS = (
                         "Find the job that creates or writes each table, and the setting that turns the feature on.",
                         "Write a copy of the table from Spark without that feature, and compare row counts.",
                         "Swap readers to the copy, or replace the table in a quiet window.", "Assess again."],
-                       "The table reads in the SQL endpoint and Direct Lake again. It is availability, not capacity "
-                       "freed.", "medium", "medium",
+                       "The table reads in the SQL endpoint and Direct Lake again. The gain is availability, not "
+                       "capacity freed.", "medium", "medium",
                        "A query on the SQL analytics endpoint returns the table's rows, and the control passes.",
                        "Keep the original table until the copy is confirmed, and point readers back at it.")),
 )

@@ -12,6 +12,8 @@ import pytest
 
 from fabric_desktop import audit, server
 from fabric_desktop.controlplane import inventory as inv
+from fabric_desktop.controlplane import manifest as mf
+from fabric_desktop.controlplane import store as st
 from fabric_desktop.optimize import schema, setup
 from fabric_desktop.optimize.lakehouse import NAME, LocalLakehouse
 from fabric_desktop.service import Service
@@ -121,3 +123,31 @@ def test_an_unreadable_lakehouse_gives_a_status_not_an_exception(svc, monkeypatc
     got = svc.cp_inventory()
     assert got["status"] == status and got["inventory"] is None and got["error"]
     assert got["registry"] == inv.registry() and got["environment"]["environment_id"]
+
+
+def test_a_lakehouse_whose_manifest_is_gone_or_damaged_is_not_inventoried(svc, monkeypatch):  # noqa: F811
+    _environment(svc)
+    monkeypatch.setattr(Service, "_cp_store", lambda self, ws, lh: st.local_store(svc.lakes / "nowhere"))
+    gone = svc.cp_inventory()
+    assert gone["status"] == "Connection failed" and "isn't in its lakehouse" in gone["detail"]
+    assert gone["inventory"] is None and gone["registry"] == inv.registry()
+
+    class Damaged:
+        def read(self):
+            raise mf.ManifestError("not JSON")
+
+    monkeypatch.setattr(Service, "_cp_store", lambda self, ws, lh: Damaged())
+    damaged = svc.cp_inventory()
+    assert damaged["status"] == "Connection failed" and "damaged" in damaged["detail"] and damaged["inventory"] is None
+
+
+def test_an_unreadable_manifest_gives_a_status_not_an_exception(svc, monkeypatch):  # noqa: F811
+    _environment(svc)
+
+    class Offline:
+        def read(self):
+            raise ConnectionError("network down")
+
+    monkeypatch.setattr(Service, "_cp_store", lambda self, ws, lh: Offline())
+    got = svc.cp_inventory()
+    assert got["status"] == "Working offline" and got["inventory"] is None and got["error"]

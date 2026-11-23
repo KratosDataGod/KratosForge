@@ -223,7 +223,9 @@ class ControlPlaneMixin:
                                         platform=platform, keys=keys)
         seen = self._cp_adopt_seen(conn, inspections, platform, keys)
         prod = self._prod_marked(ws)  # type: ignore[attr-defined]
+        # The linked operational store is always the Prod Platform's: the confirm says so plainly.
         return {"manifest": manifest, "environment": mf.summary(manifest),
+                "operational_prod": bool(manifest.get("operational_store")),
                 "typed_name": self._cp_workspace_name(ws) if prod else ""} | \
             self._cp_keep("adopt", manifest=manifest, seen=seen)
 
@@ -278,12 +280,25 @@ class ControlPlaneMixin:
     def cp_inventory(self) -> dict[str, Any]:
         """The service registry (every registered table family and its tables) and the active environment's
         lakehouse: each family's state, tables no family claims, and how many other tables there are.
-        Reads only. A lakehouse that can't be read gives its status and reason, like cp_check."""
+        Reads only. A lakehouse that can't be read, or whose manifest isn't this environment's any more,
+        gives its status and reason, like cp_check."""
         self._cp_allowed()
         active = self.cp_cache.active()
         if not active:
             raise ValueError("Connect this PC to a KratosForge Environment first.")
         out = {"registry": cpinv.registry(), "environment": active}
+        try:
+            got = self._cp_store(active["workspace_id"], active["lakehouse_id"]).read()
+        except mf.ManifestError as exc:
+            return out | health.failed(f"Its manifest is damaged: {exc}") | {"inventory": None}
+        except Exception as exc:  # noqa: BLE001 - shown as offline or refused, with the reason
+            denied = setup.denied(exc)
+            return out | health.status(connected=True, reachable=denied, denied=denied) | {
+                "inventory": None, "error": describe(exc)}
+        if got is None or got.manifest.get("environment_id") != active["environment_id"]:
+            # Like cp_check: a lakehouse whose manifest is gone or names another environment isn't this one.
+            return out | health.failed("The environment's manifest isn't in its lakehouse any more.") | {
+                "inventory": None}
         try:
             lake = self._optimize_lake(active["workspace_id"], active["lakehouse_id"])  # type: ignore[attr-defined]
             names = lake.table_names()

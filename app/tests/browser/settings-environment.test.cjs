@@ -76,7 +76,9 @@ before(async () => {
       },
       cp_adopt_preview: (p) => world.nothingToAdopt ? (() => { throw new Error("Connect this PC to a central lakehouse first (Settings > Optimize lakehouses), or create an environment."); })() : ({ token: "tok-adopt", typed_name: "", environment: { ...ENV, name: p.name, lakehouse_name: "FabricDesktop_Central" },
         manifest: { environment_id: ENV.environment_id, provider: "fabric", namespace: { workspace_id: WS, display_name: "KratosForge" },
-          analytical_store: { lakehouse_id: "lh-central", display_name: "FabricDesktop_Central" }, operational_store: null, services: [], owner: null } }),
+          analytical_store: { lakehouse_id: "lh-central", display_name: "FabricDesktop_Central" },
+          operational_store: world.prodStore ? { workspace_id: "ws-platform", functions_id: "fn-1", display_name: "SQL_Platform" } : null, services: [], owner: null },
+        operational_prod: !!world.prodStore }),
       cp_adopt: () => ({ ok: true, manifest: {}, environment: ENV }),
       cp_upgrade_plan: () => ({ provider: "fabric", blocked: [], typed_name: world.prod, token: "tok-up", environment: ENV, request: {},
         steps: [{ action: "initialize", target: "Access tables (fdacc_)", creates: true, permission: PERM, cost: "", blocked: "",
@@ -232,6 +234,26 @@ test("Adopt shows the manifest it would write, then adopts by token after a conf
   assert.match(await page().locator("#dialog-root .dialog").textContent(), /Adopt FabricDesktop_Central\?.*No table is created or changed/);
   await page().locator("#dialog-root .dialog button", { hasText: "Adopt" }).click();
   assert.deepStrictEqual((await waitCall("cp_adopt")).params, { token: "tok-adopt", confirmed: true, confirm_name: "" });
+});
+
+test("Adopt says plainly when it links the Prod Platform's database", { skip }, async () => {
+  world.active = null;
+  world.prodStore = true;
+  try {
+    await openTab(".kfe-card h3");
+    await card().locator("button", { hasText: "Adopt this PC's central lakehouse..." }).click();
+    await card().locator(".kfe-adopt-name input").fill("Contoso data platform");
+    await card().locator("button", { hasText: "Show the manifest" }).click();
+    await card().locator("h4", { hasText: "The manifest it would write" }).waitFor();
+    assert.match(await card().textContent(), /operational_store\s*SQL_Platform \(Prod\)/);
+    await card().locator("button", { hasText: "Adopt..." }).click();
+    const dialog = page().locator("#dialog-root .dialog");
+    await dialog.waitFor();
+    assert.match(await dialog.textContent(), /links your Prod Platform's database as the environment's operational store\. Only its ids are recorded; nothing is written to it\./);
+    await dialog.locator("button", { hasText: "Cancel" }).click();
+  } finally {
+    world.prodStore = false;
+  }
 });
 
 test("Switch and Disconnect change only this PC; Disconnect is a danger confirm", { skip }, async () => {

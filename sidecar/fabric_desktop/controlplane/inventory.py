@@ -7,7 +7,8 @@ only: nothing here talks to Fabric, and nothing is written or deleted.
 The registry says which feature owns which tables. The inventory says, for one lakehouse, how each
 family's tables are, which tables look like KratosForge's but belong to no family this app knows
 ("unclaimed": maybe from an older or newer app, never called garbage), and how many other tables there
-are (counted, never named: they aren't KratosForge's to list). FEA snapshots and ESI reporting (CP-017)
+are (counted, never named: they aren't KratosForge's to list). The count covers the schemas the app
+reads (dbo and the registered families' schemas), not every schema in the lakehouse. FEA snapshots and ESI reporting (CP-017)
 show up here once they are registered families; nothing is special about them.
 """
 

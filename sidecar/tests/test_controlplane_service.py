@@ -410,7 +410,7 @@ def test_adopt_links_the_prod_platform_database_as_the_operational_store(svc, mo
     op = preview["manifest"]["operational_store"]
     assert op["workspace_id"] == PLATFORM_WS and op["functions_id"] == FUNCTIONS and op["database_id"] == SQL_DB
     assert preview["manifest"]["deployments"] == {"prod": {"platform_workspace_id": PLATFORM_WS}, "keys": {"workspace_id": KEYS_WS}}
-    assert preview["environment"]["has_operational_store"]
+    assert preview["environment"]["has_operational_store"] and preview["operational_prod"] is True
     out = svc.cp_adopt(preview["token"], confirmed=True)
     assert out["manifest"]["operational_store"]["functions_id"] == FUNCTIONS
     assert st.local_store(svc.lakes / WS / CENTRAL).read().manifest == out["manifest"]
@@ -421,6 +421,7 @@ def test_adopt_without_a_fabric_platform_stays_lakehouse_only(svc, monkeypatch):
     _platform(monkeypatch, {"workspace_id": PLATFORM_WS}, {"workspace_id": KEYS_WS, "functions_id": FUNCTIONS})  # no functions; keys not shared
     preview = svc.cp_adopt_preview("Ours")
     assert preview["manifest"]["operational_store"] is None and preview["manifest"]["deployments"] == {}
+    assert preview["operational_prod"] is False
 
 
 def test_adopt_refuses_when_the_platform_changed_since_the_preview(svc, monkeypatch):

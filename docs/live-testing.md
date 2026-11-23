@@ -131,9 +131,10 @@ Part 1, one PC:
 
 1. `cp_discover()` finds `kf_tenant_test`; `cp_plan` for a new lakehouse in it (`KratosForgeLakehouse_cp012`). Nothing may be blocked, and `typed_name` must be empty (the workspace isn't marked Prod).
 2. `cp_create(token, confirmed=True)` creates the lakehouse, the shared tables and the manifest. No workspace is created.
-3. `cp_check()` says Connected; `cp_discover(kf_tenant_test)` lists the environment; `cp_upgrade_plan()` says there's nothing to upgrade; `cp_cost(days=7)` reads.
+3. `cp_check()` says Connected; `cp_discover(<kf_tenant_test's workspace id>)` lists the environment (`cp_discover()` without an id gives the id); `cp_upgrade_plan()` says there's nothing to upgrade; `cp_cost(days=7)` reads; `cp_inventory()` lists every registered family, with no unclaimed tables in the new lakehouse.
 4. The manifest (`Files/_kratosforge/environment.json`) holds ids and versions only: no secret, email or name of a person.
 5. `cp_disconnect`, `cp_connect`, `cp_disconnect`: the PC is left as it was.
+6. Adopt, only on a PC whose central lakehouse is in `kf_tenant_test` and whose Platform is a test one: `cp_adopt_preview` shows the Platform's Prod database ids as the operational store (and Keys when it shares the functions item); `cp_adopt` with its token records them, ids only. Then `cp_disconnect`.
 
 Part 2, a second installation and a reader (needs its own go): connect a second installation, write optimization rows from both, read them from each, and try a write from an account that isn't a workspace member, which Fabric must refuse.
 

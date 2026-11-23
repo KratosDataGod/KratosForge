@@ -172,12 +172,12 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `appstudio_undo` | `sidecar/fabric_desktop/appstudio_service.py:130` | this PC | the signed-in Windows user's own files |
 | `cancel_fabric_run` | `sidecar/fabric_desktop/cloud_service.py:188` | Fabric or OneLake | Fabric's own rights |
 | `capacity_settings_read` | `sidecar/fabric_desktop/capacity_history_service.py:18` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `cp_adopt` | `sidecar/fabric_desktop/controlplane_service.py:340` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `cp_connect` | `sidecar/fabric_desktop/controlplane_service.py:388` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
-| `cp_create` | `sidecar/fabric_desktop/controlplane_service.py:320` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `cp_disconnect` | `sidecar/fabric_desktop/controlplane_service.py:409` | this PC | the signed-in Windows user's own files |
-| `cp_switch` | `sidecar/fabric_desktop/controlplane_service.py:402` | this PC | PermissionError; organization policy |
-| `cp_upgrade` | `sidecar/fabric_desktop/controlplane_service.py:362` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `cp_adopt` | `sidecar/fabric_desktop/controlplane_service.py:355` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `cp_connect` | `sidecar/fabric_desktop/controlplane_service.py:403` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
+| `cp_create` | `sidecar/fabric_desktop/controlplane_service.py:335` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `cp_disconnect` | `sidecar/fabric_desktop/controlplane_service.py:424` | this PC | the signed-in Windows user's own files |
+| `cp_switch` | `sidecar/fabric_desktop/controlplane_service.py:417` | this PC | PermissionError; organization policy |
+| `cp_upgrade` | `sidecar/fabric_desktop/controlplane_service.py:377` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `create_lakehouse` | `sidecar/fabric_desktop/service.py:750` | Fabric or OneLake | Fabric's own rights |
 | `create_shortcut` | `sidecar/fabric_desktop/estate_service.py:289` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |
 | `databricks_billing` | `sidecar/fabric_desktop/engines_service.py:329` | Databricks, Snowflake or a Git remote | that service's own rights |

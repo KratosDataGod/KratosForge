@@ -29,6 +29,14 @@ _OBJECT = [
     re.compile(r"^Catalog Error: Table with name (?P<name>\S+) does not exist!"),
 ]
 _BY_ZERO = "Invalid Input Error: Divide by zero error encountered."
+# WR-258: a + whose side is text of a type the translator couldn't work out reaches DuckDB as a +, which DuckDB
+# refuses for text. The first line is the same on DuckDB 1.5.6 and 2.0.0.
+_PLUS = re.compile(r"^Binder Error: No function matches the given name and argument types "
+                   r"'\+\((?P<a>[A-Z_]+), (?P<b>[A-Z_]+)\)'")
+_TEXT_KINDS = {"VARCHAR", "STRING_LITERAL"}
+PLUS_UNTYPED = ("Couldn't tell whether + adds numbers or joins text here, because a value's type can't be worked out "
+                "on the local engine (T-SQL adds a number to text as numbers and joins two strings). CAST the value "
+                "to VARCHAR to join it, or to a number to add it.")
 # SQL Server's number and severity for each message this module or the local engine gives in its words
 _NUMBERS = [
     (re.compile(r"^Invalid column name '"), 207),
@@ -51,6 +59,8 @@ def warehouse(message: str, sql: str, kind: str) -> str | None:
     first = message.strip().split("\n", 1)[0]
     if first == _BY_ZERO:
         return first.split(": ", 1)[1]
+    if (found := _PLUS.match(first)) and {found["a"], found["b"]} & _TEXT_KINDS:
+        return PLUS_UNTYPED
     for pattern in _COLUMN:
         if found := pattern.match(first):
             return f"Invalid column name '{found['name']}'."

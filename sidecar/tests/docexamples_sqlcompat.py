@@ -124,6 +124,9 @@ CLAIMS: list[Claim] = [
     _ts("'1' + 1"),
     _ts("'' + 1"),
     _ts("'1' + '1'"),
+    _ts("LEFT('abc', 2) + 'x'"),  # WR-258: text from a function joins
+    _ts("LEFT('123', 2) + 1"),
+    _ts("NULL + 'a'"),
     _ts("ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')"),
     _ts("ISNULL(int_column, 2.7)", query="SELECT ISNULL(int_column, 2.7) FROM (VALUES (CAST(NULL AS INT))) AS t(int_column)"),
     _ts("ROUND(150.75, 0)"),

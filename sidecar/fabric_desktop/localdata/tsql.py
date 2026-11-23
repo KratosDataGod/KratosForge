@@ -1064,13 +1064,14 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         return []
     sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
     typed = tree.copy()
+    _apply_as_derived(typed)
     try:
         typed = qualify(typed, schema=schema, dialect="duckdb", db="dbo", expand_stars=False,
                         validate_qualify_columns=False, quote_identifiers=False, identify=False)
     except SqlglotError:
         pass  # unknown tables: literals still get their types
     try:
-        typed = annotate_types(typed, schema=schema, dialect="duckdb")
+        typed = annotate_types(typed, schema=schema, dialect="duckdb", expression_metadata=_text_calls_typed())
     except SqlglotError:
         for cast_node in sized:
             _sized_text(cast_node, None)
@@ -1153,7 +1154,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 _stays_a_date(node)
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
-            if _is(a, _TEXT) and _is(b, _TEXT):
+            if (_is(a, _TEXT) and _is(b, _TEXT)) or (_is(a, _TEXT) and isinstance(node.expression, exp.Null)) \
+                    or (_is(b, _TEXT) and isinstance(node.this, exp.Null)):
+                # Two strings are joined; NULL with text is NULL, which || gives as well (WR-258).
                 node.replace(exp.DPipe(this=node.this, expression=node.expression, safe=False))
             elif _is(a, _TEXT) and _is(b, _NUMBERS):
                 # A number outranks text in T-SQL: '1' + 1 is 2 (and 'x' + 1 is an error).
@@ -1180,6 +1183,44 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     for again in later:
         again()
     return notes
+
+
+# Calls sqlglot gives no type on DuckDB, though T-SQL's give text (WR-258): without one, LEFT(s, 2) + 'x' stayed a
+# + and DuckDB couldn't add the strings. QUOTENAME and STR are still unnamed calls here; _functions maps them later.
+_TEXT_CALLS: tuple[type[exp.Expression], ...] = (exp.Left, exp.Right, exp.Replace, exp.Stuff, tsql_format.TsqlFormat)
+_TEXT_ANONYMOUS = frozenset({"QUOTENAME", "STR"})
+
+
+@functools.cache
+def _text_calls_typed() -> dict:
+    """DuckDB's own type rules for annotate_types, with the text calls above typed as VARCHAR."""
+    from sqlglot.dialects.duckdb import DuckDB
+
+    rules = dict(DuckDB.EXPRESSION_METADATA)
+    for kind in _TEXT_CALLS:
+        rules[kind] = {"returns": exp.DataType.Type.VARCHAR}
+    unnamed = rules.get(exp.Anonymous, {}).get("annotator")
+
+    def anonymous(annotator: Any, node: exp.Anonymous) -> exp.Expression:
+        if node.name.upper() in _TEXT_ANONYMOUS:
+            return annotator._set_type(node, exp.DataType.Type.VARCHAR)
+        if unnamed is not None:
+            return unnamed(annotator, node)
+        return annotator._set_type(node, exp.DataType.Type.UNKNOWN)
+
+    rules[exp.Anonymous] = {"annotator": anonymous}
+    return rules
+
+
+def _apply_as_derived(typed: exp.Expression) -> None:
+    """CROSS and OUTER APPLY of a subquery read as a derived table, on the typed copy only: sqlglot types no column
+    of a LATERAL subquery, so ``x + 'a'`` after ``CROSS APPLY (SELECT s AS x) z`` stayed a + (WR-258). The nodes keep
+    their order, so the copy still pairs with the tree."""
+    for lateral in list(typed.find_all(exp.Lateral)):
+        if isinstance(lateral.this, exp.Subquery) and lateral.args.get("alias") is not None:
+            derived = lateral.this
+            derived.set("alias", lateral.args["alias"])
+            lateral.replace(derived)
 
 
 _BY_ZERO = "Divide by zero error encountered."

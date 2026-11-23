@@ -147,6 +147,75 @@ def test_compact_counts_only_the_files_it_actually_removed(table):
     assert maintenance.compact_local(uri, 7)["vacuumed"] == 0  # a second run removes nothing more
 
 
+def _log_race(uri: str) -> OSError:
+    """What a losing VACUUM commit raises on Windows when a writer commits the same next version."""
+    staged = Path(uri) / "_delta_log" / "00000000000000000030.json#1"
+    return OSError(f"Generic LocalFileSystem error: Unable to open file {staged}: Access is denied. (os error 5)")
+
+
+@pytest.fixture
+def races(monkeypatch):
+    """VACUUM's own calls, real ones in between; ``plan`` says, per call, whether to fail before VACUUM runs
+    ("before"), after it ran and deleted ("after"), or not at all (None)."""
+    real, calls = DeltaTable.vacuum, []
+    plan: list = []
+
+    def vacuum(self, *args, **kwargs):
+        calls.append(kwargs.get("dry_run"))
+        when = plan.pop(0) if plan and not kwargs.get("dry_run", True) else None
+        if when == "before":
+            raise _log_race(self.table_uri)
+        listed = real(self, *args, **kwargs)
+        if when == "after":
+            raise _log_race(self.table_uri)
+        return listed
+
+    monkeypatch.setattr(DeltaTable, "vacuum", vacuum)
+    monkeypatch.setattr("fabric_desktop.retrying.time.sleep", lambda _s: None)
+    return plan, calls
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_vacuum_losing_a_commit_race_on_windows_is_tried_again_and_counts_what_it_removed(table, races, when):
+    """On Windows a writer committing the same next version makes VACUUM START or VACUUM END fail to open its
+    staged log file (os error 5). VACUUM is tried again: the same files go, none a kept version names, and the
+    count includes what a try that failed after deleting had already removed."""
+    uri, named = table
+    plan, _calls = races
+    plan += [when, when]
+    before = _parquet(uri)
+    result = maintenance.compact_local(uri, 7)
+    assert plan == []  # both failing tries happened
+    assert before - _parquet(uri) == {named[0], named[1]}
+    assert result["vacuumed"] == 2
+    assert _ids(uri, 2) == [2] and _ids(uri) == [3]
+
+
+def test_vacuum_still_raises_any_other_error_at_once(table, races, monkeypatch):
+    uri, _named = table
+    _plan, calls = races
+
+    def refused(self, *args, **kwargs):
+        calls.append(kwargs.get("dry_run"))
+        raise OSError("Generic LocalFileSystem error: Unable to open file C:/x/part-0.parquet: Access is denied. "
+                      "(os error 5)")  # not the Delta log: not the race
+
+    monkeypatch.setattr(DeltaTable, "vacuum", refused)
+    with pytest.raises(OSError, match="part-0.parquet"):
+        maintenance.compact_local(uri, 7)
+    assert calls.count(False) == 1
+
+
+def test_vacuum_gives_up_on_a_race_that_never_clears(table, races):
+    uri, named = table
+    plan, calls = races
+    plan += ["before"] * 10
+    with pytest.raises(OSError, match="os error 5"):
+        maintenance.compact_local(uri, 7)
+    assert calls.count(False) == 6  # retrying.local_retry's attempts, then the error as it was
+    assert {named[0], named[1]} <= _parquet(uri)  # nothing deleted
+
+
 def test_nothing_inside_the_retention_means_nothing_vacuumed(tmp_path):
     uri = str(tmp_path / "t")
     named = _history(uri, removed_days_ago=(6, 3, 1))

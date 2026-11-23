@@ -38,6 +38,8 @@ REVIEWED = {
     ("fabric_compute.py", "_optimize"): "none needed: runs inside a Fabric notebook on the capacity itself, after "
                                         "a run whose own risk check (paused, throttled or otherwise Blocked) already passed",
     ("maintenance.py", "compact_local"): "none needed: a table on this PC (LocalStore), no Fabric capacity",
+    ("maintenance.py", "vacuum_once"): "inside compact_local: its retry of VACUUM on the Windows log race, a "
+                                        "table on this PC (LocalStore), no Fabric capacity",
     ("maintenance.py", "vacuum_preview"): "dry run only",
     ("maintenance.py", "_unnamed"): "dry run only",
     ("maintenance.py", "_named"): "dry run only",

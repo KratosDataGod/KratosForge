@@ -299,13 +299,21 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     metrics = retrying.local_retry(lambda: DeltaTable(uri).optimize.compact())
     table = DeltaTable(uri)
     present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}
-    keep, _oldest = skewed_versions(table, retention_hours(days))
-    listed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,
-                          **vacuum_keep(keep))
-    # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
-    root = uri.rstrip("/") + "/"
-    listed = [unquote(p[len(root):] if p.startswith(root) else p) for p in listed]
-    removed = [p for p in listed if p in present and not (Path(uri) / p).exists()]
+
+    def vacuum_once() -> list[str]:
+        # VACUUM commits twice (VACUUM START, then VACUUM END after deleting), and either commit meets the same
+        # Windows race as the compaction. Repeating it is safe: it deletes only files no kept version names, and a
+        # file a failed try already deleted is simply not there to delete again. Each try reads the table afresh,
+        # so a version a writer committed meanwhile keeps its files.
+        current = DeltaTable(uri)
+        keep, _oldest = skewed_versions(current, retention_hours(days))
+        return current.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,
+                              **vacuum_keep(keep))
+
+    retrying.local_retry(vacuum_once)
+    # Counted from what left the data folder during VACUUM, not from its list: delta-rs also lists a file already
+    # gone meanwhile, and a try that deleted files before its VACUUM END failed leaves them off the next try's list.
+    removed = [p for p in present if not (Path(uri) / p).exists()]
     # A data file no commit names (a write stopped before its commit) goes once it's as old as the
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
     unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))

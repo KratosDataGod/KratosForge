@@ -291,3 +291,18 @@ def test_sqlites_own_answer_stands_for_a_short_path_or_another_failure(short, mo
             raise sqlite3.OperationalError(error)
         with pytest.raises(sqlite3.OperationalError, match=error):
             sqlitefile.open_store(short / "store.db", first_open, refuse="{path}: {reason}")
+
+
+@pytest.mark.parametrize(("value", "kind", "on"), [(1, 4, True), (0, 4, False), ("0", 1, False), ("1", 1, False),
+                                                   (b"\x01", 3, False)])
+def test_long_paths_setting_counts_only_a_dword_windows_reads(monkeypatch, value, kind, on):
+    import contextlib
+    import sys
+    import types
+
+    fake = types.SimpleNamespace(HKEY_LOCAL_MACHINE=object(), REG_DWORD=4,
+                                 OpenKey=lambda *a: contextlib.nullcontext(object()),
+                                 QueryValueEx=lambda key, name: (value, kind))
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "winreg", fake)
+    assert support_bundle.long_paths_enabled() is on

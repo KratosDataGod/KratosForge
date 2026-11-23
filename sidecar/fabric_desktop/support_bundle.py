@@ -133,9 +133,11 @@ def long_paths_enabled() -> bool | None:
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
-            return bool(winreg.QueryValueEx(key, "LongPathsEnabled")[0])
+            value, kind = winreg.QueryValueEx(key, "LongPathsEnabled")
     except OSError:
         return False  # not set: off
+    # Windows reads only a DWORD; any other type (a REG_SZ "0" or "1" left by a script) is off to it.
+    return kind == winreg.REG_DWORD and value != 0
 
 
 def path_facts(data_dir: Path) -> dict[str, Any]:

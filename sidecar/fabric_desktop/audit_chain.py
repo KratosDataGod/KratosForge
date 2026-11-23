@@ -425,9 +425,9 @@ def _missed_note(missed: dict[str, Any], complete: bool) -> str:
     n = max(_missed_writes(missed), 1)
     writes = "write" if n == 1 else f"{n} writes"
     since = missed.get("since")
-    since = since if isinstance(since, str) and _SINCE.fullmatch(since) else "an earlier write"
+    since = f" (since {since})" if isinstance(since, str) and _SINCE.fullmatch(since) else ""
     return (f"event log: the trail's end wasn't recorded in the Windows Application event log for the last "
-            f"{writes} (since {since}), so the newest lines are checked against head.json only, because {fix}."
+            f"{writes}{since}, so the newest lines are checked against head.json only, because {fix}."
             + (" The trail itself is complete" if complete else ""))
 
 

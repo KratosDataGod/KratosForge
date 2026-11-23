@@ -110,7 +110,7 @@ def _missed(tmp_path, event_log, **change):
 def test_a_since_that_isnt_the_time_written_is_never_shown(tmp_path, event_log, since):
     log = _missed(tmp_path, event_log, since=since)
     [note] = [n for n in log.verify()["notes"] if "wasn't recorded" in n]
-    assert "(since an earlier write)" in note and len(note) < 600
+    assert "(since" not in note and "for the last 2 writes, so the newest lines" in note and len(note) < 600
 
 
 def test_a_trail_with_problems_isnt_called_complete(tmp_path, event_log):

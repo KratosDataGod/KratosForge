@@ -1084,8 +1084,11 @@ class LakehouseReader:
         """Applied after reading: CSV columns take the schema's names and types by position, other
         formats by name (a missing column is null). A value that doesn't fit is null, as in Spark's
         default PERMISSIVE mode."""
-        if isinstance(schema, str) or not hasattr(schema, "fields"):
-            raise NotImplementedError("On this PC, give read.schema() a StructType. A DDL string isn't supported.")
+        if isinstance(schema, str):
+            schema = ddl_schema(schema)  # "id INT, name STRING", as Spark takes it
+        if not hasattr(schema, "fields"):
+            raise NotImplementedError("On this PC, give read.schema() a StructType or a DDL string such as "
+                                      "'id INT, name STRING'.")
         self._schema = schema
         return self
 
@@ -1154,9 +1157,17 @@ class LakehouseReader:
             dirs[:] = sorted(d for d in dirs if not d.startswith(("_", ".")))
             found += [os.path.join(root, f) for f in sorted(files) if not f.startswith(("_", "."))]
         if not found:
-            raise ValueError(f"[UNABLE_TO_INFER_SCHEMA] {path} is a folder with no data files, so there's no "
+            raise _NoDataFiles(f"[UNABLE_TO_INFER_SCHEMA] {path} is a folder with no data files, so there's no "
                              "schema to read. Write data there first, or give a file.")
         return found
+
+    def _empty(self, exc: "_NoDataFiles") -> DataFrame:
+        """A folder with no data files read with a schema: no rows, with the schema's columns, as in Spark.
+        Without a schema there is nothing to infer, so the error stands."""
+        schema = getattr(self, "_schema", None)
+        if schema is None:
+            raise exc
+        return self._session.createDataFrame([], schema)
 
     def _hive(self, files: str | list[str]) -> dict[str, Any]:
         """Partition columns from the name=value folders below the folder read, as Spark reads a
@@ -1233,7 +1244,10 @@ class LakehouseReader:
                 extra[arg] = str(given[name])
         mode = str(given.get("mode", "PERMISSIVE")).upper()
         header = _true(given.get("header", False))
-        files = self._local(path)
+        try:
+            files = self._local(path)
+        except _NoDataFiles as exc:
+            return self._empty(exc)
         rel = self._session.conn.read_csv(files, header=header, **extra, **self._hive(files))  # type: ignore[arg-type]  # a list of files too
         if not header:  # Spark names a file's columns _c0, _c1... (DuckDB: column0, column1...)
             rel = rel.project(", ".join(f'"{c.replace(chr(34), chr(34) * 2)}" AS "_c{i}"' for i, c in enumerate(rel.columns)))
@@ -1256,7 +1270,12 @@ class LakehouseReader:
             raise ValueError("Give parquet a path: a Tables/ or Files/ path, or a file or folder on this PC.")
         files: list[str] = []
         for p in paths:
-            local = self._local(p)
+            try:
+                local = self._local(p)
+            except _NoDataFiles as exc:
+                if len(paths) == 1:
+                    return self._empty(exc)
+                raise
             files += local if isinstance(local, list) else [local]
         rel = self._session.conn.read_parquet(files if len(files) > 1 else files[0],
                                               union_by_name=_true(given.get("mergeschema", False)),
@@ -1275,7 +1294,10 @@ class LakehouseReader:
             # A malformed line is a row of nulls, as in Spark (which also has no _corrupt_record column
             # unless the schema asks for one, and this PC refuses that option).
             extra.update(format="newline_delimited", ignore_errors=True)
-        files = self._local(path)
+        try:
+            files = self._local(path)
+        except _NoDataFiles as exc:
+            return self._empty(exc)
         rel = self._session.conn.read_json(files, **extra, **self._hive(files))  # type: ignore[arg-type]  # a list of files too
         return self._apply(DataFrame(rel, self._session), False)
 
@@ -1291,8 +1313,12 @@ class LakehouseReader:
                                  "\"value\", StringType())]).")
             name = fields[0].name
         conn = self._session.conn
+        try:
+            local = self._local(path)
+        except _NoDataFiles as exc:
+            return self._empty(exc)
         rel = conn.sql("SELECT line AS \"" + name.replace('"', '""') + "\" FROM read_csv(?, columns={'line': 'VARCHAR'}, "
-                       "header=false, delim=chr(1), quote='', escape='')", params=[self._local(path)])
+                       "header=false, delim=chr(1), quote='', escape='')", params=[local])
         return DataFrame(rel, self._session)
 
 
@@ -1841,6 +1867,10 @@ def _ddl_type(text: str) -> Any:
 
 _NOT_NULL = re.compile(r"\s+NOT\s+NULL\s*$", re.I)
 _COMMENT = re.compile(r"\s+COMMENT\s+(?:'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")\s*$", re.I | re.S)
+
+
+class _NoDataFiles(ValueError):
+    """A folder read has no data files: Spark gives no rows when a schema is given, and an error otherwise."""
 
 
 def ddl_schema(text: str) -> Any:

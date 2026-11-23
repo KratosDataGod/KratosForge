@@ -543,6 +543,8 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character, and only for an `N'...'` written directly inside it: `DATALENGTH(N'ab')` is `4`, but `DATALENGTH(N'a' + N'b')` is `2` here, where T-SQL gives `4` |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
 | `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
+| `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT`, `REGEXP_INSTR` flags | `m` lets `^` and `$` match at each line and `s` lets `.` match a line break, also together (`'sm'`). Of `c` and `i` the last one counts, and `c` is taken by `REGEXP_COUNT` and `REGEXP_INSTR` too. `REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm')` is true |
+| `REGEXP_COUNT`, `REGEXP_INSTR` | An `int`, so `REGEXP_COUNT(s, 'b') / 2` divides as whole numbers |
 
 What still differs:
 
@@ -586,12 +588,13 @@ Spark reads a regular expression the Java way (`java.util.regex`), and DuckDB re
 | --- | --- |
 | Named groups `(?<name>...)` and `${name}` in a replacement | Read as Java reads them |
 | POSIX classes `\p{Alpha}`, `\p{Digit}`, `\p{Punct}` and the others, and `\P{...}` | ASCII only, as in Java |
-| `\s`, `\h`, `\v`, `\R`, `\uXXXX`, `\0nn`, `\e`, `\cX`, `\Q...\E` | Java's characters. `\s` takes the vertical tab, as Java's does |
+| `\s`, `\h`, `\v`, `\R`, `\uXXXX`, `\0nn`, `\e`, `\cX`, `\Q...\E` | Java's characters. `\s` takes the vertical tab, as Java's does. Two `\u` halves of a UTF-16 pair, `\uD83D\uDE00`, are one character, and a backslash before a character outside ASCII (`\é`) is that character |
 | `regexp_replace`'s replacement | Java's: `$1` and `${name}` are groups, and `\` takes the next character as it is (`\$` is a dollar sign). A `$` that refers to no group stops, as in Spark |
 | `regexp_replace` with a position | The first position is 1. Position 0 or less stops, as in Spark |
-| `regexp_extract`, `regexp_extract_all` | Group 1 unless you give one. A group index the pattern doesn't have, or below 0, stops by name. A NULL index gives NULL |
+| `regexp_extract`, `regexp_extract_all` | Group 1 unless you give one. A group index the pattern doesn't have, or below 0, stops by name. A NULL index gives NULL. A group that took no part in a match is `''`, in `regexp_extract_all`'s array too: `regexp_extract_all('abab', '(a)\|(b)', 2)` is `['', 'b', '', 'b']` |
 | `regexp_count` | An `int`. An empty pattern counts each position, as Java does: `regexp_count('abc', '')` is 4 |
-| `regexp_instr` | An `int` |
+| `regexp_instr` | An `int`: where the first match starts, from 1, or 0. An empty match counts (`regexp_instr('xab', 'a*')` is 1, and `regexp_instr('abc', '')` is 1). The third argument is a group number that Spark only checks, not a start: `regexp_instr('bcx', '(b)(c)', 2)` is 1. A character past U+FFFF counts 2, as in a Java string: `regexp_instr('😀a', 'a')` is 3 |
+| `regexp_substr` | NULL when nothing matches, and for an empty match: `regexp_substr('xab', 'a*')` is NULL |
 | `split` | Every match splits, and empty parts at the end are kept: `split('a,b,,', ',')` has 4 parts |
 | Any of these with a NULL | NULL |
 
@@ -602,6 +605,10 @@ These are refused by name, and nothing runs, because RE2 has no reading for them
 - The flags `x`, `d` and `U` (`(?x)`). RE2's `U` means something else.
 - A class inside a class, such as `[a[b]]` or `[[:alpha:]]`, and class intersections (`&&`). Write the characters in one class, or use `\p{Alpha}`.
 - A group past 9 in `regexp_extract` or a replacement.
+- A `{` that isn't a repeat such as `{2}` or `{2,5}` (`a{`, `{"id"`). Spark stops on it too ("Illegal repetition"). Write `\{`.
+- Half of a UTF-16 pair on its own (`\uD83D`). Write the whole character, such as `\x{1F600}`.
+- `regexp_replace` with a pattern that can match empty text right after another match, such as `a*`, `[^,]*` or `\s*$`, and a replacement that isn't `''`: Java replaces that empty match too (`regexp_replace('aaa', 'a*', 'X')` is `XX`), and RE2 skips it. A pattern that only matches empty text (`^`, `$`, `\b`) or starts with `^` runs, and so does any pattern with `''` as the replacement. The DataFrame API's `F.regexp_replace` is checked the same way.
+- With DuckDB 1.x, `regexp_count` and `regexp_extract_all` with a pattern that can match empty text at `^`, `$`, `\b` or `\B` (`regexp_count(s, '\\b')`, `regexp_count(s, '(?m)^')`), unless it starts with `^`: DuckDB 1.x counts some of those empty matches twice. With DuckDB 2.0 they run, and count as Java does.
 - `\p{In...}` blocks, `\p{java...}` classes and binary properties such as `\p{IsAlphabetic}`. Use a category such as `\p{L}` or a script such as `\p{IsLatin}`.
 
 String functions that give Spark's answer on this PC, where DuckDB's own differs:
@@ -625,6 +632,7 @@ These cases can still differ. LOC-002 warns wherever a pattern is used:
 | A pattern taken from the data, not written in the query | Java's syntax | RE2's: not translated, and a lookaround stops with DuckDB's message |
 | `$` without the `m` flag, on text that ends in a line break | Matches just before the final line break | Matches only at the very end |
 | `.` and `\r`, `\u0085`, `\u2028`, `\u2029` | Doesn't match them | Matches them. Both leave out `\n` |
+| `(?m)` with `^` and `$` next to `\r`, `\u0085`, `\u2028`, `\u2029`, or `^` after a final line break | Each is a line end, and `^` doesn't match at the very end | Only `\n` ends a line, and `^` matches after a final `\n` |
 | `(?i)` with letters outside ASCII | Without `(?u)`, only ASCII letters ignore case | Every letter ignores case |
 | `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
 | `split` with a pattern that can match no text, taken from the data or given to the DataFrame API's `F.split` | The array ends with an empty part | No empty part at the end. One written in the query is refused (see above) |
@@ -1102,8 +1110,8 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
 
 - **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
-- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
-- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD` and `ORDER BY`'s NULL order, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
+- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS`, `+`, and `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT` and `REGEXP_INSTR` with their `c`, `i`, `m` and `s` flags on text with line breaks, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
+- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD`, `ORDER BY`'s NULL order, and `REGEXP_LIKE`, `REGEXP_SUBSTR`, `REGEXP_SUBSTR_ALL`, `REGEXP_COUNT` and `REGEXP_REPLACE` with the `c`, `i`, `m` and `s` parameters and with an empty pattern, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 

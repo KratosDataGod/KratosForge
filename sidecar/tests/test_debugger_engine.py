@@ -139,6 +139,19 @@ def test_opening_a_list_of_values_that_never_finish_answers(kernel):
     assert detail["total"] == 3 and detail["items"][2]["value"] == "1"
 
 
+def test_a_short_read_limit_never_lets_its_interrupt_escape():
+    # A timer that fires while it is still starting must be caught as "too slow", never reach the caller.
+    from fabric_desktop import notebook
+
+    for i in range(2000):
+        assert notebook._bounded(lambda n=i: n, lambda: "?", 1e-6) in (i, "?")
+
+
+def test_renaming_a_guest_with_nothing_to_move_says_so():
+    k = Kernel()
+    assert k.rename_guest("nobody", "else") == {"renamed": False}
+
+
 # ---------- 2. a shared session: the other notebook never touches the pause ----------
 
 @pytest.fixture(params=["engine", "process"])

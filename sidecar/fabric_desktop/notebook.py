@@ -774,12 +774,15 @@ class Kernel:
 
     def rename_guest(self, old: str, new: str) -> dict[str, Any]:
         """A guest notebook was renamed: its variables and its cell (running or paused) go with it."""
+        moved = False
         if old in self._guests and new not in self._guests:
             self._guests[new] = self._guests.pop(old)
+            moved = True
         if old in self._last_runs and new not in self._last_runs:
             run = self._last_runs[new] = self._last_runs.pop(old)
             run.guest = new
-        return {"renamed": True}
+            moved = True
+        return {"renamed": moved}
 
     def _base_namespace(self) -> dict[str, Any]:
         from . import dbutils_local, notebookutils_local
@@ -2107,9 +2110,9 @@ def _bounded(read: Callable[[], Any], fallback: Callable[[], Any], seconds: floa
 
     timer = threading.Timer(seconds, expire)
     timer.daemon = True
-    timer.start()
     try:
         try:
+            timer.start()  # inside: a short timer can fire before start() returns
             return read()
         finally:
             with lock:

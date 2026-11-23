@@ -292,3 +292,13 @@ def test_a_failed_compare_never_summarizes_as_no_changes(old):
     r = oc.compare_versions(old, FILES)
     assert r["status"] != "compared" and r["summary"]["text"].startswith("Not compared")
     assert "No changes" not in r["summary"]["text"] and "No changes" not in oc.redacted(r)["summary"]["text"]
+
+
+def test_an_unreadable_line_in_a_role_file_is_withheld_when_redacted():
+    files = dict(FILES)
+    role = next((k for k in files if "/roles/" in k), None)
+    assert role is not None
+    new = {**files, role: files[role].rstrip("\n") + "\n\tsecret-marker-line\n"}
+    r = oc.compare_versions(files, new)
+    assert any("secret-marker-line" in str(w) for w in r["sides"]["new"]["warnings"])
+    assert "secret-marker-line" not in str(oc.redacted(r))

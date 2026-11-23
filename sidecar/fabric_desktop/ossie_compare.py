@@ -354,8 +354,7 @@ def redacted(report: dict[str, Any]) -> dict[str, Any]:
                 c["forms"] = {k: v if v is None else sp._fingerprint(str(v)) for k, v in c["forms"].items()}
     errors = []
     for which, side in (out.get("sides") or {}).items():
-        side["warnings"] = [sp._withheld(w) if str(w.get("object", "")).startswith("role") else w
-                            for w in side.get("warnings") or []]
+        side["warnings"] = [sp._withheld(w) if sp._about_role(w) else w for w in side.get("warnings") or []]
         if side.get("error"):  # a read error can quote the input: outside the pane only its type stays
             side["error"] = str(side["error"]).split(":", 1)[0]
             errors.append(f"the {which} version could not be read: {side['error']}")

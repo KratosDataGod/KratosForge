@@ -64,8 +64,9 @@ def test_a_start_past_a_bigint_is_the_overflow_error(engine) -> None:
     ("DATETRUNC(hour, CAST('2024-01-01' AS DATE))", "hour", "date"),
 ])
 def test_a_datepart_the_type_cant_hold_is_tsqls_error(engine, expression: str, part: str, kind: str) -> None:
-    with pytest.raises(ValueError, match=f"The datepart {part} is not supported by date function datetrunc for data "
-                                         f"type {kind}. T-SQL gives the same error."):
+    with pytest.raises(ValueError, match=f"DATETRUNC doesn't take the date part {part} for a {kind}: \"The datepart "
+                                         f"{part} is not supported by date function datetrunc for data type {kind}.\" "
+                                         "T-SQL gives the same error, so nothing ran."):
         one(engine, expression)
 
 
@@ -96,7 +97,7 @@ def test_datetrunc_answers_by_the_type_of_its_value(engine, expression: str, wan
 ])
 def test_a_flag_tsql_doesnt_take_is_its_error(engine, expression: str) -> None:
     with pytest.raises(ValueError, match=r"Invalid flag provided\. 'x' are not valid flags\. Only \{c,i,s,m\} flags "
-                                         r"are valid\. T-SQL gives the same error\."):
+                                         r"are valid\. T-SQL gives the same error, so nothing ran\. Use only c, i, s and m\."):
         one(engine, expression)
 
 

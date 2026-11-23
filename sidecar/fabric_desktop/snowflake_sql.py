@@ -1480,7 +1480,8 @@ _BINARY_SLICE_TEXT = ("Cutting a BINARY value with LEFT, RIGHT or SUBSTR isn't r
 # text is the session's default output format (parameters TIMESTAMP_NTZ_OUTPUT_FORMAT 'YYYY-MM-DD HH24:MI:SS.FF3',
 # TIMESTAMP_OUTPUT_FORMAT 'YYYY-MM-DD HH24:MI:SS.FF3 TZHTZM' for TIMESTAMP_LTZ and TIMESTAMP_TZ, TIME_OUTPUT_FORMAT
 # 'HH24:MI:SS'); a FLOAT drops trailing zeros ("When a FLOAT value is cast to a VARCHAR value, trailing zeros are
-# omitted"). A BINARY column stops by name (SFN-034). Each branch binds for any type, reading the value through
+# omitted"). A VARIANT or OBJECT (JSON here) holding a string is that string, as TO_VARCHAR gives it (SFX-025), and
+# any other JSON value or an ARRAY is its JSON text, not DuckDB's '[a, b]'. A BINARY column stops by name (SFN-034). Each branch binds for any type, reading the value through
 # VARCHAR; TYPEOF picks one when the query is planned. The value is read once.
 _TEXT_OF_ANY = (
     "(LIST_TRANSFORM([fj_arg0], kf_s -> CASE "
@@ -1493,6 +1494,10 @@ _TEXT_OF_ANY = (
     "|| LPAD(CAST(ABS(DATE_PART('timezone', kf_z)) // 3600 AS VARCHAR), 2, '0') "
     "|| LPAD(CAST(ABS(DATE_PART('timezone', kf_z)) % 3600 // 60 AS VARCHAR), 2, '0')))[1] "
     "WHEN TYPEOF(kf_s) = 'TIME' THEN LEFT(CAST(kf_s AS VARCHAR), 8) "
+    "WHEN TYPEOF(kf_s) = 'JSON' THEN (LIST_TRANSFORM([TRY_CAST(CAST(kf_s AS VARCHAR) AS JSON)], kf_j -> CASE "
+    "WHEN JSON_TYPE(kf_j) = 'VARCHAR' THEN kf_j ->> '$' WHEN JSON_TYPE(kf_j) = 'NULL' THEN NULL "
+    "ELSE CAST(kf_j AS VARCHAR) END))[1] "
+    "WHEN TYPEOF(kf_s) LIKE '%[]' THEN CAST(TO_JSON(kf_s) AS VARCHAR) "
     r"WHEN TYPEOF(kf_s) IN ('FLOAT', 'DOUBLE') THEN REGEXP_REPLACE(CAST(kf_s AS VARCHAR), '\.0$', '') "
     "ELSE CAST(kf_s AS VARCHAR) END))[1]")
 _TEXT_FUNCTIONS = (exp.Concat, exp.DPipe, exp.Upper, exp.Lower, exp.Trim, exp.Substring, exp.Left, exp.Right,
@@ -1525,8 +1530,9 @@ def _rewrite_text_arguments(statement: exp.Expression) -> None:
             raise _Untranslatable(_refuse(_SFN_BINARY_SLICE[0], _SFN_BINARY_SLICE[1], _SFN_BINARY_SLICE[2] + " Use "
                                           "HEX_ENCODE(value) and cut its hex digits, two for each byte.",
                                           f"{_DOCS}/functions/substr"))
-        if isinstance(subject, exp.Literal) or isinstance(subject, exp.Null):
-            node.set("this", exp.cast(subject, "VARCHAR"))  # a number written in the query: its text needs no lambda
+        if isinstance(subject, exp.Null) or (isinstance(subject, exp.Literal) and "E" not in subject.name.upper()):
+            # a NUMBER written in the query: its text needs no lambda (1e2 is a FLOAT, whose text drops the .0)
+            node.set("this", exp.cast(subject, "VARCHAR"))
             continue
         node.set("this", _with_text_of(subject))
 
@@ -2462,7 +2468,8 @@ CATALOG = (
                 "offset (after a space too) and a value with a time zone keep their instant.")),
     ("SFX-031", "Rewritten", ("LEFT, RIGHT and SUBSTR of a number, date, time, timestamp or boolean cut its text, as "
                 "Snowflake converts it to VARCHAR: a timestamp as YYYY-MM-DD HH24:MI:SS.FF3 (with +HHMM for "
-                "TIMESTAMP_LTZ and TIMESTAMP_TZ), a time as HH24:MI:SS, and a FLOAT without a trailing .0.")),
+                "TIMESTAMP_LTZ and TIMESTAMP_TZ), a time as HH24:MI:SS, and a FLOAT without a trailing .0. A VARIANT holding "
+                "a string cuts that string, and an ARRAY, an OBJECT or another VARIANT its JSON text.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),

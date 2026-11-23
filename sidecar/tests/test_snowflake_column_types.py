@@ -101,3 +101,17 @@ def test_the_rewrites_grow_the_sql_linearly(make):
 @pytest.mark.parametrize("sql", ["SELECT TO_TIMESTAMP_LTZ(RANDOM()) FROM t", "SELECT LEFT(RANDOM(), 3) FROM t"])
 def test_the_value_is_read_once(sql):
     assert sf.translate(sql).duckdb_sql.upper().count("RANDOM()") == 1
+
+
+def test_left_right_and_substr_of_a_variant_cut_its_text():
+    # data-type-conversion and SFX-025: a VARIANT holding a string is that string as VARCHAR, not its JSON text with
+    # quotes, and an ARRAY or OBJECT is its JSON text (DuckDB's own text of a list is [pq, r]). 1e2 is a FLOAT.
+    con = duckdb.connect()
+    for statement in ("CREATE TABLE j (v VARIANT, o OBJECT, a ARRAY)",
+                      ("INSERT INTO j SELECT PARSE_JSON('\"abcdef\"'), OBJECT_CONSTRUCT('k', 'xyz'), "
+                       "ARRAY_CONSTRUCT('pq', 'r')"),
+                      "INSERT INTO j SELECT PARSE_JSON('null'), NULL, NULL"):
+        con.execute(sf.translate(statement).duckdb_sql)
+    got = con.execute(sf.translate("SELECT LEFT(v, 3), SUBSTR(o:k, 1, 2), LEFT(o, 4), LEFT(a, 3), "
+                                   "LEFT(PARSE_JSON('\"abc\"'), 2), LEFT(1e2, 5) FROM j").duckdb_sql).fetchall()
+    assert got == [("abc", "xy", '{"k"', '["p', "ab", "100"), (None, None, None, None, "ab", "100")]

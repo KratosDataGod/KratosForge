@@ -2656,7 +2656,8 @@ def _regexp_arguments(tree: exp.Expression) -> None:
             wrong = sorted(set(flags.name) - set("cism "))
             if wrong:
                 raise ValueError(f"{_NOT_YET}Invalid flag provided. '{''.join(wrong)}' are not valid flags. Only "
-                                 "{c,i,s,m} flags are valid. T-SQL gives the same error.")
+                                 "{c,i,s,m} flags are valid. T-SQL gives the same error, so nothing ran. Use only c, i, s and "
+                                 "m.")
     for found in tree.find_all(exp.RegexpInstr):
         option, group = found.args.get("option"), found.args.get("group")
         if option is not None and not isinstance(option, exp.Null):
@@ -2667,7 +2668,7 @@ def _regexp_arguments(tree: exp.Expression) -> None:
                                  "1 (just after it) in the query.")
             if value not in (0, 1):
                 raise ValueError(_NOT_YET + "REGEXP_INSTR's return_option must be 0 (where the match begins) or 1 "
-                                 "(just after it). T-SQL stops with an error for any other value too.")
+                                 "(just after it). T-SQL stops with an error for any other value too, so nothing ran.")
         if group is not None and _number(group) != 0:
             raise ValueError(_NOT_YET + "REGEXP_INSTR with a group argument other than 0 isn't mapped yet, so "
                              "nothing ran. Leave the group out to get the position of the whole match, or run it in "
@@ -3289,8 +3290,10 @@ _DAY_PARTS = {"YEAR", "QUARTER", "MONTH", "DAYOFYEAR", "DAY", "WEEK", "ISO_WEEK"
 
 def _unsupported_part(name: str, function: str, kind: str) -> ValueError:
     """T-SQL's Msg 9810, as functions/datetrunc-transact-sql shows it."""
-    return ValueError(f"{_NOT_YET}The datepart {name.lower()} is not supported by date function {function.lower()} "
-                      f"for data type {kind}. T-SQL gives the same error.")
+    part = name.lower()
+    return ValueError(f"{_NOT_YET}{function} doesn't take the date part {part} for a {kind}: \"The datepart {part} is "
+                      f"not supported by date function {function.lower()} for data type {kind}.\" T-SQL gives the "
+                      f"same error, so nothing ran. Use a date part that a {kind} keeps.")
 
 
 def _datetrunc_of(node: exp.TimestampTrunc, kind: exp.DataType | None) -> None:

@@ -743,6 +743,9 @@ def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
                  "C:\\Program Files\\KratosForge\\engine, so the engine can't start until it's fixed")]
     if auto_update is not False:
         return ['engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set']
+    ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", "")  # the shell's own check, at start
+    if ignored:
+        return [f"engine_folder is ignored: {ignored}"]
     return []
 
 

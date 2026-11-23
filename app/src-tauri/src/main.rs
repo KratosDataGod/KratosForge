@@ -130,6 +130,18 @@ fn gp_unreadable(why: String) -> String {
     format!("Group Policy couldn't be read ({why}), so only the built-in engine source is used")
 }
 
+/// Why IT's engine_folder isn't used, from Group Policy's read (`read`): Group Policy that can't be read
+/// may have been set to override the policy file's folder, so the engine is kept in this app's own one.
+/// None when it was read. Passed to the engine as FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED, as
+/// engine_download_url's reason is, so Settings > Help and about can say it (app_settings).
+fn engine_folder_ignored_from<T>(read: Result<T, String>) -> Option<String> {
+    read.err().map(|why| format!("Group Policy couldn't be read ({why}), so the engine is kept in this app's own folder"))
+}
+
+fn engine_folder_ignored() -> Option<String> {
+    engine_folder_ignored_from(policy_registry::read_checked())
+}
+
 /// engine_mirror_state's rule for the policy's `text` (the file with Group Policy laid over it), given
 /// whether only administrators could have written the source of `engine_download_url`: an engine
 /// folder only with `"auto_update": false`, a valid address, and a trusted source; a valid address
@@ -203,7 +215,7 @@ fn dns_name(host: &str) -> bool {
 
 #[cfg(test)]
 mod policy_tests {
-    use super::{mirror_state_from, policy_allows_link_scheme, policy_allows_updates, policy_engine_url, policy_registry};
+    use super::{engine_folder_ignored_from, mirror_state_from, policy_allows_link_scheme, policy_allows_updates, policy_engine_url, policy_registry};
 
     #[test]
     fn group_policy_that_cant_be_read_leaves_only_the_built_in_engine_source() {
@@ -218,6 +230,14 @@ mod policy_tests {
         // Readable and setting its own folder: Group Policy's, trusted by its key.
         let gp = vec![("engine_download_url".to_string(), policy_registry::Raw::Text("https://gp.contoso.com/e".into()))];
         assert_eq!(mirror_state_from(Ok(gp), file, Ok(()), Ok(())), Ok(Some("https://gp.contoso.com/e".into())));
+    }
+
+    #[test]
+    fn group_policy_that_cant_be_read_gives_the_engine_folder_reason() {
+        assert_eq!(engine_folder_ignored_from(Ok(Vec::<(String, policy_registry::Raw)>::new())), None);
+        let why = engine_folder_ignored_from::<()>(Err("Windows error 5 reading HKLM\\Software\\Policies".into())).unwrap();
+        assert!(why.starts_with("Group Policy couldn't be read (Windows error 5") &&
+                why.ends_with("so the engine is kept in this app's own folder"), "{why}");
     }
 
     #[test]
@@ -528,8 +548,8 @@ fn engine_root() -> PathBuf {
 /// otherwise this build's python.exe there or why it can't be used. The policy file's permissions
 /// are checked before it is read, as for engine_download_url.
 fn it_engine() -> Option<Result<PathBuf, String>> {
-    if let Err(why) = policy_registry::read_checked() {
-        eprintln!("engine_folder ignored, so the engine is kept in this app's own folder: {}", gp_unreadable(why));
+    if let Some(why) = engine_folder_ignored() {
+        eprintln!("engine_folder ignored: {why}");
         return None;
     }
     let file = PathBuf::from(std::env::var_os("ProgramData")?).join("FabricDesktop").join("policy.json");
@@ -999,6 +1019,8 @@ impl Sidecar {
             .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
             .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
+            // And why IT's engine_folder isn't (Group Policy that can't be read).
+            .env("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", engine_folder_ignored().unwrap_or_default())
             // And why the organization's Fabric view sign-in hosts aren't used.
             .env("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", sign_in_hosts_state().1)
             .current_dir(data_dir())

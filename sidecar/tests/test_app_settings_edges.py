@@ -29,6 +29,7 @@ def dirs(monkeypatch, tmp_path):
     monkeypatch.delenv("FABRIC_DESKTOP_CLIENT_ID", raising=False)
     monkeypatch.delenv("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", raising=False)
     monkeypatch.delenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED", raising=False)
+    monkeypatch.delenv("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", raising=False)
     policy = tmp_path / "pd" / "FabricDesktop" / "policy.json"
     policy.parent.mkdir(parents=True)
     return policy
@@ -102,6 +103,17 @@ def test_engine_folder_the_shell_ignored_says_why(dirs, monkeypatch):
     problems = s._engine_url_problems("https://files.contoso.com/kf", False)
     assert problems and "ignored" in problems[0] and "the file can be changed by users" in problems[0]
     assert "auto_update" in s._engine_url_problems("https://files.contoso.com/kf", True)[0]
+
+
+def test_engine_folder_the_shell_ignored_for_unreadable_group_policy_says_why(dirs, monkeypatch):
+    folder = r"C:\Program Files\KratosForge\engine"
+    assert s._engine_folder_problems(folder, False) == []
+    why = "Group Policy couldn't be read (Windows error 5 reading HKLM), so the engine is kept in this app's own folder"
+    monkeypatch.setenv("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", why)
+    assert s._engine_folder_problems(folder, False) == [f"engine_folder is ignored: {why}"]
+    # A folder that is wrong anyway says that first, as before.
+    assert "isn't a full folder path" in s._engine_folder_problems("relative", False)[0]
+    assert "auto_update" in s._engine_folder_problems(folder, True)[0]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX ownership and permission bits")

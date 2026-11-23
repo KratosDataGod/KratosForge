@@ -12,7 +12,7 @@ Optimize keeps optimization results in one Microsoft Fabric lakehouse that every
 
 ## Where it is in the app
 
-**Optimize** in the left rail (Preview), in the place the Fabric page had; the Fabric portal is now a tab of Workspaces. It has five tabs: **Overview**, **Opportunities**, **Assessment** (shown only while preview features are on), **Cost and savings** and **Settings history** ([user guide](../user-guide.md#optimize-preview)). The lakehouses this PC uses are in **Settings > Optimize lakehouses**.
+**Optimize** in the left rail (Preview), in the place the Fabric page had; the Fabric portal is now a tab of Workspaces. It has five tabs: **Overview**, **Opportunities**, **Assessment** (shown only while Preview features are shown), **Cost and savings** and **Settings history** ([user guide](../user-guide.md#optimize-preview)). The lakehouses this PC uses are in **Settings > Optimize lakehouses**.
 
 ## Setting it up
 

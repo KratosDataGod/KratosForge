@@ -280,7 +280,9 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None, al
     config = table.metadata().configuration or {}
     if all(config.get(k) == v for k, v in wanted.items()):
         return False
-    table.alter.set_table_properties(wanted, raise_if_not_exists=False)
+    # A commit like any other: on Windows it can lose the staged-commit race to a writer (retrying.local_commit).
+    retrying.local_commit(lambda: DeltaTable(uri, storage_options=options).alter.set_table_properties(
+        wanted, raise_if_not_exists=False), "this table's next version")
     return True
 
 
@@ -296,12 +298,16 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     # On Windows a writer committing the same next version at the same moment makes this commit fail to open
     # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
     # so compacting again is safe.
-    metrics = retrying.local_retry(lambda: DeltaTable(uri).optimize.compact())
+    # One that still loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
+    metrics = retrying.local_commit(lambda: DeltaTable(uri).optimize.compact(), "this table's next version")
     table = DeltaTable(uri)
     present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}
     keep, _oldest = skewed_versions(table, retention_hours(days))
-    listed = table.vacuum(retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False,
-                          **vacuum_keep(keep))
+    # VACUUM commits too (its start and end), so it can lose the same race; deleting again what is already
+    # gone is a no-op, so it is safe to repeat on the table's latest version.
+    listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
+        retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
+        "this table's next version")
     # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
     root = uri.rstrip("/") + "/"
     listed = [unquote(p[len(root):] if p.startswith(root) else p) for p in listed]

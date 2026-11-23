@@ -23,7 +23,7 @@ This guide goes from an empty folder to Prod. The [reference](#reference) at the
 ## 1. Set up a project
 
 1. Open **Data mesh** in the left rail. With no project yet, it shows **Set up a metadata project**.
-2. **Folder:** where the project goes, as a full path (a relative path such as `crm` is refused). The default is `Documents\FabricDesktop\metadata`. Choose a folder inside a Git repository if you have one.
+2. **Folder:** where the project goes, as a full path (a relative path such as `crm` is refused). The default is `KratosForge\metadata` in your profile (`C:\Users\<you>\KratosForge\metadata`). A folder in OneDrive is refused, because OneDrive would upload the same files the app writes ([Files in OneDrive](troubleshooting.md#files-in-onedrive)). Choose a folder inside a Git repository if you have one.
 3. **Layers:** pick 2 (raw, curated), 3 (bronze, silver, gold) or 5 (landing, bronze, silver, gold, semantic). You can add, remove, rename and reorder later.
 4. **Add the sample tables:** with 3 layers, tick this to get customers and orders from Bronze to Gold with sample CSV files, so you can try everything straight away.
 5. **Create project.**
@@ -619,7 +619,7 @@ A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a 
 
 ### Column lineage (Preview)
 
-KratosForge works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
+KratosForge works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. A `[[derive]]` expression that can't be read is **unknown** and shows no inputs, rather than a guess. That includes one with more than 200 operators or brackets nested more than 32 deep, which the save gate and a run also refuse. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
 
 ### Impact of a column change (Preview)
 

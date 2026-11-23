@@ -242,13 +242,15 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def support_bundle_preview(self) -> dict[str, Any]:
         from . import support_bundle
         shown = support_bundle.preview(self.root, self._bundle_agent_home())
-        return shown | {"folder": str(known_folders.downloads())}
+        return shown | {"folder": str(known_folders.export_folder())}
 
     def support_bundle_save(self, folder: str = "") -> dict[str, Any]:
         from . import support_bundle
-        target = Path(folder) if folder else known_folders.downloads()
+        target = Path(folder) if folder else known_folders.export_folder()
         if not target.is_absolute():
             raise ValueError("Choose a full folder path, such as C:\\Users\\you\\Downloads.")
+        if (refusal := known_folders.onedrive_refusal(target, "the support bundle")):
+            raise ValueError(refusal)
         try:
             path = support_bundle.create(target, self.root, self._bundle_agent_home())
         except OSError as exc:
@@ -553,7 +555,30 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         from .http_session import clock_offset
         return readiness.checks(user, fabric.list_workspaces if fabric else unreachable if offline else list,
                                 capacities, self.app_settings(),
-                                clock=clock_offset, folder=self.root)
+                                clock=clock_offset, folder=self.root, local_folders=self._local_folders())
+
+    def _local_folders(self) -> dict[str, str]:
+        """The folders the app keeps files in, for the OneDrive row: what each holds, and where."""
+        folders = {"The app's data folder": str(self.root)}
+        settings = self._settings()
+        if settings.get("meta_project"):
+            folders["The metadata project"] = str(settings["meta_project"])
+        if settings.get("meta_project_moved_from"):  # copied out of OneDrive; the original is left to delete
+            folders["The metadata project's old copy, which you can delete"] = str(settings["meta_project_moved_from"])
+        from .app_settings import sql_limits
+        sql_temp = str(sql_limits().get("sql_temp_dir") or "")
+        if sql_temp:
+            folders["The SQL page's temp folder"] = sql_temp
+        try:
+            for p in self.list_local_projects():
+                if p.get("folder"):
+                    folders[f"Local data project {p.get('name')}"] = str(p["folder"])
+        except Exception as exc:  # noqa: BLE001 - the row lists what it can read
+            _log.info("Local data projects not read for the OneDrive row: %s", describe(exc))
+        for r in self._git_saved().get("repos", []):
+            if r.get("path"):
+                folders[f"Repository {Path(r['path']).name}"] = str(r["path"])
+        return folders
 
     def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
         """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""
@@ -985,7 +1010,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         A CSV protects text cells that start like a formula unless ``raw`` (Keep raw values, WR-228)."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
@@ -1082,7 +1107,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         Never replaces a file: a name that is taken gets a number."""
         report = sqlcompat.analyze(query, target)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
@@ -1138,7 +1163,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         problem = self._diagram_problem(svg)
         if problem:
             raise ValueError(f"The diagram has {problem}, so it wasn't saved.")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name, 'Diagram')} {time.strftime('%Y-%m-%d %H%M%S')}"
         for n in range(1, 1000):
@@ -1320,7 +1345,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
         """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
         # folder (HD-038, finding EN-11), and an existing file is never replaced.

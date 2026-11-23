@@ -57,6 +57,11 @@ def zone_id(zone: str) -> str:
     if match is None:
         return text
     sign, hours, minutes, seconds = match.groups()
+    if int(minutes or 0) > 59 or int(seconds or 0) > 59 or \
+            int(hours) * 3600 + int(minutes or 0) * 60 + int(seconds or 0) > 18 * 3600:
+        raise ValueError(f"The time zone {zone!r} isn't a zone Spark reads, so nothing ran. An offset is hours "
+                         "and minutes from -18:00 to +18:00. Use an offset in that range, or a zone id such as "
+                         "Europe/Paris.")
     if int(minutes or 0) or int(seconds or 0):
         raise ValueError(f"The time zone {zone!r} can't be used on this PC the way it is in Fabric, because the "
                          "engine here has a zone for an offset of whole hours only, so nothing ran. Use the "

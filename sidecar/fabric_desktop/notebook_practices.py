@@ -114,9 +114,16 @@ def check(sources: list[str], scheduled: bool = False,
     settings = settings or {}
     found: list[dict[str, Any] | None] = []  # _finding gives None for a rule that's turned off
     counts: dict[str, list[tuple[int, int]]] = {}
+    trees: list[tuple[int, ast.AST]] = []  # each Python cell's tree, for rules that read across cells
     for n, source in enumerate(sources, 1):
-        for rule_id, line in _cell(source, scheduled, counts, n):
+        for rule_id, line in _cell(source, scheduled, counts, n, trees):
             found.append(_finding(rule_id, n, line, settings))
+    parsed = {n for n, _ in trees}
+    other_text = [source if n not in parsed else  # a %%sql cell, or a cell's magic and shell lines, may name a frame
+                  "\n".join(line for line in source.split("\n") if line.lstrip().startswith(("%", "!")))
+                  for n, source in enumerate(sources, 1)]
+    for cell, line in _eager_read_kept_then_filtered(trees, other_text):
+        found.append(_finding("NB015", cell, line, settings))
     for name, where in counts.items():
         if len(where) >= 3:
             found.append(_finding("NB011", where[2][0], where[2][1], settings, f"{name}.count()"))
@@ -139,7 +146,8 @@ def _finding(rule_id: str, cell: int, line: int, settings: dict[str, dict[str, A
             "description": rule.description, "url": url(rule_id)}
 
 
-def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]], n: int) -> Iterator[tuple[str, int]]:
+def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]], n: int,
+          trees: list[tuple[int, ast.AST]] | None = None) -> Iterator[tuple[str, int]]:
     for f in scan_text(source):
         yield "NB001", f["line"]
     for m in _ONELAKE_ID_PATH.finditer(source):
@@ -161,6 +169,8 @@ def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]]
         tree = ast.parse(_without_magics(source))
     except SyntaxError:
         return  # the editor already underlines it; nothing here can be read reliably
+    if trees is not None:
+        trees.append((n, tree))
     yield from _python(tree, source, scheduled, counts, n)
 
 
@@ -421,6 +431,63 @@ def _row_by_row(call: ast.Call, name: str) -> bool:
 
 _POLARS_LAZY = {"scan_csv", "scan_parquet", "scan_ndjson", "scan_ipc", "scan_delta", "lazy"}
 _POLARS_READS = {"read_csv", "read_parquet", "read_ndjson", "read_ipc"}
+
+
+def _is_eager_polars_read(node: ast.AST) -> bool:
+    """pl.read_csv(...) (and the other eager reads), maybe followed by with_columns, select or rename."""
+    while isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"with_columns", "select", "rename"}:
+        node = node.func.value
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _POLARS_READS
+            and isinstance(node.func.value, ast.Name) and node.func.value.id in {"pl", "polars"})
+
+
+def _eager_read_kept_then_filtered(trees: list[tuple[int, ast.AST]], other_text: list[str] | None = None,
+                                   ) -> Iterator[tuple[int, int]]:
+    """NB015 across lines and cells: df = pl.read_csv(...), and every use of df anywhere in the notebook is
+    df.filter(...). A name bound twice (assigned, a loop or with target, an argument, an import), used any
+    other way in any cell (its columns, its length, passed on), or named in a string or in ``other_text``
+    (a %%sql cell, magic lines: duckdb.sql("... FROM df") reads it whole), isn't reported, because then the
+    whole frame may be needed. Yields (cell, line)."""
+    bound: dict[str, list[ast.AST]] = {}
+    strings: list[str] = list(other_text or [])
+    for _, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                bound.setdefault(node.id, []).append(node)
+            elif isinstance(node, ast.arg):
+                bound.setdefault(node.arg, []).append(node)
+            elif isinstance(node, ast.alias):
+                bound.setdefault((node.asname or node.name).split(".")[0], []).append(node)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bound.setdefault(node.name, []).append(node)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                strings.append(node.value)
+    parents = {id(child): node for _, tree in trees for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    eager = set()
+    for name, nodes in bound.items():
+        assign = parents.get(id(nodes[0])) if len(nodes) == 1 else None
+        if isinstance(assign, ast.Assign) and len(assign.targets) == 1 and assign.targets[0] is nodes[0] \
+                and _is_eager_polars_read(assign.value) \
+                and not any(re.search(rf"\b{re.escape(name)}\b", text) for text in strings):
+            eager.add(name)
+    if not eager:
+        return
+    filters: dict[str, list[tuple[int, int]]] = {}
+    other: set[str] = set()
+    for n, tree in trees:
+        parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in eager):
+                continue
+            attr = parents.get(id(node))
+            call = parents.get(id(attr)) if attr is not None else None
+            if isinstance(attr, ast.Attribute) and attr.attr == "filter" and isinstance(call, ast.Call) and call.func is attr:
+                filters.setdefault(node.id, []).append((n, call.lineno))
+            else:
+                other.add(node.id)
+    for name, where in filters.items():
+        if name not in other:
+            yield min(where)
 
 
 def _eager_polars_read(call: ast.Call) -> bool:

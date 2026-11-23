@@ -137,7 +137,7 @@ Leave all of them empty to use Microsoft's sign-in.
 
 Every key is optional; leave out `client_id` to keep Microsoft's sign-in. `channel` is `stable` or `preview`; `support_url` is an `https://` link (a Teams channel, a ticket form) or a `mailto:` address.
 
-Five more keys are for control rather than convenience:
+Seven more keys are for control rather than convenience:
 
 | Key | Effect |
 | --- | --- |

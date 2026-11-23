@@ -115,6 +115,12 @@ TARGET_ALLOWS = {"lakehouse": ("read_only", "local_mutation"),
 LOCAL_DIALECTS = ("duckdb", "spark", "tsql")
 
 
+# How long closing the app waits, in all, for the runs it stopped to end and write their audit lines.
+# The processes are killed first (TerminateProcess on Windows), so they end almost at once; this only
+# bounds a PC too busy to schedule them.
+SHUTDOWN_WAIT_SECONDS = 10.0
+
+
 def memory_budget(percent: int) -> dict[str, Any]:
     """A run's memory (free_memory.budget): ``percent`` of this PC's memory (8 GB assumed when it
     can't be read), held to most of what is free when the run starts, so a busy PC's run spills to
@@ -578,13 +584,16 @@ class SqlExecutions:
                         readers.append(run.reader)
             for export in self._exports.values():
                 export.cancel.set()
+        # Every process was told to end above, so they all stop at once; waiting for each against one
+        # shared deadline (not 10 s apiece) keeps the close to about the slowest run, however many are open.
+        deadline = time.monotonic() + SHUTDOWN_WAIT_SECONDS
         for proc in procs:
             try:
-                proc.wait(10)
+                proc.wait(max(0.0, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
                 pass
         for reader in readers:
-            reader.join(10)
+            reader.join(max(0.0, deadline - time.monotonic()))
 
     def _get(self, run_id: str) -> Execution:
         with self._lock:

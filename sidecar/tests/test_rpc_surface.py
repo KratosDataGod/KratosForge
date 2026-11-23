@@ -42,6 +42,7 @@ NO_UI_CALLER: dict[str, str] = {
     # SF-002: the Check button in Settings > Connections waits on its mockup.
     "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
+    "model_bpa_share": "adds a model's best practices findings to Optimize > Opportunities; its button waits on a mockup",
     # Local data projects.
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
@@ -146,6 +147,7 @@ NO_SCREEN_GATE: dict[str, str] = {
     "local_query": "confirm",                  # DROP, TRUNCATE, CREATE OR REPLACE, INSERT OVERWRITE
     "local_query_start": "confirm",
     "local_write_delta": "confirm",            # mode overwrite, like INSERT OVERWRITE
+    "model_bpa_share": "confirm",
     "optimization_share": "confirm",
     "optimize_share_local_runs": "confirm",
 }

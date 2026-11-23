@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:361` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:541` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (431)
+## 3. Engine methods that change something (432)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -377,6 +377,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `meta_sources_move` | `sidecar/fabric_desktop/meta_service.py:1150` | platform: adopt_sources; Fabric or OneLake | platform's check per operation; Fabric's own rights |
 | `meta_tests` | `sidecar/fabric_desktop/estate_service.py:556` | this PC | the signed-in Windows user's own files |
 | `model_bpa_check` | `sidecar/fabric_desktop/model_bpa_service.py:146` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy; risk check |
+| `model_bpa_share` | `sidecar/fabric_desktop/model_bpa_service.py:143` | Fabric or OneLake | Fabric's own rights; confirm or approve argument |
 | `move_notebook` | `sidecar/fabric_desktop/service.py:1458` | this PC | the signed-in Windows user's own files |
 | `new_notebook` | `sidecar/fabric_desktop/service.py:1377` | this PC | the signed-in Windows user's own files |
 | `notebook_batch_fabric` | `sidecar/fabric_desktop/notebook_batch_service.py:284` | Fabric or OneLake | Fabric's own rights |

@@ -9,6 +9,7 @@ Calls go to the documented SQL API only, at ``https://<account>.snowflakecomputi
     POST /api/v2/statements                    submit one statement
     GET  /api/v2/statements/{handle}           its status and first result partition
     POST /api/v2/statements/{handle}/cancel    cancel it
+    GET  /api/v2/statements/{handle}?partition=N   a later result partition (the SQL warehouse engine)
 
 The connection check (``check_connection``) answers "can I work with this connection, and as whom?"
 without resuming a warehouse: it sends no warehouse, so its statements are context functions and SHOW
@@ -79,11 +80,13 @@ class Client:
         self._sleep = sleep
         self._clock = clock
         self.stopped: Callable[[], bool] = lambda: False
+        self._sent = ""   # the last token sent
 
     def _send(self, method: str, path: str, repeatable: bool, **kwargs: Any) -> Any:
         headers = self._tokens.headers() | {"Accept": "application/json", "Content-Type": "application/json",
                                             "User-Agent": "KratosForge"}
         token = headers["Authorization"][len("Bearer "):]
+        self._sent = token
 
         def send() -> Any:
             return self._http.request(method, self.host + path, headers=headers, timeout=60, **kwargs)
@@ -113,21 +116,31 @@ class Client:
         except ValueError:
             body = {}
         body = body if isinstance(body, dict) else {}
-        message = redact.one_line(redact.secrets(str(body.get("message") or "")))[:300]
+        message = str(body.get("message") or "")
+        if self._sent:
+            message = message.replace(self._sent, "[removed]")
+        message = redact.one_line(redact.secrets(message))[:300]
         code, state = str(body.get("code") or "")[:12], str(body.get("sqlState") or "")[:8]
         text = f"Snowflake refused the request (HTTP {resp.status_code}" + (f", code {code}" if code else "") + "). "
         return SnowflakeError((text + (f"{message} " if message else "") + _hint(resp.status_code)).rstrip(),
                               resp.status_code, code, state)
 
     def statement(self, sql: str, *, role: str = "", database: str = "", schema: str = "",
-                  warehouse: str = "", timeout: int = STATEMENT_TIMEOUT) -> dict[str, Any]:
-        """Run one statement and return Snowflake's final answer (its result set's first partition)."""
-        body: dict[str, Any] = {"statement": sql, "timeout": int(timeout)}
+                  warehouse: str = "", timeout: int = STATEMENT_TIMEOUT, max_wait: float = MAX_WAIT,
+                  asynchronous: bool = False) -> dict[str, Any]:
+        """Run one statement and return Snowflake's final answer (its result set's first partition).
+        ``asynchronous`` asks for the statement handle at once (``async=true``), so a Cancel pressed
+        while it runs always has a handle to cancel; it is then followed for up to ``max_wait`` seconds."""
+        # One statement per request, whatever the account or user sets: Snowflake's own count check backs
+        # up any statement splitting done before the call.
+        body: dict[str, Any] = {"statement": sql, "timeout": int(timeout),
+                                "parameters": {"MULTI_STATEMENT_COUNT": "1"}}
         for key, value in (("role", role), ("database", database), ("schema", schema), ("warehouse", warehouse)):
             if value:
                 body[key] = value
         # A submit is never sent twice on a 5xx: it may have started (retrying.send_remote).
-        resp = self._send("POST", f"/api/v2/statements?requestId={uuid.uuid4()}", False, data=json.dumps(body))
+        query = f"requestId={uuid.uuid4()}" + ("&async=true" if asynchronous else "")
+        resp = self._send("POST", f"/api/v2/statements?{query}", False, data=json.dumps(body))
         if resp.status_code == 202:
             handle = str(self._body(resp).get("statementHandle") or "")
             if not _HANDLE.fullmatch(handle):
@@ -137,13 +150,14 @@ class Client:
                 answer = self._send("GET", f"/api/v2/statements/{handle}", True)
                 return answer, getattr(answer, "headers", None)
             try:
-                resp = poll_until(look, lambda r: r.status_code != 202 or self.stopped(), MAX_WAIT,
+                resp = poll_until(look, lambda r: r.status_code != 202 or self.stopped(), max_wait,
                                   getattr(resp, "headers", None), self._sleep, self._clock, POLL_SECONDS,
                                   cap=POLL_CAP)
             except PollTimedOut:
                 self.cancel(handle)
-                raise SnowflakeError(f"The statement was still running after {int(MAX_WAIT)} seconds, "
-                                     "so it was cancelled.") from None
+                took = f"{int(max_wait)} seconds" if max_wait < 120 else f"{int(max_wait // 60)} minutes"
+                raise SnowflakeError(f"The statement was still running after {took}, so it was cancelled. "
+                                     "Narrow the query, or run it in Snowsight.") from None
             if self.stopped():  # the person pressed Cancel, even if the last look was refused or throttled
                 self.cancel(handle)
                 raise SnowflakeError("Cancelled.")
@@ -157,6 +171,16 @@ class Client:
         resp = self._send("POST", f"/api/v2/statements/{handle}/cancel", True)
         if resp.status_code not in (200, 422):  # 422: it had already finished
             raise self._refused(resp)
+
+
+    def partition(self, handle: str, index: int) -> dict[str, Any]:
+        """Result partition ``index`` of a finished statement: its ``data`` only, no metadata."""
+        if not _HANDLE.fullmatch(handle or ""):
+            raise SnowflakeError("Not a Snowflake statement handle.")
+        resp = self._send("GET", f"/api/v2/statements/{handle}?partition={int(index)}", True)
+        if resp.status_code != 200:
+            raise self._refused(resp)
+        return self._body(resp)
 
 
 def rows(answer: dict[str, Any]) -> list[dict[str, Any]]:

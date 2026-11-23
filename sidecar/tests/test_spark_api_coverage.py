@@ -45,6 +45,23 @@ def test_a_method_marked_as_running_has_examples_with_spark_s_results(rows):
         assert method["examples"] and any("outcome" in e for e in method["examples"]), r
 
 
+# Methods PySpark documents only through another call: dropna and fillna with df.na.drop and df.na.fill.
+_DOCUMENTED_THROUGH = {("DataFrame", "dropna"), ("DataFrame", "fillna")}
+
+
+def test_a_method_marked_as_running_is_called_by_an_example_whose_result_compares(rows):
+    """A method's examples that only set up (the capture leaves out those marked +SKIP) check nothing:
+    one of them must call the method, and one must give a result to compare."""
+    data = {(m["class"], m["name"]): m for m in spark_api_coverage.load()}
+    for r in rows:
+        key = (r["class"], r["name"])
+        if r["status"] != "runs" or key in _DOCUMENTED_THROUGH:
+            continue
+        examples = data[key]["examples"]
+        assert any(re.search(rf"\b{r['name']}\b", e["source"]) for e in examples), key
+        assert any(e.get("outcome") for e in examples), key
+
+
 def test_an_api_object_is_told_by_what_it_does_not_its_class_name():
     assert spark_api_coverage.outcome(None, "  x  \n") == {"printed": "  x"}
     assert spark_api_coverage.outcome(3, "") == {"value": 3}
@@ -116,7 +133,7 @@ def test_a_written_example_replaces_one_spark_could_not_compare():
     for key, examples in spark_api_coverage.WRITTEN.items():
         method = data[key]
         assert method["examples"] == examples and "varying" not in method and "spark_error" not in method
-        assert any(f"{key[1]}(" in e["source"] for e in examples), key
+        assert any(re.search(rf"\b{key[1]}\b", e["source"]) for e in examples), key
 
 
 def test_pandas_on_spark_is_refused_by_name():
@@ -125,3 +142,18 @@ def test_pandas_on_spark_is_refused_by_name():
     assert result["status"] != "ok"
     error = next(o for o in result["outputs"] if o.get("type") == "error")
     assert error["ename"] == "NotImplementedError" and "toPandas()" in error["evalue"]
+
+
+@pytest.mark.parametrize(("code", "words"), [
+    ("spark.range(1).to_koalas()", "toPandas()"),
+    ("spark.range(1).sql_ctx", "df.sparkSession"),
+    ("spark.range(1).withWatermark('id', '1 minute')", "watermark"),
+    ("spark.range(1).dropDuplicatesWithinWatermark()", "watermark"),
+    ("spark.read.jdbc('jdbc:sqlserver://db', 'dbo.t')", "JDBC"),
+    ("spark.range(1).write.jdbc('jdbc:sqlserver://db', 'dbo.t')", "JDBC"),
+])
+def test_what_runs_only_in_fabric_is_refused_by_name(code, words):
+    from fabric_desktop.notebook import Kernel
+    result = Kernel().run(code)
+    error = next(o for o in result["outputs"] if o.get("type") == "error")
+    assert error["ename"] == "NotImplementedError" and words in error["evalue"], error

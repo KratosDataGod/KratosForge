@@ -109,12 +109,48 @@ ALIASES: dict[tuple[str, str], str] = {
 _SCHEMA_TO = 'schema = StructType([StructField("j", StringType()), StructField("i", StringType())])'
 _AGES = 'df = spark.createDataFrame([(2, "Alice"), (5, "Bob")], schema=["age", "name"])'
 _QUANTILE_DATA = 'df = spark.createDataFrame([(1,), (2,), (3,), (4,), (5,)], ["values"])'
+_PEOPLE = 'df = spark.createDataFrame(\n    [(14, "Tom"), (23, "Alice"), (16, "Bob")], ["age", "name"])'
+_PEOPLE_PANDAS = "   age   name\n0   14    Tom\n1   23  Alice\n2   16    Bob"
+_TIMES = ('df = spark.createDataFrame([(1, datetime.datetime(2024, 1, 1, 0, 0)), '
+          '(1, datetime.datetime(2024, 1, 1, 0, 1))], ["value", "time"])')
+_FREQ = 'df = spark.createDataFrame([(1, 11), (1, 11), (3, 10), (4, 8), (4, 8)], ["c1", "c2"])'
+_MAP_DATA = 'df = spark.createDataFrame([(1, 21), (2, 30)], ("id", "age"))'
+_ONE_ROW = "+---+---+\n| id|age|\n+---+---+\n|  1| 21|\n+---+---+"
+_GROUPED = 'df = spark.createDataFrame(\n    [(1, 1.0), (1, 2.0), (2, 3.0), (2, 5.0), (2, 10.0)],\n    ("id", "v"))'
+_NORMALIZED = ("+---+-------------------+\n| id|                  v|\n+---+-------------------+\n"
+               "|  1|-0.7071067811865475|\n|  1| 0.7071067811865475|\n|  2|-0.8320502943378437|\n"
+               "|  2|-0.2773500981126146|\n|  2| 1.1094003924504583|\n+---+-------------------+")
+_NORMALIZE = "def normalize(pdf):\n    v = pdf.v\n    return pdf.assign(v=(v - v.mean()) / v.std())"
+_DERBY = 'url = "jdbc:derby:memory:kf;create=true"'  # Derby is in Spark's own jars, so a JDBC example needs no server
+_COGROUP = [
+    {"source": "import pandas as pd", "outcome": {}},  # the documentation leaves this import out
+    {"source": ('df1 = spark.createDataFrame(\n    [(20000101, 1, 1.0), (20000101, 2, 2.0), (20000102, 1, 3.0), '
+                '(20000102, 2, 4.0)],\n    ("time", "id", "v1"))'), "outcome": {}},
+    {"source": 'df2 = spark.createDataFrame(\n    [(20000101, 1, "x"), (20000101, 2, "y")],\n    ("time", "id", "v2"))',
+     "outcome": {}},
+    {"source": 'def asof_join(l, r):\n    return pd.merge_asof(l, r, on="time", by="id")', "outcome": {}},
+    {"source": ('df1.groupby("id").cogroup(df2.groupby("id")).applyInPandas(\n'
+                '    asof_join, schema="time int, id int, v1 double, v2 string"\n).show()'),
+     "outcome": {"printed": ("+--------+---+---+---+\n|    time| id| v1| v2|\n+--------+---+---+---+\n"
+                             "|20000101|  1|1.0|  x|\n|20000102|  1|3.0|  x|\n|20000101|  2|2.0|  y|\n"
+                             "|20000102|  2|4.0|  y|\n+--------+---+---+---+")}},
+    {"source": ('def asof_join(k, l, r):\n    if k == (1,):\n        return pd.merge_asof(l, r, on="time", by="id")\n'
+                "    else:\n        return pd.DataFrame(columns=['time', 'id', 'v1', 'v2'])"), "outcome": {}},
+    {"source": ('df1.groupby("id").cogroup(df2.groupby("id")).applyInPandas(\n'
+                '    asof_join, "time int, id int, v1 double, v2 string").show()'),
+     "outcome": {"printed": ("+--------+---+---+---+\n|    time| id| v1| v2|\n+--------+---+---+---+\n"
+                             "|20000101|  1|1.0|  x|\n|20000102|  1|3.0|  x|\n+--------+---+---+---+")}},
+]
 
 # Examples written here for methods whose PySpark 3.5 documentation has none that compare: none at
 # all, only ones marked +SKIP, a plan from explain(), or one missing an import. Each answer is Spark
 # 3.5's own: as its documentation prints it, or one no Spark can give otherwise (a hint doesn't change
 # a join's rows; sameSemantics' captured examples show two plans that differ only in a column's name
-# are the same, so their semanticHash is the same; approxQuantile with relativeError 0 is exact).
+# are the same, so their semanticHash is the same; approxQuantile with relativeError 0 is exact; a
+# watermark on a batch DataFrame is dropped, EliminateEventTimeWatermark, and dropDuplicatesWithinWatermark
+# on one is refused, UnsupportedOperationChecker.checkForBatch; a stream's first batch drops nothing as
+# late, so a stream of one file deduplicates all of it). A FutureWarning Spark gives is silenced, as it
+# would be printed with a path on the machine.
 WRITTEN: dict[tuple[str, str], list[dict[str, Any]]] = {
     ("DataFrame", "approxQuantile"): [
         {"source": _QUANTILE_DATA, "outcome": {}},
@@ -148,10 +184,177 @@ WRITTEN: dict[tuple[str, str], list[dict[str, Any]]] = {
         {"source": "print(df.toPandas())", "outcome": {"printed": "   age   name\n0    2  Alice\n1    5    Bob"}},
     ],
     ("DataFrame", "to_pandas_on_spark"): [  # pandas_api's example, documented with +SKIP
-        {"source": 'df = spark.createDataFrame(\n    [(14, "Tom"), (23, "Alice"), (16, "Bob")], ["age", "name"])',
+        {"source": "import warnings", "outcome": {}},
+        {"source": _PEOPLE, "outcome": {}},
+        {"source": ('with warnings.catch_warnings():\n    warnings.simplefilter("ignore")\n'
+                    "    print(df.to_pandas_on_spark())"), "outcome": {"printed": _PEOPLE_PANDAS}},
+    ],
+    ("DataFrame", "to_koalas"): [  # pandas_api's alias, undocumented: pandas_api's example
+        {"source": _PEOPLE, "outcome": {}},
+        {"source": "print(df.to_koalas())", "outcome": {"printed": _PEOPLE_PANDAS}},
+    ],
+    ("DataFrame", "pandas_api"): [  # documented with +SKIP
+        {"source": _PEOPLE, "outcome": {}},
+        {"source": "print(df.pandas_api())", "outcome": {"printed": _PEOPLE_PANDAS}},
+    ],
+    ("DataFrame", "explain"): [  # documented with ... for each plan: its headings are what compare
+        {"source": "import contextlib, io", "outcome": {}},
+        {"source": _PEOPLE, "outcome": {}},
+        {"source": "plan = io.StringIO()", "outcome": {}},
+        {"source": "with contextlib.redirect_stdout(plan):\n    df.explain(True)", "outcome": {}},
+        {"source": '[line for line in plan.getvalue().splitlines() if line.startswith("== ")]',
+         "outcome": {"value": ["== Parsed Logical Plan ==", "== Analyzed Logical Plan ==",
+                               "== Optimized Logical Plan ==", "== Physical Plan =="]}},
+        {"source": "plan = io.StringIO()", "outcome": {}},
+        {"source": 'with contextlib.redirect_stdout(plan):\n    df.explain("cost")', "outcome": {}},
+        {"source": '[line for line in plan.getvalue().splitlines() if line.startswith("== ")]',
+         "outcome": {"value": ["== Optimized Logical Plan ==", "== Physical Plan =="]}},
+    ],
+    ("DataFrame", "sql_ctx"): [  # undocumented: an internal property Spark warns about
+        {"source": "import warnings", "outcome": {}},
+        {"source": "df = spark.range(1)", "outcome": {}},
+        {"source": ('with warnings.catch_warnings():\n    warnings.simplefilter("ignore")\n'
+                    "    name = type(df.sql_ctx).__name__"), "outcome": {}},
+        {"source": "name", "outcome": {"value": "SQLContext"}},
+    ],
+    ("DataFrame", "withWatermark"): [  # the documented examples read the rate source, which runs in Fabric
+        {"source": "import datetime", "outcome": {}},
+        {"source": _TIMES, "outcome": {}},
+        {"source": 'df.withWatermark("time", "10 minutes").count()', "outcome": {"value": 2}},
+    ],
+    ("DataFrame", "dropDuplicatesWithinWatermark"): [  # documented with +SKIP, on the rate source
+        {"source": "import datetime, tempfile", "outcome": {}},
+        {"source": "from pyspark.sql.types import StructType, StructField, LongType, TimestampType", "outcome": {}},
+        {"source": _TIMES, "outcome": {}},
+        {"source": "df.dropDuplicatesWithinWatermark().count()", "outcome": None},
+        {"source": "d = tempfile.mkdtemp()", "outcome": {}},
+        {"source": 'df.write.parquet(d + "/in")', "outcome": {}},
+        {"source": ('stream = spark.readStream.schema(StructType([StructField("value", LongType()), '
+                    'StructField("time", TimestampType())])).parquet(d + "/in")'), "outcome": {}},
+        {"source": ('query = (stream.withWatermark("time", "10 minutes").dropDuplicatesWithinWatermark(["value"])\n'
+                    '    .writeStream.format("memory").queryName("deduplicated").start())'), "outcome": {}},
+        {"source": "query.processAllAvailable()", "outcome": {}},
+        {"source": 'spark.table("deduplicated").count()', "outcome": {"value": 1}},
+    ],
+    ("DataFrame", "writeStream"): [  # the documentation's, from Parquet files: the rate source runs in Fabric
+        {"source": "import tempfile", "outcome": {}},
+        {"source": "from pyspark.sql.types import StructType, StructField, LongType, StringType", "outcome": {}},
+        {"source": "d = tempfile.mkdtemp()", "outcome": {}},
+        {"source": 'spark.createDataFrame([(1, "a"), (2, "b")], ["id", "v"]).write.parquet(d + "/in")', "outcome": {}},
+        {"source": ('df = spark.readStream.schema(StructType([StructField("id", LongType()), '
+                    'StructField("v", StringType())])).parquet(d + "/in")'), "outcome": {}},
+        {"source": "type(df.writeStream)", "outcome": {"value": {"class": "DataStreamWriter"}}},
+        {"source": 'query = df.writeStream.toTable("streamed", checkpointLocation=d + "/checkpoint")', "outcome": {}},
+        {"source": "query.processAllAvailable()", "outcome": {}},
+        {"source": "query.stop()", "outcome": {}},
+        {"source": 'spark.table("streamed")', "outcome": {"value": {"columns": ["id", "v"], "rows": [[1, "a"], [2, "b"]]}}},
+    ],
+    ("DataFrame", "checkpoint"): [  # the documentation's, with the folder it makes as the checkpoint folder
+        {"source": "import tempfile", "outcome": {}},
+        {"source": _PEOPLE, "outcome": {}},
+        {"source": "d = tempfile.mkdtemp()", "outcome": {}},
+        {"source": "spark.sparkContext.setCheckpointDir(d)", "outcome": {}},
+        {"source": "df.checkpoint(False)",
+         "outcome": {"value": {"columns": ["age", "name"], "rows": [[14, "Tom"], [16, "Bob"], [23, "Alice"]]}}},
+    ],
+    ("DataFrame", "freqItems"): [  # documented with +SKIP: [4, 1, 3] and [8, 11, 10], in no set order
+        {"source": _FREQ, "outcome": {}},
+        {"source": 'df.freqItems(["c1", "c2"]).columns', "outcome": {"value": ["c1_freqItems", "c2_freqItems"]}},
+        {"source": '[sorted(items) for items in df.freqItems(["c1", "c2"]).first()]',
+         "outcome": {"value": [[1, 3, 4], [8, 10, 11]]}},
+    ],
+    ("DataFrame", "inputFiles"): [  # the documentation's, out of its with block so its value compares
+        {"source": "import tempfile", "outcome": {}},
+        {"source": "d = tempfile.mkdtemp()", "outcome": {}},
+        {"source": ('spark.createDataFrame(\n    [{"age": 100, "name": "Hyukjin Kwon"}]\n'
+                    ').repartition(1).write.json(d, mode="overwrite")'), "outcome": {}},
+        {"source": 'df = spark.read.format("json").load(d)', "outcome": {}},
+        {"source": "len(df.inputFiles())", "outcome": {"value": 1}},
+    ],
+    ("DataFrame", "mapInArrow"): [  # documented with +SKIP
+        {"source": "import pyarrow", "outcome": {}},
+        {"source": _MAP_DATA, "outcome": {}},
+        {"source": ("def filter_func(iterator):\n    for batch in iterator:\n        pdf = batch.to_pandas()\n"
+                    "        yield pyarrow.RecordBatch.from_pandas(pdf[pdf.id == 1])"), "outcome": {}},
+        {"source": "df.mapInArrow(filter_func, df.schema).show()", "outcome": {"printed": _ONE_ROW}},
+        {"source": "df.mapInArrow(filter_func, df.schema, barrier=True).show()", "outcome": {"printed": _ONE_ROW}},
+    ],
+    ("DataFrame", "mapInPandas"): [  # documented with +SKIP
+        {"source": _MAP_DATA, "outcome": {}},
+        {"source": "def filter_func(iterator):\n    for pdf in iterator:\n        yield pdf[pdf.id == 1]", "outcome": {}},
+        {"source": "df.mapInPandas(filter_func, df.schema).show()", "outcome": {"printed": _ONE_ROW}},
+        {"source": "df.mapInPandas(filter_func, df.schema, barrier=True).show()", "outcome": {"printed": _ONE_ROW}},
+    ],
+    ("DataFrame", "writeTo"): [  # documented with +SKIP, into a catalog: here into the session's own
+        {"source": _PEOPLE, "outcome": {}},
+        {"source": 'df.writeTo("written_to").create()', "outcome": {}},
+        {"source": 'spark.table("written_to")',
+         "outcome": {"value": {"columns": ["age", "name"], "rows": [[14, "Tom"], [16, "Bob"], [23, "Alice"]]}}},
+    ],
+    ("DataFrameStatFunctions", "freqItems"): [  # DataFrame.freqItems's
+        {"source": _FREQ, "outcome": {}},
+        {"source": '[sorted(items) for items in df.stat.freqItems(["c1", "c2"]).first()]',
+         "outcome": {"value": [[1, 3, 4], [8, 10, 11]]}},
+    ],
+    ("GroupedData", "apply"): [  # documented with +SKIP; Spark warns that PandasUDFType will be deprecated
+        {"source": "import warnings", "outcome": {}},
+        {"source": "from pyspark.sql.functions import pandas_udf, PandasUDFType", "outcome": {}},
+        {"source": _GROUPED, "outcome": {}},
+        {"source": ('with warnings.catch_warnings():\n    warnings.simplefilter("ignore")\n'
+                    '    normalize = pandas_udf("id long, v double", PandasUDFType.GROUPED_MAP)(\n'
+                    "        lambda pdf: pdf.assign(v=(pdf.v - pdf.v.mean()) / pdf.v.std()))"), "outcome": {}},
+        {"source": 'df.groupby("id").apply(normalize).show()', "outcome": {"printed": _NORMALIZED}},
+    ],
+    ("GroupedData", "applyInPandas"): [  # documented with +SKIP
+        {"source": "import pandas as pd", "outcome": {}},
+        {"source": "from pyspark.sql.functions import ceil", "outcome": {}},
+        {"source": _GROUPED, "outcome": {}},
+        {"source": _NORMALIZE, "outcome": {}},
+        {"source": 'df.groupby("id").applyInPandas(\n    normalize, schema="id long, v double").show()',
+         "outcome": {"printed": _NORMALIZED}},
+        {"source": "def mean_func(key, pdf):\n    return pd.DataFrame([key + (pdf.v.mean(),)])", "outcome": {}},
+        {"source": "df.groupby('id').applyInPandas(\n    mean_func, schema=\"id long, v double\").show()",
+         "outcome": {"printed": "+---+---+\n| id|  v|\n+---+---+\n|  1|1.5|\n|  2|6.0|\n+---+---+"}},
+        {"source": "def sum_func(key, pdf):\n    return pd.DataFrame([key + (pdf.v.sum(),)])", "outcome": {}},
+        {"source": ('df.groupby(df.id, ceil(df.v / 2)).applyInPandas(\n'
+                    '    sum_func, schema="id long, `ceil(v / 2)` long, v double").show()'),
+         "outcome": {"printed": ("+---+-----------+----+\n| id|ceil(v / 2)|   v|\n+---+-----------+----+\n"
+                                 "|  2|          5|10.0|\n|  1|          1| 3.0|\n|  2|          3| 5.0|\n"
+                                 "|  2|          2| 3.0|\n+---+-----------+----+")}},
+    ],
+    ("GroupedData", "applyInPandasWithState"): [  # documented with +SKIP and no answer: one stream of one file
+        {"source": "import tempfile", "outcome": {}},
+        {"source": "import pandas as pd", "outcome": {}},
+        {"source": "from pyspark.sql.streaming.state import GroupStateTimeout", "outcome": {}},
+        {"source": "from pyspark.sql.types import StructType, StructField, LongType", "outcome": {}},
+        {"source": "d = tempfile.mkdtemp()", "outcome": {}},
+        {"source": 'spark.createDataFrame([(1,), (1,), (2,)], ["id"]).write.parquet(d + "/in")', "outcome": {}},
+        {"source": 'stream = spark.readStream.schema(StructType([StructField("id", LongType())])).parquet(d + "/in")',
          "outcome": {}},
-        {"source": "print(df.to_pandas_on_spark())",
-         "outcome": {"printed": "   age   name\n0   14    Tom\n1   23  Alice\n2   16    Bob"}},
+        {"source": ("def count_fn(key, pdf_iter, state):\n    total_len = 0\n    for pdf in pdf_iter:\n"
+                    "        total_len += len(pdf)\n    state.update((total_len,))\n"
+                    '    yield pd.DataFrame({"id": [key[0]], "countAsString": [str(total_len)]})'), "outcome": {}},
+        {"source": ('query = (stream.groupby("id").applyInPandasWithState(\n'
+                    '    count_fn, outputStructType="id long, countAsString string",\n'
+                    '    stateStructType="len long", outputMode="Update",\n'
+                    "    timeoutConf=GroupStateTimeout.NoTimeout)\n"
+                    '    .writeStream.outputMode("update").format("memory").queryName("counts").start())'),
+         "outcome": {}},
+        {"source": "query.processAllAvailable()", "outcome": {}},
+        {"source": 'spark.table("counts")',
+         "outcome": {"value": {"columns": ["id", "countAsString"], "rows": [[1, "2"], [2, "1"]]}}},
+    ],
+    ("GroupedData", "cogroup"): _COGROUP,  # PandasCogroupedOps.applyInPandas's, documented with +SKIP
+    ("DataFrameReader", "jdbc"): [  # undocumented: Derby's one-row table
+        {"source": _DERBY, "outcome": {}},
+        {"source": 'spark.read.jdbc(url, "SYSIBM.SYSDUMMY1")',
+         "outcome": {"value": {"columns": ["IBMREQD"], "rows": [["Y"]]}}},
+    ],
+    ("DataFrameWriter", "jdbc"): [  # undocumented
+        {"source": _DERBY, "outcome": {}},
+        {"source": 'df = spark.createDataFrame([(1, "a"), (2, "b")], ["id", "v"])', "outcome": {}},
+        {"source": 'df.write.jdbc(url, "people")', "outcome": {}},
+        {"source": 'spark.read.jdbc(url, "people").count()', "outcome": {"value": 2}},
     ],
     ("DataFrameStatFunctions", "approxQuantile"): [
         {"source": _QUANTILE_DATA, "outcome": {}},

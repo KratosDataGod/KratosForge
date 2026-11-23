@@ -40,6 +40,7 @@ BLOCKED = {
     "forPath": ("from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Files/raw/t')", "forPath"),
     "_refusal": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
     "save": ("df.write.mode('overwrite').orc('Files/out')", "ORC"),
+    "jdbc": ("df = spark.read.jdbc('jdbc:sqlserver://db', 'dbo.t', properties=props)", "JDBC"),
 }
 
 
@@ -47,6 +48,18 @@ def test_every_listed_refusal_but_the_settings_one_has_a_notebook_here():
     # _preview_on is covered by test_spark_merge; _catalog_call_in_fabric (currentDatabase) depends on the
     # lakehouse, which the check can't see, so it isn't flagged.
     assert set(BLOCKED) == set(spark_local.CHECKED_REFUSALS) - {"_preview_on", "_catalog_call_in_fabric"}
+
+
+@pytest.mark.parametrize(("source", "words"), [
+    ("df.withWatermark('ts', '10 minutes').groupBy('k').count()", "watermark"),
+    ("df.dropDuplicatesWithinWatermark(['k'])", "watermark"),
+    ("psdf = df.pandas_api()", "pandas-on-Spark"),
+    ("psdf = df.to_koalas()", "pandas-on-Spark"),
+])
+def test_what_other_modules_refuse_by_name_is_blocked_on_this_pc(source, words):
+    local = check(source)["local"]
+    assert local["status"] == "blocked" and not local["ok"], local
+    assert words in local["reasons"][0]["text"], local["reasons"][0]["text"]
 
 
 @pytest.mark.parametrize("site", sorted(BLOCKED))

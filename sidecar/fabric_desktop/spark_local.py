@@ -511,6 +511,9 @@ class LakehouseWriter:
     def orc(self, path: str, mode: str | None = None, partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
         self.save(path, format="orc", mode=mode, partitionBy=partitionBy, **options)
 
+    def jdbc(self, url: str, table: str, mode: str | None = None, properties: Any = None) -> None:  # noqa: ARG002
+        jdbc(url, table)
+
 
 def _replace_where(condition: str, name: str) -> str:
     """replaceWhere's condition as the predicate delta-rs replaces by (spark_replace_where.predicate)."""
@@ -642,6 +645,7 @@ CHECKED_REFUSALS = {
     "_catalog_call_in_fabric": ("spark.catalog.currentDatabase, refused only with no lakehouse or one with schemas, "
                                 "which the check doesn't know, so it isn't flagged"),
     "save": "an ORC file write, df.write.orc or format(\"orc\") (REFUSED_CODE)",
+    "jdbc": "read.jdbc or write.jdbc (REFUSED_CODE)",
     "_refusal": ("a CSV, JSON or Parquet read option this PC doesn't take, a non-UTF-8 encoding, a CSV mode "
                  "without a schema, a JSON mode it has no match for, or a Parquet rebase mode other than CORRECTED "
                  "(read_option_refusal)"),
@@ -656,6 +660,13 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
      "writes an ORC file, which this PC's Spark refuses (write Parquet, or run the cell in Fabric)"),
     (re.compile(r"\binput_file_name\s*\("),
      "calls input_file_name(), which this PC's Spark refuses: it doesn't track the file each row came from"),
+    (re.compile(r"\.(?:read|write)\b[^\n]*?\.jdbc\("),
+     "reads or writes a database over JDBC, which this PC's Spark refuses: it has no Java database drivers"),
+    # Refused by name in spark_stream.py and spark_df_more.py.
+    (re.compile(r"\.(?:withWatermark|dropDuplicatesWithinWatermark)\s*\("),
+     "sets an event-time watermark, which this PC's Spark refuses: its streams keep no state between batches"),
+    (re.compile(r"\.(?:pandas_api|to_pandas_on_spark|to_koalas)\s*\("),
+     "makes a pandas-on-Spark DataFrame, which this PC's Spark refuses (use toPandas())"),
     (re.compile(r"\.applyInPandasWithState\s*\("),
      "calls applyInPandasWithState, which this PC's Spark refuses: state across a stream's micro-batches runs in Fabric"),
 ]
@@ -1050,6 +1061,12 @@ def read_option_refusal(fmt: str, options: list[tuple[str, Any]], has_schema: bo
     return None
 
 
+def jdbc(*_a: Any, **_kw: Any) -> NoReturn:
+    """``read.jdbc`` and ``write.jdbc``: refused by name."""
+    raise NotImplementedError("JDBC runs in Fabric: this PC's Spark has no Java database drivers. Read or write "
+                              "the database table in Fabric, or copy it into the lakehouse.")
+
+
 class LakehouseReader:
     """``spark.read``: tables and files of the attached lakehouse, or files on this PC."""
 
@@ -1278,6 +1295,9 @@ class LakehouseReader:
         files = self._local(path)
         rel = self._session.conn.read_json(files, **extra, **self._hive(files))  # type: ignore[arg-type]  # a list of files too
         return self._apply(DataFrame(rel, self._session), False)
+
+    def jdbc(self, url: str, table: str, *_a: Any, **_kw: Any) -> DataFrame:
+        jdbc(url, table)
 
     def text(self, path: str, **_opts: Any) -> DataFrame:
         """Each line as a row of one string column, value (or the one string field read.schema() names,

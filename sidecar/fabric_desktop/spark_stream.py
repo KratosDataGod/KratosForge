@@ -591,9 +591,20 @@ def _ident(name: str) -> str:
     return name
 
 
+def _watermark(name: str) -> Callable[..., Any]:
+    def refuse(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
+        raise NotImplementedError(f"{name} runs in Fabric: a stream on this PC runs each batch on its own, with no "
+                                  "event-time watermark or state kept between batches.")
+    refuse.__name__ = name
+    return refuse
+
+
 def install() -> None:
-    """``spark.readStream``, ``df.writeStream`` and ``df.isStreaming``."""
+    """``spark.readStream``, ``df.writeStream`` and ``df.isStreaming``; ``withWatermark`` and
+    ``dropDuplicatesWithinWatermark`` refused by name."""
     from .spark_local import LocalSparkSession
     setattr(LocalSparkSession, "readStream", property(lambda self: StreamReader(self)))  # noqa: B010 - a patch mypy refuses as an assignment
     DataFrame.writeStream = property(lambda self: StreamWriter(self))  # type: ignore[attr-defined]
     DataFrame.isStreaming = property(is_streaming)  # type: ignore[attr-defined]
+    DataFrame.withWatermark = _watermark("withWatermark")  # type: ignore[attr-defined]
+    DataFrame.dropDuplicatesWithinWatermark = _watermark("dropDuplicatesWithinWatermark")  # type: ignore[attr-defined]

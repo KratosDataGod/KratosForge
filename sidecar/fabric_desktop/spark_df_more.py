@@ -253,15 +253,22 @@ def write_to(self: Any, table: str) -> DataFrameWriterV2:
 
 
 def pandas_on_spark(self: Any, index_col: Any = None) -> Any:
-    """``pandas_api`` and its alias ``to_pandas_on_spark``: refused by name."""
+    """``pandas_api`` and its aliases ``to_pandas_on_spark`` and ``to_koalas``: refused by name."""
     raise NotImplementedError("pandas-on-Spark (pandas_api) runs in Fabric. On this PC use toPandas() for a "
                               "pandas DataFrame.")
+
+
+def sql_ctx(self: Any) -> Any:
+    """``df.sql_ctx``: PySpark's internal SQLContext, which this PC doesn't have, refused by name."""
+    raise NotImplementedError("DataFrame.sql_ctx is PySpark's internal SQLContext, which this PC doesn't have "
+                              "(Spark warns it will be removed). Use df.sparkSession.")
 
 
 def install() -> None:
     from . import spark_api
     DataFrame = _df_class()  # noqa: N806
-    DataFrame.pandas_api = DataFrame.to_pandas_on_spark = pandas_on_spark
+    DataFrame.pandas_api = DataFrame.to_pandas_on_spark = DataFrame.to_koalas = pandas_on_spark
+    DataFrame.sql_ctx = property(sql_ctx)
     DataFrame.freqItems = freq_items
     spark_api._Stat.freqItems = lambda self, cols, support=None: freq_items(self._df, cols, support)  # type: ignore[attr-defined]  # added here
     DataFrame.inputFiles = input_files

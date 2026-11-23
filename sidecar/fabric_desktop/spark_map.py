@@ -1,6 +1,6 @@
 """Python over whole batches and groups on this PC's Spark (Fabric notebook parity F2):
-``DataFrame.mapInPandas``, ``mapInArrow``, ``foreach``, ``foreachPartition`` and
-``groupBy(...).applyInPandas``.
+``DataFrame.mapInPandas``, ``mapInArrow``, ``foreach``, ``foreachPartition``,
+``groupBy(...).applyInPandas`` and ``groupBy(...).cogroup(...).applyInPandas``.
 
 On Spark these run in Python workers next to each partition. Here everything is one process, so the
 DataFrame's rows come out of DuckDB in Arrow batches (``spark.sql.execution.arrow.maxRecordsPerBatch``,
@@ -113,7 +113,7 @@ def apply_in_pandas(self: Any, func: Callable[..., Any], schema: Any) -> Any:
     missing = [k for k in keys if k not in whole.columns]
     if missing:
         raise ValueError(
-            "applyInPandas on this PC groups by column names, and " + ", ".join(missing) + " isn't a column. "
+            "applyInPandas on this PC groups by column names, and " + _shown(missing) + " isn't a column. "
             "Add it as a column first, for example df.withColumn('k', expr).groupBy('k').applyInPandas(...).")
     try:
         takes_key = len(inspect.signature(func).parameters) == 2
@@ -130,6 +130,69 @@ def apply_in_pandas(self: Any, func: Callable[..., Any], schema: Any) -> Any:
             raise TypeError(f"applyInPandas' function must return a pandas DataFrame, not {type(out).__name__}.")
         parts.append(out)
     return _frame(df, pd.concat(parts, ignore_index=True) if parts else None, out_schema)
+
+
+def _groups(gd: Any) -> tuple[Any, dict[tuple[Any, ...], Any]]:
+    """A GroupedData's rows (pandas) and its groups, by key tuple (a null key part as None)."""
+    import pandas as pd
+    keys = [_key_name(k) for k in gd._grouping_names()]
+    whole = gd._df.relation.df()
+    missing = [k for k in keys if k not in whole.columns]
+    if missing:
+        raise ValueError(
+            "cogroup on this PC groups by column names, and " + _shown(missing) + " isn't a column. "
+            "Add it as a column first, for example df.withColumn('k', expr).groupBy('k').")
+    groups = {}
+    if not whole.empty:
+        for key, group in whole.groupby(keys, dropna=False, sort=True):
+            key_t = key if isinstance(key, tuple) else (key,)
+            groups[tuple(None if pd.isna(k) else k for k in key_t)] = group.reset_index(drop=True)
+    return whole, groups
+
+
+class CogroupedData:
+    """``groupBy(...).cogroup(other.groupBy(...))``, as Spark's PandasCogroupedOps."""
+
+    def __init__(self, gd1: Any, gd2: Any):
+        self._gd1, self._gd2 = gd1, gd2
+
+    def applyInPandas(self, func: Callable[..., Any], schema: Any) -> Any:  # noqa: N802
+        """``func(left, right)`` or ``func(key, left, right)`` for each key either side has, where a
+        side without the key is an empty pandas DataFrame with its columns, as in Spark."""
+        import pandas as pd
+        out_schema = _schema(schema)
+        left, lgroups = _groups(self._gd1)
+        right, rgroups = _groups(self._gd2)
+        try:
+            takes_key = len(inspect.signature(func).parameters) == 3
+        except (TypeError, ValueError):
+            takes_key = False
+        parts = []
+        for key in list(lgroups) + [k for k in rgroups if k not in lgroups]:
+            lpdf = lgroups.get(key, left.iloc[0:0])
+            rpdf = rgroups.get(key, right.iloc[0:0])
+            out = func(key, lpdf, rpdf) if takes_key else func(lpdf, rpdf)
+            if not isinstance(out, pd.DataFrame):
+                raise TypeError(f"cogroup's applyInPandas function must return a pandas DataFrame, not "
+                                f"{type(out).__name__}.")
+            if not out.empty:  # pandas warns when an empty one is concatenated
+                parts.append(out)
+        return _frame(self._gd1._df, pd.concat(parts, ignore_index=True) if parts else None, out_schema)
+
+
+def cogroup(self: Any, other: Any) -> CogroupedData:
+    """``groupBy(...).cogroup(other)``: both sides' groups, by key, for applyInPandas."""
+    from duckdb.experimental.spark.sql.group import GroupedData
+    if not isinstance(other, GroupedData):
+        raise TypeError(f"cogroup takes another DataFrame's groupBy(...), not {type(other).__name__}.")
+    return CogroupedData(self, other)
+
+
+def _shown(names: list[str]) -> str:
+    """Grouping names for a message, without the name DuckDB gave the DataFrame's relation, which differs
+    from run to run."""
+    import re
+    return ", ".join(re.sub(r"\b[a-z]+_object_[0-9a-f]+\.", "", n) for n in names)
 
 
 def _key_name(k: Any) -> str:
@@ -166,3 +229,4 @@ def install() -> None:
     DataFrame.foreachPartition = foreach_partition  # type: ignore[attr-defined]
     GroupedData._grouping_names = _grouping_names  # type: ignore[attr-defined]
     GroupedData.applyInPandas = apply_in_pandas  # type: ignore[attr-defined]
+    GroupedData.cogroup = cogroup  # type: ignore[attr-defined]

@@ -32,6 +32,8 @@ question on the roadmap.
   started, and your edits and breakpoint changes take effect the next time it runs. The paused line
   stays marked on its code wherever your edit moved it, and the panel says so. When that line's code
   is gone, nothing is marked, so the mark is never on a line that isn't the one paused.
+- A breakpoint on a line with no code (a blank line, a comment, `else:`) pauses at the next line
+  that has code. One after the cell's last line of code can't pause, and the cell's output says so.
 - Breakpoints are **saved with the notebook**, so they're there after you close and reopen it.
   They're kept in each format KratosForge writes:
   - `.ipynb` (the notebook file, Git, Fabric Git sync and **Export > Jupyter**): in the cell's
@@ -104,6 +106,16 @@ variables the stopped cell left.
   an expression that never finishes. A watch that never finishes holds up the pause the same way,
   and **Stop** ends it too. Stop lands between Python steps, so an expression waiting in a single long
   call, such as `time.sleep(30)`, ends when that call returns.
+- **Comprehensions run as one step.** **Step over** and **Step into** on a line with a list, dict or
+  set comprehension go to the next line (or into a function it calls); a breakpoint on that line
+  pauses once per item, as in a loop. Paused inside one at the top of a cell or in a class body,
+  its loop variable isn't listed, and evaluating it gives the cell's own variable of that name.
+- **`breakpoint()` in a cell** pauses there when the cell runs under the debugger, and otherwise
+  runs on with a note. `pdb` itself has nothing to type into here: `pdb.set_trace()` ends the cell
+  with an error.
+- **A RecursionError, or a cell that sets its own `sys.settrace`**, turns the debugger off for the
+  rest of that cell (Python does this), so later breakpoints may not pause. The cell's output says
+  so, and the next cell debugs as usual. `sys.setprofile` doesn't affect it.
 - **Up to 100 breakpoints per cell.**
 - **`%%time`, `%%capture` and line magics** keep their line numbers: line 1 is the magic line.
   `%time f()` stops at the cell's breakpoints in `f`. Cell magics that run the cell some
@@ -121,7 +133,9 @@ messages, a process that dies or a cell that hangs while paused, the stack throu
 recursion), `sidecar/tests/test_debugger_soak.py` (a thousand pauses and steps, and runs mixing
 Stop, Continue and restart, leave no trace hook, thread or memory behind), `sidecar/tests/test_debugger_midstep.py`
 (Stop, a restart or the process dying while a step runs), `sidecar/tests/test_debugger_concurrency.py`
-(threads, asyncio, library callbacks and magics) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
+(threads, asyncio, library callbacks and magics), `sidecar/tests/test_debugger_language.py`
+(comprehensions, class bodies, match, finally, exceptions, generators, recursion errors,
+`breakpoint()`, the cell's own trace hooks, breakpoints on lines without code) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
 Windows, with **Run notebooks in their own process** both on and off:
 
 1. Set breakpoints in two cells, save, close the notebook and reopen it. The red bars are on the

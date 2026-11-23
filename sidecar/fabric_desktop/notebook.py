@@ -683,6 +683,30 @@ def _cell_running() -> bool:
 
 chart_output.install(_to_running_cell, _cell_running)  # bokeh's show() draws in the cell
 
+_DEBUG_LOST = ("The debugger lost track of this cell partway, so breakpoints after that may not have paused: "
+               "Python turns the debugger off at a RecursionError, and the cell's own sys.settrace replaces it.")
+
+
+def _breakpoint_hook(*args: Any, **kwargs: Any) -> Any:
+    """``breakpoint()`` in a cell. pdb would wait for typed commands that never come (the engine's
+    input is the app's requests), so a cell under the debugger pauses there and any other cell
+    carries on with a note. Other threads get the hook that was there before."""
+    run = _routers()[0].targets.get(threading.get_ident())
+    if not isinstance(run, _Run) or run.count == 0:  # not a cell's thread (count 0: a watch after it)
+        return _breakpoint_hook.previous(*args, **kwargs)  # type: ignore[attr-defined]
+    frame = sys._getframe(1)
+    if run.debugger is not None and run.thread is threading.current_thread():
+        if not run.debugger.pause_here(frame):
+            return None  # an evaluation while paused, or code that isn't the cell's: it carries on
+    else:
+        print("breakpoint() doesn't pause a cell. Set a breakpoint on the line (F9) and run the cell to pause there.")
+    return None
+
+
+if sys.breakpointhook is not _breakpoint_hook:
+    _breakpoint_hook.previous = sys.breakpointhook  # type: ignore[attr-defined]
+    sys.breakpointhook = _breakpoint_hook
+
 
 class Kernel:
     def __init__(self, token: Callable[[str], str] | None = None,
@@ -1134,6 +1158,8 @@ class Kernel:
                     sys.settrace(run.debugger.trace)
                 try:
                     status = self._exec(code, self.namespace, run, run.debugger)
+                    if run.debugger is not None and run.debugger.lost():
+                        run.add({"type": "text", "text": _DEBUG_LOST})
                 finally:
                     if run.debugger is not None:
                         sys.settrace(None)
@@ -1298,6 +1324,9 @@ class Kernel:
                     debugger.add(body)
                     if tail is not None:
                         debugger.add(tail)
+                    for n in debugger.unplaced:
+                        self._emit(run, {"type": "text", "text": f"The breakpoint on line {n} can't pause: "
+                                                                 "no code runs from there to the end of the cell."})
                 exec(body, namespace)  # noqa: S102 - the person's own cell
                 value = None
                 if tail is not None:

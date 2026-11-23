@@ -412,12 +412,15 @@ def test_an_achievement_is_earned_from_its_rule_not_its_text():
                     {"level": 3, "talents": ["alpha.02", "alpha.03"], "any": True},
                     {"level": 2, "any_specialization": True})
     assert not any(a["earned"] for a in awards(progress.empty(), cat).values())
-    a = awards(profile(lab_pass("LM-00", DAY1)), cat)
-    assert a["a0"]["earned"] and a["a0"]["evidence"] and not a["a2"]["earned"]
+    one = profile(lab_pass("LM-00", DAY1))
+    a = awards(one, cat)
+    assert a["a0"]["earned"] and a["a0"]["evidence"] == [r["id"] for r in one["evidence"]] and not a["a2"]["earned"]
     assert a["a2"]["progress"] == pytest.approx(0.33)
     # Adept from two sources a week apart is still not the measured achievement until a run is measured.
     adept = profile(lab_pass("LM-00", DAY1), lab_pass("LAB-00", DAY9))
-    assert not awards(adept, cat)["a1"]["earned"]
+    unmeasured = awards(adept, cat)["a1"]
+    assert not unmeasured["earned"] and unmeasured["progress"] == 0.99 and unmeasured["evidence"] == []
+    assert set(a["a0"]["evidence"]) <= {r["id"] for r in adept["evidence"]}
     assert awards(profile(lab_pass("LM-00", DAY1), lab_pass("LAB-00", DAY9, checks=("faster_than",))), cat)["a1"]["earned"]
     # Any one of the two talents is enough; every tier-1-and-2 talent of alpha is needed for a2.
     a = awards(profile(lab_pass("LM-00", DAY1), lab_pass("LM-02", DAY1)), cat)

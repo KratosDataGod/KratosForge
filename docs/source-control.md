@@ -151,7 +151,7 @@ The **Branches** tab lists your branches with how far each is ahead of or behind
 The buttons at the top say which service they talk to (GitHub, Azure DevOps or the server's name), because these are the only actions that leave your PC.
 
 - **Fetch** gets the latest branches and commits without changing your files.
-- **Pull** fast-forwards by default. If your branch and the remote have both moved on, it stops and says so; **Pull > Merge** then merges. Pull never rebases.
+- **Pull** fast-forwards by default. If your branch and the remote both have new commits, it stops and says so. **Pull and merge** (in the menu next to **Pull**) then merges. Pull never rebases.
 - **Push** sends your commits. A new branch shows **Publish branch**, which pushes it and links it to the remote branch. There is no force push.
 - **Create pull request** and **Open on GitHub / Azure DevOps** open the service's page in your browser.
 

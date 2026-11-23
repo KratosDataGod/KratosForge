@@ -145,3 +145,53 @@ def test_text_and_bytes_are_sized_as_before():
     files = {"a.yaml": "version: 0.2.0.dev0\nname: v\n", "b.yaml": b"version: 0.2.0.dev0\nname: v\n"}
     result = ossie_profiles.validate_files(files, tmdl={"definition/model.tmdl": "model Model\n"})
     assert result["counts"]["yaml_bytes"] == 56 and result["counts"]["tmdl_bytes"] == 12
+
+
+# ---- redaction: a line the reader can't read inside a role block is withheld wherever the role is declared
+
+SECRET = '[Region] ~ "EU only filter text"'
+TABLE = {"definition/tables/T.tmdl": "table T\n\tcolumn Region\n\t\tdataType: string\n"}
+ROLE_FILES = {
+    "model": {"definition/model.tmdl": f"model Model\n\tculture: en-US\n\nrole R\n\tmodelPermission: read\n\t{SECRET}\n"},
+    "model_nested": {"definition/model.tmdl": f"model Model\n\trole R\n\t\tmodelPermission: read\n\t\t{SECRET}\n"},
+    "database": {"definition/database.tmdl": f"database\n\tcompatibilityLevel: 1604\n\nrole R\n\tmodelPermission: read\n"
+                                             f"\ttablePermission T = [Region] = \"EU\"\n\t\t{SECRET}\n",
+                 "definition/model.tmdl": "model Model\n"},
+    "roles_folder": {"definition/model.tmdl": "model Model\n",
+                     "definition/roles/R.tmdl": f"role R\n\tmodelPermission: read\n\t{SECRET}\n"},
+}
+
+
+@pytest.mark.parametrize("where", sorted(ROLE_FILES))
+def test_the_reader_takes_a_role_declared_in_any_file_and_says_its_lines_are_in_one(where):
+    bim, report = tmdl.to_bim({**ROLE_FILES[where], **TABLE})
+    assert [r["name"] for r in bim["model"]["roles"]] == ["R"]
+    [row] = report
+    assert row["object"] == SECRET and row["block"].split("/")[0] == "role"
+
+
+@pytest.mark.parametrize("where", sorted(ROLE_FILES))
+def test_a_role_line_the_reader_cant_read_is_withheld_when_redacted(where):
+    files = {**ROLE_FILES[where], **TABLE}
+    report = semantic_parity.parity_l1(files, files)
+    assert any(w["object"] == SECRET for w in report["sides"]["left"]["warnings"])  # the local pane shows it
+    out = json.dumps(semantic_parity.redacted(report))
+    assert "EU only" not in out and "withheld" in out
+
+
+def test_a_line_outside_a_role_is_still_shown_when_redacted():
+    files = {"definition/model.tmdl": "model Model\n\tsomething odd\n",
+             "definition/tables/T.tmdl": "table T\n\tcolumn Region\n\t\tdataType: string\n\t\tstrange line\n"}
+    report = semantic_parity.redacted(semantic_parity.parity_l1(files, files))
+    shown = {w.get("object") for w in report["sides"]["left"]["warnings"]}
+    assert {"something odd", "strange line"} <= shown
+
+
+def test_evidence_about_a_role_on_another_row_is_withheld():
+    row = {"id": "table 'T'", "kind": "table", "result": semantic_parity.CEILING, "changes": [], "notes": [],
+           "evidence": [{"side": "left", "source": "tmdl reader", "object": "table 'T'", "block": "role/tablePermission",
+                         "message": SECRET},
+                        {"side": "left", "source": "tmdl reader", "object": "table 'T'", "block": "table",
+                         "message": "kept"}]}
+    out = semantic_parity.redacted({"objects": [row], "sides": {}})
+    assert "EU only" not in json.dumps(out) and out["objects"][0]["evidence"][1]["message"] == "kept"

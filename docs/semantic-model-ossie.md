@@ -187,7 +187,11 @@ with their defaults (unused at L1). A Different results summary can hide Unsuppo
 The report can name role members and quote row-level security filters. Anything that shows it
 outside the local pane (a log, a support bundle, a CI artifact, GitHub text) must use
 `semantic_parity.redacted(report)`, which gives counts of members and a length and hash of each
-filter instead.
+filter instead. A TMDL line the reader can't read is reported by its first 80 characters, so
+`redacted()` also withholds such a warning when it names a role, comes from a `roles/` file, or sits
+inside a role block in any file. The reader takes a role declared in `model.tmdl` or
+`database.tmdl` too, and marks each such line with the blocks it is inside (`block`, such as
+`role/tablePermission`).
 
 ### Expression parity (L2)
 

@@ -774,24 +774,28 @@ def _withheld(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _about_role(warning: dict[str, Any]) -> bool:
-    """A reader warning that may quote a role: it names a role, or comes from a role's file (an unreadable line
-    inside a role block names only itself)."""
+    """A reader warning that may quote a role: it names a role, comes from a role's file, or is a line inside a
+    role block in any file (the reader takes a role declared in model.tmdl or database.tmdl too, and an
+    unreadable line in it names only itself)."""
     file = str(warning.get("file", "")).replace("\\", "/").casefold()
-    return str(warning.get("object", "")).startswith("role") or "/roles/" in f"/{file}"
+    return (str(warning.get("object", "")).startswith("role") or "/roles/" in f"/{file}"
+            or "role" in str(warning.get("block", "")).split("/"))
 
 
 def redacted(report: dict[str, Any]) -> dict[str, Any]:
     """A copy of ``report`` safe to log or attach outside the local pane: each role row's changes name no member
     (counts instead) and quote no filter (a length and hash instead), and its evidence other than the structure
-    counts is withheld (a length and hash of it). Reader warnings about a role are withheld the same way. At L2 each
-    measure's expression text and canonical forms (which can hold literals) are a length and hash too; its changes
-    and notes name functions, tables and columns, never a literal. The report itself is unchanged."""
+    counts is withheld (a length and hash of it). Reader warnings and evidence about a role (``_about_role``) are
+    withheld the same way. At L2 each measure's expression text and canonical forms (which can hold literals) are
+    a length and hash too; its changes and notes name functions, tables and columns, never a literal. The report
+    itself is unchanged."""
     out = copy.deepcopy(report)
     for o in out.get("objects") or []:
         if isinstance(o.get("expressions"), dict):  # L2: expression text and forms can hold literals
             o["expressions"] = {k: _fingerprint(v) if isinstance(v, str) and not k.endswith("_dialect") else v
                                 for k, v in o["expressions"].items()}
         if o.get("kind") != "role":
+            o["evidence"] = [_withheld(e) if _about_role(e) else e for e in o.get("evidence") or []]
             continue
         o["changes"] = list(o.pop("changes_redacted", None) or
                             ([f"{len(o['changes'])} change(s) withheld"] if o.get("changes") else []))

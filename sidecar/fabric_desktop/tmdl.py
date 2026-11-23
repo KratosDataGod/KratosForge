@@ -173,6 +173,9 @@ class _Reader:
         self.cultures = 0  # inside a culture
         self.raw = 0  # inside a culture's translations: objects are names and captions, not model objects
         self.order: dict[str, list[str]] = {}  # "ref table" and "ref cultureInfo" lines: the model's order of each
+        # The kinds of the objects the line being read is inside (model and database aside), outermost first: a
+        # line not understood carries them as "block", so a role's line is known as one in any file.
+        self.blocks: list[str] = []
 
     def _next_level(self) -> int | None:
         """The indent of the next non-blank line, or None at the end."""
@@ -287,8 +290,11 @@ class _Reader:
                     into[m.group(1)] = True
                 continue
             self._skip_block(here)
-            self.report.append({"object": text[:80], "kind": "lost", "message": f"not understood, left out ({where})",
-                                "file": self.path})
+            row = {"object": text[:80], "kind": "lost", "message": f"not understood, left out ({where})",
+                   "file": self.path}
+            if self.blocks:
+                row["block"] = "/".join(self.blocks)
+            self.report.append(row)
 
     def _object(self, kind: str, name: str, default: str | None, level: int, parent: dict[str, Any],
                 description: str) -> None:
@@ -301,7 +307,12 @@ class _Reader:
         where = f"{self.path}:{self.i}"
         culture = kind in CULTURES and not self.raw
         self.cultures += culture
+        nested = kind not in ("model", "database")
+        if nested:
+            self.blocks.append(kind)
         self.block(level, obj)
+        if nested:
+            self.blocks.pop()
         self.cultures -= culture
         if kind in ("model", "database"):
             parent.setdefault(kind, {}).update(obj)
@@ -399,7 +410,9 @@ def to_bim(files: dict[str, str], name: str = "") -> tuple[dict[str, Any], list[
     """A model's TMDL files (path -> text, paths as in a ``.SemanticModel`` folder) as a TMSL
     ``model.bim`` document, with the report of anything left out. ``name`` is the model's name
     (TMDL calls every model "Model"; the folder or item name is the real one). A row about something in one
-    file names it in ``file`` (its path as given), so a caller rewriting that file can say what it loses."""
+    file names it in ``file`` (its path as given), so a caller rewriting that file can say what it loses. A line
+    not understood inside an object (a role declared in model.tmdl, say) names the kinds it is inside in
+    ``block`` ("role/tablePermission"), so a caller can withhold a line that may quote a filter."""
     if not isinstance(files, dict) or not all(isinstance(p, str) and isinstance(t, str) for p, t in files.items()):
         raise ValueError("A model's TMDL is a folder of files: give them as path -> text")
     if sum(len(t) for t in files.values()) > MAX_CHARS:

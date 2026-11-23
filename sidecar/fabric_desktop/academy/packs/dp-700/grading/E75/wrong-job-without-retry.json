@@ -1,0 +1,45 @@
+{
+  "_about": "One decision per flow. Set engine to one of the engines listed. runs_as, retry_policy and trigger_processing_time only matter for a Spark stream: runs_as is notebook or spark_job_definition, retry_policy is true or false, and trigger_processing_time is null for Spark's default or an interval such as \"1 minute\".",
+  "engines": [
+    "eventstream",
+    "spark_structured_streaming",
+    "eventhouse_kql"
+  ],
+  "flows": {
+    "iot_routing": {
+      "needs": "Events from Azure IoT Hub: drop the events from test devices, then send the rest to an eventhouse and to an Activator alert. The operations team writes no code.",
+      "engine": "eventstream",
+      "runs_as": null,
+      "retry_policy": false,
+      "trigger_processing_time": null
+    },
+    "incident_queries": {
+      "needs": "Site reliability engineers ask new questions during each incident over billions of stored log events, with time series functions, and need answers in seconds.",
+      "engine": "eventhouse_kql",
+      "runs_as": null,
+      "retry_policy": false,
+      "trigger_processing_time": null
+    },
+    "fraud_scoring": {
+      "needs": "The data engineers write PySpark. Card events from Azure Event Hubs are joined to a Delta reference table, scored with an open-source Python model and written to a Delta table. It runs around the clock in production and must restart on its own after infrastructure patching stops it.",
+      "engine": "spark_structured_streaming",
+      "runs_as": "spark_job_definition",
+      "retry_policy": false,
+      "trigger_processing_time": null
+    },
+    "clickstream_landing": {
+      "needs": "An existing PySpark stream writes web clicks to a Delta table and leaves tens of thousands of small files. A minute of latency is fine for everyone who reads the table.",
+      "engine": "spark_structured_streaming",
+      "runs_as": "spark_job_definition",
+      "retry_policy": false,
+      "trigger_processing_time": "1 minute"
+    },
+    "kafka_fanout": {
+      "needs": "Order events on a Confluent Cloud Kafka topic must land in a lakehouse table and in an eventhouse at the same time, with no code.",
+      "engine": "eventstream",
+      "runs_as": null,
+      "retry_policy": false,
+      "trigger_processing_time": null
+    }
+  }
+}

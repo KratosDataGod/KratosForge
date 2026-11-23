@@ -366,6 +366,13 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema, ansi
     root = statement
     # Innermost first, so an operand that is itself rewritten has its Spark type.
     for node in reversed(targets):
+        if isinstance(node, (exp.Add, exp.Sub)) and _date_sum(node, annotated):
+            day = exp.cast(exp.paren(node.copy()), exp.DataType.Type.DATE)
+            if node is root:
+                root = day
+            else:
+                node.replace(day)
+            continue
         replacement = _rewrite(node, typed, annotated, written.get(id(node)) or _operands(node), ansi)
         if replacement is None:
             continue
@@ -378,6 +385,26 @@ def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema, ansi
         else:
             top.replace(new)
     return root
+
+
+def _date_sum(node: exp.Add | exp.Sub, annotated: dict[int, exp.Expr]) -> bool:
+    """A DATE column plus or minus an interval of years, months, weeks or days, which is a date in Spark
+    and a timestamp in DuckDB (sql._date_plus_days gives a date written as one, DATE'...', its type)."""
+    from .sql import _known_date, _whole_days
+    if isinstance(node.parent, exp.Cast) and node.parent.to.is_type(exp.DataType.Type.DATE):
+        return False
+    pairs = [(node.this, node.expression)] + ([(node.expression, node.this)] if isinstance(node, exp.Add) else [])
+    for value, interval in pairs:
+        if not _whole_days(interval):
+            continue
+        if _known_date(value):  # DATE'...', or a sum given its date type just before this one
+            return True
+        while isinstance(value, exp.Paren):
+            value = value.this
+        copy = annotated.get(id(value))
+        if copy is not None and copy.is_type(exp.DataType.Type.DATE):
+            return True
+    return False
 
 
 def _unmark(statement: exp.Expr) -> exp.Expr:

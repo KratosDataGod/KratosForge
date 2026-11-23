@@ -1,7 +1,7 @@
 """Snowflake SQL on this PC answers with Snowflake's types for the gaps PR #3171's parity cases found
-(rules 2026.11.21): NUMBER division with Snowflake's scale (SFX-053), whole-number arithmetic as NUMBER
-(SFX-052), SUBSTR with a start before the string (SFX-050), and DATEADD and DATE_TRUNC of a table's DATE
-column (SFX-051). Each test checks the value and the result type."""
+(rules 2026.11.23): NUMBER division with Snowflake's scale (SFX-080), whole-number arithmetic as NUMBER
+(SFX-079), SUBSTR with a start before the string (SFX-077), and DATEADD and DATE_TRUNC of a table's DATE
+column (SFX-078). Each test checks the value and the result type."""
 
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ def test_division_by_zero_still_stops_and_null_stays_null(session):
 
 def test_division_past_38_digits_stops_by_name(session):
     message = error(session, "SELECT CAST('123456789012345678901234567890123' AS NUMBER(38,0)) / 1")
-    assert "SFN-050" in message and sf.stopped_by_name(Exception(message))
+    assert "SFN-077" in message and sf.stopped_by_name(Exception(message))
     table = run(session, "SELECT CAST('12345678901234567890123456789012' AS NUMBER(38,0)) / 1 AS q")
     assert table.schema.types == [pa.decimal128(38, 6)]
     assert table.column(0).to_pylist() == [Decimal("12345678901234567890123456789012.000000")]
@@ -207,6 +207,6 @@ def test_session_tables_reads_upper_case_names_and_types():
 
 def test_the_rules_are_listed_with_this_version():
     table = sf.docs_table()
-    assert sf.RULES_VERSION == "2026.11.21"
-    for rule in ("SFX-050", "SFX-051", "SFX-052", "SFX-053", "SFN-050"):
+    assert sf.RULES_VERSION == "2026.11.23"
+    for rule in ("SFX-077", "SFX-078", "SFX-079", "SFX-080", "SFN-077"):
         assert f"| {rule} |" in table

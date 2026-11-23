@@ -84,13 +84,14 @@ def test_a_failed_run_tells_its_after_step_it_failed(tmp_path, monkeypatch):
     assert op["status"] == "failed" and op["result"] is None  # only a conflict reads the result
 
 
-def test_a_clone_into_a_parent_folder_that_already_exists_starts(tmp_path, monkeypatch):
+def test_a_clone_makes_its_parent_folders_or_uses_one_that_exists(tmp_path, monkeypatch):
     git_says(monkeypatch, "pass")
     (tmp_path / "repos").mkdir()
     o = ops.Operations()
-    op = o.clone("https://example.com/team/demo.git", str(tmp_path / "repos"))
-    assert op["status"] == "running"
-    wait(o, op["id"])
+    for parent in (tmp_path / "repos", tmp_path / "new" / "deeper"):
+        op = o.clone("https://example.com/team/demo.git", str(parent))
+        assert op["status"] == "running" and parent.is_dir()
+        wait(o, op["id"])
 
 
 def test_a_first_push_goes_to_origin_or_else_the_first_remote(tmp_path, monkeypatch):

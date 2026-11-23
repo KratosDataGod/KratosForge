@@ -84,6 +84,7 @@ def test_no_synced_commit_is_never_known_here():
     repo = Repo({"branch": "main"}, None, lambda a: "anything")
     out = fg.alignment(repo, _conn(), "origin")
     assert out["workspace"]["known_here"] is False
+    assert out["workspace"]["commit"] is None and out["workspace"]["last_sync"] is None
 
 
 def test_no_local_commit_or_branch_compares_nothing_and_notes_no_branch():

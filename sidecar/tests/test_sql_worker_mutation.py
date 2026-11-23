@@ -118,3 +118,10 @@ def test_a_failed_statement_of_a_script_is_named_and_a_long_message_is_cut(monke
     assert error["statement"] == 2 and error["message"] == "x" * 4000
     error = _main(monkeypatch, capsys, {"query": "SELECT 2"}, fail)
     assert "statement" not in error
+
+
+def test_a_spill_folder_already_there_is_used(tmp_path, capsys):
+    spill = tmp_path / "spill"
+    spill.mkdir()
+    sql_worker.run(job(tmp_path, "SELECT 1 AS n", temp_dir=str(spill)))
+    assert said(capsys)[-1]["event"] == "done"

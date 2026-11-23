@@ -41,7 +41,7 @@ def test_a_whole_utf16_file_is_read_from_its_first_line(tmp_path):
 
 
 def test_a_key_that_begins_on_the_first_character_is_whole():
-    text = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\nafter\n"
+    text = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\nafter\n"  # pragma: allowlist secret (test value)
     assert support_bundle._without_cut_key(text) == text
 
 

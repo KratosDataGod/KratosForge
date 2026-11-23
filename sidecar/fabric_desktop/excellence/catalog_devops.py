@@ -28,7 +28,7 @@ Preview.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeGuard
 
 from . import controls as ct
 from . import evidence as ev
@@ -59,7 +59,7 @@ def _short(value: Any) -> str:
     return "" if any(ord(c) < 32 or ord(c) == 127 for c in s) else s[:MAX_TEXT]
 
 
-def status_readable(raw: Any) -> bool:
+def status_readable(raw: Any) -> TypeGuard[dict[str, Any]]:
     """True when ``raw`` is shaped like Get Status's answer: a dict whose ``changes`` is a list of
     dicts. Anything else can't be counted, so it must never read as "nothing changed"."""
     changes = raw.get("changes") if isinstance(raw, dict) else None

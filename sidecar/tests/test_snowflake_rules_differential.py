@@ -15,6 +15,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import random
+import re
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
 
 import duckdb
@@ -95,6 +96,44 @@ def _pad(s: str, n: int, pad: str, left: bool) -> str:
     return fill + s if left else s + fill
 
 
+def _regex(pattern: str, params: str) -> re.Pattern[str]:
+    # functions-regexp: "m Enables multi-line mode" (^ and $ at each line; without it they "mark the beginning
+    # and end of the entire subject"), "s Enables the POSIX wildcard character . to match \n", and of c and i
+    # "the one that occurs last in the string dictates" the case. Python's $ also matches before a final line
+    # break, so without m it is written \Z here.
+    flags = (re.M if "m" in params else 0) | (re.S if "s" in params else 0)
+    case = [c for c in params if c in "ci"]
+    flags |= re.I if case and case[-1] == "i" else 0
+    return re.compile(pattern if "m" in params else pattern.replace("$", r"\Z"), flags)
+
+
+def _regex_cases(r: random.Random) -> list[tuple[str, str, object]]:
+    """WR-257: the regular expression parameters, and the empty pattern ("In most regexp functions, an empty
+    pattern (that is, '') matches nothing, not even an empty subject"; in REGEXP_LIKE "'' automatically becomes
+    '^$'")."""
+    out: list[tuple[str, str, object]] = []
+    subjects = ["a\nb", "ab\nab", "x\na", "", "A\nb", "abc", "b\na\nb"]
+    for _ in range(120):
+        s, params = r.choice(subjects), r.choice(["", "m", "s", "ms", "sm", "i", "mi", "c", "im", "ic", "ci", "smi"])
+        p = r.choice(["^b", "a$", "^a.*b$", "a.b", "b$", "^a", "a.", "", "^A", "(a|b)$"])
+        rx = _regex(p, params)
+        out.append(("REGEXP_LIKE_PARAMS", f"REGEXP_LIKE({q(s)}, {q(p)}, {q(params)})",
+                    s == "" if p == "" else rx.fullmatch(s) is not None))
+        found = [] if p == "" else [m.group(0) for m in rx.finditer(s)]
+        out.append(("REGEXP_SUBSTR_PARAMS", f"REGEXP_SUBSTR({q(s)}, {q(p)}, 1, 1, {q(params)})",
+                    found[0] if found else None))
+        out.append(("REGEXP_SUBSTR_ALL_PARAMS", f"REGEXP_SUBSTR_ALL({q(s)}, {q(p)}, 1, 1, {q(params)})", found))
+        out.append(("REGEXP_COUNT_PARAMS", f"REGEXP_COUNT({q(s)}, {q(p)}, 1, {q(params)})", len(found)))
+        out.append(("REGEXP_REPLACE_PARAMS", f"REGEXP_REPLACE({q(s)}, {q(p)}, 'X', 1, 0, {q(params)})",
+                    s if p == "" else rx.sub("X", s)))
+    for s in ["abc", "", "a\nb"]:
+        out.append(("REGEXP_REPLACE_PARAMS", f"REGEXP_REPLACE({q(s)}, '', '-')", s))
+        out.append(("REGEXP_REPLACE_PARAMS", f"REGEXP_REPLACE(v, p, '-') FROM (SELECT {q(s)} AS v, '' AS p)", s))
+        out.append(("REGEXP_SUBSTR_PARAMS", f"REGEXP_SUBSTR(v, p) FROM (SELECT {q(s)} AS v, '' AS p)", None))
+        out.append(("REGEXP_SUBSTR_ALL_PARAMS", f"REGEXP_SUBSTR_ALL({q(s)}, '')", []))
+    return out
+
+
 def cases() -> list[tuple[str, str, object]]:
     r = random.Random(SEED)
     out: list[tuple[str, str, object]] = []
@@ -172,7 +211,7 @@ def cases() -> list[tuple[str, str, object]]:
         want = None if inner is None else _position(find, text, inner + 1)
         if want is not None:
             out.append(("POSITION", f"POSITION({q(find)}, {q(text)}, POSITION('', {q(word)}, {start}) + 1)", want))
-    return out
+    return out + _regex_cases(random.Random(SEED + 2))
 
 
 def _run(con: duckdb.DuckDBPyConnection, expression: str) -> object:

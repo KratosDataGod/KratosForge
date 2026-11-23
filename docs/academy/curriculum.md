@@ -111,6 +111,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E90 | Refresh history: failures in a row, a schedule turned off, and slow refreshes | 3.1.3 | C | SIM +FV | duckdb (`runs`) | 20 | LM-09 |
 | E91 | Alerts: pipeline notifications, refresh failure emails and Activator rules | 3.1.4 | C | SIM +FV | config | 20 | |
 | E92 | Optimize a pipeline: partitioned copy, copy parallelism, throughput and no waits | 3.3.2 | C | SIM +FV | config | 25 | |
+| E100 | Optimize an eventstream and an eventhouse: throughput, retention, caching and a materialized view | 3.3.4 | C | SIM +FV | config | 25 | |
 
 ## Broken environments (Troubleshoot)
 
@@ -149,11 +150,11 @@ validation checks both the fix and that nothing else changed.
 
 | | Count |
 | --- | --- |
-| Exercises | 87 (70 Guided or Challenge, 17 Troubleshoot) |
+| Exercises | 88 (71 Guided or Challenge, 17 Troubleshoot) |
 | LOCAL VERIFIED | 37 |
-| SIMULATED | 40 |
+| SIMULATED | 41 |
 | KNOWLEDGE ONLY | 10 |
-| With a planned FABRIC VERIFIED version | 44 |
+| With a planned FABRIC VERIFIED version | 45 |
 | Capstones | 3 |
 | Built from existing Learn lessons or labs | 26 |
 

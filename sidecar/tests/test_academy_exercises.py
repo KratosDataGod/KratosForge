@@ -22,7 +22,16 @@ def pinned_ids() -> list[str]:
     files = sorted(p for p in PINS.iterdir() if p.name != "README.md")
     for f in files:
         assert f.read_text(encoding="utf-8").strip() == f.name, f"{f.name}: a pin file holds its own id"
-    return [f.name for f in files]
+    return sorted((f.name for f in files), key=exercises.sort_key)
+
+
+def test_exercise_ids_take_two_or_three_digits_and_sort_by_number():
+    assert all(exercises._ID.fullmatch(e) for e in ("E01", "E99", "E100", "E999", "C1"))
+    assert not any(exercises._ID.fullmatch(e) for e in ("E1", "E1000", "C10", "e100", "E10a"))
+    assert registry._EXERCISE.fullmatch("E100") and not registry._EXERCISE.fullmatch("E1000")
+    assert not registry._EXERCISE.fullmatch("E1")
+    assert sorted(["E100", "E99", "C2", "E10", "C1", "E09"], key=exercises.sort_key) == [
+        "C1", "C2", "E09", "E10", "E99", "E100"]
 
 
 def test_bundled_exercises_have_no_problems():

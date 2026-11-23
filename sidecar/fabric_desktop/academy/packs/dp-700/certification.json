@@ -1359,9 +1359,10 @@
               "text": "Optimize eventstreams and eventhouses",
               "competency": "Optimize eventstreams and eventhouses.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E62"
+                "E62",
+                "E100"
               ],
               "capstones": [],
               "lessons": [],

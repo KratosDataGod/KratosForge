@@ -78,7 +78,7 @@ four original exam questions (ACD-013).
 | 3.3.1 | Optimize a lakehouse table | E56 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
 | 3.3.2 | Optimize a pipeline | E60, E92 | SIM | Yes | |
 | 3.3.3 | Optimize a data warehouse | E61, E66 | LV | Yes | |
-| 3.3.4 | Optimize eventstreams and eventhouses | E62 | KO | Yes | |
+| 3.3.4 | Optimize eventstreams and eventhouses | E62, E100 | SIM | Yes | |
 | 3.3.5 | Optimize Spark performance | E52, E63 | LV (file layout and pruning on Delta); KO (Spark settings) | Yes | LM-27 |
 | 3.3.6 | Optimize query performance | E59, E64 | LV | No | LM-18, LAB-02 |
 
@@ -88,8 +88,8 @@ four original exam questions (ACD-013).
 | --- | --- |
 | Covered by at least one exercise | 49 of 49 |
 | Best local class LOCAL VERIFIED (all or part) | 19 |
-| Best local class SIMULATED | 20 |
-| KNOWLEDGE ONLY on this PC | 10 |
+| Best local class SIMULATED | 21 |
+| KNOWLEDGE ONLY on this PC | 9 |
 | Stay incomplete until FABRIC VERIFIED | 36 |
 
 ## Coverage gap records

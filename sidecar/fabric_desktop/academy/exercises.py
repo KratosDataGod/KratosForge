@@ -60,7 +60,7 @@ STRENGTH = {"knowledge_only": 0, "simulated": 1, "local_verified": 2, **{p["veri
 # A local result may not name a platform's engine as what it proved (docs/academy/README.md, ground rules).
 FABRIC_ENGINE = registry.PLATFORMS["fabric"]["engines"]
 
-_ID = re.compile(r"^(E\d{2}|C\d)$")
+_ID = re.compile(r"^(E\d{2,3}|C\d)$")   # E01 to E999, capstones C1 to C9
 _FILE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
 _USES = re.compile(r"^((?:LM|LAB)-\d{2})/([a-z0-9][a-z0-9-]{0,60})$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -77,9 +77,15 @@ def _folder(pack_id: str, root: Path) -> Path:
     return root / pack_id / "exercises"
 
 
+def sort_key(exercise_id: str) -> tuple[str, int]:
+    """Capstones first, then exercises by number, so E100 comes after E99 (a plain sort puts it after E10)."""
+    return exercise_id[0], int(exercise_id[1:])
+
+
 def ids(pack_id: str, root: Path = registry.ROOT) -> list[str]:
     folder = _folder(pack_id, root)
-    return sorted(p.name for p in folder.iterdir() if p.is_dir() and _ID.fullmatch(p.name)) if folder.is_dir() else []
+    found = [p.name for p in folder.iterdir() if p.is_dir() and _ID.fullmatch(p.name)] if folder.is_dir() else []
+    return sorted(found, key=sort_key)
 
 
 def get(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dict[str, Any]:

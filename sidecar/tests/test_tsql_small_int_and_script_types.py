@@ -92,3 +92,52 @@ def test_division_still_stops_on_zero(engine):
     assert error(engine, "SELECT si / 0 FROM t") == "Msg 8134, Level 16: Divide by zero error encountered."
     assert error(engine, "SELECT ti / CAST(0 AS TINYINT) FROM #tt") == \
         "Msg 8134, Level 16: Divide by zero error encountered."
+
+
+# WR-704, part 2: a table made earlier in the same script is typed when the script is read, so SUM and AVG of its
+# int column are an int (they were a decimal and a float).
+
+@pytest.mark.parametrize("script, types, rows", [
+    (["CREATE TABLE dbo.u (i INT)", "INSERT INTO dbo.u VALUES (1), (2)", "SELECT SUM(i), AVG(i) FROM dbo.u"],
+     ["int32", "int32"], [[3, 1]]),
+    (["CREATE TABLE u (i INT)", "INSERT INTO u VALUES (-1), (-2)", "SELECT SUM(i), AVG(i) FROM u"],
+     ["int32", "int32"], [[-3, -1]]),
+    (["CREATE TABLE #u (ti TINYINT, si SMALLINT)", "INSERT INTO #u VALUES (255, 32767)",
+      "SELECT ti * 100, si + 1, SUM(si) FROM #u GROUP BY ti, si"], ["int32", "int32", "int32"], [[25500, 32768, 32767]]),
+    # CTAS and SELECT INTO, from the database's table and from one the script made
+    (["CREATE TABLE dbo.c AS SELECT i, COUNT(*) AS n, CAST(32767 AS SMALLINT) AS s FROM t GROUP BY i",
+      "SELECT SUM(n), AVG(i), s + 1 FROM dbo.c GROUP BY s"], ["int32", "int32", "int32"], [[1, 2147483646, 32768]]),
+    (["CREATE TABLE dbo.v (i INT)", "INSERT INTO dbo.v VALUES (7)", "SELECT i, 1.5 AS d, i * 1.5 AS m INTO #w FROM dbo.v",
+      "SELECT i / 2, d * 2, AVG(m) FROM #w GROUP BY i, d"], ["int32", "decimal128(4, 1)", "decimal128(38, 6)"],
+     [[3, "3.0", "10.500000"]]),
+    # ALTER TABLE ... ADD, on the database's table and on one the script made
+    (["ALTER TABLE t ADD k INT", "UPDATE t SET k = 5", "SELECT SUM(k), AVG(k) FROM t"], ["int32", "int32"], [[5, 5]]),
+    (["CREATE TABLE #x (a INT)", "ALTER TABLE #x ADD k SMALLINT", "INSERT INTO #x VALUES (1, 32767)",
+      "SELECT k + 1, AVG(a) FROM #x GROUP BY k"], ["int32", "int32"], [[32768, 1]]),
+    # a view, and a UNION whose branches have one type
+    (["CREATE TABLE dbo.vt (i INT)", "INSERT INTO dbo.vt VALUES (1), (2)",
+      "CREATE VIEW dbo.vv AS SELECT i, i * 2 AS j FROM dbo.vt", "SELECT SUM(j), AVG(i) FROM dbo.vv"],
+     ["int32", "int32"], [[6, 1]]),
+    (["SELECT si INTO #un FROM t UNION ALL SELECT CAST(4 AS SMALLINT)", "SELECT AVG(si) / 2, MAX(si) / 2 FROM #un"],
+     ["int32", "int32"], [[8192, 16383]]),
+    # dropped and made again with another type: the new type
+    (["CREATE TABLE dbo.y (c INT)", "DROP TABLE dbo.y", "CREATE TABLE dbo.y (c DECIMAL(5, 2))",
+      "INSERT INTO dbo.y VALUES (1.25)", "SELECT SUM(c), AVG(c) FROM dbo.y"], ["decimal128(38, 2)", "decimal128(38, 6)"],
+     [["1.25", "1.250000"]]),
+])
+def test_table_made_earlier_in_the_script_is_typed(engine, script, types, rows):
+    assert result(engine, "; ".join(script)) == (types, rows)
+
+
+def test_overflow_in_a_table_made_earlier(engine):
+    assert error(engine, ("CREATE TABLE dbo.z (i INT); INSERT INTO dbo.z VALUES (2147483647), (1); "
+                          "SELECT SUM(i) FROM dbo.z")) == \
+        "Statement 3 of 3 (SELECT) failed: " + overflow("int") + " Statements 1 to 2 ran, and what they changed is kept."
+    assert error(engine, "SELECT 2147483647 AS big INTO #b; SELECT big + 1 FROM #b").startswith(
+        "Statement 2 of 2 (SELECT) failed: " + overflow("int"))
+
+
+def test_union_of_two_types_says_it_divides_as_duckdb(engine):
+    out = engine.execute(("SELECT i AS x INTO #mixed FROM t UNION ALL SELECT CAST(1.5 AS DECIMAL(5, 1)); "
+                          "SELECT x / 2 FROM #mixed"), dialect="tsql")
+    assert any("Couldn't tell the types in x / 2" in note for note in out["translation"]["notes"])

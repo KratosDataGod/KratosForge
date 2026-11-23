@@ -156,7 +156,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `DATEPART(quarter, '2024-03-05')` | The text read as a date, as T-SQL does |
 | `#t` | A temporary table kept apart from an ordinary table `t` |
 
-The column types come from the project, so the integer rules hold for its tables, views and temporary tables. When a division's or a `+`'s types can't be told (for example, columns of a table the query creates in the same script), it divides as DuckDB does and the result's `translation.notes` says so.
+The column types come from the project, so the integer rules hold for its tables, views and temporary tables. A table or view the script makes earlier, or adds a column to, is typed too. When a division's or a `+`'s types can't be told (for example, a column made from a `UNION` in `CREATE TABLE ... AS SELECT`), it divides as DuckDB does and the result's `translation.notes` says so.
 
 [T-SQL functions on this PC](tsql-functions.md) lists every T-SQL function, operator and statement with its status here.
 

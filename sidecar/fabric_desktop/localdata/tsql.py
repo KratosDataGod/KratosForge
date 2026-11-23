@@ -168,7 +168,11 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
     texts: list[str] = []
     notes: list[str] = []
     skipped = False
-    schema = _schema(columns or {})
+    # WR-704: the types the script's statements are read with, with the tables each statement makes (or changes, or
+    # drops) once it is read, so a later statement of the same script is typed too. Only typing reads these: the
+    # checks that ask whether a table is there keep ``columns``, which is what the database had before the script.
+    seen = {s: {t: dict(c) for t, c in tables.items()} for s, tables in (columns or {}).items()}
+    schema = _schema(seen)
     for batch in split_batches(sql):
         for tree in _parse(batch):
             if isinstance(tree, exp.Semicolon):  # WR-236: only a comment after the last ``;``, not a statement
@@ -200,6 +204,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             _with_rollup(tree)
             _grouping_types(tree)
             _regexps(tree)
+            made = _made_columns(tree, schema)  # before _types, which rewrites the query a table is made from
             notes += _types(tree, schema)
             _percentiles(tree)
             notes += _likes(tree)
@@ -228,6 +233,9 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
                 raise ValueError(_TOO_DEEP)
             if text.strip():
                 texts.append(text)
+            if made is not None:
+                made(seen)
+                schema = _schema(seen)
     if not texts:
         raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
                          "nothing on the local engine, so they're skipped." if skipped else "The query is empty.")
@@ -995,8 +1003,129 @@ def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
             except SqlglotError:
                 continue  # a nested type sqlglot can't read; that column stays untyped
             kept[col] = kind
-        clean.setdefault(schema, {})[table] = kept
+        if kept:  # sqlglot refuses a table with no columns; one the script made with none it can type is unknown
+            clean.setdefault(schema, {})[table] = kept
     return MappingSchema(cast(dict[str, object], clean), dialect="duckdb", normalize=True)
+
+
+Seen = dict[str, dict[str, dict[str, str]]]
+
+
+def _made_columns(tree: exp.Expression, schema: Any) -> Callable[[Seen], None] | None:
+    """WR-704: how ``tree`` changes the tables a later statement of the same script is typed with, or None. The
+    translator is given the database's columns before the script runs, so a table the script made was untyped
+    there: ``SUM(i)`` of its int column was a decimal and ``AVG(i)`` a float. CREATE TABLE with its columns, CREATE
+    TABLE ... AS SELECT, SELECT ... INTO and CREATE VIEW (with the types the SELECT gives; a column whose type can't
+    be told is left out, and reads as it did), ALTER TABLE ... ADD, and DROP TABLE or VIEW, #temp tables too."""
+    if isinstance(tree, exp.Drop) and (tree.args.get("kind") or "").upper() in ("TABLE", "VIEW"):
+        dropped = [t for t in tree.expressions or [tree.this] if isinstance(t, exp.Table)]
+
+        def drop(seen: Seen) -> None:
+            for table in dropped:
+                tables = seen.get(_schema_of(table), {})
+                for name in [n for n in tables if n.lower() == table.name.lower()]:
+                    del tables[name]
+        return drop
+    if isinstance(tree, exp.Alter) and (tree.args.get("kind") or "").upper() == "TABLE" \
+            and isinstance(tree.this, exp.Table):
+        added = {c.name: kind for c in tree.args.get("actions") or []
+                 if isinstance(c, exp.ColumnDef) and (kind := _duckdb_type(c.args.get("kind"))) is not None}
+        if not added:
+            return None
+        return _adds(tree.this, added, keep=True)
+    target: exp.Expression | None = None
+    query: exp.Expression | None = None
+    if isinstance(tree, exp.Create) and (tree.args.get("kind") or "").upper() in ("TABLE", "VIEW"):
+        target, query = tree.this, tree.expression
+    else:
+        first = tree  # SELECT ... INTO ... UNION ...: the INTO is on the first SELECT
+        while isinstance(first, exp.SetOperation):
+            first = first.this
+        if isinstance(first, exp.Select) and isinstance(first.args.get("into"), exp.Into):
+            target, query = first.args["into"].this, tree.copy()
+            inner = query
+            while isinstance(inner, exp.SetOperation):
+                inner = inner.this
+            inner.set("into", None)
+    if isinstance(target, exp.Schema) and isinstance(target.this, exp.Table) and query is None:
+        return _adds(target.this, {c.name: kind for c in target.expressions if isinstance(c, exp.ColumnDef)
+                                   and (kind := _duckdb_type(c.args.get("kind"))) is not None}, keep=False)
+    if isinstance(target, exp.Table) and isinstance(query, exp.Query):
+        return _adds(target, _query_columns(query, schema), keep=False)
+    return None
+
+
+def _schema_of(table: exp.Table) -> str:
+    return "dbo" if table.name.startswith("#") else table.db or "dbo"
+
+
+def _adds(table: exp.Table, added: dict[str, str], keep: bool) -> Callable[[Seen], None]:
+    """Puts ``added`` on ``table``: after the columns it has when ``keep``, else as all of its columns."""
+    def put(seen: Seen) -> None:
+        tables = seen.setdefault(_schema_of(table), {})
+        name = next((n for n in tables if n.lower() == table.name.lower()), table.name)
+        tables[name] = {**(tables.get(name, {}) if keep else {}), **added}
+    return put
+
+
+def _duckdb_type(kind: exp.Expression | None) -> str | None:
+    if not isinstance(kind, exp.DataType) or kind.this in (exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL):
+        return None
+    try:
+        text = kind.sql(dialect=KfDuckDB)
+        exp.DataType.build(text, dialect="duckdb")
+    except SqlglotError:
+        return None
+    return text
+
+
+def _query_columns(query: exp.Query, schema: Any) -> dict[str, str]:
+    """The DuckDB type of each column of ``query`` as T-SQL types it, where it can be told: a decimal written in
+    the query (sqlglot's float) has its own precision, and a float worked out from one is left out."""
+    from sqlglot.optimizer.annotate_types import annotate_types
+    from sqlglot.optimizer.qualify import qualify
+
+    typed: Any = query.copy()  # qualify and annotate_types give it back as an Expression
+    try:
+        typed = qualify(typed, schema=schema, dialect="duckdb", db="dbo", validate_qualify_columns=False,
+                        quote_identifiers=False, identify=False)
+        typed = annotate_types(typed, schema=schema, dialect="duckdb", expression_metadata=_TSQL_AGGREGATES)
+    except SqlglotError:
+        return {}
+    branches: list[exp.Expression] = [typed]
+    while any(isinstance(b, exp.SetOperation) for b in branches):
+        branches = [part for b in branches for part in ((b.this, b.expression) if isinstance(b, exp.SetOperation)
+                                                        else (b,))]
+    if not all(isinstance(b, exp.Select) for b in branches):
+        return {}
+    # A UNION's column is typed when each branch gives it the same type; else T-SQL's precedence picks one, which
+    # isn't worked out here.
+    each = [_select_types(b) for b in branches]
+    names = [c.alias_or_name for c in branches[0].expressions]
+    found: dict[str, str] = {}
+    for at, name in enumerate(names):
+        kinds = {kinds[at] for kinds in each if at < len(kinds)}
+        if name and name != "*" and len(kinds) == 1 and None not in kinds and all(len(k) == len(names) for k in each):
+            found[name] = kinds.pop()  # type: ignore[assignment]  # None is ruled out above
+    return found
+
+
+def _select_types(select: exp.Expression) -> list[str | None]:
+    """The DuckDB type of each column of a typed SELECT, or None where it can't be told: a decimal written in the
+    query (sqlglot's float) has its own precision, and a float worked out from one is left out."""
+    out: list[str | None] = []
+    floats = {exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT}
+    for column in select.expressions:
+        value = column.unalias()
+        number = _tsql_number(value)
+        if number is not None and number[2]:
+            out.append(f"DECIMAL({min(number[0], 38)}, {number[1]})")
+        elif _is(value.type, floats) and any(n.is_number and "." in n.name and "e" not in n.name.lower()
+                                             for n in value.find_all(exp.Literal)):
+            out.append(None)
+        else:
+            out.append(_duckdb_type(value.type))
+    return out
 
 
 def _types(tree: exp.Expression, schema: Any) -> list[str]:

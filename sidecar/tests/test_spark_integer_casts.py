@@ -54,14 +54,13 @@ def test_f_expr_casts_truncate():
 
 
 def test_nested_casts_read_their_source_once_and_stay_small():
-    """#1579 review: the source is bound once, so six nested casts stay a few KB and run at once."""
-    import time
+    """#1579 review: the source is bound once, so six nested casts stay a few KB and run at once. Counted, not
+    timed: the SQL names the source once and stays small (a wall-clock limit failed on busy CI runners)."""
     q = "'3.7'"
     for _ in range(6):
         q = f"CAST(CAST({q} AS DOUBLE) + 0.5 AS INT)"
-    start = time.monotonic()
     text = sql.duckdb_sql(sql.parse(f"SELECT {q} AS v", "spark")[-1])
+    assert text.count("'3.7'") == 1
     assert len(text) < 20_000
     assert spark(f"SELECT {q} AS v")["v"] == 4
-    assert time.monotonic() - start < 10
     assert sql.duckdb_sql(sql.parse("SELECT CAST(rand() * 10 AS INT)", "spark")[-1]).upper().count("RANDOM()") == 1

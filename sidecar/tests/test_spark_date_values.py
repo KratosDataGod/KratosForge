@@ -73,15 +73,22 @@ def test_hour_minute_and_second_read_text_that_is_a_time_of_day(spark):
 
 def test_nested_hour_minute_and_second_read_their_argument_once():
     # the text branch names its argument several times: bound once, nesting stays linear
-    import time
+    # Counted, not timed: six nested calls name the column t as often as one does, and their SQL grows with
+    # the depth, not by a factor per level (a wall-clock limit failed on busy CI runners with nothing changed).
+    import re
 
     from fabric_desktop import sql
-    query = "t"
-    for fn in ("second", "minute", "hour") * 2:  # six deep: tens of seconds when its SQL multiplied
-        query = f"{fn}({query})"
-    start = time.perf_counter()
+
+    def translated(depth):
+        query = "t"
+        for fn in (("second", "minute", "hour") * 2)[:depth]:  # six deep: tens of seconds when its SQL multiplied
+            query = f"{fn}({query})"
+        text = sql.duckdb_sql(sql.parse(f"SELECT {query} n FROM VALUES ('13:45:12'), ('x') v(t)", "spark")[-1])
+        return len(re.findall(r"\bt\b", text)), len(text), query
+    (one_reads, one_size, _), (six_reads, six_size, query) = translated(1), translated(6)
+    assert six_reads == one_reads, (one_reads, six_reads)
+    assert six_size <= 2 * 6 * one_size, (one_size, six_size)  # about linear: a factor per level is millions
     got = sql.run(f"SELECT {query} n, hour(upper(t)) h FROM VALUES ('13:45:12'), ('x') v(t)").to_pylist()
-    assert time.perf_counter() - start < 10
     assert got == [{"n": None, "h": 13}, {"n": None, "h": None}]
 
 

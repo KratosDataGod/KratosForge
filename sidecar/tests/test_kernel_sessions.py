@@ -68,7 +68,14 @@ def test_own_process_variable_detail_and_hover_read_the_notebook_asked_for(svc):
     assert call(svc, "notebook_frame_page", frame=frame, notebook="C")["gone"]
 
 
-def test_own_process_gives_each_notebook_its_variables_and_runs_them_together(svc):
+def _meet(mine, theirs, seconds):
+    """A cell that says it is running, then waits for the other notebook's cell to say so too."""
+    return (f"import os, pathlib, time\npathlib.Path({str(mine)!r}).touch()\nend = time.monotonic() + {seconds}\n"
+            f"while not os.path.exists({str(theirs)!r}) and time.monotonic() < end:\n    time.sleep(0.01)\n"
+            f"print(os.path.exists({str(theirs)!r}))")
+
+
+def test_own_process_gives_each_notebook_its_variables_and_runs_them_together(svc, tmp_path):
     call(svc, "save_app_settings", changes={"kernel_process": True})
     call(svc, "start_cell", code="x = 'from A'", notebook="A")
     call(svc, "start_cell", code="x = 'from B'", notebook="B")
@@ -76,12 +83,13 @@ def test_own_process_gives_each_notebook_its_variables_and_runs_them_together(sv
     call(svc, "start_cell", code="x", notebook="A")
     assert out(finish(svc, "A")) == "'from A'"
     assert [v["value"] for v in call(svc, "kernel_variables", notebook="B") if v["name"] == "x"] == ["'from B'"]
-    # Both run at the same time: each sleeps 2 s, together they take well under 4 s.
-    started = time.monotonic()
-    call(svc, "start_cell", code="import time\ntime.sleep(2)", notebook="A")
-    call(svc, "start_cell", code="import time\ntime.sleep(2)", notebook="B")
-    assert finish(svc, "A")["status"] == finish(svc, "B")["status"] == "ok"
-    assert time.monotonic() - started < 3.5
+    # Both run at the same time: each cell waits (up to the old 3.5 s bound) until the other is running too,
+    # which one at a time never is. Waited on, not timed: a wall-clock limit failed on busy CI runners.
+    call(svc, "start_cell", code=_meet(tmp_path / "a", tmp_path / "b", 3.5), notebook="A")
+    call(svc, "start_cell", code=_meet(tmp_path / "b", tmp_path / "a", 3.5), notebook="B")
+    a, b = finish(svc, "A"), finish(svc, "B")
+    assert a["status"] == b["status"] == "ok"
+    assert (out(a).strip(), out(b).strip()) == ("True", "True")  # each saw the other running
     pids = {r["notebook"]: r["pid"] for r in call(svc, "kernel_sessions")["sessions"]}
     assert set(pids) == {"A", "B"} and pids["A"] != pids["B"]
     # Stop ends one notebook's process only.

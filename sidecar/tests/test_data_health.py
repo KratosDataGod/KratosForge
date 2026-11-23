@@ -361,6 +361,7 @@ def test_a_check_that_cant_finish_is_never_healthy(svc, monkeypatch, exc):
 
 
 def test_the_most_tables_one_pc_watches_are_checked_in_parallel_within_a_bound(svc, monkeypatch):
+    import threading
     import time
     from fabric_desktop import dataops_service
     names = [f"silver.t{i:03}" for i in range(dataops_service.DATA_HEALTH_MAX)]
@@ -368,14 +369,28 @@ def test_the_most_tables_one_pc_watches_are_checked_in_parallel_within_a_bound(s
     monkeypatch.setattr(type(svc), "_project", lambda self: type("P", (), {"entities": {n: None for n in names}})())
     svc._dh_write({"watched": [{"entity": n, "env": "dev"} for n in names], "quiet": {}})
 
+    # Counted, not timed: the checks overlap, four at a time, rather than run one after another (a wall-clock
+    # limit failed on busy CI runners with nothing changed). Each check waits, up to the old bound of 100 slow
+    # reads one after another, until four are running; run one at a time, no check ever sees four.
+    lock, four, running, most = threading.Lock(), threading.Event(), [0], [0]
+    deadline = time.monotonic() + 100 * 0.02
+
     def check(name, env):
-        time.sleep(0.02)  # a slow log read
-        return {"entity": name, "env": env, "alerts": []} if name != "silver.t050" else (_ for _ in ()).throw(TimeoutError("slow"))
+        with lock:
+            running[0] += 1
+            most[0] = max(most[0], running[0])
+            if running[0] == 4:
+                four.set()
+        try:
+            four.wait(max(0.0, deadline - time.monotonic()))  # a slow log read, until four are reading
+            return {"entity": name, "env": env, "alerts": []} if name != "silver.t050" else (_ for _ in ()).throw(TimeoutError("slow"))
+        finally:
+            with lock:
+                running[0] -= 1
 
     monkeypatch.setattr(svc, "meta_data_health", check)
-    start = time.monotonic()
     tables = svc.meta_data_health_list()["tables"]
-    assert time.monotonic() - start < 100 * 0.02  # four at a time, not one after another
+    assert most[0] == 4  # four at a time, not one after another
     assert len(tables) == 100 and [t["entity"] for t in tables if t.get("state") == "error"] == ["silver.t050"]
     assert project is not None
     with pytest.raises(ValueError, match="at most 100"):

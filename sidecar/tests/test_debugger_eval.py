@@ -165,9 +165,10 @@ def test_a_watch_calling_a_function_with_a_breakpoint_does_not_pause_again(kerne
 def test_a_huge_value_answers_small_and_quick(kernel, expr):
     kernel.start(CODE, breakpoints=[5])
     assert wait(kernel)["paused"]["line"] == 5
-    started = time.monotonic()
+    # Waited on, not timed: the debugger itself waits EVAL_SECONDS for the answer and says pending after
+    # that, so an answer that isn't pending came within the bound (a clock read around it failed on busy CI runners).
     answer = kernel.debug("eval", expr)
-    assert time.monotonic() - started < debugger.EVAL_SECONDS
+    assert "pending" not in answer, answer
     assert len(answer["value"]) <= 80 and len(repr(answer)) < 1000, answer
     assert len(repr(wait(kernel)["paused"])) < 5000
     continue_finishes(kernel)

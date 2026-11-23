@@ -583,7 +583,17 @@ def test_ids_round_trip():
         model.parse_id("bogus")
 
 
-def _synthetic(n):
+class _Walked(list):
+    """A list that counts the items every pass over it reads."""
+    read = 0
+
+    def __iter__(self):
+        for item in list.__iter__(self):
+            _Walked.read += 1
+            yield item
+
+
+def _synthetic(n, wrap=list):
     items = [{"workspace_id": f"ws{i % 40}", "workspace_name": f"Workspace {i % 40}", "id": f"item{i}",
               "displayName": f"pipeline_{i}", "type": "DataPipeline" if i % 3 else "Notebook"} for i in range(n)]
     runs = [{"item_id": f"item{i}", "job_id": f"j{i}", "status": "Failed" if i % 17 == 0 else "Completed",
@@ -591,36 +601,43 @@ def _synthetic(n):
     assignments = {model.fabric_id(f"ws{i % 40}", f"item{i}"): {"team": {"value": f"team{i % 9}"}}
                    for i in range(0, n, 3)}
     obs = model.observation("Fabric items", "cached", model.now())
-    records = inventory.fabric_workloads(items, items_obs=obs, linked=set(), fabric_schedules=[], fabric_runs=runs,
-                                         assignments=assignments)
+    records = inventory.fabric_workloads(wrap(items), items_obs=obs, linked=set(), fabric_schedules=[],
+                                         fabric_runs=wrap(runs), assignments=assignments)
     for r in records:
         r.update(health.assess(r))
     return records
 
 
-def test_ten_thousand_workloads_filter_and_page_quickly():
-    t0 = time.perf_counter()
-    records = _synthetic(10_000)
-    build = time.perf_counter() - t0
-    timings = []
+def test_ten_thousand_workloads_filter_and_page_quickly(monkeypatch):
+    # Counted, not timed (a wall-clock limit failed on busy CI runners with nothing changed): building reads each
+    # item and run once, never every run per item, and a select reads the records a pass per view count plus one,
+    # describes each once for its group and search, and makes rows for its page only.
+    _Walked.read = 0
+    records = _synthetic(10_000, wrap=_Walked)
+    assert _Walked.read <= 10_000 + 5_000, _Walked.read  # the items, and the runs of every other one
+    made = {"row": 0, "_haystack": 0, "_group": 0}
+    for name in made:
+        real = getattr(query, name)
+
+        def counted(*args, name=name, real=real):
+            made[name] += 1
+            return real(*args)
+        monkeypatch.setattr(query, name, counted)
+    walked = _Walked(records)
     for kw in ({}, {"view": "attention"}, {"query": "pipeline_99 team"}, {"group": "owner", "offset": 5000},
                {"view": "unowned", "group": "environment"}):
-        # The fastest of three: one run can be descheduled for a while when every core is busy (it took
-        # 1.05 s once beside 8 test workers, against 0.3 s alone); a slow select is slow on every run.
-        best = float("inf")
-        for _ in range(3):
-            t0 = time.perf_counter()
-            page = query.select(records, limit=100, **kw)
-            best = min(best, time.perf_counter() - t0)
-        timings.append(best)
+        made.update(dict.fromkeys(made, 0))
+        _Walked.read = 0
+        page = query.select(walked, limit=100, **kw)
         assert len(page["rows"]) <= 100
+        assert made["row"] == len(page["rows"]), (kw, made)
+        assert made["_haystack"] <= 10_000 and made["_group"] <= 10_000, (kw, made)
+        assert _Walked.read <= (len(query.VIEWS) + 1) * 10_000, (kw, _Walked.read)
     page = query.select(records, view="attention", limit=100)
     assert page["total"] == len([i for i in range(0, 10_000, 2) if i % 17 == 0])
     assert all(r["health"] == "failing" for r in page["rows"])
     last = query.select(records, offset=9_950, limit=100)
     assert len(last["rows"]) == 50 and last["total"] == 10_000
-    print(f"\nbuild+assess 10k: {build * 1000:.0f} ms; select: " + ", ".join(f"{t * 1000:.0f} ms" for t in timings))
-    assert max(timings) < 1.0 and build < 5.0  # generous for shared CI runners; measured numbers are printed
 
 
 def test_a_copy_job_opens_its_own_fabric_page():

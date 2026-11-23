@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import base64
 import json
-import time
 
 import pytest
 
@@ -93,11 +92,17 @@ def test_a_lock_another_process_never_lets_go_of_doesnt_hang_sign_in(tmp_path, m
     path = tmp_path / "msal_cache.bin"
     a = auth.Authenticator(OWN_APP, cache_path=path)
     windows = signing_in(a)
+    # Counted, not timed: the held lock is waited for once (a wall-clock limit failed on busy CI runners).
+    waits, real = [], auth._file_lock
+
+    def counted(path, *args, **kwargs):
+        waits.append(path)
+        return real(path, *args, **kwargs)
+    monkeypatch.setattr(auth, "_file_lock", counted)
     with _file_lock(a.cache.lock_path):  # another process holds it and hangs
-        started = time.monotonic()
         assert a.fabric_token() == "token-1"  # the sign-in is kept in memory
         assert a.fabric_token() == "token-1"  # and used: no second window
-        assert time.monotonic() - started < 1.5  # one wait of LOCK_SECONDS, not one per call or entry
+        assert len(waits) == 1  # one wait of LOCK_SECONDS, not one per call or entry
     assert len(windows) == 1 and a.cache.has_state_changed
     a.cache._busy_until = 0  # the holder let go, and the wait after a busy file is over
     a._save()

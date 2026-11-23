@@ -782,11 +782,33 @@ def test_export_and_import_database_are_found_after_comments_only(query, word):
     assert sql_exec._outside_command(query) == word
 
 
+class _Reads(str):
+    """Text that counts the characters read from it: by index, slice, startswith and find."""
+    read = 0
+
+    def __getitem__(self, key):
+        got = str.__getitem__(self, key)
+        _Reads.read += len(got)
+        return got
+
+    def startswith(self, prefix, *args):
+        _Reads.read += len(prefix)
+        return str.startswith(self, prefix, *args)
+
+    def find(self, sub, start=0, *args):
+        at = str.find(self, sub, start, *args)
+        _Reads.read += (len(self) if at < 0 else at + len(sub)) - start
+        return at
+
+
 def test_finding_export_database_stays_linear():
+    # Counted, not timed: one pass reads each character a few times, never the text again per statement or
+    # quote (a wall-clock limit failed on busy CI runners with nothing changed).
     for text in (";--" * 50_000, ";/*" * 50_000, "'" * 100_000, "E'\\" * 50_000, "$$" * 75_000, "$a$" * 50_000, ";" * 150_000 + "EXPORT DATABASE 'x'"):
-        started = time.perf_counter()
-        sql_exec._outside_command(text)
-        assert time.perf_counter() - started < 1.0, text[:12]
+        _Reads.read = 0
+        sql_exec._outside_command(_Reads(text))
+        assert _Reads.read <= 16 * len(text), (text[:12], _Reads.read)  # about 10 at most now; a re-read per statement is ~len(text)
+    assert sql_exec._outside_command(_Reads(";" * 150_000 + "EXPORT DATABASE 'x'")) == "EXPORT"
 
 
 def test_local_drop_asks_for_confirmation_then_runs(local_runs):

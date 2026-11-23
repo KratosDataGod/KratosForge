@@ -11,9 +11,9 @@ The cases fuzzing found are kept below by name: each crashed or ran for minutes 
 
 from __future__ import annotations
 
-import gc
 import random
 import re
+import sys
 import time
 
 import duckdb
@@ -138,12 +138,30 @@ DEEP = [
 ]
 
 
+class _TooMuchWork(Exception):
+    pass
+
+
 @pytest.mark.parametrize("query", DEEP)
 def test_a_query_nested_too_deeply_is_refused_by_name_and_quickly(query):
-    start = time.monotonic()
-    with pytest.raises(ValueError, match="nested too deeply"):
-        _translate(query)
-    assert time.monotonic() - start < SLOW
+    # Counted, not timed (a wall-clock limit failed on busy CI runners with nothing changed): the refusal comes
+    # after a number of Python calls that grows with the query's length (the most, 20,000 terms added, makes
+    # about 120 a character), never a factor per level. A read that goes past the bound is stopped there.
+    bound, calls = 200 * len(query), 0
+
+    def profile(frame, event, arg):
+        nonlocal calls
+        if event == "call":
+            calls += 1
+            if calls > bound:
+                raise _TooMuchWork(f"more than {bound} calls")
+    sys.setprofile(profile)
+    try:
+        with pytest.raises(ValueError, match="nested too deeply"):
+            _translate(query)
+    finally:
+        sys.setprofile(None)
+    assert calls <= bound
 
 
 def test_type_calls_nested_up_to_the_limit_still_read():
@@ -153,39 +171,52 @@ def test_type_calls_nested_up_to_the_limit_still_read():
     assert time.monotonic() - start < SLOW
 
 
-def _best_time(text: str) -> float:
-    """CPU time for one read: the best of three samples, in this process's CPU time with the garbage collector
-    off, since other test workers on the same machine take wall-clock time from a read, not CPU time, and a
-    collection can land in any read. Each sample repeats the read for at least 0.25 s, because process_time()
-    on Windows moves in ticks of about 15.6 ms and a short read alone could measure as 0."""
-    best = float("inf")
-    collecting = gc.isenabled()
-    gc.disable()
+class _Text(str):
+    """Text that counts the characters read from it by index or slice."""
+    read = 0
+
+    def __getitem__(self, key):
+        got = str.__getitem__(self, key)
+        _Text.read += len(got)
+        return got
+
+
+def _work(text: str, monkeypatch) -> tuple[int, int]:
+    """What one read of ``text`` does, counted the same on any machine however busy, where its time is not:
+    the Python function calls it makes (generators resumed included), and the characters of the query that
+    naming a constant or call reads back from where it starts."""
+    for name in ("_word_before", "_call_before"):
+        real = getattr(spark_sql_names, name)
+        monkeypatch.setattr(spark_sql_names, name, lambda text, end, real=real: real(_Text(text), end))
+    calls, _Text.read = 0, 0
+
+    def profile(frame, event, arg):
+        nonlocal calls
+        if event == "call":
+            calls += 1
+    sys.setprofile(profile)
     try:
-        for _ in range(3):
-            reads, start = 0, time.process_time()
-            while (spent := time.process_time() - start) < 0.25 or not reads:
-                sql.parse(text, "spark")
-                reads += 1
-            best = min(best, spent / reads)
+        sql.parse(text, "spark")
     finally:
-        if collecting:
-            gc.enable()
-    return best
+        sys.setprofile(None)
+        monkeypatch.undo()
+    return calls, _Text.read
 
 
 @pytest.mark.parametrize("query", [
     lambda n: "SELECT * FROM t WHERE " + " OR ".join(f"a = {i}" for i in range(n // 25)),
     lambda n: "SELECT a IN (" + ",".join(str(i) for i in range(n)) + ")",  # 20,000 items: 14.7 s before
 ], ids=["or chain", "in list"])
-def test_a_long_or_chain_and_a_long_in_list_read_in_linear_time(query):
-    # Each call and operator once walked its whole subtree for its first place in the text: 3,000 ORs took 48 s.
-    # The check is how the time grows, not a number of seconds (a loaded Windows runner took 5.06 s for both).
-    # Eight times the terms takes 8 to 9.3 times as long now (also with twice as many busy processes as cores),
-    # and took 25 to 42 times as long before, so a bound of 16 leaves room on both sides. (4x the terms against
-    # a bound of 9 was flaky with 8 test workers.)
-    small, large = _best_time(query(2500)), _best_time(query(20000))
-    assert large < 16 * small, f"{small:.3f}s for 2,500, {large:.3f}s for 20,000: grows faster than the length"
+def test_a_long_or_chain_and_a_long_in_list_read_in_linear_time(query, monkeypatch):
+    # Each call and operator once walked its whole subtree for its first place in the text, and each constant
+    # searched the whole text before it: 3,000 ORs took 48 s. The check is how the work grows with the length,
+    # counted rather than timed (a CPU-time ratio was flaky beside busy test workers): eight times the terms
+    # makes about eight times the calls and the characters read back; either regression made them grow with
+    # the square of the length. The bound of 16 is the one the timed check had.
+    sql.parse(query(100), "spark")  # anything read once per process is read before counting
+    (small_calls, small_read), (large_calls, large_read) = _work(query(2500), monkeypatch), _work(query(20000), monkeypatch)
+    assert large_calls < 16 * small_calls, f"{small_calls} calls for 2,500, {large_calls} for 20,000: grows faster than the length"
+    assert large_read < 16 * max(small_read, 1), f"{small_read} characters read back for 2,500, {large_read} for 20,000"
 
 
 @pytest.mark.parametrize("query, says", [

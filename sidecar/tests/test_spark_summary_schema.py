@@ -390,12 +390,20 @@ def test_print_schema_escapes_names_and_takes_spark_levels(kernel):
 
 
 def test_describe_stays_fast_on_many_rows(kernel):
-    # Spark's row-by-row stddev folds a list, so it is kept to small frames; a big one uses DuckDB's own
-    text = _printed(kernel, "import time\nd = spark.range(1000000).selectExpr('id', 'id * 2 AS b', 'id % 7 AS c')\n"
-                            "t = time.monotonic(); r = d.describe().collect(); s = d.summary('stddev').collect()\n"
-                            "print(time.monotonic() - t < 10, r[2][0], r[2][1], s[0][3])")
-    took, label, stddev, small = text.split()
-    assert (took, label) == ("True", "stddev")
+    # Spark's row-by-row stddev folds a list, so it is kept to small frames; a big one uses DuckDB's own.
+    # Counted, not timed: no stddev of the million-row frame is a folded list (a wall-clock limit failed on
+    # busy CI runners with nothing changed).
+    text = _printed(kernel, "from fabric_desktop import spark_compat\n"
+                            "folds, real = [], spark_compat._list_stddev\n"
+                            "spark_compat._list_stddev = lambda values: folds.append(values) or real(values)\n"
+                            "try:\n"
+                            "    d = spark.range(1000000).selectExpr('id', 'id * 2 AS b', 'id % 7 AS c')\n"
+                            "    r = d.describe().collect(); s = d.summary('stddev').collect()\n"
+                            "finally:\n"
+                            "    spark_compat._list_stddev = real\n"
+                            "print(len(folds), r[2][0], r[2][1], s[0][3])")
+    folds, label, stddev, small = text.split()
+    assert (folds, label) == ("0", "stddev")
     assert abs(float(stddev) - 288675.27893234405) < 1e-6 and abs(float(small) - 2.0000022499987344) < 1e-9
 
 

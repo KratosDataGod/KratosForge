@@ -250,29 +250,62 @@ def test_a_window_derive_reads_its_partition_and_order_columns(svc):
     assert sorted(f["field"] for f in fields) == ["amount", "customer_id", "order_date"]
 
 
-def test_deep_nesting_is_refused_before_polars_sees_it():
-    import time
+def _depth(expr):
+    """How deep the brackets outside quoted text nest."""
+    depth = deepest = 0
+    quote = None
+    for ch in expr:
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "'`\"":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif ch == ")":
+            depth = max(0, depth - 1)
+    return deepest
 
+
+def _polars_reads(monkeypatch):
+    """The expressions handed to Polars' own parser. One nested deeper than MAX_EXPR_DEPTH is recorded and
+    not parsed (Polars runs for minutes on it): reaching Polars at all is the failure these tests look for."""
+    from fabric_desktop.meta import project as project_mod
+
+    seen, real = [], project_mod.pl.sql_expr
+
+    def sql_expr(expr):
+        seen.append(expr)
+        if _depth(expr) > project_mod.MAX_EXPR_DEPTH:
+            raise RuntimeError("a deeply nested expression reached Polars")
+        return real(expr)
+    monkeypatch.setattr(project_mod.pl, "sql_expr", sql_expr)
+    return seen
+
+
+def test_deep_nesting_is_refused_before_polars_sees_it(monkeypatch):
+    # Counted, not timed: what keeps this quick is that Polars never parses the deep expressions
+    # (a wall-clock limit failed on busy CI runners with nothing changed).
     from fabric_desktop.meta import project as project_mod
 
     def cast(n):
         return "CAST(" * n + "a" + " AS INT)" * n
 
     assert lineage._expr_columns(cast(project_mod.MAX_EXPR_DEPTH)) == ["a"]
-    start = time.perf_counter()
+    seen = _polars_reads(monkeypatch)
     assert lineage._expr_columns(cast(50)) is None  # Polars alone runs for minutes on this
     assert lineage._expr_columns("(" * 33 + "a" + ")" * 33) is None
     assert lineage._expr_columns("'" + "(" * 100 + "' || a") == ["a"]  # brackets in quoted text don't count
-    assert time.perf_counter() - start < 1.0
+    assert seen == ["'" + "(" * 100 + "' || a"]  # only the shallow one reached Polars
     assert project_mod.check_expr(cast(50), {"a"})[0].endswith("does not parse (ValueError)")
+    assert len(seen) == 1
 
 
-def test_brackets_in_a_backtick_name_or_unmatched_ones_cannot_hide_deep_nesting():
-    import time
-
+def test_brackets_in_a_backtick_name_or_unmatched_ones_cannot_hide_deep_nesting(monkeypatch):
+    # Counted, not timed, as above: neither deep expression reaches Polars.
     deep = "CAST(" * 50 + "a" + " AS INT)" * 50
-    start = time.perf_counter()
+    seen = _polars_reads(monkeypatch)
     assert lineage._expr_columns("`" + ")" * 40 + "` + " + deep) is None
     assert lineage._expr_columns(")" * 40 + " + " + deep) is None
     assert lineage._expr_columns("`(((` + a") == ["(((", "a"]
-    assert time.perf_counter() - start < 1.0
+    assert seen == ["`(((` + a"]

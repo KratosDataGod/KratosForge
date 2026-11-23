@@ -151,13 +151,28 @@ def test_a_small_frame_has_no_total():
     wait(k)
 
 
+class _Counted:
+    """An item that counts how often its text is read."""
+    reads = 0
+
+    def __init__(self, n):
+        self.n = n
+
+    def __repr__(self):
+        type(self).reads += 1
+        return repr(self.n)
+
+
 def test_previews_of_large_values_read_only_what_they_show():
-    big = list(range(3_000_000))
-    started = time.perf_counter()
+    # Counted, not timed: each preview reads at most the first _PREVIEW_ITEMS items, never the whole value
+    # (a wall-clock limit failed on busy CI runners with nothing changed).
+    big = [_Counted(i) for i in range(20_000)]
+    _Counted.reads = 0
     for _ in range(20):
         text = _preview(big)
-    assert time.perf_counter() - started < 0.5  # not 20 reprs of 3 million numbers
+    assert _Counted.reads <= 20 * notebook._PREVIEW_ITEMS, _Counted.reads  # not 20 reprs of every item
     assert text.startswith("[0, 1, 2, ") and text.endswith("...]") and len(text) <= 80
+    assert _preview(list(range(3_000_000))) == text
     assert _preview(tuple(range(500))).endswith("...)")
     assert _preview({i: str(i) for i in range(500)}).startswith("{0: '0', 1: '1'")
     assert _preview(set(range(500))).endswith("...}")
@@ -177,14 +192,17 @@ def test_a_preview_of_a_container_whose_items_fail_to_repr_is_a_question_mark():
 
 
 def test_pausing_next_to_a_large_list_stays_quick(kernel):
-    kernel.start("big = list(range(5_000_000))\nx = 1\ny = 2", breakpoints=[2])
+    # Counted, not timed: each pause reads at most the first _PREVIEW_ITEMS items of the list, never all
+    # 5 million (a wall-clock limit failed on busy CI runners with nothing changed).
+    kernel.start("class Item:\n    reads = 0\n    def __repr__(self):\n        Item.reads += 1\n        return '7'\n"
+                 "big = [Item()] * 5_000_000\nx = 1\ny = 2", breakpoints=[7])
     p = wait(kernel)["paused"]
-    started = time.perf_counter()
-    for line in (3,):
+    for line in (8,):
         kernel.debug("next")
         p = wait(kernel)["paused"]
         assert p["line"] == line
-    assert time.perf_counter() - started < 5
+    reads = int(kernel.debug("eval", "Item.reads")["value"])
+    assert reads <= 2 * notebook._PREVIEW_ITEMS, reads  # two pauses, each reading only what it shows
     row = next(v for v in p["variables"] if v["name"] == "big")
     assert row["size"] == "5000000" and row["value"].endswith("...]")
     kernel.debug("continue")

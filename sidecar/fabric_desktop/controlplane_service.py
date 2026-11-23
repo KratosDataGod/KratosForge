@@ -327,6 +327,9 @@ class ControlPlaneMixin:
         entry = self._cp_take("upgrade", token)
         prov = self._cp_provisioning()
         req = entry["request"]
+        active = self.cp_cache.active()  # the environment it was previewed for, still the one this PC uses
+        if not active or active.get("environment_id") != req.get("environment_id"):
+            raise PermissionError(CHANGED)
         got = self._cp_store(req["workspace_id"], req["lakehouse_id"]).read()
         if got is None or got.manifest.get("environment_id") != req.get("environment_id"):
             raise PermissionError(CHANGED)

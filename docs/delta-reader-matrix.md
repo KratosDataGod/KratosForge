@@ -36,7 +36,7 @@ KratosForge writes to a table only when the table is inside the profile and ever
 
 | Profile | Allows | Readers that can't read it |
 | --- | --- | --- |
-| Modern (the default) | Reader version 3 at most, and writer version 2 or 7, with deletion vectors and column mapping by name. Writer versions 3 to 6 are refused, because they turn on features without listing them | Fabric Python notebooks, pipelines and eventstreams |
+| Modern (the default) | Reader version 3 at most, and writer version 2 or 7, with deletion vectors and column mapping by name. Writer versions 3 to 5 turn on features without listing them, so a table at one of them is written only when its settings and schema show none of those features in use other than column mapping by name. That means no check constraint (a `delta.constraints.` setting), no change data feed (`delta.enableChangeDataFeed` true) and no generated column (a `delta.generationExpression` on any column, nested ones included). That lets older column-mapped tables, which Spark and Databricks made as reader 2 and writer 5, be written. The refusal names the feature in use. Writer version 6 (identity columns) is refused | Fabric Python notebooks, pipelines and eventstreams |
 | Conservative ("Fabric-safe") | Reader version 1 and writer version 2 at most, no table features | None in the matrix |
 
 Both profiles refuse column mapping by ID, because Fabric's SQL analytics endpoint can't read it. Both also refuse V2 checkpoints, which users report the endpoint refusing, and any other table feature.
@@ -48,6 +48,21 @@ Both profiles refuse column mapping by ID, because Fabric's SQL analytics endpoi
   - Use the conservative profile when a Fabric Python notebook, a pipeline or an eventstream reads the table, or when you don't know who reads it.
 - **What KratosForge itself writes.** A table KratosForge creates stays at reader 1 and writer 2: delta-rs never writes deletion vectors (a DELETE rewrites files), and no feature is turned on for you. On a table that has these features, appends, overwrites, merges, updates and deletes keep the features and the rows right. We checked this with Spark reading the tables back.
 - **Column mapping limits.** delta-rs can't change a column-mapped table's columns. A write that adds or leaves out a column is refused before it starts. Change the columns in Fabric Spark first. Compacting a column-mapped table on this PC is also refused by delta-rs. Fabric's table maintenance compacts it instead.
+
+## Each table's own choice (Preview)
+
+In a metadata project, each table can choose the Delta features a run may leave on it when it publishes the table. Choose it in Data mesh > Deploy > Environments and promote, under **Delta table features at publish**. The choice is kept in the table's entity file, so it reaches Test and Prod with the next promote.
+
+- **Default** (no setting): the modern profile, with deletion vectors and column mapping by name.
+- **Every reader (recommended)** (`delta_features = "every_reader"`): the conservative profile. Every reader in the matrix reads it.
+- **Allow deletion vectors only** (`delta_features = "deletion_vectors"`): reader version 3 and writer version 7 at most, with deletion vectors and no column mapping.
+- **Allow column mapping by name only** (`delta_features = "column_mapping"`): reader version 3 and writer version 7 at most, with column mapping by name and no deletion vectors.
+
+A table's readers are the SQL analytics endpoint and Direct Lake unless its file names others, like `delta_readers = ["sql_endpoint", "pipelines"]`. The keys are the reader names in `delta_profile.READERS`.
+
+When a choice allows a feature that one of the table's readers can't read, or that no source says it reads, KratosForge saves it only after you type the table's full name, such as `gold.fact_sales`, to allow it. The dialog lists each reader, feature and source, as a refused write does. The readers you allowed are kept in the file as `delta_accepted`, and a write doesn't check them again. A file changed outside the app with such a choice and no `delta_accepted` fails the save gate until you choose again in the app. Removing from `delta_readers` a reader that the choice would break also needs the typed name. A reader that is out of `delta_readers` is no longer checked, so a later choice that breaks it doesn't ask. `delta_accepted` is part of the file, so a hand edit or a change that comes in through Git can allow a reader without the typed confirm. Review changes to it as you would any other change to the project.
+
+Every write to the table is checked with its choice before anything is committed. A table that already uses a feature the choice doesn't allow is refused, and its version, Delta log and files stay as they were. A value KratosForge doesn't know is refused when you save, and the save gate names it. A file from before this setting has none, so it keeps the default.
 
 ## Reading these tables in KratosForge
 

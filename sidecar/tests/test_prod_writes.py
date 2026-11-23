@@ -151,6 +151,9 @@ def test_a_process_kernel_asks_the_engine_with_its_notebook_and_its_runs_allowan
     k.prod_allowed = frozenset({"ws1"})
     assert k.calls["prod_guard"]("delete", "WS1", "Sales Prod", "dbo.sales") is None
     assert len(seen) == 1
+    # A thread in the kernel's process that isn't the running cell's own gets no allowance and no notebook.
+    assert k.calls["prod_guard"]("delete", "WS1", "Sales Prod", "dbo.sales", True) == "waits"
+    assert seen[-1] == ("delete", "WS1", "Sales Prod", "dbo.sales", lakehouse.NO_CELL)
 
 
 def test_an_unreadable_project_is_warned_about_and_the_remembered_ids_still_hold(tmp_path, caplog):
@@ -286,7 +289,7 @@ def test_a_write_without_its_own_cell_is_never_charged_to_a_running_notebook(lak
     assert prod.notebook_prod_pending("A") is None and prod.notebook_prod_pending("B") is None
     assert prod.notebook_prod_pending(lakehouse.NO_CELL) is None  # nothing waits: it can't be confirmed
     why = prod._prod_write_refusal("overwrite", "ws1", "Sales Prod", "dbo.sales", lakehouse.NO_CELL)
-    assert "Only that cell's own code" in why and "Try again when the cell has finished" in why
+    assert "Only a cell's own code" in why and "If it came from outside the notebook, try again when no cell is running" in why
     assert "Run this cell on its own" not in why
 
 
@@ -297,3 +300,137 @@ def test_a_refusal_under_no_cell_can_never_be_confirmed(tmp_path):
     with pytest.raises(ValueError, match="wasn't made by a notebook cell"):
         svc.notebook_prod_confirm(lakehouse.NO_CELL, "ws-prod", "Sales Prod")
     assert svc._take_prod_allowance(lakehouse.NO_CELL) == frozenset()
+
+
+def test_a_thread_that_outlives_its_cell_is_still_asked_and_never_allowed(lake, prod):  # noqa: F811
+    """A cell with a typed name starts a thread and finishes; the thread's overwrite after that is asked under no
+    notebook, so neither the cell's allowance nor a later typed name lets it through."""
+    import sys
+    import threading
+    import types
+    go, done, raised = threading.Event(), threading.Event(), []
+    prod._prod_write_refusal("overwrite", "ws1", "", "dbo.sales", "A")
+    prod.notebook_prod_confirm("A", "ws1", "ws1")
+    kernel = Kernel()
+    kernel.notebook_name = "A"
+    kernel.prod_allowed = prod._take_prod_allowance("A")
+    sys.modules["_prod_test_hooks"] = types.SimpleNamespace(go=go, done=done, raised=raised)
+    code = ("import threading, pyarrow as pa, _prod_test_hooks as t\nfrom fabric_desktop import lakehouse\n"
+            "def later():\n"
+            "    t.go.wait(10)\n"
+            "    try:\n"
+            "        lakehouse.write_table(pa.table({'id': [9], 'region': ['EU']}), 'dbo.sales')\n"
+            "    except lakehouse.ProdConfirmNeeded:\n"
+            "        t.raised.append(True)\n"
+            "    finally:\n"
+            "        t.done.set()\n"
+            "threading.Thread(target=later, daemon=True).start()")
+    try:
+        before = _version(lake)
+        status, _, text = _run(code, kernel)
+        assert status == "ok", text
+        go.set()  # the cell has finished: no cell is running now
+        assert done.wait(10)
+    finally:
+        del sys.modules["_prod_test_hooks"]
+    assert raised == [True] and _version(lake) == before
+    assert prod.notebook_prod_pending("A") is None and prod.notebook_prod_pending("") is None
+
+
+def test_a_thread_running_before_the_cell_is_not_counted_as_the_cells(lake, prod):  # noqa: F811
+    import threading
+    release = threading.Event()
+    other = threading.Thread(target=release.wait, args=(10,), daemon=True)
+    other.start()
+    try:
+        status, _, text = _run("print('ok')")
+        assert status == "ok", text
+        assert other not in lakehouse.cell_started_threads
+    finally:
+        release.set()
+        other.join(10)
+
+
+def test_a_widget_handlers_write_is_asked_under_no_cell(lake, prod):  # noqa: F811
+    """A control's handler is a cell's code but no running cell's own: its overwrite is asked and can't be allowed."""
+    k = Kernel()
+    status, _, text = _run(
+        "import ipywidgets as w, pyarrow as pa\nfrom fabric_desktop import lakehouse\nb = w.Button(description='Go')\n"
+        "b.on_click(lambda b: lakehouse.write_table(pa.table({'id': [9], 'region': ['EU']}), 'dbo.sales'))", k)
+    assert status == "ok", text
+    before = _version(lake)
+    out = k.ipywidget_event(k.namespace["b"].model_id, {"click": True})
+    assert out["status"] == "error" and any(o.get("ename") == "ProdConfirmNeeded" for o in out["outputs"]), out
+    assert _version(lake) == before and prod.notebook_prod_pending("") is None
+
+
+_LATER_WRITE = ("import threading, pyarrow as pa, _prod_test_hooks as t\nfrom fabric_desktop import lakehouse\n"
+                "def write():\n"
+                "    try:\n"
+                "        lakehouse.write_table(pa.table({'id': [9], 'region': ['EU']}), 'dbo.sales')\n"
+                "    except lakehouse.ProdConfirmNeeded:\n"
+                "        t.raised.append(True)\n"
+                "    finally:\n"
+                "        t.done.set()\n")
+
+
+def _later(lake, prod, code, after=None):  # noqa: F811
+    """Run ``code`` in a cell holding a typed name for ws1, then let its leftover work write once the cell is done."""
+    import sys
+    import threading
+    import types
+    go, done, raised = threading.Event(), threading.Event(), []
+    prod._prod_write_refusal("overwrite", "ws1", "", "dbo.sales", "A")
+    prod.notebook_prod_confirm("A", "ws1", "ws1")
+    kernel = Kernel()
+    kernel.notebook_name = "A"
+    kernel.prod_allowed = prod._take_prod_allowance("A")
+    sys.modules["_prod_test_hooks"] = types.SimpleNamespace(go=go, done=done, raised=raised)
+    try:
+        before = _version(lake)
+        status, _, text = _run(_LATER_WRITE + code, kernel)
+        assert status == "ok", text
+        if after:
+            after(kernel)
+        go.set()
+        assert done.wait(10)
+    finally:
+        del sys.modules["_prod_test_hooks"]
+    assert raised == [True] and _version(lake) == before
+    assert prod.notebook_prod_pending("A") is None and prod.notebook_prod_pending("") is None
+
+
+def test_a_thread_started_by_a_leftover_thread_after_the_cell_ends_is_asked_too(lake, prod):  # noqa: F811
+    _later(lake, prod, "def parent():\n    t.go.wait(10)\n    threading.Thread(target=write).start()\n"
+                       "threading.Thread(target=parent, daemon=True).start()")
+
+
+def test_a_thread_pool_the_cell_made_and_used_later_is_asked_too(lake, prod):  # noqa: F811
+    _later(lake, prod, "from concurrent.futures import ThreadPoolExecutor\npool = ThreadPoolExecutor(1)\n"
+                       "pool.submit(lambda: None).result()",
+           after=lambda k: k.namespace["pool"].submit(k.namespace["write"]))
+
+
+def test_an_app_thread_started_while_a_cell_runs_is_not_the_cells(lake, prod):  # noqa: F811
+    import sys
+    import threading
+    import types
+    started, release, made = threading.Event(), threading.Event(), []
+
+    def app():
+        started.wait(10)
+        t = threading.Thread(target=release.wait, args=(10,), daemon=True)
+        t.start()
+        made.append(t)
+        release.set()
+
+    a = threading.Thread(target=app)
+    a.start()
+    sys.modules["_prod_test_hooks"] = types.SimpleNamespace(started=started, release=release)
+    try:
+        status, _, text = _run("import _prod_test_hooks as t\nt.started.set()\nt.release.wait(10)")
+    finally:
+        del sys.modules["_prod_test_hooks"]
+    a.join(10)
+    assert status == "ok", text
+    assert made and made[0] not in lakehouse.cell_started_threads

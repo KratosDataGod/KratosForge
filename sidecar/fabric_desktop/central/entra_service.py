@@ -116,7 +116,7 @@ class EntraGroupsMixin:
                                "protected": cells.protected,
                                "notes": [csv_cells.note(cells.protected, can_keep_raw=False)] if cells.protected else []}
         if save:
-            folder = known_folders.downloads()
+            folder = known_folders.export_folder()
             folder.mkdir(parents=True, exist_ok=True)
             label = {"powershell": "groups", "az": "groups", "csv": "groups", "roles": "Fabric roles"}[kind]
             path = sql_exec._reserve(folder, f"{entra._part(domain.get('name') or domain_id)} Entra {label}", f".{ext}")

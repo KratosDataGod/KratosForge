@@ -253,6 +253,38 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
                   "nanosecond": t.microsecond * 1000, "month": t.strftime("%B"), "weekday": t.strftime("%A")}[part]
         # + '|' keeps a number's text from reading back as a number.
         out.append(("DATENAME", f"DATENAME({part}, CAST('{text}' AS DATETIME2)) + '|'", f"{number}|"))
+    return out + _regex_cases(random.Random(SEED + 3), q)
+
+
+def _regex(pattern: str, flags: str) -> re.Pattern[str]:
+    # functions/regexp-like-transact-sql: "m Multi-line mode: ^ and $ match begin/end line in addition to
+    # begin/end text", "s Let . match \\n", c and i: "SQL Server uses the last character". Python's $ also
+    # matches before a final line break, so without m it is written \Z here.
+    mode = (re.M if "m" in flags else 0) | (re.S if "s" in flags else 0)
+    case = [c for c in flags if c in "ci"]
+    mode |= re.I if case and case[-1] == "i" else 0
+    return re.compile(pattern if "m" in flags else pattern.replace("$", r"\Z"), mode)
+
+
+def _regex_cases(r: random.Random, q) -> list[tuple[str, str, object]]:
+    """WR-257: REGEXP_LIKE (a match anywhere, as the reference's examples use it), REGEXP_REPLACE (every
+    occurrence by default) and REGEXP_COUNT and REGEXP_INSTR, whose "Return value" is int, so / 2 divides as
+    integers. The subjects hold line breaks, written with CHAR(10)."""
+    out: list[tuple[str, str, object]] = []
+    subjects = [["a", "b"], ["ab", "ab"], ["x", "a"], ["A", "b"], ["abc"], ["b", "a", "b"]]
+    for _ in range(80):
+        lines, flags = r.choice(subjects), r.choice(["c", "m", "s", "ms", "sm", "i", "mi", "im", "ic", "ci", "smi"])
+        p = r.choice(["^b", "a$", "^a.*b$", "a.b", "b$", "^a", "a.", "^A", "(a|b)$"])
+        s, text = "\n".join(lines), " + CHAR(10) + ".join(q(x) for x in lines)
+        rx = _regex(p, flags)
+        out.append(("REGEXP_LIKE", f"CASE WHEN REGEXP_LIKE({text}, {q(p)}, {q(flags)}) THEN 1 ELSE 0 END",
+                    int(rx.search(s) is not None)))
+        out.append(("REGEXP_REPLACE", f"REGEXP_REPLACE({text}, {q(p)}, {q('X')}, 1, 0, {q(flags)})", rx.sub("X", s)))
+        found = list(rx.finditer(s))
+        out.append(("REGEXP_COUNT", f"REGEXP_COUNT({text}, {q(p)}, 1, {q(flags)})", len(found)))
+        out.append(("REGEXP_COUNT", f"REGEXP_COUNT({text}, {q(p)}) / 2", len(list(re.finditer(_regex(p, "c"), s))) // 2))
+        out.append(("REGEXP_INSTR", f"REGEXP_INSTR({text}, {q(p)}, 1, 1, 0, {q(flags)}) / 2",
+                    (found[0].start() + 1 if found else 0) // 2))
     return out
 
 

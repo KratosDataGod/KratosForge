@@ -93,14 +93,17 @@ def vorder_files(uri: str, options: dict[str, str] | None = None, limit: int = F
     return {"files": len(paths), "checked": min(len(paths), limit), "v_ordered": v_ordered}
 
 
-def health(uri: str, options: dict[str, str] | None = None, local: bool = False) -> dict[str, Any]:
+def health(uri: str, options: dict[str, str] | None = None, local: bool = False,
+           table: DeltaTable | None = None) -> dict[str, Any]:
     """File, size and history numbers for one Delta table, plus what maintenance would help.
 
-    V-Order only matters to Fabric readers, so it isn't advised for a table on this PC."""
-    try:
-        table = DeltaTable(uri, storage_options=options)
-    except TableNotFoundError:
-        return {"exists": False, "advice": [], "status": "missing"}
+    V-Order only matters to Fabric readers, so it isn't advised for a table on this PC. ``table``,
+    when given, is that table already loaded, so its log isn't read a second time."""
+    if table is None:
+        try:
+            table = DeltaTable(uri, storage_options=options)
+        except TableNotFoundError:
+            return {"exists": False, "advice": [], "status": "missing"}
     actions = table.get_add_actions(flatten=True)
     sizes = cast(list[int], actions.column("size_bytes").to_pylist()) if actions.num_rows else []
     files, total = len(sizes), sum(sizes)

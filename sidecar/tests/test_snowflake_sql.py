@@ -528,17 +528,17 @@ def test_typeof_of_a_column_names_json_values_and_flags_what_it_cant_know():
     assert report.verdict == "difference" and [n.id for n in report.notes] == ["SFD-007"]
     got = [r[0] for r in con.execute(report.duckdb_sql + " LIMIT 8").fetchall()]
     assert got == ["NULL_VALUE", "BOOLEAN", "INTEGER", "VARCHAR", "ARRAY", "OBJECT", None, "INTEGER"]
-    # A fraction or an exponent in a column: DuckDB may have written it again, so the query stops at it (SFN-034)
+    # A fraction or an exponent in a column: DuckDB may have written it again, so the query stops at it (SFN-072)
     # rather than name it
     for number in ("123.12", "1.912e2"):
         con.execute("delete from j")
         con.execute("insert into j values (?)", [number])
-        with pytest.raises(duckdb.Error, match="SFN-034 The type of a JSON number with a fraction"):
+        with pytest.raises(duckdb.Error, match="SFN-072 The type of a JSON number with a fraction"):
             con.execute(report.duckdb_sql).fetchall()
 
 
 @pytest.mark.parametrize("code, want", [
-    ("""select typeof(v:a) from (select parse_json('{"a": 1.912e2}') as v)""", "SFN-034"),  # 191.2 here: it stops
+    ("""select typeof(v:a) from (select parse_json('{"a": 1.912e2}') as v)""", "SFN-072"),  # 191.2 here: it stops
     ("""select typeof(v:a) from (select parse_json('{"a": 10}') as v)""", "INTEGER"),
     ("select typeof('2026-01-01 10:00'::timestamp_ltz)", "TIMESTAMP WITH TIME ZONE"),  # LTZ or TZ: DuckDB's name
 ])
@@ -638,7 +638,7 @@ def test_is_and_as_of_sql_null_are_null_and_json_null_is_its_own_type():
 
 
 def test_the_decimal_family_goes_by_how_the_number_was_written_or_stops():
-    # SFN-034 (SFD-008 retired): PARSE_JSON's own text says DECIMAL or DOUBLE, as does a path into PARSE_JSON of
+    # SFN-072 (SFD-008 retired): PARSE_JSON's own text says DECIMAL or DOUBLE, as does a path into PARSE_JSON of
     # text in the query; a stored value doesn't, so the query stops at it instead of calling 1.912e2 a decimal
     assert _one("SELECT is_decimal(parse_json('1.5'))")[1].notes == ()
     assert _one("SELECT is_integer(parse_json('1')), as_double(parse_json('1.5'))")[1].notes == ()
@@ -653,7 +653,7 @@ def test_the_decimal_family_goes_by_how_the_number_was_written_or_stops():
     for code in ("SELECT is_decimal(v) FROM (SELECT parse_json('1.912e2') AS v)",
                  "SELECT as_decimal(v:a) FROM (SELECT parse_json('{\"a\": 123.12}') AS v)",
                  "SELECT as_number(v) FROM (SELECT parse_json('0.5') AS v)"):
-        with pytest.raises(duckdb.Error, match="SFN-034 .*Runs only in Snowflake"):
+        with pytest.raises(duckdb.Error, match="SFN-072 .*Runs only in Snowflake"):
             _first(code)
 
 
@@ -888,9 +888,9 @@ def test_time_of_a_timestamp_tz_is_the_local_time():
     t = sf.translate("SELECT TIME('2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ)")
     assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "10:20:30"
     # in another zone Snowflake still gives 10:20:30 (the value keeps +02:00); DuckDB would give that zone's
-    # time, so it stops by name (SFN-033)
+    # time, so it stops by name (SFN-071)
     con.execute("SET TimeZone = 'UTC'")
-    with pytest.raises(duckdb.Error, match="SFN-033 TIMESTAMP_TZ with another UTC offset"):
+    with pytest.raises(duckdb.Error, match="SFN-071 TIMESTAMP_TZ with another UTC offset"):
         con.execute(t.duckdb_sql).fetchone()
 _EVENTS = ("SELECT * FROM VALUES ('a', 1, 5), ('a', 2, NULL), ('a', 3, 5), ('a', 4, 7), ('b', 1, NULL), ('b', 2, 9) "
            "AS t(p, o, x)")
@@ -1235,23 +1235,23 @@ def test_to_timestamp_ntz_of_a_column_reads_it_by_its_type(fn):
     assert offsets == [(dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2, 3, 4, 5, 500000),),
                        (dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2),)]
     # A TIMESTAMPTZ column: the session time zone's wall clock (DuckDB keeps no offset of its own per value),
-    # which is the value's own when its offset is the session zone's (SFN-033 stops any other)
+    # which is the value's own when its offset is the session zone's (SFN-071 stops any other)
     con.execute("SET TimeZone = 'Etc/GMT-2'")
     zoned = con.execute(sf.translate(
         f"SELECT {fn}(x) FROM (SELECT CAST('2024-01-02 03:04:05+02' AS TIMESTAMPTZ) AS x) AS t").duckdb_sql).fetchall()
     assert zoned == [(dt.datetime(2024, 1, 2, 3, 4, 5),)]
 
 
-# ---------------------------------------------------------------- 2026.11.20: no answer that differs silently
+# ---------------------------------------------------------------- 2026.11.23: no answer that differs silently
 
 
 def test_jarowinkler_similarity_is_refused_by_name():
     # https://docs.snowflake.com/en/sql-reference/functions/jarowinkler_similarity: 'Gute nacht' and
     # 'Ich weis nicht' score 56 there, 'Ich weiß nicht' and 'Ich weiss nicht' 97; DuckDB's gives 57 and 94
     t = sf.translate("SELECT jarowinkler_similarity(s, t) FROM ed")
-    assert not t.runnable and t.statements[0].notes[0].id == "SFN-031"
+    assert not t.runnable and t.statements[0].notes[0].id == "SFN-070"
     assert "EDITDISTANCE runs here" in t.first_refusal()
-    assert sf.RULES_VERSION == "2026.11.20" and "SFN-031" in sf.docs_table()
+    assert sf.RULES_VERSION == "2026.11.23" and "SFN-070" in sf.docs_table()
 
 
 @pytest.mark.parametrize("code, want", [
@@ -1307,11 +1307,11 @@ def test_to_timestamp_tz_answers_as_snowflake_or_stops_by_name():
                  "SELECT x::timestamp_tz FROM (SELECT '2024-01-01T10:00:00+05:00' AS x)"):
         t = sf.translate(stop)
         assert t.runnable, stop
-        with pytest.raises(duckdb.Error, match="SFN-033 TIMESTAMP_TZ with another UTC offset"):
+        with pytest.raises(duckdb.Error, match="SFN-071 TIMESTAMP_TZ with another UTC offset"):
             con.execute(t.duckdb_sql).fetchall()
     # a format with TZH or TZM reads an offset, which DuckDB doesn't keep
     t = sf.translate("SELECT to_timestamp_tz(x, 'YYYY-MM-DD HH24:MI:SS TZH:TZM') FROM t")
-    assert not t.runnable and t.statements[0].notes[0].id == "SFN-033"
+    assert not t.runnable and t.statements[0].notes[0].id == "SFN-071"
     # a TIMESTAMP_TZ column keeps its label: what was written into it isn't seen here
     assert [n.id for n in sf.translate("CREATE TABLE z (c TIMESTAMP_TZ)").statements[0].notes] == ["SFD-002"]
 
@@ -1321,8 +1321,8 @@ def test_a_refusal_written_into_the_query_reads_as_one():
     case = parity.Case("TO_TIMESTAMP_TZ", "Conversion", "SELECT to_timestamp_tz('2024-01-01T10:00:00+05:00')",
                        None, "untranslated", "", "")
     outcome, value = parity.run(case)
-    assert outcome == "untranslated" and value.startswith("SFN-033 ")
-    assert not sf.stopped_by_name(duckdb.Error("Conversion Error: SFN-033 written by someone"))
+    assert outcome == "untranslated" and value.startswith("SFN-071 ")
+    assert not sf.stopped_by_name(duckdb.Error("Conversion Error: SFN-071 written by someone"))
 
 
 def test_unquoted_names_are_stored_in_upper_case():

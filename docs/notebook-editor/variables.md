@@ -30,7 +30,8 @@ The arrow next to a data frame, list, tuple, set or dict opens it in place:
 
 Values whose name or content looks like a secret (`password`, `token`, `key` and the like, or a
 value read with `getSecret`) show as **hidden**, at the top level and inside an opened dict, and a
-hidden variable can't be opened. Opened variables close when the pane refreshes after a run, and
+hidden variable can't be opened. A value that holds a secret read with `getSecret`, such as a list or
+dict with the secret inside, a longer text built from it or an object whose text shows it, is hidden too. Opened variables close when the pane refreshes after a run, and
 reopen with the new values when you open them again.
 
 Clicking a variable's row still adds a cell that displays it.

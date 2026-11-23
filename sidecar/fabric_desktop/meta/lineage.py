@@ -10,9 +10,9 @@ Each column an entity writes gets one record saying where it comes from:
 * ``custom``: produced by Python (``[hooks] adds`` or a ``[step] custom``): opaque, never guessed.
 
 and a label: ``declared`` when a file names the link (a rename, an expression, a lookup, a key),
-``inferred`` when it's assumed from a matching name, ``opaque`` when custom code decides. Columns a
-hook may touch after they're produced say so (``custom_may_change``), because a hook can change any
-column.
+``inferred`` when it's assumed from a matching name, ``opaque`` when custom code decides, ``unknown``
+when an expression can't be read for its columns (they're never guessed). Columns a hook may touch
+after they're produced say so (``custom_may_change``), because a hook can change any column.
 """
 
 from __future__ import annotations
@@ -20,20 +20,23 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import polars as pl
-
 from ..redact import describe
 from . import keys as keys_mod
-from .project import SCD2_COLUMNS, Entity, Project
+from .project import SCD2_COLUMNS, Entity, Project, sql_expr
 
 _log = logging.getLogger(__name__)
 
 RUN_COLUMNS = ("_run_id", "_loaded_at")
 
 
-def _expr_columns(expr: str) -> list[str] | None:
+def _expr_columns(expr: Any) -> list[str] | None:
+    """The columns an expression reads, or None when that isn't known: it doesn't parse, or it picks
+    columns by pattern (COLUMNS('^a.*$')), which only the data decides."""
     try:
-        return list(dict.fromkeys(pl.sql_expr(expr).meta.root_names()))
+        parsed = sql_expr(expr)
+        if parsed.meta.has_multiple_outputs():
+            return None
+        return list(dict.fromkeys(parsed.meta.root_names()))
     except Exception as exc:  # noqa: BLE001 - an expression the save gate would refuse anyway
         _log.info("Couldn't parse an expression's columns: %s", describe(exc))
         return None
@@ -93,10 +96,12 @@ def entity_columns(project: Project, name: str) -> dict[str, dict[str, Any]]:
         elif col in adds:
             rec = {"how": "custom", "label": "opaque", "inputs": [], "note": "added by your Python (hooks adds)"}
         elif col in derives:
-            used = _expr_columns(derives[col]["expr"])
-            rec = {"how": "derived", "label": "declared", "expr": derives[col]["expr"],
+            expr = derives[col].get("expr")
+            used = _expr_columns(expr)
+            rec = {"how": "derived", "label": "declared", "expr": expr,
                    "inputs": [i for c in used or [] for i in ref(c, col)]}
-            if used is None:
+            if used is None:  # never guessed: the columns it reads aren't known
+                rec["label"] = "unknown"
                 rec["note"] = "the expression couldn't be read"
         elif col in lookups:
             lk = lookups[col]

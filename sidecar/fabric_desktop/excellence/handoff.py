@@ -127,7 +127,8 @@ def _touches(o: dict[str, Any], resource: dict[str, Any]) -> bool:
 
 def _cite(o: dict[str, Any]) -> dict[str, Any]:
     """The engine's own figures for one opportunity, only when it counts them in its totals."""
-    imp = o.get("impact") if isinstance(o.get("impact"), dict) else {}
+    raw = o.get("impact")
+    imp: dict[str, Any] = raw if isinstance(raw, dict) else {}
     out = {"basis": imp.get("basis"), "realizable": False, "realizable_reason": imp.get("realizable_reason")}
     if o.get("counted") is True:
         return out | {"counted_in_optimization_totals": True, "run_seconds_per_month": copy.deepcopy(imp.get("run_seconds_per_month")),

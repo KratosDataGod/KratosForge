@@ -165,6 +165,20 @@ def test_a_rename_that_cannot_be_opened_puts_the_old_file_back(svc, monkeypatch)
     assert not (ents / "gold.fact_sales2.toml").exists()
 
 
+
+def test_a_refused_save_redacts_what_the_reopen_error_carries(svc, monkeypatch):
+    path = _orders(svc)
+    before = path.read_text(encoding="utf-8")
+
+    def broken(*a, **k):
+        raise TypeError("connect failed: password=Hunter2xyz")  # pragma: allowlist secret (made-up)
+    monkeypatch.setattr(K, "merge_sql", broken)
+    with pytest.raises(ValueError, match="Not saved") as err:
+        svc.meta_save_entity("silver.orders", before.replace('owner = "me"', 'owner = "ana"'))
+    assert "Hunter2xyz" not in str(err.value)
+    assert "TypeError" in str(err.value)
+    assert path.read_text(encoding="utf-8") == before
+
 # ---- 2. find_cycle and run_order on long chains ----------------------------------------------------------
 
 def _old_find_cycle(project):

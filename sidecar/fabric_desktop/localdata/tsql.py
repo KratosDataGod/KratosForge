@@ -2077,6 +2077,16 @@ _SET_ORDER_NOTE = ("T-SQL counts text that differs only in trailing spaces ('a' 
                    "text, then another column, the next column orders them. After a UNION, INTERSECT or EXCEPT, "
                    "here they stay in code point order ('a' before 'a  ') and the next column only breaks real "
                    "ties. Put the set operation in a FROM and order by RTRIM(...) to get T-SQL's order.")
+_COLLATED_NOTE = ("Trailing spaces may count in a NULLIF, simple CASE, COUNT(DISTINCT ...), window or ORDER BY here, "
+                  "because the type of a value in it can't be worked out on the local engine. T-SQL ignores them "
+                  "when it compares text. CAST the value to VARCHAR to have them ignored here too, as a warehouse "
+                  "does.")
+
+
+def _maybe_text(kinds: list[exp.DataType | None]) -> bool:
+    """Whether values of these types could be text that compares without its trailing spaces, with at least one
+    type that can't be told: then they are compared exactly, and a note says so (WR-255)."""
+    return any(_unknown(k) for k in kinds) and all(_unknown(k) or _is(k, _TEXT) for k in kinds)
 
 
 def _collated(here: list[exp.Expression], there: list[exp.Expression], later: list[Callable[[], None]]) -> list[str]:
@@ -2084,44 +2094,76 @@ def _collated(here: list[exp.Expression], there: list[exp.Expression], later: li
     ``NULLIF``, a simple ``CASE x WHEN ...``, ``COUNT(DISTINCT ...)``, a window's ``PARTITION BY`` and
     ``ORDER BY`` (so ``RANK`` ties them, and ``ROW_NUMBER`` counts them as one partition), and a query's
     ``ORDER BY`` before its last key (``ORDER BY s, n`` orders 'a' and 'a ' by n). Where the text is known
-    to be text, it is compared through RTRIM; the values shown stay as they are."""
+    to be text, it is compared through RTRIM; the values shown stay as they are. Where a value could be text
+    but its type can't be told, it is compared as DuckDB does, and the note says so (WR-255)."""
     if len(here) != len(there):
-        return []
+        return [_COLLATED_NOTE] if any(_collates(node) for node in here) else []
     notes: list[str] = []
+    unsure = False
     for node, info in zip(here, there, strict=True):
         if isinstance(node, exp.Nullif):
             if _is(info.this.type, _TEXT) and _is(info.expression.type, _TEXT):
                 node.replace(_padded_nullif(node))
+            else:
+                unsure |= _maybe_text(_kinds([info.this, info.expression]))
         elif isinstance(node, exp.Case):
-            if node.this is None or not _is(info.this.type, _TEXT):
+            if node.this is None:
                 continue
             arms = [(arm, seen) for arm, seen in zip(node.args.get("ifs") or [], info.args.get("ifs") or [],
                                                      strict=False)]
-            if len(arms) != len(info.args.get("ifs") or []) or not all(_is(seen.this.type, _TEXT) for _, seen in arms):
+            if len(arms) != len(info.args.get("ifs") or []):
+                unsure = True
+                continue
+            if not all(_is(v.type, _TEXT) for v in (info.this, *(seen.this for _, seen in arms))):
+                unsure |= _maybe_text(_kinds([info.this, *(seen.this for _, seen in arms)]))
                 continue
             node.set("this", _rtrim(node.this))
             for arm, _ in arms:
                 arm.set("this", _rtrim(arm.this))
         elif isinstance(node, exp.Count):
-            if isinstance(node.this, exp.Distinct) and len(node.this.expressions) == 1 \
-                    and _is(info.this.expressions[0].type, _TEXT):
-                node.this.set("expressions", [_rtrim(node.this.expressions[0])])
+            if isinstance(node.this, exp.Distinct) and len(node.this.expressions) == 1:
+                kind = info.this.expressions[0].type
+                if _is(kind, _TEXT):
+                    node.this.set("expressions", [_rtrim(node.this.expressions[0])])
+                else:
+                    unsure |= _maybe_text([kind])
         elif isinstance(node, exp.Window):
             parts, seen = node.args.get("partition_by") or [], info.args.get("partition_by") or []
             if len(parts) == len(seen):
                 node.set("partition_by", [_rtrim(p) if _is(s.type, _TEXT) else p
                                           for p, s in zip(parts, seen, strict=True)])
+                unsure |= any(_maybe_text([s.type]) for s in seen)
+            else:
+                unsure = True
             order, typed_order = node.args.get("order"), info.args.get("order")
             if isinstance(order, exp.Order) and isinstance(typed_order, exp.Order):
-                _trimmed_keys(order.expressions, typed_order.expressions, later)
+                unsure |= _trimmed_keys(order.expressions, typed_order.expressions, later)
         elif isinstance(node, exp.Order) and not isinstance(node.parent, exp.Window):
             keys, seen = node.expressions[:-1], info.expressions[:-1]  # the last key's ties are any order
             if isinstance(node.parent, exp.SetOperation):
                 if any(_is(s.this.type, _TEXT) for s in seen):
                     notes.append(_SET_ORDER_NOTE)
             elif isinstance(node.parent, exp.Select):
-                _trimmed_keys(keys, seen, later, node.parent)
-    return notes
+                unsure |= _trimmed_keys(keys, seen, later, node.parent)
+    return notes + ([_COLLATED_NOTE] if unsure else [])
+
+
+def _kinds(values: list[exp.Expression]) -> list[exp.DataType | None]:
+    """The types of ``values`` but a bare NULL, which equals nothing with or without trailing spaces."""
+    return [v.type for v in values if not isinstance(v, exp.Null)]
+
+
+def _collates(node: exp.Expression) -> bool:
+    """Whether ``node`` is one _collated would compare through RTRIM if it knew the types."""
+    if isinstance(node, exp.Nullif):
+        return True
+    if isinstance(node, exp.Case):
+        return node.this is not None
+    if isinstance(node, exp.Count):
+        return isinstance(node.this, exp.Distinct)
+    if isinstance(node, exp.Window):
+        return bool(node.args.get("partition_by") or node.args.get("order"))
+    return isinstance(node, exp.Order) and not isinstance(node.parent, exp.Window) and len(node.expressions) > 1
 
 
 def _again(twin: exp.Expression, source: exp.Expression | None) -> None:
@@ -2162,12 +2204,16 @@ def _again_shown(twin: exp.Expression, select: exp.Select, at: int) -> None:
 
 
 def _trimmed_keys(keys: list[exp.Expression], seen: list[exp.Expression], later: list[Callable[[], None]],
-                  select: exp.Select | None = None) -> None:
+                  select: exp.Select | None = None) -> bool:
     """Order by RTRIM(key) for each key that is text. In a query's ORDER BY, a key that names an output column
     (``ORDER BY 2``, or its alias) is ordered by that column's expression, since RTRIM(alias) could read a
-    table's column of the same name. A SELECT DISTINCT is left alone: DuckDB orders it only by its columns."""
-    if len(keys) != len(seen) or (select is not None and select.args.get("distinct")):
-        return
+    table's column of the same name. A SELECT DISTINCT is left alone: DuckDB orders it only by its columns.
+    Whether a key could be text but its type can't be told."""
+    if select is not None and select.args.get("distinct"):
+        return False  # noted, when it is text, as DISTINCT is (_grouped_text)
+    if len(keys) != len(seen):
+        return bool(keys)
+    unsure = False
     for key, typed in zip(keys, seen, strict=True):
         if not isinstance(key, exp.Ordered) or not isinstance(typed, exp.Ordered):
             continue
@@ -2183,11 +2229,16 @@ def _trimmed_keys(keys: list[exp.Expression], seen: list[exp.Expression], later:
                     twin = (column.this if isinstance(column, exp.Alias) else column).copy()
                     key.set("this", _rtrim(twin))
                     later.append(functools.partial(_again_shown, twin, select, at))
+                else:
+                    unsure |= _maybe_text([kind])
                 continue
             if isinstance(value, exp.Literal):
                 continue
         if _is(kind, _TEXT):
             key.set("this", _rtrim(value))  # the key itself, not a copy, so the passes below still find it
+        else:
+            unsure |= _maybe_text([kind])
+    return unsure
 
 
 def _shown(select: exp.Select, at: int) -> exp.Expression | None:

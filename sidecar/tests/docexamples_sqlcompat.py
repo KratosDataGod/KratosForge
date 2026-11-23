@@ -140,6 +140,7 @@ CLAIMS: list[Claim] = [
     _ts("'a '", query="SELECT CASE WHEN 'a ' IN (SELECT 'a') THEN 1 ELSE 0 END", want="1",
         note="WR-246: IN (SELECT ...) ignores trailing spaces"),
     _ts("NULLIF('a ', 'a')"),
+    _ts("NULLIF(CAST(CHOOSE(1, 'a ') AS VARCHAR(5)), 'a')"),  # a value cast to text compares padded (WR-255)
     _ts("UPPER('é')"),
 ]
 

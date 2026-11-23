@@ -77,22 +77,46 @@ def _when(value: Any) -> str:
 _TAIL = 256  # longer than any credential redact.secrets looks for
 
 # Snowflake parameters whose value is a credential: CREATE STAGE, COPY, CREATE SECRET, CREATE USER, ALTER
-# USER, CREATE STORAGE or SECURITY INTEGRATION. redact.secrets doesn't know them by name, and a person's
-# query history holds exactly these statements. The value goes, whether quoted with '...' (doubled or
-# backslash-escaped quotes inside), "...", $$...$$, or bare, after = or =>; a quote cut off by Snowflake's
-# own limit runs to the end. A public key (RSA_PUBLIC_KEY) and a role or ARN aren't secrets and stay.
+# USER, CREATE STORAGE or SECURITY INTEGRATION, and the connector options a script may set. redact.secrets
+# doesn't know them by name, and a person's query history holds exactly these statements. The value goes,
+# whether quoted with '...' (doubled or backslash-escaped quotes inside), "...", $$...$$, or bare, after
+# =, => or :=, with comments or line breaks around the operator; a value in brackets, IDENTIFIER(...) or
+# joined with || loses every literal; a quote cut off by Snowflake's own limit runs to the end. A name
+# with another word before it (MUST_CHANGE_PASSWORD, RSA_PUBLIC_KEY) isn't one, and a public key, a role
+# or an ARN isn't a secret, so they stay.
 _SF_SECRET_PARAMS = ("AWS_KEY_ID", "AWS_SECRET_KEY", "AWS_TOKEN", "AZURE_SAS_TOKEN", "MASTER_KEY",
                      "OAUTH_CLIENT_SECRET", "OAUTH_REFRESH_TOKEN", "OAUTH_ACCESS_TOKEN", "PRIVATE_KEY",
-                     "SECRET_STRING", "PASSWORD", "PASSPHRASE", "PRIVATE_KEY_PASSPHRASE", "TOKEN")
+                     "SECRET_STRING", "PASSWORD", "PASSPHRASE", "PRIVATE_KEY_PASSPHRASE", "TOKEN",
+                     "PWD", "PRIVATE_KEY_FILE_PWD", "RSA_PRIVATE_KEY_PASSPHRASE", "CLIENT_SECRET", "API_KEY",
+                     "ACCESS_TOKEN", "REFRESH_TOKEN", "SAS_TOKEN")
+_GAP = r"(?:\s|/\*.*?(?:\*/|$)|--[^\n]*(?:\n|$))*"  # spaces, line breaks and comments
+_LIT = r"(?:'(?:[^'\\]|\\.|'')*(?:'|$)|\"(?:[^\"]|\"\")*(?:\"|$)|\$\$.*?(?:\$\$|$))"
+_VALUE = (r"(?:(?:\(|IDENTIFIER\s*\()" + _GAP + r")*(?:" + _LIT + r"(?:" + _GAP + r"\|\|" + _GAP + r"(?:" + _LIT
+          + r"|[^\s,();|]+))*|[^\s,();|'\"]+)")
 _SF_SECRET = re.compile(
-    r"(?<![A-Z0-9_$])(" + "|".join(sorted(_SF_SECRET_PARAMS, key=len, reverse=True)) + r")(\s*=>?\s*)"
-    r"('(?:[^'\\]|\\.|'')*(?:'|$)|\"(?:[^\"]|\"\")*(?:\"|$)|\$\$.*?(?:\$\$|$)|[^\s,()]+)",
-    re.IGNORECASE | re.DOTALL)
+    r"(?<![A-Z0-9_$])(" + "|".join(sorted(_SF_SECRET_PARAMS, key=len, reverse=True)) + r")(" + _GAP
+    + r"(?:=>?|:=)" + _GAP + r")" + _VALUE, re.IGNORECASE | re.DOTALL)
+# A session or scripting variable, or a SET parameter, one of whose underscore-separated words says it holds
+# a credential: SET pw = '...', LET db_api_token := '...'. MUST_CHANGE_PASSWORD (true or false) and a public
+# key aren't secrets; a word that only contains one (keyword_list) isn't one.
+_SF_VARIABLE = re.compile(
+    r"(?<![A-Z0-9_$])((?:SET|LET)\s+(?!MUST_CHANGE_PASSWORD\b|RSA_PUBLIC_KEY)(?:[A-Z0-9$]+_)*"
+    r"(?:PW|PWD|PASS|PASSWORD|PASSPHRASE|SECRET|TOKEN|KEY|APIKEY)(?:_[A-Z0-9$]+)*)(?![A-Z0-9_$])(" + _GAP
+    + r"(?:=|:=)" + _GAP + r")" + _VALUE, re.IGNORECASE | re.DOTALL)
 
 
 def _sf_secrets(text: str) -> str:
-    """``text`` with the value of each Snowflake credential parameter replaced by [removed]."""
-    return _SF_SECRET.sub(lambda m: f"{m.group(1)}{m.group(2)}'[removed]'", text)
+    """``text`` with the value of each Snowflake credential parameter or variable replaced by [removed]."""
+    for pattern in (_SF_VARIABLE, _SF_SECRET):
+        text = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)}'[removed]'", text)
+    return text
+
+
+def _untailed(text: Any) -> str:
+    """``text``, less its last ``_TAIL`` characters when it fills Snowflake's ``_FETCH`` cut, where a
+    credential may be split too short to be recognised by redaction."""
+    raw = str(text or "")
+    return raw[:_FETCH - _TAIL] if len(raw) >= _FETCH else raw
 
 
 def _cut(text: Any, chars: int) -> tuple[str, bool]:
@@ -101,15 +125,14 @@ def _cut(text: Any, chars: int) -> tuple[str, bool]:
     last ``_TAIL`` characters are dropped first. Redaction then can't move part of one into what's shown."""
     raw = str(text or "")
     snowflake_cut = len(raw) >= _FETCH
-    if snowflake_cut:
-        raw = raw[:_FETCH - _TAIL]
-    clean = redact.secrets(_sf_secrets(raw))
+    clean = redact.secrets(_sf_secrets(_untailed(raw)))
     return (clean, snowflake_cut) if len(clean) <= chars else (clean[:chars], True)
 
 
 def _row(r: dict[str, Any], chars: int) -> dict[str, Any]:
     text, cut = _cut(r.get("query_text"), chars)
-    error = redact.one_line(_sf_secrets(str(r["error_message"])), _ERROR_MAX) if r.get("error_message") else ""
+    error = (redact.one_line(_sf_secrets(_untailed(r["error_message"])[:_FETCH]), _ERROR_MAX)
+             if r.get("error_message") else "")
     ms = _int(r.get("total_elapsed_time"))
     return {"query_id": _text(r.get("query_id"), 64), "status": _text(r.get("execution_status"), 40).lower(),
             "query_type": _text(r.get("query_type"), 60), "text": text, "text_cut": cut,

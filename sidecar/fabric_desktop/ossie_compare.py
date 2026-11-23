@@ -37,7 +37,9 @@ NOT_CHECKED = (
                                    "(semantic_parity_l3 runs the SQL side)"},
     {"what": "other properties", "reason": "only type, key, expression, format string, description, home table, "
                                            "relationship ends and flags, role permissions and calculation items are "
-                                           "compared; lineage tags, visibility, sort-by and annotations aren't"},
+                                           "compared; lineage tags, visibility, sort-by, annotations, partitions "
+                                           "and data sources, shared expressions, sourceColumn and summarizeBy "
+                                           "aren't"},
 )
 _LOOK_AT_WHY = {"role": "a security role: check who can see which rows and columns",
                 "calculation_group": "a calculation group: it changes what every measure it applies to returns"}
@@ -257,18 +259,23 @@ def _pairs(left: sp._Side, right: sp._Side) -> list[tuple[dict[str, Any] | None,
 def _info(side: sp._Side, refused: str) -> dict[str, Any]:
     return {"format": side.format, "version": side.version, "profile": side.profile,
             "label": side.label if side.kind else "", "read": not side.error and not refused,
-            "error": side.error, "refused": refused}
+            "error": side.error, "refused": refused, "warnings": side.warnings, "warnings_total": side.warnings_total}
 
 
 def _empty_counts() -> dict[str, dict[str, int]]:
     return {k: dict.fromkeys((ADDED, REMOVED, CHANGED, "unchanged"), 0) for k in KINDS}
 
 
-def _summary(by_kind: dict[str, dict[str, int]]) -> dict[str, Any]:
+def _summary(by_kind: dict[str, dict[str, int]], status: str, left_out: int) -> dict[str, Any]:
     totals = {s: sum(c[s] for c in by_kind.values()) for s in (ADDED, REMOVED, CHANGED, "unchanged")}
+    if status != "compared":  # a refused or failed compare never reads as a clean one
+        return {**totals, "by_kind": by_kind, "text": f"Not compared: the versions were {status}"}
     parts = [f"{totals[s]} {s}" for s in (ADDED, REMOVED, CHANGED)]
     text = "No changes" if not any(totals[s] for s in (ADDED, REMOVED, CHANGED)) else ", ".join(parts)
-    return {**totals, "by_kind": by_kind, "text": f"{text}; {totals['unchanged']} unchanged"}
+    text = f"{text}; {totals['unchanged']} unchanged"
+    if left_out:
+        text += f"; {left_out} item(s) the reader couldn't understand were left out, so weren't compared"
+    return {**totals, "by_kind": by_kind, "text": text}
 
 
 def _report(sides: tuple[sp._Side, sp._Side], refused: tuple[str, str], objects: list[dict[str, Any]],
@@ -276,7 +283,11 @@ def _report(sides: tuple[sp._Side, sp._Side], refused: tuple[str, str], objects:
     look_at = [{"id": o["id"], "kind": o["kind"], "status": o["status"], "why": _LOOK_AT_WHY[o["kind"]]}
                for o in objects if o["security"]]
     status = "refused" if any(refused) else "failed" if error else "compared"
-    return {"status": status, "error": error, "summary": _summary(by_kind),
+    left_out = sum(s.warnings_total for s in sides)
+    if left_out and status == "compared":
+        notes = [*(notes or []), (f"{left_out} item(s) the reader couldn't understand were left out of the "
+                                  "comparison; each side's warnings name them")]
+    return {"status": status, "error": error, "summary": _summary(by_kind, status, left_out),
             "sides": {"old": _info(sides[0], refused[0]), "new": _info(sides[1], refused[1])},
             "objects": objects, "unchanged": {k: c["unchanged"] for k, c in by_kind.items()},
             "look_at": look_at, "notes": notes or [], "not_checked": [dict(n) for n in NOT_CHECKED]}
@@ -341,6 +352,8 @@ def redacted(report: dict[str, Any]) -> dict[str, Any]:
                 c["forms"] = {k: v if v is None else sp._fingerprint(str(v)) for k, v in c["forms"].items()}
     errors = []
     for which, side in (out.get("sides") or {}).items():
+        side["warnings"] = [sp._withheld(w) if str(w.get("object", "")).startswith("role") else w
+                            for w in side.get("warnings") or []]
         if side.get("error"):  # a read error can quote the input: outside the pane only its type stays
             side["error"] = str(side["error"]).split(":", 1)[0]
             errors.append(f"the {which} version could not be read: {side['error']}")

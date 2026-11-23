@@ -484,7 +484,11 @@ doesn't ("expression"). A SQL translation added beside unchanged DAX isn't a cha
 calculation groups that changed are also listed under `look_at`, so they are checked first.
 
 The model's own name and the order of columns aren't compared, and the report says so under
-`not_checked`. Bad input never raises: `status` is "failed" or "refused" and `error` says why.
+`not_checked`, with the other properties left out: partitions and data sources, shared
+expressions, sourceColumn and summarizeBy. Bad input never raises: `status` is "failed" or
+"refused", `error` says why, and the summary says the versions weren't compared. A line the reader
+can't understand is left out of the comparison, so the summary and `notes` count it and each
+side's `warnings` name it.
 The report can quote a role's filter and name its members. Anything shown outside the local pane
 must use `ossie_compare.redacted(report)`, which gives a length and hash of each filter, counts of
 members and permissions, and no expression or format text.

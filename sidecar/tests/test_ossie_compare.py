@@ -276,3 +276,19 @@ def test_the_same_inputs_give_the_same_report():
                                                             sort_keys=True)
     assert json.dumps(oc.redacted(first)) == json.dumps(oc.redacted(first))
     assert first["summary"]["text"] == "4 added, 0 removed, 1 changed; 11 unchanged"
+
+
+def test_a_line_the_reader_leaves_out_is_named_never_a_silent_no_changes():
+    files = dict(FILES)
+    table = next(k for k in files if "tables/" in k)
+    new = {**files, table: files[table].rstrip("\n") + "\n\tfrobnicate the widget\n"}
+    r = oc.compare_versions(files, new)
+    assert r["status"] == "compared" and r["sides"]["new"]["warnings_total"] == 1
+    assert "left out" in r["summary"]["text"] and any("left out" in n for n in r["notes"])
+
+
+@pytest.mark.parametrize("old", [None, "{{{"], ids=["none", "bad-json"])
+def test_a_failed_compare_never_summarizes_as_no_changes(old):
+    r = oc.compare_versions(old, FILES)
+    assert r["status"] != "compared" and r["summary"]["text"].startswith("Not compared")
+    assert "No changes" not in r["summary"]["text"] and "No changes" not in oc.redacted(r)["summary"]["text"]

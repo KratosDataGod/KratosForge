@@ -89,7 +89,7 @@ def test_a_result_larger_than_the_byte_cap_is_an_error(duck, monkeypatch):
 
 def test_which_engines_claim_result_and_polars_says_why_not():
     claims = {e.id for e in registry.ENGINES.values() if e.capability("result").available}
-    assert claims == {"local-duckdb", "local-sqlite", "fabric-spark", "databricks-sql"}
+    assert claims == {"local-duckdb", "local-sqlite", "fabric-spark", "databricks-sql", "snowflake-sql"}
     assert registry.get("local-polars").capability("result").note
 
 

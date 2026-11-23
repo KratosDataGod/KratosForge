@@ -123,8 +123,10 @@ def test_an_append_that_keeps_losing_the_windows_commit_race_gives_up_after_ten_
 
     monkeypatch.setattr(S, "write_deltalake", race)
     monkeypatch.setattr(S, "staged_commit_race", lambda exc: True)
-    with pytest.raises(OSError, match="Unable to open file"):
+    # after its tries, the conflict delta-rs reports elsewhere, in its own type (nothing was committed)
+    with pytest.raises(CommitFailedError, match="wasn't committed") as raised:
         store.write(LH, "dbo", "t", orders(), mode="append")
+    assert "Unable to open file" in str(raised.value.__cause__)
     assert len(tries) == S.APPEND_RACE_ATTEMPTS == 10
     assert sleeps == pytest.approx([0.05 * n for n in range(1, 10)])
 
@@ -135,7 +137,7 @@ def test_an_overwrite_is_never_sent_again_after_that_race(store, monkeypatch, sl
 
     monkeypatch.setattr(S, "write_deltalake", race)
     monkeypatch.setattr(S, "staged_commit_race", lambda exc: True)
-    with pytest.raises(OSError):
+    with pytest.raises(CommitFailedError, match="wasn't committed"):
         store.write(LH, "dbo", "t", orders())
     assert sleeps == []
 

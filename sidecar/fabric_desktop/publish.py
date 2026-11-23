@@ -15,6 +15,7 @@ import time
 from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -129,13 +130,15 @@ def unchanged(table: DeltaTable | None, rows: str | None) -> bool:
 
 
 def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[], str], schema_mode: str | None = "auto",
-            rows: str | None = None, skip_unchanged: bool = False, predicate: str | None = None) -> DeltaTable:
+            rows: str | None = None, skip_unchanged: bool = False, predicate: str | None = None,
+            within: str | delta_profile.Profile | None = None, readers: Iterable[str] | None = None) -> DeltaTable:
     """Write ``data`` (an Arrow table or a stream of batches) to ``ref``. ``schema_mode`` "auto" replaces
     the schema on overwrite (as jobs always have); None refuses a different schema, as Spark does without
     overwriteSchema; "merge" adds new columns. ``rows`` is the data's fingerprint, kept in an
     overwrite's commit; with ``skip_unchanged`` an overwrite of the same rows writes nothing, and the
     returned table has ``skipped`` set. ``predicate`` makes an overwrite replace only the rows that
-    match it (each written row must match it too); it is never skipped as unchanged.
+    match it (each written row must match it too); it is never skipped as unchanged. ``within`` and
+    ``readers`` are the table's Delta profile and readers (delta_profile.check_table; None: the defaults).
 
     ``storage_token`` is best passed as a function that returns a current token: the write lease is
     renewed with it for as long as the write takes, so a write that outlasts one token keeps its
@@ -150,7 +153,7 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[
             # One load of the log for the profile check, the write and the new version: delta-rs moves a
             # table it was handed on to the version it committed. Loaded under the lease, so no other
             # KratosForge writer can commit in between.
-            table = delta_profile.open_target(ref.uri, opts)
+            table = delta_profile.open_target(ref.uri, opts, within, readers)
             if mode == "overwrite" and skip_unchanged and predicate is None and unchanged(table, rows):
                 table.skipped = True  # type: ignore[union-attr]
                 return table  # type: ignore[return-value]
@@ -184,7 +187,7 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[
                                f"lease expired while writing, so another writer may have overlapped. Check the "
                                f"table's history; don't run the write again.")
         _log.warning("%s", table.lease_warning)  # type: ignore[attr-defined]
-    delta_profile.note_after_write(table)
+    delta_profile.note_after_write(table, within=within)
     table.skipped = False  # type: ignore[attr-defined]
     # What this write uploaded: the version's files it didn't have before (all of them, on overwrite).
     now = _files(table)

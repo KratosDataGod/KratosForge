@@ -23,7 +23,6 @@ import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import unquote
 from typing import Any, Callable, Iterator, cast
 
 import polars as pl
@@ -935,16 +934,15 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
             return t.vacuum(retention_hours=int(hours), dry_run=dry_run, enforce_retention_duration=False,
                             commit_properties=commit, **maintenance.vacuum_keep(keep))
         local = "://" not in ref.uri  # a table on this PC: what VACUUM actually deleted can be checked
-        present = {p.relative_to(ref.uri).as_posix() for p in Path(ref.uri).rglob("*.parquet")} if local else None
+        present = maintenance.table_files(ref.uri) if local else None
         files = local_commit(vacuum, f"{name_}'s next version")
         deleted = len(files)
         if present is not None:
             # delta-rs lists a removed file already gone (until a checkpoint drops it), and lists it relative to
             # the table while the ones it deletes come back whole: count only what this VACUUM deleted, and
             # list every file relative to the table.
-            root = ref.uri.rstrip("/\\").replace("\\", "/") + "/"
-            files = [unquote(f.replace("\\", "/")[len(root):] if f.replace("\\", "/").startswith(root) else f) for f in files]
-            deleted = sum(1 for f in files if f in present and not (Path(ref.uri) / f).exists())
+            files = [maintenance.relative_to_table(ref.uri, f) for f in files]
+            deleted = sum(1 for f in files if maintenance.path_key(f) in present and not (Path(ref.uri) / f).exists())
         metrics = {"numDeletedFiles": 0 if dry_run else deleted, "retentionHours": int(hours), "dryRun": dry_run}
     else:
         target: int | datetime

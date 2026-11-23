@@ -36,7 +36,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
@@ -214,6 +214,19 @@ def _offset_at(zone: str, utc: exp.Expression) -> exp.Expression:
     local = _fn("TIMEZONE", exp.Literal.string(zone), _fn("TIMEZONE", exp.Literal.string("UTC"), utc.copy()))
     gap = exp.Paren(this=exp.Sub(this=_fn("EPOCH_US", local), expression=_fn("EPOCH_US", utc.copy())))
     return exp.Paren(this=exp.IntDiv(this=gap, expression=exp.Literal.number(60000000)))
+
+
+def _once(values: list[exp.Expression], build: Callable[..., exp.Expression]) -> exp.Expression:
+    """``build(*values)`` with each value read once (tsql._once), so a value named several times isn't copied each
+    time: AT TIME ZONE names its time a few dozen times, and the translator stops a query that grows too large."""
+    from .tsql import _once as once  # tsql imports this module
+
+    return once(list(values), build)
+
+
+def _bound(d: _Dto, build: Callable[[_Dto], exp.Expression]) -> exp.Expression:
+    """``build(d)``, with ``d``'s UTC time and offset each read once."""
+    return _once([d.utc, d.off], lambda utc, off: build(_Dto(utc, off, d.digits)))
 
 
 def _fail(message: str) -> exp.Expression:
@@ -424,13 +437,15 @@ class _Pass:
             return _Dto(local, _num(0), digits)
         # A local time in the zone: the offset before the change for a time that happens twice or is skipped, as
         # Microsoft's page says; otherwise the one offset that gives this local time.
-        before = _offset_at(iana, exp.Sub(this=local.copy(), expression=_fn("TO_HOURS", exp.Literal.number(18))))
-        after = _offset_at(iana, exp.Add(this=local.copy(), expression=_fn("TO_HOURS", exp.Literal.number(18))))
-        with_before = exp.Paren(this=exp.Sub(this=local.copy(), expression=_fn("TO_MINUTES", before)))
-        with_after = exp.Paren(this=exp.Sub(this=local.copy(), expression=_fn("TO_MINUTES", after)))
-        only_after = exp.And(this=exp.NEQ(this=_offset_at(iana, with_before), expression=before.copy()),
-                             expression=exp.EQ(this=_offset_at(iana, with_after), expression=after.copy()))
-        utc = exp.Case(ifs=[exp.If(this=only_after, true=with_after)], default=with_before.copy())
+        def utc_of(local: exp.Expression) -> exp.Expression:
+            before = _offset_at(iana, exp.Sub(this=local.copy(), expression=_fn("TO_HOURS", exp.Literal.number(18))))
+            after = _offset_at(iana, exp.Add(this=local.copy(), expression=_fn("TO_HOURS", exp.Literal.number(18))))
+            with_before = exp.Paren(this=exp.Sub(this=local.copy(), expression=_fn("TO_MINUTES", before)))
+            with_after = exp.Paren(this=exp.Sub(this=local.copy(), expression=_fn("TO_MINUTES", after)))
+            only_after = exp.And(this=exp.NEQ(this=_offset_at(iana, with_before), expression=before.copy()),
+                                 expression=exp.EQ(this=_offset_at(iana, with_after), expression=after.copy()))
+            return exp.Case(ifs=[exp.If(this=only_after, true=with_after)], default=with_before.copy())
+        utc = _once([local], utc_of)
         return _Dto(utc, _offset_at(iana, utc), digits)
 
     def window(self, value: exp.Expression, zone: str, first: int | None) -> exp.Expression:
@@ -439,9 +454,11 @@ class _Pass:
         message = (_NOT_YET + f"AT TIME ZONE '{zone}' is carried here for times from {first} through {_LAST_YEAR}, "
                    "where Windows' daylight saving rules and the local engine's time zone data are the same. Run it "
                    "in a Fabric Warehouse for other times.")
-        outside = exp.or_(exp.LT(this=value.copy(), expression=_timestamp(dt.datetime(first, 1, 1))),
-                          exp.GTE(this=value.copy(), expression=_timestamp(dt.datetime(_LAST_YEAR + 1, 1, 1))))
-        return exp.Case(ifs=[exp.If(this=outside, true=_fail(message))], default=value.copy())
+        def checked(v: exp.Expression) -> exp.Expression:
+            outside = exp.or_(exp.LT(this=v.copy(), expression=_timestamp(dt.datetime(first, 1, 1))),
+                              exp.GTE(this=v.copy(), expression=_timestamp(dt.datetime(_LAST_YEAR + 1, 1, 1))))
+            return exp.Case(ifs=[exp.If(this=outside, true=_fail(message))], default=v.copy())
+        return _once([value], checked)
 
     def utc_of(self, node: exp.Expression) -> exp.Expression:
         """The UTC time of what a datetimeoffset is compared with: T-SQL converts it to a datetimeoffset."""
@@ -461,7 +478,7 @@ class _Pass:
         parent = node.parent
         if isinstance(parent, (exp.Cast, exp.TryCast)) and parent.this is node or \
                 isinstance(parent, exp.Convert) and parent.expression is node:
-            parent.replace(self.converted(parent, self.value(top)))
+            parent.replace(_bound(self.value(top), lambda d: self.converted(parent, d)))
         elif isinstance(parent, _COMPARED):
             left, right = parent.this, parent.expression
             parent.set("this", self.utc_of(left))
@@ -478,7 +495,7 @@ class _Pass:
                 and isinstance(parent.parent, (exp.Year, exp.Month, exp.Day)):
             node.replace(_local(self.value(top)))
         elif isinstance(parent, exp.Anonymous) and parent.name.upper() == DATENAME_TZ:
-            parent.replace(_offset_text(self.value(top).off))
+            parent.replace(_once([self.value(top).off], _offset_text))
         elif isinstance(parent, exp.Is) and parent.this is node:  # IS NULL, IS NOT NULL
             node.replace(self.value(top).utc)
         elif isinstance(parent, exp.Ordered):

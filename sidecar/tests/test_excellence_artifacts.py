@@ -221,6 +221,10 @@ def test_policy_controls_pass_when_retry_timeout_and_a_failure_path_are_set():
     ({"retry": "@pipeline().parameters.r", "timeout": {"value": "@variables('t')", "type": "Expression"}},
      "pass", "pass"),  # set by an expression: its value is only known at run time
     ({"retry": 1, "timeout": "0.00:00:00"}, "pass", "fail"),
+    ({"retry": 1, "timeout": "01:60:00"}, "pass", "not_evaluated"),  # 60 minutes isn't a timespan Fabric writes
+    ({"retry": 1, "timeout": "01:00:60"}, "pass", "not_evaluated"),
+    ({"retry": 1, "timeout": "01:00:00\n"}, "pass", "pass"),  # surrounding space is stripped
+    ({"retry": 1, "timeout": "01:00:00x"}, "pass", "not_evaluated"),
 ])
 def test_retry_and_timeout_controls(policy, retry, timeout):
     got = _policy_outcomes([activity("Load", kind="Copy", policy=policy), activity("Wait", kind="Wait", policy={})])

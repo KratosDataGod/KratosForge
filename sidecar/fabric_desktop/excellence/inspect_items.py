@@ -38,7 +38,7 @@ CALLOUT_TYPES = frozenset({
     "PBISemanticModelRefresh", "AzureDataExplorerCommand",
 })
 DEFAULT_TIMEOUT_SECONDS = 12 * 3600  # Fabric and Data Factory's activity timeout when none is set (0.12:00:00)
-_TIMESPAN = re.compile(r"^(?:(\d+)\.)?(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?$")
+_TIMESPAN = re.compile(r"(?:(\d+)\.)?(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?")
 _FAILURE_CONDITIONS = {"failed", "completed"}
 MAX_NAME = 256  # characters kept of an activity name
 
@@ -120,7 +120,7 @@ def _timeout_set(policy: dict[str, Any]) -> bool | None:
         return False
     if _expression(value):
         return True
-    m = _TIMESPAN.match(str(value).strip())
+    m = _TIMESPAN.fullmatch(str(value).strip())
     if not m:
         return None
     days, hours, minutes, seconds = (int(g or 0) for g in m.groups())

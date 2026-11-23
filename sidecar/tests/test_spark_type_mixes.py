@@ -40,12 +40,10 @@ def row(spark, query: str) -> tuple:
     ("SELECT array(array(1.5D), array('a')), typeof(array(array(1), array('a')))", ([["1.5"], ["a"]], "array<array<string>>")),
     ("SELECT map(1, array(1), 2, array('a'))", ({1: ["1"], 2: ["a"]},)),
     ("SELECT array(1, NULL, 'a'), typeof(array(1, NULL, 'a'))", (["1", None, "a"], "array<string>")),
-    ("SELECT coalesce(1, 'a'), typeof(coalesce(1, 'a')), coalesce(1, 1.5D, 'a'), nvl(1, 'a')", ("1", "string", "1", "1")),
-    ("SELECT coalesce(CAST(NULL AS INT), 'a'), typeof(coalesce(NULL, 1.5D, 'a'))", ("a", "string")),
     ("SELECT coalesce(array(1), NULL, array('a')), typeof(coalesce(array(1, 2), array('a')))", (["1"], "array<string>")),
     ("SELECT concat(array(1, 2), array('a')), typeof(concat(array(1, 2), array('a')))", (["1", "2", "a"], "array<string>")),
-    ("SELECT CASE WHEN true THEN 1 ELSE 'a' END, typeof(CASE WHEN true THEN 1 ELSE 'a' END), typeof(if(true, 1.5D, 'a'))",
-     ("1", "string", "string")),
+    ("SELECT CASE WHEN true THEN array(1) ELSE array('a') END, typeof(if(true, array(1.5D), array('a')))",
+     (["1"], "array<string>")),
     ("SELECT typeof(array(1, 1.5)), typeof(array(CAST(1 AS BIGINT), 1.5)), typeof(map(1, 1.5, 2, 2))",
      ("array<decimal(11,1)>", "array<decimal(21,1)>", "map<int,decimal(11,1)>")),
     ("SELECT array_intersect(array(1, 2), array(1.0D)), typeof(array_intersect(array(1, 2), array(1.0D)))", ([1.0], "array<double>")),
@@ -56,6 +54,11 @@ def row(spark, query: str) -> tuple:
      (True, False, 2)),
     ("SELECT 1 IN ('1'), '1' IN (1), date'2024-01-01' IN ('2024-01-01'), 1.5 IN (1, 2.5D)", (True, True, True, False)),
     ("SELECT greatest(1, 2.5D), typeof(least(1, 1.5))", (2.5, "decimal(11,1)")),
+    # A float keeps its own digits, a negative number and a cast are typed as written, and a whole number
+    # past a bigint is a decimal
+    ("SELECT array(CAST(0.1 AS FLOAT), 'a'), array(-1.5, 'a'), array(-1, 'a')", (["0.1", "a"], ["-1.5", "a"], ["-1", "a"])),
+    ("SELECT array(CAST(timestamp'2024-01-01 10:00:00' AS TIMESTAMP_NTZ), 'a')", (["2024-01-01 10:00:00", "a"],)),
+    ("SELECT typeof(array(1, 9223372036854775808))", ("array<decimal(19,0)>",)),
 ])
 def test_one_type_for_mixed_values(spark, query, expected):
     assert row(spark, query) == expected
@@ -72,11 +75,11 @@ def test_one_type_for_mixed_values(spark, query, expected):
     ("SELECT date'2024-01-01' IN (1)", "IN", "DATA_DIFF_TYPES"),
     ("SELECT map(1, true, 2, 1)", r"map\(\)'s values", "CREATE_MAP_VALUE_DIFF_TYPES"),
     ("SELECT map(true, 1, 1, 2)", r"map\(\)'s keys", "CREATE_MAP_KEY_DIFF_TYPES"),
-    ("SELECT coalesce(true, 1)", r"coalesce\(\)", "DATA_DIFF_TYPES"),
     ("SELECT coalesce(array(1, 2), array(true))", r"coalesce\(\)", "DATA_DIFF_TYPES"),
     ("SELECT concat(array(1, 2), array(true))", r"concat\(\)", "DATA_DIFF_TYPES"),
     ("SELECT concat(array(1), 'a')", r"concat\(\)", "DATA_DIFF_TYPES"),
-    ("SELECT greatest(1, 'a')", r"greatest\(\)", "DATA_DIFF_TYPES"),
+    ("SELECT concat(array(1), NULL)", r"concat\(\)", "DATA_DIFF_TYPES"),
+    ("SELECT greatest(array(1), array('a'))", r"greatest\(\)", "DATA_DIFF_TYPES"),
     ("SELECT array_contains(array(1, 2), true)", r"array_contains\(\)", "ARRAY_FUNCTION_DIFF_TYPES"),
     ("SELECT array_contains(array('1', '2'), 1)", r"array_contains\(\)", "ARRAY_FUNCTION_DIFF_TYPES"),
     ("SELECT array_position(array(1, 2), 1.5)", r"array_position\(\)", "ARRAY_FUNCTION_DIFF_TYPES"),
@@ -95,12 +98,13 @@ def test_values_spark_has_no_one_type_for_are_refused_by_name(spark, query, what
 
 @pytest.mark.parametrize(("query", "expected"), [
     ("SELECT array(i, s), typeof(array(i, s)) FROM kf_mix", (["1", "a"], "array<string>")),
-    ("SELECT coalesce(d, s), coalesce(ts, s), typeof(coalesce(i, s)) FROM kf_mix", ("1.5", "2024-01-01 10:00:00", "string")),
+    ("SELECT coalesce(array(d), array(s)), coalesce(array(ts), ax), typeof(coalesce(ai, array(s))) FROM kf_mix",
+     (["1.5"], ["2024-01-01 10:00:00"], "array<string>")),
     ("SELECT array(dt, s), array(m, s), typeof(array(l, m)) FROM kf_mix", (["2024-01-01", "a"], ["2.50", "a"], "array<decimal(22,2)>")),
     ("SELECT map(i, s, s, i) FROM kf_mix", ({"1": "a", "a": "1"},)),
     ("SELECT concat(ai, ax), coalesce(ai, ax) FROM kf_mix", (["1", "2", "x"], ["1", "2"])),
     ("SELECT array_union(ai, array(d)), array_remove(ai, d) FROM kf_mix", ([1.0, 2.0, 1.5], [1.0, 2.0])),
-    ("SELECT CASE WHEN b THEN i ELSE s END, if(b, d, s), CASE i WHEN 1 THEN 'one' ELSE 2 END FROM kf_mix", ("1", "1.5", "one")),
+    ("SELECT CASE WHEN b THEN ai ELSE ax END, if(b, array(d), ax) FROM kf_mix", (["1", "2"], ["1.5"])),
 ])
 def test_columns_take_sparks_one_type(spark, query, expected):
     assert row(spark, query) == expected
@@ -109,7 +113,7 @@ def test_columns_take_sparks_one_type(spark, query, expected):
 @pytest.mark.parametrize("query", [
     "SELECT array(i, b) FROM kf_mix", "SELECT b IN (1) FROM kf_mix", "SELECT i IN (b) FROM kf_mix",
     "SELECT array_contains(ai, s) FROM kf_mix", "SELECT array_union(ai, array(m)) FROM kf_mix",
-    "SELECT CASE WHEN b THEN i ELSE b END FROM kf_mix", "SELECT greatest(i, b) FROM kf_mix",
+    "SELECT CASE WHEN b THEN ai ELSE array(b) END FROM kf_mix", "SELECT greatest(ai, array(b)) FROM kf_mix",
     "SELECT array_position(ai, m) FROM kf_mix",
 ])
 def test_columns_spark_has_no_one_type_for_are_refused(spark, query):
@@ -119,7 +123,7 @@ def test_columns_spark_has_no_one_type_for_are_refused(spark, query):
 
 def test_sql_run_takes_the_same_types():
     """sql.run (a %%sql cell's path) types the values as spark.sql does."""
-    assert sql.run("SELECT array(1, 'a') AS a, coalesce(1, 'a') AS c").to_pylist() == [{"a": ["1", "a"], "c": "1"}]
+    assert sql.run("SELECT array(1, 'a') AS a, array(-1, 'b') AS b").to_pylist() == [{"a": ["1", "a"], "b": ["-1", "b"]}]
     with pytest.raises(ValueError, match=r"^IN can't take boolean and int values together"):
         sql.run("SELECT true IN (1)")
 
@@ -142,7 +146,7 @@ def _nested(value: str, depth: int) -> str:
     lambda d: f"array({_nested('c', d)}, {_nested(repr('a'), d)})",
     lambda d: f"coalesce({_nested('c', d)}, {_nested('s', d)})",
     lambda d: f"map(1, {_nested('c', d)}, 2, {_nested('s', d)})",
-    lambda d: "coalesce(" * d + "c" + ", 'a')" * d,
+    lambda d: "coalesce(" * d + "array(c)" + ", array('a'))" * d,
 ])
 def test_nested_mixes_grow_the_sql_linearly(mix):
     """Each value is cast once, in place, with one lambda per level of its arrays, so a level adds about the same
@@ -175,6 +179,14 @@ def test_max_by_and_min_by_keep_a_null_value(spark, query, expected):
     assert [tuple(r) for r in spark.sql(query).collect()] == expected
 
 
+@pytest.mark.parametrize("name", ["max_by", "min_by"])
+def test_max_by_with_a_count_is_refused(spark, name):
+    """Spark's max_by and min_by take two arguments ([WRONG_NUM_ARGS]); DuckDB's third gave an array."""
+    with pytest.raises(ValueError, match=rf"^{name}\(\) takes two arguments in Spark, and this call gives it a third "
+                                         r"\(a count\), so nothing ran\. Spark stops on it too \(\[WRONG_NUM_ARGS\]\)"):
+        spark.sql(f"SELECT {name}(v, k, 2) FROM VALUES (1, 10), (2, 20) AS t(v, k)").collect()
+
+
 # ---- RANGE frames with an INTERVAL
 
 _DATES = "FROM VALUES (date'2024-01-01', 1), (date'2024-01-02', 2), (date'2024-01-04', 4) AS t(d, x) ORDER BY d"
@@ -185,6 +197,8 @@ _DATES = "FROM VALUES (date'2024-01-01', 1), (date'2024-01-02', 2), (date'2024-0
     "ORDER BY d DESC RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND INTERVAL '1' DAY FOLLOWING",
     "ORDER BY d RANGE BETWEEN CURRENT ROW AND INTERVAL 1 WEEK FOLLOWING",
     "PARTITION BY x ORDER BY d RANGE BETWEEN INTERVAL 2 HOUR PRECEDING AND CURRENT ROW",
+    "ORDER BY d RANGE BETWEEN INTERVAL 1 MILLISECOND PRECEDING AND CURRENT ROW",
+    "ORDER BY d RANGE BETWEEN INTERVAL 2 DAYS PRECEDING AND CURRENT ROW",
 ])
 def test_a_date_with_a_day_interval_range_is_refused(spark, frame):
     with pytest.raises(Exception, match=r"A RANGE frame given as an INTERVAL in days, hours, minutes or seconds can't "
@@ -210,6 +224,18 @@ def test_a_date_with_a_day_interval_range_is_refused(spark, frame):
      "(2.6D, 3), (4.0D, 4) AS t(k, x) ORDER BY k"), [3, 5, 3, 4]),
     (("SELECT k, sum(x) OVER (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) FROM VALUES (1.5D, 1), (double('NaN'), 2), "
      "(CAST(NULL AS DOUBLE), 3), (2.0D, 4) AS t(k, x) ORDER BY k"), [3, 1, 5, 2]),
+    # A plural unit, a WEEK and a MILLISECOND are typed as Spark types them: HOURS as HOUR, WEEK as DAY,
+    # MILLISECOND as SECOND
+    (f"SELECT d, sum(x) OVER (ORDER BY d RANGE BETWEEN INTERVAL 1 MONTHS PRECEDING AND CURRENT ROW) {_DATES}", [1, 3, 7]),
+    (("SELECT ts, sum(x) OVER (ORDER BY ts RANGE BETWEEN INTERVAL 1 HOUR PRECEDING AND INTERVAL 2 HOURS FOLLOWING) FROM "
+     "VALUES (timestamp'2024-01-01 10:00:00', 1), (timestamp'2024-01-01 11:30:00', 2), (timestamp'2024-01-01 13:00:00', 4) "
+     "AS t(ts, x) ORDER BY ts"), [3, 6, 4]),
+    (("SELECT ts, sum(x) OVER (ORDER BY ts RANGE BETWEEN INTERVAL 1 SECOND PRECEDING AND INTERVAL 500 MILLISECOND "
+     "FOLLOWING) FROM VALUES (timestamp'2024-01-01 10:00:00', 1), (timestamp'2024-01-01 10:00:00.4', 2), "
+     "(timestamp'2024-01-01 10:00:01.2', 4) AS t(ts, x) ORDER BY ts"), [3, 3, 6]),
+    (("SELECT ts, sum(x) OVER (ORDER BY ts RANGE BETWEEN INTERVAL 1 DAYS PRECEDING AND INTERVAL 1 WEEKS FOLLOWING) FROM "
+     "VALUES (timestamp'2024-01-01 10:00:00', 1), (timestamp'2024-01-05 11:30:00', 2), (timestamp'2024-01-20 13:00:00', 4) "
+     "AS t(ts, x) ORDER BY ts"), [3, 2, 4]),
 ])
 def test_range_frames_spark_runs(spark, query, expected):
     assert [r[1] for r in spark.sql(query).collect()] == expected
@@ -219,6 +245,8 @@ def test_range_frames_spark_runs(spark, query, expected):
     "INTERVAL 1 DAY PRECEDING AND INTERVAL 2 HOUR FOLLOWING",
     "INTERVAL 1 MONTH PRECEDING AND INTERVAL 1 DAY FOLLOWING",
     "INTERVAL 1 YEAR PRECEDING AND INTERVAL 1 MONTH FOLLOWING",
+    "INTERVAL 1 HOURS PRECEDING AND INTERVAL 30 MINUTES FOLLOWING",
+    "INTERVAL '1-2' YEAR TO MONTH PRECEDING AND INTERVAL 1 MONTH FOLLOWING",
 ])
 def test_range_bounds_of_two_interval_units_are_refused(spark, bounds):
     with pytest.raises(ValueError, match=r"two types, so nothing ran\. Spark stops on it too \(\[DATATYPE_MISMATCH\."
@@ -237,6 +265,31 @@ def test_range_bounds_of_two_interval_units_are_refused(spark, bounds):
 ])
 def test_concat_ws_joins_an_array_column(spark, expression, expected):
     assert row(spark, f"SELECT {expression} FROM kf_mix") == (expected,)
+
+
+@pytest.mark.parametrize(("query", "expected"), [
+    ("SELECT concat_ws(',', array(1.5D, 1e20D)), concat_ws(',', array(true)), concat_ws(',', array(date'2024-01-01'))",
+     ("1.5,1.0E20", "true", "2024-01-01")),
+    ("SELECT concat_ws(',', a) FROM VALUES (array(1.5D, 1e20D, NULL, double('NaN'), -0.0D)) AS t(a)", ("1.5,1.0E20,NaN,-0.0",)),
+    ("SELECT concat_ws(',', a) FROM VALUES (array(CAST(0.1 AS FLOAT))) AS t(a)", ("0.1",)),
+    ("SELECT concat_ws(',', a) FROM VALUES (array(timestamp'2024-01-01 10:00:00')) AS t(a)", ("2024-01-01 10:00:00",)),
+    ("SELECT concat_ws(',', a) FROM VALUES (array(X'41', X'01')) AS t(a)", ("A,\x01",)),
+    ("SELECT concat_ws(',', a, b) FROM VALUES (X'41', 1e20D) AS t(a, b)", ("A,1.0E20",)),
+    ("SELECT concat_ws(',', 1e20D, CAST(0.1 AS FLOAT), timestamp'2024-01-01 10:00:00')", ("1.0E20,0.1,2024-01-01 10:00:00",)),
+    ("SELECT concat_ws(s, array(1e20D), d) FROM kf_mix", ("1.0E20a1.5",)),
+    ("SELECT concat_ws('-', concat_ws(',', array(1.0E20D)), 'x')", ("1.0E20-x",)),
+    ("SELECT concat_ws(',', transform(array(1, 2), x -> x * 1.5D))", ("1.5,3.0",)),
+])
+def test_concat_ws_writes_each_element_as_spark_does(spark, query, expected):
+    """A double as Java writes it, a timestamp with no offset and binary as its text, in an array or alone; DuckDB
+    wrote 1e+20, '2024-01-01 10:00:00+00' and '\\x01'."""
+    assert row(spark, query) == expected
+
+
+def test_concat_ws_of_an_array_of_arrays_written_in_the_query_is_refused(spark):
+    with pytest.raises(Exception, match=r"concat_ws\(\) takes only text or arrays of text, and this is an array of "
+                                        r"arrays, so nothing ran on this PC\. Spark stops on it too"):
+        spark.sql("SELECT concat_ws(',', array(array('p')))").collect()
 
 
 def test_concat_ws_with_a_separator_from_the_data():

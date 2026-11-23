@@ -767,33 +767,65 @@ def refuse_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
 _CONCAT_WS_ARRAYS = ("concat_ws() takes only text or arrays of text, and this is an array of arrays, so nothing ran "
                      "on this PC. Spark stops on it too, with a data type mismatch. Flatten it first, such as "
                      "concat_ws(',', flatten(a)).")
-# A part of concat_ws that isn't written as text or an array, as the text it adds: an array column's elements
-# (array<int> as text), one value otherwise; a map or struct, or an array of them or of arrays, is refused.
+# A part of concat_ws that isn't a literal, as the text it adds: an array's elements, one value otherwise, each
+# as Spark writes it; a map or struct, or an array of them or of arrays, is refused (check_nested_concat_ws).
 TEXT_LIST = "kf_text_list"  # spark_strings joins the parts of a concat_ws with one of these as arrays
 
 
+def _concat_ws_texts() -> str:
+    """DuckDB SQL for the text a part of concat_ws (the lambda variable kf_cw) adds, as a list: an array's
+    elements, or the one value, each written as Spark casts it to a string (a double as Java writes it,
+    1.0E20; a timestamp with no offset; binary as its UTF-8 text). Every value goes through DuckDB's text of
+    it, so the SQL binds whatever kf_cw's type is. A map or struct, or an array of them or of arrays, stops."""
+    from .sql import _NOT_UTF8  # sql imports this module
+    java = java_double_text
+    text = ("CASE kf_cwt.t WHEN 'DOUBLE' THEN " + java("TRY_CAST(kf_cwe AS DOUBLE)") + " WHEN 'FLOAT' THEN "
+            + java("TRY_CAST(kf_cwe AS FLOAT)") + " WHEN 'TIMESTAMP WITH TIME ZONE' THEN "
+            "regexp_replace(kf_cwe, '[+-][0-9][0-9](:[0-9][0-9])?$', '') WHEN 'BLOB' THEN CASE WHEN kf_cwe IS NULL "
+            f"THEN NULL ELSE COALESCE(TRY(DECODE(TRY_CAST(kf_cwe AS BLOB))), ERROR({_NOT_UTF8})) END ELSE kf_cwe END")
+    return ("CASE WHEN TYPEOF(kf_cw) LIKE 'STRUCT(%' OR TYPEOF(kf_cw) LIKE 'MAP(%' THEN ERROR(fj_why) "
+            "WHEN TYPEOF(kf_cw) LIKE '%[][]' THEN ERROR(fj_arrays) "
+            "ELSE (LIST_TRANSFORM([{'t': CASE WHEN TYPEOF(kf_cw) LIKE '%[]' THEN LEFT(TYPEOF(kf_cw), LENGTH(TYPEOF(kf_cw)) - 2) "
+            "ELSE TYPEOF(kf_cw) END, 'l': CASE WHEN TYPEOF(kf_cw) LIKE '%[]' THEN COALESCE(TRY_CAST(kf_cw AS VARCHAR[]), "
+            "CAST([] AS VARCHAR[])) ELSE [CAST(kf_cw AS VARCHAR)] END}], lambda kf_cwt: LIST_TRANSFORM(kf_cwt.l, "
+            f"lambda kf_cwe: {text})))[1] END")
+
+
+_TEXTS = "KF_CONCAT_WS_TEXTS"  # a part of concat_ws, until expand_concat_ws_texts writes its text out
+
+
 def check_nested_concat_ws(statement: exp.Expression) -> exp.Expression:
-    """concat_ws's parts that aren't literals or arrays, checked by their DuckDB type when the query runs (a
-    map or struct column is refused as refuse_nested_concat_ws refuses a written one) and given as a list
-    of text: an array column's elements, as Spark joins them, or the one value. sql.spark_fixes runs it
-    once the names the person wrote are checked, since it adds a lambda of its own (kf_cw)."""
-    from .spark_strings import _ARRAYS
+    """concat_ws's parts that aren't literals, marked to be given as a list of text (_concat_ws_texts) once
+    the other rewrites are done (expand_concat_ws_texts), so they don't rewrite its DuckDB SQL as Spark's:
+    an array's elements, as Spark joins them, or the one value, checked by its DuckDB type when the query
+    runs (a map or struct column is refused as refuse_nested_concat_ws refuses a written one, and an array
+    of arrays as Spark refuses it). sql.spark_fixes runs it once the names the person wrote are checked,
+    since the text adds lambdas of its own (kf_cw...)."""
     for node in list(statement.find_all(exp.ConcatWs)):
         for part in list(node.expressions)[1:]:
-            if isinstance(part, (exp.Literal, exp.Null, exp.Cast, exp.TryCast, *_ARRAYS)):
-                continue  # an array call stays as it is: spark_strings joins its elements
-            # The part is read once, through a lambda, so nested concat_ws doesn't repeat it at each level.
-            check = sqlglot.parse_one(
-                "(LIST_TRANSFORM([fj_part], kf_cw -> CASE WHEN TYPEOF(kf_cw) LIKE 'STRUCT(%' OR TYPEOF(kf_cw) "
-                "LIKE 'MAP(%' THEN ERROR(fj_why) WHEN TYPEOF(kf_cw) LIKE '%[][]' THEN ERROR(fj_arrays) "
-                "WHEN TYPEOF(kf_cw) LIKE '%[]' THEN COALESCE(TRY_CAST(kf_cw AS VARCHAR[]), CAST([] AS VARCHAR[])) "
-                "ELSE [CAST(kf_cw AS VARCHAR)] END))[1]", read="duckdb")
-            for name, text in (("fj_why", _CONCAT_WS_NESTED), ("fj_arrays", _CONCAT_WS_ARRAYS)):
-                next(c for c in check.find_all(exp.Column) if c.name == name).replace(exp.Literal.string(text))
-            slot = next(c for c in check.find_all(exp.Column) if c.name == "fj_part")
-            check.meta[TEXT_LIST] = True
-            part.replace(check)
-            slot.replace(part)
+            if isinstance(part, (exp.Literal, exp.Null)):
+                continue  # text or a number, written as Spark writes it
+            mark = exp.Anonymous(this=_TEXTS, expressions=[exp.Null()])
+            mark.meta[TEXT_LIST] = True
+            part.replace(mark)
+            mark.set("expressions", [part])
+    return statement
+
+
+def expand_concat_ws_texts(statement: exp.Expression) -> exp.Expression:
+    """Each part check_nested_concat_ws marked, as its list of text, read once through a lambda, so nested
+    concat_ws doesn't repeat it at each level."""
+    marks = [n for n in statement.find_all(exp.Anonymous) if n.name.upper() == _TEXTS]
+    if not marks:
+        return statement
+    template = cast(exp.Expression, sqlglot.parse_one(
+        f"(LIST_TRANSFORM([fj_part], lambda kf_cw: {_concat_ws_texts()}))[1]", read="duckdb"))
+    for name, text in (("fj_why", _CONCAT_WS_NESTED), ("fj_arrays", _CONCAT_WS_ARRAYS)):
+        next(c for c in template.find_all(exp.Column) if c.name == name).replace(exp.Literal.string(text))
+    for mark in reversed(marks):  # deepest first, so an outer part copies the inner one's text
+        new = template.copy()
+        mark.replace(new)
+        next(c for c in new.find_all(exp.Column) if c.name == "fj_part").replace(mark.expressions[0])
     return statement
 
 

@@ -12,7 +12,8 @@ gives in Fabric, where DuckDB's own aggregate answers differently.
 - grouping() is a tinyint, count_if() and regr_count() a bigint.
 - max_by(x, y) and min_by(x, y) give x from the row with the largest (smallest) y even when that x is
   NULL, as aggregates and over a window; DuckDB's arg_max and arg_min skip a row whose x is NULL. Rows
-  whose y is NULL are skipped in both.
+  whose y is NULL are skipped in both. A third argument (DuckDB's count, which gives an array) is refused, as
+  Spark stops on it ([WRONG_NUM_ARGS]).
 
 DuckDB's sum of an int or bigint is a 128-bit integer, which Spark doesn't have; spark_local's writes
 store it as a bigint, and typeof and the schema name it bigint.
@@ -45,6 +46,11 @@ def _cast(node: exp.Expr, to: str) -> None:
 
 def _quantile_is_array(node: exp.Expr) -> bool:
     return isinstance(node.args.get("quantile"), exp.Array)
+
+
+_BY_COUNT = ("{name}() takes two arguments in Spark, and this call gives it a third (a count), so nothing ran. Spark "
+             "stops on it too ([WRONG_NUM_ARGS]), where DuckDB gave an array of that many values. Use "
+             "{name}(x, y) for one value, or collect the values with a window and row_number().")
 
 
 def spark_aggregate_results(statement: exp.Expression) -> exp.Expression:
@@ -86,7 +92,10 @@ def spark_aggregate_results(statement: exp.Expression) -> exp.Expression:
         else:
             _cast(node, "DOUBLE[]" if _quantile_is_array(node) else "DOUBLE")
     for node in list(statement.find_all(exp.ArgMax, exp.ArgMin)):
-        if node.args.get("count") is None and node.expression is not None:
+        if node.args.get("count") is not None:
+            name = "max_by" if isinstance(node, exp.ArgMax) else "min_by"
+            raise ValueError(_BY_COUNT.format(name=name))
+        if node.expression is not None:
             name = "ARG_MAX_NULL" if isinstance(node, exp.ArgMax) else "ARG_MIN_NULL"
             node.replace(exp.Anonymous(this=name, expressions=[node.this, node.expression]))
     for node in list(statement.find_all(exp.Grouping)):

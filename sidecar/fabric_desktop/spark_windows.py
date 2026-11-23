@@ -7,7 +7,8 @@
 - lag and lead take no frame, and a ranking function takes only its own one (ROWS BETWEEN UNBOUNDED
   PRECEDING AND CURRENT ROW; RANGE for cume_dist). Spark stops on any other; DuckDB ignores it.
 - A RANGE frame between two INTERVALs of different units (INTERVAL 1 DAY PRECEDING AND INTERVAL 2 HOUR
-  FOLLOWING) is refused, as Spark types them apart and stops; DuckDB ran it.
+  FOLLOWING) is refused, as Spark types them apart and stops; DuckDB ran it. A unit is read as Spark reads
+  it: HOURS is HOUR, a WEEK is 7 DAY and a MILLISECOND a SECOND, so those pairs run.
 - A RANGE frame given as an INTERVAL in days or less (RANGE BETWEEN INTERVAL 1 DAY PRECEDING AND CURRENT
   ROW) needs a timestamp to order by. Spark stops on a date ([DATATYPE_MISMATCH.RANGE_FRAME_INVALID_TYPE]), where
   DuckDB counted the days, so a date is refused here too, once the query reads a row (DuckDB knows the
@@ -83,12 +84,32 @@ FRAME_UNITS = ("A RANGE frame's two bounds, {start} and {end}, are intervals of 
                "unit, such as INTERVAL 26 HOUR PRECEDING AND INTERVAL 2 HOUR FOLLOWING.")
 
 
-def _interval_unit(bound: object) -> str | None:
-    """The unit Spark types an INTERVAL bound by (WEEK is 7 DAY), or None for a bound that isn't one."""
-    if not isinstance(bound, exp.Interval) or bound.unit is None:
+# Spark's interval types by their fields: a WEEK is 7 DAY, a MILLISECOND or MICROSECOND a SECOND, and a
+# plural (HOURS) is its unit.
+_UNIT_FIELDS = {"WEEK": "DAY", "MILLISECOND": "SECOND", "MICROSECOND": "SECOND"}
+_DAY_TIME = ("DAY", "HOUR", "MINUTE", "SECOND")
+
+
+def _field(unit: object) -> str | None:
+    if not isinstance(unit, exp.Expression):
         return None
-    unit = bound.unit.sql("spark").upper()
-    return "DAY" if unit == "WEEK" else unit
+    name = unit.name.upper()
+    name = name[:-1] if name.endswith("S") else name
+    name = _UNIT_FIELDS.get(name, name)
+    return name if name in ("YEAR", "MONTH", *_DAY_TIME) else None
+
+
+def _interval_unit(bound: object) -> tuple[str, str] | None:
+    """The fields Spark types an INTERVAL bound by, (DAY, DAY) for INTERVAL 1 WEEK and (YEAR, MONTH) for
+    INTERVAL '1-2' YEAR TO MONTH, or None for a bound that isn't one or whose unit isn't read here."""
+    if not isinstance(bound, exp.Interval):
+        return None
+    unit = bound.unit
+    if isinstance(unit, exp.IntervalSpan):
+        start, end = _field(unit.this), _field(unit.expression)
+    else:
+        start = end = _field(unit)
+    return (start, end) if start is not None and end is not None else None
 
 
 def _check_frame_units(window: exp.Expression) -> None:
@@ -127,17 +148,14 @@ RANGE_DATE = ("A RANGE frame given as an INTERVAL in days, hours, minutes or sec
               "or give the frame in days, such as RANGE BETWEEN 1 PRECEDING AND CURRENT ROW.")
 
 
-_DAY_TIME = ("WEEK", "DAY", "HOUR", "MINUTE", "SECOND", "MILLI", "MICRO")
-
-
 def _interval_range(window: exp.Expression) -> bool:
-    """Whether ``window`` is a RANGE frame with a bound in days or less (INTERVAL 1 DAY, INTERVAL '2' HOUR);
+    """Whether ``window`` is a RANGE frame with a bound in days or less (INTERVAL 1 DAY, INTERVAL '2' HOURS);
     Spark takes one in years or months (INTERVAL 1 MONTH) with a date."""
     spec = window.args.get("spec")
     if not isinstance(spec, exp.WindowSpec) or str(spec.args.get("kind") or "").upper() != "RANGE":
         return False
-    bounds = [spec.args.get(which) for which in ("start", "end")]
-    return any(isinstance(b, exp.Interval) and any(u in b.sql("spark").upper() for u in _DAY_TIME) for b in bounds)
+    units = [_interval_unit(spec.args.get(which)) for which in ("start", "end")]
+    return any(u is not None and u[1] in _DAY_TIME for u in units)
 
 
 def _no_date_order(window: exp.Expression) -> None:

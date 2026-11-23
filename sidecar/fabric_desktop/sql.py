@@ -204,8 +204,9 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
     if databricks:
-        return _spark_range(spark_time_zone.fix(_ansi_divisions(statement)))
-    return _spark_range(spark_time_zone.fix(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement)))))
+        return spark_builtins_sql.expand_concat_ws_texts(_spark_range(spark_time_zone.fix(_ansi_divisions(statement))))
+    return spark_builtins_sql.expand_concat_ws_texts(
+        _spark_range(spark_time_zone.fix(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement))))))
 
 
 def _spark_range(statement: exp.Expression) -> exp.Expression:

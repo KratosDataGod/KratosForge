@@ -1,12 +1,13 @@
 """Spark's types for values of more than one type in one call, for Spark SQL on this PC.
 
 Spark (ANSI off, as Fabric runs it) finds one type for the values of ``array(...)``, the keys and the
-values of ``map(...)``, ``coalesce`` (and ``nvl``, ``ifnull``), ``CASE``, ``if``, ``IN`` and ``concat`` of
-arrays (TypeCoercion.findWiderCommonType). A string next to a number, a date or a timestamp makes them all
-strings: ``array(1, 'a')`` is ``['1', 'a']``, an ``array<string>``, and ``coalesce(1, 'a')`` is the string
-``'1'``. A boolean next to a number, a binary next to a string, or a date next to a number has no such
-type, so Spark stops ([DATATYPE_MISMATCH]). DuckDB cast 'a' to a number and stopped, or answered
-``array(true, 1)`` and ``true IN (1)`` where Spark stops.
+values of ``map(...)``, ``IN`` and ``concat`` of arrays, and of ``coalesce`` (and ``nvl``, ``ifnull``),
+``CASE`` and ``if`` (TypeCoercion.findWiderCommonType). A string next to a number, a date or a timestamp
+makes them all strings: ``array(1, 'a')`` is ``['1', 'a']``, an ``array<string>``. A boolean next to a
+number, a binary next to a string, or a date next to a number has no such type, so Spark stops
+([DATATYPE_MISMATCH]). DuckDB cast 'a' to a number and stopped, or answered ``array(true, 1)`` and
+``true IN (1)`` where Spark stops. ``coalesce``, ``CASE``, ``if``, ``greatest`` and ``least`` are typed here
+only when an array or a map is among their values: plain values there are spark_branch_types' (WR-259).
 
 ``greatest``, ``least`` and ``array_contains`` take values Spark can widen to one type without making
 strings (findWiderTypeWithoutStringPromotion); ``array_position``, ``array_remove``, ``array_union``,
@@ -15,10 +16,11 @@ strings (findWiderTypeWithoutStringPromotion); ``array_position``, ``array_remov
 decimal(2,1). ``array_union(array(1), array(1.5D))`` is an ``array<double>``, as is ``array_except`` of
 the same, where DuckDB kept the first array's type.
 
-sql.spark_fixes marks the calls the query writes (``mark``) before any rewrite; ``spark_coercions`` types
-them once the statement's tables are bound to the connection's views, as spark_text_compare does. Only
-values whose types are known here are used: literals, casts, columns, comparisons and arrays of them; a
-call with a value of any other type is left as it was.
+sql.spark_fixes marks the calls the query writes (``mark``) before any rewrite, with the types of the values
+that are known as written (literals, casts), since a rewrite may write a value anew (-1, a cast);
+``spark_coercions`` types the columns once the statement's tables are bound to the connection's views, as
+spark_text_compare does. Only values whose types are known here are used: literals, casts, columns,
+comparisons and arrays of them; a call with a value of any other type is left as it was.
 """
 from __future__ import annotations
 
@@ -36,7 +38,8 @@ from .spark_decimals import Refused
 
 log = logging.getLogger(__name__)
 
-_KEY = "kf_coerce"  # (group, index, kind, what, code) on each value of a marked call
+_KEY = "kf_coerce"  # (group, index, kind, what, code, types as written, arrays only) on each value of a marked call
+_CALL = "kf_coerce_call"  # [(slot, group)] on a marked call: its groups, by their place in _groups
 _T = exp.DataType.Type
 _INT_RANKS = {_T.TINYINT: 1, _T.SMALLINT: 2, _T.INT: 3, _T.BIGINT: 4}
 _INT_DIGITS = {1: 3, 2: 5, 3: 10, 4: 20}
@@ -59,59 +62,74 @@ _ARRAY_PAIRS = {"ARRAY_UNION": "array_union", "ARRAYS_OVERLAP": "arrays_overlap"
 Type = tuple[Any, ...]
 
 
-def mark(statement: exp.Expression) -> exp.Expression:
-    """Mark the values of the calls the query writes, before other rewrites copy or rewrite them."""
-    ids = itertools.count()
-
-    def group(values: list[exp.Expression], kind: str, what: str, code: str) -> None:
-        gid = next(ids)
-        for i, value in enumerate(values):
-            value.meta[_KEY] = (gid, i, kind, what, code)
-
-    for node in list(statement.find_all(exp.Array, exp.VarMap, exp.Map, exp.Coalesce, exp.Case, exp.If, exp.Greatest,
-                                        exp.Least, exp.In, exp.Concat,
-                                        exp.ArrayContains, exp.ArrayPosition, exp.ArrayRemove, exp.ArrayIntersect,
-                                        exp.ArrayExcept, exp.Anonymous)):
-        if isinstance(node, exp.Array):
-            if not isinstance(node.parent, (exp.VarMap, exp.Map)) and node.expressions:
-                group(list(node.expressions), _WIDER, "array()", "DATA_DIFF_TYPES")
-        elif isinstance(node, (exp.VarMap, exp.Map)):
-            keys, values = node.args.get("keys"), node.args.get("values")
-            if isinstance(keys, exp.Array) and isinstance(values, exp.Array):
-                group(list(keys.expressions), _WIDER, "map()'s keys", "CREATE_MAP_KEY_DIFF_TYPES")
-                group(list(values.expressions), _WIDER, "map()'s values", "CREATE_MAP_VALUE_DIFF_TYPES")
-        elif isinstance(node, exp.Coalesce):
-            group([node.this, *node.expressions], _WIDER, "coalesce()", "DATA_DIFF_TYPES")
-        elif isinstance(node, exp.Case):
-            values = [i.args.get("true") for i in node.args.get("ifs") or []] + [node.args.get("default")]
-            group([v for v in values if v is not None], _WIDER, "CASE", "DATA_DIFF_TYPES")
-        elif isinstance(node, exp.If):
-            if isinstance(node.parent, exp.Case):
-                continue  # a WHEN of a CASE, typed with the CASE
+def _group(node: exp.Expr) -> tuple[list[exp.Expr], str, str, str, bool] | None:
+    """The values of a call whose values Spark gives one type, with the rule they follow, the call's name and
+    Spark's error code, and whether only arrays and maps among them are typed here (spark_branch_types types
+    CASE, if, coalesce, greatest and least of plain values); None for any other node."""
+    if isinstance(node, exp.Array):
+        if not isinstance(node.parent, (exp.VarMap, exp.Map)) and node.expressions:
+            return list(node.expressions), _WIDER, "array()", "DATA_DIFF_TYPES", False
+    elif isinstance(node, exp.Coalesce):
+        return [node.this, *node.expressions], _WIDER, "coalesce()", "DATA_DIFF_TYPES", True
+    elif isinstance(node, exp.Case):
+        values = [i.args.get("true") for i in node.args.get("ifs") or []] + [node.args.get("default")]
+        return [v for v in values if v is not None], _WIDER, "CASE", "DATA_DIFF_TYPES", True
+    elif isinstance(node, exp.If):
+        if not isinstance(node.parent, exp.Case):  # a WHEN of a CASE is typed with the CASE
             values = [node.args.get("true"), node.args.get("false")]
-            group([v for v in values if v is not None], _WIDER, "if()", "DATA_DIFF_TYPES")
-        elif isinstance(node, (exp.Greatest, exp.Least)):
-            name = "greatest()" if isinstance(node, exp.Greatest) else "least()"
-            group([node.this, *node.expressions], _ONE_TYPE, name, "DATA_DIFF_TYPES")
-        elif isinstance(node, exp.In):
-            if node.args.get("query") is None and node.args.get("unnest") is None and node.expressions:
-                group([node.this, *node.expressions], _IN, "IN", "DATA_DIFF_TYPES")
-        elif isinstance(node, exp.Concat):
-            if not isinstance(node, exp.ConcatWs) and len(node.expressions) >= 2:
-                group(list(node.expressions), _CONCAT, "concat()", "DATA_DIFF_TYPES")
-        elif isinstance(node, exp.ArrayContains):
-            group([node.this, node.expression], _NO_STRING, "array_contains()", "ARRAY_FUNCTION_DIFF_TYPES")
-        elif isinstance(node, (exp.ArrayPosition, exp.ArrayRemove)):
-            name = "array_position()" if isinstance(node, exp.ArrayPosition) else "array_remove()"
-            group([node.this, node.expression], _TIGHTEST, name, "ARRAY_FUNCTION_DIFF_TYPES")
-        elif isinstance(node, (exp.ArrayIntersect, exp.ArrayExcept)):
-            pair = list(node.expressions) if isinstance(node, exp.ArrayIntersect) else [node.this, node.expression]
-            if len(pair) == 2:
-                name = "array_intersect()" if isinstance(node, exp.ArrayIntersect) else "array_except()"
-                group(pair, _TIGHTEST_ARRAYS, name, "BINARY_ARRAY_DIFF_TYPES")
-        elif str(node.this).upper() in _ARRAY_PAIRS and len(node.expressions) == 2:
-            group(list(node.expressions), _TIGHTEST_ARRAYS, _ARRAY_PAIRS[str(node.this).upper()] + "()",
-                  "BINARY_ARRAY_DIFF_TYPES")
+            return [v for v in values if v is not None], _WIDER, "if()", "DATA_DIFF_TYPES", True
+    elif isinstance(node, (exp.Greatest, exp.Least)):
+        name = "greatest()" if isinstance(node, exp.Greatest) else "least()"
+        return [node.this, *node.expressions], _ONE_TYPE, name, "DATA_DIFF_TYPES", True
+    elif isinstance(node, exp.In):
+        if node.args.get("query") is None and node.args.get("unnest") is None and node.expressions:
+            return [node.this, *node.expressions], _IN, "IN", "DATA_DIFF_TYPES", False
+    elif isinstance(node, exp.Concat):
+        if not isinstance(node, exp.ConcatWs) and len(node.expressions) >= 2:
+            return list(node.expressions), _CONCAT, "concat()", "DATA_DIFF_TYPES", False
+    elif isinstance(node, exp.ArrayContains):
+        return [node.this, node.expression], _NO_STRING, "array_contains()", "ARRAY_FUNCTION_DIFF_TYPES", False
+    elif isinstance(node, (exp.ArrayPosition, exp.ArrayRemove)):
+        name = "array_position()" if isinstance(node, exp.ArrayPosition) else "array_remove()"
+        return [node.this, node.expression], _TIGHTEST, name, "ARRAY_FUNCTION_DIFF_TYPES", False
+    elif isinstance(node, (exp.ArrayIntersect, exp.ArrayExcept)):
+        pair = list(node.expressions) if isinstance(node, exp.ArrayIntersect) else [node.this, node.expression]
+        if len(pair) == 2:
+            name = "array_intersect()" if isinstance(node, exp.ArrayIntersect) else "array_except()"
+            return pair, _TIGHTEST_ARRAYS, name, "BINARY_ARRAY_DIFF_TYPES", False
+    elif isinstance(node, exp.Anonymous) and str(node.this).upper() in _ARRAY_PAIRS and len(node.expressions) == 2:
+        return (list(node.expressions), _TIGHTEST_ARRAYS, _ARRAY_PAIRS[str(node.this).upper()] + "()",
+                "BINARY_ARRAY_DIFF_TYPES", False)
+    return None
+
+
+def _map_groups(node: exp.Expr) -> list[tuple[list[exp.Expr], str, str, str, bool]]:
+    keys, values = node.args.get("keys"), node.args.get("values")
+    if not (isinstance(keys, exp.Array) and isinstance(values, exp.Array)):
+        return []
+    return [(list(keys.expressions), _WIDER, "map()'s keys", "CREATE_MAP_KEY_DIFF_TYPES", False),
+            (list(values.expressions), _WIDER, "map()'s values", "CREATE_MAP_VALUE_DIFF_TYPES", False)]
+
+
+def _groups(node: exp.Expr) -> list[tuple[list[exp.Expr], str, str, str, bool]]:
+    if isinstance(node, (exp.VarMap, exp.Map)):
+        return _map_groups(node)
+    found = _group(node)
+    return [found] if found is not None else []
+
+
+def mark(statement: exp.Expression) -> exp.Expression:
+    """Mark the values of the calls the query writes, before other rewrites copy or rewrite them. Each mark
+    holds the types of the call's values that are known as written (literals, casts), since a rewrite can
+    replace a value (a negative number, a cast) with SQL of its own; a column is typed when the query runs."""
+    ids = itertools.count()
+    for node in list(statement.walk()):
+        for slot, (values, kind, what, code, arrays_only) in enumerate(_groups(node)):
+            gid = next(ids)
+            node.meta.setdefault(_CALL, []).append((slot, gid))
+            known = tuple(_spark_type(v) for v in values)
+            for i, value in enumerate(values):
+                value.meta[_KEY] = (gid, i, kind, what, code, known, arrays_only)
     return statement
 
 
@@ -168,6 +186,8 @@ def _literal(node: exp.Literal) -> Type:
         whole, _, fraction = text.partition(".")
         digits = len((whole + fraction).lstrip("0")) or 1
         return ("dec", min(max(digits, len(fraction)), 38), len(fraction))
+    if int(text) >= 2 ** 63:
+        return ("dec", min(len(text.lstrip("0")), 38), 0)  # past a bigint: a decimal, as Spark reads it
     return ("int", 3 if int(text) < 2 ** 31 else 4)
 
 
@@ -319,8 +339,9 @@ def _text_sql(value: str, t: Type, depth: int) -> str:
     if t[0] in ("string", "null"):
         return f"CAST({value} AS VARCHAR)"
     if t[0] in ("double", "float"):
+        # A float keeps its own shortest digits (0.1, where as a double it is 0.10000000149011612)
         name = f"kf_coerce_d{depth}"
-        return (f"(LIST_TRANSFORM([TRY_CAST({value} AS DOUBLE)], lambda {name}: "
+        return (f"(LIST_TRANSFORM([TRY_CAST({value} AS {_duck_name(t)})], lambda {name}: "
                 f"{java_double_text(name)}))[1]")
     if t[0] == "ts":
         return f"regexp_replace(CAST({value} AS VARCHAR), '[+-][0-9][0-9](:[0-9][0-9])?$', '')"
@@ -330,7 +351,7 @@ def _text_sql(value: str, t: Type, depth: int) -> str:
 def _to_sql(value: str, t: Type, to: Type, depth: int = 0) -> str:
     """DuckDB SQL for ``value`` (of Spark type ``t``) as Spark's type ``to``: a string as Spark writes it,
     an array or a map element by element, anything else a plain cast. ``value`` is written once."""
-    if t == to:
+    if t == to and t[0] != "dec":
         return value
     if to[0] == "string":
         return _text_sql(value, t, depth)
@@ -349,7 +370,7 @@ def _to_sql(value: str, t: Type, to: Type, depth: int = 0) -> str:
 
 def _retype(node: exp.Expr, t: Type, to: Type) -> None:
     """``node`` (in the statement itself) as Spark's type ``to``, in place; the node itself is kept inside."""
-    if t == to or t[0] == "null":
+    if (t == to and t[0] != "dec") or t[0] == "null":
         return
     new = sqlglot.parse_one(_to_sql("fj_arg0", t, to), read="duckdb")
     node.replace(new)
@@ -371,47 +392,74 @@ def spark_coercions(statement: exp.Expr, conn: Any, schema: MappingSchema | None
     if not marked:
         return statement
     try:
-        copy = statement.copy()
-        try:
-            if schema is None:
-                from .spark_decimals import _schema
-                schema = _schema(conn)
-            copy = qualify(copy, schema=schema, dialect="spark", validate_qualify_columns=False,
-                           quote_identifiers=False, identify=False)
-            annotate_types(copy, schema=schema, dialect="spark")
-        except Exception as exc:  # noqa: BLE001 - columns go untyped; literals and casts are still typed; logged
-            log.info("Spark coercions: columns not typed: %s: %s", type(exc).__name__, exc)
-            copy = statement.copy()
         groups: dict[int, dict[int, Type | None]] = {}
-        about: dict[int, tuple[str, str, str]] = {}
-        for node in copy.walk():
-            if _KEY not in node.meta:
-                continue
-            gid, index, kind, what, code = node.meta[_KEY]
-            about[gid] = (kind, what, code)
-            found = _spark_type(node)
-            seen = groups.setdefault(gid, {})
-            if index not in seen or seen[index] is None:
-                seen[index] = found
+        about: dict[int, tuple[str, str, str, bool]] = {}
+        for node in marked:
+            gid, _index, kind, what, code, known, arrays_only = node.meta[_KEY]
+            about[gid] = (kind, what, code, arrays_only)
+            groups[gid] = dict(enumerate(known))
+        if any(t is None for values in groups.values() for t in values.values()):
+            _type_columns(statement, conn, schema, groups)
         plans: dict[tuple[int, int], tuple[Type, Type]] = {}
         for gid, values in groups.items():
-            kind, what, code = about[gid]
+            kind, what, code, arrays_only = about[gid]
             if any(t is None for t in values.values()):
                 continue
             ordered = [cast(Type, values[i]) for i in sorted(values)]
+            if arrays_only and not any(t[0] in ("array", "map") for t in ordered):
+                continue  # plain values: spark_branch_types' to type
             for index, (t, to) in _plan(kind, what, code, ordered).items():
                 plans[(gid, index)] = (t, to)
         if plans:
-            for node in [n for n in statement.walk() if _KEY in n.meta]:
-                gid, index = node.meta[_KEY][:2]
-                if (gid, index) in plans:
-                    t, to = plans[(gid, index)]
-                    node.meta.pop(_KEY)
-                    _retype(node, t, to)
+            for key, nodes in _value_nodes(statement).items():
+                if key in plans:
+                    t, to = plans[key]
+                    for node in nodes:
+                        _retype(node, t, to)
     finally:
         for node in statement.walk():
             node.meta.pop(_KEY, None)
+            node.meta.pop(_CALL, None)
     return statement
+
+
+def _type_columns(statement: exp.Expr, conn: Any, schema: MappingSchema | None,
+                  groups: dict[int, dict[int, Type | None]]) -> None:
+    """The types ``groups`` doesn't know from the query as written, from a typed copy of ``statement``."""
+    copy = statement.copy()
+    try:
+        if schema is None:
+            from .spark_decimals import _schema
+            schema = _schema(conn)
+        copy = qualify(copy, schema=schema, dialect="spark", validate_qualify_columns=False,
+                       quote_identifiers=False, identify=False)
+        annotate_types(copy, schema=schema, dialect="spark")
+    except Exception as exc:  # noqa: BLE001 - columns go untyped; literals and casts are still typed; logged
+        log.info("Spark coercions: columns not typed: %s: %s", type(exc).__name__, exc)
+        return
+    for node in copy.walk():
+        if _KEY not in node.meta:
+            continue
+        gid, index = node.meta[_KEY][:2]
+        if groups[gid].get(index) is None:
+            groups[gid][index] = _spark_type(node)
+
+
+def _value_nodes(statement: exp.Expr) -> dict[tuple[int, int], list[exp.Expr]]:
+    """Each marked value in ``statement`` by (group, index): the nodes that carry its mark (a rewrite that
+    copies a value, as typeof does, copies its mark), or the value in its call's place when a rewrite wrote
+    a new node for it (-1 as a cast of 1)."""
+    marked: dict[tuple[int, int], list[exp.Expr]] = {}
+    placed: dict[tuple[int, int], list[exp.Expr]] = {}
+    for node in list(statement.walk()):
+        if _KEY in node.meta:
+            marked.setdefault(node.meta[_KEY][:2], []).append(node)
+        for slot, gid in node.meta.get(_CALL, []):
+            groups = _groups(node)
+            if slot < len(groups):
+                for i, value in enumerate(groups[slot][0]):
+                    placed.setdefault((gid, i), []).append(value)
+    return {key: marked.get(key) or nodes for key, nodes in {**placed, **marked}.items()}
 
 
 def _plan(kind: str, what: str, code: str, types: list[Type]) -> dict[int, tuple[Type, Type]]:
@@ -428,14 +476,15 @@ def _plan(kind: str, what: str, code: str, types: list[Type]) -> dict[int, tuple
             arrays = [t[0] == "array" for t in types if t[0] != "null"]
             if not any(arrays):
                 return {}
-            if not all(arrays):
-                raise _refuse(what, code, types)
+            if not all(arrays) or len(arrays) < len(types):  # a bare NULL is a string to concat
+                raise _refuse(what, code, [("string",) if t[0] == "null" else t for t in types])
         common = _common(types, _wider)
         if common is None:
             raise _refuse(what, code, types)
         if kind in (_IN, _ONE_TYPE) or not (_has_string(common) or _has_decimal(common)):
             return {}  # whole numbers, doubles, dates and timestamps widen in DuckDB as in Spark
-        return {i: (t, common) for i, t in enumerate(types) if t != common}
+        # A decimal is cast to its own type too: DuckDB reads a whole number past a bigint as a HUGEINT
+        return {i: (t, common) for i, t in enumerate(types) if t != common or t[0] == "dec"}
     array, other = types
     if array[0] == "null":
         return {}
@@ -456,6 +505,6 @@ def _plan(kind: str, what: str, code: str, types: list[Type]) -> dict[int, tuple
     element = rule(array[1], other)
     if element is None:
         raise _refuse(what, code, [array[1], other])
-    if kind == _TIGHTEST and array[1] != element:
+    if kind == _TIGHTEST and what == "array_remove()" and array[1] != element:
         return {0: (array, ("array", element))}  # array_remove gives an array of the wider type
     return {}

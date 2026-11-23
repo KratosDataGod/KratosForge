@@ -234,6 +234,8 @@ STILL_DIFFERS = {
     "`\\b` next to a letter outside ASCII": "SELECT rlike(s, '\\\\bé') FROM t",
     "`split` with a pattern that can match no text": "SELECT split(s, 'x*') FROM t",
     "a replacement taken from the data": "SELECT regexp_replace(s, 'a', r) FROM t",
+    # was "`concat_ws` with an array column": SQL joins an array column's elements as Spark does now
+    "Any array in the DataFrame API's `F.concat_ws`": "",
     "A pattern in the DataFrame API given as a column": "",
     "`F.split_part` with an empty delimiter": "",
     "`F.upper` of `'ß'`": "",  # SQL upper('ß') gives Spark's SS since #3050

@@ -40,7 +40,7 @@ from typing import Any
 
 from .. import __version__, audit_chain
 from ..audit import target
-from .core import CallContext, IntegrationError, redact_secrets
+from .core import MAX_DEPTH, CallContext, IntegrationError, redact_secrets, too_deep
 
 SCHEMA = "integration-audit@1"
 GENESIS = audit_chain.GENESIS
@@ -63,9 +63,14 @@ create index if not exists audit_client on audit (client_id, seq);
 def arguments(values: dict[str, Any] | None) -> dict[str, Any]:
     """What a line keeps of a call's arguments: identifying values only, by the app audit trail's
     rules (audit.target), so code, queries and data are left out the same way in both."""
-    if values is not None and not isinstance(values, dict):
+    if (values is not None and not isinstance(values, dict)) or too_deep(values, MAX_DEPTH):
+        # Nested past what a call may take (so refused anyway): walking it could exhaust the
+        # recursion limit and cost the call its line.
         return {"arguments": GIVEN}
-    return target(values or {})
+    try:
+        return target(values or {})
+    except RecursionError:  # nested deeper than Python recurses: the call's line is kept, its arguments aren't
+        return {"arguments": GIVEN}
 
 
 def decision_for(error: IntegrationError | None, ctx: CallContext) -> str:

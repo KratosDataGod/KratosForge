@@ -247,7 +247,7 @@ function releaseCommitText(r) {
 // ---------- column lineage ----------
 
 const LINEAGE_HOW = { source: "source", derived: "derived", lookup: "lookup", key: "key", framework: "framework", custom: "custom" };
-const LINEAGE_PILL = { declared: "info", inferred: "neu", opaque: "cus" };
+const LINEAGE_PILL = { declared: "info", inferred: "neu", opaque: "cus", unknown: "warn" };
 
 // Every column the entity writes and where it comes from, worked out from the project's files.
 // Picking a column shows the steps back to where it starts and what reads it further on.
@@ -284,7 +284,7 @@ async function columnLineage(name, pick = null) {
         : h("p", { class: "muted-text small" }, `Nothing in this project reads ${name}.${col}. Reports in Power BI aren't shown here yet.`));
   };
   const overlay = showDialog(`Column lineage: ${name}`, h("div", { class: "lineage-view" },
-    h("p", { class: "muted-text small" }, "Worked out from the project's files, not from running anything. Declared means a file names the link. Inferred means the name matches. Opaque means your Python decides."),
+    h("p", { class: "muted-text small" }, "Worked out from the project's files, not from running anything. Declared means a file names the link. Inferred means the name matches. Opaque means your Python decides. Unknown means an expression couldn't be read."),
     h("div", { class: "lineage-split" }, list, detail)), [btn("Close", null, closeDialog, "tool outline")]);
   overlay.querySelector(".dialog").classList.add("wide");
   if (pick && res.columns[pick]) list.querySelectorAll(".lineage-col")[columns.findIndex(([c]) => c === pick)].click();

@@ -70,7 +70,12 @@ METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_sel
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
 KERNEL = "local-python"          # the notebook's own kernel; runs through start_cell, not here
-BILLS = {"databricks_dbu": "bills DBUs", "fabric_capacity": "uses Fabric capacity", "none": ""}
+BILLS = {"databricks_dbu": "bills DBUs", "fabric_capacity": "uses Fabric capacity",
+         "snowflake_credits": "uses Snowflake credits", "none": ""}
+# Engines with an adapter that the notebook's engine menu doesn't offer yet, and why. The menu picks
+# Databricks connections only, so it lists these as planned, and choosing one is refused here.
+NOT_IN_PICKER = {"snowflake-sql": "Read-only SQL cells on a Snowflake warehouse are built (Preview), and choosing "
+                                  "them for a notebook comes when the engine menu lists Snowflake connections."}
 _MAGIC = re.compile(r"^\s*(%%sql|%sql)[^\n]*\n?", re.IGNORECASE)
 _WRITES = re.compile(r"\b(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|OPTIMIZE|VACUUM)\b|"
                      r"\.(saveAsTable|insertInto|save)\(|\.write\b", re.IGNORECASE)
@@ -87,6 +92,14 @@ def cell_request(source: str) -> CellRequest:
 
 _COMPUTE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 _NAME_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,255}$")
+
+
+def _pickable(desc: Any) -> None:
+    """Refuse an engine the notebook can't choose in this version, saying what's planned."""
+    if not desc.adapter:
+        raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+    if desc.id in NOT_IN_PICKER:
+        raise ValueError(f"{desc.label} can't be chosen for a notebook in this version. {NOT_IN_PICKER[desc.id]}")
 
 
 def _connection_view(profile_id: str, c: dict[str, Any]) -> dict[str, Any]:
@@ -169,6 +182,8 @@ class EnginesMixin:
         for e in out["engines"]:
             e["bills"] = BILLS.get(e.get("billing", "none"), "")
             e["kernel"] = e["id"] == KERNEL
+            if e["id"] in NOT_IN_PICKER:
+                e["adapter"], e["planned"] = False, NOT_IN_PICKER[e["id"]]
         return out
 
     def engine_connections(self) -> dict[str, Any]:
@@ -577,8 +592,7 @@ class EnginesMixin:
                        lakehouse_id: str = "", lakehouse_name: str = "", cells: list[str] | None = None) -> dict[str, Any]:
         """What choosing ``engine`` for ``notebook`` would do. Starts nothing and changes nothing."""
         desc = registry.get(engine)
-        if not desc.adapter:
-            raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+        _pickable(desc)
         mgr = self._engine_manager()
         current = mgr.engine_of(notebook) or KERNEL
         transition = {"needed": False, "loses": [], "decisions": [], "message": ""}
@@ -674,8 +688,7 @@ class EnginesMixin:
             self._engine_jobs.pop(notebook, None)
             return _with_notes({"engine": KERNEL, "status": "ready"}, mgr.notes(notebook))
         desc = registry.get(engine)
-        if not desc.adapter:
-            raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+        _pickable(desc)
         authorization = None
         config_options: dict[str, Any] = {}
         target = ""

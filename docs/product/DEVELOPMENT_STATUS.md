@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-20 11:42 UTC, main bdb6f251.** Covers the PRs merged from #135 to #3135.
+**Product check of 2026-11-20 23:42 UTC, main ea988e99.** Covers the PRs merged from #135 to #3161.
 
 ## Summary
 
+- Evening check, 2026-11-20: 23 PRs merged after bdb6f251. 2 were product data and docs audit PRs, and the other 21
+  were linked. Settings > Environment shows the KratosForge Environment with Upgrade's plan and confirm (CP-010), and
+  the environment's own cost is kept apart from savings (CP-011, PB-139). Each table can choose its Delta features at
+  publish, with a typed confirm when a reader can't read them (PB-099). Semantic parity levels and Fabric Semantic
+  View files landed (PB-110). Property tests show savings and the optimizer never invent a saving. Docs audit 25
+  merged with a checker that runs the docs' examples (#3142). No item changed state.
 - Morning check, 2026-11-20: 32 PRs merged after 75bf5b39. 1 was a product data PR, and the other 31 were linked.
   A new program has an item: PB-140 Three-platform parity (Phase 0 assessment and scored backlog in #3112; Snowflake
   key-pair and PAT sign-in in Preview, #3113; computed P3, In progress). The central control plane (PB-139) landed

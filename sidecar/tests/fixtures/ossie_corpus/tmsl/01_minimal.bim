@@ -1,0 +1,26 @@
+{
+  "name": "corpus_tmsl_minimal",
+  "compatibilityLevel": 1604,
+  "model": {
+    "culture": "en-US",
+    "tables": [
+      {
+        "name": "orders",
+        "lineageTag": "t-orders",
+        "columns": [
+          {"name": "order_id", "dataType": "int64", "sourceColumn": "order_id", "summarizeBy": "none", "lineageTag": "c-order-id"},
+          {"name": "amount", "dataType": "decimal", "sourceColumn": "amount", "summarizeBy": "none", "lineageTag": "c-amount"}
+        ],
+        "measures": [
+          {"name": "total amount", "expression": "SUM('orders'[amount])", "lineageTag": "m-total"}
+        ],
+        "partitions": [
+          {"name": "orders", "mode": "directLake", "source": {"type": "entity", "entityName": "orders", "schemaName": "dbo", "expressionSource": "DatabaseQuery"}}
+        ]
+      }
+    ],
+    "expressions": [
+      {"name": "DatabaseQuery", "kind": "m", "expression": "let\n    database = Sql.Database(\"corpus\", \"lh\")\nin\n    database"}
+    ]
+  }
+}

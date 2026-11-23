@@ -704,7 +704,7 @@ Status: **Built** (a test exists on main or a reviewed branch), **Planned**, **N
 | 14 | Git compare | 002b | `test_ossie_compare.py` (`ossie_compare.compare_versions`) | Built (engine); Planned (Git `HEAD` and screen) |
 | 15 | Fabric deploy (authorized test resources) | 015b, 005c | `test_import_previews_then_writes_only_when_confirmed` (fake API) | Needs live tenant |
 | 16 | Deploy failure and recovery | 015b | `test_a_model_that_cant_be_read_is_not_imported_over` (fake API) | Built (fake); Needs live tenant |
-| 17 | Malicious imports | 003a, 012a | `test_files_that_arent_ossie_are_refused_with_a_reason`, `test_links_and_junctions_on_the_way_are_refused_and_never_followed`, `test_a_hostile_model_reads_back_with_the_same_objects_and_nothing_extra`, `test_tmdl_fuzz.py` (branch), D1 test (branch) | Built |
+| 17 | Malicious imports | 003a, 012a | `test_files_that_arent_ossie_are_refused_with_a_reason`, `test_links_and_junctions_on_the_way_are_refused_and_never_followed`, `test_a_hostile_model_reads_back_with_the_same_objects_and_nothing_extra`, `test_tmdl_fuzz.py` (branch), D1 test (branch), `test_ossie_corpus.py` (012a corpus) | Built |
 | 18 | Large-model performance | 012b | `test_too_many_tables_or_too_much_text_is_refused` (limits only) | Planned |
 | 19 | Offline | 002a, 003a | `test_a_model_kept_in_git_exports_offline` | Built |
 | 20 | Converter-upgrade regression | 012c | `test_ossie_vendor_converters.py` (pins current behavior) | Planned |

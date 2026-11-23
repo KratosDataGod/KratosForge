@@ -114,7 +114,8 @@ def test_describe_table_answers_with_databricks_columns(cell):
             ["n", "bigint", None], ["ok", "boolean", None], ["d", "date", None], ["x", "double", None]]
     assert cell("DESCRIBE TABLE customer", columns=True) == (["col_name", "data_type", "comment"], rows)
     assert cell("DESC customer") == rows
-    assert cell("DESCRIBE main.customer") == rows
+    assert cell("DESCRIBE default.customer") == rows
+    assert cell("DESCRIBE main.default.customer") == rows  # WR-316: main is the catalog, default its schema
 
 
 def test_describe_stops_for_a_missing_table_or_a_type_it_cant_name(cell):

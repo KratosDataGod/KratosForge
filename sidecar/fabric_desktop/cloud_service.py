@@ -300,7 +300,7 @@ class CloudMixin:
                 return None  # deleted in Fabric: Publish makes it again
             raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
                                "published. Try again.") from exc
-        return notebook_files.fabric_changes(base, notebook_files.ipynb_of(definition), doc) | {"item_id": link["item_id"]}
+        return notebook_files.fabric_changes(base, notebook_files.checked(notebook_files.ipynb_of(definition)), doc) | {"item_id": link["item_id"]}
 
     def notebook_publish_check(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                                workspace: dict[str, str] | None = None,

@@ -247,7 +247,11 @@ def build_server(registry: Registry | None = None, service_factory: Callable[[],
     async def read_resource(ctx: Any, params: types.ReadResourceRequestParams) -> types.ReadResourceResult:
         uri = str(params.uri)
         try:
-            cap, args = reg.resolve(uri)
+            try:
+                cap, args = reg.resolve(uri)
+            except IntegrationError as refusal:  # recorded like a call to a tool that doesn't exist (PR-AI-010)
+                reg.refused(CallContext(caller(ctx)), "resources/read", {"uri": uri}, refusal)
+                raise
             call = CallContext(caller(ctx), timeout=cap.timeout)
             result = await anyio.to_thread.run_sync(
                 lambda: reg.invoke(holder.get() if cap.needs_service else None, cap.id, args, call), abandon_on_cancel=True)

@@ -59,3 +59,18 @@ def test_connections_the_app_opens_from_a_cell_are_not_recorded():
     assert out["status"] == "ok", out
     recorded = list(k._duckdb_connections)
     assert len(recorded) == 1 and recorded[0] is k.namespace["mine"]
+
+
+def test_a_cancel_leaves_duckdbs_default_connection_usable_after_a_result_left_partly_read(tmp_path):
+    """Cancel interrupts DuckDB's default connection even when the cancelled cell never used it. A result an
+    earlier cell read only part of held that interrupt, so the next query that read a file stopped with
+    "Interrupted!" and every query after it failed with "Current transaction is aborted"."""
+    path = (tmp_path / "one.parquet").as_posix()
+    duckdb.connect().execute(f"COPY (SELECT 1 AS id) TO '{path}'")
+    k = Kernel()
+    assert k.run("import duckdb\nduckdb.execute('SELECT 1').fetchone()")["status"] == "ok"
+    out = interrupted(k, "import time\nfor _ in range(200):\n    time.sleep(0.05)")
+    assert out["status"] in ("error", "cancelled"), out
+    read = k.run(f"print(duckdb.sql(\"SELECT id FROM read_parquet('{path}')\").fetchall())")
+    assert read["status"] == "ok" and read["outputs"][0]["text"] == "[(1,)]\n", read["outputs"]
+    assert k.run("print(duckdb.sql('SELECT 42').fetchall())")["outputs"][0]["text"] == "[(42,)]\n"

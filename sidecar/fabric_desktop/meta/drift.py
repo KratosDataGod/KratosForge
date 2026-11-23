@@ -17,7 +17,7 @@ from typing import Any
 
 import polars as pl
 
-from .project import SYSTEM_COLUMNS, Entity, Project
+from .project import SYSTEM_COLUMNS, Entity, Project, sql_expr
 
 _TYPE_NAMES: dict[Any, str] = {pl.Int64: "int64", pl.Int32: "int32", pl.Int16: "int32", pl.Int8: "int32", pl.UInt32: "int64",
                pl.UInt64: "int64", pl.Float64: "float64", pl.Float32: "float32", pl.String: "string",
@@ -67,7 +67,7 @@ def detect(project: Project, e: Entity, source: pl.DataFrame | None) -> dict[str
     renames = e.spec.get("source", {}).get("rename", {})
     have = {renames.get(c, c): source.schema[c] for c in source.columns if c not in SYSTEM_COLUMNS}
     from_entity = "entity" in e.spec.get("source", {})
-    used = set(e.columns) | {c for d in e.spec.get("derive", []) for c in pl.sql_expr(d["expr"]).meta.root_names()}
+    used = set(e.columns) | {c for d in e.spec.get("derive", []) for c in sql_expr(d["expr"]).meta.root_names()}
     for c, dtype in have.items():
         if c not in want and c not in used:
             out["added"].append({"column": c, "type": type_name(dtype)})

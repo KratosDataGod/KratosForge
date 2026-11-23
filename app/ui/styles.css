@@ -1,5 +1,21 @@
 :root {
   /* Living Experience on Home (home-hero.js): the hero sky behind the art, the navy identity card, the warm achievement card */
+  /* Skill trees (Profile, PB-134): the forged tree surface, the same in light and dark mode. */
+  --tree-sky: #0b1730;
+  --tree-deep: #08121f;
+  --tree-glow: rgba(248, 153, 28, .18);
+  --tree-line: #3b5079;
+  --tree-ember: #f8991c;
+  --tree-ember-hi: #ffd27a;
+  --tree-ember-soft: rgba(248, 153, 28, .35);
+  --tree-node: #12264a;
+  --tree-node-dim: #0e1a30;
+  --tree-ring-open: #dfe7f3;
+  --tree-ring-progress: #f6c27a;
+  --tree-ring-locked: #6b7fa3;
+  --tree-text: #eef2f8;
+  --tree-muted: #b4c0d4;
+  --tree-ink: #0b1420;
   --lx-hero-sky: #01203d;
   --lx-hero-sky-low: #062e57;
   --lx-mask: #000;
@@ -269,7 +285,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .rail-open-item { position: relative; }
 .rail-close {
   position: absolute; top: 2px; right: 2px; display: flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2);
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2);  /* 24 px: WCAG 2.5.8 */
   cursor: pointer; opacity: 0.55;
 }
 .rail-open-item:hover .rail-close, .rail-close:focus-visible { opacity: 1; }
@@ -1107,7 +1123,7 @@ h2.flush { margin: 0; }
 @media (max-width: 760px) { .sql-side-box { width: 200px; } }
 .sql-table-row { display: flex; align-items: center; }
 .sql-table-row .tree-row { width: auto; }
-.sql-table-row .tree-row.chev { flex: none; padding-right: 2px; }
+.sql-table-row .tree-row.chev { flex: none; min-width: 24px; padding-right: 2px; }  /* 24 px wide: WCAG 2.5.8 */
 .sql-table-row .tree-row:not(.chev) { flex: 1; min-width: 0; padding-left: 2px; }
 .tree-row.sql-col { padding-left: 52px; font-size: 12.5px; }
 
@@ -1552,7 +1568,8 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 }
 .seg button.on .preview-tag, .tool.primary .preview-tag { background: var(--surface); }
 .learn-more { font-size: 13px; color: var(--accent); white-space: nowrap; }
-.subtabs .learn-more { align-self: center; padding-right: 4px; }
+/* 24 px tall, so it is a big enough target where the tabs wrap and it sits just under one (WCAG 2.5.8, at 200%). */
+.subtabs .learn-more { align-self: center; display: inline-flex; align-items: center; min-height: 24px; padding-right: 4px; }
 .meta-tabs { margin: -6px 0 16px; }
 
 /* Command bar (Ctrl+K) */
@@ -3751,7 +3768,10 @@ html[data-motion-paused="on"] :is(.forge-wolf svg, .forge-fill.sheen, .forge-dot
   .rail-divider { width: 28px; margin: 2px 0; }
   .rail-group-label { width: 36px; height: 0; margin-top: 2px; padding-top: 0; overflow: hidden; }
   #rail-open { gap: 2px; }
-  .rail-close { top: 0; right: 0; width: 14px; height: 14px; }
+  /* An open item's close sits beside its icon, not over it: 26 + 1 + 24 = 51 px, inside the rail's 52 less its 1 px border (WCAG 2.5.8). */
+  .rail-open-item { display: flex; align-items: center; gap: 1px; }
+  .rail-open-item .rail-item { width: 26px; }
+  .rail-close { position: static; width: 24px; height: 24px; }
   .home-hero { height: auto; min-height: 0; }
   .home-hero-img, .home-hero-kicker, .home-hero-title { display: none; }
   .home-hero-text { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 20px; }
@@ -3803,7 +3823,8 @@ body[data-skin-rail="inline"] .rail-open-item { display: flex; flex-direction: c
   body[data-skin-rail="inline"] .rail-item { flex-direction: column; justify-content: center; gap: 0; width: 44px; min-height: 0; padding: 3px 0; }
   body[data-skin-rail="inline"] .rail-divider { width: 28px; margin: 2px 0; }
   body[data-skin-rail="inline"] .rail-group-label { width: 36px; padding-left: 0; }
-  body[data-skin-rail="inline"] .rail-close { top: 0; right: 0; }
+  body[data-skin-rail="inline"] .rail-open-item { flex-direction: row; align-items: center; }
+  body[data-skin-rail="inline"] .rail-open-item .rail-item { width: 26px; }
 }
 /* Header: light is KratosForge's white bar. Brand fills the bar with the skin's accent; its own text and
    buttons turn to --on-accent, and the search box sits on --accent-dark. None blends the bar into the
@@ -4014,3 +4035,53 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .dh-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 0 16px; }
 .dh-tile { display: flex; flex-direction: column; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
 .dh-tile b { font-size: 18px; font-variant-numeric: tabular-nums; }
+
+/* ---------- Profile > Skill trees (PB-134) ---------- */
+.tree-head { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 18px 20px 0;
+  border-radius: 10px 10px 0 0; color: var(--tree-text); background: radial-gradient(ellipse at 85% 0%, var(--tree-node), var(--tree-sky) 70%); }
+.tree-head-text { min-width: 0; }
+.tree-title { margin: 0; font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800;
+  font-size: 40px; line-height: 1; text-transform: uppercase; color: var(--tree-text); }
+.tree-sub { margin: 6px 0 0; color: var(--tree-text); }
+.tree-lore { margin: 4px 0 0; color: var(--tree-muted); font-size: 13px; max-width: 70ch; }
+.tree-pick { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--tree-muted); align-self: start; }
+.tree-pick select { max-width: 340px; color: var(--tree-text); background: var(--tree-deep); border: 1px solid var(--tree-ring-locked); border-radius: 6px; padding: 6px 8px; }
+.tree-detail .tool.outline { color: var(--tree-text); background: transparent; border-color: var(--tree-muted); }
+.tree-specs { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
+.tree-spec { border: 0; padding: 8px 14px; border-radius: 6px 6px 0 0; font: inherit; color: var(--tree-text); background: var(--tree-node); cursor: pointer; }
+.tree-spec.active { background: var(--tree-deep); font-weight: 700; box-shadow: inset 0 3px 0 var(--tree-ember); }
+.tree-spec:focus-visible, .tree-node:focus-visible { outline: 3px solid var(--tree-ember-hi); outline-offset: 3px; }
+.tree-spec-count { color: var(--tree-muted); font-weight: 400; }
+.tree-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; margin-top: -16px; border-radius: 0 0 10px 10px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 100%, var(--tree-glow), transparent 55%), radial-gradient(ellipse at 50% 0%, var(--tree-node), var(--tree-deep) 70%); }
+.tree-canvas { position: relative; height: 768px; margin: 40px 24px 56px; }
+.tree-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.tree-line { fill: none; stroke: var(--tree-line); stroke-width: 2; stroke-dasharray: 6 6; vector-effect: non-scaling-stroke; }
+.tree-line.lit { stroke: var(--tree-ember); stroke-width: 4; stroke-dasharray: none; }
+.tree-line.lit-glow { stroke: var(--tree-ember-soft); stroke-width: 11; stroke-dasharray: none; }
+.tree-line.flow { stroke: var(--tree-ember-hi); stroke-width: 2; stroke-dasharray: 3 16; }
+html[data-motion="on"][data-fx-ambient="on"] .tree-line.flow { animation: tree-flow 1.6s linear infinite; }
+@keyframes tree-flow { to { stroke-dashoffset: -38; } }
+.tree-node { position: absolute; transform: translate(-50%, -32px); width: 132px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border: 0; padding: 0; background: none; color: var(--tree-text); font: inherit; cursor: pointer; text-align: center; }
+.tree-emblem { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  border: 3px solid var(--tree-ring-open); color: var(--tree-text); background: radial-gradient(circle at 50% 35%, var(--tree-node), var(--tree-deep)); }
+.tree-node.mastered .tree-emblem { border-color: var(--tree-ember); color: var(--tree-ember); box-shadow: 0 0 20px var(--tree-ember-soft); }
+.tree-node.in_progress .tree-emblem { border-color: var(--tree-ring-progress); color: var(--tree-ring-progress); }
+.tree-node.locked .tree-emblem { border-color: var(--tree-ring-locked); color: var(--tree-ring-locked); background: var(--tree-node-dim); }
+.tree-node.capstone .tree-emblem { width: 72px; height: 72px; }
+.tree-node.selected .tree-emblem { outline: 3px solid var(--tree-text); outline-offset: 4px; }
+.tree-node-name, .tree-node-level { padding: 0 6px; border-radius: 4px; background: var(--tree-deep); }
+.tree-node-name { font-size: 12px; font-weight: 600; line-height: 1.2; }
+.tree-node-level { font-size: 11px; color: var(--tree-muted); }
+.tree-node.mastered .tree-node-level { color: var(--tree-ember-hi); }
+.tree-detail { padding: 18px; display: flex; flex-direction: column; gap: 12px; color: var(--tree-text); background: var(--tree-sky); border-left: 1px solid var(--tree-node); }
+.tree-detail .muted-text { color: var(--tree-muted); }
+.tree-detail-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; }
+.tree-detail p { margin: 4px 0 0; }
+.tree-pill { color: var(--tree-ink); background: var(--tree-ring-open); }
+.tree-pill.mastered { background: var(--tree-ember); }
+.tree-pill.in_progress { background: var(--tree-ring-progress); }
+.tree-evidence { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+@media (max-width: 1100px) { .tree-body { grid-template-columns: 1fr; } .tree-detail { border-left: 0; border-top: 1px solid var(--tree-node); } }
+@media (max-width: 760px) { .tree-head { grid-template-columns: 1fr; } .tree-node { width: 96px; } .tree-node-name { font-size: 11px; } }

@@ -74,6 +74,7 @@ import bisect
 import datetime as dt
 import decimal
 import itertools
+import logging
 import json
 import os
 import re
@@ -94,6 +95,8 @@ from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, s
 from .filenames import file_stem
 from .frames import EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
+
+_log = logging.getLogger(__name__)
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
@@ -305,7 +308,7 @@ class SqlExecutions:
         self._audit = audit
         self._limits = limits
         self.command = command or [sys.executable, "-m", "fabric_desktop.sql_worker"]
-        self._downloads = downloads or known_folders.downloads
+        self._downloads = downloads or known_folders.export_folder
         self._lock = threading.RLock()
         self._runs: dict[str, Execution] = {}
         self._exports: dict[str, Export] = {}
@@ -318,6 +321,9 @@ class SqlExecutions:
 
     def base(self) -> Path:
         configured = str(self._limits().get("sql_temp_dir") or "")
+        if configured and known_folders.in_onedrive(configured):  # set before OneDrive was refused, or by policy
+            _log.warning("The SQL temp folder %s is in OneDrive, so the app's own folder is used instead.", configured)
+            configured = ""
         return Path(configured) if configured else self.root / "sql-runs"
 
     def _memory_budget(self, percent: int) -> dict[str, Any]:

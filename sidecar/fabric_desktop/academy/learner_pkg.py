@@ -41,6 +41,7 @@ SOURCES: dict[str, Path] = {
     "spark_datetime.py": _ENGINE / "spark_datetime.py",
     "spark_time_zone.py": _ENGINE / "spark_time_zone.py",
     "spark_windows.py": _ENGINE / "spark_windows.py",
+    "spark_branch_types.py": _ENGINE / "spark_branch_types.py",
     "spark_replace_where.py": _ENGINE / "spark_replace_where.py",
     "notebook_dag.py": _ENGINE / "notebook_dag.py",
     "pyspark_shim.py": _HERE / "pyspark_shim.py",

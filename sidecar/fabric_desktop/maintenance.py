@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import math
 import numbers
 import os
@@ -25,6 +26,8 @@ from deltalake import DeltaTable, PostCommitHookProperties
 from deltalake.exceptions import TableNotFoundError
 
 from . import durable, retrying
+
+_log = logging.getLogger(__name__)
 
 SMALL_FILE_BYTES = 32 * 1024 * 1024
 SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is worth compacting
@@ -42,6 +45,11 @@ LOG_RETENTION_DAYS = 30  # Delta's default: older log entries go at the next che
 # It writes no checkpoint either: one drops the removals older than deletedFileRetentionDuration, and a VACUUM
 # after it no longer knows to delete their files. A later commit at the interval checkpoints.
 KEEP_LOG = PostCommitHookProperties(create_checkpoint=False, cleanup_expired_logs=False)
+# An ordinary write (an append, overwrite, MERGE, UPDATE or DELETE) checkpoints at the interval as usual but
+# cleans no log in its commit: after_write cleans it once keep_log has kept what the history kept reads. Before
+# the commit its version isn't known (another writer can take the one expected, and a write pinned to the
+# version it read would conflict with a property commit made first), after it, it is.
+WRITE_HOOKS = PostCommitHookProperties(create_checkpoint=True, cleanup_expired_logs=False)
 _LOG_FILE = re.compile(r"(\d{20})\.(json|checkpoint(\.\d+\.\d+)?\.parquet)")
 _INTERVAL = re.compile(r"(?:interval\s+)?(\d+(?:\.\d+)?)\s*(millisecond|second|minute|hour|day|week)s?", re.I)
 _UNIT_SECONDS = {"millisecond": 0.001, "second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 7 * 86400}
@@ -370,6 +378,43 @@ def keep_log(uri: str, hours: float, options: dict[str, str] | None = None, now:
         {"delta.logRetentionDuration": f"interval {days} days"}, post_commithook_properties=KEEP_LOG),
         "this table's next version")
     return True
+
+
+def checkpoints_between(config: dict[str, str] | None, before: int | None, after: int) -> bool:
+    """Whether a commit after version ``before`` (None: the table is new) up to ``after`` is one delta-rs writes a
+    checkpoint at: version + 1 a multiple of delta.checkpointInterval (100 when the table sets none). One this
+    can't read, or that isn't over 0, counts as checkpointing: the log is then looked after, never left."""
+    text = (config or {}).get("delta.checkpointInterval")
+    try:
+        interval = 100 if text is None else int(str(text).strip())
+    except ValueError:
+        return True
+    if interval <= 0:
+        return True
+    first = -1 if before is None else int(before)
+    return (int(after) + 1) // interval * interval >= first + 2  # a multiple of it in [first + 2, after + 1]
+
+
+def after_write(uri: str, before: int | None, table: DeltaTable, options: dict[str, str] | None = None,
+                days: int | None = None) -> bool:
+    """After an ordinary write's commit, made with WRITE_HOOKS (a checkpoint as usual, no log cleanup): when it, or
+    a commit since ``before``, is one delta-rs checkpoints at, keep the log a version current in the history kept
+    reads (keep_log), and only then clean the expired log as the commit would have. The history kept is the longest
+    of ``days`` (a layer's Keep history), the table's own delta.deletedFileRetentionDuration and MIN_RETENTION_DAYS.
+    ``table`` is the table as committed; the log is listed only after a checkpoint, so other writes cost nothing
+    more. True when the log was cleaned. Nothing here fails the write, which is in: a step that fails leaves the
+    log as it is until the next checkpoint (with a warning)."""
+    try:
+        config = table.metadata().configuration or {}
+        if not checkpoints_between(config, before, table.version()) or math.isinf(log_seconds(config)):
+            return False
+        keep_log(uri, retention_hours(max(days or 0, kept_days(config) or 0, MIN_RETENTION_DAYS)), options)
+        DeltaTable(uri, storage_options=options).cleanup_metadata()
+        return True
+    except Exception as exc:  # noqa: BLE001 - the write is committed; the log waits for the next checkpoint
+        from .redact import describe
+        _log.warning("The Delta log of %s is left as it is until its next checkpoint: %s", uri, describe(exc))
+        return False
 
 
 def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[str, Any]:

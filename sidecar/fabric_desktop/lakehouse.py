@@ -775,7 +775,7 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     table the change took outside the profile is only noted in the log, since the rows are committed."""
     from deltalake import CommitProperties, write_deltalake
 
-    from . import delta_dml, delta_profile
+    from . import delta_dml, delta_profile, maintenance
     lh = _current()
     ref = table_ref(change.name)
     reason = write_refusal(lh.name, ref.schema, ref.table)
@@ -810,8 +810,10 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     before = table.version()
     names = source.schema.names if source is not None else None
     out = delta_dml.apply(change, table, source, names,
-                          CommitProperties(custom_metadata={"fabric_desktop.operation": change.kind}))
+                          CommitProperties(custom_metadata={"fabric_desktop.operation": change.kind}),
+                          post_commithook_properties=maintenance.WRITE_HOOKS)
     after = DeltaTable(uri, storage_options=opts)
+    maintenance.after_write(uri, before, after, opts)  # the log cleanup its checkpoint left
     delta_profile.note_after_write(after)
     result = ChangeResult(name_, change.kind, after.version(), out["rows_inserted"], out["rows_updated"],
                           out["rows_deleted"])

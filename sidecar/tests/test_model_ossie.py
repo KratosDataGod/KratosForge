@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -1144,3 +1145,21 @@ def test_a_dataset_metric_whose_sql_cant_be_tokenized_is_reported_not_raised():
     bim, report = model_ossie.to_tmsl(_ossie(extra_metric=bad))
     names = {m["name"] for t in bim["model"]["tables"] for m in t.get("measures") or []}
     assert "broken" in names or any("broken" in r["object"] for r in report)
+
+
+def test_a_warning_python_raises_during_a_conversion_isnt_reported_as_lost(monkeypatch):
+    """The garbage collector can close another thread's socket mid-conversion, and Python warns about that
+    (ResourceWarning: unclosed transport). Only the converter's own warnings are the report; the rest pass on."""
+    real = model_ossie.convert_semantic_model_to_ossie
+
+    def with_a_stray_warning(*args, **kwargs):
+        warnings.warn("unclosed transport <_SelectorSocketTransport fd=7>", ResourceWarning, stacklevel=1)
+        return real(*args, **kwargs)
+
+    model_ossie.require()
+    plain = model_ossie.export(_bim())["report"]
+    monkeypatch.setattr(model_ossie, "convert_semantic_model_to_ossie", with_a_stray_warning)
+    shown = []
+    monkeypatch.setattr(warnings, "showwarning", lambda message, category, *a, **k: shown.append((category, str(message))))
+    assert plain and model_ossie.export(_bim())["report"] == plain  # the converter's own warnings, and nothing else
+    assert shown == [(ResourceWarning, "unclosed transport <_SelectorSocketTransport fd=7>")]  # passed on

@@ -69,10 +69,10 @@ def test_the_size_message_gives_whole_megabytes(monkeypatch):
 # ---- the converter's report
 
 def test_the_report_splits_each_warning_into_its_object_and_message():
-    def convert():
-        warnings.warn("[table 't'] format strings preserved in the Power BI stash", stacklevel=1)
-        warnings.warn("[nothing closes this", stacklevel=1)
-        warnings.warn("a plain warning", stacklevel=1)
+    def convert():  # each warned as the converter does (ossie_microsoft._common.warn): only those are reported
+        for text in ("[table 't'] format strings preserved in the Power BI stash", "[nothing closes this",
+                     "a plain warning"):
+            warnings.warn_explicit(text, UserWarning, filename=mo.CONVERTER_WARNINGS, lineno=1)
         return "done"
 
     result, report = mo._convert(convert)

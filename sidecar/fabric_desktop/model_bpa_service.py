@@ -20,7 +20,6 @@ from typing import Any
 from . import model_bpa, risk
 from .errors import NotSetUp
 from .fabric_api import FabricError
-from .fabric_compute import RESULTS_DIR
 from .fabric_run import TERMINAL
 from .jsonfile import read_json, write_json
 from .meta.store import META_LAKEHOUSE, OneLakeStore
@@ -110,8 +109,11 @@ class ModelBpaMixin:
         unreadable = ""
         saved_error: dict[str, str] | None = None
         if newest and newest.get("status") in TERMINAL and (last or {}).get("request_id") != newest["request_id"]:
-            data = FileStore(lambda: self.auth.storage_token()).read_bytes(  # type: ignore[attr-defined]
-                t["workspace_id"], t["meta_lakehouse_id"], f"{RESULTS_DIR}/{newest['request_id']}.json")
+            try:
+                data = model_bpa.read_results(FileStore(lambda: self.auth.storage_token()),  # type: ignore[attr-defined]
+                                              t["workspace_id"], t["meta_lakehouse_id"], newest["request_id"])
+            except model_bpa.ResultsTooLarge as exc:
+                data, unreadable = None, f"{exc}. Check the model again."
             if data:
                 found = None
                 try:

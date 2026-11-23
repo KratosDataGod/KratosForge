@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import catalog_architecture, catalog_artifacts, catalog_models
+from . import catalog_architecture, catalog_artifacts, catalog_devops, catalog_models
 from . import controls as ct
 from .evidence import Map, fits
 
@@ -325,6 +325,32 @@ _NOTEBOOK = {"read": lambda v: v is True, "kind": str, "cells": int, "scheduled"
 _PIPELINE = {"read": lambda v: v is True, "kind": str, "activities": int, "inactive": _NAMES, "inactive_count": int,
              "fixed_workspace": _NAMES, "fixed_workspace_count": int, "state_unknown": _NAMES,
              "properties_unknown": _NAMES}
+
+
+def _count(v: Any) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+# FEA-302's retry, timeout and failure-path keys. An older engine kept none of them, so its controls are
+# not evaluated; once one is there, all are, and each list agrees with its count, so a key left out or a
+# count of 0 beside named activities never reads as "every activity has a retry".
+_POLICY = {"calls_out": _count, "no_retry": _NAMES, "no_retry_count": _count, "no_timeout": _NAMES,
+           "no_timeout_count": _count, "retry_unknown": _NAMES, "timeout_unknown": _NAMES, "failure_path": bool,
+           "failure_path_unknown": bool, "depends_unknown": _NAMES}
+
+
+def _pipeline_fits(p: Any) -> bool:
+    if not fits(p, _PIPELINE):
+        return False
+    if not any(k in p for k in _POLICY):
+        return True
+    if not fits(p, _POLICY):
+        return False
+    # a list of names (cut short) is never longer than its count, and empty only when the count is 0
+    return all(len(p[k]) <= p[n] <= p["calls_out"] and (p[n] == 0) == (not p[k])
+               for k, n in (("no_retry", "no_retry_count"), ("no_timeout", "no_timeout_count")))
+
+
 _OPERATIONS = {"rows": int, "cu_seconds": float, "status_rows": int, "cu_by_status": Map(float), "operation_rows": int,
                "window": {"start": (str, None), "end": (str, None)},
                "refreshes_per_day": [{"workspace": str, "item": str, "day": str, "count": int}],
@@ -343,8 +369,8 @@ PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
     "item.optimization": {"definition": str, "history_read": bool, "scheduled_runs": (int, bool, None),
                           "peers_not_read": _NAMES,
                           "matched": [{"rule": _PLAIN, "?opportunity_id": _PLAIN, "?title": _PLAIN}]},
-    "item.inspection": lambda p: fits(p, _NOTEBOOK if isinstance(p, dict) and p.get("kind") == "notebook"
-                                      else _PIPELINE),
+    "item.inspection": lambda p: (fits(p, _NOTEBOOK) if isinstance(p, dict) and p.get("kind") == "notebook"
+                                  else _pipeline_fits(p)),
     "item.model": {"read": lambda v: v is True, "kind": str, "tables": int, "relationships": int,
                    "bidirectional": _NAMES, "bidirectional_count": int, "roles": int, "row_filter_roles": _NAMES,
                    "row_filter_tables": _NAMES, "direct_lake_tables": int, "direct_lake_behavior": str,
@@ -352,6 +378,8 @@ PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
                    "types_unknown": _NAMES, "columns_unknown": _NAMES},
     "item.binding": {"default_lakehouse": (str, None), "?definition": str},
     "lakehouse.properties": {"schemas_enabled": bool, "default_schema": (str, None)},
+    "workspace.git": {"state": lambda v: v is None or v in catalog_devops.STATES, "provider": str, "branch": str,
+                      "status": (None, {"uncommitted": _count, "incoming": _count, "conflicts": _count})},
 }
 
 
@@ -361,7 +389,7 @@ def registry() -> ct.Registry:
     from .catalog_capacity import CONTROLS as CAPACITY  # it imports this module
     for c in (*CONTROLS, *catalog_artifacts.CONTROLS, *catalog_models.CONTROLS, *CAPACITY):
         r.register(c)
-    for c in catalog_architecture.CONTROLS:
+    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS):
         r.register(c)
     r.payloads.update(PAYLOADS)
     return r

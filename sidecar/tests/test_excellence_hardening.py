@@ -796,3 +796,64 @@ def test_an_unnamed_activity_doesnt_take_a_real_activitys_name():
             {"type": "Copy", "inactive": True, "type_properties": {}}]
     got = inspect_items.inspect({"type": "DataPipeline", "definition": "read", "activities": acts})
     assert got["inactive_count"] == 2 and len(set(got["inactive"])) == 2
+
+
+# ---- 6. the payload shapes of FEA-302's pipeline policy keys and FEA-305's Git evidence
+
+
+def test_the_property_test_covers_the_git_and_pipeline_policy_evidence(demo):
+    """test_a_malformed_payload_never_passes_fails_or_errors_a_control walks every demo record: the demo has
+    a workspace.git record with a read status and a pipeline inspection with the retry/timeout keys."""
+    kinds = {r["kind"]: r for r in demo["evidence"] if r["confidence"] != "insufficient"}
+    assert isinstance(kinds["workspace.git"]["payload"]["status"], dict)
+    assert any(r["kind"] == "item.inspection" and r["payload"].get("kind") == "pipeline"
+               and isinstance(r["payload"].get("calls_out"), int) for r in demo["evidence"])
+
+
+def _pipeline_record(demo):
+    return next(r for r in demo["evidence"] if r["kind"] == "item.inspection"
+                and r["payload"].get("kind") == "pipeline" and isinstance(r["payload"].get("calls_out"), int))
+
+
+@pytest.mark.parametrize("change", [
+    {"no_retry_count": 0, "no_retry": ["Copy orders"]}, {"no_timeout_count": 0, "no_timeout": ["Copy orders"]},
+    {"no_retry_count": 2, "no_retry": []}, {"no_retry_count": -1}, {"calls_out": True}, {"failure_path": 1},
+    {"no_retry_count": 99, "no_retry": ["a"]}, {"retry_unknown": "Copy orders"}, {"failure_path_unknown": None}])
+def test_an_inconsistent_pipeline_policy_payload_never_passes(demo, change):
+    rec = _pipeline_record(demo)
+    bad = ev.record(rec["kind"], rec["subject"], source=rec["source"], confidence=rec["confidence"],
+                    collected_at=rec["collected_at"], payload={**rec["payload"], **change})
+    again = assess.rescore({**demo, "evidence": [r for r in demo["evidence"] if r["id"] != rec["id"]] + [bad]},
+                           catalog.registry())
+    mine = [o for o in again["outcomes"] if o["control_id"] in ("FEA-REL-004", "FEA-REL-005", "FEA-REL-006")
+            and o["subject"]["id"] == rec["subject"]["id"]]
+    assert mine and all(o["outcome"] == "not_evaluated" for o in mine), mine
+
+
+def test_a_pipeline_inspection_from_an_older_engine_still_fits_and_leaves_the_policy_controls_not_evaluated(demo):
+    rec = _pipeline_record(demo)
+    old = {k: v for k, v in rec["payload"].items() if k in catalog._PIPELINE}
+    assert catalog.PAYLOADS["item.inspection"](old)
+    again = assess.rescore({**demo, "evidence": [r for r in demo["evidence"] if r["id"] != rec["id"]] + [
+        ev.record(rec["kind"], rec["subject"], source=rec["source"], confidence=rec["confidence"],
+                  collected_at=rec["collected_at"], payload=old)]}, catalog.registry())
+    by = {o["control_id"]: o["outcome"] for o in again["outcomes"] if o["subject"]["id"] == rec["subject"]["id"]}
+    assert by["FEA-REL-004"] == by["FEA-REL-005"] == by["FEA-REL-006"] == "not_evaluated"
+    assert by["FEA-REL-003"] in ("pass", "fail")  # the keys it reads are still there
+
+
+@pytest.mark.parametrize("payload", [
+    {"state": "Synced", "provider": "GitHub", "branch": "main", "status": None},
+    {"state": "ConnectedAndInitialized", "provider": "GitHub", "branch": "main", "status": {"uncommitted": 0}},
+    {"state": "ConnectedAndInitialized", "provider": "GitHub", "branch": "main",
+     "status": {"uncommitted": -1, "incoming": 0, "conflicts": 0}},
+    {"state": "ConnectedAndInitialized", "provider": "GitHub", "branch": "main",
+     "status": {"uncommitted": True, "incoming": 0, "conflicts": 0}}])
+def test_a_malformed_git_payload_never_passes(demo, payload):
+    rec = next(r for r in demo["evidence"] if r["kind"] == "workspace.git")
+    bad = ev.record(rec["kind"], rec["subject"], source=rec["source"], confidence=rec["confidence"],
+                    collected_at=rec["collected_at"], payload=payload)
+    again = assess.rescore({**demo, "evidence": [r for r in demo["evidence"] if r["id"] != rec["id"]] + [bad]},
+                           catalog.registry())
+    mine = [o for o in again["outcomes"] if o["control_id"] in ("FEA-DEVOPS-003", "FEA-DEVOPS-004", "FEA-DEVOPS-005")]
+    assert len(mine) == 3 and all(o["outcome"] == "not_evaluated" for o in mine), mine

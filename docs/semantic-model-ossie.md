@@ -604,6 +604,29 @@ The manifest also records what the corpus shows that may be worth changing, with
 - The Semantic View emitter leaves a wrong-typed part out and names it under `excluded`, and the view
   can still be Valid.
 
+## Converter upgrade check
+
+Before the vendored converter is updated, `sidecar/tools/ossie_upgrade_diff.py` runs the fixture
+corpus through the converter KratosForge ships and through a candidate, and lists what changed
+(OSSIE-012c, a developer tool run by hand; the engine never uses it and it never goes online):
+
+    cd sidecar
+    python tools/ossie_upgrade_diff.py path/to/ossie_microsoft
+
+The candidate is a package folder or a single module with the converter's two functions,
+`convert_ossie_to_semantic_model` and `convert_semantic_model_to_ossie`. Loading it runs its code,
+so point it only at code you would run. For the candidate's run it stands in for the vendored
+package in `sys.modules` and in the conversion module, and both are put back afterwards, also when
+the run fails.
+
+Each line names a file, the entry point or object, the outcome or fidelity class before and after,
+and whether that is worse, better or changed. Worse means a refusal or error where the file
+converted, a lower fidelity class, an object that is gone, or an outcome the manifest expects that
+no longer happens, so a hostile file the candidate accepts counts as worse. `--only hostile/` limits
+the run to some files and `--json` prints the rows. The exit code is 0 when nothing got worse, 1
+when something did, and 2 when the candidate can't be used because it doesn't import or lacks a
+function.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it

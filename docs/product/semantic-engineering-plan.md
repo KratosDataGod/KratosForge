@@ -707,7 +707,7 @@ Status: **Built** (a test exists on main or a reviewed branch), **Planned**, **N
 | 17 | Malicious imports | 003a, 012a | `test_files_that_arent_ossie_are_refused_with_a_reason`, `test_links_and_junctions_on_the_way_are_refused_and_never_followed`, `test_a_hostile_model_reads_back_with_the_same_objects_and_nothing_extra`, `test_tmdl_fuzz.py` (branch), D1 test (branch), `test_ossie_corpus.py` (012a corpus) | Built |
 | 18 | Large-model performance | 012b | `test_too_many_tables_or_too_much_text_is_refused` (limits only) | Planned |
 | 19 | Offline | 002a, 003a | `test_a_model_kept_in_git_exports_offline` | Built |
-| 20 | Converter-upgrade regression | 012c | `test_ossie_vendor_converters.py` (pins current behavior) | Planned |
+| 20 | Converter-upgrade regression | 012c | `test_ossie_vendor_converters.py` (pins current behavior), `test_ossie_upgrade_diff.py` (corpus diff against a candidate) | Built |
 
 ## Success metrics
 

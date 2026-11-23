@@ -123,8 +123,8 @@ def _run(e: dict[str, Any], point: str, value: Any) -> tuple[str, dict[str, Any]
                                                                    "counts": out["report"]["counts"]}
     if point == "parity_l1":
         kind = {"view": "semantic_view", "ossie": "ossie", "tmsl": "tmsl", "tmdl": "tmdl"}[e["kind"]]
-        report = semantic_parity.parity_l1(value, value, left_kind=kind, right_kind=kind)
-        return report["summary"], {"error": report["error"]}
+        parity = semantic_parity.parity_l1(value, value, left_kind=kind, right_kind=kind)
+        return parity["summary"], {"error": parity["error"]}
     raise ValueError(f"no entry point {point!r}")
 
 

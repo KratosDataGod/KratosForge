@@ -335,11 +335,16 @@ def _is_link(entry: os.DirEntry[str]) -> bool:
     return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
+def path_key(path: str) -> str:
+    """A path relative to a table as this PC's disk compares it: forward slashes, and on Windows lower case
+    (os.path.normcase, which there also turns every slash into a backslash, so they're turned back)."""
+    return os.path.normcase(path.replace("\\", "/")).replace("\\", "/")
+
+
 def table_files(uri: str) -> set[str]:
     """Every data file in a table folder on this PC (deletion vectors included, the log and linked folders
-    left out), relative to the table with forward slashes, as os.path.normcase compares them (Windows paths
-    ignore case)."""
-    return {os.path.normcase(Path(e.path).relative_to(uri).as_posix()) for e in _data_folder_files(uri)}
+    left out), relative to the table, as path_key compares them (Windows paths ignore case)."""
+    return {path_key(Path(e.path).relative_to(uri).as_posix()) for e in _data_folder_files(uri)}
 
 
 def relative_to_table(uri: str, path: str) -> str:
@@ -404,11 +409,11 @@ def _unnamed(uri: str, table: DeltaTable, hours: float) -> list[str]:
     # file a commit removed is never taken for a leftover however delta-rs spells it.
     for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False):
         named |= {relative_to_table(uri, p), unquote(p)}
-    named = {os.path.normcase(p.replace("\\", "/")) for p in named}
+    named = {path_key(p) for p in named}
     out = []
     for e in _data_folder_files(uri):
         rel = Path(e.path).relative_to(uri).as_posix()
-        if _DATA_FILE.fullmatch(e.name) and os.path.normcase(rel) not in named and _older_than(e, hours):
+        if _DATA_FILE.fullmatch(e.name) and path_key(rel) not in named and _older_than(e, hours):
             out.append(rel)
     return sorted(out)
 

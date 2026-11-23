@@ -22,7 +22,6 @@ import time
 import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import os
 from pathlib import Path
 from typing import Any, Callable, Iterator, cast
 
@@ -943,7 +942,7 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
             # the table while the ones it deletes come back whole: count only what this VACUUM deleted, and
             # list every file relative to the table.
             files = [maintenance.relative_to_table(ref.uri, f) for f in files]
-            deleted = sum(1 for f in files if os.path.normcase(f) in present and not (Path(ref.uri) / f).exists())
+            deleted = sum(1 for f in files if maintenance.path_key(f) in present and not (Path(ref.uri) / f).exists())
         metrics = {"numDeletedFiles": 0 if dry_run else deleted, "retentionHours": int(hours), "dryRun": dry_run}
     else:
         target: int | datetime

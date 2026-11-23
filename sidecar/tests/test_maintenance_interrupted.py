@@ -240,4 +240,15 @@ def test_table_files_hold_every_data_file_not_only_parquet(tmp_path):
     (tmp_path / "region=EU").mkdir()
     for name in ("a.parquet", "region=EU/b.parquet", "deletion_vector_x.bin"):
         (tmp_path / name).write_bytes(b"x")
-    assert maintenance.table_files(str(tmp_path)) == {"a.parquet", "region=EU/b.parquet", "deletion_vector_x.bin"}
+    # as this PC's disk compares names: on Windows, ignoring case
+    assert maintenance.table_files(str(tmp_path)) == {
+        maintenance.path_key(p) for p in ("a.parquet", "region=EU/b.parquet", "deletion_vector_x.bin")}
+
+
+def test_table_files_on_windows_ignore_case_and_keep_forward_slashes(tmp_path, monkeypatch):
+    import ntpath
+    monkeypatch.setattr(maintenance.os.path, "normcase", ntpath.normcase)
+    (tmp_path / "region=EU").mkdir()
+    (tmp_path / "region=EU" / "B.parquet").write_bytes(b"x")
+    assert maintenance.table_files(str(tmp_path)) == {"region=eu/b.parquet"}
+    assert maintenance.path_key("Region=EU\\B.parquet") == "region=eu/b.parquet"

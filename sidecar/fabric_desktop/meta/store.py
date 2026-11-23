@@ -960,6 +960,15 @@ class OneLakeStore(Store):
         return sorted(out, key=lambda e: e["path"])
 
     def fetch_files(self, lakehouse: str, entries: list[dict[str, Any]]) -> list[Path]:
+        """Downloads each file to the cache. OneLake tells Orders.csv from orders.csv but Windows doesn't,
+        so a file whose path differs from an earlier one only in case goes under its own folder
+        (``Files (2)``, ...): otherwise it would replace the first, which would then be read twice."""
         lh, ws = self._lakehouse_id(lakehouse), self.workspace_of(lakehouse)
-        return [self._files.download(ws, lh, f"Files/{e['path']}", self.cache_dir / self.env / lakehouse / "Files" / e["path"])
-                for e in entries]
+        seen: dict[str, int] = {}
+        out = []
+        for e in entries:
+            n = seen[e["path"].casefold()] = seen.get(e["path"].casefold(), 0) + 1
+            folder = "Files" if n == 1 else f"Files ({n})"
+            out.append(self._files.download(ws, lh, f"Files/{e['path']}",
+                                            self.cache_dir / self.env / lakehouse / folder / e["path"]))
+        return out

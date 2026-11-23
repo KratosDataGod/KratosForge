@@ -200,3 +200,25 @@ def test_a_refused_type_change_records_no_files_and_the_next_run_reads_them(repo
     res = repo.engine(DAY2).run("bronze.orders", backfill="none")
     assert res.status == "ok" and read_step(res).startswith("1 new file of 2"), (res.message, read_step(res))
     assert 106 in repo.table("bronze.orders")["order_id"].to_list()
+
+
+def test_files_that_differ_only_in_case_are_each_downloaded_and_read_once(tmp_path):
+    """OneLake keeps Orders.csv and orders.csv apart; Windows doesn't, so the second download into
+    the same cache folder replaced the first and the load read one file twice and the other never."""
+    class CaseFiles:
+        def list(self, ws, lh, directory):
+            return [{"name": n, "path": f"Files/landing/{n}", "is_dir": False, "size": 1, "modified": "m"}
+                    for n in ("Orders.csv", "orders.csv")]
+
+        def download(self, ws, lh, path, dest):
+            same = [p for p in dest.parent.glob("*") if p.name.casefold() == dest.name.casefold()]
+            for p in same:  # as Windows: the existing file of that name, in any case, is written over
+                dest = p
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(f"id\n{'1' if path.endswith('/Orders.csv') else '2'}\n")
+            return dest
+
+    store = OneLakeStore("test", "ws", {"LH_Bronze": "lh"}, lambda: "tok", tmp_path, files=CaseFiles())
+    frame, names = store.read_files("LH_Bronze", "landing/*.csv")
+    assert names == ["Orders.csv", "orders.csv"]
+    assert sorted(frame["id"].to_list()) == [1, 2]

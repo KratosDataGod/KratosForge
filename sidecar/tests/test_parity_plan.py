@@ -43,8 +43,11 @@ def test_a_plans_mode_never_says_more_than_its_cells(key):
 
 def test_snowflake_on_this_pc_is_only_ever_simulated():
     modes = {a.id: parity.PLANS[(a.platform, a.id)].mode for a in parity.AREAS if a.platform == "snowflake"}
-    assert "local" not in modes.values() and "hybrid" not in modes.values()
-    assert modes["worksheets"] == "simulated"
+    assert "local" not in modes.values()
+    # Worksheets are hybrid only because of the cloud engine (SF-003); on this PC they're still validated, not run.
+    assert [a for a, m in modes.items() if m == "hybrid"] == ["worksheets"]
+    worksheets = next(a for a in parity.AREAS if (a.platform, a.id) == ("snowflake", "worksheets"))
+    assert worksheets.cell("local").status == "partial" and "Not a Snowflake runtime" in worksheets.cell("local").note
 
 
 @pytest.mark.parametrize("kwargs, message", [

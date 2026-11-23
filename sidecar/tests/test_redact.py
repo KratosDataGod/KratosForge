@@ -191,9 +191,12 @@ def test_walk_blanks_secret_fields_and_removes_secrets_in_every_string():
     assert walked["nested"][0][0] == "x" and token not in walked["nested"][0][1]
     as_text = redact.walk(value, stringify=True)
     assert isinstance(as_text["obj"], str) and token not in as_text["obj"]
-    # The log formatter and integration results are the same walk, one printing objects and one not.
+    # The log formatter prints objects; integration results do too, since that is what the
+    # transports would write (core.redact_result also blanks lists and objects under a secret field).
     assert logs._redacted(value) == as_text
-    assert core.redact_result(value) == walked
+    result = core.redact_result(value)
+    assert result["password"] == redact.REMOVED and result["token_count"] == 3 and result["ok"] is True
+    assert isinstance(result["obj"], str) and token not in result["obj"] and token not in str(result)
 
 
 def test_a_folded_cookie_line_keeps_the_next_lines_text():

@@ -20,7 +20,9 @@ From Microsoft's MERGE (Transact-SQL) page, whose second syntax block is the one
   table has can't be read in WHEN NOT MATCHED [BY TARGET], and one only the source has can't be read in WHEN NOT
   MATCHED BY SOURCE. A Delta table read the missing row's column as NULL, and DuckDB stopped with its binder's words.
   The source's columns are a known table's, a CTE's or a subquery's (``SELECT *`` and ``x.*`` read from the
-  relations they name), or the alias's column list.
+  relations they name), or the alias's column list. A source whose columns are known only when it runs (a
+  temporary table, a table the script makes, a table-valued function) is placed by :func:`place` too, in engine.py,
+  by the columns it has then, before anything is written (WR-257).
 
 ``SET t.v = ...``, with the table's alias, runs as ``SET v = ...``: T-SQL allows it, and DuckDB's parser didn't.
 Which clause takes a row (the first whose condition holds) and the check that a table row is changed by one source

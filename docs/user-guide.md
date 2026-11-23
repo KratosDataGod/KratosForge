@@ -156,6 +156,9 @@ A short list that says whether this PC can do real work yet. Each check only rea
 | **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
 | **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
 | **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
+| **This PC's clock** | Within 5 minutes of the last server that answered over HTTPS. Shown once one has | Turn on **Set time automatically**; see [Troubleshooting](troubleshooting.md#this-pcs-clock-is-wrong) |
+| **Your data folder** | It is on this PC, not a network share, with at least 2 GB free | Free some space, or ask IT; see [Virtual desktops and shared PCs](enterprise-install.md#virtual-desktops-and-shared-pcs) |
+| **Files kept out of OneDrive** | None of the folders KratosForge keeps files in is in OneDrive: the data folder, the metadata project, local data projects, repositories and the SQL page's temp folder | Move each one it names out of OneDrive; see [Files in OneDrive](troubleshooting.md#files-in-onedrive) |
 | **Writing to OneLake** | **Test a write** worked in the last 7 days | Only checked when you ask (below) |
 
 **Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
@@ -897,6 +900,8 @@ fabric-desktop audit --action meta_promote           # only promotes
 fabric-desktop audit --verify                        # exit code 1 if the chain is broken
 fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
 ```
+
+`--verify` and `--verify-export` report a line that isn't JSON, or that gives a field twice, as not an audit line. A field given twice could show one value to a log store and another to the hash.
 
 Each write also records the newest line and the line count in `audit\head.json`, so `--verify` also reports lines deleted from the end of the trail, which the chain alone can't show. If lines go missing before the next write, `head.json` keeps a note of it, so later lines don't hide the gap. Someone who can edit the folder can edit `head.json` too. Each audited action writes `head.json` to disk (a small extra write and flush next to the line itself). Once you've looked into a reported gap (for example, the files were restored from an older backup on purpose), clear it by deleting `head.json`: the next write starts a new one from the trail as it is, and `--verify` stops reporting the gap.
 

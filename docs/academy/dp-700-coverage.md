@@ -27,7 +27,7 @@ four original exam questions (ACD-013).
 | 1.1.3 | Configure OneLake workspace settings | E04 | SIM | Yes | LM-07 |
 | 1.1.4 | Configure data workflow workspace settings | E05 | KO | Yes | |
 | 1.2.1 | Configure version control | E06, E07, C3 | LV | Yes | |
-| 1.2.2 | Implement database projects | E08 | LV | Yes | LM-23 |
+| 1.2.2 | Implement database projects | E08, E77 | LV | Yes | LM-23 |
 | 1.2.3 | Create and configure deployment pipelines | E09, C3 | SIM | Yes | |
 | 1.3.1 | Implement workspace-level access controls | E10, E81, C3 | SIM | Yes | |
 | 1.3.2 | Implement item-level access controls | E11, E82, C3 | SIM | Yes | LM-24 |
@@ -52,14 +52,14 @@ four original exam questions (ACD-013).
 | 2.2.4 | Implement mirroring | E30 | KO | Yes | |
 | 2.2.5 | Ingest data by using pipelines | E31 | SIM | Yes | |
 | 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, E69, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
-| 2.2.7 | Denormalize data | E35, C1 | LV | No | LAB-07 |
+| 2.2.7 | Denormalize data | E35, E78, C1 | LV | No | LAB-07 |
 | 2.2.8 | Group and aggregate data | E36, E70, C1 | LV | No | LM-04 |
 | 2.2.9 | Handle duplicate, missing, and late-arriving data | E25, E37, E38, E39, E57, E58, E68, C1, C2 | LV | No | LM-13, LM-17, LAB-04, LAB-06 |
 | 2.3.1 | Choose an appropriate streaming engine | E40, E75 | SIM | No | |
 | 2.3.2 | Process data by using eventstreams | E41 | SIM | Yes | |
 | 2.3.3 | Process data by using Spark structured streaming | E26, E42, C2 | LV (availableNow only) | Yes | |
 | 2.3.4 | Process data by using KQL | E34 | KO | Yes | |
-| 2.3.5 | Create windowing functions | E43, C2 | LV (SQL windows); KO (KQL, Eventstream) | Yes | LM-15 |
+| 2.3.5 | Create windowing functions | E43, E79, C2 | LV (SQL windows); KO (KQL, Eventstream) | Yes | LM-15 |
 
 ## 3. Monitor and optimize an analytics solution (30–35%)
 
@@ -75,7 +75,7 @@ four original exam questions (ACD-013).
 | 3.2.4 | Identify and resolve eventhouse errors | E53 | SIM | Yes | |
 | 3.2.5 | Identify and resolve eventstream errors | E54 | SIM | Yes | |
 | 3.2.6 | Identify and resolve T-SQL errors | E55, E65 | LV | Yes | LAB-09 |
-| 3.3.1 | Optimize a lakehouse table | E56 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
+| 3.3.1 | Optimize a lakehouse table | E56, E80 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
 | 3.3.2 | Optimize a pipeline | E60 | SIM | Yes | |
 | 3.3.3 | Optimize a data warehouse | E61, E66 | LV | Yes | |
 | 3.3.4 | Optimize eventstreams and eventhouses | E62 | KO | Yes | |

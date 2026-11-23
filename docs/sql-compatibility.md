@@ -838,7 +838,7 @@ Arithmetic and conversion errors (WR-247), with SQL Server's words as Microsoft 
 | `Msg 8114, Level 16: Error converting data type varchar to numeric.` (or `float`, `real`) | Text that isn't a number, to a decimal or a float: `CAST('abc' AS DECIMAL(5,2))`, and `''` to a decimal |
 | `Msg 241, Level 16: Conversion failed when converting date and/or time from character string.` | Text that isn't a date or time, to `date`, `time`, `datetime2` or `datetime`, or a date that isn't there (`'2024-02-30'`) to `date` or `datetime2`. For `datetime` and `smalldatetime` that's `Msg 242` (`The conversion of a varchar data type to a datetime data type resulted in an out-of-range value.`) |
 
-A whole number written in a query that's too big for an `int` is a `decimal` of its digits, as in T-SQL, so `9223372036854775807 + 1` is `9223372036854775808` and `ABS(-2147483648)` is `2147483648`, where the local engine overflowed a `bigint`.
+A whole number written in a query that's too big for an `int` is a `decimal` of its digits, as in T-SQL, so `9223372036854775807 + 1` is `9223372036854775808` and `ABS(-2147483648)` is `2147483648`, where the local engine overflowed a `bigint`. A result column that is only such a number is a `decimal` too, not a `bigint`, so a query that reads it as an integer may need a `CAST`. When an error shows a value, it shows the value's first 1,000 characters.
 
 These keep the local engine's words, with no number, because SQL Server's words depend on what the local engine's message doesn't say:
 

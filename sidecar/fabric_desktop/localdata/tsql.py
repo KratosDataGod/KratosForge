@@ -1632,14 +1632,14 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
     # WR-247: SQL Server's error 245, with the value; it names N'' text nvarchar and other text varchar
     text = "nvarchar" if any(n.meta.get(_NATIONAL) for n in node.this.walk()) else "varchar"
     name = _TSQL_INT_NAMES.get(to.this, to.sql(dialect="tsql").lower())
-    said = exp.func("CONCAT", exp.Literal.string(f"Conversion failed when converting the {text} value '"), v.copy(),
+    said = exp.func("CONCAT", exp.Literal.string(f"Conversion failed when converting the {text} value '"), _echoed(v),
                     exp.Literal.string(f"' to data type {name}."))
     other = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", said)
     cast = node.copy()
     cast.set("this", v.copy())
     if not isinstance(node, exp.TryCast) and to.this == exp.DataType.Type.INT:
         # a whole number too big for an int is error 248 (SQL Server's words for the other sizes vary)
-        too_big = exp.func("CONCAT", exp.Literal.string(f"The conversion of the {text} value '"), v.copy(),
+        too_big = exp.func("CONCAT", exp.Literal.string(f"The conversion of the {text} value '"), _echoed(v),
                            exp.Literal.string("' overflowed an int column."))
         safe = exp.TryCast(this=v.copy(), to=to.copy())
         cast = exp.Case(ifs=[exp.If(this=exp.Is(this=safe, expression=exp.Null()),
@@ -3162,7 +3162,7 @@ def _int_of(value: exp.Expression, size: str = "int") -> exp.Expression:
     if size == "int":
         message: exp.Expression = exp.DPipe(
             this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
-                           expression=text.copy()),
+                           expression=_echoed(text)),
             expression=exp.Literal.string("' to data type int."))
     else:
         message = exp.Literal.string(_not_whole("", size))
@@ -3174,6 +3174,15 @@ def _int_of(value: exp.Expression, size: str = "int") -> exp.Expression:
     is_text = exp.EQ(this=exp.func("TYPEOF", value.copy()), expression=exp.Literal.string("VARCHAR"))
     cut = exp.cast(exp.Trunc(this=exp.cast(text.copy(), "DOUBLE")), "BIGINT")
     return exp.Case(ifs=[exp.If(this=is_text, true=strict)], default=cut)
+
+
+_ECHOED = 1000  # SQL Server cuts an error message at 2,047 characters; a long cell is cut well before that
+
+
+def _echoed(value: exp.Expression) -> exp.Expression:
+    """The value an error message shows, cut to its first ``_ECHOED`` characters so a huge cell can't flood
+    the error panel (WR-247 review)."""
+    return exp.Left(this=value.copy(), expression=exp.Literal.number(_ECHOED))
 
 
 def _not_whole(text: str, size: str) -> str:

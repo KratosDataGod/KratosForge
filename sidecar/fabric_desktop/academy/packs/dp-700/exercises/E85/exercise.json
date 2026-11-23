@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "domains.json",
+  "reset": "Reset puts the original domains.json back.",
+  "id": "E85",
+  "title": "A default domain, a subdomain and who assigns workspaces",
+  "objectives": [
+    "1.1.2"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "E03"
+  ],
+  "objective_text": "Set up a Logistics domain with a subdomain, its admins and contributors, a default domain for a security group and an assignment by capacity, and predict which domain each workspace ends up in.",
+  "scenario": "Logistics is getting its own domain. Dana owns it and wants to move fast. Eli wants to run the Fleet subdomain. Workspaces should land in Logistics without anyone sorting them by hand, but one of them already belongs to Finance.",
+  "engine_label": "A model of a tenant's domains, checked on this PC",
+  "verifies": [
+    "Your roles, contributors, default domain, capacity assignment and predicted workspace domains follow the domain roles, default domain rules and assignment methods on the domains page, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any domain is created or any workspace assigned in Fabric. Nothing is set here.",
+    "The tenant setting that lets Fabric and domain admins override existing workspace assignments. It's in preview, so the needs keep Fleet-Ops off the LOG-F64 capacity.",
+    "Domain settings that override tenant settings, such as certification and a default sensitivity label.",
+    "Whether a subdomain can be a default domain. The domains page doesn't say."
+  ],
+  "expected": {
+    "description": "A Fabric admin creates Logistics and makes Eli a domain admin. Dana may create Fleet. Fleet has no admins of its own. Contributors are the Logistics workspace admins group. Logistics is the default domain for Logistics staff and takes the LOG-F64 capacity. Fleet-Ops stays in Finance, Route-Plans and Next-Month go to Logistics, Partner-Share and Dana's My workspace get no domain, and Marco can't assign Depot-Reports."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "Someone does a task their role doesn't allow, or Fleet has admins of its own.",
+      "pass": "A Fabric admin creates the domain and adds admins, Dana creates Fleet, and Fleet uses the Logistics admins.",
+      "rules": [
+        {
+          "path": "who_creates_the_logistics_domain",
+          "equals": "Fabric admin",
+          "why": "Only a Fabric admin can create a domain."
+        },
+        {
+          "path": "dana_can_create_the_fleet_subdomain",
+          "equals": true,
+          "why": "A Fabric admin or a domain admin of the parent domain can create subdomains."
+        },
+        {
+          "path": "who_makes_eli_a_domain_admin",
+          "equals": "Fabric admin",
+          "why": "Domain admins can't add or remove other domain admins."
+        },
+        {
+          "path": "domains.Logistics.admins",
+          "contains": "Dana"
+        },
+        {
+          "path": "domains.Logistics.admins",
+          "contains": "Eli",
+          "why": "A subdomain's admins are the admins of its parent domain. To manage Fleet, Eli is an admin of Logistics."
+        },
+        {
+          "path": "domains.Logistics.subdomains.Fleet.admins",
+          "absent": true,
+          "why": "Subdomains don't have their own domain admins."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Too many people can assign workspaces, or Marco's access is wrong.",
+      "pass": "Only the named group assigns workspaces, and only to workspaces they're admins of.",
+      "rules": [
+        {
+          "path": "domains.Logistics.contributors.who",
+          "equals": "specific users or groups",
+          "why": "Contributors default to everyone in the organization. Narrow them to the named group."
+        },
+        {
+          "path": "domains.Logistics.contributors.list",
+          "contains": "Logistics workspace admins"
+        },
+        {
+          "path": "domains.Logistics.contributors.list",
+          "count": 1
+        },
+        {
+          "path": "outcomes.marco_can_assign_depot_reports",
+          "equals": false,
+          "why": "A domain contributor needs the Admin role in a workspace to assign it to the domain."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The default domain isn't set, or it doesn't behave the way you expect.",
+      "pass": "Logistics is the default domain for Logistics staff, and you know which workspaces it takes.",
+      "rules": [
+        {
+          "path": "domains.Logistics.default_domain_for",
+          "contains": "Logistics staff"
+        },
+        {
+          "path": "outcomes.Fleet-Ops",
+          "equals": "Finance",
+          "why": "A default domain keeps a workspace's current domain. It only takes workspaces that have none."
+        },
+        {
+          "path": "outcomes.Route-Plans",
+          "equals": "Logistics",
+          "why": "An unassigned workspace whose admin is in the group goes to the default domain."
+        },
+        {
+          "path": "outcomes.Next-Month",
+          "equals": "Logistics",
+          "why": "New workspaces that the group's members create go to the default domain."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The capacity assignment is missing, or it reaches workspaces it doesn't.",
+      "pass": "LOG-F64's workspaces go to Logistics today, and you know which ones it leaves out.",
+      "rules": [
+        {
+          "path": "domains.Logistics.assign_by_capacity",
+          "contains": "LOG-F64"
+        },
+        {
+          "path": "outcomes.Partner-Share",
+          "equals": "no domain",
+          "why": "Assigning by capacity only affects the workspaces on it today, not ones that move onto it later."
+        },
+        {
+          "path": "outcomes.Dana's My workspace",
+          "equals": "no domain",
+          "why": "Assigning by capacity leaves out My workspaces."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Who can create a domain? Who can create a subdomain?",
+    "Can a domain admin add another domain admin? Does a subdomain have admins of its own?",
+    "What does a default domain do with a workspace that already has a domain?",
+    "Does assigning by capacity reach workspaces that join the capacity later?",
+    "What role does a contributor need in a workspace to assign it?"
+  ],
+  "explanation": "Only a Fabric admin creates a domain and names its admins. Domain admins can't add other admins, but they can create subdomains. A subdomain has no admins of its own and uses its parent's, so Eli becomes an admin of Logistics. Contributors default to everyone, so the domain names the one group. A contributor still needs the Admin role in a workspace to assign it. A default domain takes the group's unassigned workspaces and every workspace they create later, and it leaves a workspace that already has a domain alone. Assigning by capacity takes the workspaces on the capacity today. It skips My workspaces and workspaces that join the capacity later.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/governance/domains"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23: governance/domains (footer last updated 2025-05-01). Fabric admins create domains. Fabric admins or domain admins create subdomains. Domain admins can't delete the domain, rename it or add or delete other domain admins. Subdomains don't have their own domain admins, and a subdomain's admins are its parent's. Domain contributors are workspace admins, the default is everyone in the organization, and they must have the admin role in the workspaces they associate. Assign by workspace admin and by capacity affect existing workspaces only and exclude My workspaces. A default domain is set for users and security groups. Existing assignments are preserved, unassigned workspaces whose admin is in the group are assigned, and new workspaces the group creates later are assigned.",
+    "Not graded: the 'Allow tenant and domain admins to override workspace assignments' tenant setting, which is marked preview. The needs keep Fleet-Ops on FIN-F32 so the capacity assignment never meets an existing assignment. Also not graded: whether a subdomain can be a default domain, and how deep subdomains can nest. The page doesn't say."
+  ]
+}

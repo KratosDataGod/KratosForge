@@ -1,0 +1,125 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "decisions.json",
+  "reset": "Reset puts the original decisions.json back.",
+  "id": "E75",
+  "title": "Five streaming flows: eventstream, Spark Structured Streaming or KQL",
+  "objectives": [
+    "2.3.1"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "E40"
+  ],
+  "objective_text": "Record the streaming engine for five flows, and for the Spark streams, how they run in production and how often they write.",
+  "scenario": "Larkspur Payments has five streaming flows. One team wants every flow in PySpark, another wants everything in an eventstream, and the production Spark stream stopped for a day after the last patching window.",
+  "engine_label": "A model of a streaming engine decision for each flow, checked on this PC",
+  "verifies": [
+    "Your engine for each flow matches the eventstream, eventhouse and lakehouse streaming pages, and your production Spark stream runs as a Spark job definition with a retry policy and the small-files stream sets a trigger interval, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any stream runs: no events flow here.",
+    "The retry policy's count and interval, or the exact trigger interval that gives well-sized files.",
+    "The eventstream SQL operator and Spark Notebook destination, which are in preview."
+  ],
+  "expected": {
+    "description": "iot_routing eventstream; incident_queries eventhouse_kql; fraud_scoring spark_structured_streaming as a spark_job_definition with retry_policy true; clickstream_landing spark_structured_streaming with trigger_processing_time 1 minute; kafka_fanout eventstream."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The no-code flows aren't in an eventstream.",
+      "pass": "The no-code routing flows are eventstreams.",
+      "rules": [
+        {
+          "path": "flows.iot_routing.engine",
+          "equals": "eventstream",
+          "why": "Filtering events and sending them to several destinations, Activator among them, without code is what an eventstream's drag-and-drop editor does."
+        },
+        {
+          "path": "flows.kafka_fanout.engine",
+          "equals": "eventstream",
+          "why": "An eventstream reads Kafka with a built-in connector and can send to several destinations at once without code."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The incident questions don't go to KQL in an eventhouse.",
+      "pass": "Incident queries run in KQL over an eventhouse.",
+      "rules": [
+        {
+          "path": "flows.incident_queries.engine",
+          "equals": "eventhouse_kql",
+          "why": "Ad hoc queries over billions of stored events in seconds, with time series functions, are an eventhouse's job. An eventstream routes events, it doesn't answer queries."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The fraud stream isn't a Spark job that restarts itself.",
+      "pass": "The fraud stream is Spark Structured Streaming in a Spark job definition with a retry policy.",
+      "rules": [
+        {
+          "path": "flows.fraud_scoring.engine",
+          "equals": "spark_structured_streaming",
+          "why": "PySpark, a join to a Delta table and an open-source Python model are code: Spark Structured Streaming."
+        },
+        {
+          "path": "flows.fraud_scoring.runs_as",
+          "equals": "spark_job_definition",
+          "why": "Notebooks are for developing and testing streams, and a production stream that runs continuously belongs in a Spark job definition."
+        },
+        {
+          "path": "flows.fraud_scoring.retry_policy",
+          "equals": true,
+          "why": "A retry policy on the Spark job definition restarts the job when infrastructure stops it."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The click stream still writes a file for every microbatch.",
+      "pass": "The click stream batches its writes with a trigger interval.",
+      "rules": [
+        {
+          "path": "flows.clickstream_landing.engine",
+          "equals": "spark_structured_streaming",
+          "why": "The stream is already PySpark writing to Delta. The fix is in how it writes, not a new engine."
+        },
+        {
+          "path": "flows.clickstream_landing.trigger_processing_time",
+          "one_of": [
+            "1 minute",
+            "60 seconds"
+          ],
+          "why": "By default Spark writes each microbatch as soon as the last one finishes. A trigger interval gathers data and writes fewer, larger files."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Who builds each flow, and do they write code?",
+    "Does the flow move events, or answer questions over events already stored?",
+    "Where should a stream that runs around the clock live, and what restarts it?",
+    "What makes Spark write a file for every microbatch?"
+  ],
+  "explanation": "An eventstream brings events in, transforms them and sends them to several destinations, such as an eventhouse, a lakehouse and Activator, without code, from sources that include IoT Hub and Kafka. An eventhouse stores streaming events and answers interactive KQL queries over billions of them in seconds. An eventstream doesn't answer queries. Spark Structured Streaming is the code option. It reads Event Hubs or Kafka, joins and scores in PySpark and writes Delta tables. In production a continuous stream runs as a Spark job definition with a retry policy, not a notebook, and a trigger interval makes it write fewer, larger files.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",
+    "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-20: event-streams/overview (bring events in, transform and send to destinations without code; drag-and-drop editor with Filter, Manage fields, Aggregate, Group by, Union, Expand, Join; sources include Azure IoT Hub, Azure Event Hubs, Confluent Cloud for Apache Kafka and Apache Kafka; destinations include eventhouse, lakehouse, Activator, derived stream; multiple destinations at once). eventhouse (query billions of events in seconds; telemetry, logs, time series and IoT). lakehouse-streaming-data (Structured Streaming reads Kafka and Azure Event Hubs, writes Delta; notebooks for developing and testing, Spark job definitions for production streams that run continuously; a retry policy restarts the job after it stops unexpectedly, such as infrastructure patching; by default each microbatch is processed as soon as the previous one completes, a trigger interval writes fewer, larger files).",
+    "Not graded: the SQL operator and Spark Notebook destination of an eventstream (both preview), and whether clickstream_landing runs as a notebook or a job; only its trigger is checked."
+  ]
+}

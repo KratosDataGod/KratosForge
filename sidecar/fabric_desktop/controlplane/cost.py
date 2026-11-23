@@ -96,7 +96,7 @@ def net(savings: dict[str, Any] | None, cost: dict[str, Any]) -> dict[str, Any]:
     if len(scenario) > 1:
         return {"value": None, "reason": "A scenario figure can't be netted against a measured or estimated one."}
     order = (ms.MEASURED, ms.ESTIMATED, ms.SCENARIO, ms.UNKNOWN)  # weakest last
-    weakest = max((savings["classification"], cost["classification"]),
+    weakest = max((savings.get("classification") or ms.UNKNOWN, cost.get("classification") or ms.UNKNOWN),
                   key=lambda c: order.index(c) if c in order else len(order))
     return {"value": round(float(savings["value"]) - float(cost["value"]), 6), "unit": cost.get("unit"),
             "currency": cost.get("currency"), "classification": weakest, "label": ms.LABELS.get(weakest, weakest), "reason": ""}

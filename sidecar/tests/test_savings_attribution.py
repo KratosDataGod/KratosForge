@@ -205,3 +205,13 @@ def test_unattributed_is_capped_at_the_baseline_after_a_regression():
     assert layer(out, "o1")["cu_hours"] == -1
     assert layer(out, at.UNATTRIBUTED)["cu_hours"] == 10
     assert out["gross_cu_hours"] <= out["baseline_cu_hours"]
+
+
+def test_a_baseline_in_cu_seconds_doesnt_round_gross_or_net_above_it():
+    base = ms.make(ms.MEASURED, "fabric_job_cu", ms.CU_SECONDS, 1.9, run_id="r", source="Capacity Metrics export",
+                   collected_at="2026-11-01T00:00:00Z")
+    local = ms.make(ms.ESTIMATED, "fabric_job_cu", ms.CU_SECONDS, 1.9, method="calibration", assumptions=["median"])
+    out = at.attribute(run(), base, local_avoided=local, overhead=measured(0))
+    assert out["baseline_cu_hours"] < 0.000528  # 1.9 CU seconds is 0.000527777... CU hours
+    assert out["net_cu_hours"] <= out["gross_cu_hours"] <= out["baseline_cu_hours"]
+    assert out["gross_cu_hours"] == 0.000527

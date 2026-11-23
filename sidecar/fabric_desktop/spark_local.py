@@ -1521,6 +1521,9 @@ class LocalSparkSession(SparkSession):
                     raise ValueError("table_changes takes a table name and versions or timestamps written as "
                                      "literals on this PC, so nothing ran. Write each one as a number or a "
                                      "quoted time.")
+                if not arg.is_string and arg.name.isdigit() and len(arg.name.lstrip("0")) > delta_cdf.VERSION_DIGITS:
+                    raise ValueError(f"table_changes takes a version of at most {delta_cdf.VERSION_DIGITS} digits, "
+                                     "so nothing ran.")
                 values.append(int(arg.name) if not arg.is_string and arg.name.isdigit() else arg.name)
             if len(values) not in (2, 3) or not isinstance(values[0], str):
                 raise ValueError("table_changes takes a table name, a start and an optional end: "
@@ -2351,13 +2354,18 @@ def release_cancelled() -> None:
     """Release a result that a Cancel left unread on ``spark``'s connection. A Cancel that lands after
     DuckDB has run a query but before Python has read its result leaves that result open: it holds
     its memory, and query_progress keeps reporting its last figure under the next cell. A no-op
-    query releases it. A connection with nothing open is left alone."""
-    if progress() is None:
-        return
-    try:
-        _session.conn.execute("SELECT 1").fetchall()  # type: ignore[union-attr]
-    except Exception:  # noqa: BLE001  # silent-ok: best-effort release; a closed connection holds nothing
-        pass
+    query releases it. A connection with nothing open is left alone.
+
+    DuckDB's default connection is released every time: Cancel interrupts it even when the cell never
+    used it, and a result an earlier cell read only part of keeps that interrupt. The next query that
+    read a file then stopped with "Interrupted!" and every later one failed with "Current transaction
+    is aborted". Reading that result raises the interrupt anyway, so releasing it loses nothing."""
+    conns = [duckdb.default_connection()] + ([_session.conn] if progress() is not None else [])  # type: ignore[union-attr]
+    for conn in conns:
+        try:
+            conn.execute("SELECT 1").fetchall()
+        except Exception:  # noqa: BLE001  # silent-ok: best-effort release; a closed connection holds nothing
+            pass
 
 
 def interrupt(connections: Any = ()) -> None:

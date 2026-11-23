@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "sql-runemaster",
+ "version": 1,
+ "title": "SQL Runemaster",
+ "professional": "SQL Development Specialist",
+ "fantasy": "Carver of exact words. Each rune the Runemaster cuts returns the right rows, the first time, quickly.",
+ "competency": "Writes correct, readable and fast SQL across engines: joins and aggregation, window functions, set logic, query plans and engine dialects.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake", "SQL Server"],
+ "technologies": ["T-SQL", "Spark SQL", "Snowflake SQL", "DuckDB"],
+ "emblem": "A stone tablet carved with three angular runes, a wolf's paw print pressed into the corner.",
+ "specializations": [
+  {"id": "foundations", "title": "Query Scribe", "professional": "SQL foundations", "competency": "sql-development",
+   "nodes": [
+    {"id": "foundations.01", "skill": "your-first-query", "tier": 1, "requires": []},
+    {"id": "foundations.02", "skill": "data-types-that-keep-money-exact", "tier": 2, "requires": ["foundations.01"]},
+    {"id": "foundations.03", "skill": "null-logic", "tier": 2, "requires": ["foundations.01"]},
+    {"id": "foundations.04", "skill": "joins-without-surprise-row-counts", "tier": 3, "requires": ["foundations.02"]},
+    {"id": "foundations.05", "skill": "grouping-and-aggregation", "tier": 3, "requires": ["foundations.03"]},
+    {"id": "foundations.06", "skill": "dates-times-and-time-zones", "tier": 4, "requires": ["foundations.04"]},
+    {"id": "foundations.07", "skill": "ctes-for-readable-queries", "tier": 4, "requires": ["foundations.04", "foundations.05"]},
+    {"id": "foundations.08", "skill": "anti-joins-and-safe-de-duplication", "tier": 5, "requires": ["foundations.06"]},
+    {"id": "foundations.09", "skill": "set-operations", "tier": 5, "requires": ["foundations.07"]},
+    {"id": "foundations.10", "skill": "capstone-a-checked-answer", "tier": 6, "requires": ["foundations.08", "foundations.09"], "capstone": true}
+   ]},
+  {"id": "analytic", "title": "Window Seer", "professional": "Analytical SQL", "competency": "sql-development",
+   "nodes": [
+    {"id": "analytic.01", "skill": "window-functions", "tier": 1, "requires": []},
+    {"id": "analytic.02", "skill": "running-totals-and-rankings", "tier": 2, "requires": ["analytic.01"]},
+    {"id": "analytic.03", "skill": "qualify-and-filtering-windows", "tier": 2, "requires": ["analytic.01"]},
+    {"id": "analytic.04", "skill": "rollup-and-grouping-sets", "tier": 3, "requires": ["analytic.02"]},
+    {"id": "analytic.05", "skill": "gaps-and-islands", "tier": 3, "requires": ["analytic.03"]},
+    {"id": "analytic.06", "skill": "pivot-and-unpivot", "tier": 4, "requires": ["analytic.04"]},
+    {"id": "analytic.07", "skill": "semi-structured-data", "tier": 4, "requires": ["analytic.04", "analytic.05"]},
+    {"id": "analytic.08", "skill": "denormalized-reporting-tables", "tier": 5, "requires": ["analytic.06"]},
+    {"id": "analytic.09", "skill": "date-spines-and-calendars", "tier": 5, "requires": ["analytic.07"]},
+    {"id": "analytic.10", "skill": "capstone-an-analysis-with-no-off-by-one", "tier": 6, "requires": ["analytic.08", "analytic.09"], "capstone": true}
+   ]},
+  {"id": "perf", "title": "Plan Reader", "professional": "SQL performance", "competency": "sql-performance",
+   "nodes": [
+    {"id": "perf.01", "skill": "reading-a-query-plan", "tier": 1, "requires": []},
+    {"id": "perf.02", "skill": "filters-that-can-skip-data", "tier": 2, "requires": ["perf.01"]},
+    {"id": "perf.03", "skill": "join-order-and-join-types", "tier": 2, "requires": ["perf.01"]},
+    {"id": "perf.04", "skill": "selecting-only-the-columns-you-need", "tier": 3, "requires": ["perf.02"]},
+    {"id": "perf.05", "skill": "statistics-and-cardinality", "tier": 3, "requires": ["perf.03"]},
+    {"id": "perf.06", "skill": "avoiding-row-by-row-work", "tier": 4, "requires": ["perf.04"]},
+    {"id": "perf.07", "skill": "engine-dialect-differences", "tier": 4, "requires": ["perf.04", "perf.05"]},
+    {"id": "perf.08", "skill": "best-practice-fixes-checked-with-compare", "tier": 5, "requires": ["perf.06"]},
+    {"id": "perf.09", "skill": "measured-optimization", "tier": 5, "requires": ["perf.07"]},
+    {"id": "perf.10", "skill": "capstone-a-slow-query-made-fast-same-answer", "tier": 6, "requires": ["perf.08", "perf.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-rune", "name": "First Rune", "criteria": "Reach Journeyman in Your first query."},
+  {"id": "no-surprise-rows", "name": "No Surprise Rows", "criteria": "Reach Adept in Joins without surprise row counts."},
+  {"id": "window-opened", "name": "Window Opened", "criteria": "Reach Journeyman in Window functions and in QUALIFY and filtering windows."},
+  {"id": "swift-rune", "name": "Swift Rune", "criteria": "Reach Adept in Measured optimization."},
+  {"id": "runemasters-tablet", "name": "Runemaster's Tablet", "criteria": "Reach Adept in all ten talents of one SQL Runemaster specialization."}
+ ]
+}

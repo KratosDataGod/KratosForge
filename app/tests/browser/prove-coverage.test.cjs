@@ -54,7 +54,7 @@ const page50 = (offset) => ({ ...copy(WHOLE), method: "keyed", keys: ["id"], cou
   examples: Array.from({ length: 50 }, (_, i) => ({ key: { id: offset + i + 1 }, status: "changed", columns: { name: { pc: "a", fabric: "b" } } })),
   column_diffs: { name: { rows: 120, max_abs: null } }, offset });
 const RECEIPT = { notebook: { name: NAME }, proof: { id: "p-mixed", state: "done" },
-  inputs: { tables: [], files: [{ path: "Files/raw/sales.csv", sha256: "0123456789abcdef0123" }] },
+  inputs: { tables: [], files: [{ path: "Files/raw/sales.csv", sha256: "0123456789abcdef0123" }] }, // pragma: allowlist secret (fake checksum)
   environment: { pc: { python: "3.12.4", packages: {} } }, verification: { verdict: "differs" } };
 
 let db;

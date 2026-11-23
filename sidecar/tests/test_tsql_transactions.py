@@ -170,10 +170,10 @@ def test_a_statement_that_fails_part_way_changes_no_row(local, sql):
 def test_with_xact_abort_on_the_script_stops_and_keeps_what_ran_before_as_a_warehouse_does(local):
     """Outside a transaction a warehouse keeps the statements before the error with XACT_ABORT ON, too."""
     _, _, engine = local
-    with pytest.raises(Exception, match="Statement 2 of 3") as caught:  # noqa: B017
+    with pytest.raises(Exception, match="Statement 3 of 4") as caught:  # noqa: B017 - WR-256: SET counts
         engine.execute("SET XACT_ABORT ON;\nINSERT INTO t SELECT 4;\nINSERT INTO t SELECT 1/0;\nINSERT INTO t SELECT 5",
                        dialect="tsql")
-    assert "Statement 1 ran" in str(caught.value)
+    assert "Statements 1 to 2 ran" in str(caught.value)
     assert engine.execute("SELECT x FROM t ORDER BY x")["rows"] == [[1], [2], [3], [4]]
 
 

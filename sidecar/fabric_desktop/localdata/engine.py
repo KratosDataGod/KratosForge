@@ -810,7 +810,7 @@ class LocalEngine:
                 try:
                     statements = self._statements(con, sql, dialect, run)
                 except ValueError as exc:
-                    if isinstance(exc, tsql.InScript):  # WR-238: which statement, and that none of it ran
+                    if isinstance(exc, tsql.Placed):  # WR-238, WR-256: which statement or batch, and that none ran
                         said: Exception = ValueError(_refused_in_script(_as_warehouse_says(ValueError(str(exc)), {}),
                                                                         exc))
                     else:
@@ -880,11 +880,12 @@ class LocalEngine:
                         if dialect != "tsql" or isinstance(exc, duckdb.InterruptException):
                             raise
                         said = _as_warehouse_says(exc, step)
-                        if len(statements) < 2:
+                        place, count, kind = _place_in_script(step, i, len(statements))
+                        if count < 2:
                             if said is exc:
                                 raise
                             raise said from None
-                        raise _in_script(said, i, len(statements), step["kind"]) from None
+                        raise _in_script(said, place, count, kind) from None
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 try:
@@ -896,8 +897,9 @@ class LocalEngine:
                     said = _as_warehouse_says(exc, statements[-1])
                     if said is exc:
                         raise
-                    if len(statements) > 1:
-                        said = _in_script(said, len(statements) - 1, len(statements), statements[-1]["kind"])
+                    place, count, kind = _place_in_script(statements[-1], len(statements) - 1, len(statements))
+                    if count > 1:
+                        said = _in_script(said, place, count, kind)
                     raise said from None
                 finished = True
             except (duckdb.InterruptException, OSError) as exc:
@@ -960,10 +962,14 @@ class LocalEngine:
         if dialect == "tsql":
             # The function list is read only for a query that calls a function sqlglot doesn't know: building it
             # is most of a short T-SQL query's time (about 15 ms of 21 in examples/benchmark).
-            texts, notes = tsql.translate(sql, self._column_types(con), _FunctionNames(lambda: self._function_names(con)))
+            script = tsql.translate_script(sql, self._column_types(con),
+                                           _FunctionNames(lambda: self._function_names(con)))
             if run is not None:
-                run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
-            return self._duckdb_steps(con, texts, n, tsql=True)
+                run["translation"] = {"from": "tsql", "notes": script.notes, "fabric_check": _fabric_check(sql)}
+            steps = self._duckdb_steps(con, script.texts, n, tsql=True)
+            for step, place, kind in zip(steps, script.places, script.kinds, strict=True):
+                step["place"] = (place, script.count, kind)  # WR-256: in the user's count, SET NOCOUNT included
+            return steps
         try:
             texts = [s.query for s in con.extract_statements(sql)]
         except duckdb.Error as exc:
@@ -1996,6 +2002,12 @@ def _remove_tree(folder: Path, tables_dir: Path) -> None:
         trees.remove(folder)
 
 
+def _place_in_script(step: dict[str, Any], i: int, n: int) -> tuple[int, int, str]:
+    """Where step ``i`` of ``n`` is in the user's script, as (index from 0, count, kind). A T-SQL step has its
+    place in the script as the user wrote it, so a skipped SET NOCOUNT still counts (WR-256)."""
+    return step.get("place") or (i, n, step["kind"])
+
+
 def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:
     """``exc`` from statement ``i`` (from 0) of a T-SQL script of ``n``, naming the statement and what already ran.
     A script stops at the first error, and the statements before it stay done, as a batch does in a warehouse
@@ -2037,14 +2049,14 @@ def _without_leading_comments(text: str) -> str:
             return text[i:]
 
 
-def _refused_in_script(said: Exception, where: "tsql.InScript") -> str:
-    """The refusal of one statement of a T-SQL script, naming it. The script is translated whole before any of it
-    runs, so nothing ran, where a warehouse would also stop the batch before it runs for an error it finds in
-    compiling it, such as Msg 239."""
+def _refused_in_script(said: Exception, where: "tsql.Placed") -> str:
+    """The refusal of one statement or batch of a T-SQL script, naming it (WR-238, WR-256). The script is translated
+    whole before any of it runs, so nothing ran, where a warehouse would also stop the batch before it runs for an
+    error it finds in compiling it, such as Msg 239."""
     error = str(said)
     if not error.endswith((".", "!", "?")):
         error += "."
-    return (f"Statement {where.index + 1} of {where.count} ({where.kind}) was refused: {error} None of the script ran, "
+    return (f"{where.place} was refused: {error} None of the script ran, "
             "because every statement is checked before the first one runs.")
 
 

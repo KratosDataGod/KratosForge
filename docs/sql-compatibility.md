@@ -829,6 +829,10 @@ Where SQL Server's number is certain, the error shows it and its severity as SQL
 
 A statement of a script that the local engine refuses (one it can't translate, or Msg 239) is named by its place, such as "Statement 2 of 3 (WITH) was refused: Msg 239, Level 16: …". The local engine checks the whole script before it runs any of it, so the message ends by saying none of the script ran. A warehouse also stops a batch before its first statement for an error it finds while compiling it, such as Msg 239. A script of one statement shows the refusal on its own.
 
+A statement's place is counted as you count it. `SET NOCOUNT ON` and the other session settings the local engine skips still count, so in a script that starts with `SET NOCOUNT ON`, the first query is statement 2, both for a refusal and for an error as the script runs. The kind in brackets is the statement's first word as you wrote it, such as WITH for a query or an INSERT that starts with a CTE, or SELECT for a SELECT ... INTO.
+
+When a batch between `GO` lines can't be read at all, the statement isn't known, so the batch is named by its place and its lines in your text, such as "Batch 2 of 3 (lines 3 to 4) was refused: Could not read the query as T-SQL: …". Blank lines at either end of the batch aren't counted, and a comment is part of its batch. A line number in the message itself is a line of the whole script, not of the batch. A script with no `GO` line shows the error on its own.
+
 `@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 
 ## Local T-SQL wide tables and long values

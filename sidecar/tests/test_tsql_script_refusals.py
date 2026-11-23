@@ -50,10 +50,9 @@ def test_nothing_before_the_refused_statement_ran(engine):
     assert engine.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'made'")["rows"] == [[0]]
 
 
-@pytest.mark.parametrize("sql", ["WITH a AS (SELECT 1 AS x), a AS (SELECT 2 AS x) SELECT x FROM a",
-                                 "SET NOCOUNT ON;\nWITH a AS (SELECT 1 AS x), a AS (SELECT 2 AS x) SELECT x FROM a"])
+@pytest.mark.parametrize("sql", ["WITH a AS (SELECT 1 AS x), a AS (SELECT 2 AS x) SELECT x FROM a"])
 def test_a_script_of_one_statement_keeps_its_refusal_as_it_was(engine, sql):
-    """SET NOCOUNT and the other session options are skipped, so they aren't counted."""
+    """WR-256: SET NOCOUNT counts as a statement now, so a script with one is named (test_tsql_script_places)."""
     assert error(engine, sql) == "Msg 239, Level 16: Duplicate common table expression name 'a' was specified."
 
 

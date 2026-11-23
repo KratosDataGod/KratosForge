@@ -45,6 +45,7 @@ import logging
 import math
 import re
 from collections.abc import Callable, Container
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import sqlglot
@@ -97,18 +98,35 @@ _GO_TIMES = re.compile(r"^[ \t]*GO[ \t]+(\d+)[ \t]*(?:--[^\n]*)?\r?$", re.IGNORE
 
 def split_batches(sql: str) -> list[str]:
     """The script's batches: the text between ``GO`` lines. ``GO n`` (run the batch n times) is refused by name."""
+    return [text for text, _, _, _ in _batches(sql)]
+
+
+def _batches(sql: str) -> list[tuple[str, int, int, int]]:
+    """Each batch of the script with its first and last line in ``sql`` (from 1), not counting blank lines at
+    either end, and the number of lines before it. A comment is part of its batch. ``GO n`` (run the batch n times)
+    is refused by name."""
     if (times := _GO_TIMES.search(sql)) is not None:
         raise ValueError(_NOT_YET + f"GO {times[1]} (run the batch {times[1]} times) isn't mapped yet. Repeat the "
                          "statements, or use GO on its own.")
-    parts = _GO.split(sql)
-    line = 1
-    for part in parts[:-1]:
-        line += part.count("\n")
-        if (open_ := _left_open(part)) is not None:
+    spans, start = [], 0
+    for go in _GO.finditer(sql):
+        spans.append((start, go.start()))
+        if (open_ := _left_open(sql[start:go.start()])) is not None:
+            line = sql.count("\n", 0, go.start()) + 1
             raise ValueError(_NOT_YET + f"the GO on line {line} is inside {open_}, and batches are split at every GO "
                              f"line here. Move the GO out of {open_.replace('a ', 'the ', 1)}, or put something else "
                              "on that line.")
-    return [part for part in parts if part.strip()]
+        start = go.end()
+    spans.append((start, len(sql)))
+    found = []
+    for a, b in spans:
+        part = sql[a:b]
+        if not part.strip():
+            continue
+        first = a + len(part) - len(part.lstrip())
+        last = a + len(part.rstrip()) - 1
+        found.append((part, sql.count("\n", 0, first) + 1, sql.count("\n", 0, last) + 1, sql.count("\n", 0, a)))
+    return found
 
 
 def _left_open(text: str) -> str | None:
@@ -157,57 +175,118 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
     lets divisions and ``+`` follow T-SQL's types. ``known`` is the upper-case names of the functions
     the DuckDB database has; a function call outside it is refused by name rather than left to DuckDB's
     catalog error. Raises ValueError for what isn't carried."""
+    script = translate_script(sql, columns, known)
+    return script.texts, script.notes
+
+
+@dataclass
+class Script:
+    """WR-256: a T-SQL script as DuckDB statements. ``texts[i]`` is statement ``places[i]`` (from 0) of the
+    ``count`` the user wrote, of kind ``kinds[i]`` (its first word, such as WITH or MERGE). ``count`` includes
+    SET NOCOUNT and the other session settings that are skipped, so a place matches the user's own count."""
+
+    texts: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    places: list[int] = field(default_factory=list)
+    kinds: list[str] = field(default_factory=list)
+    count: int = 0
+
+
+def translate_script(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None,
+                     known: Container[str] | None = None) -> Script:
+    """As translate(), with the place and kind of each statement in the user's script (WR-256)."""
     try:
         return _translate(sql, columns, known)
     except RecursionError:  # sqlglot reads and writes a tree by recursion, so a deep enough nesting stops it
         raise ValueError(_TOO_DEEP) from None
 
 
-class InScript(ValueError):
+class Placed(ValueError):
+    """A refusal of one part of a script. ``str()`` is the refusal on its own; ``place`` names the part, such as
+    "Statement 2 of 3 (WITH)", and the engine puts the two together."""
+
+    place = ""
+
+
+class InScript(Placed):
     """WR-238: a refusal of statement ``index`` (from 0) of a script of ``count``, which is translated whole before
-    any of it runs. ``str()`` is the refusal on its own; the engine adds which statement it was."""
+    any of it runs. ``count`` is every statement the user wrote, SET NOCOUNT and the like included (WR-256)."""
 
     def __init__(self, message: str, index: int, count: int, kind: str) -> None:
         super().__init__(message)
         self.index, self.count, self.kind = index, count, kind
+        self.place = f"Statement {index + 1} of {count} ({kind})"
+
+
+class InBatch(Placed):
+    """WR-256: batch ``index`` (from 0) of ``count``, split at GO lines, couldn't be read. It's named by its place and
+    its lines in the user's text (``first`` to ``last``, from 1), because which statement it was isn't known."""
+
+    def __init__(self, message: str, index: int, count: int, first: int, last: int) -> None:
+        super().__init__(message)
+        self.index, self.count, self.first, self.last = index, count, first, last
+        lines = f"line {first}" if first == last else f"lines {first} to {last}"
+        self.place = f"Batch {index + 1} of {count} ({lines})"
+
+
+_KINDS: dict[type, str] = {exp.Select: "SELECT", exp.Union: "SELECT", exp.Intersect: "SELECT", exp.Except: "SELECT",
+                           exp.Insert: "INSERT", exp.Update: "UPDATE", exp.Delete: "DELETE", exp.Merge: "MERGE",
+                           exp.Create: "CREATE", exp.Drop: "DROP", exp.Alter: "ALTER", exp.Set: "SET",
+                           exp.TruncateTable: "TRUNCATE"}
 
 
 def _statement_kind(tree: exp.Expression) -> str:
+    """The statement's first word as the user wrote it: WITH for one that starts with a CTE."""
+    if tree.args.get("with_") is not None or tree.args.get("with") is not None:
+        return "WITH"
+    if type(tree) in _KINDS:
+        return _KINDS[type(tree)]
     try:
-        return (tree.sql(dialect="tsql").split(None, 1) or ["?"])[0].upper().rstrip("(;")
+        return (tree.sql(dialect="tsql").split(None, 1) or ["?"])[0].upper().strip("(;")
     except Exception:  # noqa: BLE001 - only names the statement in a message
         return type(tree).__name__.upper()
 
 
 def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
-               known: Container[str] | None) -> tuple[list[str], list[str]]:
-    texts: list[str] = []
+               known: Container[str] | None) -> Script:
+    script = Script()
     notes: list[str] = []
     skipped = False
     schema = _schema(columns or {})
     # every statement is read before any is translated, so a refusal can say which of how many it was
-    parsed = [(batch, tree) for batch in split_batches(sql) for tree in _parse(batch)
-              if not isinstance(tree, exp.Semicolon)]  # WR-236: only a comment after the last ``;``
-    count = sum(not _harmless_setting(tree) for _, tree in parsed)
-    index = -1
-    for batch, tree in parsed:
-        if _harmless_setting(tree):
-            skipped = True
-            continue
-        index += 1
+    batches = _batches(sql)
+    parsed: list[tuple[str, exp.Expression]] = []
+    for b, (batch, first, last, before) in enumerate(batches):
         try:
+            trees = _parse("\n" * before + batch)  # so a line a refusal names is a line of the user's text
+        except ValueError as exc:
+            if len(batches) < 2:
+                raise
+            raise InBatch(str(exc), b, len(batches), first, last) from None
+        parsed += [(batch, tree) for tree in trees
+                   if not isinstance(tree, exp.Semicolon)]  # WR-236: only a comment after the last ``;``
+    script.count = count = len(parsed)  # WR-256: SET NOCOUNT counts too, as the user counts it
+    for index, (batch, tree) in enumerate(parsed):
+        kind = _statement_kind(tree)  # before the passes below change the tree
+        try:
+            if _harmless_setting(tree):
+                skipped = True
+                continue
             text, more = _one(batch, tree, columns, known, schema)
         except ValueError as exc:
             if count < 2:
                 raise
-            raise InScript(str(exc), index, count, _statement_kind(tree)) from None
+            raise InScript(str(exc), index, count, kind) from None
         notes += more
         if text.strip():
-            texts.append(text)
-    if not texts:
+            script.texts.append(text)
+            script.places.append(index)
+            script.kinds.append(kind)
+    if not script.texts:
         raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
                          "nothing on the local engine, so they're skipped." if skipped else "The query is empty.")
-    return texts, list(dict.fromkeys(notes))
+    script.notes = list(dict.fromkeys(notes))
+    return script
 
 
 def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None,

@@ -178,6 +178,9 @@ in `reads` and leaves its controls not evaluated.
 | FEA-DE-003 | Data engineering | Medium | No VACUUM in a notebook keeps less than 7 days of history (NB020) | Definition inspection |
 | FEA-REL-003 | Reliability | Low | No pipeline activity is deactivated (skipped, and reported as Succeeded by default) | Definition inspection |
 | FEA-DEVOPS-002 | DevOps | Low | No pipeline activity names a workspace id as text rather than a parameter or variable | Definition inspection |
+| FEA-REL-004 | Reliability | Medium | Every pipeline activity that calls out (Copy, notebook, Spark job, Lookup, Get Metadata, Script, stored procedure, Web, Azure Function, Dataflow, semantic model refresh, KQL) has a retry above 0; not applicable when none calls out | Definition inspection |
+| FEA-REL-005 | Reliability | Medium | Every pipeline activity that calls out has a timeout under the 12-hour default (0.12:00:00); not applicable when none calls out | Definition inspection |
+| FEA-REL-006 | Reliability | Low | A pipeline with an activity that calls out has a failure path: some activity runs on another's Failed or Completed condition | Definition inspection |
 | FEA-ARCH-001 | Architecture | Medium | One lakehouse per medallion layer: no lakehouse named for two of bronze, silver and gold, and no two named for the same layer | Item names (inferred, advice only) |
 | FEA-ARCH-002 | Architecture | Low | A lakehouse is schema-enabled | Lakehouse properties |
 | FEA-ARCH-003 | Architecture | Low | A workspace whose name says production holds no item named tmp, temp, test, staging, copy, old, backup or similar; not applicable when the name says Dev or Test | Workspace and item names (inferred, advice only) |
@@ -221,12 +224,26 @@ this PC and only the result is kept as evidence (`item.inspection`):
   often, and the cell and line of each. For a secret (NB001), only that one was found and where,
   never what it was;
 - for a pipeline, how many activities it has, and the names of those that are deactivated or name a
-  fixed workspace id. Not the ids themselves.
+  fixed workspace id; of the activities that call out, the names of those with no retry and those
+  with no timeout under 12 hours; and whether any activity runs when another fails or completes. Not
+  the ids, and not the policy values themselves.
 
 Notebook code and pipeline JSON never enter the evidence or the snapshot. A definition that couldn't
-be read leaves these controls not evaluated. Retry, timeout and failure-path settings aren't checked
-yet: the engine's pipeline reader doesn't keep an activity's `policy` and `dependsOn`, and a control
-that can't see a setting is never passed.
+be read leaves these controls not evaluated.
+
+Retry, timeout and failure paths are read from each activity's `policy` and `dependsOn` as the
+definition states them. A setting the definition leaves out takes Fabric's default (no retry, a
+12-hour timeout), so it fails. A retry or timeout given by an expression counts as set: its value is
+only known at run time. An activity whose policy wasn't kept (an older engine) leaves FEA-REL-004 and
+FEA-REL-005 not evaluated, never passed. A retry or timeout that can't be read leaves only its own
+control not evaluated. The same goes for FEA-REL-006 and `dependsOn`. A deactivated activity never
+runs, so it doesn't count as a failure path. One whose state can't be read leaves FEA-REL-006 not
+evaluated, unless another activity is a failure path.
+Outlook and Teams activities aren't counted as calling out, because a retry can send the message
+twice, nor are child pipelines (their own activities carry the policy) or control-flow activities.
+The 12-hour line is KratosForge's, because Microsoft gives the default, not a number to use, and only the
+pipeline's owner knows how long a step should take, so any explicit timeout under the default passes.
+Before adding a retry to a stored procedure or Web call, check the step can safely run twice.
 
 ### Semantic model inspection
 

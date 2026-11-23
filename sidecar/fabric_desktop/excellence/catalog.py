@@ -351,10 +351,10 @@ def _pipeline_fits(p: Any) -> bool:
                for k, n in (("no_retry", "no_retry_count"), ("no_timeout", "no_timeout_count")))
 
 
-_OPERATIONS = {"rows": int, "cu_seconds": float, "status_rows": int, "cu_by_status": Map(float), "operation_rows": int,
+_OPERATIONS = {"rows": _count, "cu_seconds": float, "status_rows": _count, "cu_by_status": Map(float), "operation_rows": _count,
                "window": {"start": (str, None), "end": (str, None)},
-               "refreshes_per_day": [{"workspace": str, "item": str, "day": str, "count": int}],
-               "?refresh_days_over": int}
+               "refreshes_per_day": [{"workspace": str, "item": str, "day": str, "count": _count}],
+               "?refresh_days_over": _count}
 PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
     "workspace.info": {"description": str, "?capacity_id": _PLAIN},
     "workspace.inventory": {"items": [{"id": str, "type": str, "?name": str}]},
@@ -368,7 +368,7 @@ PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
                                   "rows": int, "cu_seconds": float}]},
     "item.optimization": {"definition": str, "history_read": bool, "scheduled_runs": (int, bool, None),
                           "peers_not_read": _NAMES,
-                          "matched": [{"rule": _PLAIN, "?opportunity_id": _PLAIN, "?title": _PLAIN}]},
+                          "matched": [{"rule": str, "?opportunity_id": _PLAIN, "?title": _PLAIN}]},
     "item.inspection": lambda p: (fits(p, _NOTEBOOK) if isinstance(p, dict) and p.get("kind") == "notebook"
                                   else _pipeline_fits(p)),
     "item.model": {"read": lambda v: v is True, "kind": str, "tables": int, "relationships": int,

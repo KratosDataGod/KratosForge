@@ -105,6 +105,19 @@ def test_a_score_just_under_100_with_gaps_doesnt_round_up_to_100():
         assert block["coverage"] < 100 and block["score"] < 100, block
 
 
+def test_a_failure_at_full_coverage_never_rounds_to_100():
+    """9,999 passes and one critical failure, everything evaluated: the raw score is 99.99, which used to
+    show as 100.0 beside critical_risk."""
+    outs = [outcome("A", "security", "pass", "critical", "verified_configuration", f"i{i}") for i in range(9999)]
+    outs.append(outcome("A", "security", "fail", "critical", "verified_configuration", "i9999"))
+    s = scoring.score(outs, pf.get())
+    for block in (s["dimensions"]["security"], s["overall"]):
+        assert block["coverage"] == 100 and block["score"] == 99.9 and block["assured"] == 99.9, block
+    assert s["critical_risk"] is True
+    clean = scoring.score([o for o in outs if o["outcome"] == "pass"], pf.get())
+    assert clean["overall"]["score"] == 100  # all passed: still 100
+
+
 def test_coverage_just_under_full_isnt_shown_as_100():
     outs = [outcome("A", "security", "pass", "critical", "verified_configuration", f"i{i}") for i in range(9999)]
     outs.append(outcome("A", "security", "not_evaluated", "critical", "verified_configuration", "i9999"))
@@ -857,3 +870,33 @@ def test_a_malformed_git_payload_never_passes(demo, payload):
                            catalog.registry())
     mine = [o for o in again["outcomes"] if o["control_id"] in ("FEA-DEVOPS-003", "FEA-DEVOPS-004", "FEA-DEVOPS-005")]
     assert len(mine) == 3 and all(o["outcome"] == "not_evaluated" for o in mine), mine
+
+
+@pytest.mark.parametrize("rule", [None, 5, True, 1.5])
+def test_a_matched_rule_that_isnt_text_is_rejected_not_read_as_no_match(demo, rule):
+    """matched[].rule of None, a number or a bool used to read as "no rule matched", so the duplicate and
+    full-refresh controls could pass on it."""
+    rec = next(r for r in demo["evidence"] if r["kind"] == "item.optimization" and r["payload"].get("matched"))
+    payload = copy.deepcopy(rec["payload"])
+    payload["matched"][0]["rule"] = rule
+    assert not ev.fits(payload, catalog.PAYLOADS["item.optimization"])
+    bad = ev.record(rec["kind"], rec["subject"], source=rec["source"], confidence=rec["confidence"],
+                    collected_at=rec["collected_at"], payload=payload)
+    again = assess.rescore({**demo, "evidence": [r for r in demo["evidence"] if r["id"] != rec["id"]] + [bad]},
+                           catalog.registry())
+    assert bad["id"] in {x["id"] for x in again["evidence_rejected"]}
+    for o in again["outcomes"]:
+        if o["subject"]["id"] == rec["subject"]["id"] and o["control_id"] in (
+                "FEA-PERF-001", "FEA-PERF-002", "FEA-DE-001", "FEA-DE-002"):
+            assert o["outcome"] in ("not_evaluated", "not_applicable"), o
+
+
+def test_a_negative_count_in_imported_capacity_usage_doesnt_fit():
+    ops = {"rows": 1, "cu_seconds": 1.0, "status_rows": 1, "cu_by_status": {}, "operation_rows": 1,
+           "window": {"start": None, "end": None},
+           "refreshes_per_day": [{"workspace": "w", "item": "i", "day": "2026-11-01", "count": 3}]}
+    spec = catalog.PAYLOADS["capacity.usage"]["operations"]
+    assert ev.fits(ops, spec)
+    for bad in ({**ops, "refreshes_per_day": [{**ops["refreshes_per_day"][0], "count": -30}]},
+                {**ops, "refresh_days_over": -1}, {**ops, "rows": -1}, {**ops, "operation_rows": True}):
+        assert not ev.fits(bad, spec), bad

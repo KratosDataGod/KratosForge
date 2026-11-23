@@ -14,7 +14,8 @@ overall, and the other dimensions' weights are scaled back up to 100.
 
 A rating comes from the score only at the profile's rated coverage (default 80%). Between the
 provisional and rated coverage it is ``provisional``; below, ``insufficient_evidence`` with no rating.
-A score of 100 needs coverage of 100%; otherwise it's shown as 99. ``critical_risk`` is set by any
+A score of 100 needs coverage of 100% and no failed control: a gap shows as 99 and a failure that
+would round to 100 as 99.9. ``critical_risk`` is set by any
 failed critical control, whatever the score.
 
 Ratings are KratosForge product ratings, not Microsoft certifications.
@@ -53,11 +54,17 @@ def _shown(score: float | None, assured: float, coverage: float) -> tuple[float 
     (a raw 99.96 would otherwise round to 100), and the assured score never shows above the coverage."""
     cov = _round(100 * coverage)
     sc = None if score is None else _round(score)
+    shown_assured = _round(assured)
+    # a failed control never rounds away: 9,999 passes and one failure is 99.99, shown as 99.9, not 100
+    if score is not None and score < 100 and sc is not None and sc >= 100:
+        sc = 99.9
+    if assured < 100 and shown_assured >= 100:
+        shown_assured = 99.9
     if coverage < 1:
         cov = min(cov, 99.9)
         if sc is not None and sc >= 100:
             sc = 99.0
-    return sc, min(_round(assured), cov), cov
+    return sc, min(shown_assured, cov), cov
 
 
 def control_rows(outcomes: list[dict[str, Any]], profile: Profile) -> list[dict[str, Any]]:

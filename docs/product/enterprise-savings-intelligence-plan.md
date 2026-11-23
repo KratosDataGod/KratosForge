@@ -477,9 +477,14 @@ goes to a person for review. With the FEA-604 matches table, a finding and an op
 same item share one record. A finding is resolved only when the savings are verified and FEA-602's
 re-check says verified_fixed.
 
-**ESI-602 Capacity planner inputs.** Verified and estimated optimization demand fed to OE-040 and
+**ESI-602 Capacity planner inputs.** **Built** (engine only, no writes). `savings/planner_inputs.py`. Verified and estimated optimization demand fed to OE-040 and
 OE-041 as separate inputs (verified first). The planner, not this program, makes any
 right-sizing recommendation, and it needs peak, concurrency and throttling evidence.
+No planner code exists yet, so the module offers its own contract (`esi-602/1`) and builds no planner logic.
+Per capacity and per workload, the CU demand change comes as `verified` (Measured accruals of
+optimizations whose latest validation is Verified) and `estimated` (the rest). They are never summed.
+Regressions count as increases and are labelled. Unknown stays None with the reason. Every output says
+it isn't enough to right-size a capacity, and nothing recommends a SKU.
 
 **ESI-603 What to optimize next.** **Built** (engine only, no writes). `savings/priorities.py`. Rank open opportunities by evidence-backed benefit, using the
 existing `ACTION_ORDER` and impact figures.

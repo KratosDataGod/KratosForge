@@ -53,6 +53,14 @@ outcome verified_fixed (FEA-602). Anything else leaves it open. Records hold fin
 never code or evidence text.
 Writing them, version-aware updates and the responsible user and device wait on ESI-301 (ESI-601).
 
+``planner_inputs``: optimization demand changes shaped for the capacity planner (OE-040, OE-041), which
+isn't built yet. Per capacity and per workload there are two inputs, verified first, never summed.
+``verified`` holds Measured accruals of optimizations whose latest validation is Verified. ``estimated``
+holds Estimated accruals and optimizations still Validating, Regressed or not validated. Regressions
+count as increases and are labelled. A change that isn't known is None with the reason, never 0. Every
+output says it isn't enough to right-size a capacity: that needs peak, concurrency and throttling
+evidence from the planner's own inputs. Nothing recommends a SKU (ESI-602).
+
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.
 """

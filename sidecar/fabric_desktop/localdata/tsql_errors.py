@@ -59,6 +59,7 @@ _NUMBERS = [
     (re.compile(r"^Ambiguous column name '"), 209),
     (re.compile(r"^Duplicate common table expression name '.*' was specified\.$"), 239),
     (re.compile(r"^Divide by zero error encountered\.$"), 8134),
+    (re.compile(r"^Operand data type bit is invalid for (?:sum|avg|min|max) operator\.$"), 8117),
     (re.compile(r"^Arithmetic overflow error converting expression to data type \w+\.$"), 8115),
     (re.compile(r"^Arithmetic overflow error for type int, value = -?\d+\.\d{6}\.$"), 232),
     (re.compile(r"^Conversion failed when converting the n?varchar value '.*' to data type \w+\.$", re.DOTALL), 245),
@@ -142,6 +143,6 @@ def numbered(message: str) -> str:
     """``message`` with SQL Server's number and severity in front, as SQL Server prints them, when it is one of
     the messages above; otherwise as it is."""
     for pattern, number in _NUMBERS:
-        if pattern.match(message):
+        if (pattern.fullmatch if pattern.pattern.endswith("$") else pattern.match)(message):
             return f"Msg {number}, Level {LEVEL}: {message}"
     return message

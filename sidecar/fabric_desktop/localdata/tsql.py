@@ -198,6 +198,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             notes += _converts(tree)
             _big_integers(tree)
             _with_rollup(tree)
+            _grouping_types(tree)
             _regexps(tree)
             notes += _types(tree, schema)
             _percentiles(tree)
@@ -1065,7 +1066,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     pivoted = _pivot_sums(tree)
     counts = [n for n in tree.find_all(exp.Count) if not n.args.get("big_int")
               and not any(isinstance(up, exp.Order) for up in _ancestors(n))]
-    grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation, *_COLLATED))
+    grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation, *_COLLATED, *_NO_BIT))
     if not here and not compared and not grouped and not sized_ints and not pivoted and not counts:
         return []
     sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
@@ -1086,6 +1087,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "floats joined into text are done as DuckDB does them (T-SQL divides and averages integers as "
                 "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
                 "text, and writes a float in CONCAT with at most 6 significant digits).")]
+    _bit_aggregates(typed)
     collated = _in_order(tree, _COLLATED)
     notes = _padded(compared, _in_order(typed, _COMPARISONS)) + _grouped_text(typed)
     typed_ints = _sized_ints(typed)
@@ -1262,6 +1264,37 @@ def _sized_ints(tree: exp.Expression) -> list[exp.Expression]:
     return [n for n in _in_order(tree, (exp.Sum, exp.Neg))
             if not (isinstance(n, exp.Neg) and isinstance(n.this, exp.Literal))  # -5 can't overflow
             and not any(isinstance(up, (exp.Order, exp.Pivot)) for up in _ancestors(n))]
+
+
+_NO_BIT: dict[type[exp.Expression], str] = {exp.Sum: "sum", exp.Avg: "avg", exp.Min: "min", exp.Max: "max"}
+
+
+def _bit_aggregates(typed: exp.Expression) -> None:
+    """WR-703: ``SUM``, ``AVG``, ``MIN`` and ``MAX`` of a bit stop in T-SQL with error 8117, "Operand data type bit
+    is invalid for sum operator." (Microsoft Learn: SUM and AVG take a number "except for the bit data type", MIN
+    and MAX "not ... bit columns"); DuckDB's bit is a BOOLEAN, and it summed it as a decimal. ``COUNT`` of a bit
+    works, and so does ``SUM(CAST(b AS INT))``. ``typed`` is the annotated copy: a bit read again from a CTE, a
+    CAST, a CASE of bits, OVER (...) and PIVOT are each a BOOLEAN there (a CAST written in T-SQL, a BIT)."""
+    for node in _in_order(typed, tuple(_NO_BIT)):
+        inner = node.this
+        if isinstance(inner, exp.Distinct) and inner.expressions:
+            inner = inner.expressions[0]
+        if inner.type is not None and inner.type.is_type(exp.DataType.Type.BOOLEAN, exp.DataType.Type.BIT):
+            raise ValueError(f"Operand data type bit is invalid for {_NO_BIT[type(node)]} operator.")
+
+
+def _grouping_types(tree: exp.Expression) -> None:
+    """WR-703: ``GROUPING`` is a tinyint in T-SQL and ``GROUPING_ID`` an int; DuckDB gives both as a BIGINT.
+    ``GROUPING`` is a UTINYINT only as a column of the statement's own SELECT, and an INT anywhere else: DuckDB
+    keeps a UTINYINT in ``GROUPING(g) - 1`` and stops below 0 or past 255, where T-SQL's tinyint and an int
+    literal give an int, and an int is what ``GROUPING(g) - 1`` is in T-SQL."""
+    for node in list(tree.find_all(exp.Grouping, exp.GroupingId)):
+        shown = node.parent if isinstance(node.parent, exp.Alias) else node
+        tinyint = isinstance(node, exp.Grouping) and shown.parent is tree and shown.arg_key == "expressions"
+        to = exp.DataType.Type.UTINYINT if tinyint and isinstance(tree, exp.Select) else exp.DataType.Type.INT
+        cast = exp.Cast(this=exp.Null(), to=exp.DataType(this=to))
+        node.replace(cast)
+        cast.set("this", node)
 
 
 def _aggregate_kind(typed: exp.Expression) -> str | None:

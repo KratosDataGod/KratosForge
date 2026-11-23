@@ -97,6 +97,35 @@ def _looks_secret(text: str) -> bool:
     return redact.secrets(text) != text
 
 
+# Secret-named fields redact.secret_key doesn't know (it must leave private_key_file alone): a
+# Snowflake raw key, a password by its short name and a programmatic access token.
+_SECRET_NAMES = {"pwd", "privatekey", "privatekeyraw", "pat"}
+
+
+def _secret_name(key: Any) -> bool:
+    return redact.secret_key(key) or str(key).lower().replace("-", "").replace("_", "") in _SECRET_NAMES
+
+
+# A profile is a few levels deep; anything far deeper is refused before it is walked or copied.
+MAX_DEPTH = 32
+
+
+def _too_deep(data: Any) -> bool:
+    stack = [(data, 0)]
+    while stack:
+        value, depth = stack.pop()
+        if depth > MAX_DEPTH:
+            return True
+        if isinstance(value, dict):
+            stack += [(v, depth + 1) for v in value.values()]
+        elif isinstance(value, list):
+            stack += [(v, depth + 1) for v in value]
+    return False
+
+
+_TOO_DEEP = f"The profile is nested more than {MAX_DEPTH} levels deep, so it isn't a connection profile."
+
+
 def _key_text(key: Any) -> str:
     """A key (or id) from the file, as it goes in a message: "[key]" when it looks like a secret,
     otherwise with control characters folded to spaces and cut to 60 characters, so it can't carry
@@ -114,7 +143,7 @@ def secret_problems(data: Any, path: str = "") -> list[str]:
     if isinstance(data, dict):
         for key, value in data.items():
             where = f"{path}.{_key_text(key)}" if path else _key_text(key)
-            if redact.secret_key(key) and value not in (None, "", [], {}):
+            if _secret_name(key) and value not in (None, "", [], {}):
                 if not (isinstance(value, str) and _REF.fullmatch(value)):
                     problems.append(f"{where} must be a reference (env:NAME or credman:TARGET), not a value.")
                     continue
@@ -197,14 +226,17 @@ def _host_problems(conn: dict[str, Any], where: str) -> list[str]:
     # characters a URL parser might read differently), then the cloud's own suffix.
     label = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+" + re.escape(suffix.lstrip(".")))
     if url is None or url.scheme != "https" or not label.fullmatch(url.hostname or "") \
-            or url.path not in ("", "/") or url.username or url.password or url.query or url.fragment \
+            or url.path not in ("", "/") or url.params or url.username or url.password or url.query or url.fragment \
             or port not in (None, 443):
         return [f"{where}.host must be the workspace address, like https://adb-1234567890123456.7{suffix}"]
     return []
 
 
 def _secret_ref(cred: dict[str, Any]) -> str | None:
-    return cred.get("secret") or cred.get("passphrase")
+    if not isinstance(cred, dict):  # credential: null; the method check has said so
+        return None
+    ref = cred.get("secret") or cred.get("passphrase")
+    return ref if isinstance(ref, str) else None  # a list or object: secret_problems has said so
 
 
 def key_file_problem(path: Any, windows: bool | None = None) -> str:
@@ -312,6 +344,8 @@ def _shape_problems(data: Any) -> list[str]:
 
 def problems(data: dict[str, Any]) -> list[str]:
     """Every reason ``data`` (normalized or not) isn't a valid profile; empty when it is."""
+    if _too_deep(data):
+        return [_TOO_DEEP]
     out = secret_problems(data)
     shape = _shape_problems(data)
     if shape:
@@ -446,6 +480,8 @@ def import_(document: dict[str, Any], existing_ids: set[str] | None = None) -> d
     accepted with their method only and listed in validation, so the person adds their own."""
     if not isinstance(document, dict) or document.get("kind") != "kratosforge.connection-profile":
         raise ProfileError(["This file isn't a KratosForge connection profile."])
+    if _too_deep(document):
+        raise ProfileError([_TOO_DEEP])
     found = secret_problems(document)
     if found:
         raise ProfileError(found)
@@ -512,7 +548,7 @@ def databricks_cli_profiles(path: Path | None = None) -> dict[str, Any]:
         return {"path": str(path), "found": False, "profiles": []}
     parser = configparser.RawConfigParser(default_section="__no_defaults__")
     try:
-        parser.read(path, encoding="utf-8")
+        parser.read(path, encoding="utf-8-sig")  # a BOM, as Notepad writes, is read past
     except (configparser.Error, UnicodeDecodeError) as exc:
         return {"path": str(path), "found": True, "profiles": [],
                 "error": f"The file can't be read: {redact.secrets(type(exc).__name__)}."}
@@ -538,8 +574,11 @@ def databricks_cli_profiles(path: Path | None = None) -> dict[str, Any]:
 def connection_from_cli_profile(entry: dict[str, Any]) -> dict[str, Any]:
     """A Databricks connection that uses a CLI profile as it is (no secret is copied)."""
     host = entry.get("host") or ""
-    cloud = next((c for c, (suffix, _) in DATABRICKS_CLOUDS.items() if (urlparse(host).hostname or "").endswith(suffix)),
-                 "azure")
+    try:
+        hostname = urlparse(host).hostname or ""
+    except ValueError:  # a bracket left open: the host check refuses it when the connection is used
+        hostname = ""
+    cloud = next((c for c, (suffix, _) in DATABRICKS_CLOUDS.items() if hostname.endswith(suffix)), "azure")
     return _connection_defaults({
         "id": re.sub(r"[^A-Za-z0-9_-]", "-", entry["name"])[:40] or "databricks", "platform": "databricks",
         "cloud": cloud, "host": host.rstrip("/"), "credential": {"method": "cli-profile", "profile": entry["name"]},

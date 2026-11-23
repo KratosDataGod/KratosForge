@@ -177,9 +177,11 @@ def test_only_an_append_refused_its_staged_commit_is_sent_again(tmp_path, monkey
             calls.append(kw["mode"])
             raise error
         return write
-    # An overwrite isn't sent again: it is made against the version it read.
+    # An overwrite isn't sent again: it is made against the version it read. It fails as the commit conflict
+    # delta-rs reports elsewhere (nothing was committed), not as the raw Windows error.
+    from deltalake.exceptions import CommitFailedError
     monkeypatch.setattr(store_mod, "write_deltalake", refuse(_race(log)))
-    with pytest.raises(OSError):
+    with pytest.raises(CommitFailedError, match="wasn't committed"):
         store.write("LH_Bronze", "dbo", "t", pl.DataFrame({"id": [2]}))
     # A commit file refused once it is in place may have been made: not sent again either.
     monkeypatch.setattr(store_mod, "write_deltalake", refuse(OSError(

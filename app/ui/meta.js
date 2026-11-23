@@ -1543,8 +1543,8 @@ async function renderHealthTab(body) {
       h("b", {}, hl.local ? `${ENV_LABEL[m.env]} tables on this PC` : `${ENV_LABEL[m.env]} tables in OneLake`),
       needs.length || !unreadable ? h("span", { class: "muted-text" }, needs.length ? `${needs.length} of ${hl.tables.length} would benefit from maintenance` : "Every table is in good shape") : null,
       unreadable ? h("span", { class: "error-text" }, unreadable === 1
-        ? "1 table couldn't be read, because its Delta log is damaged. Its row below says how to fix it."
-        : `${unreadable} tables couldn't be read, because their Delta logs are damaged. Their rows below say how to fix them.`) : null,
+        ? "1 table couldn't be read. Its row below says why and how to fix it."
+        : `${unreadable} tables couldn't be read. Their rows below say why and how to fix them.`) : null,
       h("span", { class: "spacer" }),
       btn("Refresh", "sync", () => renderHealthTab(body), "tool outline small"),
       btn(hl.local ? "Compact all" : "Optimize all in Fabric", "flash", () => optimize(null), "tool primary small")),

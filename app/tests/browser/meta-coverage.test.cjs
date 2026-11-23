@@ -713,14 +713,14 @@ test("Table health counts a table whose Delta log is damaged and shows its row a
   const rows = page().locator(".meta-body table.list tbody tr");
   await rows.first().waitFor();
   const head = await page().locator(".meta-body .card.pad").first().textContent();
-  assert.match(head, /1 table couldn't be read, because its Delta log is damaged\. Its row below says how to fix it\./);
+  assert.match(head, /1 table couldn't be read\. Its row below says why and how to fix it\./);
   assert.doesNotMatch(head, /good shape/);
   assert.strictEqual(await rows.first().locator("td.error-text").textContent(), msg);
   assert.strictEqual(await rows.nth(1).locator("td.error-text").count(), 0);
 
   db.health.tables = [db.health.tables[0], { ...db.health.tables[0], entity: "bronze.customers" }];
   await page().locator(".meta-body .card.pad").first().getByRole("button", { name: "Refresh" }).click();
-  await page().getByText("2 tables couldn't be read, because their Delta logs are damaged. Their rows below say how to fix them.").waitFor();
+  await page().getByText("2 tables couldn't be read. Their rows below say why and how to fix them.").waitFor();
   assert.deepStrictEqual(app.errors, []);
 });
 

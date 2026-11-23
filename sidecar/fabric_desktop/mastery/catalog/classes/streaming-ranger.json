@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "streaming-ranger",
+ "version": 1,
+ "title": "Streaming Ranger",
+ "professional": "Real-Time Data Engineer",
+ "fantasy": "Tracker of the moving herd. The Ranger reads events as they run and never loses one between checkpoints.",
+ "competency": "Builds real-time solutions: structured streaming, event-time windows, checkpoints and exactly-once loads, eventstreams, eventhouses and KQL.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake"],
+ "technologies": ["Spark Structured Streaming", "Eventstream", "Eventhouse", "KQL", "Kafka"],
+ "emblem": "A wolf mid-leap over three flowing lines that break into arrow heads.",
+ "specializations": [
+  {"id": "stream", "title": "Trail Runner", "professional": "Structured streaming", "competency": "streaming",
+   "nodes": [
+    {"id": "stream.01", "skill": "choosing-a-streaming-engine", "tier": 1, "requires": []},
+    {"id": "stream.02", "skill": "structured-streaming-basics", "tier": 2, "requires": ["stream.01"]},
+    {"id": "stream.03", "skill": "checkpoints-and-restarts", "tier": 2, "requires": ["stream.01"]},
+    {"id": "stream.04", "skill": "foreachbatch-and-merge", "tier": 3, "requires": ["stream.02"]},
+    {"id": "stream.05", "skill": "exactly-once-loads", "tier": 3, "requires": ["stream.03"]},
+    {"id": "stream.06", "skill": "schema-changes-in-streams", "tier": 4, "requires": ["stream.04"]},
+    {"id": "stream.07", "skill": "backpressure-and-triggers", "tier": 4, "requires": ["stream.04", "stream.05"]},
+    {"id": "stream.08", "skill": "stream-monitoring", "tier": 5, "requires": ["stream.06"]},
+    {"id": "stream.09", "skill": "streaming-to-delta-at-scale", "tier": 5, "requires": ["stream.07"]},
+    {"id": "stream.10", "skill": "capstone-a-stream-that-survives-a-restart", "tier": 6, "requires": ["stream.08", "stream.09"], "capstone": true}
+   ]},
+  {"id": "windows", "title": "Moon Tracker", "professional": "Event-time processing", "competency": "streaming",
+   "nodes": [
+    {"id": "windows.01", "skill": "event-time-and-processing-time", "tier": 1, "requires": []},
+    {"id": "windows.02", "skill": "tumbling-windows", "tier": 2, "requires": ["windows.01"]},
+    {"id": "windows.03", "skill": "hopping-windows", "tier": 2, "requires": ["windows.01"]},
+    {"id": "windows.04", "skill": "session-windows", "tier": 3, "requires": ["windows.02"]},
+    {"id": "windows.05", "skill": "watermarks-and-late-events", "tier": 3, "requires": ["windows.03"]},
+    {"id": "windows.06", "skill": "late-arriving-data", "tier": 4, "requires": ["windows.04"]},
+    {"id": "windows.07", "skill": "stateful-aggregation", "tier": 4, "requires": ["windows.04", "windows.05"]},
+    {"id": "windows.08", "skill": "deduplicating-events", "tier": 5, "requires": ["windows.06"]},
+    {"id": "windows.09", "skill": "joining-streams", "tier": 5, "requires": ["windows.07"]},
+    {"id": "windows.10", "skill": "capstone-windows-that-add-up", "tier": 6, "requires": ["windows.08", "windows.09"], "capstone": true}
+   ]},
+  {"id": "kql", "title": "Eventhouse Scout", "professional": "Eventhouse and KQL", "competency": "streaming",
+   "nodes": [
+    {"id": "kql.01", "skill": "kql-basics", "tier": 1, "requires": []},
+    {"id": "kql.02", "skill": "summarize-extend-and-project", "tier": 2, "requires": ["kql.01"]},
+    {"id": "kql.03", "skill": "eventstream-design", "tier": 2, "requires": ["kql.01"]},
+    {"id": "kql.04", "skill": "eventhouse-tables-and-policies", "tier": 3, "requires": ["kql.02"]},
+    {"id": "kql.05", "skill": "update-policies", "tier": 3, "requires": ["kql.03"]},
+    {"id": "kql.06", "skill": "materialized-views", "tier": 4, "requires": ["kql.04"]},
+    {"id": "kql.07", "skill": "eventhouse-optimization", "tier": 4, "requires": ["kql.04", "kql.05"]},
+    {"id": "kql.08", "skill": "alerts-on-events", "tier": 5, "requires": ["kql.06"]},
+    {"id": "kql.09", "skill": "real-time-dashboards", "tier": 5, "requires": ["kql.07"]},
+    {"id": "kql.10", "skill": "capstone-a-live-operations-view", "tier": 6, "requires": ["kql.08", "kql.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-track", "name": "First Track", "criteria": "Reach Journeyman in Structured streaming basics."},
+  {"id": "no-event-lost", "name": "No Event Lost", "criteria": "Reach Adept in Checkpoints and restarts."},
+  {"id": "three-moons", "name": "Three Moons", "criteria": "Reach Journeyman in Tumbling windows, Hopping windows and Session windows."},
+  {"id": "swift-query", "name": "Swift Query", "criteria": "Reach Journeyman in summarize, extend and project."},
+  {"id": "rangers-mark", "name": "Ranger's Mark", "criteria": "Reach Adept in all ten talents of one Streaming Ranger specialization."}
+ ]
+}

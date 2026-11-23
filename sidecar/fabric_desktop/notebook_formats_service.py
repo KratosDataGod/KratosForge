@@ -158,7 +158,7 @@ class NotebookFormatsMixin:
         report = getattr(self, "_notebook_report", None)
         if not report:
             raise ValueError("There's no report to export. Open it again from the notebook (Share > Open as report).")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(report['name'], 'Notebook')} report"
         for n in range(1, 1000):
@@ -178,7 +178,7 @@ class NotebookFormatsMixin:
         if not isinstance(cells, list) or not all(isinstance(c, dict) for c in cells):
             raise ValueError("cells is a list of cells")
         text = nbf.export_text(format, name, cells, lakehouse_ref)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         ext = nbf.EXTENSIONS[format]
         base = file_stem(name, "Notebook") + (" with outputs" if format == "ipynb_outputs" else "")

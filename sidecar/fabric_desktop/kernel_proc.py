@@ -427,11 +427,16 @@ class ProcessKernel:
         check = self.write_check
         return reason or (check(name, schema, table) if check else None)
 
-    def _prod_refusal(self, operation: str, workspace_id: str, workspace_name: str, table: str) -> str | None:
-        """The engine's answer for a change this process's cell makes in a Prod-marked workspace."""
+    def _prod_refusal(self, operation: str, workspace_id: str, workspace_name: str, table: str,
+                      no_cell: bool = False) -> str | None:
+        """The engine's answer for a change this process's cell makes in a Prod-marked workspace. ``no_cell``: the
+        write came from a thread that isn't the running cell's own (one a cell started, a widget handler), so it
+        gets no typed name's allowance and is asked under no notebook (lakehouse.NO_CELL)."""
+        guard = lakehouse.prod_guard
+        if no_cell:
+            return guard(operation, workspace_id, workspace_name, table, lakehouse.NO_CELL) if guard else None
         if str(workspace_id).lower() in self.prod_allowed:
             return None
-        guard = lakehouse.prod_guard
         return guard(operation, workspace_id, workspace_name, table, self.notebook_name) if guard else None
 
     def _sync_lakehouse(self) -> None:

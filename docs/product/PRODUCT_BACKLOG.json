@@ -4432,7 +4432,8 @@
         "Delta tables with deletion vectors and column mapping read correctly (#2924); a local Delta write killed at each commit step, and Compact clears a staged _last_checkpoint (#2972) on main at 7be2906d",
         "Writes to Delta tables use deletion vectors and column mapping by default, and a refused table names the reader that can't read it (#2971, the product owner's typed 2026-11-17 'new delta features should be on by default') on main at ad1ac4cf",
         "The local table list doesn't wait for a running query (#3045) on main at 1719d5db",
-        "The next statement reads another writer's commit to a project Delta table (#3075, WR-243); change data feed reads answer as Databricks documents (#3076, WR-317) on main at 75bf5b39"
+        "The next statement reads another writer's commit to a project Delta table (#3075, WR-243); change data feed reads answer as Databricks documents (#3076, WR-317) on main at 75bf5b39",
+        "Each table chooses its Delta features at publish, with a typed confirm when a reader can't read them (#3122) on main at ea988e99"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4577,7 +4578,8 @@
         2972,
         3045,
         3075,
-        3076
+        3076,
+        3122
       ]
     },
     {
@@ -4644,7 +4646,8 @@
         "Mutation batches 91 to 93; tests for file locks, the kernel process, OneLake upload retries and the Ossie converter (#3022, #3023, #2987, #3025); accessibility audit of every page with three keyboard fixes (#3016) on main at ad1ac4cf",
         "Mutation batches 94 to 148 (#3037, #3040); branch coverage tests (#3060, #3062); fuzzing of readers and settings files (#3030, #3026); keyboard-only task tests (#3055); editor parity SQL 93% (#2956); main fixed (#3078) on main at 1719d5db",
         "Mutation batches 109 and 151 to 170 (#3063, #3041); browser tests for 14 pages with four UI fixes (#3092); screen reader announcements and reduced-motion audit (#3094); Spark SQL parser fuzzing (#3089); coverage and test fixes (#3061, #3082, #3104); sqlglot floor 30.23 (#3095); DuckDB 2 lane fix (#3079) on main at 75bf5b39",
-        "Mutation batches 171 to 196 (#3084, #3108, #3099); line and branch coverage for 31 engine modules (#3117, #3123); test stability fixes (#3115, #3116, #3124, #3130, #3134) on main at bdb6f251"
+        "Mutation batches 171 to 196 (#3084, #3108, #3099); line and branch coverage for 31 engine modules (#3117, #3123); test stability fixes (#3115, #3116, #3124, #3130, #3134) on main at bdb6f251",
+        "Property tests: savings and the optimizer never invent a saving (#3097); mutation batches 162, 191 to 210 (#3097, #3102, #3136); coverage for 13 modules (#3154); accessibility report wording (#3143); timing-free test fixes (#3002, #3138, #3147, #3148, #3149) on main at ea988e99"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5200,6 +5203,7 @@
         2975,
         2985,
         2987,
+        3002,
         3016,
         3022,
         3023,
@@ -5222,7 +5226,9 @@
         3092,
         3094,
         3095,
+        3097,
         3099,
+        3102,
         3103,
         3104,
         3108,
@@ -5232,7 +5238,14 @@
         3123,
         3124,
         3130,
-        3134
+        3134,
+        3136,
+        3138,
+        3143,
+        3147,
+        3148,
+        3149,
+        3154
       ],
       "issues": [
         910,
@@ -5399,7 +5412,8 @@
         "Spark SQL on this PC answers as Spark 3.5 does for JSON (#2973), hashing and encoding (#2980), session time zone (#2995) and initcap, soundex, trunc, make_date, sqrt (#2931, #2988); pandas_udf arrays and datetimes (#2991, #3028) on main at ad1ac4cf",
         "Spark SQL whole-number arithmetic wraps as Spark does (#3031, WR-116) and nested text functions translate (#3046); NB003 accepts collect after aggregating (#3054); the notebook debugger survives malformed messages and a dead process (#3011) on main at 1719d5db",
         "Spark functions listed Not checked are value-checked or refused (#3074, WR-122); array and string edges (#3050), SET TIME ZONE (#3073, WR-120), nested calls read once (#3069); silent wrong answers in double rounding and text-to-number comparisons fixed across Spark, T-SQL and Snowflake (#3101, WR-250 to WR-254); debugger soak hardening (#3090) on main at 75bf5b39",
-        "Spark SQL math edges (#3120, WR-116), instr, locate and concat_ws (#3132); pandas_udf numbers keep their rows beside a null (#3118) on main at bdb6f251"
+        "Spark SQL math edges (#3120, WR-116), instr, locate and concat_ws (#3132); pandas_udf numbers keep their rows beside a null (#3118) on main at bdb6f251",
+        "Spark SQL date and time functions (#3151), int shifts, rank casts and TIMESTAMP literals (#3150) answer as Spark 3.5 does; debugger stop, restart and process-death tests (#3161) on main at ea988e99"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5647,7 +5661,10 @@
         3101,
         3118,
         3120,
-        3132
+        3132,
+        3150,
+        3151,
+        3161
       ]
     },
     {
@@ -5820,7 +5837,8 @@
         "SQL page script splitting and stop/restart pinned by tests (#2943); result grid follow-ups (#3004); local T-SQL FORMAT and PARSE (#2952), a named write-write race (#2981), SPACE/REPLICATE, ASCII/UNICODE/CHAR edges (#2978, #3007), TOP PERCENT checks (#2992) on main at ad1ac4cf",
         "Local T-SQL: wide tables and long values (#2999, WR-235), SQL Server's own missing-object messages (#2993, WR-233), CHAR/SPACE/REPLICATE arguments (#3043) on main at 1719d5db",
         "Local T-SQL: SQL Server error numbers and severity (#2996, WR-234), a fuzzed splitter (#3067, WR-236), long leading-zero literals (#3081) on main at 75bf5b39",
-        "T-SQL transactions: a failed change keeps nothing, on a warehouse and on this PC (#3135, WR-245); UPPER keeps ß, table PRIMARY KEY, CONVERT of a TIME with a style (#3058) on main at bdb6f251"
+        "T-SQL transactions: a failed change keeps nothing, on a warehouse and on this PC (#3135, WR-245); UPPER keeps ß, table PRIMARY KEY, CONVERT of a TIME with a style (#3058) on main at bdb6f251",
+        "Local T-SQL MERGE edge cases follow Fabric Warehouse or are refused by name (#3145, WR-244) on main at ea988e99"
       ],
       "features": [
         "FEAT-FAB-11",
@@ -5965,7 +5983,8 @@
         3058,
         3067,
         3081,
-        3135
+        3135,
+        3145
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -6325,7 +6344,8 @@
         "Save an Ossie file as TMDL in the project on this PC (#2910, slice 2); vendored converter round-trip tests (#3025) on main at ad1ac4cf",
         "Semantic model card: Ossie file to TMDL and the Round-trip check (#3039, slice 3); randomized hostile round-trip tests and the bugs they found (#3064) on main at 1719d5db",
         "TMDL cultures round-trip, and Ossie to TMDL keeps culture files it can't read (#3077) on main at 75bf5b39",
-        "Ossie keeps what the file doesn't set, with a conversion fidelity report, schema validation and version profiles (#3107, OSSIE-004a, 003a, 003b) on main at bdb6f251"
+        "Ossie keeps what the file doesn't set, with a conversion fidelity report, schema validation and version profiles (#3107, OSSIE-004a, 003a, 003b) on main at bdb6f251",
+        "Semantic parity levels L1 and L2, Fabric Semantic View files, the publish-steps card and the semantic engineering plan (#3128, OSSIE-005a, 005b, 006a, 006b) on main at ea988e99"
       ],
       "features": [
         "FEAT-META-19",
@@ -6365,7 +6385,8 @@
         3039,
         3064,
         3077,
-        3107
+        3107,
+        3128
       ],
       "mandatory": "none",
       "computed": {
@@ -7128,7 +7149,8 @@
         "A delete, removed access or replace go-ahead runs only once audited (#3008); notices never sent twice (#3032); a guard over every policy-lockable setting (#2946); Maintain's Optimize stops on a Blocked capacity (#2947); a refused Windows save names the program holding the file (#2974) on main at ad1ac4cf",
         "Prod schedules and agent Prod jobs write their started line first (#3068); audit trail tamper tests (#3044); retention purges keep the record at the limit (#3051); Windows hardening for read-only saves, network paths and clock changes (#3012); quiet hours refuse bad times (#3042); Optimize asks first on a capacity warning (#3038) on main at 1719d5db",
         "Every Prod write path listed with its guard, two gaps closed (#3100, WR-248); Prod PC schedules decide fail-closed before the overlap lock (#3091); the audit trail's end anchored in the Windows event log (#3088); a locked alerts outbox never sends twice (#3072); Windows hardening for failed updates and power cuts (#3086) on main at 75bf5b39",
-        "Promote, rollback and restore wait for the Prod workspace's typed name (#3114, WR-250), also for a workspace another project named Prod (#3129, WR-251); Save as table in Prod asks for the name (#3111, WR-249); every setting classed loosening or restricting, and bad policy fails closed (#3125); notices not resent after a 5xx that may have arrived (#3126); VACUUM and OPTIMIZE clock-skew and commit-race hardening (#3093, #3127) on main at bdb6f251"
+        "Promote, rollback and restore wait for the Prod workspace's typed name (#3114, WR-250), also for a workspace another project named Prod (#3129, WR-251); Save as table in Prod asks for the name (#3111, WR-249); every setting classed loosening or restricting, and bad policy fails closed (#3125); notices not resent after a 5xx that may have arrived (#3126); VACUUM and OPTIMIZE clock-skew and commit-race hardening (#3093, #3127) on main at bdb6f251",
+        "Rollback and restore typed-name dialogs say why they ask (#3144, WR-252); settings load when a removed policy file's saved copy is briefly held (#3139) on main at ea988e99"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -7386,7 +7408,9 @@
         3125,
         3126,
         3127,
-        3129
+        3129,
+        3139,
+        3144
       ],
       "issues": [],
       "computed": {
@@ -8279,7 +8303,8 @@
       "capability": "Owned and specified by the Central control plane program (docs/product/central-control-plane-plan.md, -decisions.md and -backlog.md, stories CP-001 to CP-017, Chris's master prompt 2026-11-19); not restated here. No new store: an environment manifest in the central lakehouse plus provider contracts over the existing central and optimize families.",
       "evidence": [
         "Phase 0: audit of every central and local store, target architecture, manifest v1 spec, provider contracts, nine ADRs and stories CP-001 to CP-017 (#3109, docs only) on main at 75bf5b39",
-        "Environment manifest, conditional store, provider declarations and read-only Fabric discovery (#3110, CP-001 to CP-004); Fabric provisioning plan, adopt preview, compatibility and status (#3121, CP-005 to CP-008); engine methods (#3131, CP-009) on main at bdb6f251"
+        "Environment manifest, conditional store, provider declarations and read-only Fabric discovery (#3110, CP-001 to CP-004); Fabric provisioning plan, adopt preview, compatibility and status (#3121, CP-005 to CP-008); engine methods (#3131, CP-009) on main at bdb6f251",
+        "The environment's own cost, kept apart from savings (#3137, CP-011); Settings > Environment screen with Upgrade's plan and confirm (#3146, CP-010) on main at ea988e99"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -8314,7 +8339,9 @@
         3109,
         3110,
         3121,
-        3131
+        3131,
+        3137,
+        3146
       ],
       "computed": {
         "benefit": 3.75,
@@ -8330,7 +8357,8 @@
       "problem": "Fabric, Databricks and Snowflake support grew feature by feature, so there's no one scored view of what each platform can do, how it's verified and what's missing.",
       "capability": "Owned and specified by the three-platform parity program (docs/product/platform-parity-assessment.md and platform-parity-backlog.md: PAR-001 to PAR-005, SF-001 onwards, DBX-001 onwards, FAB-001 onwards; Chris's master prompt 2026-11-19); not restated here. It extends the parity registry (sidecar/fabric_desktop/parity.py, docs/parity.md) rather than adding a second one. Local runtime parity on this PC stays with the Databricks and Snowflake parity work under PB-120.",
       "evidence": [
-        "Phase 0: assessment, scored backlog and a plan per parity area, with registry plan metadata on the parity page (#3112, PAR-001); Snowflake key-pair and PAT sign-in and a connection check through the SQL API (#3113, SF-001, SF-002, Preview) on main at bdb6f251"
+        "Phase 0: assessment, scored backlog and a plan per parity area, with registry plan metadata on the parity page (#3112, PAR-001); Snowflake key-pair and PAT sign-in and a connection check through the SQL API (#3113, SF-001, SF-002, Preview) on main at bdb6f251",
+        "Parity page: Snowflake sign-in's cloud API is Partial now that the connection check is on main (#3141) on main at ea988e99"
       ],
       "features": [
         "FEAT-EXT-05"
@@ -8363,7 +8391,8 @@
       "state": "In progress",
       "prs": [
         3112,
-        3113
+        3113,
+        3141
       ],
       "computed": {
         "benefit": 3.8,

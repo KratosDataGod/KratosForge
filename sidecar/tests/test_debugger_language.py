@@ -419,6 +419,24 @@ def test_breakpoint_in_the_cell_pauses_there_under_the_debugger(kernel):
     untraced(kernel)
 
 
+def test_breakpoint_in_an_expression_evaluated_while_paused_doesnt_pause_again(kernel):
+    # Evaluate runs on the paused cell's thread: a breakpoint() in it must answer, not nest a pause.
+    code = ("def f():\n"
+            "    breakpoint()\n"
+            "    return 7\n"
+            "y = 1")  # 4
+    kernel.start(code, breakpoints=[4])
+    assert paused(kernel)["line"] == 4
+    started = time.monotonic()
+    assert kernel.debug("eval", "f()")["value"] == "7"
+    assert time.monotonic() - started < 5
+    p = paused(kernel)
+    assert p["line"] == 4 and len(p["stack"]) == 1
+    kernel.debug("continue")
+    assert finished(kernel)["status"] == "ok"
+    untraced(kernel)
+
+
 def test_breakpoint_in_a_cell_without_the_debugger_carries_on_with_a_note(kernel):
     kernel.start("x = 1\nbreakpoint()\nprint(x + 1)")
     snap = finished(kernel)

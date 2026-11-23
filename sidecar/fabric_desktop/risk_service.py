@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import math
 from typing import Any
 
 from . import advisor
@@ -45,12 +46,13 @@ class RiskMixin:
         """Change when the risk check warns. A CU threshold of 0 or "" turns that warning off."""
         cfg = self._risk_settings()
         if warn_run_cu_hours is not None:
-            if warn_run_cu_hours in ("", 0):
-                cfg["warn_run_cu_hours"] = None
-            elif float(warn_run_cu_hours) < 0:
+            # Read as a number first, so "0", "0.0" and " 0 " from a form turn the warning off as 0 does.
+            hours = None if str(warn_run_cu_hours).strip() == "" else float(warn_run_cu_hours)
+            if hours is not None and not math.isfinite(hours):
+                raise ValueError("The CU hours threshold must be a number")
+            if hours is not None and hours < 0:
                 raise ValueError("The CU hours threshold can't be negative")
-            else:
-                cfg["warn_run_cu_hours"] = float(warn_run_cu_hours)
+            cfg["warn_run_cu_hours"] = hours or None
         for key, value, low in (("warn_failed_runs", warn_failed_runs, 0), ("schedule_window_minutes", schedule_window_minutes, 0)):
             if value is not None:
                 if int(value) < low:

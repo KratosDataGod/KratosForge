@@ -24,7 +24,8 @@ const EXC_KIND = { "workspace.info": "Workspace settings", "workspace.inventory"
   "item.binding": "Default lakehouse", "item.inspection": "Notebook and pipeline definitions",
   "item.model": "Semantic model definition", "capacity.usage": "Imported Capacity Metrics exports",
   "workspace.git": "Workspace Git connection and status", "lakehouse.tables": "Lakehouse table layout",
-  "sqlendpoint.properties": "SQL analytics endpoint status", "warehouse.properties": "Warehouse properties", "workspace.warehouses": "Warehouse collations" };
+  "sqlendpoint.properties": "SQL analytics endpoint status", "warehouse.properties": "Warehouse properties",
+  "workspace.warehouses": "Warehouse collations" };
 // What a control needed, in words: evidence kinds become their names; free text passes through.
 // Only the first letter is lowered, so a product name inside ("Capacity Metrics") keeps its capitals.
 const excLow = (s) => s[0].toLowerCase() + s.slice(1);

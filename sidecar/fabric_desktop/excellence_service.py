@@ -4,7 +4,9 @@
 optimization engine's reads (``optimization_assess``: the workspace, its items, notebook and pipeline
 definitions, job history), the workspace's role assignments, the capacities the person can see, and
 each lakehouse's properties (``GET .../lakehouses/{id}``, the read the app makes before writing a
-table, for the architecture controls; at most ``MAX_LAKEHOUSE_READS`` per assessment).
+table, for the architecture controls; at most ``MAX_LAKEHOUSE_READS`` per assessment), and the
+workspace's Git connection and Git status (the reads the Git tab makes, for the DevOps controls; the
+status only with a permission already granted, never with a new prompt).
 Notebook and pipeline definitions are inspected while the engine has them (excellence.inspect_items):
 the evidence keeps the rules that matched and where, never the code. Semantic model definitions are
 read as TMSL with the getDefinition call the Semantic model tab already makes (at most
@@ -31,9 +33,9 @@ import datetime as dt
 import json
 from typing import Any, Callable
 
-from .auth import FABRIC_SCOPES
-from .excellence import (adapters, assess, catalog, catalog_architecture, catalog_capacity, catalog_warehouse,
-                         inspect_items, inspect_models, profiles)
+from .auth import FABRIC_SCOPES, GIT_STATUS_SCOPES
+from .excellence import (adapters, assess, catalog, catalog_architecture, catalog_capacity, catalog_devops,
+                         catalog_warehouse, inspect_items, inspect_models, profiles)
 from .opportunities_service import _guid
 from .redact import describe
 
@@ -100,6 +102,25 @@ FIXTURE_WAREHOUSES: dict[str, dict[str, Any] | None] = {
         "collationType": "Latin1_General_100_BIN2_UTF8"}},
     "f1f1f1f1-0000-4000-8000-000000000502": {"displayName": "WH_Finance", "properties": {
         "collationType": "Latin1_General_100_CI_AS_KS_WS_SC_UTF8"}},
+}
+# The demonstration fixture's Git connection and status, made up: as Get Connection and Get Status
+# would give them for a workspace on a GitHub branch with one uncommitted and one incoming change.
+FIXTURE_GIT_CONNECTION: dict[str, Any] = {
+    "gitConnectionState": "ConnectedAndInitialized",
+    "gitProviderDetails": {"gitProviderType": "GitHub", "ownerName": "demo-owner", "repositoryName": "demo-repo",
+                           "branchName": "main", "directoryName": "/sales"},
+    "gitSyncDetails": {"head": "0" * 40, "lastSyncTime": "2026-11-17T22:00:00Z"},
+}
+FIXTURE_GIT_STATUS: dict[str, Any] = {
+    "workspaceHead": "0" * 40, "remoteCommitHash": "1" * 40,
+    "changes": [
+        {"itemMetadata": {"itemIdentifier": {"objectId": "f1f1f1f1-0000-4000-8000-000000000101"},
+                          "itemType": "Notebook", "displayName": "nb_load_orders"},
+         "workspaceChange": "Modified", "remoteChange": None, "conflictType": "None"},
+        {"itemMetadata": {"itemIdentifier": {"logicalId": "f1f1f1f1-0000-4000-8000-000000000999"},
+                          "itemType": "DataPipeline", "displayName": "pl_daily_orders"},
+         "workspaceChange": None, "remoteChange": "Modified", "conflictType": "None"},
+    ],
 }
 
 
@@ -233,7 +254,53 @@ def _models(opt: dict[str, Any], read: Any) -> tuple[list[dict[str, Any]], dict[
                  "problem": " ".join(problems) or None, "count": min(len(found), MAX_MODELS)}
 
 
+def _git(fabric: Any, status_client: Callable[[], Any], wid: str,
+         reads: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """The workspace's Git connection and, when it is synced, its status. Reads only: Get Connection
+    with the sign-in's own client; Get Status only when the workspace is synced, with the client
+    ``status_client()`` gives for a permission already granted, or not at all when it gives None.
+    A read that fails is listed in ``reads``."""
+    try:
+        conn = fabric.git_connection(wid)
+        reads.append({"read": "Git connection", "ok": True, "problem": None})
+    except Exception as exc:  # noqa: BLE001 - the DevOps controls are then not evaluated
+        reads.append({"read": "Git connection", "ok": False,
+                      "problem": f"Couldn't be read ({describe(exc)}). Reading it needs a workspace role that can "
+                                 "see the workspace's Git settings."})
+        return None, None
+    if not isinstance(conn, dict) or conn.get("gitConnectionState") != "ConnectedAndInitialized":
+        return conn if isinstance(conn, dict) else None, None
+    try:
+        client = status_client()
+    except Exception:  # noqa: BLE001 - signed out or no sign-in set up: no client, so no status read
+        client = None
+    if client is None:
+        reads.append({"read": "Git status", "ok": False,
+                      "problem": "Not read, because it needs the Workspace.GitUpdate.All permission, which the app asks for "
+                                 "the first time you open a workspace's Git item status. The assessment never asks "
+                                 "for it, so the uncommitted and incoming change controls aren't evaluated."})
+        return conn, None
+    try:
+        st = client.git_status(wid)
+    except Exception as exc:  # noqa: BLE001 - the status controls are then not evaluated
+        reads.append({"read": "Git status", "ok": False, "problem": f"Couldn't be read ({describe(exc)})."})
+        return conn, None
+    if not catalog_devops.status_readable(st):
+        reads.append({"read": "Git status", "ok": False,
+                      "problem": "Fabric's answer didn't list the changed items in the expected shape, so the "
+                                 "uncommitted and incoming change controls aren't evaluated. Check the workspace on "
+                                 "Source control's Fabric workspace tab with Check status in Fabric."})
+        return conn, None
+    reads.append({"read": "Git status", "ok": True, "problem": None})
+    return conn, st
+
+
 class ExcellenceMixin:
+    def _git_status_client(self) -> Any:
+        """A client for Get Status when Workspace.GitUpdate.All was granted already, else None.
+        Never a sign-in prompt: the assessment doesn't ask for a permission."""
+        return self._silent_client(GIT_STATUS_SCOPES)  # type: ignore[attr-defined]
+
     def excellence_assess(self, workspace_id: str = "", days: int = 30, profile: str = profiles.DEFAULT,
                           demo: bool = False) -> dict[str, Any]:
         """Assess one workspace (and its capacity, when you can see it) against the excellence controls.
@@ -254,6 +321,8 @@ class ExcellenceMixin:
             at = str(opt.get("assessed_at") or at)
             imports: list[dict[str, Any]] | None = _fixture_usage(str(ws["displayName"]))
             lakehouses = dict(FIXTURE_LAKEHOUSES)
+            git_conn: dict[str, Any] | None = FIXTURE_GIT_CONNECTION
+            git_status: dict[str, Any] | None = FIXTURE_GIT_STATUS
             models, _ = _models(opt, lambda _item: FIXTURE_MODEL)
             items = (_items(opt) or []) + FIXTURE_SQL_ITEMS
             warehouses = dict(FIXTURE_WAREHOUSES)
@@ -300,6 +369,7 @@ class ExcellenceMixin:
             # never self.fabric, which may ask to sign in: only a token the app already holds
             warehouses = _warehouses(lambda: self._silent_client(FABRIC_SCOPES),  # type: ignore[attr-defined]
                                      wid, items, reads)
+            git_conn, git_status = _git(fabric, self._git_status_client, wid, reads)
             try:
                 imports = self._usage.all()  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001 - the capacity usage controls are then not evaluated
@@ -314,7 +384,8 @@ class ExcellenceMixin:
                    + adapters.inspection(opt, collected_at=at)
                    + catalog_architecture.evidence(ws, items, opt, lakehouses, collected_at=at)
                    + catalog_warehouse.evidence(ws, items, lakehouses, warehouses, collected_at=at)
-                   + adapters.models(models, collected_at=at))
+                   + adapters.models(models, collected_at=at)
+                   + catalog_devops.evidence(ws, git_conn, git_status, collected_at=at))
         cap_name = next((c.get("displayName") for c in capacities or [] if str(c.get("id") or "").lower() == cap_id), None)
         usage = catalog_capacity.usage(cap_id, cap_name, ws.get("displayName"), imports, collected_at=at)
         records += usage

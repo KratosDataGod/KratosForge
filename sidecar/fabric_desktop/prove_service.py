@@ -128,7 +128,7 @@ class ProveMixin:
             raise ValueError("A receipt file is saved whole so it can be checked against its id. "
                              "To leave parts out, export a report (HTML or Markdown).")
         out = self.receipt_export(id, format, hide)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         ext = {"html": "html", "markdown": "md", "json": "json"}[out["format"]]
         base = f"receipt-{id[:12]}{'-redacted' if hide else ''}"
@@ -175,7 +175,7 @@ class ProveMixin:
         samples = replay.samples(bundle, self._replay_sample) if include_sample else None
         if not include_ids:
             bundle = replay.strip_ids(bundle)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         stem = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:60] or "notebook"
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for n in range(1, 100):
@@ -222,7 +222,7 @@ class ProveMixin:
     def replay_bundles_list(self) -> list[dict[str, Any]]:
         """Replay bundles in the Downloads folder, newest first."""
         rows = []
-        for path in sorted(known_folders.downloads().glob("replay-*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
+        for path in sorted(known_folders.export_folder().glob("replay-*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
             try:
                 b = replay.read(path)
             except (ValueError, OSError):

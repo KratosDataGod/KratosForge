@@ -93,6 +93,7 @@ def test_requests_go_to_the_documented_api_with_the_sign_in_headers():
     assert first["headers"]["Authorization"] == "Bearer tok-abc"
     assert first["headers"]["X-Snowflake-Authorization-Token-Type"] == "PROGRAMMATIC_ACCESS_TOKEN"
     assert first["body"]["timeout"] == sr.STATEMENT_TIMEOUT
+    assert all(c["body"]["parameters"] == {"MULTI_STATEMENT_COUNT": "1"} for c in fake.calls if c["method"] == "POST" and "/cancel" not in c["url"])
 
 
 def test_a_role_not_granted_fails_by_name_and_shows_run_as_the_default_role():

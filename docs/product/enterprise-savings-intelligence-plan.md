@@ -382,6 +382,7 @@ person's visible workspaces, grouped by workload, with per-device comparison.
 
 **ESI-109 Collector decision.** Feasibility note for mode C (UDF writing Delta, payload limits,
 CU per call) from documentation, then a recommendation. Building it needs Chris's typed go.
+**Note written**: [esi-109-collector-feasibility.md](esi-109-collector-feasibility.md). Building it still needs Chris's typed go.
 
 ### Phase 2: Unified execution savings
 
@@ -414,7 +415,7 @@ never code text); rollback information; responsible user and device. Through the
 lakehouse thread (`shared.py`).
 - Tests: scenario 9 (concurrent updates), 10 (reversal), 11 (retirement).
 
-**ESI-302 Baselines and validation.** Versioned baselines with measurement windows; before and
+**ESI-302 Baselines and validation.** **Built** (engine only, no writes). `savings/baselines.py`. Versioned baselines with measurement windows; before and
 after comparison on equivalent inputs; output equivalence where measurable; validation result
 moves Validating → Verified or back. CU change only from measured CU or a labelled estimate,
 never from time alone.

@@ -57,7 +57,8 @@ The paused line is highlighted, and a panel under the cell shows:
 
 - **Call stack**: where the cell is, outermost first, such as `(cell) line 5 › double line 3`.
 - **Variables** in the paused frame: names, types, sizes and a short value. A variable whose name
-  looks like a secret, or whose value came from `getSecret`, shows as `hidden`. A frame with more
+  looks like a secret, or whose value came from `getSecret` or holds such a value (in a list, a longer
+  text or an object), shows as `hidden`. A frame with more
   than 200 variables lists the first 200 by name and says how many there are. A data frame shows
   its size and first columns, not its rows (evaluate its head(), such as `df.head()`, for those), and a long list or
   text shows its first items, so pausing next to large data stays quick.

@@ -546,8 +546,34 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 
 What still differs:
 
-- `GROUP BY`, `DISTINCT`, `UNION`, `INTERSECT` and `EXCEPT` keep `'a'` and `'a  '` apart, where T-SQL counts them as one value. A query that groups text says so in `translation.notes`. Group on `RTRIM(...)` to get T-SQL's groups.
+- `GROUP BY`, `DISTINCT`, `UNION`, `INTERSECT` and `EXCEPT` keep `'a'` and `'a  '` apart, where T-SQL counts them as one value. A query that groups text says so in `translation.notes`. Group on `RTRIM(...)` to get T-SQL's groups. (`COUNT(DISTINCT ...)` counts them as one, as T-SQL does, and the table below shows it.)
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
+
+### Local T-SQL collation
+
+A Fabric Warehouse's default collation is `Latin1_General_100_BIN2_UTF8`, case-sensitive ([Microsoft: collation in Fabric Data Warehouse](https://learn.microsoft.com/fabric/data-warehouse/collation)). A `BIN2` collation sorts and compares by Unicode code point, so case and accents count and `'B'`, `'Z'` sort before `'a'`, and `'z'` before `'é'` ([Microsoft: collation and Unicode support](https://learn.microsoft.com/sql/relational-databases/collations/collation-and-unicode-support)). On top of that, T-SQL compares text with ANSI padding: text that differs only in trailing spaces is equal. The local engine runs every T-SQL query this way. Each row below is checked in `sidecar/tests/test_tsql_collation.py` (WR-246).
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `ORDER BY`, `MIN`, `MAX`, `<`, `>` | Code point order, `NULL` first ascending and last descending: `NULL`, `''`, `A`, `B`, `Z`, `a`, `e`, `z`, `é`. `MIN`/`MAX` of `'a'` and `'a '` may show either, as in T-SQL |
+| `ORDER BY s, n` | `'a'` and `'a '` are equal in `s`, so `n` orders them. This holds for an output column named by its alias or number (`ORDER BY 1, 2`) |
+| `BETWEEN`, `IN (SELECT ...)`, `= ANY (SELECT ...)` | Trailing spaces don't count: `'a ' BETWEEN 'a' AND 'a'` is true, and `'a '` is `IN (SELECT 'a')` |
+| `NULLIF`, `CASE s WHEN 'a' THEN ...` | `NULLIF('a ', 'a')` is `NULL`, and `CASE 'a ' WHEN 'a'` takes that branch. `NULLIF` otherwise shows its first value as it is |
+| `JOIN ... ON a.s = b.s`, `ON a.s = b.s + ''` | `'a'` joins `'a '` |
+| `COUNT(DISTINCT s)` | `'a'`, `'a '` and `'a  '` count once |
+| `RANK`, `ROW_NUMBER`, `SUM(...) OVER` | A window's `PARTITION BY` and `ORDER BY` treat `'a'` and `'a '` as one value: they rank as ties, share a partition, and are peers in the default `RANGE` frame |
+| `LIKE`, `UPPER`, `LOWER` | `LIKE` is case-sensitive (`'a%'` doesn't find `'A'`). `UPPER('é')` is `É` |
+| `COLLATE Latin1_General_100_BIN2_UTF8`, `COLLATE database_default` | Run as written, because that's how text compares here already |
+| `COLLATE Latin1_General_100_BIN2`, `..._BIN` | Run as `Latin1_General_100_BIN2_UTF8`, with a note. They agree on ASCII, but a warehouse first converts other text to that collation's code page |
+| `VARCHAR(n) COLLATE Latin1_General_100_BIN2_UTF8` on a column | Runs. Any other column collation, including the case-insensitive `Latin1_General_100_CI_AS_KS_WS_SC_UTF8` a warehouse can be made with, is refused by name |
+| `JOIN ... USING` | Refused, because it isn't T-SQL and a warehouse refuses it. Use `JOIN ... ON` |
+
+What still differs, and how it shows:
+
+- A warehouse made case-insensitive (`Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, set for the workspace or the warehouse when it's created) compares `'a' = 'A'` as true. The local engine always compares as the default, case-sensitive collation. The static check's SEM-006 warns about a collation name it reads.
+- `ORDER BY` text then another key after a `UNION`, `INTERSECT` or `EXCEPT` keeps `'a'` before `'a  '` instead of letting the next key order them, with a note. Put the set operation in a `FROM` and order by `RTRIM(...)`.
+- Text compares here without its trailing spaces, where T-SQL pads the shorter side with spaces. The two differ only for a character below a space (a tab or another control character) after the shorter text. For example, T-SQL sorts `'a' + CHAR(9)` before `'a'`, and here it sorts after.
+- Where the types in a comparison can't be told (a table the local engine doesn't know), the comparison is done as DuckDB does it, with a note.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
 T-SQL's reference doesn't give the answers for `LIKE` with a wildcard on text with trailing spaces, or `CHARINDEX` with a `NULL` start. A Fabric Warehouse gave the ones in the table above in live run 11 (2026-11-17), in the warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check).

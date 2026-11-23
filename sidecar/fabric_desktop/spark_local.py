@@ -1580,7 +1580,8 @@ class LocalSparkSession(SparkSession):
                 name = _sql.table_name(target)  # with its catalog: main.dbo.t is refused, never written to dbo.t
                 query = statement.expression.copy()
                 self._bind(query)
-                data = self.conn.sql(_sql.duckdb_sql(spark_complex_types(spark_decimal_types(spark_text_comparisons(query, self.conn), self.conn), self.conn)))
+                data = self.conn.sql(_sql.duckdb_sql(_using_star(spark_complex_types(spark_decimal_types(
+                    spark_text_comparisons(query, self.conn), self.conn), self.conn), self.conn)))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -1611,8 +1612,8 @@ class LocalSparkSession(SparkSession):
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
-        statement = spark_complex_types(spark_decimal_types(spark_text_comparisons(statement, self.conn), self.conn),
-                                        self.conn)
+        statement = _using_star(spark_complex_types(spark_decimal_types(spark_text_comparisons(statement, self.conn),
+                                                                        self.conn), self.conn), self.conn)
         text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)
@@ -1724,6 +1725,80 @@ class LocalSparkSession(SparkSession):
             changed |= wanted != text
             exprs.append(f"CAST({quoted} AS {wanted}) AS {quoted}" if wanted != text else quoted)
         return DataFrame(rel.project(", ".join(exprs)), self) if changed else df
+
+
+_JOIN_SOURCES = ("Table", "Subquery", "Values")
+
+
+def _source_columns(source: Any, ctes: list[Any], conn: Any) -> list[tuple[str, Any]]:
+    """Each column of a FROM or JOIN source, as its name and a reference qualified by the source's name."""
+    from sqlglot import exp
+    probe = exp.select("*").from_(source.copy()).limit(0)
+    if ctes:
+        probe.set("with_", exp.With(expressions=[c.copy() for c in ctes]))
+    return [(n, exp.column(n, table=source.alias_or_name, quoted=True))
+            for n in conn.sql(_sql.duckdb_sql(probe)).columns]
+
+
+def _using_star(statement: Any, conn: Any) -> Any:
+    """``SELECT *`` over a JOIN ... USING (k) or a NATURAL JOIN in Spark 3.5's order: the join keys first,
+    then the rest of the left's columns, then the right's (the key the left's for an inner or left join, the
+    right's for a right join, either side's for a full join); DuckDB keeps the left's order. Each such ``*``
+    is written out as the columns it stands for, each side's read from DuckDB with no rows. ``ta.*`` and a
+    semi or anti join are left as they are; so is any select this can't read (an unnamed or lateral
+    source), which DuckDB then answers in its own order."""
+    from sqlglot import exp
+    for select in reversed(list(statement.find_all(exp.Select))):  # the innermost first: an outer * reads it
+        joins = select.args.get("joins") or []
+        if not any(j.args.get("using") or j.method == "NATURAL" for j in joins):
+            continue
+        if not any(isinstance(e, exp.Star) and not any(e.args.values()) for e in select.expressions):
+            continue
+        sources = [select.args["from_"].this, *(j.this for j in joins)] if select.args.get("from_") else []
+        if not sources or any(type(s).__name__ not in _JOIN_SOURCES or not s.alias_or_name or s.args.get("pivots")
+                              for s in sources):
+            continue
+        ctes: list[Any] = []
+        node = select
+        while node is not None:  # the CTEs a source may name, the outermost first
+            if (w := node.args.get("with_")) is not None:
+                ctes[:0] = w.expressions
+            node = node.parent
+        try:
+            out = _source_columns(sources[0], ctes, conn)
+            for join in joins:
+                right = _source_columns(join.this, ctes, conn)
+                if str(join.kind).upper() in ("SEMI", "ANTI"):
+                    continue
+                if join.method == "NATURAL":
+                    keys = [n for n, _ in out if n.lower() in {r.lower() for r, _ in right}]
+                elif join.args.get("using"):
+                    keys = [k.name for k in join.args["using"]]
+                else:
+                    out += right
+                    continue
+                side = str(join.side).upper()
+                merged = []
+                for key in keys:
+                    lhs = [c for c in out if c[0].lower() == key.lower()]
+                    rhs = [c for c in right if c[0].lower() == key.lower()]
+                    if len(lhs) != 1 or len(rhs) != 1:
+                        raise LookupError(key)  # DuckDB reports a missing or ambiguous key itself
+                    if side == "FULL":
+                        merged.append((lhs[0][0], exp.alias_(exp.func("COALESCE", lhs[0][1], rhs[0][1]), lhs[0][0],
+                                                             quoted=True)))
+                    else:
+                        merged.append((rhs if side == "RIGHT" else lhs)[0])
+                lowered = {k.lower() for k in keys}
+                out = merged + [c for c in out if c[0].lower() not in lowered] + \
+                    [c for c in right if c[0].lower() not in lowered]
+        except (duckdb.Error, LookupError):  # silent-ok: DuckDB answers (or reports) the query as written
+            continue
+        projections: list[Any] = []
+        for e in select.expressions:
+            projections += [c[1].copy() for c in out] if isinstance(e, exp.Star) and not any(e.args.values()) else [e]
+        select.set("expressions", projections)
+    return statement
 
 
 def _atomic_schema(data: Any, schema: Any) -> tuple[Any, Any]:

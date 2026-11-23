@@ -210,3 +210,17 @@ def test_scenario_12_a_definition_change_makes_older_baselines_not_count():
     out = calibration.enrich([{"run": RUN, "measurement": after["cu"]}], v1 + [v2], now=NOW)
     assert [r["measurement"]["value"] for r in out["rows"]] == [300]
     assert out["rows"][0]["previous_measurement_id"] == after["cu"]["id"]
+
+
+@pytest.mark.parametrize(("mine", "theirs"), [(3, "3"), ("3", " 3 "), (" v2", "v2")])
+def test_a_version_written_differently_counts_and_agrees_with_the_figure(mine, theirs):
+    run = RUN | {"definition_version": mine}
+    out = calibration.calibrate_comparable(run, [fabric("f1", 100, definition_version=theirs)], now=NOW)
+    assert out["counted"] == ["f1"] and out["cu"]["value"] is not None, out
+
+
+def test_enrich_refuses_an_unknown_row_without_an_id():
+    first = calibration.calibrate_comparable(RUN, [], now=NOW)["cu"]
+    first = {k: v for k, v in first.items() if k != "id"}
+    with pytest.raises(ValueError, match="has no id"):
+        calibration.enrich([{"run": RUN, "measurement": first}], [fabric("f1", 100)], now=NOW)

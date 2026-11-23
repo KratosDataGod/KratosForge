@@ -264,6 +264,11 @@ def _none_count(fabric_runs: list[dict[str, Any]], excluded: list[dict[str, Any]
     return "No Fabric run counts as a baseline for this run. " + " ".join(parts)
 
 
+def _version(value: Any) -> str | None:
+    """A definition version as comparable() matches it: text, without surrounding spaces."""
+    return None if value in (None, "") else str(value).strip()
+
+
 def calibrate_comparable(run: dict[str, Any], fabric_runs: list[dict[str, Any]], *, now: dt.datetime | None = None,
                          max_age_days: float = MAX_AGE_DAYS, tolerance: float = VOLUME_TOLERANCE,
                          notes: list[str] | None = None) -> dict[str, Any]:
@@ -291,8 +296,9 @@ def calibrate_comparable(run: dict[str, Any], fabric_runs: list[dict[str, Any]],
         rules.append(f"The data volume check couldn't run for {not_run} of the {len(used)} Fabric runs used: "
                      "input rows and bytes weren't recorded on both sides.")
     local = {"workload_id": run.get("workload_key"), "run_id": run.get("run_id"), "at": run.get("at"),
-             "rows": run.get("rows"), "version": run.get("definition_version")}
-    base = [{"cu": r["cu"], "at": r["at"], "rows": r.get("rows"), "version": r.get("definition_version")}
+             "rows": run.get("rows"), "version": _version(run.get("definition_version"))}
+    # The same normalised version on both sides as comparable() matched, so calibrate() agrees with it.
+    base = [{"cu": r["cu"], "at": r["at"], "rows": r.get("rows"), "version": _version(r.get("definition_version"))}
             for r in counted]
     return result | {"cu": calibrate(local, base, now=now, max_age_days=max_age_days, notes=rules + list(notes or []))}
 
@@ -319,6 +325,8 @@ def enrich(executions: list[dict[str, Any]], fabric_runs: list[dict[str, Any]], 
             raise ValueError(f"The measurement given for run {rid} belongs to run {m.get('run_id')}.")
         slot = runs.setdefault(rid, {"run": run, "known": False, "unknown_ids": []})
         if m.get("classification") == ms.UNKNOWN:
+            if not str(m.get("id") or "").strip():
+                raise ValueError(f"The Unknown measurement of run {rid} has no id, so a new row couldn't point at it.")
             slot["unknown_ids"].append(m.get("id"))
         else:
             slot["known"] = True

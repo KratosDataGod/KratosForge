@@ -94,8 +94,18 @@ test("Esc closes the hover card without moving the pointer or focus", { skip }, 
   await page().keyboard.press("Escape");
   await tip.waitFor({ state: "hidden" });
   assert.strictEqual(await focused(), before, "focus stays where it was");
+  assert.ok(await page().evaluate(() => !!document.activeElement?.closest(".cm-content")), "and the cell is still being edited: Esc closed only the card");
   await page().waitForTimeout(700);
   assert.ok(!(await tip.isVisible()), "the card doesn't come back while the pointer rests there");
+  await page().mouse.move(5, 5);
+  // Esc goes to the card alone: with the Activity panel open, it closes the card and leaves the panel open.
+  await page().evaluate(() => toggleTray(true));
+  await hover(1, "total");
+  await tip.getByText("Add up the rows").waitFor();
+  await page().keyboard.press("Escape");
+  await tip.waitFor({ state: "hidden" });
+  assert.ok(await page().evaluate(() => activity.open), "the Activity panel is still open");
+  await page().evaluate(() => toggleTray(false));
   await page().mouse.move(5, 5);
 });
 

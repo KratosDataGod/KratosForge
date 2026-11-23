@@ -1,0 +1,251 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "decisions.json",
+  "reset": "Reset puts the original decisions.json back.",
+  "id": "E91",
+  "title": "Alerts: pipeline notifications, refresh failure emails and Activator rules",
+  "objectives": [
+    "3.1.4"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [],
+  "objective_text": "For five alerting needs, choose the tool that fits and set it up: Outlook and Teams activities on the right pipeline condition, a semantic model's refresh failure email, and Activator alerts from a Power BI visual and a KQL queryset.",
+  "scenario": "The data team's alerts are a mess. On-call engineers miss copy failures, the run summary only appears on good nights, refresh failures go to nobody, store managers get a message for every low reading, and the error alert checks too often and only sends email. Fix each setup so it does what its need says.",
+  "engine_label": "A model of pipeline notifications, refresh settings and Activator alerts, checked on this PC",
+  "verifies": [
+    "Your setups pick the right tool for each of the five needs, with the condition, schedule and actions each needs, as the Outlook and Teams activity, scheduled refresh and Activator pages describe them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any alert fires or any message is sent. Nothing runs here.",
+    "Connections and sign-in for the Outlook and Teams activities, and the tenant setting that shows Set alert in Power BI.",
+    "Alerts on Fabric job events in the Real-Time hub, which this exercise leaves out.",
+    "The exact layout and option names of each editor."
+  ],
+  "expected": {
+    "description": "copy_failed: two Outlook activities, one on each copy, On failure. run_summary: Teams activity on Load warehouse, On completion, in the Data team channel. refresh_failed: refresh failure email to the owner and bi-team. store_revenue: Power BI visual alert, Becomes less than 5000, Teams to Store managers. error_spike: KQL queryset alert every 15 minutes, greater than 100, Run pipeline Restart service and Email ops."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "A single copy failure won't email on-call.",
+      "pass": "Each copy has its own Outlook activity on failure.",
+      "rules": [
+        {
+          "path": "alerts.copy_failed.setups",
+          "count": 2,
+          "why": "Activities joined to one Outlook activity must all meet their condition before it runs. One email activity per copy lets either failure send mail."
+        },
+        {
+          "path": "alerts.copy_failed.setups",
+          "count": 1,
+          "where": {
+            "tool": "Outlook activity",
+            "attached_to": [
+              "Copy orders"
+            ],
+            "condition": "On failure",
+            "to": "oncall@contoso.example"
+          },
+          "why": "On failure runs only when the activity fails. On completion would also email on a good night."
+        },
+        {
+          "path": "alerts.copy_failed.setups",
+          "count": 1,
+          "where": {
+            "tool": "Outlook activity",
+            "attached_to": [
+              "Copy returns"
+            ],
+            "condition": "On failure",
+            "to": "oncall@contoso.example"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The run summary won't reach the channel on every run of Load warehouse.",
+      "pass": "Load warehouse posts its result in the Data team channel, success or failure.",
+      "rules": [
+        {
+          "path": "alerts.run_summary.setups",
+          "count": 1
+        },
+        {
+          "path": "alerts.run_summary.setups.0.tool",
+          "equals": "Teams activity"
+        },
+        {
+          "path": "alerts.run_summary.setups.0.attached_to",
+          "equals": [
+            "Load warehouse"
+          ]
+        },
+        {
+          "path": "alerts.run_summary.setups.0.condition",
+          "equals": "On completion",
+          "why": "On completion runs after the activity succeeds or fails. On success only runs after a good run."
+        },
+        {
+          "path": "alerts.run_summary.setups.0.post_in",
+          "equals": "Channel",
+          "why": "The Teams activity can post in a channel or a group chat, and the need names a channel."
+        },
+        {
+          "path": "alerts.run_summary.setups.0.to",
+          "equals": "Data team"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A failed scheduled refresh won't email the people who need to know.",
+      "pass": "A failed scheduled refresh emails the owner and the BI team.",
+      "rules": [
+        {
+          "path": "alerts.refresh_failed.setups",
+          "count": 1
+        },
+        {
+          "path": "alerts.refresh_failed.setups.0.tool",
+          "equals": "Refresh failure email",
+          "why": "The semantic model's own refresh settings email the owner when a scheduled refresh fails, and can email other contacts too. No alert rule is needed."
+        },
+        {
+          "path": "alerts.refresh_failed.setups.0.model",
+          "equals": "Sales model"
+        },
+        {
+          "path": "alerts.refresh_failed.setups.0.email_owner",
+          "equals": true,
+          "why": "The owner needs the email too, and Microsoft recommends leaving it on."
+        },
+        {
+          "path": "alerts.refresh_failed.setups.0.email_these_contacts",
+          "contains": "bi-team@contoso.example"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The store revenue alert won't message the managers once when revenue drops.",
+      "pass": "The report visual alert fires when a store's revenue becomes less than 5000.",
+      "rules": [
+        {
+          "path": "alerts.store_revenue.setups",
+          "count": 1
+        },
+        {
+          "path": "alerts.store_revenue.setups.0.tool",
+          "equals": "Activator alert on a Power BI visual",
+          "why": "An alert added to a report visual watches the values the visual shows, per row of a table visual."
+        },
+        {
+          "path": "alerts.store_revenue.setups.0.condition.kind",
+          "equals": "Becomes",
+          "why": "Becomes fires when the value moves into the new state, not again for every value while it stays there."
+        },
+        {
+          "path": "alerts.store_revenue.setups.0.condition.operator",
+          "equals": "less than"
+        },
+        {
+          "path": "alerts.store_revenue.setups.0.condition.value",
+          "equals": 5000
+        },
+        {
+          "path": "alerts.store_revenue.setups.0.actions",
+          "count": 1
+        },
+        {
+          "path": "alerts.store_revenue.setups.0.actions",
+          "count": 1,
+          "where": {
+            "type": "Teams",
+            "to": "Store managers"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The error alert won't run the query on time or won't do both things it should.",
+      "pass": "Every 15 minutes, more than 100 errors start the restart pipeline and email ops.",
+      "rules": [
+        {
+          "path": "alerts.error_spike.setups",
+          "count": 1
+        },
+        {
+          "path": "alerts.error_spike.setups.0.tool",
+          "equals": "Activator alert on a KQL queryset",
+          "why": "An alert from a KQL queryset runs its query on a schedule against the eventhouse."
+        },
+        {
+          "path": "alerts.error_spike.setups.0.run_every_minutes",
+          "equals": 15,
+          "why": "The query runs every 5 minutes by default. A query that runs that often also keeps the eventhouse always on."
+        },
+        {
+          "path": "alerts.error_spike.setups.0.condition.operator",
+          "equals": "greater than"
+        },
+        {
+          "path": "alerts.error_spike.setups.0.condition.value",
+          "equals": 100
+        },
+        {
+          "path": "alerts.error_spike.setups.0.actions",
+          "count": 2
+        },
+        {
+          "path": "alerts.error_spike.setups.0.actions",
+          "count": 1,
+          "where": {
+            "type": "Run pipeline",
+            "to": "Restart service"
+          },
+          "why": "An Activator action can start a Fabric pipeline."
+        },
+        {
+          "path": "alerts.error_spike.setups.0.actions",
+          "count": 1,
+          "where": {
+            "type": "Email",
+            "to": "ops@contoso.example"
+          }
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "If two copies are joined to one Outlook activity on failure, what has to happen before it sends?",
+    "Which condition runs after both a success and a failure?",
+    "Does a semantic model need an Activator rule to email someone when its scheduled refresh fails?",
+    "Which Activator condition fires once on a change of state?",
+    "What is the default schedule for a KQL queryset alert, and what does the need ask for?"
+  ],
+  "explanation": "Pick the tool by where the event happens. A pipeline activity's own outcome is best handled inside the pipeline. An Outlook activity joined On failure emails only when that activity fails. When several activities are joined to one Outlook activity, all of them must meet the condition, so two copies need two email activities. On completion runs after success or failure, which is what a run summary needs. A semantic model's refresh settings already email the owner when a scheduled refresh fails, and they can email more contacts. Data conditions belong in Activator. An alert from a report visual uses Becomes to fire once when a store's revenue drops below the limit. An alert from a KQL queryset runs the query on a schedule, every 5 minutes unless you change it. Its actions can send email and start a pipeline.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-factory/outlook-activity",
+    "https://learn.microsoft.com/fabric/data-factory/teams-activity",
+    "https://learn.microsoft.com/fabric/data-factory/pipeline-canvas-experience",
+    "https://learn.microsoft.com/power-bi/connect-data/refresh-data",
+    "https://learn.microsoft.com/fabric/real-time-intelligence/data-activator/activator-get-data-power-bi",
+    "https://learn.microsoft.com/fabric/real-time-intelligence/data-activator/activator-alert-queryset"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23. outlook-activity says activities joined to one Outlook activity must all meet their status (two copies on failure must both fail), and to use a separate Outlook activity for each activity to watch. teams-activity says it posts to a channel or a group chat. pipeline-canvas-experience names On success, On failure, On completion and On skip. refresh-data says failure emails go to the owner by default, Email these contacts when the refresh fails adds more people, on-demand refreshes send none, and Microsoft recommends leaving the owner email on. activator-get-data-power-bi says alerts are added to a report visual, apply per row of a table visual, use Becomes or Changes, and act through Teams or Email. activator-alert-queryset says Set Alert runs the query on a schedule (5 minutes by default), with email, Teams and Run Fabric activities such as a pipeline, and that a query running every 1 or 5 minutes keeps the eventhouse always on.",
+    "Learn's canvas page says On failure. The brief said On fail. This exercise uses On failure, as Learn does.",
+    "Not graded: alerts on Fabric job events in the Real-Time hub (not checked for this exercise), and whether the KQL queryset alert supports Becomes. The error_spike condition kind isn't checked.",
+    "The model's field names (attached_to, email_these_contacts, run_every_minutes) are this exercise's own. They aren't the services' JSON names."
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E90",
+  "version": 1,
+  "status": "draft",
+  "title": "Refresh history: failures in a row, a schedule turned off, and slow refreshes",
+  "objectives": [
+    "3.1.3"
+  ],
+  "objective_text": "From eight nights of refresh history, report each semantic model's latest status, the time its data is from, its failures in a row, whether the service has turned its schedule off, and its slow refreshes.",
+  "scenario": "Five semantic models refresh on a schedule every night. Some reports show old numbers, two owners say their schedule has gone, and the Stock owner says one framing took much longer than usual. Stock is a Direct Lake model and the other four are Import models. You have the refresh history for the last eight nights. Find which models are stale, which schedules the service has turned off, and which refreshes were slow for their own model.",
+  "prerequisites": [],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "simulated",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC, over a simulated semantic model refresh history",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "refresh_check.sql",
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your query picks each model's latest refresh by its start time, counts only the failures in a row, applies the four-failure and credentials rules, and judges slow refreshes against each model's own median, on simulated data with DuckDB on this PC."
+  ],
+  "does_not_verify": [
+    "The refresh history page or a real model. The history here is made up and shaped like what the page shows.",
+    "Refreshes started on demand or through the API. Every refresh here is scheduled, so this lab doesn't say how they count toward the four failures.",
+    "Turning the schedule back on, or fixing the credentials or the data source.",
+    "Direct Lake automatic updates (Keep your Direct Lake data up to date), which this history leaves out."
+  ],
+  "expected": {
+    "description": "Columns model_name, storage_mode, last_status, last_good_start, consecutive_failures, schedule_disabled, slow_refreshes: 5 rows ordered by model_name."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "The refresh check is right for all five models.",
+      "fail": "Some row is off. Check how you pick the latest refresh, which failures count as in a row, both rules that turn a schedule off, and what you compare each duration with."
+    }
+  ],
+  "hints": [
+    "refresh_id is an opaque id. The latest refresh is the one with the latest start_time.",
+    "Failures in a row stop at the first Completed refresh as you count back. An older failure before a success doesn't count.",
+    "The schedule goes off after four failures in a row. A credentials error turns it off at once.",
+    "A Direct Lake refresh is framing and takes seconds. Compare each refresh with its own model's median, not with every model's.",
+    "More than twice the median means exactly twice isn't slow. Failed refreshes aren't slow refreshes."
+  ],
+  "explanation": "The refresh history lists each attempt with its status, start time, duration and error. Power BI turns a refresh schedule off after four failures in a row. It also turns it off at once when it finds an error that needs a configuration change, such as invalid or expired credentials. So Finance, with four failures in a row, and Ops, with one credentials failure, have lost their schedules. HR has three failures in a row, so its schedule still runs. Finance's older failure on the 16th was followed by a success, so it isn't part of the run. A model's data is only as new as its last Completed refresh. That is true for Direct Lake too, where queries read the Delta tables as of the last successful framing. Framing only reads metadata, so it usually takes seconds. A 70-second framing is slow for Stock, though it would look fast next to a 40-minute import. That's why each model is compared with its own median. Sales's 80-minute refresh is exactly twice its median, so it isn't more than twice. Its 300-minute refresh failed on the time limit, so it isn't counted as a slow refresh.",
+  "remediation": [
+    "LM-09",
+    "https://learn.microsoft.com/power-bi/connect-data/refresh-scheduled-refresh",
+    "https://learn.microsoft.com/power-bi/connect-data/refresh-data",
+    "https://learn.microsoft.com/fabric/fundamentals/direct-lake-how-it-works"
+  ],
+  "reset": "Reset rebuilds models and refresh_history from setup.sql and puts the starter query back.",
+  "review_notes": [
+    "SIMULATED: the models and refreshes are synthetic. Nothing here reads Fabric or Power BI.",
+    "Checked on Learn 2026-11-23. refresh-scheduled-refresh says Power BI deactivates the schedule after four consecutive failures, or when it detects an unrecoverable error that needs a configuration update, such as invalid or expired credentials. The threshold can't be changed. Refresh history shows status, start time, duration and error message. refresh-data says failure emails go to the owner by default, on-demand and programmatic refreshes send none, and the limit is five hours on Premium and two hours on shared capacity. direct-lake-how-it-works says a refresh triggers framing, which usually takes a few seconds because it reads Delta metadata, and that Direct Lake tables return data as of the most recent successful framing.",
+    "Not checked, so not graded: whether on-demand or API refreshes count toward the four failures. The history holds only scheduled refreshes. The error_type column is this lab's own sorting of the error message, not a field Power BI shows.",
+    "The 'more than twice the model's median' rule for slow is this exercise's own definition, given in the starter. It isn't a Power BI rule."
+  ]
+}

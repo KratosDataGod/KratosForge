@@ -87,6 +87,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E70 | Running totals per customer with a PySpark window | 2.2.8 | C | LV | pyspark | 20 | |
 | E74 | Six workloads, four stores: lakehouse, warehouse, eventhouse or SQL database | 2.2.1 | C | SIM | config | 20 | LM-06, LM-23 |
 | E75 | Five streaming flows: eventstream, Spark Structured Streaming or KQL | 2.3.1 | C | SIM | config | 20 | |
+| E89 | Incremental copy in a pipeline: parameters, two watermarks and a safe save | 2.2.5 | C | LV +FV | pipeline | 30 | |
 
 ## 3. Monitor and optimize an analytics solution
 
@@ -103,6 +104,9 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E63 | File layout for Spark: partitioning and file pruning on a Delta table | 3.3.5 | C | LV +FV | delta | 25 | LM-27 |
 | E64 | Read a query plan and fix the expensive step | 3.3.6 | G | LV | duckdb | 20 | LM-18 |
 | E72 | Monitor ingestion: the Copy runs that succeeded but didn't load what they should | 3.1.1 | C | SIM +FV | duckdb (`runs`) | 20 | |
+| E90 | Refresh history: failures in a row, a schedule turned off, and slow refreshes | 3.1.3 | C | SIM +FV | duckdb (`runs`) | 20 | LM-09 |
+| E91 | Alerts: pipeline notifications, refresh failure emails and Activator rules | 3.1.4 | C | SIM +FV | config | 20 | |
+| E92 | Optimize a pipeline: partitioned copy, copy parallelism, throughput and no waits | 3.3.2 | C | SIM +FV | config | 25 | |
 
 ## Broken environments (Troubleshoot)
 
@@ -138,11 +142,11 @@ validation checks both the fix and that nothing else changed.
 
 | | Count |
 | --- | --- |
-| Exercises | 76 (62 Guided or Challenge, 14 Troubleshoot) |
-| LOCAL VERIFIED | 36 |
-| SIMULATED | 30 |
+| Exercises | 80 (66 Guided or Challenge, 14 Troubleshoot) |
+| LOCAL VERIFIED | 37 |
+| SIMULATED | 33 |
 | KNOWLEDGE ONLY | 10 |
-| With a planned FABRIC VERIFIED version | 38 |
+| With a planned FABRIC VERIFIED version | 42 |
 | Capstones | 3 |
 | Built from existing Learn lessons or labs | 26 |
 

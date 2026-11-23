@@ -1,0 +1,144 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E89",
+  "version": 1,
+  "status": "draft",
+  "title": "Incremental copy in a pipeline: parameters, two watermarks and a safe save",
+  "objectives": [
+    "2.2.5"
+  ],
+  "objective_text": "Build a pipeline that copies only the rows changed since the last run: read the old and new watermarks with Lookup activities, build the Copy source query from parameters, and save the new watermark only after the copy succeeds.",
+  "scenario": "The orders pipeline copies changed rows from the warehouse into the lakehouse every night. It only works for one table, it copies the boundary rows twice, and last week it moved the watermark forward on a night the copy failed. That night's rows were never loaded. The team wants one pipeline that any table can use, through its tableName and watermarkColumn parameters.",
+  "prerequisites": [],
+  "minutes": 30,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "pipeline_lab",
+  "engine_label": "Local pipeline runner on this PC (control flow only)",
+  "lesson": "lesson.md",
+  "starter": "pipeline.json",
+  "verifies": [
+    "Your pipeline JSON ran on the local runner on this PC three times. Two runs used different tables and columns, and their queries, row counts and saved watermarks were checked. In the third run the copy failed, and the watermark was not saved."
+  ],
+  "does_not_verify": [
+    "Copying data or reading the watermark table. The Lookup, Copy and Stored procedure activities are stand-ins with fixed results, so no data moves and no connection is tested.",
+    "The parameters of the Stored procedure activity. The runner doesn't evaluate a stand-in's settings, so the saved watermark is checked through the pipeline's return value.",
+    "That the Copy activity starts after Build query. The Copy stand-in returns the same result whenever it starts.",
+    "Running in a Fabric workspace, its schedule, or the speed of the copy."
+  ],
+  "datasets": [],
+  "parameters": {
+    "tableName": "sales.orders",
+    "watermarkColumn": "ModifiedAt"
+  },
+  "mocks": {
+    "Old watermark": {
+      "output": {
+        "firstRow": {
+          "WatermarkValue": "2026-11-20T06:00:00"
+        }
+      }
+    },
+    "New watermark": {
+      "output": {
+        "firstRow": {
+          "NewWatermarkValue": "2026-11-21T06:00:00"
+        }
+      }
+    },
+    "Copy changed rows": {
+      "output": {
+        "rowsCopied": 1250
+      }
+    },
+    "Save watermark": {
+      "output": {}
+    }
+  },
+  "expected": {
+    "return_value": {
+      "query": "SELECT * FROM sales.orders WHERE ModifiedAt > '2026-11-20T06:00:00' AND ModifiedAt <= '2026-11-21T06:00:00'",
+      "rowsCopied": 1250,
+      "watermark": "2026-11-21T06:00:00"
+    }
+  },
+  "validation": [
+    {
+      "kind": "pipeline_outcome",
+      "status": "Succeeded",
+      "activities": {
+        "Copy changed rows": "Succeeded",
+        "Save watermark": "Succeeded",
+        "Summary": "Succeeded"
+      },
+      "return_value": {
+        "query": "SELECT * FROM sales.orders WHERE ModifiedAt > '2026-11-20T06:00:00' AND ModifiedAt <= '2026-11-21T06:00:00'",
+        "rowsCopied": 1250,
+        "watermark": "2026-11-21T06:00:00"
+      },
+      "pass": "The orders run copies the right window and saves the new watermark.",
+      "fail": "Compare your query, row count and watermark with the orders run. Use the old and new watermarks as the window's two ends."
+    },
+    {
+      "kind": "pipeline_outcome",
+      "parameters": {
+        "tableName": "sales.returns",
+        "watermarkColumn": "UpdatedAt"
+      },
+      "mocks": {
+        "Copy changed rows": {
+          "output": {
+            "rowsCopied": 87
+          }
+        }
+      },
+      "status": "Succeeded",
+      "return_value": {
+        "query": "SELECT * FROM sales.returns WHERE UpdatedAt > '2026-11-20T06:00:00' AND UpdatedAt <= '2026-11-21T06:00:00'",
+        "rowsCopied": 87,
+        "watermark": "2026-11-21T06:00:00"
+      },
+      "pass": "The same pipeline works for the returns table.",
+      "fail": "The returns run got the wrong query or row count. Build both from the run's parameters and the Copy activity's output, not from fixed text."
+    },
+    {
+      "kind": "pipeline_outcome",
+      "mocks": {
+        "Copy changed rows": {
+          "status": "Failed",
+          "error": {
+            "message": "The source connection timed out.",
+            "errorCode": "2200"
+          }
+        }
+      },
+      "status": "Failed",
+      "activities": {
+        "Copy changed rows": "Failed",
+        "Save watermark": "Skipped"
+      },
+      "pass": "When the copy fails, the watermark stays where it was.",
+      "fail": "On a night the copy fails, your pipeline still saves the watermark. The next run would skip that night's rows."
+    }
+  ],
+  "hints": [
+    "Where does the pipeline get the table and the column today? Look for fixed text in Build query.",
+    "The window runs from the old watermark to the new one. Which end is open and which is closed?",
+    "@concat() joins text. Two single quotes inside a string make one quote in the query.",
+    "Which condition on the line from Copy changed rows to Save watermark runs only when the copy succeeds?",
+    "Return rowsCopied from @activity('Copy changed rows').output.rowsCopied and watermark from the New watermark Lookup."
+  ],
+  "explanation": "An incremental copy reads two marks. The old watermark is where the last good run stopped. The new watermark is the highest change time in the source now. The Copy source query takes rows after the old mark and up to and including the new one. A row that sits exactly on the old mark was copied last time, so > keeps it out, and <= takes the newest row this time. Building the query from the tableName and watermarkColumn parameters lets one pipeline serve every table. The new mark is saved by a Stored procedure activity joined to the copy On success. With On completion it would also run after a failed copy, and the next run would start after rows that never arrived. Saving the clock time instead of the new watermark can skip rows that change while the copy runs.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse",
+    "https://learn.microsoft.com/fabric/data-factory/pipeline-canvas-experience",
+    "https://learn.microsoft.com/fabric/data-factory/expression-language"
+  ],
+  "reset": "Reset puts the original pipeline.json back.",
+  "review_notes": [
+    "Checked on Learn 2026-11-23: tutorial-incremental-copy-data-warehouse-lakehouse (LookupOldWaterMarkActivity and LookupNewWaterMarkActivity with First row only, a source query with LastModifytime > the old watermark and <= the new one, a Stored procedure activity usp_write_watermark that writes the new watermark, lookups joined to the copy and the copy joined to the stored procedure with the green On success output). pipeline-canvas-experience names the four conditions On success, On failure, On completion and On skip. In the pipeline JSON they are Succeeded, Failed, Completed and Skipped.",
+    "The tutorial puts the expression straight into the Copy source query. This exercise builds it in a Set variable activity first, so the run shows the query it used and the grader can read it. Both are valid pipeline designs.",
+    "The Copy stand-in's output shape (rowsCopied) follows the local runner and E19. It wasn't compared with a real Fabric Copy run's output.",
+    "Grading hole kept on purpose and stated in does_not_verify. A Copy activity with no dependency on Build query still passes, because the stand-in doesn't read its query."
+  ]
+}

@@ -694,9 +694,10 @@
               "text": "Ingest data by using pipelines",
               "competency": "Ingest data with pipeline activities, including copy settings that suit the source.",
               "fabric_required": true,
-              "best_local": "simulated",
+              "best_local": "local_verified",
               "exercises": [
-                "E31"
+                "E31",
+                "E89"
               ],
               "capstones": [],
               "lessons": [],
@@ -1060,7 +1061,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E45"
+                "E45",
+                "E90"
               ],
               "capstones": [],
               "lessons": [
@@ -1088,7 +1090,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E46"
+                "E46",
+                "E91"
               ],
               "capstones": [],
               "lessons": [],
@@ -1299,12 +1302,14 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E60"
+                "E60",
+                "E92"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
+                "config_matches",
                 "fabric_check",
                 "pipeline_outcome"
               ],

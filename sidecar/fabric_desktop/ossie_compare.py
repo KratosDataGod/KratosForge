@@ -30,10 +30,10 @@ ADDED, REMOVED, CHANGED = "added", "removed", "changed"
 KINDS = ("table", "calculation_group", "column", "measure", "relationship", "role", "hierarchy", "perspective")
 SECURITY = ("role", "calculation_group")
 NOT_CHECKED = (
-    {"what": "model rename", "reason": "the model's own name is only noted, never counted as a change: TMDL doesn't "
-                                       "carry it and an export names the document after the item"},
+    {"what": "model rename", "reason": "the model's own name is only noted, never counted as a change, because TMDL "
+                                       "doesn't carry it and an export names the document after the item"},
     {"what": "column order", "reason": "columns are matched by name, so moving a column isn't reported"},
-    {"what": "behavior", "reason": "no query runs; a changed expression form says nothing about the numbers "
+    {"what": "behavior", "reason": "no query runs, so a changed expression form says nothing about the numbers "
                                    "(semantic_parity_l3 runs the SQL side)"},
     {"what": "other properties", "reason": "only type, key, expression, format string, description, home table, "
                                            "relationship ends and flags, role permissions and calculation items are "
@@ -269,7 +269,9 @@ def _empty_counts() -> dict[str, dict[str, int]]:
 def _summary(by_kind: dict[str, dict[str, int]], status: str, left_out: int) -> dict[str, Any]:
     totals = {s: sum(c[s] for c in by_kind.values()) for s in (ADDED, REMOVED, CHANGED, "unchanged")}
     if status != "compared":  # a refused or failed compare never reads as a clean one
-        return {**totals, "by_kind": by_kind, "text": f"Not compared: the versions were {status}"}
+        text = "Not compared: a version was refused" if status == "refused" else \
+            "Not compared: a version couldn't be read"
+        return {**totals, "by_kind": by_kind, "text": text}
     parts = [f"{totals[s]} {s}" for s in (ADDED, REMOVED, CHANGED)]
     text = "No changes" if not any(totals[s] for s in (ADDED, REMOVED, CHANGED)) else ", ".join(parts)
     text = f"{text}; {totals['unchanged']} unchanged"

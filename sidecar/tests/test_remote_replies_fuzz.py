@@ -194,8 +194,10 @@ def test_a_part_that_isnt_whole_base64_is_never_read_as_empty(payload):
 
 
 def test_a_notebook_definition_with_a_missing_payload_is_refused():
-    with pytest.raises(FabricError):
+    with pytest.raises(ValueError, match="^Fabric didn't return the notebook's cells"):
         notebook_files.ipynb_of({"definition": {"parts": [{"path": "notebook-content.ipynb"}]}})
+    with pytest.raises(ValueError, match="in a form that can't be read"):  # junk inside the base64 isn't decoded short
+        notebook_files.ipynb_of({"parts": [{"path": "notebook-content.ipynb", "payload": "e30=!!"}]})
     with pytest.raises(ValueError):
         notebook_files.ipynb_of({"parts": [{"path": "notebook-content.ipynb", "payload": base64.b64encode(b"[1]").decode()}]})
 

@@ -3,164 +3,164 @@
 *Made by `app/tests/browser/a11y-audit.test.cjs` (PB-063 part 1). Do not edit by hand: run*
 `A11Y_REPORT=docs/ux/accessibility-audit.md node --test app/tests/browser/a11y-audit.test.cjs` *to refresh it.*
 
-Rules: axe-core 4.10.2 with the WCAG 2.1 A and AA tags (wcag2a, wcag2aa, wcag21a, wcag21aa), color contrast among them. Keyboard: everything with a pointer cursor must be a Tab stop or inside one, and pressing Tab from the top must reach every Tab stop without looping (Escape then Tab leaves a code editor). Focus: each Tab stop on the page must show an outline or ring. Each page is checked in light and dark (the window's color scheme); the app has one theme, so dark is checked to show nothing breaks when Windows is set to dark. At 200% (the 1440x940 window laid out as 720x470) no page may scroll sideways as a whole, and each Tab stop must be on screen and not under something when it has focus. In a Windows contrast theme (forced colors) contrast is the theme's, so it isn't measured, and each Tab stop must still show a ring (the theme removes rings drawn as box shadows). The keyboard walk runs in light, at 200% and in the contrast theme. Dialogs opened from buttons are checked the same way in `a11y-dialogs.test.cjs`.
+Rules: axe-core 4.10.2 with the WCAG 2.1 A and AA and WCAG 2.2 AA tags (wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa), color contrast and target size (24 by 24 px, or spaced apart) among them. Keyboard: everything with a pointer cursor must be a Tab stop or inside one, and pressing Tab from the top must reach every Tab stop without looping (Escape then Tab leaves a code editor). Focus: each Tab stop on the page must show an outline or ring. Each page is checked in light and dark (the window's color scheme); the app has one theme, so dark is checked to show nothing breaks when Windows is set to dark. At 200% (the 1440x940 window laid out as 720x470) no page may scroll sideways as a whole, and each Tab stop must be on screen and not under something when it has focus. In a Windows contrast theme (forced colors) the theme picks the colors, so axe's contrast rule is off there; where the app keeps its own colors (forced-color-adjust: none, as on a selected tab or choice), the text must still reach 4.5:1 against what it sits on (3:1 for large text), measured with the theme's colors. Each Tab stop must still show a ring there too (the theme removes rings drawn as box shadows). The keyboard walk runs in light, at 200% and in the contrast theme. Every page is opened with reduced motion asked for, as Windows asks when Show animations is off: nothing may still be moving once it has drawn (a loop, or an animation longer than the stylesheet's cap), and no script may start an animation, unless the person chose motion anyway in Settings. A button or link that shows only an icon or a symbol must be named in words (aria-label, aria-labelledby or title). With text spacing raised as WCAG 1.4.12 asks (line height 1.5, paragraphs 2 em apart, letters 0.12 em and words 0.16 em apart), no box may cut off its words, unless it shortens them on purpose with an ellipsis or a line clamp. Dialogs opened from buttons are checked the same way in `a11y-dialogs.test.cjs`.
 
 The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows where they can. Screens that need a live tenant to fill are audited in their empty or signed-in state. Part 2 (Narrator and keyboard on Windows) is a separate pass.
 
 | Page | Scheme | Rules passed | Violations (serious + critical) | Needs a look | Tab stops | Unreachable | No focus ring |
 |---|---|---|---|---|---|---|---|
-| Home | light | 15 | 0 (0) | color-contrast (5) | 23 | 0 | 0 |
-| Home | dark | 20 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
-| Home | zoom-200 | 19 | 0 (0) | color-contrast (3) | 23 | 0 | 0 |
-| Home | high-contrast | 19 | 0 (0) | none | 23 | 0 | 0 |
-| Create | light | 9 | 0 (0) | color-contrast (2) | 8 | 0 | 0 |
-| Create | dark | 9 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Create | zoom-200 | 10 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
-| Create | high-contrast | 8 | 0 (0) | none | 8 | 0 | 0 |
-| Workspaces | light | 17 | 0 (0) | color-contrast (3) | 17 | 0 | 0 |
-| Workspaces | dark | 17 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
-| Workspaces | zoom-200 | 18 | 0 (0) | color-contrast (2) | 17 | 0 | 0 |
-| Workspaces | high-contrast | 16 | 0 (0) | none | 17 | 0 | 0 |
-| OneLake | light | 17 | 0 (0) | none | 8 | 0 | 0 |
-| OneLake | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
-| OneLake | zoom-200 | 17 | 0 (0) | none | 8 | 0 | 0 |
-| OneLake | high-contrast | 16 | 0 (0) | none | 8 | 0 | 0 |
-| Data mesh | light | 14 | 0 (0) | color-contrast (1) | 9 | 0 | 0 |
-| Data mesh | dark | 14 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Data mesh | zoom-200 | 14 | 0 (0) | none | 9 | 0 | 0 |
-| Data mesh | high-contrast | 13 | 0 (0) | none | 9 | 0 | 0 |
-| Platform | light | 14 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
-| Platform | dark | 14 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Platform | zoom-200 | 14 | 0 (0) | none | 8 | 0 | 0 |
-| Platform | high-contrast | 13 | 0 (0) | none | 8 | 0 | 0 |
-| Optimize | light | 14 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
-| Optimize | dark | 14 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Optimize | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
-| Optimize | high-contrast | 13 | 0 (0) | none | 6 | 0 | 0 |
-| Monitor | light | 18 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
-| Monitor | dark | 18 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
-| Monitor | zoom-200 | 18 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
-| Monitor | high-contrast | 17 | 0 (0) | none | 18 | 0 | 0 |
-| Academy | light | 14 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
-| Academy | dark | 14 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Academy | zoom-200 | 14 | 0 (0) | none | 7 | 0 | 0 |
-| Academy | high-contrast | 13 | 0 (0) | none | 7 | 0 | 0 |
-| Source control | light | 12 | 0 (0) | color-contrast (1) | 1 | 0 | 0 |
-| Source control | dark | 12 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Source control | zoom-200 | 12 | 0 (0) | none | 1 | 0 | 0 |
-| Source control | high-contrast | 11 | 0 (0) | none | 1 | 0 | 0 |
-| Settings | light | 22 | 0 (0) | color-contrast (1) | 54 | 0 | 0 |
-| Settings | dark | 22 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Settings | zoom-200 | 22 | 0 (0) | none | 54 | 0 | 0 |
-| Settings | high-contrast | 21 | 0 (0) | none | 54 | 0 | 0 |
-| Notebook | light | 18 | 0 (0) | color-contrast (2) | 38 | 0 | 0 |
-| Notebook | dark | 18 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Notebook | zoom-200 | 19 | 0 (0) | color-contrast (4) | 38 | 0 | 0 |
-| Notebook | high-contrast | 17 | 0 (0) | none | 38 | 0 | 0 |
-| SQL query | light | 22 | 0 (0) | none | 31 | 0 | 0 |
-| SQL query | dark | 22 | 0 (0) | none | 0 | 0 | 0 |
-| SQL query | zoom-200 | 22 | 0 (0) | none | 26 | 0 | 0 |
-| SQL query | high-contrast | 21 | 0 (0) | none | 31 | 0 | 0 |
-| Command bar (Ctrl+K) | light | 17 | 0 (0) | none | 109 | 0 | 0 |
-| Command bar (Ctrl+K) | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
-| Command bar (Ctrl+K) | zoom-200 | 17 | 0 (0) | none | 109 | 0 | 0 |
-| Command bar (Ctrl+K) | high-contrast | 16 | 0 (0) | none | 109 | 0 | 0 |
-| Data mesh entity | light | 15 | 0 (0) | color-contrast (5) | 15 | 0 | 0 |
-| Data mesh entity | dark | 15 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
-| Data mesh entity | zoom-200 | 15 | 0 (0) | color-contrast (4) | 15 | 0 | 0 |
-| Data mesh entity | high-contrast | 14 | 0 (0) | none | 15 | 0 | 0 |
-| Shell (top bar and rail) | light | 13 | 0 (0) | none | 19 | 0 | 0 |
-| Shell (top bar and rail) | dark | 13 | 0 (0) | none | 0 | 0 | 0 |
-| Shell (top bar and rail) | zoom-200 | 13 | 0 (0) | none | 19 | 0 | 0 |
-| Shell (top bar and rail) | high-contrast | 12 | 0 (0) | none | 19 | 0 | 0 |
-| Confirm dialog | light | 13 | 0 (0) | none | 3 | 0 | 0 |
-| Confirm dialog | dark | 13 | 0 (0) | none | 0 | 0 | 0 |
-| Confirm dialog | zoom-200 | 13 | 0 (0) | none | 3 | 0 | 0 |
-| Confirm dialog | high-contrast | 12 | 0 (0) | none | 3 | 0 | 0 |
-| Profile | light | 19 | 0 (0) | color-contrast (2) | 12 | 0 | 0 |
-| Profile | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Profile | zoom-200 | 19 | 0 (0) | color-contrast (1) | 12 | 0 | 0 |
-| Profile | high-contrast | 18 | 0 (0) | none | 12 | 0 | 0 |
-| Learn lab | light | 16 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
-| Learn lab | dark | 16 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Learn lab | zoom-200 | 16 | 0 (0) | none | 8 | 0 | 0 |
-| Learn lab | high-contrast | 15 | 0 (0) | none | 8 | 0 | 0 |
-| Settings > Integrations | light | 19 | 0 (0) | color-contrast (1) | 13 | 0 | 0 |
-| Settings > Integrations | dark | 19 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Settings > Integrations | zoom-200 | 19 | 0 (0) | none | 13 | 0 | 0 |
-| Settings > Integrations | high-contrast | 18 | 0 (0) | none | 13 | 0 | 0 |
-| AI tool approval dialog | light | 15 | 0 (0) | none | 3 | 0 | 0 |
-| AI tool approval dialog | dark | 15 | 0 (0) | none | 0 | 0 | 0 |
-| AI tool approval dialog | zoom-200 | 15 | 0 (0) | none | 3 | 0 | 0 |
-| AI tool approval dialog | high-contrast | 14 | 0 (0) | none | 3 | 0 | 0 |
-| Report a problem dialog | light | 14 | 0 (0) | color-contrast (2) | 6 | 0 | 0 |
-| Report a problem dialog | dark | 14 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Report a problem dialog | zoom-200 | 14 | 0 (0) | color-contrast (2) | 6 | 0 | 0 |
-| Report a problem dialog | high-contrast | 13 | 0 (0) | none | 6 | 0 | 0 |
-| Keyboard shortcuts dialog | light | 17 | 0 (0) | color-contrast (1) | 4 | 0 | 0 |
-| Keyboard shortcuts dialog | dark | 17 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Keyboard shortcuts dialog | zoom-200 | 16 | 0 (0) | none | 4 | 0 | 0 |
-| Keyboard shortcuts dialog | high-contrast | 16 | 0 (0) | none | 4 | 0 | 0 |
-| Engine picker's How to choose dialog | light | 17 | 0 (0) | color-contrast (4) | 5 | 0 | 0 |
-| Engine picker's How to choose dialog | dark | 17 | 0 (0) | color-contrast (4) | 0 | 0 | 0 |
-| Engine picker's How to choose dialog | zoom-200 | 17 | 0 (0) | color-contrast (2) | 5 | 0 | 0 |
-| Engine picker's How to choose dialog | high-contrast | 16 | 0 (0) | none | 5 | 0 | 0 |
-| A workspace | light | 7 | 0 (0) | none | 4 | 0 | 0 |
-| A workspace | dark | 7 | 0 (0) | none | 0 | 0 | 0 |
-| A workspace | zoom-200 | 7 | 0 (0) | none | 4 | 0 | 0 |
-| A workspace | high-contrast | 6 | 0 (0) | none | 4 | 0 | 0 |
-| A lakehouse | light | 7 | 0 (0) | none | 5 | 0 | 0 |
-| A lakehouse | dark | 7 | 0 (0) | none | 0 | 0 | 0 |
-| A lakehouse | zoom-200 | 8 | 0 (0) | none | 5 | 0 | 0 |
-| A lakehouse | high-contrast | 6 | 0 (0) | none | 5 | 0 | 0 |
-| Workspaces > Databricks | light | 13 | 0 (0) | none | 5 | 0 | 0 |
-| Workspaces > Databricks | dark | 13 | 0 (0) | none | 0 | 0 | 0 |
-| Workspaces > Databricks | zoom-200 | 14 | 0 (0) | none | 5 | 0 | 0 |
-| Workspaces > Databricks | high-contrast | 12 | 0 (0) | none | 5 | 0 | 0 |
-| Workspaces > Power BI | light | 19 | 0 (0) | color-contrast (2) | 18 | 0 | 0 |
-| Workspaces > Power BI | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Workspaces > Power BI | zoom-200 | 20 | 0 (0) | color-contrast (2) | 18 | 0 | 0 |
-| Workspaces > Power BI | high-contrast | 18 | 0 (0) | none | 18 | 0 | 0 |
-| Embed Studio | light | 16 | 0 (0) | none | 8 | 0 | 0 |
-| Embed Studio | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
-| Embed Studio | zoom-200 | 17 | 0 (0) | none | 8 | 0 | 0 |
-| Embed Studio | high-contrast | 15 | 0 (0) | none | 8 | 0 | 0 |
-| Fabric portal (the app's bar) | light | 14 | 0 (0) | none | 12 | 0 | 0 |
-| Fabric portal (the app's bar) | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
-| Fabric portal (the app's bar) | zoom-200 | 14 | 0 (0) | none | 12 | 0 | 0 |
-| Fabric portal (the app's bar) | high-contrast | 13 | 0 (0) | none | 12 | 0 | 0 |
-| All notebooks | light | 18 | 0 (0) | color-contrast (2) | 7 | 0 | 0 |
-| All notebooks | dark | 18 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| All notebooks | zoom-200 | 19 | 0 (0) | color-contrast (2) | 7 | 0 | 0 |
-| All notebooks | high-contrast | 17 | 0 (0) | none | 7 | 0 | 0 |
-| A pipeline | light | 16 | 0 (0) | none | 7 | 0 | 0 |
-| A pipeline | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
-| A pipeline | zoom-200 | 16 | 0 (0) | none | 7 | 0 | 0 |
-| A pipeline | high-contrast | 15 | 0 (0) | none | 7 | 0 | 0 |
-| A pipeline run | light | 20 | 0 (0) | none | 20 | 0 | 0 |
-| A pipeline run | dark | 20 | 0 (0) | none | 0 | 0 | 0 |
-| A pipeline run | zoom-200 | 19 | 0 (0) | none | 20 | 0 | 0 |
-| A pipeline run | high-contrast | 19 | 0 (0) | none | 20 | 0 | 0 |
-| A workload | light | 9 | 0 (0) | none | 5 | 0 | 0 |
-| A workload | dark | 9 | 0 (0) | none | 0 | 0 | 0 |
-| A workload | zoom-200 | 9 | 0 (0) | none | 5 | 0 | 0 |
-| A workload | high-contrast | 8 | 0 (0) | none | 5 | 0 | 0 |
-| An incident | light | 15 | 0 (0) | none | 5 | 0 | 0 |
-| An incident | dark | 15 | 0 (0) | none | 0 | 0 | 0 |
-| An incident | zoom-200 | 16 | 0 (0) | none | 5 | 0 | 0 |
-| An incident | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
+| Home | light | 16 | 0 (0) | color-contrast (5) | 23 | 0 | 0 |
+| Home | dark | 21 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
+| Home | zoom-200 | 20 | 0 (0) | color-contrast (3) | 23 | 0 | 0 |
+| Home | high-contrast | 20 | 0 (0) | none | 23 | 0 | 0 |
+| Create | light | 10 | 0 (0) | color-contrast (2) | 8 | 0 | 0 |
+| Create | dark | 10 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Create | zoom-200 | 11 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
+| Create | high-contrast | 9 | 0 (0) | none | 8 | 0 | 0 |
+| Workspaces | light | 18 | 0 (0) | color-contrast (3) | 17 | 0 | 0 |
+| Workspaces | dark | 18 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
+| Workspaces | zoom-200 | 19 | 0 (0) | color-contrast (2) | 17 | 0 | 0 |
+| Workspaces | high-contrast | 17 | 0 (0) | none | 17 | 0 | 0 |
+| OneLake | light | 18 | 0 (0) | none | 8 | 0 | 0 |
+| OneLake | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
+| OneLake | zoom-200 | 18 | 0 (0) | none | 8 | 0 | 0 |
+| OneLake | high-contrast | 17 | 0 (0) | none | 8 | 0 | 0 |
+| Data mesh | light | 15 | 0 (0) | color-contrast (1) | 9 | 0 | 0 |
+| Data mesh | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Data mesh | zoom-200 | 15 | 0 (0) | none | 9 | 0 | 0 |
+| Data mesh | high-contrast | 14 | 0 (0) | none | 9 | 0 | 0 |
+| Platform | light | 15 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
+| Platform | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Platform | zoom-200 | 15 | 0 (0) | none | 8 | 0 | 0 |
+| Platform | high-contrast | 14 | 0 (0) | none | 8 | 0 | 0 |
+| Optimize | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Optimize | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Optimize | zoom-200 | 16 | 0 (0) | none | 6 | 0 | 0 |
+| Optimize | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
+| Monitor | light | 19 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
+| Monitor | dark | 19 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
+| Monitor | zoom-200 | 19 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
+| Monitor | high-contrast | 18 | 0 (0) | none | 18 | 0 | 0 |
+| Academy | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
+| Academy | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Academy | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
+| Academy | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Source control | light | 13 | 0 (0) | color-contrast (1) | 1 | 0 | 0 |
+| Source control | dark | 13 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Source control | zoom-200 | 13 | 0 (0) | none | 1 | 0 | 0 |
+| Source control | high-contrast | 12 | 0 (0) | none | 1 | 0 | 0 |
+| Settings | light | 23 | 0 (0) | color-contrast (1) | 55 | 0 | 0 |
+| Settings | dark | 23 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Settings | zoom-200 | 23 | 0 (0) | none | 55 | 0 | 0 |
+| Settings | high-contrast | 22 | 0 (0) | none | 55 | 0 | 0 |
+| Notebook | light | 19 | 0 (0) | color-contrast (2) | 38 | 0 | 0 |
+| Notebook | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Notebook | zoom-200 | 20 | 0 (0) | color-contrast (4) | 38 | 0 | 0 |
+| Notebook | high-contrast | 18 | 0 (0) | none | 38 | 0 | 0 |
+| SQL query | light | 23 | 0 (0) | none | 31 | 0 | 0 |
+| SQL query | dark | 23 | 0 (0) | none | 0 | 0 | 0 |
+| SQL query | zoom-200 | 23 | 0 (0) | none | 26 | 0 | 0 |
+| SQL query | high-contrast | 22 | 0 (0) | none | 31 | 0 | 0 |
+| Command bar (Ctrl+K) | light | 18 | 0 (0) | none | 109 | 0 | 0 |
+| Command bar (Ctrl+K) | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
+| Command bar (Ctrl+K) | zoom-200 | 18 | 0 (0) | none | 109 | 0 | 0 |
+| Command bar (Ctrl+K) | high-contrast | 17 | 0 (0) | none | 109 | 0 | 0 |
+| Data mesh entity | light | 16 | 0 (0) | color-contrast (5) | 15 | 0 | 0 |
+| Data mesh entity | dark | 16 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
+| Data mesh entity | zoom-200 | 16 | 0 (0) | color-contrast (4) | 15 | 0 | 0 |
+| Data mesh entity | high-contrast | 15 | 0 (0) | none | 15 | 0 | 0 |
+| Shell (top bar and rail) | light | 14 | 0 (0) | none | 19 | 0 | 0 |
+| Shell (top bar and rail) | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
+| Shell (top bar and rail) | zoom-200 | 14 | 0 (0) | none | 19 | 0 | 0 |
+| Shell (top bar and rail) | high-contrast | 13 | 0 (0) | none | 19 | 0 | 0 |
+| Confirm dialog | light | 14 | 0 (0) | none | 3 | 0 | 0 |
+| Confirm dialog | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
+| Confirm dialog | zoom-200 | 14 | 0 (0) | none | 3 | 0 | 0 |
+| Confirm dialog | high-contrast | 13 | 0 (0) | none | 3 | 0 | 0 |
+| Profile | light | 20 | 0 (0) | color-contrast (2) | 13 | 0 | 0 |
+| Profile | dark | 20 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Profile | zoom-200 | 20 | 0 (0) | color-contrast (1) | 13 | 0 | 0 |
+| Profile | high-contrast | 19 | 0 (0) | none | 13 | 0 | 0 |
+| Learn lab | light | 17 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
+| Learn lab | dark | 17 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Learn lab | zoom-200 | 17 | 0 (0) | none | 8 | 0 | 0 |
+| Learn lab | high-contrast | 16 | 0 (0) | none | 8 | 0 | 0 |
+| Settings > Integrations | light | 20 | 0 (0) | color-contrast (1) | 14 | 0 | 0 |
+| Settings > Integrations | dark | 20 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Settings > Integrations | zoom-200 | 20 | 0 (0) | none | 14 | 0 | 0 |
+| Settings > Integrations | high-contrast | 19 | 0 (0) | none | 14 | 0 | 0 |
+| AI tool approval dialog | light | 16 | 0 (0) | none | 3 | 0 | 0 |
+| AI tool approval dialog | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
+| AI tool approval dialog | zoom-200 | 16 | 0 (0) | none | 3 | 0 | 0 |
+| AI tool approval dialog | high-contrast | 15 | 0 (0) | none | 3 | 0 | 0 |
+| Report a problem dialog | light | 15 | 0 (0) | color-contrast (2) | 6 | 0 | 0 |
+| Report a problem dialog | dark | 15 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Report a problem dialog | zoom-200 | 15 | 0 (0) | color-contrast (2) | 6 | 0 | 0 |
+| Report a problem dialog | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
+| Keyboard shortcuts dialog | light | 18 | 0 (0) | color-contrast (1) | 4 | 0 | 0 |
+| Keyboard shortcuts dialog | dark | 18 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Keyboard shortcuts dialog | zoom-200 | 17 | 0 (0) | none | 4 | 0 | 0 |
+| Keyboard shortcuts dialog | high-contrast | 17 | 0 (0) | none | 4 | 0 | 0 |
+| Engine picker's How to choose dialog | light | 18 | 0 (0) | color-contrast (4) | 5 | 0 | 0 |
+| Engine picker's How to choose dialog | dark | 18 | 0 (0) | color-contrast (4) | 0 | 0 | 0 |
+| Engine picker's How to choose dialog | zoom-200 | 18 | 0 (0) | color-contrast (2) | 5 | 0 | 0 |
+| Engine picker's How to choose dialog | high-contrast | 17 | 0 (0) | none | 5 | 0 | 0 |
+| A workspace | light | 8 | 0 (0) | none | 4 | 0 | 0 |
+| A workspace | dark | 8 | 0 (0) | none | 0 | 0 | 0 |
+| A workspace | zoom-200 | 8 | 0 (0) | none | 4 | 0 | 0 |
+| A workspace | high-contrast | 7 | 0 (0) | none | 4 | 0 | 0 |
+| A lakehouse | light | 8 | 0 (0) | none | 5 | 0 | 0 |
+| A lakehouse | dark | 8 | 0 (0) | none | 0 | 0 | 0 |
+| A lakehouse | zoom-200 | 9 | 0 (0) | none | 5 | 0 | 0 |
+| A lakehouse | high-contrast | 7 | 0 (0) | none | 5 | 0 | 0 |
+| Workspaces > Databricks | light | 14 | 0 (0) | none | 5 | 0 | 0 |
+| Workspaces > Databricks | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
+| Workspaces > Databricks | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
+| Workspaces > Databricks | high-contrast | 13 | 0 (0) | none | 5 | 0 | 0 |
+| Workspaces > Power BI | light | 20 | 0 (0) | color-contrast (2) | 18 | 0 | 0 |
+| Workspaces > Power BI | dark | 20 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Workspaces > Power BI | zoom-200 | 21 | 0 (0) | color-contrast (2) | 18 | 0 | 0 |
+| Workspaces > Power BI | high-contrast | 19 | 0 (0) | none | 18 | 0 | 0 |
+| Embed Studio | light | 17 | 0 (0) | none | 8 | 0 | 0 |
+| Embed Studio | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| Embed Studio | zoom-200 | 18 | 0 (0) | none | 8 | 0 | 0 |
+| Embed Studio | high-contrast | 16 | 0 (0) | none | 8 | 0 | 0 |
+| Fabric portal (the app's bar) | light | 15 | 0 (0) | none | 12 | 0 | 0 |
+| Fabric portal (the app's bar) | dark | 15 | 0 (0) | none | 0 | 0 | 0 |
+| Fabric portal (the app's bar) | zoom-200 | 15 | 0 (0) | none | 12 | 0 | 0 |
+| Fabric portal (the app's bar) | high-contrast | 14 | 0 (0) | none | 12 | 0 | 0 |
+| All notebooks | light | 19 | 0 (0) | color-contrast (2) | 7 | 0 | 0 |
+| All notebooks | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| All notebooks | zoom-200 | 20 | 0 (0) | color-contrast (2) | 7 | 0 | 0 |
+| All notebooks | high-contrast | 18 | 0 (0) | none | 7 | 0 | 0 |
+| A pipeline | light | 17 | 0 (0) | none | 7 | 0 | 0 |
+| A pipeline | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| A pipeline | zoom-200 | 17 | 0 (0) | none | 7 | 0 | 0 |
+| A pipeline | high-contrast | 16 | 0 (0) | none | 7 | 0 | 0 |
+| A pipeline run | light | 21 | 0 (0) | none | 20 | 0 | 0 |
+| A pipeline run | dark | 21 | 0 (0) | none | 0 | 0 | 0 |
+| A pipeline run | zoom-200 | 20 | 0 (0) | none | 20 | 0 | 0 |
+| A pipeline run | high-contrast | 20 | 0 (0) | none | 20 | 0 | 0 |
+| A workload | light | 10 | 0 (0) | none | 5 | 0 | 0 |
+| A workload | dark | 10 | 0 (0) | none | 0 | 0 | 0 |
+| A workload | zoom-200 | 10 | 0 (0) | none | 5 | 0 | 0 |
+| A workload | high-contrast | 9 | 0 (0) | none | 5 | 0 | 0 |
+| An incident | light | 16 | 0 (0) | none | 5 | 0 | 0 |
+| An incident | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
+| An incident | zoom-200 | 17 | 0 (0) | none | 5 | 0 | 0 |
+| An incident | high-contrast | 15 | 0 (0) | none | 5 | 0 | 0 |
 | An agent | light | 11 | 0 (0) | none | 1 | 0 | 0 |
 | An agent | dark | 11 | 0 (0) | none | 0 | 0 | 0 |
 | An agent | zoom-200 | 12 | 0 (0) | none | 1 | 0 | 0 |
 | An agent | high-contrast | 10 | 0 (0) | none | 1 | 0 | 0 |
-| App Studio | light | 17 | 0 (0) | none | 9 | 0 | 0 |
-| App Studio | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
-| App Studio | zoom-200 | 18 | 0 (0) | none | 9 | 0 | 0 |
-| App Studio | high-contrast | 16 | 0 (0) | none | 9 | 0 | 0 |
-| Learn | light | 19 | 0 (0) | none | 22 | 0 | 0 |
-| Learn | dark | 19 | 0 (0) | none | 0 | 0 | 0 |
-| Learn | zoom-200 | 19 | 0 (0) | none | 22 | 0 | 0 |
-| Learn | high-contrast | 18 | 0 (0) | none | 22 | 0 | 0 |
+| App Studio | light | 18 | 0 (0) | none | 9 | 0 | 0 |
+| App Studio | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
+| App Studio | zoom-200 | 19 | 0 (0) | none | 9 | 0 | 0 |
+| App Studio | high-contrast | 17 | 0 (0) | none | 9 | 0 | 0 |
+| Learn | light | 20 | 0 (0) | none | 22 | 0 | 0 |
+| Learn | dark | 20 | 0 (0) | none | 0 | 0 | 0 |
+| Learn | zoom-200 | 20 | 0 (0) | none | 22 | 0 | 0 |
+| Learn | high-contrast | 19 | 0 (0) | none | 22 | 0 | 0 |
 
 ## Findings
 

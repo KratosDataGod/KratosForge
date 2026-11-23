@@ -265,14 +265,28 @@ def test_a_text_count_past_the_limit_stops(engine):
     assert "8,000 bytes" in error(engine, "SELECT REPLICATE('ab', s) FROM (VALUES ('4001')) v(s)")
 
 
-@pytest.mark.parametrize("call", ["REPLICATE('a', {})", "SPACE({})", "LEFT('abc', {})", "RIGHT('abc', -{})",
+@pytest.mark.parametrize("call", ["REPLICATE('a', {})", "LEFT('abc', {})", "RIGHT('abc', -{})",
                                   "SUBSTRING('abc', {}, 2)", "SUBSTRING('abc', 1, {})", "STUFF('abc', 1, {}, 'x')",
-                                  "CHARINDEX('a', 'abc', {})"])
-@pytest.mark.parametrize("number", ["9" * 5000, "9223372036854775808", "1e400", "1e30", "99999999999999999999.5"])
+                                  "CHARINDEX('a', 'abc', {})", "SUBSTRING('abc', -{}, 2)"])
+@pytest.mark.parametrize("number", ["9" * 5000, "9223372036854775809", "1e400", "1e30", "99999999999999999999.5"])
 def test_a_count_past_bigint_is_t_sqls_overflow_not_pythons(call, number):
     from fabric_desktop.localdata import tsql
     with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
         tsql.translate("SELECT " + call.format(number))
+
+
+@pytest.mark.parametrize("number", ["9" * 5000, "2147483648", "1e400", "1e30", "99999999999999999999.5"])
+def test_a_space_count_past_int_is_t_sqls_overflow_not_pythons(number):
+    # SPACE takes an int (functions/space-transact-sql), so its overflow names int
+    from fabric_desktop.localdata import tsql
+    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type int"):
+        tsql.translate(f"SELECT SPACE({number})")
+
+
+@pytest.mark.parametrize("call", ["SUBSTRING('abc', 1, -9223372036854775808)", "RIGHT('abc', -9223372036854775808)"])
+def test_the_lowest_bigint_is_within_bigint(engine, call):
+    # -9223372036854775808 is a bigint, so the call's own error comes, not the overflow
+    assert "Invalid length parameter" in error(engine, "SELECT " + call)
 
 
 @pytest.mark.parametrize("sql, out", [

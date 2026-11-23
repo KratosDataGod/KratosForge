@@ -324,7 +324,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E15"
+                "E15",
+                "E71"
               ],
               "capstones": [
                 "C3"
@@ -333,7 +334,8 @@
               "questions_planned": 4,
               "validation": [
                 "config_matches",
-                "fabric_check"
+                "fabric_check",
+                "result_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/data-warehouse/dynamic-data-masking"
@@ -348,15 +350,17 @@
               "text": "Apply sensitivity labels to items",
               "competency": "Apply sensitivity labels to items and know how labels flow to downstream items.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E16"
+                "E16",
+                "E76"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
                 "assessment",
+                "config_matches",
                 "fabric_check"
               ],
               "docs": [
@@ -372,15 +376,17 @@
               "text": "Endorse items",
               "competency": "Promote and certify items and know who may do each.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E16"
+                "E16",
+                "E76"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
                 "assessment",
+                "config_matches",
                 "fabric_check"
               ],
               "docs": [
@@ -402,9 +408,10 @@
               "text": "Choose between a pipeline and a notebook",
               "competency": "Choose between a pipeline and a notebook for a job and justify the choice.",
               "fabric_required": false,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E17"
+                "E17",
+                "E73"
               ],
               "capstones": [],
               "lessons": [
@@ -412,7 +419,8 @@
               ],
               "questions_planned": 4,
               "validation": [
-                "assessment"
+                "assessment",
+                "config_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
@@ -496,7 +504,8 @@
               "exercises": [
                 "E21",
                 "E22",
-                "E57"
+                "E57",
+                "E67"
               ],
               "capstones": [
                 "C1"
@@ -586,9 +595,10 @@
               "text": "Choose an appropriate data store",
               "competency": "Choose a lakehouse, warehouse, eventhouse or SQL database for a workload.",
               "fabric_required": false,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E27"
+                "E27",
+                "E74"
               ],
               "capstones": [],
               "lessons": [
@@ -597,7 +607,8 @@
               ],
               "questions_planned": 4,
               "validation": [
-                "assessment"
+                "assessment",
+                "config_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/fundamentals/decision-guide-data-store"
@@ -711,7 +722,8 @@
               "exercises": [
                 "E32",
                 "E33",
-                "E34"
+                "E34",
+                "E69"
               ],
               "capstones": [
                 "C1"
@@ -773,7 +785,8 @@
               "fabric_required": false,
               "best_local": "local_verified",
               "exercises": [
-                "E36"
+                "E36",
+                "E70"
               ],
               "capstones": [
                 "C1"
@@ -841,15 +854,17 @@
               "text": "Choose an appropriate streaming engine",
               "competency": "Choose Eventstream, Spark structured streaming or KQL for a streaming workload.",
               "fabric_required": false,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E40"
+                "E40",
+                "E75"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
-                "assessment"
+                "assessment",
+                "config_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/overview",
@@ -989,7 +1004,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E44"
+                "E44",
+                "E72"
               ],
               "capstones": [],
               "lessons": [],
@@ -1222,9 +1238,10 @@
               "text": "Identify and resolve T-SQL errors",
               "competency": "Find and fix T-SQL errors.",
               "fabric_required": true,
-              "best_local": "simulated",
+              "best_local": "local_verified",
               "exercises": [
-                "E55"
+                "E55",
+                "E65"
               ],
               "capstones": [],
               "lessons": [
@@ -1304,9 +1321,10 @@
               "text": "Optimize a data warehouse",
               "competency": "Optimize a data warehouse.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "local_verified",
               "exercises": [
-                "E61"
+                "E61",
+                "E66"
               ],
               "capstones": [],
               "lessons": [],

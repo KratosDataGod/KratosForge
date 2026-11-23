@@ -15,7 +15,7 @@ Every request passes ``Guard`` before anything else:
   shared PC or Remote Desktop server another person's program can't use a token it got hold of;
 - it must carry ``Authorization: Bearer <token>`` for a connected tool (only the OpenAPI document
   and the health check are open); tokens are stored hashed and stop working when revoked;
-- bodies over 1 MiB are refused, each tool is rate limited, and only a few calls run at once.
+- bodies over 1 MiB, or whose whole body doesn't arrive within 10 seconds in total, are refused, each tool is rate limited, and only a few calls run at once.
 
 Resources (``fabric-desktop://`` URIs) are readable at /api/v1/resources/read?uri=... too.
 
@@ -42,7 +42,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .. import __version__, jsonfile
 from . import peer
-from .core import CallContext, Caller, IntegrationError, error_from
+from .core import CallContext, Caller, IntegrationError, error_from, redacted
 from .registry import Registry
 from .store import IntegrationStore
 
@@ -55,6 +55,7 @@ MAX_CONCURRENT = 4         # calls running at once in this server
 QUEUE_WAIT_SECONDS = 10.0
 MAX_CONNECTIONS = 32       # open connections; past this a request gets 503 (uvicorn's limit_concurrency)
 HEADER_SECONDS = 10.0      # a connection's request line and headers must all arrive within this
+BODY_SECONDS = 10.0        # and then its whole body, within this in total (not per chunk)
 IDLE_SECONDS = 5           # between requests on a kept-alive connection
 OPEN_PATHS = {"/api/v1/health", "/api/v1/openapi.json"}
 
@@ -65,7 +66,8 @@ STATUS = {"invalid_input": 400, "not_found": 404, "permission_denied": 403, "app
 
 
 def error_response(err: IntegrationError, headers: dict[str, str] | None = None, status: int | None = None) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": err.to_dict()}, status_code=status or STATUS.get(err.code, 500), headers=headers)
+    # Redacted here too: some refusals echo what the caller sent (an unknown resource's URI).
+    return JSONResponse({"ok": False, "error": redacted(err).to_dict()}, status_code=status or STATUS.get(err.code, 500), headers=headers)
 
 
 class RateLimiter:
@@ -177,7 +179,36 @@ class Guard:
                     {"Retry-After": "1"}, client=found)
                 return
             scope.setdefault("state", {})["fd_client"] = found
-        await self.app(scope, _limit_body(receive), send)
+        # The whole body is read here, within BODY_SECONDS: a client that promises more than it sends
+        # (a Content-Length it never fills, a chunked body that stalls) would otherwise hold its
+        # connection, and one of MAX_CONNECTIONS, for as long as it liked.
+        messages: list[Message] = []
+        limited = _limit_body(receive)
+        try:
+            with anyio.fail_after(BODY_SECONDS):
+                while not messages or (messages[-1]["type"] == "http.request" and messages[-1].get("more_body")):
+                    messages.append(await limited())
+        except TimeoutError:
+            await self._refuse(scope, receive, send, IntegrationError(
+                "timeout", f"The request body didn't all arrive within {BODY_SECONDS:g} seconds.", retryable=True,
+                hint="Send the whole body, with a Content-Length that matches it."), {"Connection": "close"}, 408,
+                client=scope.get("state", {}).get("fd_client"))
+            return
+        except IntegrationError as err:
+            # The rest of the body is never read, so the connection can't carry another request.
+            await self._refuse(scope, receive, send, err, {"Connection": "close"},
+                               client=scope.get("state", {}).get("fd_client"))
+            return
+        if messages[-1]["type"] == "http.disconnect":
+            return  # the client went away mid-body: nobody to answer
+        await self.app(scope, _replay(messages, receive), send)
+
+
+def _replay(messages: list[Message], receive: Receive) -> Receive:
+    """The body Guard read, then the connection's own messages (a disconnect, for a long response)."""
+    async def replayed() -> Message:
+        return messages.pop(0) if messages else await receive()
+    return replayed
 
 
 def _limit_body(receive: Receive) -> Receive:
@@ -193,6 +224,31 @@ def _limit_body(receive: Receive) -> Receive:
                 raise IntegrationError("too_large", f"Requests are limited to {MAX_BODY_BYTES // 1024} KB.")
         return message
     return limited
+
+
+def _not_json(constant: str) -> Any:
+    raise ValueError(f"{constant} isn't JSON")
+
+
+def _strict_json(raw: bytes) -> Any:
+    """A body as JSON, held to what JSON is: no NaN or Infinity (Python's parser takes them), and no
+    lone surrogate (an escaped half of a UTF-16 pair), which can't be written back out as UTF-8.
+    Raises ValueError (UnicodeEncodeError is one) or RecursionError."""
+    body = json.loads(raw, parse_constant=_not_json)
+    json.dumps(body, ensure_ascii=False).encode("utf-8")
+    return body
+
+
+async def _http_error(request: Request, exc: Exception) -> Response:
+    """No such path, or the wrong method for it: the API's error shape, not Starlette's plain text."""
+    status = getattr(exc, "status_code", 500)
+    if status == 404:
+        err = IntegrationError("not_found", "There is no such endpoint.", hint="See /api/v1/openapi.json.")
+    elif status == 405:
+        err = IntegrationError("invalid_input", f"{request.method} isn't allowed here.", hint="See /api/v1/openapi.json.")
+    else:
+        err = IntegrationError("internal", "KratosForge hit an unexpected problem.")
+    return error_response(err, status=status if status in (404, 405) else 500)
 
 
 def openapi(registry: Registry, port: int) -> dict[str, Any]:
@@ -272,24 +328,34 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
                 for cap in registry.resources() if registry.availability(cap, ctx)[0] != "unavailable"]
         return JSONResponse({"ok": True, "resources": rows})
 
+    def refuse(request: Request, cap_id: str, arguments: Any, err: IntegrationError,
+               headers: dict[str, str] | None = None) -> Response:
+        """A call refused before Registry.invoke, recorded like one it refuses (PR-AI-010)."""
+        registry.refused(CallContext(caller_of(request)), cap_id, arguments, err)
+        return error_response(err, headers)
+
     async def read(request: Request) -> Response:
+        uri = request.query_params.get("uri", "")
         try:
-            cap, args = registry.resolve(request.query_params.get("uri", ""))
+            cap, args = registry.resolve(uri)
         except IntegrationError as err:
-            return error_response(err)
+            return refuse(request, "resources/read", {"uri": uri}, err)
         return await _run(request, cap.id, args)
 
     async def invoke(request: Request) -> Response:
         cap_id = request.path_params["cap_id"]
         try:
             raw = await request.body()
-            body = json.loads(raw) if raw.strip() else {}
+            body = _strict_json(raw) if raw.strip() else {}
         except IntegrationError as err:
-            return error_response(err)
+            return refuse(request, cap_id, None, err)
+        except RecursionError:  # json.loads gives up on JSON nested past Python's recursion limit
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body is nested too deeply.",
+                                                                  hint="Send flatter arguments."))
         except ValueError:
-            return error_response(IntegrationError("invalid_input", "The body must be JSON: {\"arguments\": {...}}."))
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body must be JSON: {\"arguments\": {...}}."))
         if not isinstance(body, dict) or not isinstance(body.get("arguments", {}), dict) or set(body) - {"arguments"}:
-            return error_response(IntegrationError("invalid_input", "The body must be {\"arguments\": {...}}."))
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body must be {\"arguments\": {...}}."))
         return await _run(request, cap_id, body.get("arguments") or {})
 
     async def _run(request: Request, cap_id: str, arguments: dict[str, Any]) -> Response:
@@ -303,8 +369,9 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         with anyio.move_on_after(QUEUE_WAIT_SECONDS) as waiting:
             await slots.acquire()
         if waiting.cancelled_caught:
-            return error_response(IntegrationError("rate_limited", "KratosForge is busy with other calls.",
-                                                   retryable=True, hint="Try again shortly."), {"Retry-After": "5"})
+            return refuse(request, cap_id, arguments, IntegrationError(
+                "rate_limited", "KratosForge is busy with other calls.", retryable=True, hint="Try again shortly."),
+                {"Retry-After": "5"})
         result: dict[str, Any] = {}
         try:
             async with anyio.create_task_group() as tg:
@@ -355,6 +422,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
                             Route("/api/v1/capabilities/{cap_id}/invoke", invoke, methods=["POST"]),
                             Route("/api/v1/resources", resources), Route("/api/v1/resources/read", read),
                             Route("/mcp", MCPEndpoint(), methods=["GET", "POST", "DELETE"])],
+                    exception_handlers={404: _http_error, 405: _http_error, 500: _http_error},
                     lifespan=lambda _app: manager.run())
     return Guard(app, store, port, limiter, registry)
 
@@ -369,6 +437,7 @@ def _protocol() -> type:
     as long as it liked. Here the request line and headers must all arrive within HEADER_SECONDS of
     the connection opening, or of the last response. A request that is running is never cut off.
     """
+    import h11
     from uvicorn.protocols.http.h11_impl import H11Protocol
 
     class Protocol(H11Protocol):
@@ -391,6 +460,18 @@ def _protocol() -> type:
             if self._deadline is not None:
                 self._deadline.cancel()
             self._deadline = self.loop.call_later(HEADER_SECONDS, self._headers_late)
+
+        def send_400_response(self, msg: str) -> None:
+            # A request line or headers h11 can't take (too big, malformed): answered in the API's
+            # error shape, like every other refusal, rather than uvicorn's plain text.
+            body = json.dumps({"ok": False, "error": IntegrationError(
+                "invalid_input", "The request line or headers are malformed or too big.").to_dict()}).encode()
+            headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()),
+                       (b"connection", b"close")]
+            self.transport.write(self.conn.send(h11.Response(status_code=400, headers=headers, reason=b"Bad Request")))
+            self.transport.write(self.conn.send(h11.Data(data=body)))
+            self.transport.write(self.conn.send(h11.EndOfMessage()))
+            self.transport.close()
 
         def _headers_late(self) -> None:
             if (self.cycle is None or self.cycle.response_complete) and not self.transport.is_closing():

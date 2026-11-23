@@ -30,11 +30,11 @@ lists the gates as they apply here.
 | Measurement shape | `measurement.py`: measured, estimated, scenario, unknown; unknown is `None`, never 0; scenario never summed; units kept apart; a price is never a charge | **Built** (FINOPS-001) | Every figure in the ledger and on the page is one of these. Evidence status on every metric comes from here |
 | Local CU avoided | `calibration.py`: Fabric runs of the same workload only, measured preferred, median of 5 most recent within 90 days, scaled by rows when both sides have them; otherwise Unknown | **Built** (FINOPS-005, #257) | The only source of "CU avoided by running locally". Time on the PC is never turned into CU |
 | Cost report | `costs.py` `report` via RPC `cost_report` (`estate_service.py`); UI `costPanel` in `app/ui/estate.js`, shown on Optimize > Cost and savings with badges and a "how it was worked out" drawer | **Built** (Preview) | Kept working through every phase. The redesign reads the same evidence, then adds the shared ledger |
-| Pricing | `costs.DEFAULTS`: one `price_per_cu_hour` (0.18), `currency`, `python_cu`, `spark_cu`; SKU sizes F2 to F2048, P1 to P5 | **Built**, single price | Replaced by versioned pricing scenarios (ESI-401). The single price becomes the first scenario, labelled as an assumption |
+| Pricing | `costs.DEFAULTS`: one `price_per_cu_hour` (0.18), `currency`, `python_cu`, `spark_cu`; SKU sizes F2 to F2048, P1 to P5 | **Built**, single price. Versioned scenarios are built, engine only (ESI-401, `savings/pricing.py`) | Replaced by versioned pricing scenarios (ESI-401). The single price becomes the first scenario, labelled as an assumption |
 | Measured CU and billing | `usage/`: Capacity Metrics app exports (timepoint and compute pages) and Azure Cost Management exports (actual cost and FOCUS), stored on the PC, reconciled to runs by name and time | **Built** (FINOPS-003) | Measured CU for baselines; Cost Management rows are the evidence for **realized** savings; timepoints feed the capacity planner |
 | Opportunities | `opportunities/` (model, inventory, analyzers, impact, assess, share), RPC `optimization_assess`; impact from measured job history and imported CU; one opportunity counted per workload by `ACTION_ORDER` | **Built** (OE-001, OE-003, OE-004 #2607) | Source of optimization candidates. Its overlap rule is the first layer of the double-count control |
 | Recommendations lifecycle | `fdopt_recommendations` events: open, accepted, applied, dismissed, verified, superseded (`shared.TRANSITIONS`) | **Built** | Extended, not replaced, to the brief's lifecycle (section 4.4) |
-| Assessment | Fabric Excellence Assessment, plan PR #2939, stories FEA-101 to FEA-604; findings keyed by control id plus resource fingerprint | Planned | Findings create optimization records through the existing fingerprint, so repeat runs never duplicate them (ESI-601) |
+| Assessment | Fabric Excellence Assessment, plan PR #2939, stories FEA-101 to FEA-604; findings keyed by control id plus resource fingerprint | **Built** in part (FEA-101 to FEA-105, FEA-109, FEA-203, FEA-301, FEA-302; Preview) | Findings create optimization records through the existing fingerprint, so repeat runs never duplicate them (ESI-601) |
 | Settings history | `tenant_history.py` (`fdten_`), `capacity_history.py` (`fdcap_`): capacity SKU snapshots and changes from `GET /v1/capacities` | **Built** | Evidence that a capacity was actually resized or removed, for realized savings |
 | Sync overhead | OPT-009: seconds, rows and commits per sync written as Measured rows in `fdopt_measurements` | **Built** except bytes | The "Fabric overhead incurred" line of net benefit. Bytes and any CU for OneLake I/O stay Unknown until measured |
 | Capacity planner | OE-040 (demand model from imported timepoints), OE-041 (consolidation simulator) in `docs/optimize/engine-plan.md` | Planned | Section 12 integrates with these. This program does not build its own simulator |
@@ -322,7 +322,7 @@ Assessment), `calibration.py` and `costs.py` (FinOps rules, Quality reads the co
 
 ### Phase 1: Shared telemetry foundation
 
-**ESI-101 Schema v2 for `fdopt_`.** Additive migration: provenance `tenant_id`; execution,
+**ESI-101 Schema v2 for `fdopt_`.** **Built** (#2962): the new nullable columns and the six new tables; writes use the columns of the version the lakehouse is at, and other families no longer wait for Optimize's upgrade. The provenance `tenant_id` and other identity columns wait for ESI-102's decision. Additive migration: provenance `tenant_id`; execution,
 optimization, ledger and sync columns from 4.1; new tables `fdopt_pricing`,
 `fdopt_optimization_link`, `fdopt_baseline`, `fdopt_validation`, `fdopt_attribution`,
 `fdopt_sync`. Owner: Optimize lakehouse thread (schema.py), specified here.
@@ -382,6 +382,7 @@ person's visible workspaces, grouped by workload, with per-device comparison.
 
 **ESI-109 Collector decision.** Feasibility note for mode C (UDF writing Delta, payload limits,
 CU per call) from documentation, then a recommendation. Building it needs Chris's typed go.
+**Note written**: [esi-109-collector-feasibility.md](esi-109-collector-feasibility.md). Building it still needs Chris's typed go.
 
 ### Phase 2: Unified execution savings
 
@@ -394,7 +395,7 @@ rules in `calibration.py` (additive).
   measurement row (the old row stays).
 - Tests: scenario 13, baseline version change (12).
 
-**ESI-202 Overhead per execution.** Data transfer seconds and bytes, sync overhead, and any
+**ESI-202 Overhead per execution.** **Built** (engine only, no writes). `savings/overhead.py`. Data transfer seconds and bytes, sync overhead, and any
 OneLake operations, as separate measurements; Unknown where not measured.
 
 **ESI-203 Execution ledger accruals.** Gross, overhead and net CU avoided per execution as
@@ -414,7 +415,7 @@ never code text); rollback information; responsible user and device. Through the
 lakehouse thread (`shared.py`).
 - Tests: scenario 9 (concurrent updates), 10 (reversal), 11 (retirement).
 
-**ESI-302 Baselines and validation.** Versioned baselines with measurement windows; before and
+**ESI-302 Baselines and validation.** **Built** (engine only, no writes). `savings/baselines.py`. Versioned baselines with measurement windows; before and
 after comparison on equivalent inputs; output equivalence where measurable; validation result
 moves Validating → Verified or back. CU change only from measured CU or a labelled estimate,
 never from time alone.
@@ -446,13 +447,13 @@ linked to optimizations by a confirmed person action; measure F.
 - Acceptance: nothing is labelled realized without billing or capacity-change evidence; an F64
   with lower utilization shows value and headroom, not realized savings.
 
-**ESI-404 Corrections.** Correction and reversal events with `corrects`; reconciliation report
+**ESI-404 Corrections.** **Built** (engine only, no writes). `savings/corrections.py`. Writing its events waits on an additive `fdopt_savings` change (layer, CU hours, classification, result CU hours and classification, layer removed, reason), co-signed with Lakehouse optimize. Correction and reversal events with `corrects`; reconciliation report
 that rebuilds totals from the ledger and compares.
 - Tests: scenario 19.
 
 ### Phase 5: Enterprise reporting
 
-**ESI-501 Reporting schema.** Documented star schema (`dim_*`, `fact_*`) over `fdopt_`, with
+**ESI-501 Reporting schema.** **Documented** in [savings-reporting-schema.md](savings-reporting-schema.md). Documented star schema (`dim_*`, `fact_*`) over `fdopt_`, with
 measure definitions; SQL views or a semantic model only after D6.
 
 **ESI-502 Cost and savings mockup.** Section 5's screens, light shell, via the UX thread, then

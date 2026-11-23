@@ -33,7 +33,7 @@ a mockup Chris has reacted to; the engine and content work goes first, as small 
 | 2 | Existing-feature reuse matrix | [Capability audit and reuse](capability-audit.md#reuse-matrix) |
 | 3 | Complete DP-700 objective coverage matrix | [DP-700 coverage](dp-700-coverage.md) |
 | 4 | Backlog for ACD-001 to ACD-020 | [Backlog](backlog.md) |
-| 5 | Initial exercise curriculum (64 exercises, 12 broken environments, 3 capstones) | [Curriculum](curriculum.md) |
+| 5 | Initial exercise curriculum (68 exercises, 14 broken environments, 3 capstones) | [Curriculum](curriculum.md) |
 | 6 | Data and content architecture | [Architecture](architecture.md) |
 | 7 | Ownership and thread assignments | [Delivery plan](delivery-plan.md#ownership) |
 | 8 | PR dependency graph | [Delivery plan](delivery-plan.md#pr-dependency-graph) |

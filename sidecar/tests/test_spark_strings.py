@@ -146,6 +146,9 @@ STRINGS = [
     (r"'ab' like 'a_'", "boolean", True),
     (r"concat('a', NULL)", "string", None),
     (r"'a' || NULL", "string", None),
+    (r"('a' || NULL) || 'b'", "string", None),
+    (r"concat(concat('a', NULL), 'b')", "string", None),
+    (r"'x' || (('a' || NULL) || 'b')", "string", None),
     (r"concat('a', 'b')", "string", "ab"),
     (r"concat_ws(',', 'a', NULL, 'b')", "string", "a,b"),
     (r"concat_ws(',', array('a', NULL, 'b'), 'c')", "string", "a,b,c"),
@@ -229,6 +232,7 @@ STILL_DIFFERS = {
     "A pattern taken from the data": "SELECT rlike(s, p) FROM t",
     "`$` without the `m` flag": "SELECT rlike(s, 'a$') FROM t",
     "`.` and": "SELECT rlike(s, 'a.b') FROM t",
+    "`(?m)` with `^` and `$`": "SELECT rlike(s, '(?m)a$') FROM t",
     "`(?i)` with letters outside ASCII": "SELECT rlike(s, '(?i)é') FROM t",
     "`\\b` next to a letter outside ASCII": "SELECT rlike(s, '\\\\bé') FROM t",
     "`split` with a pattern that can match no text": "SELECT split(s, 'x*') FROM t",
@@ -236,7 +240,7 @@ STILL_DIFFERS = {
     "`concat_ws` with an array column": "SELECT concat_ws(',', a) FROM t",
     "A pattern in the DataFrame API given as a column": "",
     "`F.split_part` with an empty delimiter": "",
-    "`upper('ß')`": "SELECT upper(s) FROM t",
+    "`F.upper` of `'ß'`": "",  # SQL upper('ß') gives Spark's SS since #3050
 }
 
 

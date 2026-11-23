@@ -114,7 +114,8 @@ def test_describe_table_answers_with_databricks_columns(cell):
             ["n", "bigint", None], ["ok", "boolean", None], ["d", "date", None], ["x", "double", None]]
     assert cell("DESCRIBE TABLE customer", columns=True) == (["col_name", "data_type", "comment"], rows)
     assert cell("DESC customer") == rows
-    assert cell("DESCRIBE main.customer") == rows
+    assert cell("DESCRIBE default.customer") == rows
+    assert cell("DESCRIBE main.default.customer") == rows  # WR-316: main is the catalog, default its schema
 
 
 def test_describe_stops_for_a_missing_table_or_a_type_it_cant_name(cell):
@@ -224,3 +225,12 @@ def test_group_by_all_and_order_by_all(cell):
 def test_lateral_column_aliases(cell):
     assert cell("SELECT c1 AS a, a + c1 FROM VALUES(2, 3) AS T(c1, a)") == [[2, 5]]
     assert cell("SELECT c1 AS a, a + c1 FROM VALUES(2) AS T(c1)") == [[2, 4]]
+
+
+# https://docs.databricks.com/aws/en/sql/language-manual/functions/table_changes: a Delta table's change data feed,
+# which a DuckDB session's tables don't have
+def test_table_changes_is_refused_in_a_duckdb_session(cell):
+    cell("CREATE TABLE t (id INT)")
+    answer = cell("SELECT * FROM table_changes('t', 0)")
+    _refused(answer, "table_changes")
+    assert "readChangeFeed" in answer

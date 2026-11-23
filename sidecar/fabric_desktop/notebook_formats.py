@@ -30,7 +30,7 @@ import zlib
 from pathlib import PurePosixPath
 from typing import Any
 
-from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, to_ipynb
+from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, ipynb_cell_problem, to_ipynb
 
 FORMATS = ("ipynb", "ipynb_outputs", "fabric_py", "databricks_py", "html")
 EXTENSIONS = {"ipynb": ".ipynb", "ipynb_outputs": ".ipynb", "fabric_py": ".py", "databricks_py": ".py", "html": ".html"}
@@ -516,6 +516,10 @@ def _databricks_cell(text: str, comment: str, default: str | None,
     return _code(f"{default}\n{text}" if default else text)
 
 
+SH_EXIT = (" A %%sh cell fails when its script ends with a non-zero exit code, as a %sh -e cell does in Databricks."
+           " There, a plain %sh cell goes on.")
+
+
 def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None, n: int = 0) -> dict[str, Any]:
     """A Databricks cell whose first line is a magic: %md, %sql, %scala, %r, %python, %run, %pip..."""
     first = body[0].strip() if body else ""
@@ -530,9 +534,12 @@ def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None
         return _markdown(_trim(tail))
     if name == "python":
         return _code(_trim(tail))
+    if name == "sh" and rest.strip() == "-e":  # %sh -e: fail the cell on a non-zero exit, which %%sh can't say
+        return _code("%sh -e\n" + _trim(body[1:]))
     if name in _FROM_DATABRICKS:
         if notes is not None:
-            notes.append(_note(n, "changed", f"%{name} became {_FROM_DATABRICKS[name]}, KratosForge's way to mark the language."))
+            notes.append(_note(n, "changed", f"%{name} became {_FROM_DATABRICKS[name]}, KratosForge's way to mark the language."
+                               + (SH_EXIT if name == "sh" else "")))
         return _code(_FROM_DATABRICKS[name] + "\n" + _trim(tail))
     return _code("\n".join(body))  # %run, %pip, %fs...: line magics, kept as they are
 
@@ -618,12 +625,24 @@ def parse_ipynb(text: str) -> dict[str, Any]:
     if len(text) > MAX_TEXT:
         raise ValueError("The file is larger than 32 MB, so it wasn't read.")
     try:
-        nb = json.loads(text)
+        nb = json.loads(text.lstrip("\ufeff"))
     except (ValueError, RecursionError):  # RecursionError: nested too deep to be a notebook
         raise ValueError("This .ipynb file isn't valid JSON, so it can't be imported.") from None
     if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
         raise ValueError("This .ipynb file has no cells list, so it isn't a Jupyter notebook.")
-    return {"format": "Jupyter notebook (.ipynb)", "cells": from_ipynb(nb)["cells"]}
+    problem = ipynb_cell_problem(nb["cells"])
+    if problem:
+        raise ValueError(f"This .ipynb file can't be imported, because {problem}. Fix that cell in Jupyter, then import it "
+                         "again.")
+    notes: list[dict[str, Any]] = []
+    for n, c in enumerate(nb["cells"], 1):
+        if c.get("cell_type") not in ("code", "markdown"):
+            notes.append(_note(n, "changed", f"The cell's type ({str(c.get('cell_type') or 'none')[:40]}) isn't code or markdown, "
+                                             "so it comes in as a code cell."))
+        if c.get("outputs"):
+            notes.append(_note(n, "dropped", "The cell's saved outputs were left out, because imported notebooks start without outputs. "
+                                             "Run the cell to get them."))
+    return {"format": "Jupyter notebook (.ipynb)", "cells": from_ipynb(nb)["cells"], "notes": notes}
 
 
 def _safe_entry(name: str) -> bool:

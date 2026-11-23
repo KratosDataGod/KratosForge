@@ -1148,7 +1148,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -2449,7 +2449,7 @@ function dialogHelpers() {
   const section = app.slice(app.indexOf("// ---------- dialogs and menus ----------"), app.indexOf("function showMenu("));
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
   const keys = features.slice(features.indexOf("// ---------- keyboard shortcuts"), features.indexOf("function shortcutsDialog("));
-  const code = keys + section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
+  const code = keys + section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0] + meta.match(/function gateList\([\s\S]*?\n}\n/)[0];
   const node = (tag, attrs = {}, ...kids) => {
     const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {}, value: attrs?.value || "",
       addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
@@ -2510,6 +2510,135 @@ test("a workspace picker and a confirmation settle however they close", async ()
     e[close]();
     assert.deepStrictEqual(await settledOrHung(ok), { v: false }, close);
   }
+});
+
+// Delta table features at publish (Preview): each table's choice on Data mesh > Deploy, a typed confirm
+// when the choice breaks one of the table's readers, and a refused note that links the reader matrix.
+const DELTA_REASON = "This choice allows deletion vectors, which Fabric pipelines can't read (Microsoft's Delta Lake interoperability page).";
+function deltaUi({ shown = true, confirm = true, refuse = null, readers = null } = {}) {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const start = meta.indexOf("// ---------- Delta table features at publish (Preview) ----------");
+  const code = meta.slice(start, meta.indexOf("\n// ---------- ", start + 10));
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), value: "",
+      replaceChildren(...k) { this.kids = k.flat(Infinity).filter((x) => x != null); } };
+    if (tag === "select") {
+      const picked = n.kids.find((o) => o.attrs.selected);
+      n.value = picked ? picked.attrs.value : n.kids[0]?.attrs.value;
+    }
+    return n;
+  };
+  const calls = { confirm: [], rpc: [], toast: [] };  // copied out of the script's realm, so deepStrictEqual compares values
+  const ctx = {
+    h: node, state: { meta: {} },
+    previewShown: () => shown,
+    previewMarked: (id, n) => { n.kids.push(`Preview:${id}`); return n; },
+    confirmDialog: async (...args) => { calls.confirm.push(JSON.parse(JSON.stringify(args))); return confirm; },
+    rpc: async (method, params) => {
+      calls.rpc.push([method, JSON.parse(JSON.stringify(params))]);
+      if (refuse) throw new Error(refuse);
+      return { entities: [{ name: params.name, delta: { ...table.delta, features: params.delta_features } }] };
+    },
+    friendlyError: (e) => ({ text: String(e.message || e) }),
+    toast: (t) => calls.toast.push(t),
+    docLink: (page, label) => node("a", { href: page }, label),
+  };
+  vm.runInNewContext(`${code}; Object.assign(this, { deltaFeaturesCard, DELTA_CHOICES });`, ctx);
+  const table = { name: "gold.fact_sales", delta: { features: null, reader_names: readers || ["Fabric's SQL analytics endpoint", "Fabric pipelines"],
+    reasons: { default: [DELTA_REASON], every_reader: [], deletion_vectors: [DELTA_REASON], column_mapping: [] }, problems: [] } };
+  const card = ctx.deltaFeaturesCard({ entities: [table] });
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const text = (n) => !n ? "" : typeof n === "string" ? n : n.kids.map(text).join("");
+  const select = find(card, (n) => n.tag === "select");
+  const pick = async (value) => { select.value = value; await select.attrs.onchange(); };
+  return { ctx, card, table, select, calls, find, text, pick };
+}
+
+test("each table has a Delta table features at publish select, tagged Preview, that shows the modern default", () => {
+  const d = deltaUi();
+  const label = d.find(d.card, (n) => n.tag === "label" && n.kids.includes(d.select));
+  assert.strictEqual(label.kids[0], "Delta features", "the select's own label");
+  assert.deepStrictEqual(d.select.kids.map((o) => o.kids[0]), ["Default: deletion vectors and column mapping (modern)",
+    "Every reader: no deletion vectors or column mapping", "Allow deletion vectors only", "Allow column mapping by name only"]);
+  assert.deepStrictEqual(d.select.kids.map((o) => o.attrs.value), ["", "every_reader", "deletion_vectors", "column_mapping"]);
+  assert.strictEqual(d.select.value, "", "no setting shows the default");
+  assert.ok(d.text(d.card).includes("Preview:deltaPerTable"), "the heading carries the Preview tag");
+  assert.ok(d.text(d.card).includes("Checked against Fabric's SQL analytics endpoint and Fabric pipelines."));
+  assert.strictEqual(deltaUi({ shown: false }).card, null, "hidden with the other Preview features");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  assert.match(features, /\n  deltaPerTable: "Delta table features at publish",/);
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  assert.match(meta, /promoteRow\("dev", "test"\), promoteRow\("test", "prod"\), deltaFeaturesCard\(p\)\);/, "on the Environments tab");
+});
+
+test("three readers are listed as a, b and c, and the default's confirm names both features", async () => {
+  const d = deltaUi({ readers: ["Fabric's SQL analytics endpoint", "Direct Lake", "Fabric pipelines"] });
+  assert.ok(d.text(d.card).includes("Checked against Fabric's SQL analytics endpoint, Direct Lake and Fabric pipelines."));
+  const one = deltaUi({ readers: ["Direct Lake"] });
+  assert.ok(one.text(one.card).includes("Checked against Direct Lake."));
+  await d.pick("every_reader");
+  await d.pick("");
+  assert.strictEqual(d.calls.confirm[0][0], "Allow deletion vectors and column mapping on gold.fact_sales?");
+});
+
+test("a choice that breaks no reader saves without asking", async () => {
+  const d = deltaUi();
+  await d.pick("every_reader");
+  assert.deepStrictEqual(d.calls.confirm, []);
+  assert.deepStrictEqual(d.calls.rpc, [["meta_set_delta_features", { name: "gold.fact_sales", delta_features: "every_reader", confirm_name: null }]]);
+  assert.deepStrictEqual(d.calls.toast, ["Saved. Runs that publish gold.fact_sales now use this choice."]);
+  assert.strictEqual(d.table.delta.features, "every_reader");
+});
+
+test("a choice that breaks a reader asks for the table's name, in red, with the reasons", async () => {
+  const d = deltaUi();
+  await d.pick("deletion_vectors");
+  assert.strictEqual(d.calls.confirm.length, 1);
+  const [title, text, ok, opts] = d.calls.confirm[0];
+  assert.strictEqual(title, "Allow deletion vectors on gold.fact_sales?");
+  assert.strictEqual(text, "These readers of gold.fact_sales can't read it with this choice, or no source says they can. "
+    + "It applies to this table only.");
+  assert.strictEqual(ok, "Allow it");
+  assert.deepStrictEqual(opts, { danger: true, typeToConfirm: "gold.fact_sales", typeLabel: "Type gold.fact_sales to allow it", items: [DELTA_REASON] });
+  assert.deepStrictEqual(d.calls.rpc, [["meta_set_delta_features", { name: "gold.fact_sales", delta_features: "deletion_vectors", confirm_name: "gold.fact_sales" }]]);
+  // Cancel saves nothing and puts the select back.
+  const c = deltaUi({ confirm: false });
+  await c.pick("deletion_vectors");
+  assert.deepStrictEqual(c.calls.rpc, []);
+  assert.strictEqual(c.select.value, "");
+});
+
+test("the typed confirm keeps Allow it off until the table's full name is typed, and lists the reasons", () => {
+  const d = dialogHelpers();
+  d.confirmDialog("Allow deletion vectors on gold.fact_sales?", "x", "Allow it",
+    { danger: true, typeToConfirm: "gold.fact_sales", typeLabel: "Type gold.fact_sales to allow it", items: [DELTA_REASON] });
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const overlay = d.root.kids[0];
+  const label = find(overlay, (n) => n.tag === "label");
+  assert.strictEqual(label.kids[0], "Type gold.fact_sales to allow it");
+  assert.ok(find(overlay, (n) => n.tag === "li" && n.kids[0] === DELTA_REASON), "the reasons are listed");
+  const ok = find(overlay, (n) => n.tag === "button" && n.kids[0] === "Allow it");
+  assert.strictEqual(ok.attrs.class, "tool danger-solid");
+  const input = find(label, (n) => n.tag === "input");
+  for (const [typed, off] of [["gold.fact", true], ["GOLD.FACT_SALES", true], ["gold.fact_sales", false]]) {
+    input.fire("input", { target: { value: typed } });
+    assert.strictEqual(ok.disabled, off, typed);
+  }
+});
+
+test("a refused choice says why under the select and links the reader matrix", async () => {
+  const refusal = "gold.fact_sales wasn't saved, because the name typed to allow it was gold.fact, not gold.fact_sales.";
+  const d = deltaUi({ refuse: refusal });
+  await d.pick("every_reader");
+  const note = d.find(d.card, (n) => n.attrs?.class === "problems");
+  assert.ok(note, "a refused note");
+  assert.strictEqual(d.text(note.kids[0]), refusal);
+  const link = d.find(note, (n) => n.tag === "a");
+  assert.strictEqual(link.kids[0], "See the reader matrix");
+  assert.strictEqual(link.attrs.href, "delta-reader-matrix.md#each-tables-own-choice-preview");
+  assert.strictEqual(d.select.value, "", "the select goes back to what is saved");
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "delta-reader-matrix.md"), "utf8");
+  assert.match(doc, /\n## Each table's own choice \(Preview\)\n/, "the link's section exists");
 });
 
 test("a dialog's onClose runs exactly once, also when another dialog replaces it", () => {
@@ -3027,6 +3156,54 @@ test("a cell replaced whole keeps its breakpoints by line text, and names the on
   assert.strictEqual(dbgDroppedText([4], "its line was deleted"), "Removed the breakpoint on line 4, because its line was deleted.");
   assert.strictEqual(dbgDroppedText([2, 5, 9], "their lines were deleted"), "Removed the breakpoints on lines 2, 5 and 9, because their lines were deleted.");
   assert.strictEqual(dbgDroppedText([], "x"), "");
+});
+
+test("a garbled or oversized pause from the engine is cleaned to what the panel draws, never thrown on", () => {
+  const { dbgCleanPause } = dbgHelpers();
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  // No usable line: nothing to show as paused.
+  for (const bad of [null, undefined, 3, "paused", [], [{ line: 2 }], {}, { line: 0 }, { line: -1 }, { line: "2" }, { line: 2.5 }, { line: null }]) {
+    assert.strictEqual(dbgCleanPause(bad), null, JSON.stringify(bad));
+  }
+  // A good pause reads as sent.
+  const good = { line: 3, reason: "breakpoint", stack: [{ function: "(cell)", line: 5 }, { function: "f", line: 3 }],
+    variables: [{ name: "n", type: "int", size: "", value: "2" }], watches: [{ expr: "n", value: "2", type: "int", size: "" }],
+    evals: [{ expr: "m", error: "NameError: m" }], variables_total: 250, skipped: ["json.dumps"] };
+  assert.deepStrictEqual(plain(dbgCleanPause(good)), {
+    line: 3, reason: "breakpoint", stack: good.stack, variables: good.variables, watches: good.watches,
+    evals: [{ expr: "m", value: "", type: "", size: "", error: "NameError: m" }], variables_total: 250, skipped: ["json.dumps"] });
+  // Wrong types: lists that aren't lists, rows that aren't objects, values that are objects.
+  const odd = plain(dbgCleanPause({ line: 2, reason: { x: 1 }, stack: "(cell) line 2", variables: [null, 3, "x", [1], { name: { a: 1 }, value: 5 }],
+    watches: {}, evals: "e", variables_total: "9", skipped: [1, null, "ok"] }));
+  assert.deepStrictEqual(odd, { line: 2, reason: "", stack: [], variables: [{ name: "", type: "", size: "", value: "5" }], watches: [], evals: [], skipped: ["ok"] });
+  // Oversized: rows and text are capped.
+  const big = dbgCleanPause({ line: 1, variables: Array.from({ length: 5000 }, (_, i) => ({ name: `v${i}`, value: "x".repeat(10000) })),
+    stack: Array.from({ length: 5000 }, () => ({ function: "f", line: 1 })), skipped: Array.from({ length: 50 }, (_, i) => `f${i}`) });
+  assert.strictEqual(big.variables.length, 500);
+  assert.strictEqual(big.variables[0].value.length, 2000);
+  assert.strictEqual(big.stack.length, 500);
+  assert.strictEqual(big.skipped.length, 20);
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  assert.match(dbg, /const now = snap\?\.status === "running" \? dbgCleanPause\(snap\.paused\) : null;/);
+});
+
+test("a pause in a cell edited mid-run is marked on its code, never on another line", () => {
+  const { dbgPausedLine } = dbgHelpers();
+  const ran = "a = 1\nb = 2\nc = 3";
+  // Not edited: the kernel's line as is.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, ran, 2) }, { line: 2, edited: false });
+  assert.deepStrictEqual({ ...dbgPausedLine(undefined, "x", 1) }, { line: 1, edited: false });
+  // Two lines inserted above: the mark moves with line 2's code.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "# new\n# new\na = 1\nb = 2\nc = 3", 2) }, { line: 4, edited: true, text: "b = 2" });
+  // The paused line was deleted or rewritten: no mark at all, rather than one on some other line.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nc = 3", 2) }, { line: null, edited: true, text: "b = 2" });
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nb = 20\nc = 3", 2) }, { line: null, edited: true, text: "b = 2" });
+  // An edit elsewhere: same line, but still said to be the code as it ran.
+  assert.deepStrictEqual({ ...dbgPausedLine(ran, "a = 1\nb = 2\nc = 30", 2) }, { line: 2, edited: true, text: "b = 2" });
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  assert.match(dbg, /cell\.dbgRan = cell\.source;/);
+  assert.match(dbg, /if \(cell\.paused\) dbgPausedEdited\(cell\);/);
+  assert.match(dbg, /dbgEditedNote\(dbgPausedLine\(cell\.dbgRan, cell\.source, p\.line\), p\.line\)/);
 });
 
 test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
@@ -5814,11 +5991,12 @@ test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the e
   assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
 });
 
-test("Profile shows proofs, and Journey and Achievements only while progression is on (KF-DX-002)", () => {
+test("Profile shows proofs, and Journey, Ranks, Skill trees and Achievements only while progression is on (KF-DX-002)", () => {
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
   assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
-  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "trees", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /p\.settings\.progression \? tab\("trees", "Skill trees"\) : null/);
   assert.match(p, /const proved = r\.type === "prove\.match";/);
   const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);
@@ -5944,6 +6122,30 @@ test("the Ossie card exports, previews and imports only after a confirm, and hid
   assert.match(go, /\{ danger: c\.mode === "replace" \}/);
   assert.match(go, /if \(!ok\) return;/);
   assert.match(card, /OSSIE_MAX_BYTES/, "a file too large to be a model is refused before it's read");
+});
+
+test("the semantic view publish-steps card reads the saved files and writes nothing to Fabric (OSSIE-005b)", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.split("// ---------- Fabric Semantic View: the publish steps")[1].split("// ---------- profiling ----------")[0];
+  assert.match(card, /preview\("semanticView", /, "the card is a Preview feature and hides with them");
+  assert.match(meta, /\n    ossieCard\(plan\),\n    semanticViewCard\(plan\),\n/, "the card sits under the Apache Ossie card");
+  for (const method of ["meta_model_semantic_view_status", "meta_model_semantic_view_reveal", "meta_model_semantic_view_save", "meta_model_ossie_folders"]) {
+    assert.match(card, new RegExp(`"${method}"`), `${method} has a caller`);
+  }
+  // Only these engine calls: nothing that reaches Fabric.
+  const called = new Set([...card.matchAll(/(?:rpc|metaCall)\("(\w+)"/g)].map(([, m]) => m));
+  assert.deepStrictEqual([...called].sort(), ["meta_model_ossie_folders", "meta_model_semantic_view_reveal", "meta_model_semantic_view_save", "meta_model_semantic_view_status"]);
+  // Save view files: the write carries confirmed and the preview's token only after confirmDialog said yes, danger when it deletes.
+  const save = card.split("async function svSaveFiles(")[1].split("\n}\n")[0];
+  assert.ok(save.indexOf("confirmDialog(") < save.indexOf("confirmed: true"), "confirm comes before the write");
+  assert.match(save, /if \(!ok\) return;/);
+  assert.match(save, /\{ danger: removed\.length > 0 \}/);
+  assert.match(save, /token: c\.token/);
+  // Every Learn link is a literal learn.microsoft.com URL, opened through open_link.
+  const urls = [...card.matchAll(/"(https:\/\/[^"]+)"/g)].map(([, u]) => new URL(u).hostname);
+  assert.ok(urls.length >= 8 && urls.every((h) => h === "learn.microsoft.com"), urls.join(", "));
+  assert.match(card, /onclick: \(e\) => \{ e\.preventDefault\(\); openLink\(url\); \}/);
+  assert.doesNotMatch(card, /publishes the view for you|KratosForge publishes/i, "never says the app publishes");
 });
 
 test("the Direct Lake check is a Preview card that only reads, with fixes that open where the change is made", () => {
@@ -6088,7 +6290,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
+    runSeveral: ["Run several notebooks"], modelBpa: ["Semantic model best practices"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
@@ -6107,16 +6309,18 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
     trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
-    lineage: ["Column lineage", "Impact of a column change"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    lineage: ["Column lineage", "Impact of a column change", "Export lineage as OpenLineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
-    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
+    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Snowflake SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
-      "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
-    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"], ossie: ["Ossie file to TMDL"],
+    sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
+    semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],
+    kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -6128,7 +6332,6 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
-    "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
     "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
     "Notebook templates for Silver and Gold": ["docs/notebook-templates.md", /There is no page in the app to pick a template/],
@@ -6491,6 +6694,7 @@ const FABRIC_WRITES = {
   start_cell: ["notebook.js", null, "delta.concurrent"], // notebook writes go through the path that check runs
   run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run", "meta.js"],
   run_notebook_fabric_step: ["fabricstep.js", "fabricStep", null],
+  model_bpa_check: ["meta.js", "modelBpa", null],
   cancel_fabric_run: ["activity.js", "cancelFabricRun", null],
   add_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
   delete_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
@@ -6551,6 +6755,11 @@ const FABRIC_WRITES = {
   appstudio_publish: ["appstudio.js", "page", null],
   // Settings' Motion sample also starts a run, but only Wait and SetVariable steps on this PC (checked below)
   pipeline_run_start: ["pipelines.js", "page", null],
+  // Settings > Environment (CP-010): shown only with preview features on, its heading tagged Preview
+  cp_create: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_adopt: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_connect: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
+  cp_upgrade: ["kf-environment.js", null, null, 'kf-environment.js: h("h2", { class: "kfe-title" }, "KratosForge Environment ", previewTag())'],
   optimize_create: ["optimize.js", "page", null],
   optimize_connect: ["optimize.js", "page", null],
   optimize_set_recommendation: ["optimize.js", "page", null],
@@ -6577,6 +6786,7 @@ const FABRIC_WRITES = {
 };
 // Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
 const FABRIC_READS = {
+  meta_openlineage_export: "reads the run log; writes a new file in Downloads, nothing in Fabric",
   list_capacities: "reads", list_files: "reads", list_items: "reads", list_lakehouses: "reads", list_tables: "reads",
   list_workspaces: "reads", readiness_check: "reads only, never opens a sign-in window", sign_in: "gets a token",
   wh_monitoring_view: "reads the monitoring database", appstudio_plan: "asks the person's model; nothing goes to Fabric",

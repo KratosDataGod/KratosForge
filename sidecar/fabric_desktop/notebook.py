@@ -537,7 +537,9 @@ class _Run:
             self.status = status
             self.seconds = round(time.monotonic() - self.started, 2)
             self.version += 1
-        self.done.set()
+            # Under the lock with the status: a poll that sees the cell finished never finds it still
+            # running when the next cell starts (check_free reads done).
+            self.done.set()
 
     def snapshot(self, known_version: int = -1) -> dict[str, Any]:
         progress = _query_progress(self.thread.ident if self.thread else None) if self.status == "running" else None
@@ -1226,7 +1228,7 @@ class Kernel:
                 run.interrupted = True
                 results += [{"expr": e, "skipped": True} for e in watches[i:]]
                 break
-            except Exception as exc:  # noqa: BLE001 - shown next to the watch
+            except BaseException as exc:  # noqa: BLE001 - exit() and the like too: shown next to the watch
                 results.append({"expr": expr, "error": _redacted(f"{type(exc).__name__}: {exc}")})
             results[-1]["seconds"] = round(time.monotonic() - started, 3)
         with run.lock:

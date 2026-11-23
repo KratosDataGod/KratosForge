@@ -67,7 +67,7 @@ def test_a_column_never_shows_another_columns_values(duck):
 
 
 @pytest.mark.xfail(strict=True, reason="two VARIANT or ARRAY columns whose names differ only in case aren't written as "
-                                       "JSON: DuckDB 1.5.6 can't give the VARIANTs to Arrow, and 2.0 shows their bytes")
+                                       "JSON: DuckDB 1.5.6 can't give the VARIANTs to Arrow, and 2.0 shows their bytes (WR-320)")
 def test_two_array_columns_named_alike_but_for_case_show_as_json(duck):
     result = duck.execute(CellRequest(TWO_ARRAYS, "sql", dialect="snowflake", result_rows=10))
     assert result.status == "ok" and result.table.to_pylist() == [{"a": "[1,2]", "A": "[3]"}]

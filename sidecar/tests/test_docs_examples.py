@@ -182,7 +182,7 @@ def test_local_data_delta_table_statements_run_one_at_a_time(local):
 
 @pytest.mark.xfail(strict=True, reason="a script that creates a Delta table and then INSERT OVERWRITEs it stops with "
                                        "DuckDB's parser error: each statement is read before the one that makes the "
-                                       "table has run (localdata/engine.py _statements)")
+                                       "table has run (localdata/engine.py _statements; WR-143)")
 def test_local_data_delta_table_statements_run_as_one_script(local):
     block = _block("local-data.md", "-- Create one (fails if it exists; IF NOT EXISTS skips it, OR REPLACE gives it a new schema)")
     engine = local()
@@ -196,7 +196,7 @@ _DUCKDB_2 = __import__("duckdb").__version__.startswith("2.")
 @pytest.mark.parametrize("dialect", [
     pytest.param("duckdb", marks=pytest.mark.xfail(_DUCKDB_2, strict=True, reason=(
         "on DuckDB 2.0 a DuckDB SQL MERGE into a project's Delta table reaches DuckDB itself, which says "
-        "'Can only merge into base tables'; Spark SQL takes the Delta path on both"))),
+        "'Can only merge into base tables'; Spark SQL takes the Delta path on both (WR-144)"))),
     "spark"])
 def test_local_data_merge_update_delete_run_in_either_dialect(local, dialect):
     block = _block("local-data.md", "MERGE INTO customers AS t USING updates AS s ON t.id = s.id")

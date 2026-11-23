@@ -50,7 +50,7 @@ def _duckdb_1():
 @pytest.mark.xfail(_duckdb_1(), strict=True, reason=(
     "Bug: on DuckDB 1.5, a concatenation with a NULL inside another one, ('a' || NULL) || 'b', comes back typed "
     "INTEGER, not string as in Spark: only a concatenation whose own argument is the NULL is cast to text, and "
-    "not when it sits inside another concatenation (spark_text_results)."))
+    "not when it sits inside another concatenation (spark_text_results). WR-141."))
 def test_a_concatenation_with_a_null_inside_another_is_still_a_string():
     from fabric_desktop import sql
     for query in ("SELECT ('a' || NULL) || 'b' AS v", "SELECT concat(concat('a', NULL), 'b') AS v"):

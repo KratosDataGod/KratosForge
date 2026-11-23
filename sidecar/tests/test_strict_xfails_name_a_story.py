@@ -18,22 +18,7 @@ TESTS = Path(__file__).resolve().parent
 STORY = re.compile(r"\b(?:WR|PB)-\d+\b|#\d+\b")
 
 # (file, enclosing top-level name) -> what the story that fixes it would need. Shrinks as stories are assigned.
-AWAITING_STORY = {
-    ("test_spark_strings_uncapped.py", "test_a_concatenation_with_a_null_inside_another_is_still_a_string"):
-        "Spark SQL on DuckDB 1.5: spark_text_results casts a nested concatenation with a NULL to text",
-    ("test_local_sql_rescore.py", "test_two_array_columns_named_alike_but_for_case_show_as_json"):
-        "Snowflake SQL: two VARIANT or ARRAY columns named alike but for case are shown as JSON",
-    ("test_docs_examples.py", "test_local_data_delta_table_statements_run_as_one_script"):
-        "local data projects: a script that creates a Delta table and then writes to it runs as one script "
-        "(localdata/engine.py _statements)",
-    ("test_docs_examples.py", "test_local_data_merge_update_delete_run_in_either_dialect"):
-        "local data projects on DuckDB 2.0: a DuckDB SQL MERGE into a project's Delta table takes the Delta path",
-    ("test_academy_appcontainer.py", "test_delta_rs_writes_a_table_inside_the_appcontainer"):
-        "Academy AppContainer: Delta exercises once delta-rs resolves paths without GetFinalPathNameByHandleW "
-        "(upstream delta-rs)",
-    ("test_tsql_loud_gaps.py", "test_a_refused_function_would_give_tsqls_answer"):
-        "local T-SQL: ISNUMERIC mapped with T-SQL's rules ('$', ',' and '-' alone) instead of refused",
-}
+AWAITING_STORY: dict[tuple[str, str], str] = {}
 
 
 def _checker_gaps() -> list[str]:

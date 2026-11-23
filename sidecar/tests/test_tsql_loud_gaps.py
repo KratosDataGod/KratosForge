@@ -105,7 +105,7 @@ def test_a_mapped_function_gives_tsqls_answer(engine, sql, want):
 
 
 @pytest.mark.parametrize("sql, want", [(s, w) for _, s, w in REFUSED], ids=[c for c, _, _ in REFUSED])
-@pytest.mark.xfail(strict=True, reason="T-SQL loud gap: refused on the local engine for now")
+@pytest.mark.xfail(strict=True, reason="T-SQL loud gap: refused on the local engine for now (WR-265)")
 def test_a_refused_function_would_give_tsqls_answer(engine, sql, want):
     assert _same(first(engine, sql), want)
 

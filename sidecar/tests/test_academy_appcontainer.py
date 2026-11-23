@@ -524,7 +524,8 @@ def test_duckdb_and_polars_read_the_exercise_files_inside_the_appcontainer(tmp_p
 
 
 @pytest.mark.xfail(strict=True, reason="delta-rs resolves table paths with GetFinalPathNameByHandleW, which an "
-                   "AppContainer is denied: the reason the AppContainer stays opt-in (docs/academy/grading-sandbox.md)")
+                   "AppContainer is denied: the reason the AppContainer stays opt-in (docs/academy/grading-sandbox.md); "
+                   "upstream; tracked as WR-617")
 def test_delta_rs_writes_a_table_inside_the_appcontainer(tmp_path):
     work = tmp_path / "ws"
     work.mkdir()

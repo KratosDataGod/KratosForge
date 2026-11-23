@@ -62,13 +62,13 @@ def test_vacuum_preview_lists_exactly_the_files_compact_then_removes(tmp_path, v
     assert _ids(uri, 1) == [1] and _ids(uri) == [2]
 
 
-def _listing_whole(monkeypatch, whole) -> None:
-    """VACUUM's dry run giving each file whole (``whole(uri, rel)``) rather than relative to the table."""
+def _listing_whole(monkeypatch, uri: str, whole) -> None:
+    """VACUUM's dry run giving each file whole (``whole(uri, rel)``) rather than relative to the table folder
+    ``uri`` (the folder as given, not delta-rs's file:// URI: on Windows that is /D:/..., which isn't a path)."""
     real = DeltaTable.vacuum
 
     def vacuum(self, *a, **k):
         listed = real(self, *a, **k)
-        uri = self.table_uri.removeprefix("file://").rstrip("/")
         return [whole(uri, p) for p in listed] if k.get("dry_run") else listed
     monkeypatch.setattr(DeltaTable, "vacuum", vacuum)
 
@@ -77,14 +77,14 @@ def _listing_whole(monkeypatch, whole) -> None:
 def test_vacuum_preview_names_a_file_given_as_a_url_as_compact_does(tmp_path, value, monkeypatch):
     uri = _partitioned(str(tmp_path / "t"), value)
     want = maintenance.vacuum_preview(uri, 7)
-    _listing_whole(monkeypatch, lambda root, rel: (Path(root) / rel).as_uri())  # escaped once more, as a URL is
+    _listing_whole(monkeypatch, uri, lambda root, rel: (Path(root) / rel).as_uri())  # escaped once more, as a URL is
     assert maintenance.vacuum_preview(uri, 7) == want
 
 
 def test_vacuum_preview_names_a_whole_windows_path_relative_to_the_table(tmp_path, windows_case, monkeypatch):
     uri = _partitioned(str(tmp_path / "t"), "North America")
     want = maintenance.vacuum_preview(uri, 7)
-    _listing_whole(monkeypatch, lambda root, rel: (root.upper() + "/" + rel).replace("/", "\\"))
+    _listing_whole(monkeypatch, uri, lambda root, rel: (root.upper() + "/" + rel).replace("/", "\\"))
     assert maintenance.vacuum_preview(uri, 7) == want
 
 

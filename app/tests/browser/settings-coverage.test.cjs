@@ -13,8 +13,8 @@ const { playwright, openApp, startupReads } = require("./harness.cjs");
 const skip = !playwright && "Playwright is not installed";
 let app;
 const page = () => app.page;
-const RUNNING = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90";
-const NEWER = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+const RUNNING = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90"; // pragma: allowlist secret (fake commit id)
+const NEWER = "a41c0e9aa1b2c3d4e5f60718293a4b5c6d7e8f90"; // pragma: allowlist secret (fake commit id)
 const PAGE = "https://github.com/KratosDataGod/KratosForge/releases/tag/preview";
 
 let telemetry = null;  // telemetry_status's answer, or null to fail it

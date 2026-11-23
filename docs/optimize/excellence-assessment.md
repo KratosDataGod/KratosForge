@@ -173,11 +173,13 @@ can see it. It reads only, with your own access, and makes no read the app didn'
 optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
 the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see
 (`GET /capacities`), each lakehouse's properties (`GET /workspaces/{id}/lakehouses/{id}`, the read the
-app already makes before it writes a table; at most 50 per assessment), and the definition of each
+app already makes before it writes a table; at most 50 per assessment), the definition of each
 semantic model in the workspace, at most 30, as TMSL (`getDefinition?format=TMSL`, the read the
-Semantic model tab already makes). It also uses the Capacity Metrics exports already imported on this
-PC (Optimize > Cost and savings). That is a local read, not a Fabric call. A read that fails is listed
-in `reads` and leaves its controls not evaluated.
+Semantic model tab already makes), and the workspace's Git connection and Git status
+(`GET /workspaces/{id}/git/connection` and `GET /workspaces/{id}/git/status`, the reads the Git tab
+makes). It also uses the Capacity Metrics exports already imported on this PC (Optimize > Cost and
+savings). That is a local read, not a Fabric call. A read that fails is listed in `reads` and leaves
+its controls not evaluated.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls
@@ -204,6 +206,9 @@ in `reads` and leaves its controls not evaluated.
 | FEA-DE-003 | Data engineering | Medium | No VACUUM in a notebook keeps less than 7 days of history (NB020) | Definition inspection |
 | FEA-REL-003 | Reliability | Low | No pipeline activity is deactivated (skipped, and reported as Succeeded by default) | Definition inspection |
 | FEA-DEVOPS-002 | DevOps | Low | No pipeline activity names a workspace id as text rather than a parameter or variable | Definition inspection |
+| FEA-REL-004 | Reliability | Medium | Every pipeline activity that calls out (Copy, notebook, Spark job, Lookup, Get Metadata, Script, stored procedure, Web, Azure Function, Dataflow, semantic model refresh, KQL) has a retry above 0; not applicable when none calls out | Definition inspection |
+| FEA-REL-005 | Reliability | Medium | Every pipeline activity that calls out has a timeout under the 12-hour default (0.12:00:00); not applicable when none calls out | Definition inspection |
+| FEA-REL-006 | Reliability | Low | A pipeline with an activity that calls out has a failure path: some activity runs on another's Failed or Completed condition | Definition inspection |
 | FEA-ARCH-001 | Architecture | Medium | One lakehouse per medallion layer: no lakehouse named for two of bronze, silver and gold, and no two named for the same layer | Item names (inferred, advice only) |
 | FEA-ARCH-002 | Architecture | Low | A lakehouse is schema-enabled | Lakehouse properties |
 | FEA-ARCH-003 | Architecture | Low | A workspace whose name says production holds no item named tmp, temp, test, staging, copy, old, backup or similar; not applicable when the name says Dev or Test | Workspace and item names (inferred, advice only) |
@@ -214,6 +219,9 @@ in `reads` and leaves its controls not evaluated.
 | FEA-SM-004 | Semantic models | Medium | Both columns of every relationship have the same type (SM001) | Model definition |
 | FEA-SM-005 | Semantic models | Low | Every relationship key is a whole number (SM002) | Model definition |
 | FEA-SM-006 | Semantic models | Low | The fact-side key of every relationship is hidden (SM004) | Model definition |
+| FEA-DEVOPS-003 | DevOps | Medium | The workspace is connected to a Git branch and was synced at least once | Git connection |
+| FEA-DEVOPS-004 | DevOps | Low | No item has changes in the workspace that aren't committed to its branch; not applicable when the workspace isn't in Git | Git status |
+| FEA-DEVOPS-005 | DevOps | Low | No item has changes in the branch that aren't in the workspace yet; not applicable when the workspace isn't in Git | Git status |
 
 The thresholds (4 Admins, 5 direct writers) are KratosForge's: Microsoft's guidance asks for least
 privilege but gives no number. A profile can turn any control off, with a reason, or change its
@@ -235,7 +243,7 @@ FEA-ARCH-002 and FEA-ARCH-004 are verified: the lakehouse's properties (Fabric g
 only for schema-enabled lakehouses) and the notebook definition the optimization engine already reads. A
 default lakehouse that isn't in the workspace's item list is in another workspace or was deleted;
 either way a deployment won't rebind it. Dev/Test/Prod separation isn't checked yet: it needs
-deployment pipeline or Git configuration the assessment doesn't read, and a name alone can't prove it.
+deployment pipeline configuration the assessment doesn't read, and a name alone can't prove it.
 
 ### Notebook and pipeline inspection
 
@@ -247,12 +255,26 @@ this PC and only the result is kept as evidence (`item.inspection`):
   often, and the cell and line of each. For a secret (NB001), only that one was found and where,
   never what it was;
 - for a pipeline, how many activities it has, and the names of those that are deactivated or name a
-  fixed workspace id. Not the ids themselves.
+  fixed workspace id; of the activities that call out, the names of those with no retry and those
+  with no timeout under 12 hours; and whether any activity runs when another fails or completes. Not
+  the ids, and not the policy values themselves.
 
 Notebook code and pipeline JSON never enter the evidence or the snapshot. A definition that couldn't
-be read leaves these controls not evaluated. Retry, timeout and failure-path settings aren't checked
-yet: the engine's pipeline reader doesn't keep an activity's `policy` and `dependsOn`, and a control
-that can't see a setting is never passed.
+be read leaves these controls not evaluated.
+
+Retry, timeout and failure paths are read from each activity's `policy` and `dependsOn` as the
+definition states them. A setting the definition leaves out takes Fabric's default (no retry, a
+12-hour timeout), so it fails. A retry or timeout given by an expression counts as set: its value is
+only known at run time. An activity whose policy wasn't kept (an older engine) leaves FEA-REL-004 and
+FEA-REL-005 not evaluated, never passed. A retry or timeout that can't be read leaves only its own
+control not evaluated. The same goes for FEA-REL-006 and `dependsOn`. A deactivated activity never
+runs, so it doesn't count as a failure path. One whose state can't be read leaves FEA-REL-006 not
+evaluated, unless another activity is a failure path.
+Outlook and Teams activities aren't counted as calling out, because a retry can send the message
+twice, nor are child pipelines (their own activities carry the policy) or control-flow activities.
+The 12-hour line is KratosForge's, because Microsoft gives the default, not a number to use, and only the
+pipeline's owner knows how long a step should take, so any explicit timeout under the default passes.
+Before adding a retry to a stored procedure or Web call, check the step can safely run twice.
 
 ### Semantic model inspection
 
@@ -289,6 +311,30 @@ period) is not evaluated, never passed. The exports the app reads don't say whet
 throttled or whether an operation was interactive or background, so there is no control for either
 yet. A benefit is capacity freed, estimated; it becomes money only when a capacity is resized, paused
 or retired. The 10%, 24-a-day and 7-day thresholds are KratosForge's.
+
+### Git and deployment evidence
+
+The DevOps controls FEA-DEVOPS-003 to FEA-DEVOPS-005 use the two Git reads the app already makes for
+the Git tab. Get Connection says whether the workspace is connected to a branch and whether its first
+sync was done. Get Status lists the items that differ between the workspace and the branch. The
+evidence (`workspace.git`) keeps the provider type, the branch name and the connection state. It also
+keeps how many items changed in the workspace and aren't committed, how many changed in the branch and
+aren't in the workspace, and how many are in conflict. It never keeps the repository, its owner or organization, a URL, a
+commit, an item's name or anything inside an item, and text is cut to 256 characters.
+
+When Fabric says the workspace isn't connected to Git, that is what Fabric answered, not a read that
+failed. FEA-DEVOPS-003 fails on it, and the two status controls don't apply because there is no branch
+to compare with. A sandbox kept out of Git on purpose can turn FEA-DEVOPS-003 off in a profile. A
+connection that couldn't be read, including for a role that can't see it, is listed in `reads` and
+leaves all three controls not evaluated.
+
+Get Status needs the Workspace.GitUpdate.All permission, which the app asks for the first time you open
+a workspace's Git item status. The assessment never asks for it. Without it, the status read is listed
+in `reads` as not made and FEA-DEVOPS-004 and FEA-DEVOPS-005 are not evaluated. The assessment never
+commits, never updates the workspace from Git and never resolves a conflict.
+
+Deployment pipeline stages and drift between stages aren't checked yet. The app makes no deployment
+pipeline read, so a control for them could only ever be not evaluated.
 
 ## The scorecard
 

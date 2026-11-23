@@ -221,6 +221,45 @@ def equi_keys(change: Change) -> list[tuple[str, str]] | None:
     return pairs
 
 
+HOISTED = "__fd_merge_value_"
+
+
+def _engine_only(node: exp.Expression) -> bool:
+    """Whether delta-rs can't run ``node``: a subquery, or a function with a lambda (the local engine's T-SQL
+    UPPER and LOWER, and its checked conversions, are written so)."""
+    return node.find(exp.Subquery, exp.Select, exp.Exists, exp.Lambda) is not None
+
+
+def hoist(change: Change, table: str) -> list[tuple[str, exp.Expression]]:
+    """WR-264: the conditions and values of a MERGE that delta-rs can't run (:func:`_engine_only`) and that read
+    only the source's columns, each moved into a new source column (``s.__fd_merge_value_0``) for the caller to
+    work out when it builds the source, with the name and the expression to compute it. A table column there,
+    outside or inside a subquery, can't be worked out from the source, so the MERGE is refused by name. The
+    columns outside a subquery are qualified (tsql_merge.place)."""
+    out: list[tuple[str, exp.Expression]] = []
+    mine = change.alias.lower()
+
+    def moved(node: exp.Expression, match: str) -> exp.Expression:
+        if not _engine_only(node):
+            return node
+        if match == "not_matched_by_source" or any(c.table.lower() == mine for c in node.find_all(exp.Column)):
+            raise ValueError(f"This MERGE on {table} reads the table's columns in a subquery, or in a function "
+                             "the local engine runs itself (such as UPPER and LOWER, which follow T-SQL's rules "
+                             "here), and a Delta table's MERGE (delta-rs) can't run that. Only what reads the "
+                             "source's columns alone is worked out beforehand. Join the table into the USING query "
+                             "and work the value out there, or run the MERGE on a database table.")
+        name = f"{HOISTED}{len(out)}"
+        out.append((name, node))
+        return exp.column(name, table=exp.to_identifier(change.source_alias, quoted=True))
+
+    for when in change.whens:
+        if when.condition is not None:
+            when.condition = moved(when.condition, when.match)
+        when.sets = [(column, moved(value, when.match)) for column, value in when.sets]
+        when.values = [moved(value, when.match) for value in when.values]
+    return out
+
+
 MULTIPLE_MATCH = "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE"
 
 
@@ -315,6 +354,9 @@ class _Names:
         if node.find(exp.Subquery, exp.Select):
             raise ValueError(f"{node.sql()} has a subquery, which delta-rs can't run inside a condition or value. "
                              "Join the rows in with MERGE INTO ... USING (SELECT ...) instead.")
+        if node.find(exp.Lambda):
+            raise ValueError(f"{node.sql()} uses a list function with a lambda, which delta-rs can't run inside a "
+                             "condition or value. Work the value out in MERGE INTO ... USING (SELECT ...) instead.")
         merge = self.change.kind == "merge"
         for column in list(node.find_all(exp.Column)):
             qualifier = column.table or None

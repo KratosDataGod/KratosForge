@@ -7,7 +7,7 @@ map to one of those with certainty are rewritten. Any other message keeps DuckDB
 that names one of DuckDB's own system tables, which a warehouse project never has. The caller logs DuckDB's
 original text, so support can still read it.
 
-A message that has a SQL Server number with certainty (207, 208, 209, 239 and 8134 for now) is shown as SQL
+A message that has a SQL Server number with certainty (207, 208, 209, 239, 4104 and 8134 for now) is shown as SQL
 Server prints it, "Msg 207, Level 16: Invalid column name 'x'.", alone or in a script. Others show no number:
 none is guessed.
 """
@@ -36,6 +36,7 @@ _NUMBERS = [
     (re.compile(r"^Ambiguous column name '"), 209),
     (re.compile(r"^Duplicate common table expression name '.*' was specified\.$"), 239),
     (re.compile(r"^Divide by zero error encountered\.$"), 8134),
+    (re.compile(r'^The multi-part identifier "[^"\n]+" could not be bound\.$'), 4104),
 ]
 LEVEL = 16  # each of these is a user error that stops the statement, as SQL Server grades it
 # A suggestion of one of DuckDB's own catalog tables: a warehouse project has none of them.
@@ -84,6 +85,7 @@ def numbered(message: str) -> str:
     """``message`` with SQL Server's number and severity in front, as SQL Server prints them, when it is one of
     the messages above; otherwise as it is."""
     for pattern, number in _NUMBERS:
-        if pattern.match(message):
+        # A pattern ending in $ is checked on the whole message, since match also takes a final line break.
+        if (pattern.fullmatch(message) if pattern.pattern.endswith("$") else pattern.match(message)):
             return f"Msg {number}, Level {LEVEL}: {message}"
     return message

@@ -334,8 +334,8 @@ def _placed(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
     now (WR-257): a temporary table, a table the script made or a table-valued function has them only when the
     MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words."""
     target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
-    tsql_merge.place(tsql_merge.clauses(c), _column_names(con, f"SELECT * FROM {target}"),
-                     _column_names(con, c.source_sql(KfDuckDB)))
+    tsql_merge.place_change(c, _column_names(con, f"SELECT * FROM {target}"),
+                            _column_names(con, c.source_sql(KfDuckDB)))
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
@@ -1544,6 +1544,7 @@ class LocalEngine:
                 stream.close()  # a refused MERGE never read it, and DuckDB 2.0 runs nothing while it's open
             if c.kind == "merge":
                 con.execute(f"DROP TABLE IF EXISTS temp.{q(source_table)}")
+                con.execute(f"DROP TABLE IF EXISTS temp.{q(source_table + '_v')}")
         after = DeltaTable(str(folder))
         if after.version() > before:
             durable.sync_commits(str(folder), before + 1, after.version())  # on disk before it returns
@@ -1564,8 +1565,8 @@ class LocalEngine:
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
         if c.tsql:  # WR-257: the source's columns as it has them now, before anything is written
-            tsql_merge.place(tsql_merge.clauses(c), [f.name for f in current.schema().fields],
-                             _column_names(con, f"SELECT * FROM temp.{q(source_table)}"))
+            tsql_merge.place_change(c, [f.name for f in current.schema().fields],
+                                    _column_names(con, f"SELECT * FROM temp.{q(source_table)}"))
         if c.tsql:  # WR-244: as a warehouse does, whose tables are Delta tables too
             if any(w.match == "matched" for w in c.whens):
                 _matched_once(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}", f"temp.{q(source_table)}", name)
@@ -1574,6 +1575,13 @@ class LocalEngine:
                                               f"temp.{q(source_table)}", delta._duckdb(c.on))
             if detail is not None:
                 raise delta_dml.multiple_match_error(name, detail)
+        if c.tsql and (hoisted := delta_dml.hoist(c, name)):
+            # WR-264: what delta-rs can't run in a WHEN clause (a subquery, a T-SQL UPPER), worked out here
+            values = ", ".join(f"{delta._duckdb(e)} AS {q(n)}" for n, e in hoisted)
+            con.execute(f"CREATE TEMP TABLE {q(source_table + '_v')} AS SELECT *, {values} "
+                        f"FROM temp.{q(source_table)} AS {q(c.source_alias)}")
+            con.execute(f"DROP TABLE temp.{q(source_table)}")
+            con.execute(f"ALTER TABLE temp.{q(source_table + '_v')} RENAME TO {q(source_table)}")
         reader = arrow_reader(for_arrow(con, f"SELECT * FROM temp.{q(source_table)}"), _WRITE_BATCH)
         cased = {f.name.lower(): f.name for f in current.schema().fields}
         safe = delta.fabric_schema(reader.schema, names=False)

@@ -5,7 +5,7 @@ Warehouse places it, on a database table (CREATE TABLE, changed by DuckDB) and o
 These tests cover:
 - a column only one side has, which runs where that side has a row, and is refused by name in WHEN NOT MATCHED
   [BY TARGET] (only the table has it) and WHEN NOT MATCHED BY SOURCE (only the source has it);
-- a column both sides have, SQL Server's error 209 in any WHEN clause;
+- a column both sides have, SQL Server's error 209 in WHEN MATCHED (WR-264: not in WHEN NOT MATCHED);
 - the source's columns read from a table, a subquery, a CTE, ``SELECT *`` and ``x.*``, and the alias's column list;
 - ``USING (VALUES ...) AS s(k, w)``, which stopped with DuckDB's binder words.
 """
@@ -104,8 +104,6 @@ def test_a_source_column_in_when_not_matched_by_source_is_refused_by_name(engine
 @pytest.mark.parametrize("clause", [
     "WHEN MATCHED AND k = 2 THEN DELETE;",
     "WHEN MATCHED THEN UPDATE SET v = CAST(k AS VARCHAR(5));",
-    "WHEN NOT MATCHED THEN INSERT (k, v) VALUES (k, s.w);",
-    "WHEN NOT MATCHED BY SOURCE AND k = 3 THEN DELETE;",
 ])
 def test_a_column_both_sides_have_is_error_209(engine, name, using, clause):
     message = refused(engine, name, f"MERGE {{t}} AS t USING {source(using)} ON t.k = s.k {clause}",

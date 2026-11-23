@@ -16,13 +16,17 @@ From Microsoft's MERGE (Transact-SQL) page, whose second syntax block is the one
 - Fabric's MERGE inserts with ``INSERT [(columns)] VALUES (...)`` only: no ``DEFAULT VALUES``, which sqlglot read
   as a column called DEFAULT.
 - A column named without ``t.`` or ``s.`` in a WHEN clause is placed by the table's and the source's columns
-  (WR-253). One both have is SQL Server's error 209, "Ambiguous column name 'x'.", in any WHEN clause. One only the
-  table has can't be read in WHEN NOT MATCHED [BY TARGET], and one only the source has can't be read in WHEN NOT
+  (WR-253). One both have is SQL Server's error 209, "Ambiguous column name 'x'.", in ON and WHEN MATCHED; WHEN
+  NOT MATCHED [BY TARGET] reads only the source and WHEN NOT MATCHED BY SOURCE only the table, so there it is that
+  side's (WR-264). One only the table has can't be read in WHEN NOT MATCHED [BY TARGET], and one only the source has can't be read in WHEN NOT
   MATCHED BY SOURCE. A Delta table read the missing row's column as NULL, and DuckDB stopped with its binder's words.
   The source's columns are a known table's, a CTE's or a subquery's (``SELECT *`` and ``x.*`` read from the
   relations they name), or the alias's column list. A source whose columns are known only when it runs (a
   temporary table, a table the script makes, a table-valued function) is placed by :func:`place` too, in engine.py,
   by the columns it has then, before anything is written (WR-257).
+- Every column and alias a MERGE reads or sets is bound before anything runs, as a warehouse binds names first
+  (WR-264): one neither side has is error 207 and an alias neither side has error 4104, even where a source with
+  two rows for one table row would give error 8672.
 
 - A MERGE after WITH runs with its CTEs moved into USING (WR-259), so it is checked as any other MERGE. A MERGE into
   a CTE, or one that reads a CTE outside USING, is refused by name.
@@ -34,7 +38,7 @@ row at most (SQL Server's error 8672) are in engine.py, for a database table and
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 from sqlglot import exp
 from sqlglot.tokens import Token, TokenType
@@ -111,8 +115,15 @@ def check(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | 
                     "a source row the table doesn't have, so there is no table row to read")
     table = _columns_of(target, columns)
     source = _source_columns(tree, using, columns) if using is not None else None
-    if table is not None and source is not None:
-        place([(_match(w), _reads(w)) for w in whens], table, source)
+    if table is not None and source is not None and _alias(using):  # a source with no alias is refused below
+        place([(_match(w), _targets(w), _reads(w)) for w in whens], table, source, tree.args.get("on"),
+              target.alias or target.name, _alias(tree.args.get("using")))
+
+
+def _alias(using: exp.Expression | None) -> str:
+    if using is None:
+        return ""
+    return using.alias or (using.name if isinstance(using, exp.Table) else "")
 
 
 def _ctes_into_using(tree: exp.Merge, target: exp.Table) -> None:
@@ -238,38 +249,89 @@ _ONLY = {
     "not_matched_by_source": ("WHEN NOT MATCHED BY SOURCE", "the table's columns", "the source",
                               "a row the source doesn't have, so there is no source row to read"),
 }
+# WR-264: which side's columns each part of a MERGE reads (the table's, the source's).
+_SCOPE = {"on": (True, True), "matched": (True, True), "not_matched": (False, True),
+          "not_matched_by_source": (True, False)}
 
 
-def place(whens: list[tuple[str, list[exp.Expression]]], table: list[str], source: list[str]) -> None:
-    """Refuses a column named without ``t.`` or ``s.`` in a WHEN clause that both the table and the source have
-    (SQL Server's error 209), or that only the side a clause has no row of has. ``whens`` is each clause's kind
-    (matched, not_matched or not_matched_by_source) with the expressions it reads; ``table`` and ``source`` are
-    their columns. A column neither has is left to the engine, which says Invalid column name."""
-    mine, theirs = {c.lower() for c in table}, {c.lower() for c in source}
-    for match, reads in whens:
+def place(whens: list[tuple[str, list[str], list[exp.Expression]]], table: list[str], source: list[str],
+          on: exp.Expression | None = None, mine: str = "", theirs: str = "") -> None:
+    """Binds a MERGE's column names as a Fabric Warehouse does before it runs anything (WR-253, WR-264), so a
+    MERGE it refuses changes nothing and a name error comes before SQL Server's error 8672.
+
+    ``whens`` is each clause's kind (matched, not_matched or not_matched_by_source), the table's columns it sets or
+    inserts into, and the expressions it reads; ``table`` and ``source`` are the two sides' columns, ``on`` the ON
+    condition, and ``mine`` and ``theirs`` the table's and the source's aliases. A name neither side has is error
+    207, a qualifier that is neither alias error 4104, and an unqualified name both sides have error 209 in ON and
+    WHEN MATCHED. WHEN NOT MATCHED [BY TARGET] reads only the source and WHEN NOT MATCHED BY SOURCE only the table,
+    so there an unqualified name is that side's, and one only the other side has is refused by name. Each
+    unqualified name is given its side's alias, so DuckDB and delta-rs read it from that side. Columns inside a
+    subquery are left to the engine, as its own FROM places them."""
+    columns = {c.lower() for c in table}, {c.lower() for c in source}
+    aliases = mine, theirs
+    parts: list[tuple[str, list[str], list[exp.Expression]]] = list(whens)
+    if isinstance(on, exp.Expression):
+        parts.insert(0, ("on", [], [on]))
+    for match, targets, reads in parts:
+        for name in targets:
+            if name.lower() not in columns[0]:
+                raise ValueError(f"Invalid column name '{name}'.")
         for node in reads:
-            for column in _unqualified(node):
-                name = column.name.lower()
-                if name in mine and name in theirs:
-                    raise ValueError(f"Ambiguous column name '{column.name}'.")
-                only = _ONLY.get(match)
-                if only is None:
-                    continue
-                kind, allowed, side, why = only
-                wrong = mine if match == "not_matched" else theirs
-                right = theirs if match == "not_matched" else mine
-                if name in wrong and name not in right:
-                    raise ValueError(f"{kind} reads only {allowed} in T-SQL, because it acts on {why}. This one "
-                                     f"reads {column.name}, which only {side} has, and a Fabric Warehouse refuses "
-                                     "it. Take that out of the clause, or move the logic to a WHEN MATCHED clause.")
+            for column in _outer(node):
+                _bind(column, match, columns, aliases)
 
 
-def clauses(change: Any) -> list[tuple[str, list[exp.Expression]]]:
+def _bind(column: exp.Column, match: str, columns: tuple[set[str], set[str]], aliases: tuple[str, str]) -> None:
+    name, qualifier = column.name.lower(), column.table.lower()
+    sees = _SCOPE[match]
+    if qualifier:
+        if not any(aliases):
+            return  # the aliases aren't known here: the engine binds it
+        sides = [i for i in (0, 1) if aliases[i].lower() == qualifier]
+        if not sides:
+            raise ValueError(f'The multi-part identifier "{column.table}.{column.name}" could not be bound.')
+        side = sides[0]
+        if name not in columns[side]:
+            raise ValueError(f"Invalid column name '{column.name}'.")
+        if not sees[side]:
+            _other_side(column, match)
+        return
+    has = [name in columns[0], name in columns[1]]
+    if sees[0] and sees[1]:
+        if all(has):
+            raise ValueError(f"Ambiguous column name '{column.name}'.")
+        if not any(has):
+            raise ValueError(f"Invalid column name '{column.name}'.")
+        side = 0 if has[0] else 1
+    else:
+        side = 0 if sees[0] else 1
+        if not has[side]:
+            if has[1 - side]:
+                _other_side(column, match)
+            raise ValueError(f"Invalid column name '{column.name}'.")
+    if aliases[side]:
+        column.set("table", exp.to_identifier(aliases[side]))
+
+
+def _other_side(column: exp.Column, match: str) -> NoReturn:
+    kind, allowed, side, why = _ONLY[match]
+    raise ValueError(f"{kind} reads only {allowed} in T-SQL, because it acts on {why}. This one reads "
+                     f"{column.sql(dialect='tsql')}, which only {side} has, and a Fabric Warehouse refuses it. Take "
+                     "that out of the clause, or move the logic to a WHEN MATCHED clause.")
+
+
+def place_change(change: Any, table: list[str], source: list[str]) -> None:
+    """:func:`place` for a ``delta_dml.Change`` MERGE, by the columns its table and its source have when it runs."""
+    place(clauses(change), table, source, change.on, change.alias, change.source_alias)
+
+
+def clauses(change: Any) -> list[tuple[str, list[str], list[exp.Expression]]]:
     """Each WHEN clause of a ``delta_dml.Change`` MERGE, as :func:`place` takes them."""
-    out: list[tuple[str, list[exp.Expression]]] = []
+    out: list[tuple[str, list[str], list[exp.Expression]]] = []
     for when in change.whens:
         reads = [when.condition] if when.condition is not None else []
-        out.append((when.match, reads + [value for _, value in when.sets] + list(when.values)))
+        out.append((when.match, [name for name, _ in when.sets],
+                    reads + [value for _, value in when.sets] + list(when.values)))
     return out
 
 
@@ -277,6 +339,16 @@ def _match(when: exp.When) -> str:
     if when.args.get("matched"):
         return "matched"
     return "not_matched_by_source" if when.args.get("source") else "not_matched"
+
+
+def _targets(when: exp.When) -> list[str]:
+    """The table's columns a WHEN clause sets or inserts into."""
+    then = when.args.get("then")
+    if isinstance(then, exp.Update):
+        return [a.this.name for a in then.expressions if isinstance(a, exp.EQ) and isinstance(a.this, exp.Column)]
+    if isinstance(then, exp.Insert) and isinstance(then.this, exp.Tuple):
+        return [c.name for c in then.this.expressions if isinstance(c, exp.Column)]
+    return []
 
 
 def _reads(when: exp.When) -> list[exp.Expression]:
@@ -291,14 +363,16 @@ def _reads(when: exp.When) -> list[exp.Expression]:
     return reads
 
 
-def _unqualified(node: exp.Expression) -> list[exp.Column]:
-    """The columns in ``node`` named without a table, outside any subquery (whose own FROM places them)."""
+def _outer(node: exp.Expression) -> list[exp.Column]:
+    """The columns ``node`` reads outside any subquery (whose own FROM places them) and any lambda (whose
+    parameters aren't columns), with no schema before the table's name."""
     found = []
     for column in node.find_all(exp.Column):
-        if column.table or isinstance(column.this, exp.Star):
+        if isinstance(column.this, exp.Star) or column.args.get("db"):
             continue
         parent = column.parent
-        while parent is not None and parent is not node and not isinstance(parent, (exp.Select, exp.Subquery)):
+        while parent is not None and parent is not node \
+                and not isinstance(parent, (exp.Select, exp.Subquery, exp.Lambda)):
             parent = parent.parent
         if parent is None or parent is node:
             found.append(column)

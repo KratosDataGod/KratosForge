@@ -804,10 +804,15 @@ def file_name(name: str, taken: set[str]) -> str:
 
 
 def from_bim(bim: dict[str, Any], culture_refs: list[str] | None = None) -> tuple[dict[str, str], list[dict[str, str]]]:
-    """See ``_from_bim``; a model nested more than ``MAX_DEPTH`` levels deep is refused with a plain reason."""
+    """See ``_from_bim``; a model nested more than ``MAX_DEPTH`` levels deep is refused with a plain reason, and a
+    part of the wrong type (text where the tables go, a number for a name) by its path, as export refuses it."""
     if too_deep(bim):
         raise ValueError(f"This model is nested too deeply to be a semantic model (more than {MAX_DEPTH} levels). "
                          "Take out the extra nesting, then try again.")
+    if isinstance(bim, dict) and isinstance(bim.get("model") or {}, dict):  # else _from_bim says what it isn't
+        from . import model_ossie  # here: model_ossie imports this module
+
+        model_ossie._refuse_shape(bim, model_ossie._BIM_SHAPE, "tmdl")
     try:
         return _from_bim(bim, culture_refs)
     except RecursionError:

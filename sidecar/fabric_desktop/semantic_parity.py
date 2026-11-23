@@ -504,6 +504,7 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
     if kind == "tmsl":
         side.format, side.version = "TMSL", str(value.get("compatibilityLevel", ""))
         side.label = f"TMSL (compatibility level {mo._short(side.version)})" if side.version else "TMSL"
+        mo._refuse_shape(value, mo._BIM_SHAPE, "compare")  # as export refuses it, by path
         _walk_tmsl(side, value)
         return
     if kind == "tmdl":
@@ -514,6 +515,7 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
         bim, rows = tmdl.to_bim(value)
         side.format, side.version = "TMDL", str(bim.get("compatibilityLevel", ""))
         side.label = f"TMDL (compatibility level {mo._short(side.version)})"
+        mo._refuse_shape(bim, mo._BIM_SHAPE, "compare")
         _walk_tmsl(side, bim)
         side.attach(rows, "tmdl reader")
         return

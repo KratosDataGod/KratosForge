@@ -263,8 +263,9 @@ each built query with a length and a hash.
 
 ## Parts of the wrong type
 
-Before a conversion runs, export, import, Ossie to TMDL and the update merge check the types of
-the parts they read: in an Ossie file the name, datasets, fields, metrics, expressions and
+Before a conversion runs, export, import, Ossie to TMDL, writing TMDL from a model, the update
+merge and structural parity (L1 and L2, on a `model.bim` or TMDL side) check the types of the parts
+they read: in an Ossie file the name, datasets, fields, metrics, expressions and
 relationships, and in a `model.bim` the tables, columns, measures, partitions, relationships,
 roles and expressions. A part of the wrong type, such as text where the datasets go, a list where
 a name goes or a number where an object goes, is refused with a plain message that gives where
@@ -592,6 +593,12 @@ Two things the corpus first showed are fixed, and the manifest says so: a root t
 is now a ValueError rather than a TypeError, and conversion keeps the schema check's 64-level depth
 limit (see Parts of the wrong type). L1 still reads a `model.bim` side nested past it.
 
+Hardening fixed a third: writing TMDL from a model and L1 used to skip a wrong-typed `model.bim` part
+with a report row, or read it as it was, where Export refuses it. Both now run Export's check. The
+TMDL writer refuses with the same path ("This model couldn't be written as TMDL, because part of
+it isn't the shape a semantic model's part has: ..."), and L1 is Test failed, with the side and the
+path in `error` and in that side's `sides[...]["error"]`.
+
 The manifest also records what the corpus shows that may be worth changing, without changing it:
 
 - A Semantic View converted to TMDL loses its relationships: a view has no fields, so the converter
@@ -599,8 +606,6 @@ The manifest also records what the corpus shows that may be worth changing, with
 - On Import, a role that travels in the Power BI section comes back Fully preserved, with no security
   warning, although only Power BI could read it in the file. On Export the same role is Preserved
   through extensions, with a security warning.
-- The TMDL writer and L1 don't run the `model.bim` wrong-type check that Export runs; they skip such a
-  part with a report row, or read it as it is.
 - The Semantic View emitter leaves a wrong-typed part out and names it under `excluded`, and the view
   can still be Valid.
 

@@ -327,13 +327,13 @@
    "expect": {
     "export": "refused",
     "round_trip": "not run",
-    "tmdl": "ok",
+    "tmdl": "refused",
     "semantic_view": "refused",
-    "parity_l1": "Structurally compatible but behavior unverified"
+    "parity_l1": "Test failed"
    },
    "says": "$.model.tables is text where it should be a list",
    "findings": [
-    "tmdl.from_bim and L1 don't run the model.bim shape check that export runs: a wrong-typed part is skipped with a report row or read as it is, so they complete where export refuses."
+    "Fixed in harden: tmdl.from_bim and L1 used to skip a wrong-typed model.bim part with a report row or read it as it is, completing where export refuses; both now run export's shape check and refuse it by path (L1 as Test failed)."
    ]
   },
   {
@@ -343,13 +343,13 @@
    "expect": {
     "export": "refused",
     "round_trip": "not run",
-    "tmdl": "ok",
+    "tmdl": "refused",
     "semantic_view": "refused",
-    "parity_l1": "Structurally compatible but behavior unverified"
+    "parity_l1": "Test failed"
    },
    "says": "$.model.tables['orders'].columns[0].name is a number where it should be text",
    "findings": [
-    "tmdl.from_bim and L1 don't run the model.bim shape check that export runs: a wrong-typed part is skipped with a report row or read as it is, so they complete where export refuses."
+    "Fixed in harden: tmdl.from_bim and L1 used to skip a wrong-typed model.bim part with a report row or read it as it is, completing where export refuses; both now run export's shape check and refuse it by path (L1 as Test failed)."
    ]
   },
   {
@@ -359,13 +359,13 @@
    "expect": {
     "export": "refused",
     "round_trip": "not run",
-    "tmdl": "ok",
+    "tmdl": "refused",
     "semantic_view": "refused",
-    "parity_l1": "Structurally compatible but behavior unverified"
+    "parity_l1": "Test failed"
    },
    "says": "$.model.roles[0] is text where it should be an object",
    "findings": [
-    "tmdl.from_bim and L1 don't run the model.bim shape check that export runs: a wrong-typed part is skipped with a report row or read as it is, so they complete where export refuses."
+    "Fixed in harden: tmdl.from_bim and L1 used to skip a wrong-typed model.bim part with a report row or read it as it is, completing where export refuses; both now run export's shape check and refuse it by path (L1 as Test failed)."
    ]
   },
   {

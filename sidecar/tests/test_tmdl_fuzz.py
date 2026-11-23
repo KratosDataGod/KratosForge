@@ -24,6 +24,7 @@ PIECES = ["'", "''", '"', '""', "`", "```", "\t", " ", "  ", "=", ":", "///", "/
           "@", "$", "%", ","]
 DATA_TYPES = ["string", "int64", "double", "decimal", "boolean", "dateTime"]
 REFUSED = "This model can't be written as TMDL: "
+WRONG_TYPE = "This model couldn't be written as TMDL, because part of it isn't the shape"  # export's shape check
 
 
 def _indented(value: str) -> bool:
@@ -271,7 +272,7 @@ def test_models_with_wrong_types_anywhere_are_refused_or_name_what_they_lose():
         try:
             files, report = tmdl.from_bim(bim)
         except ValueError as exc:
-            assert str(exc).startswith(REFUSED), f"{case}: {exc}"
+            assert str(exc).startswith((REFUSED, WRONG_TYPE)), f"{case}: {exc}"
             continue
         back, _ = tmdl.to_bim(files, str(bim.get("name") or ""))
         missing = [d for d in tmdl.differences(bim, back) if not _named(d, report)]
@@ -479,12 +480,17 @@ def test_something_that_isnt_a_model_is_refused_with_a_reason(bim):
         tmdl.from_bim(bim)
 
 
-def test_lists_and_sources_of_the_wrong_type_are_reported_not_a_crash():
+def test_lists_and_sources_of_the_wrong_type_are_refused_by_from_bim_and_reported_by_the_writer():
     for wrong in (5, 1.5, True, "x"):
-        _, report = tmdl.from_bim({"name": "m", "model": {"tables": wrong, "roles": wrong}})
+        bim = {"name": "m", "model": {"tables": wrong, "roles": wrong}}
+        with pytest.raises(ValueError, match=r"^" + WRONG_TYPE + r".*: \$\.model\.roles is "):
+            tmdl.from_bim(bim)
+        _, report = tmdl._from_bim(bim)  # the writer itself, under the shape check, still never crashes
         assert {r["object"] for r in report} >= {"tables", "roles"}, report
     bim = {"name": "m", "model": {"tables": [{"name": "T", "partitions": [{"name": "p", "source": [["a", "b"]]}]}]}}
-    _, report = tmdl.from_bim(bim)
+    with pytest.raises(ValueError, match=r"\$\.model\.tables\['T'\]\.partitions\['p'\]\.source is a list"):
+        tmdl.from_bim(bim)
+    _, report = tmdl._from_bim(bim)
     assert report and all(r["kind"] == "lost" for r in report)
 
 

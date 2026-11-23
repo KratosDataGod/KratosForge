@@ -230,7 +230,7 @@ def test_aliases_and_repeated_keys_are_refused_with_the_line():
         mo.parse(oc.load(oc.entry("hostile/duplicate_key.yaml")))
 
 
-# ---- findings: the two fixed in typed-errors, then the ones recorded, not fixed (each still holds)
+# ---- findings: those fixed (in typed-errors, then in harden), then the ones recorded, not fixed (each still holds)
 
 def test_conversion_keeps_the_depth_limit_validate_uses():  # fixed in typed-errors
     text = oc.load(oc.entry("hostile/deep_ai_context.yaml"))
@@ -284,12 +284,17 @@ def test_roles_export_only_in_the_extension_with_a_security_warning(results):
     assert out["fidelity"]["warnings"][0]["severity"] == "security"
 
 
-def test_tmdl_and_l1_skip_wrong_typed_bim_parts_that_export_refuses(results):
+def test_tmdl_and_l1_refuse_wrong_typed_bim_parts_as_export_does(results):  # fixed in harden
     for name in ("wrong_tables_text.bim", "wrong_column_name_number.bim", "wrong_role_text.bim"):
-        points = results["hostile/" + name]
-        assert points["export"][0] == oc.REFUSED
-        assert points["tmdl"][0] == oc.OK and points["parity_l1"][0] == semantic_parity.CEILING
-    assert "tables" in results["hostile/wrong_tables_text.bim"]["tmdl"][1]["report"]
+        e = oc.entry("hostile/" + name)
+        points = results[e["path"]]
+        assert points["export"][0] == points["tmdl"][0] == oc.REFUSED
+        assert e["says"] in points["tmdl"][1]["message"]
+        assert points["tmdl"][1]["message"].startswith("This model couldn't be written as TMDL, because part of it")
+        assert points["parity_l1"][0] == semantic_parity.TEST_FAILED
+        error = points["parity_l1"][1]["error"]
+        assert error.startswith("the left side couldn't be read: ValueError: This model couldn't be compared")
+        assert e["says"] in error
 
 
 def test_the_view_leaves_wrong_typed_parts_out_and_names_them():
@@ -328,8 +333,8 @@ def test_the_manifest_is_valid_json_with_findings_as_plain_sentences():
     doc = json.loads(oc.MANIFEST.read_text(encoding="utf-8"))
     findings = {f for e in doc["files"] for f in e.get("findings", [])}
     assert len(findings) == 6
-    fixed = {f for f in findings if f.startswith("Fixed in typed-errors: ")}
-    assert len(fixed) == 2
+    fixed = {f for f in findings if f.startswith(("Fixed in typed-errors: ", "Fixed in harden: "))}
+    assert len(fixed) == 3
     for e in doc["files"]:  # a fixed finding is expected as a refusal, never as an error
         if fixed & set(e.get("findings", [])):
             assert oc.REFUSED in e["expect"].values() and not any(w.startswith("error:") for w in e["expect"].values())

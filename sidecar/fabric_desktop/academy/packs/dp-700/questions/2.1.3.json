@@ -347,7 +347,7 @@
       "answer": [
         "a"
       ],
-      "explanation": "An update policy on the target table runs a query each time data is ingested into its source table. With IsTransactional true, a failed policy fails the whole ingestion, so the tables stay consistent; with the default of false, rows can land in RawGps but not in Positions. A scheduled pipeline is the separate job the planners don't want.",
+      "explanation": "An update policy on the target table runs a query each time data is ingested into its source table. With IsTransactional true, a failed policy fails the whole ingestion, so the tables stay consistent. With the default of false, rows can land in RawGps but not in Positions. A scheduled pipeline is the separate job the planners don't want.",
       "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy?view=microsoft-fabric",
       "case": "brightwater-transit",
       "version": 1,

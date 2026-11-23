@@ -374,7 +374,7 @@
       "answer": [
         "c"
       ],
-      "explanation": "The warehouse uses table-level locking, so transactions that modify different rows of the same table can still conflict; the first to commit wins and the other is rolled back. MERGE causes write-write conflicts even when it only appends. Running the loads one after the other avoids the conflict.",
+      "explanation": "The warehouse uses table-level locking, so transactions that modify different rows of the same table can still conflict, and the first to commit wins while the other is rolled back. MERGE causes write-write conflicts even when it only appends. Running the loads one after the other avoids the conflict.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/transactions",
       "case": "marlow-sales",
       "version": 1,

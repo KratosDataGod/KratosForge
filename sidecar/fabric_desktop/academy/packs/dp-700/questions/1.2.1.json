@@ -333,15 +333,15 @@
     {
       "id": "1.2.1-q11",
       "type": "single",
-      "stem": "At Tidewater, an engineer starts a new feature. How should she work so that her changes don't affect the other engineers?",
+      "stem": "At Tidewater, an engineer starts a new feature. How should the engineer work so that their changes don't affect the others?",
       "options": [
         {
           "id": "a",
-          "text": "Edit the items directly in Ship-Dev, then commit them to the main branch when she has finished"
+          "text": "Edit the items directly in Ship-Dev, then commit them to the main branch when they have finished"
         },
         {
           "id": "b",
-          "text": "Disconnect Ship-Dev from Git while she builds the feature, then connect it to the branch again"
+          "text": "Disconnect Ship-Dev from Git while they build the feature, then connect it to the branch again"
         },
         {
           "id": "c",
@@ -355,7 +355,7 @@
       "answer": [
         "d"
       ],
-      "explanation": "A workspace is a shared environment connected to one branch, so changes made in it affect everyone who uses it. Branching out creates a branched workspace on a new branch based on the source workspace's last commit, so she works in isolation from the others.",
+      "explanation": "A workspace is a shared environment connected to one branch, so changes made in it affect everyone who uses it. Branching out creates a branched workspace on a new branch based on the source workspace's last commit, so the engineer works in isolation from the others.",
       "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/git-integration-process",
       "case": "tidewater-releases",
       "version": 1,

@@ -381,7 +381,7 @@
       "answer": [
         "c"
       ],
-      "explanation": "Workspace monitoring supports proactive notifications: save a KQL query that finds the condition and create an alert from its results, and Activator can send a Teams message. Outlook activities belong to pipelines, not dataflows, and a page someone checks each morning isn't an alert.",
+      "explanation": "Workspace monitoring supports proactive notifications. Save a KQL query that finds the condition and create an alert from its results, and Activator can send a Teams message. Outlook activities belong to pipelines, not dataflows, and a page someone checks each morning isn't an alert.",
       "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/workspace-monitoring-overview",
       "case": "quarry-hill-monitoring",
       "version": 1,
@@ -395,15 +395,15 @@
       "options": [
         {
           "id": "a",
-          "text": "Both copies had to fail to trigger the email; give each Copy activity its own Outlook activity"
+          "text": "Both copies had to fail to trigger the email, so give each Copy activity its own Outlook activity"
         },
         {
           "id": "b",
-          "text": "On fail only triggers when the whole pipeline run fails; move the Outlook activity into a separate pipeline"
+          "text": "On fail only triggers when the whole pipeline run fails, so move the Outlook activity into a separate pipeline"
         },
         {
           "id": "c",
-          "text": "Outlook activities only send email on manual runs; run the nightly pipeline on demand instead"
+          "text": "Outlook activities only send email on manual runs, so run the nightly pipeline on demand instead"
         },
         {
           "id": "d",

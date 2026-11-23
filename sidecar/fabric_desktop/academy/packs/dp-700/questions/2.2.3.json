@@ -338,11 +338,11 @@
         },
         {
           "id": "c",
-          "text": "It points to Ship-Test's ShipLake; add a data source deployment rule to ShipLake in the Production stage"
+          "text": "It points to Ship-Test's ShipLake, so add a data source deployment rule to ShipLake in the Production stage"
         },
         {
           "id": "d",
-          "text": "It keeps Test's container as its target; use variables in the shortcut definition for each stage"
+          "text": "It keeps Test's container as its target, so use variables in the shortcut definition for each stage"
         }
       ],
       "answer": [

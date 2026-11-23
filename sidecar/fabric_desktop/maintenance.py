@@ -313,6 +313,7 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     retrying.local_retry(vacuum_once)
     # Counted from what left the data folder during VACUUM, not from its list: delta-rs also lists a file already
     # gone meanwhile, and a try that deleted files before its VACUUM END failed leaves them off the next try's list.
+    # A file another process deletes while VACUUM runs is counted too; the count only reports, it deletes nothing.
     removed = [p for p in present if not (Path(uri) / p).exists()]
     # A data file no commit names (a write stopped before its commit) goes once it's as old as the
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.

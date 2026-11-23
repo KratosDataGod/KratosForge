@@ -8,6 +8,7 @@ commit names by its mtime, so nothing waits on the clock.
 import os
 import re
 import shutil
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -189,6 +190,27 @@ def test_vacuum_losing_a_commit_race_on_windows_is_tried_again_and_counts_what_i
     assert before - _parquet(uri) == {named[0], named[1]}
     assert result["vacuumed"] == 2
     assert _ids(uri, 2) == [2] and _ids(uri) == [3]
+
+
+def test_a_version_committed_between_vacuum_tries_keeps_its_files(table, races, monkeypatch):
+    """The first VACUUM try loses the race; before the next, a writer restores version 0, putting back the file
+    version 1 removed 20 days ago. The next try reads the table afresh, so that file, now in the latest version,
+    stays; a try on the table as it was before the restore would delete it."""
+    uri, named = table
+    plan, _calls = races
+    plan.append("before")
+    real_race = _log_race
+
+    def race_then_restore(u: str) -> OSError:
+        DeltaTable(uri).restore(0)
+        return real_race(u)
+
+    monkeypatch.setattr(sys.modules[__name__], "_log_race", race_then_restore)
+    result = maintenance.compact_local(uri, 7)
+    assert plan == []
+    assert (Path(uri) / named[0]).exists()  # named by the latest version again
+    assert _ids(uri) == [0]  # and the latest version reads whole
+    assert not (Path(uri) / named[1]).exists() and result["vacuumed"] == 1  # version 1's file: still past the 7 days
 
 
 def test_vacuum_still_raises_any_other_error_at_once(table, races, monkeypatch):

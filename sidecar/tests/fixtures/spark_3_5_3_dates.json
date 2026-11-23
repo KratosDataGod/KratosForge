@@ -1,0 +1,63 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT DATE'2024-01-31' + INTERVAL 1 MONTH",
+   "value": [
+    [
+     "date:2024-02-29"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT trunc(DATE'2024-05-17', 'Q')",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')",
+   "value": [
+    [
+     1715953512
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT date_format(TIMESTAMP'2024-05-17 13:05:02', 'z')",
+   "value": [
+    [
+     "UTC"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT minute('13:45:12')",
+   "value": [
+    [
+     45
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT from_utc_timestamp(TIMESTAMP'2024-05-17 12:00:00', 'GMT+2')",
+   "value": [
+    [
+     "timestamp:2024-05-17T14:00:00"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT make_ym_interval(1, 2) IS NOT NULL",
+   "value": [
+    [
+     true
+    ]
+   ]
+  }
+ ]
+}

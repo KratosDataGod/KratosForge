@@ -154,11 +154,15 @@ Spark SQL run on this PC gives Spark's values and types for its date and time fu
 | `trunc`, `date_trunc` | NULL for a unit the function doesn't take. `trunc` takes `YEAR`, `YYYY`, `YY`, `QUARTER`, `MONTH`, `MM`, `MON` and `WEEK`; `date_trunc` also takes `DAY`, `DD`, `HOUR`, `MINUTE`, `SECOND`, `MILLISECOND` and `MICROSECOND` |
 | `next_day` | Takes `MO`, `MON` or `MONDAY` and so on for each day, in any case. Any other text gives NULL |
 | `make_date`, `make_timestamp` | NULL for a day that doesn't exist, such as `make_date(2023, 2, 29)` |
+| `date + INTERVAL 1 MONTH`, `date - INTERVAL 2 DAY` | A `date` for an interval of years, months, weeks or days, at the month's last day (`DATE'2024-01-31' + INTERVAL 1 MONTH` is `2024-02-29`). An interval with hours, minutes or seconds gives a `timestamp` |
+| `unix_seconds`, `unix_millis` | Rounded down, as Spark does: `unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')` is `1715953512` |
+| `hour`, `minute`, `second` of text | Text that is a time of day only, such as `'13:45:12'` or `'T09:08'`, is read as that time |
+| `from_utc_timestamp`, `to_utc_timestamp` | A zone written as an offset, as Java reads one: `GMT+2`, `UTC+05:30`, `-08:00`, `Z` |
 | `try_to_date` | Refused by name, and nothing runs. Spark 3.5 (Fabric Runtime 1.3) doesn't have it, so Fabric stops on it too. Use `to_date`, which gives NULL for text that isn't a date. Databricks SQL on this PC still runs it |
 
 Patterns that Spark refuses are refused here by name, and nothing runs: the week-based letters (`Y`, `w`, `W`, `u`, `e`, `c`), `F`, optional sections (`[ ]`), letters that aren't pattern letters, and the runs Spark stops on with "Too many pattern letters": five or more of `G`, `M`, `L`, `E`, `Q` or `q`, and seven or more `y`. These are refused too, because this PC can't give Spark's text for them:
 
-- Zone names (`z`, such as `EST`). Use `VV` for the zone's id or `XXX` for its offset.
+- Zone names (`z`, such as `EST`), from `z` to `zzz` when the session's time zone isn't UTC, and `zzzz` always. Use `VV` for the zone's id or `XXX` for its offset. In UTC, `z` to `zzz` give `UTC`, as in Spark.
 - When reading text, `G`, `Q`, `k`, `K`, `O` and `z`.
 
 These cases can still differ. LOC-003 warns wherever a pattern is used:
@@ -167,6 +171,10 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 | --- | --- | --- |
 | Text with more fraction digits than the pattern's `S` letters, such as `.123` with `ss.SS` | NULL | Read, up to 6 digits |
 | Text with one digit where the pattern has two, such as `2024-2-9` with `yyyy-MM-dd` | Not read: see the next row | Read |
+| A DATE column plus an interval of whole days or months, where the column's type isn't known before the query runs (a column of a subquery's or a DataFrame's expression) | `date` | `timestamp` at midnight. Cast it: `CAST(d + INTERVAL 1 MONTH AS DATE)` |
+| `from_utc_timestamp` and `to_utc_timestamp` with the zone from a column, written as an offset such as `GMT+2` | Read as that offset | Stops (`Unknown TimeZone`), or for `UTC+05:30` moves by 5 hours only. A zone id such as `Europe/Paris` gives Spark's answer |
+| `hour`, `minute`, `second` of a time of day with a zone, such as `'13:45:12Z'` | That time in the session's zone | NULL |
+| `make_ym_interval` | A year-month interval | Refused by name, and nothing runs, because this PC has no year-month interval type |
 | Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
@@ -538,8 +546,34 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 
 What still differs:
 
-- `GROUP BY`, `DISTINCT`, `UNION`, `INTERSECT` and `EXCEPT` keep `'a'` and `'a  '` apart, where T-SQL counts them as one value. A query that groups text says so in `translation.notes`. Group on `RTRIM(...)` to get T-SQL's groups.
+- `GROUP BY`, `DISTINCT`, `UNION`, `INTERSECT` and `EXCEPT` keep `'a'` and `'a  '` apart, where T-SQL counts them as one value. A query that groups text says so in `translation.notes`. Group on `RTRIM(...)` to get T-SQL's groups. (`COUNT(DISTINCT ...)` counts them as one, as T-SQL does, and the table below shows it.)
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
+
+### Local T-SQL collation
+
+A Fabric Warehouse's default collation is `Latin1_General_100_BIN2_UTF8`, case-sensitive ([Microsoft: collation in Fabric Data Warehouse](https://learn.microsoft.com/fabric/data-warehouse/collation)). A `BIN2` collation sorts and compares by Unicode code point, so case and accents count and `'B'`, `'Z'` sort before `'a'`, and `'z'` before `'é'` ([Microsoft: collation and Unicode support](https://learn.microsoft.com/sql/relational-databases/collations/collation-and-unicode-support)). On top of that, T-SQL compares text with ANSI padding: text that differs only in trailing spaces is equal. The local engine runs every T-SQL query this way. Each row below is checked in `sidecar/tests/test_tsql_collation.py` (WR-246).
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `ORDER BY`, `MIN`, `MAX`, `<`, `>` | Code point order, `NULL` first ascending and last descending: `NULL`, `''`, `A`, `B`, `Z`, `a`, `e`, `z`, `é`. `MIN`/`MAX` of `'a'` and `'a '` may show either, as in T-SQL |
+| `ORDER BY s, n` | `'a'` and `'a '` are equal in `s`, so `n` orders them. This holds for an output column named by its alias or number (`ORDER BY 1, 2`) |
+| `BETWEEN`, `IN (SELECT ...)`, `= ANY (SELECT ...)` | Trailing spaces don't count: `'a ' BETWEEN 'a' AND 'a'` is true, and `'a '` is `IN (SELECT 'a')` |
+| `NULLIF`, `CASE s WHEN 'a' THEN ...` | `NULLIF('a ', 'a')` is `NULL`, and `CASE 'a ' WHEN 'a'` takes that branch. `NULLIF` otherwise shows its first value as it is |
+| `JOIN ... ON a.s = b.s`, `ON a.s = b.s + ''` | `'a'` joins `'a '` |
+| `COUNT(DISTINCT s)` | `'a'`, `'a '` and `'a  '` count once |
+| `RANK`, `ROW_NUMBER`, `SUM(...) OVER` | A window's `PARTITION BY` and `ORDER BY` treat `'a'` and `'a '` as one value: they rank as ties, share a partition, and are peers in the default `RANGE` frame |
+| `LIKE`, `UPPER`, `LOWER` | `LIKE` is case-sensitive (`'a%'` doesn't find `'A'`). `UPPER('é')` is `É` |
+| `COLLATE Latin1_General_100_BIN2_UTF8`, `COLLATE database_default` | Run as written, because that's how text compares here already |
+| `COLLATE Latin1_General_100_BIN2`, `..._BIN` | Run as `Latin1_General_100_BIN2_UTF8`, with a note. They agree on ASCII, but a warehouse first converts other text to that collation's code page |
+| `VARCHAR(n) COLLATE Latin1_General_100_BIN2_UTF8` on a column | Runs. Any other column collation, including the case-insensitive `Latin1_General_100_CI_AS_KS_WS_SC_UTF8` a warehouse can be made with, is refused by name |
+| `JOIN ... USING` | Refused, because it isn't T-SQL and a warehouse refuses it. Use `JOIN ... ON` |
+
+What still differs, and how it shows:
+
+- A warehouse made case-insensitive (`Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, set for the workspace or the warehouse when it's created) compares `'a' = 'A'` as true. The local engine always compares as the default, case-sensitive collation. The static check's SEM-006 warns about a collation name it reads.
+- `ORDER BY` text then another key after a `UNION`, `INTERSECT` or `EXCEPT` keeps `'a'` before `'a  '` instead of letting the next key order them, with a note. Put the set operation in a `FROM` and order by `RTRIM(...)`.
+- Text compares here without its trailing spaces, where T-SQL pads the shorter side with spaces. The two differ only for a character below a space (a tab or another control character) after the shorter text. For example, T-SQL sorts `'a' + CHAR(9)` before `'a'`, and here it sorts after.
+- Where the types in a comparison can't be told (a table the local engine doesn't know), the comparison is done as DuckDB does it, with a note.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
 T-SQL's reference doesn't give the answers for `LIKE` with a wildcard on text with trailing spaces, or `CHARINDEX` with a `NULL` start. A Fabric Warehouse gave the ones in the table above in live run 11 (2026-11-17), in the warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check).

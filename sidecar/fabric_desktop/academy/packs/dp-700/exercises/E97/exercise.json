@@ -1,0 +1,180 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "troubleshoot",
+  "id": "E97",
+  "title": "Broken: a Dataflow Gen2 shows date errors and its refresh stops on an empty date",
+  "objectives": [
+    "3.2.2"
+  ],
+  "objective_text": "Read a Dataflow Gen2 query's type conversions and its data destination, find why dates turn into errors and why the refresh fails on empty values, and fix the query and the destination without losing rows.",
+  "scenario": "The Shipments dataflow loads files from a new carrier, Northwind UK, into silver_shipments. The preview shows Error in many ship_date and delivered_on cells, and last night's refresh failed with error E104100, which says it can't insert null data into a non-nullable column. The other queries in the same dataflow read US files and work fine.",
+  "prerequisites": [],
+  "minutes": 20,
+  "engine_label": "A model of a Dataflow Gen2 query and its data destination, checked on this PC",
+  "starter": "settings.json",
+  "fault": {
+    "summary": "The query converts day/month/year dates with the project's English (United States) locale, which reads them as month/day/year. And delivered_on is non-nullable in the query and in the destination, but shipments still on their way have no delivered_on date.",
+    "planted": [
+      {
+        "where": "settings.json, steps, Changed column type",
+        "what": "ship_date and delivered_on set to Date with no locale, so the project's English (United States) locale reads 22/10/2026 as month 22"
+      },
+      {
+        "where": "settings.json, Changed column type and destination.columns",
+        "what": "delivered_on marked non-nullable in both, while in-transit shipments send it empty"
+      }
+    ],
+    "symptom": "The preview shows Error in ship_date and delivered_on for dates like 22/10/2026, and the refresh fails with error E104100, which says it can't insert null data into a non-nullable column."
+  },
+  "verifies": [
+    "Your query reads both date columns with the English (United Kingdom) locale while the project keeps English (United States), lets delivered_on be empty in the query and in the destination, and adds no step that drops or hides rows, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the dataflow publishes or refreshes in Fabric. Nothing runs here, and no Power Query (M) is evaluated.",
+    "The rebuild itself. Learn's fix for a column that's wrongly non-nullable deletes the destination table, removes the destination, changes the type and adds the destination again. The model only checks the result.",
+    "What happens to cells with errors when they reach a destination. The data destinations page doesn't say, so the model only fixes them at the step that makes them."
+  ],
+  "expected": {
+    "description": "Changed column type keeps three steps and Date for both date columns, with locale English (United Kingdom) on ship_date and delivered_on and delivered_on nullable. The project stays English (United States). The destination's delivered_on is nullable, and everything else in it is unchanged."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The date columns are still read the US way, or the fix changed more than the dates.",
+      "pass": "Both date columns are read as day/month/year, and the project is left as it was.",
+      "rules": [
+        {
+          "path": "steps",
+          "count": 3,
+          "why": "Fix the conversion where it happens. A step that removes rows or replaces values would drop shipments or hide wrong dates."
+        },
+        {
+          "path": "steps",
+          "count": 1,
+          "where": {
+            "kind": "change_type"
+          }
+        },
+        {
+          "path": "steps.2.columns.ship_date.type",
+          "equals": "Date"
+        },
+        {
+          "path": "steps.2.columns.ship_date.locale",
+          "one_of": [
+            "English (United Kingdom)",
+            "en-GB"
+          ],
+          "why": "The locale decides how text turns into a date. English (United States) reads month/day/year, and there's no month 22."
+        },
+        {
+          "path": "steps.2.columns.delivered_on.type",
+          "equals": "Date"
+        },
+        {
+          "path": "steps.2.columns.delivered_on.locale",
+          "one_of": [
+            "English (United Kingdom)",
+            "en-GB"
+          ],
+          "why": "delivered_on comes from the same file, written the same day/month/year way."
+        },
+        {
+          "path": "project.regional_settings",
+          "equals": "English (United States)",
+          "why": "The project's regional settings apply to every query in it. The US queries would start reading their dates wrongly."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "An empty delivered_on still can't load.",
+      "pass": "delivered_on may be empty in the query and in the destination.",
+      "rules": [
+        {
+          "path": "steps.2.columns.delivered_on.nullable",
+          "equals": true,
+          "why": "Shipments still on their way have no delivered_on. The type has to allow null."
+        },
+        {
+          "path": "destination.columns.delivered_on.nullable",
+          "equals": true,
+          "why": "The destination column was made non-nullable, so the refresh can't insert null data into it. Rebuild the destination with the nullable type."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Something else changed in the query or the destination.",
+      "pass": "The other columns and the destination's settings are as they were.",
+      "rules": [
+        {
+          "path": "steps.2.columns.shipment_id.type",
+          "equals": "Whole number"
+        },
+        {
+          "path": "steps.2.columns.weight_kg.type",
+          "equals": "Decimal number"
+        },
+        {
+          "path": "destination.table",
+          "equals": "silver_shipments"
+        },
+        {
+          "path": "destination.update_method",
+          "equals": "Replace",
+          "why": "Each refresh reads every file again, so Append would load every shipment again each night."
+        },
+        {
+          "path": "destination.schema",
+          "equals": "fixed"
+        },
+        {
+          "path": "destination.columns.ship_date.type",
+          "equals": "Date"
+        },
+        {
+          "path": "destination.columns.delivered_on.type",
+          "equals": "Date",
+          "why": "Reports read delivered_on as a date. Text would hide the problem and break them."
+        },
+        {
+          "path": "destination.columns.shipment_id.type",
+          "equals": "Whole number"
+        },
+        {
+          "path": "destination.columns.weight_kg.type",
+          "equals": "Decimal number"
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Look at 22/10/2026 in the sample rows. Which part is the month if you read it the US way?",
+    "Power Query can change a column's type using a locale. Which locale writes dates as day/month/year?",
+    "Who else uses the project's regional settings?",
+    "Which column is empty for some rows, and what does the refresh error say about null data?",
+    "Both the query's type and the destination column have to allow null."
+  ],
+  "explanation": "Two faults stop this load. First, Power Query uses a locale to turn text into other types. In Power Query Online that's the project's regional settings, here English (United States), which reads dates as month/day/year. A date like 22/10/2026 has no month 22, so it becomes an error. Dates like 03/11/2026 are worse, because they turn into the wrong date without any error. Change type using locale fixes this column by column, with English (United Kingdom) for this carrier's files. Changing the project's settings would break the US queries, and Remove errors would drop real shipments. Second, delivered_on is empty for shipments still on their way, but the column is non-nullable in the query and in the destination. The refresh fails with E104100 because it can't insert null into a non-nullable column. Learn's fix is to delete the destination table, remove the destination, change the column to a nullable type, and add the destination again. Making up a date such as 1900-01-01 would load rows that lie to every report.",
+  "remediation": [
+    "https://learn.microsoft.com/power-query/data-types",
+    "https://learn.microsoft.com/power-query/dealing-with-errors",
+    "https://learn.microsoft.com/fabric/data-factory/dataflow-gen2-data-destinations-and-managed-settings"
+  ],
+  "reset": "Reset puts the original settings.json back.",
+  "review_notes": [
+    "Checked on Learn 2026-11-23. power-query/data-types: locale is used to interpret text values and convert them into other data types. In Power Query Online it's set in the Project options under Regional settings. With English (United States), a day/month/year date column set to Date gives error values, because there's no month 22. Change type, Using locale, with English (United Kingdom) interprets them correctly.",
+    "power-query/dealing-with-errors: a cell-level error doesn't stop the query from loading, and a data type conversion error comes from values that can't be converted to the chosen type. Remove errors and Replace errors exist, and the model treats them as hiding the fault here.",
+    "dataflow-gen2-data-destinations-and-managed-settings: a nullable column detected as non-nullable fails the refresh with E104100, We can't insert null data into a non-nullable column. The fix deletes the table, removes the destination, sets a nullable type, and adds the destination. Fixed schema keeps the table's schema and fails publish when the query schema doesn't match. Replace drops and reloads the data on each refresh.",
+    "That 03/11/2026 silently becomes 11 March under English (United States) follows from month/day/year reading. Learn's page shows only the error case. It's in the explanation, not in grading.",
+    "Learn doesn't say how cells with errors behave in a destination, so the symptom names the preview's errors and the refresh error only."
+  ]
+}

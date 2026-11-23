@@ -1,0 +1,68 @@
+{
+  "_about": "A model of the production copy of OrdersStream before it's published: its sources, operators and destinations, and the consumer groups on the payments event hub. Activation says how the Eventhouse destination starts. start_from is one of Now, When streaming was last stopped or Custom time, and custom_time is used only with Custom time. Change what the needs call for.",
+  "needs": [
+    "In test, OrdersStream lost the initial snapshot of dbo.orders. The CDC source sent it at publish, but OrdersTable got only the changes made after that. The production copy below has the same settings and is published tomorrow, 2026-11-24 at 09:00 UTC.",
+    "OrdersTable must hold every EU order, including the snapshot rows sent when the stream starts. It sits after the Filter operator EU only.",
+    "The production runbook says to start routing to OrdersTable from 2026-11-24T00:00:00Z, the start of the publish day, once the stream is published.",
+    "The payments event hub was already read by two apps. The fraud scoring app uses $Default and the archive app uses archive. In test, OrdersStream was set to read with archive too, and the archive team asked why a second reader joined their group.",
+    "Each app that reads payments gets a consumer group of its own. The Event Hubs admins ask that OrdersStream's group be named orders-stream, with used_by set to OrdersStream."
+  ],
+  "event_hub": {
+    "namespace": "contoso-pay",
+    "name": "payments",
+    "consumer_groups": [
+      {
+        "name": "$Default",
+        "used_by": "fraud scoring app"
+      },
+      {
+        "name": "archive",
+        "used_by": "archive app"
+      },
+      {
+        "name": "orders-stream",
+        "used_by": "OrdersStream"
+      }
+    ]
+  },
+  "sources": {
+    "orders-cdc": {
+      "type": "Azure SQL Database CDC",
+      "tables": [
+        "dbo.orders"
+      ]
+    },
+    "payments-hub": {
+      "type": "Azure Event Hubs",
+      "event_hub": "payments",
+      "consumer_group": "orders-stream",
+      "data_format": "JSON"
+    }
+  },
+  "operators": {
+    "EU only": {
+      "type": "Filter",
+      "input": "orders-cdc",
+      "condition": "region equals EU"
+    }
+  },
+  "destinations": {
+    "OrdersTable": {
+      "type": "Eventhouse",
+      "ingestion_mode": "Event processing before ingestion",
+      "input": "EU only",
+      "table": "Orders",
+      "activate_ingestion_when_added": false,
+      "activation": {
+        "start_from": "Now",
+        "custom_time": null
+      }
+    },
+    "PaymentsTable": {
+      "type": "Eventhouse",
+      "ingestion_mode": "Direct ingestion",
+      "input": "default stream",
+      "table": "Payments"
+    }
+  }
+}

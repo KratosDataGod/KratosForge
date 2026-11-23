@@ -70,10 +70,10 @@ four original exam questions (ACD-013).
 | 3.1.3 | Monitor semantic model refresh | E45, E90 | SIM | Yes | LM-09 |
 | 3.1.4 | Configure alerts | E46, E91 | SIM | Yes | |
 | 3.2.1 | Identify and resolve pipeline errors | E48, E49, E58 | LV (local runner) | No | |
-| 3.2.2 | Identify and resolve dataflow errors | E50 | SIM | Yes | |
+| 3.2.2 | Identify and resolve dataflow errors | E50, E97 | SIM | Yes | |
 | 3.2.3 | Identify and resolve notebook errors | E51, E52, E68 | LV | No | |
-| 3.2.4 | Identify and resolve eventhouse errors | E53 | SIM | Yes | |
-| 3.2.5 | Identify and resolve eventstream errors | E54 | SIM | Yes | |
+| 3.2.4 | Identify and resolve eventhouse errors | E53, E98 | SIM | Yes | |
+| 3.2.5 | Identify and resolve eventstream errors | E54, E99 | SIM | Yes | |
 | 3.2.6 | Identify and resolve T-SQL errors | E55, E65 | LV | Yes | LAB-09 |
 | 3.3.1 | Optimize a lakehouse table | E56 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
 | 3.3.2 | Optimize a pipeline | E60, E92 | SIM | Yes | |

@@ -1,0 +1,173 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "troubleshoot",
+  "id": "E99",
+  "title": "Broken: an eventstream misses a CDC snapshot and reads with another app's consumer group",
+  "objectives": [
+    "3.2.5"
+  ],
+  "objective_text": "Find why an eventstream's Eventhouse destination missed the events sent when the stream started, and why its Event Hubs source shares a consumer group, then fix the production copy before it's published.",
+  "scenario": "In test, the OrdersStream eventstream lost the initial snapshot of dbo.orders. The Azure SQL Database CDC source sent it at publish, but the Eventhouse table got only later changes. The same stream reads the payments event hub, and the archive team asked why a second reader joined their consumer group. The production copy has the same settings and is published tomorrow.",
+  "prerequisites": [],
+  "minutes": 20,
+  "engine_label": "A model of an eventstream's sources, operators and destinations, checked on this PC",
+  "starter": "settings.json",
+  "fault": {
+    "summary": "The Eventhouse destination activates when it's added and starts routing from Now. Ingestion can begin before routing is ready, so the snapshot sent at publish never reaches the table. And the Event Hubs source reads with the archive app's consumer group instead of one of its own.",
+    "planted": [
+      {
+        "where": "settings.json, destinations.OrdersTable",
+        "what": "activate_ingestion_when_added true and activation.start_from Now"
+      },
+      {
+        "where": "settings.json, sources.payments-hub",
+        "what": "consumer_group archive, the archive app's group, with no group of its own on the event hub"
+      }
+    ],
+    "symptom": "OrdersTable has the changes made after publish but none of the snapshot rows, and the archive team sees a second reader in their consumer group."
+  },
+  "verifies": [
+    "Your production copy adds OrdersTable without activating it, starts it from the runbook's custom time, keeps it after the filter in event processing mode, and reads payments with a new orders-stream consumer group while the other apps keep theirs, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the eventstream publishes or routes a single event. Nothing is sent to Fabric here.",
+    "How long the eventstream keeps events, and so how far back a custom time can reach. The model takes the runbook's time as given.",
+    "Creating the consumer group in Azure Event Hubs. The model lists it, and the Event Hubs admins create it."
+  ],
+  "expected": {
+    "description": "OrdersTable stays Event processing before ingestion after EU only, with activate_ingestion_when_added false, start_from Custom time and custom_time 2026-11-24T00:00:00Z. The event hub lists $Default, archive and a new orders-stream group used by OrdersStream, and payments-hub reads with orders-stream."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "OrdersTable would still miss events sent while the stream starts.",
+      "pass": "OrdersTable is activated by hand after publish, from the runbook's earlier time.",
+      "rules": [
+        {
+          "path": "destinations.OrdersTable.activate_ingestion_when_added",
+          "equals": false,
+          "why": "Learn's fix is to clear Activate ingestion when you add the destination, then activate it by hand after the eventstream is published."
+        },
+        {
+          "path": "destinations.OrdersTable.activation.start_from",
+          "equals": "Custom time",
+          "why": "Ingestion can start before routing is ready, so events sent at publish can miss the destination. A custom time earlier than publish routes them too. Now starts after them."
+        },
+        {
+          "path": "destinations.OrdersTable.activation.custom_time",
+          "equals": "2026-11-24T00:00:00Z",
+          "why": "Use the time the runbook gives, the start of the publish day."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "OrdersTable is no longer where it should be, or can't be activated this way.",
+      "pass": "OrdersTable still follows the filter in event processing mode.",
+      "rules": [
+        {
+          "path": "destinations.OrdersTable.ingestion_mode",
+          "equals": "Event processing before ingestion",
+          "why": "The destination comes after the EU only filter, and that needs event processing before ingestion. Direct ingestion also can't be paused or resumed from a chosen time."
+        },
+        {
+          "path": "destinations.OrdersTable.input",
+          "equals": "EU only",
+          "why": "OrdersTable holds EU orders only."
+        },
+        {
+          "path": "destinations.OrdersTable.table",
+          "equals": "Orders"
+        },
+        {
+          "path": "operators.EU only.input",
+          "equals": "orders-cdc"
+        },
+        {
+          "path": "sources.orders-cdc.type",
+          "equals": "Azure SQL Database CDC"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "OrdersStream still shares a consumer group with another app, or another app lost its group.",
+      "pass": "OrdersStream reads payments with a consumer group of its own.",
+      "rules": [
+        {
+          "path": "sources.payments-hub.consumer_group",
+          "equals": "orders-stream",
+          "why": "Each app that reads an event hub should have its own consumer group. Within one group, only one reader should be active on each partition."
+        },
+        {
+          "path": "event_hub.consumer_groups",
+          "count": 1,
+          "where": {
+            "name": "orders-stream",
+            "used_by": "OrdersStream"
+          },
+          "why": "The source can only read with a group that exists on the event hub."
+        },
+        {
+          "path": "event_hub.consumer_groups",
+          "count": 1,
+          "where": {
+            "name": "archive",
+            "used_by": "archive app"
+          },
+          "why": "The archive app keeps its own group."
+        },
+        {
+          "path": "event_hub.consumer_groups",
+          "count": 1,
+          "where": {
+            "name": "$Default",
+            "used_by": "fraud scoring app"
+          },
+          "why": "$Default is the fraud scoring app's group. It isn't free just because it's the default."
+        },
+        {
+          "path": "event_hub.consumer_groups",
+          "count": 3
+        },
+        {
+          "path": "sources.payments-hub.data_format",
+          "equals": "JSON"
+        },
+        {
+          "path": "destinations.PaymentsTable.ingestion_mode",
+          "equals": "Direct ingestion"
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "When the stream is published, what starts first, ingestion or routing? What happens to events that arrive in between?",
+    "Which setting on the Eventhouse destination lets you activate it by hand later?",
+    "Of Now, When streaming was last stopped and Custom time, which one reaches back before publish?",
+    "Could OrdersTable switch to direct ingestion? Look at what it reads from.",
+    "Who uses $Default and who uses archive? Where does OrdersStream's own group come from?"
+  ],
+  "explanation": "When an eventstream is published, ingestion and routing both start from Now. Ingestion can begin before routing is ready, so events that arrive in between can stay in the eventstream without reaching the destination. A CDC source's initial snapshot is the common case, and that's what test lost. Learn's fix is to clear Activate ingestion when you add an Eventhouse destination in event processing mode, publish, then activate it by hand with a custom time earlier than publish. OrdersTable must stay in event processing before ingestion mode, because it follows a filter, and direct ingestion can't be paused or resumed from a chosen time anyway. The second fault is on the Event Hubs side. Every reader of an event hub reads with a consumer group, and $Default is only the name of the group each event hub starts with. Each app should have its own group, with one active reader per partition. OrdersStream used the archive app's group, so the fix is a new orders-stream group on the event hub and the source reading with it. Taking $Default instead would only move the clash to the fraud scoring app.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/add-destination-kql-database",
+    "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/pause-resume-data-streams",
+    "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/add-source-azure-event-hubs",
+    "https://learn.microsoft.com/azure/event-hubs/event-hubs-features"
+  ],
+  "reset": "Reset puts the original settings.json back.",
+  "review_notes": [
+    "Checked on Learn 2026-11-23. add-destination-kql-database and pause-resume-data-streams: on publish, ingestion and routing both start with Now, ingestion might begin faster than routing, and data that arrives first might not be routed. A database CDC source's initial snapshot is the common example. The mitigation is to uncheck Activate ingestion on an Eventhouse (Event processing before ingestion) or Lakehouse destination, activate it by hand after publish, and use Custom time to pick an earlier timestamp.",
+    "add-destination-kql-database: use event processing before ingestion when operators process the data first. Direct ingestion is added to the default stream or a derived stream. pause-resume-data-streams: Eventhouse (Direct Ingestion) doesn't support pause and resume. Resume options are When streaming was last stopped, Now and Custom time.",
+    "add-source-azure-event-hubs: the default consumer group is $Default. event-hubs-features: one active reader per partition within a consumer group, and separate consumer groups for each application.",
+    "What the archive team sees when a second reader joins their group isn't graded or described beyond 'a second reader', because the Event Hubs page doesn't name a symptom for non-epoch readers.",
+    "How long the eventstream keeps events isn't on these pages. The custom time comes from the scenario's runbook, not from a Learn rule."
+  ]
+}

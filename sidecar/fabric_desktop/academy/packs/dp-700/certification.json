@@ -1152,7 +1152,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E50"
+                "E50",
+                "E97"
               ],
               "capstones": [],
               "lessons": [],
@@ -1200,7 +1201,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E53"
+                "E53",
+                "E98"
               ],
               "capstones": [],
               "lessons": [],
@@ -1224,7 +1226,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E54"
+                "E54",
+                "E99"
               ],
               "capstones": [],
               "lessons": [],
@@ -1239,7 +1242,7 @@
               "gaps": [
                 "G-02"
               ],
-              "status": "planned"
+              "status": "in_progress"
             },
             {
               "id": "3.2.6",

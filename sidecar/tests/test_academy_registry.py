@@ -97,7 +97,7 @@ def test_each_objective_status_matches_what_is_built(pack):
 
 
 def test_dp700_status_counts(dp700):
-    assert registry.coverage(dp700)["status"] == {"planned": 1, "in_progress": 0, "covered": 48, "retired": 0}
+    assert registry.coverage(dp700)["status"] == {"planned": 0, "in_progress": 1, "covered": 48, "retired": 0}
 
 
 def test_the_version_is_honest_about_its_date(dp700):

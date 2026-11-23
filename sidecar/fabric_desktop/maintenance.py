@@ -53,6 +53,7 @@ WRITE_HOOKS = PostCommitHookProperties(create_checkpoint=True, cleanup_expired_l
 _LOG_FILE = re.compile(r"(\d{20})\.(json|checkpoint(\.\d+\.\d+)?\.parquet)")
 _INTERVAL = re.compile(r"(?:interval\s+)?(\d+(?:\.\d+)?)\s*(millisecond|second|minute|hour|day|week)s?", re.I)
 _UNIT_SECONDS = {"millisecond": 0.001, "second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 7 * 86400}
+_RS_UNIT_SECONDS = {"nanosecond": 1e-9, "microsecond": 1e-6} | _UNIT_SECONDS
 # delta-rs writes each file on this PC as <name>#<n> and then renames (data) or links (log) it into
 # place, so a write stopped part way leaves files under that staging name. One untouched this long
 # belongs to a write that has stopped: a live one finishes a file and publishes it in one go.
@@ -305,8 +306,11 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None, al
     wanted = retention_properties(days)
     config = table.metadata().configuration or {}
     own = str(config.get("delta.logRetentionDuration") or "")
-    if _interval_seconds(own) > _interval_seconds(wanted["delta.logRetentionDuration"]):
-        wanted["delta.logRetentionDuration"] = own  # the table's own longer one stays
+    if _own_seconds(own) > _interval_seconds(wanted["delta.logRetentionDuration"]):
+        # The table's own longer one stays, in words delta-rs reads as that long too (it reads "INTERVAL 100 DAYS"
+        # as its default 30 days: _delta_rs_seconds).
+        wanted["delta.logRetentionDuration"] = own if _delta_rs_seconds(own) == _own_seconds(own) \
+            else f"interval {math.ceil(_own_seconds(own) / 86400)} days"
     if all(config.get(k) == v for k, v in wanted.items()):
         return False
     # A commit like any other: on Windows it can lose the staged-commit race to a writer (retrying.local_commit).
@@ -316,20 +320,47 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None, al
 
 
 def _interval_seconds(text: str) -> float:
-    """``interval 30 days`` (or hours, weeks...) in seconds; 0 for anything else, the shortest there is."""
+    """``interval 30 days`` (or hours, weeks...) in seconds, read leniently as Spark might (any case, decimals,
+    "interval" left out); 0 for anything else, the shortest there is."""
     m = _INTERVAL.fullmatch(text.strip())
     return float(m.group(1)) * _UNIT_SECONDS[m.group(2).lower()] if m else 0.0
 
 
+def _delta_rs_seconds(text: str) -> float | None:
+    """An interval as delta-rs 1.6.6 reads it, in seconds, or None when it can't (it then keeps Delta's default 30
+    days of log, whatever the words meant): whitespace-separated words, the first exactly ``interval``, then a whole
+    number (a leading + allowed) and a lower-case unit, singular or plural; later words are ignored. So
+    ``INTERVAL 100 DAYS``, ``100 days`` and ``interval 1.5 days`` are 30 days to it, and ``interval +100 days``
+    100. Anything it might read otherwise (a control character Python splits on and Rust doesn't, a number past
+    any real duration) counts as unreadable."""
+    if re.search(r"[\x1c-\x1f]", text):
+        return None
+    words = text.split()
+    if len(words) < 3 or words[0] != "interval" or not re.fullmatch(r"\+?[0-9]{1,15}", words[1]):
+        return None
+    unit = words[2][:-1] if words[2].endswith("s") else words[2]
+    return int(words[1]) * _RS_UNIT_SECONDS[unit] if unit in _RS_UNIT_SECONDS else None
+
+
+def _own_seconds(text: str) -> float:
+    """The longest a table's own delta.logRetentionDuration may be meant to keep the log, as delta-rs or Spark
+    reads it: never shortened by a property this app writes."""
+    return max(_delta_rs_seconds(text) or 0.0, _interval_seconds(text))
+
+
 def log_seconds(config: dict[str, str] | None) -> float:
-    """How long the table's log cleanup keeps a log file, in seconds: its delta.logRetentionDuration, Delta's
-    30 days when it sets none, 0 when it's one this can't read; infinite when delta.enableExpiredLogCleanup
-    is false (delta-rs then cleans nothing)."""
+    """How long delta-rs's log cleanup keeps a log file, in seconds: the table's delta.logRetentionDuration as
+    delta-rs reads it (_delta_rs_seconds), Delta's 30 days when it sets none, and for one delta-rs can't read the
+    shorter of 30 days (its default then) and what it seems to say (0 when that can't be read either); infinite
+    only when delta.enableExpiredLogCleanup is exactly ``false``: delta-rs cleans at any other value ("False" too)."""
     config = config or {}
-    if str(config.get("delta.enableExpiredLogCleanup", "")).strip().lower() == "false":
+    if config.get("delta.enableExpiredLogCleanup") == "false":
         return math.inf
     text = config.get("delta.logRetentionDuration")
-    return LOG_RETENTION_DAYS * 86400.0 if text is None else _interval_seconds(str(text))
+    if text is None:
+        return LOG_RETENTION_DAYS * 86400.0
+    read = _delta_rs_seconds(str(text))
+    return read if read is not None else min(_interval_seconds(str(text)), LOG_RETENTION_DAYS * 86400.0)
 
 
 def keep_log(uri: str, hours: float, options: dict[str, str] | None = None, now: float | None = None) -> bool:
@@ -372,8 +403,11 @@ def keep_log(uri: str, hours: float, options: dict[str, str] | None = None, now:
     oldest = min(needed)
     if now - oldest + 86400 < retention:  # a day to spare for the commit that follows
         return False
-    # Whole multiples of Delta's 30 days, so a table written seldom isn't raised again at every run.
+    # Whole multiples of Delta's 30 days, so a table written seldom isn't raised again at every run; never shorter
+    # than the table's own (one delta-rs reads as its 30-day default, like "INTERVAL 100 DAYS", becomes 100 days).
     days = math.ceil((now - oldest + 86400) / 86400 / LOG_RETENTION_DAYS) * LOG_RETENTION_DAYS
+    days = max(days, math.ceil(_own_seconds(str((table.metadata().configuration or {}).get(
+        "delta.logRetentionDuration") or "")) / 86400))
     retrying.local_commit(lambda: DeltaTable(uri, storage_options=options).alter.set_table_properties(
         {"delta.logRetentionDuration": f"interval {days} days"}, post_commithook_properties=KEEP_LOG),
         "this table's next version")

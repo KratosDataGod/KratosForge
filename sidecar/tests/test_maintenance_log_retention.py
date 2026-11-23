@@ -134,7 +134,88 @@ def test_log_seconds_reads_the_tables_interval_and_an_unreadable_one_as_none_kep
 
 def test_log_seconds_default_and_cleanup_off():
     assert maintenance.log_seconds({}) == maintenance.LOG_RETENTION_DAYS * DAY
-    assert maintenance.log_seconds({"delta.enableExpiredLogCleanup": "False"}) == float("inf")
+    assert maintenance.log_seconds({"delta.enableExpiredLogCleanup": "false"}) == float("inf")
+    # delta-rs turns its cleanup off at exactly "false" only: at "False" it cleans after 30 days.
+    assert maintenance.log_seconds({"delta.enableExpiredLogCleanup": "False"}) == maintenance.LOG_RETENTION_DAYS * DAY
+
+
+def _cleaned_by_delta_rs(path: Path, config: dict[str, str], days_old: float) -> set[int]:
+    """delta-rs's own cleanup on a table with ``config``: versions 0 to 6 of a table checkpointing every 5 commits
+    dated ``days_old`` days ago, 7 and 8 today; version 9 checkpoints and cleans as delta-rs does by default. The
+    versions whose commit it deleted."""
+    uri = str(path)
+    write_deltalake(uri, pa.table({"id": [0]}), configuration={"delta.checkpointInterval": "5"} | config)
+    for i in range(1, 9):
+        write_deltalake(uri, pa.table({"id": [i]}), mode="append")
+    when = time.time() - days_old * DAY
+    for p in (path / "_delta_log").glob("0000*"):
+        if int(p.name[:20]) < 7:
+            os.utime(p, (when, when))
+    write_deltalake(uri, pa.table({"id": [9]}), mode="append")
+    return set(range(10)) - {int(p.name[:20]) for p in (path / "_delta_log").glob("*.json")}
+
+
+# What another engine (Spark reads them all) may have written, and the days of log delta-rs 1.6.6 keeps at each:
+# "interval", a whole number and a lower-case unit (later words ignored), or else its default 30 days (None
+# here); its log cleanup is off at exactly "false" only.
+WORDS = [({"delta.logRetentionDuration": t}, days) for t, days in (
+    ("interval 100 days", 100), ("INTERVAL 100 DAYS", None), ("Interval 100 Days", None), ("interval 100 DAYS", None),
+    ("100 days", None), ("100days", None), ("interval 100days", None), ("interval 100.0 days", None),
+    ("interval 61.5 days", None), ("interval 2400 hours", 100), ("interval 15 weeks", 105),
+    (" interval 100 days ", 100), ("interval\t100  day", 100), ("interval +100 days", 100),
+    ("interval 100 days ago", 100), ("interval 2 weeks", 14), ("INTERVAL 1 DAY", None), ("a while", None))] + [
+    ({"delta.enableExpiredLogCleanup": t}, None) for t in ("false", "False", "FALSE", " false", "0", "no")]
+
+
+@pytest.mark.parametrize("config, days", WORDS, ids=lambda c: repr(next(iter(c.values()))) if isinstance(c, dict) else "")
+def test_log_seconds_is_never_longer_than_delta_rs_keeps_the_log(tmp_path, config, days):
+    """keep_log decides from log_seconds whether delta-rs's cleanup would delete a log file: a log file a day
+    younger than log_seconds must survive delta-rs's real cleanup, or keep_log would leave it to be deleted. And
+    where delta-rs reads the words, a log file a day older than log_seconds is deleted: the same reading."""
+    seconds = maintenance.log_seconds(config)
+    if seconds >= 2 * DAY:
+        assert not _cleaned_by_delta_rs(tmp_path / "younger", config, min(seconds, 400 * DAY) / DAY - 1)
+    if days is not None:
+        assert seconds == days * DAY
+        assert _cleaned_by_delta_rs(tmp_path / "older", config, days + 1) == {0, 1, 2, 3}
+
+
+@pytest.mark.parametrize("own, kept", [("INTERVAL 100 DAYS", "interval 100 days"),
+                                       ("interval +100 days", "interval +100 days"),
+                                       ("interval 100 days ago", "interval 100 days ago"),
+                                       ("interval 61.5 days", "interval 62 days")])
+def test_set_retention_keeps_the_tables_own_longer_log_retention_in_words_delta_rs_reads(tmp_path, own, kept):
+    """A table's own longer log retention stays as long for delta-rs as for Spark: words delta-rs reads as its
+    30-day default are written out as it reads them, and ones it reads as longer than they look stay."""
+    uri = str(tmp_path / "t")
+    write_deltalake(uri, pa.table({"id": [0]}), configuration={"delta.logRetentionDuration": own})
+    maintenance.set_retention(uri, 7)
+    config = DeltaTable(uri).metadata().configuration
+    assert config["delta.logRetentionDuration"] == kept
+    assert maintenance.log_seconds(config) >= 61.5 * DAY
+
+
+def test_keep_log_never_shortens_the_tables_own_log_retention(tmp_path):
+    """Version 1, 35 days old and current until 2 days ago, needs 60 days of log; the table says 100 days in
+    words delta-rs reads as 30: keep_log writes 100 days, in words it reads, not 60."""
+    uri = str(tmp_path / "t")
+    _history(uri, {"delta.logRetentionDuration": "INTERVAL 100 DAYS"}, [40, 35, 2])
+    assert maintenance.keep_log(uri, maintenance.retention_hours(7)) is True
+    assert DeltaTable(uri).metadata().configuration["delta.logRetentionDuration"] == "interval 100 days"
+
+
+@pytest.mark.parametrize("config", [{"delta.enableExpiredLogCleanup": "False"},
+                                    {"delta.logRetentionDuration": "INTERVAL 100 DAYS"}])
+def test_compact_keeps_the_history_kept_whatever_words_another_engine_used(tmp_path, config):
+    """compact_local's OPTIMIZE and VACUUM clean the log as delta-rs reads the table's properties."""
+    uri = str(tmp_path / "t")
+    _history(uri, config, [40, 35, 2])
+    write_deltalake(uri, pa.table({"id": [4], "region": ["EU"]}), mode="append",  # two files: OPTIMIZE commits
+                    post_commithook_properties=maintenance.KEEP_LOG)
+    version = DeltaTable(uri).version()
+    maintenance.compact_local(uri, 7)
+    assert DeltaTable(uri).history(1)[0]["operation"] == "OPTIMIZE" and DeltaTable(uri).version() > version
+    assert _ids(uri, 1) == [1] and _ids_at(uri, 3) == [1]
 
 
 # ---- a notebook's OPTIMIZE, ZORDER, VACUUM and RESTORE (lakehouse.maintain_table)

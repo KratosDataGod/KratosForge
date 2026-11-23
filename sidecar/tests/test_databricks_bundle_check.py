@@ -1,0 +1,539 @@
+"""The local bundle check (engines/databricks_bundle_check.py): good bundles taken from the Databricks
+documentation's own examples pass, and each check finds its problem at the exact field path. Nothing
+here runs the Databricks CLI or calls the network.
+
+Doc sources for the examples (docs.databricks.com/aws/en/dev-tools/bundles/...): "settings" (the
+hello-bundle split into databricks.yml and hello-job.yml, and the dev/prod targets example), "variables"
+(the hello-bundle with workspace.root_path) and "job-task-types" (the dashboard task as shown). RUN_JOB_EXAMPLE
+is built from job-task-types' run_job_task example (the jobs my-first-job and my_second_job, a notebook at
+./src/test.py and job_id: ${resources.jobs.my-first-job.id}); its cluster values are this file's own."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from fabric_desktop import cli
+from fabric_desktop.engines.databricks_bundle_check import ERROR, WARNING, Finding, validate
+
+
+def write(root: Path, files: dict[str, str]) -> Path:
+    for name, text in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    return root
+
+
+def found(findings: list[Finding], severity: str | None = None) -> set[str]:
+    return {f.path for f in findings if severity is None or f.severity == severity}
+
+
+def one(findings: list[Finding], path: str) -> Finding:
+    hits = [f for f in findings if f.path == path]
+    assert len(hits) == 1, (path, findings)
+    return hits[0]
+
+
+# ---------------------------------------------------------------- the documentation's examples
+
+SETTINGS_MAIN = """# databricks.yml
+
+bundle:
+  name: hello-bundle
+
+include:
+  - '*.yml'
+"""
+SETTINGS_JOB = """# hello-job.yml
+
+resources:
+  jobs:
+    hello-job:
+      name: hello-job
+      tasks:
+        - task_key: hello-task
+          existing_cluster_id: 1234-567890-abcde123
+          notebook_task:
+            notebook_path: ./hello.py
+"""
+TARGETS_EXAMPLE = """bundle:
+  name: hello-bundle
+
+resources:
+  jobs:
+    hello-job:
+      name: hello-job
+      tasks:
+        - task_key: hello-task
+          existing_cluster_id: 1234-567890-abcde123
+          notebook_task:
+            notebook_path: ./hello.py
+
+targets:
+  dev:
+    default: true
+  prod:
+    workspace:
+      host: https://<production-workspace-url>
+    resources:
+      jobs:
+        hello-job:
+          name: hello-job
+          tasks:
+            - task_key: hello-task
+              existing_cluster_id: 2345-678901-fabcd456
+"""
+VARIABLES_EXAMPLE = """bundle:
+  name: hello-bundle
+
+workspace:
+  root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/my-envs/${bundle.target}
+
+targets:
+  dev:
+    default: true
+"""
+RUN_JOB_EXAMPLE = """bundle:
+  name: run-job-bundle
+
+resources:
+  jobs:
+    my-first-job:
+      name: my-first-job
+      tasks:
+        - task_key: my-first-job-task
+          new_cluster:
+            spark_version: 13.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+          notebook_task:
+            notebook_path: ./src/test.py
+    my_second_job:
+      name: my-second-job
+      tasks:
+        - task_key: my-second-job-task
+          run_job_task:
+            job_id: ${resources.jobs.my-first-job.id}
+    my-dashboard-job:
+      name: my-dashboard-job
+      tasks:
+        - task_key: my-dashboard-task
+          dashboard_task:
+            dashboard_id: 11111111-1111-1111-1111-111111111111
+"""
+
+
+def test_settings_split_example_is_clean(tmp_path):
+    write(tmp_path, {"databricks.yml": SETTINGS_MAIN, "hello-job.yml": SETTINGS_JOB, "hello.py": "print(1)\n"})
+    assert validate(tmp_path) == []
+
+
+def test_targets_example_is_clean_and_a_target_task_may_leave_out_its_type(tmp_path):
+    write(tmp_path, {"databricks.yml": TARGETS_EXAMPLE, "hello.py": "print(1)\n"})
+    assert validate(tmp_path) == []
+
+
+def test_variables_example_is_clean(tmp_path):
+    write(tmp_path, {"databricks.yml": VARIABLES_EXAMPLE})
+    assert validate(tmp_path) == []
+
+
+def test_run_job_and_dashboard_examples_are_clean(tmp_path):
+    write(tmp_path, {"databricks.yml": RUN_JOB_EXAMPLE, "src/test.py": "print(1)\n"})
+    assert validate(tmp_path) == []
+
+
+def test_databricks_yaml_spelling_and_a_notebook_without_extension(tmp_path):
+    write(tmp_path, {"databricks.yaml": SETTINGS_JOB.replace("./hello.py", "./hello") + "bundle:\n  name: x\n",
+                     "hello.ipynb": "{}"})
+    assert validate(tmp_path) == []
+
+
+# ---------------------------------------------------------------- reading the files
+
+
+def test_no_databricks_yml(tmp_path):
+    [f] = validate(tmp_path)
+    assert (f.severity, f.path, f.file) == (ERROR, "", "databricks.yml")
+
+
+def test_yaml_parse_error_has_line_and_column(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\nresources:\n  jobs: [a, b\n"})
+    [f] = validate(tmp_path)
+    assert f.severity == ERROR and f.file == "databricks.yml" and f.path == ""
+    assert f.line == 5 and f.column == 1
+    assert "can't be read" in f.message
+
+
+def test_yaml_parse_error_in_an_included_file(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - resources/*.yml\n",
+                     "resources/bad.yml": "resources:\n  jobs:\n    a:\n   b: 1\n"})
+    [f] = validate(tmp_path)
+    assert (f.file, f.severity) == ("resources/bad.yml", ERROR)
+    assert f.line == 4 and f.column is not None
+
+
+def test_a_file_that_isnt_a_mapping(tmp_path):
+    write(tmp_path, {"databricks.yml": "- just\n- a list\n"})
+    [f] = validate(tmp_path)
+    assert (f.severity, f.path, f.line) == (ERROR, "", 1)
+
+
+# ---------------------------------------------------------------- unknown keys
+
+
+def test_unknown_keys_at_every_checked_level(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+  nam: typo
+resource: {}
+variables:
+  env:
+    defualt: dev
+targets:
+  dev:
+    mod: development
+    bundle:
+      colour: blue
+resources:
+  jobs:
+    nightly:
+      name: nightly
+      shedule: {}
+      tasks:
+        - task_key: a
+          notebook_tsk: {}
+          spark_jar_task: {main_class_name: M}
+  pipelines:
+    p:
+      name: p
+      catlog: main
+  widgets:
+    w: {}
+"""})
+    findings = validate(tmp_path)
+    assert found(findings, WARNING) == {
+        "bundle.nam", "resource", "variables.env.defualt", "targets.dev.mod", "targets.dev.bundle.colour",
+        "resources.jobs.nightly.shedule", "resources.jobs.nightly.tasks[0].notebook_tsk",
+        "resources.pipelines.p.catlog", "resources.widgets"}
+    assert found(findings, ERROR) == set()
+    assert one(findings, "resources.jobs.nightly.tasks[0].notebook_tsk").line == 20
+    assert one(findings, "resource").line == 4
+
+
+def test_other_resource_types_are_not_key_checked(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\nresources:\n  schemas:\n    s:\n      anything: 1\n"})
+    assert validate(tmp_path) == []
+
+
+# ---------------------------------------------------------------- required fields and tasks
+
+
+def test_bundle_name_required(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  databricks_cli_version: '>=0.218'\n"})
+    assert found(validate(tmp_path), ERROR) == {"bundle.name"}
+
+
+def test_bundle_mapping_required(tmp_path):
+    write(tmp_path, {"databricks.yml": "targets:\n  dev: {}\n"})
+    f = one(validate(tmp_path), "bundle")
+    assert (f.severity, f.line) == (ERROR, 1)
+
+
+def test_bundle_name_from_an_included_file_counts(tmp_path):
+    write(tmp_path, {"databricks.yml": "include:\n  - bundle.yml\n", "bundle.yml": "bundle:\n  name: x\n"})
+    assert validate(tmp_path) == []
+
+
+JOB = """bundle:
+  name: x
+resources:
+  jobs:
+    nightly:
+      name: nightly
+      tasks:
+{tasks}"""
+
+
+def job(tmp_path: Path, tasks: str) -> list[Finding]:
+    write(tmp_path, {"databricks.yml": JOB.format(tasks=tasks)})
+    return validate(tmp_path)
+
+
+def test_task_key_required(tmp_path):
+    findings = job(tmp_path, "        - notebook_task: {notebook_path: /Workspace/a}\n"
+                             "        - task_key: ''\n          notebook_task: {notebook_path: /Workspace/b}\n")
+    assert found(findings, ERROR) == {"resources.jobs.nightly.tasks[0]", "resources.jobs.nightly.tasks[1].task_key"}
+    assert one(findings, "resources.jobs.nightly.tasks[0]").line == 8
+
+
+def test_exactly_one_task_type(tmp_path):
+    findings = job(tmp_path, "        - task_key: none\n          existing_cluster_id: c\n"
+                             "        - task_key: two\n          notebook_task: {notebook_path: /a}\n"
+                             "          spark_python_task: {python_file: /b.py}\n")
+    assert found(findings, ERROR) == {"resources.jobs.nightly.tasks[0]", "resources.jobs.nightly.tasks[1]"}
+    assert "notebook_task, spark_python_task" in one(findings, "resources.jobs.nightly.tasks[1]").message
+
+
+def test_duplicate_task_key(tmp_path):
+    findings = job(tmp_path, "        - task_key: a\n          notebook_task: {notebook_path: /a}\n"
+                             "        - task_key: b\n          notebook_task: {notebook_path: /b}\n"
+                             "        - task_key: a\n          notebook_task: {notebook_path: /c}\n")
+    f = one(findings, "resources.jobs.nightly.tasks[2].task_key")
+    assert f.severity == ERROR and "tasks[0]" in f.message and f.line == 12
+    assert len(findings) == 1
+
+
+def test_depends_on_unknown_task_key(tmp_path):
+    findings = job(tmp_path, "        - task_key: a\n          notebook_task: {notebook_path: /a}\n"
+                             "        - task_key: b\n          notebook_task: {notebook_path: /b}\n"
+                             "          depends_on:\n            - task_key: a\n            - task_key: c\n")
+    assert found(findings) == {"resources.jobs.nightly.tasks[1].depends_on[1].task_key"}
+    assert one(findings, "resources.jobs.nightly.tasks[1].depends_on[1].task_key").line == 14
+
+
+def test_for_each_inner_task_is_checked(tmp_path):
+    findings = job(tmp_path, "        - task_key: loop\n          for_each_task:\n            inputs: '[1,2]'\n"
+                             "            task:\n              task_key: inner\n              colour: red\n")
+    assert found(findings, WARNING) == {"resources.jobs.nightly.tasks[0].for_each_task.task.colour"}
+    assert found(findings, ERROR) == {"resources.jobs.nightly.tasks[0].for_each_task.task"}
+
+
+def test_target_task_with_new_key_needs_a_type_and_depends_on_sees_the_job(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+resources:
+  jobs:
+    nightly:
+      name: nightly
+      tasks:
+        - task_key: a
+          notebook_task: {notebook_path: /a}
+targets:
+  prod:
+    resources:
+      jobs:
+        nightly:
+          tasks:
+            - task_key: a
+              existing_cluster_id: c
+            - task_key: extra
+              depends_on: [{task_key: a}, {task_key: gone}]
+"""})
+    assert found(validate(tmp_path), ERROR) == {"targets.prod.resources.jobs.nightly.tasks[1]",
+                                                "targets.prod.resources.jobs.nightly.tasks[1].depends_on[1].task_key"}
+
+
+# ---------------------------------------------------------------- references
+
+
+def test_undefined_variable_reference(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+variables:
+  catalog:
+    default: main
+resources:
+  pipelines:
+    p:
+      name: p
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      configuration:
+        cluster: ${var.cluster.node_type}
+"""})
+    findings = validate(tmp_path)
+    assert found(findings, ERROR) == {"resources.pipelines.p.schema", "resources.pipelines.p.configuration.cluster"}
+    assert one(findings, "resources.pipelines.p.schema").line == 11
+
+
+def test_variable_declared_in_an_included_file(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude: [vars.yml]\nworkspace:\n  root_path: /a/${var.env}\n",
+                     "vars.yml": "variables:\n  env: {default: dev}\n"})
+    assert validate(tmp_path) == []
+
+
+def test_undefined_resource_reference(tmp_path):
+    findings = job(tmp_path, "        - task_key: a\n          run_job_task:\n            job_id: ${resources.jobs.missing.id}\n"
+                             "        - task_key: b\n          run_job_task:\n            job_id: ${resources.jobs.nightly.id}\n")
+    f = one(findings, "resources.jobs.nightly.tasks[0].run_job_task.job_id")
+    assert f.severity == ERROR and "resources.jobs.missing" in f.message
+    assert len(findings) == 1
+
+
+def test_resource_defined_only_in_a_target_counts(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+targets:
+  dev:
+    resources:
+      jobs:
+        side:
+          name: side
+          tasks: [{task_key: a, run_job_task: {job_id: "${resources.jobs.side.id}"}}]
+"""})
+    assert validate(tmp_path) == []
+
+
+def test_target_sets_an_undeclared_variable(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\nvariables:\n  a: {}\ntargets:\n  dev:\n"
+                                       "    variables:\n      a: 1\n      b: 2\n"})
+    assert found(validate(tmp_path), ERROR) == {"targets.dev.variables.b"}
+
+
+def test_variable_type_and_complex_default(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\nvariables:\n  a:\n    type: string\n"
+                                       "  b:\n    type: complex\n    default: one\n  c:\n    type: complex\n"
+                                       "    default: {k: v}\n"})
+    assert found(validate(tmp_path), ERROR) == {"variables.a.type", "variables.b.default"}
+
+
+# ---------------------------------------------------------------- targets
+
+
+def test_target_mode_values(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ntargets:\n  dev:\n    mode: development\n"
+                                       "  prod:\n    mode: production\n  qa:\n    mode: staging\n"})
+    f = one(validate(tmp_path), "targets.qa.mode")
+    assert (f.severity, f.line) == (ERROR, 9)
+
+
+def test_at_most_one_default_target(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ntargets:\n  dev:\n    default: true\n"
+                                       "  test:\n    default: false\n  prod:\n    default: true\n"})
+    assert found(validate(tmp_path), ERROR) == {"targets.dev.default", "targets.prod.default"}
+
+
+def test_default_targets_across_files(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude: [t.yml]\ntargets:\n  dev:\n    default: true\n",
+                     "t.yml": "targets:\n  prod:\n    default: true\n"})
+    findings = validate(tmp_path)
+    assert {(f.file, f.path) for f in findings} == {("databricks.yml", "targets.dev.default"),
+                                                    ("t.yml", "targets.prod.default")}
+
+
+def test_default_must_be_a_boolean(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ntargets:\n  dev:\n    default: 'yes'\n"})
+    assert found(validate(tmp_path), ERROR) == {"targets.dev.default"}
+
+
+# ---------------------------------------------------------------- includes
+
+
+def test_include_that_matches_nothing(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - resources/*.yml\n  - other.yml\n",
+                     "other.yml": "{}\n"})
+    f = one(validate(tmp_path), "include[0]")
+    assert (f.severity, f.file, f.line) == (ERROR, "databricks.yml", 4)
+
+
+def test_include_that_isnt_a_list(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude: a.yml\n"})
+    assert found(validate(tmp_path), ERROR) == {"include"}
+
+
+def test_recursive_include_glob(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude: ['resources/**/*.yml']\n",
+                     "resources/deep/j.yml": "resources:\n  jobs:\n    j:\n      nme: j\n"})
+    f = one(validate(tmp_path), "resources.jobs.j.nme")
+    assert (f.severity, f.file, f.line) == (WARNING, "resources/deep/j.yml", 4)
+
+
+# ---------------------------------------------------------------- local files
+
+
+def test_missing_notebook_relative_to_the_including_file(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude: [resources/*.yml]\n",
+                     "resources/job.yml": """resources:
+  jobs:
+    nightly:
+      name: nightly
+      tasks:
+        - task_key: a
+          notebook_task: {notebook_path: ../src/a.py}
+        - task_key: b
+          notebook_task: {notebook_path: ./src/b.py}
+        - task_key: c
+          spark_python_task: {python_file: ../src/missing.py}
+        - task_key: d
+          sql_task: {file: {path: ../src/q.sql}, warehouse_id: w}
+        - task_key: ws
+          notebook_task: {notebook_path: /Workspace/Shared/x}
+        - task_key: sub
+          notebook_task: {notebook_path: "${workspace.file_path}/y"}
+""",
+                     "src/a.py": "", "src/b.py": ""})
+    findings = validate(tmp_path)
+    assert found(findings, ERROR) == {"resources.jobs.nightly.tasks[1].notebook_task.notebook_path",
+                                      "resources.jobs.nightly.tasks[2].spark_python_task.python_file",
+                                      "resources.jobs.nightly.tasks[3].sql_task.file.path"}
+    f = one(findings, "resources.jobs.nightly.tasks[1].notebook_task.notebook_path")
+    assert f.file == "resources/job.yml" and f.line == 9 and "resources/src/b.py" in f.message
+
+
+def test_paths_in_a_git_source_are_not_looked_for(tmp_path):
+    findings = job(tmp_path, "        - task_key: a\n          notebook_task: {notebook_path: nb/a, source: GIT}\n")
+    assert findings == []
+    write(tmp_path, {"databricks.yml": JOB.format(tasks="        - task_key: a\n          notebook_task: {notebook_path: nb/a}\n")
+                     + "      git_source: {git_url: 'https://example.com/r', git_provider: gitHub, git_branch: main}\n"})
+    assert validate(tmp_path) == []
+
+
+def test_pipeline_library_paths(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+resources:
+  pipelines:
+    p:
+      name: p
+      libraries:
+        - notebook: {path: ./dlt/one}
+        - file: {path: ./dlt/two.py}
+        - glob: {include: ./dlt/**}
+""", "dlt/one.sql": ""})
+    assert found(validate(tmp_path)) == {"resources.pipelines.p.libraries[1].file.path"}
+
+
+# ---------------------------------------------------------------- the command line
+
+
+def test_cli_prints_findings_and_exits_1_on_errors(tmp_path, capsys):
+    write(tmp_path, {"databricks.yml": "bundle:\n  nme: x\n"})
+    with pytest.raises(SystemExit) as done:
+        cli.main(["databricks-bundle", "validate", str(tmp_path)])
+    assert done.value.code == 1
+    out = capsys.readouterr().out
+    assert "databricks.yml:2:1: warning: bundle.nme: " in out
+    assert ": error: bundle.name: " in out
+    assert "1 errors, 1 warnings" in out
+
+
+def test_cli_json_and_clean_exit(tmp_path, capsys):
+    write(tmp_path, {"databricks.yml": VARIABLES_EXAMPLE})
+    with pytest.raises(SystemExit) as done:
+        cli.main(["databricks-bundle", "validate", str(tmp_path), "--json"])
+    assert done.value.code == 0
+    assert json.loads(capsys.readouterr().out)["findings"] == []
+
+
+def test_cli_missing_folder(tmp_path):
+    with pytest.raises(SystemExit) as done:
+        cli.main(["databricks-bundle", "validate", str(tmp_path / "nope")])
+    assert done.value.code == 2
+
+
+def test_the_check_uses_no_network_or_subprocess(tmp_path, monkeypatch):
+    import socket
+    import subprocess
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the local bundle check must not call out")
+
+    monkeypatch.setattr(socket, "socket", refuse)
+    monkeypatch.setattr(subprocess, "run", refuse)
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    write(tmp_path, {"databricks.yml": RUN_JOB_EXAMPLE, "src/test.py": ""})
+    assert validate(tmp_path) == []

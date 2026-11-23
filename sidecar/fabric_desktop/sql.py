@@ -46,6 +46,11 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         raise ValueError(sql_dialects.TOO_DEEP) from None
 
 
+def _reader(name: str) -> Any:
+    """The dialect a person's query is read with: DuckDB's as KfDuckDB reads it, any other by its name."""
+    return KfDuckDB if name == "duckdb" else name
+
+
 def _parse(query: str, dialect: str) -> list[exp.Expression]:
     chosen = sql_dialects.get(dialect)
     if not chosen["runs_here"]:
@@ -53,7 +58,7 @@ def _parse(query: str, dialect: str) -> list[exp.Expression]:
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
         statements = _statements(sql_dialects.parse(diff_spellings(query) if chosen["id"] == "spark" else query,
-                                                    read=chosen["sqlglot"]))
+                                                    read=_reader(chosen["sqlglot"])))
         if chosen["id"] == "spark":
             statements = [spark_legacy_times(spark_fixes(spark_legacy_casts(spark_builtins_sql.refuse_nested_concat_ws(s))))
                           for s in statements]
@@ -71,7 +76,7 @@ def _parse(query: str, dialect: str) -> list[exp.Expression]:
                 or getattr(first_error, "final", False):  # DuckDB would drop an argument
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
-            statements = _statements(sql_dialects.parse(query, read="duckdb"))
+            statements = _statements(sql_dialects.parse(query, read=KfDuckDB))
         except (ParseError, TokenError):
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     if not statements:
@@ -2361,10 +2366,21 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
 
 
 class KfDuckDB(DuckDB):
-    """DuckDB's dialect, with every lambda written as ``LAMBDA x : body``. DuckDB 2.0 refuses the old
+    """DuckDB's dialect, reading a query that starts ``SELECT :name`` and with every lambda written as ``LAMBDA x : body``. DuckDB 2.0 refuses the old
     ``x -> body`` ("Deprecated lambda arrow"); DuckDB 1.3 and later read both. sqlglot before 30.25
     writes the arrow, including in lambdas it makes itself (initcap), unless a lambda is marked
     ``colon`` (#1341)."""
+
+    class Parser(DuckDB.Parser):  # type: ignore[misc,valid-type]  # as Generator below
+        def _parse_expression(self) -> exp.Expr | None:
+            """sqlglot's DuckDB parser reads ``word :`` as DuckDB's prefix alias (``SELECT v: 1``), and it
+            tries that on a statement's first token too, so ``SELECT :n + 1`` stopped with "Required keyword:
+            'this' missing" while ``SELECT 1 + :n`` was read. A prefix alias is only a name, so a keyword such
+            as SELECT before the colon is read as it would be without one, and ``:n`` stays a parameter."""
+            if self._next and self._next.token_type == TokenType.COLON and self._curr \
+                    and self._curr.token_type not in self.ALIAS_TOKENS:
+                return sqlglot.parser.Parser._parse_expression(self)  # the base reading, without the prefix alias
+            return super()._parse_expression()
 
     class Generator(DuckDB.Generator):  # type: ignore[misc,valid-type]  # sqlglot sets Generator per dialect at run time
         def lambda_sql(self, expression: exp.Lambda, arrow_sep: str = "->", wrap: bool = True) -> str:

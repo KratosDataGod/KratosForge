@@ -22,7 +22,7 @@ s._auth = Auth()
 s.profile_save(settings={"record": True}, identity={"display_name": "Chris", "role": "Data engineer"})
 s._progress_observe({"id": "validate-20261020-104212-a1b2c3", "name": "sales_daily_load", "verdict": "ready",
     "run": {"status": "ok"}, "finished_at": "2026-10-20T10:42:12+00:00",
-    "code": {"revision": "3f9c1e0d2b7a" + "0" * 52}, "tables": {"reads": ["a", "b"], "writes": ["c"]}})
+    "code": {"revision": "3f9c1e0d2b7a" + "0" * 52}, "tables": {"reads": ["a", "b"], "writes": ["c"]}})  # pragma: allowlist secret (fake revision)
 json.dump({"profile": s.profile_get(), "report": s.profile_report()}, sys.stdout)
 `;
 // A 1x1 PNG.

@@ -211,3 +211,22 @@ def test_a_local_read_still_reads_a_file_named_by_its_full_uri_inside_the_table(
     sql, _info = engine.delta_select(str(t))
     assert duckdb.connect().execute(f"SELECT count(*) FROM ({sql})").fetchone() == (10,)
 
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink") or os.name == "nt", reason="needs symlinks without admin rights")
+@pytest.mark.parametrize("kind", ["file", "folder"])
+def test_a_local_read_refuses_a_linked_data_file_or_partition_folder_that_leads_outside(tmp_path, kind):
+    """SECURITY (Security QC on #3232): a link inside the table folder, as a cloned repo can carry, is
+    resolved before the inside check, so it can't lead the read to a file elsewhere."""
+    t = _table(tmp_path, 1)
+    if kind == "file":
+        os.symlink(tmp_path / "outside.parquet", t / "linked.parquet")
+        path = "linked.parquet"
+    else:
+        (tmp_path / "elsewhere").mkdir()
+        pq.write_table(pa.table({"id": [OUTSIDE]}), tmp_path / "elsewhere" / "p.parquet")
+        os.symlink(tmp_path / "elsewhere", t / "part=1")
+        path = "part=1/p.parquet"
+    _write(t, 1, {"add": {"path": path, "partitionValues": {}, "size": 100, "modificationTime": 0, "dataChange": True}})
+    with pytest.raises(ValueError, match="names a data file outside the table's folder"):
+        engine.delta_select(str(t))

@@ -257,9 +257,10 @@ def _data_files(table: Any, folder: str) -> list[str]:
 
 
 def _inside(path: str, folder: str) -> bool:
-    """Whether ``path`` is a file within ``folder``, after ``..`` and case (on Windows) are resolved."""
-    p = os.path.normcase(os.path.normpath(os.path.abspath(path)))
-    r = os.path.normcase(os.path.normpath(os.path.abspath(folder)))
+    """Whether ``path`` is a file within ``folder``, after ``..``, links (a linked data file or partition
+    folder) and case (on Windows) are resolved."""
+    p = os.path.normcase(os.path.realpath(path))
+    r = os.path.normcase(os.path.realpath(folder))
     try:
         return p != r and os.path.commonpath([p, r]) == r
     except ValueError:  # silent-ok: another drive (Windows) is outside the folder

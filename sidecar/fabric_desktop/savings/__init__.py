@@ -18,6 +18,10 @@ or estimated CU figure is supplied, since nothing on a PC measures it (ESI-202).
 what it fixes through ``corrects``, and the reconciliation report that rebuilds totals from the
 ledger and compares them with the latest attribution, fixing nothing (ESI-404).
 
+``baselines``: versioned baselines of a workload's Fabric CU per run (the median of comparable runs:
+same workload, definition version and input scope) and the before and after check that moves an
+optimization from Validating to Verified, or keeps it Validating; estimates and times never verify (ESI-302).
+
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.
 """

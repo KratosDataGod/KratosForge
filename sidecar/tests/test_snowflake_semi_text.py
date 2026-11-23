@@ -158,4 +158,4 @@ def test_an_aggregate_cast_to_text():
 def test_the_rules_are_in_the_catalog():
     rows = {row[0]: row for row in sf.CATALOG}
     assert {"SFX-081", "SFN-078", "SFN-079"} <= set(rows)
-    assert sf.RULES_VERSION == "2026.11.21"
+    assert sf.RULES_VERSION == "2026.11.23"

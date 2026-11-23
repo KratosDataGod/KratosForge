@@ -8,7 +8,7 @@ yet, and a Databricks connection comes from a saved profile or the Databricks CL
 
 - An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite and Polars, and,
   as Preview engines tested against fakes, a Databricks SQL warehouse, Databricks Connect on a
-  cluster and a Fabric Spark session.
+  cluster, a Fabric Spark session and a Snowflake SQL warehouse (read-only).
 - A **connection profile** says which platforms a piece of work uses, where, how it signs in,
   which engine it runs on by default, and whether it may start remote compute.
 
@@ -37,7 +37,8 @@ same way in [PySpark DataFrame API on this PC](spark-dataframe-api.md), and the 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
 here has run against a Fabric tenant or a Databricks workspace yet: the Databricks SQL warehouse,
 Databricks Connect and Fabric Spark engines are tested against fakes of the platforms' documented
-APIs and clients, and stay Preview until they have.
+APIs and clients, and stay Preview until they have. The same goes for the Snowflake SQL warehouse
+engine, which hasn't run against a Snowflake account yet.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Whole result | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -49,7 +50,7 @@ APIs and clients, and stay Preview until they have.
 | Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Partial (SQL cells) | Fabric capacity | Preview, tested against fakes |
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
 | Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | Partial (up to 25 MB) | DBUs | Preview, tested against fakes |
-| Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
+| Snowflake SQL warehouse (remote) | Your Snowflake warehouse | SQL | Snowflake SQL native, read-only statements only | Native | Partial (EXPLAIN USING TEXT) | No | Partial (every partition) | Snowflake credits | Preview, tested against fakes |
 | Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 
@@ -111,7 +112,7 @@ function, with common operators and statements, and whether each runs, differs, 
 here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.11.21.
+Rules 2026.11.23.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -123,7 +124,7 @@ Rules 2026.11.21.
 | SFX-006 | Rewritten | SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that case. |
 | SFX-007 | Rewritten | RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's sum, null when x is null or the sum is 0. An ORDER BY in its window is dropped, as it doesn't change the result. x is worked out twice, which matters only when it isn't deterministic (RANDOM(), for example). |
 | SFX-008 | Rewritten | HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius 6,371 km. |
-| SFX-009 | Rewritten | TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT for JSON; INTEGER, DECIMAL or DOUBLE for a JSON number by how PARSE_JSON reads it (an exponent makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; SQL NULL for SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. A JSON number with a fraction whose writing isn't known stops the query (SFN-034); a type with no Snowflake name is SFD-007. The argument is worked out more than once, which matters only when it isn't deterministic. |
+| SFX-009 | Rewritten | TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT for JSON; INTEGER, DECIMAL or DOUBLE for a JSON number by how PARSE_JSON reads it (an exponent makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; SQL NULL for SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. A JSON number with a fraction whose writing isn't known stops the query (SFN-072); a type with no Snowflake name is SFD-007. The argument is worked out more than once, which matters only when it isn't deterministic. |
 | SFX-010 | Rewritten | a / b stops with Snowflake's "Division by zero" error when b is 0, where DuckDB gives infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is worked out twice, which matters only when it isn't deterministic. |
 | SFX-011 | Rewritten | IS_<type> and AS_<type> (INTEGER, DECIMAL, NUMBER, DOUBLE, REAL, BOOLEAN, CHAR, VARCHAR, ARRAY, OBJECT, BINARY, DATE, DATE_VALUE, TIME, TIMESTAMP_NTZ) test and read the type a VARIANT holds, as Snowflake names it: a PARSE_JSON value by its JSON type, a TO_VARIANT value by the type it was made from. AS_<type> gives NULL for any other type. A JSON integer too big for 64 bits is DOUBLE here. |
 | SFX-012 | Rewritten | A JSON value cast to text (v:a::string, v['a']::string, TO_VARCHAR(v:a), PARSE_JSON(...)::varchar, GET(o, 'key')::varchar, STRIP_NULL_VALUE(...)::varchar) gives a string without its JSON quotes, and JSON null gives SQL NULL, as in Snowflake: DuckDB's cast keeps the quotes and writes 'null'. A table's column whose type the statement doesn't show is cast as written. |
@@ -142,19 +143,20 @@ Rules 2026.11.21.
 | SFX-024 | Rewritten | An ARRAY column or cast becomes a list of VARIANT values, so it holds what ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON. |
 | SFX-026 | Rewritten | REGEXP_SUBSTR is NULL when nothing matches. CEIL and FLOOR with a written scale stay exact for a NUMBER. EDITDISTANCE with a negative maximum is 0. NEXT_DAY and PREVIOUS_DAY read the first two letters of the day, after any leading spaces. CONTAINS with NULL is NULL. TIME_SLICE counts slices from 1970-01-01 (weeks from Monday 1969-12-29). TO_DATE and a cast to DATE of a string written in the query read MM/DD/YYYY and DD-MON-YYYY, and TO_DATE of a string holding a whole number reads it as epoch seconds, milliseconds, microseconds or nanoseconds by its size. |
 | SFX-027 | Rewritten | CREATE TABLE makes a table as Snowflake does: PRIMARY KEY, UNIQUE and FOREIGN KEY aren't enforced, so they are dropped, and a PRIMARY KEY column keeps NOT NULL, which the constraint implies. AUTOINCREMENT and IDENTITY columns take their DEFAULT from a sequence that starts and steps as written (1 and 1 unless given); Snowflake's values are unique but not always one after another, so these are among those it could give. The sequence stays in the session when the table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the target's column. START TRANSACTION is BEGIN. |
-| SFX-028 | Rewritten | TO_JSON writes an object's keys in sorted order at every level, as Snowflake keeps an OBJECT's keys, and writes an object a VARIANT column holds as JSON (DuckDB 1.x's TO_JSON wrote it as quoted text). SFD-014 is retired. |
-| SFX-029 | Rewritten | TO_TIMESTAMP_TZ and TRY_TO_TIMESTAMP_TZ of a column run as a cast to TIMESTAMP_TZ. A cast to TIMESTAMP_TZ (and TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ) of text with no offset, or with the session zone's own offset at that time, gives Snowflake's value; text with another offset stops the query (SFN-033). |
-| SFX-030 | Rewritten | CREATE TABLE, CREATE TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object, its columns, a column or alias of CREATE ... AS and CREATE VIEW, a renamed table or column, an added column. A quoted name keeps its case. |
-| SFX-040 | Rewritten | An array written with both text and numbers in it (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, and ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one) is a list of VARIANT values, as an ARRAY column is (SFX-024), so each element keeps its own type. SFN-025, which refused it, is retired. |
-| SFX-041 | Rewritten | CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all. |
+| SFX-028 | Rewritten | The regular expression parameters m (^ and $ match at each line) and s (. matches a line break) are read as Snowflake reads them, also together ('sm'), in REGEXP_LIKE, RLIKE, REGEXP_REPLACE, REGEXP_SUBSTR and REGEXP_SUBSTR_ALL. The c parameter is taken in REGEXP_COUNT and REGEXP_INSTR too. An empty pattern matches nothing, except in REGEXP_LIKE and its aliases, where it matches only an empty subject. |
+| SFX-070 | Rewritten | TO_JSON writes an object's keys in sorted order at every level, as Snowflake keeps an OBJECT's keys, and writes an object a VARIANT column holds as JSON (DuckDB 1.x's TO_JSON wrote it as quoted text). SFD-014 is retired. |
+| SFX-071 | Rewritten | TO_TIMESTAMP_TZ and TRY_TO_TIMESTAMP_TZ of a column run as a cast to TIMESTAMP_TZ. A cast to TIMESTAMP_TZ (and TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ) of text with no offset, or with the session zone's own offset at that time, gives Snowflake's value; text with another offset stops the query (SFN-071). |
+| SFX-072 | Rewritten | CREATE TABLE, CREATE TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object, its columns, a column or alias of CREATE ... AS and CREATE VIEW, a renamed table or column, an added column. A quoted name keeps its case. |
+| SFX-075 | Rewritten | An array written with both text and numbers in it (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, and ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one) is a list of VARIANT values, as an ARRAY column is (SFX-024), so each element keeps its own type. SFN-025, which refused it, is retired. |
+| SFX-076 | Rewritten | CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all. |
 | SFX-081 | Rewritten | An ARRAY, OBJECT or VARIANT cast to text (::VARCHAR, ::STRING, ::TEXT, CAST, TRY_CAST, TO_VARCHAR and TO_CHAR with no format), and a VARIANT joined with \|\| or CONCAT, is Snowflake's text: an array or object is compact JSON ([1,"a"], not DuckDB's [1, a]) with every object's keys sorted, as Snowflake keeps them; a VARIANT holding text is the text without quotes; JSON null is SQL NULL. A column's or [...]'s type is read when the query runs. Only whole numbers, text, booleans and JSON null are written this way, and anything else stops the query (SFN-078). An OBJECT stored in a table, or built by OBJECT_INSERT, OBJECT_AGG or ARRAYS_TO_OBJECT from a column, keeps a date or time as text here, so it is written as that text. Inside a lambda, or from a window function, only the outer object's keys can be sorted. The value's text is worked out twice, which matters only when it isn't deterministic. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
-| SFD-001 | Runs, with a difference: A column made by an expression keeps DuckDB's name | Snowflake stores an unquoted name in upper case, and so does this PC (SFX-030). A column of CREATE TABLE ... AS or CREATE VIEW made by an expression with no alias (a + 1) gets a name Snowflake writes its own way; here it keeps DuckDB's. |
-| SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. Raised for a TIMESTAMP_TZ column, and a TIMESTAMP_TZ made from a number; TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ and a cast to TIMESTAMP_TZ check the offset instead (SFX-029, SFN-033). |
+| SFD-001 | Runs, with a difference: A column made by an expression keeps DuckDB's name | Snowflake stores an unquoted name in upper case, and so does this PC (SFX-072). A column of CREATE TABLE ... AS or CREATE VIEW made by an expression with no alias (a + 1) gets a name Snowflake writes its own way; here it keeps DuckDB's. |
+| SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. Raised for a TIMESTAMP_TZ column, and a TIMESTAMP_TZ made from a number; TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ and a cast to TIMESTAMP_TZ check the offset instead (SFX-071, SFN-071). |
 | SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. |
 | SFD-004 | Runs, with a difference: Local time zone is this PC's | TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter. |
 | SFD-006 | Runs, with a difference: Date arithmetic on a DATE returns a TIMESTAMP | DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC, of a value whose type isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. Raised when the value may be a DATE (a column's type isn't known here); a value that is plainly a DATE (a cast, TO_DATE, CURRENT_DATE) is cast back to DATE instead, and a TIMESTAMP cast or function raises nothing. |
-| SFD-007 | Runs, with a difference: TYPEOF can't always name Snowflake's type | TYPEOF gives Snowflake's type names here (SFX-009). A JSON number with a fraction or an exponent that isn't read from PARSE_JSON of text written in the query stops the query (SFN-034). A type with no single Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't known here: a column, a path or a computed value. |
+| SFD-007 | Runs, with a difference: TYPEOF can't always name Snowflake's type | TYPEOF gives Snowflake's type names here (SFX-009). A JSON number with a fraction or an exponent that isn't read from PARSE_JSON of text written in the query stops the query (SFN-072). A type with no single Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't known here: a column, a path or a computed value. |
 | SFD-009 | Runs, with a difference: [i] on a value whose type isn't known | [i] is 0-based in Snowflake. Here [i] on a table's column whose type the statement doesn't show is taken for an ARRAY: a literal index such as [0] is moved to DuckDB's 1-based lists, and an integer column or expression as the index isn't. On a JSON (VARIANT) column [0] then reads the second element. (v['a']::string is the string without its JSON quotes, SFX-081.) |
 | SFD-010 | Runs, with a difference: Approximate answers use DuckDB's estimators | APPROX_COUNT_DISTINCT, HLL and DATASKETCHES_HLL run as DuckDB's approx_count_distinct, and APPROX_PERCENTILE as approx_quantile. Snowflake uses its own estimators, so an estimate can be a little different: APPROX_PERCENTILE(c1, 0.5) over 0 to 10 is 5.5 in Snowflake and 5.0 here, and DATASKETCHES_HLL gives 2.000000005 there where 2.0 is given here. DuckDB's distinct estimate can be off even for a few values: 11 distinct values can count as 12. |
 | SFD-011 | Runs, with a difference: INTERPOLATE_LINEAR gives a DOUBLE | Snowflake's INTERPOLATE_LINEAR returns the input's type; here the filled value is a DOUBLE, because the input's type isn't known when the SQL is rewritten. Snowflake's docs don't say how it rounds a filled value for a whole-number column, so no rounding is done here. |
@@ -188,12 +190,13 @@ Rules 2026.11.21.
 | SFN-028 | Runs only in Snowflake | TRUNCATE TABLE IF EXISTS: DuckDB's TRUNCATE has no IF EXISTS. |
 | SFN-029 | Runs only in Snowflake | ALTER TABLE with more than one column, and ALTER TABLE ... SWAP WITH: DuckDB's ALTER TABLE changes one column at a time and has no SWAP. |
 | SFN-030 | Runs only in Snowflake | CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits the open transaction first, and DuckDB doesn't. |
-| SFN-031 | Runs only in Snowflake | JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired. |
-| SFN-033 | Runs only in Snowflake | TIMESTAMP_TZ from text with a UTC offset other than the session zone's (the query stops at that row), and TO_TIMESTAMP_TZ with TZH or TZM in its format: DuckDB keeps the instant, not the offset. |
-| SFN-034 | Runs only in Snowflake | TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a fraction or exponent read from a column or a path (the query stops at that row): Snowflake's answer depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired. |
-| SFN-040 | Runs only in Snowflake | CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own version would come back in its place. |
-| SFN-041 | Runs only in Snowflake | CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text of database.schema names; DuckDB's is a list of its own search path. |
-| SFN-042 | Runs only in Snowflake | RANDOM with a seed: Snowflake's series for a seed comes from its own generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs. |
+| SFN-031 | Runs only in Snowflake | A regular expression written with a non-greedy quantifier ('*?', '+?', '??') or a backreference ('\1') in the pattern, which Snowflake doesn't support, or with a lookahead or lookbehind, which RE2 can't read. |
+| SFN-070 | Runs only in Snowflake | JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired. |
+| SFN-071 | Runs only in Snowflake | TIMESTAMP_TZ from text with a UTC offset other than the session zone's (the query stops at that row), and TO_TIMESTAMP_TZ with TZH or TZM in its format: DuckDB keeps the instant, not the offset. |
+| SFN-072 | Runs only in Snowflake | TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a fraction or exponent read from a column or a path (the query stops at that row): Snowflake's answer depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired. |
+| SFN-074 | Runs only in Snowflake | CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own version would come back in its place. |
+| SFN-075 | Runs only in Snowflake | CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text of database.schema names; DuckDB's is a list of its own search path. |
+| SFN-076 | Runs only in Snowflake | RANDOM with a seed: Snowflake's series for a seed comes from its own generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs. |
 | SFN-078 | Runs only in Snowflake | An ARRAY, OBJECT or VARIANT cast to text that holds a number with a fraction or exponent, a date, time, timestamp or binary value, a SQL NULL element (Snowflake's undefined) or text with a control character, or is cast to VARCHAR(n) (the query stops at that row): Snowflake's docs show 3::DOUBLE in an array as 3.000000000000000e+00 and don't show the rest. Also an object inside an object or array worked out inside a lambda or by a window function. |
 | SFN-079 | Runs only in Snowflake | An ARRAY or OBJECT joined with \|\| or CONCAT: Snowflake converts them to text only when cast. A column holding an array or a JSON object stops the query at that row (a JSON object here may be an OBJECT column). Cast it first. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
@@ -209,13 +212,13 @@ Of 655 checks on commonly used Snowflake functions, against the values Snowflake
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |
-| `IS_DECIMAL (vartab)` | Semi-structured | Runs only in Snowflake | Refused by SFN-034 when the query reaches row 5: how 123.12 and 1.912e2 were written isn't kept in a stored VARIANT here. IS_DECIMAL(PARSE_JSON('1.912e2')) is FALSE, as in Snowflake. |
-| `TYPEOF (stored value with an exponent)` | Semi-structured | Runs only in Snowflake | Refused by SFN-034 when the query reaches the value: DuckDB doesn't keep how a stored JSON number was written. TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
+| `IS_DECIMAL (vartab)` | Semi-structured | Runs only in Snowflake | Refused by SFN-072 when the query reaches row 5: how 123.12 and 1.912e2 were written isn't kept in a stored VARIANT here. IS_DECIMAL(PARSE_JSON('1.912e2')) is FALSE, as in Snowflake. |
+| `TYPEOF (stored value with an exponent)` | Semi-structured | Runs only in Snowflake | Refused by SFN-072 when the query reaches the value: DuckDB doesn't keep how a stored JSON number was written. TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
 | `DATASKETCHES_HLL (docs example)` | Aggregate | Different result | SFD-010: DuckDB's estimate is 4.0, where Snowflake's sketch gives 4.00000003. |
 | `APPROX_PERCENTILE (docs example, 0.1)` | Aggregate | Different result | SFD-010: DuckDB's approx_quantile gives 1.0. |
 | `APPROX_PERCENTILE (docs example, 0.5)` | Aggregate | Different result | SFD-010: DuckDB's approx_quantile gives 5.0. |
 | `APPROX_PERCENTILE (docs example, 0.999)` | Aggregate | Different result | SFD-010: DuckDB's approx_quantile gives 10.0, the largest value; Snowflake's estimate goes past it. |
-| `JAROWINKLER_SIMILARITY` | String | Runs only in Snowflake | Refused by SFN-031: Snowflake doesn't document its score, and DuckDB's gives 57 for this pair from Snowflake's example, 94 for 'Ich weiß nicht' and 'Ich weiss nicht' (97), and 72 for 'święta' and 'swieta' (77). EDITDISTANCE runs here. |
+| `JAROWINKLER_SIMILARITY` | String | Runs only in Snowflake | Refused by SFN-070: Snowflake doesn't document its score, and DuckDB's gives 57 for this pair from Snowflake's example, 94 for 'Ich weiß nicht' and 'Ich weiss nicht' (97), and 72 for 'święta' and 'swieta' (77). EDITDISTANCE runs here. |
 | `SKEW` | Aggregate | Different result | Snowflake's reference shows 0.05240788515; the exact sample skewness is 0.05240784322 (SFD-013). |
 | `SKEW (k)` | Aggregate | Different result | Snowflake's reference shows -2.236069766; the exact sample skewness is -2.236067977 (SFD-013). |
 | `STDDEV_POP` | Aggregate | Different result | Snowflake's reference shows 3.265986375; the square root of 32/3 is 3.265986324 (SFD-013). |
@@ -329,6 +332,57 @@ A table a Databricks SQL cell makes on this PC is a DuckDB table in the session.
 - **ALTER TABLE ... ADD COLUMNS (a, b)** and **DROP COLUMNS (a, b)** change each column in turn, and an added column's `COMMENT` is kept. Added columns are NULL in the rows already there. `ADD COLUMN ... DEFAULT` is refused, because Databricks takes no default when it adds a column to a Delta table (the rows already there stay NULL) and DuckDB would fill them. Add the column, then `ALTER COLUMN ... SET DEFAULT`, which changes new rows only, as on Databricks. `FIRST` and `AFTER` are refused, since DuckDB adds a column at the end only.
 - **Session variables** (`DECLARE VARIABLE`, `SET VAR`) are refused, because a query reads a Databricks variable by its name and DuckDB can't, so write the value into the query.
 - **CACHE TABLE**, **UNCACHE TABLE**, **OPTIMIZE** (with or without `ZORDER BY`) and **VACUUM** are refused by name, because they work on Apache Spark's cache or a Delta table's files, which a table here doesn't have. Leave them out. For `CACHE TABLE name AS query`, write `CREATE TEMPORARY VIEW name AS query`.
+
+## Snowflake SQL warehouse (Preview)
+
+SQL cells can run on a Snowflake warehouse through Snowflake's documented SQL API, with the role,
+database, schema and warehouse of a Snowflake connection in your connection profile. Only read-only
+statements run for now. A cell may hold several statements, they run in order, and the last one's
+result is shown with Snowflake's row count. **Cancel** cancels the statement on Snowflake. **Catalog**
+lists databases, schemas, or the tables and views of the connection's schema, with SHOW commands that
+don't use the warehouse. **Plan** runs EXPLAIN USING TEXT, which doesn't use the warehouse either.
+
+This engine is built and tested, but the notebook's engine picker doesn't offer it yet, because the
+picker lists Databricks connections only. It shows the engine under **More** as planned until it
+lists Snowflake connections.
+
+- **It uses credits.** A statement on a suspended warehouse resumes it, and a running warehouse uses
+  Snowflake credits until its own auto-suspend. KratosForge never suspends your warehouse and never
+  sends a cell there without your confirmation, for that account and warehouse, or your profile's policy.
+- **Read-only first.** Before anything is sent, every statement in the cell is read with sqlglot as
+  Snowflake SQL. SELECT, WITH, UNION and the other set operations, VALUES, SHOW, DESCRIBE and EXPLAIN
+  run. Anything else is refused by name, for example "INSERT changes data on Snowflake, and this engine
+  runs read-only statements for now". Run such a statement in Snowsight. SELECT ... INTO and SYSTEM$
+  functions are refused too, because some of those change state. SQL that sqlglot can't read is
+  refused rather than guessed at, so check its syntax. The check reads the SQL only, so a
+  user-defined function a query calls still runs whatever it holds. What your role may do is still
+  up to Snowflake.
+- **Never another engine.** A cell that's refused, or fails on Snowflake, is reported as it is. It
+  never moves to DuckDB, and this engine doesn't use the Snowflake SQL translator on this PC
+  ([above](#snowflake-sql-on-this-pc-preview)).
+- **Sign-in** is key pair or a programmatic access token, as in
+  [Checking a Snowflake connection](#checking-a-snowflake-connection-preview). A refused sign-in
+  keeps Snowflake's error code and says what to check, and never repeats the token.
+- **Errors keep Snowflake's code.** A statement Snowflake refuses (HTTP 422) shows its code and
+  message, for example "code 002003" for an object that doesn't exist or that your role can't see.
+  Check the name, or ask for the privilege, then run the cell again.
+- **Busy or briefly unavailable.** Looking at a statement, reading a result partition and cancelling
+  are tried again through throttling (HTTP 429), gateway errors and a dropped connection, as for the
+  connection check. A statement is never sent twice after a server error, because it may have started.
+- **Results.** Values are typed from Snowflake's result metadata. NUMBER is an integer, or a decimal
+  with its scale, FLOAT is a float, and BOOLEAN, DATE, TIME and the three timestamp types are typed
+  too. TIMESTAMP_TZ values are shown in UTC, without their offset. VARIANT, OBJECT, ARRAY and
+  BINARY come back as text. A value that won't read as its type keeps its column as text. The
+  preview reads only the result partitions it needs for its rows.
+- **Whole results, to compare engines.** Every partition is read, in order. More rows than asked for,
+  or more than 256 MB, is an error, never a cut table. Snowflake's own row count is checked before
+  any further partition is read. The rows are copied onto this PC, so a comparison asks for them only
+  after its own confirm.
+- **Limits.** Snowflake stops a statement after two hours, and this PC stops following it a minute
+  later and cancels it. Credits are metered per warehouse, so the engine reports measured seconds only.
+- **Not confirmed yet.** This engine follows Snowflake's SQL API documentation and is tested against
+  a fake of it, not a live account. How TIME and TIMESTAMP_TZ values look on the wire, and that
+  EXPLAIN runs without a warehouse, come from the documentation and haven't been checked live.
 
 ## Databricks workspace discovery (Preview)
 

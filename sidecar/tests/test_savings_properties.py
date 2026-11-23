@@ -264,10 +264,7 @@ def test_a_pricing_version_id_is_the_same_for_the_same_price_and_dates():
     assert a["pricing_version"] == b["pricing_version"]
 
 
-@pytest.mark.xfail(strict=True, reason="value_runs keeps whichever attribution of a run it reads first, so two "
-                                       "different figures for one run give a total that depends on their order; "
-                                       "recurring.by_period refuses the same input")
-def test_two_different_attributions_of_one_run_dont_make_the_priced_total_depend_on_order():
+def test_two_different_attributions_of_one_run_are_refused_in_either_order():
     versions = [pr.scenario(scenario="List", rate_per_cu_hour=1, currency="USD", effective_from="2026-01-01",
                             pricing_model=pr.PAY_AS_YOU_GO, confidence="confirmed", source="sheet")]
     run = {"execution_id": "e1", "workload_key": "nb:sales", "baseline_version": "b1",
@@ -276,7 +273,9 @@ def test_two_different_attributions_of_one_run_dont_make_the_priced_total_depend
     high = at.attribute(run, measured(10), local_avoided=estimated(9), overhead=measured(0))
     with pytest.raises(ValueError):
         rc.by_period([low, high])  # what the period figures do
-    assert pr.value_runs([low, high], versions, "List")["total"] == pr.value_runs([high, low], versions, "List")["total"]
+    for order in ([low, high], [high, low]):  # pricing refuses it too, so no order picks the figure
+        with pytest.raises(ValueError):
+            pr.value_runs(order, versions, "List")
 
 
 # ---------- 3. rounding never creates a saving
@@ -293,8 +292,6 @@ def test_rounded_figures_never_exceed_the_baseline_or_the_figure_they_round(seed
         assert sum(known) <= b + 5e-7 * len(known) + 1e-12, (c, out)
 
 
-@pytest.mark.xfail(strict=True, reason="gross is capped at the baseline and then rounded to 6 places, so a baseline "
-                                       "given in CU seconds that rounds up leaves gross above the baseline")
 def test_a_baseline_in_cu_seconds_doesnt_round_gross_above_it():
     base = ms.make(ms.MEASURED, "fabric_job_cu", ms.CU_SECONDS, 1.9, run_id="r", source="Capacity Metrics export",
                    collected_at="2026-11-01T00:00:00Z")

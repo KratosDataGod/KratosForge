@@ -81,11 +81,20 @@ def _secret_key(key: str) -> bool:
     return bool((singular | set(words) | {"".join(words)}) & _SECRET_WORDS) or (bool(words) and words[-1] == "key")
 
 
+def _unicode(text: str, path: str) -> None:
+    """Text that can be written back as UTF-8: JSON may carry a lone surrogate (\\ud800) that can't."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ManifestError(f"{path}: text must be valid Unicode") from None
+
+
 def _check_no_secrets(value: Any, path: str) -> None:
     if isinstance(value, dict):
         for k, v in value.items():
             if not isinstance(k, str):
                 raise ManifestError(f"{path}: keys must be text")
+            _unicode(k, path)
             if _secret_key(k):
                 raise ManifestError(f"{path}.{k}: a manifest never holds credentials; keep them in the "
                                     "provider's own sign-in or a secret store")
@@ -93,8 +102,10 @@ def _check_no_secrets(value: Any, path: str) -> None:
     elif isinstance(value, list):
         for i, v in enumerate(value):
             _check_no_secrets(v, f"{path}[{i}]")
-    elif isinstance(value, str) and secrets(value) != value:
-        raise ManifestError(f"{path}: looks like a credential, which a manifest never holds")
+    elif isinstance(value, str):
+        _unicode(value, path)
+        if secrets(value) != value:
+            raise ManifestError(f"{path}: looks like a credential, which a manifest never holds")
 
 
 def _text(value: Any, path: str, required: bool = True, limit: int = MAX_TEXT) -> str:
@@ -260,6 +271,20 @@ def _validate(manifest: Any) -> dict[str, Any]:
     return manifest
 
 
+def check_request_fields(*, name: Any = None, workspace_name: Any = None, lakehouse_name: Any = None,
+                         owner_object_id: Any = None) -> str:
+    """Why a manifest would refuse these labels and owner, or "": the same rules ``validate`` applies,
+    for a caller that checks a request before anything is created (provisioning's plan)."""
+    try:
+        for key, value in (("name", name), ("workspace_name", workspace_name), ("lakehouse_name", lakehouse_name)):
+            _text(value, key, required=False, limit=MAX_NAME)
+            _check_no_secrets(value, key)
+        _guid(owner_object_id, "owner_object_id", required=False)
+    except ManifestError as exc:
+        return str(exc)
+    return ""
+
+
 def writable(manifest: dict[str, Any]) -> bool:
     """Whether this app may rewrite the manifest: not one a newer app wrote."""
     return int(manifest.get("manifest_version", 0)) <= MANIFEST_VERSION
@@ -321,11 +346,12 @@ def from_json(data: bytes | str) -> dict[str, Any]:
     if len(data) > MAX_BYTES:
         raise ManifestError(f"The manifest is larger than {MAX_BYTES // 1024} KB, so it isn't one KratosForge wrote")
     try:
-        return validate(json.loads(data))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        parsed = json.loads(data)
+    except ValueError as exc:  # JSONDecodeError, UnicodeDecodeError, and an integer too long to convert
         raise ManifestError(f"The manifest isn't valid JSON: {exc.__class__.__name__}") from None
     except RecursionError:
         raise ManifestError("The manifest is nested too deeply to be one KratosForge wrote") from None
+    return validate(parsed)
 
 
 def summary(manifest: dict[str, Any]) -> dict[str, Any]:

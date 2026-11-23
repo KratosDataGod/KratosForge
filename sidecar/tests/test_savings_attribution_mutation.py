@@ -116,8 +116,9 @@ def test_every_figure_is_rounded_to_six_decimals():
     assert out["net_cu_hours"] == 0.753088
 
 
-def test_gross_capped_at_an_unrounded_baseline_is_rounded_too():
-    # The layers round up to 0.123457, past the baseline, so gross is the baseline itself, rounded.
+def test_gross_capped_at_an_unrounded_baseline_is_rounded_down():
+    # The layer rounds up to 0.123457, past the baseline, so gross is the baseline rounded down:
+    # rounding never shows a saving above the baseline.
     out = at.attribute(run(), cu(0.1234567), [opt("o1", cu(0.0))], local_avoided=cu(5), overhead=cu(0))
     assert layer(out, "o1")["cu_hours"] == 0.123457
-    assert out["gross_cu_hours"] == 0.123457 and out["net_cu_hours"] == 0.123457
+    assert out["gross_cu_hours"] == 0.123456 and out["net_cu_hours"] == 0.123456

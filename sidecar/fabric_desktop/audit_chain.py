@@ -244,7 +244,7 @@ def _anchor(folder: Path, head: dict[str, Any]) -> None:
     if why is None:
         new.pop("anchor_missed", None)
     else:
-        new["anchor_missed"] = {"writes": int((missed or {}).get("writes") or 0) + 1,
+        new["anchor_missed"] = {"writes": _missed_writes(missed) + 1,
                                 "since": (missed or {}).get("since") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                                 "why": why}
     jsonfile.write_json(folder / HEAD, new)
@@ -406,13 +406,21 @@ def verify(folder: Path) -> dict[str, Any]:
     return result
 
 
+def _missed_writes(missed: dict[str, Any] | None) -> int:
+    """How many writes went unrecorded, as head.json holds it. head.json can be edited or damaged, and a
+    count that isn't a whole number never stops an audit write: it reads as none."""
+    writes = (missed or {}).get("writes")
+    return writes if isinstance(writes, int) and not isinstance(writes, bool) and writes >= 0 else 0
+
+
 def _missed_note(missed: dict[str, Any]) -> str:
     why = str(missed.get("why") or audit_anchor.UNAVAILABLE)
     fix = audit_anchor.FIX.get(why, audit_anchor.FIX[audit_anchor.UNAVAILABLE])
-    n = missed.get("writes")
+    n = max(_missed_writes(missed), 1)
+    writes = "write" if n == 1 else f"{n} writes"
     return (f"event log: the trail's end wasn't recorded in the Windows Application event log for the last "
-            f"{n} write{'' if n == 1 else 's'} (since {missed.get('since') or 'an earlier write'}), so the newest lines "
-            f"are checked against head.json only. Why: {fix}. The trail itself is complete")
+            f"{writes} (since {missed.get('since') or 'an earlier write'}), so the newest lines "
+            f"are checked against head.json only, because {fix}. The trail itself is complete")
 
 
 def _recorded(folder: Path, head: dict[str, Any], key: object,

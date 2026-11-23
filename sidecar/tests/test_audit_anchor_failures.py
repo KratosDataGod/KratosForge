@@ -77,3 +77,19 @@ def test_a_failed_record_is_reported_and_returns_why(tmp_path, event_log):
     event_log.fail = None
     assert audit_anchor.record(tmp_path, "a" * 64, 1) == audit_anchor.ACCESS_DENIED  # within the minute: not tried
     assert event_log.records == []
+
+
+@pytest.mark.parametrize("writes", ["x", None, -3, 2.5, True, [1]])
+def test_a_damaged_count_in_head_json_never_stops_an_audit_write(tmp_path, event_log, monkeypatch, writes):
+    log = AuditLog(tmp_path)
+    event_log.fail = OSError(1502, "ReportEventW failed")
+    log.record("meta_run", "ok", 0.1)
+    head = _head(tmp_path)
+    head["anchor_missed"]["writes"] = writes
+    (tmp_path / audit_chain.HEAD).write_text(json.dumps(head), encoding="utf-8")
+    monkeypatch.setattr(audit_anchor, "_off_until", 0.0)  # past the retry minute: the record is tried again
+    log.record("meta_promote", "ok", 0.1)  # written, and counted again from a sane number
+    assert [e["action"] for e in log.recent()] == ["meta_promote", "meta_run"]
+    assert _head(tmp_path)["anchor_missed"]["writes"] == 1
+    [note] = [n for n in log.verify()["notes"] if "wasn't recorded" in n]
+    assert "for the last write (since " in note

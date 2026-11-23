@@ -74,7 +74,7 @@ def test_compact_still_held_says_so_and_keeps_the_rows(tmp_path, monkeypatch):
     calls = _held_vacuum(monkeypatch, 99)
     with pytest.raises(OSError) as caught:
         maintenance.compact_local(uri)
-    assert str(caught.value) == ("Compact stopped because another program has one of the table's files open, often a "
+    assert str(caught.value) == ("Compact stopped because another program has one of the table's files open, such as a "
                                  "virus scanner, the search indexer or OneDrive. The table's rows are unchanged. "
                                  "Try again in a moment.")
     assert "os error 32" in str(caught.value.__cause__)  # delta-rs's own words kept for the log

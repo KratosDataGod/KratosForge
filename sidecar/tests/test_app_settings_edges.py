@@ -110,7 +110,7 @@ def test_engine_folder_the_shell_ignored_for_unreadable_group_policy_says_why(di
     assert s._engine_folder_problems(folder, False) == []
     why = "Group Policy couldn't be read (Windows error 5 reading HKLM), so the engine is kept in this app's own folder"
     monkeypatch.setenv("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", why)
-    assert s._engine_folder_problems(folder, False) == [f"engine_folder is ignored: {why}"]
+    assert s._engine_folder_problems(folder, False) == [f"engine_folder is ignored, because {why}"]
     # A folder that is wrong anyway says that first, as before.
     assert "isn't a full folder path" in s._engine_folder_problems("relative", False)[0]
     assert "auto_update" in s._engine_folder_problems(folder, True)[0]

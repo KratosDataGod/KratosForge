@@ -745,7 +745,7 @@ def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
         return ['engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set']
     ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", "")  # the shell's own check, at start
     if ignored:
-        return [f"engine_folder is ignored: {ignored}"]
+        return [f"engine_folder is ignored, because {ignored}"]
     return []
 
 

@@ -38,8 +38,8 @@ from fabric_desktop.sql_templates_service import FOLDER as TEMPLATES, SqlTemplat
 from fabric_desktop.workloads.store import ManagementStore
 
 PROFILE = ("Users", "Jöhn O'Brien 日本", "OneDrive - Contoso Ünited")
-LONG_MESSAGE = ("couldn't be {doing}: its path is {n} characters, past the 260 Windows allows on this PC because long "
-                "paths aren't turned on. Move it to a folder with a shorter path, or ask IT to turn on long paths.")
+LONG_MESSAGE = ("couldn't be {doing}, because its path is {n} characters, past the 260 Windows allows on this PC while "
+                "long paths are turned off. Move it to a folder with a shorter path, or ask IT to turn on long paths.")
 
 
 def _windows_refuses_long_paths(monkeypatch):
@@ -199,7 +199,7 @@ def test_each_writer_past_260_characters_without_long_paths_names_the_file_and_t
     with pytest.raises(OSError) as caught:
         WRITERS[writer](long, short, monkeypatch)
     text = str(caught.value)
-    assert "couldn't be " in text and "past the 260 Windows allows on this PC because long paths aren't turned on" in text, text
+    assert "couldn't be " in text and "past the 260 Windows allows on this PC while long paths are turned off" in text, text
     assert "WinError" not in text and "cannot find the path" not in text, text
     assert str(long) not in text  # the file's name, not its folder (which holds the user name)
     leftovers = [p.name for p in long.iterdir()]
@@ -246,7 +246,7 @@ def test_a_resource_file_renamed_past_260_characters_names_the_new_name(short, l
     with pytest.raises(OSError) as caught:
         files.rename("data.csv", "data ö 2026.csv")
     text = str(caught.value)
-    assert text.startswith("data ö 2026.csv couldn't be renamed: its path is "), text
+    assert text.startswith("data ö 2026.csv couldn't be renamed, because its path is "), text
     assert "WinError" not in text and str(long) not in text, text
     assert sorted(p.name for p in files.files.iterdir()) == ["data.csv"]  # nothing renamed, nothing reserved
 
@@ -270,8 +270,8 @@ def test_a_sqlite_store_past_260_characters_says_so_by_name_and_keeps_sqlites_an
     with pytest.raises(OSError) as caught:
         store(long / "store ö.db")
     text = str(caught.value)
-    assert text.startswith("store ö.db couldn't be opened: its path is "), text
-    assert "past the 260 Windows allows on this PC because long paths aren't turned on" in text, text
+    assert text.startswith("store ö.db couldn't be opened, because its path is "), text
+    assert "past the 260 Windows allows on this PC while long paths are turned off" in text, text
     assert str(long) not in text
     assert isinstance(caught.value.__cause__, sqlite3.OperationalError)
 

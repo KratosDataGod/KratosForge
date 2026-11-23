@@ -225,7 +225,7 @@ def windows_file_held(exc: BaseException) -> bool:
 
 def held_file_message(what: str) -> str:
     """What to say when a table's file is still held after ``local_retry`` waited it out (windows_file_held)."""
-    return (f"{what} stopped because another program has one of the table's files open, often a virus scanner, "
+    return (f"{what} stopped because another program has one of the table's files open, such as a virus scanner, "
             "the search indexer or OneDrive. The table's rows are unchanged. Try again in a moment.")
 
 

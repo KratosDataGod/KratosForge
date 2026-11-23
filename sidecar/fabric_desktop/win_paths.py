@@ -69,6 +69,6 @@ def too_long(exc: BaseException, path: str | os.PathLike[str], doing: str = "sav
     if longest < PATH_LIMIT:
         return None
     name = ntpath.basename(os.fspath(path)) or os.fspath(path)  # either separator, as Windows takes
-    return (f"{name} couldn't be {doing}: its path is {longest} characters, past the {PATH_LIMIT} Windows allows on "
-            "this PC because long paths aren't turned on. Move it to a folder with a shorter path, or ask IT to turn "
-            "on long paths.")
+    return (f"{name} couldn't be {doing}, because its path is {longest} characters, past the {PATH_LIMIT} Windows "
+            "allows on this PC while long paths are turned off. Move it to a folder with a shorter path, or ask IT to "
+            "turn on long paths.")

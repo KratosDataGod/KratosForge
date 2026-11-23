@@ -143,10 +143,15 @@ def _merge(tree: exp.Merge) -> Change:
     source_alias = using.alias or (using.name if isinstance(using, exp.Table) else "")
     if not source_alias:
         raise ValueError("Give the MERGE source an alias: USING (SELECT ...) AS s.")
-    source = using.copy()
-    source.set("alias", None)
-    if isinstance(source, exp.Subquery):
-        source = source.this
+    alias_node = using.args.get("alias")
+    if isinstance(alias_node, exp.TableAlias) and alias_node.columns:
+        # USING (VALUES ...) AS s(id, v): the column list names the source's columns, so it stays with the rows
+        source: exp.Expression = exp.select("*").from_(using.copy())
+    else:
+        source = using.copy()
+        source.set("alias", None)
+        if isinstance(source, exp.Subquery):
+            source = source.this
     on = tree.args.get("on")
     if not isinstance(on, exp.Expression):  # sqlglot gives on=False, not None, when ON is left out
         raise ValueError("MERGE INTO needs ON (how a source row finds its row in the table).")

@@ -395,7 +395,7 @@ CASES: tuple[Case, ...] = (
         ("IS_REAL", "4,5,6"), ("IS_VARCHAR", "7"), ("IS_CHAR", "7"), ("IS_ARRAY", "8"), ("IS_OBJECT", "9"))),
     _c("IS_DECIMAL (vartab)", "Semi-structured",
        f"SELECT listagg(n, ',') WITHIN GROUP (ORDER BY n) FROM {_VARTAB} WHERE is_decimal(v)", "4,5", "untranslated",
-       "Refused by SFN-034 when the query reaches row 5: how 123.12 and 1.912e2 were written isn't kept in a "
+       "Refused by SFN-072 when the query reaches row 5: how 123.12 and 1.912e2 were written isn't kept in a "
        "stored VARIANT here. IS_DECIMAL(PARSE_JSON('1.912e2')) is FALSE, as in Snowflake.", page="is"),
     _c("IS_DECIMAL (PARSE_JSON with an exponent)", "Semi-structured", "SELECT is_decimal(parse_json('1.912e2'))",
        False, page="is"),
@@ -468,7 +468,7 @@ CASES: tuple[Case, ...] = (
        "DECIMAL", page="typeof"),
     _c("TYPEOF (stored value with an exponent)", "Semi-structured",
        "SELECT typeof(v:a) FROM (SELECT parse_json('{\"a\": 1.912e2}') AS v)", "DOUBLE", "untranslated",
-       "Refused by SFN-034 when the query reaches the value: DuckDB doesn't keep how a stored JSON number was "
+       "Refused by SFN-072 when the query reaches the value: DuckDB doesn't keep how a stored JSON number was "
        "written. TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact.", page="typeof"),
     _c("LISTAGG", "Aggregate", f"SELECT listagg(x, ',') WITHIN GROUP (ORDER BY x) FROM {_values(repr('b'), repr('a'))}",
        "a,b"),
@@ -604,7 +604,7 @@ CASES: tuple[Case, ...] = (
     _c("UNICODE (first character)", "String", "SELECT unicode('cde')", 99, page="unicode"),
     _c("UNICODE (empty)", "String", "SELECT unicode('')", 0, page="unicode"),
     _c("JAROWINKLER_SIMILARITY", "String", "SELECT jarowinkler_similarity('Gute nacht', 'Ich weis nicht')", 56,
-       "untranslated", "Refused by SFN-031: Snowflake doesn't document its score, and DuckDB's gives 57 for this pair "
+       "untranslated", "Refused by SFN-070: Snowflake doesn't document its score, and DuckDB's gives 57 for this pair "
        "from Snowflake's example, 94 for 'Ich weiß nicht' and 'Ich weiss nicht' (97), and 72 for 'święta' and "
        "'swieta' (77). EDITDISTANCE runs here.", page="jarowinkler_similarity"),
     _c("LOWER", "String", "SELECT lower('The Quick Gray Fox')", "the quick gray fox"),
@@ -1053,7 +1053,7 @@ CASES: tuple[Case, ...] = (
        "TYPEOF(array_column[3]), TYPEOF(array_column[4])) AS type FROM array_append_examples",
        ["INTEGER", "INTEGER", "INTEGER", "INTEGER", "VARCHAR"], page="array_append"),
     _c("ARRAY_COMPACT", "Semi-structured", "SELECT array_compact(array_construct(10, NULL, 30))", [10, 30]),
-    # SFX-040: the pages' examples, arrays of text and numbers, as written. ARRAY_INSERT's third example (position
+    # SFX-075: the pages' examples, arrays of text and numbers, as written. ARRAY_INSERT's third example (position
     # 5) isn't checked: the page shows Snowflake's empty element as "undefined", which no value here can match.
     _c("ARRAY_INSERT (docs example)", "Semi-structured", "SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(0,1,2,3),2,'hello')",
        [0, 1, "hello", 2, 3], page="array_insert"),
@@ -1267,7 +1267,7 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
     except duckdb.Error as exc:
         if isinstance(case.expected, Raises) and case.expected.text in str(exc):
             return "same", case.expected
-        if snowflake_sql.stopped_by_name(exc):  # a refusal for a value only the run can tell (SFN-033, SFN-034)
+        if snowflake_sql.stopped_by_name(exc):  # a refusal for a value only the run can tell (SFN-071, SFN-072)
             return "untranslated", str(exc).splitlines()[0].split("Error: ", 1)[-1]
         return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     value = row[0] if row else None

@@ -82,7 +82,7 @@ def test_keys_are_not_enforced_but_a_primary_key_is_not_null():
     sql = s.translate("CREATE TABLE t (a INT PRIMARY KEY, b INT UNIQUE, c INT REFERENCES p (x), d INT, "
                       "CONSTRAINT pk PRIMARY KEY (a, d), UNIQUE (b), FOREIGN KEY (c) REFERENCES p (x), "
                       "CHECK (a > 0))").duckdb_sql
-    # the names stored in upper case, as Snowflake stores unquoted ones (SFX-030)
+    # the names stored in upper case, as Snowflake stores unquoted ones (SFX-072)
     assert sql == 'CREATE TABLE "T" ("A" INT NOT NULL, "B" INT, "C" INT, "D" INT NOT NULL, CHECK (a > 0))'
     assert _rows("CREATE TABLE t (a INT PRIMARY KEY, b VARCHAR UNIQUE); INSERT INTO t VALUES (1, 'x'), (1, 'x'); "
                  "SELECT count(*) FROM t") == [(2,)]

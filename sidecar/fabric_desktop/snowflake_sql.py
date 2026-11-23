@@ -30,7 +30,7 @@ from sqlglot.errors import ParseError, SqlglotError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.21"
+RULES_VERSION = "2026.11.23"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -110,7 +110,7 @@ def _n(id: str, title: str, reason: str, action: str, source: str = "") -> Note:
 
 
 SFD_CASE = _n("SFD-001", "A column made by an expression keeps DuckDB's name",
-              "Snowflake stores an unquoted name in upper case, and so does this PC (SFX-030). A column of CREATE "
+              "Snowflake stores an unquoted name in upper case, and so does this PC (SFX-072). A column of CREATE "
               "TABLE ... AS or CREATE VIEW made by an expression with no alias (a + 1) gets a name Snowflake writes "
               "its own way; here it keeps DuckDB's.",
               "Give such a column an alias.",
@@ -118,7 +118,7 @@ SFD_CASE = _n("SFD-001", "A column made by an expression keeps DuckDB's name",
 SFD_TZ = _n("SFD-002", "TIMESTAMP_TZ loses its offset",
             "DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value "
             "is lost. Raised for a TIMESTAMP_TZ column, and a TIMESTAMP_TZ made from a number; TO_TIMESTAMP_TZ, "
-            "TRY_TO_TIMESTAMP_TZ and a cast to TIMESTAMP_TZ check the offset instead (SFX-029, SFN-033).",
+            "TRY_TO_TIMESTAMP_TZ and a cast to TIMESTAMP_TZ check the offset instead (SFX-071, SFN-071).",
             "Compare instants, not offsets.", f"{_DOCS}/data-types-datetime")
 SFD_DIV = _n("SFD-003", "Division returns DOUBLE",
              "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules.",
@@ -144,7 +144,7 @@ SFD_BRACKET = _n("SFD-009", "[i] on a value whose type isn't known",
                  "or check the result.", f"{_DOCS}/data-types-semistructured")
 SFD_TYPEOF = _n("SFD-007", "TYPEOF can't always name Snowflake's type",
                 "TYPEOF gives Snowflake's type names here (SFX-009). A JSON number with a fraction or an "
-                "exponent that isn't read from PARSE_JSON of text written in the query stops the query (SFN-034). "
+                "exponent that isn't read from PARSE_JSON of text written in the query stops the query (SFN-072). "
                 "A type with no single Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or "
                 "TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't "
                 "known here: a column, a path or a computed value.",
@@ -191,7 +191,7 @@ def _scalar_kind(node: exp.Expression | None) -> str:
 
 
 def _mixed_array(node: object) -> bool:
-    """SFX-040: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
+    """SFX-075: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
     ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one)."""
     if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
         values = list(node.expressions)
@@ -221,22 +221,22 @@ def stopped_by_name(exc: BaseException) -> bool:
     return bool(re.search(r"\bSFN-\d{3} .*" + _ONLY_IN_SNOWFLAKE + r"\.", str(exc)))
 
 
-# SFN-031, SFN-033 and SFN-034 (2026.11.20): values that ran with another answer and only a label (SFD-012, SFD-014,
+# SFN-070, SFN-071 and SFN-072 (2026.11.23): values that ran with another answer and only a label (SFD-012, SFD-014,
 # SFD-008; SFD-002 and SFD-007 in part) now answer as Snowflake does or stop by name.
 _JARO_REFUSED = _refuse(
-    "SFN-031", "JAROWINKLER_SIMILARITY", "Snowflake doesn't document how it works out its score, and DuckDB's "
+    "SFN-070", "JAROWINKLER_SIMILARITY", "Snowflake doesn't document how it works out its score, and DuckDB's "
     "Jaro-Winkler gives other scores for pairs in Snowflake's own example: 'Gute nacht' and 'Ich weis nicht' score "
     "56 there and 57 here, 'Ich weiß nicht' and 'Ich weiss nicht' 97 there and 94 here, 'święta' and 'swieta' 77 "
     "there and 72 here. A threshold tuned on Snowflake's scores would match other rows. EDITDISTANCE runs here.",
     f"{_DOCS}/functions/jarowinkler_similarity")
 _TZ_OFFSET = _refuse(
-    "SFN-033", "TIMESTAMP_TZ with another UTC offset", "Snowflake keeps the UTC offset written in the text "
+    "SFN-071", "TIMESTAMP_TZ with another UTC offset", "Snowflake keeps the UTC offset written in the text "
     "(2024-01-01T10:00:00+05:00) with the value; DuckDB keeps only the instant and shows it in the session's time "
     "zone, so its hour, date and text would differ. A text with no offset, or with the session zone's own "
     "offset, runs. Use TO_TIMESTAMP_LTZ, or set the session's time zone to one with that offset.",
     f"{_DOCS}/data-types-datetime")
 _JSON_FRACTION = _refuse(
-    "SFN-034", "The type of a JSON number with a fraction", "Snowflake's PARSE_JSON keeps a number written with a "
+    "SFN-072", "The type of a JSON number with a fraction", "Snowflake's PARSE_JSON keeps a number written with a "
     "fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE; DuckDB's JSON keeps neither "
     "way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER "
     "of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a "
@@ -443,17 +443,17 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                            "run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) "
                            "counts.", f"{_DOCS}/functions-aggregation")
         if isinstance(node, exp.CurrentVersion):
-            return _refuse("SFN-040", "CURRENT_VERSION", "It gives the version of Snowflake running the query "
+            return _refuse("SFN-074", "CURRENT_VERSION", "It gives the version of Snowflake running the query "
                            "(10.15.100 in Snowflake's example); this PC runs DuckDB, whose own version "
                            "would come back in its place.", f"{_DOCS}/functions/current_version")
         if isinstance(node, exp.CurrentSchemas):
-            return _refuse("SFN-041", "CURRENT_SCHEMAS", "It gives the schemas Snowflake's session searches, as "
+            return _refuse("SFN-075", "CURRENT_SCHEMAS", "It gives the schemas Snowflake's session searches, as "
                            "JSON text of database.schema names ([\"TEST_DB1.BILLING\", \"TEST_DB1.PUBLIC\"] in "
                            "Snowflake's example); DuckDB's gives a list of its own search path, with pg_catalog "
                            "and the same schema more than once. CURRENT_DATABASE and CURRENT_SCHEMA run.",
                            f"{_DOCS}/functions/current_schemas")
         if isinstance(node, exp.Rand) and node.this is not None:
-            return _refuse("SFN-042", "RANDOM with a seed", "Snowflake's RANDOM(seed) gives the same series for a "
+            return _refuse("SFN-076", "RANDOM with a seed", "Snowflake's RANDOM(seed) gives the same series for a "
                            "seed from its own generator (MT19937-64), which DuckDB's random() doesn't reproduce, "
                            "so a seeded query would give other numbers here. RANDOM() runs.",
                            f"{_DOCS}/functions/random")
@@ -766,9 +766,9 @@ def _binary_valued(node: exp.Expression) -> bool:
 def _rewrite_time(statement: exp.Expression) -> None:
     """SFX-017: TIME(x) is TO_TIME(x): the time of a string or of a timestamp. sqlglot writes it as a cast
     through TIMESTAMPTZ at an empty time zone, which DuckDB can't read.
-    SFX-041: CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, are the time cut to p digits
+    SFX-076: CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, are the time cut to p digits
     after the second; DuckDB keeps 6, so 6 to 9 keep them all. sqlglot couldn't write them for DuckDB."""
-    for clock in list(statement.find_all(exp.Localtime)):  # SFX-041
+    for clock in list(statement.find_all(exp.Localtime)):  # SFX-076
         digits = clock.this
         if isinstance(digits, exp.Literal) and digits.is_int and 0 <= int(digits.name) <= 9:
             step = 10 ** max(6 - int(digits.name), 0)
@@ -845,15 +845,6 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
     Arguments may be worked out more than once, which matters only when they aren't deterministic."""
     from .sql import _from_template
     for found in reversed(list(statement.find_all(exp.RegexpExtract))):
-        flags = found.args.get("parameters")
-        if isinstance(flags, exp.Literal) and "m" in flags.name:
-            # Snowflake's m is multi-line (^ and $ at each line); DuckDB's m option isn't, RE2's (?m) is
-            pattern = found.expression
-            found.set("expression", exp.Literal.string("(?m)" + pattern.name) if isinstance(pattern, exp.Literal)
-                      else exp.DPipe(this=exp.Literal.string("(?m)"), expression=pattern.copy()))
-            found.set("parameters", exp.Literal.string(flags.name.replace("m", "")) if flags.name.replace("m", "")
-                      else None)
-            flags = found.args.get("parameters")
         if found.args.get("occurrence") is not None and not (isinstance(found.args["occurrence"], exp.Literal)
                                                              and found.args["occurrence"].name == "1"):
             continue  # a later occurrence is read from REGEXP_EXTRACT_ALL, which is NULL past the last match
@@ -940,7 +931,7 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
 
 
 def _variant_arrays(statement: exp.Expression) -> None:
-    """SFX-040: an array written in the query with both text and numbers in it is a list of VARIANT values, as
+    """SFX-075: an array written in the query with both text and numbers in it is a list of VARIANT values, as
     an ARRAY column is (SFX-024), so each element keeps its own type, as in Snowflake's array; a DuckDB list of
     plain values holds one type. SFN-025, which refused it, is retired."""
     variant = exp.DataType.build("VARIANT")
@@ -1155,7 +1146,7 @@ def _upper(identifier: object) -> None:
 
 
 def _output_names(query: object) -> bool:
-    """SFX-030 for a CREATE TABLE AS or CREATE VIEW query: each column it names (a column, or an alias) gets its
+    """SFX-072 for a CREATE TABLE AS or CREATE VIEW query: each column it names (a column, or an alias) gets its
     name as Snowflake stores it. False when a column is an expression with no alias, whose name Snowflake writes
     its own way (SFD-001)."""
     while isinstance(query, exp.SetOperation):  # the first query names a UNION's columns
@@ -1179,7 +1170,7 @@ def _output_names(query: object) -> bool:
 
 
 def _rewrite_names(statement: exp.Expression) -> bool:
-    """SFX-030: Snowflake stores an unquoted name in upper case (identifiers-syntax), so CREATE TABLE, CREATE
+    """SFX-072: Snowflake stores an unquoted name in upper case (identifiers-syntax), so CREATE TABLE, CREATE
     TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE store the names they make that way here too: the
     table, view or schema, its columns, a renamed table or column, an added column. INFORMATION_SCHEMA and
     SELECT * then give Snowflake's names; a query still finds them by any case, as in Snowflake. False when
@@ -1305,9 +1296,95 @@ def _json_of_variant_lists(statement: exp.Expression) -> None:
                           to=exp.DataType.build("JSON")))],
             default=exp.Anonymous(this="to_json", expressions=[value.copy()]))
         new = exp.Cast(this=listed, to=exp.DataType.build("VARCHAR")) if isinstance(node, exp.JSONFormat) else listed
-        if node.meta.get(_SNOWFLAKE_TO_JSON):  # still Snowflake's TO_JSON, for SFX-028
+        if node.meta.get(_SNOWFLAKE_TO_JSON):  # still Snowflake's TO_JSON, for SFX-070
             new.meta[_SNOWFLAKE_TO_JSON] = True
         node.replace(new)
+
+
+_REGEXP_PARAMETERS = {exp.RegexpLike: "flag", exp.RegexpReplace: "modifiers", exp.RegexpExtract: "parameters",
+                      exp.RegexpExtractAll: "parameters"}
+_QUANTIFIER = re.compile(r"\{\d+(,\d*)?\}")
+
+
+def _rewrite_regexp_patterns(statement: exp.Expression) -> None:
+    """SFX-028 and SFN-031 (WR-257): Snowflake's regular expression parameters and patterns as Snowflake reads
+    them. The m parameter (multi-line: ^ and $ at each line) and s (. matches a line break) become RE2's (?m) and
+    (?s), as regex_flags explains; DuckDB's own m option changed only what . matches, and 'sm' turned s off.
+    An empty pattern "matches nothing, not even an empty subject" in every function but REGEXP_LIKE and its
+    aliases, where it is '^$'; RE2's matched at every position, so REGEXP_REPLACE('abc', '', 'x') gave 'xaxbxcx'.
+    A pattern written in the query with a non-greedy quantifier ("the regular expression functions don't
+    support non-greedy quantifiers"), a backreference ("Snowflake does not support backreferences in regular
+    expression patterns") or a lookaround, which RE2 can't read, is refused by name (functions-regexp)."""
+    from .regex_flags import NO_MATCH, case_flag_only_i, inline_flags
+    for node in list(statement.find_all(exp.RegexpLike, exp.RegexpReplace, exp.RegexpExtract, exp.RegexpExtractAll,
+                                        exp.RegexpCount, exp.RegexpInstr)):
+        pattern = node.expression
+        written = isinstance(pattern, exp.Literal) and pattern.is_string
+        if written:
+            found = _unsupported_regex(pattern.name)
+            if found:
+                what, step = found
+                raise _Untranslatable(_refuse(
+                    "SFN-031", "This regular expression",
+                    f"The pattern '{pattern.name}' uses {what}, so nothing ran. {step}",
+                    f"{_DOCS}/functions-regexp"))
+        key = _REGEXP_PARAMETERS.get(type(node))
+        if key is None:
+            case_flag_only_i(node)  # REGEXP_COUNT and REGEXP_INSTR read '' and m, s, i as Snowflake does
+            continue
+        if not isinstance(node, exp.RegexpLike):
+            if written and pattern.name == "":
+                node.set("expression", exp.Literal.string(NO_MATCH))
+            elif not written:
+                node.set("expression", exp.func("REGEXP_REPLACE", pattern.copy(), exp.Literal.string("^$"),
+                                                 exp.Literal.string(NO_MATCH)))
+        inline_flags(node, key)
+
+
+_REWRITE = "Rewrite the pattern without it."
+
+
+def _unsupported_regex(pattern: str) -> tuple[str, str] | None:
+    """What in ``pattern`` neither Snowflake nor RE2 reads, named for the user, with the step to take, or None."""
+    i, n, in_class, class_start, quantified = 0, len(pattern), False, 0, False
+    unclosed: set[str] = set()  # a [: (or [. [=) with no :] after it: later ones have none either, so no rescan
+    while i < n:
+        c = pattern[i]
+        if c == "\\":
+            d = pattern[i + 1:i + 2]
+            if d and d in "123456789" and not in_class:
+                return ((f"a backreference ('\\{d}'), which Snowflake's regular expressions don't support "
+                        "(a replacement can use one)"), _REWRITE)
+            i, quantified = i + 2, False
+            continue
+        if in_class:
+            if c == "[" and pattern[i + 1:i + 2] in (":", ".", "=") and pattern[i + 1] not in unclosed:
+                end = pattern.find(pattern[i + 1] + "]", i + 2)  # [:alpha:] inside a class
+                if end > 0:
+                    i = end + 2
+                    continue
+                unclosed.add(pattern[i + 1])
+            if c == "]" and i > class_start:
+                in_class = False
+            i += 1
+            continue
+        if c == "[":
+            in_class, quantified = True, False
+            i += 2 if pattern.startswith("^", i + 1) else 1
+            class_start = i  # a ] right here is a character of the class
+            continue
+        if pattern.startswith(("(?=", "(?!", "(?<=", "(?<!"), i):
+            return (("a lookahead or lookbehind ('(?=', '(?!', '(?<=', '(?<!'), which RE2, the engine that runs it here, "
+                    "can't read"), _REWRITE)
+        if c == "?" and quantified:
+            return ("a non-greedy quantifier ('*?', '+?', '??'), which Snowflake's regular expressions don't support",
+                    "Use a narrower class, such as [^,]* in place of .*?.")
+        if c == "{" and (quantifier := _QUANTIFIER.match(pattern, i)):
+            i, quantified = quantifier.end(), True
+            continue
+        quantified = c in "*+?"
+        i += 1
+    return None
 
 
 def _rewrite_regexp_groups(statement: exp.Expression) -> None:
@@ -1819,7 +1896,7 @@ def _rewrite_haversine(statement: exp.Expression) -> None:
 
 # SFX-011: the type a VARIANT holds, in Snowflake's words. A Snowflake VARIANT is DuckDB JSON (PARSE_JSON) or
 # a DuckDB VARIANT (TO_VARIANT, a cast); variant_typeof names both once cast to VARIANT. A JSON number with a
-# fraction or exponent is DOUBLE in DuckDB, where Snowflake has DECIMAL or DOUBLE: that is NUMBER (SFN-034).
+# fraction or exponent is DOUBLE in DuckDB, where Snowflake has DECIMAL or DOUBLE: that is NUMBER (SFN-072).
 _KIND_OF = "variant_typeof(CAST(__sf_v AS VARIANT))"
 _KIND = (f"CASE WHEN __sf_v IS NULL THEN NULL "
          f"WHEN {_KIND_OF} LIKE 'INT%' OR {_KIND_OF} LIKE 'UINT%' OR {_KIND_OF} LIKE 'DECIMAL(%, 0)' THEN 'INTEGER' "
@@ -1914,7 +1991,7 @@ def _decimal_kind(value: exp.Expression) -> str:
     """_KIND for IS_DECIMAL, AS_DECIMAL and AS_NUMBER, where a JSON number with a fraction or exponent (NUMBER)
     is DECIMAL or DOUBLE in Snowflake by how it was written: worked out from the text of a path into PARSE_JSON
     of text in the query, or of PARSE_JSON's own text when the value is PARSE_JSON(...); otherwise the query
-    stops at such a value (SFN-034)."""
+    stops at such a value (SFN-072)."""
     known = _typeof_of_literal_path(value)
     if known is not _NOT_KNOWN:
         return f"CASE WHEN ({_KIND}) = 'NUMBER' THEN {_quoted(known) if known else 'NULL'} ELSE ({_KIND}) END"
@@ -2150,7 +2227,7 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
     written, as PARSE_JSON reads it: with an exponent it's DOUBLE; otherwise INTEGER or DECIMAL while it
     fits NUMBER (38 digits, 37 after the point) and DOUBLE when it doesn't. DuckDB writes a parsed double
     again its own way (1.912e2 becomes 191.2), so only PARSE_JSON's own input text tells; any other
-    JSON number with a fraction stops the query (SFN-034). Another type goes by DuckDB's typeof;
+    JSON number with a fraction stops the query (SFN-072). Another type goes by DuckDB's typeof;
     one with no single Snowflake name keeps DuckDB's name."""
     for node in list(statement.find_all(exp.Typeof)):
         value = _typeof_value(node)
@@ -2163,7 +2240,7 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
             number = _written_number_kind("_kf_t")
         else:
             # Only a whole number keeps its text (DuckDB keeps big integers as written); one with a fraction
-            # or an exponent stops the query (SFN-034).
+            # or an exponent stops the query (SFN-072).
             text = "trim(CAST(_kf_v AS VARCHAR))"
             number = (f"CASE WHEN NOT regexp_full_match({text}, '-?[0-9]+') THEN {_stop_sql(_JSON_FRACTION)} "
                       f"WHEN length(ltrim(ltrim({text}, '-'), '0')) > 38 THEN 'DOUBLE' ELSE 'INTEGER' END")
@@ -2257,12 +2334,12 @@ _DATE_UNITS = {"YEAR", "YEARS", "Y", "YY", "YYY", "YYYY", "YR", "YRS", "QUARTER"
                "DAY", "DAYS", "D", "DD", "DAYOFMONTH"}
 
 
-_OFFSET_CHECK = "kf_sf_offset_check"   # a cast to TIMESTAMP_TZ the query wrote: SFX-029 checks its offset
-_SNOWFLAKE_TO_JSON = "kf_sf_to_json"    # Snowflake's own TO_JSON, whose keys SFX-028 sorts
+_OFFSET_CHECK = "kf_sf_offset_check"   # a cast to TIMESTAMP_TZ the query wrote: SFX-071 checks its offset
+_SNOWFLAKE_TO_JSON = "kf_sf_to_json"    # Snowflake's own TO_JSON, whose keys SFX-070 sorts
 
 
 def _offset_checked(kind: exp.DataType) -> bool:
-    """Whether a TIMESTAMP_TZ type in the query is one SFX-029 or SFN-033 deals with, so SFD-002 isn't raised
+    """Whether a TIMESTAMP_TZ type in the query is one SFX-071 or SFN-071 deals with, so SFD-002 isn't raised
     for it: the type of a cast (TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ, ::TIMESTAMP_TZ), or of TO_TIMESTAMP_TZ
     with a format (which has no offset in it, or is refused)."""
     parent = kind.parent
@@ -2272,7 +2349,7 @@ def _offset_checked(kind: exp.DataType) -> bool:
 
 
 def _mark_offsets_and_json(statement: exp.Expression) -> None:
-    """SFX-028 and SFX-029, before the rewrites: Snowflake's TO_JSON calls and its casts to TIMESTAMP_TZ are
+    """SFX-070 and SFX-071, before the rewrites: Snowflake's TO_JSON calls and its casts to TIMESTAMP_TZ are
     marked (a copy keeps the mark), and TO_TIMESTAMP_TZ or TRY_TO_TIMESTAMP_TZ of a column (which sqlglot
     leaves as a function DuckDB doesn't have) becomes the cast it is of text."""
     for node in list(statement.find_all(exp.Anonymous)):
@@ -2288,9 +2365,9 @@ def _mark_offsets_and_json(statement: exp.Expression) -> None:
 
 
 def _check_offsets(statement: exp.Expression) -> exp.Expression:
-    """SFX-029, on the DuckDB tree: a marked cast of text to TIMESTAMP_TZ gives the instant DuckDB reads, which
+    """SFX-071, on the DuckDB tree: a marked cast of text to TIMESTAMP_TZ gives the instant DuckDB reads, which
     is Snowflake's value when the text has no offset, or has the session zone's own (reading it without its
-    offset gives the same instant); text with another offset stops the query by name (SFN-033)."""
+    offset gives the same instant); text with another offset stops the query by name (SFN-071)."""
     for node in list(statement.find_all(exp.Cast, exp.TryCast)):
         if not node.meta.get(_OFFSET_CHECK):
             continue
@@ -2311,7 +2388,7 @@ def _check_offsets(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
-# SFX-028: the JSON text with every object's keys sorted, from json_tree's nodes: each node's place is the list
+# SFX-070: the JSON text with every object's keys sorted, from json_tree's nodes: each node's place is the list
 # of its ancestors' keys (an object's) or positions (an array's), so a node comes after its parent, siblings in
 # key order, and a container's closing bracket after its last child. The tree is MATERIALIZED: DuckDB 2.0
 # otherwise reruns json_tree for each reference in the recursion and drops rows ({"b":1,"a":2} gave {"a":2}).
@@ -2337,7 +2414,7 @@ _SORTED_JSON = """(
 
 
 def _sort_json_keys(statement: exp.Expression) -> exp.Expression:
-    """SFX-028, last, on the DuckDB tree: Snowflake's TO_JSON writes an OBJECT's keys sorted at every level
+    """SFX-070, last, on the DuckDB tree: Snowflake's TO_JSON writes an OBJECT's keys sorted at every level
     (TO_JSON(PARSE_JSON('{"b":1,"a":2}')) is {"a":2,"b":1}); DuckDB's keeps them as written."""
     for node in list(statement.find_all(exp.Expression)):
         if not node.meta.get(_SNOWFLAKE_TO_JSON):
@@ -2358,7 +2435,7 @@ def _differences(statement: exp.Expression) -> list[Note]:
     if isinstance(statement, exp.Create) and statement.expression is not None \
             and (statement.args.get("kind") or "").upper() in ("TABLE", "VIEW") \
             and not _output_names(statement.expression.copy()):
-        notes.append(SFD_CASE)  # a column made by an expression with no alias (SFX-030 names the rest)
+        notes.append(SFD_CASE)  # a column made by an expression with no alias (SFX-072 names the rest)
     types = {d.this for d in statement.find_all(exp.DataType)}
     if any(d.this == exp.DataType.Type.TIMESTAMPTZ and not _offset_checked(d) for d in statement.find_all(exp.DataType)):
         notes.append(SFD_TZ)
@@ -2416,7 +2493,7 @@ CATALOG = (
                 "makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, "
                 "VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; SQL NULL for "
                 "SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. "
-                "A JSON number with a fraction whose writing isn't known stops the query (SFN-034); a type with no Snowflake name is SFD-007. The argument is worked out more than once, "
+                "A JSON number with a fraction whose writing isn't known stops the query (SFN-072); a type with no Snowflake name is SFD-007. The argument is worked out more than once, "
                 "which matters only when it isn't deterministic.")),
     ("SFX-010", "Rewritten", ("a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
                 "infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is "
@@ -2505,22 +2582,27 @@ CATALOG = (
                 "table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, "
                 "as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the "
                 "target's column. START TRANSACTION is BEGIN.")),
-    ("SFX-028", "Rewritten", ("TO_JSON writes an object's keys in sorted order at every level, as Snowflake keeps "
+    ("SFX-028", "Rewritten", ("The regular expression parameters m (^ and $ match at each line) and s (. matches "
+                "a line break) are read as Snowflake reads them, also together ('sm'), in REGEXP_LIKE, RLIKE, "
+                "REGEXP_REPLACE, REGEXP_SUBSTR and REGEXP_SUBSTR_ALL. The c parameter is taken in REGEXP_COUNT and "
+                "REGEXP_INSTR too. An empty pattern matches nothing, except in REGEXP_LIKE and its aliases, where it "
+                "matches only an empty subject.")),
+    ("SFX-070", "Rewritten", ("TO_JSON writes an object's keys in sorted order at every level, as Snowflake keeps "
                 "an OBJECT's keys, and writes an object a VARIANT column holds as JSON (DuckDB 1.x's TO_JSON "
                 "wrote it as quoted text). SFD-014 is retired.")),
-    ("SFX-029", "Rewritten", ("TO_TIMESTAMP_TZ and TRY_TO_TIMESTAMP_TZ of a column run as a cast to TIMESTAMP_TZ. "
+    ("SFX-071", "Rewritten", ("TO_TIMESTAMP_TZ and TRY_TO_TIMESTAMP_TZ of a column run as a cast to TIMESTAMP_TZ. "
                 "A cast to TIMESTAMP_TZ (and TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ) of text with no offset, or with "
                 "the session zone's own offset at that time, gives Snowflake's value; text with another offset "
-                "stops the query (SFN-033).")),
-    ("SFX-030", "Rewritten", ("CREATE TABLE, CREATE TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE "
+                "stops the query (SFN-071).")),
+    ("SFX-072", "Rewritten", ("CREATE TABLE, CREATE TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE "
                 "store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object, its "
                 "columns, a column or alias of CREATE ... AS and CREATE VIEW, a renamed table or column, an added "
                 "column. A quoted name keeps its case.")),
-    ("SFX-040", "Rewritten", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
+    ("SFX-075", "Rewritten", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
                 "ARRAY_CONSTRUCT_COMPACT, and ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one) "
                 "is a list of VARIANT values, as an ARRAY column is (SFX-024), so each element keeps its own type. "
                 "SFN-025, which refused it, is retired.")),
-    ("SFX-041", "Rewritten", ("CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time "
+    ("SFX-076", "Rewritten", ("CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time "
                 "cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
@@ -2585,20 +2667,23 @@ CATALOG = (
                 "DuckDB's ALTER TABLE changes one column at a time and has no SWAP.")),
     ("SFN-030", "Runs only in Snowflake", ("CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits "
                 "the open transaction first, and DuckDB doesn't.")),
-    ("SFN-031", "Runs only in Snowflake", ("JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and "
+    ("SFN-031", "Runs only in Snowflake", ("A regular expression written with a non-greedy quantifier ('*?', '+?', "
+                "'??') or a backreference ('\\1') in the pattern, which Snowflake doesn't support, or with a "
+                "lookahead or lookbehind, which RE2 can't read.")),
+    ("SFN-070", "Runs only in Snowflake", ("JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and "
                 "DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired.")),
-    ("SFN-033", "Runs only in Snowflake", ("TIMESTAMP_TZ from text with a UTC offset other than the session zone's "
+    ("SFN-071", "Runs only in Snowflake", ("TIMESTAMP_TZ from text with a UTC offset other than the session zone's "
                 "(the query stops at that row), and TO_TIMESTAMP_TZ with TZH or TZM in its format: DuckDB keeps the "
                 "instant, not the offset.")),
-    ("SFN-034", "Runs only in Snowflake", ("TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a "
+    ("SFN-072", "Runs only in Snowflake", ("TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a "
                 "fraction or exponent read from a column or a path (the query stops at that row): Snowflake's answer "
                 "depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a "
                 "path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired.")),
-    ("SFN-040", "Runs only in Snowflake", ("CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own "
+    ("SFN-074", "Runs only in Snowflake", ("CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own "
                 "version would come back in its place.")),
-    ("SFN-041", "Runs only in Snowflake", ("CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text "
+    ("SFN-075", "Runs only in Snowflake", ("CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text "
                 "of database.schema names; DuckDB's is a list of its own search path.")),
-    ("SFN-042", "Runs only in Snowflake", ("RANDOM with a seed: Snowflake's series for a seed comes from its own "
+    ("SFN-076", "Runs only in Snowflake", ("RANDOM with a seed: Snowflake's series for a seed comes from its own "
                 "generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
@@ -2652,6 +2737,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_events(tree)
         _rewrite_haversine(tree)
         _rewrite_approximate(tree)
+        _rewrite_regexp_patterns(tree)
         _rewrite_documented_edges(tree)
         _rewrite_strings(tree)
         _rewrite_time(tree)

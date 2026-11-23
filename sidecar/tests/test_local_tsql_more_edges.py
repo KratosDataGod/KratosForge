@@ -52,9 +52,9 @@ def test_patindex_with_an_unclosed_bracket_matches_it_as_text():
     assert "\\[a" in text
 
 
-def test_in_a_subquery_isnt_trimmed():
+def test_in_a_subquery_is_trimmed_as_tsql_pads_it():  # WR-246: 'a ' IN (SELECT 'a') is true in T-SQL
     (text,), notes = tsql.translate("SELECT 1 FROM t WHERE s IN (SELECT s FROM t)", columns=COLUMNS)
-    assert text == "SELECT 1 FROM t WHERE s IN (SELECT s FROM t)"
+    assert text == "SELECT 1 FROM t WHERE RTRIM(s, ' ') IN (SELECT RTRIM(s, ' ') FROM t)"
 
 
 def test_typing_that_fails_falls_back_to_duckdb_rules_with_a_note(monkeypatch):

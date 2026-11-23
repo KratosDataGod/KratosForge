@@ -986,6 +986,9 @@ def _sql_folder(new: Any) -> str:
     text = str(new or "").strip()
     if text and not Path(text).is_absolute():
         raise ValueError("sql_temp_dir must be a full folder path, like C:\\Temp\\FabricDesktop")
+    from . import known_folders
+    if text and (refusal := known_folders.onedrive_refusal(text, "the SQL page's results and spill files")):
+        raise ValueError(refusal)
     return text
 
 

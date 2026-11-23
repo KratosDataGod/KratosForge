@@ -87,7 +87,7 @@ def _try(sql: str, setup: bool = False) -> tuple[str, str]:
             con.execute(_TABLES)
         con.execute(translation.duckdb_sql).fetchall()
     except duckdb.Error as exc:
-        if snowflake_sql.stopped_by_name(exc):  # a refusal only the run can tell (SFN-033, SFN-034)
+        if snowflake_sql.stopped_by_name(exc):  # a refusal only the run can tell (SFN-071, SFN-072)
             return "refused", _first_line(exc).split("Error: ", 1)[-1]
         return "fails", _first_line(exc)
     finally:
@@ -141,7 +141,7 @@ NOT_CHECKED: dict[str, str] = {
     "CUME_DIST": _TRADES, "NTILE": _TRADES, "PERCENT_RANK": _TRADES,
     "CURRENT_DATE": _CLOCK, "CURRENT_TIME": _CLOCK, "LOCALTIME": _CLOCK,
     "CURRENT_ROLE": _SESSION, "CURRENT_USER": _SESSION, "CURRENT_DATABASE": _SESSION, "CURRENT_SCHEMA": _SESSION,
-    "RANDOM": "its values are random; RANDOM with a seed is refused (SFN-042)",
+    "RANDOM": "its values are random; RANDOM with a seed is refused (SFN-076)",
 }
 
 

@@ -1,8 +1,8 @@
-"""The Snowflake functions the coverage page listed as Not checked (2026.11.21): what each now does here.
+"""The Snowflake functions the coverage page listed as Not checked (2026.11.23): what each now does here.
 
-ARRAY_INSERT, ARRAY_PREPEND and ARRAY_CONSTRUCT_COMPACT run their pages' examples (SFX-040, checked in
-snowflake_sql_parity). CURRENT_TIME(p) and LOCALTIME(p) run (SFX-041). CURRENT_VERSION, CURRENT_SCHEMAS and
-RANDOM with a seed stop by name (SFN-040, SFN-041, SFN-042). The rest keep a reason on the page."""
+ARRAY_INSERT, ARRAY_PREPEND and ARRAY_CONSTRUCT_COMPACT run their pages' examples (SFX-075, checked in
+snowflake_sql_parity). CURRENT_TIME(p) and LOCALTIME(p) run (SFX-076). CURRENT_VERSION, CURRENT_SCHEMAS and
+RANDOM with a seed stop by name (SFN-074, SFN-075, SFN-076). The rest keep a reason on the page."""
 
 from __future__ import annotations
 
@@ -59,10 +59,10 @@ def test_current_time_with_a_precision_past_9_is_refused():
     assert not sf.translate("SELECT CURRENT_TIME(10)").runnable
 
 
-@pytest.mark.parametrize(("sql", "rule"), [("SELECT CURRENT_VERSION()", "SFN-040"),
-                                           ("SELECT CURRENT_SCHEMAS()", "SFN-041"),
-                                           ("SELECT RANDOM(4711) FROM TABLE(GENERATOR(ROWCOUNT => 3))", "SFN-042"),
-                                           ("SELECT RANDOM(4711), RANDOM(4711)", "SFN-042")])
+@pytest.mark.parametrize(("sql", "rule"), [("SELECT CURRENT_VERSION()", "SFN-074"),
+                                           ("SELECT CURRENT_SCHEMAS()", "SFN-075"),
+                                           ("SELECT RANDOM(4711) FROM TABLE(GENERATOR(ROWCOUNT => 3))", "SFN-076"),
+                                           ("SELECT RANDOM(4711), RANDOM(4711)", "SFN-076")])
 def test_values_that_would_be_wrong_here_stop_by_name(sql, rule):
     translation = sf.translate(sql)
     assert not translation.runnable
@@ -78,8 +78,8 @@ def test_random_without_a_seed_and_uniform_still_run():
 
 def test_the_new_rules_are_in_the_catalog():
     ids = {row[0] for row in sf.CATALOG}
-    assert {"SFX-040", "SFX-041", "SFN-040", "SFN-041", "SFN-042"} <= ids
-    assert "SFN-025" not in ids and sf.RULES_VERSION == "2026.11.21"
+    assert {"SFX-075", "SFX-076", "SFN-074", "SFN-075", "SFN-076"} <= ids
+    assert "SFN-025" not in ids and sf.RULES_VERSION == "2026.11.23"
 
 
 def test_the_functions_left_not_checked_each_say_why():

@@ -324,26 +324,26 @@
       "options": [
         {
           "id": "a",
-          "text": "Succeeded"
+          "text": "On success"
         },
         {
           "id": "b",
-          "text": "Completed"
+          "text": "On completion"
         },
         {
           "id": "c",
-          "text": "Failed"
+          "text": "On fail"
         },
         {
           "id": "d",
-          "text": "Skipped"
+          "text": "On skip"
         }
       ],
       "answer": [
         "b"
       ],
-      "explanation": "With Completed, the next activity runs when the previous one ends as either succeeded or failed. Succeeded and Failed each cover only one outcome, and Skipped runs only when the previous activity never ran.",
-      "source": "https://learn.microsoft.com/en-us/azure/data-factory/concepts-pipelines-activities",
+      "explanation": "With On completion, the next activity runs when the previous one ends as either succeeded or failed. On success and On fail each cover only one outcome, and On skip runs only when the previous activity was skipped.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
       "case": "marlow-sales",
       "version": 1,
       "status": "live",

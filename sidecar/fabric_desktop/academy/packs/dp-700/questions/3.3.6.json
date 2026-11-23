@@ -347,7 +347,7 @@
       "answer": [
         "b"
       ],
-      "explanation": "Clustering is defined when a table is created and can't be added to an existing table, so CTAS builds a clustered copy. SaleDate is used in range filters and has many distinct values. IDENTITY columns can't be used with CLUSTER BY, and a low-cardinality column such as a region gives little file skipping.",
+      "explanation": "Data clustering (preview) is defined when a table is created and can't be added to an existing table, so CTAS builds a clustered copy. SaleDate is used in range filters and has many distinct values. IDENTITY columns can't be used with CLUSTER BY, and a low-cardinality column such as a region gives little file skipping.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
       "case": "marlow-sales",
       "version": 1,

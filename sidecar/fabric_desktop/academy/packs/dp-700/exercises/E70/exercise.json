@@ -1,0 +1,132 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E70",
+  "version": 1,
+  "status": "draft",
+  "title": "Running totals per customer with a PySpark window",
+  "objectives": [
+    "2.2.8"
+  ],
+  "objective_text": "Aggregate over a window instead of a group: number each customer's orders and add a running total with Window.partitionBy().orderBy().rowsBetween(), keeping one row per order.",
+  "scenario": "Customer success wants to see how each customer's spend builds up over time: every order, with its place in that customer's history and the customer's total spend up to and including it. silver.orders has one row per order. Orders count in order_date order, and when a customer places two orders on the same day, the one with the lower order_id counts first, so each order gets its own number and its own running total.",
+  "prerequisites": [
+    "E32"
+  ],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {
+      "name": "silver.orders",
+      "rows": 9,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "starting_environment": "The Delta table silver.orders (order_id, customer_id, order_date, amount) in the exercise folder, and a starter answer.py.",
+  "required": [
+    "One row per order in silver.orders, none dropped and none repeated.",
+    "order_seq numbers each customer's orders 1, 2, 3 and on, by order_date and then order_id.",
+    "running_amount is the customer's total amount over that order and every order before it in the same sequence.",
+    "Write gold.customer_running_totals with customer_id, order_id, order_date, amount, order_seq, running_amount, so that running the code again leaves the same table."
+  ],
+  "expected": {
+    "description": "gold.customer_running_totals has 9 rows. Customer C01's running_amount goes 10.00, 11.00, 16.50, 21.00, 23.00. Orders 5 and 7, both on 2026-03-03, get different totals."
+  },
+  "verifies": [
+    "Your PySpark numbers and totals each customer's orders in the asked order, on the exercise data and on orders you haven't seen with three orders on one day, on this PC.",
+    "gold.customer_running_totals has the columns asked for, one row per order_id and no empty values.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Fabric notebook, so it doesn't show how Spark shuffles the rows to each window's partition, or what happens when one customer holds most of the rows.",
+    "That an order with no tie-break gives the same answer on every run: here the data always has order_id to break ties, and this PC's engine doesn't show Spark's run-to-run differences.",
+    "rangeBetween over values (say, the last 7 days) and lag or lead, which this exercise doesn't use.",
+    "That the table is a lakehouse table in OneLake: here it's a Delta table in the exercise folder on this PC."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "gold.customer_running_totals",
+      "data": "practice",
+      "weight": 2,
+      "required": true,
+      "pass": "gold.customer_running_totals holds the right rows for the practice data.",
+      "fail": "gold.customer_running_totals doesn't match: check the partition, the order of the window and its frame."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.customer_running_totals",
+      "data": "hidden",
+      "weight": 2,
+      "required": true,
+      "pass": "It also works on orders you haven't seen.",
+      "fail": "It doesn't hold on other orders: look at same-day orders and at orders whose id doesn't follow their date."
+    },
+    {
+      "kind": "table_shape",
+      "table": "gold.customer_running_totals",
+      "columns": {
+        "customer_id": "VARCHAR",
+        "order_id": "INTEGER",
+        "order_date": "DATE",
+        "amount": "DECIMAL",
+        "order_seq": "",
+        "running_amount": "DECIMAL"
+      },
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "customer_id",
+        "order_id",
+        "order_seq",
+        "running_amount"
+      ],
+      "weight": 1,
+      "required": true,
+      "pass": "The columns, types and keys are right.",
+      "fail": "A column, a type or a key is off: see the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "gold.customer_running_totals",
+      "weight": 1,
+      "required": true,
+      "pass": "Running it twice leaves the same table.",
+      "fail": "A second run changed the table: write with overwrite."
+    }
+  ],
+  "hints": [
+    "groupBy gives one row per customer, while a window keeps every order and adds a value computed over its customer's rows.",
+    "Window.partitionBy(\"customer_id\").orderBy(\"order_date\", \"order_id\") puts each customer's orders in sequence, with order_id breaking same-day ties.",
+    "F.row_number().over(w) numbers rows 1, 2, 3 with no repeats, and rank gives tied rows the same number.",
+    "With orderBy and no frame, Spark sums every row with the same order_date together (a range frame). .rowsBetween(Window.unboundedPreceding, Window.currentRow) stops at the current row.",
+    "Write with mode(\"overwrite\") so a rerun replaces the table."
+  ],
+  "explanation": "A window function computes over a set of rows related to the current one without collapsing them, so every order keeps its row. partitionBy(\"customer_id\") restarts the sequence and the sum for each customer. Leave it out and the total runs across all customers. orderBy decides what 'before' means: by order_date, then order_id so same-day orders have a fixed order. The frame decides which rows are summed. When a window has orderBy and no frame, Spark uses RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, which includes every row whose ordering value equals the current one, so two orders on the same day share a total. rowsBetween(Window.unboundedPreceding, Window.currentRow) counts rows instead and stops at the current one. unboundedFollowing would give every row the customer's whole total. row_number numbers each row once, where rank repeats a number for ties. A groupBy total joined back gives every order the same grand total, not a running one.",
+  "troubleshooting": [
+    "Two orders on the same day show the same running_amount: the frame is the default range frame, so add rowsBetween(Window.unboundedPreceding, Window.currentRow), or order by order_id as well.",
+    "Every order of a customer shows the customer's whole total: the frame ends at unboundedFollowing, or there's no orderBy, or the total came from a groupBy.",
+    "The totals keep growing from one customer into the next: the window has no partitionBy.",
+    "order_seq repeats a number: use row_number, not rank or dense_rank.",
+    "A later order counts before an earlier one: order by order_date first, then order_id."
+  ],
+  "remediation": [
+    "LM-15",
+    "LM-04",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+  ],
+  "reset": "Reset rebuilds silver.orders from setup.sql, removes gold.customer_running_totals and puts the starter back.",
+  "parity": null,
+  "review_notes": [
+    "Window functions go through spark_compat's Window and WindowSpec (61d0e49); the default frame with orderBy is a range frame and sum of decimal(10,2) is decimal(20,2), as in Spark.",
+    "No wrong answer depends on how ties are broken without order_id, because Spark doesn't fix that order and such an answer could pass or fail by chance.",
+    "order_seq's type is left open in table_shape: row_number is an integer in Spark and here, but its width isn't what the exercise teaches."
+  ]
+}

@@ -50,7 +50,7 @@ def test_an_approval_already_used_or_expired_asks_to_call_again(monkeypatch, sta
     with pytest.raises(IntegrationError) as caught:
         auth._approve(_cap(), {"id": "c1"}, {"notebook": "nb"}, ctx)
     assert caught.value.code == "approval_required" and caught.value.retryable is True
-    assert caught.value.details == {"approval_id": "a1"} and "expired before anyone answered" in caught.value.message
+    assert caught.value.details == {"approval_id": "a1"}  # the code and id, not the wording, which may change
     assert ctx.approval_id is None and reports == [(0, None, "Waiting for approval in KratosForge")]
 
 

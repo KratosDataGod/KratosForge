@@ -28,6 +28,9 @@ def _column_type(select: str, table: str, column: str = "v") -> dict:
 
 
 CLAIMS: list[Claim] = [
+    # Spark's date and time functions on this PC
+    _nb("DATE'2024-01-31' + INTERVAL 1 MONTH"),
+    _nb("unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')"),
     # Double rounding and text-to-number comparison (#3086), math at its edges (WR-116, #3120)
     Claim("sql-compatibility.md", "round(0.285D, 2)", "notebook"),
     Claim("sql-compatibility.md", "round(1.005D, 2)", "notebook"),
@@ -133,6 +136,11 @@ CLAIMS: list[Claim] = [
     _ts("1.50", query="SELECT JSON_VALUE('{\"a\": 1.50}', '$.a')", note="JSON_VALUE's number"),
     _ts("1.50", query="SELECT JSON_ARRAY(1.50)", want="[1.5]", note="JSON_ARRAY's decimal"),
     _ts("1e2", query="SELECT JSON_VALUE('{\"a\": 1e2}', '$.a')"),
+    _ts("'a ' BETWEEN 'a' AND 'a'", query="SELECT CASE WHEN 'a ' BETWEEN 'a' AND 'a' THEN 1 ELSE 0 END = 1"),
+    _ts("'a '", query="SELECT CASE WHEN 'a ' IN (SELECT 'a') THEN 1 ELSE 0 END", want="1",
+        note="WR-246: IN (SELECT ...) ignores trailing spaces"),
+    _ts("NULLIF('a ', 'a')"),
+    _ts("UPPER('é')"),
 ]
 
 # (page, expression) -> why it isn't run here

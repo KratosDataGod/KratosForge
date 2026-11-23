@@ -97,10 +97,11 @@ class ProdWritesMixin:
             return None
         shown = workspace_name or workspace_id
         from . import lakehouse
-        if notebook == lakehouse.NO_CELL:  # not a cell's own write, during a cell run: typing the name can't allow it
-            return (f"{operation.upper()} on {table} would change {shown}, a Prod workspace, while a notebook cell is "
-                    "running. Only that cell's own code can be allowed to do that, so nothing was changed. Try again "
-                    "when the cell has finished, or make the change in the cell's own code rather than a thread it starts.")
+        if notebook == lakehouse.NO_CELL:  # not a running cell's own write: typing the name can't allow it
+            return (f"{operation.upper()} on {table} would change {shown}, a Prod workspace, from code that isn't a "
+                    "running cell's own, such as a thread a cell started. Only a cell's own code can be allowed to do "
+                    "that, so nothing was changed. Make the change in the cell's own code. If it came from outside the "
+                    "notebook, try again when no cell is running.")
         with self._prod_lock:
             self._prod_state()["pending"][notebook or ""] = {
                 "workspace_id": workspace_id, "workspace_name": shown, "operation": operation.upper(),

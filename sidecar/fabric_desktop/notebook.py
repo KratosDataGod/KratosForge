@@ -704,6 +704,8 @@ class Kernel:
         # Set before each cell likewise: the workspaces the person typed the name of for that one run
         # (lakehouse.cell_prod_context, by the cell's thread).
         self.prod_allowed: frozenset[str] = frozenset()
+        from . import lakehouse as _lakehouse
+        _lakehouse.tag_cell_threads()  # threads a cell's code starts are a cell's code (lakehouse.cell_started_threads)
         self._writes: Any = None
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
@@ -712,6 +714,7 @@ class Kernel:
         self._duckdb_connections: weakref.WeakSet[Any] = weakref.WeakSet()  # opened by this kernel's cells (EA-016)
         self._display_sinks: OrderedDict[str, list[Any]] = OrderedDict()  # display id -> where it was shown
         self._secrets: set[str] = set()
+        self._secrets_lock = threading.Lock()  # getSecret adds on the cell's thread while the pane reads
         self._tasks: list[str] = []
         self.task_values: dict[str, dict[str, Any]] = {}
         self.frames = Frames()
@@ -774,7 +777,8 @@ class Kernel:
 
         def remembered_secret(*args: Any, **kwargs: Any) -> str:
             value = get_secret(*args, **kwargs)
-            self._secrets.add(value)
+            with self._secrets_lock:
+                self._secrets.add(value)
             return value
         utils.credentials.getSecret = remembered_secret
 
@@ -891,6 +895,8 @@ class Kernel:
                     stderr.targets.pop(ident, None)
                     self._local.run = None
             thread = threading.Thread(target=work, daemon=True, name="widget-event")
+            from . import lakehouse as _lakehouse
+            _lakehouse.cell_started_threads.add(thread)  # a handler is a cell's code but no running cell's own
             self._widget_thread = thread
             thread.start()
             thread.join(WIDGET_SECONDS)
@@ -1015,7 +1021,7 @@ class Kernel:
         run.guest = getattr(self._local, "guest", None)
         run.notebook = self.notebook_name
         if lines or step:
-            run.debugger = Debugger(lines, step, self._frame_row, redact=_redacted, watches=watches,
+            run.debugger = Debugger(lines, step, self._frame_row, redact=self._debug_redacted, watches=watches,
                                     on_change=run.set_paused)
             run.debugger.skip = set(self._base_namespace_keys())
         self._current = self._last_runs[run.guest] = run
@@ -1767,12 +1773,44 @@ class Kernel:
         hidden = self._hidden(name, value)
         kind = type(value).__name__
         try:
+            preview, holds_secret = self._secret_preview(value) if not hidden else ("", False)
+            hidden = hidden or holds_secret
             return {"name": name, "type": kind, "size": _size(value),
-                    "value": "hidden" if hidden else secret_redaction.redact(_preview(value)), "memory": _memory(value),
+                    "value": "hidden" if hidden else preview, "memory": _memory(value),
                     "expandable": not hidden and _expandable(value)}
         except Exception:  # noqa: BLE001  # silent-ok: a value that can't be described (a DuckDB relation over a dropped view) is listed by its type, so the rest of the pane still shows
             return {"name": name, "type": kind, "size": "", "value": "hidden" if hidden else "?",
                     "memory": None, "expandable": False}
+
+    def _secret_preview(self, value: Any) -> tuple[str, bool]:
+        """A value's preview with patterns redacted, and whether it holds a value getSecret read: in a
+        list, a dict, a longer text or an object's repr. Each is replaced in the whole text before it's
+        cut short, and a cut that falls inside one hides the start of it too."""
+        secrets = self._secret_values()
+        if not secrets:
+            return secret_redaction.redact(_preview(value)), False
+        found = False
+
+        def clean(text: str) -> str:
+            nonlocal found
+            out = secret_redaction.redact_values(text, secrets)
+            found = found or out != text
+            return out
+        text = _preview(value, clean)
+        cut = secret_redaction.mask_cut(text, secrets)
+        return secret_redaction.redact(cut), found or cut != text
+
+    def _debug_redacted(self, text: str) -> str:
+        """What the debugger shows of a value or an error: ``_redacted``, and without the values
+        getSecret read, so one held in a list, a longer text, an object's repr or an error's message
+        while a cell is paused shows as [REDACTED]."""
+        return secret_redaction.redact_values(_redacted(text), self._secret_values())
+
+    def _secret_values(self) -> tuple[str, ...]:
+        """The values getSecret read so far, copied under the lock: a cell can read one while the
+        Variables pane or the debugger is reading this."""
+        with self._secrets_lock:
+            return tuple(self._secrets)
 
     def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
         """A paused frame's local: never expandable, since variable_detail reads the namespace,
@@ -1786,7 +1824,7 @@ class Kernel:
         if value is _MISSING or (name.startswith("_") and name != "_sqldf"):
             return {"name": name, "missing": True}
         out: dict[str, Any] = {"name": name, "type": type(value).__name__}
-        if self._hidden(name, value):
+        if self._hidden(name, value) or self._secret_preview(value)[1]:
             return {**out, "hidden": True}
         columns = _columns(value)
         if columns is not None:
@@ -1800,11 +1838,17 @@ class Kernel:
             entries = [(str(i), "", v) for i, v in enumerate(sorted(itertools.islice(value, VAR_ITEMS), key=repr))]
         else:
             return out
-        out["items"] = [{"key": key, "type": type(v).__name__, "size": _size(v),
-                         "value": "hidden" if self._hidden(label, v) else secret_redaction.redact(_preview(v))}
-                        for key, label, v in entries]
+        out["items"] = [self._detail_item(key, label, v) for key, label, v in entries]
         out["total"] = len(value)
         return out
+
+    def _detail_item(self, key: str, label: str, v: Any) -> dict[str, Any]:
+        preview, holds_secret = ("", True) if self._hidden(label, v) else self._secret_preview(v)
+        # A dict keyed by a secret: the key is replaced as values are, and its item is hidden too.
+        shown_key = secret_redaction.redact_values(key, self._secret_values())
+        holds_secret = holds_secret or shown_key != key
+        return {"key": secret_redaction.redact(shown_key), "type": type(v).__name__, "size": _size(v),
+                "value": "hidden" if holds_secret else preview}
 
     @staticmethod
     def _base_namespace_keys() -> tuple[str, ...]:
@@ -2390,7 +2434,8 @@ def _count(n: Any) -> str:
     return str(n)
 
 
-def _preview(value: Any) -> str:
+def _preview(value: Any, clean: Callable[[str], str] | None = None) -> str:
+    """A short preview of ``value``. ``clean`` is applied to its text before it's cut short."""
     module = type(value).__module__
     # A LazyFrame's columns come from resolving its plan, which reads its files (or fails when they're
     # gone), so it shows as its repr, as _columns leaves it unexpanded.
@@ -2404,24 +2449,28 @@ def _preview(value: Any) -> str:
         value = value[:_PREVIEW_ITEMS]  # repr of only what is shown: a long text isn't copied whole
     elif kind in _CONTAINERS and len(value) > _PREVIEW_ITEMS:
         # repr of only the first items: a list of millions isn't turned into text to show 80 characters
-        return _preview_items(value)
+        return _preview_items(value, clean)
     try:
         text = repr(value)
     except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
         return "?"
+    if clean is not None:
+        text = clean(text)
     return text if len(text) <= 80 else text[:77] + "..."
 
 
 _PREVIEW_ITEMS = 100  # past this many items or characters, a preview reads only the first ones
 
 
-def _preview_items(value: Any) -> str:
+def _preview_items(value: Any, clean: Callable[[str], str] | None = None) -> str:
     kind = type(value)
     items = itertools.islice(value.items() if kind is dict else value, 20)
     try:
         inner = ", ".join(f"{k!r}: {v!r}" for k, v in items) if kind is dict else ", ".join(repr(v) for v in items)
     except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
         return "?"
+    if clean is not None:
+        inner = clean(inner)
     opener, closer = "()" if kind is tuple else "[]" if kind is list else "{}"
     text = f"{opener}{inner}, ..."
     return (text if len(text) <= 76 else text[:73] + "...") + closer

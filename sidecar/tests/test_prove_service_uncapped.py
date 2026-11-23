@@ -87,7 +87,7 @@ def test_a_receipt_gives_up_after_999_taken_names(bare, monkeypatch, tmp_path):
 
     monkeypatch.setattr(prove_service, "open", taken, raising=False)
     with pytest.raises(ValueError, match="free file name"):
-        bare.receipt_save("abcdef123456789")
+        bare.receipt_save("abcdef123456789")  # pragma: allowlist secret (a fake run id)
     assert len(tried) == 999 and tried[-1] == "receipt-abcdef123456 (999).html"
 
 

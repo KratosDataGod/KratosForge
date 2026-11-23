@@ -48,7 +48,9 @@ def test_the_variables_pane_never_shows_a_secret_inside_another_value(kernel):
     leaked = [name for name, row in rows.items() if _leaks(row)]
     assert leaked == [], f"the secret shows in the Variables pane for {leaked}"
     assert rows["raw"]["value"] == "hidden"  # getBytes' value is the secret, as get's is
-    assert "[REDACTED]" in rows["dsn"]["value"] and "[REDACTED]" in rows["conn"]["value"]
+    # A value that holds the secret (a longer text, a dict) shows as hidden too, and can't be opened.
+    for name in ("dsn", "conn"):
+        assert rows[name]["value"] == "hidden" and rows[name]["expandable"] is False, rows[name]
 
 
 @pytest.mark.parametrize("name", ["conn", "items", "raw"])

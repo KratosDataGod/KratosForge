@@ -211,7 +211,7 @@ def _cfg_section(profile: str, path: Path | None) -> dict[str, str]:
     path = path or connprofiles.databricks_config_path()
     parser = configparser.ConfigParser(interpolation=None, default_section="__none__")
     try:
-        parser.read_string(path.read_text(encoding="utf-8"))
+        parser.read_string(path.read_text(encoding="utf-8-sig"))  # a BOM, as Notepad writes, is read past
     except FileNotFoundError:
         raise DatabricksAuthError(f"There's no Databricks CLI configuration at {path}. "
                                   "Sign in with: databricks auth login --host <workspace address>") from None

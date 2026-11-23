@@ -138,7 +138,9 @@ class Cache:
         if not isinstance(data, dict):
             data = {}
         envs = data.get("environments")
-        return {"active": data.get("active") or "", "environments": envs if isinstance(envs, dict) else {}}
+        envs = {k: v for k, v in envs.items() if isinstance(v, dict)} if isinstance(envs, dict) else {}
+        active = data.get("active")
+        return {"active": active if isinstance(active, str) else "", "environments": envs}
 
     def all(self) -> list[dict[str, Any]]:
         return sorted(self._load()["environments"].values(), key=lambda e: (e.get("name") or "").lower())
@@ -160,7 +162,7 @@ class Cache:
     def activate(self, environment_id: str) -> dict[str, Any]:
         with self._lock:
             data = self._load()
-            if environment_id not in data["environments"]:
+            if not isinstance(environment_id, str) or environment_id not in data["environments"]:
                 raise KeyError("This PC isn't connected to that environment")
             data["active"] = environment_id
             jsonfile.write_json(self.path, data)
@@ -170,7 +172,7 @@ class Cache:
         """Forget an environment on this PC. Nothing in the environment changes."""
         with self._lock:
             data = self._load()
-            if data["environments"].pop(environment_id, None) is None:
+            if not isinstance(environment_id, str) or data["environments"].pop(environment_id, None) is None:
                 return False
             if data["active"] == environment_id:
                 data["active"] = ""

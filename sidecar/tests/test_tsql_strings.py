@@ -113,7 +113,7 @@ GROUPED = "T-SQL counts text that differs only in trailing spaces ('a' and 'a  '
 
 
 @pytest.mark.parametrize("sql", ["SELECT s, COUNT(*) FROM dbo.t GROUP BY s", "SELECT DISTINCT s FROM dbo.t",
-                                 "SELECT COUNT(DISTINCT s) FROM dbo.t", "SELECT 'a' UNION SELECT 'a '",
+                                 "SELECT 'a' UNION SELECT 'a '",
                                  "SELECT s FROM dbo.t INTERSECT SELECT 'a'", "SELECT s FROM dbo.t EXCEPT SELECT 'a'"])
 def test_grouping_text_says_trailing_spaces_stay_apart(engine, sql):
     notes = engine.execute(sql, dialect="tsql")["translation"]["notes"]
@@ -125,6 +125,10 @@ def test_grouping_text_says_trailing_spaces_stay_apart(engine, sql):
                                  "SELECT s FROM dbo.t UNION ALL SELECT 'a '"])
 def test_grouping_that_cant_differ_has_no_note(engine, sql):
     assert not (engine.execute(sql, dialect="tsql").get("translation") or {}).get("notes")
+
+
+def test_count_distinct_counts_text_as_tsql_does(engine):
+    assert one(engine, "SELECT COUNT(DISTINCT s) FROM dbo.t") == (4, [])  # 'a' and 'a  ' are one (WR-246)
 
 
 def test_rtrim_gives_tsqls_groups(engine):

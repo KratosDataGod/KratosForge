@@ -292,6 +292,34 @@ def local_retry(fn: Callable[[], T], attempts: int = 6, backoff: float = 0.05) -
     raise AssertionError("unreachable")
 
 
+def lost_commit(exc: BaseException, what: str) -> Exception | None:
+    """The commit conflict a staged-commit race on Windows stands for (staged_commit_race), or None for any
+    other error. Elsewhere delta-rs reports a writer that lost the race for a version as CommitFailedError,
+    or makes it on the next version; on Windows it can surface as os error 5 on ``NNN.json#1`` instead.
+    Nothing was committed, so the caller's change didn't happen: the same answer, in the same type."""
+    return commit_conflict(what) if staged_commit_race(exc) else None
+
+
+def commit_conflict(what: str) -> Exception:
+    """delta-rs's CommitFailedError for a commit that lost the staged-commit race (see lost_commit)."""
+    from deltalake.exceptions import CommitFailedError
+    return CommitFailedError(f"Another writer committed {what} at the same moment, so this change wasn't "
+                             "committed (Windows refused its staged commit). Nothing was changed by it; run it again.")
+
+
+def local_commit(fn: Callable[[], T], what: str, attempts: int = 6, backoff: float = 0.05) -> T:
+    """local_retry for a call that commits to a Delta table on this PC and is safe to repeat (OPTIMIZE,
+    VACUUM, a table property). One that still loses the staged-commit race after its tries fails as
+    delta-rs's own CommitFailedError (lost_commit), not as a raw OSError."""
+    try:
+        return local_retry(fn, attempts, backoff)
+    except OSError as exc:
+        conflict = lost_commit(exc, what)
+        if conflict is None:
+            raise
+        raise conflict from exc
+
+
 def is_retryable(exc: BaseException) -> bool:
     import requests
     from deltalake.exceptions import CommitFailedError

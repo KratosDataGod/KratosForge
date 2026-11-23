@@ -212,7 +212,7 @@ def _caller_category(category_of: Any, ws: dict[str, Any]) -> str | None:
 
 def _ranked(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = sorted(rows, key=lambda r: (-r["assured"], -r["coverage"], r["name"].casefold(), r["name"], r["id"]))
-    out = []
+    out: list[dict[str, Any]] = []
     for n, r in enumerate(rows):
         rank = out[-1]["rank"] if out and out[-1]["assured"] == r["assured"] else n + 1
         out.append({"rank": rank, **r})
@@ -265,9 +265,9 @@ def rank(snapshots: list[dict[str, Any]], *,
         names = sorted({r["category"] for r in rows},
                        key=lambda c: (order.index(c) if c in order else order.index("mixed") - 0.5, c.casefold(), c))
         for c in names:
-            mine = [r for r in rows if r["category"] == c]
-            ranked = _ranked([r for r in mine if r["status"] != "insufficient_evidence"])
-            low = sorted((r for r in mine if r["status"] == "insufficient_evidence"),
+            in_cat = [r for r in rows if r["category"] == c]
+            ranked = _ranked([r for r in in_cat if r["status"] != "insufficient_evidence"])
+            low = sorted((r for r in in_cat if r["status"] == "insufficient_evidence"),
                          key=lambda r: (r["name"].casefold(), r["name"], r["id"]))
             cats.append({"category": c, "label": CATEGORIES.get(c, c),
                          "ranked": [{"rank": r["rank"], "tied": r["tied"], **_row(r)} for r in ranked],

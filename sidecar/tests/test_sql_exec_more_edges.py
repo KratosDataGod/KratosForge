@@ -50,7 +50,9 @@ def test_closing_the_app_ends_running_workers_even_when_one_wont_die_or_wait(tmp
     m._exports = {"e": types.SimpleNamespace(cancel=cancel)}
     m.shutdown()
     assert stubborn.killed == 1 and plain.killed == 1 and m._runs["d"].proc.killed == 0
-    assert stubborn.waited == [10] and plain.waited == [10]
+    # Both are waited for against one shared deadline: what is left of it, not 10 s apiece.
+    waits = stubborn.waited + plain.waited
+    assert len(waits) == 2 and all(se.SHUTDOWN_WAIT_SECONDS - 1 < w <= se.SHUTDOWN_WAIT_SECONDS for w in waits)
     assert m._runs["a"].stop_reason == "cancel" and m._runs["b"].stop_reason == "timeout"
     assert cancel.is_set()
 

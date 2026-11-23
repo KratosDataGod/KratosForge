@@ -230,3 +230,12 @@ def test_a_local_read_refuses_a_linked_data_file_or_partition_folder_that_leads_
     _write(t, 1, {"add": {"path": path, "partitionValues": {}, "size": 100, "modificationTime": 0, "dataChange": True}})
     with pytest.raises(ValueError, match="names a data file outside the table's folder"):
         engine.delta_select(str(t))
+
+
+@pytest.mark.parametrize("path", ["CON.parquet", "nul", "part=1/AUX.snappy.parquet", "COM1 .parquet"])
+def test_a_local_read_refuses_a_data_file_named_like_a_windows_device(tmp_path, path):
+    """Security QC on #3232: on Windows a read of CON or NUL waits on the device, so it is refused everywhere."""
+    t = _table(tmp_path, 1)
+    _write(t, 1, {"add": {"path": path, "partitionValues": {}, "size": 100, "modificationTime": 0, "dataChange": True}})
+    with pytest.raises(ValueError, match="that Windows reserves for a device"):
+        engine.delta_select(str(t))

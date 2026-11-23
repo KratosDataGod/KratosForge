@@ -43,6 +43,7 @@ import duckdb
 import pyarrow as pa
 
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
+from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
 from . import delta, tsql, tsql_errors
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
@@ -252,6 +253,10 @@ def _data_files(table: Any, folder: str) -> list[str]:
             raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
                              f"outside the table's folder ({rel[:200]!r}), and only files inside it are read. Check "
                              "where the table's _delta_log came from, or write the table again.")
+        if any(part.split(".")[0].upper().rstrip(" .") in _DEVICE_NAMES for part in Path(os.path.relpath(path, folder)).parts):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"({rel[:200]!r}) that Windows reserves for a device, like CON or NUL. Check where the "
+                             "table's _delta_log came from, or write the table again.")
         files.append(path)
     return files
 

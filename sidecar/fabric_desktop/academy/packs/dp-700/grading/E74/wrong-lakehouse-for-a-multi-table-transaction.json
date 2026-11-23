@@ -1,0 +1,35 @@
+{
+  "_about": "One decision per workload. Set store to one of the stores listed.",
+  "stores": [
+    "lakehouse",
+    "warehouse",
+    "eventhouse",
+    "sql_database"
+  ],
+  "workloads": {
+    "pos_orders": {
+      "needs": "The till app in 300 shops writes each sale as it happens and updates stock levels: thousands of small concurrent transactions against normalized tables. The developers know Azure SQL Database and use SSMS.",
+      "store": "sql_database"
+    },
+    "finance_star": {
+      "needs": "Finance builds a star schema with T-SQL stored procedures. Each night one procedure loads FactLedger and three dimensions inside a single transaction, so a failure rolls all four back. The developers are SQL developers who never use Spark.",
+      "store": "lakehouse"
+    },
+    "line_telemetry": {
+      "needs": "Every machine on the production line sends JSON readings several times a second. Operators run ad hoc queries over the last few hours, with time series functions, and need answers in seconds.",
+      "store": "eventhouse"
+    },
+    "defect_images": {
+      "needs": "Data scientists train a defect model in PySpark on camera images, CSV exports from the line and Parquet files from a supplier.",
+      "store": "lakehouse"
+    },
+    "shared_curated": {
+      "needs": "Data engineers build curated Delta tables with Spark. A group of analysts must query those tables with T-SQL from SSMS, read only: they never write to them.",
+      "store": "lakehouse"
+    },
+    "analyst_loads": {
+      "needs": "A team that only writes T-SQL must load structured CSV files themselves with COPY INTO, then UPDATE and DELETE rows in those tables.",
+      "store": "warehouse"
+    }
+  }
+}

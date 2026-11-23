@@ -38,7 +38,7 @@ const page = () => app.page;
 
 function fresh() {
   return { allowed: true, active: ENV, environments: [ENV, OTHER], check: { status: "Connected", next: "Shared results are saved to the environment as they're made.",
-    detail: "", waiting: 0, compatibility: { state: "ready", can_upgrade: false } }, blocked: false, prod: "" };
+    detail: "", waiting: 0, compatibility: { state: "ready", can_upgrade: false } }, blocked: false, prod: "", createOutcome: "ok", nothingToAdopt: false };
 }
 
 before(async () => {
@@ -61,6 +61,9 @@ before(async () => {
       cp_plan: (p) => ({ provider: "fabric", steps: STEPS(world.blocked), blocked: world.blocked ? ["taken"] : [], request: p.request,
         typed_name: world.prod, token: world.blocked ? "" : "tok-create" }),
       cp_create: (p) => {
+        if (world.createOutcome === "changed") throw new Error("Something changed since this was shown, so nothing was done. Look at it again and confirm.");
+        if (world.createOutcome === "stopped") return { ok: false, workspace_id: WS, lakehouse_id: "", manifest: null, steps: [
+          { step: "Workspace", status: "done", detail: "Created KratosForge" }, { step: "Lakehouse", status: "failed", detail: "capacity paused" }] };
         if (p.confirm_name !== world.prod) throw new Error("Sales Prod is a Prod workspace, so this runs only after you type its name exactly to confirm. Nothing was changed.");
         world.active = ENV;
         return { ok: true, steps: [{ step: "Workspace", status: "done", detail: "Created KratosForge" }, { step: "Manifest", status: "done", detail: "Wrote the manifest" }],
@@ -71,7 +74,7 @@ before(async () => {
         world.active = ENV;
         return { environment: ENV, writable: true };
       },
-      cp_adopt_preview: (p) => ({ token: "tok-adopt", typed_name: "", environment: { ...ENV, name: p.name, lakehouse_name: "FabricDesktop_Central" },
+      cp_adopt_preview: (p) => world.nothingToAdopt ? (() => { throw new Error("Connect this PC to a central lakehouse first (Settings > Optimize lakehouses), or create an environment."); })() : ({ token: "tok-adopt", typed_name: "", environment: { ...ENV, name: p.name, lakehouse_name: "FabricDesktop_Central" },
         manifest: { environment_id: ENV.environment_id, provider: "fabric", namespace: { workspace_id: WS, display_name: "KratosForge" },
           analytical_store: { lakehouse_id: "lh-central", display_name: "FabricDesktop_Central" }, operational_store: null, services: [], owner: null } }),
       cp_adopt: () => ({ ok: true, manifest: {}, environment: ENV }),
@@ -265,6 +268,69 @@ test("Settings > Environment has no serious axe findings", { skip: skip || (!axe
   await card().locator("button", { hasText: "Show what will happen" }).click();
   await page().locator(".kfe-plan").waitFor();
   assert.deepStrictEqual(await axeFindings(page(), "#view .kf-environment"), []);
+});
+
+// ---- failure paths: what the page says when the environment or a step doesn't go as planned
+
+test("offline and failed statuses say what to do, with the reason and the results waiting", { skip }, async () => {
+  world.check = { status: "Working offline", next: "Keep working. Results wait on this PC and are sent when the environment can be reached.",
+    detail: "14 results waiting on this PC", waiting: 14, compatibility: null };
+  await openTab();
+  assert.match(await page().locator(".kfe-status").textContent(), /Working offline.*Keep working\..*14 results wait on this PC\./);
+  world.check = { status: "Connection failed", next: "Check the sign-in and network, then choose Validate connection.",
+    detail: "The environment's manifest isn't in its lakehouse any more.", waiting: 0 };
+  await card().locator("button", { hasText: "Validate connection" }).click();
+  await page().locator(".kfe-status[role=alert]", { hasText: "Connection failed" }).waitFor();
+  assert.match(await card().textContent(), /manifest isn't in its lakehouse any more/);
+  assert.strictEqual(await card().locator("button", { hasText: "Upgrade..." }).count(), 0);
+});
+
+test("an environment a newer app upgraded offers no Upgrade, only the update hint", { skip }, async () => {
+  world.check = { status: "Upgrade required", next: "Update KratosForge: another installation upgraded this environment. You can still read it.",
+    detail: "", waiting: 0, compatibility: { state: "read_only", can_upgrade: false } };
+  await openTab();
+  assert.match(await page().locator(".kfe-status").textContent(), /Update KratosForge/);
+  assert.strictEqual(await card().locator("button", { hasText: "Upgrade..." }).count(), 0);
+});
+
+async function planAndCreate() {
+  world.active = null;
+  await openTab(".kfe-card h3");
+  await card().locator("button", { hasText: "Create an environment..." }).click();
+  await card().getByRole("textbox", { name: "Name", exact: true }).fill("Ours");
+  await card().locator("button", { hasText: "Show what will happen" }).click();
+  await page().locator(".kfe-plan").waitFor();
+  await card().locator("button", { hasText: "Create environment..." }).click();
+  await page().locator("#dialog-root .dialog button", { hasText: "Create" }).click();
+  await waitCall("cp_create");
+}
+
+test("a create that stops part way says which step and how to finish", { skip }, async () => {
+  world.createOutcome = "stopped";
+  await planAndCreate();
+  await page().locator(".kfe-status", { hasText: "Stopped" }).waitFor();
+  assert.match(await card().textContent(), /Lakehouse didn't finish\. capacity paused\. Nothing after it ran\. Make the plan again to finish\./);
+});
+
+test("a create refused because something changed shows why and asks for a new plan", { skip }, async () => {
+  world.createOutcome = "changed";
+  await planAndCreate();
+  await card().locator(".kfe-status", { hasText: "Not created" }).waitFor();
+  assert.match(await card().textContent(), /Something changed since this was shown/);
+  assert.strictEqual(await page().locator(".kfe-plan").count(), 0, "the old plan and its token are gone");
+  assert.ok(await card().locator("button", { hasText: "Show what will happen" }).isEnabled());
+});
+
+test("Adopt with no central lakehouse says there's nothing to adopt", { skip }, async () => {
+  world.active = null;
+  world.nothingToAdopt = true;
+  await openTab(".kfe-card h3");
+  await card().locator("button", { hasText: "Adopt this PC's central lakehouse..." }).click();
+  await card().locator(".kfe-adopt-name input").fill("Ours");
+  await card().locator("button", { hasText: "Show the manifest" }).click();
+  await card().locator(".kfe-status", { hasText: "Nothing to adopt" }).waitFor();
+  assert.match(await card().textContent(), /Connect this PC to a central lakehouse first/);
+  assert.ok(!app.calls.some((c) => c.method === "cp_adopt"));
 });
 
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

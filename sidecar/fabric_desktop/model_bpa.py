@@ -24,6 +24,22 @@ NOTEBOOK = "nb_fabric_desktop_bpa"
 PACKAGE = "semantic-link-labs"
 VERSION = "0.17.1"
 SEVERITIES = ("Error", "Warning", "Info")
+# Any workspace contributor can write the results file, so no more than this is read of it.
+RESULTS_MAX_BYTES = 8 * 1024 * 1024
+
+
+class ResultsTooLarge(ValueError):
+    pass
+
+
+def read_results(files: Any, workspace_id: str, lakehouse_id: str, request_id: str) -> bytes | None:
+    """A check's results file, or None when there is none. Only its first RESULTS_MAX_BYTES + 1 bytes
+    are asked for, and a larger file is refused (ResultsTooLarge) instead of read."""
+    data = files.read_bytes(workspace_id, lakehouse_id, f"{RESULTS_DIR}/{request_id}.json", length=RESULTS_MAX_BYTES + 1)
+    if data is not None and len(data) > RESULTS_MAX_BYTES:
+        raise ResultsTooLarge(f"The results file for {request_id} is larger than {RESULTS_MAX_BYTES // (1024 * 1024)} MB, "
+                              "so it wasn't read")
+    return data
 # semantic-link-labs returns the severity as an icon.
 _ICONS = {"❌": "Error", "⚠️": "Warning", "⚠": "Warning", "ℹ️": "Info", "ℹ": "Info"}
 

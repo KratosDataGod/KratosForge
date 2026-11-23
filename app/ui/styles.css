@@ -1,5 +1,21 @@
 :root {
   /* Living Experience on Home (home-hero.js): the hero sky behind the art, the navy identity card, the warm achievement card */
+  /* Skill trees (Profile, PB-134): the forged tree surface, the same in light and dark mode. */
+  --tree-sky: #0b1730;
+  --tree-deep: #08121f;
+  --tree-glow: rgba(248, 153, 28, .18);
+  --tree-line: #3b5079;
+  --tree-ember: #f8991c;
+  --tree-ember-hi: #ffd27a;
+  --tree-ember-soft: rgba(248, 153, 28, .35);
+  --tree-node: #12264a;
+  --tree-node-dim: #0e1a30;
+  --tree-ring-open: #dfe7f3;
+  --tree-ring-progress: #f6c27a;
+  --tree-ring-locked: #6b7fa3;
+  --tree-text: #eef2f8;
+  --tree-muted: #b4c0d4;
+  --tree-ink: #0b1420;
   --lx-hero-sky: #01203d;
   --lx-hero-sky-low: #062e57;
   --lx-mask: #000;
@@ -4014,3 +4030,53 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .dh-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 0 16px; }
 .dh-tile { display: flex; flex-direction: column; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
 .dh-tile b { font-size: 18px; font-variant-numeric: tabular-nums; }
+
+/* ---------- Profile > Skill trees (PB-134) ---------- */
+.tree-head { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 18px 20px 0;
+  border-radius: 10px 10px 0 0; color: var(--tree-text); background: radial-gradient(ellipse at 85% 0%, var(--tree-node), var(--tree-sky) 70%); }
+.tree-head-text { min-width: 0; }
+.tree-title { margin: 0; font-family: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif; font-style: italic; font-weight: 800;
+  font-size: 40px; line-height: 1; text-transform: uppercase; color: var(--tree-text); }
+.tree-sub { margin: 6px 0 0; color: var(--tree-text); }
+.tree-lore { margin: 4px 0 0; color: var(--tree-muted); font-size: 13px; max-width: 70ch; }
+.tree-pick { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--tree-muted); align-self: start; }
+.tree-pick select { max-width: 340px; color: var(--tree-text); background: var(--tree-deep); border: 1px solid var(--tree-ring-locked); border-radius: 6px; padding: 6px 8px; }
+.tree-detail .tool.outline { color: var(--tree-text); background: transparent; border-color: var(--tree-muted); }
+.tree-specs { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
+.tree-spec { border: 0; padding: 8px 14px; border-radius: 6px 6px 0 0; font: inherit; color: var(--tree-text); background: var(--tree-node); cursor: pointer; }
+.tree-spec.active { background: var(--tree-deep); font-weight: 700; box-shadow: inset 0 3px 0 var(--tree-ember); }
+.tree-spec:focus-visible, .tree-node:focus-visible { outline: 3px solid var(--tree-ember-hi); outline-offset: 3px; }
+.tree-spec-count { color: var(--tree-muted); font-weight: 400; }
+.tree-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; margin-top: -16px; border-radius: 0 0 10px 10px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 100%, var(--tree-glow), transparent 55%), radial-gradient(ellipse at 50% 0%, var(--tree-node), var(--tree-deep) 70%); }
+.tree-canvas { position: relative; height: 768px; margin: 40px 24px 56px; }
+.tree-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.tree-line { fill: none; stroke: var(--tree-line); stroke-width: 2; stroke-dasharray: 6 6; vector-effect: non-scaling-stroke; }
+.tree-line.lit { stroke: var(--tree-ember); stroke-width: 4; stroke-dasharray: none; }
+.tree-line.lit-glow { stroke: var(--tree-ember-soft); stroke-width: 11; stroke-dasharray: none; }
+.tree-line.flow { stroke: var(--tree-ember-hi); stroke-width: 2; stroke-dasharray: 3 16; }
+html[data-motion="on"][data-fx-ambient="on"] .tree-line.flow { animation: tree-flow 1.6s linear infinite; }
+@keyframes tree-flow { to { stroke-dashoffset: -38; } }
+.tree-node { position: absolute; transform: translate(-50%, -32px); width: 132px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border: 0; padding: 0; background: none; color: var(--tree-text); font: inherit; cursor: pointer; text-align: center; }
+.tree-emblem { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  border: 3px solid var(--tree-ring-open); color: var(--tree-text); background: radial-gradient(circle at 50% 35%, var(--tree-node), var(--tree-deep)); }
+.tree-node.mastered .tree-emblem { border-color: var(--tree-ember); color: var(--tree-ember); box-shadow: 0 0 20px var(--tree-ember-soft); }
+.tree-node.in_progress .tree-emblem { border-color: var(--tree-ring-progress); color: var(--tree-ring-progress); }
+.tree-node.locked .tree-emblem { border-color: var(--tree-ring-locked); color: var(--tree-ring-locked); background: var(--tree-node-dim); }
+.tree-node.capstone .tree-emblem { width: 72px; height: 72px; }
+.tree-node.selected .tree-emblem { outline: 3px solid var(--tree-text); outline-offset: 4px; }
+.tree-node-name, .tree-node-level { padding: 0 6px; border-radius: 4px; background: var(--tree-deep); }
+.tree-node-name { font-size: 12px; font-weight: 600; line-height: 1.2; }
+.tree-node-level { font-size: 11px; color: var(--tree-muted); }
+.tree-node.mastered .tree-node-level { color: var(--tree-ember-hi); }
+.tree-detail { padding: 18px; display: flex; flex-direction: column; gap: 12px; color: var(--tree-text); background: var(--tree-sky); border-left: 1px solid var(--tree-node); }
+.tree-detail .muted-text { color: var(--tree-muted); }
+.tree-detail-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; }
+.tree-detail p { margin: 4px 0 0; }
+.tree-pill { color: var(--tree-ink); background: var(--tree-ring-open); }
+.tree-pill.mastered { background: var(--tree-ember); }
+.tree-pill.in_progress { background: var(--tree-ring-progress); }
+.tree-evidence { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+@media (max-width: 1100px) { .tree-body { grid-template-columns: 1fr; } .tree-detail { border-left: 0; border-top: 1px solid var(--tree-node); } }
+@media (max-width: 760px) { .tree-head { grid-template-columns: 1fr; } .tree-node { width: 96px; } .tree-node-name { font-size: 11px; } }

@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "platform-guardian",
+ "version": 1,
+ "title": "Platform Guardian",
+ "professional": "Platform Administration & Security Engineer",
+ "fantasy": "Shield of the realm. The Guardian keeps the gates, the walls and the watch-fires of the whole platform.",
+ "competency": "Administers and secures the data platform: tenant and workspace settings, identity, network security, auditing, monitoring and compliance.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake", "Microsoft Entra"],
+ "technologies": ["Admin portal", "Entra ID", "Private links", "Audit logs", "Unity Catalog"],
+ "emblem": "A round shield bearing a wolf's head over crossed hammer and key.",
+ "specializations": [
+  {"id": "tenant", "title": "Realm Steward", "professional": "Tenant and workspace administration", "competency": "platform-admin",
+   "nodes": [
+    {"id": "tenant.01", "skill": "workspace-settings", "tier": 1, "requires": []},
+    {"id": "tenant.02", "skill": "domains", "tier": 2, "requires": ["tenant.01"]},
+    {"id": "tenant.03", "skill": "tenant-settings", "tier": 2, "requires": ["tenant.01"]},
+    {"id": "tenant.04", "skill": "capacity-assignment", "tier": 3, "requires": ["tenant.02"]},
+    {"id": "tenant.05", "skill": "workspace-lifecycle", "tier": 3, "requires": ["tenant.03"]},
+    {"id": "tenant.06", "skill": "admin-apis", "tier": 4, "requires": ["tenant.04"]},
+    {"id": "tenant.07", "skill": "delegated-administration", "tier": 4, "requires": ["tenant.04", "tenant.05"]},
+    {"id": "tenant.08", "skill": "item-inventory", "tier": 5, "requires": ["tenant.06"]},
+    {"id": "tenant.09", "skill": "platform-health-checks", "tier": 5, "requires": ["tenant.07"]},
+    {"id": "tenant.10", "skill": "capstone-a-tenant-review", "tier": 6, "requires": ["tenant.08", "tenant.09"], "capstone": true}
+   ]},
+  {"id": "identity", "title": "Shieldbearer", "professional": "Identity and access", "competency": "security",
+   "nodes": [
+    {"id": "identity.01", "skill": "least-privilege-in-workspaces", "tier": 1, "requires": []},
+    {"id": "identity.02", "skill": "groups-instead-of-people", "tier": 2, "requires": ["identity.01"]},
+    {"id": "identity.03", "skill": "service-principals-and-managed-identity", "tier": 2, "requires": ["identity.01"]},
+    {"id": "identity.04", "skill": "conditional-access", "tier": 3, "requires": ["identity.02"]},
+    {"id": "identity.05", "skill": "secrets-handling", "tier": 3, "requires": ["identity.03"]},
+    {"id": "identity.06", "skill": "network-isolation", "tier": 4, "requires": ["identity.04"]},
+    {"id": "identity.07", "skill": "private-endpoints", "tier": 4, "requires": ["identity.04", "identity.05"]},
+    {"id": "identity.08", "skill": "customer-managed-keys", "tier": 5, "requires": ["identity.06"]},
+    {"id": "identity.09", "skill": "external-sharing-controls", "tier": 5, "requires": ["identity.07"]},
+    {"id": "identity.10", "skill": "capstone-a-hardened-workspace", "tier": 6, "requires": ["identity.08", "identity.09"], "capstone": true}
+   ]},
+  {"id": "audit", "title": "Watchfire Keeper", "professional": "Audit, monitoring and compliance", "competency": "platform-admin",
+   "nodes": [
+    {"id": "audit.01", "skill": "monitoring-and-incidents", "tier": 1, "requires": []},
+    {"id": "audit.02", "skill": "audit-logs", "tier": 2, "requires": ["audit.01"]},
+    {"id": "audit.03", "skill": "activity-monitoring", "tier": 2, "requires": ["audit.01"]},
+    {"id": "audit.04", "skill": "alerts", "tier": 3, "requires": ["audit.02"]},
+    {"id": "audit.05", "skill": "compliance-evidence", "tier": 3, "requires": ["audit.03"]},
+    {"id": "audit.06", "skill": "retention-rules", "tier": 4, "requires": ["audit.04"]},
+    {"id": "audit.07", "skill": "access-reviews", "tier": 4, "requires": ["audit.04", "audit.05"]},
+    {"id": "audit.08", "skill": "incident-runbooks", "tier": 5, "requires": ["audit.06"]},
+    {"id": "audit.09", "skill": "security-reviews", "tier": 5, "requires": ["audit.07"]},
+    {"id": "audit.10", "skill": "capstone-an-audit-passed-with-evidence", "tier": 6, "requires": ["audit.08", "audit.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "gate-raised", "name": "Gate Raised", "criteria": "Reach Journeyman in Least privilege in workspaces."},
+  {"id": "walls-hold", "name": "Walls Hold", "criteria": "Reach Journeyman in Network isolation."},
+  {"id": "watch-fire-lit", "name": "Watch-fire Lit", "criteria": "Reach Journeyman in Audit logs."},
+  {"id": "runbook-ready", "name": "Runbook Ready", "criteria": "Reach Journeyman in Incident runbooks."},
+  {"id": "guardians-shield", "name": "Guardian's Shield", "criteria": "Reach Adept in all ten talents of one Platform Guardian specialization."}
+ ]
+}

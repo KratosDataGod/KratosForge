@@ -54,7 +54,7 @@ class ModelDictionaryMixin:
     def meta_model_dictionary_export(self, layer: str | None = None) -> dict[str, Any]:
         """The dictionary as a new CSV in Downloads; never replaces a file."""
         _, layer, items, _ = self._dictionary(layer)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(folder, f"SM_{layer.title()} data dictionary", ".csv")
         cells = csv_cells.Cells()

@@ -8,13 +8,18 @@ from an expression, on this PC. Each was a silent wrong answer here:
 - round(0.285D, 1 + 1) rounded the binary value, 0.28, where Spark folds the places and rounds the decimal
   text, 0.29; round(x, n) with a column n, which Spark stops on, answered;
 - CAST('1.5d' AS DOUBLE) was NULL and CAST('1_000' AS DOUBLE) 1000, where Java's Double.parseDouble gives
-  1.5 and Spark NULL.
+  1.5 and Spark NULL;
+- CAST(array(1.0E20D, NULL) AS STRING) was '[1e+20, NULL]' where Spark writes '[1.0E20, null]', and a struct or
+  map was written as DuckDB writes it (now refused by name);
+- concat of columns joined DuckDB's text of a double, decimal or timestamp ('1e+20a'), and 'x' || array(1),
+  ceil(x, '2') and INTERVAL 1 MONTH 2 DAY answered where Spark stops (each now refused by name).
 
 The expected values were read from Apache Spark 3.5.3 (local[1], UTC, ANSI mode off), with typeof().
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 from decimal import Decimal
 
@@ -188,11 +193,19 @@ def test_an_interval_whose_fields_the_query_doesnt_show_is_refused_as_text(spark
 
 @pytest.mark.parametrize("query", ["SELECT CAST(INTERVAL 1 MONTH 2 DAY AS STRING)",
                                    "SELECT CAST(INTERVAL '1 day 1 month' AS STRING)",
-                                   "SELECT CAST(INTERVAL '1' YEAR + INTERVAL '1' DAY AS STRING)"])
-def test_an_interval_of_months_and_days_is_refused_as_text_as_spark_stops(spark, query):
-    with pytest.raises(ValueError, match=r"mixes years or months with days or times, which Spark 3.5 stops on, so "
-                                         r"nothing ran\. Use"):
+                                   "SELECT CAST(INTERVAL '1' YEAR + INTERVAL '1' DAY AS STRING)",
+                                   # Spark stops on these wherever they are, not only as text (it gave 32 days here)
+                                   "SELECT INTERVAL 1 MONTH 2 DAY",
+                                   "SELECT d + INTERVAL '1 month 2 days' FROM VALUES (DATE'2024-01-31') t(d)"])
+def test_an_interval_of_months_and_days_is_refused_as_spark_stops(spark, query):
+    # Spark 3.5.3: [_LEGACY_ERROR_TEMP_0029] Cannot mix year-month and day-time fields
+    with pytest.raises(ValueError, match=r"mixes years or months with days or times.*so nothing ran\. Use"):
         spark.sql(query)
+
+
+def test_an_interval_of_months_then_one_of_days_added_to_a_date_still_runs(spark):
+    assert row(spark, "SELECT d + INTERVAL 1 MONTH + INTERVAL 2 DAY FROM VALUES (DATE'2024-01-31') t(d)") == (
+        dt.date(2024, 3, 2),)
 
 
 ROUND_PLACES = [
@@ -217,6 +230,26 @@ def test_round_to_places_worked_out_from_a_constant_gives_sparks_answer(spark, q
     assert row(spark, query) == expected
 
 
+CEIL_FLOOR_PLACES = [
+    ("SELECT ceil(0.285D, 1+1), floor(0.285D, 1+1)", (Decimal("0.29"), Decimal("0.28"))),
+    ("SELECT ceil(0.285D, CAST(2 AS INT)), ceil(0.285D, 2)", (Decimal("0.29"), Decimal("0.29"))),
+]
+
+
+@pytest.mark.parametrize(("query", "expected"), CEIL_FLOOR_PLACES)
+def test_ceil_and_floor_to_constant_int_places_give_sparks_answer(spark, query, expected):
+    # Spark's value; its type is a decimal (decimal(18,2)) where this PC gives a double (sql-compatibility.md)
+    assert [float(v) for v in row(spark, query)] == [float(e) for e in expected]
+
+
+@pytest.mark.parametrize("query", ["SELECT ceil(0.285D, '2')", "SELECT ceil(0.285D, 2L)", "SELECT floor(0.285D, 2.0)",
+                                   "SELECT ceil(0.285D, CAST(NULL AS INT))", "SELECT floor(0.285D, 2S)"])
+def test_ceil_and_floor_to_places_that_arent_an_int_are_refused_as_spark_stops(spark, query):
+    # Spark 3.5.3: The 'scale' parameter of function 'ceil' needs to be a int literal. (round takes these.)
+    with pytest.raises(ValueError, match=r"whole number of type int.*so nothing ran\. Write the number of places"):
+        spark.sql(query)
+
+
 def test_round_of_a_float_to_folded_places_stays_a_float(spark):
     assert row(spark, "SELECT round(CAST(0.285 AS FLOAT), 1+1), typeof(round(CAST(0.285 AS FLOAT), 1+1))") == (
         pytest.approx(0.28, abs=1e-6), "float")
@@ -226,12 +259,14 @@ def test_round_of_a_float_to_folded_places_stays_a_float(spark):
     "SELECT round(x, n) FROM VALUES (0.285D, 2) t(x, n)",
     "SELECT bround(x, n) FROM VALUES (0.285D, 2) t(x, n)",
     "SELECT ceil(x, n) FROM VALUES (0.285D, 2) t(x, n)",
+    "SELECT floor(x, n) FROM VALUES (0.285D, 2) t(x, n)",
     "SELECT round(CAST(x AS DECIMAL(5,3)), n) FROM VALUES (0.285D, 2) t(x, n)",
     "SELECT round(0.285D, rand())",
     "SELECT round(0.285D, (SELECT 2))",
 ])
 def test_round_to_places_that_arent_a_constant_is_refused_as_spark_stops(spark, query):
-    with pytest.raises(ValueError, match=r"NON_FOLDABLE_INPUT\), so nothing ran\. Write the number of places"):
+    with pytest.raises(ValueError, match=r"(NON_FOLDABLE_INPUT|int literal)\), so nothing ran\. Write the number of "
+                                         r"places"):
         spark.sql(query)
 
 
@@ -304,6 +339,87 @@ def test_databricks_sql_stops_on_text_that_isnt_a_double():
         con.execute(sql.duckdb_sql(statement)).fetchone()
 
 
+ARRAY_TEXT = [
+    ("SELECT CAST(array(1.0E20D, 1.5D) AS STRING), CAST(array(1, NULL) AS STRING)", ("[1.0E20, 1.5]", "[1, null]")),
+    (f"SELECT CAST(array({_DEC}) AS STRING), CAST(array(CAST(0.5 AS DECIMAL(1,1))) AS STRING)", ("[1E-8]", "[0.5]")),
+    (("SELECT CAST(array(true, false) AS STRING), CAST(array(DATE'2024-01-01') AS STRING), "
+      "CAST(array('a b', 'c,d', NULL) AS STRING)"), ("[true, false]", "[2024-01-01]", "[a b, c,d, null]")),
+    ("SELECT CAST(array(CAST(1.5 AS FLOAT), CAST(1e10 AS FLOAT)) AS STRING), CAST(array(10000000000L) AS STRING)",
+     ("[1.5, 1.0E10]", "[10000000000]")),
+    (("SELECT CAST(array(TIMESTAMP'2024-01-01 00:00:00.5') AS STRING), "
+      "CAST(array(timestamp_ntz'2024-01-01 00:00:00') AS STRING)"), ("[2024-01-01 00:00:00.5]", "[2024-01-01 00:00:00]")),
+    ("SELECT CAST(array() AS STRING), CAST(CAST(NULL AS ARRAY<INT>) AS STRING)", ("[]", None)),
+    ("SELECT CAST(x AS STRING) FROM VALUES (array(1.0E20D, NULL)) t(x)", ("[1.0E20, null]",)),
+    ("SELECT concat('x', CAST(array(1) AS STRING))", ("x[1]",)),
+]
+
+
+@pytest.mark.parametrize(("query", "expected"), ARRAY_TEXT)
+def test_an_array_as_text_is_sparks(spark, query, expected):
+    # DuckDB wrote [1e+20, 1.5], [1, NULL], [0.00000001], [a b, 'c,d', NULL] and ['2024-01-01 00:00:00.5+00']
+    assert row(spark, query) == expected
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT CAST(named_struct('a', 1.5D, 'b', 'x') AS STRING)",   # Spark: {1.5, x}; DuckDB wrote {'a': 1.5, 'b': x}
+    "SELECT CAST(map('k', 1.0E20D) AS STRING)",                   # Spark: {k -> 1.0E20}; DuckDB wrote {k=1e+20}
+    "SELECT CAST(array(array(1)) AS STRING)",
+    "SELECT CAST(array(X'0102') AS STRING)",
+])
+def test_a_map_struct_or_nested_array_as_text_is_refused(spark, query):
+    with pytest.raises(Exception, match=r"map, a struct, or an array of arrays.*so nothing ran\. Cast the fields"):
+        spark.sql(query).collect()
+
+
+@pytest.mark.parametrize("query", ["SELECT 'x' || array(1)", "SELECT concat('x', array(1))",
+                                   "SELECT concat('x', named_struct('a', 1))"])
+def test_concat_of_text_and_an_array_is_refused_as_spark_stops(spark, query):
+    # Spark 3.5.3: DATA_DIFF_TYPES (UNEXPECTED_INPUT_TYPE for a struct); here it joined DuckDB's text of the array
+    with pytest.raises(Exception, match=r"DATATYPE_MISMATCH\), so nothing ran\. Cast it to string first"):
+        spark.sql(query).collect()
+
+
+CONCAT_COLUMNS = [
+    ("SELECT concat(x, y), x || y FROM VALUES (1.5D, 'a') t(x, y)", ("1.5a", "1.5a")),
+    ("SELECT concat(x, y) FROM VALUES (CAST(0.5 AS DECIMAL(9,8)), 'a') t(x, y)", ("0.50000000a",)),
+    ("SELECT x || y FROM VALUES (1.5D, 2.5D) t(x, y)", ("1.52.5",)),
+    ("SELECT concat(x, y) FROM VALUES (CAST(NULL AS DOUBLE), 'a') t(x, y)", (None,)),
+    ("SELECT concat(x, y) FROM VALUES (1, 'a') t(x, y)", ("1a",)),
+    ("SELECT concat(x, y, upper('a' || x)) FROM VALUES (1.5D, 'b') t(x, y)", ("1.5bA1.5",)),
+]
+
+
+@pytest.mark.parametrize(("query", "expected"), CONCAT_COLUMNS)
+def test_concat_of_columns_whose_text_is_sparks_answers(spark, query, expected):
+    assert row(spark, query) == expected
+
+
+def test_concat_of_arrays_still_joins_them(spark):
+    assert row(spark, "SELECT concat(x, y) FROM VALUES (array(1), array(2)) t(x, y)") == ([1, 2],)
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT concat(x, y) FROM VALUES (1.0E20D, 'a') t(x, y)",                       # Spark: 1.0E20a
+    f"SELECT concat(x, y) FROM VALUES ({_DEC}, 'a') t(x, y)",                        # Spark: 1E-8a
+    "SELECT x || y FROM VALUES (TIMESTAMP'2024-01-01 00:00:00', 'a') t(x, y)",      # Spark: 2024-01-01 00:00:00a
+    "SELECT concat(x, y) FROM VALUES (make_dt_interval(1), 'a') t(x, y)",
+    "SELECT concat(x, y) FROM VALUES (CAST('NaN' AS DOUBLE), 'a') t(x, y)",          # Spark: NaNa
+])
+def test_concat_of_columns_whose_text_here_isnt_sparks_is_refused(spark, query):
+    # DuckDB joined its own text of these: 1e+20a, 0.00000001a, 2024-01-01 00:00:00+00a
+    with pytest.raises(Exception, match=r"part of concat or \|\| is a double.*so nothing ran\. Cast that part"):
+        spark.sql(query).collect()
+
+
+def test_dataframe_concat_reads_its_parts_as_spark_sql_does(spark):
+    from fabric_desktop import spark_compat as F
+    df = spark.sql(f"SELECT 1.0E20D AS d, {_DEC} AS m, 1.5D AS h, 'a' AS s, array(1) AS a")
+    assert tuple(df.select(F.concat(df.h, df.s), F.concat(df.a, df.a)).collect()[0]) == ("1.5a", [1, 1])
+    for part in (df.d, df.m):
+        with pytest.raises(Exception, match=r"part of concat or \|\| is a double.*so nothing ran"):
+            df.select(F.concat(part, df.s)).collect()
+
+
 # Each rewrite reads its argument once, so nesting adds the same amount of SQL at every level.
 
 def test_nested_decimal_text_grows_its_sql_linearly():
@@ -349,4 +465,21 @@ def test_nested_double_casts_and_folded_places_grow_their_sql_linearly():
         for _ in range(depth):
             e = f"octet_length(reverse({e}))"
         sizes.append(size(f"SELECT {e} FROM t"))
+    assert grows_linearly(sizes), sizes
+
+
+def test_nested_concat_of_columns_and_array_text_grow_their_sql_linearly():
+    sizes = []
+    for depth in range(1, 7):
+        e = "x"
+        for _ in range(depth):
+            e = f"concat({e}, y)"
+        sizes.append(size(f"SELECT {e} FROM t"))
+    assert grows_linearly(sizes), sizes
+    sizes = []
+    for depth in range(1, 7):
+        e = "a"
+        for _ in range(depth):
+            e = f"array(CAST({e} AS STRING))"
+        sizes.append(size(f"SELECT CAST({e} AS STRING) FROM t"))
     assert grows_linearly(sizes), sizes

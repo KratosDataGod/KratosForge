@@ -116,6 +116,23 @@ def refuse_mixed(kind: Kind | None) -> None:
         raise ValueError(_MIXED)
 
 
+_MIXED_LITERAL = ("An interval that mixes years or months with days or times, such as INTERVAL 1 MONTH 2 DAY, can't "
+                  "run, in Spark 3.5 too (Cannot mix year-month and day-time fields), so nothing ran. Use "
+                  "make_interval(0, 1, 0, 2) for such an interval, or add two intervals to the date, for example "
+                  "d + INTERVAL 1 MONTH + INTERVAL 2 DAY.")
+
+
+def refuse_mixed_literals(statement: exp.Expr) -> None:
+    """Spark 3.5 stops on an interval literal of years or months and days or times, and on the sum of two
+    such literals (DuckDB's interval holds both, so INTERVAL 1 MONTH 2 DAY answered here, 32 days); refused by
+    name wherever it is."""
+    for node in statement.find_all(exp.Interval, exp.Add, exp.Sub):
+        # INTERVAL 1 MONTH 2 DAY is read as a sum of two literals; a sum with make_interval's calendar
+        # interval runs in Spark, so only literals of the two families are refused
+        if kind_of(node) == MIXED and node.find(exp.MakeInterval) is None:
+            raise ValueError(_MIXED_LITERAL)
+
+
 def _two(number: str) -> str:
     """Java's %02d of a whole number at least 0: two digits or more."""
     return f"CASE WHEN {number} < 10 THEN '0' ELSE '' END || CAST({number} AS VARCHAR)"

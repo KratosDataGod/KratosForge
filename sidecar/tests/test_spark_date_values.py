@@ -39,7 +39,7 @@ def test_spark_date_functions_answer_as_spark_3_5_or_are_refused_by_name(spark):
 def test_a_date_plus_years_months_weeks_or_days_is_a_date_and_plus_hours_a_timestamp(spark):
     got = one(spark, "SELECT DATE'2024-01-31' - INTERVAL 1 MONTH, INTERVAL 1 YEAR + DATE'2024-02-29', "
                      "DATE'2024-01-31' + INTERVAL 1 WEEK, to_date('2024-01-31') + INTERVAL 2 DAYS, "
-                     "DATE'2024-01-31' + INTERVAL 1 MONTH 2 DAY, DATE'2024-01-31' + INTERVAL 3 HOURS")
+                     "DATE'2024-01-31' + INTERVAL 1 MONTH + INTERVAL 2 DAY, DATE'2024-01-31' + INTERVAL 3 HOURS")
     assert got == (dt.date(2023, 12, 31), dt.date(2025, 2, 28), dt.date(2024, 2, 7), dt.date(2024, 2, 2),
                    dt.date(2024, 3, 2), dt.datetime(2024, 1, 31, 3, 0))
 

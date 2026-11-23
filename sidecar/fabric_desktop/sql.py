@@ -25,7 +25,7 @@ from sqlglot.tokens import TokenType
 
 from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
                spark_intervals, spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
-from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
+from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, one_row, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
 # handler of its own, Python prints that to stderr, so it showed in a notebook cell's output.
@@ -195,6 +195,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     statement = spark_builtins_sql.mark(statement)
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
     statement = _round_places(statement)
+    spark_intervals.refuse_mixed_literals(statement)
     statement = spark_builtins_sql.check_nested_concat_ws(statement)
     if databricks:
         _mark_divisions(statement)
@@ -205,8 +206,9 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
         ansi=databricks))
     statement = spark_windows.spark_window_results(spark_complex.spark_complex_results(statement))
     if databricks:
-        return _spark_range(spark_time_zone.fix(_ansi_divisions(statement)))
-    return _spark_range(spark_time_zone.fix(_spark_session_functions(_null_remainders(_not_in_spark_3_5(statement)))))
+        return _guard_concat_parts(_spark_range(spark_time_zone.fix(_ansi_divisions(statement))))
+    return _guard_concat_parts(_spark_range(spark_time_zone.fix(_spark_session_functions(_null_remainders(
+        _not_in_spark_3_5(statement))))))
 
 
 def _spark_range(statement: exp.Expression) -> exp.Expression:
@@ -507,14 +509,16 @@ def _round_places(statement: exp.Expression) -> exp.Expression:
         literal = places.this if isinstance(places, exp.Neg) else places
         if isinstance(literal, exp.Literal) and not literal.is_string and literal.this.isdigit():
             continue
+        whole_only = name in ("ceil", "floor")  # Spark's ceil and floor take only a constant int
         if any(isinstance(n, _NOT_FOLDABLE) or (isinstance(n, exp.Anonymous) and n.name.upper() in _RANDOM_CALLS)
                for n in places.walk()):
+            why = ("its scale must be an int literal" if whole_only else "DATATYPE_MISMATCH.NON_FOLDABLE_INPUT")
             raise ValueError(f"{name}() with a number of places read from a column, a subquery or a random value "
-                             f"can't run, in Spark too (DATATYPE_MISMATCH.NON_FOLDABLE_INPUT), so nothing ran. Write "
+                             f"can't run, in Spark too ({why}), so nothing ran. Write "
                              f"the number of places in the query, for example {name}(x, 2).")
         if places.find(exp.Placeholder, exp.Parameter) is not None:
             continue
-        value = _constant_int(places, name)
+        value = _constant_int(places, name, whole_only)
         if value is None:
             folded: exp.Expression = exp.cast(exp.Null(), exp.DataType.build("INT"))
         else:
@@ -525,20 +529,27 @@ def _round_places(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
-def _constant_int(places: exp.Expression, name: str) -> int | None:
-    """The constant ``places``, cast to INT as Spark's CAST reads it ('2.7' is 2), worked out on its own."""
+def _constant_int(places: exp.Expression, name: str, whole_only: bool = False) -> int | None:
+    """The constant ``places``, cast to INT as Spark's CAST reads it ('2.7' is 2), worked out on its own. With
+    ``whole_only`` (ceil and floor) places that aren't an int, or are NULL, are refused, as Spark stops on them:
+    ceil(x, '2') and ceil(x, 2L) don't run there."""
     try:
-        query = _parse(f"SELECT CAST(({places.sql(dialect='spark')}) AS INT)", "spark")[0]
+        query = _parse(f"SELECT CAST(({places.sql(dialect='spark')}) AS INT), "
+                       f"typeof(({places.sql(dialect='spark')}))", "spark")[0]
         con = _connect()
         try:
-            row = con.execute(duckdb_sql(query)).fetchone()
+            row = one_row(con.execute(duckdb_sql(query)))
         finally:
             con.close()
-    except (ValueError, duckdb.Error) as exc:
+    except (ValueError, LookupError, duckdb.Error) as exc:
         raise ValueError(f"{name}()'s number of places couldn't be worked out on this PC as Spark works it out "
                          f"({str(exc).splitlines()[0] if str(exc) else type(exc).__name__}), so nothing ran. Write the "
                          f"number of places in the query, for example {name}(x, 2).") from None
-    return None if row is None or row[0] is None else int(row[0])
+    if whole_only and (str(row[1]).lower() not in ("int", "integer") or row[0] is None):
+        raise ValueError(f"{name}() takes its number of places only as a whole number of type int, and Spark stops on "
+                         f"this one too (the scale must be an int literal), so nothing ran. Write the number of places "
+                         f"in the query, for example {name}(x, 2).")
+    return None if row[0] is None else int(row[0])
 
 
 def _bround(places: int) -> str:
@@ -1549,23 +1560,70 @@ _NOT_UTF8 = ("'A cast of binary to string can''t run on this PC the way it runs 
              "base64() instead.'")
 
 
-def spark_text_cast(value: str) -> str:
+def spark_text_cast(value: str, in_concat: bool = False) -> str:
     """CAST(value AS STRING) as Spark writes it: a timestamp as the session zone's wall time with no
     offset ('2026-01-02 03:04:05', where DuckDB writes '+00' after it), a double or float as Java
     writes it ('1.0E20', where DuckDB writes '1e+20'), a decimal as Java's BigDecimal writes it ('1E-8', where
     DuckDB writes '0.00000001'), and binary as its UTF-8 text (bytes that aren't UTF-8 are refused). An interval
     is refused by name here: its text needs its fields, which spark_integer_casts reads from the query where it
-    can (spark_intervals). Every other type casts as DuckDB casts it."""
-    java = spark_builtins_sql.java_double_text
-    return (f"CASE WHEN typeof({value}) = 'TIMESTAMP WITH TIME ZONE' THEN "
-            f"regexp_replace(CAST({value} AS VARCHAR), '[+-][0-9][0-9](:[0-9][0-9])?$', '') "
-            f"WHEN typeof({value}) = 'DOUBLE' THEN {java(f'TRY_CAST({value} AS DOUBLE)')} "
-            f"WHEN typeof({value}) = 'FLOAT' THEN {java(f'TRY_CAST({value} AS FLOAT)')} "
-            f"WHEN typeof({value}) LIKE 'DECIMAL(%' THEN {spark_builtins_sql.java_decimal_text(value)} "
-            f"WHEN typeof({value}) = 'INTERVAL' THEN CAST(ERROR('{spark_intervals.REFUSED}') AS VARCHAR) "
-            f"WHEN typeof({value}) = 'BLOB' THEN (LIST_TRANSFORM([TRY_CAST({value} AS BLOB)], lambda kf_bin: CASE WHEN kf_bin "
+    can (spark_intervals). An array is written as Spark writes it ('[1, null]', where DuckDB wrote [1, NULL],
+    quoted text with a comma and its own text of each element), and a map, a struct or an array of those is
+    refused by name. With ``in_concat`` (a part of concat or || with text, _spark_concat_text) an
+    array, map or struct is refused, as Spark stops on it there (DATATYPE_MISMATCH). Every other type casts as
+    DuckDB casts it."""
+    kind = f"typeof({value})"
+    # One way for a value and an array's elements: DuckDB's text of each (a value is a list of one), then
+    # Java's text of a double, float or decimal and no offset after a timestamp. The element type folds.
+    element = f"CASE WHEN {kind} LIKE '%[]' THEN LEFT({kind}, LENGTH({kind}) - 2) ELSE {kind} END"
+    one = (f"CASE WHEN ({element}) IN ('DOUBLE', 'FLOAT') THEN "
+           f"{spark_builtins_sql.java_double_text('TRY_CAST(kf_el AS DOUBLE)', text='kf_el')} "
+           f"WHEN ({element}) LIKE 'DECIMAL(%' THEN {spark_builtins_sql.java_decimal_text('kf_el')} "
+           f"WHEN ({element}) = 'TIMESTAMP WITH TIME ZONE' THEN regexp_replace(kf_el, '[+-][0-9][0-9](:[0-9][0-9])?$', '') "
+           f"ELSE kf_el END")
+    texts = (f"LIST_TRANSFORM(CASE WHEN {kind} LIKE '%]' THEN TRY_CAST({value} AS VARCHAR[]) "
+             f"ELSE [CAST({value} AS VARCHAR)] END, lambda kf_el: {one})")
+    nested = (f"CAST(ERROR({_CONCAT_NESTED}) AS VARCHAR)" if in_concat else
+              f"CASE WHEN NOT regexp_full_match({kind}, '{_FLAT_LIST}') THEN CAST(ERROR({_NESTED_TEXT}) AS VARCHAR) "
+              f"ELSE '[' || array_to_string(LIST_TRANSFORM(kf_txt, lambda kf_t: COALESCE(kf_t, 'null')), ', ') || ']' END")
+    return (f"CASE WHEN {kind} = 'INTERVAL' THEN CAST(ERROR('{spark_intervals.REFUSED}') AS VARCHAR) "
+            f"WHEN {kind} = 'BLOB' THEN (LIST_TRANSFORM([TRY_CAST({value} AS BLOB)], lambda kf_bin: CASE WHEN kf_bin "
             f"IS NULL THEN NULL ELSE COALESCE(TRY(DECODE(kf_bin)), ERROR({_NOT_UTF8})) END))[1] "
-            f"ELSE CAST({value} AS VARCHAR) END")
+            f"ELSE (LIST_TRANSFORM([{texts}], lambda kf_txt: CASE WHEN {kind} LIKE '%]' OR {kind} LIKE 'STRUCT(%' "
+            f"OR {kind} LIKE 'MAP(%' OR {kind} LIKE 'UNION(%' THEN {nested} ELSE kf_txt[1] END))[1] END")
+
+
+# An array whose elements spark_text_cast writes as Spark does, one by one (DuckDB's element text with Java's
+# for a double, a float and a decimal, and no offset after a timestamp)
+_FLAT_LIST = r"(\"NULL\"|TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|BOOLEAN|VARCHAR|DATE|TIMESTAMP|TIMESTAMP WITH TIME ZONE|" \
+             r"DOUBLE|FLOAT|DECIMAL\([0-9]+,[0-9]+\))\[\]"
+_NESTED_TEXT = ("'A cast of a map, a struct, or an array of arrays, maps, structs, binary or intervals to string "
+                "can''t run on this PC the way it runs in Fabric, because Spark writes them its own way (a struct as "
+                "{1, x}, a map as {k -> v}), so nothing ran. Cast the fields or elements to string one by one, for "
+                "example concat_ws('', transform(arr, e -> CAST(e AS STRING))), or run the cell in Fabric.'")
+
+
+_CONCAT_NESTED = ("'concat and || with text can''t take an array, a map or a struct, in Spark too (DATATYPE_MISMATCH), "
+                  "so nothing ran. Cast it to string first, for example concat(''x'', CAST(arr AS STRING)).'")
+_CONCAT_PART = ("'A part of concat or || is a double, decimal, timestamp or interval that this PC writes as other text "
+                "than Spark does (such as 1e+20, where Spark writes 1.0E20), so nothing ran. Cast that part to string "
+                "first, for example concat(CAST(x AS STRING), y), or run the cell in Fabric.'")
+
+
+def concat_part(value: str) -> str:
+    """DuckDB SQL for ``value`` as a part of concat or || with no text literal among its parts (and of the
+    DataFrame API's concat), whose parts may be arrays: its type is kept, and a double, float, decimal,
+    timestamp or interval whose DuckDB text isn't Spark's text of it (1e+20, 0.00000001, a +00 offset) stops by
+    name, where it was joined as DuckDB writes it. ``value`` is read once; typeof folds as the query is planned,
+    so other types pass at no cost."""
+    v = "kf_cpart"
+    kind = f"typeof({v})"
+    java = spark_builtins_sql.java_double_text('TRY_CAST(kf_ctext AS DOUBLE)', text='kf_ctext')
+    text = (f"(LIST_TRANSFORM([CAST({v} AS VARCHAR)], lambda kf_ctext: CASE WHEN {kind} IN ('DOUBLE', 'FLOAT') THEN "
+            f"{java} ELSE {spark_builtins_sql.java_decimal_text('kf_ctext')} END = kf_ctext))[1]")
+    return (f"(LIST_TRANSFORM([{value}], lambda {v}: CASE WHEN {v} IS NOT NULL AND ({kind} IN ('INTERVAL', "
+            f"'TIMESTAMP WITH TIME ZONE') OR (({kind} IN ('DOUBLE', 'FLOAT') OR ({kind} LIKE 'DECIMAL(%' AND {kind} "
+            f"NOT LIKE '%]')) AND NOT {text})) THEN ERROR({_CONCAT_PART}) "
+            f"ELSE {v} END))[1]")
 
 
 def _time_difference_text(source: exp.Expression) -> exp.Expression | None:
@@ -1599,12 +1657,29 @@ def _time_difference_text(source: exp.Expression) -> exp.Expression | None:
     return _with_args(text, [source, *columns])
 
 
+_IN_CONCAT = "kf_in_concat"
+_CONCAT_GUARD = "kf_concat_guard"
+
+
+def _guard_concat_parts(statement: exp.Expression) -> exp.Expression:
+    """The parts _spark_concat_text marked, each read through concat_part. Written after every other rewrite,
+    so none of them rewrites the casts concat_part's SQL is made of (its own are Spark's already)."""
+    holder = exp.Tuple(expressions=[statement])
+    for part in [n for n in statement.walk() if n.meta.pop(_CONCAT_GUARD, False)]:
+        guard = sql_dialects.parse_one(concat_part("fj_arg0"), read="duckdb")
+        hole = next(c for c in guard.find_all(exp.Column) if c.name == "fj_arg0")
+        part.replace(guard)
+        hole.replace(part)
+    return cast(exp.Expression, holder.expressions[0])
+
+
 def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
     """concat(...) and ||, when a part is a string literal, with each other part cast to STRING as
     Spark casts it (spark_text_cast): 'at ' || ts is 'at 2026-01-02 03:04:05', where DuckDB writes
     '+00' after the timestamp, and a double is '1.0E20', not '1e+20'. Only a concat with a string
-    literal in it is surely of strings; one of columns alone may join arrays, and concat_ws may take
-    an array, so those are left as they are."""
+    literal in it is surely of strings; there an array, map or struct part stops, as in Spark. One of columns
+    alone may join arrays, so its parts keep their types, and a part whose text here isn't Spark's stops by name
+    (concat_part). concat_ws may take an array, so it is left as it is."""
     def parts(node: exp.Expression, joins: set[int]) -> list[exp.Expression]:
         """The parts joined, through nested || and concat and their parentheses: 'a' || (b || t). The
         joins it reads through go in ``joins``; a join inside a function call is a part of its own."""
@@ -1625,14 +1700,22 @@ def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
             continue
         joins: set[int] = set()
         found = parts(node, joins)
-        if not any(literal(p) for p in found):
-            continue
         done |= joins  # the joins read through here are handled here
+        if not any(literal(p) for p in found):
+            # parts that may be arrays: each is kept, and one whose text here isn't Spark's stops (concat_part)
+            for part in found:
+                if isinstance(part, (exp.Null, exp.Literal)) or (
+                        isinstance(part, (exp.Cast, exp.TryCast)) and isinstance(part.to, exp.DataType)
+                        and part.to.this in _TEXT_CASTS):
+                    continue
+                part.meta[_CONCAT_GUARD] = True  # wrapped last, by _guard_concat_parts
+            continue
         for part in found:
             already = isinstance(part, (exp.Cast, exp.TryCast)) and isinstance(part.to, exp.DataType) \
                 and part.to.this in _TEXT_CASTS
             if not literal(part) and not already and not isinstance(part, exp.Null):
                 cast = exp.Cast(to=exp.DataType.build("TEXT"))
+                cast.meta[_IN_CONCAT] = True  # an array here stops, as in Spark (spark_text_cast)
                 part.replace(cast)
                 cast.set("this", part)  # the part itself, so a join inside it is still found and rewritten
     return statement
@@ -1720,6 +1803,8 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
             to = "TIMESTAMPTZ" if _to_timestamp_call(node) else duckdb_sql(node.to)
             write = functools.partial(spark_timestamp_cast, duck_type=to, mode=mode)
         elif kind in _TEXT_CASTS and not (isinstance(source, exp.Literal) and source.is_string) and not node.to.expressions:
+            if isinstance(source, exp.Anonymous) and source.name.upper() == "TRY_MAKE_INTERVAL":
+                continue  # Databricks' own: its reference shows DuckDB's text of it (test_databricks_coverage.py)
             interval = spark_intervals.kind_of(source)
             spark_intervals.refuse_mixed(interval)
             subtracted = _time_difference_text(source) if interval is None else None
@@ -1732,7 +1817,8 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
                     return replacement
                 node.replace(replacement)
                 continue
-            write = functools.partial(spark_intervals.text_sql, kind=interval) if interval else functools.partial(spark_text_cast)
+            write = (functools.partial(spark_intervals.text_sql, kind=interval) if interval else
+                     functools.partial(spark_text_cast, in_concat=bool(node.meta.get(_IN_CONCAT))))
         elif kind in _BINARY_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
             write = functools.partial(spark_binary_cast)
         elif kind in _DOUBLE_CASTS and not (isinstance(source, exp.Literal) and not source.is_string):

@@ -51,8 +51,11 @@ def _col_sql(c: Any) -> str:
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
     tree = spark_complex.mark_calls(spark_builtins_sql.mark(_parse(text)))
-    return spark_sql.duckdb_sql(spark_complex.spark_complex_results(spark_sql.spark_legacy_times(
-        spark_builtins_sql.rewrite(spark_sql.spark_substring(spark_sql.spark_integer_casts(tree))))))
+    # concat and || write their parts as Spark does, or stop on one whose text here isn't Spark's (F.concat)
+    tree = spark_sql._spark_concat_text(tree)
+    return spark_sql.duckdb_sql(spark_sql._guard_concat_parts(spark_complex.spark_complex_results(
+        spark_sql.spark_legacy_times(spark_builtins_sql.rewrite(spark_sql.spark_substring(
+            spark_sql.spark_integer_casts(tree)))))))
 
 
 def _parse(text: str) -> exp.Expression:

@@ -420,12 +420,14 @@ def _sql_text(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def java_double_text(x: str) -> str:
+def java_double_text(x: str, text: str | None = None) -> str:
     """DuckDB SQL for Java's Double.toString of the DOUBLE ``x`` (Spark's text for a double): the
     shortest digits, as plain decimals from 0.001 up to 10^7 (with .0 for a whole number), else as
     d.dddE±n; NaN, Infinity, -0.0. Its lambdas are written as DuckDB 2 reads them (lambda x: ...), which
-    DuckDB 1.5 and sqlglot read too, so the SQL also runs as it is (Column.cast)."""
-    s = f"CAST(ABS({x}) AS VARCHAR)"
+    DuckDB 1.5 and sqlglot read too, so the SQL also runs as it is (Column.cast). ``text``: DuckDB's text of
+    the value (VARCHAR SQL, short, such as a lambda's name), whose digits are used: a float's own shortest
+    digits when ``x`` is that float read as a double."""
+    s = f"CAST(ABS({x}) AS VARCHAR)" if text is None else f"LTRIM({text}, '-')"
     # DuckDB's shortest digits, in either notation: mantissa digits and the exponent of the first one
     sci = (f"(LIST_TRANSFORM([{{'m': SPLIT_PART({s}, 'e', 1), 'x': COALESCE(TRY_CAST(NULLIF(SPLIT_PART({s}, 'e', 2), '') "
            f"AS INTEGER), 0)}}], lambda kf_n: (LIST_TRANSFORM([{{'i': SPLIT_PART(kf_n.m, '.', 1), 'd': SPLIT_PART(kf_n.m, '.', 1) "
@@ -476,7 +478,7 @@ def _java_text(a: str, refuse_nested: bool = False) -> str:
               if refuse_nested else "")
     return (f"(CASE WHEN TYPEOF({a}) = 'DOUBLE' THEN {java_double_text(f'TRY_CAST({a} AS DOUBLE)')} "
             f"WHEN TYPEOF({a}) = 'FLOAT' THEN {java_double_text(f'TRY_CAST({a} AS FLOAT)')} "
-            f"WHEN TYPEOF({a}) LIKE 'DECIMAL(%' THEN {java_decimal_text(a)} "
+            f"WHEN TYPEOF({a}) LIKE 'DECIMAL(%' AND TYPEOF({a}) NOT LIKE '%]' THEN {java_decimal_text(a)} "
             f"{nested}ELSE CAST({a} AS VARCHAR) END)")
 
 

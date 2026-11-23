@@ -53,6 +53,17 @@ def test_avg_with_filter_and_over_keeps_both_and_gives_sparks_type(conn):
     assert kind == "DECIMAL(14,6)" and value is None   # the filter leaves no rows
 
 
+def test_places_that_arent_a_literal_number_leave_round_as_it_was(conn):
+    # sql.parse now folds such places or refuses them (the next test); spark_decimals on its own leaves them
+    for expression in ("round(x, n)", "round(x, '1')"):
+        tree = parse_one(f"SELECT {expression} AS v FROM t", read="spark")
+        assert sql.duckdb_sql(sd.spark_decimal_types(tree.copy(), conn)) == sql.duckdb_sql(tree)
+    assert sd._places(exp.Literal.string("1")) is None
+    assert sd._places(exp.column("n")) is None
+    assert sd._places(None) == 0
+    assert sd._places(exp.Neg(this=exp.Literal.number(2))) == -2
+
+
 def test_places_that_arent_a_literal_number_are_folded_or_refused_before_the_types(conn):
     # sql.parse folds constant places to a literal ('1' is 1), as Spark does, and refuses a column's, as Spark
     # stops on it (test_spark_text_of_values.py), so only literal places reach spark_decimals

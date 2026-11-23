@@ -43,6 +43,7 @@ CLAIMS: list[Claim] = [
     _nb("CAST(INTERVAL 1 YEAR 2 MONTH AS STRING)"),
     _nb("CAST('1.5d' AS DOUBLE)"),
     _nb("CAST('1_000' AS DOUBLE)"),
+    _nb("CAST(array(1.0E20D, NULL) AS STRING)"),
     Claim("sql-compatibility.md", "'1.5' = 1", "notebook"),
     Claim("sql-compatibility.md", "'1.55' = 1.6", "notebook"),
     Claim("sql-compatibility.md", "'1.0' IN (1, 2)", "notebook"),

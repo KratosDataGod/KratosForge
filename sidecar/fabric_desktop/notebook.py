@@ -536,6 +536,9 @@ class _Run:
                 self.spill_file = None
             self.status = status
             self.seconds = round(time.monotonic() - self.started, 2)
+            # A finished cell is never paused, even when a Cancel resent during a pause landed in the
+            # debugger's clean-up before it cleared the pause.
+            self.paused = None
             self.version += 1
             # Under the lock with the status: a poll that sees the cell finished never finds it still
             # running when the next cell starts (check_free reads done).

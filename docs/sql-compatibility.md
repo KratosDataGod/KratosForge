@@ -109,13 +109,40 @@ These cases can still differ, and LOC-005 notes them:
 
 ## Rounding a double on this PC
 
-Spark SQL run on this PC, and the DataFrame API's `round` and `bround`, round a `double` or `float` as Spark does: the value's shortest decimal text is rounded half up (`round`) or half even (`bround`) and turned back into a `double` (a `float` stays a `float`). For example, `round(0.285D, 2)` is 0.29 and `round(1.005D, 2)` is 1.01, as in Spark, where rounding the binary value gives 0.28 and 1.0. NaN and infinity are kept. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_double_rounding.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+Spark SQL run on this PC, and the DataFrame API's `round` and `bround`, round a `double` or `float` as Spark does: the value's shortest decimal text is rounded half up (`round`) or half even (`bround`) and turned back into a `double` (a `float` stays a `float`). For example, `round(0.285D, 2)` is 0.29 and `round(1.005D, 2)` is 1.01, as in Spark, where rounding the binary value gives 0.28 and 1.0. NaN and infinity are kept. A number of places written as an expression of constants is worked out first, as Spark folds it to an `int`, so `round(0.285D, 1 + 1)` is 0.29 too (it was 0.28 here). These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_double_rounding.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
 
 | Case | Spark | This PC |
 | --- | --- | --- |
 | More than 20 places, or fewer than -20, such as `round(x, 25)` | Rounds | Refused by name: cast the value to a decimal first |
-| A number of places that isn't written in the query, such as `round(x, n)` | Rounds the decimal text | Rounds the binary value, as DuckDB does |
+| A number of places read from a column, a subquery or a random value, such as `round(x, n)` (also `bround`, `ceil` and `floor`) | Stops with `DATATYPE_MISMATCH.NON_FOLDABLE_INPUT` | Refused by name, and nothing runs |
 | A statement whose types can't be worked out | Rounds the decimal text | Rounds the binary value, as DuckDB does |
+
+## Decimals, intervals and doubles as text on this PC
+
+Spark SQL run on this PC writes a decimal as text as Spark does, with Java's `BigDecimal` text: `CAST(CAST(0.00000001 AS DECIMAL(9,8)) AS STRING)` is `1E-8`, and `CAST(CAST(0 AS DECIMAL(38,10)) AS STRING)` is `0E-10`, where DuckDB wrote every digit plainly (`0.00000001`) and `.5` for a `DECIMAL(1,1)`. Plain digits stay for a value whose first digit is 10^-6 or larger, as in Java. The same text is used by `CAST(... AS STRING)` and `Column.cast("string")`, by `||` and `concat` with text, and by functions that read text, such as `upper`, `length`, `replace`, `reverse`, `octet_length` and `format_string`.
+
+An interval is written as Spark writes its type, an interval literal of its fields: `CAST(INTERVAL '5' SECOND AS STRING)` is `INTERVAL '05' SECOND`, `CAST(make_dt_interval(1, 12, 30, 1.001001) AS STRING)` is `INTERVAL '1 12:30:01.001001' DAY TO SECOND` and `CAST(INTERVAL 1 YEAR 2 MONTH AS STRING)` is `INTERVAL '1-2' YEAR TO MONTH`, where DuckDB wrote `00:00:05`, `1 day 12:30:01.001001` and `1 year 2 months`. A timestamp minus a timestamp or a date is `DAY TO SECOND`, a date minus a date is `DAY` (`INTERVAL '1' DAY`), and `make_interval` is written as Spark's calendar interval (`1 years 2 months 25 days 5 hours 6 minutes 7.5 seconds`). The fields are read from the query: an interval literal, `make_dt_interval`, `make_interval`, a subtraction of timestamps or dates, and sums, differences, negations and whole-number multiples of these. `-make_dt_interval(...)` and `make_dt_interval(...) * 2` now apply to the whole interval; they negated or multiplied only its last part.
+
+Text cast to a `double` or `float` is read as Spark reads it, with Java's `Double.parseDouble`: `CAST('1.5d' AS DOUBLE)` is 1.5, as are `'1.5f'` and `'  1.5  '`, hexadecimal text such as `'0x1p3'` reads as 8.0, `'Infinity'`, `'inf'` and `'NaN'` are read in any case, and `CAST('1_000' AS DOUBLE)` is NULL, where DuckDB gave NULL for `'1.5d'` and 1000 for `'1_000'`. Comparisons of text with a double read the text the same way.
+
+These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_text_of_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| An interval whose fields the query doesn't show, cast to text or given to a function that reads text: a column, a CASE, a function's result, or an interval divided or multiplied by a fraction | Spark writes it by its type's fields (`DAY TO SECOND`, `HOUR`...), which DuckDB's interval doesn't carry. Cast the interval where it is made, such as `CAST(end_time - start_time AS STRING)` |
+| An interval that mixes years or months with days or times cast to text, such as `INTERVAL 1 MONTH 2 DAY` | Spark 3.5 stops on it |
+| Hexadecimal text cast to a `double` whose digits pass 53 bits or whose value is below 2^-1022, such as `'0x1p-1100'` | This PC reads a hexadecimal double only in that range. Write the number in decimal |
+
+These cases still differ:
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A decimal, double or interval inside an array, map or struct cast to text, such as an array of `DECIMAL(9,8)` | `[1E-8]` | DuckDB's text, `[0.00000001]` |
+| `concat` of columns with no text literal among its parts, and the DataFrame API's `concat` | Each part as Spark writes it as text | DuckDB's text of a decimal, double or timestamp |
+| A date minus a date that isn't cast to text | An `interval day` | A `bigint` of days |
+| A subtraction cast to text whose operands aren't columns, literals or casts, such as `CAST(date_trunc('DAY', t) - t AS STRING)` | The interval's text | Refused by name, as an interval whose fields the query doesn't show |
 
 ## Text compared with a number on this PC
 

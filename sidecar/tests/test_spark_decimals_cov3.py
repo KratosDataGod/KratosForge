@@ -53,9 +53,12 @@ def test_avg_with_filter_and_over_keeps_both_and_gives_sparks_type(conn):
     assert kind == "DECIMAL(14,6)" and value is None   # the filter leaves no rows
 
 
-def test_places_that_arent_a_literal_number_leave_round_as_it_was(conn):
-    assert unchanged(conn, "round(x, n)")
-    assert unchanged(conn, "round(x, '1')")
+def test_places_that_arent_a_literal_number_are_folded_or_refused_before_the_types(conn):
+    # sql.parse folds constant places to a literal ('1' is 1), as Spark does, and refuses a column's, as Spark
+    # stops on it (test_spark_text_of_values.py), so only literal places reach spark_decimals
+    assert "ROUND(X, 1)" in sql.duckdb_sql(sql.parse("SELECT round(x, '1') AS v FROM t")[0]).upper()
+    with pytest.raises(ValueError, match="NON_FOLDABLE_INPUT"):
+        sql.parse("SELECT round(x, n) AS v FROM t")
     assert sd._places(exp.Literal.string("1")) is None
     assert sd._places(exp.column("n")) is None
     assert sd._places(None) == 0

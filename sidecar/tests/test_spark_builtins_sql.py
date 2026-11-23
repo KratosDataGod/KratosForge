@@ -52,7 +52,7 @@ SCALARS = [
     ("SELECT try_to_timestamp('2016-12-31', 'yyyy-MM-dd')", dt.datetime(2016, 12, 31)),
     ("SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)", dt.datetime(2014, 12, 28, 6, 30, 45, 887000)),
     ("SELECT make_timestamp_ntz(2014, 13, 28, 6, 30, 45)", None),  # Spark with ANSI off: NULL, not an error
-    ("SELECT CAST(make_dt_interval(1, 12, 30, 01.001001) AS STRING)", "1 day 12:30:01.001001"),
+    ("SELECT CAST(make_dt_interval(1, 12, 30, 01.001001) AS STRING)", "INTERVAL '1 12:30:01.001001' DAY TO SECOND"),
     ("SELECT isnull(1)", False),
     ("SELECT isnotnull(1)", True),
     ("SELECT nanvl(cast('NaN' as double), 123)", 123.0),

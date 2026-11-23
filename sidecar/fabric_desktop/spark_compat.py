@@ -2424,7 +2424,10 @@ _INT_CAST_NAMES = {"tinyint": ("TINYINT", "TINYINT"), "byte": ("TINYINT", "TINYI
                    "smallint": ("SMALLINT", "SMALLINT"), "short": ("SMALLINT", "SMALLINT"),
                    "int": ("INTEGER", "INT"), "integer": ("INTEGER", "INT"),
                    "bigint": ("BIGINT", "BIGINT"), "long": ("BIGINT", "BIGINT")}
-_INT_CAST_TYPES = {"ByteType": "tinyint", "ShortType": "smallint", "IntegerType": "int", "LongType": "bigint"}
+_INT_CAST_TYPES = {"ByteType": "tinyint", "ShortType": "smallint", "IntegerType": "int", "LongType": "bigint",
+                   "DoubleType": "double", "FloatType": "float"}
+# Column.cast to a double or float reads text as Java's Double.parseDouble does ('1.5d' is 1.5; sql.spark_double_cast)
+_DOUBLE_CAST_NAMES = {"double": "DOUBLE", "float": "FLOAT"}
 
 
 def _int_cast(original: Any) -> Any:
@@ -2437,9 +2440,13 @@ def _int_cast(original: Any) -> Any:
             stamp = str(dataType.duckdb_type)
         else:
             stamp = None
-        if target is None and stamp is None:
+        double = _DOUBLE_CAST_NAMES.get(name or "")
+        if target is None and stamp is None and double is None:
             return original(self, dataType)
         named = original(self, dataType).expr.get_name()   # the name DuckDB's own cast would give the column
+        if double is not None:
+            cast_sql = spark_sql.spark_double_cast("kf_cast", double, "legacy")
+            return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_cast: {cast_sql}))[1]").alias(named)
         # A number cast to a timestamp is its seconds since 1970 (EA-014), as spark_timestamp_cast writes it.
         if stamp is not None:
             cast_sql = spark_sql.spark_timestamp_cast("kf_cast", stamp, "legacy")

@@ -439,6 +439,22 @@ def java_double_text(x: str) -> str:
             f"WHEN ABS({x}) >= 0.001 AND ABS({x}) < 10000000 THEN {plain} ELSE {sci} END END)")
 
 
+def java_decimal_text(x: str) -> str:
+    """DuckDB SQL for Java's BigDecimal.toString of the DECIMAL ``x`` (Spark's text for a decimal): plain digits
+    while the exponent of the first digit is -6 or more, else d.dddE-n with every digit of the unscaled value
+    kept, so CAST(CAST(0.00000001 AS DECIMAL(9,8)) AS STRING) is '1E-8' and a zero of scale 10 is '0E-10'.
+    DuckDB writes the digits plainly, and '.5' for a DECIMAL(1,1), where Java writes '0.5'. ``x`` is read
+    once; its lambdas are written as DuckDB 2 reads them (lambda x: ...), as in java_double_text."""
+    first = "LENGTH(kf_decp.u) - 1 - kf_decp.n"  # the exponent of the first digit (Java's adjusted exponent)
+    return (f"(LIST_TRANSFORM([CAST({x} AS VARCHAR)], lambda kf_dect: CASE WHEN kf_dect IS NULL THEN NULL ELSE "
+            f"(LIST_TRANSFORM([{{'s': CASE WHEN kf_dect LIKE '-%' THEN '-' ELSE '' END, "
+            f"'u': COALESCE(NULLIF(LTRIM(REPLACE(REPLACE(kf_dect, '-', ''), '.', ''), '0'), ''), '0'), "
+            f"'n': LENGTH(SPLIT_PART(kf_dect, '.', 2))}}], lambda kf_decp: CASE WHEN {first} >= -6 THEN "
+            f"CASE WHEN kf_dect LIKE '-.%' THEN '-0' || SUBSTR(kf_dect, 2) WHEN kf_dect LIKE '.%' THEN '0' || kf_dect "
+            f"ELSE kf_dect END ELSE kf_decp.s || LEFT(kf_decp.u, 1) || CASE WHEN LENGTH(kf_decp.u) > 1 THEN '.' || "
+            f"SUBSTR(kf_decp.u, 2) ELSE '' END || 'E' || CAST({first} AS VARCHAR) END))[1] END))[1]")
+
+
 def java_value_text(a: str) -> str:
     """DuckDB SQL for Java's String.valueOf of a value, as Spark writes one as text, ready to run (its
     lambdas written as this DuckDB reads them)."""
@@ -448,22 +464,26 @@ def java_value_text(a: str) -> str:
 
 def _java_text(a: str, refuse_nested: bool = False) -> str:
     """Java's String.valueOf of a value, as %s prints it (a double as Java writes it). With ``refuse_nested``
-    (format_string's %s, array_join), an array, map or struct stops by name: Spark writes them its own way
-    there ([1,2], no spaces). Elsewhere (crosstab's labels, java_value_text) DuckDB's text of them is kept,
+    (format_string's %s, array_join), an array, map, struct or interval stops by name: Spark writes them its
+    own way there ([1,2], no spaces; an interval's microseconds). Elsewhere (crosstab's labels, java_value_text) DuckDB's text of them is kept,
     which is what Spark gives there."""
     nested = (f"WHEN TYPEOF({a}) LIKE '%]' OR TYPEOF({a}) LIKE 'STRUCT(%' OR TYPEOF({a}) LIKE 'MAP(%' "
               f"THEN CAST(ERROR('An array, map or struct isn''t written as text here as Spark writes it, so nothing "
               f"ran on this PC. Cast it to string in Fabric, or run the cell there.') AS VARCHAR) "
+              f"WHEN TYPEOF({a}) = 'INTERVAL' THEN CAST(ERROR('An interval isn''t written as text here as Spark "
+              f"writes it, so nothing ran on this PC. Cast it to string first, for example "
+              f"CAST(make_dt_interval(1) AS STRING), or run the cell in Fabric.') AS VARCHAR) "
               if refuse_nested else "")
     return (f"(CASE WHEN TYPEOF({a}) = 'DOUBLE' THEN {java_double_text(f'TRY_CAST({a} AS DOUBLE)')} "
             f"WHEN TYPEOF({a}) = 'FLOAT' THEN {java_double_text(f'TRY_CAST({a} AS FLOAT)')} "
+            f"WHEN TYPEOF({a}) LIKE 'DECIMAL(%' THEN {java_decimal_text(a)} "
             f"{nested}ELSE CAST({a} AS VARCHAR) END)")
 
 
 def spark_text_arg(a: str, fn: str, bind: bool = False) -> str:
     """DuckDB SQL for Spark's implicit cast of ``a`` to text where ``fn`` takes text (upper(14) is
-    upper('14')): a number, boolean, date or timestamp as Spark writes it. Binary, arrays, maps and
-    structs are refused by name, where DuckDB would write them its own way. TYPEOF folds when the query
+    upper('14')): a number, boolean, date or timestamp as Spark writes it. Binary, arrays, maps, structs and
+    intervals are refused by name, where DuckDB would write them its own way. TYPEOF folds when the query
     is planned, so text passes through at no cost; any other type is read once, in a lambda.
 
     Unbound, ``a`` is written three times, which suits a column or a literal. With ``bind`` the whole
@@ -471,9 +491,9 @@ def spark_text_arg(a: str, fn: str, bind: bool = False) -> str:
     multiply their argument's SQL with each level, and an argument such as rand() is evaluated once."""
     kind = "TYPEOF(kf_t)"
     other = (f"CASE WHEN {kind} = 'BLOB' OR {kind} LIKE '%]' OR {kind} LIKE 'STRUCT(%' "
-             f"OR {kind} LIKE 'MAP(%' OR {kind} LIKE 'UNION(%' THEN CAST(ERROR('{fn}() reads text here, and on this PC "
-             f"a binary, array, map or struct argument isn''t read as Spark reads it, so nothing ran. Cast it to "
-             f"string first, or run the cell in Fabric.') AS VARCHAR) "
+             f"OR {kind} LIKE 'MAP(%' OR {kind} LIKE 'UNION(%' OR {kind} = 'INTERVAL' THEN CAST(ERROR('{fn}() reads "
+             f"text here, and on this PC a binary, array, map, struct or interval argument isn''t read as Spark reads "
+             f"it, so nothing ran. Cast it to string first, or run the cell in Fabric.') AS VARCHAR) "
              f"WHEN {kind} = 'TIMESTAMP WITH TIME ZONE' THEN CAST(CAST(kf_t AS TIMESTAMP) AS VARCHAR) "
              f"ELSE {_java_text('kf_t')} END")
     if bind:
@@ -1096,7 +1116,8 @@ def _make_dt_interval(node: exp.Expression, args: list[exp.Expression]) -> exp.E
         return None
     parts = ["TO_DAYS(CAST(fj_arg0 AS INTEGER))", "TO_HOURS(CAST(fj_arg1 AS BIGINT))",
              "TO_MINUTES(CAST(fj_arg2 AS BIGINT))", "TO_MICROSECONDS(CAST(ROUND(fj_arg3 * 1000000) AS BIGINT))"]
-    return _with_args(" + ".join(parts[:len(args)]) if args else "INTERVAL 0 SECOND", args)
+    # In parentheses: -make_dt_interval(0, 0, 0, 5) and make_dt_interval(1) * 2 apply to the whole sum
+    return exp.paren(_with_args(" + ".join(parts[:len(args)]) if args else "INTERVAL 0 SECOND", args))
 
 
 def _to_timestamp(safe: bool) -> Callable[..., exp.Expression | None]:
@@ -1150,8 +1171,9 @@ def _octet_length(node: exp.Expression, args: list[exp.Expression]) -> exp.Expre
         return None
     if args[0].is_string:
         return _with_args("OCTET_LENGTH(ENCODE(fj_arg0))", args)
-    return _with_args("OCTET_LENGTH(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN fj_arg0::BLOB "
-                      "ELSE ENCODE(CAST(fj_arg0 AS VARCHAR)) END)", args)
+    # Anything but binary is counted in the text Spark writes for it (a decimal as '1E-8', _java_text).
+    return _read_once("OCTET_LENGTH(CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN fj_arg0::BLOB "
+                      f"ELSE ENCODE({_java_text('fj_arg0')}) END)", args)
 
 
 # A window's start as an instant (TIMESTAMPTZ, so the buckets are counted in UTC from 1970, as in

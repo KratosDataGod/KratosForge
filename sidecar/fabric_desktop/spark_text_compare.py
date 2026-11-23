@@ -33,8 +33,14 @@ _KEY = "kf_text_compare"
 # Spark's text to a whole number (UTF8String.toInt, ANSI off): spaces trimmed, a sign, digits and a fraction
 # that is dropped; '.5' and '-.' are 0, '+' and '1e2' are NULL, and a number past the type is NULL.
 _WHOLE_TEXT = r"^\s*[+-]?([0-9]+\.?[0-9]*|\.[0-9]*)\s*$"
-# Java's Double.parseDouble, which Spark's cast uses, takes a d or f after the number.
-_DOUBLE_TEXT = r"^\s*([+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?)[dDfF]?\s*$"
+# Java's Double.parseDouble, which Spark's cast uses (after Java's trim of characters up to a space): a sign,
+# digits with a point and an exponent, and a d or f after the number.
+_DOUBLE_TEXT = r"([+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?)[dDfF]?"
+# Its hexadecimal form, 0x1.8p1: hex digits with a point, and a binary exponent
+_HEX_DOUBLE = r"([+-]?)0[xX]([0-9a-fA-F]*)\.?([0-9a-fA-F]*)[pP]([+-]?[0-9]+)[dDfF]?"
+_HEX_REFUSED = ("A cast of hexadecimal text such as ''0x1p-1100'' to a double can''t run on this PC the way it runs in "
+                "Fabric, because this PC reads a hexadecimal double only when its digits fit in 53 bits and its "
+                "exponent leaves it from 2^-1022 up, so nothing ran. Write the number in decimal, or run the cell in Fabric.")
 
 
 def whole_text(value: str, duck_type: str) -> str:
@@ -45,13 +51,33 @@ def whole_text(value: str, duck_type: str) -> str:
     return f"CASE WHEN regexp_matches({text}, '{_WHOLE_TEXT}') THEN TRY_CAST({digits} AS {duck_type}) END"
 
 
-def double_text(value: str, duck_type: str = "DOUBLE") -> str:
-    """DuckDB SQL for the text ``value`` cast to a double (or float) as Spark casts it: spaces trimmed, a d
-    or f after the number taken, and NaN and infinity read in any case. ``value`` is written three times, as
-    in whole_text."""
-    text = f"CAST({value} AS VARCHAR)"
-    return (f"CASE WHEN regexp_matches({text}, '{_DOUBLE_TEXT}') THEN TRY_CAST(regexp_extract({text}, "
-            f"'{_DOUBLE_TEXT}', 1) AS {duck_type}) ELSE TRY_CAST(TRIM({text}) AS {duck_type}) END")
+def double_text(value: str, duck_type: str = "DOUBLE", invalid: str = "NULL") -> str:
+    """DuckDB SQL for the text ``value`` cast to a double (or float) as Spark casts it: Java's Double.parseDouble
+    (spaces and control characters around it trimmed, a d or f after the number, NaN and Infinity as Java writes
+    them, and its hexadecimal form 0x1.8p1), then Spark's inf, infinity and nan in any case. Anything else is
+    ``invalid`` (DuckDB SQL over the text kf_dbl): NULL with ANSI off. DuckDB's own cast also took '1_000' and
+    gave NULL for '1.5d'. ``value`` is read once; the lambdas are written as DuckDB 2 reads them."""
+    t = "kf_dbl"
+    hexed = "kf_dblh"
+    digits = f"COALESCE(NULLIF(LTRIM({hexed}.i || {hexed}.f, '0'), ''), '0')"
+    power = f"TRY_CAST({hexed}.e AS BIGINT) - 4 * LENGTH({hexed}.f)"
+    sign = f"CAST(CASE WHEN {hexed}.s = '-' THEN -1 ELSE 1 END AS DOUBLE)"
+    hex_value = (f"(LIST_TRANSFORM([REGEXP_EXTRACT({t}, '^{_HEX_DOUBLE}$', ['s', 'i', 'f', 'e'])], lambda {hexed}: "
+                 f"CASE WHEN {digits} = '0' THEN CAST({sign} * 0.0 AS {duck_type}) "
+                 f"WHEN LENGTH({digits}) > 14 OR TRY_CAST('0x' || {digits} AS UBIGINT) >= 9007199254740992 "
+                 f"OR {power} IS NULL OR {power} NOT BETWEEN -1022 AND 1023 "
+                 f"THEN CAST(ERROR('{_HEX_REFUSED}') AS {duck_type}) "
+                 f"ELSE CAST({sign} * CAST(TRY_CAST('0x' || {digits} AS BIGINT) AS DOUBLE) * POW(2.0, {power}) "
+                 f"AS {duck_type}) END))[1]")
+    return (f"(LIST_TRANSFORM([REGEXP_REPLACE(CAST({value} AS VARCHAR), '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '', 'g')], "
+            f"lambda {t}: CASE WHEN {t} IS NULL THEN NULL "
+            f"WHEN REGEXP_FULL_MATCH({t}, '{_DOUBLE_TEXT}') THEN TRY_CAST(REGEXP_EXTRACT({t}, '^{_DOUBLE_TEXT}$', 1) "
+            f"AS {duck_type}) "
+            f"WHEN LOWER({t}) IN ('inf', '+inf', 'infinity', '+infinity') THEN CAST('Infinity' AS {duck_type}) "
+            f"WHEN LOWER({t}) IN ('-inf', '-infinity') THEN CAST('-Infinity' AS {duck_type}) "
+            f"WHEN LOWER({t}) = 'nan' OR {t} IN ('+NaN', '-NaN') THEN CAST('NaN' AS {duck_type}) "
+            f"WHEN REGEXP_FULL_MATCH({t}, '{_HEX_DOUBLE}') AND REGEXP_MATCHES({t}, '[0-9a-fA-F][.pP]|[.][0-9a-fA-F]') "
+            f"THEN {hex_value} ELSE {invalid} END))[1]")
 
 
 # The lambda parameter the text side is bound to, so it is written once however deep comparisons nest. A
@@ -97,7 +123,7 @@ def _number_of(side: exp.Expr, kind: exp.DataType) -> exp.Expr:
 def _as_text(side: exp.Expr, kind: exp.DataType) -> exp.Expr:
     """A number as Spark's CAST to STRING writes it (IN with text compares as text)."""
     from .sql import spark_text_cast
-    if kind.this in _FLOATS:
+    if kind.this in _FLOATS or kind.this == _T.DECIMAL:
         return _bound(spark_text_cast(_LAMBDA), side)
     return exp.cast(side, exp.DataType.build("VARCHAR"))
 

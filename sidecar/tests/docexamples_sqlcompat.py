@@ -34,6 +34,15 @@ CLAIMS: list[Claim] = [
     # Double rounding and text-to-number comparison (#3086), math at its edges (WR-116, #3120)
     Claim("sql-compatibility.md", "round(0.285D, 2)", "notebook"),
     Claim("sql-compatibility.md", "round(1.005D, 2)", "notebook"),
+    _nb("round(0.285D, 1 + 1)"),
+    # Decimals, intervals and doubles as text on this PC
+    _nb("CAST(CAST(0.00000001 AS DECIMAL(9,8)) AS STRING)"),
+    _nb("CAST(CAST(0 AS DECIMAL(38,10)) AS STRING)"),
+    _nb("CAST(INTERVAL '5' SECOND AS STRING)"),
+    _nb("CAST(make_dt_interval(1, 12, 30, 1.001001) AS STRING)"),
+    _nb("CAST(INTERVAL 1 YEAR 2 MONTH AS STRING)"),
+    _nb("CAST('1.5d' AS DOUBLE)"),
+    _nb("CAST('1_000' AS DOUBLE)"),
     Claim("sql-compatibility.md", "'1.5' = 1", "notebook"),
     Claim("sql-compatibility.md", "'1.55' = 1.6", "notebook"),
     Claim("sql-compatibility.md", "'1.0' IN (1, 2)", "notebook"),

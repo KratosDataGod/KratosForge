@@ -160,7 +160,7 @@ Temp views work as in Spark: `createTempView` refuses a name a view already has 
 `spark.catalog.dropTempView` and `dropGlobalTempView` say whether they dropped one, and a global temp view
 (`createGlobalTempView`) is read as `global_temp.name` in `spark.sql` and `spark.table`. Text functions take numbers,
 booleans and dates as Spark's implicit cast writes them: `upper(14)` is `'14'` and a double reads as Java writes it
-(`1.0E20`), in the DataFrame API and Spark SQL; a binary, array, map or struct argument is refused by name.
+(`1.0E20`), in the DataFrame API and Spark SQL; a binary, array, map, struct or interval argument is refused by name.
 `spark.createDataFrame(["a"], "string")`, or with a type such as `IntegerType()`, makes one column named `value`.
 
 `drop` works as Spark's: a name drops every column called that (`drop("a.b.c")` drops the column named `a.b.c`), and a

@@ -24,7 +24,7 @@ from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
-               spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
+               spark_intervals, spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -194,6 +194,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     (_spark_timestampdiff)."""
     statement = spark_builtins_sql.mark(statement)
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
+    statement = _round_places(statement)
     statement = spark_builtins_sql.check_nested_concat_ws(statement)
     if databricks:
         _mark_divisions(statement)
@@ -481,6 +482,65 @@ _ANON_TEMPLATES = {
                "kf_c -> RPAD(LEFT(ARRAY_TO_STRING(LIST_FILTER(kf_c[2:], (kf_v, kf_i) -> kf_v <> '0' AND kf_v <> kf_c[kf_i]), "
                "''), 3), 3, '0')))[1] END))[1]",
 }
+# What Spark doesn't fold to a constant: a column (or lambda argument), a subquery, an aggregate or window, a random value
+_NOT_FOLDABLE = (exp.Column, exp.Subquery, exp.Select, exp.Rand, exp.Randn, exp.Uuid, exp.AggFunc, exp.Window)
+_RANDOM_CALLS = {"RAND", "RANDN", "RANDOM", "UUID", "SHUFFLE", "MONOTONICALLY_INCREASING_ID", "SPARK_PARTITION_ID",
+                 "INPUT_FILE_NAME", "RANDSTR", "UNIFORM"}
+
+
+def _round_places(statement: exp.Expression) -> exp.Expression:
+    """round, bround, ceil and floor with a number of places written as an expression (round(x, 1 + 1),
+    round(x, CAST('2' AS INT))): Spark folds it to a constant int first, so it rounds a double's decimal text
+    there as it does for round(x, 2) (spark_decimals._double_round); here the binary value was rounded, so
+    round(0.285D, 1 + 1) was 0.28 where Spark gives 0.29. The expression is worked out once, as Spark's cast to
+    INT reads it, and written as a literal. Spark stops on places that aren't a constant (a column, a random
+    value: DATATYPE_MISMATCH.NON_FOLDABLE_INPUT), so those are refused by name."""
+    for node in list(statement.find_all(exp.Round, exp.Ceil, exp.Floor, exp.Anonymous)):
+        if isinstance(node, exp.Anonymous):
+            if node.name.upper() != "BROUND" or len(node.expressions) != 2:
+                continue
+            places, name = node.expressions[1], "bround"
+        else:
+            places, name = node.args.get("decimals"), type(node).__name__.lower()
+        if places is None:
+            continue
+        literal = places.this if isinstance(places, exp.Neg) else places
+        if isinstance(literal, exp.Literal) and not literal.is_string and literal.this.isdigit():
+            continue
+        if any(isinstance(n, _NOT_FOLDABLE) or (isinstance(n, exp.Anonymous) and n.name.upper() in _RANDOM_CALLS)
+               for n in places.walk()):
+            raise ValueError(f"{name}() with a number of places read from a column, a subquery or a random value "
+                             f"can't run, in Spark too (DATATYPE_MISMATCH.NON_FOLDABLE_INPUT), so nothing ran. Write "
+                             f"the number of places in the query, for example {name}(x, 2).")
+        if places.find(exp.Placeholder, exp.Parameter) is not None:
+            continue
+        value = _constant_int(places, name)
+        if value is None:
+            folded: exp.Expression = exp.cast(exp.Null(), exp.DataType.build("INT"))
+        else:
+            folded = exp.Literal.number(abs(value))
+            if value < 0:
+                folded = exp.Neg(this=folded)
+        places.replace(folded)
+    return statement
+
+
+def _constant_int(places: exp.Expression, name: str) -> int | None:
+    """The constant ``places``, cast to INT as Spark's CAST reads it ('2.7' is 2), worked out on its own."""
+    try:
+        query = _parse(f"SELECT CAST(({places.sql(dialect='spark')}) AS INT)", "spark")[0]
+        con = _connect()
+        try:
+            row = con.execute(duckdb_sql(query)).fetchone()
+        finally:
+            con.close()
+    except (ValueError, duckdb.Error) as exc:
+        raise ValueError(f"{name}()'s number of places couldn't be worked out on this PC as Spark works it out "
+                         f"({str(exc).splitlines()[0] if str(exc) else type(exc).__name__}), so nothing ran. Write the "
+                         f"number of places in the query, for example {name}(x, 2).") from None
+    return None if row is None or row[0] is None else int(row[0])
+
+
 def _bround(places: int) -> str:
     """bround(x, places) with places written out: half-even, as Spark's, keeping a decimal a decimal
     (DuckDB's ROUND and TRUNC do; ROUND_EVEN returns a DOUBLE). A value exactly half way whose lower
@@ -1336,6 +1396,49 @@ def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -
 _WIDTHS = {"TINYINT": 8, "SMALLINT": 16, "INTEGER": 32, "BIGINT": 64}
 
 
+_DOUBLE_CASTS = {exp.DataType.Type.DOUBLE: "DOUBLE", exp.DataType.Type.FLOAT: "FLOAT"}
+
+
+_JAVA_DOUBLE = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+_JAVA_HEX_DOUBLE = re.compile(r"[+-]?0[xX](?:[0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+")
+
+
+def java_double_literal(text: str) -> str | None:
+    """Text written in the query, read as spark_double_cast reads it: the text DuckDB's cast reads as the same
+    number, None for text that isn't a number, or "" for a hexadecimal double past what this PC reads (left to
+    spark_double_cast, which refuses it by name as the query runs)."""
+    trimmed = re.sub(r"^[\x00-\x20]+|[\x00-\x20]+$", "", text)
+    lowered = trimmed.lower()
+    if lowered in ("inf", "+inf", "infinity", "+infinity"):
+        return "Infinity"
+    if lowered in ("-inf", "-infinity"):
+        return "-Infinity"
+    if lowered == "nan" or trimmed in ("+NaN", "-NaN"):
+        return "NaN"
+    number = trimmed[:-1] if trimmed[-1:] in ("d", "D", "f", "F") else trimmed
+    if _JAVA_DOUBLE.fullmatch(number):
+        return number
+    if _JAVA_HEX_DOUBLE.fullmatch(number):
+        return ""  # its digits and exponent are checked where the SQL reads it
+    return None
+
+
+def spark_double_cast(value: str, duck_type: str, mode: str) -> str:
+    """DuckDB SQL casting ``value`` to a DOUBLE or FLOAT as Spark does: text as Java's Double.parseDouble reads it
+    (spark_text_compare.double_text), so '1.5d', ' 1.5 ' and '0x1p3' are numbers and '1_000' is NULL; DuckDB gave
+    NULL for '1.5d' and 1000 for '1_000'. ``mode`` is as for spark_integer_cast: text that isn't a number is NULL,
+    or with "ansi" (Databricks SQL's CAST) an error. Any other type keeps DuckDB's own cast."""
+    from .spark_text_compare import double_text
+    invalid = "NULL"
+    if mode == "ansi":
+        invalid = ("CAST(ERROR('[CAST_INVALID_INPUT] The value ''' || left(kf_dbl, 200) || ''' of the type \"STRING\" "
+                   f"cannot be cast to \"{duck_type}\" because it is malformed. Use try_cast to tolerate malformed "
+                   f"input and return NULL instead.') AS {duck_type})")
+    cast_ = "CAST" if mode == "ansi" else "TRY_CAST"
+    return (f"CASE WHEN typeof({value}) = 'VARCHAR' THEN {double_text(value, duck_type, invalid)} "
+            f"ELSE {cast_}({value} AS {duck_type}) END")
+
+
 def _java_narrowed(number: str, duck_type: str, from_double: bool = False) -> str:
     """DuckDB SQL for ``number`` (a HUGEINT, or a DOUBLE with ``from_double``) cast to ``duck_type`` as
     Spark's CAST does with ANSI mode off, which is Java's: a whole number keeps its low bits, so
@@ -1449,16 +1552,51 @@ _NOT_UTF8 = ("'A cast of binary to string can''t run on this PC the way it runs 
 def spark_text_cast(value: str) -> str:
     """CAST(value AS STRING) as Spark writes it: a timestamp as the session zone's wall time with no
     offset ('2026-01-02 03:04:05', where DuckDB writes '+00' after it), a double or float as Java
-    writes it ('1.0E20', where DuckDB writes '1e+20'), and binary as its UTF-8 text (bytes that aren't UTF-8
-    are refused). Every other type casts as DuckDB casts it."""
+    writes it ('1.0E20', where DuckDB writes '1e+20'), a decimal as Java's BigDecimal writes it ('1E-8', where
+    DuckDB writes '0.00000001'), and binary as its UTF-8 text (bytes that aren't UTF-8 are refused). An interval
+    is refused by name here: its text needs its fields, which spark_integer_casts reads from the query where it
+    can (spark_intervals). Every other type casts as DuckDB casts it."""
     java = spark_builtins_sql.java_double_text
     return (f"CASE WHEN typeof({value}) = 'TIMESTAMP WITH TIME ZONE' THEN "
             f"regexp_replace(CAST({value} AS VARCHAR), '[+-][0-9][0-9](:[0-9][0-9])?$', '') "
             f"WHEN typeof({value}) = 'DOUBLE' THEN {java(f'TRY_CAST({value} AS DOUBLE)')} "
             f"WHEN typeof({value}) = 'FLOAT' THEN {java(f'TRY_CAST({value} AS FLOAT)')} "
+            f"WHEN typeof({value}) LIKE 'DECIMAL(%' THEN {spark_builtins_sql.java_decimal_text(value)} "
+            f"WHEN typeof({value}) = 'INTERVAL' THEN CAST(ERROR('{spark_intervals.REFUSED}') AS VARCHAR) "
             f"WHEN typeof({value}) = 'BLOB' THEN (LIST_TRANSFORM([TRY_CAST({value} AS BLOB)], lambda kf_bin: CASE WHEN kf_bin "
             f"IS NULL THEN NULL ELSE COALESCE(TRY(DECODE(kf_bin)), ERROR({_NOT_UTF8})) END))[1] "
             f"ELSE CAST({value} AS VARCHAR) END")
+
+
+def _time_difference_text(source: exp.Expression) -> exp.Expression | None:
+    """CAST(a - b AS STRING) of timestamps or dates, as Spark writes the interval it is: a timestamp minus a
+    timestamp or a date is DAY TO SECOND (INTERVAL '1 03:04:05' DAY TO SECOND), a date minus a date is DAY
+    (INTERVAL '1' DAY, where DuckDB's difference is a BIGINT of days). An operand the query shows is a date or a
+    timestamp counts as one; a column's type is read as the query runs (its typeof, which reads nothing). None
+    when ``source`` isn't such a subtraction; any other subtraction is cast by spark_text_cast as the query runs."""
+    while isinstance(source, exp.Paren):
+        source = source.this
+    if not isinstance(source, exp.Sub):
+        return None
+    operands = [source.this, source.expression]
+    found = [spark_intervals.time_operand(o) for o in operands]
+    if "other" in found:
+        return None
+    columns: list[exp.Expression] = []
+
+    def test(i: int, types: str, static: bool) -> str:
+        if found[i] != "column":
+            return "TRUE" if static else "FALSE"
+        columns.append(operands[i])
+        return f"typeof(fj_arg{len(columns)}) IN ({types})"
+
+    times = " AND ".join(test(i, _TIME_TYPES, True) for i in range(2))
+    dates = " AND ".join(test(i, "'DATE'", found[i] == "date") for i in range(2))
+    text = (f"(LIST_TRANSFORM([fj_arg0], lambda kf_cast: CASE WHEN typeof(kf_cast) = 'INTERVAL' AND {times} THEN "
+            f"{spark_intervals.text_sql('kf_cast', ('dt', 'DAY', 'SECOND'))} "
+            f"WHEN typeof(kf_cast) = 'BIGINT' AND {dates} THEN {spark_intervals.days_text_sql('kf_cast')} "
+            f"ELSE {spark_text_cast('kf_cast')} END))[1]")
+    return _with_args(text, [source, *columns])
 
 
 def _spark_concat_text(statement: exp.Expression) -> exp.Expression:
@@ -1582,9 +1720,31 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
             to = "TIMESTAMPTZ" if _to_timestamp_call(node) else duckdb_sql(node.to)
             write = functools.partial(spark_timestamp_cast, duck_type=to, mode=mode)
         elif kind in _TEXT_CASTS and not (isinstance(source, exp.Literal) and source.is_string) and not node.to.expressions:
-            write = functools.partial(spark_text_cast)
+            interval = spark_intervals.kind_of(source)
+            spark_intervals.refuse_mixed(interval)
+            subtracted = _time_difference_text(source) if interval is None else None
+            if subtracted is not None:
+                replacement = exp.paren(subtracted)
+                replacement.type = node.to.copy()
+                replacement.meta[spark_complex.TYPED] = True
+                done.add(id(replacement))
+                if node is statement:
+                    return replacement
+                node.replace(replacement)
+                continue
+            write = functools.partial(spark_intervals.text_sql, kind=interval) if interval else functools.partial(spark_text_cast)
         elif kind in _BINARY_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
             write = functools.partial(spark_binary_cast)
+        elif kind in _DOUBLE_CASTS and not (isinstance(source, exp.Literal) and not source.is_string):
+            read = java_double_literal(source.this) if isinstance(source, exp.Literal) else ""
+            if (read is not None and read != "") or (read is None and mode != "ansi"):
+                # text written in the query is read here once, not by the SQL on every row
+                folded = exp.Cast(this=exp.Literal.string(read) if read else exp.Null(), to=node.to.copy())
+                if node is statement:
+                    return folded
+                node.replace(folded)
+                continue
+            write = functools.partial(spark_double_cast, duck_type=_DOUBLE_CASTS[kind], mode=mode)
         else:
             continue
         if isinstance(source, (exp.Column, exp.Literal)):
@@ -1594,9 +1754,12 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
             # and a source such as rand() is evaluated once. The source sits outside the lambda.
             text = f"(LIST_TRANSFORM([fj_arg0], kf_cast -> {write('kf_cast')}))[1]"
         replacement = exp.paren(_with_args(text, [source]))
+        if kind in _DOUBLE_CASTS:  # a plain cast outside, so sqlglot still types it (spark_decimals' double rounding)
+            replacement = exp.paren(exp.Cast(this=replacement, to=node.to.copy()))
         replacement.type = exp.DataType.build("TIMESTAMPTZ") if _to_timestamp_call(node) else node.to.copy()
         replacement.meta[spark_complex.TYPED] = True  # for spark_complex_types: the cast's own type
-        done.add(id(replacement))
+        if kind not in _DOUBLE_CASTS:  # a double cast to a whole number still narrows as Java does
+            done.add(id(replacement))
         if node is statement:
             return replacement
         node.replace(replacement)

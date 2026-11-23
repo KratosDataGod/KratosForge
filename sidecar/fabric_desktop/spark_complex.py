@@ -223,6 +223,11 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
             node.replace(_parse(_size_sql(value, is_map=True)))
         elif kind == "reverse" and dtype.is_type(exp.DataType.Type.ARRAY):
             node.replace(_parse(f"LIST_REVERSE({a})"))
+        elif kind == "reverse" and dtype.is_type(exp.DataType.Type.DECIMAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT):
+            # the text Spark writes for the number, reversed: '8-E1' for a decimal 1E-8, where DuckDB reversed '0.00000001'
+            from .spark_builtins_sql import _java_text  # it imports this module's callers
+            node.replace(_parse(f"REVERSE((LIST_TRANSFORM([{a}], lambda kf_rev: "
+                                f"{_java_text('kf_rev')}))[1])"))
         elif kind == "sequence" and dtype.is_type(*exp.DataType.INTEGER_TYPES):
             whole = "INT" if dtype.is_type(exp.DataType.Type.INT) else "BIGINT"
             parts = {"s": node.args["start"], "e": node.args["end"]}

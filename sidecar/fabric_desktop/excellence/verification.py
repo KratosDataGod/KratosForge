@@ -109,7 +109,7 @@ def _finding_problems(f: Any) -> list[str]:
         out.append("the finding has no rule version")
     if not isinstance(res, dict) or not _text(res.get("id")):
         out.append("the finding has no resource")
-    if not out and f["id"] != fx.finding_id(f["rule"].split("@", 1)[0], res["id"]):
+    if not out and isinstance(res, dict) and f["id"] != fx.finding_id(f["rule"].split("@", 1)[0], res["id"]):
         out.append("the finding's id doesn't match its control and resource")
     return out
 
@@ -326,8 +326,10 @@ def realized_savings(billing_evidence: Any, *, status: str, before_snapshot: Any
         return None, "The fix isn't verified, so no saving is credited to it."
     e = billing_evidence
     def covered(s: dict[str, Any]) -> set[str]:
-        scope = s.get("scope") if isinstance(s.get("scope"), dict) else {}
-        listed = scope.get("capacities") if isinstance(scope.get("capacities"), list) else []
+        raw_scope = s.get("scope")
+        scope: dict[str, Any] = raw_scope if isinstance(raw_scope, dict) else {}
+        raw_listed = scope.get("capacities")
+        listed: list[Any] = raw_listed if isinstance(raw_listed, list) else []
         return {str(c.get("id")) for c in listed if isinstance(c, dict)}
 
     caps = covered(before_snapshot) & covered(after_snapshot)
@@ -341,6 +343,8 @@ def realized_savings(billing_evidence: Any, *, status: str, before_snapshot: Any
         return None, "The capacity change isn't between the two assessments."
     billed = e.get("billed")
     if billed is None:
+        if change is None:  # _billing_problems already refuses evidence with neither
+            return None, "No billing or capacity change evidence was given. " + SAVINGS_NOTE
         return None, (f"The capacity had a {change['kind'].replace('_', ' ')} on {iso(change['at'])} ({e['source']}), "
                       "but no billed amounts before and after were given, so there is no figure yet. "
                       + SAVINGS_NOTE)

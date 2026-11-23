@@ -368,7 +368,7 @@ WHERE NOT EXISTS (SELECT 1 FROM dbo.dim_customer AS d WHERE d.customer_id = s.cu
 
 The check looks for `ROW_NUMBER()` named `..._key` or `..._sk` in a statement that stores its rows
 (`INSERT`, `MERGE`, `SELECT ... INTO` or `CREATE TABLE ... AS`). Only a `ROW_NUMBER()` that is the
-whole item, or the whole item inside a `CAST` or `CONVERT`, is reported. An offset added to it, as in the fix above,
+whole item, or the whole item inside a `CAST`, `TRY_CAST`, `CONVERT` or `TRY_CONVERT`, is reported. An offset added to it, as in the fix above,
 isn't. In KratosForge, the keys database
 (LH_Keys) gives each business key its number once.
 

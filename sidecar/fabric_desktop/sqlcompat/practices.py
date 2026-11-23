@@ -445,8 +445,8 @@ def _whole_item(s: Stmt, i: int, end: int) -> int:
             return -1
         start, end = i - 2, close + 1
     elif i >= 1 and toks[i - 1].type == TokenType.COMMA:  # CONVERT(INT, ROW_NUMBER() OVER (...))
-        k = i - 2
-        while k >= 0 and toks[k].type != TokenType.L_PAREN:
+        k = i - 2  # back to CONVERT's own "(", over the type's balanced parentheses: DECIMAL(18, 0)
+        while k >= 0 and not (toks[k].type == TokenType.L_PAREN and toks[k].depth < toks[i].depth):
             k -= 1
         if k >= 1 and toks[k - 1].kw in {"CONVERT", "TRY_CONVERT"} and toks[k - 1].depth < toks[i].depth \
                 and end < len(toks) and toks[end].type == TokenType.R_PAREN:

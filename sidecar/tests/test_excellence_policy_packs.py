@@ -316,6 +316,30 @@ def test_applicability_by_item_type_and_unknown_workspace_names():
     assert pp.out_of_scope(prof, "FEA-SEC-001", nb, dev) is None
 
 
+def test_main_s_pipeline_and_git_controls_are_validated_against_the_catalog():
+    # FEA-REL-004/005/006 (pipeline retry, timeout, failure path) and FEA-DEVOPS-003/004/005 (Git) came
+    # from the catalog after packs were written; a pack names them like any other control.
+    new = ("FEA-REL-004", "FEA-REL-005", "FEA-REL-006", "FEA-DEVOPS-003", "FEA-DEVOPS-004", "FEA-DEVOPS-005")
+    assert all(REG.get(cid) is not None for cid in new)
+    p = pack(disabled=[{"control_id": "FEA-DEVOPS-003", "reason": "Sandbox kept out of Git on purpose"}],
+             severity_overrides={"FEA-REL-004": "high", "FEA-DEVOPS-004": "medium"},
+             applicability={"FEA-REL-005": {"item_types": ["DataPipeline"], "workspaces": ["^prod-.*$"]},
+                            "FEA-DEVOPS-005": {"workspaces": ["^prod-.*$"]}})
+    assert problems(p) == []
+    prof = pp.apply(pf.get(), p, REG)
+    assert "FEA-DEVOPS-003" in prof.disabled
+    assert prof.severity_overrides == {"FEA-REL-004": "high", "FEA-DEVOPS-004": "medium"}
+    pl = {"type": "item", "id": "i1", "name": "load", "workspace_id": "w1", "item_type": "DataPipeline"}
+    dev = {"type": "workspace", "id": "w1", "name": "dev-sales"}
+    assert "matches none" in pp.out_of_scope(prof, "FEA-REL-005", pl, dev)
+    assert "matches none" in pp.out_of_scope(prof, "FEA-DEVOPS-005", dev, dev)
+    assert pp.out_of_scope(prof, "FEA-REL-006", pl, dev) is None
+    assert any("narrow that, not widen" in x
+               for x in problems(pack(applicability={"FEA-REL-004": {"item_types": ["Notebook"]}})))
+    assert any("only item controls" in x
+               for x in problems(pack(applicability={"FEA-DEVOPS-004": {"item_types": ["DataPipeline"]}})))
+
+
 def test_naming_violations():
     got = pp.naming_violations(full(), "Sales Prod", [
         {"id": "a", "type": "Notebook", "name": "Load_Orders"},

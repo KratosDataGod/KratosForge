@@ -912,6 +912,10 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
             missing = [c for c in zorder if c not in t.schema().to_arrow().names]
             if missing:
                 raise ValueError(f"ZORDER BY names columns {name_} hasn't got: {', '.join(missing)}. Nothing was changed.")
+        kept = maintenance.kept_days(t.metadata().configuration)
+        if maintenance.keep_log(ref.uri, maintenance.retention_hours(max(kept or 0, maintenance.MIN_RETENTION_DAYS)),
+                                opts):
+            t.update_incremental()
         metrics = local_commit(once, f"{name_}'s next version")
         note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
     elif operation == "vacuum":
@@ -922,6 +926,8 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
                              f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
                              "Fabric's Spark refuses it too. Nothing was changed.")
         hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
+        if not dry_run and maintenance.keep_log(ref.uri, hours, opts):  # VACUUM's commits can clean the log
+            t.update_incremental()
         keep, _oldest = maintenance.skewed_versions(t, int(hours))  # a clock out of step deletes nothing still read
         tries = [0]
 
@@ -956,7 +962,7 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
         else:
             raise ValueError("RESTORE needs TO VERSION AS OF n or TO TIMESTAMP AS OF '...'.")
         try:
-            metrics = t.restore(target, commit_properties=commit)
+            metrics = t.restore(target, commit_properties=commit, post_commithook_properties=maintenance.KEEP_LOG)
         except OSError as exc:  # not repeated: a writer's commit meanwhile would be undone by a second RESTORE
             if (conflict := lost_commit(exc, f"{name_}'s next version")) is not None:
                 raise conflict from exc

@@ -23,7 +23,7 @@ import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
-from .. import delta_profile, delta_read, durable
+from .. import delta_profile, delta_read, durable, maintenance
 from ..errors import NotSetUp
 from ..leases import LeaseBusy, LeaseLost, Leases, LocalBackend, check_held, table_key
 from ..retrying import commit_conflict, local_retry, lost_commit, staged_commit_race
@@ -819,6 +819,8 @@ class LocalStore(Store):
         uri = self.uri(META_LAKEHOUSE, "meta", table)
         try:
             with self.compaction_lease(META_LAKEHOUSE, "meta", table, wait=0):
+                kept = maintenance.kept_days(DeltaTable(uri).metadata().configuration)
+                maintenance.keep_log(uri, maintenance.retention_hours(max(kept or 0, maintenance.MIN_RETENTION_DAYS)))
                 dt_ = DeltaTable(uri)
                 dt_.optimize.compact()
                 durable.sync_commits(uri, version + 1, dt_.version())

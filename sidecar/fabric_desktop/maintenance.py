@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote
 
-from deltalake import DeltaTable
+from deltalake import DeltaTable, PostCommitHookProperties
 from deltalake.exceptions import TableNotFoundError
 
 from . import durable, retrying
@@ -32,6 +32,19 @@ VERSIONS_BEFORE_VACUUM = 30
 RETENTION_HOURS = 7 * 24 + 1  # Fabric's default retention is 7 days
 MIN_RETENTION_DAYS = 7  # Delta's default; VACUUM with less can delete files a reader or writer still needs
 LOG_RETENTION_DAYS = 30  # Delta's default: older log entries go at the next checkpoint
+# delta-rs cleans the log when a commit writes a checkpoint (every delta.checkpointInterval versions) unless
+# delta.enableExpiredLogCleanup is false: it deletes each commit and checkpoint older than
+# delta.logRetentionDuration that comes before the last checkpoint at or before the oldest log file it keeps.
+# The version current when the history kept starts can be older than that, and is then deleted: it (and its
+# files, which VACUUM keeps) can no longer be loaded, and a time travel to then reads a later version. A
+# RESTORE or a property change on this PC takes KEEP_LOG and cleans no log; OPTIMIZE and VACUUM ignore it
+# (delta-rs 1.6.6), so keep_log comes first.
+# It writes no checkpoint either: one drops the removals older than deletedFileRetentionDuration, and a VACUUM
+# after it no longer knows to delete their files. A later commit at the interval checkpoints.
+KEEP_LOG = PostCommitHookProperties(create_checkpoint=False, cleanup_expired_logs=False)
+_LOG_FILE = re.compile(r"(\d{20})\.(json|checkpoint(\.\d+\.\d+)?\.parquet)")
+_INTERVAL = re.compile(r"(?:interval\s+)?(\d+(?:\.\d+)?)\s*(millisecond|second|minute|hour|day|week)s?", re.I)
+_UNIT_SECONDS = {"millisecond": 0.001, "second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 7 * 86400}
 # delta-rs writes each file on this PC as <name>#<n> and then renames (data) or links (log) it into
 # place, so a write stopped part way leaves files under that staging name. One untouched this long
 # belongs to a write that has stopped: a live one finishes a file and publishes it in one go.
@@ -283,11 +296,79 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None, al
     table = DeltaTable(uri, storage_options=options)
     wanted = retention_properties(days)
     config = table.metadata().configuration or {}
+    own = str(config.get("delta.logRetentionDuration") or "")
+    if _interval_seconds(own) > _interval_seconds(wanted["delta.logRetentionDuration"]):
+        wanted["delta.logRetentionDuration"] = own  # the table's own longer one stays
     if all(config.get(k) == v for k, v in wanted.items()):
         return False
     # A commit like any other: on Windows it can lose the staged-commit race to a writer (retrying.local_commit).
     retrying.local_commit(lambda: DeltaTable(uri, storage_options=options).alter.set_table_properties(
-        wanted, raise_if_not_exists=False), "this table's next version")
+        wanted, raise_if_not_exists=False, post_commithook_properties=KEEP_LOG), "this table's next version")
+    return True
+
+
+def _interval_seconds(text: str) -> float:
+    """``interval 30 days`` (or hours, weeks...) in seconds; 0 for anything else, the shortest there is."""
+    m = _INTERVAL.fullmatch(text.strip())
+    return float(m.group(1)) * _UNIT_SECONDS[m.group(2).lower()] if m else 0.0
+
+
+def log_seconds(config: dict[str, str] | None) -> float:
+    """How long the table's log cleanup keeps a log file, in seconds: its delta.logRetentionDuration, Delta's
+    30 days when it sets none, 0 when it's one this can't read; infinite when delta.enableExpiredLogCleanup
+    is false (delta-rs then cleans nothing)."""
+    config = config or {}
+    if str(config.get("delta.enableExpiredLogCleanup", "")).strip().lower() == "false":
+        return math.inf
+    text = config.get("delta.logRetentionDuration")
+    return LOG_RETENTION_DAYS * 86400.0 if text is None else _interval_seconds(str(text))
+
+
+def keep_log(uri: str, hours: float, options: dict[str, str] | None = None, now: float | None = None) -> bool:
+    """Before an OPTIMIZE or VACUUM commit, which can clean the log (KEEP_LOG): raise the table's
+    delta.logRetentionDuration until every log file is kept that a version current in the last ``hours`` is
+    read from, the last checkpoint at or before the oldest such version on. True when it changed."""
+    from deltalake.fs import DeltaStorageHandler
+    from pyarrow.fs import FileSelector
+
+    table = DeltaTable(uri, storage_options=options)
+    retention = log_seconds(table.metadata().configuration)
+    if math.isinf(retention):
+        return False
+    now = time.time() if now is None else now
+    start = now - hours * 3600
+    commits: dict[int, float] = {}
+    checkpoints: dict[int, float] = {}
+    listing = DeltaStorageHandler(table.table_uri, options).get_file_info_selector(FileSelector("_delta_log"))
+    for info in listing:
+        m = _LOG_FILE.fullmatch(info.base_name)
+        if m and info.mtime is not None:
+            found = commits if m.group(2) == "json" else checkpoints
+            v = int(m.group(1))
+            found[v] = min(found.get(v, math.inf), info.mtime.timestamp())  # a checkpoint in parts: its oldest
+    if not commits:
+        return False
+    # A version's date is the later of its file's and its commitInfo's, so the oldest version inside the history
+    # kept is found by either clock; the one before it was current at its start.
+    dated = dict(commits)
+    for h in table.history():
+        if "version" in h and h.get("timestamp") is not None and int(h["version"]) in dated:
+            dated[int(h["version"])] = max(dated[int(h["version"])], float(h["timestamp"]) / 1000)
+    inside = [v for v, when in dated.items() if when > start]
+    first = min(commits)
+    current = max(first, min(inside) - 1) if inside else max(commits)
+    base = max((v for v in checkpoints if v <= current), default=None)
+    needed = [when for v, when in commits.items() if v >= (first if base is None else base)]
+    if base is not None:
+        needed.append(checkpoints[base])
+    oldest = min(needed)
+    if now - oldest + 86400 < retention:  # a day to spare for the commit that follows
+        return False
+    # Whole multiples of Delta's 30 days, so a table written seldom isn't raised again at every run.
+    days = math.ceil((now - oldest + 86400) / 86400 / LOG_RETENTION_DAYS) * LOG_RETENTION_DAYS
+    retrying.local_commit(lambda: DeltaTable(uri, storage_options=options).alter.set_table_properties(
+        {"delta.logRetentionDuration": f"interval {days} days"}, post_commithook_properties=KEEP_LOG),
+        "this table's next version")
     return True
 
 
@@ -300,6 +381,7 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     before, files_before = first.version(), len(first.file_uris())
     days = _with_own(first, days)
     set_retention(uri, days, allow_shorter=allow_shorter)
+    keep_log(uri, retention_hours(days))  # before OPTIMIZE and VACUUM, whose commits can clean the log
     # On Windows a writer committing the same next version at the same moment makes this commit fail to open
     # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
     # so compacting again is safe.

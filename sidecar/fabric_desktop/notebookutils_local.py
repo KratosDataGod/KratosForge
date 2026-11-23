@@ -550,12 +550,13 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
 
     def getDefinition(name: str, workspaceId: str = "", format: str = "ipynb") -> str:  # noqa: N802, N803, A002
         """The notebook's content as Fabric stores it (ipynb JSON by default), as text."""
+        from .fabric_api import definition_parts  # a part that isn't whole base64 is FabricError
         item = find(name, workspaceId)
-        parts = _client(host).get_item_definition(item["workspaceId"], item["id"], format).get("definition", {}).get("parts", [])
-        part = next((p for p in parts if p.get("path", "").startswith("notebook-content")), None)
-        if part is None:
+        parts = definition_parts(_client(host).get_item_definition(item["workspaceId"], item["id"], format))
+        path = next((p for p in parts if p.startswith("notebook-content")), None)
+        if path is None:
             raise LookupError(f"Fabric returned no content for the notebook {name}.")
-        return base64.b64decode(part["payload"]).decode("utf-8")
+        return parts[path].decode("utf-8")
 
     def item_change(*_a: Any, **_kw: Any) -> None:
         raise NotImplementedError("Creating, changing or deleting Fabric notebook items from a notebook runs in "
@@ -869,10 +870,11 @@ def _make_udf(host: Host) -> types.SimpleNamespace:
                      if i.get("type") == "UserDataFunction" and i.get("displayName") == udf), None)
         if item is None:
             raise LookupError(f"No User data functions item named {udf} in workspace {ws}.")
-        got = client.get_item_definition(ws, item["id"])
-        parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8-sig", "replace")
-                 for p in (got.get("definition") or {}).get("parts", []) if p.get("path")}
-        return UdfFunctions(item, _udf_functions(parts))
+        from .fabric_api import definition_parts  # a part that isn't whole base64 is FabricError
+        got = definition_parts(client.get_item_definition(ws, item["id"]))
+        if not got:
+            raise LookupError(f"Fabric returned no files for the User data functions item {udf}.")
+        return UdfFunctions(item, _udf_functions({p: data.decode("utf-8-sig", "replace") for p, data in got.items()}))
 
     return types.SimpleNamespace(
         getFunctions=getFunctions,

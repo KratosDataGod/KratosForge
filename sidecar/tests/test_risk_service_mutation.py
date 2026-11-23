@@ -24,11 +24,9 @@ def quiet(monkeypatch):
 
 def test_a_zero_threshold_written_as_text_and_zero_failed_runs_are_accepted():
     cfg = Svc().set_risk_settings(warn_run_cu_hours="0.0", warn_failed_runs=0)
-    assert cfg["warn_run_cu_hours"] in (0.0, None) and cfg["warn_failed_runs"] == 0
+    assert cfg["warn_run_cu_hours"] is None and cfg["warn_failed_runs"] == 0  # 0 CU hours: no warning
 
 
-@pytest.mark.xfail(strict=True, reason="a threshold of 0 written as text is kept as 0.0, which warns on every "
-                   "run, while the docstring says 0 turns the warning off")
 def test_a_zero_threshold_written_as_text_turns_the_warning_off():
     assert Svc().set_risk_settings(warn_run_cu_hours="0")["warn_run_cu_hours"] is None
 

@@ -361,7 +361,8 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   but the value isn't used. The view folder name is used as the view and semantic model name." A
   file that can't be read is left out of the merged check, and `merged.notes` names it. A view
   whose files declare no datasets is valid, with a warning that Fabric infers the datasets.
-  `validate` checks one whole document.
+  `validate` checks one whole document. A file given as something other than text or bytes is
+  refused with a plain message that names the file, cut short past 1,024 characters.
 - Snowflake rules: version `0.1.1` and the `semantic_model` wrapper. A field or metric with no
   `SNOWFLAKE` or `ANSI_SQL` expression gets a warning, because Snowflake skips it. That rule is
   labelled derived: Snowflake documents the behaviour but not where fields sit in 0.1.1. A correct

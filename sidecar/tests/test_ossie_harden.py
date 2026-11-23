@@ -6,7 +6,7 @@ import pytest
 
 import ossie_corpus as oc
 from fabric_desktop import model_ossie as mo
-from fabric_desktop import semantic_parity, semantic_view, tmdl
+from fabric_desktop import ossie_profiles, semantic_parity, semantic_view, tmdl
 
 WRONG_BIMS = ["hostile/wrong_tables_text.bim", "hostile/wrong_column_name_number.bim", "hostile/wrong_role_text.bim"]
 
@@ -124,3 +124,24 @@ def test_a_view_that_keeps_one_dataset_is_still_valid():
 def test_valid_sources_still_make_a_valid_view(path):
     out = _view(oc.load(oc.entry(path)))
     assert out["report"]["valid"] and "semantic-view/no-datasets" not in str(out["report"]["validation"])
+
+
+# ---- validate_files refuses a file that isn't text or bytes with a plain ValueError naming it
+
+@pytest.mark.parametrize("value", [5, None, ["a"], {"version": "0.2.0.dev0"}], ids=["number", "none", "list", "dict"])
+def test_a_view_file_that_isnt_text_or_bytes_is_a_plain_value_error_naming_it(value):
+    with pytest.raises(ValueError, match=r"^The file 'v\.yaml' should be text or bytes, not ") as exc:
+        ossie_profiles.validate_files({"v.yaml": value})
+    assert type(exc.value) is ValueError and "0.2.0.dev0" not in str(exc.value)
+
+
+def test_a_tmdl_file_that_isnt_text_or_bytes_is_named_cut_short():
+    name = "definition/" + "t" * 2000 + ".tmdl"
+    with pytest.raises(ValueError, match=r"\.\.\. \(2016 characters\)' should be text or bytes, not a number"):
+        ossie_profiles.validate_files({"v.yaml": "version: 0.2.0.dev0\nname: v\n"}, tmdl={name: 5})
+
+
+def test_text_and_bytes_are_sized_as_before():
+    files = {"a.yaml": "version: 0.2.0.dev0\nname: v\n", "b.yaml": b"version: 0.2.0.dev0\nname: v\n"}
+    result = ossie_profiles.validate_files(files, tmdl={"definition/model.tmdl": "model Model\n"})
+    assert result["counts"]["yaml_bytes"] == 56 and result["counts"]["tmdl_bytes"] == 12

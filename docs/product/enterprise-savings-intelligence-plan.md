@@ -463,9 +463,13 @@ Chris's reaction. No build before that.
 and optimization impact; verification drawer; leaderboard (after D5). The existing cost panel
 and its browser tests keep working.
 
-**ESI-507 Exports.** CSV for the eight reports in the brief (executive summary, workspace,
+**ESI-507 Exports.** **Engine half built** (CSV text, no file writes, no RPC). `savings/exports.py`. CSV for the eight reports in the brief (executive summary, workspace,
 capacity, developer contribution, monthly statement, audit history, estimated versus
-verified, capacity readiness), from the same ledger queries the page uses.
+verified, capacity readiness), from the same ledger queries the page uses. Every figure has its
+classification beside it and classifications are never added together; Unknown is an empty cell;
+text cells that start like a formula are protected. Developer contribution is per device until D3
+and D5; capacity readiness shows evidence only and leaves right-sizing to OE-040. The download
+screen waits on the ESI-502 mockup.
 
 ### Phase 6: Continuous optimization
 

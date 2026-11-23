@@ -61,6 +61,16 @@ count as increases and are labelled. A change that isn't known is None with the 
 output says it isn't enough to right-size a capacity: that needs peak, concurrency and throttling
 evidence from the planner's own inputs. Nothing recommends a SKU (ESI-602).
 
+``exports``: CSV text for the eight reports in the brief (executive summary, workspace, capacity,
+developer contribution, monthly statement, audit history, estimated versus verified, capacity
+readiness), read from the ledger's chains (each layer as its chain's head says) and the results of
+``realized``, ``pricing``, ``recurring`` and ``baselines``. Every figure has its classification in the
+next column, and different classifications are never added into one cell; Unknown is an empty cell,
+never 0; a price is a Scenario, never savings; text cells that start like a formula get an apostrophe.
+Developer contribution is per device: per-person reporting waits on D3 and D5. Capacity readiness
+shows evidence and recommends nothing; right-sizing belongs to the planner (OE-040). Text only: the
+download screen waits on the ESI-502 mockup (ESI-507).
+
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.
 """

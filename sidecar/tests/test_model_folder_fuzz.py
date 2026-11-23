@@ -115,16 +115,32 @@ def test_a_model_bim_with_a_part_of_the_wrong_type_is_refused_by_name(key, value
         model_ossie.export(bim)
 
 
-def test_a_model_nested_too_deeply_to_compare_still_exports_and_says_the_round_trip_didnt_run():
-    bim = _bim()
+def _deep_bim(depth: int) -> dict:
     deep: list[object] = []  # built in Python: json.loads of this hits the C stack limit first on Windows
-    for _ in range(3000):
+    for _ in range(depth):
         deep = [deep]
+    bim = _bim()
     bim["model"]["annotations"] = [{"name": "x", "value": deep}]
+    return bim
+
+
+def test_a_model_nested_too_deeply_to_compare_still_exports_and_says_the_round_trip_didnt_run():
+    """3,000 deep converts where the C stack is large (Linux) and is refused by name where it isn't (Windows)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        out = model_ossie.export(bim, validate=True)
-    assert out["round_trip"][0]["message"].startswith("the round-trip check didn't run")
+        try:
+            out = model_ossie.export(_deep_bim(3000), validate=True)
+        except ValueError as exc:
+            assert "nested too deeply" in str(exc)
+        else:
+            assert out["round_trip"][0]["message"].startswith("the round-trip check didn't run")
+
+
+def test_a_model_nested_too_deeply_to_convert_is_refused_by_name():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(ValueError, match="^This model couldn't be converted to Ossie, because part of it is nested too deeply"):
+            model_ossie.export(_deep_bim(20000), validate=True)
 
 
 def test_an_ossie_file_in_the_project_that_isnt_utf8_is_refused_naming_it(svc):  # noqa: F811

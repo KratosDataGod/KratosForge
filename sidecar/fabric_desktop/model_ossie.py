@@ -224,6 +224,9 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
     except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a number for tables)
         raise ValueError("This model couldn't be converted to Ossie, because part of it isn't the shape a semantic model's "
                          f"part has ({exc}). Fix that part, then try again.") from exc
+    except RecursionError:  # the converter recurses (and json-encodes) each part; Windows' C stack ends it soonest
+        raise ValueError("This model couldn't be converted to Ossie, because part of it is nested too deeply to read. "
+                         "Flatten that part (often an annotation value), then try again.") from None
     report = list(read_report or []) + report
     doc = yaml.safe_load(text)
     datasets = doc.get("datasets") or []

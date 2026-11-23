@@ -322,3 +322,61 @@ def test_the_aggregates_one_side_runs_are_capped_in_all(monkeypatch):
     rows = [o["behavior"]["left"] for o in report["objects"] if o.get("behavior")]
     assert sum(b["ran"] for b in rows) == 3
     assert all("aggregates in all" in b["reason"] for b in rows if not b["ran"])
+
+
+def _metric(name, sql):
+    return {"name": name, "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": sql}]}}
+
+
+def _with(*metrics):
+    doc = _ossie(_model("SUM('fact_sales'[amount])"), "SUM(amount)")
+    doc["metrics"] += [_metric(n, sql) for n, sql in metrics]
+    return l3.parity_l3(doc, copy.deepcopy(doc))
+
+
+@pytest.mark.parametrize("metrics", [[("a", "b"), ("b", "a")], [("s", "s")]], ids=["two", "self"])
+def test_a_measure_reference_cycle_is_not_run_with_the_reason(metrics):
+    report = _with(*metrics)
+    for name, _ in metrics:
+        b = _measure(report, name)["behavior"]["left"]
+        assert not b["ran"] and "refers back to itself" in b["reason"]
+        assert _measure(report, name)["result"] not in (sp.VERIFIED, sp.WITHIN_TOLERANCE)
+
+
+def test_a_measure_chain_past_the_depth_limit_is_not_run():
+    n = l3.MAX_MEASURE_DEPTH + 2
+    report = _with(*[(f"c{i}", f"c{i + 1}") for i in range(n)], (f"c{n}", "SUM(amount)"))
+    assert "levels" in _measure(report, "c0")["behavior"]["left"]["reason"]
+    assert _measure(report, f"c{n - 1}")["behavior"]["left"]["ran"]
+
+
+def test_the_aggregates_in_one_measure_are_capped(monkeypatch):
+    monkeypatch.setattr(l3, "MAX_TERMS_PER_MEASURE", 1)
+    report = _with(("d", "SUM(amount) / NULLIF(SUM(fact_sales.customer_sk), 0)"))
+    assert _measure(report)["behavior"]["left"]["ran"]
+    b = _measure(report, "d")["behavior"]["left"]
+    assert not b["ran"] and "aggregates in one measure" in b["reason"]
+
+
+def test_the_measures_one_side_runs_are_capped(monkeypatch):
+    monkeypatch.setattr(l3, "MAX_MEASURES_RUN", 2)
+    report = _with(*[(f"s{i}", "SUM(amount)") for i in range(3)])
+    rows = [o["behavior"]["left"] for o in report["objects"] if o.get("behavior")]
+    assert sum(b["ran"] for b in rows) == 2
+    assert all("past 2 measures" in b["reason"] for b in rows if not b["ran"])
+
+
+def test_the_duckdb_connection_is_sandboxed_and_locked():
+    import duckdb
+
+    con = l3._connect()
+    try:
+        settings = dict(con.execute(
+            "SELECT name, value FROM duckdb_settings() WHERE name IN ('threads', 'enable_external_access', "
+            "'autoload_known_extensions', 'lock_configuration')").fetchall())
+        assert settings == {"threads": "1", "enable_external_access": "false",
+                            "autoload_known_extensions": "false", "lock_configuration": "true"}
+        with pytest.raises(duckdb.Error):
+            con.execute("SET enable_external_access = true")
+    finally:
+        con.close()

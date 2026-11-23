@@ -439,7 +439,7 @@ def _judge(o: dict[str, Any], behavior: dict[str, Any], tol: dict[str, Any]) -> 
     one_sided = [n for n in SCENARIOS if refused(left, n) != refused(right, n)]
     verdicts = {name: _close(left["results"].get(name), right["results"].get(name), tol["values"])
                 for name in SCENARIOS if name not in both and name not in one_sided}
-    tol["used"] = True
+    tol["used"] = tol["used"] or bool(verdicts)
     differ = [n for n, v in verdicts.items() if v == "different"]
     o["changes"] = o["changes"] + [
         f"on the {n} dataset the left side gives {left['results'].get(n)!s} and the right side "

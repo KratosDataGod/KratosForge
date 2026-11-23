@@ -57,12 +57,12 @@ def test_values_and_list_subkeys_are_read_from_the_64_bit_view(monkeypatch):
     root = Key(KEY, [("telemetry", 1, rp.REG_DWORD), ("theme", "dark", rp.REG_SZ)],
                ["allowed_tenants", "broken"])
     hosts = Key(KEY + "\\allowed_tenants", [("2", "b", rp.REG_EXPAND_SZ), ("1", "a", rp.REG_SZ),
-                                            ("3", 7, rp.REG_DWORD)])  # not a string: the list stops at 2
+                                            ("3", 7, rp.REG_DWORD)])  # not a string: passed through as None
     opened = fake_winreg(monkeypatch, {KEY: root, KEY + "\\allowed_tenants": hosts,
                                        KEY + "\\broken": PermissionError(5, "Access is denied")})
     values, lists = rp._winreg_read()
     assert values == {"telemetry": (1, rp.REG_DWORD), "theme": ("dark", rp.REG_SZ)}
-    assert lists["allowed_tenants"] == ["a", "b"]
+    assert lists["allowed_tenants"] == ["a", "b", None]  # read_all reports and fails closed on it
     assert isinstance(lists["broken"], PermissionError)  # only that setting is left unknown
     assert all(access == 0x20019 | 0x100 for _, access in opened)
     assert root.closed and hosts.closed

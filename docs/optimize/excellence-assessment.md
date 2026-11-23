@@ -149,11 +149,14 @@ the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the c
 (`GET /capacities`), each lakehouse's properties (`GET /workspaces/{id}/lakehouses/{id}`, the read the
 app already makes before it writes a table; at most 50 per assessment), the definition of each
 semantic model in the workspace, at most 30, as TMSL (`getDefinition?format=TMSL`, the read the
-Semantic model tab already makes), and the workspace's Git connection and Git status
+Semantic model tab already makes), the workspace's Git connection and Git status
 (`GET /workspaces/{id}/git/connection` and `GET /workspaces/{id}/git/status`, the reads the Git tab
-makes). It also uses the Capacity Metrics exports already imported on this PC (Optimize > Cost and
-savings). That is a local read, not a Fabric call. A read that fails is listed in `reads` and leaves
-its controls not evaluated.
+makes), and each lakehouse's tables as the [Estate X-ray](../xray-fixes.md) reads them. That is the
+folders under Tables and each Delta table's log, never a data file, read through OneLake with your own
+storage sign-in (at most 100 tables per assessment). The assessment never asks you to sign in for it,
+so without a OneLake sign-in on this PC no table is read. It also uses the Capacity Metrics exports
+already imported on this PC (Optimize > Cost and savings). That is a local read, not a Fabric call. A
+read that fails is listed in `reads` and leaves its controls not evaluated.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls
@@ -187,6 +190,9 @@ its controls not evaluated.
 | FEA-ARCH-002 | Architecture | Low | A lakehouse is schema-enabled | Lakehouse properties |
 | FEA-ARCH-003 | Architecture | Low | A workspace whose name says production holds no item named tmp, temp, test, staging, copy, old, backup or similar; not applicable when the name says Dev or Test | Workspace and item names (inferred, advice only) |
 | FEA-ARCH-004 | Architecture | Medium | A notebook's default lakehouse is in its own workspace (a cross-workspace dependency otherwise); not applicable without a default lakehouse | Notebook definition and item list |
+| FEA-PERF-003 | Performance | Medium | No table in a lakehouse has 20 or more data files averaging under 32 MB | Delta logs (measured) |
+| FEA-PERF-004 | Performance | Low | No table in a lakehouse has 30 or more versions since its last VACUUM, or none at all | Delta logs (measured) |
+| FEA-PERF-005 | Performance | Medium | No table in a lakehouse uses a Delta feature that the SQL analytics endpoint or Direct Lake can't read, such as column mapping by ID | Delta logs (verified) |
 | FEA-SM-001 | Semantic models | Medium | No active relationship filters in both directions | Model definition |
 | FEA-SM-002 | Semantic models | Informational | At least one security role filters rows (noted, not scored, because many models are meant for every reader) | Model definition |
 | FEA-SM-003 | Semantic models | Low | A Direct Lake model is set to Direct Lake only, or reads through OneLake, so it doesn't fall back to DirectQuery silently; not applicable without Direct Lake tables | Model definition |
@@ -218,6 +224,36 @@ only for schema-enabled lakehouses) and the notebook definition the optimization
 default lakehouse that isn't in the workspace's item list is in another workspace or was deleted;
 either way a deployment won't rebind it. Dev/Test/Prod separation isn't checked yet: it needs
 deployment pipeline configuration the assessment doesn't read, and a name alone can't prove it.
+
+### Table layout
+
+FEA-PERF-003, FEA-PERF-004 and FEA-PERF-005 look at each lakehouse's tables. They read what the Estate
+X-ray reads, and nothing else. The file counts, sizes and versions since the last VACUUM come from the
+table's Delta log, the table's own record of what was written, so they are measured. The Delta
+features come from the table's settings and protocol in the same log. Which reader can read which
+feature comes from Microsoft's Delta Lake interoperability page, as kept in the
+[Delta reader matrix](../delta-reader-matrix.md).
+
+The thresholds of 20 files averaging under 32 MB and of 30 versions since the last VACUUM are
+KratosForge's, the same ones X-ray and table health use. Microsoft's guidance asks for compaction and
+regular VACUUM but gives no number. A profile can turn either control off or change its severity.
+
+A lakehouse passes only when every one of its tables was read. When a table's log couldn't be read,
+or the assessment's budget of 100 tables ran out, the lakehouse fails if a table that was read fails,
+and is otherwise not evaluated. A lakehouse whose Tables folder couldn't be listed is not evaluated.
+Folders under Tables that aren't Delta tables are left out, and Dataflow Gen2's own staging
+lakehouses and lakehouses without tables are not applicable.
+
+When no source says whether the SQL analytics endpoint or Direct Lake reads a feature (V2
+checkpoints), FEA-PERF-005 is not evaluated. Python notebooks, pipelines and eventstreams can't read
+deletion vectors or column mapping, but which tables they read isn't known, so that isn't checked.
+The expected benefit of compacting is faster reads and less capacity per read, and of VACUUM is
+storage freed. Both are estimates, Unknown until timed or listed, and neither is money saved.
+
+V-Order on the tables Direct Lake reads isn't checked yet. Which tables a Direct Lake model reads is
+in the model's definition, which the assessment doesn't read, and only the files' Parquet footers say
+for sure whether they are V-Ordered. Full refreshes and duplicate work are FEA-DE-001, FEA-PERF-001
+and FEA-PERF-002.
 
 ### Notebook and pipeline inspection
 
@@ -335,7 +371,7 @@ again or leave the app; snapshots aren't saved yet, so there is no trend or comp
 
 - Snapshots aren't stored yet, so the scorecard has no trend arrows and no "Compare with an earlier
   one". The engine can already compare two snapshots.
-- The first controls cover what the app already reads. Estate X-ray (table layout), governance checks,
+- The first controls cover what the app already reads. Governance checks,
   the semantic model checks that need data, and more DevOps and reliability controls come in later
   stories; until then those dimensions show as not applicable or not evaluated, never as passing.
 - Controls that need a Fabric administrator (tenant settings) are not evaluated for anyone else.

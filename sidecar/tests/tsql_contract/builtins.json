@@ -220,7 +220,8 @@
  {
   "name": "CURRENT_TIMESTAMP",
   "group": "Date and time",
-  "probe": "SELECT CURRENT_TIMESTAMP"
+  "probe": "SELECT CURRENT_TIMESTAMP",
+  "match": "\\bCURRENT_TIMESTAMP\\b"
  },
  {
   "name": "DATE_BUCKET",

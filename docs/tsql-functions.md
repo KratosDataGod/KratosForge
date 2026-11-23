@@ -21,19 +21,19 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 75 |
+| Runs | 143 |
 | Differs | 0 |
 | Refused | 33 |
 | Fails | 0 |
-| Not checked | 70 |
+| Not checked | 2 |
 | **All** | **178** |
 
 ## String
 
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
-| `ASCII` | Not checked |  |  |
-| `CHAR` | Not checked |  |  |
+| `ASCII` | Runs |  | 1 value check |
+| `CHAR` | Runs |  | 1 value check |
 | `CHARINDEX` | Runs |  | 1 value check |
 | `CONCAT` | Runs |  | 2 value checks |
 | `CONCAT_WS` | Runs |  | 1 value check |
@@ -41,92 +41,92 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `DIFFERENCE` | Refused |  | DIFFERENCE isn't mapped yet. |
 | `FORMAT` | Runs |  | 5 value checks |
 | `LEFT` | Runs |  | 1 value check |
-| `LEN` | Runs |  | 1 value check |
-| `LOWER` | Not checked |  |  |
-| `LTRIM` | Not checked |  |  |
+| `LEN` | Runs |  | 2 value checks |
+| `LOWER` | Runs |  | 1 value check |
+| `LTRIM` | Runs |  | 2 value checks |
 | `NCHAR` | Refused |  | NCHAR isn't mapped yet. |
 | `PATINDEX` | Runs |  | 3 value checks |
 | `QUOTENAME` | Runs |  | 5 value checks |
 | `REPLACE` | Runs |  | 1 value check |
 | `REPLICATE` | Runs |  | 2 value checks |
-| `REVERSE` | Not checked |  |  |
+| `REVERSE` | Runs |  | 1 value check |
 | `RIGHT` | Runs |  | 1 value check |
-| `RTRIM` | Not checked |  |  |
+| `RTRIM` | Runs |  | 2 value checks |
 | `SOUNDEX` | Refused |  | SOUNDEX is not supported in DuckDB |
-| `SPACE` | Not checked |  |  |
+| `SPACE` | Runs |  | 1 value check |
 | `STR` | Runs |  | 5 value checks |
 | `STRING_ESCAPE` | Refused | `SELECT STRING_ESCAPE('a"b', 'json')` | STRING_ESCAPE isn't mapped yet. |
 | `STUFF` | Runs |  | 1 value check |
 | `SUBSTRING` | Runs |  | 2 value checks |
-| `TRANSLATE` | Not checked |  |  |
+| `TRANSLATE` | Runs |  | 1 value check |
 | `TRIM` | Runs |  | 1 value check |
-| `UNICODE` | Not checked |  |  |
+| `UNICODE` | Runs |  | 1 value check |
 | `UPPER` | Runs |  | 1 value check |
 
 ## Math
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `ABS` | Not checked |  |  |
-| `ACOS` | Not checked |  |  |
-| `ASIN` | Not checked |  |  |
-| `ATAN` | Not checked |  |  |
-| `ATN2` | Not checked |  |  |
-| `CEILING` | Runs |  | 3 value checks |
-| `COS` | Not checked |  |  |
-| `COT` | Not checked |  |  |
-| `DEGREES` | Runs |  | 4 value checks |
-| `EXP` | Runs |  | 1 value check |
-| `FLOOR` | Runs |  | 3 value checks |
-| `LOG` | Runs |  | 1 value check |
-| `LOG10` | Runs |  | 1 value check |
-| `PI` | Runs |  | 2 value checks |
-| `POWER` | Runs |  | 7 value checks |
-| `RADIANS` | Runs |  | 2 value checks |
-| `RAND` | Not checked | `SELECT RAND()` |  |
-| `ROUND` | Runs |  | 3 value checks |
-| `SIGN` | Runs |  | 1 value check |
-| `SIN` | Not checked |  |  |
-| `SQRT` | Runs |  | 1 value check |
-| `SQUARE` | Runs |  | 2 value checks |
-| `TAN` | Not checked |  |  |
+| Function | Status | Note |
+| --- | --- | --- |
+| `ABS` | Runs | 1 value check |
+| `ACOS` | Runs | 1 value check |
+| `ASIN` | Runs | 1 value check |
+| `ATAN` | Runs | 1 value check |
+| `ATN2` | Runs | 1 value check |
+| `CEILING` | Runs | 3 value checks |
+| `COS` | Runs | 1 value check |
+| `COT` | Runs | 1 value check |
+| `DEGREES` | Runs | 4 value checks |
+| `EXP` | Runs | 1 value check |
+| `FLOOR` | Runs | 3 value checks |
+| `LOG` | Runs | 1 value check |
+| `LOG10` | Runs | 1 value check |
+| `PI` | Runs | 3 value checks |
+| `POWER` | Runs | 7 value checks |
+| `RADIANS` | Runs | 2 value checks |
+| `RAND` | Runs | 1 value check |
+| `ROUND` | Runs | 5 value checks |
+| `SIGN` | Runs | 1 value check |
+| `SIN` | Runs | 1 value check |
+| `SQRT` | Runs | 1 value check |
+| `SQUARE` | Runs | 2 value checks |
+| `TAN` | Runs | 1 value check |
 
 ## Date and time
 
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
-| `CURRENT_TIMESTAMP` | Not checked | `SELECT CURRENT_TIMESTAMP` |  |
+| `CURRENT_TIMESTAMP` | Runs |  | 1 value check |
 | `DATE_BUCKET` | Refused | `SELECT DATE_BUCKET(week, 1, CAST('2024-03-06' AS date))` | DATE_BUCKET isn't mapped yet. |
 | `DATEADD` | Runs |  | 3 value checks |
-| `DATEDIFF` | Runs |  | 2 value checks |
-| `DATEDIFF_BIG` | Not checked | `SELECT DATEDIFF_BIG(second, '2024-01-01', '2024-01-02')` |  |
+| `DATEDIFF` | Runs |  | 3 value checks |
+| `DATEDIFF_BIG` | Runs |  | 2 value checks |
 | `DATEFROMPARTS` | Runs |  | 1 value check |
 | `DATENAME` | Runs |  | 1 value check |
-| `DATEPART` | Runs |  | 8 value checks |
+| `DATEPART` | Runs |  | 9 value checks |
 | `DATETIME2FROMPARTS` | Refused | `SELECT DATETIME2FROMPARTS(2024, 3, 6, 13, 45, 30, 0, 0)` | DATETIME2FROMPARTS isn't mapped yet. |
-| `DATETIMEFROMPARTS` | Not checked | `SELECT DATETIMEFROMPARTS(2024, 3, 6, 13, 45, 30, 0)` |  |
+| `DATETIMEFROMPARTS` | Runs |  | 1 value check |
 | `DATETRUNC` | Runs |  | 2 value checks |
-| `DAY` | Not checked |  |  |
+| `DAY` | Runs |  | 3 value checks |
 | `EOMONTH` | Runs |  | 1 value check |
-| `GETDATE` | Not checked | `SELECT GETDATE()` |  |
-| `GETUTCDATE` | Not checked | `SELECT GETUTCDATE()` |  |
+| `GETDATE` | Runs |  | 1 value check |
+| `GETUTCDATE` | Runs |  | 1 value check |
 | `ISDATE` | Refused |  | ISDATE isn't mapped yet. |
-| `MONTH` | Not checked |  |  |
+| `MONTH` | Runs |  | 3 value checks |
 | `SMALLDATETIMEFROMPARTS` | Refused | `SELECT SMALLDATETIMEFROMPARTS(2024, 3, 6, 13, 45)` | SMALLDATETIMEFROMPARTS isn't mapped yet. |
 | `SWITCHOFFSET` | Refused | `SELECT SWITCHOFFSET(SYSDATETIMEOFFSET(), '+01:00')` | SWITCHOFFSET isn't mapped yet. |
-| `SYSDATETIME` | Not checked | `SELECT SYSDATETIME()` |  |
+| `SYSDATETIME` | Runs |  | 1 value check |
 | `SYSDATETIMEOFFSET` | Refused | `SELECT SYSDATETIMEOFFSET()` | SYSDATETIMEOFFSET isn't mapped yet. A warehouse's clock is UTC: SYSUTCDATETIME() gives the same time without the of |
-| `SYSUTCDATETIME` | Not checked | `SELECT SYSUTCDATETIME()` |  |
+| `SYSUTCDATETIME` | Runs |  | 1 value check |
 | `TIMEFROMPARTS` | Runs |  | 4 value checks |
 | `TODATETIMEOFFSET` | Refused | `SELECT TODATETIMEOFFSET(CAST('2024-03-06' AS datetime2), '+01:00')` | TODATETIMEOFFSET isn't mapped yet. |
-| `YEAR` | Not checked |  |  |
+| `YEAR` | Runs |  | 3 value checks |
 
 ## Conversion
 
 | Function | Status | Note |
 | --- | --- | --- |
-| `CAST` | Runs | 30 value checks |
-| `CONVERT` | Runs | 2 value checks |
+| `CAST` | Runs | 36 value checks |
+| `CONVERT` | Runs | 4 value checks |
 | `PARSE` | Runs | 1 value check |
 | `TRY_CAST` | Runs | 3 value checks |
 | `TRY_CONVERT` | Runs | 1 value check |
@@ -138,50 +138,50 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | --- | --- | --- |
 | `CHOOSE` | Runs | 2 value checks |
 | `COALESCE` | Runs | 1 value check |
-| `GREATEST` | Not checked |  |
+| `GREATEST` | Runs | 2 value checks |
 | `IIF` | Runs | 1 value check |
 | `ISNULL` | Runs | 1 value check |
-| `LEAST` | Not checked |  |
+| `LEAST` | Runs | 2 value checks |
 | `NULLIF` | Runs | 1 value check |
 
 ## Aggregate
 
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
-| `APPROX_COUNT_DISTINCT` | Not checked |  |  |
+| `APPROX_COUNT_DISTINCT` | Runs |  | 1 value check |
 | `APPROX_PERCENTILE_CONT` | Refused | `SELECT APPROX_PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) FROM dbo.t` | APPROX_PERCENTILE_CONT isn't mapped yet. |
 | `APPROX_PERCENTILE_DISC` | Refused | `SELECT APPROX_PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY a) FROM dbo.t` | APPROX_PERCENTILE_DISC isn't mapped yet. |
 | `AVG` | Runs |  | 1 value check |
 | `CHECKSUM_AGG` | Refused | `SELECT CHECKSUM_AGG(a) FROM dbo.t` | CHECKSUM_AGG isn't mapped yet. |
-| `COUNT` | Runs |  | 1 value check |
-| `COUNT_BIG` | Not checked | `SELECT COUNT_BIG(*) FROM dbo.t` |  |
-| `GROUPING` | Not checked | `SELECT a, GROUPING(a) FROM dbo.t GROUP BY ROLLUP(a)` |  |
-| `GROUPING_ID` | Not checked | `SELECT a, GROUPING_ID(a) FROM dbo.t GROUP BY ROLLUP(a)` |  |
-| `MAX` | Not checked |  |  |
-| `MIN` | Not checked |  |  |
+| `COUNT` | Runs |  | 7 value checks |
+| `COUNT_BIG` | Runs |  | 2 value checks |
+| `GROUPING` | Runs |  | 2 value checks |
+| `GROUPING_ID` | Runs |  | 1 value check |
+| `MAX` | Runs |  | 4 value checks |
+| `MIN` | Runs |  | 3 value checks |
 | `STDEV` | Runs |  | 2 value checks |
 | `STDEVP` | Runs |  | 2 value checks |
-| `STRING_AGG` | Not checked | `SELECT STRING_AGG(s, ',') WITHIN GROUP (ORDER BY s) FROM dbo.t` |  |
-| `SUM` | Runs |  | 2 value checks |
+| `STRING_AGG` | Runs |  | 2 value checks |
+| `SUM` | Runs |  | 4 value checks |
 | `VAR` | Runs |  | 2 value checks |
 | `VARP` | Runs |  | 2 value checks |
 
 ## Window
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `CUME_DIST` | Not checked |  |  |
-| `DENSE_RANK` | Not checked |  |  |
-| `FIRST_VALUE` | Not checked | `SELECT FIRST_VALUE(a) OVER (ORDER BY a) FROM dbo.t` |  |
-| `LAG` | Runs |  | 1 value check |
-| `LAST_VALUE` | Not checked | `SELECT LAST_VALUE(a) OVER (ORDER BY a) FROM dbo.t` |  |
-| `LEAD` | Not checked | `SELECT LEAD(a) OVER (ORDER BY a) FROM dbo.t` |  |
-| `NTILE` | Runs |  | 1 value check |
-| `PERCENT_RANK` | Not checked |  |  |
-| `PERCENTILE_CONT` | Not checked | `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a) OVER () FROM dbo.t` |  |
-| `PERCENTILE_DISC` | Not checked | `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY a) OVER () FROM dbo.t` |  |
-| `RANK` | Runs |  | 1 value check |
-| `ROW_NUMBER` | Runs |  | 2 value checks |
+| Function | Status | Note |
+| --- | --- | --- |
+| `CUME_DIST` | Runs | 2 value checks |
+| `DENSE_RANK` | Runs | 1 value check |
+| `FIRST_VALUE` | Runs | 1 value check |
+| `LAG` | Runs | 1 value check |
+| `LAST_VALUE` | Runs | 2 value checks |
+| `LEAD` | Runs | 1 value check |
+| `NTILE` | Runs | 1 value check |
+| `PERCENT_RANK` | Runs | 2 value checks |
+| `PERCENTILE_CONT` | Runs | 2 value checks |
+| `PERCENTILE_DISC` | Runs | 1 value check |
+| `RANK` | Runs | 1 value check |
+| `ROW_NUMBER` | Runs | 2 value checks |
 
 ## JSON
 
@@ -203,7 +203,7 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `CHECKSUM` | Refused |  | CHECKSUM isn't mapped yet. |
 | `HASHBYTES` | Refused | `SELECT HASHBYTES('SHA2_256', 'abc')` | HASHBYTES isn't mapped yet: T-SQL gives the hash as bytes (VARBINARY), and here it would be hex text, so comparison |
 | `ISNUMERIC` | Refused |  | ISNUMERIC of a number: ISNUMERIC isn't mapped yet (its rules accept '$', ',' and '-' alone). Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_ |
-| `NEWID` | Not checked | `SELECT NEWID()` |  |
+| `NEWID` | Runs |  | 1 value check |
 
 ## Statements and operators
 
@@ -214,33 +214,33 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `TOP ... PERCENT` | Not checked | `SELECT TOP 50 PERCENT a FROM dbo.t ORDER BY a` |  |
 | `OFFSET ... FETCH` | Runs |  | 1 value check |
 | `WITH (common table expression)` | Runs |  | 2 value checks |
-| `CASE` | Runs |  | 6 value checks |
+| `CASE` | Runs |  | 7 value checks |
 | `LIKE` | Runs |  | 4 value checks |
 | `LIKE with [ ] ranges` | Runs |  | 4 value checks |
 | `+ on text` | Runs |  | 1 value check |
-| `/ on integers` | Runs |  | 1 value check |
-| `% (modulo)` | Not checked | `SELECT a % 2 FROM dbo.t` |  |
-| `CROSS APPLY` | Not checked | `SELECT t.a, v.n FROM dbo.t t CROSS APPLY (SELECT t.b AS n) v` |  |
-| `OUTER APPLY` | Not checked | `SELECT t.a, v.n FROM dbo.t t OUTER APPLY (SELECT t.b AS n) v` |  |
-| `PIVOT` | Not checked | `SELECT * FROM (SELECT a, b FROM dbo.t) s PIVOT (SUM(b) FOR a IN ([1], [2])) p` |  |
-| `UNPIVOT` | Not checked | `SELECT a, k, v FROM dbo.t UNPIVOT (v FOR k IN (b)) u` |  |
-| `GROUP BY ROLLUP` | Not checked | `SELECT a, SUM(b) FROM dbo.t GROUP BY ROLLUP(a)` |  |
-| `GROUP BY CUBE` | Not checked | `SELECT a, SUM(b) FROM dbo.t GROUP BY CUBE(a)` |  |
-| `GROUPING SETS` | Not checked | `SELECT a, SUM(b) FROM dbo.t GROUP BY GROUPING SETS ((a), ())` |  |
-| `UNION, EXCEPT, INTERSECT` | Not checked | `SELECT a FROM dbo.t EXCEPT SELECT 9` |  |
-| `AT TIME ZONE` | Not checked | `SELECT CAST('2024-03-06' AS datetime2) AT TIME ZONE 'UTC'` |  |
+| `/ on integers` | Runs |  | 2 value checks |
+| `% (modulo)` | Runs |  | 1 value check |
+| `CROSS APPLY` | Runs |  | 1 value check |
+| `OUTER APPLY` | Runs |  | 1 value check |
+| `PIVOT` | Runs |  | 1 value check |
+| `UNPIVOT` | Runs |  | 1 value check |
+| `GROUP BY ROLLUP` | Runs |  | 1 value check |
+| `GROUP BY CUBE` | Runs |  | 1 value check |
+| `GROUPING SETS` | Runs |  | 1 value check |
+| `UNION, EXCEPT, INTERSECT` | Runs |  | 4 value checks |
+| `AT TIME ZONE` | Runs |  | 1 value check |
 | `QUALIFY` | Runs |  | 1 value check |
-| `SELECT ... INTO` | Not checked | `SELECT a INTO dbo.t_copy FROM dbo.t` |  |
+| `SELECT ... INTO` | Runs |  | 10 value checks |
 | `Temporary tables (#t)` | Runs |  | 1 value check |
-| `CREATE TABLE` | Not checked | `CREATE TABLE dbo.t2 (a INT)` |  |
-| `CREATE TABLE AS SELECT` | Not checked | `CREATE TABLE dbo.t3 AS SELECT a FROM dbo.t` |  |
-| `CREATE VIEW` | Not checked | `CREATE VIEW dbo.v AS SELECT a FROM dbo.t` |  |
-| `INSERT` | Not checked | `INSERT INTO dbo.t (a, b, s) VALUES (9, 9, 'q')` |  |
-| `UPDATE` | Not checked | `UPDATE dbo.t SET b = b WHERE a = 9` |  |
-| `DELETE` | Not checked | `DELETE FROM dbo.t WHERE a = 9` |  |
-| `TRUNCATE TABLE` | Not checked | `TRUNCATE TABLE dbo.t` |  |
-| `MERGE` | Not checked | `MERGE dbo.t AS d USING (SELECT 1 AS a) AS s ON d.a = s.a WHEN MATCHED THEN UPDATE SET b = d.b;` |  |
-| `DROP TABLE` | Not checked | `DROP TABLE IF EXISTS dbo.t3` |  |
+| `CREATE TABLE` | Runs |  | 11 value checks |
+| `CREATE TABLE AS SELECT` | Runs |  | 1 value check |
+| `CREATE VIEW` | Runs |  | 1 value check |
+| `INSERT` | Runs |  | 9 value checks |
+| `UPDATE` | Runs |  | 2 value checks |
+| `DELETE` | Runs |  | 1 value check |
+| `TRUNCATE TABLE` | Runs |  | 1 value check |
+| `MERGE` | Runs |  | 2 value checks |
+| `DROP TABLE` | Runs |  | 1 value check |
 | `DECLARE and variables` | Refused | `DECLARE @n INT = 1` | The local engine doesn't run T-SQL variables (DECLARE) yet. Run the statements one at a time, with values in place of variables. A batch with variables and cont |
 | `IF ... ELSE` | Refused | `IF 1 = 1 SELECT 1` | The local engine doesn't run T-SQL IF blocks yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow r |
 | `WHILE` | Refused | `WHILE 1 = 0 SELECT 1` | The local engine doesn't run T-SQL WHILE loops yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow |
@@ -254,4 +254,4 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs in |
 | `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it in a Fabric Warehou |
 | `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | OPTION (MAXDOP) isn't carried yet. It isn't among the query hints Microsoft lists for a Fabric Warehouse; those tha |
-| `SET options` | Not checked | `SET NOCOUNT ON; SELECT 1` |  |
+| `SET options` | Runs |  | 1 value check |

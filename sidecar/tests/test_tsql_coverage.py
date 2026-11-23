@@ -44,7 +44,7 @@ def test_a_check_a_refusal_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["CHARINDEX"] == "runs" and status["DATEADD"] == "runs"
     assert status["ISNUMERIC"] == "refused" and status["DECLARE and variables"] == "refused"
-    assert status["ABS"] == "not checked"  # runs, but no check compares its answer yet
+    assert status["TOP ... PERCENT"] == "not checked"  # runs, but no check compares its answer yet
 
 
 def test_nothing_is_marked_as_differing_without_its_check():

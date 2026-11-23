@@ -270,3 +270,29 @@ def test_random_strings_with_nuls_round_trip(seed):
         pieces = ["".join(r.choice(alphabet) for _ in range(r.randint(0, 10))) for _ in range(r.randint(1, 3))]
         got = con.execute("SELECT " + ", ".join(f"'{p}'" for p in pieces)).fetchall()
         assert got == [tuple(p.replace("''", "'") for p in pieces)], pieces
+
+
+@pytest.mark.parametrize("call", [
+    lambda c, r: r.join(c.sql("SELECT 2 AS k"), "k = k\0 OR true"),
+    lambda c, r: r.cross(c.sql("SELECT 2 AS j")).filter("j = 2\0 OR true"),
+    lambda c, r: r.sum("k\0"),
+    lambda c, r: r.min("k\0"),
+    lambda c, r: r.value_counts("k\0"),
+    lambda c, r: c.get_table_names("SELECT * FROM t\0x"),
+], ids=["join", "cross-filter", "sum", "min", "value_counts", "get_table_names"])
+def test_relation_and_connection_helpers_that_take_expression_text_are_guarded(call):
+    con = duckdb.connect()
+    rel = con.sql("SELECT 1 AS k")
+    with pytest.raises(duckdb.ParserException, match="NUL character"):
+        call(con, rel)
+
+
+def test_every_public_relation_and_connection_method_is_guarded_or_listed_as_taking_no_text():
+    """Fails closed: a method a later DuckDB adds is guarded unless it's listed as taking no text."""
+    for owner, no_text in ((duckdb.DuckDBPyRelation, duckdb_nul._RELATION_NO_TEXT),
+                           (duckdb.DuckDBPyConnection, duckdb_nul._CONNECTION_NO_TEXT)):
+        for name in dir(owner):
+            member = getattr(owner, name)
+            if name.startswith("_") or name in no_text or not callable(member):
+                continue
+            assert getattr(member, "__kf_nul_guard__", False), f"{owner.__name__}.{name} isn't guarded"

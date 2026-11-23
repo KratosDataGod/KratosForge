@@ -27,9 +27,27 @@ REFUSAL = ("The SQL wasn't run, because it holds a NUL character (U+0000) outsid
            "in a string as CHR(0).")
 
 _CONNECTION = ("execute", "executemany", "sql", "query", "from_query", "extract_statements", "table", "view")
-_MODULE = (*_CONNECTION, "query_df", "filter", "project", "aggregate", "order")
-_RELATION = ("query", "filter", "project", "select", "aggregate", "order", "sort", "update", "create",
-             "create_view", "insert_into", "to_table", "to_view")
+_MODULE = (*_CONNECTION, "query_df", "filter", "project", "aggregate", "order", "get_table_names")
+# A connection method that takes no text: every other one is guarded (get_table_names reads SQL, and a
+# method added in a later DuckDB is guarded until it's listed here).
+_CONNECTION_NO_TEXT = frozenset({
+    "arrow", "begin", "checkpoint", "close", "commit", "cursor", "description", "df", "disable_profiling",
+    "duplicate", "enable_profiling", "fetch_arrow_table", "fetch_df", "fetch_df_chunk", "fetch_record_batch",
+    "fetchall", "fetchdf", "fetchmany", "fetchnumpy", "fetchone", "get_profiling_information", "interrupt",
+    "list_filesystems", "pl", "query_progress", "rollback", "rowcount", "tf", "to_arrow_reader",
+    "to_arrow_table", "torch"})
+# A relation method that takes no SQL text: everything else on a relation is guarded (join, cross, the
+# per-column aggregates like sum and min, which take expression text, and any added in a later DuckDB).
+_RELATION_NO_TEXT = frozenset({
+    "arrow", "close", "columns", "describe", "description", "df", "dtypes", "execute", "fetch_arrow_reader",
+    "fetch_arrow_table", "fetch_df_chunk", "fetch_record_batch", "fetchall", "fetchdf", "fetchmany",
+    "fetchnumpy", "fetchone", "pl", "record_batch", "shape", "show", "tf", "to_arrow_reader",
+    "to_arrow_table", "to_df", "torch", "type", "types", "fetch_df", "alias", "sql_query"})
+
+
+def _methods(owner: Any, no_text: frozenset[str]) -> tuple[str, ...]:
+    """Every public method of ``owner`` that may take text, so the guard fails closed on a new one."""
+    return tuple(n for n in dir(owner) if not n.startswith("_") and n not in no_text and callable(getattr(owner, n, None)))
 _VALUES = frozenset({"parameters", "params", "parameter"})  # bound values, never SQL text
 
 
@@ -102,8 +120,8 @@ def _guarded(call: Any) -> Any:
 
 def install() -> None:
     """Guard DuckDB's entry points that read SQL text, in this process. Safe to call again."""
-    for owner, names in ((duckdb.DuckDBPyConnection, _CONNECTION), (duckdb, _MODULE),
-                         (duckdb.DuckDBPyRelation, _RELATION)):
+    for owner, names in ((duckdb.DuckDBPyConnection, _methods(duckdb.DuckDBPyConnection, _CONNECTION_NO_TEXT)),
+                         (duckdb, _MODULE), (duckdb.DuckDBPyRelation, _methods(duckdb.DuckDBPyRelation, _RELATION_NO_TEXT))):
         for name in names:
             call = getattr(owner, name, None)
             if call is not None and not getattr(call, "__kf_nul_guard__", False):

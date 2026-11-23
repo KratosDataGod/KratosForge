@@ -41,12 +41,14 @@ _CAPACITY = _lesson("LM-33", "Capacity and cost")
 _DEPLOY_RULES = _exercise("E09", "Deployment pipeline: stages, deployment rules, and what doesn't deploy")
 _SHORTCUTS = _lesson("LM-24", "Shortcuts and OneLake security")
 _DIRECT_LAKE = _lesson("LM-09", "Direct Lake: tables a Power BI model reads straight from OneLake")
+_GIT_LESSON = _lesson("LM-34", "Environments, Git and deployments")
+_GIT_COMMIT = _exercise("E06", "Put a workspace under Git: commit on a branch and resolve a conflict in a pipeline definition")
 
 MAP: dict[str, tuple[dict[str, str], ...]] = {
     "FEA-ARCH-001": (_lesson("LM-06", "Lakehouses and the medallion layers"),),
     "FEA-ARCH-002": (_lesson("LM-26", "Three-part names: Unity Catalog and Fabric"),),
-    "FEA-ARCH-003": (_lesson("LM-34", "Environments, Git and deployments"),),
-    "FEA-ARCH-004": (_lesson("LM-34", "Environments, Git and deployments"), _DEPLOY_RULES),
+    "FEA-ARCH-003": (_GIT_LESSON,),
+    "FEA-ARCH-004": (_GIT_LESSON, _DEPLOY_RULES),
     "FEA-CAP-002": (_lesson("LM-35", "Monitoring and incidents"),
                     _exercise("E44", "Monitoring hub: find the failed ingestion and the run that got slower")),
     "FEA-CAP-003": (_CAPACITY,),
@@ -59,9 +61,13 @@ MAP: dict[str, tuple[dict[str, str], ...]] = {
                    _lesson("LM-29", "Time travel and restoring a table")),
     "FEA-DEVOPS-001": (_DEPLOY_RULES,),
     "FEA-DEVOPS-002": (_DEPLOY_RULES,),
+    "FEA-DEVOPS-003": (_GIT_LESSON, _GIT_COMMIT),
+    "FEA-DEVOPS-004": (_GIT_COMMIT,),
+    "FEA-DEVOPS-005": (_exercise("E07", "Feature workspaces: branch out, sync, and update from Git"),),
     "FEA-PERF-002": (_SHORTCUTS,
                      _exercise("E29", "Shortcuts: a table shortcut, a folder shortcut, and a chain to avoid")),
     "FEA-REL-002": (_exercise("E02", "An environment for a notebook: libraries, resources and the default environment"),),
+    "FEA-REL-006": (_exercise("E48", "Broken: a pipeline fails on a bad expression and never reports why"),),
     "FEA-SEC-001": (_LEAST_PRIVILEGE, _ROLES_EXERCISE),
     "FEA-SEC-002": (_LEAST_PRIVILEGE,),
     "FEA-SEC-003": (_LEAST_PRIVILEGE,),
@@ -79,6 +85,9 @@ UNMAPPED: dict[str, str] = {
     "FEA-PERF-001": "No lesson covers finding and retiring duplicate notebooks.",
     "FEA-REL-001": "No lesson covers error handling in notebook code.",
     "FEA-REL-003": "No lesson covers deactivated pipeline activities.",
+    "FEA-REL-004": ("No lesson covers setting an activity's retry policy (E58 covers only making a load safe to "
+                    "retry)."),
+    "FEA-REL-005": "No lesson covers setting an activity's timeout.",
     "FEA-SEC-005": "No lesson covers Key Vault secrets in notebooks.",
     "FEA-SM-001": "No lesson covers relationship filter direction in a semantic model.",
     "FEA-SM-004": "No lesson covers relationship column types in a semantic model.",

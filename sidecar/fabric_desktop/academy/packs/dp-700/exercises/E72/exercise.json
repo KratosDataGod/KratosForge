@@ -1,0 +1,62 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E72",
+  "version": 1,
+  "status": "draft",
+  "title": "Monitor ingestion: the Copy runs that succeeded but didn't load what they should",
+  "objectives": [
+    "3.1.1"
+  ],
+  "objective_text": "From a nightly pipeline's Copy activity runs, write the morning ingestion check: each activity's latest run, and whether it didn't run, failed, copied nothing or skipped rows, so a green status can't hide a bad load.",
+  "scenario": "The Nightly ingest pipeline copies seven source tables into bronze. The monitoring hub showed it green this morning after someone retried a failed run, yet the Sales team says products are missing and the stores table hasn't changed since Saturday. You have the Copy activities the pipeline should run and the runs they recorded. Write the check that would have caught every problem before Sales did.",
+  "prerequisites": [
+    "E44"
+  ],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "simulated",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC, over a simulated Copy activity run history",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "ingestion_check.sql",
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your query starts from the activities that should have run, takes each one's latest run by its start time, and flags a missing run, a failure, an empty copy and skipped rows in that order, on a simulated run history with DuckDB on this PC."
+  ],
+  "does_not_verify": [
+    "The monitoring hub and the pipeline run details themselves, or where Fabric keeps Copy activity output and how to query it there. The runs here are made up and shaped like a Copy activity's output (rowsRead, rowsCopied, rowsSkipped, copyDuration).",
+    "Why a source returned no rows or which rows were skipped: in Fabric, the Copy activity writes the skipped rows to a log only when logging is turned on in its settings.",
+    "Alerts: sending this result to someone is objective 3.1.4."
+  ],
+  "expected": {
+    "description": "Columns activity_name, last_start, last_status, rows_copied, rows_skipped, issue, last_error: 7 rows ordered by activity_name."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "The ingestion check is right for all seven Copy activities.",
+      "fail": "Some row is off: check which activities you start from, how you pick the latest run, and what a succeeded run can still hide."
+    }
+  ],
+  "hints": [
+    "activity_run_id is an opaque id, so the latest run is the one with the latest run_start.",
+    "An activity that didn't run has no row in last night's runs, or none at all. Start from copy_activities and LEFT JOIN the runs, so it can't drop out of the check.",
+    "Copy orders failed at 02:01 and was retried at 06:12. The latest run is what bronze.orders holds now.",
+    "Succeeded only means the copy didn't error. Look at rows_copied, and at rows_skipped for the activities that skip incompatible rows. It's NULL where fault tolerance is off."
+  ],
+  "explanation": "A pipeline's status says whether its activities errored, not whether the data arrived. A useful ingestion check therefore starts from what should have happened, the list of Copy activities, rather than from the runs that did, because an activity that was deactivated or never added to the schedule leaves no failed run to find. Copy stores last ran on Saturday and Copy promotions has never run, and both look fine if you only read the runs. For the activities that ran, the latest run by start time is the one that counts: Copy orders failed and then succeeded on a retry, so bronze.orders is complete, and reporting it as failed sends someone to fix what's already fixed. A succeeded run can still be wrong. Copy products succeeded with 0 rows, the classic sign of a source query or watermark that matched nothing. Copy customers succeeded with 37 rows skipped, because fault tolerance was set to skip incompatible rows. The load didn't fail, but it quietly dropped data, and only rowsSkipped, or the skipped-row log if logging is on, shows it.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs",
+    "https://learn.microsoft.com/fabric/data-factory/monitoring-hub-pipeline-runs",
+    "https://learn.microsoft.com/azure/data-factory/copy-activity-monitoring"
+  ],
+  "reset": "Reset rebuilds copy_activities, copy_runs and ingestion_check from setup.sql and puts the starter query back.",
+  "review_notes": [
+    "SIMULATED: the activities and runs are synthetic; nothing here reads Fabric or a pipeline's output.",
+    "Facts used: Copy activity output reports rowsRead, rowsCopied, rowsSkipped (incompatible rows skipped when that's turned on) and copyDuration in seconds (Learn, Azure Data Factory copy-activity-monitoring, read 2026-11-18); the Fabric monitoring hub can retry a completed pipeline run and rerun from a failed activity (Learn, monitoring-hub-pipeline-runs, read 2026-11-18).",
+    "The Fabric pages read on 2026-11-18 don't list the Copy activity's output properties, so the lesson names them as the Copy activity's output, not as a Fabric monitoring hub column."
+  ]
+}

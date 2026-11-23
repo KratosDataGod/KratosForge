@@ -325,7 +325,10 @@ REFUSED_IN_THE_DOCS = {
     "JSON_OBJECTAGG": "SELECT JSON_OBJECTAGG('a': id) FROM dbo.orders",
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
     "OUTPUT": "DELETE FROM dbo.orders OUTPUT deleted.id WHERE id = 1",
-    "IDENTITY": "CREATE TABLE dbo.identity_test (id BIGINT IDENTITY, v INT)",
+    "IDENTITY": "CREATE TABLE dbo.identity_test (id BIGINT IDENTITY(1, 1), v INT)",  # WR-261: BIGINT IDENTITY runs
+    "SEQUENCE": "CREATE SEQUENCE dbo.s",
+    "@@IDENTITY": "SELECT @@IDENTITY",
+    "IDENT_CURRENT": "SELECT IDENT_CURRENT('dbo.orders')",
     "DBCC": "DBCC CHECKIDENT ('dbo.orders', RESEED)",
     "##global": "CREATE TABLE ##g (id INT)",
     "PERCENTILE_DISC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY 'a' DESC) OVER ()",
@@ -333,7 +336,7 @@ REFUSED_IN_THE_DOCS = {
 }
 ADVICE_IN_THE_DOCS = {"&", "|", "JSON_VALUE", "JSON_QUERY", "JSON_OBJECT", "JSON_ARRAY", "TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
                       "DECIMAL(19, 4)", "DECIMAL(10, 4)",
-                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SET ANSI_NULLS ON", "SELECT", "INSERT", "#temp",
+                      "SET NOCOUNT ON", "SET DATEFIRST 7", "SET ANSI_NULLS ON", "SELECT", "INSERT", "#temp", "BIGINT IDENTITY",
                       "OPTION (FOR TIMESTAMP AS OF ...)"}
 
 

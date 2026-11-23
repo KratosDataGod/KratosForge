@@ -4,7 +4,7 @@ What Fabric Warehouse documents (Microsoft Learn, read 2026-11-17: identity 2026
 tsql-surface-area 2026-09-29):
 - #temp tables last for the session, and ``WITH (DISTRIBUTION = ROUND_ROBIN)`` makes one stored as Parquet;
   ``##global`` temp tables aren't supported.
-- IDENTITY is BIGINT only, with no seed or increment.
+- IDENTITY is BIGINT only, with no seed or increment (WR-261 runs it: test_tsql_identity.py).
 - TRUNCATE TABLE is supported.
 
 T-SQL keeps ``VARCHAR(n)`` and ``VARBINARY(n)`` to n bytes and stops a longer value with "String or binary data
@@ -138,11 +138,12 @@ def test_select_into_and_ctas_make_tables_with_the_selects_types(engine):
     ("SELECT * FROM ##g", r"global temporary tables \(##g\) aren't supported in a Fabric Warehouse either"),
     ("CREATE TABLE dbo.x (id INT) WITH (DISTRIBUTION = HASH(id))",
      r"WITH \(DISTRIBUTION = \.\.\.\) is only for #temp tables in a Fabric Warehouse"),
-    ("CREATE TABLE dbo.i (id BIGINT IDENTITY, v INT)", (r"IDENTITY isn't mapped yet \(column id\)\. A Fabric Warehouse "
-                                                       "takes only BIGINT IDENTITY, with no seed or increment")),
-    ("CREATE TABLE dbo.i (id INT IDENTITY(1, 1), v INT)", r"IDENTITY isn't mapped yet \(column id\)"),
+    # WR-261: BIGINT IDENTITY and SET IDENTITY_INSERT run now (test_tsql_identity.py); the rest is refused by name
+    ("ALTER TABLE dbo.t ADD i BIGINT IDENTITY",
+     r"ALTER TABLE \.\.\. ADD of an IDENTITY column \(i\) isn't supported in a Fabric Warehouse"),
+    ("CREATE TABLE dbo.i (id INT IDENTITY(1, 1), v INT)", r"IDENTITY with a seed or increment \(IDENTITY\(1, 1\), column id\)"),
     ("DBCC CHECKIDENT ('dbo.i', RESEED)", "DBCC isn't mapped yet"),
-    ("SET IDENTITY_INSERT dbo.i ON", "SET IDENTITY_INSERT isn't mapped yet"),
+    ("CREATE SEQUENCE dbo.i", "SEQUENCE objects aren't supported in a Fabric Warehouse"),
     ("SELECT 1;\n  dbcc SHOW_STATISTICS ('dbo.t', s)", "DBCC isn't mapped yet"),
     ("ALTER TABLE dbo.t ADD w VARCHAR(2)", r"ALTER TABLE \.\.\. ADD of a column with a length \(w\) isn't mapped yet"),
     ("ALTER TABLE dbo.t ADD x INT, w VARBINARY(4)", r"ADD of a column with a length \(w\)"),

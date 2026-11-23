@@ -55,7 +55,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB
-from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_format, tsql_hints, tsql_identity, tsql_merge, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
@@ -150,34 +150,45 @@ def _left_open(text: str) -> str | None:
 
 
 def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None,
-              known: Container[str] | None = None) -> tuple[list[str], list[str]]:
+              known: Container[str] | None = None,
+              identities: Callable[[], dict[tsql_identity.Key, tsql_identity.Identity]] | None = None
+              ) -> tuple[list[str], list[str]]:
     """Each statement of the T-SQL script ``sql`` as DuckDB SQL, and notes on what may differ.
 
     ``columns`` is {schema: {table: {column: DuckDB type}}} for the tables the script may read; it
     lets divisions and ``+`` follow T-SQL's types. ``known`` is the upper-case names of the functions
     the DuckDB database has; a function call outside it is refused by name rather than left to DuckDB's
-    catalog error. Raises ValueError for what isn't carried."""
+    catalog error. ``identities`` reads the IDENTITY columns of the project's tables (tsql_identity), only when
+    a statement needs them. Raises ValueError for what isn't carried."""
     try:
-        return _translate(sql, columns, known)
+        return _translate(sql, columns, known, identities)
     except RecursionError:  # sqlglot reads and writes a tree by recursion, so a deep enough nesting stops it
         raise ValueError(_TOO_DEEP) from None
 
 
 def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
-               known: Container[str] | None) -> tuple[list[str], list[str]]:
+               known: Container[str] | None,
+               identities: Callable[[], dict[tsql_identity.Key, tsql_identity.Identity]] | None = None
+               ) -> tuple[list[str], list[str]]:
     texts: list[str] = []
     notes: list[str] = []
     skipped = False
     schema = _schema(columns or {})
+    numbered = tsql_identity.Script(identities, columns)  # WR-261: IDENTITY columns and IDENTITY_INSERT
     for batch in split_batches(sql):
         for tree in _parse(batch):
             if isinstance(tree, exp.Semicolon):  # WR-236: only a comment after the last ``;``, not a statement
+                continue
+            if numbered.set_insert(tree):
+                skipped = True
                 continue
             if _harmless_setting(tree):
                 skipped = True
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
+            tsql_identity.refuse(tree)  # WR-261: SEQUENCE, @@IDENTITY, IDENT_CURRENT, ADD of an IDENTITY column
             _refuse(tree)
+            numbered.merge(tree)  # WR-261: before tsql_merge counts an INSERT's values
             tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
             notes += _collations(tree)
             _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
@@ -192,6 +203,8 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             notes += _names(tree, columns)
             notes += _as_of(tree)
             _table_columns(tree)
+            before, after, identity_notes = numbered.statement(tree)  # WR-261
+            notes += identity_notes
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
             tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
@@ -224,7 +237,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             if len(text) > 50 * len(batch) + 200_000:  # a backstop: each rewrite reads its arguments once
                 raise ValueError(_TOO_DEEP)
             if text.strip():
-                texts.append(text)
+                texts += [*before, text, *after]
     if not texts:
         raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
                          "nothing on the local engine, so they're skipped." if skipped else "The query is empty.")
@@ -520,7 +533,7 @@ def _refuse_session_options(batch: str) -> None:
         if then in _COMPOUND and i + 3 < len(tokens) and tokens[i + 3].token_type == TokenType.EQ:
             continue  # UPDATE t SET n += 1: an assignment, not an option
         option = name.text.upper()
-        if option in _SETTINGS or option in ("DATEFIRST", "TRANSACTION"):
+        if option in _SETTINGS or option in ("DATEFIRST", "TRANSACTION", "IDENTITY_INSERT"):  # IDENTITY_INSERT: WR-261
             continue
         if option in ("STATISTICS", "SHOWPLAN_ALL", "SHOWPLAN_TEXT", "SHOWPLAN_XML") and i + 2 < len(tokens):
             option += f" {tokens[i + 2].text.upper()}" if option == "STATISTICS" else ""
@@ -630,6 +643,7 @@ def _parse(batch: str) -> list[exp.Expression]:
         raise ValueError(_unreadable(exc)) from None
     finally:
         log.removeHandler(handler)
+    unsupported = tsql_identity.unsupported(unsupported)  # WR-261: SET IDENTITY_INSERT runs; SEQUENCE is named
     if unsupported:
         m = re.match(r"'(\S+)", unsupported[0])
         word = (m[1] if m else batch.strip().split(None, 1)[0]).upper()
@@ -917,8 +931,7 @@ def _table_columns(tree: exp.Expression) -> None:
       "String or binary data would be truncated", on INSERT and UPDATE. Trailing blanks past the length pass, as
       in T-SQL (which drops them; locally they're kept). DuckDB can't add a column with a CHECK, so ``ALTER TABLE
       ... ADD`` of a sized column is refused by name.
-    - ``IDENTITY`` is refused by name: a warehouse takes only ``BIGINT IDENTITY`` with no seed or increment, and
-      the local engine doesn't number rows that way yet.
+    - ``BIGINT IDENTITY`` is numbered by tsql_identity (WR-261), which refuses the rest by name.
     - ``##name`` is refused anywhere, since a warehouse has no global temporary tables (sqlglot read it as an
       ordinary table), and ``WITH (DISTRIBUTION = ...)``,
       which a warehouse takes only on a #temp table, is dropped there (it changes how the table is stored, not
@@ -951,13 +964,6 @@ def _table_columns(tree: exp.Expression) -> None:
     for column in tree.this.expressions:
         if not isinstance(column, exp.ColumnDef):
             continue
-        constraints = column.args.get("constraints") or []
-        identity = [c for c in constraints if isinstance(c.args.get("kind"), (exp.AutoIncrementColumnConstraint,
-                                                                              exp.GeneratedAsIdentityColumnConstraint))]
-        if identity:
-            raise ValueError(_NOT_YET + f"IDENTITY isn't mapped yet (column {column.name}). A Fabric Warehouse takes "
-                             "only BIGINT IDENTITY, with no seed or increment; until the local engine numbers rows "
-                             "that way, give the column its values in the INSERT.")
         size = _sized(column)
         if size is None:
             continue

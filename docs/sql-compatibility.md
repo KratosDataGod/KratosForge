@@ -858,11 +858,15 @@ When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric
 | `NOT NULL` | Kept: a `NULL` stops the `INSERT` |
 | `#temp` tables | Last until the project is closed (the session), and are gone when it's opened again. `WITH (DISTRIBUTION = ROUND_ROBIN)`, which a warehouse takes only on a #temp table, is accepted and changes nothing here |
 | `CREATE TABLE ... AS SELECT`, `SELECT ... INTO` | A table with the select's columns and types: `1` is an `int`, `1.5` a `decimal(2,1)`, a cast keeps its type |
+| `BIGINT IDENTITY` | Each row an `INSERT` adds without a value for the column gets a new number, from a sequence the table keeps. Numbers are unique; a warehouse's are unique too, but not always in order and with gaps, so don't rely on the order. An `INSERT` with no column list fills the other columns, in order. A value for the column is SQL Server's error 544, "Cannot insert explicit value for identity column in table 't' when IDENTITY_INSERT is set to OFF.", and `UPDATE` of the column is error 8102 |
+| `SET IDENTITY_INSERT t ON` | As in a warehouse: until `OFF` or the end of the run, an `INSERT` with a column list can give the column its own values, for one table at a time. An `INSERT` with no column list is then error 8101, and a table with no IDENTITY column error 8106 |
+| `SELECT ... INTO`, `CREATE TABLE ... AS SELECT` from a table with an IDENTITY column | The new table's column is an IDENTITY column too, when it is selected as it is, once, from that one table, as SQL Server carries it. Its new numbers come from the same sequence as the first table's |
 | `DROP TABLE IF EXISTS`, `TRUNCATE TABLE` | As in a warehouse |
 
 Refused by name:
 
-- `IDENTITY`. A warehouse takes only `BIGINT IDENTITY`, with no seed or increment, and numbers rows uniquely but not always in order. The local engine doesn't number rows that way yet, so give the column its values in the `INSERT`. `SET IDENTITY_INSERT` and `DBCC` are refused too.
+- `IDENTITY` with a seed or increment (`IDENTITY(1, 1)`), on a column that isn't `BIGINT`, or added by `ALTER TABLE ... ADD`, as in a warehouse. A table takes one IDENTITY column, and a second is SQL Server's error 2744.
+- `SEQUENCE` objects (`CREATE SEQUENCE`, `NEXT VALUE FOR`), `@@IDENTITY` and `IDENT_CURRENT`, which a warehouse doesn't have. `DBCC`, `DBCC CHECKIDENT` included, is refused too.
 - `##global` temporary tables, which a warehouse doesn't have either.
 - `WITH (DISTRIBUTION = ...)` on a table that isn't a #temp table.
 - `ALTER TABLE ... ADD` of a `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)` or `BINARY(n)` column, since the local engine can't hold an added column to its length. Declare it in `CREATE TABLE`. Adding a column of another type, or `VARCHAR(MAX)`, works.
@@ -873,6 +877,9 @@ What can still differ:
 - `CHAR(n)` isn't padded with spaces to n characters. `LEN` gives the same answer either way, but `DATALENGTH` of a stored `CHAR` value doesn't.
 - Trailing blanks past a text column's length are kept here. A warehouse drops them, so `DATALENGTH` differs.
 - A #temp table is shared by every query in the open project. In a warehouse it belongs to one connection.
+- An IDENTITY column's new numbers aren't moved past values given with `SET IDENTITY_INSERT ON`, so a later one can repeat one of them. In a warehouse, `DBCC CHECKIDENT ... RESEED` sets where numbering goes on, and it isn't run here.
+- A table made again under a dropped table's name goes on numbering from where the dropped one stopped. In a warehouse the new table starts again.
+- `SELECT ... INTO` a project table from a #temp table doesn't carry IDENTITY here, with a note in `translation.notes`, because the #temp table's numbers end with the session.
 
 ## Local T-SQL data types
 

@@ -7,7 +7,7 @@ map to one of those with certainty are rewritten. Any other message keeps DuckDB
 that names one of DuckDB's own system tables, which a warehouse project never has. The caller logs DuckDB's
 original text, so support can still read it.
 
-A message that has a SQL Server number with certainty (207, 208, 209, 239 and 8134 for now) is shown as SQL
+A message that has a SQL Server number with certainty (207, 208, 209, 239, 8134, and the IDENTITY errors 544, 1088, 2744, 8101, 8102 and 8106 for now) is shown as SQL
 Server prints it, "Msg 207, Level 16: Invalid column name 'x'.", alone or in a script. Others show no number:
 none is guessed.
 """
@@ -36,6 +36,16 @@ _NUMBERS = [
     (re.compile(r"^Ambiguous column name '"), 209),
     (re.compile(r"^Duplicate common table expression name '.*' was specified\.$"), 239),
     (re.compile(r"^Divide by zero error encountered\.$"), 8134),
+    # WR-261: IDENTITY columns and SET IDENTITY_INSERT (tsql_identity)
+    (re.compile(r"^Cannot insert explicit value for identity column in table '.*' when IDENTITY_INSERT is set to "
+                r"OFF\.$"), 544),
+    (re.compile(r"^An explicit value for the identity column in table '.*' can only be specified when a column list "
+                r"is used and IDENTITY_INSERT is ON\.$"), 8101),
+    (re.compile(r"^Cannot update identity column '.*'\.$"), 8102),
+    (re.compile(r"^Multiple identity columns specified for table '.*'\. Only one identity column per table is "
+                r"allowed\.$"), 2744),
+    (re.compile(r"^Table '.*' does not have the identity property\. Cannot perform SET operation\.$"), 8106),
+    (re.compile(r'^Cannot find the object ".*" because it does not exist or you do not have permissions\.$'), 1088),
 ]
 LEVEL = 16  # each of these is a user error that stops the statement, as SQL Server grades it
 # A suggestion of one of DuckDB's own catalog tables: a warehouse project has none of them.

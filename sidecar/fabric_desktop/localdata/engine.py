@@ -43,7 +43,7 @@ import duckdb
 import pyarrow as pa
 
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
-from . import delta, tsql, tsql_errors
+from . import delta, tsql, tsql_errors, tsql_identity
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
@@ -837,6 +837,8 @@ class LocalEngine:
                             _within_column_limit(con, step["sql"])  # WR-235: before anything is made
                         if explain is None and step.get("joined") is not None:
                             _updated_once(con, step["joined"])
+                        for setup in step.get("before") or []:  # WR-261: an IDENTITY column's sequence
+                            run_through(con, setup)
                         if step["write"] is not None and step["write"].mode == "table":
                             summary = self._make_table(con, step["write"], params)
                             run["write"] = summary
@@ -871,6 +873,8 @@ class LocalEngine:
                             result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
                         else:
                             run_through(con, step["sql"], _bound(con, step["sql"], params))
+                        if step.get("after"):
+                            _after(con, step["after"], last=i == len(statements) - 1)
                     except (duckdb.Error, ValueError) as exc:
                         if dialect != "tsql" or isinstance(exc, duckdb.InterruptException):
                             raise
@@ -955,7 +959,8 @@ class LocalEngine:
         if dialect == "tsql":
             # The function list is read only for a query that calls a function sqlglot doesn't know: building it
             # is most of a short T-SQL query's time (about 15 ms of 21 in examples/benchmark).
-            texts, notes = tsql.translate(sql, self._column_types(con), _FunctionNames(lambda: self._function_names(con)))
+            texts, notes = tsql.translate(sql, self._column_types(con), _FunctionNames(lambda: self._function_names(con)),
+                                          lambda: _identities(con))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
             return self._duckdb_steps(con, texts, n, tsql=True)
@@ -974,7 +979,14 @@ class LocalEngine:
         """Each statement as a step to run. ``tsql``: the statements came from T-SQL, so a MERGE on one of the
         project's Delta tables is checked for T-SQL's error 8672 rather than Delta's multiple-match rule."""
         steps: list[dict[str, Any]] = []
+        before: list[str] = []
         for text in texts:
+            if tsql and text.startswith(tsql_identity.SETUP):  # WR-261: runs with its neighbour, not as a statement
+                if _kind(text[len(tsql_identity.SETUP):]) == "create" or not steps:
+                    before.append(text)
+                else:
+                    steps[-1].setdefault("after", []).append(text)
+                continue
             matched: delta_dml.Change | None = None
             joined: str | None = None
             if delta_dml.looks_like(text):
@@ -1013,7 +1025,8 @@ class LocalEngine:
             n += len(found)
             steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
                           "kind": "write delta" if write else _kind(text), "matched": matched,
-                          "joined": joined})
+                          "joined": joined, "before": before})
+            before = []
         return steps
 
     def _database_table(self, target: tuple[str | None, str] | None) -> bool:
@@ -1664,6 +1677,37 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+def _identities(con: duckdb.DuckDBPyConnection) -> dict[tsql_identity.Key, tsql_identity.Identity]:
+    """WR-261: each table's IDENTITY column (a default that takes its values from an IDENTITY sequence), with every
+    column of the table in order, by the key tsql_identity looks tables up by."""
+    rows = con.execute("SELECT database_name, schema_name, table_name, column_name, column_default FROM duckdb_columns() "
+                       "WHERE NOT internal ORDER BY database_name, schema_name, table_name, column_index").fetchall()
+    found: dict[tsql_identity.Key, tsql_identity.Identity] = {}
+    columns: dict[tsql_identity.Key, list[str]] = {}
+    for database, schema, table, column, default in rows:
+        key = ("#", table.lower()) if database == "temp" and table.startswith("#") else (schema.lower(), table.lower())
+        columns.setdefault(key, []).append(column)
+        sequence = tsql_identity.from_default(default)
+        if sequence is not None and key not in found:
+            found[key] = tsql_identity.Identity(column, sequence, columns[key])
+    return found
+
+
+def _after(con: duckdb.DuckDBPyConnection, texts: list[str], last: bool) -> None:
+    """WR-261: what runs right after a statement (SELECT ... INTO's IDENTITY column). After the script's last
+    statement it runs on a cursor of its own, so the statement's result stays there to be read."""
+    if not last:
+        for text in texts:
+            run_through(con, text)
+        return
+    cursor = con.cursor()
+    try:
+        for text in texts:
+            cursor.execute(text)
+    finally:
+        cursor.close()
 
 
 def _lines_above_problem(above: int, table: Found) -> str:

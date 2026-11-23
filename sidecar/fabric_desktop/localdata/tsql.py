@@ -197,6 +197,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
             notes += _converts(tree)
             _big_integers(tree)
+            _with_rollup(tree)
             _regexps(tree)
             notes += _types(tree, schema)
             _percentiles(tree)
@@ -1061,8 +1062,11 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
+    pivoted = _pivot_sums(tree)
+    counts = [n for n in tree.find_all(exp.Count) if not n.args.get("big_int")
+              and not any(isinstance(up, exp.Order) for up in _ancestors(n))]
     grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation, *_COLLATED))
-    if not here and not compared and not grouped and not sized_ints:
+    if not here and not compared and not grouped and not sized_ints and not pivoted and not counts:
         return []
     sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
     typed = tree.copy()
@@ -1072,8 +1076,10 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     except SqlglotError:
         pass  # unknown tables: literals still get their types
     try:
-        typed = annotate_types(typed, schema=schema, dialect="duckdb")
+        typed = annotate_types(typed, schema=schema, dialect="duckdb", expression_metadata=_TSQL_AGGREGATES)
     except SqlglotError:
+        for count in counts:
+            _count_is_int(count)
         for cast_node in sized:
             _sized_text(cast_node, None)
         return [("Couldn't tell the column types, so divisions, averages, casts to integers, text comparisons and "
@@ -1090,6 +1096,13 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 _negated(node, _int_kind(info.this))
             elif isinstance(node, exp.Sum):
                 _sum_keeps_type(node, info)
+    typed_pivoted = _pivot_sums(typed)
+    if len(typed_pivoted) == len(pivoted):
+        for node, info in zip(pivoted, typed_pivoted, strict=True):
+            if (to := _aggregate_kind(info.this)) is not None:
+                _cast_around(node, to)  # DuckDB's PIVOT takes one aggregate, and expressions only around it
+    for count in counts:
+        _count_is_int(count)
     # A copy _collated makes of a value isn't in ``here``, so the passes below (+ on text becoming ||, say) miss
     # it: it is made again from the rewritten value once they have run.
     later: list[Callable[[], None]] = []
@@ -1106,6 +1119,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "with at most 6 significant digits).")]
     pairs = list(zip(here, there, strict=True))
     done: set[int] = set()
+    averages: list[tuple[exp.Avg, str]] = []  # rewritten once the values inside them are (they're copied)
     # Decimal arithmetic first, and inner before outer: a rewrite copies its operands, which by then carry theirs.
     for node, info in reversed(pairs):
         if isinstance(node, tuple(_DECIMAL_OPS)) and (sides := _decimal_operands(info)) is not None:
@@ -1138,7 +1152,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: it divides as DuckDB does, "
                              "and T-SQL divides two integers as integers.")
         elif isinstance(node, exp.Avg):
-            if _is(info.this.type, _INTEGERS):
+            if (to := _aggregate_kind(info.this)) is not None:
+                averages.append((node, to))
+            elif _is(info.this.type, _INTEGERS):
                 # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
                 whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
                 whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
@@ -1187,6 +1203,12 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(_unchecked_style(unchecked))
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
+    for average, to in averages:
+        if _in_pivot(average):
+            _cast_around(average, to, truncated=True)
+            notes.append(_PIVOT_AVG_NOTE)
+        else:
+            _whole_average(average, to)
     for again in later:
         again()
     return notes
@@ -1240,6 +1262,98 @@ def _sized_ints(tree: exp.Expression) -> list[exp.Expression]:
     return [n for n in _in_order(tree, (exp.Sum, exp.Neg))
             if not (isinstance(n, exp.Neg) and isinstance(n.this, exp.Literal))  # -5 can't overflow
             and not any(isinstance(up, (exp.Order, exp.Pivot)) for up in _ancestors(n))]
+
+
+def _aggregate_kind(typed: exp.Expression) -> str | None:
+    """The T-SQL type of ``SUM`` or ``AVG`` of ``typed``: INT for a tinyint, smallint or int, BIGINT for a
+    bigint, and None for any other type, which keeps its own rules."""
+    kind = _int_kind(typed)
+    if _is(kind, _SUMMED_AS_INT):
+        return "INT"
+    if _is(kind, {exp.DataType.Type.BIGINT}):
+        return "BIGINT"
+    return None
+
+
+def _tsql_aggregate_types() -> dict:
+    """DuckDB's typing rules for sqlglot, with ``SUM`` and ``AVG`` of an integer typed as T-SQL types them
+    (WR-702): an int (or a bigint), so a total read again from a CTE or a derived table, and ``AVG(i) / 2``,
+    are worked out as integers too. sqlglot types SUM of an int as a BIGINT and AVG as a DOUBLE."""
+    from sqlglot.dialects.duckdb import DuckDB
+
+    rules = dict(DuckDB.EXPRESSION_METADATA)
+    summed = rules[exp.Sum]["annotator"]
+    averaged = rules[exp.Avg]
+
+    def total(annotator: Any, node: exp.Sum) -> exp.Sum:
+        summed(annotator, node)
+        if (to := _aggregate_kind(node.this)) is not None:
+            annotator._set_type(node, exp.DataType.build(to))
+        return node
+
+    def average(annotator: Any, node: exp.Avg) -> exp.Avg:
+        to = _aggregate_kind(node.this)
+        annotator._set_type(node, exp.DataType.build(to) if to is not None else averaged["returns"])
+        return node
+
+    rules[exp.Sum] = {"annotator": total}
+    rules[exp.Avg] = {"annotator": average}
+    return rules
+
+
+_TSQL_AGGREGATES = _tsql_aggregate_types()
+
+
+def _pivot_sums(tree: exp.Expression) -> list[exp.Expression]:
+    return [n for n in _in_order(tree, (exp.Sum,)) if _in_pivot(n)]
+
+
+def _in_pivot(node: exp.Expression) -> bool:
+    return any(isinstance(up, exp.Pivot) for up in _ancestors(node))
+
+
+def _cast_around(node: exp.Expression, to: str, truncated: bool = False) -> None:
+    """``node`` cast to ``to`` (after TRUNC, when ``truncated``), the node itself kept in the tree. A value past
+    the type is DuckDB's conversion error, which tsql_errors gives as error 8115."""
+    cast = exp.Cast(this=exp.Null(), to=exp.DataType.build(to))
+    node.replace(cast)
+    cast.set("this", exp.Trunc(this=node) if truncated else node)
+
+
+def _count_is_int(node: exp.Count) -> None:
+    """WR-702: ``COUNT`` is an int in T-SQL, and a count past it stops with error 8115 (``COUNT_BIG`` is the
+    bigint); DuckDB's COUNT is a BIGINT."""
+    if _in_pivot(node):
+        _cast_around(node, "INT")
+        return
+    whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+    _checked(whole, "CASE WHEN TRY_CAST(kf_value AS INT) IS NULL THEN CAST(error('"
+                    f"{_OVERFLOW.format(kind='int')}') AS INT) ELSE CAST(kf_value AS INT) END")
+
+
+def _whole_average(node: exp.Avg, to: str) -> None:
+    """WR-702: ``AVG`` of an int, smallint or tinyint is an int in T-SQL, and of a bigint a bigint: the total
+    divided by the count as integers, so cut toward zero (AVG of 1 and 2 is 1, of -1 and -2 is -1), and a total
+    past the type stops with error 8115. DuckDB's AVG is a DOUBLE, which also lost a bigint's last digits."""
+    whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+
+    def over(kind: type[exp.Expression]) -> exp.Expression:  # the SUM or COUNT of the same values, and window
+        copy = whole.copy()
+        if isinstance(copy, exp.Window):
+            copy.set("this", kind(this=copy.this.this))
+            return copy
+        return kind(this=copy.this)
+
+    total, count = over(exp.Sum), over(exp.Count)
+    quotient = exp.IntDiv(this=total, expression=count)
+    _checked(total, f"CASE WHEN kf_value IS NOT NULL AND TRY_CAST(kf_value AS {to}) IS NULL "
+                    f"THEN CAST(error('{_OVERFLOW.format(kind=to.lower())}') AS {to}) ELSE CAST(kf_value AS {to}) END")
+    whole.replace(exp.Cast(this=quotient, to=exp.DataType.build(to)))
+
+
+_PIVOT_AVG_NOTE = ("AVG of an integer in a PIVOT is worked out from a float here and cut toward zero: a bigint "
+                   "average past 15 digits can lose its last digits, and a group whose total passes the integer "
+                   "type gives its average, where T-SQL stops with error 8115.")
 
 
 def _sum_keeps_type(node: exp.Sum, info: exp.Expression) -> None:
@@ -2780,6 +2894,18 @@ def _big_integers(tree: exp.Expression) -> None:
         if isinstance(node.parent, (exp.Left, exp.Right, exp.Repeat, exp.Substring)) and node.arg_key != "this":
             continue  # a bigint count or length, which those functions check against a bigint themselves
         node.replace(exp.Cast(this=node.copy(), to=exp.DataType.build(f"DECIMAL({len(text.lstrip('0'))}, 0)")))
+
+
+def _with_rollup(tree: exp.Expression) -> None:
+    """WR-702: ``GROUP BY a, b WITH ROLLUP`` (or ``WITH CUBE``) is ``GROUP BY ROLLUP(a, b)`` in T-SQL; sqlglot
+    reads it as a ROLLUP of nothing after the list and wrote it back as WITH ROLLUP, which DuckDB can't parse."""
+    for group in list(tree.find_all(exp.Group)):
+        for kind, made in (("rollup", exp.Rollup), ("cube", exp.Cube)):
+            marks = group.args.get(kind) or []
+            if len(marks) == 1 and not marks[0].expressions and group.expressions:
+                columns = [e.pop() for e in list(group.expressions)]
+                group.set("expressions", [])
+                group.set(kind, [made(expressions=columns)])
 
 
 def _ancestors(node: exp.Expression) -> Iterator[exp.Expr]:

@@ -139,7 +139,7 @@ def test_a_decimal_plus_a_windowed_integer_sum_is_a_decimal(engine):
     assert translate("SELECT 1.5 + SUM(2) OVER ()")[0] == [(
         "SELECT CAST(1.5 + LIST_TRANSFORM([SUM(2) OVER ()], LAMBDA kf_value : CASE WHEN NOT kf_value IS NULL AND "
         "TRY_CAST(kf_value AS INT) IS NULL THEN CAST(ERROR('Arithmetic overflow error converting expression to data "
-        "type int.') AS INT) ELSE CAST(kf_value AS INT) END)[1] AS DECIMAL(21, 1))")]  # WR-247: SUM of an int is an int
+        "type int.') AS INT) ELSE CAST(kf_value AS INT) END)[1] AS DECIMAL(12, 1))")]  # SUM of an int is an int: decimal(10, 0) (WR-702)
 
 
 def test_text_divided_by_text_and_text_modulo_text_are_left_to_duckdb():

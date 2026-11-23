@@ -927,6 +927,7 @@ class LocalEngine:
         at a version or time. T-SQL is translated first (tsql.py), and ``run`` gets what may differ."""
         steps: list[dict[str, Any]] = []
         n = 0
+        own = self._script_own()
         if dialect == "spark":
             from sqlglot import exp
             from sqlglot.errors import ParseError, TokenError
@@ -938,12 +939,13 @@ class LocalEngine:
                 refuse_spark_hashes(tree)  # DuckDB's hash isn't Spark's (EA-017)
                 found = delta.rewrite_tree(tree, n)
                 n += len(found)
-                change = self._own_change(delta_dml.parse_tree(tree))
+                change = self._own_change(delta_dml.parse_tree(tree), own)
                 if change is not None:
                     steps.append({"sql": "", "write": None, "change": change, "as_of": found,
                                   "kind": f"{change.kind} delta"})
                     continue
-                write = delta.parse_tree(tree, self._is_own)
+                write = delta.parse_tree(tree, own)
+                own.made(write)
                 text = "" if write else delta._duckdb(tree)
                 if write is None and not text.strip():
                     continue
@@ -958,21 +960,27 @@ class LocalEngine:
             texts, notes = tsql.translate(sql, self._column_types(con), _FunctionNames(lambda: self._function_names(con)))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
-            return self._duckdb_steps(con, texts, n, tsql=True)
+            return self._duckdb_steps(con, texts, n, tsql=True, own=own)
         try:
             texts = [s.query for s in con.extract_statements(sql)]
         except duckdb.Error as exc:
             # DuckDB can't parse CREATE TABLE ... USING DELTA: split the script without it, and let it
             # report anything else that's wrong.
             texts = _split_script(sql)
-            if not any(delta.parse(t, self._is_own) or delta_dml.looks_like(t) for t in texts):
+            if not any(delta.parse(t, own) or delta_dml.looks_like(t) for t in texts):
                 raise ValueError(_short(exc)) from None
-        return self._duckdb_steps(con, texts, n)
+        return self._duckdb_steps(con, texts, n, own=own)
+
+    def _script_own(self) -> "_ScriptOwn":
+        """Which names are the project's Delta tables for a script: those already made, and those an earlier
+        statement of the same script makes, so CREATE ... USING DELTA then INSERT OVERWRITE reads as one."""
+        return _ScriptOwn(self._is_own, self._own_key)
 
     def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int,
-                      tsql: bool = False) -> list[dict[str, Any]]:
+                      tsql: bool = False, own: "_ScriptOwn | None" = None) -> list[dict[str, Any]]:
         """Each statement as a step to run. ``tsql``: the statements came from T-SQL, so a MERGE on one of the
         project's Delta tables is checked for T-SQL's error 8672 rather than Delta's multiple-match rule."""
+        own = own or self._script_own()
         steps: list[dict[str, Any]] = []
         for text in texts:
             matched: delta_dml.Change | None = None
@@ -989,7 +997,7 @@ class LocalEngine:
                     joined = rewritten  # an UPDATE ... FROM is checked before it runs (_updated_once)
                 if parsed is not None:
                     parsed.tsql = tsql
-                change = self._own_change(parsed)
+                change = self._own_change(parsed, own)
                 if change is None and parsed is not None and parsed.kind == "merge" \
                         and any(w.match == "matched" for w in parsed.whens):
                     matched = parsed  # a MERGE on a database table: checked before it runs (_matched_once)
@@ -998,7 +1006,8 @@ class LocalEngine:
                     steps.append({"sql": "", "write": None, "change": change, "as_of": found,
                                   "kind": f"{change.kind} delta"})
                     continue
-            write = delta.parse(text, self._is_own)
+            write = delta.parse(text, own)
+            own.made(write)
             if write is None and len(texts) > 1:
                 try:
                     con.extract_statements(text)
@@ -1021,12 +1030,13 @@ class LocalEngine:
         return target is not None and not self._is_own(*target) and \
             self.project.catalog.get(self._own_key(*target)) is None
 
-    def _own_change(self, change: "delta_dml.Change | None") -> "delta_dml.Change | None":
+    def _own_change(self, change: "delta_dml.Change | None",
+                    own: Any = None) -> "delta_dml.Change | None":
         """``change`` when it changes one of the project's Delta tables; None when it is ordinary SQL
         (a table people made in the database). A registered folder's Delta table is never changed."""
         if change is None:
             return None
-        if self._is_own(change.schema, change.table):
+        if (own or self._is_own)(change.schema, change.table):
             return change
         entry = self.project.catalog.get(self._own_key(change.schema, change.table))
         if entry is not None:
@@ -1922,6 +1932,22 @@ _RENAME = re.compile(r"^\s*ALTER\s+(TABLE|VIEW)\b.*\bRENAME\b", re.IGNORECASE | 
 _ALTER = re.compile(r"^\s*ALTER\s+TABLE\s+(IF\s+EXISTS\s+)?(?P<name>[^\s;]+)\s+(ADD|DROP|ALTER)\b", re.IGNORECASE)
 _TRUNCATE = re.compile(r"^\s*TRUNCATE\s+(TABLE\s+)?(?P<name>[^\s;]+)\s*;?\s*", re.IGNORECASE)
 _DROP = re.compile(r"^\s*DROP\s+(TABLE|VIEW)\s+(IF\s+EXISTS\s+)?(?P<name>[^\s;]+)\s*;?\s*$", re.IGNORECASE)
+
+
+class _ScriptOwn:
+    """``is_own(schema, table)`` for one script: true for the project's Delta tables and for one an earlier
+    statement of the script creates (CREATE TABLE ... USING DELTA), which exists by the time the next runs."""
+
+    def __init__(self, is_own: Any, key: Any) -> None:
+        self._is_own, self._key = is_own, key
+        self._made: set[Any] = set()
+
+    def __call__(self, schema: str | None, table: str) -> bool:
+        return self._key(schema, table) in self._made or bool(self._is_own(schema, table))
+
+    def made(self, write: Any) -> None:
+        if write is not None and (write.mode == "create" or write.replace):
+            self._made.add(self._key(write.schema, write.table))
 
 
 def _split_script(sql: str) -> list[str]:

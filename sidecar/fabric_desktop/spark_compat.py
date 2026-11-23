@@ -2007,6 +2007,26 @@ def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, va
     return _frame(self, out.project(", ".join(_col_sql(c) for c in keep)))
 
 
+_SEMI_ANTI = {"semi", "leftsemi", "anti", "leftanti"}
+
+
+def _keys_first(df: DataFrame, keys: list[str]) -> DataFrame:
+    """A join on column names puts the keys first, in ``on``'s order, then the rest of the left's columns,
+    then the right's, as Spark does; DuckDB keeps the left's order. So the left goes in keys first (under
+    its own alias, so ``df.col`` still finds its columns). A key missing or named twice is left for the
+    join to report, and a left with a repeated name is left as it is."""
+    cols = df.columns
+    lower = [c.lower() for c in cols]
+    if len(set(lower)) != len(lower) or any(lower.count(k.lower()) != 1 for k in keys):
+        return df
+    front = list(dict.fromkeys(lower.index(k.lower()) for k in keys))
+    order = front + [i for i in range(len(cols)) if i not in front]
+    if order == list(range(len(cols))):
+        return df
+    rel = df.relation.project(", ".join(_col_sql(cols[i]) for i in order)).set_alias(df.relation.alias)
+    return DataFrame(rel, df.session)
+
+
 def _same_self(fn: Any) -> Any:
     """A join of a DataFrame with itself: DuckDB needs the two sides named apart. A join with no
     condition pairs every row with every row, as in Spark (``df.join(df2)``, any ``how``), and
@@ -2022,7 +2042,11 @@ def _same_self(fn: Any) -> Any:
                 given["how"] = "inner"
             if given.get("on") is None and given.get("how") is None:
                 given["how"] = "inner"  # DuckDB's join needs a condition; with a how it joins on true
-            return fn(self, other, given.get("on"), given.get("how"), *args[2:], **kwargs)
+            on, how = given.get("on"), given.get("how")
+            keys = [on] if isinstance(on, str) else on if isinstance(on, list) and all(isinstance(k, str) for k in on) else []
+            if keys and str(how or "inner").lower().replace("_", "") not in _SEMI_ANTI:
+                self = _keys_first(self, keys)
+            return fn(self, other, on, how, *args[2:], **kwargs)
         return fn(self, other, *args, **kwargs)
     join.__doc__ = fn.__doc__
     return join

@@ -1057,14 +1057,24 @@ def schedule_configuration(kind: str, times: list[str] | None = None, every_minu
     start = start or now.strftime("%Y-%m-%dT%H:%M:%S")
     end = end or (now + dt.timedelta(days=3650)).strftime("%Y-%m-%dT%H:%M:%S")
     config: dict[str, Any] = {"startDateTime": start, "endDateTime": end, "localTimeZoneId": time_zone}
+    if not isinstance(times or [], (list, tuple)) or not all(isinstance(t, str) for t in times or []):
+        raise ValueError("The schedule wasn't saved, because its times aren't a list of times of day. "
+                         "Pick the times again, like 06:00.")
+    if not isinstance(weekdays or [], (list, tuple)):
+        raise ValueError("The schedule wasn't saved, because its days aren't a list of day names. "
+                         "Pick the days again, like Monday.")
     times = [t.strip() for t in (times or []) if t.strip()]
     for t in times:
-        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t):
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t, re.ASCII):  # \d alone takes an Arabic-Indic zero
             raise ValueError(f"Times are HH:MM in 24-hour form, like 06:00 (got {t!r})")
     if kind == "cron":
-        if not every_minutes or not 1 <= int(every_minutes) <= MAX_EVERY_MINUTES:
-            raise ValueError("Pick how many minutes between runs")
-        return config | {"type": "Cron", "interval": int(every_minutes)}
+        minutes = int(every_minutes) if isinstance(every_minutes, str) and every_minutes.strip().isascii() \
+            and every_minutes.strip().isdigit() else every_minutes
+        # int() would make 1.5 one minute and True every minute: a schedule quietly not the one picked
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 1 <= minutes <= MAX_EVERY_MINUTES:
+            raise ValueError("The schedule wasn't saved, because the minutes between runs aren't a whole number "
+                             f"from 1 to {MAX_EVERY_MINUTES}. Pick how many minutes between runs, like 60.")
+        return config | {"type": "Cron", "interval": minutes}
     if kind == "daily":
         if not times:
             raise ValueError("Pick at least one time of day")

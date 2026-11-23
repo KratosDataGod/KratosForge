@@ -129,11 +129,16 @@ def next_run(config: dict[str, Any], now: dt.datetime | None = None) -> dt.datet
         day = now.date() + dt.timedelta(days=offset)
         if day.weekday() not in days:
             continue
+        # Compared as moments: from inside a repeated hour (now.fold) a wall time earlier in it is already
+        # past, and a time in the hour the clocks skip comes an hour later, after the times that follow it.
+        runs = []
         for t in times:
             h, m = map(int, t.split(":"))
             at = dt.datetime.combine(day, dt.time(h, m))
-            if at > now:
-                return at
+            if at.timestamp() > now.timestamp():
+                runs.append(at)
+        if runs:
+            return min(runs, key=lambda at: at.timestamp())
     return None
 
 

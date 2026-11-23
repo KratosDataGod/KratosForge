@@ -693,7 +693,7 @@ A repository's **Fabric workspace** tab shows how a Fabric workspace's own Git c
 
 ## Profile (Preview)
 
-**Profile**, in the account menu (top right), is a private record of work KratosForge verified: notebooks that passed Validate with a clean run. It shows your level and achievements (for fun, not a skill rating), skills as evidence coverage, and a **Professional report** you can save as Markdown for a review. Recording is on from the start and stays on this PC; turn it off in **Profile > Settings**. The whole page is described in [Profile](profile.md).
+**Profile**, in the account menu (top right), is a private record of work KratosForge verified: notebooks that passed Validate with a clean run. It shows your level and achievements (for fun, not a skill rating), skills as evidence coverage, **Skill trees** with a mastery level for each talent of fourteen developer classes, and a **Professional report** you can save as Markdown for a review. Recording is on from the start and stays on this PC; turn it off in **Profile > Settings**. The whole page is described in [Profile](profile.md).
 
 ## Settings
 

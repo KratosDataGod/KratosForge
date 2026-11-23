@@ -141,12 +141,20 @@ CLAIMS: list[Claim] = [
         note="WR-246: IN (SELECT ...) ignores trailing spaces"),
     _ts("NULLIF('a ', 'a')"),
     _ts("UPPER('é')"),
+    # WR-242: numbers written in the query, and CONVERT of varbinary with a style
+    _ts("0.99999999999999999999999999999999999999",
+        **_column_type("SELECT 0.99999999999999999999999999999999999999 AS v", "leading_zero")),
+    _ts("CONVERT(varchar(max), 0x00ff, 2)"),
 ]
 
 # (page, expression) -> why it isn't run here
 ILLUSTRATIVE: dict[tuple[str, str], str] = {
     (P, "SELECT *"): "a fragment: a view made with SELECT *, not a statement",
     (P, "regexp_replace('aaa', 'a*', 'X')"): "Spark's answer; this PC refuses that pattern by name (WR-257)",
+    (P, "9999999999999999999999999999.9999999999"): "a CSV read back from a folder as a DOUBLE; the folder issue for it is "
+                                                    "checked in test_warehouse_types_roundtrip.py (WR-242)",
+    (P, "0x00FF10"): "hex text in a CSV read back from a folder as a whole number; "
+                     "checked in test_warehouse_types_roundtrip.py (WR-242)",
 }
 
 # Inline `SELECT ...` statements run as written (see Statement)

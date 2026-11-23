@@ -108,12 +108,6 @@ def test_a_resolution_recorded_before_the_opening_is_not_measured():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="incident_history._ts drops a time with no zone (timestamp() raises, _ts "
-    "returns None) while _when in the same module reads it as UTC: the snapshot "
-    "loses its times and distinct timeline entries get the same record_id",
-)
 def test_times_with_no_zone_are_copied_as_utc_and_distinct_entries_stay_distinct(
     chicago,
 ):

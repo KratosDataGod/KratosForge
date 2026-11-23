@@ -608,8 +608,9 @@ class MetaMixin:
                     p.unlink(missing_ok=True)
                 else:
                     write_bytes(p, was)
-            raise ValueError(f"Not saved: {new_name} could not be opened with this change "
-                             f"({describe_error(exc)})") from exc
+            raise ValueError(f"Not saved: {new_name} couldn't be opened with this change "
+                             f"({describe_error(exc)}). Nothing was changed. Fix what the error names, "
+                             "then save again.") from exc
 
     def meta_set_delta_features(self, name: str, delta_features: str | None = None,
                                 delta_readers: list[str] | None = None, confirm_name: str | None = None) -> dict[str, Any]:

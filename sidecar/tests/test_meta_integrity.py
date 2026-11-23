@@ -177,6 +177,7 @@ def test_a_refused_save_redacts_what_the_reopen_error_carries(svc, monkeypatch):
         svc.meta_save_entity("silver.orders", before.replace('owner = "me"', 'owner = "ana"'))
     assert "Hunter2xyz" not in str(err.value)
     assert "TypeError" in str(err.value)
+    assert str(err.value).endswith("Nothing was changed. Fix what the error names, then save again.")
     assert path.read_text(encoding="utf-8") == before
 
 # ---- 2. find_cycle and run_order on long chains ----------------------------------------------------------

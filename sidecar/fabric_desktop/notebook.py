@@ -1853,7 +1853,9 @@ class Kernel:
             return {"name": name, "missing": True}
         out: dict[str, Any] = {"name": name, "type": type(value).__name__}
         deadline = time.monotonic() + DESCRIBE_TOTAL_SECONDS  # its items' own code runs too: bounded as _describe
-        if self._hidden(name, value) or _bounded(lambda: self._secret_preview(value)[1], lambda: False, DESCRIBE_SECONDS):
+        # With a secret read, a value too slow to check for it is hidden rather than shown unchecked.
+        if self._hidden(name, value) or (bool(self._secret_values())
+                                         and _bounded(lambda: self._secret_preview(value)[1], lambda: True, DESCRIBE_SECONDS)):
             return {**out, "hidden": True}
         columns = _columns(value)
         if columns is not None:

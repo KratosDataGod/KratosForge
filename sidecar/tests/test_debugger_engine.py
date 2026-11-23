@@ -368,6 +368,15 @@ def test_a_secret_in_a_nested_frame_stays_hidden(vault_kernel):
     assert VAULT_VALUE not in json.dumps(k.variables()) + json.dumps(k.variable_detail("kept"))
 
 
+def test_a_value_too_slow_to_check_for_a_secret_is_hidden(vault_kernel):
+    k = vault_kernel
+    assert k.run(FAKE_VAULT)["status"] == "ok"
+    assert k.run(ODD + "plain = notebookutils.credentials.getSecret('kv', 'app-key')\n"
+                       "items = [Spin(), plain]")["status"] == "ok"
+    detail = in_time(lambda: k.variable_detail("items"), 20)
+    assert detail.get("hidden") and VAULT_VALUE not in json.dumps(detail)
+
+
 # ---------- 4. the process kernel: limits, restart and close while paused ----------
 
 @pytest.mark.skipif(not sys.platform.startswith(("linux", "win")), reason="memory is read on Windows and Linux")

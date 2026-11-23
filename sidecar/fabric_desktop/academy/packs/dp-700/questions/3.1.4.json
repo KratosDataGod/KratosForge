@@ -363,7 +363,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Add an Office 365 Outlook activity to each Dataflow Gen2 item, connected through On fail to the dataflow's last query"
+          "text": "Add an Office 365 Outlook activity to each Dataflow Gen2 item, connected through On failure to the dataflow's last query"
         },
         {
           "id": "b",
@@ -399,7 +399,7 @@
         },
         {
           "id": "b",
-          "text": "On fail only triggers when the whole pipeline run fails, so move the Outlook activity into a separate pipeline"
+          "text": "On failure only triggers when the whole pipeline run fails, so move the Outlook activity into a separate pipeline"
         },
         {
           "id": "c",

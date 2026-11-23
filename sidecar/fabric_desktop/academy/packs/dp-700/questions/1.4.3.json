@@ -332,7 +332,7 @@
         },
         {
           "id": "c",
-          "text": "On fail"
+          "text": "On failure"
         },
         {
           "id": "d",
@@ -342,8 +342,8 @@
       "answer": [
         "b"
       ],
-      "explanation": "With On completion, the next activity runs when the previous one ends as either succeeded or failed. On success and On fail each cover only one outcome, and On skip runs only when the previous activity was skipped.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
+      "explanation": "With On completion, the next activity runs when the previous one ends as either succeeded or failed. On success and On failure each cover only one outcome, and On skip runs only when the previous activity was skipped.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-canvas-experience",
       "case": "marlow-sales",
       "version": 1,
       "status": "live",

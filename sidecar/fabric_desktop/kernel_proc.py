@@ -220,6 +220,15 @@ class ProcessKernel:
         with self.as_guest(None):
             return self._request("forget_guest", spawn=False, notebook=notebook)
 
+    def rename_guest(self, old: str, new: str) -> dict[str, Any]:
+        """A guest was renamed: its variables and its cell (running or paused) go with it."""
+        if self._owner == old:
+            self._owner, self._owner_name = new, new
+        if self._proc is None or self._proc.poll() is not None:
+            return {"renamed": False}
+        with self.as_guest(None):
+            return self._request("rename_guest", spawn=False, old=old, new=new)
+
     # ---- the process
 
     def _ensure(self) -> subprocess.Popen[str]:

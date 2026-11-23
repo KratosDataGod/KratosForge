@@ -57,7 +57,7 @@ def _text(i: int, key: str, value: Any) -> str:
 
 
 def _date(i: int, key: str, value: Any) -> dt.date:
-    if not isinstance(value, str) or not _DATE.match(value):
+    if not isinstance(value, str) or not _DATE.fullmatch(value):
         raise ValueError(f"exception {i}: {key} must be a date written YYYY-MM-DD")
     try:
         return dt.date.fromisoformat(value)

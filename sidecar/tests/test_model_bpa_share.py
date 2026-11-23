@@ -70,7 +70,18 @@ def test_one_finding_per_rule_and_object_and_nothing_without_a_finished_check():
 
 def test_rule_ids_are_slugs():
     assert model_bpa_share.rule_id("Avoid using '1-(x/y)' syntax") == "bpa.avoid-using-1-x-y-syntax"
-    assert model_bpa_share.rule_id("  ") == "bpa.unnamed"
+    a, b = model_bpa_share.rule_id("日本"), model_bpa_share.rule_id("中国")
+    assert a.startswith("bpa.r-") and a != b, "names with no slug letters don't collapse into one"
+
+
+@pytest.mark.parametrize("checked_at", ["", "2026-11-23T10:00:00", "not a time"])
+def test_a_check_with_no_zoned_finish_time_isnt_shared(checked_at):
+    with pytest.raises(ValueError, match="no finish time with its time zone"):
+        model_bpa_share.analysis_rows(_status(checked_at=checked_at))
+
+
+def test_effort_isnt_claimed():
+    assert all(r["effort"] is None for r in model_bpa_share.analysis_rows(_status())["recommendations"])
 
 
 def test_recorded_twice_it_adds_nothing_and_a_dismissal_holds(tmp_path: Path):

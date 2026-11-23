@@ -7,7 +7,8 @@ the writer and its consent step (``_optimize_share_analysis``); this module only
 nothing and writes nothing.
 
 - The fingerprint is the rule, the model and the object: ``rule_id`` is "bpa." and the rule's name as a
-  slug, ``target`` the object (for example 'Sales'[Amount]). Neither carries the check's request id,
+  slug (a hash of the name when it has no letters a slug can keep), ``target`` the object (for example
+  'Sales'[Amount]). Rewording a rule's name makes it a new finding, so an earlier dismissal doesn't carry over. Neither carries the check's request id,
   which changes with every check, so a finding someone dismissed stays dismissed when it's found again.
   The request id is in the evidence.
 - The run id is a hash of the model and the request id, so recording the same check twice adds nothing.
@@ -17,6 +18,7 @@ nothing and writes nothing.
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import re
@@ -32,8 +34,9 @@ _GENERATOR = ("If KratosForge built this model, the next Update model fixes it; 
 
 def rule_id(rule: str) -> str:
     """'Hide foreign keys' -> bpa.hide-foreign-keys."""
-    slug = re.sub(r"[^a-z0-9]+", "-", str(rule).strip().lower()).strip("-")
-    return RULE_PREFIX + (slug or "unnamed")
+    name = str(rule).strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return RULE_PREFIX + (slug or "r-" + hashlib.sha256(name.encode()).hexdigest()[:12])
 
 
 def _json(value: Any) -> str:
@@ -57,14 +60,21 @@ def analysis_rows(status: dict[str, Any]) -> dict[str, Any]:
     ws, model_id = str(status.get("workspace_id") or ""), str(status.get("model_id") or "")
     if not ws or not model_id:
         raise ValueError("The check's model has no workspace or id, so it can't be shared.")
-    request_id, checked_at = str(last["request_id"]), last.get("checked_at") or ""
+    request_id, checked_at = str(last["request_id"]), str(last.get("checked_at") or "")
+    try:
+        zoned = dt.datetime.fromisoformat(checked_at).tzinfo is not None
+    except ValueError:
+        zoned = False
+    if not zoned:
+        raise ValueError("This check has no finish time with its time zone, so it can't be shared. Check the model again.")
     run = {"run_id": run_id(model_id, request_id), "started_at": checked_at, "finished_at": checked_at,
            "status": "partial" if last.get("no_tables") else "complete", "rule_set_version": RULE_SET_VERSION,
            "scope": _json({"model": status.get("model"), "env": status.get("env"), "request_id": request_id,
                            "package": last.get("package"), "version": last.get("version")})}
     artifacts = [{"workspace_id": ws, "item_id": model_id, "item_type": "SemanticModel",
                   "display_name": _text(status.get("model"))}]
-    findings, recommendations = [], []
+    findings: list[dict[str, Any]] = []
+    recommendations: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for f in last.get("findings") or []:
         severity = _SEVERITY.get(str(f.get("severity")))
@@ -86,6 +96,6 @@ def analysis_rows(status: dict[str, Any]) -> dict[str, Any]:
                                                      "version": last.get("version")}])})
         recommendations.append(where | {"kind": "optimize_in_place",
                                         "reason": _text(f"{f.get('description') or f.get('rule')} {_GENERATOR}"),
-                                        "impact": _json({"basis": "not estimated"}), "effort": "low",
+                                        "impact": _json({"basis": "not estimated"}), "effort": None,  # not measured
                                         "confidence": "high" if severity == "high" else "medium"})
     return {"run": run, "artifacts": artifacts, "findings": findings, "recommendations": recommendations}

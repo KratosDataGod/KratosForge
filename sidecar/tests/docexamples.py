@@ -27,8 +27,12 @@ from typing import Any, Iterator
 
 DOCS = Path(__file__).resolve().parents[2] / "docs"
 
-# Pages whose inline claims are checked: the user guide and the compatibility pages.
-CLAIM_PAGES = ("user-guide.md", "sql-compatibility.md", "local-data.md", "notebooks.md", "engines.md")
+# Pages whose inline claims are checked: the user guide, the compatibility pages and the pages that show a value
+# (docexamples_more.py). Not the generated function pages (spark-, databricks-, snowflake-, tsql-functions.md):
+# their coverage tests run every example there.
+CLAIM_PAGES = ("user-guide.md", "sql-compatibility.md", "local-data.md", "notebooks.md", "engines.md",
+               "notebook-spark-on-this-pc.md", "sql-execution.md", "live-testing.md", "learn.md", "metadata-guide.md",
+               "notebook-magics.md", "notebook-resources.md", "notebook-templates.md", "warehouse.md")
 # Pages not scanned for fenced blocks: plans and review records describe work, not the product.
 SKIP_DIRS = ("product", "quality")
 PRACTICE_PAGES = ("notebook-best-practices.md", "sql-best-practices.md")

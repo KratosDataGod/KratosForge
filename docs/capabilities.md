@@ -33,6 +33,7 @@ level by level, is in [Platform experience parity](parity.md).
 | Run Databricks SQL | DuckDB (this PC) | Compatible local execution, with documented differences | This PC · no Fabric job |
 | Run Databricks SQL | Databricks SQL warehouse (remote) | Remote cloud execution (Preview) | Databricks · Databricks DBUs |
 | Run Snowflake SQL | DuckDB (this PC) | Compatible local execution, with documented differences | This PC · no Fabric job |
+| Run Snowflake SQL | Snowflake SQL warehouse (remote) | Remote cloud execution (Preview) | Snowflake · Snowflake credits |
 | Run a Python cell | Python (this PC) | Native local execution | This PC · no Fabric job |
 | Run a Python cell | Fabric Spark (remote) | Remote cloud execution (Preview) | Fabric · Fabric capacity |
 | Run a Python cell | Databricks Connect (remote) | Remote cloud execution (Preview) | Databricks · Databricks DBUs |

@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "data-cartographer",
+ "version": 1,
+ "title": "Data Cartographer",
+ "professional": "Data Architecture & Lineage Specialist",
+ "fantasy": "Mapmaker of the data realm. The Cartographer charts every road from source to report and plans the cities yet to be built.",
+ "competency": "Designs data architecture: domains and data mesh, lineage and impact analysis, architecture decisions, platform selection and reference architectures.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake"],
+ "technologies": ["Lineage", "Data mesh", "OneLake", "Unity Catalog", "Architecture decision records"],
+ "emblem": "An unrolled map with a compass rose shaped like a wolf's head.",
+ "specializations": [
+  {"id": "lineage", "title": "Road Tracer", "professional": "Lineage and impact analysis", "competency": "architecture",
+   "nodes": [
+    {"id": "lineage.01", "skill": "lineage-for-audits", "tier": 1, "requires": []},
+    {"id": "lineage.02", "skill": "column-level-lineage", "tier": 2, "requires": ["lineage.01"]},
+    {"id": "lineage.03", "skill": "impact-analysis-before-change", "tier": 2, "requires": ["lineage.01"]},
+    {"id": "lineage.04", "skill": "lineage-across-platforms", "tier": 3, "requires": ["lineage.02"]},
+    {"id": "lineage.05", "skill": "tracing-a-bad-number-to-its-source", "tier": 3, "requires": ["lineage.03"]},
+    {"id": "lineage.06", "skill": "dependency-graphs", "tier": 4, "requires": ["lineage.04"]},
+    {"id": "lineage.07", "skill": "documenting-data-flows", "tier": 4, "requires": ["lineage.04", "lineage.05"]},
+    {"id": "lineage.08", "skill": "lineage-in-reviews", "tier": 5, "requires": ["lineage.06"]},
+    {"id": "lineage.09", "skill": "catalog-and-discovery", "tier": 5, "requires": ["lineage.07"]},
+    {"id": "lineage.10", "skill": "capstone-a-lineage-map-that-answers-an-audit", "tier": 6, "requires": ["lineage.08", "lineage.09"], "capstone": true}
+   ]},
+  {"id": "mesh", "title": "Realm Mapper", "professional": "Domains and data mesh", "competency": "architecture",
+   "nodes": [
+    {"id": "mesh.01", "skill": "domains-and-data-products", "tier": 1, "requires": []},
+    {"id": "mesh.02", "skill": "data-contracts", "tier": 2, "requires": ["mesh.01"]},
+    {"id": "mesh.03", "skill": "shipping-a-domain-data-product", "tier": 2, "requires": ["mesh.01"]},
+    {"id": "mesh.04", "skill": "domain-ownership", "tier": 3, "requires": ["mesh.02"]},
+    {"id": "mesh.05", "skill": "self-serve-platform", "tier": 3, "requires": ["mesh.03"]},
+    {"id": "mesh.06", "skill": "federated-governance", "tier": 4, "requires": ["mesh.04"]},
+    {"id": "mesh.07", "skill": "shortcuts-instead-of-copies", "tier": 4, "requires": ["mesh.04", "mesh.05"]},
+    {"id": "mesh.08", "skill": "cross-domain-sharing", "tier": 5, "requires": ["mesh.06"]},
+    {"id": "mesh.09", "skill": "product-discovery", "tier": 5, "requires": ["mesh.07"]},
+    {"id": "mesh.10", "skill": "capstone-a-mesh-of-three-domains", "tier": 6, "requires": ["mesh.08", "mesh.09"], "capstone": true}
+   ]},
+  {"id": "blueprint", "title": "Blueprint Drafter", "professional": "Architecture decisions", "competency": "architecture",
+   "nodes": [
+    {"id": "blueprint.01", "skill": "lakehouses-and-the-medallion-layers", "tier": 1, "requires": []},
+    {"id": "blueprint.02", "skill": "warehouse-or-lakehouse-where-t-sql-writes", "tier": 2, "requires": ["blueprint.01"]},
+    {"id": "blueprint.03", "skill": "choosing-a-store", "tier": 2, "requires": ["blueprint.01"]},
+    {"id": "blueprint.04", "skill": "choosing-a-transformation-tool", "tier": 3, "requires": ["blueprint.02"]},
+    {"id": "blueprint.05", "skill": "architecture-decision-records", "tier": 3, "requires": ["blueprint.03"]},
+    {"id": "blueprint.06", "skill": "reference-architectures", "tier": 4, "requires": ["blueprint.04"]},
+    {"id": "blueprint.07", "skill": "platform-comparison", "tier": 4, "requires": ["blueprint.04", "blueprint.05"]},
+    {"id": "blueprint.08", "skill": "non-functional-requirements", "tier": 5, "requires": ["blueprint.06"]},
+    {"id": "blueprint.09", "skill": "migration-planning", "tier": 5, "requires": ["blueprint.07"]},
+    {"id": "blueprint.10", "skill": "capstone-an-architecture-review-passed", "tier": 6, "requires": ["blueprint.08", "blueprint.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-map", "name": "First Map", "criteria": "Reach Journeyman in Lineage for audits."},
+  {"id": "borders-drawn", "name": "Borders Drawn", "criteria": "Reach Journeyman in Domains and data products."},
+  {"id": "decision-recorded", "name": "Decision Recorded", "criteria": "Reach Journeyman in Architecture decision records."},
+  {"id": "road-ahead", "name": "Road Ahead", "criteria": "Reach Journeyman in Impact analysis before change."},
+  {"id": "cartographers-atlas", "name": "Cartographer's Atlas", "criteria": "Reach Adept in all ten talents of one Data Cartographer specialization."}
+ ]
+}

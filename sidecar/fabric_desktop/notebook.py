@@ -2842,7 +2842,7 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
     raw_cells = [c for c in before.get("cells", []) if isinstance(c, dict)] if isinstance(before.get("cells"), list) else []
     problem = ipynb_cell_problem(raw_cells)
     if problem:
-        raise ValueError(f"The notebook wasn't saved, because in the file on disk {problem}. Fix that cell in a text "
+        raise ValueError(f"The notebook wasn't saved, because {problem} in the file on disk. Fix that cell in a text "
                          "editor or Jupyter, then save again.")
     read_ids = [c["cell_id"] for c in from_ipynb({"cells": raw_cells})["cells"]]
     old_cells = dict(zip(read_ids, raw_cells, strict=True))
@@ -3123,7 +3123,7 @@ class NotebookStore:
                 return {"name": name, "changed_on_disk": True, "disk_stamp": now, "unreadable": not parsed}
         problem = ipynb_cell_problem(before["cells"]) if isinstance(before.get("cells"), list) else None
         if problem:
-            raise ValueError(f"{path.name} wasn't saved, because in the file on disk {problem}. Fix that cell in a "
+            raise ValueError(f"{path.name} wasn't saved, because {problem} in the file on disk. Fix that cell in a "
                              "text editor or Jupyter, then save again.")
         saved = from_ipynb(before) if before and (compute is None or workspace is None) else {}
         if compute is None:

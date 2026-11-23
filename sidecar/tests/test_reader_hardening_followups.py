@@ -83,16 +83,16 @@ def test_load_refuses_a_cell_whose_source_isnt_text_by_name(tmp_path, source):
 def test_save_over_a_file_whose_cell_source_isnt_text_is_refused_and_leaves_it(tmp_path):
     _nb(tmp_path, [1, 2])
     before = (tmp_path / "nb.ipynb").read_bytes()
-    with pytest.raises(ValueError, match=r"nb\.ipynb wasn't saved, because in the file on disk cell 1's source isn't text"):
+    with pytest.raises(ValueError, match=r"nb\.ipynb wasn't saved, because cell 1's source isn't text in the file on disk"):
         NotebookStore(tmp_path).save("nb", [{"type": "code", "source": "x"}], compute="local", workspace={})
-    with pytest.raises(ValueError, match="wasn't saved, because in the file on disk"):
+    with pytest.raises(ValueError, match="wasn't saved, because .* in the file on disk"):
         NotebookStore(tmp_path).save("nb", [{"type": "code", "source": "x"}])
     assert (tmp_path / "nb.ipynb").read_bytes() == before
 
 
 def test_merge_saved_refuses_a_cell_whose_source_isnt_text(tmp_path):
     before = _nb(tmp_path, [1, 2])
-    with pytest.raises(ValueError, match="The notebook wasn't saved, because in the file on disk cell 1's source isn't text"):
+    with pytest.raises(ValueError, match="The notebook wasn't saved, because cell 1's source isn't text in the file on disk"):
         merge_saved(to_ipynb([{"type": "code", "source": "x"}], None), before)
 
 

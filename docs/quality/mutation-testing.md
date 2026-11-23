@@ -9976,3 +9976,166 @@ No bugs were found.
 ### Left
 
 None.
+
+# Mutation testing, batch 251: workloads/notify.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 142 sampled 150 of its then 221 mutants (83.3% before, 96.7% after).
+- Telling Teams channels when incidents open, recover or escalate: routes, quiet hours, digests, the SQLite outbox, a failing route's rest, and posts that may have arrived and are never sent twice (`workloads/notify.py`).
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 376 of 376 mutants ran (365 point + 11 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The "before" run gave pytest `--basetemp` in a folder of this run's own, and that folder was checked afterwards: no mutant left a deep folder behind that could have failed the next mutants at startup. The "after" run gave each pytest session a new temporary folder of its own (a small plugin, not committed). A few killed mutants were run again by hand with that plugin, and each was killed again.
+
+The set is batch 142's files and the other files that send, keep or read notices through the module: test_notice_failure_kinds, test_notice_locked_outbox, test_notice_retries, test_platform_notify_mutation, test_alert_to_incident_e2e, test_schedules, test_governance_notices, test_retention_edges, test_sqlite_stores, test_store_upgrades, test_workload_store_faults, test_sqlite_connections_closed and test_shortcut_watch. test_redact and test_sqlite_durability were left out to keep each mutant's run short; they touch the module in a few lines. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/notify.py` | test_notify_mutation, test_notify_delivery, test_notice_failure_kinds, test_notice_failures, test_notice_locked_outbox, test_notice_retries, test_platform_notify, test_platform_notify_mutation, test_alert_to_incident_e2e, test_incidents, test_schedules, test_governance_notices, test_agent_clock_jumps, test_retention_edges, test_sqlite_stores, test_store_upgrades, test_workload_store_faults, test_sqlite_connections_closed, test_shortcut_watch (+ test_notify_uncapped) | 376 of 376 (365 + 11) | 330 / 46 | **87.8%** | 324/365 → 355/365 | 6/11 → 11/11 | 366 / 10 | **97.3%** | 10 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/notify.py**:
+  - What a send counts when one outbox step fails: a trim that fails dropped 0, a flush that fails sent 0 (not 1, and not `None`), a count that fails leaves 0 waiting, and a send with no outbox at all dropped 0.
+  - An outbox that can't say which routes rest is not used for the rest of the send: nothing it holds is sent, the new notice is posted once without being kept, and one refused then is lost, not kept to send later; nothing is counted waiting.
+  - A notice that can't be kept (`sending` fails) and isn't taken is lost, not queued, and each such notice for a route that already failed counts once.
+  - Sent messages whose rows can't be deleted yet: they aren't listed or counted as waiting; one read back through `pending` is kept on disk by its id and created time; a kept id whose row now holds another message (a reused id) doesn't hide it; a kept id another Outbox settled meanwhile is left alone; a new outbox file removes the kept-ids file left from the one before; entries that aren't (id, time) pairs are ignored; and a message that goes logs no warning (no file to remove).
+  - An escalation to a route with no address, or to one that doesn't exist, goes nowhere.
+  - Five changes are five messages, six are a digest, and a digest names "1 new problem" in the singular.
+  - The audit line keeps 300 characters of the error.
+  - Quiet hours end at their last minute (01:00-06:00 and 22:00-06:00 don't hold at 06:00), and hours that start and end at the same minute (22:00-22:00) hold all day: at 10:00 until 22:00, and at 22:00 until 22:00 the next day. That last is the code's reading of such a span, pinned as it is; neither the agent nor the settings refuse one.
+  - Quiet hours, like routes, can't be changed once made (a frozen dataclass).
+  - A post that never connected (`ConnectTimeout`) is plainly `False`, a read of the outbox that fails gives `idempotent` `False`, and a failure that can't be noted gives `route_failed` 0.0, as their signatures say.
+  - → `test_notify_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/notify.py` | 94 | `return False` in the `ImportError` branch to `None` or `True` (2 mutants) | Equivalent: requests and urllib3 ship with the engine, so the import never fails (the line is `pragma: no cover`). |
+| `workloads/notify.py` | 294, 297 | `lastrowid or 0` to `or 1` (2 mutants) | Equivalent: an INSERT always gives a row id, so the fallback is never used. |
+| `workloads/notify.py` | 363 | `_settle_gone`'s `return True` with nothing kept, to `None` or `False` (2 mutants) | Equivalent: only `done` reads the answer, and it keeps an id just before, so nothing kept never reaches it. |
+| `workloads/notify.py` | 371 | `_settle_gone`'s `return False` after a failed delete to `None` | Equivalent: `done` only tests whether the answer is true. |
+| `workloads/notify.py` | 399 | `_is_gone`'s `return False` to `None` | Equivalent: every caller only tests whether the answer is true. |
+| `workloads/notify.py` | 436 | `min(failures - 1, 20)` to `21` | Equivalent: 60 s × 2^20 is far beyond `BACKOFF_MAX` either way, and the wait is capped at `BACKOFF_MAX`. |
+| `workloads/notify.py` | 471 | `per_route.get(route.name, 0)` to `1` in the check | Equivalent: it only changes the first check for a route, where 1 is still below `MAX_PER_TRY` (25). |
+
+# Mutation testing, batch 252: workloads/deliver.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 135 ran all of its then 131 mutants (80.2% before, 99.2% after).
+- How a notice route sends: a Teams webhook, a Power Automate flow, or email through the company mail server (`workloads/deliver.py`).
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 136 of 136 mutants ran (130 point + 6 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. The "before" run gave pytest `--basetemp` in a folder of this run's own, and that folder was checked afterwards: no mutant left a deep folder behind that could have failed the next mutants at startup. The "after" run gave each pytest session a new temporary folder of its own (a small plugin, not committed). A few killed mutants were run again by hand with that plugin, and each was killed again.
+
+The set is batch 135's files and the other files that send through the module: test_notice_failure_kinds, test_notice_retries, test_regex_anchors, test_platform_notify and test_platform_notify_mutation. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/deliver.py` | test_deliver, test_deliver_mutation, test_incidents, test_notice_failure_kinds, test_notice_retries, test_regex_anchors, test_platform_notify, test_platform_notify_mutation (+ test_deliver_uncapped) | 136 of 136 (130 + 6) | 134 / 2 | **98.5%** | 128/130 → 129/130 | 6/6 → 6/6 | 135 / 1 | **99.3%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/deliver.py**: a port given as the text `"0"` is refused. Batch 135 counted `1 <= port` to `0 <= port` as equivalent, since a port of 0 is read as 587; that holds for the number 0 only, as `"0" or 587` is `"0"`. → `test_deliver_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/deliver.py` | 202 | the last `raise` (any other `SMTPException`) removed | Equivalent: `SMTPException` is a subclass of `OSError`, so the `except (OSError, SMTPServerDisconnected)` clause above takes every one of them with the same message, and this clause is never reached. |
+
+# Mutation testing, batch 253: workloads/incidents.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 95 sampled 150 of its 229 mutants (78.0% before, 98.0% after).
+- Incidents: one record per problem in each environment's control area, changed only with conditional writes (`workloads/incidents.py`).
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 229 of 229 mutants ran (223 point + 6 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Temporary folders were handled and checked as in batch 252, and a few killed mutants were run again by hand, each killed again.
+
+The set is batch 95's files and the other files that open, change or read incidents: test_incident_desk_mutation, test_incident_partial_work, test_alert_to_incident_e2e, test_agent_clock_and_folder, test_product_promises, test_workload_store_faults and test_incident_service_mutation. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/incidents.py` | test_incidents, test_incidents_mutation, test_incident_desk, test_incident_desk_mutation, test_incident_failures, test_incident_partial_work, test_alert_to_incident_e2e, test_agent_clock_and_folder, test_product_promises, test_workload_store_faults, test_incident_service_mutation, test_incident_service_paths (+ test_incidents_uncapped) | 229 of 229 (223 + 6) | 218 / 11 | **95.2%** | 214/223 → 222/223 | 4/6 → 4/6 | 226 / 3 | **98.7%** | 3 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/incidents.py**:
+  - Active incidents are listed newest first, then the resolved ones (`reverse=True`, and the missing opening time read as `""`).
+  - Of two records for one problem, the one opened last counts, wherever it is in the document.
+  - A resolve keeps its note, cut to 2,000 characters, and one without a note adds none.
+  - A priority set on a record written before priorities existed says it was the policy's (`P3 → P1`), not `None`.
+  - An escalation's timeline entry gives the minutes (`after_seconds / 60`); only the note's text was checked.
+  - The stored document is indented one space per level. Batch 95 counted `indent=1` to `indent=0` as equivalent, since every reader parses it; it is pinned now, as the document is the one people read and restore from a backup.
+  - → `test_incidents_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/incidents.py` | 105 | `occurrences or 1` to `or 0` for the P1 rule | Equivalent: a missing or zero count gives 1 or 0, both below 3, so the priority is P2 either way. |
+| `workloads/incidents.py` | 116 | `len(events) > KEEP_EVENTS` to `>=` | Equivalent: at exactly the limit, the slice removed is `events[1:1]`, which is empty. |
+| `workloads/incidents.py` | 197 | `len(resolved) > KEEP_RESOLVED` to `>=` | Equivalent: at exactly the limit, `resolved[:0]` drops nothing. |
+
+# Mutation testing, batch 254: incident_service.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 109 ran all of its then 96 mutants (76.0% before, 99.0% after).
+- Incidents in the app: read, evaluate and handle an environment's incidents, the agents and queue pages, and product status for the catalog (`incident_service.py`).
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 100 of 100 mutants ran (100 point, no boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Temporary folders were handled and checked as in batch 252, and a few killed mutants were run again by hand, each killed again.
+
+The set is batch 109's files without test_dataops (about 21 s, and it calls the module in a few lines), with test_incident_service_mutation, test_alert_to_incident_e2e, test_notice_locked_outbox, test_incident_desk, test_agent_status_mutation, test_agent_takeover and test_shortcut_fixes added. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `incident_service.py` | test_incident_service_mutation, test_incident_service_paths, test_incident_partial_work, test_alert_to_incident_e2e, test_notice_locked_outbox, test_incidents, test_incident_desk, test_agent_fleet, test_agent_status_mutation, test_agent_takeover, test_product_status, test_run_as, test_shortcut_fixes, test_workload_queue (+ test_incident_service_uncapped) | 100 of 100 (100 + 0) | 98 / 2 | **98.0%** | 98/100 → 99/100 | none | 99 / 1 | **99.0%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **incident_service.py**: a workload's criticality is keyed by everything after `meta:<project>:` (`split(":", 2)`). Batch 109 counted `split(":", 3)` as equivalent, since no project or table name holds a colon; the test pins the key with an assignment id that has one. → `test_incident_service_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `incident_service.py` | 214 | `outbox is not None and post is not None` to `or` | Equivalent: both are set when `notify` is true and both are `None` when it isn't, and `_notice_post` never returns `None` (it returns `deliver.poster(...)`). |
+
+# Mutation testing, batch 255: incident_desk.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 109 ran all of its 149 mutants (75.2% before, 97.3% after).
+- The incident desk: numbers, priorities, SLAs, reported incidents, who an incident reaches, and incident history in the central lakehouse (`incident_desk.py`).
+
+The run was at `main` ddc89182d (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 149 of 149 mutants ran (148 point + 1 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Temporary folders were handled and checked as in batch 252, and a few killed mutants were run again by hand, each killed again.
+
+The set is batch 109's files with test_alert_to_incident_e2e, test_incident_service_mutation, test_mesh_home, test_incident_history_mutation, test_incident_impact_mutation and test_incident_sla_mutation added. test_rpc_surface and test_central_roles were left out to keep each mutant's run short; they call the module in a line or two. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `incident_desk.py` | test_incident_desk, test_incident_desk_mutation, test_alert_to_incident_e2e, test_incident_partial_work, test_incident_service_mutation, test_mesh_home, test_incident_history_mutation, test_incident_impact_mutation, test_incident_sla_mutation (+ test_incident_desk_uncapped) | 149 of 149 (148 + 1) | 145 / 4 | **97.3%** | 144/148 → 145/148 | 1/1 → 1/1 | 146 / 3 | **98.0%** | 3 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **incident_desk.py**: incident history keeps one order for incidents opened at the same moment, the order their latest snapshots were taken in, on every read, and a limit keeps the first of them. Batch 109 counted `unique(maintain_order=True)` to `False` as equivalent, since the rows are sorted by opening time right after; but that sort keeps the order of ties in practice (50 of 50 reads of 5,000 shuffled rows on polars 2.0.0), and without `maintain_order` the ties came out in another order on each of the 50. → `test_incident_desk_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `incident_desk.py` | 95 | the bell's rank for any other SLA state from 2 to 3 | Equivalent: every ranked state is 0 or 1, so 2 and 3 sort the same. |
+| `incident_desk.py` | 237 | the history's rank for `resolved` from 2 to 3 | Equivalent: it is still the highest, so the same row wins. |
+| `incident_desk.py` | 258 | the measures' history limit from 5,000 to 5,001 | Equivalent: the history itself shows at most 5,000 (`min(int(limit), 5000)`). |

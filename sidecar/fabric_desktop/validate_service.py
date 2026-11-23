@@ -182,7 +182,7 @@ class ValidateMixin:
         if format not in ("markdown", "json"):
             raise ValueError("format is markdown or json")
         text = validate.to_markdown(record) if format == "markdown" else json.dumps(record, indent=1)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         stem = re.sub(r"[^\w.-]+", "-", f"validate-{record['name']}-{record['id'][9:24]}").strip("-")
         ext = "md" if format == "markdown" else "json"

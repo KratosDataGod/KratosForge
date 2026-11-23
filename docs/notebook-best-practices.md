@@ -361,7 +361,11 @@ How to check: Both forms give the same column, and the cell runs faster on the s
 **Polars reads the whole file, then filters** · Info · Performance · Educational
 
 Why: `pl.read_csv` and `pl.read_parquet` load every row into memory before `.filter()` drops the
-rows you don't need. A lazy scan may push the filter into the read, so less is read and kept.
+rows you don't need. A lazy scan may push the filter into the read, so less is read and kept. It is
+also reported when the read is kept in a name, `df = pl.read_csv(...)`, and every use of `df` in the
+notebook, in any cell, is `df.filter(...)`. A name that's used any other way in any cell, or bound
+again (assigned, a `for` or `with` target, an argument), isn't reported, because then the whole frame may
+be needed. Neither is one named in a `%%sql` cell or in a string, such as `duckdb.sql("... FROM df")`.
 
 ```python
 # Before

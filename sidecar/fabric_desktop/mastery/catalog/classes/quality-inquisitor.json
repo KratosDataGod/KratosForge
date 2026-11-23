@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "quality-inquisitor",
+ "version": 1,
+ "title": "Quality Inquisitor",
+ "professional": "Data Quality Engineer",
+ "fantasy": "Seeker of the hidden flaw. No duplicate, null or drifted column escapes the Inquisitor's questions.",
+ "competency": "Engineers data quality: tests and assertions, profiling and anomaly detection, quarantine, root-cause analysis and quality reporting.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake"],
+ "technologies": ["SQL", "Python", "Great Expectations-style assertions", "Delta Lake"],
+ "emblem": "A lantern with a wolf's eye flame, light cutting through a grid of cells.",
+ "specializations": [
+  {"id": "assert", "title": "Assertion Smith", "professional": "Data tests", "competency": "data-quality",
+   "nodes": [
+    {"id": "assert.01", "skill": "data-quality-checks-in-code", "tier": 1, "requires": []},
+    {"id": "assert.02", "skill": "null-logic", "tier": 2, "requires": ["assert.01"]},
+    {"id": "assert.03", "skill": "uniqueness-and-key-tests", "tier": 2, "requires": ["assert.01"]},
+    {"id": "assert.04", "skill": "referential-integrity-tests", "tier": 3, "requires": ["assert.02"]},
+    {"id": "assert.05", "skill": "range-and-domain-tests", "tier": 3, "requires": ["assert.03"]},
+    {"id": "assert.06", "skill": "missing-data-and-the-unknown-member", "tier": 4, "requires": ["assert.04"]},
+    {"id": "assert.07", "skill": "quarantine-tables", "tier": 4, "requires": ["assert.04", "assert.05"]},
+    {"id": "assert.08", "skill": "tests-that-run-in-every-load", "tier": 5, "requires": ["assert.06"]},
+    {"id": "assert.09", "skill": "quality-thresholds-and-severity", "tier": 5, "requires": ["assert.07"]},
+    {"id": "assert.10", "skill": "capstone-every-planted-defect-found", "tier": 6, "requires": ["assert.08", "assert.09"], "capstone": true}
+   ]},
+  {"id": "profile", "title": "Anomaly Hunter", "professional": "Profiling and monitoring", "competency": "data-quality",
+   "nodes": [
+    {"id": "profile.01", "skill": "profiling-a-table", "tier": 1, "requires": []},
+    {"id": "profile.02", "skill": "distributions-and-outliers", "tier": 2, "requires": ["profile.01"]},
+    {"id": "profile.03", "skill": "freshness-checks", "tier": 2, "requires": ["profile.01"]},
+    {"id": "profile.04", "skill": "volume-checks", "tier": 3, "requires": ["profile.02"]},
+    {"id": "profile.05", "skill": "schema-drift-handling", "tier": 3, "requires": ["profile.03"]},
+    {"id": "profile.06", "skill": "anomaly-alerts", "tier": 4, "requires": ["profile.04"]},
+    {"id": "profile.07", "skill": "quality-dashboards", "tier": 4, "requires": ["profile.04", "profile.05"]},
+    {"id": "profile.08", "skill": "trend-baselines", "tier": 5, "requires": ["profile.06"]},
+    {"id": "profile.09", "skill": "quality-slas", "tier": 5, "requires": ["profile.07"]},
+    {"id": "profile.10", "skill": "capstone-a-monitored-silver-layer", "tier": 6, "requires": ["profile.08", "profile.09"], "capstone": true}
+   ]},
+  {"id": "rootcause", "title": "Root Cause Seeker", "professional": "Troubleshooting data issues", "competency": "troubleshooting",
+   "nodes": [
+    {"id": "rootcause.01", "skill": "reading-errors", "tier": 1, "requires": []},
+    {"id": "rootcause.02", "skill": "deduplicating-retried-loads", "tier": 2, "requires": ["rootcause.01"]},
+    {"id": "rootcause.03", "skill": "fixing-broken-loads", "tier": 2, "requires": ["rootcause.01"]},
+    {"id": "rootcause.04", "skill": "late-arriving-data", "tier": 3, "requires": ["rootcause.02"]},
+    {"id": "rootcause.05", "skill": "tracing-a-bad-number-to-its-source", "tier": 3, "requires": ["rootcause.03"]},
+    {"id": "rootcause.06", "skill": "lineage-for-audits", "tier": 4, "requires": ["rootcause.04"]},
+    {"id": "rootcause.07", "skill": "incident-response-for-late-and-broken-data", "tier": 4, "requires": ["rootcause.04", "rootcause.05"]},
+    {"id": "rootcause.08", "skill": "post-incident-reviews", "tier": 5, "requires": ["rootcause.06"]},
+    {"id": "rootcause.09", "skill": "preventing-repeat-incidents", "tier": 5, "requires": ["rootcause.07"]},
+    {"id": "rootcause.10", "skill": "capstone-an-incident-closed-with-a-fix-and-a-test", "tier": 6, "requires": ["rootcause.08", "rootcause.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-question", "name": "First Question", "criteria": "Reach Journeyman in Data quality checks in code."},
+  {"id": "nothing-hidden", "name": "Nothing Hidden", "criteria": "Reach Adept in Capstone: every planted defect found."},
+  {"id": "trail-followed", "name": "Trail Followed", "criteria": "Reach Journeyman in Tracing a bad number to its source."},
+  {"id": "incident-closed", "name": "Incident Closed", "criteria": "Reach Journeyman in Incident response for late and broken data."},
+  {"id": "inquisitors-lantern", "name": "Inquisitor's Lantern", "criteria": "Reach Adept in all ten talents of one Quality Inquisitor specialization."}
+ ]
+}

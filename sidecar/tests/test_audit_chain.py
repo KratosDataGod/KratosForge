@@ -8,7 +8,7 @@ import types
 
 import pytest
 
-from fabric_desktop import audit_chain
+from fabric_desktop import audit_anchor, audit_chain
 from fabric_desktop.audit import AuditLog
 
 
@@ -65,7 +65,8 @@ def test_two_app_windows_the_agent_and_a_schedule_at_once_lose_no_line(tmp_path)
     lines = [json.loads(line) for path in audit_chain.files(trail) for line in path.read_text().splitlines()]
     entities = sorted(line["target"]["entity"] for line in lines)
     assert entities == sorted(f"{n}-{i}" for n in names for i in range(count))  # each once: none lost, none twice
-    assert json.loads((trail / audit_chain.HEAD).read_text()) == {"hash": lines[-1]["hash"], "lines": len(lines)}
+    assert json.loads((trail / audit_chain.HEAD).read_text()) == {"hash": lines[-1]["hash"], "lines": len(lines),
+                                                                  "folder": audit_anchor.fingerprint(trail)}
     assert audit_chain.verify(tools) == {"lines": count, "ok": True, "problems": []}
     order = [line["target"]["entity"].rsplit("-", 1)[0] for line in lines]
     assert sorted(order[:len(names)]) == sorted(names)  # every writer had a line in before any wrote its second
@@ -125,7 +126,8 @@ def test_a_trail_from_before_the_head_starts_one_without_a_false_alarm(tmp_path)
     (tmp_path / audit_chain.HEAD).unlink()
     assert log.verify()["ok"]
     log.record("meta_run", "ok", 0.1)
-    assert json.loads((tmp_path / audit_chain.HEAD).read_text()) == {"hash": audit_chain.last_hash(tmp_path), "lines": 4}
+    assert json.loads((tmp_path / audit_chain.HEAD).read_text()) == {"hash": audit_chain.last_hash(tmp_path), "lines": 4,
+                                                                     "folder": audit_anchor.fingerprint(tmp_path)}
     assert log.verify()["ok"]
 
 
@@ -143,7 +145,8 @@ def test_a_write_that_stopped_before_its_head_is_not_a_loss(tmp_path, monkeypatc
 def test_the_ai_tools_trail_gets_a_head_too(tmp_path):
     entry = {"at": "2026-10-24T00:00:00Z", "tool": "x"}
     audit_chain.append(tmp_path, entry)
-    assert json.loads((tmp_path / audit_chain.HEAD).read_text()) == {"hash": entry["hash"], "lines": 1}
+    assert json.loads((tmp_path / audit_chain.HEAD).read_text()) == {"hash": entry["hash"], "lines": 1,
+                                                                     "folder": audit_anchor.fingerprint(tmp_path)}
 
 
 # --------------------------------------------------------------------------- damaged lines and the lock

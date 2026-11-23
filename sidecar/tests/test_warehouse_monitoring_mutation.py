@@ -102,7 +102,8 @@ def test_read_queryset_keeps_version_and_other_keys():
     assert got == {"version": "2.0.0", "dataSources": [{"id": "s"}], "tabs": []}
 
 
-def test_a_definition_without_the_queryset_part_reads_as_an_empty_one():
-    empty = {"version": "1.0.0", "dataSources": [], "tabs": []}
-    assert wm.read_queryset({"parts": [{"path": "other.json", "payload": ""}]}) == empty
-    assert wm.read_queryset({"definition": {"parts": []}}) == empty
+def test_a_definition_without_the_queryset_part_is_refused_not_read_as_empty():
+    # WR-263: read as empty, the update would drop the user's own tabs
+    for definition in ({"parts": [{"path": "other.json", "payload": ""}]}, {"definition": {"parts": []}}):
+        with pytest.raises(ValueError, match="without its tabs"):
+            wm.read_queryset(definition)

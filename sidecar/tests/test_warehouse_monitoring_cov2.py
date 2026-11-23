@@ -40,17 +40,12 @@ def test_queryset_definition_needs_a_database():
         wm.queryset_definition(WH, URI, "  ")
 
 
-def test_read_queryset_skips_other_parts_and_a_body_with_no_queryset_object():
-    empty = {"version": "1.0.0", "dataSources": [], "tabs": []}
-    assert (
-        wm.read_queryset({"definition": {"parts": [_part({}, path=".platform")]}})
-        == empty
-    )
-    assert (
-        wm.read_queryset({"parts": [_part({"queryset": ["not", "an", "object"]})]})
-        == empty
-    )
-    assert wm.read_queryset({"parts": [_part([1, 2])]}) == empty
+def test_read_queryset_skips_other_parts_and_refuses_a_body_with_no_queryset_object():
+    for definition in ({"definition": {"parts": [_part({}, path=".platform")]}},
+                       {"parts": [_part({"queryset": ["not", "an", "object"]})]},
+                       {"parts": [_part([1, 2])]}):
+        with pytest.raises(ValueError, match="without its tabs"):
+            wm.read_queryset(definition)
     kept = wm.read_queryset(
         {
             "parts": [

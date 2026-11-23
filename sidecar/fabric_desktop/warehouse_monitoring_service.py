@@ -120,7 +120,8 @@ class WarehouseMonitoringMixin:
                 if found and not _ours(found):
                     raise ValueError(TAKEN.format(queryset=qname))
                 if found:
-                    current = self.fabric.get_item_definition(ws, found["id"])  # type: ignore[attr-defined]
+                    # None or {} is refused by read_queryset, never read as a new, empty queryset (WR-263)
+                    current = self.fabric.get_item_definition(ws, found["id"]) or {}  # type: ignore[attr-defined]
                     self.fabric.update_item_definition(ws, found["id"],  # type: ignore[attr-defined]
                                                        wm.queryset_definition(item, db["cluster"], db["name"], current))
                     done.append({"warehouse_id": item, "queryset": qname, "item_id": found["id"], "state": "updated"})

@@ -435,3 +435,47 @@ def test_a_definition_nested_too_deep_fails_that_warehouse_only(svc):
     svc.fake.definitions["q1"] = {"parts": [{"path": "RealTimeQueryset.json", "payload": base64.b64encode(deep.encode()).decode()}]}
     out = svc.wh_monitoring_build(WS, WS, DB, [{"id": WH, "name": "A"}, {"id": WH2, "name": "B"}], confirm=True)
     assert [r["state"] for r in out["results"]] == ["failed", "created"]
+
+
+# ---- WR-263: an existing queryset that comes back without its tabs is never overwritten
+
+
+@pytest.mark.parametrize("got", [
+    {"parts": []},
+    {"parts": [{"path": "other.json", "payload": ""}]},
+    {},
+    {"parts": [{"path": "RealTimeQueryset.json",
+                "payload": base64.b64encode(json.dumps({"other": 1}).encode()).decode()}]},
+    None,
+])
+def test_update_is_refused_when_the_existing_queryset_comes_back_without_its_tabs(svc, monkeypatch, got):
+    svc.fake.querysets = [{"id": "WH_Gold_monitoring", "displayName": "WH_Gold_monitoring",
+                           "description": wms.QUERYSET_NOTE.format(name="WH_Gold")}]
+    monkeypatch.setattr(svc.fake, "get_item_definition",
+                        lambda ws, item, fmt=None: None if got is None else {"definition": got})
+    out = svc.wh_monitoring_build(WS, WS, DB, [{"id": WH, "name": "WH_Gold"}], confirm=True)
+    assert out["results"] == [{"warehouse_id": WH, "queryset": "WH_Gold_monitoring", "state": "failed",
+                               "error": wm.UNREADABLE}]
+    assert not any(c[0] == "update_item_definition" for c in svc.fake.calls)
+
+
+def test_update_keeps_the_users_own_tabs(svc):
+    svc.fake.querysets = [{"id": "WH_Gold_monitoring", "displayName": "WH_Gold_monitoring",
+                           "description": wms.QUERYSET_NOTE.format(name="WH_Gold")}]
+    mine = {"id": "my-tab", "title": "Mine", "content": "T | take 1"}
+    body = {"queryset": {"version": "1.0.0", "dataSources": [], "tabs": [mine]}}
+    svc.fake.definitions["WH_Gold_monitoring"] = {"parts": [{"path": "RealTimeQueryset.json",
+                                                            "payload": base64.b64encode(json.dumps(body).encode()).decode()}]}
+    out = svc.wh_monitoring_build(WS, WS, DB, [{"id": WH, "name": "WH_Gold"}], confirm=True)
+    assert out["results"][0]["state"] == "updated"
+    assert mine in _decoded(svc.fake.definitions["WH_Gold_monitoring"])["tabs"]
+
+
+def test_a_queryset_with_no_tabs_yet_still_updates():
+    body = {"queryset": {"version": "1.0.0", "dataSources": [], "tabs": []}}
+    existing = {"parts": [{"path": "RealTimeQueryset.json", "payload": base64.b64encode(json.dumps(body).encode()).decode()}]}
+    assert _decoded(wm.queryset_definition(WH, URI, "db", existing))["tabs"]
+
+
+def test_a_new_queryset_starts_empty():
+    assert _decoded(wm.queryset_definition(WH, URI, "db"))["tabs"]

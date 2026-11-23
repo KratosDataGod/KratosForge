@@ -158,16 +158,24 @@ def queryset_definition(item_id: str, cluster_uri: str, database: str, existing:
         raise ValueError("Pick the monitoring KQL database.")
     item = guid(item_id, "warehouse")
     source = {"id": _id(item, "source"), "clusterUri": uri, "type": "AzureDataExplorer", "databaseName": str(database)}
-    current = read_queryset(existing) if existing else {"version": "1.0.0", "dataSources": [], "tabs": []}
+    current = read_queryset(existing) if existing is not None else {"version": "1.0.0", "dataSources": [], "tabs": []}
     body = {"queryset": merge(current, source, own_tabs(item, source["id"], window))}
     payload = base64.b64encode(json.dumps(body, indent=2).encode()).decode()
     return {"parts": [{"path": "RealTimeQueryset.json", "payload": payload, "payloadType": "InlineBase64"}]}
 
 
-def read_queryset(definition: dict[str, Any]) -> dict[str, Any]:
-    """The ``queryset`` object of a getDefinition result; an empty one when it holds none."""
-    for part in (definition.get("definition") or definition).get("parts") or []:
-        if part.get("path") == "RealTimeQueryset.json":
+UNREADABLE = ("The queryset came back from Fabric without its tabs, so updating it could remove tabs you added. "
+              "Nothing was changed. Try again, or open the queryset in Fabric to check it.")
+
+
+def read_queryset(definition: dict[str, Any] | None) -> dict[str, Any]:
+    """The ``queryset`` object of an existing queryset's getDefinition result. A result with no
+    RealTimeQueryset.json part, or one whose body holds no queryset object, is refused with
+    ``UNREADABLE`` rather than read as empty, because the update would then drop the user's own tabs
+    (WR-263). A new queryset starts empty in queryset_definition, without calling this."""
+    inner = (definition or {}).get("definition") or definition or {}
+    for part in inner.get("parts") or [] if isinstance(inner, dict) else []:
+        if isinstance(part, dict) and part.get("path") == "RealTimeQueryset.json":
             try:
                 body = json.loads(base64.b64decode(part.get("payload") or ""))
             except (ValueError, RecursionError) as exc:
@@ -177,7 +185,7 @@ def read_queryset(definition: dict[str, Any]) -> dict[str, Any]:
                 return {"version": q.get("version") or "1.0.0", "dataSources": list(q.get("dataSources") or []),
                         "tabs": list(q.get("tabs") or []), **{k: v for k, v in q.items()
                                                                 if k not in ("version", "dataSources", "tabs")}}
-    return {"version": "1.0.0", "dataSources": [], "tabs": []}
+    raise ValueError(UNREADABLE)
 
 
 def merge(current: dict[str, Any], source: dict[str, str], tabs: list[dict[str, str]]) -> dict[str, Any]:

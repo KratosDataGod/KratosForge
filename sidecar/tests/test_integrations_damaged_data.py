@@ -424,13 +424,20 @@ def nbsvc(tmp_path):
     return s
 
 
+# A file that still has readable cells: nbformat-invalid parts the app doesn't use, and metadata of
+# the wrong type, whose settings the notebook reader drops (#3176).
+READ_ANYWAY = {"nbformat-invalid", "metadata is a list", "our metadata is text", "cell metadata is a list"}
+
+
 @pytest.mark.parametrize("damage", NOTEBOOK_DAMAGE, ids=list(NOTEBOOK_DAMAGE))
 def test_a_damaged_notebook_is_named_by_every_notebook_tool(reg, nbsvc, tmp_path, damage):
     # Was: internal (AttributeError, 'list' object has no attribute 'get') for JSON that isn't a notebook.
     (nbsvc.notebooks.folder / "bad.ipynb").write_bytes(NOTEBOOK_DAMAGE[damage])
     for cap_id in NB_TOOLS:
         out = call(reg, nbsvc, cap_id, tmp_path, name="bad")
-        if damage != "nbformat-invalid":  # that one still has a readable code cell
+        if damage in READ_ANYWAY:  # the reader drops the settings it can't read and keeps the cells
+            assert not isinstance(out, IntegrationError) or out.code not in ("internal", "invalid_input"), (cap_id, out)
+        else:
             assert failed(out, "invalid_input").message.startswith("bad.ipynb is damaged"), cap_id
     names = [n["name"] for n in ok(call(reg, nbsvc, "fabric_desktop_list_notebooks", tmp_path))["items"]]
     assert set(names) == {"good", "bad"}

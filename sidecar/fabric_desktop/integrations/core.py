@@ -183,7 +183,9 @@ def error_from(exc: BaseException) -> IntegrationError:
     if isinstance(exc, PermissionError):
         return IntegrationError("permission_denied", message)
     if isinstance(exc, (FileNotFoundError, LookupError)):  # LookupError covers KeyError
-        return IntegrationError("not_found", message.strip("'\""))
+        # A KeyError's str() is its repr, quoted; a file error's quotes are around the file's name.
+        quoted = len(message) > 1 and message[0] == message[-1] and message[0] in "'\""
+        return IntegrationError("not_found", message[1:-1] if quoted else message)
     if isinstance(exc, TimeoutError):
         return IntegrationError("timeout", message, retryable=True)
     if isinstance(exc, (ValueError, TypeError)):

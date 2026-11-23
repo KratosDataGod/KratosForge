@@ -9,8 +9,8 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 - Check, 2026-11-23 (main didn't move between 11-20 and 11-23, so the weekend checks had nothing to refresh): 42
   PRs merged after ea988e99. 2 were product data and docs PRs, and the other 40 were linked. PB-115 moved to In
-  progress: the live test can run the semantic model best practices check (#2913), and the live run still waits on
-  the product owner's typed go. Profile > Skill trees shows the developer classes as talent trees in Preview (#2955,
+  progress: the live test can run the semantic model best practices check (#2913), and the product owner typed 'yes, run
+  it' for the live run on 11-20; it waits on his Allow on his PC. Profile > Skill trees shows the developer classes as talent trees in Preview (#2955,
   PB-134). A read-only Snowflake SQL warehouse engine is in Preview (SF-003, PB-140). Every notebook cell write path
   now waits for a Prod workspace's name (WR-131, PB-124).
 - Evening check, 2026-11-20: 23 PRs merged after bdb6f251. 2 were product data and docs audit PRs, and the other 21

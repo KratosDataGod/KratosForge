@@ -1145,7 +1145,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** The Fabric half of PB-112 (BPA rules that need VertiPaq statistics, run on the deployed model with a capacity warning) has not run live; #560's engine run failed on 2026-10-23.
 - **Proposed capability:** Check now runs the Fabric BPA (#560) on a deployed model after the capacity warning and stores its findings.
-- **Current-state evidence:** Split from PB-112 when it was accepted with limitations on 2026-10-28 (PB-112 review, finding 1); PR #560 merged; not yet run live; The semantic model check notebook saves its error for the app when it fails (#1818) on main at 03d2b53a; The live test runs the semantic model best practices check once as model.bpa (#2913), built after the product owner's typed go of 2026-11-13; the live run itself still needs his typed 'yes, run it' on main at 0fdeb4d7
+- **Current-state evidence:** Split from PB-112 when it was accepted with limitations on 2026-10-28 (PB-112 review, finding 1); PR #560 merged; not yet run live; The semantic model check notebook saves its error for the app when it fails (#1818) on main at 03d2b53a; The live test runs the semantic model best practices check once as model.bpa (#2913), built after the product owner's typed go of 2026-11-13; he typed 'yes, run it' for the live run on 2026-11-20 21:42Z, and it waits on his Allow on his PC on main at 0fdeb4d7
 - **Inventory features:** [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
 - **Dependencies:** [PB-112](#pb-112), Chris pastes the BPA cell error from the live run
 - **Owner:** Best Practice Analyzer (docs/product/reviews/PB-112-753.md finding 1)

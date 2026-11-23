@@ -6542,7 +6542,7 @@
         "Split from PB-112 when it was accepted with limitations on 2026-10-28 (PB-112 review, finding 1)",
         "PR #560 merged; not yet run live",
         "The semantic model check notebook saves its error for the app when it fails (#1818) on main at 03d2b53a",
-        "The live test runs the semantic model best practices check once as model.bpa (#2913), built after the product owner's typed go of 2026-11-13; the live run itself still needs his typed 'yes, run it' on main at 0fdeb4d7"
+        "The live test runs the semantic model best practices check once as model.bpa (#2913), built after the product owner's typed go of 2026-11-13; he typed 'yes, run it' for the live run on 2026-11-20 21:42Z, and it waits on his Allow on his PC on main at 0fdeb4d7"
       ],
       "features": [
         "FEAT-GOV-09",

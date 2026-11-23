@@ -161,7 +161,7 @@ def validate(case: Any) -> dict[str, Any]:
         expect_error = isinstance(ex, dict) and "expect_error" in ex
         _keys(ex, _EXPECT_KEYS, {"statement", "source"} | (set() if expect_error else {"schema", "rows"}), where)
         if expect_error and ex["expect_error"] is not True:
-            raise CaseError(f"{where}: expect_error is true or left out.")
+            raise CaseError(f"{where}: expect_error must be true, or left out.")
         if expect_error and ({"schema", "rows", "normalize"} & set(ex)):
             raise CaseError(f"{where}: a case that expects an error has no schema, rows or normalize.")
         norms = ex.get("normalize", [])
@@ -381,7 +381,7 @@ def run_one(case: dict[str, Any], dialect: str) -> dict[str, Any]:
                         "rows": [[_json(v) for v in r.values()] for r in got.to_pylist()]}
     if expect["expect_error"]:
         return record | {"outcome": "differs", "differences": [
-            {"what": "error", "expected": "the statement fails", "actual": "the statement gave a result"}]}
+            {"what": "error", "expected": "an error", "actual": "a result"}]}
     diffs = compare(got, expect)
     outcome = "differs" if diffs else "unconfirmed" if expect["unconfirmed"] else "match"
     return record | {"outcome": outcome, "differences": diffs}

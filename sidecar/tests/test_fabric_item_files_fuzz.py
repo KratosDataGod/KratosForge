@@ -62,7 +62,7 @@ def _write_then_read(cells, seed):
         text = nbf.to_fabric_py(cells)
     except ValueError as exc:
         assert "would read back as a cell marker" in str(exc), seed
-        n = int(str(exc).split("in cell ", 1)[1].split(",", 1)[0])
+        n = int(str(exc).rsplit("in cell ", 1)[1].split(",", 1)[0])
         assert cells[n - 1]["type"] == "markdown", seed
         return None
     back = nbf.parse_source(text, "notebook-content.py")
@@ -114,7 +114,7 @@ def test_a_markdown_line_that_would_be_a_marker_is_refused_not_lost():
     for marker in ("CELL", "METADATA", "MARKDOWN", "PARAMETERS CELL"):
         cells = [{"type": "code", "source": "x = 1"},
                  {"type": "markdown", "source": f"Intro\n{marker} ********************  \nThe rest"}]
-        with pytest.raises(ValueError, match=r"^The notebook wasn't exported as Fabric source, because a line in cell 2"):
+        with pytest.raises(ValueError, match=rf"^The notebook wasn't exported as Fabric source, because line '{marker} \*{{20}}  ' in cell 2, a markdown cell"):
             nbf.to_fabric_py(cells)
 
 
@@ -142,6 +142,13 @@ def test_a_fabric_sql_notebook_reads_as_its_cells_not_one_cell_of_markers():
     scala = "// Fabric notebook source\n// CELL ********************\nval x = 1\n// MARKDOWN ********************\n// Hi\n"
     assert nbf.parse_source(scala, "notebook-content.scala")["cells"] == [
         {"type": "code", "source": "%%spark\nval x = 1"}, {"type": "markdown", "source": "Hi"}]
+
+
+def test_a_sql_or_scala_notebook_cell_whose_metadata_says_python_stays_plain_python():
+    for comment, ext in (("--", ".sql"), ("//", ".scala")):
+        text = "\n".join([f"{comment} Fabric notebook source", f"{comment} CELL ********************", "x = 1",
+                          f"{comment} METADATA ********************", f'{comment} META {{"language": "python"}}', ""])
+        assert nbf.parse_source(text, "notebook-content" + ext)["cells"] == [{"type": "code", "source": "x = 1"}], ext
 
 
 def test_big_fabric_files_read_in_time():
@@ -177,8 +184,10 @@ def test_a_notebook_definition_of_the_wrong_shape_is_not_read_and_the_scan_goes_
         assert _workload(junk)["definition"] == "not_read", junk
     bad = {"definition": {"parts": [{"path": "notebook-content.py", "payload": "@@not base64@@"}]}}
     assert _workload(bad)["definition"] == "not_read"
-    sql = _definition("notebook-content.sql", b"-- Fabric notebook source\n-- CELL ********************\nSELECT 1\n")
-    assert "notebook-content.sql" in _workload(sql)["problem"], "a format it can't read isn't read as no cells"
+    r = _definition("notebook-content.r", b"# Fabric notebook source\n# CELL ********************\nx <- 1\n")
+    assert "notebook-content.r" in _workload(r)["problem"], "a format it can't read isn't read as no cells"
+    plain = _definition("notebook-content.sql", b"SELECT 1\n")
+    assert "Fabric's notebook source header" in _workload(plain)["problem"]
     odd = b'{"metadata": {"dependencies": [1]}, "cells": [{"cell_type": "code", "source": "x"}]}'
     assert _workload(_definition("notebook-content.ipynb", odd))["cells"] == ["x"]
 
@@ -190,12 +199,23 @@ def test_a_fabric_source_definition_keeps_only_the_code():
     assert w["cells"] == ["x = 1", "y = 2"], "no METADATA marker line is left in a cell"
 
 
+def test_a_fabric_sql_or_scala_definition_is_read_with_the_notebook_reader():
+    sql = "\n".join(["-- Fabric notebook source", "-- METADATA ********************", '-- META {"dependencies": {"lakehouse":',
+                     '-- META   {"default_lakehouse": "lh1"}}}', "-- MARKDOWN ********************", "-- # Load",
+                     "-- CELL ********************", "SELECT 1", "-- CELL ********************", "-- MAGIC %%pyspark",
+                     "-- MAGIC x = 1", ""])
+    w = _workload(_definition("notebook-content.sql", sql.encode()))
+    assert (w["definition"], w["cells"], w["default_lakehouse"]) == ("read", ["%%sql\nSELECT 1", "%%pyspark\nx = 1"], "lh1")
+    scala = "// Fabric notebook source\n// CELL ********************\nval x = 1\n"
+    assert _workload(_definition("notebook-content.scala", scala.encode()))["cells"] == ["%%spark\nval x = 1"]
+
+
 @pytest.mark.parametrize("seed", range(4))
 def test_mutated_notebook_definitions_never_stop_the_scan(seed):
     valid = {"nbformat": 4, "metadata": {"dependencies": {"lakehouse": {"default_lakehouse": "abc"}}},
              "cells": [{"cell_type": "code", "source": ["x=1\n", "y"]}, {"cell_type": "markdown", "source": "t"}]}
     for _label, data in mutations(valid, seed, 120):
-        for path in ("notebook-content.ipynb", "notebook-content.py"):
+        for path in ("notebook-content.ipynb", "notebook-content.py", "notebook-content.sql"):
             _workload(_definition(path, data))
 
 

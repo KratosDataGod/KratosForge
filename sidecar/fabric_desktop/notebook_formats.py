@@ -124,10 +124,13 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
         out.append("")
         if c.get("type") == "markdown":
             lines = _prefixed("#", _lines(source))
-            if any(ln.rstrip() in _FABRIC_MARKERS for ln in lines):
+            bad = next((raw for raw, ln in zip(_lines(source), lines, strict=True) if ln.rstrip() in _FABRIC_MARKERS), None)
+            if bad is not None:
                 # Fabric's markdown has no escape: such a line would split the cell and lose text.
-                raise ValueError(f"The notebook wasn't exported as Fabric source, because a line in cell {n}, a markdown "
-                                 "cell, would read back as a cell marker and split it. Change that line, or export as .ipynb.")
+                quoted = repr(bad if len(bad) <= 80 else bad[:77] + "...")
+                raise ValueError(f"The notebook wasn't exported as Fabric source, because line {quoted} in cell {n}, a "
+                                 "markdown cell, would read back as a cell marker and split it. Change that line, or "
+                                 "export as .ipynb.")
             out += [FABRIC_MARKDOWN, ""] + lines
             continue
         source = _magic_first(source)

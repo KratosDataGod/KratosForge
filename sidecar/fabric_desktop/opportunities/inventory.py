@@ -24,6 +24,7 @@ import re
 import statistics
 from typing import Any
 
+from ..notebook_formats import parse_source
 from ..orchestration.definition import DefinitionError, loads
 from ..timeutil import parse_time
 
@@ -85,7 +86,7 @@ def _decode(part: dict[str, Any]) -> str:
 def notebook_content(definition: dict[str, Any]) -> tuple[list[str], str | None]:
     """A notebook definition's code cells (sources, in order) and its default lakehouse id.
 
-    Reads the ipynb form (asked for with ?format=ipynb) and, failing that, Fabric's .py form.
+    Reads the ipynb form (asked for with ?format=ipynb) and, failing that, Fabric's .py, .sql or .scala form.
     Markdown cells are left out: they don't run. Raises ValueError when there's no content."""
     part = next((p for p in _parts(definition) if str(p.get("path", "")).startswith("notebook-content")), None)
     if part is None:
@@ -110,9 +111,14 @@ def notebook_content(definition: dict[str, Any]) -> tuple[list[str], str | None]
             src = c.get("source")
             cells.append("".join(src) if isinstance(src, list) else str(src or ""))
         return cells, lh if isinstance(lh, str) and lh else None
-    if not str(part.get("path")).endswith(".py"):
-        raise ValueError(f"{str(part.get('path'))[:80]} isn't a notebook format this reads (.ipynb or .py)")
     found = _PY_DEFAULT_LH.search(text)
+    if str(part.get("path")).endswith((".sql", ".scala")):
+        parsed = parse_source(text, str(part.get("path")))
+        if parsed["format"] != "Fabric notebook source":
+            raise ValueError(f"{str(part.get('path'))[:80]} doesn't start with Fabric's notebook source header")
+        return [c["source"] for c in parsed["cells"] if c["type"] == "code"], found.group(1) if found else None
+    if not str(part.get("path")).endswith(".py"):
+        raise ValueError(f"{str(part.get('path'))[:80]} isn't a notebook format this reads (.ipynb, .py, .sql or .scala)")
     chunks = _PY_CELL.split(text)
     markers = _PY_CELL.findall(text)
     cells = [_PY_META.sub("", chunk).strip("\n") for marker, chunk in zip(markers, chunks[1:], strict=False)

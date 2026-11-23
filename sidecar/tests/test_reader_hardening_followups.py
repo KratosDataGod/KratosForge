@@ -51,7 +51,9 @@ def test_a_symlink_that_stays_inside_the_project_still_works(svc):  # noqa: F811
 
 
 @pytest.mark.parametrize("path", ["semantic/CON.ossie.yaml", "semantic/nul.ossie.json", "Com1/Sales.ossie.yaml",
-                                  "semantic/lpt9.x.ossie.yml", "aux/Sales.ossie.yaml", "semantic/PRN.ossie.yaml"])
+                                  "semantic/lpt9.x.ossie.yml", "aux/Sales.ossie.yaml", "semantic/PRN.ossie.yaml",
+                                  # Windows drops a trailing space or dot, so these are the device too
+                                  "CON .ossie.yaml", "nul./x.ossie.yaml", "semantic/aux. .ossie.yaml", "prn /x.ossie.yaml"])
 def test_windows_device_names_are_refused_in_ossie_paths(svc, path):  # noqa: F811
     with pytest.raises(ValueError, match="because Windows reserves names"):
         svc.meta_model_ossie_save(path, _ossie())

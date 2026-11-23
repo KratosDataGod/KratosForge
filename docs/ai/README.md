@@ -18,8 +18,8 @@ Only the MCP Python SDK client and an HTTP client are tested, automatically on e
 ## Connect a tool
 
 1. Open **Settings > Integrations** and turn on **Let AI tools connect**. It's off until you do, and your organization's policy can keep it off.
-2. **Add a tool**: pick which one, give it a name, and choose what it may do. **Read metadata** (names, structure, schemas, checks; no rows) is always included. **Read data** reads rows from tables, a few at a time. **Run code on this PC** runs SQL, Python and notebooks, and asks you every time.
-3. **Copy setup** and paste it into your tool as shown below. Your setup has your tool's own id in place of `YOUR-CLIENT-ID` and your own path in place of `C:\Users\you\...`. The command's path stays the same when KratosForge updates.
+2. **Add a tool**: pick which one, give it a name, and choose what it may do. **Read metadata** (names, structure, schemas, checks; no rows) is always included. **Read data** reads rows from tables, a few at a time, and runs read-only SQL. It asks you each time unless you tick **Don't ask me before it reads data**. **Run code on this PC** runs Python, notebooks and local pipeline runs, and asks you every time. **Write notebooks** is offered too, but no tool uses it yet.
+3. Select **Next**, copy the setup it shows, and paste it into your tool as shown below. **Edit > Copy setup** shows it again later. Your setup has your tool's own id in place of `YOUR-CLIENT-ID` and your own path in place of `C:\Users\you\...`. The command's path stays the same when KratosForge updates.
 4. **Test connection**, then ask your tool something like "What lakehouses can you see in KratosForge?".
 
 KratosForge has to be open while you use it: requests that need your approval appear there, over whatever page you're on. **Allow once** lets that one request through; **Deny** refuses it. Your tool can't approve anything itself.
@@ -138,8 +138,9 @@ Use `127.0.0.1` in the address, not `localhost`: on Windows, `localhost` tries t
 | --- | --- |
 | List workspaces, lakehouses, tables, notebooks and projects, and read schemas and checks | Get your sign-in tokens or passwords |
 | Read rows, a few at a time (**Read data**) | Write tables through KratosForge, or change Fabric items |
-| Run read-only SQL, and Python and notebooks on this PC, each after you approve it (**Run code on this PC**) | Use Git, or change settings and policies |
-| Read Prove results and receipts, and with your approval compare tables or export a receipt | Read local files through SQL, or run anything without your approval |
+| Run read-only SQL (**Read data**; it asks you unless you turned that off) | Use Git, or change settings and policies |
+| Run Python and notebooks on this PC, each after you approve it (**Run code on this PC**) | Read local files through SQL, or run Python or a notebook without your approval |
+| Read Prove results and receipts, and compare tables or export a receipt (**Read data**; it asks you unless you turned that off) | |
 | Trace a column's lineage in the metadata project, and read its runs and their data quality results (counts only; Test and Prod run logs are read from OneLake with your sign-in) | |
 | List the local data projects on this PC, their tables and columns, and a local Delta table's history (read from each project's saved catalog; its database is never opened, so KratosForge can keep it open) | |
 | List an environment's semantic models, export one as Apache Ossie YAML, and preview what an Ossie import would change (Preview; importing stays in KratosForge, behind its confirm) | |

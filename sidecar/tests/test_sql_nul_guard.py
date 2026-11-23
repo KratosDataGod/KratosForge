@@ -279,7 +279,8 @@ def test_random_strings_with_nuls_round_trip(seed):
     lambda c, r: r.min("k\0"),
     lambda c, r: r.value_counts("k\0"),
     lambda c, r: c.get_table_names("SELECT * FROM t\0x"),
-], ids=["join", "cross-filter", "sum", "min", "value_counts", "get_table_names"])
+    lambda c, r: r.filter(duckdb.SQLExpression("k = 2\0 OR true")),
+], ids=["join", "cross-filter", "sum", "min", "value_counts", "get_table_names", "sql-expression"])
 def test_relation_and_connection_helpers_that_take_expression_text_are_guarded(call):
     con = duckdb.connect()
     rel = con.sql("SELECT 1 AS k")
@@ -296,3 +297,15 @@ def test_every_public_relation_and_connection_method_is_guarded_or_listed_as_tak
             if name.startswith("_") or name in no_text or not callable(member):
                 continue
             assert getattr(member, "__kf_nul_guard__", False), f"{owner.__name__}.{name} isn't guarded"
+
+
+def test_a_sql_expression_built_from_text_is_guarded():
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t (k INT)")
+    con.execute("INSERT INTO t VALUES (1), (2)")
+    for name in ("SQLExpression", "sql_expr"):
+        if hasattr(duckdb, name):
+            assert getattr(getattr(duckdb, name), "__kf_nul_guard__", False), f"duckdb.{name} isn't guarded"
+    assert con.table("t").filter(duckdb.SQLExpression("k = 1")).fetchall() == [(1,)]
+    with pytest.raises(duckdb.ParserException, match="NUL character"):
+        con.table("t").filter(duckdb.SQLExpression("k = 1\0 OR TRUE")).fetchall()

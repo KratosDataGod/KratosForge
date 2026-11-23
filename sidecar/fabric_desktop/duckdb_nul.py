@@ -27,7 +27,9 @@ REFUSAL = ("The SQL wasn't run, because it holds a NUL character (U+0000) outsid
            "in a string as CHR(0).")
 
 _CONNECTION = ("execute", "executemany", "sql", "query", "from_query", "extract_statements", "table", "view")
-_MODULE = (*_CONNECTION, "query_df", "filter", "project", "aggregate", "order", "get_table_names")
+# SQLExpression (and sql_expr on DuckDB 2) parse their text as a SQL expression, like a relation's filter.
+_MODULE = (*_CONNECTION, "query_df", "filter", "project", "aggregate", "order", "get_table_names",
+           "SQLExpression", "sql_expr")
 # A connection method that takes no text: every other one is guarded (get_table_names reads SQL, and a
 # method added in a later DuckDB is guarded until it's listed here).
 _CONNECTION_NO_TEXT = frozenset({

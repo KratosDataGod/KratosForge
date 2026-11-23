@@ -88,6 +88,15 @@ def test_the_catalog_says_what_bills_and_which_engine_is_the_kernel(tmp_path):
     assert engines["local-spark"]["adapter"] is False
 
 
+def test_the_snowflake_engine_isnt_offered_in_the_menu_until_it_lists_snowflake_connections(tmp_path):
+    svc = Svc(tmp_path)
+    sf = {e["id"]: e for e in svc.engine_catalog()["engines"]}["snowflake-sql"]
+    assert sf["adapter"] is False and "Snowflake connections" in sf["planned"] and sf["bills"] == "uses Snowflake credits"
+    for call in (lambda: svc.engine_prepare("nb", "snowflake-sql"), lambda: svc.engine_select("nb", "snowflake-sql")):
+        with pytest.raises(ValueError, match="can't be chosen for a notebook in this version. Read-only SQL cells"):
+            call()
+
+
 def test_connections_list_cli_profiles_with_no_secret(tmp_path):
     conns = Svc(tmp_path).engine_connections()["connections"]
     assert conns == [{"key": "cli:dev", "label": "dev (Databricks CLI)", "source": "cli", "host": HOST,

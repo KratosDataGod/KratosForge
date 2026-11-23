@@ -312,13 +312,27 @@ def live(store):
 def test_client_disconnect_cancels_call(store, live):
     port, seen = live
     _, token = http_client(store)
-    with pytest.raises(httpx2.ReadTimeout):
-        httpx2.post(f"http://127.0.0.1:{port}/api/v1/capabilities/ext_slow/invoke", headers=auth(token),
-                    json={"arguments": {"seconds": 5}}, timeout=0.5)
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and not (seen and seen[-1].cancelled):
-        time.sleep(0.05)
-    assert seen and seen[-1].cancelled
+    # The caller hangs up only once the call has started, so a slow runner can't make it hang up before
+    # the server has the call (a fixed client timeout raced that). The call would run for a minute.
+    body = json.dumps({"arguments": {"seconds": 60}}).encode()
+    head = (f"POST /api/v1/capabilities/ext_slow/invoke HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            f"Authorization: Bearer {token}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n\r\n").encode()
+    caller = socket.create_connection(("127.0.0.1", port))
+    try:
+        caller.sendall(head + body)
+        _wait_for(lambda: seen, "the call didn't start")
+    finally:
+        caller.close()
+    _wait_for(lambda: seen[-1].cancelled, "hanging up didn't cancel the call")
+
+
+def _wait_for(done, message, seconds=30.0):
+    """Waits for ``done()``; the limit only stops a broken run, it isn't what the test measures."""
+    deadline = time.monotonic() + seconds
+    while not done():
+        assert time.monotonic() < deadline, message
+        time.sleep(0.02)
 
 
 def mcp_transport(port, token):

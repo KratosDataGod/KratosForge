@@ -81,3 +81,29 @@ def test_runs_that_take_a_while_to_stop_all_write_their_audit_line_before_closin
     assert sorted(audit) == ["run0", "run1", "run2"]
     assert all(p.killed.is_set() for p in slow) and stuck.killed.is_set()
     stuck.ended.set()
+
+
+def test_a_local_run_the_app_closes_on_writes_its_audit_line_before_closing_returns(tmp_path, monkeypatch):
+    # A local run has no process: its thread is interrupted in the project's database, then records how
+    # it ended. shutdown() waits for that thread too, within the same deadline.
+    cancelled = threading.Event()
+
+    class Engine:
+        def cancel(self, run_id, not_started=False):
+            cancelled.set()
+
+    audit: list[str] = []
+    manager = sql_exec.SqlExecutions(tmp_path / "data", token=lambda: "", local_engine=lambda _project: Engine())
+
+    def run_local(run):  # like _run_local: stops when interrupted, a moment later writes the audit line
+        cancelled.wait()
+        threading.Event().wait(0.5)
+        audit.append(run.id)
+
+    monkeypatch.setattr(manager, "_run_local", run_local)
+    run = sql_exec.Execution(id="local1", query="SELECT 1", dialect="duckdb", lakehouse={}, allow=("read_only",),
+                             folder=tmp_path / "local1", target="local", project="p", timeout_s=5.0)
+    manager._runs[run.id] = run
+    manager._launch_local(run, {"sql_time_limit_minutes": 0})
+    assert close(manager, 8.0), "closing the app waited past its one deadline"
+    assert cancelled.is_set() and audit == ["local1"]

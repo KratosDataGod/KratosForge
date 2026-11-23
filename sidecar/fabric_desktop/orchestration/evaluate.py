@@ -54,12 +54,20 @@ class Scope:
 def evaluate(value: Any, scope: Scope) -> Any:
     """A property value with its expressions evaluated: an Expression object, a string starting
     with @, a string with @{...} parts, or a list or object of those. Other values come back as is."""
+    try:
+        return _evaluate(value, scope)
+    except RecursionError:
+        raise ExpressionError("the value is nested too deeply to evaluate, because its arrays and objects go "
+                              "hundreds of levels down; flatten the value") from None
+
+
+def _evaluate(value: Any, scope: Scope) -> Any:
     if isinstance(value, dict):
         if value.get("type") == "Expression" and isinstance(value.get("value"), str):
             return _string(value["value"], scope)
-        return {k: evaluate(v, scope) for k, v in value.items()}
+        return {k: _evaluate(v, scope) for k, v in value.items()}
     if isinstance(value, list):
-        return [evaluate(v, scope) for v in value]
+        return [_evaluate(v, scope) for v in value]
     if isinstance(value, str):
         return _string(value, scope)
     return value
@@ -122,7 +130,11 @@ def expression(text: str, scope: Scope) -> Any:
     if problem:
         raise ExpressionError(problem)
     parser = _Parser(toks, scope)
-    value = parser.value()
+    try:
+        value = parser.value()
+    except RecursionError:
+        raise ExpressionError("the expression is nested too deeply to read, because it has hundreds of brackets "
+                              "inside one another; move parts of it into variables") from None
     if parser.i != len(toks):
         raise ExpressionError(f"unexpected {toks[parser.i][1]!r} after the expression")
     return value
@@ -150,7 +162,10 @@ class _Parser:
             out: Any = self.take("string")
         elif kind == "number":
             raw = self.take("number")
-            out = float(raw) if "." in raw else int(raw)
+            try:
+                out = float(raw) if "." in raw else int(raw)
+            except ValueError:
+                raise ExpressionError(_TOO_LONG) from None
         elif kind == "ident":
             name = self.take("ident")
             if self.peek() != "(":
@@ -165,6 +180,9 @@ class _Parser:
                     args.append(self.value())
                     if self.peek() == ",":
                         self.take(",")
+                        if self.peek() == ")":
+                            raise ExpressionError(f"{name}() has a comma with nothing after it, because a ) follows "
+                                                  "the comma; remove the comma or add the argument")
                     elif self.peek() != ")":
                         raise ExpressionError(f"expected , or ) in {name}()")
                 self.take(")")
@@ -205,6 +223,9 @@ def _member(value: Any, key: Any, safe: bool) -> Any:
             return None
         raise ExpressionError(f"index {key} is outside an array of {len(value)}")
     if isinstance(value, dict):
+        if isinstance(key, (list, dict)):
+            raise ExpressionError("can't read a property named by an array or object, because a property name is "
+                                  "text; put the name in quotes inside [ ]")
         if key in value:
             return value[key]
         lowered = {str(k).lower(): k for k in value}   # property names are case-insensitive
@@ -229,7 +250,14 @@ def _text(v: Any) -> str:
         return ""
     if isinstance(v, (dict, list)):
         return json.dumps(v, separators=(",", ":"))
-    return str(v)
+    try:
+        return str(v)
+    except ValueError:   # an int past Python's 4,300-digit limit for text
+        raise ExpressionError(_TOO_LONG) from None
+
+
+_TOO_LONG = ("the number is too long to use, because it has more than 4,300 digits; use a shorter number or keep it "
+             "as text")
 
 
 def _num(v: Any, fn: str) -> int | float:
@@ -289,7 +317,8 @@ def _div(a: Any, b: Any) -> int | float:
     if b == 0:
         raise ExpressionError("div() can't divide by zero")
     if isinstance(a, int) and isinstance(b, int):
-        return int(a / b)   # whole numbers divide to a whole number, rounded toward zero
+        q = abs(a) // abs(b)   # whole numbers divide to a whole number, rounded toward zero, exactly
+        return q if (a < 0) == (b < 0) else -q
     return a / b
 
 
@@ -297,7 +326,9 @@ def _mod(a: Any, b: Any) -> int | float:
     a, b = _num(a, "mod"), _num(b, "mod")
     if b == 0:
         raise ExpressionError("mod() can't divide by zero")
-    return math.fmod(a, b) if isinstance(a, float) or isinstance(b, float) else int(math.fmod(a, b))
+    if isinstance(a, int) and isinstance(b, int):
+        return a - b * _div(a, b)   # the sign of a, as .NET's %, exactly
+    return math.fmod(a, b)
 
 
 def _compare(fn: str, a: Any, b: Any) -> tuple[Any, Any]:
@@ -368,6 +399,9 @@ def _json(v: Any) -> Any:
         return json.loads(v)
     except ValueError:
         raise ExpressionError("json() was given text that isn't JSON") from None
+    except RecursionError:
+        raise ExpressionError("json() was given JSON nested too deeply to read, because its arrays and objects go "
+                              "too many levels down; flatten the JSON") from None
 
 
 # .NET date format tokens, longest first, mapped to strftime (the common ones only).
@@ -748,7 +782,10 @@ def call(name: str, args: list[Any], scope: Scope) -> Any:
         # These can multiply a value's size in one call, so they are checked before they run.
         if fn == "replace" and len(args) == 3:
             text, old, new = (_text(a) for a in args)
-            if old and len(text) + text.count(old) * (len(new) - len(old)) > MAX_TEXT:
+            if not old:   # .NET's String.Replace refuses an empty oldValue; Python's would insert between characters
+                raise ExpressionError("replace() can't replace empty text, because the text to find is ''; give "
+                                      "replace() the text to find")
+            if len(text) + text.count(old) * (len(new) - len(old)) > MAX_TEXT:
                 raise ExpressionError(f"replace() would make a value over {MAX_TEXT:,} characters, the limit")
         if fn == "join" and len(args) == 2 and isinstance(args[0], list):
             if (len(args[0]) - 1) * len(_text(args[1])) > MAX_TEXT or _too_big(args[0]):
@@ -757,5 +794,8 @@ def call(name: str, args: list[Any], scope: Scope) -> Any:
             return _bounded(name, _PURE[fn](*args))
     except TypeError:
         raise ExpressionError(f"{name}() was given {len(args)} argument(s), which it doesn't take") from None
+    except (ArithmeticError, LookupError, ValueError):   # min() of nothing, a date past year 9999, split on ''
+        raise ExpressionError(f"{name}() couldn't work out a value, because an argument is empty, out of range or "
+                              f"too big for it; check the values passed to {name}()") from None
     raise ExpressionError(f"{name}() isn't supported in local runs yet")
 

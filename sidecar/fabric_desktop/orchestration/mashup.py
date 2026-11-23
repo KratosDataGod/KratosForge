@@ -18,6 +18,7 @@ import re
 from typing import Any
 
 _NAME = re.compile(r'\s*shared\s+(#"(?:[^"]|"")*"|[A-Za-z_][\w.]*)\s*=\s*', re.S)
+_SPACE = re.compile(r"\s*")
 _QUOTED = r'"((?:[^"]|"")*)"'
 _DEST_REF = re.compile(r'QueryName\s*=\s*' + _QUOTED)
 _UPDATE = re.compile(r'UpdateMethod\s*=\s*\[\s*Kind\s*=\s*' + _QUOTED)
@@ -65,13 +66,21 @@ def statements(text: str) -> list[str]:
     return out
 
 
+def _space(text: str, i: int) -> int:
+    """Where the spaces from ``i`` on end."""
+    m = _SPACE.match(text, i)
+    return m.end() if m else i
+
+
 def _trivia(text: str) -> str:
-    """``text`` without its leading spaces and comments."""
-    s = text.lstrip()
-    while s.startswith(("//", "/*")):
-        end = s.find("\n") if s.startswith("//") else s.find("*/") + 1
-        s = "" if end <= 0 else s[end + 1:].lstrip()
-    return s
+    """``text`` without its leading spaces and comments. An index, not slices, so many comments stay linear."""
+    i = _space(text, 0)
+    while text.startswith(("//", "/*"), i):
+        end = text.find("\n", i) if text.startswith("//", i) else text.find("*/", i + 2) + 1   # not the * of /*
+        if end <= 0:
+            return ""
+        i = _space(text, end + 1)
+    return text[i:]
 
 
 def _attributes(text: str) -> tuple[str, str]:
@@ -139,7 +148,7 @@ def _connection_id(raw: Any) -> str:
         return ""
     try:
         value = json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
         return raw
     return str(value.get("DatasourceId") or "") if isinstance(value, dict) else raw
 
@@ -161,7 +170,7 @@ def describe(result: dict[str, Any]) -> dict[str, Any]:
     problems = []
     try:
         meta = json.loads(parts.get("queryMetadata.json") or "{}")
-    except ValueError:
+    except (ValueError, RecursionError):
         problems.append("queryMetadata.json isn't valid JSON, so load flags and connections can't be shown.")
         meta = {}
     if not isinstance(meta, dict):

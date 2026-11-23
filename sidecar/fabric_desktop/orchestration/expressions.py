@@ -23,10 +23,10 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")  # ASCII digits only: Data Factory reads no others
 # A number written without its leading zero (.3, -.5), as the reference's sub(10.3, .3) does. Only where a
 # value starts (first, or after "(", "[" or ","), so a.b and x()[0].y stay member reads.
-_LEADING_DOT = re.compile(r"-?\.\d+")
+_LEADING_DOT = re.compile(r"-?\.[0-9]+")
 
 
 @dataclass
@@ -98,23 +98,27 @@ def _bodies(value: str) -> Iterator[tuple[str, bool, str]]:
 
 
 def scan(node: Any, path: str = "$") -> Iterator[Expression]:
-    """Every expression in a JSON value tree, depth first, with its JSON path."""
-    if isinstance(node, dict):
-        if node.get("type") == "Expression" and isinstance(node.get("value"), str):
-            text = node["value"]
-            body = text[1:] if text.startswith("@") and not text.startswith("@@") else text
-            if text.startswith("@{") or ("@{" in text and not text.startswith("@")):
-                yield from _from_string(text, f"{path}.value")
-            else:
-                yield _read(body, f"{path}.value", False, "")
-            return
-        for key, child in node.items():
-            yield from scan(child, f"{path}{key_path(key)}")
-    elif isinstance(node, list):
-        for i, child in enumerate(node):
-            yield from scan(child, f"{path}[{i}]")
-    elif isinstance(node, str) and "@" in node:
-        yield from _from_string(node, path)
+    """Every expression in a JSON value tree, depth first, with its JSON path. A stack rather than
+    recursion, since a definition can nest deeper than Python's recursion limit."""
+    stack = [(node, path)]
+    while stack:
+        node, path = stack.pop()
+        if isinstance(node, dict):
+            if node.get("type") == "Expression" and isinstance(node.get("value"), str):
+                text = node["value"]
+                if text.startswith("@@"):   # an escaped @: text, as evaluate reads it
+                    continue
+                body = text[1:] if text.startswith("@") and not text.startswith("@@") else text
+                if text.startswith("@{") or ("@{" in text and not text.startswith("@")):
+                    yield from _from_string(text, f"{path}.value")
+                else:
+                    yield _read(body, f"{path}.value", False, "")
+                continue
+            stack.extend((child, f"{path}{key_path(key)}") for key, child in reversed(node.items()))
+        elif isinstance(node, list):
+            stack.extend((node[i], f"{path}[{i}]") for i in reversed(range(len(node))))
+        elif isinstance(node, str) and "@" in node:
+            yield from _from_string(node, path)
 
 
 def _from_string(text: str, path: str) -> Iterator[Expression]:
@@ -206,6 +210,7 @@ def _read(text: str, path: str, interpolated: bool, problem: str) -> Expression:
     toks, tok_problem = tokens(text)
     expr = Expression(path=path, text=text, interpolated=interpolated, problem=problem or tok_problem)
     seen: set[tuple[str, str, str]] = set()
+    called: set[str] = set()   # expr.functions as a set, so a long expression isn't quadratic
 
     def add(ref: Reference) -> None:
         if (ref.kind, ref.name, ref.member) not in seen:
@@ -217,7 +222,8 @@ def _read(text: str, path: str, interpolated: bool, problem: str) -> Expression:
         kind, value = toks[i]
         if kind == "ident" and i + 1 < len(toks) and toks[i + 1][0] == "(":
             fn = value.lower()
-            if fn not in expr.functions:
+            if fn not in called:
+                called.add(fn)
                 expr.functions.append(fn)
             arg = toks[i + 2] if i + 2 < len(toks) else ("", "")
             closes = i + 3 < len(toks) and toks[i + 3][0] == ")"

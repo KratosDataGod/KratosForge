@@ -160,7 +160,7 @@ def from_finding(finding: dict[str, Any], *, at: str, original_ref: str | None =
     if finding.get("fixture"):
         raise ValueError(f"Finding {fid} comes from the demonstration fixture, so it doesn't become an optimization.")
     if finding.get("advisory"):
-        raise ValueError(f"Finding {fid} is advisory: it rests only on inferred evidence, so it doesn't become an "
+        raise ValueError(f"Finding {fid} rests only on inferred evidence, so it is advisory and doesn't become an "
                          "optimization until the evidence is confirmed.")
     if finding.get("status", "open") != "open":
         raise ValueError(f"Finding {fid} is {finding.get('status')!r}, not open, so there is nothing to optimize.")

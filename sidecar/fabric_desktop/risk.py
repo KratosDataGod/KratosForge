@@ -297,7 +297,7 @@ def check_consumption(f: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any] 
                        remedy="Consider trying it on this PC, or on a smaller input, first.",
                        source=pick.get("source") or pick.get("method") or "", measurement=pick)
     return finding("consumption", PASS, f"The last run used about {hours:.2f} CU hours ({kind})",
-                   "For reference; the next run may differ. A price for it is in Optimize > Cost and savings.",
+                   "For reference only, because the next run may differ. A price for it is in Optimize > Cost and savings.",
                    evidence=evidence, source=pick.get("source") or pick.get("method") or "", measurement=pick)
 
 

@@ -86,7 +86,7 @@ Separating writers from readers needs a different way to write. The plan's mode 
 
 ### On the PC
 
-Results that couldn't be sent wait in `optimize\outbox.sqlite` in the app's data folder (`optimize/outbox.py`). Each item holds the same rows it would have written to the lakehouse, with the same names and ids, as plain JSON. The app doesn't encrypt the file; it is protected only as the person's profile is.
+Results that couldn't be sent wait in `optimize\outbox.sqlite` in the app's data folder (`optimize/outbox.py`). Each item holds the same rows it would have written to the lakehouse, with the same names and ids, as plain JSON. The app doesn't encrypt the file. It is protected only as the person's profile is.
 
 - **Sent items are deleted** from the file as soon as the lakehouse takes them.
 - **At most 200 items and 30 days per lakehouse.** Past either, the oldest are deleted and counted as dropped. The limits are checked when Optimize next queues or sends something for that lakehouse, so an item older than 30 days can stay in the file until then, for example for a lakehouse this PC no longer uses.

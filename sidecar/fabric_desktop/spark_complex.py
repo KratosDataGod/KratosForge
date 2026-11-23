@@ -51,6 +51,7 @@ def _parse(text: str) -> exp.Expr:
 
 def _put(node: exp.Expr, text: str) -> exp.Expr:
     new = _parse(text)
+    new.meta.update({k: v for k, v in node.meta.items() if k.startswith("kf_order")})  # spark_ordering's marks
     node.replace(new)
     return new
 
@@ -172,6 +173,8 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
     """``statement`` with the map forms and typed fixes in the module docstring. Its tables must be bound
     to the connection's views already. When its types can't be worked out it is returned as it was, but
     a to_json in it is refused (spark_json.Refused). ``kinds``: only those fixes (the others' marks stay)."""
+    from .spark_ordering import spark_orderings
+    statement = spark_orderings(statement, conn)  # Spark's comparisons and order of arrays, structs and maps
     marked = [n for n in statement.walk() if _KEY in n.meta and (kinds is None or n.meta[_KEY] in kinds)]
     if not marked:
         return statement

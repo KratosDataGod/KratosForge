@@ -1,0 +1,250 @@
+# Spark 3.5 comparisons and ordering of arrays, structs and maps (WR-271).
+# Spark orders an array element by element and a struct field by field, a NULL element or field before any value.
+# Rows come back sorted (spark_values), so an order is read through row_number() or ORDER BY ... LIMIT.
+SELECT array(1, 2) = array(1, 2) AS v
+SELECT array(1, NULL) = array(1, NULL) AS v
+SELECT array(1, NULL) <=> array(1, NULL) AS v
+SELECT array(1, NULL) = array(2, NULL) AS v
+SELECT array(1, 2) = NULL AS v
+SELECT array(1, 2) <=> NULL AS v
+SELECT array(1) <> array(2) AS v
+SELECT array(1, NULL) < array(2, NULL) AS v
+SELECT array(NULL, 1) < array(1, 1) AS v
+SELECT array(NULL, 1) >= array(1, 1) AS v
+SELECT array(1, 2) < array(1, 2, 3) AS v
+SELECT array(1, 2) < array(1, 3) AS v
+SELECT array(2) > array(1, 5) AS v
+SELECT array(1) = array() AS v
+SELECT array(NULL) = array(1) AS v
+SELECT array(array(1, 2), array(3)) = array(array(1, 2), array(3)) AS v
+SELECT array(array(1, 2)) < array(array(1, 3)) AS v
+SELECT array(array(1, NULL)) = array(array(1, NULL)) AS v
+SELECT array(array(1, NULL)) < array(array(1, 2)) AS v
+SELECT array(1, NULL) BETWEEN array(1) AND array(1, 0) AS v
+SELECT array(1) BETWEEN array(0) AND array(2) AS v
+SELECT array(1) = array(1) AND array(NULL, 1) < array(1, 1) AS v
+SELECT array(CAST('NaN' AS DOUBLE)) = array(CAST('NaN' AS DOUBLE)) AS v
+SELECT array(CAST('NaN' AS DOUBLE)) > array(1D) AS v
+SELECT array(-0.0D) = array(0.0D) AS v
+SELECT array(-0.0D) <=> array(0.0D) AS v
+SELECT array(1) IN (array(1), array(2)) AS v
+SELECT array(1) IN (array(2), NULL) AS v
+SELECT array(1, NULL) IN (array(1, NULL)) AS v
+SELECT array(1) IN (array(1.0)) AS v
+SELECT array(1) IN (array(1D)) AS v
+SELECT array(1) IN (array('1')) AS v
+SELECT array(-0.0D) IN (array(0.0D)) AS v
+# Element types: only a type both fit in without losing digits (findTightestCommonType); IN widens.
+SELECT array(1, 1.5) = array(1.0, 1.5) AS v
+SELECT array(1, 2) = array(1.0, 2.0) AS v
+SELECT array(1, 2) = array(1D, 2D) AS v
+SELECT array(1, 2) = array('1', '2') AS v
+SELECT array(1.5, 2.5) = array(1.50, 2.50) AS v
+SELECT array(1.5) = array(1.5D) AS v
+SELECT array(array(1)) = array(array(1.0)) AS v
+SELECT array(1) = array(1L) AS v
+SELECT array(CAST(1 AS FLOAT)) = array(1D) AS v
+SELECT array(1) = array(CAST(1 AS FLOAT)) AS v
+SELECT array(1L) < array(CAST(2 AS FLOAT)) AS v
+SELECT array(DATE'2024-01-01') = array(TIMESTAMP'2024-01-01 00:00:00') AS v
+SELECT array(true) = array(1) AS v
+SELECT array('a') = array(CAST('a' AS BINARY)) AS v
+SELECT array(1) = array(CAST(1 AS DECIMAL(10,0))) AS v
+SELECT array(1) = array(CAST(1 AS DECIMAL(9,0))) AS v
+SELECT array(CAST(1 AS DECIMAL(5,2))) = array(CAST(1 AS DECIMAL(5,2))) AS v
+SELECT array(CAST(1 AS DECIMAL(5,2))) = array(CAST(1 AS DECIMAL(6,2))) AS v
+SELECT array(1) != array(1.0) AS v
+SELECT array(1) <=> array(1.0) AS v
+SELECT array(1) < array(1.0) AS v
+SELECT array(1) BETWEEN array(0) AND array(2.0) AS v
+SELECT CASE array(1) WHEN array(1.0) THEN 'y' ELSE 'n' END AS v
+SELECT CASE array(1) WHEN array(1) THEN 'y' ELSE 'n' END AS v
+SELECT x FROM VALUES (array(1.5)) AS t(x) WHERE x = array(1.5)
+SELECT x FROM VALUES (array(1.5)) AS t(x) WHERE x = array(1.50)
+# structs
+SELECT named_struct('a', 1, 'b', 'x') = named_struct('a', 1, 'b', 'x') AS v
+SELECT named_struct('a', 1, 'b', CAST(NULL AS INT)) = named_struct('a', 1, 'b', CAST(NULL AS INT)) AS v
+SELECT named_struct('a', 1, 'b', CAST(NULL AS INT)) <=> named_struct('a', 1, 'b', CAST(NULL AS INT)) AS v
+SELECT named_struct('a', CAST(NULL AS INT)) < named_struct('a', 1) AS v
+SELECT named_struct('a', 1, 'b', 2) < named_struct('a', 1, 'b', 3) AS v
+SELECT named_struct('a', array(1, NULL)) < named_struct('a', array(1, 2)) AS v
+SELECT named_struct('a', 1) = named_struct('a', 1.0) AS v
+SELECT named_struct('a', 1) = named_struct('a', 1D) AS v
+SELECT named_struct('a', 1) = named_struct('b', 1) AS v
+SELECT named_struct('a', 1) = named_struct('A', 1) AS v
+SELECT named_struct('a', 1) = named_struct('a', 1L) AS v
+SELECT named_struct('a', 1) = named_struct('a', '1') AS v
+SELECT named_struct('a', 1, 'b', 2) = named_struct('a', 1) AS v
+SELECT struct(1, 2) = named_struct('col1', 1, 'col2', 2) AS v
+SELECT named_struct('a', CAST('NaN' AS DOUBLE)) = named_struct('a', CAST('NaN' AS DOUBLE)) AS v
+SELECT named_struct('a', -0.0D) = named_struct('a', 0.0D) AS v
+SELECT named_struct('a', 1) IN (named_struct('a', 1)) AS v
+SELECT named_struct('a', 1) IN (named_struct('a', 1.0)) AS v
+# maps: Spark can't compare, order, group or deduplicate one
+SELECT map(1, 2) = map(1, 2) AS v
+SELECT map(1, 2) <=> map(1, 2) AS v
+SELECT map(1, 2) < map(1, 3) AS v
+SELECT map(1, 2) IN (map(1, 2)) AS v
+SELECT array(map(1, 2)) = array(map(1, 2)) AS v
+SELECT named_struct('m', map(1, 2)) = named_struct('m', map(1, 2)) AS v
+SELECT m FROM VALUES (map(1, 2)), (map(1, 2)) AS t(m) GROUP BY m
+SELECT s FROM VALUES (named_struct('m', map(1, 2))) AS t(s) GROUP BY s
+SELECT m, x FROM VALUES (map(1, 2), 1) AS t(m, x) GROUP BY ALL
+SELECT DISTINCT m FROM VALUES (map(1, 2)), (map(1, 2)) AS t(m)
+SELECT DISTINCT * FROM VALUES (map(1, 2), 1) AS t(m, x)
+SELECT m FROM VALUES (map(1, 2)), (map(3, 4)) AS t(m) ORDER BY m
+SELECT a FROM VALUES (array(map(1, 2))) AS t(a) ORDER BY a
+SELECT max(m) FROM VALUES (map(1, 2)), (map(3, 4)) AS t(m)
+SELECT min(m) FROM VALUES (map(1, 2)), (map(3, 4)) AS t(m)
+SELECT count(DISTINCT m) FROM VALUES (map(1, 2)), (map(3, 4)) AS t(m)
+SELECT collect_set(m) FROM VALUES (map(1, 2)) AS t(m)
+SELECT max_by(x, m) FROM VALUES (1, map(1, 2)) AS t(x, m)
+SELECT greatest(map(1, 2), map(3, 4)) AS v
+SELECT least(map(1, 2), map(1, 2)) AS v
+SELECT array_sort(array(map(1, 2), map(3, 4))) AS v
+SELECT sort_array(array(map(1, 2), map(3, 4))) AS v
+SELECT array_max(array(map(1, 2), map(3, 4))) AS v
+SELECT array_min(array(map(1, 2))) AS v
+SELECT array_position(array(map(1, 2)), map(1, 2)) AS v
+SELECT array_contains(array(map(1, 2)), map(1, 2)) AS v
+SELECT array_distinct(array(map(1, 2), map(1, 2))) AS v
+SELECT array_union(array(map(1, 2)), array(map(1, 2))) AS v
+SELECT array_except(array(map(1, 2)), array(map(1, 2))) AS v
+SELECT array_intersect(array(map(1, 2)), array(map(1, 2))) AS v
+SELECT arrays_overlap(array(map(1, 2)), array(map(1, 2))) AS v
+SELECT array_remove(array(map(1, 2)), map(1, 2)) AS v
+SELECT m FROM VALUES (map(1, 2)) AS t(m) UNION SELECT map(1, 2)
+SELECT m FROM VALUES (map(1, 2)) AS t(m) INTERSECT SELECT map(1, 2)
+SELECT m FROM VALUES (map(1, 2)) AS t(m) EXCEPT SELECT map(3, 4)
+SELECT a.m FROM VALUES (map(1, 2)) AS a(m) JOIN VALUES (map(1, 2)) AS b(m) ON a.m = b.m
+SELECT row_number() OVER (PARTITION BY m ORDER BY 1) FROM VALUES (map(1, 2)) AS t(m)
+SELECT row_number() OVER (ORDER BY m) FROM VALUES (map(1, 2)) AS t(m)
+# what Spark does run with a map
+SELECT m FROM VALUES (map(1, 2)) AS t(m) UNION ALL SELECT map(1, 2)
+SELECT collect_list(m) FROM VALUES (map(1, 2)) AS t(m)
+SELECT first(m) FROM VALUES (map(1, 2), 1) AS t(m, x) GROUP BY x
+SELECT m['1'] FROM VALUES (map('1', 2)) AS t(m) ORDER BY m['1']
+SELECT map_keys(map(1, 2)) = array(1) AS v
+SELECT array_sort(map_entries(map(2, 1, 1, 2))) AS v
+SELECT array_contains(map_keys(m), 1), array_position(map_values(m), 2) FROM VALUES (map(1, 2)) AS t(m)
+# ORDER BY and a window's ORDER BY
+SELECT a, row_number() OVER (ORDER BY a) AS r FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)), (array()), (NULL) AS t(a)
+SELECT a, row_number() OVER (ORDER BY a DESC) AS r FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)), (array()), (NULL) AS t(a)
+SELECT a, row_number() OVER (ORDER BY a NULLS LAST) AS r FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)), (array()), (NULL) AS t(a)
+SELECT a, row_number() OVER (ORDER BY a DESC NULLS FIRST) AS r FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)), (array()), (NULL) AS t(a)
+SELECT s, row_number() OVER (ORDER BY s) AS r FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', 2)), (named_struct('a', CAST(NULL AS INT), 'b', 9)), (NULL) AS t(s)
+SELECT s, row_number() OVER (ORDER BY s DESC) AS r FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', 2)), (named_struct('a', CAST(NULL AS INT), 'b', 9)), (NULL) AS t(s)
+SELECT a, row_number() OVER (ORDER BY a) AS r FROM VALUES (array(array(1, NULL))), (array(array(1, 2))), (array(array(NULL))), (array(CAST(NULL AS ARRAY<INT>))) AS t(a)
+SELECT a, row_number() OVER (ORDER BY a) AS r FROM VALUES (array('b')), (array('a', 'z')), (array('B')), (array('a')) AS t(a)
+SELECT a, row_number() OVER (ORDER BY a) AS r FROM VALUES (array(CAST('NaN' AS DOUBLE))), (array(1D)), (array(CAST('Infinity' AS DOUBLE))), (array(-1D)) AS t(a)
+SELECT g, a, row_number() OVER (PARTITION BY g ORDER BY a) AS r FROM VALUES (1, array(1, NULL)), (1, array(NULL, 2)), (2, array(3)), (2, array(NULL)) AS t(g, a)
+SELECT a FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY a LIMIT 1
+SELECT a FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY a DESC LIMIT 1
+SELECT a FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY 1 LIMIT 1
+SELECT a AS b FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY b LIMIT 1
+SELECT * FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY 1 LIMIT 2
+SELECT DISTINCT a FROM VALUES (array(1, NULL)), (array(NULL, 5)), (array(NULL, 5)) AS t(a) ORDER BY a LIMIT 1
+SELECT a FROM VALUES (array(1, NULL)) AS t(a) UNION SELECT array(NULL, 5) ORDER BY a LIMIT 1
+SELECT a FROM VALUES (array(1, NULL)) AS t(a) UNION ALL SELECT array(NULL, 5) ORDER BY 1 DESC LIMIT 1
+SELECT s FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', 2)) AS t(s) ORDER BY s LIMIT 1
+SELECT s FROM VALUES (named_struct('a', array(1, NULL))), (named_struct('a', array(1, 2))) AS t(s) ORDER BY s LIMIT 1
+SELECT a FROM VALUES (array(named_struct('a', CAST(NULL AS INT)))), (array(named_struct('a', 1))) AS t(a) ORDER BY a LIMIT 1
+SELECT g, max(a) AS m FROM VALUES (1, array(1, NULL)), (1, array(1, 2)), (2, array(NULL, 9)) AS t(g, a) GROUP BY g ORDER BY m LIMIT 1
+SELECT x FROM VALUES (-0.0D), (1D) AS t(x) ORDER BY x LIMIT 1
+SELECT a FROM VALUES (array(-0.0D)), (array(1D)) AS t(a) ORDER BY a LIMIT 1
+# min and max, greatest and least
+SELECT max(a), min(a) FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)) AS t(a)
+SELECT max(s), min(s) FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', 2)), (named_struct('a', CAST(NULL AS INT), 'b', 9)) AS t(s)
+SELECT max(a), min(a) FROM VALUES (array(CAST('NaN' AS DOUBLE))), (array(1D)) AS t(a)
+SELECT max(a), min(a) FROM VALUES (array(array(1, NULL))), (array(array(1, 2))) AS t(a)
+SELECT max(s) FROM VALUES (named_struct('a', array(1, NULL))), (named_struct('a', array(1, 2))) AS t(s)
+SELECT max(a) OVER () FROM VALUES (array(1, NULL)), (array(1, 2)) AS t(a)
+SELECT min(a) OVER (ORDER BY a ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS m FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a)
+SELECT max(a) FILTER (WHERE true) FROM VALUES (array(1, NULL)), (array(1, 2)) AS t(a)
+SELECT g, max(a) FROM VALUES (1, array(1, NULL)), (1, array(1, 2)), (2, NULL) AS t(g, a) GROUP BY g
+SELECT max(a) FROM VALUES (CAST(NULL AS ARRAY<INT>)) AS t(a)
+SELECT greatest(array(1, NULL), array(1, 2)) AS v
+SELECT least(array(1, NULL), array(1, 2)) AS v
+SELECT greatest(array(NULL, 5), array(1)) AS v
+SELECT greatest(named_struct('a', CAST(NULL AS INT)), named_struct('a', 1)) AS v
+SELECT least(named_struct('a', CAST(NULL AS INT)), named_struct('a', 1)) AS v
+SELECT greatest(array(1), NULL, array(0)) AS v
+SELECT greatest(array(CAST('NaN' AS DOUBLE)), array(1D)) AS v
+SELECT least(array(1, NULL), array(1, NULL, 0), array(1)) AS v
+# array_sort, sort_array, array_max, array_min, array_position
+SELECT array_sort(array(3, NULL, 1, 2)) AS v
+SELECT sort_array(array(3, NULL, 1, 2)) AS v
+SELECT sort_array(array(3, NULL, 1, 2), false) AS v
+SELECT array_sort(array(CAST('NaN' AS DOUBLE), 1D, CAST('-Infinity' AS DOUBLE), NULL)) AS v
+SELECT array_sort(array(array(1, NULL), array(1, 2), array(NULL, 5), array(1), NULL)) AS v
+SELECT sort_array(array(array(1, NULL), array(1, 2), array(NULL, 5), array(1), NULL)) AS v
+SELECT sort_array(array(array(1, NULL), array(1, 2), array(NULL, 5), array(1), NULL), false) AS v
+SELECT array_sort(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2), named_struct('a', CAST(NULL AS INT), 'b', 9))) AS v
+SELECT sort_array(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2), named_struct('a', CAST(NULL AS INT), 'b', 9))) AS v
+SELECT sort_array(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2), named_struct('a', CAST(NULL AS INT), 'b', 9)), false) AS v
+SELECT sort_array(sort_array(array(array(2, NULL), array(NULL)))) AS v
+SELECT array_sort(array('b', 'B', 'a', NULL, '')) AS v
+SELECT array_max(array(1, NULL, 3)) AS v
+SELECT array_min(array(1, NULL, 3)) AS v
+SELECT array_max(array(CAST('NaN' AS DOUBLE), 1D)) AS v
+SELECT array_min(array(CAST('NaN' AS DOUBLE), 1D)) AS v
+SELECT array_max(array(array(1, NULL), array(1, 2), array(NULL, 5))) AS v
+SELECT array_min(array(array(1, NULL), array(1, 2), array(NULL, 5))) AS v
+SELECT array_max(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2))) AS v
+SELECT array_min(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2))) AS v
+SELECT array_max(array(CAST(NULL AS ARRAY<INT>))) AS v
+SELECT array_position(array(1, NULL, 3), NULL) AS v
+SELECT array_position(array(CAST('NaN' AS DOUBLE)), CAST('NaN' AS DOUBLE)) AS v
+SELECT array_position(array(0.0D), -0.0D) AS v
+SELECT array_position(array(array(1, NULL)), array(1, NULL)) AS v
+SELECT array_position(array(named_struct('a', 1, 'b', CAST(NULL AS INT))), named_struct('a', 1, 'b', CAST(NULL AS INT))) AS v
+SELECT array_contains(array(array(1, NULL)), array(1, NULL)) AS v
+# GROUP BY, DISTINCT, UNION and EXCEPT give 0.0 for a -0.0 they group; INTERSECT and UNION ALL keep it
+SELECT a, count(*) FROM VALUES (array(1, NULL)), (array(1, NULL)), (array(1, 2)) AS t(a) GROUP BY a
+SELECT a, count(*) FROM VALUES (array(CAST('NaN' AS DOUBLE))), (array(CAST('NaN' AS DOUBLE))) AS t(a) GROUP BY a
+SELECT s, count(*) FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', CAST(NULL AS INT))) AS t(s) GROUP BY s
+SELECT x, count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY x
+SELECT x, count(*) FROM VALUES (-0.0D) AS t(x) GROUP BY x
+SELECT x, count(*) FROM VALUES (CAST(-0.0 AS FLOAT)), (CAST(0.0 AS FLOAT)) AS t(x) GROUP BY x
+SELECT CAST(x AS STRING), count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY x
+SELECT x + 1, count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY x
+SELECT x FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY x HAVING count(*) > 1
+SELECT x, count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY 1
+SELECT x, count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY ROLLUP(x)
+SELECT a, count(*) FROM VALUES (array(-0.0D)), (array(0.0D)) AS t(a) GROUP BY a
+SELECT a, count(*) FROM VALUES (array(-0.0D, NULL)), (array(0.0D, NULL)) AS t(a) GROUP BY a
+SELECT s, count(*) FROM VALUES (named_struct('a', -0.0D)), (named_struct('a', 0.0D)) AS t(s) GROUP BY s
+SELECT a, count(*) FROM VALUES (array(named_struct('x', -0.0D))), (array(named_struct('x', 0.0D))) AS t(a) GROUP BY a
+SELECT s.a, count(*) FROM VALUES (named_struct('a', -0.0D)), (named_struct('a', 0.0D)) AS t(s) GROUP BY s.a
+SELECT a[0], count(*) FROM VALUES (array(-0.0D)), (array(0.0D)) AS t(a) GROUP BY a[0]
+SELECT DISTINCT x FROM VALUES (-0.0D), (0.0D) AS t(x)
+SELECT DISTINCT a FROM VALUES (array(-0.0D)), (array(0.0D)) AS t(a)
+SELECT DISTINCT s FROM VALUES (named_struct('a', -0.0D, 'b', 1)), (named_struct('a', 0.0D, 'b', 1)) AS t(s)
+SELECT count(DISTINCT a) FROM VALUES (array(-0.0D)), (array(0.0D)) AS t(a)
+SELECT count(DISTINCT x) FROM VALUES (-0.0D), (0.0D), (CAST('NaN' AS DOUBLE)), (CAST('NaN' AS DOUBLE)) AS t(x)
+SELECT x FROM VALUES (-0.0D) AS t(x) UNION SELECT 0.0D
+SELECT x FROM VALUES (-0.0D) AS t(x) INTERSECT SELECT 0.0D
+SELECT x FROM VALUES (-0.0D), (1D) AS t(x) EXCEPT SELECT 1D
+SELECT x FROM VALUES (-0.0D) AS t(x) UNION ALL SELECT 0.0D
+SELECT -0.0D = 0.0D AS v
+SELECT -0.0D IN (0.0D) AS v
+SELECT CAST('NaN' AS DOUBLE) = CAST('NaN' AS DOUBLE) AS v
+SELECT CAST('NaN' AS DOUBLE) IN (CAST('NaN' AS DOUBLE)) AS v
+SELECT a.x FROM VALUES (array(1, NULL)) AS a(x) JOIN VALUES (array(1, NULL)) AS b(x) ON a.x = b.x
+SELECT a.x FROM VALUES (array(-0.0D)) AS a(x) JOIN VALUES (array(0.0D)) AS b(x) ON a.x = b.x
+SELECT a.x FROM VALUES (CAST('NaN' AS DOUBLE)) AS a(x) JOIN VALUES (CAST('NaN' AS DOUBLE)) AS b(x) ON a.x = b.x
+SELECT a.x FROM VALUES (array(1, NULL)) AS a(x) JOIN VALUES (array(1, 2)) AS b(x) ON a.x < b.x
+# a view's columns are typed from the view
+CREATE OR REPLACE TEMP VIEW wr271_v AS SELECT * FROM VALUES (1, array(1, NULL), named_struct('a', CAST(NULL AS INT)), map(1, 2), -0.0D), (2, array(NULL, 5), named_struct('a', 1), map(3, 4), 0.0D) AS t(id, a, s, m, d)
+SELECT id FROM wr271_v ORDER BY a LIMIT 1
+SELECT id FROM wr271_v ORDER BY s DESC LIMIT 1
+SELECT max(a), min(s) FROM wr271_v
+SELECT id FROM wr271_v WHERE a < array(1)
+SELECT id FROM wr271_v WHERE a = array(1.5)
+SELECT id FROM wr271_v WHERE a = array(1L)
+SELECT m FROM wr271_v ORDER BY m
+SELECT d, count(*) FROM wr271_v GROUP BY d
+SELECT d, count(*) FROM (SELECT -0.0D AS d UNION ALL SELECT 0.0D) GROUP BY d
+WITH c AS (SELECT array(1, NULL) AS a UNION ALL SELECT array(NULL, 5)) SELECT a, row_number() OVER (ORDER BY a) AS r FROM c
+SELECT transform(array(array(1, NULL), array(NULL, 1)), x -> x < array(1, 1)) AS v
+SELECT x.a FROM (SELECT array(1, NULL) AS a) x JOIN (SELECT array(NULL, 5) AS a) y ON x.a > y.a

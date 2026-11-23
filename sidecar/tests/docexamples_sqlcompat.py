@@ -48,6 +48,8 @@ CLAIMS: list[Claim] = [
     # Whole-number arithmetic wraps as Spark's does with ANSI off (WR-116, #3031)
     Claim("sql-compatibility.md", "2147483647 + 1", "notebook"),
     Claim("sql-compatibility.md", "CAST(100 AS TINYINT) + CAST(100 AS TINYINT)", "notebook"),
+    # Comparisons and order of arrays and structs (WR-271)
+    _nb("array(NULL, 5) < array(1)"),
     # Array and string functions at their edges (#3069)
     Claim("sql-compatibility.md", "substring_index('aaa', 'aa', -1)", "notebook"),
     Claim("sql-compatibility.md", "upper('ß')", "notebook"),

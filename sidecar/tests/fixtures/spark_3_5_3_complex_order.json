@@ -1,0 +1,2570 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT array(1, 2) = array(1, 2) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, NULL) = array(1, NULL) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, NULL) <=> array(1, NULL) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, NULL) = array(2, NULL) AS v",
+   "value": [
+    [
+     false
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, 2) = NULL AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, 2) <=> NULL AS v",
+   "value": [
+    [
+     false
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) <> array(2) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, NULL) < array(2, NULL) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(NULL, 1) < array(1, 1) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(NULL, 1) >= array(1, 1) AS v",
+   "value": [
+    [
+     false
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, 2) < array(1, 2, 3) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, 2) < array(1, 3) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(2) > array(1, 5) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) = array() AS v",
+   "value": [
+    [
+     false
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(NULL) = array(1) AS v",
+   "value": [
+    [
+     false
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(array(1, 2), array(3)) = array(array(1, 2), array(3)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(array(1, 2)) < array(array(1, 3)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(array(1, NULL)) = array(array(1, NULL)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(array(1, NULL)) < array(array(1, 2)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, NULL) BETWEEN array(1) AND array(1, 0) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) BETWEEN array(0) AND array(2) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) = array(1) AND array(NULL, 1) < array(1, 1) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(CAST('NaN' AS DOUBLE)) = array(CAST('NaN' AS DOUBLE)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(CAST('NaN' AS DOUBLE)) > array(1D) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(-0.0D) = array(0.0D) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(-0.0D) <=> array(0.0D) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) IN (array(1), array(2)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) IN (array(2), NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, NULL) IN (array(1, NULL)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) IN (array(1.0)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) IN (array(1D)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) IN (array('1')) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(-0.0D) IN (array(0.0D)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, 1.5) = array(1.0, 1.5) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1, 1.5) = array(1.0, 1.5))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<DECIMAL(11,1)>\" and \"ARRAY<DECIMAL(2,1)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1, 2) = array(1.0, 2.0) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1, 2) = array(1.0, 2.0))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<DECIMAL(2,1)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1, 2) = array(1D, 2D) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1, 2) = array('1', '2') AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1, 2) = array(1, 2))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<STRING>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1.5, 2.5) = array(1.50, 2.50) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1.5, 2.5) = array(1.50, 2.50))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<DECIMAL(2,1)>\" and \"ARRAY<DECIMAL(3,2)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1.5) = array(1.5D) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1.5) = array(1.5))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<DECIMAL(2,1)>\" and \"ARRAY<DOUBLE>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(array(1)) = array(array(1.0)) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(array(1)) = array(array(1.0)))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<ARRAY<INT>>\" and \"ARRAY<ARRAY<DECIMAL(2,1)>>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1) = array(1L) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(CAST(1 AS FLOAT)) = array(1D) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) = array(CAST(1 AS FLOAT)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1L) < array(CAST(2 AS FLOAT)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(DATE'2024-01-01') = array(TIMESTAMP'2024-01-01 00:00:00') AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(true) = array(1) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(true) = array(1))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<BOOLEAN>\" and \"ARRAY<INT>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array('a') = array(CAST('a' AS BINARY)) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(a) = array(CAST(a AS BINARY)))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<STRING>\" and \"ARRAY<BINARY>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1) = array(CAST(1 AS DECIMAL(10,0))) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(1) = array(CAST(1 AS DECIMAL(9,0))) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1) = array(CAST(1 AS DECIMAL(9,0))))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<DECIMAL(9,0)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(CAST(1 AS DECIMAL(5,2))) = array(CAST(1 AS DECIMAL(5,2))) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array(CAST(1 AS DECIMAL(5,2))) = array(CAST(1 AS DECIMAL(6,2))) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(CAST(1 AS DECIMAL(5,2))) = array(CAST(1 AS DECIMAL(6,2))))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<DECIMAL(5,2)>\" and \"ARRAY<DECIMAL(6,2)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1) != array(1.0) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1) = array(1.0))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<DECIMAL(2,1)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1) <=> array(1.0) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1) <=> array(1.0))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<DECIMAL(2,1)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1) < array(1.0) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1) < array(1.0))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<DECIMAL(2,1)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array(1) BETWEEN array(0) AND array(2.0) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1) <= array(2.0))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<DECIMAL(2,1)>\").; line 1 pos 16;"
+  },
+  {
+   "sql": "SELECT CASE array(1) WHEN array(1.0) THEN 'y' ELSE 'n' END AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(array(1) = array(1.0))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<DECIMAL(2,1)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT CASE array(1) WHEN array(1) THEN 'y' ELSE 'n' END AS v",
+   "value": [
+    [
+     "y"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x FROM VALUES (array(1.5)) AS t(x) WHERE x = array(1.5)",
+   "value": [
+    [
+     [
+      "decimal:1.5"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x FROM VALUES (array(1.5)) AS t(x) WHERE x = array(1.50)",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(x = array(1.50))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<DECIMAL(2,1)>\" and \"ARRAY<DECIMAL(3,2)>\").; line 1 pos 48;"
+  },
+  {
+   "sql": "SELECT named_struct('a', 1, 'b', 'x') = named_struct('a', 1, 'b', 'x') AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1, 'b', CAST(NULL AS INT)) = named_struct('a', 1, 'b', CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1, 'b', CAST(NULL AS INT)) <=> named_struct('a', 1, 'b', CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', CAST(NULL AS INT)) < named_struct('a', 1) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1, 'b', 2) < named_struct('a', 1, 'b', 3) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', array(1, NULL)) < named_struct('a', array(1, 2)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1) = named_struct('a', 1.0) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(named_struct(a, 1) = named_struct(a, 1.0))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"STRUCT<a: INT>\" and \"STRUCT<a: DECIMAL(2,1)>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT named_struct('a', 1) = named_struct('a', 1D) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1) = named_struct('b', 1) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(named_struct(a, 1) = named_struct(b, 1))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"STRUCT<a: INT>\" and \"STRUCT<b: INT>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT named_struct('a', 1) = named_struct('A', 1) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1) = named_struct('a', 1L) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1) = named_struct('a', '1') AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(named_struct(a, 1) = named_struct(a, 1))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"STRUCT<a: INT>\" and \"STRUCT<a: STRING>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT named_struct('a', 1, 'b', 2) = named_struct('a', 1) AS v",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(named_struct(a, 1, b, 2) = named_struct(a, 1))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"STRUCT<a: INT, b: INT>\" and \"STRUCT<a: INT>\").; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT struct(1, 2) = named_struct('col1', 1, 'col2', 2) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', CAST('NaN' AS DOUBLE)) = named_struct('a', CAST('NaN' AS DOUBLE)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', -0.0D) = named_struct('a', 0.0D) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1) IN (named_struct('a', 1)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT named_struct('a', 1) IN (named_struct('a', 1.0)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT map(1, 2) = map(1, 2) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"(map(1, 2) = map(1, 2))\" due to data type mismatch: The `=` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT map(1, 2) <=> map(1, 2) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"(map(1, 2) <=> map(1, 2))\" due to data type mismatch: The `<=>` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT map(1, 2) < map(1, 3) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"(map(1, 2) < map(1, 3))\" due to data type mismatch: The `<` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT map(1, 2) IN (map(1, 2)) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"(map(1, 2) IN (map(1, 2)))\" due to data type mismatch: The `in` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 17;"
+  },
+  {
+   "sql": "SELECT array(map(1, 2)) = array(map(1, 2)) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"(array(map(1, 2)) = array(map(1, 2)))\" due to data type mismatch: The `=` does not support ordering on type \"ARRAY<MAP<INT, INT>>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT named_struct('m', map(1, 2)) = named_struct('m', map(1, 2)) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"(named_struct(m, map(1, 2)) = named_struct(m, map(1, 2)))\" due to data type mismatch: The `=` does not support ordering on type \"STRUCT<m: MAP<INT, INT>>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT m FROM VALUES (map(1, 2)), (map(1, 2)) AS t(m) GROUP BY m",
+   "error": "[GROUP_EXPRESSION_TYPE_IS_NOT_ORDERABLE] The expression \"m\" cannot be used as a grouping expression because its data type \"MAP<INT, INT>\" is not an orderable data type.; line 1 pos 63;"
+  },
+  {
+   "sql": "SELECT s FROM VALUES (named_struct('m', map(1, 2))) AS t(s) GROUP BY s",
+   "error": "[GROUP_EXPRESSION_TYPE_IS_NOT_ORDERABLE] The expression \"s\" cannot be used as a grouping expression because its data type \"STRUCT<m: MAP<INT, INT>>\" is not an orderable data type.; line 1 pos 69;"
+  },
+  {
+   "sql": "SELECT m, x FROM VALUES (map(1, 2), 1) AS t(m, x) GROUP BY ALL",
+   "error": "[GROUP_EXPRESSION_TYPE_IS_NOT_ORDERABLE] The expression \"m\" cannot be used as a grouping expression because its data type \"MAP<INT, INT>\" is not an orderable data type.; line 1 pos 59;"
+  },
+  {
+   "sql": "SELECT DISTINCT m FROM VALUES (map(1, 2)), (map(1, 2)) AS t(m)",
+   "error": "[UNSUPPORTED_FEATURE.SET_OPERATION_ON_MAP_TYPE] The feature is not supported: Cannot have MAP type columns in DataFrame which calls set operations (INTERSECT, EXCEPT, etc.), but the type of column `m` is \"MAP<INT, INT>\".; line 1 pos 0;"
+  },
+  {
+   "sql": "SELECT DISTINCT * FROM VALUES (map(1, 2), 1) AS t(m, x)",
+   "error": "[UNSUPPORTED_FEATURE.SET_OPERATION_ON_MAP_TYPE] The feature is not supported: Cannot have MAP type columns in DataFrame which calls set operations (INTERSECT, EXCEPT, etc.), but the type of column `m` is \"MAP<INT, INT>\".; line 1 pos 0;"
+  },
+  {
+   "sql": "SELECT m FROM VALUES (map(1, 2)), (map(3, 4)) AS t(m) ORDER BY m",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"m ASC NULLS FIRST\" due to data type mismatch: The `sortorder` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 63;"
+  },
+  {
+   "sql": "SELECT a FROM VALUES (array(map(1, 2))) AS t(a) ORDER BY a",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"a ASC NULLS FIRST\" due to data type mismatch: The `sortorder` does not support ordering on type \"ARRAY<MAP<INT, INT>>\".; line 1 pos 57;"
+  },
+  {
+   "sql": "SELECT max(m) FROM VALUES (map(1, 2)), (map(3, 4)) AS t(m)",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"max(m)\" due to data type mismatch: The `max` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT min(m) FROM VALUES (map(1, 2)), (map(3, 4)) AS t(m)",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"min(m)\" due to data type mismatch: The `min` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT count(DISTINCT m) FROM VALUES (map(1, 2)), (map(3, 4)) AS t(m)",
+   "error": "An error occurred while calling o402.collectToPython."
+  },
+  {
+   "sql": "SELECT collect_set(m) FROM VALUES (map(1, 2)) AS t(m)",
+   "error": "[DATATYPE_MISMATCH.UNSUPPORTED_INPUT_TYPE] Cannot resolve \"collect_set(m)\" due to data type mismatch: The input of `collect_set` can't be \"MAP\" type data.; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT max_by(x, m) FROM VALUES (1, map(1, 2)) AS t(x, m)",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"max_by(x, m)\" due to data type mismatch: The `max_by` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT greatest(map(1, 2), map(3, 4)) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"greatest(map(1, 2), map(3, 4))\" due to data type mismatch: The `greatest` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT least(map(1, 2), map(1, 2)) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"least(map(1, 2), map(1, 2))\" due to data type mismatch: The `least` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_sort(array(map(1, 2), map(3, 4))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"(namedlambdavariable() < namedlambdavariable())\" due to data type mismatch: The `<` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT sort_array(array(map(1, 2), map(3, 4))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"sort_array(array(map(1, 2), map(3, 4)), true)\" due to data type mismatch: The `sort_array` does not support ordering on type \"ARRAY<MAP<INT, INT>>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_max(array(map(1, 2), map(3, 4))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_max(array(map(1, 2), map(3, 4)))\" due to data type mismatch: The `array_max` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_min(array(map(1, 2))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_min(array(map(1, 2)))\" due to data type mismatch: The `array_min` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_position(array(map(1, 2)), map(1, 2)) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_position(array(map(1, 2)), map(1, 2))\" due to data type mismatch: The `array_position` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_contains(array(map(1, 2)), map(1, 2)) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_contains(array(map(1, 2)), map(1, 2))\" due to data type mismatch: The `array_contains` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_distinct(array(map(1, 2), map(1, 2))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_distinct(array(map(1, 2), map(1, 2)))\" due to data type mismatch: The `array_distinct` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_union(array(map(1, 2)), array(map(1, 2))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_union(array(map(1, 2)), array(map(1, 2)))\" due to data type mismatch: The `array_union` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_except(array(map(1, 2)), array(map(1, 2))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_except(array(map(1, 2)), array(map(1, 2)))\" due to data type mismatch: The `array_except` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_intersect(array(map(1, 2)), array(map(1, 2))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_intersect(array(map(1, 2)), array(map(1, 2)))\" due to data type mismatch: The `array_intersect` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT arrays_overlap(array(map(1, 2)), array(map(1, 2))) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"arrays_overlap(array(map(1, 2)), array(map(1, 2)))\" due to data type mismatch: The `arrays_overlap` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT array_remove(array(map(1, 2)), map(1, 2)) AS v",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"array_remove(array(map(1, 2)), map(1, 2))\" due to data type mismatch: The `array_remove` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 7;"
+  },
+  {
+   "sql": "SELECT m FROM VALUES (map(1, 2)) AS t(m) UNION SELECT map(1, 2)",
+   "error": "[UNSUPPORTED_FEATURE.SET_OPERATION_ON_MAP_TYPE] The feature is not supported: Cannot have MAP type columns in DataFrame which calls set operations (INTERSECT, EXCEPT, etc.), but the type of column `m` is \"MAP<INT, INT>\".; line 1 pos 0;"
+  },
+  {
+   "sql": "SELECT m FROM VALUES (map(1, 2)) AS t(m) INTERSECT SELECT map(1, 2)",
+   "error": "[UNSUPPORTED_FEATURE.SET_OPERATION_ON_MAP_TYPE] The feature is not supported: Cannot have MAP type columns in DataFrame which calls set operations (INTERSECT, EXCEPT, etc.), but the type of column `m` is \"MAP<INT, INT>\".; line 1 pos 0;"
+  },
+  {
+   "sql": "SELECT m FROM VALUES (map(1, 2)) AS t(m) EXCEPT SELECT map(3, 4)",
+   "error": "[UNSUPPORTED_FEATURE.SET_OPERATION_ON_MAP_TYPE] The feature is not supported: Cannot have MAP type columns in DataFrame which calls set operations (INTERSECT, EXCEPT, etc.), but the type of column `m` is \"MAP<INT, INT>\".; line 1 pos 0;"
+  },
+  {
+   "sql": "SELECT a.m FROM VALUES (map(1, 2)) AS a(m) JOIN VALUES (map(1, 2)) AS b(m) ON a.m = b.m",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"(m = m)\" due to data type mismatch: The `=` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 78;"
+  },
+  {
+   "sql": "SELECT row_number() OVER (PARTITION BY m ORDER BY 1) FROM VALUES (map(1, 2)) AS t(m)",
+   "error": "An error occurred while calling o486.collectToPython."
+  },
+  {
+   "sql": "SELECT row_number() OVER (ORDER BY m) FROM VALUES (map(1, 2)) AS t(m)",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"m ASC NULLS FIRST\" due to data type mismatch: The `sortorder` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 35;"
+  },
+  {
+   "sql": "SELECT m FROM VALUES (map(1, 2)) AS t(m) UNION ALL SELECT map(1, 2)",
+   "value": [
+    [
+     {
+      "map": [
+       [
+        1,
+        2
+       ]
+      ]
+     }
+    ],
+    [
+     {
+      "map": [
+       [
+        1,
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT collect_list(m) FROM VALUES (map(1, 2)) AS t(m)",
+   "value": [
+    [
+     [
+      {
+       "map": [
+        [
+         1,
+         2
+        ]
+       ]
+      }
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT first(m) FROM VALUES (map(1, 2), 1) AS t(m, x) GROUP BY x",
+   "value": [
+    [
+     {
+      "map": [
+       [
+        1,
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT m['1'] FROM VALUES (map('1', 2)) AS t(m) ORDER BY m['1']",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT map_keys(map(1, 2)) = array(1) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_sort(map_entries(map(2, 1, 1, 2))) AS v",
+   "value": [
+    [
+     [
+      {
+       "struct": [
+        [
+         "key",
+         1
+        ],
+        [
+         "value",
+         2
+        ]
+       ]
+      },
+      {
+       "struct": [
+        [
+         "key",
+         2
+        ],
+        [
+         "value",
+         1
+        ]
+       ]
+      }
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_contains(map_keys(m), 1), array_position(map_values(m), 2) FROM VALUES (map(1, 2)) AS t(m)",
+   "value": [
+    [
+     true,
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, row_number() OVER (ORDER BY a) AS r FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)), (array()), (NULL) AS t(a)",
+   "value": [
+    [
+     [
+      1,
+      2
+     ],
+     6
+    ],
+    [
+     [
+      1,
+      null
+     ],
+     5
+    ],
+    [
+     [
+      1
+     ],
+     4
+    ],
+    [
+     [],
+     2
+    ],
+    [
+     [
+      null,
+      5
+     ],
+     3
+    ],
+    [
+     null,
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, row_number() OVER (ORDER BY a DESC) AS r FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)), (array()), (NULL) AS t(a)",
+   "value": [
+    [
+     [
+      1,
+      2
+     ],
+     1
+    ],
+    [
+     [
+      1,
+      null
+     ],
+     2
+    ],
+    [
+     [
+      1
+     ],
+     3
+    ],
+    [
+     [],
+     5
+    ],
+    [
+     [
+      null,
+      5
+     ],
+     4
+    ],
+    [
+     null,
+     6
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, row_number() OVER (ORDER BY a NULLS LAST) AS r FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)), (array()), (NULL) AS t(a)",
+   "value": [
+    [
+     [
+      1,
+      2
+     ],
+     5
+    ],
+    [
+     [
+      1,
+      null
+     ],
+     4
+    ],
+    [
+     [
+      1
+     ],
+     3
+    ],
+    [
+     [],
+     1
+    ],
+    [
+     [
+      null,
+      5
+     ],
+     2
+    ],
+    [
+     null,
+     6
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, row_number() OVER (ORDER BY a DESC NULLS FIRST) AS r FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)), (array()), (NULL) AS t(a)",
+   "value": [
+    [
+     [
+      1,
+      2
+     ],
+     2
+    ],
+    [
+     [
+      1,
+      null
+     ],
+     3
+    ],
+    [
+     [
+      1
+     ],
+     4
+    ],
+    [
+     [],
+     6
+    ],
+    [
+     [
+      null,
+      5
+     ],
+     5
+    ],
+    [
+     null,
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT s, row_number() OVER (ORDER BY s) AS r FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', 2)), (named_struct('a', CAST(NULL AS INT), 'b', 9)), (NULL) AS t(s)",
+   "value": [
+    [
+     null,
+     1
+    ],
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     },
+     4
+    ],
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        null
+       ]
+      ]
+     },
+     3
+    ],
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        9
+       ]
+      ]
+     },
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT s, row_number() OVER (ORDER BY s DESC) AS r FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', 2)), (named_struct('a', CAST(NULL AS INT), 'b', 9)), (NULL) AS t(s)",
+   "value": [
+    [
+     null,
+     4
+    ],
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     },
+     1
+    ],
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        null
+       ]
+      ]
+     },
+     2
+    ],
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        9
+       ]
+      ]
+     },
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, row_number() OVER (ORDER BY a) AS r FROM VALUES (array(array(1, NULL))), (array(array(1, 2))), (array(array(NULL))), (array(CAST(NULL AS ARRAY<INT>))) AS t(a)",
+   "value": [
+    [
+     [
+      [
+       1,
+       2
+      ]
+     ],
+     4
+    ],
+    [
+     [
+      [
+       1,
+       null
+      ]
+     ],
+     3
+    ],
+    [
+     [
+      [
+       null
+      ]
+     ],
+     2
+    ],
+    [
+     [
+      null
+     ],
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, row_number() OVER (ORDER BY a) AS r FROM VALUES (array('b')), (array('a', 'z')), (array('B')), (array('a')) AS t(a)",
+   "value": [
+    [
+     [
+      "B"
+     ],
+     1
+    ],
+    [
+     [
+      "a",
+      "z"
+     ],
+     3
+    ],
+    [
+     [
+      "a"
+     ],
+     2
+    ],
+    [
+     [
+      "b"
+     ],
+     4
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, row_number() OVER (ORDER BY a) AS r FROM VALUES (array(CAST('NaN' AS DOUBLE))), (array(1D)), (array(CAST('Infinity' AS DOUBLE))), (array(-1D)) AS t(a)",
+   "value": [
+    [
+     [
+      "float:-1"
+     ],
+     1
+    ],
+    [
+     [
+      "float:1"
+     ],
+     2
+    ],
+    [
+     [
+      "float:inf"
+     ],
+     3
+    ],
+    [
+     [
+      "float:nan"
+     ],
+     4
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT g, a, row_number() OVER (PARTITION BY g ORDER BY a) AS r FROM VALUES (1, array(1, NULL)), (1, array(NULL, 2)), (2, array(3)), (2, array(NULL)) AS t(g, a)",
+   "value": [
+    [
+     1,
+     [
+      1,
+      null
+     ],
+     2
+    ],
+    [
+     1,
+     [
+      null,
+      2
+     ],
+     1
+    ],
+    [
+     2,
+     [
+      3
+     ],
+     2
+    ],
+    [
+     2,
+     [
+      null
+     ],
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY a LIMIT 1",
+   "value": [
+    [
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY a DESC LIMIT 1",
+   "value": [
+    [
+     [
+      1,
+      2
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY 1 LIMIT 1",
+   "value": [
+    [
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a AS b FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY b LIMIT 1",
+   "value": [
+    [
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT * FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a) ORDER BY 1 LIMIT 2",
+   "value": [
+    [
+     [
+      1,
+      null
+     ]
+    ],
+    [
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT DISTINCT a FROM VALUES (array(1, NULL)), (array(NULL, 5)), (array(NULL, 5)) AS t(a) ORDER BY a LIMIT 1",
+   "value": [
+    [
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a FROM VALUES (array(1, NULL)) AS t(a) UNION SELECT array(NULL, 5) ORDER BY a LIMIT 1",
+   "value": [
+    [
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a FROM VALUES (array(1, NULL)) AS t(a) UNION ALL SELECT array(NULL, 5) ORDER BY 1 DESC LIMIT 1",
+   "value": [
+    [
+     [
+      1,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT s FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', 2)) AS t(s) ORDER BY s LIMIT 1",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT s FROM VALUES (named_struct('a', array(1, NULL))), (named_struct('a', array(1, 2))) AS t(s) ORDER BY s LIMIT 1",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        [
+         1,
+         null
+        ]
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a FROM VALUES (array(named_struct('a', CAST(NULL AS INT)))), (array(named_struct('a', 1))) AS t(a) ORDER BY a LIMIT 1",
+   "value": [
+    [
+     [
+      {
+       "struct": [
+        [
+         "a",
+         null
+        ]
+       ]
+      }
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT g, max(a) AS m FROM VALUES (1, array(1, NULL)), (1, array(1, 2)), (2, array(NULL, 9)) AS t(g, a) GROUP BY g ORDER BY m LIMIT 1",
+   "value": [
+    [
+     2,
+     [
+      null,
+      9
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x FROM VALUES (-0.0D), (1D) AS t(x) ORDER BY x LIMIT 1",
+   "value": [
+    [
+     "float:-0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a FROM VALUES (array(-0.0D)), (array(1D)) AS t(a) ORDER BY a LIMIT 1",
+   "value": [
+    [
+     [
+      "float:-0"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(a), min(a) FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)), (array(1)) AS t(a)",
+   "value": [
+    [
+     [
+      1,
+      2
+     ],
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(s), min(s) FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', 2)), (named_struct('a', CAST(NULL AS INT), 'b', 9)) AS t(s)",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ],
+       [
+        "b",
+        9
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(a), min(a) FROM VALUES (array(CAST('NaN' AS DOUBLE))), (array(1D)) AS t(a)",
+   "value": [
+    [
+     [
+      "float:nan"
+     ],
+     [
+      "float:1"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(a), min(a) FROM VALUES (array(array(1, NULL))), (array(array(1, 2))) AS t(a)",
+   "value": [
+    [
+     [
+      [
+       1,
+       2
+      ]
+     ],
+     [
+      [
+       1,
+       null
+      ]
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(s) FROM VALUES (named_struct('a', array(1, NULL))), (named_struct('a', array(1, 2))) AS t(s)",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        [
+         1,
+         2
+        ]
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(a) OVER () FROM VALUES (array(1, NULL)), (array(1, 2)) AS t(a)",
+   "value": [
+    [
+     [
+      1,
+      2
+     ]
+    ],
+    [
+     [
+      1,
+      2
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT min(a) OVER (ORDER BY a ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS m FROM VALUES (array(1, NULL)), (array(1, 2)), (array(NULL, 5)) AS t(a)",
+   "value": [
+    [
+     [
+      1,
+      2
+     ]
+    ],
+    [
+     [
+      1,
+      null
+     ]
+    ],
+    [
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(a) FILTER (WHERE true) FROM VALUES (array(1, NULL)), (array(1, 2)) AS t(a)",
+   "value": [
+    [
+     [
+      1,
+      2
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT g, max(a) FROM VALUES (1, array(1, NULL)), (1, array(1, 2)), (2, NULL) AS t(g, a) GROUP BY g",
+   "value": [
+    [
+     1,
+     [
+      1,
+      2
+     ]
+    ],
+    [
+     2,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(a) FROM VALUES (CAST(NULL AS ARRAY<INT>)) AS t(a)",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT greatest(array(1, NULL), array(1, 2)) AS v",
+   "value": [
+    [
+     [
+      1,
+      2
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT least(array(1, NULL), array(1, 2)) AS v",
+   "value": [
+    [
+     [
+      1,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT greatest(array(NULL, 5), array(1)) AS v",
+   "value": [
+    [
+     [
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT greatest(named_struct('a', CAST(NULL AS INT)), named_struct('a', 1)) AS v",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT least(named_struct('a', CAST(NULL AS INT)), named_struct('a', 1)) AS v",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT greatest(array(1), NULL, array(0)) AS v",
+   "value": [
+    [
+     [
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT greatest(array(CAST('NaN' AS DOUBLE)), array(1D)) AS v",
+   "value": [
+    [
+     [
+      "float:nan"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT least(array(1, NULL), array(1, NULL, 0), array(1)) AS v",
+   "value": [
+    [
+     [
+      1
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_sort(array(3, NULL, 1, 2)) AS v",
+   "value": [
+    [
+     [
+      1,
+      2,
+      3,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sort_array(array(3, NULL, 1, 2)) AS v",
+   "value": [
+    [
+     [
+      null,
+      1,
+      2,
+      3
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sort_array(array(3, NULL, 1, 2), false) AS v",
+   "value": [
+    [
+     [
+      3,
+      2,
+      1,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_sort(array(CAST('NaN' AS DOUBLE), 1D, CAST('-Infinity' AS DOUBLE), NULL)) AS v",
+   "value": [
+    [
+     [
+      "float:-inf",
+      "float:1",
+      "float:nan",
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_sort(array(array(1, NULL), array(1, 2), array(NULL, 5), array(1), NULL)) AS v",
+   "value": [
+    [
+     [
+      [
+       null,
+       5
+      ],
+      [
+       1
+      ],
+      [
+       1,
+       null
+      ],
+      [
+       1,
+       2
+      ],
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sort_array(array(array(1, NULL), array(1, 2), array(NULL, 5), array(1), NULL)) AS v",
+   "value": [
+    [
+     [
+      null,
+      [
+       null,
+       5
+      ],
+      [
+       1
+      ],
+      [
+       1,
+       null
+      ],
+      [
+       1,
+       2
+      ]
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sort_array(array(array(1, NULL), array(1, 2), array(NULL, 5), array(1), NULL), false) AS v",
+   "value": [
+    [
+     [
+      [
+       1,
+       2
+      ],
+      [
+       1,
+       null
+      ],
+      [
+       1
+      ],
+      [
+       null,
+       5
+      ],
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_sort(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2), named_struct('a', CAST(NULL AS INT), 'b', 9))) AS v",
+   "value": [
+    [
+     [
+      {
+       "struct": [
+        [
+         "a",
+         null
+        ],
+        [
+         "b",
+         9
+        ]
+       ]
+      },
+      {
+       "struct": [
+        [
+         "a",
+         1
+        ],
+        [
+         "b",
+         null
+        ]
+       ]
+      },
+      {
+       "struct": [
+        [
+         "a",
+         1
+        ],
+        [
+         "b",
+         2
+        ]
+       ]
+      }
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sort_array(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2), named_struct('a', CAST(NULL AS INT), 'b', 9))) AS v",
+   "value": [
+    [
+     [
+      {
+       "struct": [
+        [
+         "a",
+         null
+        ],
+        [
+         "b",
+         9
+        ]
+       ]
+      },
+      {
+       "struct": [
+        [
+         "a",
+         1
+        ],
+        [
+         "b",
+         null
+        ]
+       ]
+      },
+      {
+       "struct": [
+        [
+         "a",
+         1
+        ],
+        [
+         "b",
+         2
+        ]
+       ]
+      }
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sort_array(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2), named_struct('a', CAST(NULL AS INT), 'b', 9)), false) AS v",
+   "value": [
+    [
+     [
+      {
+       "struct": [
+        [
+         "a",
+         1
+        ],
+        [
+         "b",
+         2
+        ]
+       ]
+      },
+      {
+       "struct": [
+        [
+         "a",
+         1
+        ],
+        [
+         "b",
+         null
+        ]
+       ]
+      },
+      {
+       "struct": [
+        [
+         "a",
+         null
+        ],
+        [
+         "b",
+         9
+        ]
+       ]
+      }
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT sort_array(sort_array(array(array(2, NULL), array(NULL)))) AS v",
+   "value": [
+    [
+     [
+      [
+       null
+      ],
+      [
+       2,
+       null
+      ]
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_sort(array('b', 'B', 'a', NULL, '')) AS v",
+   "value": [
+    [
+     [
+      "",
+      "B",
+      "a",
+      "b",
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_max(array(1, NULL, 3)) AS v",
+   "value": [
+    [
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_min(array(1, NULL, 3)) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_max(array(CAST('NaN' AS DOUBLE), 1D)) AS v",
+   "value": [
+    [
+     "float:nan"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_min(array(CAST('NaN' AS DOUBLE), 1D)) AS v",
+   "value": [
+    [
+     "float:1"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_max(array(array(1, NULL), array(1, 2), array(NULL, 5))) AS v",
+   "value": [
+    [
+     [
+      1,
+      2
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_min(array(array(1, NULL), array(1, 2), array(NULL, 5))) AS v",
+   "value": [
+    [
+     [
+      null,
+      5
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_max(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2))) AS v",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        2
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_min(array(named_struct('a', 1, 'b', CAST(NULL AS INT)), named_struct('a', 1, 'b', 2))) AS v",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_max(array(CAST(NULL AS ARRAY<INT>))) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_position(array(1, NULL, 3), NULL) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_position(array(CAST('NaN' AS DOUBLE)), CAST('NaN' AS DOUBLE)) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_position(array(0.0D), -0.0D) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_position(array(array(1, NULL)), array(1, NULL)) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_position(array(named_struct('a', 1, 'b', CAST(NULL AS INT))), named_struct('a', 1, 'b', CAST(NULL AS INT))) AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT array_contains(array(array(1, NULL)), array(1, NULL)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, count(*) FROM VALUES (array(1, NULL)), (array(1, NULL)), (array(1, 2)) AS t(a) GROUP BY a",
+   "value": [
+    [
+     [
+      1,
+      2
+     ],
+     1
+    ],
+    [
+     [
+      1,
+      null
+     ],
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, count(*) FROM VALUES (array(CAST('NaN' AS DOUBLE))), (array(CAST('NaN' AS DOUBLE))) AS t(a) GROUP BY a",
+   "value": [
+    [
+     [
+      "float:nan"
+     ],
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT s, count(*) FROM VALUES (named_struct('a', 1, 'b', CAST(NULL AS INT))), (named_struct('a', 1, 'b', CAST(NULL AS INT))) AS t(s) GROUP BY s",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        1
+       ],
+       [
+        "b",
+        null
+       ]
+      ]
+     },
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x, count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY x",
+   "value": [
+    [
+     "float:0",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x, count(*) FROM VALUES (-0.0D) AS t(x) GROUP BY x",
+   "value": [
+    [
+     "float:0",
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x, count(*) FROM VALUES (CAST(-0.0 AS FLOAT)), (CAST(0.0 AS FLOAT)) AS t(x) GROUP BY x",
+   "value": [
+    [
+     "float:0",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST(x AS STRING), count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY x",
+   "value": [
+    [
+     "0.0",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x + 1, count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY x",
+   "value": [
+    [
+     "float:1",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY x HAVING count(*) > 1",
+   "value": [
+    [
+     "float:0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x, count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY 1",
+   "value": [
+    [
+     "float:0",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x, count(*) FROM VALUES (-0.0D), (0.0D) AS t(x) GROUP BY ROLLUP(x)",
+   "value": [
+    [
+     "float:0",
+     2
+    ],
+    [
+     null,
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, count(*) FROM VALUES (array(-0.0D)), (array(0.0D)) AS t(a) GROUP BY a",
+   "value": [
+    [
+     [
+      "float:0"
+     ],
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, count(*) FROM VALUES (array(-0.0D, NULL)), (array(0.0D, NULL)) AS t(a) GROUP BY a",
+   "value": [
+    [
+     [
+      "float:0",
+      null
+     ],
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT s, count(*) FROM VALUES (named_struct('a', -0.0D)), (named_struct('a', 0.0D)) AS t(s) GROUP BY s",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "float:0"
+       ]
+      ]
+     },
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a, count(*) FROM VALUES (array(named_struct('x', -0.0D))), (array(named_struct('x', 0.0D))) AS t(a) GROUP BY a",
+   "value": [
+    [
+     [
+      {
+       "struct": [
+        [
+         "x",
+         "float:0"
+        ]
+       ]
+      }
+     ],
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT s.a, count(*) FROM VALUES (named_struct('a', -0.0D)), (named_struct('a', 0.0D)) AS t(s) GROUP BY s.a",
+   "value": [
+    [
+     "float:0",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a[0], count(*) FROM VALUES (array(-0.0D)), (array(0.0D)) AS t(a) GROUP BY a[0]",
+   "value": [
+    [
+     "float:0",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT DISTINCT x FROM VALUES (-0.0D), (0.0D) AS t(x)",
+   "value": [
+    [
+     "float:0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT DISTINCT a FROM VALUES (array(-0.0D)), (array(0.0D)) AS t(a)",
+   "value": [
+    [
+     [
+      "float:0"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT DISTINCT s FROM VALUES (named_struct('a', -0.0D, 'b', 1)), (named_struct('a', 0.0D, 'b', 1)) AS t(s)",
+   "value": [
+    [
+     {
+      "struct": [
+       [
+        "a",
+        "float:0"
+       ],
+       [
+        "b",
+        1
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT count(DISTINCT a) FROM VALUES (array(-0.0D)), (array(0.0D)) AS t(a)",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT count(DISTINCT x) FROM VALUES (-0.0D), (0.0D), (CAST('NaN' AS DOUBLE)), (CAST('NaN' AS DOUBLE)) AS t(x)",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x FROM VALUES (-0.0D) AS t(x) UNION SELECT 0.0D",
+   "value": [
+    [
+     "float:0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x FROM VALUES (-0.0D) AS t(x) INTERSECT SELECT 0.0D",
+   "value": [
+    [
+     "float:-0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x FROM VALUES (-0.0D), (1D) AS t(x) EXCEPT SELECT 1D",
+   "value": [
+    [
+     "float:0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x FROM VALUES (-0.0D) AS t(x) UNION ALL SELECT 0.0D",
+   "value": [
+    [
+     "float:-0"
+    ],
+    [
+     "float:0"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT -0.0D = 0.0D AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT -0.0D IN (0.0D) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('NaN' AS DOUBLE) = CAST('NaN' AS DOUBLE) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT CAST('NaN' AS DOUBLE) IN (CAST('NaN' AS DOUBLE)) AS v",
+   "value": [
+    [
+     true
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a.x FROM VALUES (array(1, NULL)) AS a(x) JOIN VALUES (array(1, NULL)) AS b(x) ON a.x = b.x",
+   "value": [
+    [
+     [
+      1,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a.x FROM VALUES (array(-0.0D)) AS a(x) JOIN VALUES (array(0.0D)) AS b(x) ON a.x = b.x",
+   "value": [
+    [
+     [
+      "float:-0"
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a.x FROM VALUES (CAST('NaN' AS DOUBLE)) AS a(x) JOIN VALUES (CAST('NaN' AS DOUBLE)) AS b(x) ON a.x = b.x",
+   "value": [
+    [
+     "float:nan"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT a.x FROM VALUES (array(1, NULL)) AS a(x) JOIN VALUES (array(1, 2)) AS b(x) ON a.x < b.x",
+   "value": [
+    [
+     [
+      1,
+      null
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "CREATE OR REPLACE TEMP VIEW wr271_v AS SELECT * FROM VALUES (1, array(1, NULL), named_struct('a', CAST(NULL AS INT)), map(1, 2), -0.0D), (2, array(NULL, 5), named_struct('a', 1), map(3, 4), 0.0D) AS t(id, a, s, m, d)",
+   "value": []
+  },
+  {
+   "sql": "SELECT id FROM wr271_v ORDER BY a LIMIT 1",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT id FROM wr271_v ORDER BY s DESC LIMIT 1",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT max(a), min(s) FROM wr271_v",
+   "value": [
+    [
+     [
+      1,
+      null
+     ],
+     {
+      "struct": [
+       [
+        "a",
+        null
+       ]
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT id FROM wr271_v WHERE a < array(1)",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT id FROM wr271_v WHERE a = array(1.5)",
+   "error": "[DATATYPE_MISMATCH.BINARY_OP_DIFF_TYPES] Cannot resolve \"(a = array(1.5))\" due to data type mismatch: the left and right operands of the binary operator have incompatible types (\"ARRAY<INT>\" and \"ARRAY<DECIMAL(2,1)>\").; line 1 pos 29;"
+  },
+  {
+   "sql": "SELECT id FROM wr271_v WHERE a = array(1L)",
+   "value": []
+  },
+  {
+   "sql": "SELECT m FROM wr271_v ORDER BY m",
+   "error": "[DATATYPE_MISMATCH.INVALID_ORDERING_TYPE] Cannot resolve \"m ASC NULLS FIRST\" due to data type mismatch: The `sortorder` does not support ordering on type \"MAP<INT, INT>\".; line 1 pos 31;"
+  },
+  {
+   "sql": "SELECT d, count(*) FROM wr271_v GROUP BY d",
+   "value": [
+    [
+     "float:0",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT d, count(*) FROM (SELECT -0.0D AS d UNION ALL SELECT 0.0D) GROUP BY d",
+   "value": [
+    [
+     "float:0",
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "WITH c AS (SELECT array(1, NULL) AS a UNION ALL SELECT array(NULL, 5)) SELECT a, row_number() OVER (ORDER BY a) AS r FROM c",
+   "value": [
+    [
+     [
+      1,
+      null
+     ],
+     2
+    ],
+    [
+     [
+      null,
+      5
+     ],
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT transform(array(array(1, NULL), array(NULL, 1)), x -> x < array(1, 1)) AS v",
+   "value": [
+    [
+     [
+      true,
+      true
+     ]
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT x.a FROM (SELECT array(1, NULL) AS a) x JOIN (SELECT array(NULL, 5) AS a) y ON x.a > y.a",
+   "value": [
+    [
+     [
+      1,
+      null
+     ]
+    ]
+   ]
+  }
+ ]
+}

@@ -24,7 +24,7 @@ from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
-               spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
+               spark_ordering, spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -195,6 +195,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     statement = spark_builtins_sql.mark(statement)
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
     statement = spark_builtins_sql.check_nested_concat_ws(statement)
+    statement = spark_ordering.mark(statement)  # its rewrites add kf_ lambdas too
     if databricks:
         _mark_divisions(statement)
     statement = _try_divisions(statement)
@@ -715,9 +716,12 @@ def _spark_functions(databricks: bool, statement: exp.Expression) -> exp.Express
             if nulls_first is not None:
                 asc = node.args.get("asc")
                 up = asc is None or asc.this
-                node.replace(exp.Anonymous(this="LIST_SORT", expressions=[
+                sorted_call = exp.Anonymous(this="LIST_SORT", expressions=[
                     node.this, exp.Literal.string("ASC" if up else "DESC"),
-                    exp.Literal.string("NULLS FIRST" if nulls_first else "NULLS LAST")]))
+                    exp.Literal.string("NULLS FIRST" if nulls_first else "NULLS LAST")])
+                # spark_ordering's marks, for when the sort is itself compared or sorted
+                sorted_call.meta.update({k: v for k, v in node.meta.items() if k.startswith("kf_order")})
+                node.replace(sorted_call)
         elif isinstance(node, exp.Quantile) and not isinstance(node, exp.ApproxQuantile):
             node.replace(exp.Anonymous(this="QUANTILE_CONT", expressions=[node.this, node.args["quantile"]]))
         elif isinstance(node, exp.ArrayDistinct):

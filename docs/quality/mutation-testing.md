@@ -11465,3 +11465,155 @@ No bugs were found.
 | Module | Line | Mutant | Why it is left |
 | --- | --- | --- | --- |
 | `meta/snapshot.py` | 105 | `_matches`'s `return False` to `None` | Equivalent, as in batch 114: both callers read it as a condition, and `None` and `False` are both false. |
+
+# Mutation testing, batch 320: workloads/platform_notify.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 144 sampled 150 of its then 167 mutants (88.0% before, 100% after).
+- Telling Teams channels about platform requests, broken shortcuts and deprecated products, once each: events, routes, the dedupe ledger and the send loop (`workloads/platform_notify.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` and `--cap 100000 --seed 7 --kinds all`, so all 174 of 174 mutants ran (174 point + 0 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. In both runs each pytest session got a new temporary folder of its own (a small plugin, not committed). Afterwards no folder 40 levels deep was left behind, there was no late streak of kills with the same run time, and a few killed mutants were run again by hand, each killed again.
+
+The set is batch 144's files and the other files that send or read platform notices through the module: test_notice_retries. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/platform_notify.py` | test_platform_notify, test_platform_notify_mutation, test_notify_delivery, test_notice_failures, test_notice_retries, test_deliver, test_governance_notices (+ test_platform_notify_uncapped) | 174 of 174 (174 + 0) | 172 / 2 | **98.9%** | 172/174 → 174/174 | none | 174 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/platform_notify.py**:
+  - The ledger makes the folders it lives in (`mkdir(parents=True)`); every test put it in a folder that was already there.
+  - A message kept for a route that failed earlier in the same send waits in the outbox and isn't counted as sent (`ok = False`). With route names unique, as `PlatformRouting.parse` makes them, the branch is reached only by a routing built in code with two routes under one name: a route that failed for an earlier notice is already in `down` when the next notice is kept, so that notice goes to the outbox before posting. The test builds such a routing.
+  - → `test_platform_notify_uncapped.py`.
+
+# Mutation testing, batch 321: workloads/query.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 145 ran all of its 109 mutants (89.0% before, 98.2% after).
+- Views, search, grouping and paging over assessed workload records (`workloads/query.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` and `--cap 100000 --seed 7 --kinds all`, so all 109 of 109 mutants ran (109 point + 0 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Temporary folders were handled and checked as in batch 320.
+
+The set is the files that import the module: test_workload_query and test_workload_query_mutation. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/query.py` | test_workload_query, test_workload_query_mutation (+ test_workload_query_uncapped) | 109 of 109 (109 + 0) | 106 / 3 | **97.2%** | 106/109 → 107/109 | none | 107 / 2 | **98.2%** | 2 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/query.py**: a list row keeps the workload's owners, and a workload without owners gives `{}` (`w.get("owners") or {}` to `and` gave `{}` for every row). → `test_workload_query_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/query.py` | 19 | `'dev': 2` to `3` | Equivalent, as in batch 145: Dev is still after Prod and Test and before any other environment. |
+| `workloads/query.py` | 66 | the default order `9` to `10` | Equivalent, as in batch 145: it is still after Prod, Test and Dev. |
+
+# Mutation testing, batch 322: agent_status.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 56 ran all of its 40 mutants (52.5% before, 100% after).
+- What each agent publishes about itself, `agents/<name>.json` in each environment's control area (`agent_status.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` and `--cap 100000 --seed 7 --kinds all`, so all 40 of 40 mutants ran (40 point + 0 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Temporary folders were handled and checked as in batch 320.
+
+The set is the status tests and the agent tests that read the published record: test_agent_status, test_agent_status_mutation, test_agent_fleet, test_agent_silent_failures and test_agent_takeover. The score counts only the files given. No `-k` filter was used. No mutant's run timed out. 13 mutants took about 68 s each: a test waiting for the agent's status file fails at its own deadline, well inside the mutator's 120 s. Four killed mutants (lines 47, 71, 71 and 93, three of them among those 13) were run again by hand, and each was killed again.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `agent_status.py` | test_agent_status, test_agent_status_mutation, test_agent_fleet, test_agent_silent_failures, test_agent_takeover | 40 of 40 (40 + 0) | 40 / 0 | **100%** | 40/40 → 40/40 | none | 40 / 0 | **100%** | none |
+
+No bugs were found. No new tests were needed: every mutant was killed by the existing tests.
+
+# Mutation testing, batch 323: agent_config.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 24 sampled 150 of its then 267 mutants (56.7% before, 98.7% after), and batch 164 ran its 7 boundary mutants (57.1% before, 100% after).
+- The headless agent's settings, `agent.toml`: sections, schedules, incident routes, shortcut checks and the checks that refuse a bad file (`agent_config.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` and `--cap 100000 --seed 7 --kinds all`, so all 289 of 289 mutants ran (282 point + 7 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Temporary folders were handled and checked as in batch 320.
+
+The set is the config tests and the agent tests that read `agent.toml` through the module: test_agent_config_boundary, test_agent_config_edges, test_agent_config_mutation, test_agent, test_agent_boundary and test_schedule_config. The other files that use the module (test_shared_schedules, test_incidents, test_shortcut_watch and others) were left out to keep each mutant's run short. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `agent_config.py` | test_agent_config_boundary, test_agent_config_edges, test_agent_config_mutation, test_agent, test_agent_boundary, test_schedule_config (+ test_agent_config_uncapped) | 289 of 289 (282 + 7) | 266 / 23 | **92.0%** | 259/282 → 277/282 | 7/7 → 7/7 | 284 / 5 | **98.3%** | 5 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **agent_config.py**:
+  - A config built in code runs one job at a time and queues up to 1,000, and a schedule built in code isn't shared (the dataclass defaults).
+  - `[pipeline]`, `[incidents]` and `[shortcut_health]` can't be changed once read (frozen dataclasses).
+  - A list written as a string (`pipeline.environments = "dev"`, a route's `teams = "Sales"`) is named in the error list, not a `TypeError` from the default that `_strings` returns.
+  - `schedule = 5` is named, and in `schedule = [5, {...}]` the table is still checked, so its own problem is named too (an `or` to `and` and the negated fallback).
+  - A service principal needs both its tenant id and its client id: one of them alone is refused.
+  - The agent's `owner` is read, trimmed.
+  - Shortcut checks with their own `webhook_env` and no alerts webhook are on (the inner `or` to `and`, and `enabled is True` in the config).
+  - A shared schedule whose entities `pipeline.entities` takes is read, and one with an entity it doesn't take is refused.
+  - A route name in an error is cut to 80 characters.
+  - A project path the system can't look up (5,000 characters, which raises `OSError`) isn't a metadata project.
+  - TOML nested too deeply to read is a `ConfigError` (on Python 3.13, `tomllib` raises `RecursionError`; with the `raise` removed, `load` failed with `UnboundLocalError`).
+  - → `test_agent_config_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `agent_config.py` | 319 | `or` to `and` inside a shared schedule's `every_minutes` check | Equivalent, as in batch 24: the checks before it already refuse an `every_minutes` that isn't a whole number from 1. |
+| `agent_config.py` | 319 | `minutes < 1` to `minutes < 0` | Equivalent for the same reason: the earlier check refuses 0. |
+| `agent_config.py` | 374 | `_is_file`'s `return False` to `None` | Equivalent: both callers use `not _is_file(...)`, and `None` and `False` are both false. |
+| `agent_config.py` | 429 | `pipe.get(key, False)` to `True` in the true-or-false check | Equivalent: the default only goes to `isinstance(..., bool)`, which is true for both. |
+| `agent_config.py` | 456 | `inc.get("enabled", False)` to `True` in the true-or-false check | Equivalent for the same reason. |
+
+# Mutation testing, batch 324: platform_notify_service.py (every mutant)
+
+One module, run uncapped: every mutant. It had not been mutation tested before.
+- Platform notifications in the app: the `platform_notify` call, the routes and the mail server in settings, the bell's open notices, and how long dedupe keys are kept (`platform_notify_service.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` and `--cap 100000 --seed 7 --kinds all`, so all 104 of 104 mutants ran (104 point + 0 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Temporary folders were handled and checked as in batch 320.
+
+The set is the files that call the module's methods and run in a copy of `sidecar/` alone: test_platform_notify, test_governance_notices, test_notice_failures, test_notice_locked_outbox, test_deliver, test_incidents, test_incident_desk and test_incident_desk_mutation. test_rpc_surface was left out: two of its four tests fail in a copy of `sidecar/` alone, as the mutator runs them, so no mutant could be scored with it in. The 32 survivors were also run against those files plus the other files that name the module (test_alert_to_incident_e2e, test_dataops, test_incident_partial_work, test_incident_service_mutation, test_request_left_in_fabric, test_requests_core_four, test_retention_edges and test_sqlite_stores): none of them was killed. The score counts only the files given. No `-k` filter was used. No mutant's run timed out.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `platform_notify_service.py` | test_platform_notify, test_governance_notices, test_notice_failures, test_notice_locked_outbox, test_deliver, test_incidents, test_incident_desk, test_incident_desk_mutation (+ test_platform_notify_service_uncapped) | 104 of 104 (104 + 0) | 72 / 32 | **69.2%** | 72/104 → 103/104 | none | 103 / 1 | **99.0%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **platform_notify_service.py**:
+  - Events that aren't a list are refused as such, not as "event 1".
+  - With no route set, the answer counts 0 sent, 0 queued and 0 held.
+  - `platform_notify_save`, `mail_server_save` and `mail_server_forget` return what the UI shows.
+  - The settings read back: each route's kinds and domains, how it sends (Teams or email), the quiet hours and their exemptions, empty lists and text when nothing is set, and `unreadable` for a route this Windows account can't decrypt.
+  - A test message to a route that isn't there is refused with a `ValueError` and nothing is saved (an `or` to `and`, and the `raise` removed).
+  - The mail server's port is 587 when none is given, and the settings say `set`.
+  - A password counts as saved only for a server with a user name, and not when Credential Manager can't be read.
+  - A test email with no password given uses the saved one.
+  - The bell shows a notice's domain, environment and detail (the column indexes and the `if n` guards), and still shows an open key whose details row is gone, opening its kind's page.
+  - Where a notice opens: what was recorded when it names a known view and tab, otherwise its kind's page, also with nothing recorded.
+  - The bell gives the last error, not the first.
+  - A closed dedupe key is kept 365 days and then deleted (a key 100 s past and one 100 s short of it).
+  - → `test_platform_notify_service_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `platform_notify_service.py` | 72 | `zip(..., strict=True)` to `strict=False` | Equivalent: `send` returns exactly one result per event, so the two lists are always the same length. |

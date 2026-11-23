@@ -46,7 +46,7 @@ def text(value: Any, limit: int = MAX_NAME) -> str:
         return ""
     try:
         out = value if isinstance(value, str) else str(value)
-    except Exception:  # noqa: BLE001 - junk too deep or broken to print is no name at all
+    except Exception:  # noqa: BLE001  # silent-ok: junk too deep or broken to print is no name at all
         return ""
     return out if len(out) <= limit else out[:limit - 1] + "…"
 

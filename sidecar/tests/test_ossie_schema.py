@@ -574,15 +574,23 @@ def test_conversion_from_a_parsed_document_matches_conversion_from_its_text():
     assert doc == before  # read only
 
 
-def test_inlining_a_diamond_of_defs_keeps_the_plain_schema_instead_of_growing_exponentially():
-    import time
+def test_inlining_a_diamond_of_defs_keeps_the_plain_schema_instead_of_growing_exponentially(monkeypatch):
     defs = {"d0": {"type": "string"}}
     for i in range(1, 25):  # each level refers to the one below twice: 2**24 copies if fully inlined
         defs[f"d{i}"] = {"anyOf": [{"$ref": f"#/$defs/d{i - 1}"}, {"$ref": f"#/$defs/d{i - 1}"}]}
     schema = {"$schema": "https://json-schema.org/draft/2020-12/schema", "$defs": defs, "$ref": "#/$defs/d24"}
-    start = time.perf_counter()
+    # Counts the $refs looked up instead of timing them, and stops a run that has passed the bound by far,
+    # so an inliner without the bound fails here at once instead of running for hours.
+    real, looked = ossie_validate._pointer, [0]
+
+    def pointer(root, ref):
+        looked[0] += 1
+        assert looked[0] <= 2 * ossie_validate.MAX_INLINED_NODES, "inlining isn't bounded"
+        return real(root, ref)
+
+    monkeypatch.setattr(ossie_validate, "_pointer", pointer)
     out = ossie_validate.inline_local_refs(schema)
-    assert time.perf_counter() - start < 2.0
+    assert 0 < looked[0] <= ossie_validate.MAX_INLINED_NODES
     assert out is schema  # fell back to the plain schema, which validates the same
     for version in ossie_validate.SCHEMAS:  # the pinned schemas are far under the bound and are inlined
         assert ossie_validate.inline_local_refs(_schema(version)) is not _schema(version)

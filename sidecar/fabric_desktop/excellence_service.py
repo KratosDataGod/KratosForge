@@ -28,6 +28,7 @@ docs/optimize/excellence-assessment.md.
 from __future__ import annotations
 
 import base64
+import builtins
 import datetime as dt
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -206,7 +207,7 @@ class OneLakeTables:
         return self.files.list(workspace_id, lakehouse_id, directory)
 
     def read(self, workspace_id: str, lakehouse_id: str, schema: str | None,
-             table: str) -> tuple[dict[str, Any], list[str]]:
+             table: str) -> tuple[dict[str, Any], builtins.list[str]]:
         from deltalake import DeltaTable
         from deltalake.exceptions import TableNotFoundError
 

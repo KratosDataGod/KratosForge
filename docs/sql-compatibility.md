@@ -850,7 +850,7 @@ What can still differ:
 
 ## Local T-SQL tables
 
-When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17.
+When a project runs T-SQL on this PC, tables are made and emptied as in a Fabric Warehouse, and what a warehouse doesn't have is refused by name. This was checked against Microsoft Learn's Fabric Data Warehouse pages for tables, temporary tables, IDENTITY and the T-SQL surface area, as they read on 2026-11-17, and for `DEFAULT` against the [table constraints](https://learn.microsoft.com/fabric/data-warehouse/table-constraints) page and the `CREATE TABLE`, `INSERT` and `UPDATE` syntax for Fabric, as they read on 2026-11-23.
 
 | What | Here, as in a warehouse |
 | --- | --- |
@@ -866,6 +866,7 @@ Refused by name:
 - `##global` temporary tables, which a warehouse doesn't have either.
 - `WITH (DISTRIBUTION = ...)` on a table that isn't a #temp table.
 - `ALTER TABLE ... ADD` of a `VARCHAR(n)`, `CHAR(n)`, `VARBINARY(n)` or `BINARY(n)` column, since the local engine can't hold an added column to its length. Declare it in `CREATE TABLE`. Adding a column of another type, or `VARCHAR(MAX)`, works.
+- `DEFAULT`, in each of its forms: a column's `DEFAULT` in `CREATE TABLE` or `ALTER TABLE ... ADD`, `ALTER TABLE ... ADD CONSTRAINT ... DEFAULT ... FOR`, `DEFAULT` in an `INSERT`'s `VALUES`, `INSERT ... DEFAULT VALUES`, and `SET v = DEFAULT` in an `UPDATE` or a `MERGE`. A warehouse has no `DEFAULT` constraints: Microsoft's table constraints page says "SQL analytics endpoint and Warehouse don't support default constraints at this time", its `CREATE TABLE` syntax for Fabric gives a column only `NULL`, `NOT NULL` and `COLLATE`, and its `INSERT` and `UPDATE` syntax take an expression or `NULL`, not `DEFAULT`. Leave the `DEFAULT` out of the table, and write `NULL`, or the value itself, where the statement had `DEFAULT`. A column named `[DEFAULT]` in brackets is an ordinary name and works. DuckDB SQL in a local data project keeps DuckDB's own `DEFAULT`.
 
 What can still differ:
 

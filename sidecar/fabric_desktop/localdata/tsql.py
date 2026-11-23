@@ -177,6 +177,7 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
                 skipped = True
                 continue
             tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
+            _no_defaults(tree)  # WR-269: CREATE TABLE, INSERT and UPDATE with DEFAULT
             _refuse(tree)
             tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
             notes += _collations(tree)
@@ -612,6 +613,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     _refuse_output(batch)
     _refuse_control(batch)
     tsql_merge.refuse_unterminated(tokens)  # WR-244: a MERGE ends with ;
+    _refuse_add_default(tokens)  # WR-269: a warehouse has no DEFAULT constraints
     unsupported: list[str] = []
 
     class Catch(logging.Handler):
@@ -974,6 +976,68 @@ def _table_columns(tree: exp.Expression) -> None:
         column.append("constraints", exp.ColumnConstraint(kind=exp.CheckColumnConstraint(this=check)))
         if kind.this in (exp.DataType.Type.VARBINARY, exp.DataType.Type.BINARY):
             kind.set("expressions", [])  # DuckDB's BLOB takes no length: VARBINARY(4) stopped CREATE TABLE
+
+
+_NO_DEFAULTS = "This T-SQL can't be run on the local engine: a Fabric Warehouse has no DEFAULT constraints, "
+
+
+def _is_default(node: exp.Expression | None) -> bool:
+    """The bare keyword DEFAULT, which sqlglot reads as a Var in VALUES and as a column in SET."""
+    if isinstance(node, exp.Var):
+        return node.name.upper() == "DEFAULT"
+    return (isinstance(node, exp.Column) and not node.table and isinstance(node.this, exp.Identifier)
+            and not node.this.quoted and node.name.upper() == "DEFAULT")
+
+
+def _is_add(tok: Any) -> bool:
+    return bool(tok.token_type == TokenType.VAR and tok.text.upper() == "ADD")
+
+
+def _refuse_add_default(tokens: list[Any]) -> None:
+    """``ALTER TABLE t ADD [CONSTRAINT name] DEFAULT ... FOR column`` (WR-269), which sqlglot can't read and _parse
+    would refuse as "ALTER" alone. Tokens, not text, so a string that holds the words isn't refused."""
+    for i, tok in enumerate(tokens[:-1]):
+        if tok.token_type != TokenType.ALTER or tokens[i + 1].token_type != TokenType.TABLE:
+            continue
+        j = i + 2
+        while j < len(tokens) and tokens[j].token_type != TokenType.SEMICOLON and not _is_add(tokens[j]):
+            j += 1
+        if j < len(tokens) and _is_add(tokens[j]):
+            j += 1
+            if j < len(tokens) and tokens[j].token_type == TokenType.CONSTRAINT:
+                j += 2
+            if j < len(tokens) and tokens[j].token_type == TokenType.DEFAULT:
+                raise ValueError(_NO_DEFAULTS + "so ALTER TABLE ... ADD CONSTRAINT ... DEFAULT isn't taken there "
+                                 "or here. Leave it out, and give the column its value in each INSERT, or NULL.")
+
+
+def _no_defaults(tree: exp.Expression) -> None:
+    """DEFAULT refused by name (WR-269). A Fabric Warehouse's tables take no DEFAULT constraint: its CREATE TABLE
+    syntax has none, and Microsoft's table constraints page says "Warehouse don't support default constraints at
+    this time". Its INSERT syntax takes ``VALUES ({ NULL | expression })`` and its UPDATE ``SET column =
+    { expression | NULL }``, so there is no ``DEFAULT`` value and no ``DEFAULT VALUES`` either. DuckDB has all
+    three, so a script would have run here and stopped in a warehouse; ``SET v = DEFAULT`` was read as a column
+    named DEFAULT. ``[DEFAULT]``, a quoted name, is left alone. MERGE's ``INSERT DEFAULT VALUES`` keeps its own
+    message (tsql_merge)."""
+    for constraint in tree.find_all(exp.DefaultColumnConstraint):
+        column = constraint.find_ancestor(exp.ColumnDef)
+        name = f"column {column.name}" if column is not None else "a column"
+        how = "ALTER TABLE ... ADD" if isinstance(tree, exp.Alter) else "CREATE TABLE"
+        raise ValueError(_NO_DEFAULTS + f"so {how} can't give {name} DEFAULT {constraint.this.sql(dialect='tsql')}. "
+                         "Leave the DEFAULT out, and give the column its value in each INSERT, or NULL.")
+    for insert in tree.find_all(exp.Insert):
+        if insert.args.get("default"):
+            raise ValueError(_NO_DEFAULTS + "so its INSERT doesn't take DEFAULT VALUES. Write INSERT INTO t "
+                             "(columns) VALUES (...) with the values, or NULL where a column has none.")
+    for var in tree.find_all(exp.Var):
+        if _is_default(var) and isinstance(var.parent, exp.Tuple):
+            raise ValueError(_NO_DEFAULTS + "so its INSERT doesn't take DEFAULT in VALUES. Write NULL, or the value "
+                             "itself, in its place.")
+    for update in tree.find_all(exp.Update):
+        for eq in update.expressions:
+            if isinstance(eq, exp.EQ) and _is_default(eq.expression):
+                raise ValueError(_NO_DEFAULTS + f"so its UPDATE doesn't take SET {eq.this.sql(dialect='tsql')} = "
+                                 "DEFAULT. Write NULL, or the value itself, in its place.")
 
 
 def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:

@@ -326,6 +326,7 @@ REFUSED_IN_THE_DOCS = {
     "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
     "OUTPUT": "DELETE FROM dbo.orders OUTPUT deleted.id WHERE id = 1",
     "IDENTITY": "CREATE TABLE dbo.identity_test (id BIGINT IDENTITY, v INT)",
+    "DEFAULT": "CREATE TABLE dbo.default_test (id INT, v INT DEFAULT 0)",
     "DBCC": "DBCC CHECKIDENT ('dbo.orders', RESEED)",
     "##global": "CREATE TABLE ##g (id INT)",
     "PERCENTILE_DISC": "SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY 'a' DESC) OVER ()",

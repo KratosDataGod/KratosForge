@@ -32,7 +32,7 @@ four original exam questions (ACD-013).
 | 1.3.1 | Implement workspace-level access controls | E10, C3 | SIM | Yes | |
 | 1.3.2 | Implement item-level access controls | E11, C3 | SIM | Yes | LM-24 |
 | 1.3.3 | Implement row-level, column-level, object-level, and file-level access controls | E12, E13, E14, C3 | LV (row filter logic only) | Yes | LM-24 |
-| 1.3.4 | Implement dynamic data masking | E15, C3 | SIM | Yes | |
+| 1.3.4 | Implement dynamic data masking | E15, E71, C3 | SIM | Yes | |
 | 1.3.5 | Apply sensitivity labels to items | E16 | KO | Yes | |
 | 1.3.6 | Endorse items | E16 | KO | Yes | |
 | 1.4.1 | Choose between a pipeline and a notebook | E17 | KO | No | LM-08 |
@@ -51,9 +51,9 @@ four original exam questions (ACD-013).
 | 2.2.3 | Create and manage shortcuts to data | E29 | SIM | Yes | LM-24 |
 | 2.2.4 | Implement mirroring | E30 | KO | Yes | |
 | 2.2.5 | Ingest data by using pipelines | E31 | SIM | Yes | |
-| 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
+| 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, E69, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
 | 2.2.7 | Denormalize data | E35, C1 | LV | No | LAB-07 |
-| 2.2.8 | Group and aggregate data | E36, C1 | LV | No | LM-04 |
+| 2.2.8 | Group and aggregate data | E36, E70, C1 | LV | No | LM-04 |
 | 2.2.9 | Handle duplicate, missing, and late-arriving data | E25, E37, E38, E39, E57, E58, E68, C1, C2 | LV | No | LM-13, LM-17, LAB-04, LAB-06 |
 | 2.3.1 | Choose an appropriate streaming engine | E40 | KO | No | |
 | 2.3.2 | Process data by using eventstreams | E41 | SIM | Yes | |
@@ -65,7 +65,7 @@ four original exam questions (ACD-013).
 
 | Id | Objective | Exercises | Best local | Fabric | Lessons |
 | --- | --- | --- | --- | --- | --- |
-| 3.1.1 | Monitor data ingestion | E44 | SIM | Yes | |
+| 3.1.1 | Monitor data ingestion | E44, E72 | SIM | Yes | |
 | 3.1.2 | Monitor data transformation | E44, E47 | SIM | Yes | |
 | 3.1.3 | Monitor semantic model refresh | E45 | SIM | Yes | LM-09 |
 | 3.1.4 | Configure alerts | E46 | SIM | Yes | |

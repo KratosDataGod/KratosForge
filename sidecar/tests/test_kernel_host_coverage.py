@@ -345,6 +345,7 @@ def test_ping_names_the_process():
 
 class FakeLakehouse:
     Attached = lakehouse.Attached
+    NO_CELL = lakehouse.NO_CELL
 
     def __init__(self) -> None:
         self.attached: list = []
@@ -376,11 +377,16 @@ def test_attach_none_detaches_and_sets_the_guards(host, lh):
     )
     assert (
         lh.lh.prod_guard("MERGE", "ws", "Prod WS", "t", "Nb")
-        == "prod_guard:MERGE,ws,Prod WS,t"
-    )  # not the notebook
+        == "prod_guard:MERGE,ws,Prod WS,t,False"
+    )  # not the notebook: only whether the write is no running cell's own
+    assert (
+        lh.lh.prod_guard("MERGE", "ws", "Prod WS", "t", lakehouse.NO_CELL)
+        == "prod_guard:MERGE,ws,Prod WS,t,True"
+    )
     assert lh.calls == [
         ("maintenance_guard", "OPTIMIZE", "ws", "t"),
-        ("prod_guard", "MERGE", "ws", "Prod WS", "t"),
+        ("prod_guard", "MERGE", "ws", "Prod WS", "t", False),
+        ("prod_guard", "MERGE", "ws", "Prod WS", "t", True),
     ]
 
 

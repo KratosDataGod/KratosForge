@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "bdb6f251ee22663df3e02e11ed5648811a77f479",
+    "commit": "ea988e99e0c8ed1b7feffe72f4ef8a062f83ddf1",
     "date": "2026-11-20",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -74,7 +74,8 @@
       "Product check 2026-11-18 23:42 at ad1ac4cf82112eca88f7301a0eb7e67f9ea630c0: 50 PRs merged after 7be2906d; 4 were product data, docs audit, operations or plan PRs and the other 46 were linked by title; other rows were not re-read.",
       "Product check 2026-11-19 11:42 at 1719d5db421da54ad8293a1853747482048b85cf: 39 PRs merged after ad1ac4cf; 1 were product data, docs audit, operations or plan PRs and the other 38 were linked by title; other rows were not re-read.",
       "Product check 2026-11-19 23:42 at 75bf5b397305343fd1d7a6f0b49f0e454fe7fefc: 40 PRs merged after 1719d5db; 2 were product data, docs audit, operations or plan PRs and the other 38 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-20 11:42 at bdb6f251ee22663df3e02e11ed5648811a77f479: 32 PRs merged after 75bf5b39; 1 were product data, docs audit, operations or plan PRs and the other 31 were linked by title; other rows were not re-read."
+      "Product check 2026-11-20 11:42 at bdb6f251ee22663df3e02e11ed5648811a77f479: 32 PRs merged after 75bf5b39; 1 were product data, docs audit, operations or plan PRs and the other 31 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-20 23:42 at ea988e99e0c8ed1b7feffe72f4ef8a062f83ddf1: 23 PRs merged after bdb6f251; 2 were product data, docs audit, operations or plan PRs and the other 21 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -312,7 +313,9 @@
         3125,
         3126,
         3127,
-        3129
+        3129,
+        3139,
+        3144
       ]
     },
     {
@@ -2764,7 +2767,10 @@
         3101,
         3118,
         3120,
-        3132
+        3132,
+        3150,
+        3151,
+        3161
       ]
     },
     {
@@ -3388,7 +3394,9 @@
         3075,
         3076,
         3081,
-        3135
+        3122,
+        3135,
+        3145
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -5106,7 +5114,9 @@
         3109,
         3110,
         3121,
-        3131
+        3131,
+        3137,
+        3146
       ],
       "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-09): setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -8587,7 +8597,8 @@
         3106,
         3112,
         3113,
-        3133
+        3133,
+        3141
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8738,7 +8749,8 @@
         3039,
         3064,
         3077,
-        3107
+        3107,
+        3128
       ],
       "workstream": "TMDL and OSI semantic model conversion",
       "limitations": [

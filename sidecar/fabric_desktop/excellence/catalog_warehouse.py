@@ -104,7 +104,7 @@ def warehouse_properties(ws: dict[str, Any], items: list[dict[str, Any]],
                              collected_at=collected_at, payload={"collation": collation}))
         listed.append({"id": str(wh["id"]), "name": name, "collation": collation})
     if listed:
-        listed.sort(key=lambda w: w["id"])
+        listed.sort(key=lambda w: str(w["id"]))
         out.append(ev.record(WAREHOUSES, ev.subject("workspace", ws_id, ws.get("displayName")), source=GET_WAREHOUSE,
                              confidence="verified_configuration", collected_at=collected_at,
                              payload={"count": len(found), "read": len(listed), "warehouses": listed[:MAX_LIST]}))

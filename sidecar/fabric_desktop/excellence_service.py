@@ -324,7 +324,7 @@ class ExcellenceMixin:
             git_conn: dict[str, Any] | None = FIXTURE_GIT_CONNECTION
             git_status: dict[str, Any] | None = FIXTURE_GIT_STATUS
             models, _ = _models(opt, lambda _item: FIXTURE_MODEL)
-            items = (_items(opt) or []) + FIXTURE_SQL_ITEMS
+            items: list[dict[str, Any]] | None = (_items(opt) or []) + FIXTURE_SQL_ITEMS
             warehouses = dict(FIXTURE_WAREHOUSES)
         else:
             wid = _guid(workspace_id, "workspace")

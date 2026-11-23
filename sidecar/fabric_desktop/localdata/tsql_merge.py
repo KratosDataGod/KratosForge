@@ -14,7 +14,8 @@ From Microsoft's MERGE (Transact-SQL) page, whose second syntax block is the one
   missing row's columns as NULL and ran; DuckDB stopped with its binder's words.
 - A column is set once in a clause (SQL Server's error 264); a Delta table took the last value.
 - Fabric's MERGE inserts with ``INSERT [(columns)] VALUES (...)`` only: no ``DEFAULT VALUES``, which sqlglot read
-  as a column called DEFAULT.
+  as a column called DEFAULT. ``DEFAULT`` as one of the values, or in ``UPDATE SET``, is refused too (WR-268): the
+  values are constants, variables and expressions, and a Fabric table has no column defaults.
 - A column named without ``t.`` or ``s.`` in a WHEN clause is placed by the table's and the source's columns
   (WR-253). One both have is SQL Server's error 209, "Ambiguous column name 'x'.", in ON and WHEN MATCHED; WHEN
   NOT MATCHED [BY TARGET] reads only the source and WHEN NOT MATCHED BY SOURCE only the table, so there it is that
@@ -103,6 +104,7 @@ def check(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | 
                          "(...) THEN INSERT, with CASE in VALUES where the inserted values differ.")
     for when in whens:
         then = when.args.get("then")
+        _no_default(then)
         if isinstance(then, exp.Update):
             _sets(then, mine, theirs, target.name)
         if isinstance(then, exp.Insert):
@@ -208,6 +210,29 @@ def _columns_of(target: exp.Table, columns: dict[str, dict[str, dict[str, str]]]
                 if t.lower() == name:
                     return list(found)
     return None
+
+
+NO_DEFAULT = ("DEFAULT as a value isn't taken in this MERGE. A Fabric Warehouse's MERGE inserts and sets "
+              "constants, variables and expressions (INSERT [(columns)] VALUES (...)), and a warehouse table's columns "
+              "have no defaults to give, since its CREATE TABLE takes no DEFAULT. Write NULL, or the value itself.")
+
+
+def _no_default(then: Any) -> None:
+    """WR-268: ``DEFAULT`` as a value in a MERGE's INSERT VALUES or UPDATE SET is refused by name. Fabric's MERGE
+    syntax lists only constants, variables and expressions, and its tables have no DEFAULT. Here DuckDB gave the
+    column's local default, delta-rs said "No field named DEFAULT", and SET read it as a column (error 207)."""
+    if isinstance(then, exp.Update):
+        values = [e.expression for e in then.expressions if isinstance(e, exp.EQ)]
+    elif isinstance(then, exp.Insert) and isinstance(then.expression, exp.Tuple):
+        values = list(then.expression.expressions)
+    else:
+        return
+    for value in values:
+        for node in value.walk():
+            if isinstance(node, exp.Var) and node.name.upper() == "DEFAULT" or \
+                    isinstance(node, exp.Column) and not node.table and not node.this.quoted \
+                    and node.name.upper() == "DEFAULT":
+                raise ValueError(NO_DEFAULT)
 
 
 def _insert(then: exp.Insert, table: list[str] | None) -> None:

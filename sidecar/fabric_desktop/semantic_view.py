@@ -28,6 +28,10 @@ is added beside the SQL (Unverified: the two aren't compared, as in the fidelity
 can't translate is flagged before any file is written: Unsupported with the converter's reason, left out of the
 files and listed in ``excluded``. A relationship that isn't single-column is Unsupported and excluded too.
 
+An Ossie source gets the converter's shape check first: a part of the wrong type (text where the fields go, a
+number for a name) is refused by path, as conversion refuses it, rather than left out. A view with no dataset
+left (each one excluded) is never Valid: its validation fails with ``semantic-view/no-datasets``.
+
 ``split="single"`` writes one file. ``split="schema_metrics"`` writes ``schema.yaml`` (description, datasets
 and relationships) and ``metrics.yaml`` (the metrics), each with ``version`` and ``name``, flat in the view folder.
 Both files are the parts named in "Separate schema from metrics" on semantic-views-create
@@ -168,6 +172,7 @@ def _read(source: Any, view: str) -> tuple[dict[str, Any], str, dict[str, Any] |
     if not source.get("name") or not isinstance(source.get("datasets"), list) or not source["datasets"]:
         raise ValueError("An Ossie model needs a name and at least one dataset")
     mo.refuse_depth(source)  # as conversion and the schema check refuse it
+    mo._refuse_shape(source, mo._OSSIE_SHAPE, "ossie")  # a part of the wrong type, by path, as conversion does
     return copy.deepcopy(source), "ossie", None
 
 
@@ -492,6 +497,13 @@ def semantic_view(source: Any, *, view_name: str, split: str = "single") -> dict
         raise RuntimeError(f"The view came to {len(files)} files, but Fabric takes at most "
                            f"{op.FABRIC_MAX_FILES}, so nothing was written.")
     validation = op.validate_files(files, "fabric-semantic-view")
+    if not datasets:  # Fabric would infer other datasets, or none: a view of nothing the source had is never Valid
+        validation["diagnostics"].append({
+            "path": "$.datasets", "rule": "semantic-view/no-datasets", "value": "0",
+            "message": "has no datasets left: each of the source's datasets was excluded (see excluded)",
+            "fix": "Fix or replace the excluded datasets (a query source needs a table or view instead), then "
+                   "make the view again."})
+        validation["valid"], validation["status"] = False, "Invalid"
     by_class: dict[str, list[str]] = {c: [] for c in mo.CLASSES}
     for row in rows.rows:
         by_class[row["class"]].append(row["object"])

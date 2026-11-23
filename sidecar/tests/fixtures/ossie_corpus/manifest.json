@@ -210,12 +210,12 @@
     "validate": "Invalid",
     "round_trip": "refused",
     "tmdl": "refused",
-    "semantic_view": "valid",
+    "semantic_view": "refused",
     "parity_l1": "Test failed"
    },
    "says": "$.datasets['orders'].fields[0].name is a list where it should be text",
    "findings": [
-    "The Semantic View emitter doesn't run the shape check: a wrong-typed part is left out and named in excluded (or stripped as Fabric omits it), and the view is still Valid."
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
    ]
   },
   {
@@ -227,12 +227,12 @@
     "validate": "Invalid",
     "round_trip": "refused",
     "tmdl": "refused",
-    "semantic_view": "valid",
+    "semantic_view": "refused",
     "parity_l1": "Test failed"
    },
    "says": "$.datasets['orders'].fields[0] is text where it should be an object",
    "findings": [
-    "The Semantic View emitter doesn't run the shape check: a wrong-typed part is left out and named in excluded (or stripped as Fabric omits it), and the view is still Valid."
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
    ]
   },
   {
@@ -244,12 +244,12 @@
     "validate": "Invalid",
     "round_trip": "refused",
     "tmdl": "refused",
-    "semantic_view": "valid",
+    "semantic_view": "refused",
     "parity_l1": "Test failed"
    },
    "says": "$.datasets[0].name is a number where it should be text (a name that is a number goes in quotes)",
    "findings": [
-    "The Semantic View emitter doesn't run the shape check: a wrong-typed part is left out and named in excluded (or stripped as Fabric omits it), and the view is still Valid."
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
    ],
    "notes": [
     "The refusal says a name that is a number goes in quotes."
@@ -264,12 +264,12 @@
     "validate": "Invalid",
     "round_trip": "refused",
     "tmdl": "refused",
-    "semantic_view": "valid",
+    "semantic_view": "refused",
     "parity_l1": "Test failed"
    },
    "says": "$.metrics['total'].expression.dialects is an object where it should be a list",
    "findings": [
-    "The Semantic View emitter doesn't run the shape check: a wrong-typed part is left out and named in excluded (or stripped as Fabric omits it), and the view is still Valid."
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
    ]
   },
   {
@@ -281,12 +281,12 @@
     "validate": "Invalid",
     "round_trip": "refused",
     "tmdl": "refused",
-    "semantic_view": "valid",
+    "semantic_view": "refused",
     "parity_l1": "Test failed"
    },
    "says": "$.relationships['orders_customers'].from_columns is text where it should be a list",
    "findings": [
-    "The Semantic View emitter doesn't run the shape check: a wrong-typed part is left out and named in excluded (or stripped as Fabric omits it), and the view is still Valid."
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
    ]
   },
   {
@@ -315,7 +315,7 @@
     "validate": "Invalid",
     "round_trip": "refused",
     "tmdl": "refused",
-    "semantic_view": "valid",
+    "semantic_view": "refused",
     "parity_l1": "Test failed"
    },
    "says": "... (2000 characters)'].fields is text where it should be a list"

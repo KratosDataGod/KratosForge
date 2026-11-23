@@ -450,7 +450,12 @@ What's written:
   the two expressions aren't compared. Its other dialects stay in the file: Fabric recognizes them
   but publishes only DAX.
 - The files are checked with `validate_files` and the `fabric-semantic-view` profile (see
-  Version profiles). The result is in the report, and it informs only.
+  Version profiles). The result is in the report, and it informs only. A view with no dataset left,
+  because each of the source's datasets was excluded, is never Valid: its check fails with
+  `semantic-view/no-datasets`, since Fabric would infer other datasets, or none.
+- An Ossie file gets the converter's check of part types first (see Parts of the wrong type). A
+  part of the wrong type, such as text where a dataset's fields go or a number for a name, is
+  refused with the same message and path as Import, not left out.
 - Writing previews first. The preview lists the files, any `.yaml` file in the folder that would
   be removed (Fabric merges every `.yaml` file in a view's folder, so an old file would join the
   view) and a token. A write needs `confirmed` and that token, so it writes exactly what the
@@ -589,7 +594,7 @@ L1 parity. A refusal is a plain ValueError with the words the manifest names; wr
 never a TypeError, AttributeError or KeyError. `tests/ossie_corpus.py` loads the corpus and sums each
 outcome up in a word, and `tests/test_ossie_corpus.py` checks every file against the manifest.
 
-Two things the corpus first showed are fixed, and the manifest says so: a root that isn't an object
+Two things the corpus first showed were fixed first, and the manifest says so: a root that isn't an object
 is now a ValueError rather than a TypeError, and conversion keeps the schema check's 64-level depth
 limit (see Parts of the wrong type). L1 still reads a `model.bim` side nested past it.
 
@@ -597,7 +602,9 @@ Hardening fixed a third: writing TMDL from a model and L1 used to skip a wrong-t
 with a report row, or read it as it was, where Export refuses it. Both now run Export's check. The
 TMDL writer refuses with the same path ("This model couldn't be written as TMDL, because part of
 it isn't the shape a semantic model's part has: ..."), and L1 is Test failed, with the side and the
-path in `error` and in that side's `sides[...]["error"]`.
+path in `error` and in that side's `sides[...]["error"]`. And a fourth: the Semantic View emitter
+left a wrong-typed part of an Ossie file out under `excluded` and the view could still be Valid. It
+now refuses that file by path, and a view whose datasets were all excluded is never Valid.
 
 The manifest also records what the corpus shows that may be worth changing, without changing it:
 
@@ -606,8 +613,6 @@ The manifest also records what the corpus shows that may be worth changing, with
 - On Import, a role that travels in the Power BI section comes back Fully preserved, with no security
   warning, although only Power BI could read it in the file. On Export the same role is Preserved
   through extensions, with a security warning.
-- The Semantic View emitter leaves a wrong-typed part out and names it under `excluded`, and the view
-  can still be Valid.
 
 ## Converter upgrade check
 

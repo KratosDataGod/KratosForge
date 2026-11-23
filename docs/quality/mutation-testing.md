@@ -11608,3 +11608,244 @@ No bugs were found.
 | Module | Line | Mutant | Why it is left |
 | --- | --- | --- | --- |
 | `meta/snapshot.py` | 105 | `_matches`'s `return False` to `None` | Equivalent, as in batch 114: both callers read it as a condition, and `None` and `False` are both false. |
+
+# Mutation testing, batch 310: workloads/agents.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 134 ran its 45 mutants (all of them, 88.9% before, 97.8% after).
+- Reading the status records agents publish, when an agent is live, offline or stopped, and the fleet list built from every environment's records (`workloads/agents.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 45 of 45 mutants ran (42 point + 3 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own (a small plugin, not committed), so a mutant that leaves a deep folder behind can't make the next mutants fail at startup; none did: no folder 40 or more levels deep was left, the kills show no late streak of identical times, and kills checked by hand failed on a real assertion. No `-k` filter or `--deselect` was used, and no mutant's run timed out.
+
+The set is batch 134's files and every other test file that imports the module: test_agent_fleet, test_incidents, test_workload_agents_mutation. The score counts only the files given.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/agents.py` | test_agent_fleet, test_incidents, test_workload_agents_mutation | 45 of 45 (42 + 3) | 44 / 1 | **97.8%** | 42/42 → 42/42 | 2/3 → 2/3 | 44 / 1 | **97.8%** | 1 equivalent |
+
+No bugs were found, and no new tests were needed: every survivor is equivalent, so the module has no new test file.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/agents.py` | 56 | `a < b` to `<=` for older or newer | Equivalent, as in batch 134: equal versions are answered as `same` just before, so `a` and `b` are never equal here. |
+
+# Mutation testing, batch 311: workloads/queue.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 146 ran its 105 mutants (all of them, 77.1% before, 98.1% after).
+- One list of running, queued and next work across this PC, each agent and Fabric (`workloads/queue.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 105 of 105 mutants ran (101 point + 4 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own (a small plugin, not committed), so a mutant that leaves a deep folder behind can't make the next mutants fail at startup; none did: no folder 40 or more levels deep was left, the kills show no late streak of identical times, and kills checked by hand failed on a real assertion. No `-k` filter or `--deselect` was used, and no mutant's run timed out.
+
+The set is batch 146's files and every other test file that imports the module: test_workload_queue, test_workload_queue_mutation. The score counts only the files given.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/queue.py` | test_workload_queue, test_workload_queue_mutation | 105 of 105 (101 + 4) | 103 / 2 | **98.1%** | 99/101 → 99/101 | 4/4 → 4/4 | 103 / 2 | **98.1%** | 2 equivalent |
+
+No bugs were found, and no new tests were needed: every survivor is equivalent, so the module has no new test file.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/queue.py` | 153 | `'next': 4` to `5` | Equivalent, as in batch 146: only the order of the ranks is used, and next still sorts after every other state. |
+| `workloads/queue.py` | 163 | the default order `9` to `10` | Equivalent, as in batch 146: every row has one of the five states in `_ORDER`, so the default is never used. |
+
+# Mutation testing, batch 312: workloads/impact.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 138 ran its 36 mutants (all of them, 88.9% before, 100% after).
+- Who an incident reaches: the data products built on its workload, the projects that read them, and the people to tell (`workloads/impact.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 36 of 36 mutants ran (36 point + 0 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own (a small plugin, not committed), so a mutant that leaves a deep folder behind can't make the next mutants fail at startup; none did: no folder 40 or more levels deep was left, the kills show no late streak of identical times, and kills checked by hand failed on a real assertion. No `-k` filter or `--deselect` was used, and no mutant's run timed out.
+
+The set is batch 138's files and every other test file that imports the module: test_incident_desk, test_incident_impact_mutation. The score counts only the files given.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/impact.py` | test_incident_desk, test_incident_impact_mutation | 36 of 36 (36 + 0) | 36 / 0 | **100%** | 36/36 → 36/36 | none | 36 / 0 | **100%** | none |
+
+No bugs were found, and no new tests were needed: every mutant was already killed, so the module has no new test file.
+
+### Left
+
+None.
+
+# Mutation testing, batch 313: workloads/incident_history.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 139 ran its 86 mutants (all of them, 79.1% before, 100% after).
+- Incident history in the central lakehouse (event and snapshot rows, the record ids already copied) and the report of time to acknowledge, time to resolve and SLAs met (`workloads/incident_history.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 86 of 86 mutants ran (83 point + 3 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own (a small plugin, not committed), so a mutant that leaves a deep folder behind can't make the next mutants fail at startup; none did: no folder 40 or more levels deep was left, the kills show no late streak of identical times, and kills checked by hand failed on a real assertion. No `-k` filter or `--deselect` was used, and no mutant's run timed out.
+
+The set is batch 139's files and every other test file that imports the module: test_corrupt_state_reads, test_incident_desk, test_incident_desk_mutation, test_incident_history_mutation. The score counts only the files given.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/incident_history.py` | test_corrupt_state_reads, test_incident_desk, test_incident_desk_mutation, test_incident_history_mutation | 86 of 86 (83 + 3) | 86 / 0 | **100%** | 83/83 → 83/83 | 3/3 → 3/3 | 86 / 0 | **100%** | none |
+
+No bugs were found, and no new tests were needed: every mutant was already killed, so the module has no new test file.
+
+### Left
+
+None.
+
+# Mutation testing, batch 314: workloads/overlap.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample of 150. Batch 143 ran its 53 mutants (all of them, 86.8% before, 98.1% after).
+- Tables scheduled in two places: an agent and this PC, or two agents, running the same tables (`workloads/overlap.py`).
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 53 of 53 mutants ran (52 point + 1 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own (a small plugin, not committed), so a mutant that leaves a deep folder behind can't make the next mutants fail at startup; none did: no folder 40 or more levels deep was left, the kills show no late streak of identical times, and kills checked by hand failed on a real assertion. No `-k` filter or `--deselect` was used, and no mutant's run timed out.
+
+The set is batch 143's files and every other test file that imports the module: test_schedule_overlap, test_schedule_overlap_mutation. The score counts only the files given.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/overlap.py` | test_schedule_overlap, test_schedule_overlap_mutation | 53 of 53 (52 + 1) | 52 / 1 | **98.1%** | 51/52 → 51/52 | 1/1 → 1/1 | 52 / 1 | **98.1%** | 1 equivalent |
+
+No bugs were found, and no new tests were needed: every survivor is equivalent, so the module has no new test file.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/overlap.py` | 80 | `known[i + 1:]` to `known[i + 0:]` | Equivalent, as in batch 143: the extra pair is a schedule with itself, which has the same environment and place, so it is skipped. |
+
+# Mutation testing, batch 315: workloads/health.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). It has no `<` or `>` comparison, so it has no boundary mutants.
+- A workload's health, readiness and findings, each with its evidence (`workloads/health.py`).
+
+Batch 137 ran all 91 of its mutants then (92.3% before, 100% after). It still has 91, and this run ran all 91 of 91.
+
+The run was at `main` ea988e99e (2026-11-20), with `sidecar/tools/mutate.py` as it is since #2902 and the method of batch 183: tests first passed on the unmutated copy, paths were relative to `sidecar/`, and each pytest session got a fresh `--basetemp` folder of its own from a small run-only plugin that isn't committed. After the run, no folder in that tree was nested 40 levels deep, and the kills don't end in a streak of near-identical times. Three kills picked at random were checked by hand: each mutant was applied to a copy of `sidecar/` and the set run without `-x`. Each failed real tests (20, 1 and 1). No mutant timed out.
+
+The set is the files that name the module. No `-k` filter or `--deselect` was needed.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/health.py` | test_workload_health, test_workload_health_mutation, test_workloads | 91 of 91 (91 + 0), uncapped | 91 / 0 | **100%** | no change needed | none | 91 / 0 | **100%** | none |
+
+No bugs were found, and no new tests were needed.
+
+### Left
+
+None.
+
+# Mutation testing, batch 316: workloads/inventory.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). It has no `<` or `>` comparison, so it has no boundary mutants.
+- Turning each native source into workload records: runs from the run log, Fabric and schedules on this PC, owners, and the metadata entity, notebook, local pipeline and Fabric item workloads with their deployments, schedules and links (`workloads/inventory.py`).
+
+Batch 140 sampled 150 of its then 260 mutants (56.7% before, 100% after). It still has 260, and this run ran all 260 of 260.
+
+The run was at `main` ea988e99e (2026-11-20), with the method of batch 315. After the runs, no folder in the `--basetemp` tree was nested 40 levels deep, and the kills don't end in a streak of near-identical times. Three kills picked at random were checked by hand, and each failed real tests (10, 24 and 2). The "after" run re-checked only the 15 survivors, with `--only`. Before it, the new tests passed in a copy of `sidecar/` on their own and against the module as `ast.unparse` writes it. No mutant timed out.
+
+The set is the files that call the module's functions: test_workloads and test_workload_service_mutation reach it through the workload service. No `-k` filter or `--deselect` was needed.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/inventory.py` | test_workload_inventory_mutation, test_workload_service_mutation, test_workloads (+ test_workload_inventory_uncapped) | 260 of 260 (260 + 0), uncapped | 245 / 15 | **94.2%** | 245/260 → 259/260 | none | 259 / 1 | **99.6%** | 1 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **workloads/inventory.py**:
+  - A metadata run keeps its job id, and a Fabric job keeps its id and names its workspace.
+  - An entity keeps its description. Dev is never behind the project's version.
+  - Only a notebook run of this notebook, with an item id, links it. A notebook is linked by name only when its publish workspace's items were read, and the link keeps the workspace's name.
+  - A notebook names its lakehouse, offers to run its schedule here, and a notebook or local pipeline names the signed-in user it runs as. A local pipeline is Preview.
+  - A Fabric schedule's last run is not added again when a run this app started has the same start.
+  - → `test_workload_inventory_uncapped.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/inventory.py` | 359 | `"scheduled_only": True` to `False` for a pipeline only a schedule runs | Equivalent: nothing reads the key; the workload record is built from the entry's other fields. |
+
+# Mutation testing, batch 317: workloads/model.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`), so the score counts the boundary mutants together with the earlier kinds. The table shows both parts.
+- Workload ids, run states, observations and how a read error is shown (`workloads/model.py`).
+
+Batch 141 ran all 95 of its mutants then (88.4% before, 100% after). It still has 95, and this run ran all 95 of 95.
+
+The run was at `main` ea988e99e (2026-11-20), with the method of batch 315. After the run, no folder in the `--basetemp` tree was nested 40 levels deep, and the kills don't end in a streak of near-identical times. Three kills picked at random were checked by hand, and each failed real tests (15, 1 and 3). No mutant timed out.
+
+The set is the files that name the module, among them the read-error files (test_not_set_up, test_retrying, test_risk, test_typed_errors) that call `classify_error`. It runs in about 15 seconds. No `-k` filter or `--deselect` was needed.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/model.py` | test_workload_model_mutation, test_workloads, test_workload_query, test_workload_query_mutation, test_workload_pipelines, test_workload_service_paths, test_workload_service_mutation, test_workload_store_mutation, test_workload_audit, test_not_set_up, test_retrying, test_risk, test_typed_errors | 95 of 95 (94 + 1), uncapped | 95 / 0 | **100%** | no change needed | no change needed | 95 / 0 | **100%** | none |
+
+No bugs were found, and no new tests were needed.
+
+### Left
+
+None.
+
+# Mutation testing, batch 318: workloads/run_as.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`), so the score counts the boundary mutants together with the earlier kinds. The table shows both parts.
+- Who runs each workload and with what credential (`workloads/run_as.py`).
+
+Batch 147 ran all 88 of its mutants then (78.4% before, 98.9% after). It still has 88, and this run ran all 88 of 88.
+
+The run was at `main` ea988e99e (2026-11-20), with the method of batch 315. After the run, no folder in the `--basetemp` tree was nested 40 levels deep, and the kills don't end in a streak of near-identical times. Three kills picked at random were checked by hand, and each failed real tests (3, 2 and 1). No mutant timed out.
+
+The set is the files that name the module. No `-k` filter or `--deselect` was needed.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/run_as.py` | test_run_as, test_run_as_mutation | 88 of 88 (85 + 3), uncapped | 87 / 1 | **98.9%** | 84/85, no change needed | 3/3, no change needed | 87 / 1 | **98.9%** | 1 equivalent |
+
+No bugs were found, and no new tests were needed: the one survivor is the equivalent batch 147 left.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `workloads/run_as.py` | 23 | `'expiring': 2` to `3` | Equivalent: expiring still sorts after expired and failed, the only other states listed. |
+
+# Mutation testing, batch 319: workloads/store.py (every mutant)
+
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). It has no `<` or `>` comparison, so it has no boundary mutants.
+- The management records this PC keeps about workloads (`workloads/store.py`): assignments and their history, links from notebooks to Fabric items, actions, lines waiting for the platform's audit, and the collection cache.
+
+Batch 148 ran all 94 of its mutants then (81.9% before, 100% after). It still has 94, and this run ran all 94 of 94.
+
+The run was at `main` ea988e99e (2026-11-20), with the method of batch 315. After the run, no folder in the `--basetemp` tree was nested 40 levels deep, and the kills don't end in a streak of near-identical times. Five kills were checked by hand, chosen because they change only a number or a flag: the actions kept (10000), the history's default limit (100), the action id's length (12), the 500 characters of a failed audit try's reason, and `exist_ok` when making the store's folder. Each failed real tests (1, 1, 1, 1 and 59). No mutant timed out.
+
+The set is the files that name the module, among them the durability, crash and awkward-path files that open every store. It runs in about 20 seconds. No `-k` filter or `--deselect` was needed.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `workloads/store.py` | test_workload_store_mutation, test_workload_store_faults, test_sqlite_stores, test_store_upgrades, test_workload_audit, test_workloads, test_awkward_paths, test_sqlite_durability, test_store_crash_kills | 94 of 94 (94 + 0), uncapped | 94 / 0 | **100%** | no change needed | none | 94 / 0 | **100%** | none |
+
+No bugs were found, and no new tests were needed.
+
+### Left
+
+None.

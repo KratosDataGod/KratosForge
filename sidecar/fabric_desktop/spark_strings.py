@@ -643,6 +643,7 @@ def spark_text_results(statement: exp.Expression) -> exp.Expression:
         if isinstance(like.parent, exp.Escape) or (_text(pattern) is not None and "\\" not in pattern.name):
             continue
         _swap(like, exp.Escape(this=like.copy(), expression=exp.Literal.string("\\")))
+    tops: list[exp.Expression] = []
     for joined in list(statement.find_all(exp.Concat, exp.DPipe)):
         if any(isinstance(a, _ARRAYS) for a in joined.iter_expressions()):
             continue
@@ -651,9 +652,20 @@ def spark_text_results(statement: exp.Expression) -> exp.Expression:
         for child in nulls:
             if isinstance(child, exp.Null):
                 child.replace(exp.cast(exp.Null(), exp.DataType.build("VARCHAR")))
-        if nulls and joined is not statement and not isinstance(joined.parent, (exp.Concat, exp.DPipe)):
-            # DuckDB types 'a' || CAST(NULL AS VARCHAR) as an INTEGER once it folds it; Spark's is a string
-            _wrap(joined, "VARCHAR")
+        if not nulls:
+            continue
+        # DuckDB types 'a' || CAST(NULL AS VARCHAR) as an INTEGER once it folds it, and so a concatenation
+        # around it too, ('a' || NULL) || 'b'; Spark's is a string. The outermost one, through
+        # parentheses, is cast back.
+        top, up = joined, joined.parent
+        while isinstance(up, (exp.Paren, exp.Concat, exp.DPipe)):
+            if not isinstance(up, exp.Paren):
+                top = up
+            up = up.parent
+        if top is not statement and all(t is not top for t in tops):
+            tops.append(top)
+    for top in tops:
+        _wrap(top, "VARCHAR")
     ints = [cast(exp.Expression, n) for n in statement.find_all(*_INTS, exp.Anonymous)
             if not isinstance(n, exp.Anonymous) or n.name.upper() == "OCTET_LENGTH"]
     for item in ints:

@@ -119,6 +119,21 @@ def test_a_folder_of_files_streams_new_files_into_foreach_batch_and_memory(tmp_p
     assert run(k, mem).strip().endswith("3")
 
 
+def test_a_stream_schema_can_be_a_ddl_string(tmp_path):
+    # Spark's readStream.schema takes a StructType or a DDL string.
+    landing = tmp_path / "landing"
+    landing.mkdir()
+    (landing / "a.csv").write_text("id,amount\n1,5\n2,6\n")
+    code = (f"m = spark.readStream.schema('id INT, amount STRING').format('csv').option('header', 'true')"
+            f".load({str(landing)!r})\n"
+            "print(m.schema.simpleString())\n"
+            "m.writeStream.format('memory').queryName('ddl_landed').outputMode('append').start()\n"
+            "print(sorted(tuple(r) for r in spark.sql('SELECT * FROM ddl_landed').collect()))")
+    lines = run(Kernel(), code).strip().splitlines()
+    assert lines[0] == "struct<id:int,amount:string>"
+    assert lines[-1] == "[(1, '5'), (2, '6')]"
+
+
 def test_what_runs_only_in_fabric_says_so(lake):
     k = Kernel()
     for code, words in [

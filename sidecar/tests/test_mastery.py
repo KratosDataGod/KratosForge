@@ -580,3 +580,10 @@ def test_an_achievement_is_dated_the_first_day_its_rule_was_met():
 def test_profile_mastery_dates_earned_achievements_only(plain):  # noqa: F811 - the fixture
     out = call(plain, "profile_mastery", class_id="lakehouse-warden")
     assert all(a["earned_on"] is None and "met" in a and "of" in a for a in out["class"]["achievements"])
+
+
+def test_an_any_achievement_names_only_the_talent_that_met_it():
+    cat = award_cat({"level": 3, "talents": ["alpha.01", "beta.01"], "any": True})
+    alpha, beta = lab_pass("LM-00", DAY1), lesson("LM-10", DAY1)        # beta.01 reaches only Apprentice
+    a = awards(profile(alpha, beta), cat)["a0"]
+    assert a["earned"] and a["evidence"] == [alpha["id"]]

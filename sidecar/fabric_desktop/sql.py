@@ -481,10 +481,18 @@ _ANON_TEMPLATES = {
                "kf_c -> RPAD(LEFT(ARRAY_TO_STRING(LIST_FILTER(kf_c[2:], (kf_v, kf_i) -> kf_v <> '0' AND kf_v <> kf_c[kf_i]), "
                "''), 3), 3, '0')))[1] END))[1]",
 }
+_BROUND_PLACES = 400  # past this many places either way, a DOUBLE or DECIMAL rounds to itself or to 0
+
+
 def _bround(places: int) -> str:
     """bround(x, places) with places written out: half-even, as Spark's, keeping a decimal a decimal
     (DuckDB's ROUND and TRUNC do; ROUND_EVEN returns a DOUBLE). A value exactly half way whose lower
     neighbour is even is truncated; everything else rounds half away from zero."""
+    if not -2**31 <= places < 2**31:
+        raise ValueError(f"bround() can't round to {places} places, because Spark takes the places as an INT and "
+                         "stops on this number too. Use a number from -2147483648 to 2147483647.")
+    if abs(places) > _BROUND_PLACES:  # 10 ** places took minutes to write out; no value is half way there
+        return f"ROUND({{0}}, {places})"
     scaled = f"({{0}}) * {10 ** places}" if places >= 0 else f"({{0}}) / {10 ** -places}"
     return (f"CASE WHEN ABS({scaled} - TRUNC({scaled})) = 0.5 AND TRUNC({scaled}) % 2 = 0 "
             f"THEN TRUNC({{0}}, {places}) ELSE ROUND({{0}}, {places}) END")
@@ -1260,14 +1268,18 @@ _STR_TO_MAP = ("(LIST_TRANSFORM([{'s': CAST(fj_arg0 AS VARCHAR), 'p': CAST(fj_ar
                "THEN REGEXP_REPLACE(fj_q, '(?s)^.*?(?:' || fj_m.k || ')', '') END})) END))[1]")
 
 
-def _with_args(template: str, args: list[exp.Expression]) -> exp.Expression:
+def _with_args(template: str, args: list[exp.Expression], copy: bool = True) -> exp.Expression:
     """``template`` read as DuckDB SQL, with the person's own argument nodes put in place of fj_arg0,
     fj_arg1... Each argument sits outside every lambda in the template, so no name in it can be taken
-    for one of the template's, and it is still rewritten by the later passes."""
+    for one of the template's, and it is still rewritten by the later passes. ``copy`` False: each
+    argument's first place takes the node itself, for a caller that drops the node it came from."""
     tree = cast(exp.Expression, sqlglot.parse_one(template, read="duckdb"))
+    placed: set[int] = set()
     for column in list(tree.find_all(exp.Column)):
         if column.name.startswith("fj_arg") and not column.table:
-            column.replace(args[int(column.name[6:])].copy())
+            i = int(column.name[6:])
+            column.replace(args[i] if not copy and i not in placed else args[i].copy())
+            placed.add(i)
     return tree
 
 
@@ -1593,7 +1605,8 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
             # Read once through a lambda argument, so nested casts don't multiply the SQL with each level
             # and a source such as rand() is evaluated once. The source sits outside the lambda.
             text = f"(LIST_TRANSFORM([fj_arg0], kf_cast -> {write('kf_cast')}))[1]"
-        replacement = exp.paren(_with_args(text, [source]))
+        # the source moves into its replacement: copying it at each of n nested casts took time growing as n * n
+        replacement = exp.paren(_with_args(text, [source], copy=False), copy=False)
         replacement.type = exp.DataType.build("TIMESTAMPTZ") if _to_timestamp_call(node) else node.to.copy()
         replacement.meta[spark_complex.TYPED] = True  # for spark_complex_types: the cast's own type
         done.add(id(replacement))
@@ -2055,6 +2068,12 @@ def spark_name(column: exp.Expression) -> str:
 _BUILTIN_NAMES = spark_builtins_sql.names()
 
 
+def _no_nul(name: str) -> str:
+    """A column name Spark gives with a NUL in it ('a\\0b' is named a, U+0000, b), with U+FFFD in its place: a
+    name on this PC can't hold one (KfDuckDB), and the value itself is kept."""
+    return name.replace("\x00", "\ufffd")
+
+
 def _spark_names(statement: exp.Expression) -> exp.Expression:
     """Name each selected expression without AS as Spark names it ("upper(a)", "locate(b, s, 1)"), not after
     the DuckDB SQL it becomes (spark_sql_names); one that module can't name keeps the older rule: named
@@ -2065,7 +2084,7 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
                 continue
             named = spark_sql_names.column_name(column, statement)
             if named is not None:
-                select.expressions[i] = exp.alias_(column, named, quoted=True)
+                select.expressions[i] = exp.alias_(column, _no_nul(named), quoted=True)
                 select.expressions[i].parent = select
                 continue
             if not (
@@ -2078,7 +2097,7 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
                     or column.find(exp.Cast, exp.TryCast)):
                 continue
             name = spark_name(column)
-            select.expressions[i] = exp.alias_(column, name, quoted=True)
+            select.expressions[i] = exp.alias_(column, _no_nul(name), quoted=True)
             select.expressions[i].parent = select
     return statement
 
@@ -2372,6 +2391,28 @@ class KfDuckDB(DuckDB):
                 expression = expression.copy()
                 expression.set("colon", True)
             return super().lambda_sql(expression, arrow_sep=arrow_sep, wrap=wrap)
+
+        # DuckDB 1.x reads a query's text only up to a NUL (U+0000): one in a quoted string stopped a valid
+        # query with "unterminated quoted string", and one in a name ran the text before it alone, so
+        # DELETE FROM t<NUL> WHERE k = 2 emptied t. A string holding one is written as its pieces joined by
+        # CHR(0), the same value; a comment loses it; anywhere else the query is refused.
+        def literal_sql(self, expression: exp.Literal) -> str:
+            if not (expression.is_string and "\x00" in expression.this):
+                return super().literal_sql(expression)
+            parts: list[str] = []
+            for i, piece in enumerate(expression.this.split("\x00")):
+                parts += ["CHR(0)"] * bool(i) + [super().literal_sql(exp.Literal.string(piece))] * bool(piece)
+            return "(" + " || ".join(parts) + ")"
+
+        def sanitize_comment(self, comment: str) -> str:
+            return super().sanitize_comment(comment.replace("\x00", " "))
+
+        def generate(self, expression: exp.Expr, copy: bool = True) -> str:
+            sql = super().generate(expression, copy=copy)
+            if "\x00" in sql and self.unsupported_level == sqlglot.ErrorLevel.RAISE:
+                raise UnsupportedError("a name or word outside quotes holds a NUL character (U+0000), which "
+                                       "DuckDB on this PC can't read there.")
+            return sql
 
         def ordered_sql(self, expression: exp.Ordered) -> str:
             """sqlglot leaves out an ascending sort's NULLS LAST, as DuckDB's own default; the Spark

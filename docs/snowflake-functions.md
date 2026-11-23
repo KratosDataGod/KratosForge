@@ -302,13 +302,13 @@ the known differences in more detail.
 | `OBJECT_PICK` | Runs |  | 2 value checks |
 | `OBJECT_KEYS` | Runs |  | 1 value check |
 | `FILTER` | Runs |  | 2 value checks |
-| `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
+| `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB. |
 | `TRANSFORM` | Runs |  | 2 value checks |
 | `MAP_CAT` | Runs |  | 2 value checks |
 | `MAP_CONTAINS_KEY` | Runs |  | 1 value check |
 | `MAP_DELETE` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
 | `MAP_ENTRIES` | Runs |  | 2 value checks |
-| `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB.. |
+| `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB. |
 | `MAP_KEYS` | Runs |  | 1 value check |
 | `MAP_PICK` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
 | `MAP_SIZE` | Runs |  | 1 value check |

@@ -8,7 +8,7 @@ A query that runs here runs in DuckDB on this PC, not in Fabric. It is not proof
 
 1. The query gets an id and is **Queued**. If fewer than the allowed number of queries are running (2 by default), it starts at once.
 2. **Running**: the query runs in a Python process of its own, with DuckDB's memory limit, a temp folder for spilled data, and external access turned off (see [What a query may do](#what-a-query-may-do)). The Results band shows how long it has run and how many rows it has written so far.
-3. The result is streamed, batch by batch, into a snapshot file in the temp folder. The page shows the first page of rows (1,000 by default). **Next ›** and **‹ Previous** read other pages from the snapshot; the query doesn't run again, and rows are never counted with `COUNT(*)`: the total is the number of rows written.
+3. The result is streamed, batch by batch, into a snapshot file in the temp folder. The page shows the first page of rows (1,000 by default). **Next ›** and **‹ Previous** read other pages from the snapshot; the query doesn't run again, and rows are never counted with `COUNT(*)`: the total is the number of rows written. A result of millions of rows never has to fit in memory: a warehouse's arrives 65,536 rows at a time and a local project's in batches, each written to the snapshot before the next is read (tests/test_result_streaming.py checks this with 2 million warehouse rows and 5 million local ones).
 4. The run ends in one of these states:
 
 | State | What it means |

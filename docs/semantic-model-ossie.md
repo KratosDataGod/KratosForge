@@ -645,6 +645,28 @@ members and permissions, and no expression or format text.
   perspectives, translations, hierarchies and calculation groups travel in the Ossie file's Power BI section,
   where other tools don't see them.
 
+### One TMDL writer (OSSIE-007a)
+
+The Direct Lake model that **Build model** makes (`sidecar/fabric_desktop/semantic.py`) is built as
+TMSL (`semantic.model_bim`) and written by the same writer as everything else, `tmdl.from_bim`.
+The writer reads its output back, and if anything would come back different the build stops with
+the object named, so a model that differs from the plan is never sent. The model is the same as the
+one the old hand-written TMDL described; `test_semantic_one_writer.py` reads both with the TMDL
+reader and compares them.
+
+What changes:
+
+- The first update of an existing model sends text that differs from the last build in whitespace,
+  name quoting and a fence around the connection's M expression. The model is the same, and Fabric
+  keeps its own layout, so nothing shows in Fabric or in Git.
+- Table file names are cleaned like other written models: `sales/eu` is in `sales_eu.tmdl`, `CON`
+  in `_CON.tmdl`. Tables are matched by lineage tag, not file name, so names reports use are kept.
+- Finding the existing model's table names reads each table file on its own with the TMDL reader.
+  The 20 MB limit applies to one table's file; a file past it stops the build rather than guess a name.
+- A column called `true` or `false` is written as `sourceColumn: "true"`, so it reads back as its
+  name. The old text read back as a yes/no value in this app's reader; Fabric reads the property as text.
+- A table or column name with a line break is refused, where it was written as broken TMDL before.
+
 ## From an AI tool
 
 A connected AI tool ([Connect your AI tool](ai/README.md)) can list an environment's semantic

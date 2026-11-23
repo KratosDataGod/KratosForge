@@ -63,7 +63,7 @@ beforeEach(async () => {
     window.__settingsPatch = null; window.__fdShellCalls.length = 0;
     document.getElementById("dialog-root").replaceChildren();
     const t = document.getElementById("toast"); t.hidden = true; t.textContent = "";
-    state.user = "chris@contoso.com"; state.notebook = null; state.commit = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+    state.user = "pat@contoso.com"; state.notebook = null; state.commit = "5d69f21aa1b2c3d4e5f60718293a4b5c6d7e8f90"; // pragma: allowlist secret (fake commit id)
     updateWatch.notice = null; renderUpdateBanner();
     try { localStorage.removeItem("fd.updatewatch.later"); localStorage.removeItem("fd.updatewatch.off"); } catch { /* */ }
     go("home");

@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -177,6 +178,28 @@ def test_a_file_too_deep_to_read_as_yaml_is_scanned_line_by_line_and_named(capsy
     out = capsys.readouterr().out.splitlines()
     assert len(out) == 2 and out[0].startswith("::warning file=") and "deep%2Cone%3Ax.yaml::" in out[0]
     assert "nested too deeply" in out[0] and "scanned line by line" in out[0]
+
+
+def test_loading_the_scan_guards_detect_secrets_own_file_reading(monkeypatch, capsys):
+    """The guard is installed when the module loads (the scan's worker processes import it fresh), on the
+    function detect-secrets reads each file through."""
+    def too_deep(file, use_eager_transformers=False):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    core_scan = ModuleType("detect_secrets.core.scan")
+    core_scan.get_transformed_file = too_deep  # type: ignore[attr-defined]
+    core = ModuleType("detect_secrets.core")
+    core.scan = core_scan  # type: ignore[attr-defined]
+    package = ModuleType("detect_secrets")
+    package.core = core  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "detect_secrets", package)
+    monkeypatch.setitem(sys.modules, "detect_secrets.core", core)
+    monkeypatch.setitem(sys.modules, "detect_secrets.core.scan", core_scan)
+    _load()
+    installed = core_scan.get_transformed_file
+    assert installed is not too_deep and installed.line_by_line_when_too_deep
+    assert installed(_File(str(ROOT / "deep.yaml"))) is None  # read line by line, not a stopped scan
+    assert "nested too deeply" in capsys.readouterr().out
 
 
 def test_only_too_deep_is_read_line_by_line_and_the_guard_is_added_once():

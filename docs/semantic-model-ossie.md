@@ -521,6 +521,57 @@ the project's folder, refuses a link or junction there, and reads nothing past 2
 16 MB of YAML. **Open folder** uses `meta_model_semantic_view_reveal`, which opens only that view's
 existing folder in File Explorer and is written to the audit log, as the other Open folder buttons are.
 
+## Compatibility matrix (engine only)
+
+`semantic_matrix.compatibility(definition, kind=None)` (OSSIE-015a; `sidecar/fabric_desktop/semantic_matrix.py`)
+checks one definition against every target KratosForge writes, on this PC. The definition is a `model.bim`, a TMDL
+folder's files or an Ossie file, as structural parity reads them. Nothing is written, and nothing calls Fabric or
+Snowflake. There's no engine method or screen yet.
+
+It returns `definition` (its kind and label), `targets` (one row per target), `columns`, `summary`, `security`
+(the source's role and calculation group names), `not_checked` (L3 and L4) and `ceiling`. The four targets are:
+
+| Target | How it's made |
+| --- | --- |
+| `power-bi-model` | Import's converter (`to_tmsl`) |
+| `ossie-0.2` | Export (`model_ossie.export`) |
+| `fabric-semantic-view` | The Semantic View emitter |
+| `snowflake-ossie` | The Snowflake export profile, run on the Ossie 0.2 export |
+
+Each row has:
+
+- `status`: **converted**, **source** (the definition is already this kind), **refused** (the converter or emitter
+  refuses it by a rule), **failed** (it tripped), or **not available** (Snowflake when the Ossie export isn't
+  there).
+- `result`, in the plan's words. The best is **Structurally compatible but behavior unverified**. No row ever says
+  Verified equivalent or Equivalent within tolerance, because nothing is run or timed. A converted row's result is
+  its L2 parity summary, the worst object result.
+- `fidelity`: the counts with their basis, which is the converter's fidelity report, the Semantic View report or
+  the Snowflake report. When a fidelity report can't be built, the counts are derived from the parity rows and say
+  so.
+- `dropped`: the source objects the target leaves out, by the source's names. At most 50 are listed, with the
+  total. A view report names a column "dataset ... field" and parity names it "table ... column". They're matched
+  by structural key, so each object is listed once. `extension_only` lists, the same way, what the target carries
+  only in the Power BI section.
+- `parity`: the full `parity_l2` report of the source against the target, with its summary and counts.
+- `roles` and `calculation_groups`: every role and calculation group of the source, named in every row with what
+  the target does to it: **kept**, **extension only**, **changed**, **dropped** or **unverified**.
+  `roles_dropped` and `calculation_groups_dropped` name the dropped ones, and `warnings` lists security warnings
+  first. Ossie 0.2 keeps roles and calculation groups only in the Power BI section, so that row has an "extension
+  only" security warning. Snowflake keeps that section in the file but doesn't apply it, so its row says the same.
+  A view has no place for them, so they're dropped there.
+
+A definition that can't be read is **Test failed** on every row, with the reason. An Ossie 0.3.0.dev0 file is
+**Unsupported** on every row, because the converter reads 0.2.0.dev0 only. A Snowflake 0.1.1 file is its own
+row, and the others are Unsupported.
+
+Known limit: a Semantic View has no dataset fields, because Fabric reads the columns from the lakehouse. So L2
+can't resolve the columns a view metric's SQL names, and a measure the view keeps can show Unsupported at L2. The
+view row's notes count these measures, and they aren't listed as dropped.
+
+`semantic_matrix.redacted(matrix)` gives a copy that's safe outside the local pane. Each parity report goes
+through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and hash instead.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it

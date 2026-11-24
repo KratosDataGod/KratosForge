@@ -66,7 +66,7 @@ check is an error.
 
 from __future__ import annotations
 
-import glob
+import fnmatch
 import os
 import re
 from dataclasses import asdict, dataclass
@@ -305,9 +305,13 @@ class _Checker:
                 continue
             matches: list[Path] = []
             outside = 0
-            for p in glob.iglob(os.path.join(glob.escape(str(base)), pattern), recursive=True):
-                if not os.path.isfile(p):
-                    continue
+            files, linked = _walk_glob(base, pattern, MAX_INCLUDE_FILES + 1)
+            if linked:
+                self.add(main, ERROR, where, f"The include {pattern!r} goes through {linked} linked folder"
+                                             f"{'' if linked == 1 else 's'}, which "
+                                             f"{'isn' if linked == 1 else 'aren'}'t followed. An include must stay "
+                                             "inside the bundle folder.")
+            for p in files:
                 if not self.inside(Path(p)):
                     outside += 1
                     continue
@@ -320,9 +324,10 @@ class _Checker:
             if outside:
                 self.add(main, ERROR, where, f"The include {pattern!r} matches {outside} file"
                                              f"{'' if outside == 1 else 's'} outside the bundle folder, which "
-                                             "aren't read. An include must stay inside the bundle folder.")
+                                             f"{'isn' if outside == 1 else 'aren'}'t read. An include must stay "
+                                             "inside the bundle folder.")
             if not matches:
-                if not outside:
+                if not outside and not linked:
                     self.add(main, ERROR, where, f"The include {pattern!r} matches no file.")
                 continue
             for path in matches:
@@ -720,6 +725,70 @@ def _duplicate_keys(node: yaml.Node, path: str) -> Iterator[tuple[str, int, int]
     elif isinstance(node, yaml.SequenceNode):
         for i, item in enumerate(node.value):
             yield from _duplicate_keys(item, f"{path}[{i}]")
+
+
+def _walk_glob(base: Path, pattern: str, limit: int) -> tuple[list[str], int]:
+    """The files under ``base`` that the include glob ``pattern`` names (``*``, ``?``, ``[...]`` within one
+    folder, ``**`` for any number of folders), as glob finds them, and how many linked folders (symbolic links
+    or junctions) it met and didn't enter: the walk never follows a link to a folder, so it only ever lists
+    folders that are inside the bundle. Stops after ``limit`` files."""
+    parts = [p for p in re.split(r"[\\/]+", pattern) if p and p != "."]
+    found: dict[str, None] = {}
+    linked = 0
+
+    def visible(name: str, part: str) -> bool:  # as glob: a wildcard doesn't match a leading dot
+        return not name.startswith(".") or part.startswith(".")
+
+    def entries(folder: str) -> list[os.DirEntry[str]]:
+        try:
+            with os.scandir(folder) as it:
+                return sorted(it, key=lambda e: e.name)
+        except OSError:  # silent-ok: a folder that can't be listed matches nothing, as with glob
+            return []
+
+    def is_link(entry: os.DirEntry[str]) -> bool:
+        return entry.is_symlink() or os.path.isjunction(entry.path)
+
+    def walk(folder: str, i: int) -> None:
+        nonlocal linked
+        if len(found) >= limit or i >= len(parts):
+            return
+        part, last = parts[i], i == len(parts) - 1
+        if part == "**":
+            if last:  # every file below, at any depth
+                for entry in entries(folder):
+                    if not visible(entry.name, "*"):
+                        continue
+                    if entry.is_file():
+                        found[entry.path] = None
+                    elif entry.is_dir():
+                        if is_link(entry):
+                            linked += 1
+                        else:
+                            walk(entry.path, i)
+                return
+            walk(folder, i + 1)  # no folder at all
+            for entry in entries(folder):
+                if entry.is_dir() and visible(entry.name, "*"):
+                    if is_link(entry):
+                        linked += 1
+                    else:
+                        walk(entry.path, i)
+            return
+        for entry in entries(folder):
+            if not (visible(entry.name, part) and fnmatch.fnmatch(entry.name, part)):
+                continue
+            if last:
+                if entry.is_file():
+                    found[entry.path] = None
+            elif entry.is_dir():
+                if is_link(entry):
+                    linked += 1
+                else:
+                    walk(entry.path, i + 1)
+
+    walk(str(base), 0)
+    return list(found)[:limit], linked
 
 
 def _leaves_folder(pattern: str) -> bool:

@@ -72,6 +72,7 @@ class Files:
         return [{"name": p.rsplit("/", 1)[-1]} for (l, p) in self.data if l == lh and p.startswith(folder + "/")]
 
     def read_bytes(self, ws, lh, path, length=None):
+        self.lengths = getattr(self, "lengths", []) + [length]
         data = self.data.get((lh, path))
         return data[:length] if data is not None and length else data
 
@@ -771,6 +772,31 @@ def test_model_bpa_refuses_a_results_file_past_the_cap(tmp_path):
     fabric = BpaFabric(files, saves=lambda p: {"rows": [], "pad": "x" * (8 * 1024 * 1024)})
     check = by_id(bpa_run(tmp_path, fabric, files))["model.bpa"]
     assert check["status"] == "failed" and "larger than 8 MB" in check["detail"]
+    assert fabric.items == {}
+
+
+def test_model_bpa_asks_for_at_most_the_cap(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"rows": [_ROW]})
+    bpa_run(tmp_path, fabric, files)
+    assert files.lengths[-1] == 8 * 1024 * 1024 + 1  # a Range read: a larger file isn't downloaded
+
+
+def test_model_bpa_a_run_that_saved_findings_but_failed_isnt_passed(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"rows": [_ROW]}, job_status="Failed")
+    check = by_id(bpa_run(tmp_path, fabric, files))["model.bpa"]
+    assert check["status"] == "failed" and "ended Failed after saving its findings" in check["detail"]
+    assert fabric.items == {}
+
+
+def test_model_bpa_a_check_that_never_finishes_is_cancelled(tmp_path):
+    ticks = iter(range(0, 10**6, 600))
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"rows": [_ROW]}, job_status="InProgress")
+    check = by_id(bpa_run(tmp_path, fabric, files, clock=lambda: next(ticks)))["model.bpa"]
+    assert check["status"] == "failed" and "cancelled it" in check["detail"]
+    assert ("cancel_job", "job-bpa") in fabric.calls
     assert fabric.items == {}
 
 

@@ -298,3 +298,21 @@ def test_an_item_id_that_isnt_a_guid_is_never_read(tmp_path, monkeypatch):
     assert not [c for c in fake.calls if c[0] == "get_item_definition"]
     got = next(x for x in r["reads"] if x["read"] == "semantic model definitions")
     assert got["ok"] is False and "1 couldn't be read" in got["problem"]
+
+
+@pytest.mark.parametrize("behavior, verb", [("DirectLakeOnly", "is set to Direct Lake only"),
+                                            ("DirectQueryOnly", "is set to DirectQuery only")])
+def test_one_direct_lake_table_reads_in_the_singular(behavior, verb):
+    one, two = good_bim(), good_bim()
+    one["model"]["tables"][1]["partitions"][0] = {"name": "p", "mode": "import",
+                                                   "source": {"type": "m", "expression": SECRET_M}}
+    for b in (one, two):
+        b["model"]["directLakeBehavior"] = behavior
+    snap = run([("one", one), ("two", two)])
+    assert f"Its 1 Direct Lake table {verb}" in outcome_of(snap, "FEA-SM-003", "one")["text"]
+    assert f"Its 2 Direct Lake tables {verb.replace('is ', 'are ', 1)}" in outcome_of(snap, "FEA-SM-003", "two")["text"]
+
+
+def test_a_flag_is_not_a_relationship_count():
+    assert not catalog_models._read({"kind": "model", "relationships": True})
+    assert catalog_models._read({"kind": "model", "relationships": 0})

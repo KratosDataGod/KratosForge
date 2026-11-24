@@ -149,7 +149,7 @@ Each finding also carries `learn`: the Learn lessons (`LM-32`, `LAB-07`) and Aca
 reviewed: it names only lessons and exercises that ship in the app, with their own titles, and a test
 fails if one is unknown, retired or renamed, or if a control is neither mapped nor listed as unmapped.
 A control that no lesson teaches yet is listed as unmapped with the reason, and its `learn` is empty;
-it is never given a loosely related lesson. Today 25 of the 36 controls are mapped and 11 are not.
+it is never given a loosely related lesson. Today 27 of the 39 controls are mapped and 12 are not.
 
 Progress follows one rule (`credit_for`): credit only for a validated fix (the control assessed again
 and passed, on measured or configuration evidence, for the same finding) or a passed exercise. A

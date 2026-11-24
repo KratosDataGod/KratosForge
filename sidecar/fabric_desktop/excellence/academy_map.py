@@ -66,6 +66,10 @@ MAP: dict[str, tuple[dict[str, str], ...]] = {
     "FEA-DEVOPS-005": (_exercise("E07", "Feature workspaces: branch out, sync, and update from Git"),),
     "FEA-PERF-002": (_SHORTCUTS,
                      _exercise("E29", "Shortcuts: a table shortcut, a folder shortcut, and a chain to avoid")),
+    "FEA-PERF-003": (_lesson("LM-25", "V-Order, OPTIMIZE and VACUUM"),
+                     _exercise("E56", "Broken: a slow lakehouse table made of many small files")),
+    "FEA-PERF-004": (_lesson("LM-25", "V-Order, OPTIMIZE and VACUUM"),
+                     _exercise("E80", "Compact a partitioned Delta table and keep time travel")),
     "FEA-REL-002": (_exercise("E02", "An environment for a notebook: libraries, resources and the default environment"),),
     "FEA-REL-006": (_exercise("E48", "Broken: a pipeline fails on a bad expression and never reports why"),),
     "FEA-SEC-001": (_LEAST_PRIVILEGE, _ROLES_EXERCISE),
@@ -83,6 +87,8 @@ UNMAPPED: dict[str, str] = {
     "FEA-CAP-001": "No lesson covers pausing, resuming or moving a capacity.",
     "FEA-GOV-001": "No lesson covers workspace descriptions or ownership.",
     "FEA-PERF-001": "No lesson covers finding and retiring duplicate notebooks.",
+    "FEA-PERF-005": ("No lesson covers Delta features the SQL analytics endpoint or Direct Lake can't read (E51's "
+                     "column mapping is about a schema change on append)."),
     "FEA-REL-001": "No lesson covers error handling in notebook code.",
     "FEA-REL-003": "No lesson covers deactivated pipeline activities.",
     "FEA-REL-004": ("No lesson covers setting an activity's retry policy (E58 covers only making a load safe to "

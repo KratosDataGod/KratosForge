@@ -95,7 +95,7 @@ function validatePayload(nb) {
 async function openValidate(nb, tab) {
   const v = nb.validate || {};
   nb.validate = { open: true, tab: tab || v.tab || "problems", filter: "all", check: null, record: v.record || null,
-    snapshot: v.snapshot || null, plan: null, chosen: {}, undo: v.undo || null, problem: "" };
+    snapshot: v.snapshot || null, plan: null, chosen: {}, undo: v.undo || null, problem: "", following: v.following || null };
   if (nb.prove?.open) nb.prove.open = false;  // one panel beside the cells at a time
   if (nb.runs?.open) nb.runs.open = false;
   renderNotebook();
@@ -160,20 +160,21 @@ async function startCleanRun(nb) {
   followValidation(nb, run.id);
 }
 
+// nb.validate is made afresh each time the panel opens, so the run is followed through nb.validate,
+// never a copy of it: closing and opening Validate while it runs still shows its result.
 async function followValidation(nb, id) {
-  const v = nb.validate;
-  if (v.following === id) return;
-  v.following = id;
+  if (nb.validate.following === id) return;
+  nb.validate.following = id;
   for (;;) {
     await new Promise((r) => setTimeout(r, VALIDATE_POLL_MS));
     const now = await rpc("notebook_validate_status", { id }).catch(() => null);
     if (!now) continue;
-    v.record = now;
+    nb.validate.record = now;
     drawValidate(nb);
     if (now.state !== "running") break;
   }
-  v.following = null;
-  const r = v.record;
+  nb.validate.following = null;
+  const r = nb.validate.record;
   const ok = r.verdict === "ready" || r.verdict === "ready_with_warnings";
   logActivity({ id: `validate:${id}`, status: ok ? "ok" : "error", title: `${nb.name} · Validate`, text: r.summary || r.state });
   toast(`${nb.name}: ${r.summary || r.state}`, r.state === "failed");

@@ -1,0 +1,98 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E79",
+  "version": 1,
+  "status": "draft",
+  "title": "Sliding windows and warm episodes over freezer readings",
+  "objectives": [
+    "2.3.5"
+  ],
+  "objective_text": "Count events in a sliding window that ends at each event, and group a run of matching events into one episode with gaps and islands.",
+  "scenario": "Freezers send a temperature reading every few minutes. A reading above -15 °C is warm. Operations wants two things. The alarm fires when a freezer has 3 or more warm readings in the 10 minutes up to a warm reading, wherever those 10 minutes fall on the clock. The daily report lists each warm episode, which is a run of warm readings in a row that ends at the first reading that isn't warm.",
+  "prerequisites": [
+    "E43"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your SQL ran on this PC with DuckDB over a fixed set of readings and produced the expected sliding windows and warm episodes."
+  ],
+  "does_not_verify": [
+    "Windowing in a running stream. This runs a batch query over stored readings, not an eventstream, KQL or Spark structured streaming.",
+    "Every output of a streaming sliding window. A streaming engine also emits a window when an event leaves it. Here a window is counted only when a warm reading arrives.",
+    "Which end of a sliding window an eventstream or Stream Analytics counts as inside. Here the exercise sets the rule itself.",
+    "Late readings and watermarks, which streaming engines add on top of these windows."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "freezer_windows": {
+        "columns": [
+          "kind",
+          "device_id",
+          "window_start",
+          "window_end",
+          "readings"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT over freezer_windows, ordered by kind, device_id and window_start. Two sliding windows for F1 (3 and 4 readings) and four warm episodes."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "The sliding windows and the warm episodes are right.",
+      "fail": "Check one kind at a time. For the sliding window, look at F2 at 11:10. For episodes, look at F1 at 10:08 and at F3 at 10:11."
+    },
+    {
+      "kind": "table_shape",
+      "table": "freezer_windows",
+      "unique": [
+        "kind",
+        "device_id",
+        "window_start"
+      ],
+      "not_null": [
+        "window_end",
+        "readings"
+      ],
+      "pass": "One row per window.",
+      "fail": "A window appears twice or has no end."
+    }
+  ],
+  "hints": [
+    "Warm means temp_c > -15. A reading of exactly -15.0 isn't warm.",
+    "For the sliding window, join the warm readings to themselves on device_id, keeping the other reading when it is after reading_ts - 10 minutes and not after reading_ts. Then group and keep count(*) >= 3.",
+    "RANGE BETWEEN INTERVAL '10 minutes' PRECEDING AND CURRENT ROW counts a reading exactly 10 minutes earlier too, which this exercise leaves out.",
+    "For episodes, number every reading of a device, and number it again within warm and not warm. Inside one run of warm readings the two numbers go up together, so their difference names the run.",
+    "A time gap between warm readings doesn't end an episode here. A reading that isn't warm does."
+  ],
+  "explanation": "A sliding window has a fixed length but no fixed place on the clock. It is tied to the events, so it answers how many events happened in the last 10 minutes at any moment. A tumbling block from 10:00 to 10:10 can split a burst in two and miss the alarm, or join readings that are further apart than 10 minutes. Counting the last 3 rows instead of the last 10 minutes ignores time. Where the window starts matters too. Here a reading exactly 10 minutes earlier is outside. An episode isn't a time window at all. It's a run of rows that share a state, found with gaps and islands. Two row numbers, one over all of a device's readings and one within each state, rise together inside a run, so their difference is the same for every row of that run. A session window would cut on time gaps instead and treat a cold reading in between as if it weren't there. Eventstream's Group by covers tumbling, hopping and sliding windows, and its SQL operator uses the Stream Analytics query language.",
+  "troubleshooting": [
+    "F2 shows a sliding window at 11:10. The window counts the reading at 11:00, which is exactly 10 minutes earlier. Keep only readings after reading_ts - 10 minutes.",
+    "F1 at 10:10 shows 3 readings, not 4. The window counts the last three rows, not the last 10 minutes.",
+    "F1 at 10:06 shows 4 readings. The window counts another device's readings, or readings that aren't warm.",
+    "F1 has one episode from 10:02 to 10:10. The 10:08 reading isn't warm, so it ends the first episode.",
+    "F3's episode runs to 10:11. -15.0 isn't above -15, so that reading isn't warm."
+  ],
+  "remediation": [
+    "LM-15",
+    "https://learn.microsoft.com/azure/stream-analytics/stream-analytics-window-functions",
+    "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/migrate-from-azure-event-hubs-stream-analytics"
+  ],
+  "reset": "Reset restores freezer_readings and drops freezer_windows.",
+  "parity": null,
+  "review_notes": [
+    "Checked on Microsoft Learn 2026-11-23. Eventstream's Group by covers the tumbling, hopping and sliding patterns of Stream Analytics, and an eventstream supports the Stream Analytics query language (fabric/real-time-intelligence/event-streams/migrate-from-azure-event-hubs-stream-analytics).",
+    "Checked on Microsoft Learn 2026-11-23. A Stream Analytics sliding window outputs only when its content changes, when an event enters or exits, so every window has at least one event (azure/stream-analytics/stream-analytics-window-functions and stream-analytics-query/sliding-window-azure-stream-analytics). Neither page says which end of the window is inside, so the exercise states its own rule and doesn't claim it for Fabric.",
+    "The exercise counts a window only when a warm reading enters it, not when one leaves. That is stated in does_not_verify.",
+    "duckdb_lab has no hidden data, so an answer that types the expected rows as VALUES would pass. The data is small and each wrong answer moves at least one row."
+  ]
+}

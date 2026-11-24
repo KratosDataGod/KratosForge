@@ -46,7 +46,6 @@ import copy
 import dataclasses
 import datetime as dt
 import functools
-import hashlib
 import json
 import math
 import re
@@ -54,7 +53,7 @@ from typing import Any
 
 from . import controls as ct
 from . import profiles as pf
-from .evidence import canonical
+from .evidence import canonical, digest
 
 FIELDS = ("id", "version", "name", "owner", "created", "rules")
 OPTIONAL_FIELDS = ("description",)
@@ -459,7 +458,7 @@ def loads(text: str | bytes, registry: ct.Registry | None = None) -> dict[str, A
 def fingerprint(pack: dict[str, Any]) -> str:
     """The SHA-256 (hex) of the pack's canonical JSON: sorted keys, no spacing. The same pack always
     gives the same fingerprint, whatever order its keys were written in."""
-    return hashlib.sha256(canonical(pack).encode("utf-8")).hexdigest()
+    return digest(pack)
 
 
 def ref(pack: dict[str, Any]) -> dict[str, Any]:

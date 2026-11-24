@@ -15,7 +15,7 @@ Before the "after" run, the new tests were run in a copy of `sidecar/` on its ow
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `kernel_host.py` | test_kernel_host_coverage, test_kernel_process_edges, test_debugger_robust (+ test_kernel_host_mutation) | 116 of 116 (115 + 1), uncapped | 103 / 13 (2 of the 103 timed out) | **88.8%** | 103/115 → 113/115 | 0/1 → 1/1 | 114 / 2 | **98.3%** | 2, not equivalent (see Left) |
+| `kernel_host.py` | test_kernel_host_coverage, test_kernel_process_edges, test_debugger_robust (+ test_kernel_host_mutation_a) | 116 of 116 (115 + 1), uncapped | 103 / 13 (2 of the 103 timed out) | **88.8%** | 103/115 → 113/115 | 0/1 → 1/1 | 114 / 2 | **98.3%** | 2, not equivalent (see Left) |
 
 No bugs were found.
 
@@ -25,7 +25,7 @@ No bugs were found.
   - The longest line the process reads is 64 MB: a line of exactly 64 MB is read, and one character more is refused as "longer than 64 MB", with its length on stderr.
   - A refused request names only the first 40 characters of its op.
   - A request runs on a daemon thread named "request-" and the first 40 characters of its op.
-  - → `test_kernel_host_mutation.py`.
+  - → `test_kernel_host_mutation_a.py`.
 
 ### Left
 

@@ -13,7 +13,7 @@ Before the "after" run, the new tests were run in a copy of `sidecar/` on its ow
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `central/client.py` | test_central_client_cov3, test_http_session, test_sqlite_stores, test_platform_refusals, test_typed_errors, test_platform_retries, test_shared_keys, test_platform (+ test_central_client_mutation) | 108 of 108 (106 + 2), uncapped | 101 / 7 | **93.5%** | 100/106 → 106/106 | 1/2 → 2/2 | 108 / 0 | **100%** | none |
+| `central/client.py` | test_central_client_cov3, test_http_session, test_sqlite_stores, test_platform_refusals, test_typed_errors, test_platform_retries, test_shared_keys, test_platform (+ test_central_client_mutation_a) | 108 of 108 (106 + 2), uncapped | 101 / 7 | **93.5%** | 100/106 → 106/106 | 1/2 → 2/2 | 108 / 0 | **100%** | none |
 
 No bugs were found.
 
@@ -26,7 +26,7 @@ No bugs were found.
   - A key table that isn't there and can't be made is refused by name, and no key is issued.
   - Any 4xx answer with a JSON object and no errors is a refusal with the answer's text, from 400 on.
   - Every call to UDF_Platform waits up to 300 seconds.
-  - → `test_central_client_mutation.py`.
+  - → `test_central_client_mutation_a.py`.
 
 ### Left
 

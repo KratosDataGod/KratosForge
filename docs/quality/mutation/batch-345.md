@@ -13,7 +13,7 @@ Before the "after" run, the new tests were run in a copy of `sidecar/` on its ow
 
 | Module | Test files run | Mutants | Before: killed / survived | Before | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `integrations/extensions.py` | test_integrations_extensions, test_integrations_tool_guards, test_integrations_workspace_scope (+ test_integrations_extensions_mutation) | 115 of 115, uncapped | 101 / 14 | **87.8%** | 115 / 0 | **100%** | none |
+| `integrations/extensions.py` | test_integrations_extensions, test_integrations_tool_guards, test_integrations_workspace_scope (+ test_integrations_extensions_mutation_a) | 115 of 115, uncapped | 101 / 14 | **87.8%** | 115 / 0 | **100%** | none |
 
 No bugs were found.
 
@@ -25,7 +25,7 @@ No bugs were found.
   - `describe()` lists every extension. Turning on an unknown one is refused by name.
   - A load that fails keeps a readable error: a `ValueError`'s own text, or another error's type and text.
   - The outline numbers cells from 1 and cuts headings at 200 characters. It takes a name of 1 to 200 characters, stops after 30 seconds, and tells tools a cell may carry more keys than it lists.
-  - → `test_integrations_extensions_mutation.py`.
+  - → `test_integrations_extensions_mutation_a.py`.
 
 ### Left
 

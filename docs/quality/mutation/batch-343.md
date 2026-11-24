@@ -13,7 +13,7 @@ Before the "after" run, the new tests were run in a copy of `sidecar/` on its ow
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `mastery/catalog.py` | test_mastery, test_mastery_catalog_cov3 (+ test_mastery_catalog_mutation) | 125 of 125 (118 + 7), uncapped | 116 / 9 | **92.8%** | 110/118 → 117/118 | 6/7 → 7/7 | 124 / 1 | **99.2%** | 1 equivalent |
+| `mastery/catalog.py` | test_mastery, test_mastery_catalog_cov3 (+ test_mastery_catalog_mutation_a) | 125 of 125 (118 + 7), uncapped | 116 / 9 | **92.8%** | 110/118 → 117/118 | 6/7 → 7/7 | 124 / 1 | **99.2%** | 1 equivalent |
 
 No bugs were found.
 
@@ -24,7 +24,7 @@ No bugs were found.
   - A class title and an achievement name may not name a god.
   - `known_ids` names what hooks may point at, Learn drafts included.
   - `load` checks that hooks name real content unless told not to.
-  - → `test_mastery_catalog_mutation.py`.
+  - → `test_mastery_catalog_mutation_a.py`.
 
 ### Left
 

@@ -115,7 +115,7 @@ test("an open exercise says how it works behind the title bar's info button", { 
   const how = page().locator("#view .how-it-works");
   assert.strictEqual(await how.count(), 1);
   const text = await how.textContent();
-  assert.match(text, /Run runs your SQL on this exercise's own data/);
+  assert.match(text, /Run tries your SQL on this exercise's own data/);
   assert.match(text, /no file or network access/);
   assert.match(text, /LOCAL VERIFIED: Your work runs on this PC/);
   assert.match(text, /more than one hint, or after opening the explanation/);

@@ -140,7 +140,9 @@ def test_every_mapped_rule_is_an_engine_rule_and_every_mapped_control_exists():
 # and Git controls (FEA-DEVOPS-003 to 005): reliability and change control, not capacity freed.
 NOT_MATCHED = {"FEA-ARCH-001", "FEA-ARCH-002", "FEA-ARCH-003", "FEA-ARCH-004", "FEA-CAP-001", "FEA-DE-003",
                "FEA-DEVOPS-001", "FEA-DEVOPS-002", "FEA-DEVOPS-003", "FEA-DEVOPS-004", "FEA-DEVOPS-005",
-               "FEA-GOV-001", "FEA-REL-001", "FEA-REL-002", "FEA-REL-003", "FEA-REL-004", "FEA-REL-005",
+               "FEA-GOV-001",
+               # no optimization engine rule looks at table layout yet, so these are handed nowhere
+               "FEA-PERF-003", "FEA-PERF-004", "FEA-PERF-005", "FEA-REL-001", "FEA-REL-002", "FEA-REL-003", "FEA-REL-004", "FEA-REL-005",
                "FEA-REL-006", "FEA-SEC-001", "FEA-SEC-002", "FEA-SEC-003", "FEA-SEC-004", "FEA-SEC-005",
                "FEA-SM-001", "FEA-SM-002", "FEA-SM-003", "FEA-SM-004", "FEA-SM-005", "FEA-SM-006"}
 

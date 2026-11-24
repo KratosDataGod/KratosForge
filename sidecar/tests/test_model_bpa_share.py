@@ -15,7 +15,7 @@ from fabric_desktop.optimize.lakehouse import LocalLakehouse
 from fabric_desktop.optimize.shared import Shared
 from test_optimize_service import svc  # noqa: F401 - the fixture is used by name
 
-TOKEN = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
+TOKEN = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"  # pragma: allowlist secret (a made-up token for the redaction test)
 
 
 def _status(request_id="bpa-1", **last):

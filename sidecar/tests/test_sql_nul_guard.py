@@ -154,7 +154,7 @@ def test_a_duckdb_sql_cell_keeps_a_nul_in_a_string(session):
 
 @pytest.fixture(scope="module")
 def project(tmp_path_factory):
-    local = LocalData(tmp_path_factory.mktemp("nul") / "local-data")
+    local = LocalData(tmp_path_factory.mktemp("nul-guard-project") / "local-data")  # not "nul": Windows reads a folder of that name as the device
     return local.engine(local.create("NUL")["id"])
 
 

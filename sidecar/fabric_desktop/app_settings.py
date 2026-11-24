@@ -679,7 +679,7 @@ def policy_problems() -> list[str]:
             problems.extend(targets(value)[1])
         for i in range(first, len(problems)):  # each says what IT can do about it
             if "Ask IT" not in problems[i]:
-                problems[i] = f"{problems[i]}. {ask_it(key)}"
+                problems[i] = _with_fix(problems[i], ask_it(key))
     if any(key in data for key in INTEGRATION_KEYS):
         from .integrations import policy as integrations_policy
         problems += [_fix(p) for p in integrations_policy.current()["problems"]]
@@ -692,7 +692,12 @@ def policy_problems() -> list[str]:
 def _fix(problem: str) -> str:
     """``problem`` (one that starts with its setting's key) with what IT can do about it."""
     key = problem.split(" ", 1)[0]
-    return problem if key not in POLICY_KEYS or "Ask IT" in problem else f"{problem}. {ask_it(key)}"
+    return problem if key not in POLICY_KEYS or "Ask IT" in problem else _with_fix(problem, ask_it(key))
+
+
+def _with_fix(problem: str, fix: str) -> str:
+    """``problem`` as one sentence, then ``fix``: a problem that already ends in a full stop keeps just the one."""
+    return f"{problem.rstrip().rstrip('.')}. {fix}"
 
 
 def dns_name(host: str) -> bool:

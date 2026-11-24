@@ -136,6 +136,13 @@ def test_policy_file_problems_each_name_the_key_and_what_it_can_do(policy):
     assert all(IT_ACTION.search(p) for p in problems), problems
 
 
+def test_a_problem_that_ends_a_sentence_gets_one_full_stop_before_what_it_can_do(policy):
+    policy({"incident_sla": {"P1": "soon"}, "allow_fabric_runs": "no"})
+    problems = app_settings.policy_problems()
+    assert any(p.startswith("incident_sla") for p in problems), problems
+    assert not [p for p in problems if ".." in p], problems
+
+
 def test_an_unreadable_policy_file_says_what_it_can_do(policy):
     app_settings.policy_path().write_text("{ not json")
     problems = app_settings.policy_problems()

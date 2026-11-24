@@ -1098,5 +1098,181 @@
       "agent": "Codebase audit and hardening"
     }
   },
-  "side_programs": []
+  "side_programs": [
+    {
+      "key": "semantic-engineering",
+      "name": "Semantic engineering (Ossie, Semantic Views, TMDL)",
+      "workstream": "fabric",
+      "thread": "TMDL and OSI conversion",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3278,
+          "title": "OSSIE-007a One TMDL emitter for the Direct Lake model",
+          "status": "ready"
+        },
+        {
+          "issue": 3279,
+          "title": "OSSIE-012a Semantic fixture corpus per version profile",
+          "status": "ready"
+        },
+        {
+          "issue": 3280,
+          "title": "OSSIE-002a New and open Ossie files in the project",
+          "status": "blocked"
+        },
+        {
+          "issue": 3281,
+          "title": "OSSIE-006d Semantic parity L3, live DAX side",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "control-plane",
+      "name": "Central control plane",
+      "workstream": "enterprise",
+      "thread": "Central control plane",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3282,
+          "title": "CP-015 Service registry and inventory engine",
+          "status": "review",
+          "note": "PR #3214"
+        },
+        {
+          "issue": 3283,
+          "title": "CP-012 First live Create of a KratosForge Environment",
+          "status": "blocked"
+        },
+        {
+          "issue": 3284,
+          "title": "CP-011 Environment cost and inventory panels on the Environment screen",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "academy-dp700",
+      "name": "KratosForge Academy DP-700",
+      "workstream": "devex",
+      "thread": "KratosForge Academy",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3286,
+          "title": "ACD-013 Practice exam question types with partial credit",
+          "status": "review",
+          "note": "PR #3239"
+        },
+        {
+          "issue": 3287,
+          "title": "E54 Eventstream loses events after a source schema change",
+          "status": "ready"
+        },
+        {
+          "issue": 3288,
+          "title": "ACD-014 Fabric-verified exercises",
+          "status": "blocked"
+        },
+        {
+          "issue": 3289,
+          "title": "ACD-016 Real-Time Intelligence exercises with local KQL",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "fabric-excellence",
+      "name": "Fabric Excellence Assessment",
+      "workstream": "enterprise",
+      "thread": "Fabric Excellence Assessment",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3290,
+          "title": "FEA-303 Lakehouse and Warehouse excellence controls",
+          "status": "review",
+          "note": "PR #3275"
+        },
+        {
+          "issue": 3291,
+          "title": "FEA-404 Accepted risk and exceptions",
+          "status": "review",
+          "note": "PR #3264"
+        },
+        {
+          "issue": 3292,
+          "title": "FEA-106 Fabric API capability matrix for the assessment",
+          "status": "ready"
+        },
+        {
+          "issue": 3293,
+          "title": "FEA-205 Live assessment check in the test workspace",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "savings-intelligence",
+      "name": "Enterprise Savings Intelligence",
+      "workstream": "enterprise",
+      "thread": "Enterprise Savings Intelligence",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3294,
+          "title": "ESI-301 Optimization records with lifecycle and rollback",
+          "status": "ready"
+        },
+        {
+          "issue": 3295,
+          "title": "ESI-402 Capacity headroom from imported timepoints",
+          "status": "ready"
+        },
+        {
+          "issue": 3296,
+          "title": "ESI-502 Cost and savings screens mockup",
+          "status": "blocked"
+        },
+        {
+          "issue": 3297,
+          "title": "ESI-108 Live check of two installations writing at once",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "three-platform-parity",
+      "name": "Three-platform parity",
+      "workstream": "dbx-snow",
+      "thread": "Three-platform parity",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3298,
+          "title": "SF-005 Snowflake object listing and query history",
+          "status": "review",
+          "note": "PR #3215"
+        },
+        {
+          "issue": 3299,
+          "title": "PAR-002 More parity cases, including cases that expect an error",
+          "status": "review",
+          "note": "PR #3245"
+        },
+        {
+          "issue": 3300,
+          "title": "PAR-003 Unified connection check across the three platforms",
+          "status": "ready"
+        },
+        {
+          "issue": 3301,
+          "title": "SF-009 Snowflake stages and data loading",
+          "status": "ready"
+        }
+      ]
+    }
+  ]
 }

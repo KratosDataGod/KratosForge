@@ -189,13 +189,18 @@ def test_a_runs_seconds_are_kept_to_the_millisecond(monkeypatch):
 
 
 def _clock(monkeypatch, *readings):
-    """R.time.monotonic gives these readings, then the last one again."""
+    """The runner's deadline clock (R.awake_monotonic, and R.time.monotonic) gives these readings, then the
+    last one again."""
     import time
     import types
 
     left = list(readings)
-    monkeypatch.setattr(R, "time", types.SimpleNamespace(
-        monotonic=lambda: left.pop(0) if len(left) > 1 else left[0], sleep=time.sleep))
+
+    def read() -> float:
+        return left.pop(0) if len(left) > 1 else left[0]
+
+    monkeypatch.setattr(R, "time", types.SimpleNamespace(monotonic=read, sleep=time.sleep))
+    monkeypatch.setattr(R, "awake_monotonic", read)
 
 
 def test_an_untils_deadline_has_passed_at_that_very_moment(monkeypatch):

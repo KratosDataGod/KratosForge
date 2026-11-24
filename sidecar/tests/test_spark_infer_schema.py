@@ -162,13 +162,20 @@ def test_a_struct_field_by_attribute_or_key_is_named_as_spark_names_it(kernel):
 
 
 def test_create_dataframe_stays_fast_on_many_rows(kernel):
-    # inferred rows go to DuckDB as one Arrow table; a row-by-row schema took several seconds here
-    text = _printed(kernel, "import time\nflat = [(i, f's{i}', i * 0.5) for i in range(200000)]\n"
-                            "nested = [(i, (i, f'x{i}'), {'k': [i]}) for i in range(200000)]\n"
-                            "t = time.monotonic(); a = spark.createDataFrame(flat, ['a', 'b', 'c']); b = spark.createDataFrame(nested)\n"
-                            "print(a.count(), b.count(), a.dtypes, b.dtypes, time.monotonic() - t < 10)")
+    # Inferred rows go to DuckDB as one Arrow table, built once per frame; a row-by-row schema took several
+    # seconds here. Counted, not timed: a wall-clock limit failed on a busy CI runner with nothing changed.
+    text = _printed(kernel, "from fabric_desktop import spark_infer\n"
+                            "built, real = [], spark_infer.arrow_table\n"
+                            "spark_infer.arrow_table = lambda rows, schema: built.append(len(rows)) or real(rows, schema)\n"
+                            "try:\n"
+                            "    flat = [(i, f's{i}', i * 0.5) for i in range(200000)]\n"
+                            "    nested = [(i, (i, f'x{i}'), {'k': [i]}) for i in range(200000)]\n"
+                            "    a = spark.createDataFrame(flat, ['a', 'b', 'c']); b = spark.createDataFrame(nested)\n"
+                            "finally:\n"
+                            "    spark_infer.arrow_table = real\n"
+                            "print(a.count(), b.count(), a.dtypes, b.dtypes, built)")
     assert text.strip() == ("200000 200000 [('a', 'bigint'), ('b', 'string'), ('c', 'double')] [('_1', 'bigint'), "
-                            "('_2', 'struct<_1:bigint,_2:string>'), ('_3', 'map<string,array<bigint>>')] True")
+                            "('_2', 'struct<_1:bigint,_2:string>'), ('_3', 'map<string,array<bigint>>')] [200000, 200000]")
 
 
 def test_a_decimal_is_kept_as_spark_keeps_it(kernel):

@@ -317,6 +317,38 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.3-q11",
+      "type": "single",
+      "stem": "At Tidewater, the semantic model was deployed to Ship-Prod for the first time a week ago. Its refresh history in Ship-Prod shows no refresh attempts at all. What is the most likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Deployment pipelines block scheduled refreshes for every item in the Production stage"
+        },
+        {
+          "id": "b",
+          "text": "Deployment doesn't copy a semantic model's refresh schedule, and none was set in Ship-Prod"
+        },
+        {
+          "id": "c",
+          "text": "The refresh schedule was turned off automatically after four refresh failures in a row in Ship-Prod"
+        },
+        {
+          "id": "d",
+          "text": "Deployment copied the model's data from Ship-Test, so the service skips the refreshes"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Deployment copies metadata, not data, and a semantic model's refresh schedule and data source credentials aren't copied, so they must be set in each stage. Four failed refreshes would appear in the refresh history, which here shows no attempts.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/understand-the-deployment-process",
+      "case": "tidewater-releases",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

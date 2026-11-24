@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import __version__, app_settings, policy_watch, secret_redaction, win_paths
+from . import __version__, app_settings, jsonfile, policy_watch, secret_redaction, win_paths
 from .redact import for_support, secret_key
 
 log = logging.getLogger(__name__)
@@ -133,9 +133,11 @@ def long_paths_enabled() -> bool | None:
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
-            return bool(winreg.QueryValueEx(key, "LongPathsEnabled")[0])
+            value, kind = winreg.QueryValueEx(key, "LongPathsEnabled")
     except OSError:
         return False  # not set: off
+    # Windows reads only a DWORD; any other type (a REG_SZ "0" or "1" left by a script) is off to it.
+    return kind == winreg.REG_DWORD and value != 0
 
 
 def path_facts(data_dir: Path) -> dict[str, Any]:
@@ -239,12 +241,14 @@ def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dic
 
 def create(out_dir: Path, data_dir: Path | None = None, agent_home: Path | None = None) -> Path:
     files = _files(data_dir or _data_dir(), agent_home)
-    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    with jsonfile.long_path_named(out_dir / f"fabric-desktop-support-{stamp}.zip", "written"):
+        out_dir.mkdir(parents=True, exist_ok=True)
     for n in range(1, 100):  # a new file every time: never replaces one, even within the same second
         path = out_dir / f"fabric-desktop-support-{stamp}{'' if n == 1 else f'-{n}'}.zip"
         try:
-            handle = path.open("xb")
+            with jsonfile.long_path_named(path, "written"):  # a path past Windows' 260 without long paths: named
+                handle = path.open("xb")
         except FileExistsError:
             continue
         break

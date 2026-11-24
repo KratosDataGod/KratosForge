@@ -28,11 +28,11 @@ When both sides have changes, KratosForge doesn't save over the other one: it as
 
 ### When both sides changed
 
-In preview, KratosForge merges the two by cell instead of asking for the whole notebook, when it knows the cells both sides started from (what it last opened or saved).
+With Preview features shown, KratosForge merges the two by cell instead of asking for the whole notebook, when it knows the cells both sides started from (what it last opened or saved).
 
 - A cell changed on one side only is taken as it is, and so is a cell added on one side. If nothing else differs, KratosForge saves the merge and says so.
-- A cell edited on both sides, a cell deleted on one side and edited on the other, and cells moved on both sides each need a pick. They're shown side by side: **Keep mine**, **Use VS Code's** or **Keep both** for an edited cell (both keeps yours, with VS Code's below it titled "From VS Code"); **Keep the cell** or **Delete it** for a deleted one; and one order for the whole notebook. Nothing is picked for you, and **Save** stays off until every difference has a pick.
-- **Cancel** changes nothing: your edits stay on screen, unsaved. Both full versions are kept under **Versions** whatever you pick.
+- A cell edited on both sides, a cell deleted on one side and edited on the other, and cells moved on both sides each need a pick. They're shown side by side. An edited cell takes **Keep mine**, **Use VS Code's** or **Keep both** (both keeps yours, with VS Code's below it titled "From VS Code"). A deleted cell takes **Keep the cell** or **Delete it**. Cell order takes one pick for the whole notebook. Nothing is picked for you, and **Save** stays off until every difference has a pick.
+- **Cancel** changes nothing, and your edits stay on screen, unsaved. Both full versions are kept under **Versions** whatever you pick.
 
 When KratosForge doesn't know where both started, for example after its own version history was cleared, it asks **Keep mine** or **Load its version** as before. Hide preview features in Settings to always get that question.
 

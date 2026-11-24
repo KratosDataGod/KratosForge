@@ -89,7 +89,7 @@ function syncSavedAt(iso) {
 async function nbSyncApplied(nb, res) {
   nb.diskConflict = false;
   nb.dirty = false;
-  const fresh = await attempt(() => rpc("open_notebook", { name: nb.name }), "Could not open the notebook");
+  const fresh = await attempt(() => rpc("open_notebook", { name: nb.name }), "Couldn't open the notebook");
   if (!fresh || state.notebook !== nb) return;
   loadIntoState(fresh);
   if (state.view === "notebook") renderNotebook();
@@ -99,7 +99,7 @@ async function nbSyncApplied(nb, res) {
 // if the file changed again meanwhile, the person is asked again about the newer file.
 async function nbSyncSave(nb, choices) {
   const res = await attempt(() => rpc("notebook_sync_merge", { ...notebookPayload(), disk_stamp: nb.diskStamp, choices }),
-    "Could not save the merged notebook");
+    "Couldn't save the merged notebook");
   if (!res) return null;
   if (res.changed_on_disk) {
     nbSyncMerge(nb, res);

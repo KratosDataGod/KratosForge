@@ -49,6 +49,9 @@ generated data and your answer, which is saved as you type and kept after a rest
   throws your answer away. Reset keeps the hints you used, the explanation you opened and the quiz answers you
   changed, so a pass after Reset still isn't independent, until the exercise gets a new version.
 
+The **ⓘ** in the title bar opens **How this works** for the exercise: what Run and Check my work do
+for this kind of exercise, what its label means, what your answer can reach and what's recorded.
+
 The panel beside the editor has **Task** (the scenario, requirements, how it's checked and the
 lesson), **Hints** and **Check** (each check's result, what it proves and doesn't, the explanation once
 you've passed, and what was recorded).

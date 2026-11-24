@@ -259,7 +259,8 @@ async function renderAcademyExercise(eid) {
     h("p", { class: "sub row wrap" }, academyPill(ex.class), ` ${academyMeta(ex)} · ${ex.verification.engine}`)));
   const work = h("div", { class: "academy-work" });
   const aside = h("aside", { class: "card academy-panel", "aria-label": "Exercise panel" });
-  setView(h("div", { class: "page academy academy-exercise" }, head, h("div", { class: "learn-split" }, work, aside)));
+  setView(h("div", { class: "page academy academy-exercise" }, head,
+    withHowItWorks(h("div", { class: "learn-split" }, work, aside), academyExerciseHow(ex))));
   if (!ws?.started) {
     fill(work, h("p", {}, ex.scenario), h("div", { class: "row" },
       btn("Start the exercise", "play", async () => {
@@ -317,6 +318,46 @@ async function renderAcademyExercise(eid) {
     h("span", { class: "spacer" }), saved),
   editor, h("p", { class: "muted-text small" }, "F5 or Ctrl+Enter runs (just the selected text, when you select some). Changes are undone after each run, so the exercise's data stays as it was."), out);
   academyPanel(aside, ex, ws);
+}
+
+// The exercise's How this works panel (board 5 of the Academy mockup): opens from the title bar's ⓘ, or
+// beside the page when explanations are shown beside it. What Run and Check do, and what the answer can
+// reach, depend on the exercise's adapter; the wording for Python is the grading sandbox's own
+// (docs/academy/grading-sandbox.md): "runs as you ... without your sign-in", never "sandboxed".
+const ACADEMY_SQL_ADAPTERS = ["duckdb_lab", "dbsql_lab"];
+const ACADEMY_PY_ADAPTERS = ["python_lab", "delta_lab"];
+const ACADEMY_CLASS_MEANS = {
+  local_verified: "Your work runs on this PC and has to pass this exercise's checks.",
+  simulated: "Your work is checked against a model of the service, not the service itself.",
+  knowledge_only: "Questions only, and nothing you write runs.",
+  fabric_verified: "Your work runs in your own Fabric workspace, signed in as you.",
+  databricks_verified: "Your work runs in your own Databricks workspace, signed in as you.",
+};
+
+function academyExerciseHow(ex) {
+  const a = ex.adapter;
+  const sql = ACADEMY_SQL_ADAPTERS.includes(a), py = ACADEMY_PY_ADAPTERS.includes(a);
+  const doing = sql ? "Run tries your SQL on this exercise's own data and shows the first rows. Nothing is graded, and every change is undone after the run. Check my work runs the exercise's checks on a fresh copy of its data."
+    : py ? "Run tries your script in a copy of the exercise's folder and shows what it prints. Nothing is graded. Check my work builds the folder fresh, runs your script there and checks what it leaves, so nothing an earlier run left can make it pass."
+    : a === "config_model" ? "Nothing runs. Run lists the settings your document holds, and Check my work reads it against the exercise's rules."
+    : a === "git_lab" ? "Run and Check my work each replay your Git commands with real Git, in a fresh repository made from the exercise's history."
+    : a === "sqlproj_lab" ? "Run and Check my work apply your change set to the exercise's database project as text and build it in memory. Nothing is deployed."
+    : a === "quiz" ? "Check my work marks your answers. The answer key stays with KratosForge, not in the exercise's folder."
+    : "Run tries your answer and shows what it gives. Nothing is graded. Check my work runs the exercise's checks on it.";
+  const reach = sql ? "Your SQL runs with no file or network access, a memory limit, locked settings and a time limit."
+    : a === "python_lab" ? "Your script runs as you on this PC, without your sign-in, with time and memory limits. On Windows it runs in an AppContainer by default instead, with no network and no access to your own files. Settings > Advanced > Exercise sandbox says whether that's on."
+    : py || a === "pyspark_lab" ? "Your code runs as you on this PC, without your sign-in, with time and memory limits."
+    : a === "git_lab" ? "Only Git runs, in a repository made for that run, never in one of your own."
+    : ["config_model", "sqlproj_lab", "quiz"].includes(a) ? "Nothing you write runs as code."
+    : null;
+  return howItWorks("academy.exercise", {
+    reads: "This exercise's folder on this PC (academy/<certification>/<exercise>), which holds its data and your answer, and its checks, which ship with KratosForge.",
+    changes: `${doing} Reset deletes the exercise's folder, your answer included, and makes it again.`,
+    results: "A pass is recorded in Profile for the exercise's objectives, with how many hints you used, and Readiness counts it.",
+    more: [["What its label means", ACADEMY_CLASS_MEANS[ex.class] ? `${ACADEMY_CLASS[ex.class]}: ${ACADEMY_CLASS_MEANS[ex.class]}` : null],
+      ["What your answer can reach", reach],
+      ["What's recorded", "The hints you open and whether you opened the explanation are kept on this PC. A challenge passed with more than one hint, or after opening the explanation, counts as practice, not independent work."]],
+  });
 }
 
 function academyPanel(aside, ex, ws) {

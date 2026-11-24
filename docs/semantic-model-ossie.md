@@ -111,8 +111,8 @@ reading the Ossie file back gives the same model or names what differs.
 ## Fidelity report
 
 Export (from Fabric or from a folder), Import's preview and Ossie file to TMDL each return a
-`fidelity` report beside the `report` rows (OSSIE-004a, engine only; the card shows it in
-OSSIE-004b). It lists every object the conversion reads once: the model, tables or datasets,
+`fidelity` report beside the `report` rows (OSSIE-004a, engine only). The card doesn't show it
+yet; that is OSSIE-004b. It lists every object the conversion reads once: the model, tables or datasets,
 columns or fields, measures or metrics, hierarchies, calculation groups, relationships, roles,
 perspectives, cultures and shared expressions, including those that travel in a file's Power BI
 section. Each object is in one class:

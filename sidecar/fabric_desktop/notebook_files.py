@@ -26,7 +26,7 @@ from typing import Any
 from . import jsonfile, notebook_resources
 from .fabric_run import SHIM_MARKER, uses_spark
 from .meta import diff as diff_mod
-from .notebook import NotebookShelf, NotebookStore, check_notebook_name, from_ipynb, ipynb_cell_problem
+from .notebook import NotebookShelf, NotebookStore, check_notebook_name, from_ipynb, ipynb_cell_problem, other_cell_type_note
 
 KEEP_DAYS = 30
 MAX_FILE_BYTES = 20 * 1024 * 1024
@@ -205,6 +205,9 @@ def read(nb: dict[str, Any]) -> dict[str, Any]:
     if spark:
         notes.append(f"Cell{'s' if len(spark) > 1 else ''} {', '.join(map(str, spark))} use{'' if len(spark) > 1 else 's'} "
                      "Spark. On this PC spark runs on DuckDB's Spark-compatible API, so check them with Validate.")
+    kept = [raw for raw, c in zip(nb["cells"], parsed["cells"], strict=True) if any(c is k for k in cells)]
+    notes += [f"Cell {n}. {other_cell_type_note(raw.get('cell_type'))}" for n, raw in enumerate(kept, 1)
+              if raw.get("cell_type") not in ("code", "markdown")]
     if dropped_setup:
         notes.append("The setup cell KratosForge adds when it publishes was left out; Publish adds it again.")
     outputs = any(c.get("outputs") for c in nb["cells"] if isinstance(c, dict))
@@ -248,18 +251,22 @@ def from_fabric(shelf: NotebookShelf, definition: dict[str, Any], item: dict[str
 
 def ipynb_of(definition: dict[str, Any]) -> dict[str, Any]:
     """The .ipynb JSON in a getDefinition result."""
-    import base64
+    from . import b64
     root = (definition.get("definition") if isinstance(definition, dict) else None) or definition
     parts = root.get("parts") if isinstance(root, dict) else None
     part = next((p for p in parts if isinstance(p, dict) and str(p.get("path", "")).endswith(".ipynb")), None) \
         if isinstance(parts, list) else None
     if part is None or not isinstance(part.get("payload"), str):
         raise ValueError("Fabric didn't return the notebook's cells.")
-    try:
-        return json.loads(base64.b64decode(part["payload"]))
+    try:  # validate: junk inside the base64 is refused, never decoded short
+        nb = json.loads(b64.decode_exact(part["payload"]))
     except (ValueError, RecursionError):  # not base64, not UTF-8, not JSON, or nested too deep
         raise ValueError("Fabric returned the notebook's cells in a form that can't be read. Open the notebook in Fabric to "
                          "check it, then try again.") from None
+    if not isinstance(nb, dict):
+        raise ValueError("Fabric's notebook couldn't be read because it isn't a notebook document. Open it in Fabric "
+                         "to check it still loads.")
+    return nb
 
 
 # ---- what was published, to see changes made in Fabric since

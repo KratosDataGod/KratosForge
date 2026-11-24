@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import catalog_architecture, catalog_artifacts, catalog_devops, catalog_models, catalog_performance
+from . import (catalog_architecture, catalog_artifacts, catalog_devops, catalog_models, catalog_performance,
+               catalog_warehouse)
 from . import controls as ct
 from .evidence import Map, fits
 
@@ -363,6 +364,16 @@ _TABLE_DELTA = {"name": str, "read": lambda v: v is True, "delta": lambda v: v i
                 "bytes": _count, "avg_file_bytes": _count, "versions_since_vacuum": _count,
                 "last_vacuum": (str, None), "features": _NAMES}
 _TABLES = {"tables": [(_TABLE_UNREAD, _TABLE_PLAIN, _TABLE_DELTA)], "past_budget": _count, "staging": bool}
+# FEA-303: one warehouse's collation, and every warehouse read in the workspace. A list (cut short)
+# is never longer than what was read, and what was read never more than the workspace has, so a junk
+# count can't make one warehouse look like the only one.
+_WAREHOUSES = {"count": _count, "read": _count, "warehouses": [{"id": str, "name": str, "collation": (str, None)}]}
+
+
+def _warehouses_fit(p: Any) -> bool:
+    return fits(p, _WAREHOUSES) and 1 <= len(p["warehouses"]) <= p["read"] <= p["count"]
+
+
 PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
     "workspace.info": {"description": str, "?capacity_id": _PLAIN},
     "workspace.inventory": {"items": [{"id": str, "type": str, "?name": str}]},
@@ -387,6 +398,9 @@ PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
     "item.binding": {"default_lakehouse": (str, None), "?definition": str},
     "lakehouse.properties": {"schemas_enabled": bool, "default_schema": (str, None)},
     "lakehouse.tables": _TABLES,
+    "sqlendpoint.properties": {"lakehouse_id": str, "lakehouse": str, "provisioning_status": (str, None)},
+    "warehouse.properties": {"collation": (str, None)},
+    "workspace.warehouses": _warehouses_fit,
     "workspace.git": {"state": lambda v: v is None or v in catalog_devops.STATES, "provider": str, "branch": str,
                       "status": (None, {"uncommitted": _count, "incoming": _count, "conflicts": _count})},
 }
@@ -398,7 +412,8 @@ def registry() -> ct.Registry:
     from .catalog_capacity import CONTROLS as CAPACITY  # it imports this module
     for c in (*CONTROLS, *catalog_artifacts.CONTROLS, *catalog_models.CONTROLS, *CAPACITY):
         r.register(c)
-    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS, *catalog_performance.CONTROLS):
+    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS, *catalog_performance.CONTROLS,
+              *catalog_warehouse.CONTROLS):
         r.register(c)
     r.payloads.update(PAYLOADS)
     return r

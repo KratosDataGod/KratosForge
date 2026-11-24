@@ -39,7 +39,7 @@ from urllib.parse import unquote, urlsplit
 
 import requests
 
-from . import http_session, lakehouse, notebook_dag
+from . import http_session, jsonfile, lakehouse, notebook_dag
 from .onelake import FileStore, error_code
 from .retrying import send_with_retry
 from . import trees
@@ -194,11 +194,8 @@ def _make_fs() -> types.SimpleNamespace:
     def _read(path: str, limit: int | None = None) -> bytes:
         """The file's bytes; with ``limit``, only its first ``limit`` bytes are read."""
         where, p = _split(path)
-        if where == "local":
-            if limit is None:
-                return Path(p).read_bytes()
-            with open(p, "rb") as f:
-                return f.read(limit)
+        if where == "local":  # waits out a virus scanner holding a file just written (jsonfile.read_bytes)
+            return jsonfile.read_bytes(p, limit)
         lh = lakehouse._current()
         store = _store()
         data = (store.read_bytes(lh.workspace_id, lh.lakehouse_id, p) if limit is None

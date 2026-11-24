@@ -28,6 +28,7 @@ when a capacity is resized, paused or retired (docs/finops/plan.md).
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 from collections import Counter
 from typing import Any
@@ -49,6 +50,9 @@ MAX_REFRESHES_PER_DAY = 24
 MIN_UTILIZATION = 0.10
 MIN_ITEMS_DAYS = 7
 _TOP = 20
+# CU seconds one imported row can plausibly hold: an F2048 running flat out for a year is about 6.5e10.
+# A row above it (or NaN, infinity, negative) is junk and left out, as a row without a number is.
+MAX_ROW_CU = 1e12
 _F_SKU = re.compile(r"F(\d+)", re.IGNORECASE)
 
 _METRICS_DOC = {"title": "What is the Microsoft Fabric Capacity Metrics app?",
@@ -69,7 +73,14 @@ def _norm(text: Any) -> str:
 
 
 def _when(text: Any) -> dt.datetime | None:
-    return ms.parse_time(text) if text else None
+    """The time, in UTC, or None when it isn't one (or can't be shown in UTC, like year 1 at +14:00)."""
+    if not text:
+        return None
+    try:
+        t = ms.parse_time(text)
+        return t.astimezone(dt.timezone.utc) if t else None
+    except (ValueError, OverflowError, OSError, TypeError):
+        return None
 
 
 def _iso(t: dt.datetime | None) -> str | None:
@@ -77,8 +88,12 @@ def _iso(t: dt.datetime | None) -> str | None:
 
 
 def _cu(row: dict[str, Any]) -> float | None:
-    v = (row.get("cu") or {}).get("value")
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else None
+    cu = row.get("cu")
+    v = cu.get("value") if isinstance(cu, dict) else None
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return None
+    v = float(v) if abs(v) < 1e300 else math.inf
+    return v if math.isfinite(v) and 0 <= v <= MAX_ROW_CU else None
 
 
 def _operations(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -97,13 +112,13 @@ def _operations(rows: list[dict[str, Any]]) -> dict[str, Any]:
         ends.append(_when(r.get("end")) or start)
         if r.get("status"):
             status_rows += 1
-            key = _norm(r["status"])
+            key = _norm(ev.text(r["status"]))
             by_status[key] = by_status.get(key, 0.0) + cu
         if r.get("operation"):
             operation_rows += 1
             if "refresh" in _norm(r["operation"]):
                 day = start.astimezone(dt.timezone.utc).date().isoformat()
-                refreshes[(str(r.get("workspace") or ""), str(r.get("item") or ""), day)] += 1
+                refreshes[(ev.text(r.get("workspace")), ev.text(r.get("item")), day)] += 1
     top = sorted(refreshes.items(), key=lambda kv: (-kv[1], kv[0]))[:_TOP]
     return {"rows": len(starts), "cu_seconds": round(total, 3), "status_rows": status_rows,
             "cu_by_status": {k: round(v, 3) for k, v in sorted(by_status.items())}, "operation_rows": operation_rows,
@@ -113,13 +128,19 @@ def _operations(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "refresh_days_over": sum(1 for n in refreshes.values() if n > MAX_REFRESHES_PER_DAY)}
 
 
+def _rows(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = doc.get("rows")
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
 def _items(doc: dict[str, Any]) -> dict[str, Any] | None:
-    period = doc.get("period") or {}
+    period = doc.get("period")
+    period = period if isinstance(period, dict) else {}
     start, end = _when(period.get("start")), _when(period.get("end"))
-    cus = [c for r in doc.get("rows") or [] if (c := _cu(r)) is not None]
+    cus = [c for r in _rows(doc) if (c := _cu(r)) is not None]
     if not start or not end or end <= start or not cus:
         return None
-    return {"import_id": str(doc.get("id") or ""), "period": {"start": _iso(start), "end": _iso(end)},
+    return {"import_id": ev.text(doc.get("id")), "period": {"start": _iso(start), "end": _iso(end)},
             "seconds": (end - start).total_seconds(), "rows": len(cus), "cu_seconds": round(sum(cus), 3)}
 
 
@@ -127,20 +148,22 @@ def usage(capacity_id: str, capacity_name: str | None, workspace_name: str | Non
           imports: list[dict[str, Any]] | None, *, collected_at: str) -> list[dict[str, Any]]:
     """One ``capacity.usage`` record (measured) from the Capacity Metrics imports that hold
     ``workspace_name``'s use, or none: no import, no workspace name, or no import has it."""
-    if not capacity_id or not workspace_name or not imports:
+    if not capacity_id or not isinstance(workspace_name, str) or not workspace_name or not imports:
         return []
+    if not isinstance(imports, list):
+        raise ValueError("the imports aren't a list")
     want = _norm(workspace_name)
-    mine = [d for d in imports if d.get("provider") == "metrics_app"
-            and any(_norm(r.get("workspace")) == want for r in d.get("rows") or [])]
+    mine = [d for d in imports if isinstance(d, dict) and d.get("provider") == "metrics_app"
+            and any(_norm(r.get("workspace")) == want for r in _rows(d))]
     if not mine:
         return []
-    mine.sort(key=lambda d: str(d.get("id") or ""))
-    ops_rows = [r for d in mine if d.get("layout") == "operations" for r in d.get("rows") or []]
+    mine.sort(key=lambda d: ev.text(d.get("id")))
+    ops_rows = [r for d in mine if d.get("layout") == "operations" for r in _rows(d)]
     items = [x for d in mine if d.get("layout") == "items" and (x := _items(d))]
-    payload = {"matched_by": {"workspace": workspace_name}, "attribution": ATTRIBUTION,
-               "imports": [{"id": str(d.get("id") or ""), "file_name": str(d.get("file_name") or ""),
-                            "layout": str(d.get("layout") or ""), "imported_at": d.get("imported_at"),
-                            "rows": len(d.get("rows") or [])} for d in mine],
+    payload = {"matched_by": {"workspace": ev.text(workspace_name)}, "attribution": ATTRIBUTION,
+               "imports": [{"id": ev.text(d.get("id")), "file_name": ev.text(d.get("file_name")),
+                            "layout": ev.text(d.get("layout")), "imported_at": ev.text(d.get("imported_at")) or None,
+                            "rows": len(_rows(d))} for d in mine],
                "operations": _operations(ops_rows) if ops_rows else None, "items": items}
     subj = ev.subject("capacity", capacity_id.lower(), capacity_name)
     return [ev.record(KIND, subj, source=SOURCE, confidence="measured", collected_at=collected_at, payload=payload)]

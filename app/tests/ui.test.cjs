@@ -6181,7 +6181,7 @@ test("the Direct Lake check is a Preview card that only reads, with fixes that o
   assert.match(card, /reading from OneLake uses capacity/, "capacity wording (QA-008)");
   assert.match(card, /goMeta\("health"\)/, "compacting happens in Table health");
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
-  assert.match(features, /directLakeCheck: "Direct Lake check"/);
+  assert.match(features, /directLakeCheck: "Direct Lake fallback risk"/);
 });
 
 test("the data dictionary is a Preview card whose import saves only from its preview", () => {

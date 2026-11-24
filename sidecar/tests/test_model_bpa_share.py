@@ -70,8 +70,17 @@ def test_one_finding_per_rule_and_object_and_nothing_without_a_finished_check():
 
 def test_rule_ids_are_slugs():
     assert model_bpa_share.rule_id("Avoid using '1-(x/y)' syntax") == "bpa.avoid-using-1-x-y-syntax"
-    a, b = model_bpa_share.rule_id("日本"), model_bpa_share.rule_id("中国")
-    assert a.startswith("bpa.r-") and a != b, "names with no slug letters don't collapse into one"
+    assert model_bpa_share.rule_id("Ünïcode rule") == "bpa.ünïcode-rule", "letters of any script are kept"
+    assert model_bpa_share.rule_id("日本") != model_bpa_share.rule_id("中国")
+    assert model_bpa_share.rule_id("!!").startswith("bpa.r-"), "a name with no letters is hashed"
+
+
+def test_two_rule_names_with_one_key_keep_the_error():
+    status = _status()
+    warning = copy.deepcopy(status["last"]["findings"][0]) | {"severity": "Warning", "rule": "hide foreign keys!"}
+    status["last"]["findings"].insert(0, warning)
+    found = [f for f in model_bpa_share.analysis_rows(status)["findings"] if f["rule_id"] == "bpa.hide-foreign-keys"]
+    assert [f["severity"] for f in found] == ["high"]
 
 
 @pytest.mark.parametrize("checked_at", ["", "2026-11-23T10:00:00", "not a time"])

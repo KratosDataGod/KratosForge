@@ -55,7 +55,7 @@ fixed by the next **Update model**, not by editing the model in Fabric.
 | `model_bpa_status(env, layer?, name?)` | The model's last findings, a check still running, or one that failed in Fabric | Nothing in Fabric |
 | `model_bpa_risk(env, layer?, name?, refresh?)` | The risk check for checking this model in Fabric | Nothing |
 | `model_bpa_check(env, layer?, name?, risk_id?)` | Starts a check | Publishes the notebook and starts a Fabric job (capacity) |
-| `model_bpa_share(env, layer?, name?, approve?, confirm?)` | Adds the last check's Error and Warning findings to the central Optimize lakehouse, so they show in **Optimize > Opportunities** | Without `approve` and the matching `confirm`, nothing: it says what it would add. With them, rows in the Optimize lakehouse |
+| `model_bpa_share(env, layer?, name?, approve?, confirm?)` | Adds the last check's Error and Warning findings to the central Optimize lakehouse, so they show in **Optimize > Opportunities** | Without `approve` and the matching `confirm`, nothing changes, and it says what it would add. With them, rows in the Optimize lakehouse |
 
 ## Permissions
 
@@ -64,8 +64,7 @@ notebooks in the workspace and read the model. See [permissions](permissions.md)
 
 ## In Optimize
 
-`model_bpa_share` adds the model's last check to the central Optimize lakehouse, through the same consent
-step as the other analyses: it first says what it would add, and writes only when you confirm exactly those
+`model_bpa_share` adds the model's last check to the central Optimize lakehouse, through the same consent step as the other analyses. It first says what it would add, and writes only when you confirm exactly those
 rows. Each Error or Warning finding becomes one improvement on the model, with the rule as its rule id
 (`bpa.` and the rule's name) and the object as its target. Info findings stay on this PC.
 

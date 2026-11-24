@@ -29,13 +29,13 @@ from . import redact
 RULE_SET_VERSION = "model-bpa-1"
 RULE_PREFIX = "bpa."
 _SEVERITY = {"Error": "high", "Warning": "medium"}  # Info stays on this PC
-_GENERATOR = ("If KratosForge built this model, the next Update model fixes it; otherwise change it in the model.")
+_GENERATOR = ("If KratosForge built this model, the next Update model fixes it. Otherwise, change it in the model.")
 
 
 def rule_id(rule: str) -> str:
     """'Hide foreign keys' -> bpa.hide-foreign-keys."""
     name = str(rule).strip()
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    slug = re.sub(r"[\W_]+", "-", name.lower()).strip("-")  # letters of any script are kept
     return RULE_PREFIX + (slug or "r-" + hashlib.sha256(name.encode()).hexdigest()[:12])
 
 
@@ -59,7 +59,7 @@ def analysis_rows(status: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"{status.get('model') or 'The model'} has no finished check to share. Check it in Fabric first.")
     ws, model_id = str(status.get("workspace_id") or ""), str(status.get("model_id") or "")
     if not ws or not model_id:
-        raise ValueError("The check's model has no workspace or id, so it can't be shared.")
+        raise ValueError("The check's model has no workspace or id, so it can't be shared. Check the model again.")
     request_id, checked_at = str(last["request_id"]), str(last.get("checked_at") or "")
     try:
         zoned = dt.datetime.fromisoformat(checked_at).tzinfo is not None
@@ -76,7 +76,9 @@ def analysis_rows(status: dict[str, Any]) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     recommendations: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    for f in last.get("findings") or []:
+    # Worst first, so when two rule names give the same key (they differ only in case or punctuation),
+    # the Error is kept, not the Warning.
+    for f in sorted(last.get("findings") or [], key=lambda f: 0 if f.get("severity") == "Error" else 1):
         severity = _SEVERITY.get(str(f.get("severity")))
         if not severity:
             continue

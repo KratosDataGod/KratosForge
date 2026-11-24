@@ -41,6 +41,8 @@ NO_UI_CALLER: dict[str, str] = {
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # SF-002: the Check button in Settings > Connections waits on its mockup.
     "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
+    # Compare platforms (Preview): the card that reads it comes with the UI commit of the same change.
+    "snowflake_query_credits": "Compare platforms engine call; its card is added next",
     # Best practices check (semantic-link-labs in Fabric).
     # Local data projects.
     "list_local_tables": _LOCAL,
@@ -141,6 +143,7 @@ def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
 NO_SCREEN_GATE: dict[str, str] = {
     "incidents_history_sync": "approve",       # sets up the central incident tables only when approved
     "incidents_measures": "approve",           # copies through incidents_history_sync first
+    "snowflake_query_credits": "confirmed",    # without it, only names the warehouse that would resume
     "local_change_delta": "confirm",           # UPDATE or DELETE without WHERE
     "local_drop_delta": "confirm",             # without it, only says what would be deleted
     "local_query": "confirm",                  # DROP, TRUNCATE, CREATE OR REPLACE, INSERT OVERWRITE

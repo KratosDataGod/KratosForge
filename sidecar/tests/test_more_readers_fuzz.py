@@ -97,6 +97,7 @@ def test_a_sample_of_more_rows_than_a_bundle_holds_is_refused_before_it_is_read(
     """Sample files are read in small batches with row and byte limits; write never saves more than SAMPLE_ROWS rows."""
     zp = _replay_bundle(tmp_path / "b.zip", [("dbo.t", _parquet(replay.SAMPLE_ROWS + 1, compression="zstd"))])
     monkeypatch.setattr(pq.ParquetFile, "read", lambda *a, **k: pytest.fail("the sample was read"))
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", lambda *a, **k: pytest.fail("the sample was read"))
     with pytest.raises(ValueError, match="^The bundle's sample of dbo.t wasn't read, because it holds more"):
         _seed(tmp_path, zp, ["dbo.t"])
 

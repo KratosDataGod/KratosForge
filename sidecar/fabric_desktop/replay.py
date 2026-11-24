@@ -315,7 +315,7 @@ def read_sample(z: zipfile.ZipFile, file: str, table: str) -> Any:
     import pyarrow as pa
     import pyarrow.parquet as pq
     too_big = ValueError(f"The bundle's sample of {table} wasn't read, because it holds more than a sample "
-                         "this app saves. Choose the latest version of it instead.")
+                         f"this app saves. For {table}, pick Use the latest version instead.")
     try:
         with z.open(file) as f:
             sample = pq.ParquetFile(f)
@@ -332,7 +332,7 @@ def read_sample(z: zipfile.ZipFile, file: str, table: str) -> Any:
             return pa.Table.from_batches(batches, schema=sample.schema_arrow)
     except (OSError, EOFError, zipfile.BadZipFile, zlib.error, UnicodeDecodeError, pa.ArrowException) as exc:
         raise ValueError(f"The bundle's sample of {table} can't be read, because it isn't a Parquet file this app "
-                         "saved, or it is damaged. Choose the latest version of it instead.") from exc
+                         f"saved, or it's damaged. For {table}, pick Use the latest version instead.") from exc
 
 
 def sample_tables(bundle: dict[str, Any]) -> list[dict[str, Any]]:

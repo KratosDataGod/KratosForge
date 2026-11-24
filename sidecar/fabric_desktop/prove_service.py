@@ -452,7 +452,7 @@ class ProveMixin:
                 if table in tables:
                     if replay_key(table) in seeded:
                         raise ValueError(f"The bundle holds two samples of {table}, so the replay can't tell which "
-                                         "one to read. Choose the latest version of it instead.")
+                                         f"one to read. For {table}, pick Use the latest version instead.")
                     seeded.add(replay_key(table))
                     schema, name = replay_key(table).split(".", 1)
                     check_name("schema", schema)  # replay.read checked it too: never build a path from a bad name

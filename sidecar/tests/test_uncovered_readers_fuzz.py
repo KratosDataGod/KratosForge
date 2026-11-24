@@ -101,9 +101,26 @@ def test_restore_refuses_names_windows_would_read_as_another_file(tmp_path, name
 
 
 @pytest.mark.parametrize("name", ["app/settings.json", "app/Projects/x.json", "agent/queue.sqlite3", "app/a.b.json",
-                                  "app/con-notes.json", "app/console.json", "app/x~y.json"])
+                                  "app/con-notes.json", "app/console.json", "app/x~y.json", "app/notes~2.json",
+                                  "app/projects/a-long-draft~1.txt"])
 def test_ordinary_names_are_still_restored(name):
     assert backup._safe(name)
+
+
+def test_a_backup_made_here_always_passes_its_own_restore_check(tmp_path):
+    """create leaves out what validate would refuse (here a name in 8.3 shape) and says so, so the two agree."""
+    data = tmp_path / "data"
+    for rel in ("settings.json", "projects/draft~1.txt", "projects/notes~2.json", "projects/x~y.json"):
+        (data / rel).parent.mkdir(parents=True, exist_ok=True)
+        (data / rel).write_text("{}", encoding="utf-8")
+    made = backup.create(tmp_path / "out", data)
+    manifest, problems = backup.validate(Path(made["path"]))
+    assert problems == []
+    listed = {e["path"] for e in manifest["files"]}
+    assert {"app/settings.json", "app/projects/notes~2.json", "app/projects/x~y.json"} <= listed
+    assert "app/projects/draft~1.txt" not in listed
+    assert {"path": "app/projects/draft~1.txt", "reason": "its name looks like a Windows short name (such as draft~1.txt), so rename the file to back it up"} in \
+        manifest["not_included"]
 
 
 def test_a_manifest_larger_than_any_backup_writes_is_refused_before_it_is_read(tmp_path):
@@ -119,7 +136,7 @@ def test_a_manifest_larger_than_any_backup_writes_is_refused_before_it_is_read(t
     assert zp.stat().st_size < 1_000_000
     manifest, problems = backup.validate(zp)
     assert manifest == {} and len(problems) == 1
-    assert problems[0].startswith("Its manifest.json wasn't read, because at over 64 MB")
+    assert problems[0].startswith("Its manifest.json wasn't read, because it's over 64 MB")
 
 
 def test_a_backup_of_many_files_is_checked_in_linear_time(tmp_path):

@@ -185,6 +185,9 @@ def _collect(data_dir: Path, agent_home: Path | None) -> tuple[list[tuple[str, P
                 if reason.startswith("tokens"):
                     skipped.append({"path": f"app/{rel}", "reason": reason})
                 continue
+            if not _safe(f"app/{rel}"):  # restore would refuse it, so the backup leaves it out and says so
+                skipped.append({"path": f"app/{rel}", "reason": "its name looks like a Windows short name (such as draft~1.txt), so rename the file to back it up"})
+                continue
             files.append((f"app/{rel}", path))
     if agent_home:
         for name in AGENT_FILES:
@@ -262,14 +265,16 @@ def _no_longer(name: str) -> bool:
     return name in NO_LONGER_BACKED_UP or name.startswith(NO_LONGER_BACKED_UP_DIRS)
 
 
-_SHORT_NAME = re.compile(r"~\d")  # an 8.3 short name (MSAL_C~1.BIN) Windows reads as the long one
+# A name in 8.3 shape (MSAL_C~1.BIN, PROJEC~1) may be a short name, which Windows reads as the long name it
+# stands for, so restore refuses it and a backup leaves it out.
+_SHORT_NAME = re.compile(r"[^.~]{0,6}~\d{1,6}(\.[^.]{0,3})?", re.IGNORECASE)
 
 
 def _windows_alias(part: str) -> bool:
     """Whether Windows would read ``part`` as another file's name: it drops a trailing dot or space, keeps
-    device names (NUL, COM1.txt) for the device, and reads an 8.3 short name as the long name."""
+    device names (NUL, COM1.txt) for the device, and reads a short name as its long name."""
     return (part != part.rstrip(". ") or part.split(".")[0].upper().rstrip(" ") in _DEVICE_NAMES
-            or _SHORT_NAME.search(part) is not None)
+            or _SHORT_NAME.fullmatch(part) is not None)
 
 
 def _safe(name: str) -> bool:
@@ -291,7 +296,7 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
     with z:
         try:
             if z.getinfo(MANIFEST).file_size > MAX_MANIFEST:
-                return {}, [(f"Its manifest.json wasn't read, because at over {MAX_MANIFEST // (1024 * 1024)} MB it is far "
+                return {}, [(f"Its manifest.json wasn't read, because it's over {MAX_MANIFEST // (1024 * 1024)} MB, far "
                             "larger than any backup's. Pick a backup KratosForge made.")]
             manifest = json.loads(z.read(MANIFEST))
         except (KeyError, ValueError, RecursionError, *_UNREADABLE):

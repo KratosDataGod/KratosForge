@@ -7,11 +7,13 @@ The run was at `main` ea988e99 (2026-11-23), with `sidecar/tools/mutate.py` and 
 
 Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0, and against the module as it is on `main` today.
 
+Batch 337 scored this module at the same time, all 244 mutants, with its own tests in `test_mastery_levels_mutation.py`. So this batch's tests are in `test_mastery_levels_mutation_b.py`, and both files are kept.
+
 ## Results
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `mastery/levels.py` | test_mastery (+ test_mastery_levels_mutation) | 150 of 244 (143 + 7) | 95 / 55 | **63.3%** | 93/143 → 139/143 | 2/7 → 7/7 | 146 / 4 | **97.3%** | 4 equivalent |
+| `mastery/levels.py` | test_mastery (+ test_mastery_levels_mutation_b) | 150 of 244 (143 + 7) | 95 / 55 | **63.3%** | 93/143 → 139/143 | 2/7 → 7/7 | 146 / 4 | **97.3%** | 4 equivalent |
 
 No bugs were found.
 
@@ -27,7 +29,7 @@ No bugs were found.
   - Adept takes two sources exactly a week apart (six days isn't enough). Expert takes engineering work, not measured practice. Master takes 30 days from the first real practice to the last.
   - The rules version is 1.
   - Ten open talents at Adept, two in each specialization, make the class Adept, and every specialization needs two, even one with no talents. Nine don't. A talent at level 4 is mastered and an open one banks nothing; Journeyman counts from level 3. A talent at Initiate is in progress and one not started is available.
-  - → `test_mastery_levels_mutation.py`.
+  - → `test_mastery_levels_mutation_b.py`.
 
 ### Left
 

@@ -111,8 +111,8 @@ reading the Ossie file back gives the same model or names what differs.
 ## Fidelity report
 
 Export (from Fabric or from a folder), Import's preview and Ossie file to TMDL each return a
-`fidelity` report beside the `report` rows (OSSIE-004a, engine only; the card shows it in
-OSSIE-004b). It lists every object the conversion reads once: the model, tables or datasets,
+`fidelity` report beside the `report` rows (OSSIE-004a, engine only). The card doesn't show it
+yet; that is OSSIE-004b. It lists every object the conversion reads once: the model, tables or datasets,
 columns or fields, measures or metrics, hierarchies, calculation groups, relationships, roles,
 perspectives, cultures and shared expressions, including those that travel in a file's Power BI
 section. Each object is in one class:
@@ -288,8 +288,9 @@ when the file goes to other tools.
   then the first ones in the file. A file of 2,000 datasets with 50 bad fields each is checked in
   about a second.
 - The file is read with the same limits as Import: at most 20 million characters, no YAML
-  aliases (`*name`), and no deeper nesting than a model needs. The schema can't refer to anything
-  outside the copies it ships with.
+  aliases (`*name`), no key given twice in one object, and no deeper nesting than a model needs.
+  A repeated key is refused with its name and line, because YAML would keep only the last one.
+  The schema can't refer to anything outside the copies it ships with.
 - `valid` is true only when a schema checked the file and found nothing. Rules beyond the schema,
   such as what Fabric or Snowflake accept, are the version profiles below.
 - Regular expressions in a schema (`pattern`, `patternProperties`) would be matched with Python's
@@ -465,6 +466,33 @@ existing folder in File Explorer and is written to the audit log, as the other O
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it
 to `semantic/<model>.SemanticModel/` in the Power BI project layout, next to the Ossie file.
 Files Fabric no longer returns are removed from that folder.
+
+### Compare two versions
+
+`ossie_compare.compare_versions(old, new)` says what changed between two versions of the same
+model (OSSIE-002b, engine only: no engine method and no screen yet). Each version can be an Ossie
+0.2.0.dev0 file, a `model.bim` (TMSL) or a TMDL folder's files, read as structural parity reads
+them, so a model and its own Ossie export are the same version. Ossie 0.3.0.dev0 and Snowflake's
+0.1.1 files are refused with the reason, because the converter reads 0.2.0.dev0 only.
+
+For tables, columns, measures, relationships, roles, calculation groups, hierarchies and
+perspectives the report lists each object added, removed or changed, and counts the unchanged
+ones by kind. A change says what changed: the data type, the expression, the format string, the
+description, a relationship's ends or flags, a role's permissions or a calculation item. A
+measure's expression is compared through the L2 canonical form when both versions are inside its
+subset, so a rewrite that computes the same thing ("expression text") is told apart from one that
+doesn't ("expression"). A SQL translation added beside unchanged DAX isn't a change. Roles and
+calculation groups that changed are also listed under `look_at`, so they are checked first.
+
+The model's own name and the order of columns aren't compared, and the report says so under
+`not_checked`, with the other properties left out: partitions and data sources, shared
+expressions, sourceColumn and summarizeBy. Bad input never raises: `status` is "failed" or
+"refused", `error` says why, and the summary says the versions weren't compared. A line the reader
+can't understand is left out of the comparison, so the summary and `notes` count it and each
+side's `warnings` name it.
+The report can quote a role's filter and name its members. Anything shown outside the local pane
+must use `ossie_compare.redacted(report)`, which gives a length and hash of each filter, counts of
+members and permissions, and no expression or format text.
 
 ## How this works
 

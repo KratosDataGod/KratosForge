@@ -1537,10 +1537,14 @@ async function renderHealthTab(body) {
     maintainWarningDialog(check, (riskIds) => run(entities, riskIds, check));
   };
   const needs = hl.tables.filter((t) => t.status === "needs_maintenance");
+  const unreadable = hl.tables.filter((t) => t.status === "unreadable").length;
   const head = h("div", { class: "card pad" },
     h("div", { class: "row wrap" },
       h("b", {}, hl.local ? `${ENV_LABEL[m.env]} tables on this PC` : `${ENV_LABEL[m.env]} tables in OneLake`),
-      h("span", { class: "muted-text" }, needs.length ? `${needs.length} of ${hl.tables.length} would benefit from maintenance` : "Every table is in good shape"),
+      needs.length || !unreadable ? h("span", { class: "muted-text" }, needs.length ? `${needs.length} of ${hl.tables.length} would benefit from maintenance` : "Every table is in good shape") : null,
+      unreadable ? h("span", { class: "error-text" }, unreadable === 1
+        ? "1 table couldn't be read. Its row below says why and how to fix it."
+        : `${unreadable} tables couldn't be read. Their rows below say why and how to fix them.`) : null,
       h("span", { class: "spacer" }),
       btn("Refresh", "sync", () => renderHealthTab(body), "tool outline small"),
       btn(hl.local ? "Compact all" : "Optimize all in Fabric", "flash", () => optimize(null), "tool primary small")),
@@ -1573,7 +1577,7 @@ async function renderHealthTab(body) {
         h("td", { class: "n" }, t.versions_since_vacuum), h("td", {}, shortDate(t.last_optimize)),
         h("td", {}, t.advice.length ? h("ul", { class: "gate-list" }, t.advice.map((a) => h("li", {}, a))) : h("span", { class: "pill-s pass" }, "Healthy")),
         h("td", {}, btn(hl.local ? "Compact" : "Optimize", null, () => optimize([t.entity]), "tool link small")),
-      ] : h("td", { colspan: hl.local ? 8 : 9, class: "muted-text" }, t.message || "Not written in this environment yet")))));
+      ] : h("td", { colspan: hl.local ? 8 : 9, class: t.status === "unreadable" ? "error-text" : "muted-text" }, t.message || "Not written in this environment yet")))));
   const jobs = hl.maintenance || [];
   body.replaceChildren(head, list, jobs.length ? h("div", { class: "card pad" }, h("b", {}, "Recent maintenance jobs in Fabric"),
     h("table", { class: "mini" }, h("tbody", {}, jobs.map((j) => h("tr", {},

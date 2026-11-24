@@ -28,6 +28,9 @@ def _column_type(select: str, table: str, column: str = "v") -> dict:
 
 
 CLAIMS: list[Claim] = [
+    # A date or time as text with no style (WR-707)
+    _ts("CONVERT(VARCHAR(10), CAST('2024-02-29 13:04' AS DATETIME2), 120)"),
+    _ts("CAST(CAST('2024-02-29 13:04' AS DATETIME) AS VARCHAR(11))"),
     # Spark's date and time functions on this PC
     _nb("DATE'2024-01-31' + INTERVAL 1 MONTH"),
     _nb("unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')"),

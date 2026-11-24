@@ -16,7 +16,7 @@ CLAIMS: list[Claim] = [
     Claim("local-data.md", "''", "local-tsql", query="SELECT CAST('' AS INT)",
           note="both mentions: '' as an integer, in a cast and in + with a number"),
     Claim("local-data.md", "CAST(a_datetime AS VARCHAR)", "local-tsql",
-          query="SELECT CAST(CAST('2024-03-05 13:04:00' AS DATETIME2(0)) AS VARCHAR(30))"),
+          query="SELECT CAST(CAST('2024-03-05 13:04:00' AS DATETIME) AS VARCHAR(30))"),  # WR-707: style 0
     # notebooks.md: a notebook's spark.sql on this PC
     Claim("notebooks.md", "to_date('2026-03-02', 'yyyy-MM-dd HH:mm:ss')", "notebook"),
     Claim("notebooks.md", "decimal(10,2) / decimal(10,2)", "notebook", typeof=True,

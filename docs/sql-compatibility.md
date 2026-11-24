@@ -494,14 +494,22 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
 | `FORMAT` | .NET's date formats in `en-US`, `en-GB` or `de-DE`, on a `date` or a date-and-time column. See [Local T-SQL formatting](#local-t-sql-formatting) |
 | `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000`. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
-| `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11 |
+| `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11. With no `n` it is 7 digits, as T-SQL's `datetime2` and `time` are `datetime2(7)` and `time(7)`: the 7th is `0`, because this PC keeps the microsecond. `SYSDATETIME()` and `SYSUTCDATETIME()` are `datetime2(7)` |
+| `CAST` and `CONVERT` with no style of a `datetime` or `smalldatetime` to text | Style 0, `mon dd yyyy hh:miAM`, the day and the hour padded with a space: `Feb 29 2024  1:04PM`, and `Jan  2 2024 12:00AM` at midnight. `GETDATE()`, `GETUTCDATE()` and `CURRENT_TIMESTAMP` are `datetime`. `CONVERT` styles 0 and 100 give the same text for every date and time type |
+| `CAST` of a `date` to text | `2024-02-29` |
+| Too short a `VARCHAR(n)` or `CHAR(n)` for a date or time | Cut to `n` characters, as T-SQL cuts it: `CONVERT(VARCHAR(10), CAST('2024-02-29 13:04' AS DATETIME2), 120)` is `2024-02-29`, and `CAST(CAST('2024-02-29 13:04' AS DATETIME) AS VARCHAR(11))` is `Feb 29 2024` |
+| A date or time in `CONCAT` or `CONCAT_WS` | Written as a `CAST` to text writes it |
+| `+` of text and a date or time | Refused by name. T-SQL doesn't join them: it reads the text as a date and adds the two, or refuses the `+`. Use `CONCAT`, or `CAST` the date to text first |
 | `CONVERT` and `TRY_CONVERT` from text, the same styles | The date the style reads (`'29/02/2024'` with 103), to a `date`, `datetime` or `datetime2`. A date that doesn't exist is an error with `CONVERT` and `NULL` with `TRY_CONVERT`. Styles 120, 121 and 126 read ISO text with or without its time |
 
 What can still differ:
 
 - A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven.
 - Any other `CONVERT` date style runs as translated, but its values haven't been checked. The run's `translation.notes` says so ("CONVERT style 104 runs as a translation that hasn't been checked ...").
-- `CAST(a_datetime AS VARCHAR)` with no style, and `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
+- A table's `datetime2(n)` or `time(n)` column keeps no `n` here, so as text it has 6 digits of a second, as a `datetime2(6)` has, and `translation.notes` says so. A warehouse writes `n` digits, so a column with `n` under 6 shows fewer there. The same goes for a date and time whose type can't be told.
+- A date or time stored in a text column by `INSERT` or `UPDATE` converts as DuckDB converts it (ISO text). Use `CAST` or `CONVERT` to text for T-SQL's.
+- `datetimeoffset` is refused by name, as a type, so its text is too.
+- `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
 
 ## Local T-SQL formatting
 

@@ -108,6 +108,14 @@ def test_a_variant_joined_with_text_is_written_as_to_varchar_writes_it():
     assert rows == [("xstr", None)]
 
 
+def test_to_json_of_a_rewritten_value_is_named_as_written_once():
+    # the column keeps the TO_JSON call's text as written (SFX-070), not the rewrite's text, named once
+    rows, _, names = _run("SELECT TO_JSON(v || 'x'), TO_JSON(PARSE_JSON(v::VARCHAR)), TO_JSON(a) FROM t WHERE id = 1",
+                          _TABLE)
+    assert names == ["TO_JSON(v || 'x')", "TO_JSON(PARSE_JSON(CAST(v AS VARCHAR)))", "TO_JSON(a)"]
+    assert rows[0][1:] == ('{"y":true,"z":[1,"q"]}', '[1,"a"]')
+
+
 @pytest.mark.parametrize("sql", ["SELECT 'x' || ARRAY_CONSTRUCT(1, 2)", "SELECT CONCAT('x', ARRAY_CONSTRUCT(1, 2))",
                                  "SELECT 'x' || OBJECT_CONSTRUCT('a', 1)", "SELECT ARRAY_AGG(1) || 'x'",
                                  "SELECT 'x' || [1, 2]::ARRAY"])

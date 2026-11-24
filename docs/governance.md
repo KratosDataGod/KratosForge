@@ -104,7 +104,7 @@ Admins see **New policy**, **Edit draft**, **Publish**, **Deprecate** and **Reti
 Anyone asks for an exception on **Data mesh > Requests** (or **Ask for one** on a policy's **Where it applies** tab); a platform admin grants it by approving the request. The **Exceptions in force** card on **Where it applies** lists each one: who and what it's for, until when, its status, why, and who granted it and who asked.
 
 - **Status.** **In force**, **Ends in N days** when it ends within 14 days (the same window as a project's `exceptions.toml`), **Ended** after its date, or **Ended early**, with when, by whom and why.
-- **A warning before it ends.** An exception that ends within 14 days shows a banner on Data mesh and a notice on the bell, once a day, for the person who asked for it and for anyone with the project (or a project in the domain) it covers open. It's also posted once to Teams as **Policy exception ending** (kind `exception.ending`, to the requester by UPN and the project's team or the domain's owners by role) when a platform Teams route is set; like a request, its reason stays in the app. Before posting, a PC claims the notice in the platform (`claim_exception_warning`: one conditional UPDATE that sets the exception's `warned_until` to its end date), so one PC in the organization posts it, not one per PC. A PC claims only when one of its own Teams routes would take the notice (its kind, and the exception's domain where a route is limited to domains), so a PC with no such route never takes it from one that has one; an exception already marked as warned for its end date isn't asked about again. If the claiming PC's post then fails (Teams refuses it, or it waits in that PC's outbox), no other PC posts that notice. Anyone who can call the platform can claim, so a user could stop the Teams post; the bell and banner still show the exception to everyone it concerns. With an older `UDF_Platform` that can't claim, no Teams notice is posted; the bell and banner still show. The policy list's count says how many are ending soon.
+- **A warning before it ends.** An exception that ends within 14 days shows a banner on Data mesh and a notice on the bell, once a day, for the person who asked for it and for anyone with the project (or a project in the domain) it covers open. Data mesh asks for these only while Preview features are shown (the default). It's also posted once to Teams as **Policy exception ending** (kind `exception.ending`, to the requester by UPN and the project's team or the domain's owners by role) when a platform Teams route is set. Like a request, its reason stays in the app. Before posting, a PC claims the notice in the platform (`claim_exception_warning`: one conditional UPDATE that sets the exception's `warned_until` to its end date), so one PC in the organization posts it, not one per PC. A PC claims only when one of its own Teams routes would take the notice (its kind, and the exception's domain where a route is limited to domains), so a PC with no such route never takes it from one that has one; an exception already marked as warned for its end date isn't asked about again. If the claiming PC's post then fails (Teams refuses it, or it waits in that PC's outbox), no other PC posts that notice. Anyone who can call the platform can claim, so a user could stop the Teams post; the bell and banner still show the exception to everyone it concerns. With an older `UDF_Platform` that can't claim, no Teams notice is posted; the bell and banner still show. The policy list's count says how many are ending soon.
 - **End early.** A platform admin chooses **End early** on an exception in force and gives a reason (required, up to 500 characters). The platform checks that the caller is a platform admin, refuses an exception that doesn't exist or has already ended, and then updates the exception's row: its end moves to yesterday, so it stops applying today wherever it's read, and `ended_at`, `ended_by`, `end_reason` and `granted_until` record what happened. The row is never deleted. It writes one entry to the audit (`ended exception`) and one to the policy's history (`exception ended early`, which the audit records too). The reason is visible to anyone who can read the policy's history, which is everyone. Check now and **Explain** stop treating the place as excepted at once.
 - **Include ended** on the card also lists exceptions that ended on their date or early, so the record of each grant stays readable in the app.
 
@@ -132,7 +132,7 @@ Your organization's templates are kept in `catalog.policy_template` in the platf
 
 ### Block stops promote
 
-A promote (Environments > **Promote Dev to Test**, **Promote Test to Prod**) runs the same checks as Check now for the project's **Block** policies, on this PC, before anything moves. Its existing list of things to do first gains one line per finding, naming the policy and the finding, like `Block policy "Sensitive columns are labelled": silver.customers#email: ...`. Up to 10 findings per policy are listed; Check now lists them all. No new screen.
+A promote (**Data mesh > Project > Deploy > Environments and promote**, **Promote to Test** or **Promote to Prod**) runs the same checks as Check now for the project's **Block** policies, on this PC, before anything moves. Its existing list of things to do first gains one line per finding, naming the policy and the finding, like `Block policy "Sensitive columns are labelled": silver.customers#email: ...`. Up to 10 findings per policy are listed; Check now lists them all. No new screen.
 
 - **Warn and Advisory never stop a promote.** Check now still lists their findings.
 - **An exception lets it through.** A finding an active exception covers (as in Check now) doesn't stop the promote. The promote's notes name the policy, how many findings the exception lets through and the exception (**Excepted until <date>: <why>**, and who approved it), and the promote's result keeps the same under `policies`.
@@ -152,9 +152,9 @@ It reads what Check now reads, and writes nothing: Check now's last result and t
 3. Applies exceptions: a finding an active exception covers shows **Excepted until <date>: <why>** instead of counting. **Ask for an exception** sends the request ([Data mesh > Requests](platform.md#requests)), with the policy and project filled in.
 4. Shows the result, like "Sales Forecasting: 2 to look at" and "Checked on this PC 5 min ago. Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers.", and where the policies came from: the platform, or (offline) which policy package and how old it is.
 
-Each finding names its policy and what's wrong. Where a safe fix exists in the app it's offered: **Label it** sets a column's classification in the platform's catalog, after asking and saying what changes. Otherwise the finding links to where to fix it (**Open the entity**, **Edit the product**, **Add a term**). Renaming an entity isn't built, so a naming finding links to the entity instead. A passing policy shows a ✓ and how many objects it checked.
+Each finding names its policy and what's wrong. Where a safe fix exists in the app, it's offered. For example, **Label it** sets a column's classification in the platform's catalog, after asking and saying what changes. Otherwise the finding links to where to fix it (**Open the entity** or **Edit the product**). Renaming an entity isn't built, so a naming finding links to the entity instead. A passing policy shows a ✓ and how many objects it checked.
 
-**Never guessed.** When something a rule needs isn't recorded anywhere (a product that hasn't loaded yet, terms on a product not yet registered in the catalog, endorsement no tenant scan has read), the rule says **unknown** with the reason, never a pass. So does a rule whose settings it can't read (a `min_rows` of "ten", say): the other rules still run. Naming patterns are matched with RE2 (the engine DuckDB uses), whose time grows only with the name's length, so no pattern can stall Check now. RE2 has no lookarounds or backreferences: a pattern that uses them says **unknown** and why. Patterns over 300 characters and names over 256 characters aren't matched.
+**Never guessed.** When something a rule needs isn't recorded anywhere (a product that hasn't loaded yet, endorsement no tenant scan has read), the rule says **unknown** with the reason, never a pass. So does a rule whose settings it can't read (a `min_rows` of "ten", say): the other rules still run. Naming patterns are matched with RE2 (the engine DuckDB uses), whose time grows only with the name's length, so no pattern can stall Check now. RE2 has no lookarounds or backreferences, so a pattern that uses them says **unknown** and why. Patterns over 300 characters and names over 256 characters aren't matched.
 
 **What it reads and writes.** It reads the project's files on this PC, the platform's catalog (policies, exceptions, catalog text and endorsement) and the run logs Monitor already reads (Test and Prod only when you're signed in). When the platform can't be reached it reads the latest [policy package](#offline-policy-packages) on this PC instead. It writes its last result, to `governance_checks.json` in the app's data folder, so "Checked ... ago" works, and, when the platform answers, the project's policy package, to `governance_packages/<project>.json` there. It runs no Fabric job.
 
@@ -172,6 +172,8 @@ Each finding names its policy and what's wrong. Where a safe fix exists in the a
 | `contract.description` | The product's description |
 
 `contract.endorsed` passes only when every one of the product's items is endorsed with an accepted value; a finding names the ones that aren't. Its items are the lakehouses the product's ports live in. Semantic models and reports grouped under a product (`catalog.product_item`, [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview)) show their own badges on its page and don't change this check.
+
+`contract.terms_linked` (Business terms linked) is retired. Nothing checks it. A policy whose **Checked by** still names it says "Business terms linked: retired, no longer checked." and its other rules still run.
 
 **Checkers that run in Fabric** are never started by Check now. Their last stored findings show with their date, or **not run**.
 
@@ -218,7 +220,7 @@ When the policies change, the owner takes a new package and updates the variable
 
 ### A data product's checklist
 
-Open a product on **Data mesh > Products**: its **Checklist** card comes from the contract it follows, the first policy in force for its project whose **Checked by** has a `contract.` rule, or else the built-in Data contract template (the card says which). Each line is ✓, ✗ or **!** (unknown, with why): **Owner and steward**, **Description**, **Business terms linked**, **Fresh within N h** (the last load time) and **Endorsement** (unknown means it needs a tenant scan). The steward and load times are kept in the product's project, so for another team's product they show as unknown until that project is open on this PC. The card only reads.
+Open a product on **Data mesh > Products**: its **Checklist** card comes from the contract it follows, the first policy in force for its project whose **Checked by** has a `contract.` rule, or else the built-in Data contract template (the card says which). Each line is ✓, ✗ or **!** (unknown, with why): **Owner and steward**, **Description**, **Fresh within N h** (the last load time) and **Endorsement** (unknown means it needs a tenant scan). The steward and load times are kept in the product's project, so for another team's product they show as unknown until that project is open on this PC. The card only reads.
 
 ## When the platform can't be reached
 
@@ -226,7 +228,7 @@ Checks that depend on the platform fail closed: when a rule can't be read, Krato
 
 ## Storage
 
-Policies are four tables in the platform's catalog, next to domains and the glossary (no second database):
+Templates are a sixth table, `catalog.policy_template`, described above. Policies are five tables in the platform's catalog, next to domains and the glossary (no second database):
 
 | Table | Holds |
 | --- | --- |
@@ -236,7 +238,7 @@ Policies are four tables in the platform's catalog, next to domains and the glos
 | `catalog.policy_event` | Each policy's history |
 | `catalog.policy_exception` | Granted exceptions: the policy, scope and target, until when, the reason, who asked and who approved; for one ended early, `ended_at`, `ended_by`, `end_reason` and `granted_until` (the date it was granted until); `warned_until`, the end date whose Teams notice was claimed. Rows are never deleted |
 
-The platform's schema version goes from 3 to 4. The tables are created by **Finish setup** (as every platform table is), and also on the first policy call to a platform that doesn't have them yet, so existing platforms and projects keep working without a migration step. A policy's definition is stored as JSON, so new fields can be added later without changing the tables.
+The tables are created by **Finish setup** (as every platform table is), and also on the first policy call to a platform that doesn't have them yet, so existing platforms and projects keep working without a migration step. A policy's definition is stored as JSON, so new fields can be added later without changing the tables.
 
 For Fabric, `UDF_Platform` gains one function per policy operation. Re-run **Platform > Settings > Finish or repair** to update the function app.
 
@@ -331,7 +333,7 @@ problems, package, note}`. The app shows each note at the bottom of **Explain** 
 
 ## What isn't built yet
 
-- Blocking promote or deployment on a **Block** policy (later GOV items). Check now is warn only: it reports and stops nothing.
+- Blocking a deploy other than a metadata promote on a **Block** policy. Check now itself stops nothing.
 - Check now checks the open project at project scope: a policy assigned to one entity only isn't checked yet, nor are items made outside the app.
 - Renaming an entity from a finding (a naming finding links to the entity instead), and fixes beyond **Label it**.
 - Checkers that run in Fabric, and storing their findings from a Fabric run: the registry accepts them and Check now shows what's stored, but nothing stores any yet.

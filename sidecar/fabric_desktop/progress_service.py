@@ -125,7 +125,7 @@ class ProgressMixin:
         ev = mastery_levels.evaluate(profile, cat)
         classes = [{"id": cid, "title": c["title"], "professional": c["professional"],
                     "mastery": ev["classes"][cid]["mastery"], "mastery_name": ev["classes"][cid]["mastery_name"],
-                    "mastered": ev["classes"][cid]["mastered"],
+                    "mastered": ev["classes"][cid]["mastered"], "earned": ev["classes"][cid]["earned"],
                     "talents": sum(len(sp["nodes"]) for sp in c["specializations"])}
                    for cid, c in sorted(cat["classes"].items(), key=lambda kv: kv[1]["title"])]
         if class_id is None:
@@ -153,7 +153,7 @@ class ProgressMixin:
                 "class": {"id": class_id, "title": cls["title"], "professional": cls["professional"], "fantasy": cls["fantasy"],
                           "competency": cls["competency"], "mastery": view["mastery"], "mastery_name": view["mastery_name"],
                           "mastered": view["mastered"],
-                          "achievements": [{"id": a["id"], "name": a["name"], "criteria": a["criteria"]} for a in cls["achievements"]],
+                          "achievements": view["achievements"], "earned": view["earned"],
                           "specializations": [{"id": sp["id"], "title": sp["title"], "professional": sp["professional"],
                                                "nodes": [talent(n) for n in sp["nodes"]]} for sp in cls["specializations"]]}}
 

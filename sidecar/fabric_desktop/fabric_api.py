@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import requests
 from urllib3.util import parse_url
 
-from . import http_session, redact
+from . import b64, http_session, redact
 from .onelake import error_code
 from .paging import Pages, PagingError
 from .retrying import SAFE_METHODS, PollTimedOut, poll_until, send_with_retry
@@ -125,11 +125,100 @@ def _request_id(value: Any) -> str:
     return text if _REQUEST_ID.fullmatch(text) else ""
 
 
+BAD_REPLY = "BadReply"
+BAD_DEFINITION = "BadDefinitionPart"
+_NOT_JSON = object()
+
+
+def _path_of(url: Any) -> str:
+    path = str(url or "").split("?", 1)[0].split("#", 1)[0]
+    return path[len(API):] if path.startswith(API) else path
+
+
+def bad_reply(url: Any = "", why: str = "it wasn't the JSON Fabric sends") -> FabricError:
+    """A reply Fabric Desktop can't use (an outage page, a cut-off answer, the wrong shape): refused,
+    so nothing in it is taken as Fabric's answer."""
+    path = _path_of(url)
+    return FabricError(f"Fabric's answer{f' to {path}' if path else ''} couldn't be used because {why}. Nothing "
+                       "was taken from it. Try again in a minute, and check Fabric's service status if it keeps "
+                       "happening.", BAD_REPLY)
+
+
+def _reply(resp: requests.Response, empty_ok: bool = False, lists: bool = False) -> Any:
+    """Fabric's JSON object in ``resp`` (or, with ``lists``, a JSON array). ``empty_ok`` reads an empty
+    body as {} (an operation that just finishes). Anything else raises bad_reply."""
+    if empty_ok and not resp.content:
+        return {}
+    try:
+        body = resp.json()
+    except (ValueError, RecursionError):
+        body = _NOT_JSON
+    if isinstance(body, dict) or (lists and isinstance(body, list)):
+        return body
+    raise bad_reply(getattr(resp, "url", ""))
+
+
+def _records(value: Any, url: Any = "") -> list[dict[str, Any]]:
+    """A list of records from a reply (None or missing is none); anything else raises bad_reply."""
+    if value is None:
+        return []
+    if isinstance(value, list) and all(isinstance(v, dict) for v in value):
+        return value
+    raise bad_reply(url, "its list wasn't a list of records")
+
+
+def _named(items: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    """The item called ``name``, or None. One without an id is refused, so it isn't taken as new."""
+    found = next((i for i in items if i.get("displayName") == name), None)
+    if found is not None and not (isinstance(found.get("id"), str) and found["id"]):
+        raise bad_reply("", f"it listed {name} without an id")
+    return found
+
+
+def definition_parts(got: Mapping[str, Any]) -> dict[str, bytes]:
+    """A getDefinition result's parts as {path: bytes}. A part that isn't whole base64 (or has no path
+    or payload) raises FabricError BadDefinitionPart: it is never read as empty."""
+    inner = got.get("definition")
+    definition: Mapping[str, Any] = inner if isinstance(inner, dict) else got
+    raw = definition.get("parts")
+    if raw is None:
+        return {}
+    if not isinstance(raw, list):
+        raw = [raw]
+    parts: dict[str, bytes] = {}
+    for part in raw:
+        path = part.get("path") if isinstance(part, dict) else None
+        payload = part.get("payload") if isinstance(part, dict) else None
+        try:
+            if not isinstance(path, str) or not path or not isinstance(payload, str):
+                raise ValueError("no path or payload")
+            parts[path] = b64.decode_exact(payload)
+        except ValueError:
+            shown = _part(path) if isinstance(path, str) else "a part"
+            raise FabricError(f"Fabric's definition couldn't be read because {shown or 'a part'} wasn't whole "
+                              "base64, so nothing was saved from it. Try again, and if it keeps happening, open the "
+                              "item in Fabric to check it still loads.", BAD_DEFINITION) from None
+    return parts
+
+
+def definition_text(got: Mapping[str, Any], encoding: str = "utf-8-sig") -> dict[str, str]:
+    """definition_parts as text. A part that isn't text raises FabricError BadDefinitionPart."""
+    out: dict[str, str] = {}
+    for path, data in definition_parts(got).items():
+        try:
+            out[path] = data.decode(encoding)
+        except UnicodeDecodeError:
+            raise FabricError(f"Fabric's definition couldn't be read because {_part(path)} isn't UTF-8 text, so "
+                              "nothing was saved from it. Open the item in Fabric to check it still loads.",
+                              BAD_DEFINITION) from None
+    return out
+
+
 def _error_body(resp: requests.Response) -> dict[str, Any]:
     """Fabric's error fields, from its own shape ({"errorCode", "message", ...}) or Power BI's ({"error": {...}})."""
     try:
         body = resp.json()
-    except ValueError:
+    except (ValueError, RecursionError):
         return {}
     if not isinstance(body, dict):
         return {}
@@ -155,7 +244,8 @@ def _error(method: str, url: str, resp: requests.Response, safe: bool | None = N
     path = url.split("?", 1)[0].split("#", 1)[0]
     path = path[len(API):] if path.startswith(API) else path
     parts = [_part(fields.get("message"))]
-    parts += [_part(d.get("message")) for d in fields.get("details") or []
+    details = fields.get("details")
+    parts += [_part(d.get("message")) for d in (details if isinstance(details, list) else [])
               if isinstance(d, dict) and d.get("message")][:3]
     hint = _HINTS.get(code or "") or _HINTS.get(status) or (_HINTS[500] if status >= 500 else _NEXT_STEP)
     read = method.upper() in SAFE_METHODS if safe is None else safe
@@ -336,8 +426,8 @@ class FabricClient:
         while url:
             resp = self._request("GET", url)
             etag = etag or resp.headers.get("ETag")
-            body = resp.json()
-            items.extend(body.get(key) or [])
+            body = _reply(resp)
+            items.extend(_records(body.get(key), url))
             try:
                 url = next_page(body, url, first)
                 url = pages.follow(url) if url else ""
@@ -350,13 +440,16 @@ class FabricClient:
         ``Location`` names the result; an operation that has none (Fabric says some just finish)
         returns {}. A failure raises with Fabric's own code and message, not the raw response."""
         if resp.status_code != 202:
-            return resp.json() if resp.content else {}
+            return cast(dict[str, Any], _reply(resp, empty_ok=True))
         came_from = getattr(resp, "url", None)  # the request's own URL; Fabric's operations start at API
-        location = followable_url(resp.headers["Location"], came_from if isinstance(came_from, str) and came_from else API)
+        given = resp.headers.get("Location")
+        if not isinstance(given, str) or not given.strip():
+            raise bad_reply(came_from, "it started an operation without saying where to follow it")
+        location = followable_url(given, came_from if isinstance(came_from, str) and came_from else API)
         operation = resp.headers.get("x-ms-operation-id") or location.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
         def look() -> tuple[tuple[dict[str, Any], requests.Response], Mapping[str, Any]]:
             answer = self._request("GET", location)
-            return (answer.json() if answer.content else {}, answer), answer.headers
+            return (_reply(answer, empty_ok=True), answer), answer.headers
 
         try:
             state, last = poll_until(look, lambda got: got[0].get("status") in ("Succeeded", "Failed", "Undefined"),
@@ -376,14 +469,14 @@ class FabricClient:
             url = followable_url(result_location, location)
             if url.rstrip("/") != location.rstrip("/"):
                 result = self._request("GET", url)
-                return result.json() if result.content else {}
+                return cast(dict[str, Any], _reply(result, empty_ok=True))
         try:  # no result link: build it from the operation, as Fabric's docs allow
             result = self._request("GET", f"{location.rstrip('/')}/result")
         except FabricError as exc:
             if exc.status in (400, 404):
                 return {}  # it succeeded and has no result
             raise
-        return result.json() if result.content else {}
+        return cast(dict[str, Any], _reply(result, empty_ok=True))
 
     def list_workspaces(self) -> list[dict[str, Any]]:
         return self._paged("/workspaces")
@@ -400,7 +493,7 @@ class FabricClient:
         if description:
             body["description"] = description
         try:
-            return self._request("POST", "/workspaces", json=body).json()
+            return _reply(self._request("POST", "/workspaces", json=body))
         except FabricError as exc:
             if exc.code == "WorkspaceNameAlreadyExists":
                 raise FabricError(f"A workspace named {name} already exists. Pick it from the list, "
@@ -424,7 +517,7 @@ class FabricClient:
         return self._paged(f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables", key="data")
 
     def get_lakehouse(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}").json()
+        return _reply(self._request("GET", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}"))
 
     def create_lakehouse(self, workspace_id: str, name: str, description: str = "") -> dict[str, Any]:
         """Create a schema-enabled lakehouse. Always returns it with its ``id``: when the operation gives
@@ -461,7 +554,7 @@ class FabricClient:
         """The Environment item's published (or, with ``staged``, unpublished) Spark settings, with
         ``runtimeVersion``. Read only."""
         where = "staging/sparkcompute" if staged else "sparkcompute"
-        return self._request("GET", f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False").json()
+        return _reply(self._request("GET", f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False"))
 
     def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
@@ -476,14 +569,14 @@ class FabricClient:
 
     def get_warehouse(self, workspace_id: str, warehouse_id: str) -> dict[str, Any]:
         """A warehouse, with its SQL connection string (``properties.connectionString``)."""
-        return self._request("GET", f"/workspaces/{workspace_id}/warehouses/{warehouse_id}").json()
+        return _reply(self._request("GET", f"/workspaces/{workspace_id}/warehouses/{warehouse_id}"))
 
     def list_kql_databases(self, workspace_id: str) -> list[dict[str, Any]]:
         """A workspace's KQL databases, each with ``properties.queryServiceUri`` (WH-19)."""
         return self._paged(f"/workspaces/{workspace_id}/kqlDatabases")
 
     def get_kql_database(self, workspace_id: str, database_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/workspaces/{workspace_id}/kqlDatabases/{database_id}").json()
+        return _reply(self._request("GET", f"/workspaces/{workspace_id}/kqlDatabases/{database_id}"))
 
     def list_kql_querysets(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/kqlQuerysets")
@@ -502,7 +595,7 @@ class FabricClient:
                                         json={"definition": definition}))
 
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
-        return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
+        return next((lh for lh in self.list_lakehouses(workspace_id) if lh.get("displayName") == name), None)
 
     def get_item_definition(self, workspace_id: str, item_id: str, fmt: str | None = None) -> dict[str, Any]:
         """An item's definition parts (base64), e.g. a notebook as ipynb. Needs Item.ReadWrite.All, which sign-in already asks for."""
@@ -518,7 +611,7 @@ class FabricClient:
 
     def save_notebook(self, workspace_id: str, name: str, ipynb: bytes) -> dict[str, Any]:
         """Create the notebook item, or replace its definition if one with this name exists."""
-        existing = next((n for n in self.list_notebooks(workspace_id) if n["displayName"] == name), None)
+        existing = _named(self.list_notebooks(workspace_id), name)
         if existing is None:
             body = {"displayName": name, "definition": _notebook_definition(ipynb)}
             return self._wait(self._request("POST", f"/workspaces/{workspace_id}/notebooks", json=body))
@@ -527,7 +620,7 @@ class FabricClient:
     def get_notebook(self, workspace_id: str, item_id: str) -> dict[str, Any] | None:
         """The notebook item ``item_id`` in that workspace, or None when it isn't there (deleted)."""
         try:
-            item = self._request("GET", f"/workspaces/{workspace_id}/notebooks/{item_id}").json()
+            item = _reply(self._request("GET", f"/workspaces/{workspace_id}/notebooks/{item_id}"))
         except FabricError as exc:
             if exc.status == 404:
                 return None
@@ -572,7 +665,7 @@ class FabricClient:
         return location.rstrip("/").rsplit("/", 1)[-1]
 
     def job_instance(self, workspace_id: str, item_id: str, job_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/workspaces/{workspace_id}/items/{item_id}/jobs/instances/{job_id}").json()
+        return _reply(self._request("GET", f"/workspaces/{workspace_id}/items/{item_id}/jobs/instances/{job_id}"))
 
     def cancel_job(self, workspace_id: str, item_id: str, job_id: str) -> None:
         self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/jobs/instances/{job_id}/cancel")
@@ -585,19 +678,19 @@ class FabricClient:
         if enabled:
             _check_fabric_runs_allowed("scheduling jobs in Fabric")
         url = f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules"
-        return self._request("POST", url, json={"enabled": enabled, "configuration": configuration}).json()
+        return _reply(self._request("POST", url, json={"enabled": enabled, "configuration": configuration}))
 
     def update_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str,
                         enabled: bool, configuration: dict[str, Any]) -> dict[str, Any]:
         if enabled:  # turning a schedule off is always allowed
             _check_fabric_runs_allowed("scheduling jobs in Fabric")
         url = f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules/{schedule_id}"
-        return self._request("PATCH", url, json={"enabled": enabled, "configuration": configuration}).json()
+        return _reply(self._request("PATCH", url, json={"enabled": enabled, "configuration": configuration}))
 
     def list_job_instances(self, workspace_id: str, item_id: str) -> list[dict[str, Any]]:
         """The item's job runs, newest first (Fabric keeps them for a while)."""
         runs = self._paged(f"/workspaces/{workspace_id}/items/{item_id}/jobs/instances")
-        return sorted(runs, key=lambda r: r.get("startTimeUtc") or "", reverse=True)
+        return sorted(runs, key=lambda r: str(r.get("startTimeUtc") or ""), reverse=True)
 
     def query_activity_runs(self, workspace_id: str, job_id: str, updated_after: str,
                             updated_before: str) -> list[dict[str, Any]]:
@@ -609,11 +702,11 @@ class FabricClient:
         runs: list[dict[str, Any]] = []
         pages = Pages(f"the activity runs of pipeline run {job_id}")
         while True:
-            data = self._request("POST", url, json=body, safe=True).json()
+            data = _reply(self._request("POST", url, json=body, safe=True), lists=True)
             if isinstance(data, list):
-                return runs + data
-            runs += (data or {}).get("value") or []
-            token = _given((data or {}).get("continuationToken"))
+                return runs + _records(data, url)
+            runs += _records(data.get("value"), url)
+            token = _given(data.get("continuationToken"))
             if not token:
                 return runs
             try:  # a query pages by sending its continuation back in the body
@@ -653,7 +746,7 @@ class FabricClient:
         A failed list raises too, so a model that couldn't be looked up is never treated as new."""
         definition = {"parts": [{"path": path, "payload": base64.b64encode(text.encode()).decode(),
                                  "payloadType": "InlineBase64"} for path, text in parts.items()]}
-        existing = next((m for m in self.list_semantic_models(workspace_id) if m["displayName"] == name), None)
+        existing = _named(self.list_semantic_models(workspace_id), name)
         if existing is not None and not replace:
             raise FileExistsError(f"{name} already exists; replacing its definition needs confirming", existing["id"])
         if existing is None:
@@ -737,14 +830,14 @@ class FabricClient:
         found: list[dict[str, Any]] = []
         polls = max(1, int(self._poll_timeout / poll_seconds))
         for i in range(0, len(ids), self.SCAN_BATCH):
-            started = self._request("POST", f"{POWERBI_ADMIN}/workspaces/getInfo", json={"workspaces": ids[i:i + self.SCAN_BATCH]},
+            started = _reply(self._request("POST", f"{POWERBI_ADMIN}/workspaces/getInfo", json={"workspaces": ids[i:i + self.SCAN_BATCH]},
                                     params={"lineage": "false", "datasourceDetails": "false", "datasetSchema": "false",
-                                            "datasetExpressions": "false", "getArtifactUsers": "false"}).json()
+                                            "datasetExpressions": "false", "getArtifactUsers": "false"}))
             scan = str(started.get("id") or "")
             if not scan:
                 raise FabricError("Fabric's tenant scan didn't start: no scan id came back")
             for n in range(polls):
-                status = self._request("GET", f"{POWERBI_ADMIN}/workspaces/scanStatus/{scan}").json()
+                status = _reply(self._request("GET", f"{POWERBI_ADMIN}/workspaces/scanStatus/{scan}"))
                 state = str(status.get("status") or "")
                 if state == "Succeeded":
                     break
@@ -753,7 +846,8 @@ class FabricClient:
                 if n == polls - 1:
                     raise FabricError("Fabric's tenant scan didn't finish in time. Scan again in a few minutes.")
                 self._sleep(poll_seconds)
-            found += self._request("GET", f"{POWERBI_ADMIN}/workspaces/scanResult/{scan}").json().get("workspaces", [])
+            result = self._request("GET", f"{POWERBI_ADMIN}/workspaces/scanResult/{scan}")
+            found += _records(_reply(result).get("workspaces"), getattr(result, "url", ""))
         return found
 
     # ---- domains
@@ -761,8 +855,9 @@ class FabricClient:
     def list_admin_domains(self) -> list[dict[str, Any]]:
         """Fabric's domains and subdomains: [{id, displayName, description, parentDomainId}].
         Fabric administrators only (Tenant.Read.All); anyone else gets 401/403."""
-        body = self._request("GET", "/admin/domains", params={"preview": "false"}).json()
-        return body.get("domains", body.get("value", []))
+        resp = self._request("GET", "/admin/domains", params={"preview": "false"})
+        body = _reply(resp)
+        return _records(body.get("domains", body.get("value")), getattr(resp, "url", ""))
 
     def create_admin_domain(self, name: str, description: str = "", parent_id: str = "") -> dict[str, Any]:
         """Create a domain, or a subdomain of ``parent_id``, in Fabric: {id, displayName, description,
@@ -772,7 +867,7 @@ class FabricClient:
             body["description"] = description
         if parent_id:
             body["parentDomainId"] = parent_id
-        return self._request("POST", "/admin/domains", params={"preview": "false"}, json=body).json()
+        return _reply(self._request("POST", "/admin/domains", params={"preview": "false"}, json=body))
 
     def list_admin_domain_role_assignments(self, domain_id: str) -> list[dict[str, Any]]:
         """A domain's role assignments (Admins, Contributors): [{id, principal: {id, displayName,
@@ -795,7 +890,7 @@ class FabricClient:
     def git_connection(self, workspace_id: str) -> dict[str, Any]:
         """The workspace's own Git connection (provider, repository, branch, folder, last synced
         commit). A read: Workspace.ReadWrite.All covers it, and it changes nothing."""
-        return self._request("GET", f"/workspaces/{workspace_id}/git/connection").json()
+        return _reply(self._request("GET", f"/workspaces/{workspace_id}/git/connection"))
 
     def git_status(self, workspace_id: str) -> dict[str, Any]:
         """Which items differ between the workspace and its Git branch, and their conflicts. A
@@ -813,12 +908,12 @@ class FabricClient:
         return self._wait(self._request("POST", f"/workspaces/{workspace_id}/git/updateFromGit", json=body))
 
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/workspaces/{workspace_id}").json()
+        return _reply(self._request("GET", f"/workspaces/{workspace_id}"))
 
     def admin_get_workspace(self, workspace_id: str) -> dict[str, Any]:
         """A workspace as Fabric's admin API sees it, member or not: {id, name, state, ...}, where state
         is Active, Deleted or Removing. Fabric administrators only (Tenant.Read.All)."""
-        return self._request("GET", f"/admin/workspaces/{workspace_id}").json()
+        return _reply(self._request("GET", f"/admin/workspaces/{workspace_id}"))
 
     def list_role_assignments(self, workspace_id: str) -> list[dict[str, Any]]:
         """Workspace roles: [{id, principal: {id, displayName, type, userDetails...}, role}]."""
@@ -826,12 +921,12 @@ class FabricClient:
 
     def add_role_assignment(self, workspace_id: str, principal_id: str, principal_type: str, role: str) -> dict[str, Any]:
         body = {"principal": {"id": principal_id, "type": principal_type}, "role": role}
-        return self._request("POST", f"/workspaces/{workspace_id}/roleAssignments", json=body).json()
+        return _reply(self._request("POST", f"/workspaces/{workspace_id}/roleAssignments", json=body))
 
     def update_role_assignment(self, workspace_id: str, assignment_id: str, role: str) -> dict[str, Any]:
         url = f"/workspaces/{workspace_id}/roleAssignments/{assignment_id}"
         resp = self._request("PATCH", url, json={"role": role})
-        return resp.json() if resp.content else {}
+        return cast(dict[str, Any], _reply(resp, empty_ok=True))
 
     def delete_role_assignment(self, workspace_id: str, assignment_id: str) -> None:
         self._request("DELETE", f"/workspaces/{workspace_id}/roleAssignments/{assignment_id}")
@@ -864,8 +959,8 @@ class FabricClient:
         """``path`` is where it goes in the lakehouse ("Tables/dbo" or "Files/..."); ``target`` is
         {"oneLake": {...}}, {"adlsGen2": {...}} or {"amazonS3": {...}}."""
         body = {"path": path, "name": name, "target": target}
-        return self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/shortcuts",
-                             params={"shortcutConflictPolicy": "Abort"}, json=body).json()
+        return _reply(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/shortcuts",
+                             params={"shortcutConflictPolicy": "Abort"}, json=body))
 
     def delete_shortcut(self, workspace_id: str, item_id: str, path: str, name: str) -> None:
         self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}/shortcuts/{path.strip('/')}/{name}")
@@ -888,14 +983,14 @@ class FabricClient:
         """Create the variable library from its definition files, or replace the one with this name."""
         definition = {"parts": [{"path": path, "payload": base64.b64encode(text.encode()).decode(),
                                  "payloadType": "InlineBase64"} for path, text in parts.items()]}
-        existing = next((v for v in self.list_variable_libraries(workspace_id) if v["displayName"] == name), None)
+        existing = _named(self.list_variable_libraries(workspace_id), name)
         if existing is None:
             body: dict[str, Any] = {"displayName": name, "definition": definition}
             if description:
                 body["description"] = description
             created = self._wait(self._request("POST", f"/workspaces/{workspace_id}/variableLibraries", json=body))
             if not created.get("id"):
-                created = next((v for v in self.list_variable_libraries(workspace_id) if v["displayName"] == name), created)
+                created = _named(self.list_variable_libraries(workspace_id), name) or created
             return created | {"created": True}
         url = f"/workspaces/{workspace_id}/variableLibraries/{existing['id']}/updateDefinition"
         self._wait(self._request("POST", url, json={"definition": definition}))
@@ -904,13 +999,13 @@ class FabricClient:
     def read_variable_library(self, workspace_id: str, name: str) -> tuple[dict[str, str], str | None] | None:
         """The library's definition files (decoded) and active value set, or None if the workspace
         has no library with this name. Read only: getDefinition is a POST but changes nothing."""
-        item = next((v for v in self.list_variable_libraries(workspace_id) if v["displayName"] == name), None)
+        item = _named(self.list_variable_libraries(workspace_id), name)
         if item is None:
             return None
         got = self.get_item_definition(workspace_id, item["id"])
-        parts = {p["path"]: base64.b64decode(p["payload"]).decode("utf-8-sig")
-                 for p in (got.get("definition") or {}).get("parts", [])}
-        return parts, (item.get("properties") or {}).get("activeValueSetName")
+        props = item.get("properties")
+        active = props.get("activeValueSetName") if isinstance(props, dict) else None
+        return definition_text(got), active if isinstance(active, str) else None
 
     def set_active_value_set(self, workspace_id: str, library_id: str, value_set: str) -> None:
         self._request("PATCH", f"/workspaces/{workspace_id}/variableLibraries/{library_id}",

@@ -428,7 +428,14 @@ function kfeAdopt(el) {
   const a = kfe.adopt;
   const nameBox = h("input", { value: kfe.adoptName, maxlength: "120", oninput: (e) => {
     kfe.adoptName = e.target.value;
-    if (kfe.adopt?.token) { kfe.adopt = null; kfeDraw(el); el.querySelector(".kfe-adopt-name input")?.focus(); return; }
+    if (kfe.adopt?.token) {
+      const at = e.target.selectionStart;
+      kfe.adopt = null;
+      kfeDraw(el);
+      const box = el.querySelector(".kfe-adopt-name input");
+      if (box) { box.focus(); box.setSelectionRange(at, at); }
+      return;
+    }
     const show = el.querySelector(".kfe-show-manifest");
     if (show) show.disabled = !kfe.adoptName.trim();
   } });

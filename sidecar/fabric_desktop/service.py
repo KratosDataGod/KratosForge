@@ -1408,6 +1408,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
+        self._remember_base(name, nb["disk_stamp"], nb["cells"])
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"], **self._checks(name)),
@@ -1493,12 +1494,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         ``disk_stamp`` (from open_notebook or the last save): when another program, such as VS Code,
         changed the file since, nothing is saved and ``changed_on_disk`` comes back. Both the file's
         version and these cells are kept under Versions first, so whichever the person picks, or
-        if they pick neither, nothing is lost. ``outside_copy`` is where a file that isn't a
+        if they pick neither, nothing is lost. When the cells both sides started from are known,
+        ``merge`` holds both sides merged by cell and any named conflicts (notebook_sync.merge_cells);
+        notebook_sync_merge saves it. ``outside_copy`` is where a file that isn't a
         notebook any more (Git conflict markers) was copied."""
         out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace, disk_stamp)
         if out.get("changed_on_disk"):
             copy = self._keep_both_sides(name, cells, lakehouse_ref, compute, workspace, bool(out.get("unreadable")))
-            return out | ({"outside_copy": copy} if copy else {})
+            merge = None if out.get("unreadable") else self._sync_preview(name, cells, disk_stamp)
+            return out | ({"outside_copy": copy} if copy else {}) | ({"merge": merge} if merge else {})
+        self._remember_base(name, out.get("disk_stamp"), cells, out.get("cell_ids"))
         self._keep_version(name)
         return out | {"check": compute_check(cells, lakehouse_ref, **self._checks(name))}
 
@@ -1531,6 +1536,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             ("environment", lambda: self.environments.rename_notebook(name, new_name)),
             ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
             ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
+            ("merge bases", lambda: self._sync_bases.forget(name)),  # the next open records one under the new name
             ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
             ("pin", lambda: self._rename_item_pin("notebook", name, new_name)),
         ]

@@ -154,8 +154,8 @@ def test_other_lists_keep_their_string_items_and_say_what_was_left_out(policy, g
     gp({}, {"allowed_tenants": [tenant, None, 3]})
     out, problems = registry_policy.read()
     assert out == {"allowed_tenants": [tenant]}
-    assert problems == ["Group Policy key allowed_tenants has 2 items that aren't strings, so they're left out. "
-                        "Ask IT to fix allowed_tenants in Group Policy."]
+    assert problems == [("Group Policy key allowed_tenants has 2 items that aren't strings, so they're left out. "
+                         "Ask IT to fix allowed_tenants in Group Policy.")]
 
 
 def test_every_ai_tools_and_app_studio_restriction_has_a_most_restrictive_value():

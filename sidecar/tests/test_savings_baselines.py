@@ -386,3 +386,9 @@ def test_an_estimated_increase_is_validating_not_regressed():
     est = [after(n, 15, d, kind=ms.ESTIMATED) for n, d in (("x", 3), ("y", 4), ("z", 5))]
     v = bl.validate("opt-1", base(), est, outputs_match=True)
     assert v["result"] == bl.VALIDATING and "estimate" in v["reason"]
+
+
+def test_the_same_figure_re_read_in_cu_seconds_is_the_same_despite_floating_point():
+    hours = fr("a", 7 / 3)
+    seconds = fr("a", 7 / 3) | {"cu": cu(8400.0, run_id="a", unit=ms.CU_SECONDS)}
+    assert base([hours, seconds, fr("b", 2), fr("c", 3)])["row"]["runs"] == 3

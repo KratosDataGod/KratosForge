@@ -28,7 +28,7 @@ async function environmentDialog(nb, job = null) {
   } }, h("option", { value: "" }, "None: the app's packages only"),
   data.environments.map((e) => h("option", { value: e.name, selected: e.name === data.current ? true : null }, e.name)));
   const specs = h("input", { placeholder: "scikit-learn==1.5.2 great_expectations", "aria-label": "Packages to install",
-    disabled: data.allowed ? null : true, onkeydown: (e) => { if (e.key === "Enter") install(); } });
+    disabled: data.allowed ? null : true, onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); install(); } } });
   async function install() {
     const packages = specs.value.split(/[\s,]+/).filter(Boolean);
     if (!packages.length) return;

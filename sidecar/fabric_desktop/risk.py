@@ -120,7 +120,7 @@ def check_capacity(f: dict[str, Any], now: dt.datetime) -> dict[str, Any] | None
     if not obs:
         return finding("capacity", UNKNOWN, "The capacity hasn't been read",
                        "This workspace's capacity hasn't been read on this PC, so its state isn't known.",
-                       remedy="Check again, or open Monitor > Cost > Capacities and choose Refresh.",
+                       remedy="Check again, or open Optimize > Cost and savings > Capacities and choose Refresh.",
                        source=CAPACITY_SOURCE, essential=True)
     access = obs.get("access")
     cap = obs.get("capacity") or {}
@@ -283,7 +283,7 @@ def check_consumption(f: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any] 
         return finding("consumption", UNKNOWN, "CU use isn't known",
                        "No measured CU for this workload's runs, and no estimate. It stays unknown rather than 0.",
                        evidence=[f.get("measured_problem") or ""],
-                       remedy="Import a Capacity Metrics export in Monitor > Cost to measure it.",
+                       remedy="Import a Capacity Metrics export in Optimize > Cost and savings to measure it.",
                        source="Measured usage imports and cost estimates")
     hours = ms.convert(pick["value"], pick["unit"], ms.CU_HOURS)
     kind = ms.LABELS[pick["classification"]].lower()
@@ -298,7 +298,7 @@ def check_consumption(f: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any] 
                        remedy="Consider trying it on this PC, or on a smaller input, first.",
                        source=pick.get("source") or pick.get("method") or "", measurement=pick)
     return finding("consumption", PASS, f"The last run used about {hours:.2f} CU hours ({kind})",
-                   "For reference; the next run may differ. A price for it is in Monitor > Cost.",
+                   "For reference only, because the next run may differ. A price for it is in Optimize > Cost and savings.",
                    evidence=evidence, source=pick.get("source") or pick.get("method") or "", measurement=pick)
 
 

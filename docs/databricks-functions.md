@@ -31,9 +31,9 @@ lists more checks and the differences known in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 480 |
-| Differs | 8 |
-| Refused | 101 |
+| Runs | 482 |
+| Differs | 5 |
+| Refused | 102 |
 | Fails | 0 |
 | Not checked | 0 |
 | **All** | **589** |
@@ -671,10 +671,10 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `current_time` | Differs | `SELECT current_time(0)` | a TIME WITH TIME ZONE here, with its microseconds: the precision isn't applied. Databricks gives a TIME (16:57:04 in its reference) |
+| `current_time` | Runs | `SELECT current_time(0)` |  |
 | `dayname` | Runs | `SELECT dayname(DATE'2024-11-01')` |  |
 | `getdate` | Runs | `SELECT getdate() = current_timestamp()` |  |
-| `localtime` | Refused | `SELECT localtime(3)` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Argument 'this' is not supported for expression 'Localtime' when targeting Kf |
+| `localtime` | Runs | `SELECT localtime(3)` |  |
 | `make_time` | Runs | `SELECT make_time(6, 30, 45.887)` |  |
 | `monthname` | Runs | `SELECT monthname(TIMESTAMP'2024-04-08 13:08:15')` |  |
 | `parse_timestamp` | Refused |  | parse_timestamp() can't run on this PC the way it runs in Databricks, so nothing ran: it tries Databricks' own lists of timestamp patterns (#extended, #iso8601, |
@@ -725,9 +725,9 @@ lists more checks and the differences known in more detail.
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `randstr` | Differs | `SELECT randstr(10, 0), randstr(10, 0) FROM VALUES(1), (2), (3)` | 10 letters and digits, as in Databricks, but a seed gives another series here, the same string on every row |
+| `randstr` | Refused | `SELECT randstr(10, 0), randstr(10, 0) FROM VALUES(1), (2), (3)` | randstr() can't run on this PC the way it runs in Databricks, so nothing ran: with a seed Databricks gives its own series of values, from its own random generat |
 | `session_user` | Differs | `SELECT session_user()` | 'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference) |
-| `uniform` | Differs | `SELECT uniform(10, 20, 0), uniform(10, 20, 0) FROM range(10)` | values stay between the bounds, but a seed gives another series here |
+| `uniform` | Refused | `SELECT uniform(10, 20, 0), uniform(10, 20, 0) FROM range(10)` | uniform() can't run on this PC the way it runs in Databricks, so nothing ran: with a seed Databricks gives its own series of values, from its own random generat |
 
 ## Databricks only: string and binary
 

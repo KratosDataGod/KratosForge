@@ -1,0 +1,149 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E78",
+  "version": 1,
+  "status": "draft",
+  "title": "A wide sales table with each customer as they were on the day",
+  "objectives": [
+    "2.2.7"
+  ],
+  "objective_text": "Flatten a fact and its dimensions into one wide table with PySpark, taking a type 2 dimension's attributes from the version in force on each fact's date.",
+  "scenario": "Sales analysts want one flat table to load into a notebook, with no joins to write. The customer dimension keeps history. When a customer moves region, the old row is closed and a new one starts on the same day. Finance reports each sale under the region the customer had on the day of the sale, not the region they have now. A sale can arrive for a customer or a product that isn't in its dimension yet, and those sales must still be in the table.",
+  "prerequisites": [
+    "E35"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [
+    {
+      "name": "silver.sales",
+      "rows": 8,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "silver.dim_customer",
+      "rows": 5,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    },
+    {
+      "name": "silver.dim_product",
+      "rows": 3,
+      "size": "small",
+      "seeded": "fixed values in setup.sql"
+    }
+  ],
+  "starting_environment": "The Delta tables silver.sales, silver.dim_customer (customer_key, customer_id, customer_name, segment, region, valid_from, valid_to, is_current) and silver.dim_product in the exercise folder, and a starter answer.py.",
+  "required": [
+    "One row per sale in silver.sales, none dropped and none repeated.",
+    "customer_name, segment and region come from the customer version whose valid_from is on or before sale_date and whose valid_to is after it.",
+    "product_name and category come from silver.dim_product.",
+    "A sale whose customer or product has no matching row shows Unknown in each column that row would fill.",
+    "Write gold.sales_wide with sale_id, sale_date, customer_id, customer_name, segment, region, product_name, category, amount, so that running the code again leaves the same table."
+  ],
+  "expected": {
+    "description": "gold.sales_wide has 8 rows. Sale 2 on 2026-03-09 is North and sale 3 on 2026-03-10 is South. Sale 5 is Retail and sale 6 is Wholesale. Sale 7 has customer Unknown and sale 8 has product Unknown."
+  },
+  "verifies": [
+    "Your PySpark picks the customer version in force on each sale's date and keeps sales with no matching customer or product, on the exercise data and on sales you haven't seen with three versions of one customer, on this PC.",
+    "gold.sales_wide has the columns asked for, one row per sale_id and no empty attribute.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Fabric notebook, so it doesn't show how Spark plans a join on a date range or broadcasts a small dimension.",
+    "Building the type 2 dimension itself. Here its rows are given.",
+    "How the wide table performs in a Direct Lake semantic model compared with the star.",
+    "That the table is a lakehouse table in OneLake. Here it's a Delta table in the exercise folder on this PC."
+  ],
+  "validation": [
+    {
+      "kind": "result_matches",
+      "table": "gold.sales_wide",
+      "data": "practice",
+      "weight": 2,
+      "required": true,
+      "pass": "gold.sales_wide holds the right rows for the practice data.",
+      "fail": "gold.sales_wide doesn't match. Look at sales 2, 3, 7 and 8."
+    },
+    {
+      "kind": "result_matches",
+      "table": "gold.sales_wide",
+      "data": "hidden",
+      "weight": 2,
+      "required": true,
+      "pass": "It also works on sales you haven't seen.",
+      "fail": "It doesn't hold on other sales. Look at a sale on the day a customer changed, and at a customer with three versions."
+    },
+    {
+      "kind": "table_shape",
+      "table": "gold.sales_wide",
+      "columns": {
+        "sale_id": "INTEGER",
+        "sale_date": "DATE",
+        "customer_id": "VARCHAR",
+        "customer_name": "VARCHAR",
+        "segment": "VARCHAR",
+        "region": "VARCHAR",
+        "product_name": "VARCHAR",
+        "category": "VARCHAR",
+        "amount": "DECIMAL"
+      },
+      "unique": [
+        "sale_id"
+      ],
+      "not_null": [
+        "customer_name",
+        "segment",
+        "region",
+        "product_name",
+        "category"
+      ],
+      "weight": 1,
+      "required": true,
+      "pass": "The columns, types and keys are right.",
+      "fail": "A column, a type or a key is off. See the detail."
+    },
+    {
+      "kind": "idempotent",
+      "table": "gold.sales_wide",
+      "weight": 1,
+      "required": true,
+      "pass": "Running it twice leaves the same table.",
+      "fail": "A second run changed the table. Write with overwrite."
+    }
+  ],
+  "hints": [
+    "Start from sales and left join each dimension, so no sale is lost.",
+    "Joining on customer_id alone matches every version of the customer. Add the dates to the join condition.",
+    "A version applies on valid_from and stops on valid_to. So the test is sale_date >= valid_from and sale_date < valid_to.",
+    "Give the DataFrames aliases, such as sales.alias(\"s\"), and build the condition with F.col(\"s.sale_date\") and F.col(\"c.valid_from\").",
+    "F.coalesce(F.col(\"c.region\"), F.lit(\"Unknown\")) labels a sale whose customer has no row."
+  ],
+  "explanation": "Denormalizing copies dimension attributes onto every fact row, so readers need no joins. With a type 2 dimension, a customer has one row per version, and the right one depends on the fact's date. Joining on the business key alone matches every version and repeats the sale. Joining on the current row gives every old sale today's region, so last month's report changes when a customer moves. The point-in-time join keeps the version whose range holds the sale date. Here a version starts on valid_from and ends the day before valid_to, because the next version starts on that same day. Count both ends as inside and a sale on the change day matches two rows. Start from the fact with left joins and label what's missing, so the row count and the totals still match the fact table.",
+  "troubleshooting": [
+    "There are more rows than sales. The customer join matches more than one version. Check the date condition, and that one end of the range is open.",
+    "Sale 2 shows South. The join uses the current row, or doesn't use the dates at all.",
+    "Sale 3 shows North. valid_from is compared with > instead of >=.",
+    "Sale 7 or sale 8 is missing. Use left joins, starting from sales.",
+    "A column is empty for sale 7 or 8. Wrap each dimension column in coalesce with 'Unknown'."
+  ],
+  "remediation": [
+    "LAB-05",
+    "LAB-07",
+    "https://learn.microsoft.com/fabric/data-warehouse/dimensional-modeling-dimension-tables"
+  ],
+  "reset": "Reset rebuilds the three silver tables from setup.sql, removes gold.sales_wide and puts the starter back.",
+  "parity": null,
+  "review_notes": [
+    "Checked on Microsoft Learn 2026-11-23 (data-warehouse/dimensional-modeling-dimension-tables). A type 2 dimension keeps a version per change with validity dates and a current flag, the new version starts on the value that closed the old one, and current versions end on 9999-12-31. The page doesn't say whether the end date is inside the range, so the exercise states its own rule (valid_to is the first day a version no longer applies) and grades only that.",
+    "The same page says dimension tables should almost always be denormalized. Flattening facts into one wide table is this objective's wider use, and the lesson doesn't claim Learn recommends it for every model.",
+    "The hidden data has a customer with three versions, sales on both change days and one the day before, a customer with no versions and a product with no row."
+  ]
+}

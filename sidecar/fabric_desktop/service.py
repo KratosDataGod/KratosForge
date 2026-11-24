@@ -1158,7 +1158,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Write a table diagram as a new .svg file in the Downloads folder. Never replaces a file."""
         if not isinstance(svg, str) or not svg.startswith("<svg ") or not svg.rstrip().endswith("</svg>"):
             raise ValueError("That isn't a diagram from the SQL page.")
-        if len(svg.encode("utf-8")) > self.DIAGRAM_SVG_MAX:
+        try:
+            size = len(svg.encode("utf-8"))
+        except UnicodeEncodeError:  # a lone surrogate, which JSON allows and a file can't hold
+            raise ValueError("The diagram wasn't saved, because it holds a character that can't be written "
+                             "to a file. Draw the diagram again on the SQL page.") from None
+        if size > self.DIAGRAM_SVG_MAX:
             raise ValueError("The diagram is too big to save (over 4 MB).")
         problem = self._diagram_problem(svg)
         if problem:
@@ -1361,10 +1366,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 break
             else:
                 raise ValueError("Couldn't find a free file name in Downloads for the export.")
-            header, protected = csv_cells.protect_header(result.schema or pa.schema([]))
+            # Binary goes out as hex and lists as JSON text, as the SQL page's export writes them (WR-221):
+            # Arrow wrote binary as its raw bytes, past the protection below.
+            header, protected = csv_cells.protect_header(sql_exec.csv_ready_schema(result.schema or pa.schema([])))
             with sink, pa_csv.CSVWriter(sink, header) as out:
                 for batch in result:
-                    batch, n = csv_cells.protect_batch(batch)  # WR-228: no cell runs as a formula when opened
+                    batch, n = csv_cells.protect_batch(sql_exec.csv_ready_batch(batch))  # WR-228
                     out.write_batch(batch)
                     rows, protected = rows + batch.num_rows, protected + n
         return {"path": str(path), "rows": rows, "protected": protected,

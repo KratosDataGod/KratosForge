@@ -17,7 +17,7 @@ import pytest
 from fabric_desktop.notebook import NotebookStore
 
 PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-WIDGET_MODEL = "8f3c0d2e5b1a4c6f9e7d2b1a0c3e5f7a"
+WIDGET_MODEL = "8f3c0d2e5b1a4c6f9e7d2b1a0c3e5f7a"  # pragma: allowlist secret (made up)
 
 
 def _jupyter() -> tuple[dict, bytes]:
@@ -83,7 +83,7 @@ def _vscode() -> tuple[dict, bytes]:
             "kernelspec": {"display_name": ".venv", "language": "python", "name": "python3"},
             "language_info": {"name": "python", "version": "3.12.1"},
             "orig_nbformat": 4,
-            "vscode": {"interpreter": {"hash": "4f2a1c9b0e7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f"}},
+            "vscode": {"interpreter": {"hash": "4f2a1c9b0e7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f"}},  # pragma: allowlist secret (made up)
         },
         "nbformat": 4,
         "nbformat_minor": 2,

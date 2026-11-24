@@ -267,10 +267,72 @@ _ZONED_TYPEOF = _refuse(
 # ---------------------------------------------------------------- reading
 
 
+from sqlglot.dialects.snowflake import Snowflake as _Snowflake  # noqa: E402  (beside the reader it extends)
+
+# sqlglot builds DIV0, DIV0NULL, ZEROIFNULL and NULLIFZERO as an IF that repeats its arguments (DIV0(a, b) is
+# IF(b = 0 AND NOT a IS NULL, 0, a / b)), so each level of nesting doubled the tree and the SQL. Here each
+# argument that isn't a plain name or literal is worked out once, as it is read, in a LIST_TRANSFORM.
+_CHEAP = (exp.Column, exp.Literal, exp.Null, exp.Boolean, exp.Placeholder, exp.Parameter, exp.Star)
+
+
+def _once(build: Any) -> Any:
+    def built(args: list[Any]) -> Any:
+        bound = [i for i, arg in enumerate(args) if arg is not None and not isinstance(arg, _CHEAP)]
+        if not bound:
+            return build(args)
+        # a name by the argument's height, so a nested call's names differ; a list, not a struct, as
+        # _rewrite_object_construct reads every struct as OBJECT_CONSTRUCT
+        names = {i: f"__sf_once{i}_{_height(args[i])}" for i in bound}
+        once = build([exp.column(names[i]) if i in names else arg for i, arg in enumerate(args)])
+        for i in reversed(bound):
+            wrapper = cast(exp.Expression, sqlglot.parse_one(
+                f"(LIST_TRANSFORM([__sf_value], {names[i]} -> __sf_body))[1]", read="duckdb"))
+            _swap(wrapper, "__sf_body", once)
+            _swap(wrapper, "__sf_value", args[i])
+            once = wrapper
+        return once
+    return built
+
+
+class _KfSnowflake(_Snowflake):
+    class Parser(_Snowflake.Parser):  # type: ignore[misc,valid-type]  # sqlglot sets Parser per dialect at run time
+        FUNCTIONS = {**_Snowflake.Parser.FUNCTIONS,
+                     **{name: _once(_Snowflake.Parser.FUNCTIONS[name])
+                        for name in ("DIV0", "DIV0NULL", "ZEROIFNULL", "NULLIFZERO")}}
+
+
+def _height(node: exp.Expression) -> int:
+    return 1 + max((_height(child) for child in node.iter_expressions()), default=0)
+
+
+def _swap(tree: exp.Expression, name: str, value: exp.Expression) -> None:
+    """The column ``name`` in ``tree`` replaced by ``value`` itself (once; the template has one place)."""
+    for column in list(tree.find_all(exp.Column)):
+        if column.name == name and not column.table:
+            column.replace(value)
+            return
+
+
+def _length_once(tree: exp.Expression) -> None:
+    """LENGTH of a value that may be BINARY, which DuckDB's writer spells out as CASE TYPEOF(x) ... x ... x,
+    with the value worked out once, so LENGTH(LENGTH(...)) doesn't triple the SQL at each level."""
+    for node in reversed(list(tree.find_all(exp.Length))):
+        value = node.this
+        if not node.args.get("binary") or value is None or isinstance(value, _CHEAP):
+            continue
+        name = f"__sf_len{_height(node)}"
+        body = (f"CASE TYPEOF({name}) WHEN 'BLOB' THEN OCTET_LENGTH(CAST({name} AS BLOB)) "
+                f"ELSE LENGTH(CAST({name} AS TEXT)) END")
+        once = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([__sf_value], {name} -> {body}))[1]",
+                                                     read="duckdb"))
+        _swap(once, "__sf_value", value.copy())
+        node.replace(once)
+
+
 def parse(code: str) -> list[exp.Expression]:
     """Snowflake SQL statements as sqlglot reads them; ValueError when it can't be read."""
     try:
-        statements = [cast(exp.Expression, s) for s in sql_dialects.parse(code, read="snowflake") if s is not None]
+        statements = [cast(exp.Expression, s) for s in sql_dialects.parse(code, read=_KfSnowflake) if s is not None]
     except (ParseError, TokenError) as exc:  # TokenError: an unclosed quote or comment
         first = str(exc).splitlines()[0] if str(exc) else "it isn't valid Snowflake SQL"
         raise ValueError(f"Could not read the query: {first}") from None
@@ -3106,6 +3168,7 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
         _json_of_variant_lists(tree)
         _rewrite_result_names(tree)
         tree = _sort_json_keys(_check_offsets(tree))
+        _length_once(tree)
         sql = ";\n".join([_duck(b) for b in before] + [_duck(tree)])
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

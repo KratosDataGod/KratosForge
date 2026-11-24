@@ -779,7 +779,7 @@ function gitBranchesTab(st) {
     const res = await attempt(() => rpc("git_create_branch", { repo: gitCurrent(), name }), "No branch created");
     if (res) { gitPage.branches = null; toast(`Now on ${name}.`); gitAfterChange(); }
   };
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") create(); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
   const local = b.local.map((x) => h("tr", { class: x.current ? "current" : "" },
     h("td", {}, h("b", {}, x.name), x.current ? h("span", { class: "pill-s info" }, " current") : null, x.gone ? h("span", { class: "pill-s wrn", title: "Its remote branch was deleted (for example after its pull request merged)" }, "remote gone") : null),
     h("td", { class: "muted-text small" }, [x.upstream ? `${x.upstream}` : "only on this PC", x.ahead ? `↑${x.ahead}` : "", x.behind ? `↓${x.behind}` : ""].filter(Boolean).join(" ")),
@@ -968,7 +968,7 @@ function gitPathDialog(title, intro, fields, okLabel, run) {
     err.textContent = "";
     try { await run(...inputs.map((i) => i.value.trim())); closeDialog(); } catch (e) { err.textContent = friendlyError(e).text; }
   };
-  inputs.forEach((i) => i.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); }));
+  inputs.forEach((i) => i.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ok(); } }));
   showDialog(title, h("div", { class: "git-form" }, h("p", { class: "text" }, intro),
     fields.map((f, i) => h("label", { class: "field" }, f.label, f.folder ? folderField(inputs[i], f.folder) : inputs[i])), err),
   [btn("Cancel", null, closeDialog, "tool outline"), btn(okLabel, null, ok, "tool primary")]);

@@ -34,6 +34,7 @@ from typing import Any
 
 from . import controls as ct
 from . import evidence as ev
+from .evidence import text
 
 GET_WORKSPACE_AND_ITEMS = "Names from GET /v1/workspaces/{id} and GET /v1/workspaces/{id}/items (KratosForge name heuristic)"
 GET_LAKEHOUSE = "GET /v1/workspaces/{id}/lakehouses/{lakehouseId}"
@@ -85,20 +86,22 @@ def naming(ws: dict[str, Any], items: list[dict[str, Any]] | None, *, collected_
     The workspace name is used only when it was read; without it the environment is not known."""
     if items is None:
         return []
-    ws_name = str(ws.get("displayName") or "")
+    if not isinstance(items, list):
+        raise ValueError("the workspace's items aren't a list")
+    ws_name = text(ws.get("displayName"))
     env, env_words = environment(ws_name) if ws_name else (None, [])
     lakehouses, leftovers = [], []
     for it in items:
-        if not it.get("id") or not it.get("type"):
+        if not isinstance(it, dict) or not ev.ok_id(it.get("id")) or not it.get("type"):
             continue
-        name = str(it.get("displayName") or "")
+        name = text(it.get("displayName"))
         w = words(name)
         if it["type"] == "Lakehouse":
-            lakehouses.append({"id": str(it["id"]), "name": name, "layers": [x for x in LAYERS if x in w]})
+            lakehouses.append({"id": text(it["id"]), "name": name, "layers": [x for x in LAYERS if x in w]})
         system = name.replace(" ", "").lower().startswith(SYSTEM_PREFIXES)
         hit = sorted(w & LEFTOVER_WORDS)
         if hit and not system:
-            leftovers.append({"id": str(it["id"]), "type": str(it["type"]), "name": name, "words": hit})
+            leftovers.append({"id": text(it["id"]), "type": text(it["type"]), "name": name, "words": hit})
     return [ev.record("workspace.naming", _ws_subject(ws), source=GET_WORKSPACE_AND_ITEMS, confidence="inferred",
                       collected_at=collected_at,
                       payload={"workspace_name": ws_name, "environment": env, "environment_words": env_words,
@@ -113,15 +116,16 @@ def lakehouse_properties(ws_id: str, lakehouses: list[dict[str, Any]], read: dic
     out = []
     for lh in lakehouses:
         got = read.get(str(lh.get("id")))
-        if got is None:
+        if not isinstance(got, dict):  # not read, or not an answer: its controls are not evaluated
             continue
-        props = got.get("properties") or {}
+        props = got.get("properties")
+        schema = props.get("defaultSchema") if isinstance(props, dict) else None
+        schema = text(schema) if isinstance(schema, str) and schema else None  # only text names a schema
         subj = ev.subject("item", str(lh["id"]), lh.get("displayName") or got.get("displayName"),
                           workspace_id=ws_id, item_type="Lakehouse")
         out.append(ev.record("lakehouse.properties", subj, source=GET_LAKEHOUSE, confidence="verified_configuration",
                              collected_at=collected_at,
-                             payload={"schemas_enabled": bool(props.get("defaultSchema")),
-                                      "default_schema": props.get("defaultSchema") or None}))
+                             payload={"schemas_enabled": schema is not None, "default_schema": schema}))
     return out
 
 
@@ -130,12 +134,13 @@ def notebook_bindings(opt: dict[str, Any], *, collected_at: str) -> list[dict[st
     lakehouse (None: it has none) when the definition was read, ``insufficient`` when it wasn't."""
     out = []
     for w in opt.get("workloads") or []:
-        if w.get("type") != "Notebook" or w.get("definition") not in ("read", "not_read"):
+        if not isinstance(w, dict) or not ev.ok_id(w.get("item_id")) or w.get("type") != "Notebook" \
+                or w.get("definition") not in ("read", "not_read"):
             continue
         read = w["definition"] == "read"
         subj = ev.subject("item", str(w["item_id"]), w.get("name"), workspace_id=str(w.get("workspace_id")),
                           item_type="Notebook")
-        payload = {"default_lakehouse": (str(w["default_lakehouse"]) if w.get("default_lakehouse") else None)
+        payload = {"default_lakehouse": (text(w["default_lakehouse"]) if w.get("default_lakehouse") else None)
                    if read else None, "definition": w["definition"]}
         out.append(ev.record("item.binding", subj, source=NOTEBOOK_DEFINITION,
                              confidence="verified_configuration" if read else "insufficient",
@@ -146,7 +151,8 @@ def notebook_bindings(opt: dict[str, Any], *, collected_at: str) -> list[dict[st
 def evidence(ws: dict[str, Any], items: list[dict[str, Any]] | None, opt: dict[str, Any],
              lakehouses_read: dict[str, dict[str, Any] | None], *, collected_at: str) -> list[dict[str, Any]]:
     """All the architecture evidence for one workspace."""
-    lakehouses = [i for i in items or [] if i.get("type") == "Lakehouse" and i.get("id")]
+    lakehouses = [i for i in items if isinstance(i, dict) and i.get("type") == "Lakehouse" and ev.ok_id(i.get("id"))] \
+        if isinstance(items, list) else []
     return (naming(ws, items, collected_at=collected_at)
             + lakehouse_properties(str(ws.get("id") or ""), lakehouses, lakehouses_read, collected_at=collected_at)
             + notebook_bindings(opt, collected_at=collected_at))

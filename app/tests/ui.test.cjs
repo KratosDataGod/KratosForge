@@ -3776,7 +3776,7 @@ function errorHelpers() {
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
   };
   const code = activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0] + activity.match(/function errorPanel\([\s\S]*?\n}\n/)[0] +
-    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/function toastClose\([\s\S]*?\n}\n/)[0] +
+    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/function toastClose\([\s\S]*?\n}\n/)[0] + app.match(/function toastReturnFocus\([\s\S]*?\n}\n/)[0] +
     app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
   vm.runInNewContext(`${code}; Object.assign(this, { friendlyError, errorPanel, realToast: toast, attempt });`, ctx);
   return { ctx, node, find, timers, toastEl, live: () => timers.filter((t) => t.live) };

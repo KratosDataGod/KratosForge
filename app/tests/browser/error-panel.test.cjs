@@ -128,6 +128,20 @@ test("a toast with a button stays until it is closed, and Esc in it puts focus b
   await t.getByRole("button", { name: "Close" }).click();
   await t.waitFor({ state: "hidden" });
 
+  // A new toast that takes the place of one whose button has focus puts focus back too, not on the page's body.
+  await page.locator("#search").focus();
+  await page.evaluate(() => toast("Support bundle saved", false, { action: { label: "Show in folder", run: () => {} } }));
+  await t.getByRole("button", { name: "Show in folder" }).focus();
+  await page.evaluate(() => toast("Formatted 2 cells."));
+  assert.strictEqual(await page.evaluate(() => document.activeElement?.id), "search", "focus goes back to where it was");
+  await t.waitFor({ state: "hidden", timeout: 6000 });
+
+  // With the mouse (no element had focus before), focus goes to the page.
+  await page.evaluate(() => { document.activeElement?.blur(); toast("Support bundle saved", false, { action: { label: "Show in folder", run: () => {} } }); });
+  await t.getByRole("button", { name: "Close" }).click();
+  await t.waitFor({ state: "hidden" });
+  assert.notStrictEqual(await page.evaluate(() => document.activeElement?.tagName), "BODY", "focus lands on the page, not lost");
+
   // A toast without a button still goes by itself.
   await page.evaluate(() => toast("Saved"));
   await t.waitFor();

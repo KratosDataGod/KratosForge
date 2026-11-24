@@ -71,7 +71,7 @@ def _unsupported_version(path: Path, name: str, body: bytes) -> Path:
 def test_a_name_with_a_double_slash_is_refused_and_nothing_is_written_outside(tmp_path):
     """A name with an empty part ("app//...") is refused: restore checks every entry stays inside the restore folder."""
     outside = tmp_path / "outside" / "other.txt"
-    name = f"app/{outside.as_posix()}"
+    name = f"app//{outside.relative_to(outside.anchor).as_posix()}"  # app//tmp/... here, app//a/_temp/... on Windows
     assert "//" in name
     zp = _backup(tmp_path / "b.zip", [(name, b"x")])
     _manifest_, problems = backup.validate(zp)

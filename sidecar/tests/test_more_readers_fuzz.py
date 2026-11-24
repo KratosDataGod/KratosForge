@@ -10,6 +10,7 @@ The fixed cases first reproduce what long runs found."""
 from __future__ import annotations
 
 import csv
+import errno
 import hashlib
 import io
 import json
@@ -157,6 +158,7 @@ def _files(folder: Path) -> dict[str, bytes]:
     ("folder", "app/notes", "a folder is where the file goes"),
     ("file", "app/sub/b.txt", "a file is where one of its folders goes"),
     ("none", "app/" + "n" * 250, "its path is too long for this PC"),  # fits, but its .restoring doesn't
+    ("none", "app/" + "\U0001f600" * 126, "its path is too long for this PC"),  # 252 code units here, 126 in len()
     ("none", "app/" + "n" * 256, "its path is too long for this PC"),
 ])
 @pytest.mark.parametrize("apply", [True, False])
@@ -173,7 +175,7 @@ def test_a_restore_that_cant_write_a_file_is_refused_by_name_and_changes_nothing
     before = _files(data)
     zp = _backup_zip(tmp_path / "b.zip", [("app/a.txt", b"new"), (name, b"x")])
     assert backup.validate(zp)[1] == []
-    if apply or len(name) > 255:  # a preview writes nothing, so only a name the PC can't even look up stops it
+    if apply or layout == "none":  # a preview writes nothing, but a name this PC can't take is named up front
         with pytest.raises(backup.BackupError) as refused:
             backup.restore(zp, data, apply=apply)
         assert str(refused.value).startswith(f"Nothing was restored, because {name} can't be written")
@@ -182,6 +184,25 @@ def test_a_restore_that_cant_write_a_file_is_refused_by_name_and_changes_nothing
         assert not backup.restore(zp, data, apply=apply)["applied"]
     assert _files(data) == before
     assert {p.name for p in tmp_path.iterdir()} == {"data", "b.zip"}
+
+
+def test_a_long_name_is_refused_as_too_long_however_the_pc_reports_it(tmp_path, monkeypatch):
+    """Windows answers an over-long name with "invalid argument" on a write, and "not there" when asked if it exists."""
+    data = tmp_path / "data"
+    data.mkdir()
+    long_name = "app/" + "n" * 256
+    zp = _backup_zip(tmp_path / "b.zip", [("app/a.txt", b"new"), (long_name, b"x")])
+    monkeypatch.setattr(Path, "exists", lambda self, **_: False)
+    with pytest.raises(backup.BackupError, match="its path is too long for this PC"):
+        backup.restore(zp, data, apply=False)
+    monkeypatch.undo()
+    dest = data / ("n" * 250)
+    restoring = str(dest) + ".restoring"
+    refused = backup._unwritable("app/" + "n" * 250, dest, OSError(errno.EINVAL, "Invalid argument", restoring))
+    assert refused is not None and "its path is too long for this PC" in str(refused)
+    assert backup._unwritable("app/a.txt", data / "a.txt", OSError(errno.EINVAL, "Invalid argument", "x")) is None
+    assert backup._too_long("app/" + "\U0001f600" * 128)  # 256 UTF-16 units, as Windows counts, though len() is 128
+    assert not backup._too_long("app/" + "\U0001f600" * 127 + "n")
 
 
 _LOCAL = ["a", "b.db", "sub", "sub/c", "sub/d/e", "n" * 250, "sub/" + "m" * 255, "x.db-wal", "q"]

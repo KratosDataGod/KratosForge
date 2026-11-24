@@ -430,6 +430,9 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
             continue
         dest = (agent_home if top == "agent" else data_dir) / rest
         try:
+            staging = dest.with_name(dest.name + ".restoring")  # the longer name, written first
+            if _too_long(staging):  # Windows answers "not there" for such a name rather than refusing it
+                raise OSError(errno.ENAMETOOLONG, os.strerror(errno.ENAMETOOLONG), str(staging))
             replaces = dest.exists()
         except OSError as exc:  # a path too long for this PC
             if refused := _unwritable(name, dest, exc):
@@ -518,9 +521,15 @@ def _prune_safety(folder: Path, keep: int = KEEP_SAFETY) -> list[str]:
     return gone
 
 
+def _too_long(path: str | Path) -> bool:
+    """Whether a part of ``path`` is longer than the 255 characters (UTF-16 units) a Windows or Linux
+    folder takes. Windows reports such a name as an invalid argument, or as not there, rather than as too long."""
+    return any(len(part.encode("utf-16-le")) // 2 > 255 for part in Path(path).parts)
+
+
 def _unwritable(name: str, dest: Path, exc: OSError) -> BackupError | None:
     """The restore refused by name when this PC's folder can't take ``name``; None for any other OSError."""
-    if exc.errno == errno.ENAMETOOLONG:
+    if exc.errno == errno.ENAMETOOLONG or _too_long(exc.filename if isinstance(exc.filename, str) else dest):
         why = "its path is too long for this PC"
     elif dest.is_dir():
         why = "a folder is where the file goes"

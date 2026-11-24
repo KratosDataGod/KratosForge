@@ -42,7 +42,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .. import __version__, jsonfile
 from . import peer
-from .core import CallContext, Caller, IntegrationError, error_from
+from .core import CallContext, Caller, IntegrationError, error_from, redacted
 from .registry import Registry
 from .store import IntegrationStore
 
@@ -66,7 +66,8 @@ STATUS = {"invalid_input": 400, "not_found": 404, "permission_denied": 403, "app
 
 
 def error_response(err: IntegrationError, headers: dict[str, str] | None = None, status: int | None = None) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": err.to_dict()}, status_code=status or STATUS.get(err.code, 500), headers=headers)
+    # Redacted here too: some refusals echo what the caller sent (an unknown resource's URI).
+    return JSONResponse({"ok": False, "error": redacted(err).to_dict()}, status_code=status or STATUS.get(err.code, 500), headers=headers)
 
 
 class RateLimiter:
@@ -225,6 +226,31 @@ def _limit_body(receive: Receive) -> Receive:
     return limited
 
 
+def _not_json(constant: str) -> Any:
+    raise ValueError(f"{constant} isn't JSON")
+
+
+def _strict_json(raw: bytes) -> Any:
+    """A body as JSON, held to what JSON is: no NaN or Infinity (Python's parser takes them), and no
+    lone surrogate (an escaped half of a UTF-16 pair), which can't be written back out as UTF-8.
+    Raises ValueError (UnicodeEncodeError is one) or RecursionError."""
+    body = json.loads(raw, parse_constant=_not_json)
+    json.dumps(body, ensure_ascii=False).encode("utf-8")
+    return body
+
+
+async def _http_error(request: Request, exc: Exception) -> Response:
+    """No such path, or the wrong method for it: the API's error shape, not Starlette's plain text."""
+    status = getattr(exc, "status_code", 500)
+    if status == 404:
+        err = IntegrationError("not_found", "There is no such endpoint.", hint="See /api/v1/openapi.json.")
+    elif status == 405:
+        err = IntegrationError("invalid_input", f"{request.method} isn't allowed here.", hint="See /api/v1/openapi.json.")
+    else:
+        err = IntegrationError("internal", "KratosForge hit an unexpected problem.")
+    return error_response(err, status=status if status in (404, 405) else 500)
+
+
 def openapi(registry: Registry, port: int) -> dict[str, Any]:
     """The OpenAPI 3.1 document, generated from the registry: one path per capability."""
     error = {"type": "object", "properties": {"ok": {"const": False}, "error": {"$ref": "#/components/schemas/Error"}},
@@ -302,24 +328,34 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
                 for cap in registry.resources() if registry.availability(cap, ctx)[0] != "unavailable"]
         return JSONResponse({"ok": True, "resources": rows})
 
+    def refuse(request: Request, cap_id: str, arguments: Any, err: IntegrationError,
+               headers: dict[str, str] | None = None) -> Response:
+        """A call refused before Registry.invoke, recorded like one it refuses (PR-AI-010)."""
+        registry.refused(CallContext(caller_of(request)), cap_id, arguments, err)
+        return error_response(err, headers)
+
     async def read(request: Request) -> Response:
+        uri = request.query_params.get("uri", "")
         try:
-            cap, args = registry.resolve(request.query_params.get("uri", ""))
+            cap, args = registry.resolve(uri)
         except IntegrationError as err:
-            return error_response(err)
+            return refuse(request, "resources/read", {"uri": uri}, err)
         return await _run(request, cap.id, args)
 
     async def invoke(request: Request) -> Response:
         cap_id = request.path_params["cap_id"]
         try:
             raw = await request.body()
-            body = json.loads(raw) if raw.strip() else {}
+            body = _strict_json(raw) if raw.strip() else {}
         except IntegrationError as err:
-            return error_response(err)
+            return refuse(request, cap_id, None, err)
+        except RecursionError:  # json.loads gives up on JSON nested past Python's recursion limit
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body is nested too deeply.",
+                                                                  hint="Send flatter arguments."))
         except ValueError:
-            return error_response(IntegrationError("invalid_input", "The body must be JSON: {\"arguments\": {...}}."))
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body must be JSON: {\"arguments\": {...}}."))
         if not isinstance(body, dict) or not isinstance(body.get("arguments", {}), dict) or set(body) - {"arguments"}:
-            return error_response(IntegrationError("invalid_input", "The body must be {\"arguments\": {...}}."))
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body must be {\"arguments\": {...}}."))
         return await _run(request, cap_id, body.get("arguments") or {})
 
     async def _run(request: Request, cap_id: str, arguments: dict[str, Any]) -> Response:
@@ -333,8 +369,9 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         with anyio.move_on_after(QUEUE_WAIT_SECONDS) as waiting:
             await slots.acquire()
         if waiting.cancelled_caught:
-            return error_response(IntegrationError("rate_limited", "KratosForge is busy with other calls.",
-                                                   retryable=True, hint="Try again shortly."), {"Retry-After": "5"})
+            return refuse(request, cap_id, arguments, IntegrationError(
+                "rate_limited", "KratosForge is busy with other calls.", retryable=True, hint="Try again shortly."),
+                {"Retry-After": "5"})
         result: dict[str, Any] = {}
         try:
             async with anyio.create_task_group() as tg:
@@ -385,6 +422,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
                             Route("/api/v1/capabilities/{cap_id}/invoke", invoke, methods=["POST"]),
                             Route("/api/v1/resources", resources), Route("/api/v1/resources/read", read),
                             Route("/mcp", MCPEndpoint(), methods=["GET", "POST", "DELETE"])],
+                    exception_handlers={404: _http_error, 405: _http_error, 500: _http_error},
                     lifespan=lambda _app: manager.run())
     return Guard(app, store, port, limiter, registry)
 

@@ -167,7 +167,7 @@ class SqlTemplatesMixin:
         for n in range(1, 1000):
             path = folder / (f"{base}.sql" if n == 1 else f"{base} ({n}).sql")
             try:
-                with open(path, "x", encoding="utf-8", newline="\n") as f:
+                with jsonfile.long_path_named(path), open(path, "x", encoding="utf-8", newline="\n") as f:
                     f.write(text)
             except FileExistsError:
                 continue
@@ -239,13 +239,14 @@ class SqlTemplatesMixin:
         """Copies a template to a new file in Downloads; an existing file is never replaced."""
         src = self._template_file(place, name)
         text = src.read_text(encoding="utf-8")
-        folder = known_folders.downloads()
-        folder.mkdir(parents=True, exist_ok=True)
+        folder = known_folders.export_folder()
         stem = file_stem(src.stem, "Template")
+        with jsonfile.long_path_named(folder / f"{stem}.sql", "exported"):  # an export folder past Windows' 260
+            folder.mkdir(parents=True, exist_ok=True)
         for n in range(1, 1000):
             path = folder / (f"{stem}.sql" if n == 1 else f"{stem} ({n}).sql")
             try:
-                with open(path, "x", encoding="utf-8", newline="\n") as f:
+                with jsonfile.long_path_named(path), open(path, "x", encoding="utf-8", newline="\n") as f:
                     f.write(text)
             except FileExistsError:
                 continue

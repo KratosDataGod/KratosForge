@@ -4,7 +4,7 @@
 
 Open it from **Source control** at the bottom of the left rail, or from the branch name in the top bar.
 
-> **Your PC, not Fabric.** Everything on this page is Git on your PC. Commit and push change your repository; they never change a Fabric workspace. Connecting a workspace to Git is Fabric's own feature and isn't part of this page yet.
+> **Your PC, not Fabric.** Commit and push change your repository; they never change a Fabric workspace. Fabric changes only when you choose **Update from Git…** on the **Fabric workspace** tab, or **Deploy** on a platform repository. Connecting a workspace to Git is Fabric's own feature and isn't part of this page yet.
 
 ## Before you start
 
@@ -151,7 +151,7 @@ The **Branches** tab lists your branches with how far each is ahead of or behind
 The buttons at the top say which service they talk to (GitHub, Azure DevOps or the server's name), because these are the only actions that leave your PC.
 
 - **Fetch** gets the latest branches and commits without changing your files.
-- **Pull** fast-forwards by default. If your branch and the remote have both moved on, it stops and says so; **Pull > Merge** then merges. Pull never rebases.
+- **Pull** fast-forwards by default. If your branch and the remote both have new commits, it stops and says so. **Pull and merge** (in the menu next to **Pull**) then merges. Pull never rebases.
 - **Push** sends your commits. A new branch shows **Publish branch**, which pushes it and links it to the remote branch. There is no force push.
 - **Create pull request** and **Open on GitHub / Azure DevOps** open the service's page in your browser.
 
@@ -173,14 +173,16 @@ Fabric's own Git integration connects a workspace to one branch and folder of a 
 - **Three commits side by side**: this PC (branch, commit, what isn't pushed or committed), the Git remote's copy of the branch Fabric follows (as of your last fetch), and the commit the workspace last synced, with how far apart they are where Git on this PC can tell.
 - **Check status in Fabric** lists the items that differ between the workspace and Git: changed in the workspace, changed in Git, conflicts (both changed) and the same change on both sides, conflicts first, each with how well Fabric Git supports its type. The first time, Windows asks you to allow KratosForge to use Fabric Git for you (`Workspace.GitUpdate.All`; see [Permissions](permissions.md)). Checking reads only.
 
-Linking and checking status change nothing in Fabric. Update from Git and Commit to Git come later, each behind a preview, a fresh status check and a confirm.
+Linking and checking status change nothing in Fabric.
+
+- **Update from Git…** brings the workspace up to the commit in Git. It is the only action on this tab that changes Fabric. It shows a preview first: what changes in the workspace, what isn't touched, and workspace changes that weren't committed and may be lost. When items changed on both sides, you pick one choice for all of them: **Keep the workspace version** (Git's change isn't applied) or **Take the Git version** (the workspace's change is lost). Then tick **Let Fabric replace the workspace items listed above with the Git versions** and type the workspace's name. Before it starts, KratosForge checks the status again. If anything changed since the preview, it stops and shows the new list.
+- **Commit in Fabric** opens the workspace in Fabric. Committing the workspace's changes to Git happens in Fabric's own Source control panel.
 
 ## What it doesn't do yet
 
-- Stage single lines of a file (whole files only).
+- Stage single lines of a file (whole files or blocks of changed lines only).
 - Create a pull request inside the app (it opens the service's page).
 - Rebase, cherry-pick, tags or submodules.
-- Compare the capacity repository with Fabric (see **Repository kinds**).
 - Connect a Fabric workspace to Git, or deploy between environments. Those are the next phases in the [Git integration plan](git-integration-plan.md).
 - It hasn't been tried with many Git servers and sign-in setups yet, which is why it is tagged **Preview**.
 

@@ -73,6 +73,7 @@ Spark SQL and the DataFrame API on this PC run with ANSI mode off (`spark.sql.an
 | Case | Spark SQL here (ANSI off, as Fabric) | Databricks SQL here (ANSI on) |
 | --- | --- | --- |
 | A `CAST` of text that isn't a number or a date, such as `CAST('abc' AS INT)` or `CAST('2024-02-30' AS DATE)` | NULL | Stops (`[CAST_INVALID_INPUT]` for a number) |
+| A typed literal that isn't a date or a timestamp, such as `DATE '2026-13-01'` or `TIMESTAMP '2026-13-01 00:00:00'` | Stops, as Spark does even with ANSI off (Spark's error is `[INVALID_TYPED_LITERAL]`, this PC's is DuckDB's conversion error) | Stops |
 | A `CAST` of a number past the type's range | A whole number keeps its low bits, as Java's cast does: `CAST(2147483648 AS INT)` is -2147483648. A double past the range becomes the range's nearest end: `CAST(1e10 AS INT)` is 2147483647, and NaN is 0. Text past the range is NULL | Stops |
 | A division by zero (`/`, `div`, `%`) | NULL | Stops with `[DIVIDE_BY_ZERO]` |
 | `try_cast`, `try_divide` | NULL | NULL |
@@ -452,6 +453,7 @@ When a project runs a T-SQL `MERGE` on this PC, on a database table or on one of
 | Two `WHEN MATCHED` clauses, or two `WHEN NOT MATCHED BY SOURCE` | The first clause whose condition holds takes the row, and the second takes only what the first leaves. The clauses can be written in any order |
 | A third `WHEN MATCHED` or `WHEN NOT MATCHED BY SOURCE`, a second `WHEN NOT MATCHED [BY TARGET]`, a first of two clauses with no `AND` condition, or two clauses that both `UPDATE` or both `DELETE` | Refused by name, with the rule it breaks |
 | `WHEN NOT MATCHED BY SOURCE` that reads a source column, or `WHEN NOT MATCHED [BY TARGET]` that reads a table column (`s.x` or `t.x`) | Refused by name, because there is no such row to read |
+| The same column without `s.` or `t.` | Placed by the table's columns and the source's. A column both have is refused with SQL Server's error 209, "Ambiguous column name 'x'.", in any `WHEN` clause. A column only the table has, in `WHEN NOT MATCHED [BY TARGET]`, and a column only the source has, in `WHEN NOT MATCHED BY SOURCE`, are refused by name, because there is no such row to read. The source's columns are a table's, a CTE's or a subquery's, with `SELECT *` and `x.*` read from the tables they name, or the alias's own list, as in `USING (VALUES (2, 'Q')) AS s(k, w)`. A source whose columns are known only when it runs, such as a temporary table (`#src`), a table the script creates or a table-valued function (`STRING_SPLIT`, `GENERATE_SERIES`), is placed the same way by the columns it has when the `MERGE` runs, before anything is written |
 | `UPDATE SET t.v = ...` with the table's alias | Runs as `SET v = ...`. A column set twice in one clause, or named twice in an `INSERT`, is refused by name (SQL Server's error 264) |
 | `INSERT VALUES (...)` with no column list | A value for each of the table's columns, in order. A different number of values is refused by name |
 | `INSERT DEFAULT VALUES` | Refused by name, because a warehouse's `MERGE` doesn't take it |
@@ -543,11 +545,39 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `N'...'` text | The same as `'...'` in comparisons, `LIKE` and `+`: `WHERE name = N'abc'` finds `'abc  '`, and `N'a' + N'b'` is `ab`. Only `DATALENGTH` counts it as nvarchar, two bytes a character, and only for an `N'...'` written directly inside it: `DATALENGTH(N'ab')` is `4`, but `DATALENGTH(N'a' + N'b')` is `2` here, where T-SQL gives `4` |
 | `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | Spaces only, or the characters you give. `REPLACE` matches case and leaves the text alone for an empty search |
 | `COLLATE` | A binary collation (`..._BIN2`, `..._BIN`) runs as written, since it's how text compares here already |
+| `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT`, `REGEXP_INSTR` flags | `m` lets `^` and `$` match at each line and `s` lets `.` match a line break, also together (`'sm'`). Of `c` and `i` the last one counts, and `c` is taken by `REGEXP_COUNT` and `REGEXP_INSTR` too. `REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm')` is true |
+| `REGEXP_COUNT`, `REGEXP_INSTR` | An `int`, so `REGEXP_COUNT(s, 'b') / 2` divides as whole numbers |
 
 What still differs:
 
-- `GROUP BY`, `DISTINCT`, `UNION`, `INTERSECT` and `EXCEPT` keep `'a'` and `'a  '` apart, where T-SQL counts them as one value. A query that groups text says so in `translation.notes`. Group on `RTRIM(...)` to get T-SQL's groups.
+- `GROUP BY`, `DISTINCT`, `UNION`, `INTERSECT` and `EXCEPT` keep `'a'` and `'a  '` apart, where T-SQL counts them as one value. A query that groups text says so in `translation.notes`. Group on `RTRIM(...)` to get T-SQL's groups. (`COUNT(DISTINCT ...)` counts them as one, as T-SQL does, and the table below shows it.)
 - Any other collation (`COLLATE Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, `SQL_Latin1_General_CP1_CI_AS`) is refused by name. Compare `UPPER(...)` on both sides to ignore case.
+
+### Local T-SQL collation
+
+A Fabric Warehouse's default collation is `Latin1_General_100_BIN2_UTF8`, case-sensitive ([Microsoft: collation in Fabric Data Warehouse](https://learn.microsoft.com/fabric/data-warehouse/collation)). A `BIN2` collation sorts and compares by Unicode code point, so case and accents count and `'B'`, `'Z'` sort before `'a'`, and `'z'` before `'é'` ([Microsoft: collation and Unicode support](https://learn.microsoft.com/sql/relational-databases/collations/collation-and-unicode-support)). On top of that, T-SQL compares text with ANSI padding: text that differs only in trailing spaces is equal. The local engine runs every T-SQL query this way. Each row below is checked in `sidecar/tests/test_tsql_collation.py` (WR-246).
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `ORDER BY`, `MIN`, `MAX`, `<`, `>` | Code point order, `NULL` first ascending and last descending: `NULL`, `''`, `A`, `B`, `Z`, `a`, `e`, `z`, `é`. `MIN`/`MAX` of `'a'` and `'a '` may show either, as in T-SQL |
+| `ORDER BY s, n` | `'a'` and `'a '` are equal in `s`, so `n` orders them. This holds for an output column named by its alias or number (`ORDER BY 1, 2`) |
+| `BETWEEN`, `IN (SELECT ...)`, `= ANY (SELECT ...)` | Trailing spaces don't count: `'a ' BETWEEN 'a' AND 'a'` is true, and `'a '` is `IN (SELECT 'a')` |
+| `NULLIF`, `CASE s WHEN 'a' THEN ...` | `NULLIF('a ', 'a')` is `NULL`, and `CASE 'a ' WHEN 'a'` takes that branch. `NULLIF` otherwise shows its first value as it is |
+| `JOIN ... ON a.s = b.s`, `ON a.s = b.s + ''` | `'a'` joins `'a '` |
+| `COUNT(DISTINCT s)` | `'a'`, `'a '` and `'a  '` count once |
+| `RANK`, `ROW_NUMBER`, `SUM(...) OVER` | A window's `PARTITION BY` and `ORDER BY` treat `'a'` and `'a '` as one value: they rank as ties, share a partition, and are peers in the default `RANGE` frame |
+| `LIKE`, `UPPER`, `LOWER` | `LIKE` is case-sensitive (`'a%'` doesn't find `'A'`). `UPPER('é')` is `É` |
+| `COLLATE Latin1_General_100_BIN2_UTF8`, `COLLATE database_default` | Run as written, because that's how text compares here already |
+| `COLLATE Latin1_General_100_BIN2`, `..._BIN` | Run as `Latin1_General_100_BIN2_UTF8`, with a note. They agree on ASCII, but a warehouse first converts other text to that collation's code page |
+| `VARCHAR(n) COLLATE Latin1_General_100_BIN2_UTF8` on a column | Runs. Any other column collation, including the case-insensitive `Latin1_General_100_CI_AS_KS_WS_SC_UTF8` a warehouse can be made with, is refused by name |
+| `JOIN ... USING` | Refused, because it isn't T-SQL and a warehouse refuses it. Use `JOIN ... ON` |
+
+What still differs, and how it shows:
+
+- A warehouse made case-insensitive (`Latin1_General_100_CI_AS_KS_WS_SC_UTF8`, set for the workspace or the warehouse when it's created) compares `'a' = 'A'` as true. The local engine always compares as the default, case-sensitive collation. The static check's SEM-006 warns about a collation name it reads.
+- `ORDER BY` text then another key after a `UNION`, `INTERSECT` or `EXCEPT` keeps `'a'` before `'a  '` instead of letting the next key order them, with a note. Put the set operation in a `FROM` and order by `RTRIM(...)`.
+- Text compares here without its trailing spaces, where T-SQL pads the shorter side with spaces. The two differ only for a character below a space (a tab or another control character) after the shorter text. For example, T-SQL sorts `'a' + CHAR(9)` before `'a'`, and here it sorts after.
+- Where the types in a comparison can't be told (a table the local engine doesn't know), the comparison is done as DuckDB does it, with a note.
 - `PATINDEX` needs its pattern written out as text, and is refused otherwise.
 
 T-SQL's reference doesn't give the answers for `LIKE` with a wildcard on text with trailing spaces, or `CHARINDEX` with a `NULL` start. A Fabric Warehouse gave the ones in the table above in live run 11 (2026-11-17), in the warehouse live check, flow 17 of the [smoke test](product/smoke-test/README.md#flow-17-the-warehouse-live-check).
@@ -560,12 +590,13 @@ Spark reads a regular expression the Java way (`java.util.regex`), and DuckDB re
 | --- | --- |
 | Named groups `(?<name>...)` and `${name}` in a replacement | Read as Java reads them |
 | POSIX classes `\p{Alpha}`, `\p{Digit}`, `\p{Punct}` and the others, and `\P{...}` | ASCII only, as in Java |
-| `\s`, `\h`, `\v`, `\R`, `\uXXXX`, `\0nn`, `\e`, `\cX`, `\Q...\E` | Java's characters. `\s` takes the vertical tab, as Java's does |
+| `\s`, `\h`, `\v`, `\R`, `\uXXXX`, `\0nn`, `\e`, `\cX`, `\Q...\E` | Java's characters. `\s` takes the vertical tab, as Java's does. Two `\u` halves of a UTF-16 pair, `\uD83D\uDE00`, are one character, and a backslash before a character outside ASCII (`\é`) is that character |
 | `regexp_replace`'s replacement | Java's: `$1` and `${name}` are groups, and `\` takes the next character as it is (`\$` is a dollar sign). A `$` that refers to no group stops, as in Spark |
 | `regexp_replace` with a position | The first position is 1. Position 0 or less stops, as in Spark |
-| `regexp_extract`, `regexp_extract_all` | Group 1 unless you give one. A group index the pattern doesn't have, or below 0, stops by name. A NULL index gives NULL |
+| `regexp_extract`, `regexp_extract_all` | Group 1 unless you give one. A group index the pattern doesn't have, or below 0, stops by name. A NULL index gives NULL. A group that took no part in a match is `''`, in `regexp_extract_all`'s array too: `regexp_extract_all('abab', '(a)\|(b)', 2)` is `['', 'b', '', 'b']` |
 | `regexp_count` | An `int`. An empty pattern counts each position, as Java does: `regexp_count('abc', '')` is 4 |
-| `regexp_instr` | An `int` |
+| `regexp_instr` | An `int`: where the first match starts, from 1, or 0. An empty match counts (`regexp_instr('xab', 'a*')` is 1, and `regexp_instr('abc', '')` is 1). The third argument is a group number that Spark only checks, not a start: `regexp_instr('bcx', '(b)(c)', 2)` is 1. A character past U+FFFF counts 2, as in a Java string: `regexp_instr('😀a', 'a')` is 3 |
+| `regexp_substr` | NULL when nothing matches, and for an empty match: `regexp_substr('xab', 'a*')` is NULL |
 | `split` | Every match splits, and empty parts at the end are kept: `split('a,b,,', ',')` has 4 parts |
 | Any of these with a NULL | NULL |
 
@@ -576,6 +607,10 @@ These are refused by name, and nothing runs, because RE2 has no reading for them
 - The flags `x`, `d` and `U` (`(?x)`). RE2's `U` means something else.
 - A class inside a class, such as `[a[b]]` or `[[:alpha:]]`, and class intersections (`&&`). Write the characters in one class, or use `\p{Alpha}`.
 - A group past 9 in `regexp_extract` or a replacement.
+- A `{` that isn't a repeat such as `{2}` or `{2,5}` (`a{`, `{"id"`). Spark stops on it too ("Illegal repetition"). Write `\{`.
+- Half of a UTF-16 pair on its own (`\uD83D`). Write the whole character, such as `\x{1F600}`.
+- `regexp_replace` with a pattern that can match empty text right after another match, such as `a*`, `[^,]*` or `\s*$`, and a replacement that isn't `''`: Java replaces that empty match too (`regexp_replace('aaa', 'a*', 'X')` is `XX`), and RE2 skips it. A pattern that only matches empty text (`^`, `$`, `\b`) or starts with `^` runs, and so does any pattern with `''` as the replacement. The DataFrame API's `F.regexp_replace` is checked the same way.
+- With DuckDB 1.x, `regexp_count` and `regexp_extract_all` with a pattern that can match empty text at `^`, `$`, `\b` or `\B` (`regexp_count(s, '\\b')`, `regexp_count(s, '(?m)^')`), unless it starts with `^`: DuckDB 1.x counts some of those empty matches twice. With DuckDB 2.0 they run, and count as Java does.
 - `\p{In...}` blocks, `\p{java...}` classes and binary properties such as `\p{IsAlphabetic}`. Use a category such as `\p{L}` or a script such as `\p{IsLatin}`.
 
 String functions that give Spark's answer on this PC, where DuckDB's own differs:
@@ -599,6 +634,7 @@ These cases can still differ. LOC-002 warns wherever a pattern is used:
 | A pattern taken from the data, not written in the query | Java's syntax | RE2's: not translated, and a lookaround stops with DuckDB's message |
 | `$` without the `m` flag, on text that ends in a line break | Matches just before the final line break | Matches only at the very end |
 | `.` and `\r`, `\u0085`, `\u2028`, `\u2029` | Doesn't match them | Matches them. Both leave out `\n` |
+| `(?m)` with `^` and `$` next to `\r`, `\u0085`, `\u2028`, `\u2029`, or `^` after a final line break | Each is a line end, and `^` doesn't match at the very end | Only `\n` ends a line, and `^` matches after a final `\n` |
 | `(?i)` with letters outside ASCII | Without `(?u)`, only ASCII letters ignore case | Every letter ignores case |
 | `\b` next to a letter outside ASCII | Java counts it as a word character | RE2 doesn't |
 | `split` with a pattern that can match no text, taken from the data or given to the DataFrame API's `F.split` | The array ends with an empty part | No empty part at the end. One written in the query is refused (see above) |
@@ -791,7 +827,29 @@ When a T-SQL statement on this PC names a column or table that isn't there, the 
 
 Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full.
 
-Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name and `Msg 8134` for `Divide by zero error encountered.`. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
+Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name, `Msg 8134` for `Divide by zero error encountered.` (`/` and `%`, for integers, decimals and floats), and the arithmetic and conversion errors below. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
+
+Arithmetic and conversion errors (WR-247), with SQL Server's words as Microsoft Learn's T-SQL pages and SQL Server's message list give them:
+
+| A warehouse says | When |
+| --- | --- |
+| `Msg 8115, Level 16: Arithmetic overflow error converting expression to data type int.` (or `bigint`, `numeric`) | `+`, `-`, `*`, `ABS` or `-x` past an `int` or `bigint`, or a decimal past 38 digits: `SELECT 2147483647 + 1`, `ABS(CAST(-2147483648 AS INT))`. `SUM` of an `int`, `smallint` or `tinyint` is an `int`, and of a `bigint` a `bigint`, so a total past it stops too (it came back as a wider number before). A column's value cast to a smaller integer type names that type (`smallint`, `tinyint`) |
+| `Msg 232, Level 16: Arithmetic overflow error for type int, value = 2147483648.000000.` | `POWER` of an integer past an `int`: `POWER(2, 31)` |
+| `Msg 245, Level 16: Conversion failed when converting the varchar value 'x' to data type int.` | Text that isn't a whole number, to `int`, `bigint`, `smallint` or `tinyint`, in a `CAST`, `CONVERT`, `+` or a comparison: `CAST('1.5' AS INT)`. `N'...'` text is named `nvarchar` |
+| `Msg 248, Level 16: The conversion of the varchar value '3000000000' overflowed an int column.` | A whole number in text too big for an `int` |
+| `Msg 8114, Level 16: Error converting data type varchar to numeric.` (or `float`, `real`) | Text that isn't a number, to a decimal or a float: `CAST('abc' AS DECIMAL(5,2))`, and `''` to a decimal |
+| `Msg 241, Level 16: Conversion failed when converting date and/or time from character string.` | Text that isn't a date or time, to `date`, `time`, `datetime2` or `datetime`, or a date that isn't there (`'2024-02-30'`) to `date` or `datetime2`. For `datetime` and `smalldatetime` that's `Msg 242` (`The conversion of a varchar data type to a datetime data type resulted in an out-of-range value.`) |
+
+A whole number written in a query that's too big for an `int` is a `decimal` of its digits, as in T-SQL, so `9223372036854775807 + 1` is `9223372036854775808` and `ABS(-2147483648)` is `2147483648`, where the local engine overflowed a `bigint`. A result column that is only such a number is a `decimal` too, not a `bigint`, so a query that reads it as an integer may need a `CAST`. When an error shows a value, it shows the value's first 1,000 characters.
+
+These keep the local engine's words, with no number, because SQL Server's words depend on what the local engine's message doesn't say:
+
+- A number written in the query cast to a smaller type, such as `CAST(300 AS TINYINT)` or `CAST(2147483648 AS INT)`: SQL Server says error 220 or 8115, by the constant's type.
+- A cast to a smaller decimal, such as `CAST(123.45 AS DECIMAL(4,2))` and `CAST('99999' AS DECIMAL(5,2))`: SQL Server's 8115 names the source type (`converting numeric to data type numeric`).
+- Whole-number text too big for a `bigint`, `smallint` or `tinyint` (SQL Server's 244 or 8114), and an expression (not a column) cast to a smaller integer type.
+- `+`, `-` or `*` past a `smallint` or `tinyint`, and an `int`'s smallest value divided by `-1` (`Overflow in division of -2147483648 / -1` here; the local engine says the same for `%`).
+
+One word can differ: `N'...'` text that isn't a number, to a decimal or a float, shows `Msg 8114` naming `varchar`, where SQL Server says `nvarchar`, because the local engine's message doesn't say which it was.
 
 `@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 
@@ -894,8 +952,9 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | --- | --- |
 | `/` and `%` on integers | Cut toward zero, and the remainder takes the dividend's sign: `-7 / 2` is `-3`, and `-7 % 2` is `-1` |
 | Dividing by zero | `/` and `%` stop with "Msg 8134, Level 16: Divide by zero error encountered.", for integers, decimals and floats. `NULL / 0` is `NULL` |
-| A result past `int` or `bigint` | An error, as in T-SQL. The message is DuckDB's ("Overflow in addition of INT32"), not T-SQL's "Arithmetic overflow error" |
-| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with "Conversion failed". Two texts are concatenated (`'1' + '1'` is `'11'`). In a comparison with an integer or a float, the text is converted as a `CAST` would: `0 = ''` is true, and `2 = '1.5'` is a conversion error |
+| A result past `int` or `bigint` | An error, as in T-SQL, in its words: `Msg 8115, Level 16: Arithmetic overflow error converting expression to data type int.` `SUM` of an integer keeps an `int` (or a `bigint`), and a total past it stops the same way (see Local T-SQL errors) |
+| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with `Msg 245`, "Conversion failed when converting the varchar value 'x' to data type int." Two texts are concatenated (`'1' + '1'` is `'11'`). In a comparison with an integer or a float, the text is converted as a `CAST` would: `0 = ''` is true, and `2 = '1.5'` is a conversion error |
+| `NULL` in `+` and `CONCAT` | `+` with a `NULL` side is `NULL`, for text and numbers (`'a' + NULL`). `CONCAT` takes a `NULL` as `''` (`CONCAT('a', NULL)` is `'a'`, and `CONCAT(NULL, NULL)` is `''`), and `CONCAT_WS` skips it (`CONCAT_WS('-', 'a', NULL, 'b')` is `'a-b'`) |
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
@@ -1076,8 +1135,8 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
 
 - **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
-- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS` and `+`, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
-- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD` and `ORDER BY`'s NULL order, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
+- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS`, `+`, and `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT` and `REGEXP_INSTR` with their `c`, `i`, `m` and `s` flags on text with line breaks, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
+- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD`, `ORDER BY`'s NULL order, and `REGEXP_LIKE`, `REGEXP_SUBSTR`, `REGEXP_SUBSTR_ALL`, `REGEXP_COUNT` and `REGEXP_REPLACE` with the `c`, `i`, `m` and `s` parameters and with an empty pattern, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 
@@ -1086,4 +1145,4 @@ A different answer, or an error where the target answers, fails these tests unle
 | Spark SQL | `date_add` by about 2^31 days (past DuckDB's timestamp range) | This stops here with an error, where Spark gives a date millions of years away |
 | Spark SQL | `split_part(s, d, 0)` | Refused by name before the query runs; Spark stops only when the call is reached |
 
-Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). A shift whose value isn't an `int` literal is typed `bigint` here when the value's type is only known as the query runs. Later fixes: `initcap`, `soundex` of a cast, `trunc` and `make_date` inside another call, `sqrt` below 0 (NaN), `sign` of NaN and of -0.0 (themselves, as in Spark), and `div` by 0 (NULL), tested in `test_spark_error_edges.py` and `test_spark_make_date_div_zero.py`.
+Fixed since the first run, each with a test named after its case in `sidecar/tests/test_spark_differential_fixes.py` and `test_spark_string_edges.py`: `substring` with a negative length, `overlay` before the first character, `locate` on NULL text, `levenshtein` on text outside ASCII (characters are counted, as in Spark, and a third argument is Spark's threshold), `bit_count` of a negative `int` (64 bits), `pmod(x, 0.0D)` inside another `pmod`, `a div b` of decimals in the SQL editor, `isnan(NULL)` (false), `to_date` and `CAST(... AS DATE)` of text (Spark's reading: a year of 4 to 7 digits, so `'24-02-29'` is NULL), `date_format` past year 9999 (a leading `+`), `ceil` and `floor` of a double or a whole number (a `bigint`, as in Spark, so `CAST(ceil(1.0E3D) AS STRING)` is `1000`), and `shiftleft`/`shiftright` (Java's rules: the count mod 32 for an `int`, mod 64 for a `bigint`). `shiftleft`, `shiftright` and `shiftrightunsigned` of a `tinyint`, `smallint` or `int` column give an `int`, as in Spark, and `typeof` names it `int`. Later fixes: `initcap`, `soundex` of a cast, `trunc` and `make_date` inside another call, `sqrt` below 0 (NaN), `sign` of NaN and of -0.0 (themselves, as in Spark), and `div` by 0 (NULL), tested in `test_spark_error_edges.py` and `test_spark_make_date_div_zero.py`.

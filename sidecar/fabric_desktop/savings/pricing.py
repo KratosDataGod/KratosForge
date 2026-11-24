@@ -12,7 +12,7 @@ only from its effective date and a run keeps the version it was priced at. The r
 come only from Cost Management exports or a SKU change (ESI-403). Scenario figures are never added
 to measured or estimated ones (``measurement.total`` refuses it).
 
-``from_settings`` turns today's single price (``costs.DEFAULTS``, Monitor > Cost > Prices) into the
+``from_settings`` turns today's single price (``costs.DEFAULTS``, Optimize > Cost and savings > Prices) into the
 first scenario, labelled an assumption.
 
 Pure: no I/O.
@@ -85,7 +85,7 @@ def from_settings(saved: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = costs.settings(saved)
     return scenario(scenario=DEFAULT_SCENARIO, rate_per_cu_hour=cfg["price_per_cu_hour"], currency=cfg["currency"],
                     effective_from=_BEGINNING, pricing_model=ASSUMPTION, confidence="assumption",
-                    source="Monitor > Cost > Prices")
+                    source="Optimize > Cost and savings > Prices")
 
 
 def check(versions: list[dict[str, Any]]) -> None:
@@ -162,10 +162,15 @@ def value_runs(results: list[dict[str, Any]], versions: list[dict[str, Any]], sc
                region: str = "", net: bool = True) -> dict[str, Any]:
     """Each run's net (or gross) CU avoided priced at the version in effect when it ran, and the
     scenario total. A run counts once by execution id; runs with no figure or no price are counted
-    beside the total, never as 0."""
+    beside the total, never as 0. The same result read twice counts once; two different results
+    for one run are refused, so the total never depends on which was read first. With no runs the
+    total is a Scenario 0, since a priced figure is always a scenario."""
     seen: dict[Any, dict[str, Any]] = {}
     for r in results:
-        seen.setdefault(r["execution_id"], r)
+        first = seen.setdefault(r["execution_id"], r)
+        if first is not r and first != r:
+            raise ValueError(f"Run {r['execution_id']} has two different attributions; "
+                             "price one attribution per run.")
     rows = []
     for r in seen.values():
         cu = r["net_cu_hours" if net else "gross_cu_hours"]
@@ -176,5 +181,7 @@ def value_runs(results: list[dict[str, Any]], versions: list[dict[str, Any]], sc
     if len(currencies) > 1:
         raise ValueError("These runs were priced in more than one currency; pick a scenario with one currency.")
     total = ms.total([x["value"] for x in rows], METRIC, ms.CURRENCY, currency=next(iter(currencies), None))
+    if not rows:
+        total |= {"classification": ms.SCENARIO, "label": ms.LABELS[ms.SCENARIO]}
     return {"scenario": scenario, "basis": "net" if net else "gross", "runs": rows, "total": total,
             "pricing_versions": sorted({m["pricing_version"] for m in known})}

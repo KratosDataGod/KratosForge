@@ -339,6 +339,8 @@ Promote to a Fabric workspace is in Preview: it is tested against local stores a
 
 Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each shows whether the promote gate passes and, if not, what to do first. It also lists the tables whose logic differs from what last ran in the target, each with **Compare**, so you see what a promote does to the numbers before you press it. Under each table it lists what changed in its settings since the version promoted there, by meaning rather than by line: *column channel added (string)*, *check returns_are_negative changed on_fail from quarantine to stop*. Comments, spacing and the order of settings don't count.
 
+**Delta table features at publish** (Preview), below the promote buttons, lists each table with the Delta features a run may leave on it when it publishes it. A choice that one of the table's readers can't read asks you to type the table's name first. The choice is kept in the entity file, so it reaches Test and Prod with the next promote. See [Each table's own choice](delta-reader-matrix.md#each-tables-own-choice-preview).
+
 **Promote to Test** (or Prod):
 
 1. Checks the gate: the project passes the save gate, the tests pass, and every table's last run in the source environment is green on this exact metadata version.
@@ -553,6 +555,7 @@ business_key = "order_id"
 | Section | Key | Meaning |
 | --- | --- | --- |
 | top level | `name`, `owner`, `description` | The entity's name (`layer.table`), who owns it, and what it is |
+| | `delta_features`, `delta_readers`, `delta_accepted` | The Delta table features a run may leave on the table when it publishes it, the readers they're checked against, and the readers you allowed with a typed confirm (Preview; [Each table's own choice](delta-reader-matrix.md#each-tables-own-choice-preview)) |
 | `[source]` | `files` | A file pattern under the layer's lakehouse `Files` |
 | | `entity` | Another entity it reads |
 | | `table` | An existing Delta table, by OneLake URI (adopted tables) |

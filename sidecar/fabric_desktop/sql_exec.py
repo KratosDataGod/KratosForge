@@ -92,6 +92,7 @@ import pyarrow as pa
 from sqlglot import exp
 
 from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
+from .awake_timer import AwakeTimer
 from .filenames import file_stem
 from .frames import EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
@@ -190,7 +191,8 @@ class Execution:
     refused: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)  # local T-SQL: where this PC's answer can differ from a warehouse's
     proc: subprocess.Popen[str] | None = field(default=None, repr=False)
-    timer: threading.Timer | None = field(default=None, repr=False)
+    timer: AwakeTimer | None = field(default=None, repr=False)
+    reader: threading.Thread | None = field(default=None, repr=False)  # follows the process; writes the audit line
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
     time_limit_s: float = 0.0
     time_limit_from: str = ""  # "sql" (Settings › SQL), "policy" (the organization's); local also "caller" or "project"
@@ -558,15 +560,20 @@ class SqlExecutions:
         return [r.status() for r in runs]
 
     def shutdown(self) -> None:
-        """The app is closing: end every run's process."""
+        """The app is closing: end every run's process, then wait (briefly) for each run's reader to record
+        how it ended. The readers are daemon threads, so without the wait the engine could exit first and a
+        run stopped by the app closing, a warehouse change that committed just before among them, would
+        have no audit line."""
         with self._lock:
-            procs = []
+            procs, readers = [], []
             for run in self._runs.values():
                 if run.state in ("running", "cancelling"):
                     run.stop_reason = run.stop_reason or "cancel"
                     self._end_process(run)
                     if run.proc is not None:
                         procs.append(run.proc)
+                    if run.reader is not None:
+                        readers.append(run.reader)
             for export in self._exports.values():
                 export.cancel.set()
         for proc in procs:
@@ -574,6 +581,8 @@ class SqlExecutions:
                 proc.wait(10)
             except subprocess.TimeoutExpired:
                 pass
+        for reader in readers:
+            reader.join(10)
 
     def _get(self, run_id: str) -> Execution:
         with self._lock:
@@ -650,10 +659,11 @@ class SqlExecutions:
         run.time_limit_s = minutes * 60
         run.time_limit_from = ("policy" if limits.get("sql_time_limit_by_policy") else "sql") if minutes > 0 else ""
         if minutes > 0:
-            run.timer = threading.Timer(minutes * 60, self._time_up, args=(run,))
-            run.timer.daemon = True
+            # Awake time only: a run going when the PC slept isn't stopped on waking for time it didn't run.
+            run.timer = AwakeTimer(minutes * 60, self._time_up, args=(run,))
             run.timer.start()
-        threading.Thread(target=self._read, args=(run, proc), daemon=True, name=f"sql-run-{run.id}").start()
+        run.reader = threading.Thread(target=self._read, args=(run, proc), daemon=True, name=f"sql-run-{run.id}")
+        run.reader.start()
 
     def _answer(self, run: Execution, proc: subprocess.Popen[str], name: str) -> None:
         """The worker is about to read a lakehouse table and needs a storage token, or the
@@ -1045,7 +1055,8 @@ class SqlExecutions:
             export.state = "cancelled"
         except Exception as exc:  # noqa: BLE001 - shown on the page
             _discard(partial, export.path)
-            export.state, export.error = "failed", str(exc) or type(exc).__name__
+            too_long = jsonfile.path_too_long(exc, export.path, "exported")  # Windows' 260 without long paths
+            export.state, export.error = "failed", str(too_long or exc) or type(exc).__name__
 
     @staticmethod
     def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:

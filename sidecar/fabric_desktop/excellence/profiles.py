@@ -12,12 +12,12 @@ standard or certification.
 
 from __future__ import annotations
 
-import hashlib
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
 from .controls import DIMENSIONS, SEVERITIES
-from .evidence import canonical
+from .evidence import digest, text
 
 SEVERITY_WEIGHTS = {"critical": 10, "high": 5, "medium": 3, "low": 1, "informational": 0}
 RATED_COVERAGE = 0.8       # a rating is shown as authoritative at this coverage or more
@@ -47,20 +47,26 @@ class Profile:
                 "disabled": dict(sorted(self.disabled.items())), "description": self.description}
 
     def fingerprint(self) -> str:
-        return hashlib.sha256(canonical(self.as_dict()).encode()).hexdigest()[:16]
+        return digest(self.as_dict())[:16]
+
+
+def _number(x: Any) -> bool:
+    """A finite number (not a flag): NaN or infinity would make every score NaN."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 
 def problems(p: Profile) -> list[str]:
     out: list[str] = []
     if set(p.weights) != set(DIMENSIONS):
         out.append("weights name every dimension, and only those")
-    if any((not isinstance(w, (int, float))) or w < 0 for w in p.weights.values()):
+    if any(not _number(w) or w < 0 for w in p.weights.values()):
         out.append("weights are numbers of 0 or more")
     elif abs(sum(p.weights.values()) - 100) > 1e-9:
         out.append(f"weights add up to {sum(p.weights.values()):g}, not 100")
-    if set(p.severity_weights) != set(SEVERITIES) or any(w < 0 for w in p.severity_weights.values()):
+    if set(p.severity_weights) != set(SEVERITIES) or any(not _number(w) or w < 0 for w in p.severity_weights.values()):
         out.append("severity weights name every severity, each 0 or more")
-    if not 0 < p.provisional_coverage <= p.rated_coverage <= 1:
+    if not _number(p.provisional_coverage) or not _number(p.rated_coverage) \
+            or not 0 < p.provisional_coverage <= p.rated_coverage <= 1:
         out.append("coverage thresholds are 0 < provisional <= rated <= 1")
     if any(s not in SEVERITIES for s in p.severity_overrides.values()):
         out.append("a severity override names an unknown severity")
@@ -111,6 +117,6 @@ DEFAULT = "baseline"
 
 
 def get(profile_id: str = DEFAULT) -> Profile:
-    if profile_id not in BUILT_IN:
-        raise ValueError(f"unknown profile {profile_id!r}")
+    if not isinstance(profile_id, str) or profile_id not in BUILT_IN:
+        raise ValueError(f"unknown profile {text(profile_id, 64)!r}")
     return BUILT_IN[profile_id]

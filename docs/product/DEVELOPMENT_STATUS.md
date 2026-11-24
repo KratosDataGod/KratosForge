@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-24 11:42 UTC, main a73ebb71.** Covers the PRs merged from #135 to #3274.
+**Product check of 2026-11-24 23:42 UTC, main 84a36dd6.** Covers the PRs merged from #135 to #3324.
 
 ## Summary
 
+- Evening check, 2026-11-24: 30 PRs merged after a73ebb71. 3 were product data and a docs accuracy sweep, and the
+  other 27 were linked. A failed critical control now caps the Excellence rating below Exemplary (#3305, PB-138), and
+  Warehouse controls joined it (FEA-303). Command-line pipeline runs go through the audited, fail-closed call (WR-416)
+  and governance errors name the setting (WR-414, PB-124). A Databricks Asset Bundle can be checked on this PC
+  (WR-321, Preview, PB-120). Notebooks merge by cell across VS Code and the app (#3306, Preview, PB-109), and class
+  achievement cards sit above the skill trees (#3277, Preview, PB-134). No item changed state.
 - Morning check, 2026-11-24: 38 PRs merged after 293fb38d. 3 were the weekly review, docs audit 26 and a docs
   accuracy sweep, and the other 35 were linked. Every Prod, approve, confirm and typed-name action is now proven to
   fail closed (WR-410), and delete-my-data is proven to remove every inventoried store (WR-412, PB-124). Academy

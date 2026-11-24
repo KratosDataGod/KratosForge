@@ -40,7 +40,7 @@ def _commit(t: Path, v: int) -> Path:
 def _write(t: Path, v: int, *actions: dict) -> None:
     lines = [json.dumps(a) for a in actions] + [json.dumps({"commitInfo": {"timestamp": int(time.time() * 1000),
                                                                            "operation": "WRITE"}})]
-    _commit(t, v).write_text("\n".join(lines) + "\n")
+    _commit(t, v).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _build(rng: random.Random, root: Path) -> Path:
@@ -59,7 +59,7 @@ def _build(rng: random.Random, root: Path) -> Path:
 def _adds(t: Path) -> list[dict]:
     out = []
     for c in sorted((t / "_delta_log").glob("*.json")):
-        for line in c.read_text(errors="replace").splitlines():
+        for line in c.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
                 add = json.loads(line).get("add")
             except ValueError:
@@ -88,12 +88,12 @@ def _mutate(rng: random.Random, t: Path, root: Path) -> str:
     elif kind == "delete":
         c.unlink()
     elif kind in ("dupline", "dropline"):
-        lines = c.read_text(errors="replace").splitlines() or [""]
+        lines = c.read_text(encoding="utf-8", errors="replace").splitlines() or [""]
         if kind == "dupline":
             lines.insert(rng.randrange(len(lines) + 1), rng.choice(lines))
         else:
             lines.pop(rng.randrange(len(lines)))
-        c.write_text("\n".join(lines) + "\n")
+        c.write_text("\n".join(lines) + "\n", encoding="utf-8")
     elif kind == "garbage":
         c.write_bytes(bytes(rng.randrange(256) for _ in range(rng.randint(0, 100))))
     elif kind == "unknown":
@@ -104,7 +104,7 @@ def _mutate(rng: random.Random, t: Path, root: Path) -> str:
             {"minReaderVersion": 3, "minWriterVersion": 7, "readerFeatures": ["qqq"], "writerFeatures": ["qqq"]},
             {"minReaderVersion": 1, "minWriterVersion": 7, "writerFeatures": ["qqq"]}])})
     elif kind == "lastcp":
-        (log / "_last_checkpoint").write_text(rng.choice(['{"version": 2, "size": 3}', "garbage", "", "[]"]))
+        (log / "_last_checkpoint").write_text(rng.choice(['{"version": 2, "size": 3}', "garbage", "", "[]"]), encoding="utf-8")
     elif kind == "checkpoint":
         try:
             DeltaTable(str(t)).create_checkpoint()

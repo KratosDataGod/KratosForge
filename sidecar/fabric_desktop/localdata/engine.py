@@ -249,16 +249,24 @@ def _data_files(table: Any, folder: str) -> list[str]:
             path = _local_path(path)
         elif not os.path.isabs(path):
             path = os.path.normpath(os.path.join(folder, path))
+        # Checked by name before anything resolves the path: on Windows, resolving one turns it into the device
+        if any(part.split(".")[0].upper().rstrip(" .") in _DEVICE_NAMES for part in _parts_below(path, folder)):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"({rel[:200]!r}) that Windows reserves for a device, like CON or NUL. Check where the "
+                             "table's _delta_log came from, or write the table again.")
         if not _inside(path, folder):
             raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
                              f"outside the table's folder ({rel[:200]!r}), and only files inside it are read. Check "
                              "where the table's _delta_log came from, or write the table again.")
-        if any(part.split(".")[0].upper().rstrip(" .") in _DEVICE_NAMES for part in Path(os.path.relpath(path, folder)).parts):
-            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
-                             f"({rel[:200]!r}) that Windows reserves for a device, like CON or NUL. Check where the "
-                             "table's _delta_log came from, or write the table again.")
         files.append(path)
     return files
+
+
+def _parts_below(path: str, folder: str) -> list[str]:
+    """The names in ``path`` below ``folder``, compared as text only (never resolved), split on / and \\."""
+    p, r = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.normpath(folder))
+    below = p[len(r):] if p.startswith(r.rstrip("\\/") + os.sep) else p
+    return [part for part in below.replace("\\", "/").split("/") if part]
 
 
 def _inside(path: str, folder: str) -> bool:

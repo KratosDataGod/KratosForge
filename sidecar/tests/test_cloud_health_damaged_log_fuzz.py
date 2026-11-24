@@ -62,8 +62,8 @@ def _damage(rng: random.Random, t: Path, kind: str) -> None:
         rng.choice(cs).write_bytes(bytes(rng.randrange(256) for _ in range(rng.randint(1, 80))))
     else:  # a commit's protocol or metaData line dropped
         c = cs[0]
-        lines = [line for line in c.read_text().splitlines() if not line.startswith(rng.choice(['{"protocol"', '{"metaData"']))]
-        c.write_text("\n".join(lines) + "\n")
+        lines = [line for line in c.read_text(encoding="utf-8").splitlines() if not line.startswith(rng.choice(['{"protocol"', '{"metaData"']))]
+        c.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _statuses(h: dict) -> dict[str, str]:

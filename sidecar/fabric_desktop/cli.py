@@ -1079,12 +1079,46 @@ def _print_fabric_differences(found: list[dict]) -> None:
 
 
 def _pipeline_run(args: argparse.Namespace) -> int:
-    from pathlib import Path
+    """A local pipeline run in this process. Its audit lines are the app's for pipeline_run_start
+    (server.handle): a "started" line first when the call fails closed (--allow-uncontained), and the
+    run refused when that line can't be written; then how the start ended, then pipeline_run_finished.
+    The person is this PC's account, marked (cli), as for the agent's own commands."""
+    import time
 
+    from . import audit
     from .orchestration import load
     from .orchestration.definition import DefinitionError
     from .orchestration.runner import PipelineRun, RunRefused
 
+    params = dict(item.partition("=")[::2] for item in args.param)
+    call = {"path": args.path, "parameters": params, "mocks": args.mocks,
+            "children": dict(item.partition("=")[::2] for item in args.child),
+            "max_parallel": args.max_parallel, "wait_scale": args.wait_scale, "timeout_seconds": args.timeout,
+            "notebooks": dict(item.partition("=")[::2] for item in args.notebook),
+            "allow_uncontained": args.allow_uncontained, "keep_outputs": args.keep_outputs,
+            "read_lakehouses": args.read_lakehouse, "workspace_id": args.workspace,
+            "sql_projects": dict(item.partition("=")[::2] for item in args.sql_project)}
+    svc = Service()
+    log = getattr(svc, "audit", None)
+    who = f"{getattr(log, 'os_user', '') or 'unknown'} (cli)"
+    began = time.monotonic()
+
+    def note(action: str, outcome: str, details: dict, error: str = "", reason: str = "") -> None:
+        """A line after the work has started or ended: never stops it, as for the app's own calls."""
+        try:
+            if log is not None:
+                log.record(action, outcome, time.monotonic() - began, details, who=who, error=error, reason=reason)
+        except Exception as exc:  # noqa: BLE001 - stderr says the line is missing
+            print(f"audit: could not record {action}: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    if audit.fails_closed("pipeline_run_start", call):
+        try:
+            if log is None:
+                raise RuntimeError("no audit log")
+            log.record("pipeline_run_start", "started", 0.0, call, who=who)
+        except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+            print("error: " + audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}"))
+            return 2
     try:
         imp = load(args.path)
         children = {}
@@ -1093,46 +1127,61 @@ def _pipeline_run(args: argparse.Namespace) -> int:
             children[key] = load(path)
         mocks = json.loads(Path(args.mocks).read_text(encoding="utf-8")) if args.mocks else None
     except (DefinitionError, OSError, ValueError) as exc:
+        note("pipeline_run_start", "error", call, error=str(exc))
         print(f"error: {exc}")
         return 2
-    params = dict(item.partition("=")[::2] for item in args.param)
     run_id, notebooks, data = str(uuid.uuid4()), None, None
-    if args.notebook or args.read_lakehouse or args.sql_project:
-        svc = Service()
     if args.notebook:
         from .pipeline_notebooks import LocalNotebooks
-        notebooks = LocalNotebooks(svc, run_id, dict(item.partition("=")[::2] for item in args.notebook),
-                                   args.allow_uncontained, args.keep_outputs)
+        notebooks = LocalNotebooks(svc, run_id, call["notebooks"], args.allow_uncontained, args.keep_outputs)
     if args.read_lakehouse or args.sql_project:
         from .pipeline_data import LocalData
         data = LocalData(svc, run_id, notebooks, args.workspace, lakehouse_reads=args.read_lakehouse,
-                         sql_projects=dict(item.partition("=")[::2] for item in args.sql_project))
+                         sql_projects=call["sql_projects"])
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
                       wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
                       data=data)
     if not args.json:
         from .orchestration.gotchas import check as fabric_differences
         _print_fabric_differences(fabric_differences(imp))
+    started = False
     try:
         problems = run.check()
+        if problems:
+            raise RunRefused(problems)
         acts = imp.pipeline.all_activities()
-        if not problems and ((notebooks is not None and notebooks.lakehouses(acts))
-                             or (data is not None and data.lakehouses(acts))):
+        if (notebooks is not None and notebooks.lakehouses(acts)) or (data is not None and data.lakehouses(acts)):
             svc.auth.storage_token()  # sign in before anything runs
+        note("pipeline_run_start", "ok", call)
+        started = True
         run.run()
     except RunRefused as exc:
+        if not started:
+            outcome, why = audit.outcome({"ok": False, "problems": exc.problems})
+            note("pipeline_run_start", outcome, call, reason=why)
         for p in exc.problems:
             print(f"refused: {p['code']}" + (f" [{p['activity']}]" if p.get("activity") else "") + f": {p['message']}")
         return 2
     except KeyboardInterrupt:
         run.cancel()
+        if not started:
+            note("pipeline_run_start", "error", call, reason="cancelled")
         if notebooks is not None:
             notebooks.stop()
         print("cancelled")
         return 1
+    except Exception as exc:
+        if not started:
+            note("pipeline_run_start", "error", call, error=f"{type(exc).__name__}: {exc}")
+        raise
     finally:
         if notebooks is not None:
             notebooks.finish()
+        if started:  # how the run ended, as the app's background run records it
+            reason = "cancelled" if run.cancelled and run.state != "failed" else (
+                {"succeeded": "", "cancelled": "cancelled"}.get(run.state, "failed"))
+            note("pipeline_run_finished", "error" if reason else "ok",
+                 {"run_id": run.id, "pipeline": run.pipeline.name, "state": run.state}, reason=reason)
     record = run.to_json()
     if args.json:
         print(json.dumps(record, indent=2, default=str))

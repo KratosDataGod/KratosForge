@@ -32,6 +32,8 @@ question on the roadmap.
   started, and your edits and breakpoint changes take effect the next time it runs. The paused line
   stays marked on its code wherever your edit moved it, and the panel says so. When that line's code
   is gone, nothing is marked, so the mark is never on a line that isn't the one paused.
+- A breakpoint on a line with no code (a blank line, a comment, `else:`) pauses at the next line
+  that has code. One after the cell's last line of code can't pause, and the cell's output says so.
 - Breakpoints are **saved with the notebook**, so they're there after you close and reopen it.
   They're kept in each format KratosForge writes:
   - `.ipynb` (the notebook file, Git, Fabric Git sync and **Export > Jupyter**): in the cell's
@@ -43,7 +45,7 @@ question on the roadmap.
 ## Run to a breakpoint
 
 - **Run** a cell with breakpoints and it pauses at the first one it reaches. **Run all**, **Run
-  cell and below** and **Run above** pause at breakpoints too.
+  cell and below** and **Run all above** pause at breakpoints too.
 - **Debug cell (pause at the first line)**, on the cell's **...** menu, pauses before the cell's
   first line, with or without breakpoints.
 - **Debug from here (this cell and below)**, on the same menu, runs this cell and every cell below
@@ -57,7 +59,8 @@ The paused line is highlighted, and a panel under the cell shows:
 
 - **Call stack**: where the cell is, outermost first, such as `(cell) line 5 › double line 3`.
 - **Variables** in the paused frame: names, types, sizes and a short value. A variable whose name
-  looks like a secret, or whose value came from `getSecret`, shows as `hidden`. A frame with more
+  looks like a secret, or whose value came from `getSecret` or holds such a value (in a list, a longer
+  text or an object), shows as `hidden`. A frame with more
   than 200 variables lists the first 200 by name and says how many there are. A data frame shows
   its size and first columns, not its rows (evaluate its head(), such as `df.head()`, for those), and a long list or
   text shows its first items, so pausing next to large data stays quick.
@@ -65,7 +68,9 @@ The paused line is highlighted, and a panel under the cell shows:
   the functions from other cells it didn't go into, by name.
 - **Watches** from the Variables pane, evaluated in the paused frame.
 - **Evaluate**: type an expression, such as `df.shape` or `n + 1`, to run it in the paused frame.
-  It runs as notebook code, so keep it to reads.
+  It runs as notebook code, so keep it to reads. A breakpoint in a function the expression calls
+  doesn't pause the expression, and an expression that calls `exit()` or raises shows the error while the cell
+  stays paused. The panel keeps the last 20 answers.
 
 | Button | Key | What it does |
 | --- | --- | --- |
@@ -85,6 +90,11 @@ variables the stopped cell left.
   `%run`, and threads the cell starts run at full speed and never pause. **Step into** on such a
   call steps over it and names it in the panel. To step into a function from an earlier cell, put
   a breakpoint in that cell and debug from there.
+- **Callbacks and coroutines pause.** A cell function that library code calls back on the cell's
+  own thread (a `sorted` key, a generator `list()` consumes, a coroutine `asyncio.run` runs) is
+  the cell's code and stops at its breakpoints; the stack shows only the cell's frames. **Step**
+  and **Step out** run through an `await` to the coroutine's next line. Top-level `await` isn't
+  supported in cells (use `asyncio.run`), with or without the debugger.
 - **Restarting the kernel while paused** ends the paused cell, as **Stop** does, but the variables
   go with the restart. A **Debug from here** run stops there and doesn't go on into the new kernel.
 - **If the notebook's own process ends while paused** (with **Run notebooks in their own process**
@@ -93,9 +103,23 @@ variables the stopped cell left.
 - **No time limit while debugging.** Time spent paused counts as running, so the cell time limit is
   off for a cell under the debugger. The memory limit still applies.
 - **Evaluate waits up to 10 seconds** for an answer, then shows it when it finishes. **Stop** ends
-  an expression that never finishes.
+  an expression that never finishes. A watch that never finishes holds up the pause the same way,
+  and **Stop** ends it too. Stop lands between Python steps, so an expression waiting in a single long
+  call, such as `time.sleep(30)`, ends when that call returns.
+- **Comprehensions run as one step.** **Step over** and **Step into** on a line with a list, dict or
+  set comprehension go to the next line (or into a function it calls); a breakpoint on that line
+  pauses once per item, as in a loop. Paused inside one at the top of a cell or in a class body,
+  its loop variable isn't listed, and evaluating it gives the cell's own variable of that name.
+- **`breakpoint()` in a cell** pauses there when the cell runs under the debugger, and otherwise
+  runs on with a note. `pdb` itself has nothing to type into here, so `pdb.set_trace()` ends the cell
+  with an error.
+- **A RecursionError, or a cell that sets its own `sys.settrace`**, turns the debugger off for the
+  rest of that cell (Python does this), so later breakpoints may not pause. The cell's output says
+  so, and the next cell debugs as usual. `sys.setprofile` doesn't affect it.
 - **Up to 100 breakpoints per cell.**
-- **`%%sql` and other magic cells** keep their line numbers: line 1 is the magic line.
+- **`%%time`, `%%capture` and line magics** keep their line numbers: line 1 is the magic line.
+  `%time f()` stops at the cell's breakpoints in `f`. Cell magics that run the cell some
+  other way (`%%sql`, `%%html`, `%%timeit`, `%%sh` and the like) run without pausing.
 - Debugging runs on the cell's own thread with Python's trace hook, so a traced cell runs slower
   than usual. Cells without breakpoints aren't traced at all.
 
@@ -107,7 +131,11 @@ The automated checks are `sidecar/tests/test_debugger.py`, `sidecar/tests/test_d
 large frames and values), `sidecar/tests/test_debugger_robust.py` (malformed debugger and process
 messages, a process that dies or a cell that hangs while paused, the stack through errors and
 recursion), `sidecar/tests/test_debugger_soak.py` (a thousand pauses and steps, and runs mixing
-Stop, Continue and restart, leave no trace hook, thread or memory behind) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
+Stop, Continue and restart, leave no trace hook, thread or memory behind), `sidecar/tests/test_debugger_midstep.py`
+(Stop, a restart or the process dying while a step runs), `sidecar/tests/test_debugger_concurrency.py`
+(threads, asyncio, library callbacks and magics), `sidecar/tests/test_debugger_language.py`
+(comprehensions, class bodies, match, finally, exceptions, generators, recursion errors,
+`breakpoint()`, the cell's own trace hooks, breakpoints on lines without code) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
 Windows, with **Run notebooks in their own process** both on and off:
 
 1. Set breakpoints in two cells, save, close the notebook and reopen it. The red bars are on the

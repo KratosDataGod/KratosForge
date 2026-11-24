@@ -55,6 +55,37 @@ def tracked() -> list[str]:
 # detect-secrets is imported where it's used, so the engine's tests can check this file's logic without it.
 
 
+def _line_by_line_when_too_deep(parse: Any) -> Any:
+    """``parse`` (detect-secrets' reading of a YAML or other structured file) that answers None, so the file
+    is read line by line like any other, when the file is nested too deeply to read: a committed file nested a
+    few thousand levels would otherwise stop the whole scan with a RecursionError. The file is still scanned,
+    so nesting can't hide a value from it, and a warning names it."""
+    if getattr(parse, "line_by_line_when_too_deep", False):
+        return parse
+
+    def guarded(file: Any, use_eager_transformers: bool = False) -> Any:
+        try:
+            return parse(file, use_eager_transformers)
+        except RecursionError:
+            file.seek(0)
+            name = os.path.relpath(str(file.name))
+            print(f"::warning file={_prop(name)}::{annotation(name)} is nested too deeply to read as "
+                  "structured data; it was scanned line by line instead.", flush=True)
+            return None
+
+    guarded.line_by_line_when_too_deep = True  # type: ignore[attr-defined]
+    return guarded
+
+
+def _guard_deep_files() -> None:
+    try:
+        from detect_secrets.core import scan
+    except ImportError:  # the engine's tests, without the scanner
+        return
+    scan.get_transformed_file = _line_by_line_when_too_deep(scan.get_transformed_file)
+
+
+
 def _scan(files: list[str]) -> Any:
     from detect_secrets import SecretsCollection
 
@@ -255,6 +286,9 @@ def rebuild() -> int:
     new = sum(1 for key, entry in _entries(doc) if "is_secret" not in entry)
     print(f"{BASELINE}: {len(_entries(doc))} entries, {new} to review.")
     return 0
+
+
+_guard_deep_files()  # here, not in main: the scan's worker processes import this module too when they start fresh
 
 
 def main(argv: list[str]) -> int:

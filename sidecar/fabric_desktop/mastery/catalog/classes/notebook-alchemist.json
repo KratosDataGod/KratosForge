@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "notebook-alchemist",
+ "version": 1,
+ "title": "Notebook Alchemist",
+ "professional": "Python & Notebook Engineer",
+ "fantasy": "Transmuter of raw data. The Alchemist's notebooks are tested, parameterised and run the same on any bench.",
+ "competency": "Engineers Python and Spark notebooks: data frames, PySpark transformations, parameters, tests, reusable modules and notebooks that validate cleanly.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake (Snowpark)"],
+ "technologies": ["Python", "PySpark", "Polars", "pandas", "notebookutils"],
+ "emblem": "A flask whose liquid forms a wolf's head, sparks rising from the neck.",
+ "specializations": [
+  {"id": "python", "title": "Python Adept", "professional": "Python for data", "competency": "python-data",
+   "nodes": [
+    {"id": "python.01", "skill": "python-data-frames", "tier": 1, "requires": []},
+    {"id": "python.02", "skill": "lazy-pipelines-that-filter-early", "tier": 2, "requires": ["python.01"]},
+    {"id": "python.03", "skill": "data-quality-checks-in-code", "tier": 2, "requires": ["python.01"]},
+    {"id": "python.04", "skill": "typed-tested-functions", "tier": 3, "requires": ["python.02"]},
+    {"id": "python.05", "skill": "reading-files-and-apis", "tier": 3, "requires": ["python.03"]},
+    {"id": "python.06", "skill": "semi-structured-data", "tier": 4, "requires": ["python.04"]},
+    {"id": "python.07", "skill": "memory-safe-processing", "tier": 4, "requires": ["python.04", "python.05"]},
+    {"id": "python.08", "skill": "packaging-reusable-code", "tier": 5, "requires": ["python.06"]},
+    {"id": "python.09", "skill": "unit-tests-for-data-code", "tier": 5, "requires": ["python.07"]},
+    {"id": "python.10", "skill": "capstone-a-tested-python-library", "tier": 6, "requires": ["python.08", "python.09"], "capstone": true}
+   ]},
+  {"id": "spark", "title": "Spark Shaper", "professional": "PySpark and Spark SQL", "competency": "spark",
+   "nodes": [
+    {"id": "spark.01", "skill": "spark-dataframes", "tier": 1, "requires": []},
+    {"id": "spark.02", "skill": "spark-sql", "tier": 2, "requires": ["spark.01"]},
+    {"id": "spark.03", "skill": "joins-and-shuffles", "tier": 2, "requires": ["spark.01"]},
+    {"id": "spark.04", "skill": "caching-and-persistence", "tier": 3, "requires": ["spark.02"]},
+    {"id": "spark.05", "skill": "partitioning-and-file-pruning", "tier": 3, "requires": ["spark.03"]},
+    {"id": "spark.06", "skill": "merge-upserts", "tier": 4, "requires": ["spark.04"]},
+    {"id": "spark.07", "skill": "user-defined-functions-and-their-cost", "tier": 4, "requires": ["spark.04", "spark.05"]},
+    {"id": "spark.08", "skill": "structured-streaming-basics", "tier": 5, "requires": ["spark.06"]},
+    {"id": "spark.09", "skill": "spark-configuration-and-pools", "tier": 5, "requires": ["spark.07"]},
+    {"id": "spark.10", "skill": "capstone-a-spark-job-that-scales", "tier": 6, "requires": ["spark.08", "spark.09"], "capstone": true}
+   ]},
+  {"id": "craft", "title": "Notebook Craft", "professional": "Notebook engineering", "competency": "notebook-engineering",
+   "nodes": [
+    {"id": "craft.01", "skill": "notebooks-let-the-engine-do-the-work", "tier": 1, "requires": []},
+    {"id": "craft.02", "skill": "parameters-and-exit-values", "tier": 2, "requires": ["craft.01"]},
+    {"id": "craft.03", "skill": "notebooks-that-pass-validate", "tier": 2, "requires": ["craft.01"]},
+    {"id": "craft.04", "skill": "environments-and-libraries", "tier": 3, "requires": ["craft.02"]},
+    {"id": "craft.05", "skill": "notebook-resources-and-shared-modules", "tier": 3, "requires": ["craft.03"]},
+    {"id": "craft.06", "skill": "best-practice-fixes-checked-with-compare", "tier": 4, "requires": ["craft.04"]},
+    {"id": "craft.07", "skill": "porting-notebooks-between-platforms", "tier": 4, "requires": ["craft.04", "craft.05"]},
+    {"id": "craft.08", "skill": "orchestrating-notebooks", "tier": 5, "requires": ["craft.06"]},
+    {"id": "craft.09", "skill": "proven-same-result-here-and-in-fabric", "tier": 5, "requires": ["craft.07"]},
+    {"id": "craft.10", "skill": "capstone-a-notebook-another-team-reuses", "tier": 6, "requires": ["craft.08", "craft.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-transmutation", "name": "First Transmutation", "criteria": "Reach Journeyman in Python data frames or Spark DataFrames."},
+  {"id": "clean-bench", "name": "Clean Bench", "criteria": "Reach Adept in Notebooks that pass Validate."},
+  {"id": "same-here-and-there", "name": "Same Here and There", "criteria": "Reach Journeyman in Proven same result here and in Fabric. This one needs a run in Fabric."},
+  {"id": "tested-elixir", "name": "Tested Elixir", "criteria": "Reach Adept in Unit tests for data code."},
+  {"id": "alchemists-shelf", "name": "Alchemist's Shelf", "criteria": "Reach Adept in all ten talents of one Notebook Alchemist specialization."}
+ ]
+}

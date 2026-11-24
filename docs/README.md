@@ -209,6 +209,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Semantic models and Apache Ossie | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md)) |
 | Semantic View files and publish steps | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md#publish-the-view-in-fabric-preview)) |
 | Direct Lake check | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
+| Semantic model best practices check | Data mesh > Deploy > Semantic model ([semantic-model-best-practices.md](semantic-model-best-practices.md)) |
 | Data dictionary | Data mesh > Deploy > Semantic model ([data-dictionary.md](data-dictionary.md)) |
 | Tests | Data mesh > Quality |
 | Estate X-ray | Home |
@@ -239,6 +240,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Column lineage | Entity page, Lineage card: Columns, and Impact for what a column change breaks ([metadata-guide.md](metadata-guide.md#impact-of-a-column-change-preview)); **Export OpenLineage...** in Impact writes the lineage to Downloads ([metadata-guide.md](metadata-guide.md#export-lineage-as-openlineage-preview)) |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
+| Delta table features at publish | Data mesh > Deploy > Environments and promote, a choice for each table |
 | Create workspace | Data mesh > Environments and Domains, Platform > Settings: Create workspace, Create platform and Finish setup (always shown) |
 | Sync keys | Data mesh > Surrogate keys, Sync to LH_Keys (always shown) |
 | Variable library | Data mesh > Source systems (always shown) |

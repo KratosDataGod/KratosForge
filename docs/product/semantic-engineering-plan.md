@@ -694,14 +694,14 @@ Status: **Built** (a test exists on main or a reviewed branch), **Planned**, **N
 | 4 | TMDL to Ossie | 004a | `test_tmdl_to_ossie_to_tmdl_keeps_every_object`, `test_a_model_kept_in_git_exports_offline` | Built |
 | 5 | Ossie to TMDL | 004a | `test_an_ossie_file_becomes_tmdl_in_the_project_with_no_fabric_call`, `test_an_ossie_file_from_another_tool_becomes_tmdl_on_this_pc` | Built |
 | 6 | Unsupported metadata | 004a | `test_export_reports_what_only_fabric_understands_and_writes_simple_measures_as_sql`, `test_round_trip_names_what_doesnt_come_back` | Built (kept/lost); Planned (five classes) |
-| 7 | Simple aggregation equivalence | 006b, 006c | `test_ossie_vendor_translators.py` (text only) | Planned (SQL side); Needs live tenant (DAX) |
+| 7 | Simple aggregation equivalence | 006b, 006c | `test_semantic_parity_l3.py` (SQL side run) | Built (SQL side); Needs live tenant (DAX) |
 | 8 | Filter context | 006c, 006d | None | Needs live tenant |
 | 9 | Time intelligence | 006b, 006d | None | Planned (Unsupported at L2); Needs live tenant |
 | 10 | Relationships | 006a, 006c | `test_merge_keeps_hierarchies_drops_empty_lists_and_relationships_to_removed_tables` | Planned (L1); Needs live tenant (L3) |
-| 11 | Null and blank | 006c, 006d | None | Planned (SQL side); Needs live tenant |
-| 12 | Precision | 006c, 006d | None | Planned (SQL side); Needs live tenant |
+| 11 | Null and blank | 006c, 006d | `test_scenario_11_*` in `test_semantic_parity_l3.py` | Built (SQL side); Needs live tenant |
+| 12 | Precision | 006c, 006d | `test_scenario_12_*` in `test_semantic_parity_l3.py` | Built (SQL side); Needs live tenant |
 | 13 | Security metadata | 004a | `test_update_keeps_roles_hierarchies_lineage_tags_and_fabric_only_measures` | Built (kept); Planned (never silent) |
-| 14 | Git compare | 002b | `tmdl.differences` via `test_round_trip_names_what_doesnt_come_back` | Planned |
+| 14 | Git compare | 002b | `test_ossie_compare.py` (`ossie_compare.compare_versions`) | Built (engine); Planned (Git `HEAD` and screen) |
 | 15 | Fabric deploy (authorized test resources) | 015b, 005c | `test_import_previews_then_writes_only_when_confirmed` (fake API) | Needs live tenant |
 | 16 | Deploy failure and recovery | 015b | `test_a_model_that_cant_be_read_is_not_imported_over` (fake API) | Built (fake); Needs live tenant |
 | 17 | Malicious imports | 003a, 012a | `test_files_that_arent_ossie_are_refused_with_a_reason`, `test_links_and_junctions_on_the_way_are_refused_and_never_followed`, `test_a_hostile_model_reads_back_with_the_same_objects_and_nothing_extra`, `test_tmdl_fuzz.py` (branch), D1 test (branch) | Built |

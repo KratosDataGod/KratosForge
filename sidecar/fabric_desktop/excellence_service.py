@@ -42,7 +42,8 @@ from typing import Any, Callable
 from . import delta_profile, maintenance, xray
 from .auth import FABRIC_SCOPES, GIT_STATUS_SCOPES, STORAGE_SCOPES
 from .excellence import (adapters, assess, catalog, catalog_architecture, catalog_capacity, catalog_devops,
-                         catalog_performance, catalog_warehouse, inspect_items, inspect_models, profiles)
+                         catalog_performance, catalog_warehouse, exceptions as excs, inspect_items, inspect_models,
+                         profiles)
 from .excellence import evidence as ev
 from .onelake import FileStore, TableRef, read_storage_options
 from .opportunities_service import MAX_DAYS, MIN_DAYS, _guid
@@ -488,12 +489,15 @@ class ExcellenceMixin:
         return self._silent_client(GIT_STATUS_SCOPES)  # type: ignore[attr-defined]
 
     def excellence_assess(self, workspace_id: str = "", days: int = 30, profile: str = profiles.DEFAULT,
-                          demo: bool = False) -> dict[str, Any]:
+                          demo: bool = False, exceptions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Assess one workspace (and its capacity, when you can see it) against the excellence controls.
 
-        Reads only. ``profile`` is a built-in profile id. With ``demo`` a labelled fixture is assessed."""
+        Reads only. ``profile`` is a built-in profile id. With ``demo`` a labelled fixture is assessed.
+        ``exceptions`` are accepted risks (excellence.exceptions): checked before anything is read, a bad
+        one refused with a ValueError, and shown on what they match without changing any outcome or score."""
         prof = _check(workspace_id, days, profile, demo)
         at = _now()
+        accepted = excs.validate(exceptions, catalog.registry(), today=dt.date.fromisoformat(at[:10]))
         reads: list[dict[str, Any]] = []
         info_read = True
         if demo:
@@ -594,7 +598,8 @@ class ExcellenceMixin:
                 "controls aren't evaluated. Import one in Optimize > Cost and savings.")})
         scope = {"workspaces": [{"id": str(ws["id"]), "name": ws.get("displayName")}],
                  "capacities": [cap_id] if cap_id else []}
-        result = assess.assess(records, catalog.registry(), scope=scope, assessed_at=at, profile=prof, fixture=demo)
+        result = assess.assess(records, catalog.registry(), scope=scope, assessed_at=at, profile=prof, fixture=demo,
+                               exceptions=accepted)
         result["reads"] = reads
         if cap_id and not any(r["kind"] == "capacity.state" for r in result["evidence"]):
             result["reads"].append({"read": "capacity", "ok": False,

@@ -1,7 +1,7 @@
 """Workspaces > Databricks > Volumes on this PC (Preview): the screen's RPCs (databricks_volumes_service.py).
 Each call reads its paths through databricks_volumes.local_path, so a path that leaves its volume, by name or
 through a link, is refused before anything is read or written; drop and delete wait for ``confirm``; a download
-never lands in OneDrive or in the volumes' own folder. Each test has a volume root of its own (LOCALAPPDATA)."""
+never lands in OneDrive or in the app's data folder. Each test has a volume root of its own (LOCALAPPDATA)."""
 
 from __future__ import annotations
 
@@ -278,7 +278,7 @@ def test_download_refuses_a_target_in_the_volumes_folder_or_not_a_file(svc, here
     folder = here / "sales" / "landing"
     (folder / "orders.csv").write_text("x", encoding="utf-8")
     (folder / "sub").mkdir()
-    with pytest.raises(ValueError, match="inside the volumes' own folder"):
+    with pytest.raises(ValueError, match="inside this app's own data folder"):
         svc.databricks_volume_download(f"{V}/orders.csv", str(folder / "copy.csv"))
     with pytest.raises(ValueError, match="full path"):
         svc.databricks_volume_download(f"{V}/orders.csv", "copy.csv")
@@ -290,6 +290,45 @@ def test_download_refuses_a_target_in_the_volumes_folder_or_not_a_file(svc, here
         svc.databricks_volume_download(f"{V}/sub", str(tmp_path / "sub"))
     with pytest.raises(ValueError, match="is the volume itself"):
         svc.databricks_volume_download(V, str(tmp_path / "all"))
+
+
+def test_download_never_writes_into_the_apps_data_folder(svc, here, tmp_path):
+    # the audit trail, settings and caches live beside the volumes; a download may not replace one of them
+    (here / "sales" / "landing" / "orders.csv").write_text("x", encoding="utf-8")
+    app = tmp_path / "appdata" / "FabricDesktop"
+    (app / "audit").mkdir(parents=True)
+    trail = app / "audit" / "x.jsonl"
+    trail.write_text("kept", encoding="utf-8")
+    for target in (trail, app / "settings.json", app / "audit" / "new.jsonl"):
+        with pytest.raises(ValueError, match="inside this app's own data folder"):
+            svc.databricks_volume_download(f"{V}/orders.csv", str(target), overwrite=True)
+    assert trail.read_text(encoding="utf-8") == "kept"
+    assert not (app / "settings.json").exists() and not (app / "audit" / "new.jsonl").exists()
+
+
+def test_download_through_a_link_into_the_apps_data_folder_is_refused(svc, here, tmp_path):
+    (here / "sales" / "landing" / "orders.csv").write_text("x", encoding="utf-8")
+    app = tmp_path / "appdata" / "FabricDesktop"
+    (app / "audit").mkdir(parents=True)
+    try:
+        (tmp_path / "elsewhere").symlink_to(app / "audit", target_is_directory=True)
+    except OSError:
+        pytest.skip("this PC can't make a symbolic link")
+    with pytest.raises(ValueError, match="inside this app's own data folder"):
+        svc.databricks_volume_download(f"{V}/orders.csv", str(tmp_path / "elsewhere" / "x.jsonl"))
+    assert not (app / "audit" / "x.jsonl").exists()
+
+
+def test_upload_never_copies_a_file_of_the_apps_data_folder(svc, here, tmp_path):
+    app = tmp_path / "appdata" / "FabricDesktop"
+    (app / "audit").mkdir(parents=True)
+    (app / "settings.json").write_text("{}", encoding="utf-8")
+    (app / "audit" / "x.jsonl").write_text("{}", encoding="utf-8")
+    (here / "sales" / "landing" / "a.csv").write_text("x", encoding="utf-8")
+    for source in (app / "settings.json", app / "audit" / "x.jsonl", here / "sales" / "landing" / "a.csv"):
+        with pytest.raises(ValueError, match="inside this app's own data folder"):
+            svc.databricks_volume_upload(str(source), f"{V}/")
+    assert sorted(p.name for p in (here / "sales" / "landing").iterdir()) == ["a.csv"]
 
 
 @pytest.mark.parametrize("bad", [f"{V}/../../finance/raw/x.csv", f"{V}/..\\x", "/Volumes/hr/sales/landing/x",

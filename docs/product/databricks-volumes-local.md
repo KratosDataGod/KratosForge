@@ -78,5 +78,6 @@ overwrite=False)`, `databricks_volume_delete(paths, confirm=False)`, `databricks
 confirm=False)` and `databricks_volume_reveal(path)` are audited. Every volume path goes through `local_path`; a
 folder is deleted only after `check_tree`; drop and delete need `confirm` (the screen's red confirm dialog sends
 it); upload and download never replace a file without `overwrite`. A download's target is refused in OneDrive
-(`known_folders.onedrive_refusal`) and inside the volumes' own folder. The shell's `pick_file` shows the Windows
+(`known_folders.onedrive_refusal`) and anywhere inside the app's own data folder (the volumes, settings, audit
+trail and caches), with links followed; an upload's source is refused there too. The shell's `pick_file` shows the Windows
 file dialog for Upload and Download.

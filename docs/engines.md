@@ -401,7 +401,7 @@ Databricks, and nothing here reaches cloud storage. They are made and used from 
   menu beside a volume renames it, sets or removes its comment, or drops it. **Upload** copies a file you pick
   on this PC into the folder you are in, and asks before replacing a file of that name. **New folder** makes
   a folder there. **Download** copies the ticked files to a file (one) or a folder (several) you pick on this
-  PC; it never saves into OneDrive or into the volumes' own folder. **Delete** removes the ticked files and
+  PC; it never saves into OneDrive or into the app's own data folder. **Delete** removes the ticked files and
   folders, and **Drop volume** removes a volume with everything in it; both ask first, in red, because
   nothing on this PC keeps a copy. A folder lists its first 2,000 entries; `LIST` in a SQL cell reads the
   rest. Every path the screen sends gets the same checks as a path in code (below).

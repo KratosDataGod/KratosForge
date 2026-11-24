@@ -14,7 +14,8 @@ outside its volume are all refused by name. A folder is removed only after ``che
 - ``databricks_volume_upload`` copies a file on this PC into a volume folder, and ``databricks_volume_download``
   copies a volume's file to a file on this PC. Neither writes over a file that is there without ``overwrite``.
   A download is never written into OneDrive (the rule for files the app stores, tests/test_onedrive_folders.py)
-  or into the volumes' own folder.
+  or into the app's own data folder (the volumes, settings, audit trail, caches), and an upload never reads
+  from it.
 - ``databricks_volume_new_folder`` makes one folder; ``databricks_volume_reveal`` shows one in File Explorer.
 """
 
@@ -70,6 +71,12 @@ def _copy(source: Path, target: Path) -> int:
     return target.stat().st_size
 
 
+
+def _in_app_data(path: Path) -> bool:
+    """Whether ``path``, with its links followed, is inside the app's data folder (the volumes' root's parent):
+    a download may not overwrite what the app keeps there, and an upload may not copy it into a volume."""
+    return dv._inside(os.path.realpath(dv.root().parent), os.path.realpath(path))
+
 class DatabricksVolumesMixin:
     def databricks_volumes(self, schema: str | None = None) -> dict[str, Any]:
         """The volumes on this PC (only ``schema``'s when given), and the folder they are kept in."""
@@ -115,6 +122,9 @@ class DatabricksVolumesMixin:
         """Copy the file ``source`` on this PC into the volume folder ``path``, under its own name. When a file of
         that name is there, nothing is written without ``overwrite`` and the answer says so."""
         src = _local_file(source, "The file to upload")
+        if _in_app_data(src):  # a volume's own file, or the app's settings, audit trail or caches
+            raise _refused(f"{src} is inside this app's own data folder, so it wasn't uploaded. To copy a file "
+                           "between volumes, use dbutils.fs.cp in a notebook.")
         if not src.is_file():
             raise _refused(f"{src} isn't a file on this PC. Pick a file to upload.")
         folder = dv.local_path(path)
@@ -140,17 +150,17 @@ class DatabricksVolumesMixin:
         return {"path": where.uc_path()}
 
     def databricks_volume_download(self, path: str, save_to: str, overwrite: bool = False) -> dict[str, Any]:
-        """Copy a volume's file to ``save_to``, a file on this PC outside OneDrive and outside the volumes'
-        folder. A file that is there is kept unless ``overwrite`` (the Save dialog asks first)."""
+        """Copy a volume's file to ``save_to``, a file on this PC outside OneDrive and outside the app's
+        data folder. A file that is there is kept unless ``overwrite`` (the Save dialog asks first)."""
         where, src = _within(path)
         if not src.is_file():
             raise _refused(f"{where.uc_path()} isn't a file. Download copies one file at a time.")
         out = _local_file(save_to, "Where to save the file")
         if (refusal := known_folders.onedrive_refusal(out, "a file downloaded from a volume")):
             raise _refused(refusal)
-        volumes = os.path.realpath(dv.root())
-        if dv._inside(volumes, os.path.realpath(out)):
-            raise _refused(f"{out} is inside the volumes' own folder. Use Upload to copy a file into a volume.")
+        if _in_app_data(out):  # the volumes, and the app's settings, audit trail and caches
+            raise _refused(f"{out} is inside this app's own data folder, so nothing was saved there. Pick a folder "
+                           "outside it, such as Downloads.")
         if not out.parent.is_dir():
             raise _refused(f"{out.parent} isn't a folder on this PC.")
         if out.is_dir():

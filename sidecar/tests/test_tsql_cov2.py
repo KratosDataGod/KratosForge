@@ -83,7 +83,8 @@ def test_a_windowed_decimal_sum_keeps_the_scale(engine):
 
 def test_decimal_with_no_size_divides_at_scale_three(engine):
     out, _ = translate("SELECT CAST(1.5 AS DECIMAL) / 2")
-    assert "DECIMAL(21, 6)" in out[0]
+    # WR-706: DECIMAL with no size is decimal(18, 0) in T-SQL, not DuckDB's (18, 3), so (18, 0) / 2 is (24, 6)
+    assert "DECIMAL(24, 6)" in out[0]
 
 
 def test_a_percentile_over_a_window_orders_by_its_value(engine):

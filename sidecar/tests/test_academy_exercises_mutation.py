@@ -1,4 +1,4 @@
-"""academy/exercises.py paths that its first mutation run (batch 427, docs/quality/mutation-testing.md)
+"""academy/exercises.py paths that its first mutation run (batch 427, docs/quality/mutation/batch-427.md)
 showed no test checked. The adapters' own self-tests are replaced here by stand-ins, so no learner
 process starts; the exercises are the bundled ones, or a copy of them a test breaks."""
 

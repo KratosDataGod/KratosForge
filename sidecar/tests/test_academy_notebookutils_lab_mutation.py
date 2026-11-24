@@ -1,4 +1,4 @@
-"""academy/notebookutils_lab.py paths that its first mutation run (batch 428, docs/quality/mutation-testing.md)
+"""academy/notebookutils_lab.py paths that its first mutation run (batch 428, docs/quality/mutation/batch-428.md)
 showed no test checked. The notebookutils an exercise sees is built here in this process, on an exercise
 folder in tmp_path, so no learner process starts."""
 

@@ -25,7 +25,7 @@ def bare(**attrs):
 
 def project(**entities):
     return SimpleNamespace(layer=lambda name: SimpleNamespace(lakehouse=f"LH_{name.title()}"), entities=entities,
-                           version="abc1234", fingerprint=lambda e: "0123abcd")
+                           version="abc1234", fingerprint=lambda e: "0123abcd", delta_policies=lambda: {})
 
 
 def entity(name="silver.orders", **kw):

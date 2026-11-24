@@ -1859,9 +1859,11 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
         cut: exp.Expr = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
     else:
-        cut = exp.func("LEFT", text, exp.Literal.number(n))
+        # Built as nodes, not with exp.func, which copies its arguments: a pass that runs after this one on a
+        # node inside (+ on text becoming ||, an inner cast) must find it in the tree (WR-705: SET @s = @s + 'x').
+        cut = exp.Left(this=text, expression=exp.Literal.number(n))
     if to.this in _PADDED:
-        cut = exp.func("RPAD", cut, exp.Literal.number(n), exp.Literal.string(" "))
+        cut = exp.Pad(this=cut, expression=exp.Literal.number(n), fill_pattern=exp.Literal.string(" "), is_left=False)
     node.replace(cut)
 
 

@@ -285,7 +285,7 @@ def _once(build: Any) -> Any:
         # which _rewrite_object_construct would read as OBJECT_CONSTRUCT. The name goes by height, so a
         # nested call's differs.
         name = f"__sf_once{_height(args[bound[0]])}"
-        reads: dict[int, exp.Expression]
+        reads: dict[int, exp.Expr]
         if len(bound) == 1:
             reads = {bound[0]: exp.column(name)}
             listed = "__sf_value0"

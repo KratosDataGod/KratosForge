@@ -3767,7 +3767,7 @@ function errorHelpers() {
   const timers = [];
   const toastEl = node("div");
   const ctx = {
-    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label),
+    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label), icon: () => null,
     copied: [], toasts: [], logged: [], state: { view: "home" },
     navigator: { clipboard: { writeText: async (t) => { ctx.copied.push(t); } } },
     logActivity: (i) => ctx.logged.push(i),
@@ -3776,7 +3776,8 @@ function errorHelpers() {
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
   };
   const code = activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0] + activity.match(/function errorPanel\([\s\S]*?\n}\n/)[0] +
-    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
+    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/function toastClose\([\s\S]*?\n}\n/)[0] +
+    app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
   vm.runInNewContext(`${code}; Object.assign(this, { friendlyError, errorPanel, realToast: toast, attempt });`, ctx);
   return { ctx, node, find, timers, toastEl, live: () => timers.filter((t) => t.live) };
 }
@@ -3841,7 +3842,7 @@ test("errorPanel says what happened, what to do, and keeps the raw text under De
   assert.strictEqual(ctx.errorPanel("SignInCancelled: cancelled: closed"), null, "a cancelled sign-in shows nothing");
 });
 
-test("an error toast is an alert with Retry, and stays while the pointer is on it", async () => {
+test("an error toast is an alert with Retry, and a toast with a button isn't timed (WCAG 2.2.1)", async () => {
   const { ctx, find, toastEl, live } = errorHelpers();
   let calls = 0;
   const failing = async () => { calls++; throw "RuntimeError: 429 TooManyRequests"; };
@@ -3850,17 +3851,22 @@ test("an error toast is an alert with Retry, and stays while the pointer is on i
   assert.match(toastEl.textContent, /^Couldn't load runs: Fabric is busy/);
   const retry = find(toastEl, (n) => n.tag === "button" && n.textContent === "Retry");
   assert.ok(retry, "the toast has Retry");
-  assert.strictEqual(live().at(-1).ms, 8000);
+  assert.ok(find(toastEl, (n) => n.tag === "button" && n.attrs["aria-label"] === "Close"), "and a named ×");
+  assert.strictEqual(live().length, 0, "a toast with a button stays until it is closed");
   toastEl.fire("mouseenter");
-  assert.strictEqual(live().length, 0, "hovering pauses the auto-dismiss");
   toastEl.fire("mouseleave");
-  assert.strictEqual(live().length, 1, "leaving starts it again");
+  assert.strictEqual(live().length, 0, "leaving it doesn't start a timer either");
   await retry.fire("click");
   await new Promise((r) => setImmediate(r));
   assert.strictEqual(calls, 2, "Retry runs the same call again");
 
   await ctx.attempt(failing, "No retry here");
   assert.ok(!find(toastEl, (n) => n.tag === "button"), "no Retry unless the caller asks for one");
+  assert.strictEqual(live().at(-1).ms, 8000, "an error toast without a button goes by itself after 8 seconds");
+  toastEl.fire("mouseenter");
+  assert.strictEqual(live().length, 0, "hovering pauses it");
+  toastEl.fire("mouseleave");
+  assert.strictEqual(live().length, 1, "leaving starts it again");
   ctx.realToast("Saved");
   assert.strictEqual(toastEl.attrs.role, "status");
   assert.strictEqual(live().at(-1).ms, 4000);

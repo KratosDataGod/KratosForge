@@ -581,6 +581,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .toast.top { bottom: auto; top: 56px; }
 .toast .toast-action { margin-left: 8px; color: inherit; border-color: rgba(255,255,255,0.7); background: transparent; vertical-align: middle; }
 .toast .toast-action:hover, .toast .toast-action:focus-visible { background: rgba(255,255,255,0.16); }
+.toast .toast-close { margin-left: 4px; min-width: 24px; min-height: 24px; padding: 0 4px; color: inherit; border-color: transparent; background: transparent; vertical-align: middle; }
+.toast .toast-close:hover, .toast .toast-close:focus-visible { background: rgba(255,255,255,0.16); }
+/* The app's navy focus ring hardly shows on the toast's dark or red fill: its buttons ring in the toast's own text colour. */
+.toast .toast-action:focus-visible, .toast .toast-close:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 /* One error panel for every failure in a page or panel (UX-011) */
 .error-panel { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 12px;

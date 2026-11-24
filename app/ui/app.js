@@ -95,9 +95,12 @@ function toast(text, isError = false, opts = {}) {
   // spell isn't read; the window's polite region (motion.js announce) says it. An error is an alert, read when shown.
   if (t.hidden && !isError && typeof announce === "function") announce(text);
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
+  // A toast with a button isn't timed (WCAG 2.2.1): someone who reaches it by keyboard still finds it. It goes when
+  // its × or Esc closes it, or when the next toast takes its place.
+  toast.timed = !opts.action;
   if (opts.action) {
-    t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
-      "tool small toast-action"));
+    t.append(" ", btn(opts.action.label, null, () => { toastClose(); opts.action.run(); }, "tool small toast-action"),
+      h("button", { class: "tool small toast-close", title: "Close", "aria-label": "Close", onclick: () => toastClose() }, icon("dismiss", 14)));
   }
   if ((isError || opts.log) && !opts.quiet) {
     const title = opts.title || (isError ? "Something didn't work" : text);
@@ -118,12 +121,34 @@ function toast(text, isError = false, opts = {}) {
       toast.later();
     };
     t.addEventListener("mouseenter", hold);
-    t.addEventListener("focusin", hold);
+    t.addEventListener("focusin", (e) => {
+      if (!t.contains(e.relatedTarget)) toast.returnTo = e.relatedTarget;  // where Esc or × puts focus back
+      hold();
+    });
     t.addEventListener("mouseleave", release);
     t.addEventListener("focusout", () => setTimeout(release));
+    t.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      toastClose();
+    });
   }
-  toast.later = () => { clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, toast.wait); };
+  toast.later = () => {
+    clearTimeout(toast.timer);
+    if (toast.timed) toast.timer = setTimeout(() => { t.hidden = true; }, toast.wait);
+  };
   if (!toast.held) toast.later(); else clearTimeout(toast.timer);
+}
+
+// Closes the toast; if focus was in it, focus goes back to where it came from.
+function toastClose() {
+  const t = document.getElementById("toast");
+  clearTimeout(toast.timer);
+  const had = t.contains(document.activeElement);
+  t.hidden = true;
+  toast.held = false;
+  if (had) (toast.returnTo?.isConnected ? toast.returnTo : document.getElementById("view"))?.focus();
 }
 
 // Runs fn and shows a failure as an error toast titled label. With retry (true, or another

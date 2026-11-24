@@ -96,3 +96,42 @@ test("Could not list workspaces offers Retry, and Retry fills the list", { skip 
     assert.strictEqual(ws.calls.filter((c) => c.method === "list_workspaces").length, 2);
   } finally { await ws.close(); }
 });
+
+// WCAG 2.2.1 (timing adjustable): a toast with a button (Retry, Show in folder, a next step) doesn't time out, so
+// someone who reaches it by keyboard, after Tab through the page, still finds it. It goes when closed (its ×, or
+// Esc inside it, which puts focus back where it was) or when another toast takes its place. A toast without a
+// button still goes by itself: its words are said as it shows, and errors are kept in Activity.
+test("a toast with a button stays until it is closed, and Esc in it puts focus back", { skip }, async () => {
+  const page = app.page;
+  await page.mouse.move(5, 5);
+  await page.evaluate(() => {
+    window.__tries = 0;
+    attempt(async () => { window.__tries++; throw "RuntimeError: 429 TooManyRequests"; }, "Couldn't read runs", { retry: true });
+  });
+  const t = page.locator("#toast");
+  await t.waitFor();
+  await page.waitForTimeout(9000);  // past the 8 seconds an error toast used to last
+  assert.ok(await t.isVisible(), "still there after 9 seconds, untouched");
+  // Someone works in the search box, then moves to the toast's Retry.
+  await page.locator("#search").focus();
+  await t.getByRole("button", { name: "Retry" }).focus();
+  await page.keyboard.press("Escape");
+  await t.waitFor({ state: "hidden" });
+  assert.strictEqual(await page.evaluate(() => document.activeElement?.id), "search", "focus goes back to where it was");
+  assert.strictEqual(await page.evaluate(() => window.__tries), 1, "Esc runs nothing");
+
+  // The × closes it too, and has a name.
+  await page.evaluate(() => toast("Support bundle saved", false, { action: { label: "Show in folder", run: () => {} } }));
+  await t.waitFor();
+  await page.waitForTimeout(4500);
+  assert.ok(await t.isVisible(), "a toast with a button isn't timed");
+  await t.getByRole("button", { name: "Close" }).click();
+  await t.waitFor({ state: "hidden" });
+
+  // A toast without a button still goes by itself.
+  await page.evaluate(() => toast("Saved"));
+  await t.waitFor();
+  assert.strictEqual(await t.getByRole("button", { name: "Close" }).count(), 0, "no × on a toast that goes by itself");
+  await t.waitFor({ state: "hidden", timeout: 6000 });
+  assert.deepStrictEqual(app.errors, []);
+});

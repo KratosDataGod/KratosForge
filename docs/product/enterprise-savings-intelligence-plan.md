@@ -373,7 +373,7 @@ person's visible workspaces, grouped by workload, with per-device comparison.
   appears once; another workspace's runs stay hidden.
 - Tests: scenarios 2, 4, 8.
 
-**ESI-107 Security and data docs.** Update `docs/optimize/security.md` for the new columns
+**ESI-107 Security and data docs.** **Documented** in [Optimize: security and retention](../optimize/security.md). Update `docs/optimize/security.md` for the new columns
 (user and tenant ids are identifying), the writer-can-read limit of mode A, and retention.
 
 **ESI-108 Live concurrency check.** Two installations writing to a lakehouse in
@@ -386,7 +386,7 @@ CU per call) from documentation, then a recommendation. Building it needs Chris'
 
 ### Phase 2: Unified execution savings
 
-**ESI-201 Comparison rules.** Extend the calibration inputs with definition version, input scope
+**ESI-201 Comparison rules.** **Built** (engine only, no writes). `calibration.py` (`calibrate_comparable`, `enrich`). Extend the calibration inputs with definition version, input scope
 and data volume checks: a Fabric run counts as a baseline only when the logical workload,
 definition version and input scope match and its metrics are valid. Change through FinOps
 rules in `calibration.py` (additive).
@@ -398,7 +398,7 @@ rules in `calibration.py` (additive).
 **ESI-202 Overhead per execution.** **Built** (engine only, no writes). `savings/overhead.py`. Data transfer seconds and bytes, sync overhead, and any
 OneLake operations, as separate measurements; Unknown where not measured.
 
-**ESI-203 Execution ledger accruals.** Gross, overhead and net CU avoided per execution as
+**ESI-203 Execution ledger accruals.** **Built** (engine only; writing waits on the measured-baseline gate). `savings/accruals.py`. Gross, overhead and net CU avoided per execution as
 ledger events, through the attribution waterfall (single layer until Phase 3). This is the
 ledger's only accrual grain (section 4.5).
 - Gate: the 2026-11-06 decision stands: no savings rows are written until a measured Fabric
@@ -442,7 +442,7 @@ confidence. The current single price becomes a scenario labelled as an assumptio
 **ESI-402 Capacity value and headroom.** Measures B and C from 4.6, with time-based headroom
 from imported timepoints.
 
-**ESI-403 Realized savings.** Measure E from Cost Management exports and `fdcap_` SKU changes,
+**ESI-403 Realized savings.** **Built** (engine only, no writes). `savings/realized.py`. Measure E from Cost Management exports and `fdcap_` SKU changes,
 linked to optimizations by a confirmed person action; measure F.
 - Acceptance: nothing is labelled realized without billing or capacity-change evidence; an F64
   with lower utilization shows value and headroom, not realized savings.
@@ -469,16 +469,19 @@ verified, capacity readiness), from the same ledger queries the page uses.
 
 ### Phase 6: Continuous optimization
 
-**ESI-601 Assessment to optimization.** An assessment finding (FEA) or opportunity (OE) creates
+**ESI-601 Assessment to optimization.** **Built** (engine only, no writes; writing waits on ESI-301). `savings/links.py`. An assessment finding (FEA) or opportunity (OE) creates
 an optimization record keyed by its fingerprint; a repeat detection links to the existing record
 instead of creating one; resolution after verification is reported back to the assessment.
-Coordinated with the Fabric Excellence Assessment thread.
+Coordinated with the Fabric Excellence Assessment thread. A finding whose control changed version
+goes to a person for review. With the FEA-604 matches table, a finding and an opportunity on the
+same item share one record. A finding is resolved only when the savings are verified and FEA-602's
+re-check says verified_fixed.
 
 **ESI-602 Capacity planner inputs.** Verified and estimated optimization demand fed to OE-040 and
 OE-041 as separate inputs (verified first). The planner, not this program, makes any
 right-sizing recommendation, and it needs peak, concurrency and throttling evidence.
 
-**ESI-603 What to optimize next.** Rank open opportunities by evidence-backed benefit, using the
+**ESI-603 What to optimize next.** **Built** (engine only, no writes). `savings/priorities.py`. Rank open opportunities by evidence-backed benefit, using the
 existing `ACTION_ORDER` and impact figures.
 
 ## 7. Test matrix (section 16 of the brief)

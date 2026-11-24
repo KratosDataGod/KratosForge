@@ -930,7 +930,7 @@ def test_current_time_is_a_time_cut_to_its_precision_in_the_session_zone():
 
 def test_current_database_is_current_schema_as_in_databricks():
     con = databricks_coverage.connect()
-    assert databricks_coverage.run("SELECT current_database(), current_schema()", con) == [["main", "main"]]
+    assert databricks_coverage.run("SELECT current_database(), current_schema()", con) == [["default", "default"]]  # the schema main shows as default (WR-316)
     con.execute("CREATE SCHEMA sales")
     con.execute("USE sales")
     assert databricks_coverage.run("SELECT current_database() = current_schema(), current_database()",

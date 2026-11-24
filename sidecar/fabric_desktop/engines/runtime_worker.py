@@ -115,7 +115,8 @@ def _start_databricks_connect() -> tuple[dict[str, Any], Callable[[], Any], str]
 SNOWPARK_SQL_REFUSED = ("session.sql is refused here: Snowflake's local testing framework can't run SQL, and whether "
                         "KratosForge translates it for this engine is still open. Use DataFrame calls, or a Snowflake "
                         "SQL cell on DuckDB.")
-_LOOKUPS = ("socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex", "socket.gethostbyaddr")
+_LOOKUPS = ("socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex", "socket.gethostbyaddr",
+            "socket.getnameinfo")
 _SENDS = ("socket.connect", "socket.sendto", "socket.sendmsg")
 
 
@@ -123,7 +124,9 @@ def _no_network() -> None:
     """From now on this process refuses every name lookup and every IPv4 or IPv6 connection or datagram,
     to this PC's own addresses too (a local proxy is a route out). An audit hook can't be removed, so
     nothing a library or a cell does later in Python turns it off. Pipes (the engine's messages) and
-    AF_UNIX sockets are left alone."""
+    AF_UNIX sockets are left alone. On Windows socket.socketpair() connects over AF_INET loopback, so it
+    is refused too, and an asyncio event loop can't start in this process: that fails closed.
+    A child process a cell starts (subprocess, os.system) isn't covered: the hook is this process's."""
     import socket
     inet = (socket.AF_INET, socket.AF_INET6)
 

@@ -341,6 +341,10 @@ def _source(code: str) -> str:
     return "\n".join("" if _MAGIC.match(line) else line for line in code.splitlines())
 
 
+TOO_DEEP = ("This cell is too deeply nested to check: it chains or nests too many calls or attributes. "
+            "Split the chain into steps to check it.")
+
+
 def check(code: str) -> dict[str, Any]:
     """The API compatibility check of one Python cell. ``compatible`` is false when a call, method or
     keyword isn't in the pinned version; flagged families don't change it."""
@@ -353,9 +357,18 @@ def check(code: str) -> dict[str, Any]:
     except SyntaxError as exc:
         return out | {"compatible": None, "checked": 0, "not_placed": 0, "findings": [], "families": [],
                       "error": f"The cell can't be read as Python (line {exc.lineno}: {exc.msg})."}
+    except RecursionError:  # the parser has a depth limit of its own
+        return out | {"compatible": None, "checked": 0, "not_placed": 0, "findings": [], "families": [],
+                      "error": TOO_DEEP}
     checker = _Checker()
-    for node in tree.body:
-        checker.statement(node)
+    try:
+        for node in tree.body:
+            checker.statement(node)
+    except RecursionError:
+        # The checker reads one level per attribute or call, so a chain of about a thousand or more
+        # (df.a.a... or .filter().filter()...) is deeper than Python allows.
+        return out | {"compatible": None, "checked": 0, "not_placed": 0, "findings": [], "families": [],
+                      "error": TOO_DEEP}
     findings = sorted(checker.findings.values(), key=lambda f: (f["line"], f["col"], f["kind"]))
     return out | {
         "compatible": not any(f["kind"] in UNKNOWN for f in findings),

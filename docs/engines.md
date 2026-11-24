@@ -267,10 +267,12 @@ works here may still behave differently on Snowflake.
   download at its own package mirror (`snowpark_index_url`) or turn installs off
   (`allow_snowpark_install`) in the [policy file](azure-setup.md).
 - **No network, telemetry off.** Before Snowpark loads, the session's process refuses every name
-  lookup and every network connection, to this PC's own addresses too, so nothing a cell or a library
-  does can reach Snowflake or anywhere else. The session always opens with `local_testing` and
-  `disable_local_testing_telemetry` set, and doesn't start if Snowpark's telemetry service is still
-  on. Snowflake, Snowpark and proxy variables set on this PC are left out of the process.
+  lookup and every network connection, to this PC's own addresses too, so no Python code in the
+  session's process, a cell's or a library's, can reach Snowflake or anywhere else. A program a cell
+  starts as a child process (with `subprocess` or `os.system`) isn't covered by this. The session
+  always opens with `local_testing` and `disable_local_testing_telemetry` set, and doesn't start if
+  Snowpark's telemetry service is still on. Snowflake, Snowpark and proxy variables set on this PC
+  are left out of the process.
 - **What's refused.** `session.sql` is refused: the local testing framework can't run SQL, and
   whether KratosForge translates it here is still open. A call the framework doesn't implement
   (Snowflake raises `NotImplementedError`) comes back as **Refused**, saying it can't be simulated on
@@ -279,9 +281,11 @@ works here may still behave differently on Snowflake.
 - **Limits:** Python cells only. `session` is the local session, and `get_active_session()` returns it.
   Results show the first rows, taken with `collect()`. `to_pandas` needs pyarrow, which the pinned
   runtime doesn't include. Cancel ends the session's process, so its tables and variables are lost.
-  Anything that opens a network connection fails, including asyncio on Windows, which uses one on this
-  PC. Use the [API compatibility check](#snowpark-api-compatibility-check-preview) to see which calls
-  need Snowflake's own servers.
+  Anything that opens a network connection fails, including asyncio on Windows: there
+  `socket.socketpair()` connects over this PC's loopback address, so it is refused and an asyncio
+  event loop can't start in the session. Use the
+  [API compatibility check](#snowpark-api-compatibility-check-preview) to see which calls need
+  Snowflake's own servers.
 
 ### Snowpark runtime packages and licences
 

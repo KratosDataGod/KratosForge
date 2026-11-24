@@ -224,6 +224,16 @@ def test_a_cell_magic_or_broken_python_is_said_not_checked():
     assert r["compatible"] is None and r["error"].startswith("The cell can't be read as Python (line 1")
 
 
+@pytest.mark.parametrize(("link", "n"), [(".a", 5000), (".filter(col('x') > 1)", 5000), (".filter(1)", 1500)])
+def test_a_chain_too_deep_to_check_says_so_and_doesnt_raise(link, n):
+    # Deeper than Python's recursion limit: 5000 .a links parse but are too deep for the checker,
+    # 5000 calls are too deep for the parser itself, and 1500 calls parse but are too deep to check.
+    r = check("df = session.table('t')\nx = df" + link * n + "\n")
+    assert r["compatible"] is None and r["error"].startswith("This cell is too deeply nested to check")
+    assert r["check"] == "api_compatibility" and r["findings"] == [] and r["checked"] == 0
+    assert check("df = session.table('t')\ndf.filter(col('x') > 1).selec()")["compatible"] is False
+
+
 # ---- wording
 
 

@@ -75,7 +75,10 @@ SNOWPARK_LOCAL = EngineDescriptor(
     limitations=(f"Preview: {SIMULATED}, never compared with Snowflake.",
                  "session.sql is refused; so is any call the local testing framework doesn't implement.",
                  "Tables last as long as the session; nothing is read from or written to a Snowflake account.",
-                 "The session's process can't open network connections, to Snowflake or anywhere else.",
+                 ("Python code in the session's process can't open network connections, to Snowflake or anywhere "
+                  "else; a child process a cell starts (subprocess, os.system) isn't covered."),
+                 ("On Windows socket.socketpair() connects over loopback, so it is refused and asyncio can't "
+                  "start an event loop in the session."),
                  "to_pandas needs pyarrow, which the pinned runtime doesn't include; results show as tables."),
 )
 

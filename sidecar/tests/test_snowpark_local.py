@@ -276,11 +276,23 @@ def test_the_process_has_no_route_to_snowflakes_telemetry_host_or_anywhere(sessi
     assert "client-telemetry.snowflakecomputing.com" in r.outputs[-1]["evalue"]
     for code in ("import socket\nsocket.create_connection(('127.0.0.1', 9))",
                  "import socket\nsocket.getaddrinfo('localhost', 80)",
+                 "import socket\nsocket.getnameinfo(('127.0.0.1', 80), 0)",
                  "import socket\ns = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\ns.sendto(b'x', ('10.0.0.1', 53))",
                  "import urllib.request\nurllib.request.urlopen('https://example.com', timeout=1)"):
         r = run(session, code)
         assert r.status == "error", code
         assert "no network" in r.outputs[-1]["evalue"], (code, r.outputs[-1])
+
+
+def test_socketpair_over_loopback_as_on_windows_is_refused_so_asyncio_fails_closed(session):
+    # On Windows socket.socketpair() is socket._fallback_socketpair: a TCP connection over AF_INET
+    # loopback. Linux and macOS have a native AF_UNIX socketpair, so the Windows one is called directly.
+    r = run(session, "import socket\nsocket._fallback_socketpair(socket.AF_INET)")
+    assert r.status == "error" and r.outputs[-1]["ename"] == "PermissionError", r.outputs[-1]
+    assert "no network" in r.outputs[-1]["evalue"]
+    r = run(session, "import asyncio, socket\nsocket.socketpair = socket._fallback_socketpair\n"
+                     "asyncio.SelectorEventLoop()")
+    assert r.status == "error" and "no network" in r.outputs[-1]["evalue"], r.outputs[-1]
 
 
 def test_a_session_builder_for_a_real_account_cant_reach_it(session):

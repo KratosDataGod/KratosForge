@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 import duckdb
-import pytest
 
 from fabric_desktop import spark_coverage as sc
 

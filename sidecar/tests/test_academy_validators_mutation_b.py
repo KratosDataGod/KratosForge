@@ -154,6 +154,15 @@ def test_order_without_operations_is_no_check(work: Path) -> None:
     assert v.delta_table(work, rel, operations_in_order=True)["passed"]
 
 
+def test_versions_min_and_max_allow_exactly_the_bound(work: Path) -> None:
+    rel = _table(work, [[_op("WRITE"), _meta()], [_op("MERGE")]])
+    assert v.delta_table(work, rel, versions_min=2, versions_max=2)["passed"]
+    out = v.delta_table(work, rel, versions_max=1)
+    assert not out["passed"] and "has 2 versions; the exercise allows at most 1." in out["detail"]
+    out = v.delta_table(work, rel, versions_min=3)
+    assert not out["passed"] and "has 2 versions; the exercise needs at least 3." in out["detail"]
+
+
 def test_a_long_history_is_cut_to_eight_names(work: Path) -> None:
     rel = _table(work, [[_op(f"OP{i}")] for i in range(9)] + [[_meta()]])
     out = v.delta_table(work, rel, operations=["MERGE"])["detail"]
@@ -166,7 +175,7 @@ def test_a_long_history_is_cut_to_eight_names(work: Path) -> None:
 def test_an_operation_name_of_forty_one_characters_is_cut(work: Path) -> None:
     rel = _table(work, [[_op("A" * 41), _meta()]])
     out = v.delta_table(work, rel, operations=["MERGE"])["detail"]
-    assert "A" * 40 + "…" in out
+    assert "A" * 40 + "…" in out and "A" * 41 not in out
     rel = _table(work, [[_op("B" * 40), _meta()]], "tables/forty")
     out = v.delta_table(work, rel, operations=["MERGE"])["detail"]
     assert "B" * 40 + "." in out

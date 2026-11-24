@@ -61,8 +61,9 @@ def _inside(path: str, folder: str) -> bool:
 
 def _absolute(folder: str) -> bool:
     """A full path (Windows' form too, so a test on another OS can stand in for a PC), never one
-    relative to wherever the engine happens to run."""
-    return os.path.isabs(folder) or ntpath.isabs(folder)
+    relative to wherever the engine happens to run. A rooted path with no drive (\\Users\\...) counts here, as
+    it did in ntpath before Python 3.13, so the drive-letter check names why it can't pair."""
+    return os.path.isabs(folder) or ntpath.isabs(folder) or folder[:1] in ("\\", "/")
 
 
 # Characters that would make a folder's path show differently from the folder itself: control

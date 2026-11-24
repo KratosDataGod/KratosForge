@@ -88,7 +88,10 @@ A rating is shown as is only when coverage is at least 80%. From 50% to 80% it i
 Below 50%, or when nothing in a dimension could be evaluated, no rating is shown: **Insufficient
 evidence**. A score of 100 needs 100% coverage; otherwise it's shown as 99.
 
-**Critical Risk** is a separate flag. Any failed critical control sets it, whatever the score.
+**Critical Risk** is a separate flag. Any failed critical control sets it, whatever the score. It
+also caps the rating. While the flag is set, the overall rating is at most Well architected, and so is
+the rating of each dimension a failed critical control is in. A capped rating shows as "Well
+architected (capped)". The score itself doesn't change.
 
 **Confidence** of an assessment needs both of these:
 

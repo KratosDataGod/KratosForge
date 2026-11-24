@@ -218,3 +218,77 @@ def test_a_step_that_lands_on_a_breakpoint_line_is_a_step():
     assert (p["line"], p["reason"]) == (2, "step")
     k.debug("continue")
     waiting(k)
+
+
+# ---- what #3233 and #3243 added (batch 347, run again on them)
+
+def test_past_the_describe_deadline_a_variable_is_listed_by_name_and_type_only(monkeypatch):
+    monkeypatch.setattr(debugger, "DESCRIBE_SECONDS", 0.0)
+    seen = []
+    d = debugger.Debugger([], False, lambda name, value: seen.append(name) or describe(name, value))
+    rows, total = d._variables(Frame(f_code=code("f"), f_locals={"a": 1}))
+    assert rows == [{"name": "a", "type": "int", "size": "", "value": "?", "memory": None, "expandable": False}]
+    assert total == 1 and seen == []
+
+
+def test_a_last_expression_on_the_line_before_it_is_not_a_second_stop():
+    k = Kernel()
+    k.start("y = 2; y", breakpoints=[1])
+    assert waiting(k)["paused"]["line"] == 1
+    k.debug("continue")
+    snap = waiting(k)
+    assert snap["status"] == "ok" and snap["paused"] is None
+
+
+def test_a_pause_in_a_class_body_shows_the_class_s_own_names():
+    k = Kernel()
+    k.start("class C:\n    a = 1\n    b = 2\nz = 0", breakpoints=[3])
+    paused = waiting(k)["paused"]
+    assert [v["name"] for v in paused["variables"]] == ["a"]
+    assert k.debug("eval", "a + 1")["value"] == "2"
+    k.debug("continue")
+    waiting(k)
+
+
+def test_breakpoint_in_the_cell_pauses_on_its_line():
+    k = Kernel()
+    k.start("a = 1\nbreakpoint()\nb = 2\nc = 3", breakpoints=[4])
+    paused = waiting(k)["paused"]
+    assert (paused["line"], paused["reason"]) == (2, "breakpoint")
+    k.debug("continue")
+    assert waiting(k)["paused"]["line"] == 4
+    k.debug("continue")
+    assert waiting(k)["status"] == "ok"
+
+
+def test_breakpoint_here_is_refused_outside_the_cell_or_while_paused():
+    d = debugger.Debugger([], False, describe)
+    cell = compile("x = 1", notebook._CELL_FILE, "exec")
+    d.add(cell)
+    assert d.pause_here(Frame(f_code=compile("pass", "lib.py", "exec"))) is False
+    d.paused = {}
+    assert d.pause_here(Frame(f_code=cell)) is False
+
+
+def test_a_cell_that_turns_tracing_off_is_told_the_debugger_lost_track():
+    k = Kernel()
+    k.start("import sys\nsys.settrace(None)\nb = 2", breakpoints=[3])
+    snap = waiting(k)
+    assert snap["status"] == "ok"
+    assert any("The debugger lost track of this cell partway" in str(o.get("text")) for o in snap["outputs"])
+    k.start("a = 1\nb = 2", breakpoints=[2])
+    waiting(k)
+    k.debug("continue")
+    assert not any("lost track" in str(o.get("text")) for o in waiting(k)["outputs"])
+
+
+def test_a_breakpoint_on_a_blank_line_pauses_at_the_next_code_and_one_past_the_end_says_so():
+    k = Kernel()
+    k.start("a = 1\n\nb = 2\n# end", breakpoints=[2, 4])
+    assert waiting(k)["paused"]["line"] == 3
+    k.debug("continue")
+    snap = waiting(k)
+    assert snap["status"] == "ok"
+    assert [o["text"] for o in snap["outputs"]] == [
+        ("The breakpoint on line 4 can't pause, because no code runs from there to the end of the cell. "
+         "Move it to a line with code.")]

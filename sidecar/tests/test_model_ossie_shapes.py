@@ -223,7 +223,7 @@ def test_every_public_entry_point_refuses_a_root_of_the_wrong_type_with_a_value_
             call()
         except ValueError:
             continue
-        except Exception as exc:  # noqa: BLE001  # narrow: any other exception is the failure this test names
+        except Exception as exc:  # noqa: BLE001 - any other exception is the failure this test names
             pytest.fail(f"{name}: {type(exc).__name__}: {exc}")
     assert model_ossie.model_name(root) == ""
     assert model_ossie.safe_fidelity(root, _bim())["status"] == "unverified"

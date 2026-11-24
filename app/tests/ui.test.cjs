@@ -6317,7 +6317,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
     sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
-    incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
+    incidents: ["Incidents and your service desk", "Who's affected", "Incidents"], incidentReports: ["SLA reports"],
     agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"], dataHealth: ["Data health"],
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
@@ -6804,6 +6804,8 @@ const FABRIC_WRITES = {
   set_fabric_schedule_enabled: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
   delete_fabric_schedule: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
   run_fabric_item_now: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+  // Monitor > Incidents > Reports copies new incident changes to the central lakehouse before it measures
+  incidents_measures: ["incidents.js", "incidentReports", null],
 };
 // Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
 const FABRIC_READS = {

@@ -16,7 +16,11 @@ const INC_EVIDENCE = { run_id: "Run", started_at: "Started", ran_on: "Ran on", j
   last_success: "Last good run", success_rate: "Success rate", objective: "Objective" };
 
 // Monitor > KratosForge > Operations > Incidents, kept for the session. checked: when this PC last checked each environment.
-const incPage = { env: null, filter: "active", id: null, env_of: null, detail: null, checked: {} };
+// view: the Board (the list) or Reports (SLA report, Preview).
+const incPage = { env: null, filter: "active", id: null, env_of: null, detail: null, checked: {}, view: "board" };
+// Reports: the environment and window it shows (the engine's incidents_measures), kept for the session.
+const incReport = { env: null, days: 30 };
+const INC_REPORT_DAYS = [7, 30, 90];  // workloads/incident_history.py REPORT_DAYS also has 365; the screen offers these
 
 function incStateLabel(inc) {
   if (inc.state === "resolved") return INC_RESOLUTION[inc.resolution] || "Resolved";
@@ -97,6 +101,8 @@ function backToIncidents() {
 // ---------- Monitor > KratosForge > Operations > Incidents ----------
 
 function incidentsPanel() {
+  incViews();
+  if (incPage.view === "reports") return incReportsPanel();
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading incidents..."));
   loadIncidents(box);
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.incidents", {
@@ -160,6 +166,167 @@ async function loadIncidents(box) {
       h("thead", {}, h("tr", {}, ["Number", "Priority", "State", "Problem", "Kind", "Opened", "Seen", "Owner", "SLA", "Escalation", ""].map((c) => h("th", {}, c)))),
       h("tbody", {}, items.map((i) => incidentRow(i, () => again()))))) : h("p", { class: unreadable ? "reason monitor-empty" : "muted-text monitor-empty" }, empty),
     h("p", { class: "muted-text small inc-foot" }, "Open incidents and the last 200 resolved ones are kept per environment."));
+}
+
+// The view row's switcher: Board, and Reports (Preview), like Monitor's own pages.
+function incViews() {
+  const reports = preview("incidentReports", h("span", {}, "Reports"));
+  if (!reports) { incPage.view = "board"; monitorSlots.views?.replaceChildren(); return; }
+  const pick = (view) => () => { incPage.view = view; render(); };
+  monitorSlots.views?.replaceChildren(h("div", { class: "seg inc-views", role: "group", "aria-label": "Incidents view" },
+    [["board", "Board"], ["reports", reports]].map(([view, label]) => h("button", { class: incPage.view === view ? "on" : null,
+      "aria-pressed": String(incPage.view === view), onclick: pick(view) }, label))));
+}
+
+// ---------- Reports: the SLA report (PB-105 stage 4, Preview) ----------
+
+// Whole minutes as the report shows them: 9 min, 3 h 10 min, 1 d 4 h.
+function incDuration(m) {
+  if (m === null || m === undefined) return "";
+  if (m < 60) return `${m} min`;
+  if (m < 1440) return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+  const hrs = Math.floor((m % 1440) / 60);
+  return `${Math.floor(m / 1440)} d${hrs ? ` ${hrs} h` : ""}`;
+}
+
+function incReportsPanel() {
+  const box = h("div", { class: "inc-panel inc-report" }, h("p", { class: "muted-text monitor-empty" }, "Reading the report..."));
+  loadIncidentReport(box);
+  return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.incidents.reports", {
+    reads: "Each incident's latest state in the central KratosForge lakehouse, and your organization's SLA targets.",
+    changes: "First it copies incident changes this PC hasn't copied yet to the central lakehouse, so the report counts them. Rows are only ever added. Nothing runs and no incident changes.",
+    results: "On this screen only. Nothing is estimated: an incident without the times a measure needs is left out of that measure.",
+    anchor: "sla-reports-preview",
+  })));
+}
+
+async function loadIncidentReport(box, approve = false) {
+  if (!incReport.env) incReport.env = incPage.env || "prod";
+  const { env, days } = incReport;
+  const again = (changes = {}, ok = false) => { Object.assign(incReport, changes); loadIncidentReport(box, ok); };
+  const envPick = h("select", { "aria-label": "Environment", onchange: (ev) => again({ env: ev.target.value }) },
+    Object.keys(ENV_LABEL).map((e) => h("option", { value: e, selected: e === env }, envName(e))));
+  const daysPick = h("div", { class: "seg", role: "group", "aria-label": "Window" }, INC_REPORT_DAYS.map((d) =>
+    h("button", { class: d === days ? "on" : null, "aria-pressed": String(d === days), onclick: () => again({ days: d }) }, `${d} days`)));
+  const head = h("div", { class: "monitor-filters inc-report-head" }, h("b", {}, "SLA report"), h("span", { class: "spacer" }),
+    h("label", { class: "row tight muted-text small" }, "Environment", envPick), daysPick);
+  box.replaceChildren(head, h("p", { class: "muted-text monitor-empty" }, "Reading the report..."));
+  let out, policy;
+  try {
+    [out, policy] = await Promise.all([rpc("incidents_measures", { env, days, approve }),
+      rpc("incident_sla_policy", {}).catch(() => null)]);
+  } catch (err) {
+    if (!box.isConnected) return;
+    box.replaceChildren(head, h("p", { class: "reason monitor-empty" }, `Couldn't read the report: ${friendlyError(err).text}`));
+    return;
+  }
+  if (!box.isConnected || incReport.env !== env || incReport.days !== days) return;  // a newer pick is on its way
+  box.replaceChildren(head, ...incReportBody(out, policy, () => again({}, true)));
+}
+
+// What incidents_measures returned: a reason it couldn't measure, nothing in the window, or the report.
+function incReportBody(out, policy, setUp) {
+  if (out.state === "needs_confirm") {
+    const text = String(out.message || "").replace(/ ?Confirm to continue\.$/, "");
+    return [h("div", { class: "monitor-empty" }, h("p", {}, text),
+      btn("Set up history", null, () => confirmDialog("Create the incident history tables?", text, "Create and read").then((ok) => ok && setUp()), "tool primary"))];
+  }
+  if (!["ready", "empty"].includes(out.state)) return [h("p", { class: out.state === "refused" ? "reason monitor-empty" : "muted-text monitor-empty" }, out.message || "")];
+  const env = envName(out.env || incReport.env);
+  const total = out.total || {};
+  const notes = [];
+  const unread = (out.copy || []).find((c) => c.env === (out.env || incReport.env) && c.state !== "copied");
+  if (unread) notes.push(h("p", { class: "reason small" }, `${env}'s newest changes couldn't be copied (${unread.detail || unread.state}), so the report may not count them.`));
+  if (out.capped) notes.push(h("p", { class: "muted-text small" }, "Only the newest 5,000 incidents were read."));
+  if (!total.opened) {
+    return [...notes, h("div", { class: "inc-report-empty" }, h("b", {}, `No incidents in ${env} in the last ${out.days} days`),
+      "Pick a longer window or another environment to see a report.")];
+  }
+  const tile = (label, value, sub) => h("div", { class: "inc-report-tile" }, h("span", { class: "muted-text small" }, label),
+    h("b", {}, value), sub ? h("span", { class: "muted-text small" }, sub) : null);
+  const slaTile = (label, s = {}) => {
+    const judged = (s.met || 0) + (s.missed || 0) + (s.breached || 0);
+    return tile(label, s.met_percent === null || s.met_percent === undefined ? h("span", { class: "muted-text" }, "None judged") : `${s.met_percent}%`,
+      judged ? [`${s.met} of ${judged} on time`, s.breached ? [", ", h("span", { class: "inc-report-breached" }, `${s.breached} breached`)] : null]
+        : "No incident has reached its target yet");
+  };
+  const sla = total.sla || {};
+  const tiles = h("div", { class: "inc-report-tiles" },
+    tile("Opened", String(total.opened), `in the last ${out.days} days`),
+    tile("Resolved", String(total.resolved ?? 0)),
+    tile("Still open", String(total.open ?? 0)),
+    slaTile("Acknowledge SLA met", sla.acknowledge), slaTile("Resolve SLA met", sla.resolve));
+  const prios = out.priorities || [];
+  return [...notes, tiles, h("h3", { class: "inc-report-sub" }, "By priority"),
+    incReportTable(prios, policy), incReportCards(prios, policy), incReportNote(prios)];
+}
+
+// A measure with nothing in it: the engine's {count: 0, median_minutes: null}, or null.
+const incMeasured = (t) => !!t && t.count > 0 && t.median_minutes !== null && t.median_minutes !== undefined;
+
+// One SLA clock for one priority: counts, or why there are none. "No target" only when the policy says so.
+function incReportClock(p, clock, s, policy) {
+  const judged = s ? s.met + s.missed + s.breached : 0;
+  if (judged) return s;
+  const target = policy?.targets?.[p];
+  return target && (target[`${clock}_minutes`] === null || target[`${clock}_minutes`] === undefined) ? "No target" : "None judged yet";
+}
+
+const incPrioLabel = (p) => (INC_PRIORITIES.find(([k]) => k === p) || [])[1] || "";
+
+function incReportTable(prios, policy) {
+  const th = (text, cls, span) => h("th", { class: cls || null, colspan: span || null }, text);
+  const time = (t) => incMeasured(t) ? [h("td", { class: "n inc-report-sep" }, incDuration(t.median_minutes)), h("td", { class: "n" }, incDuration(t.p90_minutes))]
+    : h("td", { class: "inc-report-na inc-report-sep", colspan: 2 }, "Nothing to measure");
+  const clock = (p, name, s) => {
+    const c = incReportClock(p, name, s, policy);
+    if (typeof c === "string") return h("td", { class: "inc-report-na inc-report-sep", colspan: 3 }, c);
+    return [h("td", { class: "n inc-report-sep" }, String(c.met)), h("td", { class: `n${c.missed ? " inc-report-missed" : ""}` }, String(c.missed)),
+      h("td", { class: `n${c.breached ? " inc-report-breached" : ""}` }, String(c.breached))];
+  };
+  return h("div", { class: "monitor-scroll inc-report-table" }, h("table", { class: "list" },
+    h("thead", {},
+      h("tr", { class: "inc-report-groups" }, th(""), th("Incidents", null, 3), th("Time to acknowledge", "inc-report-sep", 2),
+        th("Time to resolve", "inc-report-sep", 2), th("Acknowledge SLA", "inc-report-sep", 3), th("Resolve SLA", "inc-report-sep", 3)),
+      h("tr", {}, th("Priority"), ["Opened", "Resolved", "Open"].map((t) => th(t, "n")), th("Median", "n inc-report-sep"), th("90th %", "n"),
+        th("Median", "n inc-report-sep"), th("90th %", "n"), ["Acknowledge", "Resolve"].map(() => [th("Met", "n inc-report-sep"), th("Missed", "n"), th("Breached", "n")]))),
+    h("tbody", {}, prios.map((x) => h("tr", { "data-priority": x.priority },
+      h("td", {}, h("b", {}, x.priority), h("div", { class: "muted-text small" }, incPrioLabel(x.priority))),
+      h("td", { class: "n" }, String(x.opened)), h("td", { class: "n" }, String(x.resolved)), h("td", { class: "n" }, String(x.open)),
+      time(x.time_to_acknowledge), time(x.time_to_resolve),
+      clock(x.priority, "acknowledge", x.sla?.acknowledge), clock(x.priority, "resolve", x.sla?.resolve))))));
+}
+
+// The same rows as one card per priority, for a narrow window (styles.css shows one or the other).
+function incReportCards(prios, policy) {
+  const time = (t) => incMeasured(t) ? `median ${incDuration(t.median_minutes)}, 90th % ${incDuration(t.p90_minutes)}` : "Nothing to measure";
+  const clock = (p, name, s) => {
+    const c = incReportClock(p, name, s, policy);
+    return typeof c === "string" ? c : `${c.met} met, ${c.missed} missed, ${c.breached} breached`;
+  };
+  const row = (k, v) => [h("dt", {}, k), h("dd", {}, v)];
+  return h("div", { class: "inc-report-cards" }, prios.map((x) => h("div", { class: "inc-report-card", "data-priority": x.priority },
+    h("b", {}, x.priority), h("div", { class: "muted-text small" }, incPrioLabel(x.priority)),
+    h("dl", {}, row("Incidents", `${x.opened} opened, ${x.resolved} resolved, ${x.open} open`),
+      row("To acknowledge", time(x.time_to_acknowledge)), row("To resolve", time(x.time_to_resolve)),
+      row("Acknowledge SLA", clock(x.priority, "acknowledge", x.sla?.acknowledge)), row("Resolve SLA", clock(x.priority, "resolve", x.sla?.resolve))))));
+}
+
+// The note under the table. Its example names incidents left out of a measure only where the counts
+// prove it: every resolved incident has a resolve time, and with none still open, every one has an acknowledge time.
+function incReportNote(prios) {
+  let example = "";
+  for (const x of prios) {
+    const gaps = [["acknowledge", x.open === 0 ? x.opened - (x.time_to_acknowledge?.count || 0) : 0],
+      ["resolve", x.resolved - (x.time_to_resolve?.count || 0)]];
+    const [clock, n] = gaps.find(([, k]) => k > 0) || [];
+    if (!n) continue;
+    example = ` For example, ${n} ${x.priority} ${n === 1 ? "incident has" : "incidents have"} no ${clock} time and ${n === 1 ? "isn't" : "aren't"} in that column.`;
+    break;
+  }
+  return h("div", { class: "muted-text small inc-report-note" },
+    h("p", {}, `Nothing here is estimated. An incident without the times a measure needs is left out of that measure, so counts can differ between columns.${example}`),
+    h("p", {}, "SLA counts use the targets set now. An incident still inside its window, or a priority with no target, counts as neither met nor missed. Missed means it was done late. Breached means it's still open and already late."));
 }
 
 // Who keeps this list current: agents that check it on a timer, from their status records.
@@ -654,9 +821,11 @@ registerFeature({
   views: { incident: renderIncident },
   commands: [
     { label: "Incidents", icon: "warning", keywords: "monitor incidents alerts acknowledge resolve escalate on-call",
-      run: () => { incPage.filter = "active"; backToIncidents(); } },
+      run: () => { incPage.filter = "active"; incPage.view = "board"; backToIncidents(); } },
+    { label: "Incident SLA report", icon: "gauge", keywords: "monitor incidents reports sla time to acknowledge resolve met missed breached",
+      preview: true, run: () => { incPage.view = "reports"; backToIncidents(); } },
     { label: "My incidents", icon: "person", keywords: "monitor incidents mine owner",
-      run: () => { incPage.filter = "mine"; backToIncidents(); } },
+      run: () => { incPage.filter = "mine"; incPage.view = "board"; backToIncidents(); } },
     { label: "Report an incident", icon: "add", keywords: "incident report problem broken wrong numbers ticket",
       run: () => reportIncident() },
   ],

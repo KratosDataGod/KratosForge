@@ -5792,7 +5792,8 @@
         "Stage 4 engine: time to acknowledge, time to resolve and SLAs met from the incident tables (#2467) on main at 47416473. Left, per the owning thread on 2026-11-11: the stage 4 reports screen (needs a UX mockup) and stage 5, opening tickets in ServiceNow or Jira Service Management (needs Chris's go and a Security read)",
         "Data health (owned by Workload management): an engine for freshness, volume and schema from the Delta log (#2912), Monitor > Data health watches tables (#2919), and an alert can open an incident (#2968) on main at 7be2906d",
         "Data health saves survive crashes and other processes (#2979); a hanging check shows as not finished (#3000); incidents keep an opening or a told-downstream note when a write fails partway (#3009) on main at ad1ac4cf",
-        "An incident opening reaches Teams even if a later step fails, with end-to-end tests from Data health to Teams (#3049) on main at 1719d5db"
+        "An incident opening reaches Teams even if a later step fails, with end-to-end tests from Data health to Teams (#3049) on main at 1719d5db",
+        "Stage 4 reports screen built (Preview): Monitor > KratosForge > Operations > Incidents > Reports, beside Board, shows incidents_measures for one environment over 7, 30 or 90 days (summary, one row per priority, No target, Nothing to measure and None judged yet, never 0), from the UX mockup Chris approved on 2026-11-24 with ticket integration left out. Stage 5, opening tickets in ServiceNow or Jira Service Management, still waits on Chris's go and a Security read"
       ],
       "features": [
         "FEAT-OPS-02"

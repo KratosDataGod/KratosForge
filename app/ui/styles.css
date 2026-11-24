@@ -1850,6 +1850,35 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .inc-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .inc-fieldset legend { padding: 0; margin-bottom: 4px; }
 .inc-required { margin: 2px 0 0; }
+/* Incidents > Reports: the SLA report (PB-105 stage 4). Plain data styling; below 900 px the table becomes one card per priority. */
+.inc-report-head b { font-size: 14px; }
+.inc-report-head select { min-height: 28px; }
+.inc-report-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0 16px; }
+.inc-report-tile { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); min-width: 0; }
+.inc-report-tile b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.inc-report-sub { margin: 16px 16px 6px; font-size: 14px; }
+.inc-report-table .list td, .inc-report-table .list th { white-space: nowrap; padding: 6px 8px; }
+.inc-report-table .list td:first-child, .inc-report-table .list th:first-child { padding-left: 16px; }
+.inc-report-table .inc-report-groups th { color: var(--text); text-align: center; }
+.inc-report-table .inc-report-sep { border-left: 1px solid var(--border); }
+.inc-report-table td.inc-report-na { text-align: center; color: var(--muted); }
+.inc-report-missed { color: var(--warn); font-weight: 600; }
+.inc-report-breached { color: var(--danger); font-weight: 600; }
+.inc-report-note { margin: 10px 16px 14px; max-width: 900px; }
+.inc-report-note p { margin: 4px 0; }
+.inc-report-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 28px 10px; color: var(--muted); text-align: center; }
+.inc-report-empty b { color: var(--text); font-size: 15px; }
+.inc-report-cards { display: none; }
+.inc-report-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.inc-report-card dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 6px 0 0; font-size: 13px; }
+.inc-report-card dt { color: var(--muted); }
+.inc-report-card dd { margin: 0; }
+.inc-report > .reason.small, .inc-report > .muted-text.small { margin: 0 16px 8px; }
+@media (max-width: 900px) {
+  .inc-report-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inc-report-table { display: none; }
+  .inc-report-cards { display: grid; gap: 10px; margin: 0 16px; }
+}
 /* Agents (agents.js) */
 .ag-overlap { background: var(--warn-soft-3); border: 1px solid var(--warn-border); border-radius: var(--r-md); padding: 10px 16px; margin: 8px 0; color: var(--text); }
 .ag-overlap b { color: var(--warn-ink-2); }

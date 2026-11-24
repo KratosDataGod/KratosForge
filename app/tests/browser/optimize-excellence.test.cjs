@@ -143,7 +143,7 @@ test("provisional, insufficient evidence and Critical Risk read as the mockup's 
   await draw(`r.scores.critical_risk = true; r.findings[0].severity = "critical";`);
   await page().waitForSelector(".exc-crit");
   text = await page().locator(".exc-crit").textContent();
-  assert.match(text, /Critical Risk\. A critical control failed: .+ This flag stands whatever the score\./);
+  assert.match(text, /Critical Risk\. A critical control failed: .+ This flag stands whatever the score, and the rating can.t be Exemplary while it does\./);
   assert.deepStrictEqual(app.errors, []);
   await page().evaluate(() => { optimizeExcellence.result = window.__excBase; });
 });

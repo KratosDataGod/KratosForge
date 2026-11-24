@@ -49,6 +49,10 @@ function excRating(s) {
   if (!s || s.status === "insufficient_evidence") return h("span", { class: "exc-rating none" }, "Insufficient evidence");
   if (s.status === "provisional") return h("span", { class: "exc-rating prov", title: s.rating?.label || "" }, "Provisional");
   if (!s.rating) return h("span", { class: "exc-rating none" }, EXC_STATUS[s.status] || "Not rated");
+  if (s.rating.capped === "critical_risk") {
+    return h("span", { class: "exc-rating", title: "Capped below Exemplary because a critical control failed" },
+      s.rating.label, h("small", {}, " (capped)"));
+  }
   return h("span", { class: "exc-rating" }, s.rating.label);
 }
 
@@ -158,7 +162,7 @@ function excResult(r, showGaps) {
   if (s.critical_risk) {
     const f = r.findings.find((x) => x.severity === "critical" && !x.advisory);
     out.push(h("div", { class: "exc-crit", role: "alert" },
-      h("span", {}, h("b", {}, "Critical Risk. "), `A critical control failed${f ? `: ${f.discovered}` : "."} This flag stands whatever the score.`),
+      h("span", {}, h("b", {}, "Critical Risk. "), `A critical control failed${f ? `: ${f.discovered}` : "."} This flag stands whatever the score, and the rating can't be Exemplary while it does.`),
       f ? btn("Open the finding", null, () => excFinding(r, f), "tool outline") : null));
   }
   const stat = (k, v, ...rest) => h("div", { class: "exc-stat" }, h("span", { class: "exc-k" }, k), h("span", { class: "exc-v" }, v), ...rest);

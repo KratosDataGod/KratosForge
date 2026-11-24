@@ -69,6 +69,7 @@ def test_three_platforms_each_in_its_own_unit_with_the_mockups_figures():
     assert pcc["details"][0]["text"] == "9 min 40 s" and pcc["details"][1]["text"] == "3.1 GB"
     assert pcc["money"]["text"] == "Not priced. This PC's hardware and power aren't counted."
     assert fab["figure"]["classification"] == ms.ESTIMATED and fab["figure"]["text"] == "2,880 CU seconds"
+    assert fab["figure"]["method"] == "Run time × configured CUs"
     assert fab["sub"] == "0.80 CU hours" and fab["input"] == "12.1 M rows. Within 25% of this PC's runs."
     assert fab["money"]["text"] == "$0.14" and fab["money"]["price_line"] == "0.80 CU hours × $0.18 per CU hour"
     assert db["figure"]["classification"] == ms.MEASURED and db["figure"]["text"] == "1.42 DBU"
@@ -78,7 +79,7 @@ def test_three_platforms_each_in_its_own_unit_with_the_mockups_figures():
     assert db["money"]["price_line"] == "1.42 DBU × $0.15 per DBU" and db["money"]["text"] == "$0.21"
     assert sf["figure"]["classification"] == ms.ESTIMATED and sf["figure"]["text"] == "0.27 credits"
     assert sf["sub"] == "X-Small, 1 credit per hour"
-    assert sf["figure"]["method"] == "Warehouse time 16 min 12 s times 1 credit per hour"
+    assert sf["figure"]["method"] == "Warehouse time 16 min 12 s × 1 credit per hour"
     assert sf["money"]["price_line"] == "0.27 credits × $2.00 per credit" and sf["money"]["text"] == "$0.54"
     assert {c["money"]["pricing_version"] for c in (fab, db, sf)} == {LIST["pricing_version"]}
     assert all(c["money"]["classification"] == ms.SCENARIO for c in (fab, db, sf))
@@ -198,3 +199,10 @@ def test_money_words():
     assert cmp.money_text(0.144, "USD") == "$0.14" and cmp.money_text(0.004, "EUR") == "€0.0040"
     assert cmp.money_text(2, "SEK") == "2.00 SEK" and cmp.rate_text(0.055, "USD") == "$0.055"
     assert cmp.duration(45) == "45 s" and cmp.duration(3780) == "1 h 3 min"
+
+
+def test_method_lines_use_the_times_sign_and_leave_other_words_alone():
+    assert cmp.method_text("run time x configured CUs") == "Run time × configured CUs"
+    assert cmp.method_text("time on this PC x configured CUs of a Python notebook") == \
+        "Time on this PC × configured CUs of a Python notebook"
+    assert cmp.method_text("max x-axis value") == "Max x-axis value"

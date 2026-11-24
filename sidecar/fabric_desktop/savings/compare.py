@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import re
 from typing import Any
 
 from .. import calibration
@@ -96,6 +97,12 @@ def rows_text(n: float) -> str:
 
 def credits_per_hour(rate: float) -> str:
     return f"{rate:g} credit{'' if rate == 1 else 's'} per hour"
+
+
+def method_text(method: str) -> str:
+    """A run's method as the card says it: "run time x configured CUs" -> "Run time × configured CUs"."""
+    text = re.sub(r"(?<=\S) x (?=\S)", " × ", method.strip())
+    return text[:1].upper() + text[1:]
 
 
 def _plural(n: int, word: str) -> str:
@@ -215,7 +222,7 @@ def _fabric_card(workload: dict[str, Any], runs: list[dict[str, Any]], pc_runs: 
     total = ms.total(parts, "fabric_job_cu", ms.CU_SECONDS)
     per_run = total["value"] / len(counted)
     fig = _figure(total["classification"], round(per_run, 3), UNIT[FABRIC], text=f"{per_run:,.0f} CU seconds",
-                  method="; ".join(total["methods"]) or "As each run's CU figure says",
+                  method="; ".join(method_text(m) for m in total["methods"]) or "As each run's CU figure says",
                   source=", ".join(total["sources"]), collected_at=max(str(r.get("at")) for r in counted),
                   assumptions=total["assumptions"], runs=len(counted), runs_total=len(runs), period=period)
     statuses = {r["volume"]["status"] for r in counted}
@@ -323,8 +330,8 @@ def _snowflake_card(src: dict[str, Any] | None, pc_runs: list[dict[str, Any]], p
     secs = sum(float(q.get("seconds") or 0) for q in known) / len(known)
     rates = sorted({(str(q.get("size")), float(q["credits_per_hour"])) for q in known})
     rate_words = ", ".join(f"{s}, {credits_per_hour(c)}" for s, c in rates)
-    method = (f"Warehouse time {duration(secs)} times {credits_per_hour(rates[0][1])}" if len(rates) == 1 else
-              f"Warehouse time {duration(secs)} times each warehouse size's credits per hour")
+    method = (f"Warehouse time {duration(secs)} × {credits_per_hour(rates[0][1])}" if len(rates) == 1 else
+              f"Warehouse time {duration(secs)} × each warehouse size's credits per hour")
     fig = _figure(ms.ESTIMATED, round(per_run, 6), unit, text=f"{number(per_run)} credits", method=method,
                   source=f"QUERY_HISTORY for queries tagged {', '.join(tags)}", collected_at=read.get("read_at"),
                   assumptions=list(read.get("assumptions") or []), runs=len(known), runs_total=len(queries),

@@ -174,7 +174,7 @@
       "unit": "fabric_cu_seconds",
       "unit_label": "Fabric capacity unit seconds",
       "text": "2,880 CU seconds",
-      "method": "run time x configured CUs",
+      "method": "Run time × configured CUs",
       "source": "Fabric job API",
       "collected_at": "2026-11-23T10:00:00+00:00",
       "assumptions": [
@@ -290,7 +290,7 @@
       "unit": "snowflake_credits",
       "unit_label": "Snowflake credits",
       "text": "0.27 credits",
-      "method": "Warehouse time 16 min 12 s times 1 credit per hour",
+      "method": "Warehouse time 16 min 12 s × 1 credit per hour",
       "source": "QUERY_HISTORY for queries tagged kf:daily-sales",
       "collected_at": "2026-11-24T09:12:00Z",
       "assumptions": [
@@ -528,7 +528,7 @@
       "unit": "fabric_cu_seconds",
       "unit_label": "Fabric capacity unit seconds",
       "text": "2,880 CU seconds",
-      "method": "run time x configured CUs",
+      "method": "Run time × configured CUs",
       "source": "Fabric job API",
       "collected_at": "2026-11-23T10:00:00+00:00",
       "assumptions": [
@@ -868,7 +868,7 @@
       "unit": "fabric_cu_seconds",
       "unit_label": "Fabric capacity unit seconds",
       "text": "2,880 CU seconds",
-      "method": "run time x configured CUs",
+      "method": "Run time × configured CUs",
       "source": "Fabric job API",
       "collected_at": "2026-11-23T10:00:00+00:00",
       "assumptions": [
@@ -970,7 +970,7 @@
       "unit": "snowflake_credits",
       "unit_label": "Snowflake credits",
       "text": "0.27 credits",
-      "method": "Warehouse time 16 min 12 s times 1 credit per hour",
+      "method": "Warehouse time 16 min 12 s × 1 credit per hour",
       "source": "QUERY_HISTORY for queries tagged kf:daily-sales",
       "collected_at": "2026-11-24T09:12:00Z",
       "assumptions": [
@@ -1203,7 +1203,7 @@
       "unit": "fabric_cu_seconds",
       "unit_label": "Fabric capacity unit seconds",
       "text": "2,880 CU seconds",
-      "method": "run time x configured CUs",
+      "method": "Run time × configured CUs",
       "source": "Fabric job API",
       "collected_at": "2026-11-23T10:00:00+00:00",
       "assumptions": [
@@ -1289,7 +1289,7 @@
       "unit": "snowflake_credits",
       "unit_label": "Snowflake credits",
       "text": "0.27 credits",
-      "method": "Warehouse time 16 min 12 s times 1 credit per hour",
+      "method": "Warehouse time 16 min 12 s × 1 credit per hour",
       "source": "QUERY_HISTORY for queries tagged kf:daily-sales",
       "collected_at": "2026-11-24T09:12:00Z",
       "assumptions": [

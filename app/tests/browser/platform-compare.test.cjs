@@ -17,6 +17,7 @@ const SHOTS = process.env.SCREENSHOT_DIR;
 let app;
 let which = "three";
 let saved = null;
+let unread = false;   // the cards as before their first read: no read_at
 const page = () => app.page;
 const calls = (method) => app.calls.filter((c) => c.method === method).map((c) => c.params);
 
@@ -26,7 +27,8 @@ function answer(p) {
   const today = new Date();
   for (const [c, hh, mm] of [["databricks", 8, 55], ["snowflake", 9, 12]]) {
     const card = out.comparison.cards.find((x) => x.platform === c);
-    if (card.read_at) card.read_at = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hh, mm).toISOString();
+    if (unread) delete card.read_at;
+    else if (card.read_at) card.read_at = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hh, mm).toISOString();
   }
   if (saved && p.pricing_version === saved.pricing_version) out.scenarios.push(saved);
   return out;
@@ -111,7 +113,13 @@ test("three platforms: each figure in its own unit with its badge, money under o
   assert.match(await card("pc").textContent(), /4 min 12 s\s*Measured.*Not priced\. This PC's hardware and power aren't counted\./);
   assert.match(await card("fabric").textContent(), /2,880 CU seconds\s*Estimated.*0\.80 CU hours.*\$0\.14\s*Scenario0\.80 CU hours × \$0\.18 per CU hour/);
   const dbx = await card("databricks").textContent();
-  assert.match(dbx, /Job daily_sales_rollup \(8841\), linked to this workload by you\. 3 runs\./);
+  assert.match(dbx, /Job daily_sales_rollup \(8841\), linked to this workload by you\. 3 runs\. Unlink/);
+  assert.strictEqual(await card("databricks").locator(".matched").textContent(),
+    "Job daily_sales_rollup (8841), linked to this workload by you. 3 runs. Unlink", "Unlink ends the matching line");
+  assert.strictEqual(await section().locator(".xcmp-links, .matched + .xcmp-link").count(), 0, "no outlined Unlink above the figure");
+  assert.match(await card("fabric").textContent(), /MethodRun time × configured CUs/);
+  assert.match(await card("snowflake").textContent(), /MethodWarehouse time 16 min 12 s × 1 credit per hour/);
+  assert.doesNotMatch(text, / x configured| times \d/, "the method lines use ×");
   assert.match(dbx, /1\.42 DBU\s*Measured/);
   assert.match(dbx, /Billed usage, system\.billing\.usage, read today \d\d:\d\d/);
   assert.match(dbx, /1\.42 DBU × \$0\.15 per DBU/);
@@ -143,18 +151,18 @@ test("a figure not known: Not known with the reason, and reading billing asks fi
   const text = await dbx.textContent();
   assert.match(text, /Not known\s*Unknown/);
   assert.match(text, /No billing rows for this job's runs yet\. Billing rows can arrive hours after a run\./);
-  assert.match(text, /Reading runs one query on a SQL warehouse you pick, which may bill a few DBUs\./);
+  assert.match(text, /Last read today \d\d:\d\d[^.]*\. Reading runs one query on a SQL warehouse you pick, which may bill a few DBUs\./);
   assert.match(text, /There's no DBU figure to price\./);
   assert.match(text, /SourceBilled usage, system\.billing\.usage, read today/);
   assert.match(await section().locator(".xcmp-line").textContent(),
     /At these prices, the Fabric estimate \(\$0\.14\) is lower than the Snowflake estimate \(\$0\.54\)\. Databricks isn't compared because its figure isn't known\./);
   await shot("3-not-known.png");
-  await dbx.getByRole("button", { name: "Read Databricks billing…" }).click();
+  await dbx.getByRole("button", { name: "Read again…" }).click();
   const dialog = page().locator("#dialog-root .dialog");
   assert.match(await dialog.textContent(), /Read billing on Reporting\?.*If it is stopped it starts, and it bills DBUs while it runs\./);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   assert.ok(calls("databricks_billing").every((p) => !p.confirmed), "Cancel runs nothing");
-  await dbx.getByRole("button", { name: "Read Databricks billing…" }).click();
+  await dbx.getByRole("button", { name: "Read again…" }).click();
   await page().locator("#dialog-root .dialog").getByRole("button", { name: "Run the query" }).click();
   await until(() => calls("databricks_billing").some((p) => p.confirmed));
   const confirmed = calls("databricks_billing").filter((p) => p.confirmed);
@@ -163,11 +171,38 @@ test("a figure not known: Not known with the reason, and reading billing asks fi
 
 test("reading Snowflake query history asks first too", { skip }, async () => {
   await show("three");
-  await card("snowflake").getByRole("button", { name: "Read Snowflake query history…" }).click();
+  await card("snowflake").getByRole("button", { name: "Read again…" }).click();
   const dialog = page().locator("#dialog-root .dialog");
   assert.match(await dialog.textContent(), /Read query history on REPORTING_XS\?.*If it is suspended it resumes, and it uses credits while it runs\./);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   assert.deepStrictEqual(calls("snowflake_query_credits"), [{ connection: "profile:p1:sf", warehouse: "REPORTING_XS", days: 30, tags: ["kf:daily-sales"] }]);
+});
+
+test("before the first read the buttons name what they read; after it they say Read again", { skip }, async () => {
+  unread = true;
+  try {
+    await show("three");
+    assert.strictEqual(await card("databricks").locator(".xcmp-read button").textContent(), "Read Databricks billing…");
+    assert.strictEqual(await card("snowflake").locator(".xcmp-read button").textContent(), "Read Snowflake query history…");
+    assert.doesNotMatch(await section().textContent(), /Last read|Read again/);
+  } finally { unread = false; }
+  await show("three");
+  assert.deepStrictEqual(await section().locator(".xcmp-read button").allTextContents(), ["Read again…", "Read again…"]);
+});
+
+test("Unlink unlinks at once, with no confirm, and the toast's Undo links the job again", { skip }, async () => {
+  await show("three");
+  const before = calls("compare_link").length;
+  await card("databricks").getByRole("button", { name: "Unlink job 8841" }).click();
+  await until(() => calls("compare_unlink").length > 0);
+  assert.deepStrictEqual(calls("compare_unlink").at(-1), { workload: "meta:daily_sales", platform: "databricks", ref: "8841" });
+  assert.strictEqual(await page().locator("#dialog-root .dialog").count(), 0, "no confirm");
+  const t = page().locator("#toast");
+  await t.getByRole("button", { name: "Undo" }).waitFor();
+  assert.match(await t.textContent(), /^Unlinked job 8841 from this workload\./);
+  await t.getByRole("button", { name: "Undo" }).click();
+  await until(() => calls("compare_link").length > before);
+  assert.deepStrictEqual(calls("compare_link").at(-1), { workload: "meta:daily_sales", platform: "databricks", ref: "8841", name: "daily_sales_rollup" });
 });
 
 test("no pricing scenario: native units only, no money and no comparison", { skip }, async () => {
@@ -189,7 +224,8 @@ test("how this was worked out: the measure dialog with the unit, matched by, ass
   assert.match(text, /UnitSnowflake credits\. Not converted to CU or DBU\./);
   assert.match(text, /Runs counted3 of 3/);
   assert.match(text, /Matched byQueries tagged kf:daily-sales on warehouse REPORTING_XS\. 3 runs\./);
-  assert.match(text, /Money at this scenario\$0\.54\s*Scenario\s*0\.27 credits × \$2\.00 per credit, from List prices, Nov 2026 \(version pv-[0-9a-f]{16}\)/);
+  assert.match(text, /Money at this scenario\$0\.54\s*Scenario\s*0\.27 credits × \$2\.00 per credit, from List prices, Nov 2026 \(version pv-[0-9a-f]{16}, from each platform's public price page\)\./);
+  assert.match(text, /Worked out asWarehouse time 16 min 12 s × 1 credit per hour/);
   assert.match(text, /WAREHOUSE_METERING_HISTORY .* can't be split into single runs, and it can be up to 3 hours late\./);
   if (SHOTS) { await settleForAxe(page()); await page().screenshot({ path: path.join(SHOTS, "5-how-worked-out.png") }); }
   if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root .dialog"), []);

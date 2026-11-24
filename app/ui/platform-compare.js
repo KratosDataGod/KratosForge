@@ -119,7 +119,7 @@ function pcmpCard(c, res) {
     body.push(h("div", { class: "notconn" }, h("span", {}, f.reason), h("span", {}, c.connect),
       h("span", {}, btn("Open Connections", null, () => { state.settingsTab = "connections"; go("settings"); }, "tool outline small"))));
   } else {
-    body.push(h("div", { class: "matched" }, c.matched_by || "", pcmpLinks(c, res)));
+    body.push(h("div", { class: "matched" }, c.matched_by || "", pcmpUnlinks(c, res)), pcmpLinks(c, res));
     body.push(h("div", { class: "fig" }, h("div", { class: "k" }, "Per run"),
       h("button", { class: "measure-fig", title: "How this was worked out", onclick: (ev) => { ev.stopPropagation(); pcmpDialog(c, res); } },
         h("span", { class: `v${f.value === null ? " unknown" : ""}` }, f.text), " ", measureBadge(f)),
@@ -148,16 +148,29 @@ function pcmpMoney(c) {
   return h("div", { class: "money" }, k, h("div", {}, h("span", { class: "v" }, "Not known"), " ", measureBadge(m)), h("div", { class: "muted-text" }, m.reason));
 }
 
-// Linked jobs and tags, with Unlink; or the box to link one when there's none.
-function pcmpLinks(c, res) {
-  if (c.platform !== "databricks" && c.platform !== "snowflake") return null;
+// Unlink, quiet, at the end of the matching line: it unlinks straight away, and the toast's Undo links it again.
+function pcmpUnlinks(c, res) {
+  if ((c.platform !== "databricks" && c.platform !== "snowflake") || c.status === "not_linked") return null;
   const dbx = c.platform === "databricks";
-  const linked = dbx ? res.links.databricks.map((j) => j.job_id) : res.links.snowflake;
-  const unlink = linked.map((ref) => btn(`Unlink ${dbx ? `job ${ref}` : ref}`, null, async (ev) => {
-    const box = ev.currentTarget.closest(".xcmp");
-    if (await attempt(() => rpc("compare_unlink", { workload: res.workload, platform: c.platform, ref }), "Not unlinked")) pcmpLoad(box);
-  }, "tool outline small"));
-  if (c.status !== "not_linked") return h("div", { class: "xcmp-links" }, unlink);
+  const linked = dbx ? res.links.databricks.map((j) => ({ ref: j.job_id, name: j.name || "" })) : res.links.snowflake.map((ref) => ({ ref, name: "" }));
+  return linked.map(({ ref, name }) => {
+    const what = dbx ? `job ${ref}` : `tag ${ref}`;
+    return [" ", btn(linked.length === 1 ? "Unlink" : `Unlink ${what}`, null, async (ev) => {
+      const box = ev.currentTarget.closest(".xcmp");
+      const params = { workload: res.workload, platform: c.platform, ref };
+      if (!(await attempt(() => rpc("compare_unlink", params), "Not unlinked"))) return;
+      await pcmpLoad(box);
+      toast(`Unlinked ${what} from this workload.`, false, { action: { label: "Undo", run: async () => {
+        if (await attempt(() => rpc("compare_link", { ...params, name }), "Not linked again")) pcmpLoad(box);
+      } } });
+    }, "tool link small xcmp-unlink", { "aria-label": `Unlink ${what}` })];
+  });
+}
+
+// The box to link a job or tag when there's none.
+function pcmpLinks(c, res) {
+  if ((c.platform !== "databricks" && c.platform !== "snowflake") || c.status !== "not_linked") return null;
+  const dbx = c.platform === "databricks";
   const ref = h("input", { "aria-label": dbx ? "Databricks job id" : "Snowflake query tag", placeholder: dbx ? "Job id, such as 8841" : "Query tag, such as kf:daily-sales", spellcheck: "false" });
   const name = dbx ? h("input", { "aria-label": "Job name", placeholder: "Job name (optional)", spellcheck: "false" }) : null;
   return h("div", { class: "xcmp-link" }, ref, name,
@@ -171,7 +184,7 @@ function pcmpLinks(c, res) {
 // Read Databricks billing… or Read Snowflake query history…: asks first, naming the warehouse.
 function pcmpReader(c, res) {
   const dbx = c.platform === "databricks";
-  const label = dbx ? "Read Databricks billing…" : "Read Snowflake query history…";
+  const label = c.read_at ? "Read again…" : dbx ? "Read Databricks billing…" : "Read Snowflake query history…";
   const busy = platformCompare.reading === c.platform;
   const note = dbx
     ? "Reading runs one query on a SQL warehouse you pick, which may bill a few DBUs."
@@ -214,6 +227,13 @@ async function pcmpRemoteRead(box, platform, res) {
   pcmpRedraw(box);
 }
 
+// A price source after "from": "Each platform's public price page" reads "from each platform's public price page".
+// Only a leading common word is lowered, so a name such as "Azure pricing" or a URL stays as typed.
+function pcmpFrom(source) {
+  const s = String(source).trim().replace(/^from\s+/i, "");
+  return /^(Each|The|A|An|Our|Every)\b/.test(s) ? s[0].toLowerCase() + s.slice(1) : s;
+}
+
 // How this was worked out: the measure dialog, with the unit, runs, how runs were matched and the money.
 function pcmpDialog(c, res) {
   const f = c.figure;
@@ -221,7 +241,7 @@ function pcmpDialog(c, res) {
   const m = c.money;
   const money = m && m.status === "priced" ? [h("p", { class: "text" }, h("b", {}, "Money at this scenario")),
     h("p", { class: "text" }, m.text, " ", measureBadge(m), " ",
-      `${m.price_line}, from ${cmp.scenario.scenario} (version ${m.pricing_version})${cmp.scenario.source ? `, ${cmp.scenario.source}` : ""}.`)]
+      `${m.price_line}, from ${cmp.scenario.scenario} (version ${m.pricing_version}${cmp.scenario.source ? `, from ${pcmpFrom(cmp.scenario.source)}` : ""}).`)]
     : m && m.status !== "not_priced" ? [h("p", { class: "text" }, h("b", {}, "Money at this scenario")), h("p", { class: "text" }, m.reason || m.text)] : null;
   measureDialog(`${c.label}: ${PCMP_PER[c.platform]}`, f, "", {
     value: f.text, unit: PCMP_UNIT[c.platform], why: f.classification !== "unknown" ? PCMP_WHY[c.platform] : "",

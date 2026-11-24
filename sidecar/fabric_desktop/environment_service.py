@@ -108,4 +108,4 @@ class EnvironmentMixin:
             raise PermissionError("Your organization doesn't allow installing packages from PyPI and names no package "
                                   "folder, so packages can't be installed for notebooks on this PC.")
         if not app_settings.value("kernel_process"):
-            raise RuntimeError("Notebook environments need Run notebooks in their own process (Settings > Preview features).")
+            raise RuntimeError("Notebook environments need Run notebooks in their own process (Settings > Advanced > Notebooks).")

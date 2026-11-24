@@ -152,7 +152,8 @@ assessed.
 An exception never changes the assessment. The control still fails, the finding stays open, and every
 score, assured score, coverage figure, rating and Critical Risk flag is exactly what it would be
 without it. The exception is shown next to the failed control and its finding with its owner, reason
-and expiry. Once its expiry date is reached it is shown as expired and no longer counts as accepted.
+and expiry. From its expiry date on, counted by the assessment's date, it is shown as expired and no
+longer counts as accepted.
 The result also says how many exceptions are active, how many have expired, and which ones matched no
 failed control.
 

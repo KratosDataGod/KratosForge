@@ -126,6 +126,7 @@ const PREVIEW_FEATURES = {
   updateBanner: "New build banner",
   engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  syncChooser: "Merge a notebook changed in VS Code and here, cell by cell",
   runSeveral: "Run several notebooks from Home",
   itemPins: "Items pinned to Home",
   learn: "Learn",

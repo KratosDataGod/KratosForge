@@ -6355,6 +6355,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
     "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
     "Notebook templates for Silver and Gold": ["docs/notebook-templates.md", /There is no page in the app to pick a template/],
+    "Check a bundle on this PC": ["docs/engines.md", /a command, with no screen in the app yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
@@ -6887,4 +6888,25 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
     "pipeline_run_start is called from Pipelines and the Motion sample only");
   // The access cache's writes are drawn only from the Access tab.
   assert.deepStrictEqual(files.filter((f) => f !== "access-cache.js" && /renderAccessAll\(/.test(text[f])), ["estate.js"], "only the Access tab draws the access cache");
+});
+
+// Academy board 5: an exercise's How this works. Only python_lab names the AppContainer; delta_lab and
+// pyspark_lab run in the learner process only (docs/academy/grading-sandbox.md), and SQL never says sandboxed.
+test("an Academy exercise's How this works names the AppContainer only for python_lab", () => {
+  const src = fs.readFileSync(path.join(ui, "academy.js"), "utf8");
+  const consts = ["ACADEMY_CLASS", "ACADEMY_SQL_ADAPTERS", "ACADEMY_PY_ADAPTERS", "ACADEMY_CLASS_MEANS"]
+    .map((n) => src.match(new RegExp(`const ${n} = [\\s\\S]*?;\\n`))[0]).join("");
+  const fn = src.match(/function academyExerciseHow\(ex\) \{[\s\S]*?\n\}\n/)[0];
+  const ctx = { howItWorks: (id, parts) => ({ id, ...parts }) };
+  vm.runInNewContext(`${consts}${fn}; this.how = academyExerciseHow;`, ctx);
+  const reach = (adapter) => Object.fromEntries(ctx.how({ adapter, class: "local_verified" }).more)["What your answer can reach"];
+  assert.match(reach("python_lab"), /AppContainer/);
+  for (const a of ["delta_lab", "pyspark_lab"]) {
+    assert.match(reach(a), /runs as you on this PC, without your sign-in, with time and memory limits/, a);
+    assert.doesNotMatch(reach(a), /AppContainer/, a);
+  }
+  assert.match(reach("duckdb_lab"), /no file or network access/);
+  for (const a of ["python_lab", "delta_lab", "pyspark_lab", "duckdb_lab", "config_model"]) {
+    assert.doesNotMatch(JSON.stringify(ctx.how({ adapter: a, class: "local_verified" })), /sandboxed/i, a);
+  }
 });

@@ -186,6 +186,26 @@ def _json_value(value: Any) -> Any:
     return str(value)
 
 
+def _python_values(column: Any) -> list[Any]:
+    """``column``'s values in Python. One Python can't hold stopped to_pylist, and the cell with it: a date
+    or timestamp before year 1 (DuckDB's year 0) with an OverflowError, a struct whose fields share a name
+    (DuckDB's (NULL, NULL)) with a ValueError. That value shows as Arrow's text instead."""
+    try:
+        return list(column.to_pylist())
+    except (OverflowError, ValueError):
+        return [_python_value(scalar) for scalar in column]
+
+
+def _python_value(scalar: Any) -> Any:
+    try:
+        return scalar.as_py()
+    except (OverflowError, ValueError):
+        try:
+            return scalar.cast(pa.string()).as_py()
+        except pa.ArrowException:  # no cast to text, as for a struct
+            return str(scalar)
+
+
 def as_table(value: Any) -> pa.Table | None:
     """Arrow view of a data frame-like value, or None if it is not one."""
     module = type(value).__module__
@@ -235,7 +255,7 @@ def display(value: Any) -> dict[str, Any]:
     if table is not None:
         shown = table.slice(0, PREVIEW_ROWS)
         # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
-        columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
+        columns = [[_json_value(v) for v in _python_values(column)] for column in shown.columns]
         rows = [list(row) for row in zip(*columns, strict=True)] if columns else \
             [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)
@@ -2958,6 +2978,10 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
     else:
         meta.pop("dependencies", None)
     raw_cells = [c for c in before.get("cells", []) if isinstance(c, dict)] if isinstance(before.get("cells"), list) else []
+    problem = ipynb_cell_problem(raw_cells)
+    if problem:
+        raise ValueError(f"The notebook wasn't saved, because {problem} in the file on disk. Fix that cell in a text "
+                         "editor or Jupyter, then save again.")
     read_ids = [c["cell_id"] for c in from_ipynb({"cells": raw_cells})["cells"]]
     old_cells = dict(zip(read_ids, raw_cells, strict=True))
     cells = []
@@ -2981,10 +3005,11 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
             used = _attachments_used(old.get("attachments"), "".join(cell["source"]))
             if used:
                 cell["attachments"] = used
-        cells.append(cell)
+        cells.append({k: cell[k] for k in old if k in cell} | cell)  # the file's key order, so the diff is the edit
     minor = before.get("nbformat_minor")
-    # Keys of the file's own beyond the format's (Fabric writes "notebookName"), in the file's order.
-    out = {k: v for k, v in before.items() if k not in new} | new | {"metadata": meta, "cells": cells}
+    # In the file's key order (Fabric writes nbformat first and its own "notebookName"), so the rest
+    # of the file doesn't move; a key the file didn't have goes last.
+    out = before | new | {"metadata": meta, "cells": cells}
     if isinstance(minor, int) and minor > out["nbformat_minor"]:
         out["nbformat_minor"] = minor
     return out
@@ -3085,6 +3110,11 @@ def ipynb_cell_problem(cells: list[Any]) -> str | None:
         except UnicodeEncodeError:  # a lone surrogate, written as a \ud800 escape: it can't be saved
             return f"cell {n}'s source has characters that aren't valid Unicode"
     return None
+
+
+def other_cell_type_note(cell_type: Any) -> str:
+    """The import note for a cell that isn't code or markdown (a raw cell), which comes in as code."""
+    return f"The cell's type ({str(cell_type or 'none')[:40]}) isn't code or markdown, so it comes in as a code cell."
 
 
 def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
@@ -3188,6 +3218,10 @@ class NotebookStore:
             raise ValueError(f"{self.path(name).name} is damaged or isn't a notebook any more, so it can't be "
                              "opened. The file has been left as it is. Fix it in a text editor, or put back an "
                              "earlier copy.") from exc
+        problem = ipynb_cell_problem(nb["cells"]) if isinstance(nb, dict) and isinstance(nb.get("cells"), list) else None
+        if problem:
+            raise ValueError(f"{self.path(name).name} can't be opened, because {problem}. The file has been left as it "
+                             "is. Fix that cell in a text editor or Jupyter, then open it again.")
         return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
 
     def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
@@ -3227,6 +3261,10 @@ class NotebookStore:
             now = disk_stamp(before) if parsed else raw_stamp(raw)
             if now != expected_stamp:
                 return {"name": name, "changed_on_disk": True, "disk_stamp": now, "unreadable": not parsed}
+        problem = ipynb_cell_problem(before["cells"]) if isinstance(before.get("cells"), list) else None
+        if problem:
+            raise ValueError(f"{path.name} wasn't saved, because {problem} in the file on disk. Fix that cell in a "
+                             "text editor or Jupyter, then save again.")
         saved = from_ipynb(before) if before and (compute is None or workspace is None) else {}
         if compute is None:
             compute = saved.get("compute", "default")

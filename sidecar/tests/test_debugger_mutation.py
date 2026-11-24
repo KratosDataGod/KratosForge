@@ -222,13 +222,16 @@ def test_a_step_that_lands_on_a_breakpoint_line_is_a_step():
 
 # ---- what #3233 and #3243 added (batch 347, run again on them)
 
-def test_past_the_describe_deadline_a_variable_is_listed_by_name_and_type_only(monkeypatch):
-    monkeypatch.setattr(debugger, "DESCRIBE_SECONDS", 0.0)
+@pytest.mark.parametrize("later, described", [(2.9, True), (3.0, False)])
+def test_past_the_describe_deadline_a_variable_is_listed_by_name_and_type_only(monkeypatch, later, described):
+    clock = iter([0.0, later])  # the deadline is set at 0, and the variable is reached at `later`
+    monkeypatch.setattr(debugger, "time", SimpleNamespace(monotonic=lambda: next(clock)))
     seen = []
     d = debugger.Debugger([], False, lambda name, value: seen.append(name) or describe(name, value))
     rows, total = d._variables(Frame(f_code=code("f"), f_locals={"a": 1}))
-    assert rows == [{"name": "a", "type": "int", "size": "", "value": "?", "memory": None, "expandable": False}]
-    assert total == 1 and seen == []
+    assert total == 1 and seen == (["a"] if described else [])
+    if not described:
+        assert rows == [{"name": "a", "type": "int", "size": "", "value": "?", "memory": None, "expandable": False}]
 
 
 def test_a_last_expression_on_the_line_before_it_is_not_a_second_stop():
@@ -319,3 +322,52 @@ def test_a_generator_resumed_on_the_same_cell_line_is_a_new_place_to_stop():
     assert waiting(k)["paused"]["line"] == 6
     k.debug("continue")
     assert waiting(k)["status"] == "ok"
+
+
+def test_breakpoint_here_says_it_paused():
+    d = debugger.Debugger([], False, describe)
+    cell = compile("x = 1", notebook._CELL_FILE, "exec")
+    d.add(cell)
+    d.skipped = ["lib.f"]
+    out = []
+    t = threading.Thread(target=lambda: out.append(d.pause_here(Frame(f_code=cell, f_globals={"x": 1}, f_lineno=1,
+                                                                        f_back=None))), daemon=True)
+    t.start()
+    deadline = time.monotonic() + 5
+    while d.paused is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    paused = d.paused
+    d.commands.put(("continue", None))
+    t.join(5)
+    assert paused is not None and paused["reason"] == "breakpoint" and "skipped" not in paused
+    assert out == [True]
+
+
+def test_code_added_after_the_last_expression_isnt_taken_for_it():
+    pauses = []
+    d = debugger.Debugger([1], False, describe, on_change=lambda p: p is not None and pauses.append(p["line"]))
+    body = compile("y = 2", notebook._CELL_FILE, "exec")
+    tail = compile("y", notebook._CELL_FILE, "eval")
+    d.add(body)
+    d.add(tail, tail=True)
+    d.add(compile("z = 3", notebook._CELL_FILE, "exec"))  # added later, and not the cell's last expression
+    namespace = {}
+
+    def run():
+        sys.settrace(d.trace)
+        try:
+            exec(body, namespace)  # noqa: S102 - the test's own code
+            eval(tail, namespace)  # noqa: S307 - the test's own code
+        finally:
+            sys.settrace(None)
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 10
+    while t.is_alive() and time.monotonic() < deadline:
+        if d.paused is not None:
+            d.commands.put(("continue", None))
+            d.resumed.wait(5)
+        time.sleep(0.01)
+    t.join(5)
+    assert not t.is_alive() and pauses == [1]  # line 1 once: the last expression shares the line, already run

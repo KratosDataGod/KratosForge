@@ -11,7 +11,7 @@ The set is test_proof_runtime_edges, test_prove, test_clock_changes_mid_run, tes
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `proof_runtime.py` | test_proof_runtime_edges, test_prove, test_clock_changes_mid_run, test_lakehouse_cov3, test_prove_spark, test_table_uris (+ test_proof_runtime_mutation) | 75 of 75 (75 + 0) | 60 / 15 | **80.0%** | 60/75 → 74/75 | none | 74 / 1 | **98.7%** | 1 equivalent |
+| `proof_runtime.py` | test_proof_runtime_edges, test_prove, test_clock_changes_mid_run, test_lakehouse_cov3, test_prove_spark, test_table_uris (+ test_proof_runtime_mutation_a) | 75 of 75 (75 + 0) | 60 / 15 | **80.0%** | 60/75 → 74/75 | none | 74 / 1 | **98.7%** | 1 equivalent |
 
 No bugs were found.
 
@@ -24,7 +24,7 @@ No bugs were found.
   - An overwrite of a pinned table starts empty (nothing is copied in or logged as read), and a later append to a table this side wrote isn't seeded either.
   - A file read records its size.
   - The seconds a side took are kept to a thousandth.
-  - → `test_proof_runtime_mutation.py`.
+  - → `test_proof_runtime_mutation_a.py`.
 
 ### Left
 

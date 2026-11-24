@@ -11,7 +11,7 @@ The set is test_integrations_app_service_cov3, test_integrations_peer, test_loca
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `integrations/app_service.py` | test_integrations_app_service_cov3, test_integrations_peer, test_local_retention_gaps, test_integrations_http_boundary, test_integrations_app_edges, test_integrations_app, test_integrations_http_guard, test_integrations_permissions, test_integrations_http (+ test_integrations_app_service_mutation) | 197 of 197 (192 + 5) | 161 / 36 (2 of the killed timed out) | **81.7%** | 161/192 → 192/192 | 0/5 → 5/5 | 197 / 0 (2 timed out) | **100.0%** | none |
+| `integrations/app_service.py` | test_integrations_app_service_cov3, test_integrations_peer, test_local_retention_gaps, test_integrations_http_boundary, test_integrations_app_edges, test_integrations_app, test_integrations_http_guard, test_integrations_permissions, test_integrations_http (+ test_integrations_app_service_mutation_a) | 197 of 197 (192 + 5) | 161 / 36 (2 of the killed timed out) | **81.7%** | 161/192 → 192/192 | 0/5 → 5/5 | 197 / 0 (2 timed out) | **100.0%** | none |
 
 No bugs were found.
 
@@ -24,4 +24,4 @@ No bugs were found.
   - A tool's workspaces are kept, and the audit check names its folder.
   - Activity: a started line drops out only when its own outcome line is there; a full page looks for unfinished approvals back to its oldest line; unfinished approvals take 0 s and sort newest first.
   - A stdio tool's test counts its tools, and gives the protocol version, or an empty string when the client gives none.
-  - → `test_integrations_app_service_mutation.py`.
+  - → `test_integrations_app_service_mutation_a.py`.

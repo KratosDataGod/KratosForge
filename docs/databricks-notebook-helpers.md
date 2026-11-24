@@ -43,7 +43,7 @@ so it changes when a call is added or refused.
 | `dbutils.fs.updateMount` | Refused | Mounting storage runs in Databricks. On this PC, read the attached lakehouse. |
 | `dbutils.jobs.taskValues.get` | Runs |  |
 | `dbutils.jobs.taskValues.set` | Runs |  |
-| `dbutils.library.install` | Refused | Installing libraries runs in Databricks. On this PC, install packages with `%pip install` in a cell. |
+| `dbutils.library.install` | Refused | Installing libraries runs in Databricks. On this PC, install packages with %pip install in a cell. |
 | `dbutils.library.restartPython` | Runs |  |
 | `dbutils.notebook.entry_point.getDbutils` | Differs | Gives the notebook's path and your user name for getContext(); the run id is empty. |
 | `dbutils.notebook.exit` | Runs |  |

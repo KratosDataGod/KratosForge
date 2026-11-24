@@ -84,6 +84,7 @@ def check(tree: exp.Expression) -> list[str]:
     """Refuse by name what a warehouse refuses or the local engine can't hold; returns notes. Run before the
     rewrites, while the tree has the types as written."""
     notes: list[str] = []
+    _decimal_defaults(tree)
     _limits(tree)
     temporary = False
     for kind, column, temp in _kept(tree):
@@ -165,6 +166,17 @@ def _projected(query: exp.Query) -> list[tuple[exp.DataType, str]]:
         if isinstance(kind, exp.DataType):
             out.append((kind, item.alias_or_name or kind.sql(dialect="tsql")))
     return out
+
+
+def _decimal_defaults(tree: exp.Expression) -> None:
+    """WR-706: DECIMAL and NUMERIC with no precision are decimal(18, 0) in T-SQL, and DuckDB's are DECIMAL(18, 3):
+    CAST(1.5 AS DECIMAL) was 1.500, where T-SQL gives 2. Written out here, wherever a type is (CAST, CONVERT,
+    TRY_CAST, TRY_CONVERT, PARSE, a column of CREATE TABLE or ALTER TABLE). With only a precision, the scale is 0 in
+    both. DuckDB rounds to the scale half away from zero, as T-SQL does: 2.5 is 3 and -2.5 is -3."""
+    for kind in tree.find_all(exp.DataType):
+        if kind.this == T.DECIMAL and not kind.expressions:
+            kind.set("expressions", [exp.DataTypeParam(this=exp.Literal.number(18)),
+                                     exp.DataTypeParam(this=exp.Literal.number(0))])
 
 
 _MOST = {T.VARCHAR: 8000, T.CHAR: 8000, T.VARBINARY: 8000, T.BINARY: 8000, T.NVARCHAR: 4000, T.NCHAR: 4000}

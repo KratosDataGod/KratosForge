@@ -40,6 +40,8 @@ from sqlglot.optimizer.annotate_types import annotate_types
 from sqlglot.optimizer.qualify import qualify
 from sqlglot.schema import MappingSchema
 
+from .duckdb_rows import duckdb_major
+
 log = logging.getLogger(__name__)
 
 MAX = 38
@@ -90,7 +92,7 @@ def _operands(node: exp.Expr) -> list[Any]:
 _KEY = "kf_decimal"
 # The rewrite's lambda parameters. DuckDB takes a column of the same name before a lambda parameter, so a
 # statement that can see a column of either name is left as it was.
-_LAMBDAS = ("kf_decv", "kf_decn", "kf_decsum")
+_LAMBDAS = ("kf_decv", "kf_decn", "kf_decsum", "kf_decd")
 
 
 def _adjust(precision: int, scale: int) -> tuple[int, int]:
@@ -198,6 +200,20 @@ def _summed(value: str, total: tuple[int, int], ansi: bool) -> str:
     return (f"(LIST_TRANSFORM([{value}], kf_decsum -> CASE WHEN kf_decsum IS NULL THEN NULL "
             f"WHEN length(regexp_extract(CAST(kf_decsum AS VARCHAR), '^-?([0-9]*)', 1)) <= {whole} "
             f"THEN TRY_CAST(kf_decsum AS DECIMAL({total[0]}, {total[1]})) ELSE {over} END))[1]")
+
+
+def _digit_sum(argument: exp.Expr, scale: int) -> tuple[exp.Expr, str]:
+    """A sum of ``argument``'s digits at ``scale`` as a BIGNUM, and the template turning ``fj_arg0`` (that
+    sum) back into the decimal's text. A DECIMAL(38) sum stops with DuckDB's own overflow error past 38
+    digits (DuckDB 2), before Spark's NULL can be given; a BIGNUM has no such limit."""
+    digits = _with_args(f"CAST({_unscaled('fj_arg0', scale)} AS BIGNUM)", [argument])
+    if not scale:
+        return digits, "CAST(fj_arg0 AS VARCHAR)"
+    text = (f"(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_decd -> CASE WHEN kf_decd IS NULL THEN NULL ELSE "
+            f"(CASE WHEN starts_with(kf_decd, '-') THEN '-' ELSE '' END) || "
+            f"left(lpad(ltrim(kf_decd, '-'), CAST(greatest(length(kf_decd), {scale + 1}) AS INTEGER), '0'), -{scale}) || '.' || "
+            f"right(lpad(ltrim(kf_decd, '-'), CAST(greatest(length(kf_decd), {scale + 1}) AS INTEGER), '0'), {scale}) END))[1]")
+    return digits, text
 
 
 def _wrapper(node: exp.Expr) -> exp.Expr:
@@ -443,12 +459,18 @@ def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
         p, s = _operand(found)
         top = _wrapper(node)
         total = (min(MAX, p + 10), s)
+        value, summand = "fj_arg0", argument.copy()
+        # A decimal(38) sum can pass 38 digits, where DuckDB 2's own decimal sum stops with an error. DuckDB 1.5's
+        # holds up to about 1.7 x 10^38 and is kept, as the digits' sum is many times slower.
+        if total[0] == MAX and duckdb_major() >= 2:
+            digits, value = _digit_sum(bare, s)
+            summand = exp.Distinct(expressions=[digits]) if bare is not argument else digits
+        summed = _rewrap(top, node, exp.Sum(this=summand))
         if isinstance(node, exp.Sum):
-            return _with_args(_summed("fj_arg0", total, ansi), [top]), top, total
+            return _with_args(_summed(value, total, ansi), [summed]), top, total
         result = (min(MAX, p + 4), min(MAX, s + 4))
-        summed = _rewrap(top, node, exp.Sum(this=argument.copy()))
         counted = _rewrap(top, node, exp.Count(this=argument.copy()))
-        mean = _divide(_summed("fj_arg0", total, ansi), "fj_arg1", s, 0, *result)
+        mean = _divide(_summed(value, total, ansi), "fj_arg1", s, 0, *result)
         if mean is None:
             return None
         return _with_args(mean, [summed, counted]), top, result
@@ -461,7 +483,7 @@ def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]]
     if a is None or b is None:
         return None
     if isinstance(node, exp.IntDiv):
-        return _integral_divide(node, left, right, a, b)
+        return _integral_divide(node, left, right, a, b, ansi)
     if a[0] == "int" and b[0] == "int":
         return None if ansi else _whole_wrapped(node, left, right, a, b)
     (p1, s1), (p2, s2) = _operand(a), _operand(b)
@@ -578,11 +600,18 @@ def _whole_wrapped(
 
 
 def _integral_divide(node: exp.Expr, left: exp.Expr, right: exp.Expr, a: tuple[int, int] | tuple[str, int],
-                     b: tuple[int, int] | tuple[str, int]) -> tuple[exp.Expr, exp.Expr, tuple[str, int]]:
+                     b: tuple[int, int] | tuple[str, int],
+                     ansi: bool = False) -> tuple[exp.Expr, exp.Expr, tuple[str, int]]:
     """Spark's ``div``: a BIGINT, the quotient truncated toward zero, NULL for a zero divisor (ANSI off).
-    DuckDB's ``//`` of a decimal is a DOUBLE division (10.00 // 3 is 3.33...), and of integers an INTEGER."""
+    DuckDB's ``//`` of a decimal is a DOUBLE division (10.00 // 3 is 3.33...), and of integers an INTEGER.
+    The smallest BIGINT div -1 wraps to itself with ANSI off, as Java's long division; with ANSI on it is
+    DuckDB's overflow error."""
     if a[0] == "int" and b[0] == "int":
-        return _with_args("CAST(fj_arg0 // NULLIF(fj_arg1, 0) AS BIGINT)", [left, right]), node, ("int", 20)
+        if ansi:
+            return _with_args("CAST(fj_arg0 // NULLIF(fj_arg1, 0) AS BIGINT)", [left, right]), node, ("int", 20)
+        wrapped = ("CAST((CAST(fj_arg0 AS HUGEINT) // NULLIF(fj_arg1, 0) + 9223372036854775808) "
+                   "% 18446744073709551616 - 9223372036854775808 AS BIGINT)")
+        return _with_args(wrapped, [left, right]), node, ("int", 20)
     (p1, s1), (p2, s2) = _operand(a), _operand(b)
     scale = max(s1, s2)
     if max(p1 - s1, p2 - s2) + scale <= MAX:

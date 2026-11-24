@@ -200,11 +200,6 @@ def overflowing(engine):
 
 
 def test_a_decimal_sum_past_its_type(overflowing) -> None:
-    from fabric_desktop.duckdb_rows import duckdb_major
-    if duckdb_major() >= 2:  # DuckDB 2.0's own decimal sum stops at decimal(38): documented, never a wrong answer
-        for dialect in ("spark", "databricks"):
-            assert "Overflow in SUM of DECIMAL" in overflowing("SELECT sum(big) FROM u", dialect)
-        return
     assert overflowing("SELECT sum(big), avg(big) FROM u", "spark") == (
         ["decimal128(38, 0)", "decimal128(38, 4)"], [{"sum(big)": None, "avg(big)": None}])
     for query in ("SELECT sum(big) FROM u", "SELECT avg(big) FROM u"):

@@ -24,7 +24,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, csv_cells, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
+from . import app_settings, csv_cells, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_compare, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -1292,6 +1292,24 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def sql_cancel(self, execution: str) -> dict[str, Any]:
         """Stop one run: ends that run's own process and nothing else."""
         return self.sql_runs.cancel(execution)
+
+    def sql_compare(self, a: str, b: str, keys: list[str] | None = None, tolerance: dict[str, Any] | None = None,
+                    status: str | None = None, offset: int = 0) -> dict[str, Any]:
+        """Compare data (editor parity S34, Preview): the rows of two finished runs that only read, A beside B,
+        matched on ``keys``, numbers within ``tolerance`` (sql_compare.py). Reads their results on this PC;
+        runs nothing and changes nothing."""
+        try:
+            return sql_compare.compare(self.sql_runs, a, b, keys, tolerance, status, offset)
+        except sql_exec.RerunNeeded as exc:
+            return {"rerun_needed": True, "message": str(exc).replace("compare it", "compare them")}
+
+    def sql_compare_export(self, a: str, b: str, keys: list[str] | None = None, tolerance: dict[str, Any] | None = None,
+                           name: str = "") -> dict[str, Any]:
+        """Every row Compare data found different, to a new CSV file in Downloads (S34)."""
+        try:
+            return sql_compare.export(self.sql_runs, a, b, keys, tolerance, name)
+        except sql_exec.RerunNeeded as exc:
+            return {"rerun_needed": True, "message": str(exc).replace("compare it", "export the rows that differ")}
 
     def sql_export(self, execution: str, format: str = "csv", name: str = "", part: int | None = None,
                    raw: bool = False) -> dict[str, Any]:

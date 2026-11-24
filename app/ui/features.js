@@ -118,6 +118,7 @@ const PREVIEW_FEATURES = {
   sqlResultViews: "Messages and Chart on the SQL page",
   sqlStatements: "Several SQL statements per run, a result for each",
   sqlParams: "Query parameters (:name and {{name}}) on the SQL page",
+  sqlCompare: "Compare data",
   sqlFiles: "Open and save .sql files from the SQL page",
   sqlHistory: "Result history and pinned results on the SQL page",
   sqlPractices: "SQL best practices",

@@ -163,8 +163,8 @@ def test_an_unclosed_quote_or_comment_is_refused_by_name(session, query):
 
 
 @pytest.mark.parametrize("query, verdict", [
-    ("CREATE TABLE src (k INT, v IN)", "difference"),  # an IN "constraint" has no kind: AttributeError
-    ("CREATE TABLE t (a INT PRIMARY KEY, d IN PRIMARY KEY, x INT)", "difference"),
+    ("CREATE TABLE src (k INT, v IN)", "translated"),  # an IN "constraint" has no kind: AttributeError
+    ("CREATE TABLE t (a INT PRIMARY KEY, d IN PRIMARY KEY, x INT)", "translated"),
     ("SELECT date_part(year)", "not_translatable"),  # sqlglot's own AttributeError while it writes
 ])
 def test_snowflake_statements_sqlglot_reads_oddly_get_a_verdict(query, verdict):

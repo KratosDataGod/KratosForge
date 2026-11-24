@@ -23,9 +23,9 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | --- | ---: |
 | Runs | 75 |
 | Differs | 0 |
-| Refused | 33 |
+| Refused | 27 |
 | Fails | 0 |
-| Not checked | 70 |
+| Not checked | 76 |
 | **All** | **178** |
 
 ## String
@@ -241,17 +241,17 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 | `TRUNCATE TABLE` | Not checked | `TRUNCATE TABLE dbo.t` |  |
 | `MERGE` | Not checked | `MERGE dbo.t AS d USING (SELECT 1 AS a) AS s ON d.a = s.a WHEN MATCHED THEN UPDATE SET b = d.b;` |  |
 | `DROP TABLE` | Not checked | `DROP TABLE IF EXISTS dbo.t3` |  |
-| `DECLARE and variables` | Refused | `DECLARE @n INT = 1` | The local engine doesn't run T-SQL variables (DECLARE) yet. Run the statements one at a time, with values in place of variables. A batch with variables and cont |
-| `IF ... ELSE` | Refused | `IF 1 = 1 SELECT 1` | The local engine doesn't run T-SQL IF blocks yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow r |
-| `WHILE` | Refused | `WHILE 1 = 0 SELECT 1` | The local engine doesn't run T-SQL WHILE loops yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow |
-| `BEGIN ... END` | Refused | `BEGIN SELECT 1 END` | The local engine doesn't run T-SQL BEGIN yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
-| `TRY ... CATCH` | Refused | `BEGIN TRY SELECT 1 END TRY BEGIN CATCH SELECT 2 END CATCH` | The local engine doesn't run T-SQL BEGIN yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
-| `Transactions` | Refused | `BEGIN TRANSACTION` | The local engine doesn't run T-SQL transactions (BEGIN TRAN) yet. Run the statements one at a time, with values in place of variables. A batch with variables an |
-| `EXEC` | Refused | `EXEC dbo.load_orders` | EXEC dbo.load_orders isn't mapped yet. Procedures and user-defined functions take parameters and use control flow,  |
-| `PRINT` | Refused | `PRINT 'hi'` | The local engine doesn't run T-SQL PRINT yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs  |
-| `CREATE PROCEDURE` | Refused | `CREATE PROCEDURE dbo.p AS SELECT 1` | CREATE PROCEDURE dbo.p isn't mapped yet. Procedures and user-defined functions take parameters and use control flow |
-| `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | CREATE FUNCTION dbo.f isn't mapped yet. Procedures and user-defined functions take parameters and use control flow, |
-| `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run the statements one at a time, with values in place of variables. A batch with variables and control flow runs in |
+| `DECLARE and variables` | Not checked | `DECLARE @n INT = 1` |  |
+| `IF ... ELSE` | Not checked | `IF 1 = 1 SELECT 1` |  |
+| `WHILE` | Not checked | `WHILE 1 = 0 SELECT 1` |  |
+| `BEGIN ... END` | Not checked | `BEGIN SELECT 1 END` |  |
+| `TRY ... CATCH` | Not checked | `BEGIN TRY SELECT 1 END TRY BEGIN CATCH SELECT 2 END CATCH` |  |
+| `Transactions` | Refused | `BEGIN TRANSACTION` | The local engine doesn't run T-SQL transactions (BEGIN TRAN) yet. Run it in a Fabric Warehouse. The local engine runs variables, IF, WHILE and TRY...CATCH in a  |
+| `EXEC` | Refused | `EXEC dbo.load_orders` | EXEC dbo.load_orders isn't mapped yet. Procedures and user-defined functions take parameters, and the local engine  |
+| `PRINT` | Not checked | `PRINT 'hi'` |  |
+| `CREATE PROCEDURE` | Refused | `CREATE PROCEDURE dbo.p AS SELECT 1` | CREATE PROCEDURE dbo.p isn't mapped yet. Procedures and user-defined functions take parameters, and the local engin |
+| `CREATE FUNCTION` | Refused | `CREATE FUNCTION dbo.f() RETURNS INT AS BEGIN RETURN 1 END` | CREATE FUNCTION dbo.f isn't mapped yet. Procedures and user-defined functions take parameters, and the local engine |
+| `USE` | Refused | `USE sales` | The local engine doesn't run T-SQL USE yet. Run it in a Fabric Warehouse. The local engine runs variables, IF, WHILE and TRY...CATCH in a script, but not this y |
 | `FOR JSON` | Refused | `SELECT a FROM dbo.t FOR JSON PATH` | FOR JSON PATH isn't mapped yet. Build each row's JSON with JSON_OBJECT or JSON_ARRAY, or run it in a Fabric Warehou |
 | `OPTION (...)` | Refused | `SELECT a FROM dbo.t OPTION (MAXDOP 1)` | OPTION (MAXDOP) isn't carried yet. It isn't among the query hints Microsoft lists for a Fabric Warehouse; those tha |
 | `SET options` | Not checked | `SET NOCOUNT ON; SELECT 1` |  |

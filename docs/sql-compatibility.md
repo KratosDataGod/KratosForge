@@ -437,7 +437,7 @@ When a project runs T-SQL on this PC, `MERGE`, `UPDATE`, `DELETE` and `INSERT` o
 What can still differ:
 
 - An `UPDATE ... FROM` in which a row of the table joins more than one row is refused. T-SQL takes the value from any one of them, and here that choice isn't made for you. Keep one row per key in `FROM`, or use a `MERGE`.
-- `OUTPUT` and `@@ROWCOUNT` are refused by name. Each statement's row count is its result instead.
+- `OUTPUT` is refused by name. Each statement's row count is its result, and `@@ROWCOUNT` after it (see [Local T-SQL variables and control flow](#local-t-sql-variables-and-control-flow)).
 - An `UPDATE` or `DELETE` whose `FROM` has an outer join (`LEFT`, `RIGHT`, `FULL`), `JOIN ... USING`, or the changed table after another one, is refused by name.
 - On one of the project's Delta tables, `MERGE`, `UPDATE` and `DELETE` run through delta-rs, which has its own rules: see [Local data](local-data.md).
 
@@ -856,7 +856,9 @@ A statement's place is counted as you count it. `SET NOCOUNT ON` and the other s
 
 When a batch between `GO` lines can't be read at all, the statement isn't known, so the batch is named by its place and its lines in your text, such as "Batch 2 of 3 (lines 3 to 4) was refused: Could not read the query as T-SQL: …". Blank lines at either end of the batch aren't counted, and a comment is part of its batch. A line number in the message itself is a line of the whole script, not of the batch. A script with no `GO` line shows the error on its own.
 
-`@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
+`ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read the error a `CATCH` block caught, with the numbers above; see [Local T-SQL variables and control flow](#local-t-sql-variables-and-control-flow). `@@ERROR` is refused by name: use `ERROR_NUMBER()` in `CATCH`.
+
+`Msg 512, Level 16: Subquery returned more than 1 value. …` is a subquery used as a value that returns more than one row, such as `SET @x = (SELECT id FROM dbo.t)`.
 
 ## Local T-SQL wide tables and long values
 
@@ -1024,7 +1026,7 @@ When a project runs T-SQL on this PC, procedures, functions and system procedure
 
 Refused by name:
 
-- `CREATE`, `ALTER`, `CREATE OR ALTER` and `DROP` of a `PROCEDURE` or `FUNCTION` (scalar, inline table-valued or multi-statement), `EXEC` of a procedure, and a call to a user-defined function (`dbo.f(1)`, `FROM dbo.tvf(1)`, `CROSS APPLY dbo.tvf(o.id)`). A procedure or function takes parameters, which are variables, and runs with control flow, so procedures and functions wait on the local engine's support for variables and control flow, which isn't built yet. Run them in a Fabric Warehouse, or run a procedure's statements one at a time with values in place of its parameters.
+- `CREATE`, `ALTER`, `CREATE OR ALTER` and `DROP` of a `PROCEDURE` or `FUNCTION` (scalar, inline table-valued or multi-statement), `EXEC` of a procedure, and a call to a user-defined function (`dbo.f(1)`, `FROM dbo.tvf(1)`, `CROSS APPLY dbo.tvf(o.id)`). The local engine runs variables and control flow in a script (see [Local T-SQL variables and control flow](#local-t-sql-variables-and-control-flow)), but doesn't keep or call procedures and functions yet. Run them in a Fabric Warehouse, or run a procedure's statements as a script, with a `DECLARE` for each of its parameters.
 - Dynamic SQL: `sp_executesql`, `EXEC ('...')` and `EXEC (@sql)`. The local engine never runs text as SQL.
 - Any other system procedure, such as `sp_help`, `sp_helptext`, `sp_columns`, `sp_tables`, `sp_spaceused` or `xp_cmdshell`. INFORMATION_SCHEMA lists the tables, columns and views.
 - `CREATE TRIGGER`: a warehouse has no triggers either.
@@ -1070,13 +1072,73 @@ When a project runs a T-SQL script on this PC, it runs as a batch does in a Fabr
 | An error part way through | The script stops at that statement. The error names it and says what ran: "Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run." |
 | `UPDATE ... SET v = v + 'x'` | The `SET` values and the `WHERE` of an `UPDATE` or `DELETE` follow T-SQL's types, as a `SELECT` does: two texts are joined, and text compares without its trailing spaces (`WHERE v = 'b'` finds `'b  '`) |
 
-Refused by name: variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `TRY ... CATCH`, `RETURN`, `BREAK`, `CONTINUE`, `GOTO` and labels, `THROW`, `RAISERROR`, `PRINT`, `WAITFOR`, `CHECKPOINT`, cursors (`DECLARE ... CURSOR`, `OPEN`, `FETCH`, `CLOSE`, `DEALLOCATE`), transactions (`BEGIN TRAN`, `COMMIT`, `ROLLBACK`, `SAVE TRANSACTION`, `SET TRANSACTION`), `EXEC` and `GO n` (run the batch n times). A script with variables and control flow runs in a Fabric Warehouse.
+Variables and control flow run: see [Local T-SQL variables and control flow](#local-t-sql-variables-and-control-flow).
+
+Refused by name: `GOTO` and labels, `WAITFOR`, `CHECKPOINT`, cursors (`DECLARE ... CURSOR`, `OPEN`, `FETCH`, `CLOSE`, `DEALLOCATE`), table variables (`DECLARE @t TABLE (...)`), transactions (`BEGIN TRAN`, `COMMIT`, `ROLLBACK`, `SAVE TRANSACTION`, `SET TRANSACTION`), `EXEC` and `GO n` (run the batch n times).
 
 What can still differ:
 
 - In a warehouse, some run-time errors (dividing by zero, a value that doesn't convert) end only their own statement, and the batch goes on to the next one. Here the script stops at the first error, and the error says which statements didn't run.
 - Inside a transaction, a warehouse's error ends the whole transaction: in live run 11 a divide by zero in a batch inside `BEGIN TRAN` rolled back a table the transaction had made.
 - A script of only session options (`SET NOCOUNT ON`) has nothing to run here, and says so.
+
+## Local T-SQL variables and control flow
+
+When a project runs a T-SQL script on this PC, variables and control flow run statement by statement, as a batch runs in a Fabric Warehouse. Each rule below is taken from Microsoft Learn's T-SQL reference pages for `DECLARE`, `SET @local_variable`, SELECT @local_variable, `IF...ELSE`, `WHILE`, `TRY...CATCH`, `THROW`, `RAISERROR`, `PRINT` and `@@ROWCOUNT`, as they read on 2026-11-24. None has been compared with a live warehouse run yet, so treat them as UNVERIFIED in Fabric.
+
+<!-- example: illustrative -->
+```sql
+DECLARE @i INT = 1, @n INT;
+SELECT @n = COUNT(*) FROM dbo.orders;
+WHILE @i <= @n
+BEGIN
+    UPDATE dbo.orders SET boxes = boxes + 1 WHERE id = @i;
+    SET @i += 1;
+END
+BEGIN TRY
+    THROW 50001, 'Stop here', 1;
+END TRY
+BEGIN CATCH
+    PRINT 'Caught ' + CAST(ERROR_NUMBER() AS VARCHAR(10));
+END CATCH
+```
+
+| What | Here, as in a warehouse |
+| --- | --- |
+| `DECLARE @x type [= value]`, several in one `DECLARE` | The variable is `NULL` until it's given a value. A name is the same in any case (`@X` is `@x`). A variable lasts until the end of its batch: after `GO`, reading it is Msg 137 (`Must declare the scalar variable "@x".`), and so is reading it above its `DECLARE`. Declaring it twice in one batch is Msg 134. In a loop, a `DECLARE` with no value doesn't make the variable `NULL` again; one with a value sets it each time |
+| Conversion to the variable's type | `DECLARE ... =`, `SET` and `SELECT @x =` convert as `CAST` does: a `VARCHAR(3)` keeps the first 3 characters, an `INT` cuts 2.7 to 2, text that isn't a whole number for an `INT` is Msg 245, and arithmetic past an `int` is Msg 8115. `VARCHAR`, `NVARCHAR`, `CHAR` and `NCHAR` with no length hold 1 character, as a variable does in T-SQL (a `CAST` with no length makes 30), and `DECIMAL` with no precision is `DECIMAL(18, 0)` |
+| `SET @x = value`, `SET @x += value` (and `-=`, `*=`, `/=`, `%=`, `&=`, `\|=`, `^=`) | The value, converted. A subquery that returns more than one row is Msg 512; one that returns none gives `NULL` |
+| `SELECT @x = col, @y = ... FROM ... WHERE ...` | The last row read sets the variables, and no rows leave them as they were. `@@ROWCOUNT` is the number of rows read. Without `ORDER BY`, which row comes last isn't fixed, here or in a warehouse. With no `FROM`, the assignments are made left to right, so `@b` in `SELECT @a = 1, @b = @a + 1` is 2. A `SELECT` that both assigns and returns columns is Msg 141 |
+| A variable in a statement | Wherever a value goes: `WHERE`, `UPDATE ... SET`, `VALUES`, `TOP (@n)`, `MERGE`, a subquery. A result column that reads a variable and has no name is named as you wrote it, such as `@x` or `@x + 1` (SQL Server shows it with no name). `ORDER BY @x` is Msg 1008 |
+| `IF cond ... ELSE ...`, `WHILE cond ...`, `BEGIN ... END`, `BREAK`, `CONTINUE` | As in T-SQL. A condition can read a table (`IF EXISTS (SELECT ...)`, `WHILE (SELECT COUNT(*) ...) > 0`). A condition that isn't true or false, such as `IF @x`, is Msg 4145. `BREAK` and `CONTINUE` outside a loop are Msg 135 and 136. A `WHILE` runs until its condition is false, a `BREAK`, or Stop or the project's time limit ends the run, as for any query. There's no limit on how many times it goes round |
+| `RETURN` | Ends its batch; the batch after the next `GO` still runs. `RETURN 1` is Msg 178, as outside a procedure |
+| `PRINT value` | Its text goes to the answer's `messages` (see below). `PRINT NULL` gives an empty line. A value that isn't text is converted as `CAST(value AS NVARCHAR(MAX))` is |
+| `@@ROWCOUNT` | The rows the statement before it returned or changed. As SQL Server documents, `SET @x` and `SELECT @x = value` (with no `FROM`) make it 1, `PRINT`, `RAISERROR` and the session options make it 0, and a `DECLARE` with no value keeps it. An `IF` or `WHILE` condition and the start of a `CATCH` block make it 0, and `DECLARE @x INT = 1` makes it 1, as an assignment does |
+| `BEGIN TRY ... END TRY BEGIN CATCH ... END CATCH` | An error inside `TRY` runs `CATCH`, and the script goes on after it. In `CATCH`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()` and `ERROR_LINE()` describe the error, with the numbers in [Local T-SQL errors](#local-t-sql-errors): after a division by zero, `ERROR_NUMBER()` is 8134. `ERROR_LINE()` counts from the batch's first line. `ERROR_PROCEDURE()` is `NULL`, and outside `CATCH` each of them is `NULL`. `TRY` blocks can be nested |
+| `THROW 50001, 'Stop here', 1` | Msg 50001, Level 16, with that message and state. Outside `TRY` it stops the script. A number below 50000 is Msg 35100. `THROW;` in `CATCH` raises the caught error again, with its own number and words; outside `CATCH` it's Msg 10704. As in T-SQL, the statement before `THROW` needs a `;` |
+| `RAISERROR('%s has %d rows', 16, 1, 'dbo.t', 3)` | Msg 50000 with the arguments put in: `%s`, `%d`, `%i`, `%u`, `%o`, `%x` and `%X`, with flags, width and precision; `%%` is a `%`. A missing or `NULL` argument shows `(null)`, and an argument of the wrong type is Msg 2786. Severity 10 or less is a message, not an error: its text goes to `messages`, and `CATCH` doesn't run. A severity above 18 is Msg 2754. A message over 2,047 characters is cut to 2,044 and `...`. `WITH NOWAIT` is taken |
+| An error part way through | The script stops at it, as any script does here, and the error names the statement, its line and what had changed: `Statement 5 of 6 (SELECT, line 5) failed: Msg 8134, Level 16: Divide by zero error encountered. Before it, the UPDATE on line 4 (2 times) ran, and what they changed is kept.` A statement in a loop is named once, by its place in your text |
+| A change in a loop | Each statement runs as it does on its own, so each `INSERT`, `UPDATE`, `DELETE` or `MERGE` on one of the project's Delta tables is its own Delta commit. When a later statement fails, the commits before it stay, and the error says which statements made them |
+
+**Checked before it runs.** The whole script is read and each statement translated, with each variable as a `NULL` of its type, before any of it runs. A refusal, and Msg 134, 135, 136, 137, 141, 178, 1008, 2739, 4145 and 10704, stop the script with none of it run, named by its place, as other refusals are (see [Local T-SQL errors](#local-t-sql-errors)). A warehouse finds these when it compiles a batch, so it would still run the batches before that one.
+
+**Results and messages.** As for any script, the answer is the last statement's result: the last `SELECT`, `INSERT`, `UPDATE`, `DELETE` or `MERGE` that ran. `DECLARE`, `SET`, `PRINT` and the control-flow statements don't return one, and a script with no other statement returns no columns. Each result is read whole before the next statement runs. What `PRINT` and `RAISERROR` of severity 10 or less say comes back in order as `messages`, a list of lines, in `local_query`'s answer and in the status of a `sql_start` run on target `local`. The app's SQL page runs T-SQL only in Fabric, so it has no view of these messages yet.
+
+What can still differ:
+
+- An invalid column or object name (Msg 207, 208, 209) inside `TRY` isn't caught by that `CATCH`, as in SQL Server, and stops the script. So does a refusal by the local engine as the script runs, and an error it raises in its own words with no SQL Server number, such as a `MERGE` that matches a row twice or a table past 1,024 columns, even inside `TRY`.
+- An error the local engine has no SQL Server number for (DuckDB's own words) is caught by `CATCH`. There `ERROR_NUMBER()`, `ERROR_SEVERITY()` and `ERROR_STATE()` are `NULL`, `ERROR_MESSAGE()` is the local engine's words, and `translation.notes` says so. `ERROR_STATE()` is 1 for an error the local engine numbers itself (8134, 245, 8115 and the rest), the state SQL Server gives those errors. An error SQL Server raises with another state shows 1 here. `THROW` and `RAISERROR` keep the state they're given.
+- `RAISERROR` with severity 11 to 18 outside `TRY` stops the script here, as every error does on the local engine (see [Local T-SQL scripts](#local-t-sql-scripts)). In a warehouse, the batch goes on after a `RAISERROR`; `THROW` ends it in both.
+- A number written in the script that doesn't fit the variable, such as `DECLARE @i INT = 3000000000` or `DECLARE @t TINYINT = 300`, keeps the local engine's words with no number, as the same `CAST` does (see [Local T-SQL arithmetic and conversion](#local-t-sql-arithmetic-and-conversion)). Arithmetic past the type, such as `SET @i = @i + 1` past 2147483647, is Msg 8115.
+- A conversion SQL Server makes only with `CAST` or `CONVERT`, and refuses on assignment with Msg 257 (such as a `datetime` to a `float`), stops here with the local engine's words: the local engine doesn't make those conversions either.
+- `PRINT` shows at most 8,000 characters. SQL Server shows 8,000 bytes of `varchar`, or 4,000 characters of `nvarchar`.
+- `PRINT` of a `datetime`, as a `CAST` of one to text, writes `2024-01-02 00:00:00` here, where SQL Server's default style writes `Jan  2 2024 12:00AM`.
+- A `SELECT @x = ... FROM ...` that reads a variable it assigns, such as `SELECT @s = @s + name FROM dbo.t`, is refused by name: a warehouse goes row by row there. Use `STRING_AGG` or `SUM`.
+- A variable of `binary` or `varbinary`, `money`, `smallmoney`, `datetimeoffset`, `sql_variant` or `xml` is refused by name, and so are table variables and cursor variables. `text`, `ntext` and `image` are Msg 2739, as in SQL Server. `RAISERROR` with a message number (from `sys.messages`), `WITH LOG` or `WITH SETERROR`, and `@@ERROR` are refused by name. A `RAISERROR` state over 255 and a `THROW` with a `NULL` argument stop with the local engine's words.
+- In a script with variables or control flow, a statement's first word (such as the `SELECT` after an `UPDATE`) starts a new statement, as in T-SQL, so a `;` between them isn't needed. In other scripts the local engine still needs one (see [Local T-SQL errors](#local-t-sql-errors)).
+- Each statement is translated again each time it runs, with the variables' values in place, so a loop of many short statements is slower than in a warehouse: a few milliseconds a statement.
+
+Still refused by name: cursors, transactions, `EXEC` of a procedure, procedures and functions (see [Local T-SQL procedures, functions and system procedures](#local-t-sql-procedures-functions-and-system-procedures)), `sp_executesql` and `EXEC ('...')`, `GOTO` and labels, `WAITFOR`, `CHECKPOINT` and table variables.
 
 ## Time travel in local T-SQL
 

@@ -28,6 +28,11 @@ def _column_type(select: str, table: str, column: str = "v") -> dict:
 
 
 CLAIMS: list[Claim] = [
+    # Local T-SQL variables and control flow (WR-705)
+    _ts("SELECT @a = 1, @b = @a + 1", want="2", query="DECLARE @a INT, @b INT; SELECT @a = 1, @b = @a + 1; SELECT @b"),
+    _ts("ERROR_NUMBER()", query="BEGIN TRY SELECT 1 / 0 END TRY BEGIN CATCH SELECT ERROR_NUMBER() END CATCH"),
+    _ts("ERROR_PROCEDURE()", query="BEGIN TRY SELECT 1 / 0 END TRY BEGIN CATCH SELECT ERROR_PROCEDURE() END CATCH"),
+    _ts("ERROR_STATE()", want="1", query="BEGIN TRY SELECT 1 / 0 END TRY BEGIN CATCH SELECT ERROR_STATE() END CATCH"),
     # Spark's date and time functions on this PC
     _nb("DATE'2024-01-31' + INTERVAL 1 MONTH"),
     _nb("unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')"),
@@ -153,6 +158,10 @@ ILLUSTRATIVE: dict[tuple[str, str], str] = {
     (P, "SELECT *"): "a fragment: a view made with SELECT *, not a statement",
     (P, "SELECT 2147483647 + 1"): "an error example: it stops with Msg 8115 (test_tsql_arithmetic_errors)",
     (P, "regexp_replace('aaa', 'a*', 'X')"): "Spark's answer; this PC refuses that pattern by name (WR-257)",
+    # Local T-SQL variables and control flow (WR-705): fragments that need a DECLARE before them
+    (P, "SELECT @x ="): "a fragment: the start of an assignment, not a statement",
+    (P, "SELECT @x = value"): "a fragment: an assignment with no FROM (test_tsql_interpreter_rowcount)",
+    (P, "SELECT @s = @s + name FROM dbo.t"): "needs DECLARE @s first; refused by name (test_tsql_interpreter_variables)",
 }
 
 # Inline `SELECT ...` statements run as written (see Statement)

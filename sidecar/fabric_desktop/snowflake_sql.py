@@ -1262,7 +1262,7 @@ def _json_of_variant_lists(statement: exp.Expression) -> None:
             default=exp.Anonymous(this="to_json", expressions=[value.copy()]))
         new = exp.Cast(this=listed, to=exp.DataType.build("VARCHAR")) if isinstance(node, exp.JSONFormat) else listed
         if node.meta.get(_SNOWFLAKE_TO_JSON):  # still Snowflake's TO_JSON, for SFX-070
-            new.meta[_SNOWFLAKE_TO_JSON] = True
+            new.meta[_SNOWFLAKE_TO_JSON] = node.meta[_SNOWFLAKE_TO_JSON]
         node.replace(new)
 
 
@@ -2324,7 +2324,7 @@ def _mark_offsets_and_json(statement: exp.Expression) -> None:
             node.replace(kind(this=node.expressions[0].copy(), to=exp.DataType.build("TIMESTAMPTZ")))
     for found in statement.find_all(exp.Cast, exp.TryCast, exp.JSONFormat):
         if isinstance(found, exp.JSONFormat):
-            found.meta[_SNOWFLAKE_TO_JSON] = True
+            found.meta[_SNOWFLAKE_TO_JSON] = found.sql(dialect="snowflake")  # the call as written, for its name
         elif isinstance(found, (exp.Cast, exp.TryCast)) and found.to.this == exp.DataType.Type.TIMESTAMPTZ:
             found.meta[_OFFSET_CHECK] = True
 
@@ -2357,6 +2357,8 @@ def _check_offsets(statement: exp.Expression) -> exp.Expression:
 # of its ancestors' keys (an object's) or positions (an array's), so a node comes after its parent, siblings in
 # key order, and a container's closing bracket after its last child. The tree is MATERIALIZED: DuckDB 2.0
 # otherwise reruns json_tree for each reference in the recursion and drops rows ({"b":1,"a":2} gave {"a":2}).
+# A key given twice in one object stops the query, as Snowflake's PARSE_JSON does ("Duplicate field key"):
+# the two would share a place, so the text would come out with no comma between them.
 _SORTED_JSON = """(
   WITH RECURSIVE __sf_tree AS MATERIALIZED (SELECT * FROM json_tree(CAST(__sf_arg AS JSON))),
   __sf_walk(id, place) AS (
@@ -2375,7 +2377,10 @@ _SORTED_JSON = """(
     SELECT w.place || [{'z': 1, 'k': CAST(NULL AS VARCHAR), 'i': CAST(NULL AS BIGINT)}],
            CASE c.type WHEN 'OBJECT' THEN '}' ELSE ']' END
     FROM __sf_walk AS w JOIN __sf_tree AS c ON c.id = w.id WHERE c.type IN ('OBJECT', 'ARRAY'))
-  SELECT string_agg(token, '' ORDER BY place) FROM __sf_tokens)"""
+  SELECT coalesce((SELECT error(concat('Duplicate field key ', c.key)) FROM __sf_tree AS c
+                    JOIN __sf_tree AS p ON p.id = c.parent WHERE p.type = 'OBJECT'
+                    GROUP BY c.parent, c.key HAVING count(*) > 1 LIMIT 1),
+                  string_agg(token, '' ORDER BY place)) FROM __sf_tokens)"""
 
 
 def _sort_json_keys(statement: exp.Expression) -> exp.Expression:
@@ -2384,13 +2389,16 @@ def _sort_json_keys(statement: exp.Expression) -> exp.Expression:
     for node in list(statement.find_all(exp.Expression)):
         if not node.meta.get(_SNOWFLAKE_TO_JSON):
             continue
-        node.meta.pop(_SNOWFLAKE_TO_JSON)
+        written = node.meta.pop(_SNOWFLAKE_TO_JSON)
         tree = cast(exp.Expression, sqlglot.parse_one(_SORTED_JSON, read="duckdb"))
         for column in list(tree.find_all(exp.Column)):
             if column.name == "__sf_arg" and not column.table:
                 column.replace(node.copy())
         if node is statement:
             return tree
+        parent = node.parent
+        if isinstance(parent, exp.Select) and any(e is node for e in parent.expressions) and isinstance(written, str):
+            tree = cast(exp.Expression, exp.alias_(tree, exp.to_identifier(written, quoted=True)))  # named as written, not by the query
         node.replace(tree)
     return statement
 

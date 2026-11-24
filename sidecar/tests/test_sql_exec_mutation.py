@@ -1,5 +1,6 @@
 """Mutation batch 263: sql_exec.py, first score (docs/quality/mutation-testing.md)."""
 
+import subprocess
 import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
@@ -151,8 +152,12 @@ def test_a_worker_that_cant_start_fails_the_run_with_the_reason(tmp_path, lake):
         status = wait(manager, manager.start("SELECT 1 AS n", lake)["id"])
     finally:
         manager.shutdown()
+    try:  # the reason as the OS gives it: Linux names the program, Windows doesn't
+        subprocess.Popen([str(tmp_path / "no-such-python")])
+    except OSError as exc:
+        reason = exc.strerror or str(exc)
     assert status["state"] == "failed" and status["error_kind"] == "engine"
-    assert "no-such-python" in status["error"]
+    assert reason in status["error"]
 
 
 @pytest.mark.parametrize("query,word", [

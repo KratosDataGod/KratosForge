@@ -26,7 +26,7 @@ from typing import Any, cast
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError, SqlglotError
+from sqlglot.errors import ParseError, SqlglotError, TokenError
 
 from . import sql_dialects
 
@@ -250,11 +250,17 @@ def parse(code: str) -> list[exp.Expression]:
     """Snowflake SQL statements as sqlglot reads them; ValueError when it can't be read."""
     try:
         statements = [cast(exp.Expression, s) for s in sql_dialects.parse(code, read="snowflake") if s is not None]
-    except ParseError as exc:
+    except (ParseError, TokenError) as exc:  # TokenError: an unclosed quote or comment
         first = str(exc).splitlines()[0] if str(exc) else "it isn't valid Snowflake SQL"
         raise ValueError(f"Could not read the query: {first}") from None
     if not statements:
         raise ValueError("The query is empty.")
+    for statement in statements:
+        # sqlglot builds some calls without their arguments (DIV0NULL(a, ) is IF(? = 0 ..., a / ?)), and a
+        # rewrite then stopped on the missing one with an AttributeError
+        if any(isinstance(node, (exp.Func, exp.Binary)) and node.error_messages() for node in statement.walk()):
+            raise ValueError("Could not read the query, because a call or operator in it is missing an argument "
+                             "Snowflake needs. Add the missing argument.")
     return statements
 
 
@@ -1077,10 +1083,10 @@ def _rewrite_tables(statement: exp.Expression) -> list[exp.Expression]:
     sequences: list[exp.Expression] = []
     for name, column in columns.items():
         constraints = column.args.get("constraints") or []
-        if any(isinstance(c.kind, exp.PrimaryKeyColumnConstraint) for c in constraints):
+        if any(isinstance(c.args.get("kind"), exp.PrimaryKeyColumnConstraint) for c in constraints):
             not_null.add(name)
         for constraint in list(constraints):
-            kind = constraint.kind
+            kind = constraint.args.get("kind")  # an IN or OUT "constraint" has none
             if isinstance(kind, (exp.PrimaryKeyColumnConstraint, exp.UniqueColumnConstraint, exp.Reference)):
                 constraint.pop()
             elif isinstance(kind, (exp.AutoIncrementColumnConstraint, exp.GeneratedAsIdentityColumnConstraint)):
@@ -1097,7 +1103,7 @@ def _rewrite_tables(statement: exp.Expression) -> list[exp.Expression]:
                     read="duckdb")))
     for name in not_null:
         key_column = columns.get(name)
-        if key_column is not None and not any(isinstance(c.kind, exp.NotNullColumnConstraint)
+        if key_column is not None and not any(isinstance(c.args.get("kind"), exp.NotNullColumnConstraint)
                                               for c in key_column.args.get("constraints") or []):
             key_column.append("constraints", exp.ColumnConstraint(kind=exp.NotNullColumnConstraint()))
     return sequences
@@ -1980,7 +1986,8 @@ def _json_valued(node: exp.Expression) -> bool:
         return True
     if isinstance(node, exp.GetExtract) and isinstance(node.expression, exp.Literal) and node.expression.is_string:
         return True  # GET(object, 'key') is JSON; GET(array, 0) is the list's element
-    return isinstance(node, exp.Bracket) and _json_valued(node.this)
+    # [...] or .name on one of those: v[0].name[1] reads the JSON all along, as Snowflake's path does
+    return isinstance(node, (exp.Bracket, exp.Dot)) and _json_valued(node.this)
 
 
 def _json_text(value: exp.Expression, to: exp.DataType) -> exp.Expression:
@@ -2728,7 +2735,15 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     except SqlglotError as exc:  # UnsupportedError, or sqlglot stopping while it writes (TIME() with no argument)
         first = (str(exc).splitlines() or ["sqlglot can't rewrite it"])[0]
         return StatementReport(n, "not_translatable", None,
-                               (_refuse("SFX-000", "Not rewritten for DuckDB", first + "."),))
+                               (_refuse("SFX-000", "Not rewritten for DuckDB", first.rstrip(".") + "."),))
+    except RecursionError:  # 1::variant::variant... hundreds of times: read, but too deep to rewrite or write
+        raise ValueError(sql_dialects.TOO_DEEP) from None
+    except (AttributeError, TypeError, KeyError) as exc:  # sqlglot's own, as DATE_PART(year) with no value
+        stopped = sql_dialects._sqlglot_stopped(exc)
+        if stopped is exc:
+            raise
+        return StatementReport(n, "not_translatable", None,
+                               (_refuse("SFX-000", "Not rewritten for DuckDB", str(stopped)),))
     if unknown_brackets:
         notes.append(SFD_BRACKET)
     return StatementReport(n, "difference" if notes else "translated", sql, tuple(notes))

@@ -1,6 +1,7 @@
 # Unity Catalog volumes on this PC: design (Preview, engine side)
 
-Approved by Chris. Engine only: no screen yet (UX's mockup comes through its own thread). User docs:
+Approved by Chris. Screen: Workspaces > Databricks > Volumes on this PC (Preview, `app/ui/dbx-volumes.js`), from UX's
+approved mockup (`ux/uc-volumes-local/mockup.html`), with its RPCs in `sidecar/fabric_desktop/databricks_volumes_service.py`. User docs:
 [engines.md](../engines.md#unity-catalog-volumes-on-this-pc-preview). Code: `sidecar/fabric_desktop/databricks_volumes.py`.
 
 ## Sources (docs.databricks.com, read 2026-11-24)
@@ -66,9 +67,16 @@ removes links without following them. The volume's own folder can't be removed o
 A link swapped in between the check and the use (a race) isn't guarded against; only the person's own processes
 can write the folder.
 
-## For a screen (later)
+## The screen
 
-Python functions in `databricks_volumes` (no RPC yet; one is added with its screen): `volumes(schema=None)` and
-`describe(schema, volume)` give `VolumeInfo` (`name`, `catalog`, `database`, `owner`, `storage_location`,
-`volume_type`, `comment`, `path`, `folder`, `items`, `created`); `files(path, limit=None)` gives `FileEntry` (`path`,
-`name`, `size`, `modification_time`, `is_dir`); `create`, `drop`, `rename`, `set_comment`, `local_path`, `root`.
+`databricks_volumes_service.py` gives the screen its RPCs: `databricks_volumes(schema=None)`,
+`databricks_volume_describe(schema, volume)` and `databricks_volume_files(path, limit=None)` only read (they skip
+the audit); `databricks_volume_create(schema, volume, comment=None)`, `databricks_volume_rename(schema, volume,
+new_name)`, `databricks_volume_set_comment(schema, volume, comment=None)`, `databricks_volume_new_folder(path)`,
+`databricks_volume_upload(source, path, overwrite=False)`, `databricks_volume_download(path, save_to,
+overwrite=False)`, `databricks_volume_delete(paths, confirm=False)`, `databricks_volume_drop(schema, volume,
+confirm=False)` and `databricks_volume_reveal(path)` are audited. Every volume path goes through `local_path`; a
+folder is deleted only after `check_tree`; drop and delete need `confirm` (the screen's red confirm dialog sends
+it); upload and download never replace a file without `overwrite`. A download's target is refused in OneDrive
+(`known_folders.onedrive_refusal`) and inside the volumes' own folder. The shell's `pick_file` shows the Windows
+file dialog for Upload and Download.

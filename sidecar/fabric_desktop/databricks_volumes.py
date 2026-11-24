@@ -14,7 +14,8 @@ Who uses it:
   (``register``), so each runs in its place in the cell; read_files and csv.`/Volumes/...` by ``reads``.
 - dbutils.fs and %fs (dbutils_local): ``local_path`` and ``uc_path``.
 - spark.read and df.write (spark_local): ``local_path``.
-- A screen (none yet): ``volumes``, ``describe``, ``files``, ``create``, ``drop``, ``rename``, ``set_comment``.
+- Workspaces > Databricks > Volumes on this PC (databricks_volumes_service.py): ``volumes``, ``describe``, ``files``,
+  ``create``, ``drop``, ``rename``, ``set_comment``, ``local_path`` and ``check_tree``.
 
 Security: every path is read by ``parse`` before anything touches the disk. It takes ``/`` as the only separator
 and refuses ``.`` and ``..``, a backslash, a colon (a drive, a stream), the characters and device names Windows

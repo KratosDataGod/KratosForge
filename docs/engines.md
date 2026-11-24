@@ -384,8 +384,22 @@ lists Snowflake connections.
 Databricks notebooks and Databricks SQL cells that run on this PC can use managed Unity Catalog volumes. A
 volume is a folder on this PC, in the app's data folder:
 `%LOCALAPPDATA%\FabricDesktop\volumes\main\<schema>\<volume>`. Nothing in it is uploaded to
-Databricks, and nothing here reaches cloud storage. No screen shows volumes yet: they are made and used from
-code. The design and its sources are in [databricks-volumes-local.md](product/databricks-volumes-local.md).
+Databricks, and nothing here reaches cloud storage. They are made and used from code, and shown on
+**Workspaces > Databricks > Volumes on this PC**. The design and its sources are in
+[databricks-volumes-local.md](product/databricks-volumes-local.md).
+
+- **The screen:** Workspaces > Databricks has two views, **Synced folders** and **Volumes on this PC**
+  (Preview; Settings can hide it with the other preview features). The list on the left shows each volume
+  under its schema with how many items its folder holds. A volume shows its `/Volumes` path and its folder on
+  this PC, with **Copy path** and **Show on this PC**, and the files in the folder you are in, folders first.
+  **New volume** makes one (a schema, a name and an optional comment, as `CREATE VOLUME` does); the **...**
+  menu beside a volume renames it, sets or removes its comment, or drops it. **Upload** copies a file you pick
+  on this PC into the folder you are in, and asks before replacing a file of that name. **New folder** makes
+  a folder there. **Download** copies the ticked files to a file (one) or a folder (several) you pick on this
+  PC; it never saves into OneDrive or into the volumes' own folder. **Delete** removes the ticked files and
+  folders, and **Drop volume** removes a volume with everything in it; both ask first, in red, because
+  nothing on this PC keeps a copy. A folder lists its first 2,000 entries; `LIST` in a SQL cell reads the
+  rest. Every path the screen sends gets the same checks as a path in code (below).
 
 - **Paths** are written as on Databricks: `/Volumes/<catalog>/<schema>/<volume>/<path>` or
   `dbfs:/Volumes/...`. The catalog is the session's, `main` (`workspace`, `hive_metastore` and

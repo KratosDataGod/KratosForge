@@ -1066,3 +1066,17 @@ def test_a_file_over_the_size_cap_is_not_read(tmp_path, monkeypatch):
                      "big.yml": "# " + "x" * check.MAX_FILE_BYTES + "\n"})
     findings = validate(tmp_path)
     assert [(f.file, f.message) for f in findings] == [("big.yml", "The file is over 5 MB, so it isn't read.")]
+
+
+def test_a_link_reached_by_several_double_star_paths_counts_once(tmp_path):
+    write(tmp_path / "outside", {"x.yml": "resources: {}\n"})
+    bundle = write(tmp_path / "bundle", {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - '**/**/**/*.yml'\n",
+                                         "res/a.yml": "resources: {}\n"})
+    try:
+        (bundle / "f.yml").symlink_to(tmp_path / "outside" / "x.yml")
+        (bundle / "res" / "link").symlink_to(tmp_path / "outside", target_is_directory=True)
+    except OSError:
+        pytest.skip("this PC can't make a symbolic link")
+    [finding] = validate(bundle)
+    assert finding.message == ("The include '**/**/**/*.yml' goes through 2 links, which aren't followed. "
+                               "An include must stay inside the bundle folder.")

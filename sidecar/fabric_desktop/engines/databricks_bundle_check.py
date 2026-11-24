@@ -738,7 +738,7 @@ def _walk_glob(base: Path, pattern: str, limit: int) -> tuple[list[str], int]:
         if part and part != "." and not (part == "**" and parts and parts[-1] == "**"):
             parts.append(part)  # a run of ** is one **: it matches the same, without walking each folder again
     found: dict[str, None] = {}
-    linked = 0
+    links: set[str] = set()  # each link once, however many ** paths reach it
 
     def visible(name: str, part: str) -> bool:  # as glob: a wildcard doesn't match a leading dot
         return not name.startswith(".") or part.startswith(".")
@@ -754,7 +754,6 @@ def _walk_glob(base: Path, pattern: str, limit: int) -> tuple[list[str], int]:
         return entry.is_symlink() or os.path.isjunction(entry.path)
 
     def walk(folder: str, i: int) -> None:
-        nonlocal linked
         if len(found) >= limit or i >= len(parts):
             return
         part, last = parts[i], i == len(parts) - 1
@@ -765,7 +764,7 @@ def _walk_glob(base: Path, pattern: str, limit: int) -> tuple[list[str], int]:
                 if not visible(entry.name, "*"):
                     continue
                 if is_link(entry):
-                    linked += 1
+                    links.add(entry.path)
                 elif entry.is_dir(follow_symlinks=False):
                     walk(entry.path, i)
                 elif last and entry.is_file(follow_symlinks=False):
@@ -775,7 +774,7 @@ def _walk_glob(base: Path, pattern: str, limit: int) -> tuple[list[str], int]:
             if not (visible(entry.name, part) and fnmatch.fnmatch(entry.name, part)):
                 continue
             if is_link(entry):
-                linked += 1
+                links.add(entry.path)
             elif last:
                 if entry.is_file(follow_symlinks=False):
                     found[entry.path] = None
@@ -783,7 +782,7 @@ def _walk_glob(base: Path, pattern: str, limit: int) -> tuple[list[str], int]:
                 walk(entry.path, i + 1)
 
     walk(str(base), 0)
-    return list(found)[:limit], linked
+    return list(found)[:limit], len(links)
 
 
 def _leaves_folder(pattern: str) -> bool:

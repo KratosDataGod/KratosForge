@@ -79,13 +79,9 @@ def test_select_into_cross_apply_and_offset_fetch(engine):
 
 
 @pytest.mark.parametrize("sql, says", [
-    ("DECLARE @x INT = 1", "variables"),
-    ("SELECT * FROM dbo.orders WHERE id = @x", "variables (@x)"),
-    ("SELECT @@ROWCOUNT", "variables"),
-    ("IF 1 = 1 SELECT 1", "IF"),
-    ("WHILE 1 = 1 SELECT 1", "WHILE"),
+    # WR-705: DECLARE, @@ROWCOUNT, IF, WHILE and PRINT run now (tests/test_tsql_interpreter_*.py)
+    ("SELECT * FROM dbo.orders WHERE id = @x", 'Must declare the scalar variable "@x"'),
     ("EXEC dbo.p", "EXEC"),
-    ("PRINT 'x'", "PRINT"),
     ("BEGIN TRAN", "transactions"),
     ("SELECT id FROM dbo.orders FOR JSON PATH", "can't be run"),
     ("CREATE PROCEDURE p AS SELECT 1", "PROCEDURE"),

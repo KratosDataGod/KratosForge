@@ -35,7 +35,6 @@ def error(engine, sql):
      "Statement 3 of 3 (WITH) was refused: ", "Msg 239, Level 16: Duplicate common table expression name 'B'"),
     ("WITH a AS (SELECT 1 AS x), a AS (SELECT 2 AS x) SELECT x FROM a;\nSELECT 2",
      "Statement 1 of 2 (WITH) was refused: ", "Msg 239"),
-    ("SELECT 1;\nSELECT ERROR_NUMBER()", "Statement 2 of 2 (SELECT) was refused: ", "ERROR_NUMBER() isn't mapped yet"),
     ("SELECT 1\nGO\nSELECT 2 OPTION (MAXDOP 1)", "Statement 2 of 2 (SELECT) was refused: ", "OPTION (MAXDOP)"),
 ])
 def test_a_refused_statement_is_named_by_its_place_and_nothing_ran(engine, sql, framing, inner):

@@ -43,7 +43,7 @@ def test_every_function_has_one_status(rows):
 def test_a_check_a_refusal_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["CHARINDEX"] == "runs" and status["DATEADD"] == "runs"
-    assert status["ISNUMERIC"] == "refused" and status["DECLARE and variables"] == "refused"
+    assert status["ISNUMERIC"] == "refused" and status["USE"] == "refused"  # WR-705: DECLARE runs now
     assert status["ABS"] == "not checked"  # runs, but no check compares its answer yet
 
 

@@ -11,7 +11,7 @@ import pytest
 from fabric_desktop.localdata import LocalData
 from fabric_desktop.localdata.tsql import translate
 
-WAITS = "take parameters and use control flow, which the local engine doesn't run yet"
+WAITS = "take parameters, and the local engine doesn't keep or call them yet"  # WR-705: variables run now
 
 
 @pytest.mark.parametrize("sql, words", [
@@ -125,7 +125,7 @@ def test_sp_rename_renames_a_table_or_a_column(sql, expected):
     ("EXEC sp_rename 'dbo.t', 'ab.'", "end with a period"),
     ("EXEC sp_rename 'dbo.t', ''", "can't be empty"),
     ("EXEC sp_rename 'dbo.t'", "expects parameters '@objname' and '@newname'"),
-    ("EXEC sp_rename @old, 't2'", "because variables aren't mapped yet"),
+    ("EXEC sp_rename @old, 't2'", "because a variable's value isn't put into sp_rename yet"),  # WR-705
     ("EXEC sp_rename 'dbo.t', 't2', 'OBJECT', 'x'", "this sp_rename isn't mapped yet"),
     ("EXEC sp_rename 'a.b.c', 't2'", "can't read 'a.b.c'"),
     ("EXEC sp_rename 't', 'b', 'COLUMN'", "can't read 't'"),

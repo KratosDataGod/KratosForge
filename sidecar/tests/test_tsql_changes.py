@@ -143,9 +143,9 @@ def test_a_column_called_output_still_runs(engine):
     assert run(engine, "SELECT id AS [output], 'OUTPUT' AS \"Output\" FROM dbo.tgt WHERE id = 1") == [[1, "OUTPUT"]]
 
 
-def test_rowcount_is_refused_by_name(engine):
-    with pytest.raises(ValueError, match=r"doesn't run T-SQL variables \(@@ROWCOUNT\)"):
-        engine.execute("UPDATE dbo.tgt SET v = 'z' WHERE id < 3; SELECT @@ROWCOUNT", dialect="tsql")
+def test_rowcount_is_the_rows_the_last_statement_changed(engine):
+    # WR-705: @@ROWCOUNT runs now (it was refused by name)
+    assert run(engine, "UPDATE dbo.tgt SET v = 'z' WHERE id < 3; SELECT @@ROWCOUNT") == [[2]]
 
 
 def test_a_delta_table_keeps_its_own_checks(engine):

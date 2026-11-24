@@ -31,10 +31,10 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
 
-It refuses, rather than half-translates: variables, control flow and batches (``DECLARE``,
-``SET @x``, ``IF``, ``WHILE``, ``BEGIN ... END``, ``EXEC``, ``PRINT``), transactions (a Delta write
-isn't part of one here), procedures and functions, ``USE``, and anything sqlglot reports it can't
-write in DuckDB SQL (``FOR JSON``, ``OPTION (...)``). ``GO`` lines split the script.
+It refuses, rather than half-translates: variables and control flow (``DECLARE``, ``SET @x``, ``IF``,
+``WHILE``, ``BEGIN ... END``, ``PRINT``), which only tsql_script runs, statement by statement (WR-705); ``EXEC``,
+transactions (a Delta write isn't part of one here), procedures and functions, ``USE``, and anything sqlglot
+reports it can't write in DuckDB SQL (``FOR JSON``, ``OPTION (...)``). ``GO`` lines split the script.
 """
 
 from __future__ import annotations
@@ -73,24 +73,32 @@ _SETTINGS = {
     "DATEFORMAT": {"MDY"}, "LANGUAGE": {"US_ENGLISH", "ENGLISH"},
 }
 
-_REFUSED = {
+# WR-705: the local engine runs variables and control flow through tsql_script; translate() reads one statement at a
+# time, so these stay refused here, with words that say where they run
+_SCRIPT_ONLY = {
     exp.Declare: "variables (DECLARE)",
     exp.IfBlock: "IF blocks",
     exp.WhileBlock: "WHILE loops",
+}
+_REFUSED = {
     exp.Execute: "EXEC",
     exp.Use: "USE",
     exp.Transaction: "transactions (BEGIN TRAN)",
     exp.Commit: "transactions (COMMIT)",
     exp.Rollback: "transactions (ROLLBACK)",
 }
-# WR-234: what reads an error after it happened, which waits on the T-SQL interpreter (TRY...CATCH)
+# WR-234: what reads an error after it happened. WR-705: tsql_script puts each in place in a CATCH block.
 _ERROR_READERS = {"ERROR_NUMBER", "ERROR_MESSAGE", "ERROR_SEVERITY", "ERROR_STATE", "ERROR_LINE", "ERROR_PROCEDURE"}
-_ERROR_READ = ("{name} isn't mapped yet. It reads an error after it happened, in TRY...CATCH or the next statement, "
-               "and the local engine doesn't run TRY...CATCH yet. Here a script stops at its first error and names "
-               "it, with its number where it's certain, such as \"Msg 8134, Level 16: Divide by zero error "
-               "encountered.\" Run it in a Fabric Warehouse to handle the error in T-SQL.")
-_LATER = ("Run the statements one at a time, with values in place of variables. A batch with variables and "
-          "control flow runs in a Fabric Warehouse, not on the local engine yet.")
+_ONE_AT_A_TIME = ("Here each statement is translated on its own, so variables and control flow aren't read. The "
+                  "local engine runs them when it runs the whole script (local_query, or sql_start with target "
+                  "local).")
+_ERROR_READ = "{name} reads the error a CATCH block caught. " + _ONE_AT_A_TIME
+_AT_ERROR = ("@@ERROR isn't mapped yet. In a script, ERROR_NUMBER() in the CATCH block of a TRY...CATCH reads the "
+             "error. Run it in a Fabric Warehouse to read @@ERROR.")
+_LATER = ("Run it in a Fabric Warehouse. The local engine runs variables, IF, WHILE and TRY...CATCH in a script, but "
+          "not this yet.")
+# statements only a script reads (tsql_script); translate() names them so
+_SCRIPT_WORDS = {"PRINT", "RAISERROR", "THROW", "RETURN", "BREAK", "CONTINUE"}
 
 
 _GO_TIMES = re.compile(r"^[ \t]*GO[ \t]+(\d+)[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
@@ -494,6 +502,9 @@ def _refuse_control(batch: str) -> None:
         elif tok.token_type == TokenType.VAR and after is not None and after.token_type == TokenType.COLON:
             what = f"labels ({tok.text}:)"
         if what is not None:
+            if word in _SCRIPT_WORDS:
+                raise ValueError(f"The local engine doesn't run T-SQL {what} in a statement read on its own. "
+                                 f"{_ONE_AT_A_TIME}")
             advice = "Run it in a Fabric Warehouse." if word in _NOT_SCRIPT_ADVICE else _LATER
             raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {advice}")
 
@@ -752,6 +763,11 @@ def _parse(batch: str) -> list[exp.Expression]:
     if unsupported:
         m = re.match(r"'(\S+)", unsupported[0])
         word = (m[1] if m else batch.strip().split(None, 1)[0]).upper()
+        if word in _SCRIPT_WORDS or (word == "BEGIN" and not re.match(r"\s*BEGIN\s+(TRAN|DISTRIBUTED)\b", batch,
+                                                                        re.IGNORECASE)):
+            name = "BEGIN ... END blocks" if word == "BEGIN" else word
+            raise ValueError(f"The local engine doesn't run T-SQL {name} in a statement read on its own. "
+                             f"{_ONE_AT_A_TIME}")
         raise ValueError(f"The local engine doesn't run T-SQL {word} yet. {_LATER}")
     if when is not None:
         reads = (exp.Select, exp.Union, exp.Intersect, exp.Except)
@@ -827,13 +843,23 @@ def _harmless_setting(tree: exp.Expression) -> bool:
 
 
 def _refuse(tree: exp.Expression) -> None:
+    for kind, what in _SCRIPT_ONLY.items():
+        if isinstance(tree, kind):
+            raise ValueError(f"The local engine doesn't run T-SQL {what} in a statement read on its own. "
+                             f"{_ONE_AT_A_TIME}")
     for kind, what in _REFUSED.items():
         if isinstance(tree, kind):
             raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {_LATER}")
     if isinstance(tree, exp.Command):
         word = (tree.name or "").upper()
+        if word in _SCRIPT_WORDS:
+            raise ValueError(f"The local engine doesn't run T-SQL {word} in a statement read on its own. "
+                             f"{_ONE_AT_A_TIME}")
         raise ValueError(f"The local engine doesn't run T-SQL {word or 'this statement'} yet. {_LATER}")
     if isinstance(tree, exp.Set):
+        if any(True for _ in tree.find_all(exp.Parameter)):  # SET @x = ...: a variable, which a script runs
+            raise ValueError(f"The local engine doesn't run T-SQL variables (SET @x) in a statement read on its own. "
+                             f"{_ONE_AT_A_TIME}")
         raise ValueError(f"The local engine doesn't run T-SQL SET yet. {_LATER}")
     if isinstance(tree, exp.Create) and (tree.args.get("kind") or "").upper() in ("PROCEDURE", "PROC", "FUNCTION",
                                                                                    "TRIGGER"):
@@ -842,8 +868,11 @@ def _refuse(tree: exp.Expression) -> None:
     for p in tree.find_all(exp.Parameter, exp.SessionParameter):
         name = p.sql(dialect="tsql")
         if name.upper() == "@@ERROR":
-            raise ValueError(_NOT_YET + _ERROR_READ.format(name="@@ERROR"))
-        raise ValueError(f"The local engine doesn't run T-SQL variables ({name}) yet. {_LATER}")
+            raise ValueError(_NOT_YET + _AT_ERROR)
+        if name.startswith("@@"):
+            raise ValueError(f"The local engine doesn't run T-SQL {name} yet. Run it in a Fabric Warehouse.")
+        raise ValueError(f"The local engine doesn't run T-SQL variables ({name}) in a statement read on its own. "
+                         f"{_ONE_AT_A_TIME}")
 
 
 _COLLATE_REFUSED = ("text here compares as a Fabric Warehouse's default collation (Latin1_General_100_BIN2_UTF8) "

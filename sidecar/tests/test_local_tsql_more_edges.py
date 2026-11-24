@@ -11,9 +11,9 @@ COLUMNS = {"dbo": {"t": {"x": "NOT A TYPE ((", "y": "INTEGER", "s": "VARCHAR"}}}
 
 
 @pytest.mark.parametrize("query, message", [
-    ("PRINT 'x'", "doesn't run T-SQL PRINT yet"),
+    ("PRINT 'x'", "doesn't run T-SQL PRINT in a statement read on its own"),  # WR-705: a script runs it
     ("SET LANGUAGE French", "SET LANGUAGE FRENCH isn't mapped yet"),
-    ("SET @x = 1", "doesn't run T-SQL SET yet"),
+    ("SET @x = 1", r"doesn't run T-SQL variables \(SET @x\) in a statement read on its own"),  # WR-705
     (";", "The query is empty"),
     ("SELECT PATINDEX('%b%') FROM t", "PATINDEX takes a pattern and a text"),
     ("SELECT PATINDEX(s, 'abc') FROM t", "PATINDEX needs its pattern written out as text"),

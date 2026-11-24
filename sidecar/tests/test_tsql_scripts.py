@@ -35,14 +35,9 @@ def run(engine, sql):
 
 
 @pytest.mark.parametrize(("sql", "what"), [
-    ("RETURN", "RETURN"),
-    ("SELECT 1\nRETURN", "RETURN"),
-    ("BREAK", "BREAK"),
-    ("CONTINUE", "CONTINUE"),
+    # WR-705: RETURN, BREAK, CONTINUE, THROW, DECLARE, @x, IF, WHILE and TRY...CATCH run now
     ("GOTO done", "GOTO"),
     ("done:\nSELECT 1", r"labels \(done:\)"),
-    ("THROW 50000, 'Stop', 1", "THROW"),
-    ("SELECT 1;\nTHROW 50000, 'Stop', 1", "THROW"),
     ("WAITFOR DELAY '00:00:01'", r"WAITFOR yet\. Run it in a Fabric Warehouse\.$"),
     ("CHECKPOINT", "CHECKPOINT"),
     ("OPEN c", r"cursors \(OPEN\) yet\. Run it in a Fabric Warehouse\.$"),
@@ -51,11 +46,6 @@ def run(engine, sql):
     ("SAVE TRANSACTION s", r"transactions \(SAVE TRANSACTION\)"),
     ("SAVE TRAN s", r"transactions \(SAVE TRANSACTION\)"),
     ("SET TRANSACTION ISOLATION LEVEL SNAPSHOT", "SET TRANSACTION"),
-    ("DECLARE @x INT = 1", r"variables \(DECLARE\)"),
-    ("SELECT * FROM dbo.t WHERE id = @x", r"variables \(@x\)"),
-    ("IF 1 = 1 SELECT 1", "IF blocks"),
-    ("WHILE 1 = 0 SELECT 1", "WHILE loops"),
-    ("BEGIN TRY SELECT 1 END TRY BEGIN CATCH SELECT 2 END CATCH", "BEGIN"),
     ("BEGIN TRANSACTION", r"transactions \(BEGIN TRAN\)"),
 ])
 def test_control_flow_is_refused_by_name(engine, sql, what):
@@ -67,8 +57,7 @@ def test_reserved_words_quoted_or_after_a_dot_or_at_are_names(engine):
     run(engine, "CREATE TABLE dbo.w ([open] INT, [return] INT, throw INT)")
     assert run(engine, "INSERT INTO dbo.w VALUES (1, 2, 3)") == [[1]]
     assert run(engine, "SELECT w.[open], [return], throw FROM dbo.w AS w") == [[1, 2, 3]]
-    with pytest.raises(ValueError, match="variables"):
-        engine.execute("DECLARE @return INT", dialect="tsql")
+    assert run(engine, "DECLARE @return INT; SELECT @return") == [[None]]  # WR-705: variables run now
 
 
 def test_a_procedure_keeps_its_own_refusal():

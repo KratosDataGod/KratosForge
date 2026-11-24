@@ -3,9 +3,9 @@ documents it or is refused by its own name, never run as a no-op.
 
 - ``CREATE``, ``ALTER``, ``CREATE OR ALTER`` and ``DROP`` of a ``PROCEDURE`` or ``FUNCTION`` (scalar or table-
   valued), ``EXEC`` of a procedure, and a call to a user-defined function (``dbo.f(1)``, ``FROM dbo.tvf(1)``) are
-  refused by name: a procedure or function takes parameters, which are variables, and runs with control flow, so
-  they wait on the local interpreter for variables and control flow. ``DROP`` is refused rather than skipped, so a
-  script never looks as if it removed one.
+  refused by name: the local engine runs variables and control flow in a script (tsql_script, WR-705), but keeps
+  no procedures or functions to call. ``DROP`` is refused rather than skipped, so a script never looks as if it
+  removed one.
 - Dynamic SQL (``sp_executesql``, ``EXEC ('...')`` and ``EXEC (@sql)``) is refused by name: the local engine never
   runs text as SQL.
 - ``sp_rename`` renames a table (``@objtype`` left out or ``'OBJECT'``, as a warehouse takes it) or a column
@@ -23,9 +23,9 @@ from sqlglot import exp
 from sqlglot.tokens import Token, TokenType
 
 _NOT_YET = "This T-SQL can't be run on the local engine: "
-_WAITS = ("Procedures and user-defined functions take parameters and use control flow, which the local engine "
-          "doesn't run yet. Run it in a Fabric Warehouse, or run its statements one at a time with values in place of "
-          "its parameters.")
+_WAITS = ("Procedures and user-defined functions take parameters, and the local engine doesn't keep or call them "
+          "yet. Run it in a Fabric Warehouse, or run its statements as a script, with a DECLARE for each of its "
+          "parameters.")
 _DYNAMIC = ("runs text as SQL (dynamic SQL), which the local engine doesn't do. Write the statement itself in the "
             "script, with values in place of its parameters, or run it in a Fabric Warehouse.")
 _CATALOG = ("INFORMATION_SCHEMA.TABLES and INFORMATION_SCHEMA.COLUMNS list the project's tables and columns, and "
@@ -128,8 +128,8 @@ def _arguments(tree: exp.Execute) -> dict[str, str]:
                              "for a column.")
         if not (isinstance(value, (exp.Literal, exp.National)) and (isinstance(value, exp.National) or
                                                                      value.is_string)):
-            raise ValueError(_NOT_YET + "sp_rename's names have to be written in quotes here, because variables "
-                             "aren't mapped yet on the local engine.")
+            raise ValueError(_NOT_YET + "sp_rename's names have to be written in quotes here, because a "
+                             "variable's value isn't put into sp_rename yet.")
         found[key] = value.name
     if "objname" not in found or "newname" not in found:
         raise ValueError("Procedure or function 'sp_rename' expects parameters '@objname' and '@newname', which "

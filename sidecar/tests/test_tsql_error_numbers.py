@@ -71,23 +71,12 @@ def test_an_error_with_no_certain_number_shows_none(engine, sql):
 @pytest.mark.parametrize("sql, name", [
     ("SELECT @@ERROR", "@@ERROR"),
     ("SELECT @@error", "@@ERROR"),
-    ("SELECT ERROR_NUMBER()", "ERROR_NUMBER()"),
-    ("SELECT ERROR_MESSAGE()", "ERROR_MESSAGE()"),
-    ("SELECT ERROR_SEVERITY()", "ERROR_SEVERITY()"),
-    ("SELECT ERROR_STATE()", "ERROR_STATE()"),
-    ("SELECT error_line()", "ERROR_LINE()"),
-    ("SELECT ERROR_PROCEDURE()", "ERROR_PROCEDURE()"),
-    ("SELECT id FROM t WHERE ERROR_NUMBER() = 0", "ERROR_NUMBER()"),
+    # WR-705: ERROR_NUMBER() and the rest run now, in TRY...CATCH (tests/test_tsql_interpreter_errors.py)
 ])
 def test_what_reads_an_error_afterwards_is_refused_by_name(engine, sql, name):
     text = error(engine, sql)
     assert text.startswith(f"This T-SQL can't be run on the local engine: {name} isn't mapped yet.") and \
         "TRY...CATCH" in text and "Run it in a Fabric Warehouse" in text, text
-
-
-def test_try_catch_is_still_refused_as_control_flow(engine):
-    text = error(engine, "BEGIN TRY SELECT 1 / 0 END TRY BEGIN CATCH SELECT ERROR_NUMBER() END CATCH")
-    assert "doesn't run T-SQL BEGIN yet" in text, text
 
 
 @pytest.mark.parametrize("message, out", [

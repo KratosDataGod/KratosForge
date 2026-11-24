@@ -112,7 +112,7 @@ function, with common operators and statements, and whether each runs, differs, 
 here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.11.19.
+Rules 2026.11.20.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -143,6 +143,7 @@ Rules 2026.11.19.
 | SFX-024 | Rewritten | An ARRAY column or cast becomes a list of VARIANT values, so it holds what ARRAY_CONSTRUCT makes and can read a JSON array. An OBJECT column or cast becomes JSON. |
 | SFX-026 | Rewritten | REGEXP_SUBSTR is NULL when nothing matches. CEIL and FLOOR with a written scale stay exact for a NUMBER. EDITDISTANCE with a negative maximum is 0. NEXT_DAY and PREVIOUS_DAY read the first two letters of the day, after any leading spaces. CONTAINS with NULL is NULL. TIME_SLICE counts slices from 1970-01-01 (weeks from Monday 1969-12-29). TO_DATE and a cast to DATE of a string written in the query read MM/DD/YYYY and DD-MON-YYYY, and TO_DATE of a string holding a whole number reads it as epoch seconds, milliseconds, microseconds or nanoseconds by its size. |
 | SFX-027 | Rewritten | CREATE TABLE makes a table as Snowflake does: PRIMARY KEY, UNIQUE and FOREIGN KEY aren't enforced, so they are dropped, and a PRIMARY KEY column keeps NOT NULL, which the constraint implies. AUTOINCREMENT and IDENTITY columns take their DEFAULT from a sequence that starts and steps as written (1 and 1 unless given); Snowflake's values are unique but not always one after another, so these are among those it could give. The sequence stays in the session when the table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the target's column. START TRANSACTION is BEGIN. |
+| SFX-028 | Rewritten | The regular expression parameters m (^ and $ match at each line) and s (. matches a line break) are read as Snowflake reads them, also together ('sm'), in REGEXP_LIKE, RLIKE, REGEXP_REPLACE, REGEXP_SUBSTR and REGEXP_SUBSTR_ALL. The c parameter is taken in REGEXP_COUNT and REGEXP_INSTR too. An empty pattern matches nothing, except in REGEXP_LIKE and its aliases, where it matches only an empty subject. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
 | SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. |
@@ -187,6 +188,7 @@ Rules 2026.11.19.
 | SFN-028 | Runs only in Snowflake | TRUNCATE TABLE IF EXISTS: DuckDB's TRUNCATE has no IF EXISTS. |
 | SFN-029 | Runs only in Snowflake | ALTER TABLE with more than one column, and ALTER TABLE ... SWAP WITH: DuckDB's ALTER TABLE changes one column at a time and has no SWAP. |
 | SFN-030 | Runs only in Snowflake | CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits the open transaction first, and DuckDB doesn't. |
+| SFN-031 | Runs only in Snowflake | A regular expression written with a non-greedy quantifier ('*?', '+?', '??') or a backreference ('\1') in the pattern, which Snowflake doesn't support, or with a lookahead or lookbehind, which RE2 can't read. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value
@@ -239,9 +241,11 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   on the warehouse with no further confirm, as in a Databricks notebook. The confirm is for starting
   the session, not for each statement.
 - **Try it on this PC first.** The DuckDB engine runs Databricks SQL translated by sqlglot, so you can
-  write and test a warehouse query against local tables without starting the warehouse. Unity
-  Catalog three-part names need that catalog and schema in the local session, and Delta-only
-  commands don't run there.
+  write and test a warehouse query against local tables without starting the warehouse. The local
+  session is the catalog `main` (`workspace`, `hive_metastore` and `spark_catalog` name it too) with
+  the schema `default`, so `main.default.orders`, `USE CATALOG main`, `USE SCHEMA sales` and
+  `current_schema()` answer as on Databricks. A name in any other Unity Catalog catalog is refused by
+  name, and Delta-only commands don't run there.
 - **Busy or briefly unavailable:** checking on a statement, and cancelling one, is tried up to four
   times through throttling (HTTP 429), gateway errors (502, 503, 504) and a dropped connection,
   waiting as Databricks' `Retry-After` says (at most 30 seconds in all). A statement is sent again
@@ -602,9 +606,10 @@ hidden, Runs on works as before.
 - **Connection.** For a Databricks engine, **Connection** picks the saved profile connection or
   Databricks CLI profile to use. Only the host and warehouse or cluster id reach the screen; tokens
   stay with the sidecar. The connection's default catalog and schema show beside it, as a label.
-- **Engine menu.** Python (this PC) first, then the other engines on this PC (DuckDB, SQLite,
-  Polars), then **Remote**: Run in Fabric (the whole notebook as a Fabric job, as before), Fabric
-  Spark, Databricks SQL warehouse and Databricks Connect, each marked Preview. Engines that are
+- **Engine menu.** Python (this PC) first, then **Same as** the environment, then the other engines
+  on this PC (DuckDB, SQLite, Polars), then **Remote**: **Fabric job** (the whole notebook run in
+  Fabric, as Run in Fabric did before), Fabric Spark, Databricks SQL warehouse and Databricks
+  Connect, each marked Preview. Engines that are
   planned but not built are listed under **More** as information only; they can't be chosen.
   Hover ⓘ for what each engine runs and how it differs from the platform.
 - **Remote confirm.** Choosing a remote engine opens a confirm that names the engine, the

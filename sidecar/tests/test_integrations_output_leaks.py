@@ -175,9 +175,6 @@ def test_everything_under_a_field_named_like_a_secret_is_blanked_and_counts_stay
     assert isinstance(out["not_json"], str)
 
 
-@pytest.mark.xfail(strict=True, reason="redact.secrets blanks a Cookie header to the end of its line before it looks "
-                   "for PEM keys, so a key that starts on that line loses its BEGIN line and its body stays. "
-                   "redact.py is shared with the app (and mirrored in app/ui/settings.js), so it isn't changed here.")
 def test_a_private_key_on_the_same_line_as_a_cookie_header_is_removed():
     out = redact_result({"t": "Cookie: a=1 -----BEGIN PRIVATE KEY-----\nMIIZq9pemBODYabc\n-----END PRIVATE KEY-----"})
     assert "Zq9pemBODY" not in json.dumps(out), out
@@ -243,7 +240,7 @@ def test_a_result_nested_past_the_limit_is_refused_not_a_crash():
 
 # ----------------------------------------------------------------------------------- errors
 
-# One per line: a Cookie header runs to the end of its line (see the xfail below).
+# One per line: a Cookie header runs to the end of its line.
 SECRET_TEXT = "\n".join(t for t, _ in TEXT)
 
 

@@ -536,6 +536,9 @@ class _Run:
                 self.spill_file = None
             self.status = status
             self.seconds = round(time.monotonic() - self.started, 2)
+            # A finished cell is never paused, even when a Cancel resent during a pause landed in the
+            # debugger's clean-up before it cleared the pause.
+            self.paused = None
             self.version += 1
             # Under the lock with the status: a poll that sees the cell finished never finds it still
             # running when the next cell starts (check_free reads done).
@@ -682,6 +685,32 @@ def _cell_running() -> bool:
 
 
 chart_output.install(_to_running_cell, _cell_running)  # bokeh's show() draws in the cell
+
+_DEBUG_LOST = ("The debugger lost track of this cell partway, so breakpoints after that point may not have paused. "
+               "This happens when the cell hits a RecursionError or sets its own sys.settrace. Remove that from the "
+               "cell to debug all of it, and the next cell debugs as usual.")
+
+
+def _breakpoint_hook(*args: Any, **kwargs: Any) -> Any:
+    """``breakpoint()`` in a cell. pdb would wait for typed commands that never come (the engine's
+    input is the app's requests), so a cell under the debugger pauses there and any other cell
+    carries on with a note. Other threads get the hook that was there before."""
+    run = _routers()[0].targets.get(threading.get_ident())
+    if not isinstance(run, _Run) or run.count == 0:  # not a cell's thread (count 0: a watch after it)
+        return _breakpoint_hook.previous(*args, **kwargs)  # type: ignore[attr-defined]
+    frame = sys._getframe(1)
+    if run.debugger is not None and run.thread is threading.current_thread():
+        if not run.debugger.pause_here(frame):
+            return None  # an evaluation while paused, or code that isn't the cell's: it carries on
+    else:
+        print("breakpoint() pauses only when the cell runs with the debugger, so this cell carried on. "
+              "Run it with the debugger to pause there.")
+    return None
+
+
+if sys.breakpointhook is not _breakpoint_hook:
+    _breakpoint_hook.previous = sys.breakpointhook  # type: ignore[attr-defined]
+    sys.breakpointhook = _breakpoint_hook
 
 
 class Kernel:
@@ -1134,6 +1163,8 @@ class Kernel:
                     sys.settrace(run.debugger.trace)
                 try:
                     status = self._exec(code, self.namespace, run, run.debugger)
+                    if run.debugger is not None and run.debugger.lost():
+                        run.add({"type": "text", "text": _DEBUG_LOST})
                 finally:
                     if run.debugger is not None:
                         sys.settrace(None)
@@ -1298,6 +1329,9 @@ class Kernel:
                     debugger.add(body)
                     if tail is not None:
                         debugger.add(tail)
+                    for n in debugger.unplaced:
+                        self._emit(run, {"type": "text", "text": f"The breakpoint on line {n} can't pause, because no code "
+                                                                 "runs from there to the end of the cell. Move it to a line with code."})
                 exec(body, namespace)  # noqa: S102 - the person's own cell
                 value = None
                 if tail is not None:
@@ -2662,14 +2696,17 @@ def _charts_meta(charts: Any) -> list[dict[str, Any]]:
     return [c for c in map(_chart_meta, charts) if c][:MAX_EXTRA_CHARTS]
 
 
-def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
+def _cell_meta(md: Any) -> dict[str, Any]:
     meta: dict[str, Any] = {}
-    if md.get("tags"):
+    if not isinstance(md, dict):  # a file edited by hand: its settings are dropped, the cell still opens
+        return meta
+    if isinstance(md.get("tags"), list) and md["tags"]:
         meta["tags"] = [t for t in md["tags"] if isinstance(t, str)]
+    jupyter: dict[str, Any] = md["jupyter"] if isinstance(md.get("jupyter"), dict) else {}
     for k in ("source_hidden", "outputs_hidden"):
-        if (md.get("jupyter") or {}).get(k):
+        if jupyter.get(k):
             meta[k] = True
-    if (md.get("run_control") or {}).get("frozen"):
+    if isinstance(md.get("run_control"), dict) and md["run_control"].get("frozen"):
         meta["frozen"] = True
     if md.get(_HEADING_COLLAPSED) is True:
         meta["heading_collapsed"] = True
@@ -2950,6 +2987,22 @@ def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     return {"nbformat": 4, "nbformat_minor": 5, "metadata": metadata, "cells": nb_cells}
 
 
+def ipynb_cell_problem(cells: list[Any]) -> str | None:
+    """Why a .ipynb file's cells can't be read, or None: every cell is an object whose source is
+    text or a list of text (a missing source is an empty cell)."""
+    for n, c in enumerate(cells, 1):
+        if not isinstance(c, dict):
+            return "a cell isn't readable"
+        source = c.get("source", "")
+        if not isinstance(source, str) and not (isinstance(source, list) and all(isinstance(x, str) for x in source)):
+            return f"cell {n}'s source isn't text"
+        try:
+            (source if isinstance(source, str) else "".join(source)).encode("utf-8")
+        except UnicodeEncodeError:  # a lone surrogate, written as a \ud800 escape: it can't be saved
+            return f"cell {n}'s source has characters that aren't valid Unicode"
+    return None
+
+
 def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
     cells = []
     for c in nb.get("cells", []):
@@ -2969,7 +3022,9 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
     # Notebooks saved before cells had ids (or by tools that don't write them) get ids here, the
     # same on every load until the next save writes them.
     assign_cell_ids(cells, _derived_id)
-    ours = nb.get("metadata", {}).get("fabric_desktop", {})
+    nb_meta = nb.get("metadata")
+    ours = nb_meta.get("fabric_desktop") if isinstance(nb_meta, dict) else None
+    ours = ours if isinstance(ours, dict) else {}
     compute = ours.get("compute") if ours.get("compute") in COMPUTE else "default"
     return {"cells": cells, "lakehouse": ours.get("lakehouse"), "compute": compute,
             "workspace": ours.get("workspace")}

@@ -269,7 +269,7 @@ def test_a_table_dropped_from_another_schema_drops_its_sequence_too():
         run("CREATE SCHEMA o2")
         run("USE o2")
         run("CREATE TABLE t (id BIGINT GENERATED ALWAYS AS IDENTITY, n STRING)")
-        run("USE main")
+        run("USE default")  # WR-316: USE main names a schema main; default is the session's
         run("DROP TABLE o2.t")
         assert session._con.execute("SELECT count(*) FROM duckdb_sequences() WHERE starts_with(sequence_name, '__kf_')"
                                     ).fetchall() == [(0,)]

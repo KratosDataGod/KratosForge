@@ -72,7 +72,8 @@ def test_timestamp_from_parts_with_nanoseconds_adds_microseconds():
 
 def test_merge_from_an_unnamed_subquery_gets_no_duplicate_check():
     st = one("MERGE INTO t USING (SELECT 1 AS id) ON t.id = id WHEN MATCHED THEN UPDATE SET x = 1")
-    assert st.duckdb_sql == "MERGE INTO t USING (SELECT 1 AS id) ON t.id = id WHEN MATCHED THEN UPDATE SET x = 1"
+    # the subquery's alias is ID, as Snowflake resolves an unquoted name (SFX-073)
+    assert st.duckdb_sql == 'MERGE INTO t USING (SELECT 1 AS "ID") ON t.id = id WHEN MATCHED THEN UPDATE SET x = 1'
 
 
 def test_array_size_outside_a_select_is_rewritten_without_a_name():
@@ -83,7 +84,7 @@ def test_array_size_outside_a_select_is_rewritten_without_a_name():
 def test_a_change_event_keeps_another_windows_order_and_a_subquerys_own_star():
     sql = one("SELECT *, (SELECT MAX(z) FROM (SELECT * FROM u)) AS m, "
               "CONDITIONAL_CHANGE_EVENT(SUM(z) OVER (PARTITION BY q)) OVER (ORDER BY y) FROM t").duckdb_sql
-    assert sql.startswith("SELECT * EXCLUDE (__sf_place0, __sf_flag0), (SELECT MAX(z) FROM (SELECT * FROM u)) AS m")
+    assert sql.startswith('SELECT * EXCLUDE (__sf_place0, __sf_flag0), (SELECT MAX(z) FROM (SELECT * FROM u)) AS "M"')
     assert "SUM(z) OVER (PARTITION BY q)" in sql
 
 

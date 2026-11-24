@@ -146,10 +146,11 @@ class Resources:
         if len(self._entries()) >= MAX_FILES:
             raise ValueError(f"This notebook already has {MAX_FILES} resource files, the most it can have. "
                              "Delete one to add another.")
-        self.files.mkdir(parents=True, exist_ok=True)
         path = self.files / name
         try:
-            out = open(path, "xb")  # reserves the name: refuses when a file is already there
+            with jsonfile.long_path_named(path, "added"):  # a path past Windows' 260 without long paths: named
+                self.files.mkdir(parents=True, exist_ok=True)
+                out = open(path, "xb")  # reserves the name: refuses when a file is already there
         except FileExistsError:
             return {"added": False, "exists": True, "name": name, "suggested": _free(self.files, name)}
         try:
@@ -169,7 +170,8 @@ class Resources:
         same_file = os.path.normcase(new_name) == os.path.normcase(src.name)  # a case change on Windows
         if not same_file:
             try:
-                open(dest, "xb").close()  # reserved, so another file of that name is never replaced
+                with jsonfile.long_path_named(dest, "renamed"):  # past Windows' 260 without long paths: named
+                    open(dest, "xb").close()  # reserved, so another file of that name is never replaced
             except FileExistsError:
                 raise ValueError(f"A resource file named {new_name!r} already exists.") from None
         try:

@@ -214,7 +214,6 @@ GONE_SUFFIX = ".sent-not-removed.json"
 class Outbox:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._gone_file = self.path.with_name(self.path.name + GONE_SUFFIX)
         fresh = not self.path.exists()
         # A file SQLite can't read is moved aside and the outbox starts empty: messages still waiting

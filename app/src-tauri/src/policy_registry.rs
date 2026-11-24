@@ -12,8 +12,9 @@ use serde_json::{Map, Value};
 pub const KEY: &str = r"Software\Policies\KratosBI\KratosForge";
 
 /// The settings the shell reads, and how the registry holds each.
-pub const SHELL_KEYS: [(&str, Kind); 4] = [
+pub const SHELL_KEYS: [(&str, Kind); 5] = [
     ("auto_update", Kind::Bool),
+    ("channel", Kind::Text),
     ("register_link_scheme", Kind::Bool),
     ("engine_download_url", Kind::Text),
     ("fabric_view_sign_in_hosts", Kind::List),
@@ -287,23 +288,23 @@ mod tests {
     #[test]
     fn group_policy_wins_over_the_policy_file_for_the_settings_it_sets() {
         let file = "\u{feff}{\"auto_update\": true, \"channel\": \"stable\", \"engine_download_url\": \"https://a.example.com/e\"}";
-        let gp = found(&[("auto_update", Raw::Dword(0)),
+        let gp = found(&[("auto_update", Raw::Dword(0)), ("channel", Raw::Text("preview".into())),
                          ("fabric_view_sign_in_hosts", Raw::List(vec!["adfs.contoso.com".into()]))]);
         let out: Value = serde_json::from_str(&overlay(file, &gp)).unwrap();
         assert_eq!(out["auto_update"], Value::Bool(false));
-        assert_eq!(out["channel"], "stable"); // the file's other settings stay
-        assert_eq!(out["engine_download_url"], "https://a.example.com/e");
+        assert_eq!(out["channel"], "preview"); // the update channel too, as the engine shows it in Settings
+        assert_eq!(out["engine_download_url"], "https://a.example.com/e"); // the file's other settings stay
         assert_eq!(out["fabric_view_sign_in_hosts"][0], "adfs.contoso.com");
-        assert!(sets(&gp, "auto_update") && !sets(&gp, "engine_download_url"));
+        assert!(sets(&gp, "auto_update") && sets(&gp, "channel") && !sets(&gp, "engine_download_url"));
     }
 
     #[test]
     fn a_value_of_the_wrong_kind_leaves_the_file_as_it_is() {
         let file = r#"{"auto_update": false}"#;
         let gp = found(&[("auto_update", Raw::Dword(2)), ("register_link_scheme", Raw::Text("0".into())),
-                         ("engine_download_url", Raw::Dword(1)), ("channel", Raw::Text("preview".into()))]);
+                         ("engine_download_url", Raw::Dword(1)), ("channel", Raw::Dword(1))]);
         assert_eq!(overlay(file, &gp), file);
-        assert!(!sets(&gp, "auto_update") && !sets(&gp, "engine_download_url"));
+        assert!(!sets(&gp, "auto_update") && !sets(&gp, "engine_download_url") && !sets(&gp, "channel"));
     }
 
     #[test]

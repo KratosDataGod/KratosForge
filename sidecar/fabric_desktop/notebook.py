@@ -46,6 +46,7 @@ import pyarrow as pa
 
 from . import app_control, chart_output, disk_full, file_locks, jsonfile, notebook_cells
 from . import notebook_resources
+from .awake_timer import AwakeTimer
 from . import magics
 from . import history
 from . import write_queue
@@ -2051,8 +2052,7 @@ def _deadline(seconds: float | None, message: str) -> Iterator[threading.Event]:
             spark_local.interrupt()
         ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), ctypes.py_object(RunTimeout))
 
-    timer = threading.Timer(seconds, expire)
-    timer.daemon = True
+    timer = AwakeTimer(seconds, expire)  # awake time only: a cell going when the PC slept isn't stopped on waking
     timer.start()
     try:
         yield fired
@@ -3051,7 +3051,8 @@ def _write_atomic(path: Path, text: str) -> None:
         try:
             f = open(tmp, "w", encoding="utf-8", newline="")  # the line endings are the text's own
         except OSError as exc:
-            refused = file_locks.folder_error(exc, path)  # Controlled folder access, a folder it can't change
+            # Controlled folder access or a folder it can't change, or a path past Windows' limit
+            refused = file_locks.folder_error(exc, path) or jsonfile.path_too_long(exc, path)
             if refused is None:
                 raise
             raise refused from exc

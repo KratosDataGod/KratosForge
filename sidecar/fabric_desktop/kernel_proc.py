@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, cast
 
 from . import cpu_cap, lakehouse, notebook
+from .awake_timer import awake_monotonic
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
@@ -323,7 +324,8 @@ class ProcessKernel:
                                 "set in Settings, counting the processes its cells started. Its process was ended, "
                                 "so variables were cleared.")
                 return
-            started, now = self._started_at, time.monotonic()
+            # Awake time only: a cell going when the PC slept isn't stopped on waking for time it didn't run.
+            started, now = self._started_at, awake_monotonic()
             if not (self._running and started is not None and self.time_limit):
                 continue
             if self._interrupted_at is None and now - started > self.time_limit:
@@ -477,7 +479,7 @@ class ProcessKernel:
         self._running = True
         self._last = {"status": "running", "execution_count": self.count + 1, "version": 0, "seconds": 0, "outputs": []}
         if time_limit:
-            self._started_at = time.monotonic()
+            self._started_at = awake_monotonic()
         try:
             snap = self._request("start", code=code, notebook_name=self.notebook_name,
                                  widget_values=dict(self.widget_values), resources_dir=self.resources_dir, onelake_writes=self.onelake_writes,

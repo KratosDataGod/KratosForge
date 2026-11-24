@@ -147,9 +147,10 @@ def test_export_writes_every_differing_row_to_a_new_csv_with_formulas_protected(
     assert out["rows"] == 6 and out["name"].startswith("orders compare ") and out["name"].endswith(".csv")
     with open(out["path"], newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    assert sorted(r["status"] for r in rows) == ["changed"] * 4 + ["only_fabric", "only_pc"]
+    assert list(rows[0]) == ["Where", "order_id", "A: amount", "B: amount", "A: status", "B: status"]
+    assert sorted(r["Where"] for r in rows) == ["changed"] * 4 + ["only_a", "only_b"], "as the page says it, not verify's names"
     five = next(r for r in rows if r["order_id"] == "5")
-    assert five["status (A)"].startswith("'="), "a cell that starts like a formula is protected"
+    assert five["A: status"].startswith("'="), "a cell that starts like a formula is protected"
     assert out["notes"], "the export says it protected a cell"
     again = sql_compare.export(runs, a, b, keys=["order_id"], name="orders")
     assert again["path"] != out["path"], "never over an earlier file"
@@ -182,3 +183,20 @@ def test_verify_keeps_its_old_answers_for_its_other_callers():
     assert out["duplicates"] == {"pc": 1, "fabric": 0} and out["method"] == "whole rows"
     with pytest.raises(verify.RepeatedKey):
         verify.compare(a, b, {"keys": ["id"]}, repeated_keys="stop")
+
+
+def test_export_columns_never_clash_with_the_tables_own(runs, lake):
+    # No key: the table's own Where and Times columns get _2 after the export's.
+    a = run(runs, lake, "SELECT 1 AS \"Where\", 2 AS times")
+    b = run(runs, lake, "SELECT 1 AS \"Where\", 3 AS times")
+    with open(sql_compare.export(runs, a, b)["path"], newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    assert rows[0] == ["Where", "Times", "Where_2", "times_2"]
+    assert sorted(r[0] for r in rows[1:]) == ["only_a", "only_b"]
+    # A key: a column named "A: v" stays apart from v's A value, and from each other.
+    a = run(runs, lake, "SELECT 1 AS id, 1 AS v, 5 AS \"A: v\"")
+    b = run(runs, lake, "SELECT 1 AS id, 2 AS v, 6 AS \"A: v\"")
+    with open(sql_compare.export(runs, a, b, keys=["id"])["path"], newline="", encoding="utf-8") as f:
+        header = next(csv.reader(f))
+    assert header == ["Where", "id", "A: v", "B: v", "A: A: v", "B: A: v"]
+    assert len(set(h.lower() for h in header)) == len(header)

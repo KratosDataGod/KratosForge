@@ -303,7 +303,7 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
     if export is not None:
         _export(con, f"""SELECT CASE WHEN no_b THEN 'only_pc' WHEN no_a THEN 'only_fabric' ELSE 'changed' END AS "status",
             {', '.join(f'coalesce("k_a{i}", "k_b{i}") AS {_q(r["keys"][i])}' for i in range(len(kq)))}
-            {''.join(f', "a{i}" AS {_q(name + " (A)")}, "b{i}" AS {_q(name + " (B)")}' for i, (name, *_x) in enumerate(checks))}
+            {''.join(f', "a{i}" AS {_q("A: " + name)}, "b{i}" AS {_q("B: " + name)}' for i, (name, *_x) in enumerate(checks))}
             FROM j WHERE {differ[None]} ORDER BY {', '.join(f'coalesce("k_a{i}", "k_b{i}")' for i in range(len(kq)))} NULLS FIRST""",
                 export)
     rows = con.execute(f"""SELECT no_a, no_b, {key_cols}{value_cols} FROM j

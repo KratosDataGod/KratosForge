@@ -167,11 +167,13 @@ def export(runs: Any, a: Any, b: Any, keys: Any = None, tolerance: Any = None, n
 
     def write(reader: Any) -> None:
         import pyarrow.csv as pa_csv
-        header, written["protected"] = csv_cells.protect_header(csv_ready_schema(reader.schema))
+        schema = _export_schema(reader.schema, bool(rules["keys"]))
+        header, written["protected"] = csv_cells.protect_header(csv_ready_schema(schema))
         with open(partial, "xb") as sink:
             writer = pa_csv.CSVWriter(sink, header)
             try:
                 for batch in reader:
+                    batch = pa.RecordBatch.from_arrays([_where(batch.column(0)), *batch.columns[1:]], schema=schema)
                     batch, protected = csv_cells.protect_batch(csv_ready_batch(batch))
                     written["protected"] += protected
                     writer.write_batch(batch)
@@ -182,7 +184,7 @@ def export(runs: Any, a: Any, b: Any, keys: Any = None, tolerance: Any = None, n
     try:
         out = verify.compare(ta, tb, rules, 0, repeated_keys="stop", export=write)
         if out.get("counts") is None:
-            raise ValueError("A or B has too many rows to list the rows that differ; only their checksums were compared.")
+            raise ValueError("A or B has too many rows to list the rows that differ. Only their checksums were compared.")
         if not written["rows"]:
             raise ValueError("No rows differ, so there are none to export.")
         jsonfile.replace(partial, path)
@@ -194,6 +196,22 @@ def export(runs: Any, a: Any, b: Any, keys: Any = None, tolerance: Any = None, n
         raise
     notes = [csv_cells.note(written["protected"], can_keep_raw=False)] if written["protected"] else []
     return {"path": str(path), "name": path.name, "rows": written["rows"], "notes": notes}
+
+
+def _export_schema(schema: pa.Schema, keyed: bool) -> pa.Schema:
+    """The export's column names: Where (and, with no key, Times) first, then the key columns and each column's
+    A: and B: values, or the row's columns. A name that clashes with one before it gets _2, as the SQL page's
+    own export does, so a column of the table named Where or Times stays a column of its own."""
+    from .sql_exec import _unique_names
+    added = ["Where"] if keyed else ["Where", "Times"]
+    names = added + schema.names[len(added):]
+    return _unique_names(pa.schema([f.with_name(n) for f, n in zip(schema, names, strict=True)]))
+
+
+def _where(column: Any) -> Any:
+    """verify's names for where a row is (only_pc, only_fabric) as the page says them: only_a, only_b."""
+    import pyarrow.compute as pc
+    return pc.replace_substring_regex(pc.replace_substring_regex(column, "^only_pc$", "only_a"), "^only_fabric$", "only_b")
 
 
 def _discard(*paths: Path) -> None:

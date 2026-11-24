@@ -55,7 +55,7 @@ test("Compare data runs A and B once as reads, then a key, tile and tolerance co
   await openPage();
   await page().getByRole("button", { name: "Compare data" }).click();
   const d = dialog();
-  await d.getByText("Pick A and B, then Compare. Both only read; nothing is changed.").waitFor();
+  await d.getByText("Pick A and B, then Compare. Both only read, so nothing is changed.").waitFor();
   assert.strictEqual(await d.getByLabel("A: table").inputValue(), "orders");
   assert.strictEqual(await d.getByLabel("B: table").inputValue(), "orders_rebuilt");
 
@@ -139,7 +139,7 @@ test("a side left empty is refused before anything runs", { skip }, async () => 
   await d.getByLabel("A is a").selectOption("query");
   const n = compares().length;
   await page().locator(".dialog-actions").getByRole("button", { name: "Compare" }).click();
-  await d.getByRole("alert").getByText("Pick A: a table, or a query that only reads.").waitFor();
+  await d.getByRole("alert").getByText("Pick a table, or a query that only reads, for A.").waitFor();
   assert.strictEqual(compares().length, n);
   await page().locator(".dialog-actions").getByRole("button", { name: "Close" }).click();
 });

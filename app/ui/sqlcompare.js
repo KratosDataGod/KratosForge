@@ -118,7 +118,7 @@ function sqlCompareDialog(ctx) {
         free.length ? h("select", { "aria-label": "Add a key column", onchange: (e) => { if (e.target.value) { s.keys.push(e.target.value); again(); } } },
           h("option", { value: "" }, "+ Add a key"), free.map((c) => h("option", { value: c.name }, c.name))) : null),
       h("span", { class: "muted-text small" }, s.keys.length ? "A repeated key stops the compare." : s.columns.length
-        ? "No key: rows compare as whole rows, and only Only in A and Only in B are counted."
+        ? "With no key, rows compare as whole rows, and only Only in A and Only in B are counted."
         : "Compare once to pick the key columns from the results."));
   }
 
@@ -144,7 +144,7 @@ function sqlCompareDialog(ctx) {
     if (s.busy) return h("p", { class: "muted-text", role: "status" }, s.busy);
     if (s.error) return h("p", { class: "sql-compare-error", role: "alert" }, s.error);
     const out = s.out;
-    if (!out) return h("p", { class: "muted-text" }, "Pick A and B, then Compare. Both only read; nothing is changed.");
+    if (!out) return h("p", { class: "muted-text" }, "Pick A and B, then Compare. Both only read, so nothing is changed.");
     if (out.stopped) return h("p", { class: "sql-compare-stopped", role: "alert" }, out.stopped);
     const v = sqlCompareVerdict(out);
     const t = sqlCompareTable(out, s.showAll);
@@ -219,7 +219,7 @@ function sqlCompareDialog(ctx) {
   async function compare() {
     const qa = sqlCompareSideQuery(s.a);
     const qb = sqlCompareSideQuery(s.b);
-    if (!qa || !qb) { s.error = `Pick ${!qa ? "A" : "B"}: a table, or a query that only reads.`; draw(); return; }
+    if (!qa || !qb) { s.error = `Pick a table, or a query that only reads, for ${!qa ? "A" : "B"}.`; draw(); return; }
     s.error = "";
     if (s.ran !== sig()) {
       s.job = { id: null, stopped: false };
@@ -259,7 +259,7 @@ function sqlCompareDialog(ctx) {
 
   async function exportRows() {
     const out = await attempt(() => rpc("sql_compare_export", { a: s.runs.a, b: s.runs.b, keys: s.keys, tolerance: s.tol, name: ctx.ref.name }),
-      "Could not export the rows that differ");
+      "Couldn't export the rows that differ");
     if (!out) return;
     if (out.rerun_needed) { toast(out.message, true); return; }
     toast(`Saved ${sqlCompareRows(out.rows)} that differ to ${out.name} in Downloads.${out.notes?.length ? ` ${out.notes.join(" ")}` : ""}`);

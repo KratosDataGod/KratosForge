@@ -1069,7 +1069,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     try:
         typed = qualify(typed, schema=schema, dialect="duckdb", db="dbo", expand_stars=False,
                         validate_qualify_columns=False, quote_identifiers=False, identify=False)
-    except SqlglotError:
+    except (SqlglotError, AssertionError):  # sqlglot asserts an ORDER BY 1 names an alias, not a *
         pass  # unknown tables: literals still get their types
     try:
         typed = annotate_types(typed, schema=schema, dialect="duckdb")

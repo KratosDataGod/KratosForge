@@ -157,7 +157,7 @@ def _insert(then: exp.Insert, table: list[str] | None) -> None:
         raise ValueError("A Fabric Warehouse's MERGE doesn't take INSERT DEFAULT VALUES. Its WHEN NOT MATCHED "
                          "inserts with INSERT (columns) VALUES (...). Give the values, or NULL where a column has "
                          "none.")
-    if then.expression is None and not isinstance(then.this, exp.Star):
+    if not isinstance(then.expression, exp.Expression) and not isinstance(then.this, exp.Star):  # sqlglot: None or False
         raise ValueError("A MERGE's INSERT needs VALUES (...) in T-SQL, so write INSERT (columns) VALUES (...).")
     values = then.expression.expressions if isinstance(then.expression, exp.Tuple) else []
     if not columns and table is not None and values and len(values) != len(table):

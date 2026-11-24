@@ -196,9 +196,10 @@ class ProjectStore:
 
     def list(self) -> list[Project]:
         projects = []
-        for pid in sorted(self._index()):
+        index = self._index()  # read once: a list rebuilt but not saved (disk full) still lists its projects
+        for pid in sorted(index):
             try:
-                projects.append(self.load(pid))
+                projects.append(self._load(index[pid]))
             except (OSError, ValueError, KeyError) as exc:
                 # A project folder that was deleted or moved (listed again once it's back), or a project.json
                 # that can't be read (load names the file and why).
@@ -210,6 +211,9 @@ class ProjectStore:
         folder = self._index().get(pid)
         if folder is None:
             raise KeyError(f"No local data project {pid!r}.")
+        return self._load(folder)
+
+    def _load(self, folder: str) -> Project:
         path = Path(folder) / "project.json"
         try:  # OSError (a folder that's gone or can't be opened) is raised as it is
             return _project(json.loads(path.read_text(encoding="utf-8")), folder)

@@ -280,16 +280,25 @@ def _once(build: Any) -> Any:
         bound = [i for i, arg in enumerate(args) if arg is not None and not isinstance(arg, _CHEAP)]
         if not bound:
             return build(args)
-        # a name by the argument's height, so a nested call's names differ; a list, not a struct, as
-        # _rewrite_object_construct reads every struct as OBJECT_CONSTRUCT
-        names = {i: f"__sf_once{i}_{_height(args[i])}" for i in bound}
-        once = build([exp.column(names[i]) if i in names else arg for i, arg in enumerate(args)])
-        for i in reversed(bound):
-            wrapper = cast(exp.Expression, sqlglot.parse_one(
-                f"(LIST_TRANSFORM([__sf_value], {names[i]} -> __sf_body))[1]", read="duckdb"))
-            _swap(wrapper, "__sf_body", once)
-            _swap(wrapper, "__sf_value", args[i])
-            once = wrapper
+        # One LIST_TRANSFORM over a list of one ROW of every bound value, so each is worked out outside any
+        # lambda (DuckDB refuses a subquery inside one). A list and an unnamed ROW, not a struct literal,
+        # which _rewrite_object_construct would read as OBJECT_CONSTRUCT. The name goes by height, so a
+        # nested call's differs.
+        name = f"__sf_once{_height(args[bound[0]])}"
+        reads: dict[int, exp.Expression]
+        if len(bound) == 1:
+            reads = {bound[0]: exp.column(name)}
+            listed = "__sf_value0"
+        else:
+            reads = {i: exp.func("struct_extract", exp.column(name), exp.Literal.number(j + 1))
+                     for j, i in enumerate(bound)}
+            listed = "ROW(" + ", ".join(f"__sf_value{j}" for j in range(len(bound))) + ")"
+        body = build([reads.get(i, arg) for i, arg in enumerate(args)])
+        once = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([{listed}], {name} -> __sf_body))[1]",
+                                                      read="duckdb"))
+        _swap(once, "__sf_body", body)
+        for j, i in enumerate(bound):
+            _swap(once, f"__sf_value{j}", args[i])
         return once
     return built
 

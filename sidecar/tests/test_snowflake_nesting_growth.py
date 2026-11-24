@@ -48,3 +48,19 @@ def test_the_answers_are_snowflakes(query: str, want: list[object]) -> None:
     con.execute("CREATE TABLE t AS SELECT * FROM (VALUES (1, 'abcd'), (2, NULL), (3, '')) v(i, a)")
     rows = con.execute(f"SELECT r FROM ({sf.translate(query.replace('FROM t', ', i FROM t')).duckdb_sql}) ORDER BY i")
     assert [r[0] for r in rows.fetchall()] == want
+
+
+@pytest.mark.parametrize(("query", "want"), [
+    ("SELECT DIV0(a + 1, (SELECT MAX(b) FROM t)) AS r FROM t", [0.2, 0.3, 0.4]),
+    ("SELECT DIV0(a + 1, (SELECT MAX(b) FROM t u WHERE u.a = t.a)) AS r FROM t", [0.2, 0.0, None]),
+    ("SELECT DIV0NULL(CASE WHEN EXISTS (SELECT 1 FROM t u WHERE u.b = t.a) THEN 1 ELSE 2 END, a - 1) AS r FROM t",
+     [0.0, 2.0, 1.0]),
+    ("SELECT ZEROIFNULL((SELECT MAX(b) FROM t u WHERE u.a = t.a)) AS r FROM t", [10, 0, 0]),
+    ("SELECT DIV0(DIV0(a + 1, b + 1), DIV0(b, a + 1)) AS r FROM t", [2 / 11 / 5, 0.0, None]),
+])
+def test_subqueries_in_any_argument_still_run(query: str, want: list[object]) -> None:
+    """Every bound value is worked out outside the lambdas: DuckDB refuses a subquery inside one."""
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT * FROM (VALUES (1, 10), (2, 0), (3, NULL)) v(a, b)")
+    sql = sf.translate(query.replace(" AS r FROM t", " AS r, a AS i FROM t")).duckdb_sql
+    assert [r[0] for r in con.execute(f"SELECT r FROM ({sql}) ORDER BY i").fetchall()] == pytest.approx(want)

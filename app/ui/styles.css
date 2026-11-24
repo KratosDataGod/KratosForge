@@ -4157,3 +4157,29 @@ html[data-motion="on"] .tree-ach.earned .tree-ach-badge { filter: drop-shadow(0 
 .tree-evidence { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
 @media (max-width: 1100px) { .tree-body { grid-template-columns: 1fr; } .tree-detail { border-left: 0; border-top: 1px solid var(--tree-node); } }
 @media (max-width: 760px) { .tree-head { grid-template-columns: 1fr; } .tree-node { width: 96px; } .tree-node-name { font-size: 11px; } }
+
+/* A notebook changed in VS Code and here: each difference picked (vscode.js nbSyncMerge) */
+.sync-chooser { display: flex; flex-direction: column; gap: 12px; }
+.sync-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; padding: 10px 14px; border-radius: 6px; background: var(--warn-soft); }
+.sync-all { display: inline-flex; gap: 6px; margin-left: auto; }
+.sync-same summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.sync-conf { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.sync-conf-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+.sync-what { font-weight: 600; }
+.sync-kind { padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--accent-soft); color: var(--accent-dark); }
+.sync-sides { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.sync-side { min-width: 0; }
+.sync-side + .sync-side { border-left: 1px solid var(--border-soft); }
+.sync-side-head { padding: 4px 10px; border-bottom: 1px solid var(--border-soft); color: var(--muted); font-size: 12px; }
+.sync-code { padding: 8px 10px; overflow-x: auto; background: var(--surface-2); font-family: var(--mono); font-size: 12.5px; white-space: pre; }
+.sync-line { display: block; }
+.sync-added { background: var(--ok-soft); }
+.sync-gone { padding: 18px 10px; color: var(--muted); font-size: 12.5px; font-style: italic; }
+.sync-order { margin: 0; padding: 8px 10px 8px 30px; font-size: 12.5px; }
+.sync-moved { font-weight: 600; }
+.sync-pick { display: flex; flex-wrap: wrap; gap: 16px; padding: 8px 10px; border-top: 1px solid var(--border-soft); font-size: 13px; }
+.sync-pick label { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 640px) {
+  .sync-sides { grid-template-columns: minmax(0, 1fr); }
+  .sync-side + .sync-side { border-left: 0; border-top: 1px solid var(--border-soft); }
+}

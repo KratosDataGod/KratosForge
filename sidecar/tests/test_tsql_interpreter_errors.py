@@ -118,7 +118,8 @@ def test_raiserror_at_severity_10_or_less_is_a_message_and_the_script_goes_on(en
 
 
 def test_raiserror_at_severity_16_is_an_error_with_number_50000(engine):
-    refused(engine, "RAISERROR('bad %s', 16, 2, 'thing')", "Msg 50000, Level 16: bad thing")
+    # outside TRY the script goes on, as a warehouse's batch does (tests/test_tsql_interpreter_raiserror.py)
+    assert messages(engine, "RAISERROR('bad %s', 16, 2, 'thing')") == ["Msg 50000, Level 16, State 2, Line 1\nbad thing"]
 
 
 def test_raiserror_is_caught(engine):

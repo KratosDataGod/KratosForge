@@ -781,7 +781,8 @@ def compile_script(sql: str, columns: dict[str, dict[str, dict[str, str]]] | Non
     for nodes, before, first, last, text in read:
         declared: dict[str, exp.DataType] = {}
         checker.batch(nodes, text, declared)
-        script.batches.append(Batch(nodes, before, declared, first, last))
+        # A batch after GO starts with the end of the GO line, which isn't one of its lines: its line 1 follows it.
+        script.batches.append(Batch(nodes, before + (before > 0 and text[before:].startswith("\n")), declared, first, last))
     if not script.texts and not any(_runs_something(b.nodes) for b in script.batches):
         raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
                          "nothing on the local engine, so they're skipped.")
@@ -1213,6 +1214,7 @@ class _Run:
             self.types = batch.declared
             self.count = 0
             self.caught: list[TsqlError] = []
+            self.trying = 0  # how many TRY blocks the running statement is in
             try:
                 for node in batch.nodes:
                     self.node(node)
@@ -1263,9 +1265,16 @@ class _Run:
                 self.node(inner)
         elif isinstance(node, Try):
             depth = len(self.caught)
+            caught: TsqlError | None = None
+            self.trying += 1
             try:
                 self.node(node.body)
-            except TsqlError as exc:
+            except TsqlError as error:
+                caught = error
+            finally:  # also when BREAK, CONTINUE or RETURN leaves the TRY
+                self.trying -= 1
+            if caught is not None:
+                exc = caught
                 del self.caught[depth:]
                 if exc.number is None:
                     self.notes.append("ERROR_NUMBER(), ERROR_SEVERITY() and ERROR_STATE() were NULL in a CATCH "
@@ -1407,6 +1416,11 @@ class _Run:
             text = text[:_RAISERROR_MOST - 3] + "..."
         if severity <= 10:
             self.messages.append(text)
+            return
+        if not self.trying:
+            # A warehouse sends the error to the client and goes on with the batch: RAISERROR doesn't end it.
+            line = node.line - self.batch.before
+            self.messages.append(f"Msg 50000, Level {severity}, State {state}, Line {line}\n{text}")
             return
         self.raise_error(node, f"Msg 50000, Level {severity}: {text}", 50000, severity, state, text)
 

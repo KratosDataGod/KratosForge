@@ -498,7 +498,9 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `CAST` and `CONVERT` with no style of a `datetime` or `smalldatetime` to text | Style 0, `mon dd yyyy hh:miAM`, the day and the hour padded with a space: `Feb 29 2024  1:04PM`, and `Jan  2 2024 12:00AM` at midnight. `GETDATE()`, `GETUTCDATE()` and `CURRENT_TIMESTAMP` are `datetime`. `CONVERT` styles 0 and 100 give the same text for every date and time type |
 | `CAST` of a `date` to text | `2024-02-29` |
 | Too short a `VARCHAR(n)` or `CHAR(n)` for a date or time | Cut to `n` characters, as T-SQL cuts it: `CONVERT(VARCHAR(10), CAST('2024-02-29 13:04' AS DATETIME2), 120)` is `2024-02-29`, and `CAST(CAST('2024-02-29 13:04' AS DATETIME) AS VARCHAR(11))` is `Feb 29 2024` |
-| A date or time in `CONCAT` or `CONCAT_WS` | Written as a `CAST` to text writes it |
+| A date or time in `CONCAT`, `CONCAT_WS` or `STRING_AGG`, or as the second value of `ISNULL` after text | Written as a `CAST` to text writes it: `ISNULL` has its first value's type |
+| A date or time with text in `COALESCE`, `CASE` or `ISNULL` with the date first | The date's type, as in T-SQL, where a date outranks text: a string written in the query is read as a date. A text column there is refused by name, as DuckDB would write the date as text instead |
+| A text column with a date or time column in `UNION`, `EXCEPT` or `INTERSECT` | Refused by name: T-SQL reads the text as dates, and DuckDB writes the dates as text. `CAST` one side to the other's type |
 | `+` of text and a date or time | Refused by name. T-SQL doesn't join them: it reads the text as a date and adds the two, or refuses the `+`. Use `CONCAT`, or `CAST` the date to text first |
 | `CONVERT` and `TRY_CONVERT` from text, the same styles | The date the style reads (`'29/02/2024'` with 103), to a `date`, `datetime` or `datetime2`. A date that doesn't exist is an error with `CONVERT` and `NULL` with `TRY_CONVERT`. Styles 120, 121 and 126 read ISO text with or without its time |
 

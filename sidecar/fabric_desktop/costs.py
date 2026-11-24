@@ -56,13 +56,13 @@ def _seconds(started: Any, finished: Any) -> float | None:
     return max((b - a).total_seconds(), 0.0) if a and b else None
 
 
-_PRICE_NOTE = ("Priced at {price} {cur} per CU hour (Monitor > Cost > Prices). This is a price applied to CU use, not "
+_PRICE_NOTE = ("Priced at {price} {cur} per CU hour (Optimize > Cost and savings > Prices). This is a price applied to CU use, not "
                "a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")
 
 
 def _cu_assumptions(engine: str, cu: float, timing: str) -> list[str]:
     what = {"python": "a Python notebook", "spark": "a Spark job"}.get(engine, "an item whose engine wasn't recorded, counted as Spark")
-    return [timing, f"{cu:g} CU while it ran, the configured CUs of {what} (Monitor > Cost > Prices).",
+    return [timing, f"{cu:g} CU while it ran, the configured CUs of {what} (Optimize > Cost and savings > Prices).",
             "Fabric's billed CU for the job isn't read; the Capacity Metrics app has it."]
 
 

@@ -220,7 +220,7 @@ function academyReadiness({ ready }) {
   const cell = (o, key) => {
     if (key === "knowledge") {
       const k = o.measures.knowledge;
-      return k.answered ? `${k.correct} of ${k.answered}` : h("span", { class: "muted-text" }, "Not yet");
+      return k.answered ? `${Math.round(k.correct * 100) / 100} of ${k.answered}` : h("span", { class: "muted-text" }, "Not yet");
     }
     if (key === "platform_verified" && !o.platform_required) return h("span", { class: "muted-text" }, "Not needed");
     const ids = o.measures[key];

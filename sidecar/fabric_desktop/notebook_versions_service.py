@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +55,8 @@ class NotebookVersionsMixin:
             theirs = from_ipynb(self._saved_nb(name))["cells"]
             mine = [dict(c) for c in cells]
             assign_cell_ids(mine)
-            return merge_cells(base, mine, theirs)
+            saved = datetime.fromtimestamp(self.notebooks.path(name).stat().st_mtime, timezone.utc)  # type: ignore[attr-defined]
+            return merge_cells(base, mine, theirs) | {"theirs_saved_at": saved.isoformat(timespec="seconds")}
         except Exception as exc:  # noqa: BLE001 - the person still chooses Keep mine or Load its version
             _log.warning("Couldn't merge the two versions of %r: %s", name, describe(exc))
             return None

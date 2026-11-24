@@ -26,6 +26,7 @@ REORDERED = "reordered_both"
 KINDS = (BOTH_EDITED, DELETED_HERE, DELETED_THERE, REORDERED)
 CHOICES = ("mine", "theirs", "both")
 ORDER_CONFLICT_ID = "order"
+THEIRS_TITLE = "From VS Code"
 KEEP_BASES = 4  # per notebook: the stamps the app may still hold, newest first
 
 _NAMES = {
@@ -78,7 +79,7 @@ def _copy_id(cid: str, taken: set[str]) -> str:
     """An id for the second copy of a cell kept both ways: valid as an nbformat id, and unused."""
     stem = re.sub(r"[^A-Za-z0-9_-]", "", cid)[:40] or "cell"
     for n in range(1, 1000):
-        new = f"{stem}-mine{'' if n == 1 else n}"
+        new = f"{stem}-theirs{'' if n == 1 else n}"
         if new not in taken:
             return new
     return uuid.uuid4().hex[:16]
@@ -91,9 +92,9 @@ def merge_cells(base: list[dict[str, Any]], mine: list[dict[str, Any]], theirs: 
 
     Returns {"cells", "conflicts", "resolved"}. Each conflict is {"id", "kind", "name", "cell_id",
     "base", "mine", "theirs"} (the order conflict carries the two orders of cell ids instead). A
-    conflict ``choices`` names ("mine", "theirs", or "both" for an edited cell: theirs, then mine as
-    a new cell after it) is applied and not listed. Until every conflict is chosen, ``cells`` holds
-    both versions of each conflicted cell (theirs first, mine as a new cell after it, and a cell
+    conflict ``choices`` names ("mine", "theirs", or "both" for an edited cell: mine, then theirs as
+    a new cell after it, titled THEIRS_TITLE when it has no title) is applied and not listed. Until
+    every conflict is chosen, ``cells`` holds both versions of each conflicted cell (the same way, and a cell
     deleted on one side kept), so a save of it would lose nothing; ``resolved`` is False."""
     choices = dict(choices or {})
     for key, pick in choices.items():
@@ -103,7 +104,7 @@ def merge_cells(base: list[dict[str, Any]], mine: list[dict[str, Any]], theirs: 
     b_order, m_order, t_order = list(b), list(m), list(t)
     conflicts: list[dict[str, Any]] = []
     chosen: dict[str, dict[str, Any]] = {}   # cell id -> the cell kept
-    extra: dict[str, dict[str, Any]] = {}    # cell id -> mine's copy, kept after it
+    extra: dict[str, dict[str, Any]] = {}    # cell id -> theirs, kept as a new cell after mine
     keep: set[str] = set()
 
     def conflict(kind: str, cid: str) -> None:
@@ -115,12 +116,9 @@ def merge_cells(base: list[dict[str, Any]], mine: list[dict[str, Any]], theirs: 
                               "base": b.get(cid), "mine": m.get(cid), "theirs": t.get(cid)})
             pick = "both"
         if kind == BOTH_EDITED:
-            if pick in ("theirs", "both"):
-                chosen[cid] = t[cid]
-            else:
-                chosen[cid] = m[cid]
+            chosen[cid] = t[cid] if pick == "theirs" else m[cid]
             if pick == "both":
-                extra[cid] = m[cid]
+                extra[cid] = t[cid]
             keep.add(cid)
         else:
             side = m if pick == "mine" else t
@@ -180,7 +178,12 @@ def merge_cells(base: list[dict[str, Any]], mine: list[dict[str, Any]], theirs: 
         if cid in extra:
             new = _copy_id(cid, taken)
             taken.add(new)
-            cells.append(dict(extra[cid], cell_id=new))
+            copy = dict(extra[cid], cell_id=new)
+            meta = dict(copy.get("meta") or {})
+            if not str(meta.get("title") or "").strip():
+                meta["title"] = THEIRS_TITLE  # so the cell kept from the other side says where it came from
+            copy["meta"] = meta
+            cells.append(copy)
     return {"cells": cells, "conflicts": conflicts, "resolved": not conflicts}
 
 

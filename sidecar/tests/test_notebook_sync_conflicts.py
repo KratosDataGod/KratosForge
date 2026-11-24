@@ -84,7 +84,9 @@ def test_the_same_cell_changed_in_both_is_a_named_conflict_with_both_versions(sv
     assert c["base"]["source"].startswith("# cell 500")
     shown = [x["source"] for x in merge["cells"]]
     assert shown[10] == "only VS Code changed this" and shown[901] == "only KratosForge changed this"
-    assert shown[500:502] == ["theirs = 1", "mine = 1"]  # both shown until the person chooses
+    assert shown[500:502] == ["mine = 1", "theirs = 1"]  # both shown until the person chooses
+    assert merge["cells"][501]["meta"]["title"] == "From VS Code"
+    assert merge["theirs_saved_at"].endswith("+00:00")
 
     # Nothing is saved until every conflict is chosen.
     left = call(svc, "notebook_sync_merge", name="Big", cells=nb["cells"], disk_stamp=nb["disk_stamp"])
@@ -98,7 +100,7 @@ def test_the_same_cell_changed_in_both_is_a_named_conflict_with_both_versions(sv
     assert done["disk_stamp"] == call(svc, "open_notebook", name="Big")["disk_stamp"]  # the screen can keep saving
 
 
-@pytest.mark.parametrize("pick, expect", [("theirs", ["theirs = 1"]), ("both", ["theirs = 1", "mine = 1"])])
+@pytest.mark.parametrize("pick, expect", [("theirs", ["theirs = 1"]), ("both", ["mine = 1", "theirs = 1"])])
 def test_choosing_theirs_or_both_for_a_cell_changed_in_both(svc, pick, expect):
     nb = big(svc)
     cid = nb["cells"][3]["cell_id"]

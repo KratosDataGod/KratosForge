@@ -180,7 +180,9 @@ Credits only, never converted to currency without a measured rate, never called 
 Research first: which Snowpark Python calls can be checked on this PC, labeled as compatibility, never
 as Snowflake runtime equivalence. Needs Chris's go before any runtime.
 
-The research is in [snowpark-assessment.md](snowpark-assessment.md).
+The research is in [snowpark-assessment.md](snowpark-assessment.md). Chris approved option C first, then
+option A. Option C, the Snowpark API compatibility check, is built (Preview,
+[engines.md](../engines.md#snowpark-api-compatibility-check-preview)).
 
 ### SF-008 Tasks, streams and dynamic tables (P2)
 

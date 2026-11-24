@@ -35,6 +35,9 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
 - ``snowflake_check`` (Preview, SF-002) checks a Snowflake connection from a profile: sign-in, role,
   database, schema and warehouse, each with what to fix (engines/snowflake_remote.py). It sends no
   warehouse, so nothing resumes and no warehouse credits are used.
+- ``snowpark_api_check`` (Preview, SF-007) is the Snowpark API compatibility check of one Python cell
+  (snowpark_api.py): each Snowpark call, method and keyword it can place, against one pinned Snowpark
+  version's signatures, and the calls that need Snowflake's own servers. It reads the code only.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -65,7 +68,7 @@ METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_sel
            "databricks_sync_pairs", "databricks_sync_pair_save", "databricks_sync_pair_remove", "databricks_sync_compare",
            "databricks_sync_push", "databricks_sync_pull",
            "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy",
-           "snowflake_check"}
+           "snowflake_check", "snowpark_api_check"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -294,6 +297,12 @@ class EnginesMixin:
         if conn.get("platform") != "snowflake":
             raise ValueError("That connection isn't a Snowflake connection.")
         return redact.walk(snowflake_remote.check_connection(conn))
+
+    def snowpark_api_check(self, code: str) -> dict[str, Any]:
+        """The Snowpark API compatibility check of one Python cell's code. Reads the code only: nothing
+        is executed and nothing reaches Snowflake."""
+        from . import snowpark_api
+        return snowpark_api.check(str(code))
 
     def _runs_reader(self, connection: str) -> Any:
         from .engines import databricks_jobs

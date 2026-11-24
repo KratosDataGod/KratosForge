@@ -252,7 +252,12 @@ AREAS: tuple[Area, ...] = (
                   note="Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. "
                        "docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.")),
     _skinned("snowflake", "objects", "Databases, schemas and object browser"),
-    _skinned("snowflake", "snowpark", "Snowpark", local=MISSING),
+    _skinned("snowflake", "snowpark", "Snowpark",
+       local=Cell("partial", ("test_snowpark_api.py",),
+                  note="API compatibility check only (Preview): a Python cell's Snowpark calls, methods and keywords are "
+                       "checked against Snowpark Python 1.58.0's signatures without executing anything, and calls that "
+                       "need Snowflake's servers (Cortex, external access, stages, pandas on Snowflake) are flagged. "
+                       "It says nothing about results. Not a Snowflake runtime.")),
     _skinned("snowflake", "loading", "Stages and data loading"),
     _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
     _skinned("snowflake", "history", "Query history, profiling and credits"),
@@ -289,7 +294,7 @@ PLANS: dict[tuple[str, str], Plan] = {
     ("snowflake", "connect"): _p("A", "P0", "cloud", "SF-001", "SF-002", "PAR-003", owner="Platform parity"),
     ("snowflake", "worksheets"): _p("B", "P0", "hybrid", "SF-003", "PAR-002", owner="Platform parity"),
     ("snowflake", "objects"): _p("D", "P1", "none", "SF-004", owner="Platform parity"),
-    ("snowflake", "snowpark"): _p("C", "P2", "none", "SF-007"),
+    ("snowflake", "snowpark"): _p("C", "P2", "simulated", "SF-007"),
     ("snowflake", "loading"): _p("D", "P2", "none", "SF-009"),
     ("snowflake", "tasks"): _p("E", "P2", "none", "SF-008"),
     ("snowflake", "history"): _p("G", "P1", "none", "SF-005", "SF-006", owner="Platform parity"),

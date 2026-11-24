@@ -100,7 +100,7 @@ Notes:
 | Sign-in, roles and warehouses | Partial | Missing | Partial | · | · |
 | SQL worksheets | Partial | Missing | Partial | Partial | · |
 | Databases, schemas and object browser | Partial | Missing | · | · | · |
-| Snowpark | Partial | Missing | · | Missing | · |
+| Snowpark | Partial | Missing | · | Partial | · |
 | Stages and data loading | Partial | Missing | · | · | · |
 | Streams, tasks and dynamic tables | Partial | Missing | · | · | · |
 | Query history, profiling and credits | Partial | Missing | · | · | · |
@@ -111,6 +111,7 @@ Notes:
 - **Sign-in, roles and warehouses, Cloud API integration:** Key-pair and programmatic access token sign-in, and a connection check of role, database, schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser sign-in and Snowflake CLI connections aren't supported yet. Against fakes, no live run yet.
 - **SQL worksheets, Cloud API integration:** The Snowflake SQL warehouse engine (Preview) runs read-only statements (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) through the SQL API after a confirm, and refuses anything else before it is sent. Not in the notebook's engine picker yet. Against fakes, no live run yet.
 - **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.
+- **Snowpark, Local execution:** API compatibility check only (Preview): a Python cell's Snowpark calls, methods and keywords are checked against Snowpark Python 1.58.0's signatures without executing anything, and calls that need Snowflake's servers (Cortex, external access, stages, pandas on Snowflake) are flagged. It says nothing about results. Not a Snowflake runtime.
 <!-- END GENERATED: parity -->
 
 Areas marked · are the parity backlog: each gets assessed against the platform's current
@@ -150,7 +151,7 @@ and it never raises a status. This table is generated from `PLANS` in the same m
 | Snowflake | Sign-in, roles and warehouses | A Authentication and connectivity | P0 | Cloud only | SF-001, SF-002, PAR-003 | Platform parity |
 | Snowflake | SQL worksheets | B SQL development | P0 | Local and cloud | SF-003, PAR-002 | Platform parity |
 | Snowflake | Databases, schemas and object browser | D Data storage and catalog | P1 | Not built yet | SF-004 | Platform parity |
-| Snowflake | Snowpark | C Notebooks and distributed compute | P2 | Not built yet | SF-007 | unassigned |
+| Snowflake | Snowpark | C Notebooks and distributed compute | P2 | Simulated or validated on this PC | SF-007 | unassigned |
 | Snowflake | Stages and data loading | D Data storage and catalog | P2 | Not built yet | SF-009 | unassigned |
 | Snowflake | Streams, tasks and dynamic tables | E Orchestration and transformation | P2 | Not built yet | SF-008 | unassigned |
 | Snowflake | Query history, profiling and credits | G Monitoring, cost and optimization | P1 | Not built yet | SF-005, SF-006 | Platform parity |

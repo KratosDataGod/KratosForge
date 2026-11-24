@@ -72,8 +72,9 @@ fabric-desktop = "fabric_desktop.cli:main"
 include = ["fabric_desktop*"]
 
 [tool.setuptools.package-data]
-# The SQL editor's function help (sql_function_help.py).
-"fabric_desktop" = ["spark_function_help.json", "tsql_function_help.json",
+# The SQL editor's function help (sql_function_help.py), and the Snowpark API compatibility check's
+# pinned signatures (snowpark_api.py).
+"fabric_desktop" = ["spark_function_help.json", "tsql_function_help.json", "snowpark_api.json",
                     "parity_cases.json"]  # the cross-platform verification cases (parity_harness.py)
 # Vendored third-party code ships with its license and notice.
 "fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]

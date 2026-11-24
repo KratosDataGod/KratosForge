@@ -1,8 +1,12 @@
 # Snowpark assessment (SF-007)
 
 Research for backlog item SF-007 in [platform-parity-backlog.md](platform-parity-backlog.md). It asks
-which Snowpark Python calls KratosForge could check on this PC. Nothing here is built, and no parity
-cell changes. Building any of it needs Chris's typed go.
+which Snowpark Python calls KratosForge could check on this PC. When it was written nothing was built
+and no parity cell changed.
+
+- **Status.** Chris approved option C first, then option A, and the new dependency for A. Option C is
+  built: the [Snowpark API compatibility check](../engines.md#snowpark-api-compatibility-check-preview)
+  (Preview).
 
 - **Researched.** 2026-11-21, against Snowpark Python 1.58.0, the latest release on
   [PyPI](https://pypi.org/project/snowflake-snowpark-python/) that day.

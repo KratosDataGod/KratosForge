@@ -10,8 +10,9 @@ from fabric_desktop import win_paths
 
 
 def _path(length: int) -> str:
-    path = os.path.abspath("/" + "a" * (length - 1))
-    assert len(path) == length
+    root = os.path.abspath(os.sep)  # "/" here, the drive's root ("D:\\") on Windows
+    path = root + "a" * (length - len(root))
+    assert len(os.path.abspath(path)) == length
     return path
 
 

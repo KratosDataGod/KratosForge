@@ -49,7 +49,9 @@ def wait(manager, run_id, states=sql_exec.FINISHED, seconds=60.0):
 
 # ---- the timer
 
-def test_a_step_far_longer_than_asked_is_the_pc_asleep_and_isnt_counted():
+def test_a_step_far_longer_than_asked_is_the_pc_asleep_and_isnt_counted(monkeypatch):
+    # The guess used where Windows' awake clock isn't there (on Windows that clock leaves sleep out itself).
+    monkeypatch.setattr(awake_timer, "_UNBIASED", None)
     t = AwakeTimer(60, lambda: None)
     assert t.awake_after(100.0, 101.0, 5.0) == 6.0  # an ordinary step
     assert t.awake_after(100.0, 100.0 + awake_timer.STEP + awake_timer.SLEEP_GAP, 5.0) == 5.0 + 6.0

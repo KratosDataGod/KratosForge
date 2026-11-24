@@ -505,6 +505,8 @@ C:\repos\sales-etl\resources\nightly.yml:14:1: error: resources.jobs.nightly.tas
 It exits 1 when there are errors, and `--json` prints every finding (severity, path, message, file,
 line, column). It checks:
 
+- YAML anchors and aliases (`&name`, `*name`) are refused, as are a file over 5 MB and nesting deeper than
+  200 levels, and such a file isn't read further.
 - YAML that can't be read, with its line and column, and a key given twice in one mapping (both lines
   are named, because YAML would quietly keep the second).
 - `bundle.name` is set.
@@ -528,12 +530,13 @@ line, column). It checks:
   warning, because the documentation says to use `${bundle.target}`.
 - A target's `mode` is `development` or `production`, `default` is true or false, and at most one
   target is the default.
-- Every `include` glob matches a file. Globs are relative to `databricks.yml`.
+- Every `include` glob matches a file and stays inside the bundle folder. Globs are relative to
+  `databricks.yml`.
 - `sync.include` and `sync.exclude` are lists of strings, and a relative `artifacts.<name>.path` is a
-  folder on this PC, relative to the YAML file that names it.
+  folder inside the bundle folder, relative to the YAML file that names it.
 - A relative `notebook_path`, `python_file`, `sql_task` file path or pipeline `notebook` or `file`
-  library path names a file on this PC, relative to the YAML file that names it (a notebook may leave
-  out its extension). Workspace paths (`/Workspace/...`), paths with a `${...}` substitution, and paths
+  library path names a file inside the bundle folder, relative to the YAML file that names it (a notebook may
+  leave out its extension). Workspace paths (`/Workspace/...`), paths with a `${...}` substitution, and paths
   into a Git source (`source: GIT` or the job's `git_source`) aren't looked for.
 
 The checks are written from Databricks' configuration reference

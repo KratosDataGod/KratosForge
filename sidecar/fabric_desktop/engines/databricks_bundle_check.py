@@ -47,6 +47,12 @@ Sources (docs.databricks.com, read 2026-11):
   a ``${...}`` substitution isn't type-checked (a complex variable can stand for a list or a mapping).
 - A key given twice in one mapping is an error: YAML keys in a mapping are unique, and PyYAML would keep
   the last one silently.
+- Bundle includes stay inside the folder; YAML aliases refused. An include glob that is absolute, names a
+  drive or climbs out with ``..`` is an error and isn't globbed, a match outside the folder isn't read, and
+  an include reads at most MAX_INCLUDE_FILES files. A local path (``notebook_path``, ``python_file``, an
+  artifact's ``path`` and the rest) that leads outside the folder is an error and isn't looked for. YAML
+  anchors and aliases, a file over MAX_FILE_BYTES and mappings or lists nested deeper than MAX_DEPTH are
+  errors, and such a file isn't read further.
 
 The Databricks CLI's JSON schema (``databricks bundle schema``) is not vendored: github.com/databricks/cli
 is under the Databricks License, which allows use "solely for the purposes of using the Licensed
@@ -145,11 +151,45 @@ TASK = TASK_TYPES | frozenset({
     "retry_on_timeout", "run_if", "task_key", "timeout_seconds", "webhook_notifications"})
 # A notebook path may leave out its extension; these are the files it can name.
 NOTEBOOK_EXTENSIONS = ("", ".py", ".ipynb", ".sql", ".scala", ".r", ".R")
+# Limits on what is read: bundle includes stay inside the folder; YAML aliases refused.
+MAX_FILE_BYTES = 5 * 1024 * 1024
+MAX_DEPTH = 200
+MAX_INCLUDE_FILES = 1000
 
 _REF = re.compile(r"\$\{([^}]*)\}")
 _VAR = re.compile(r"^var\.([A-Za-z0-9_-]+)")
 _RESOURCE_REF = re.compile(r"^resources\.([A-Za-z0-9_]+)\.([A-Za-z0-9_-]+)(\.|$)")
 _SCOPE_REF = re.compile(r"^(bundle|workspace)\.([A-Za-z0-9_-]+)")
+
+
+class _Refused(yaml.YAMLError):
+    """A YAML file this check won't read: ``message`` says why, at ``mark``."""
+
+    def __init__(self, message: str, mark: Any) -> None:
+        super().__init__(message)
+        self.message, self.mark = message, mark
+
+
+class _NoAliasLoader(yaml.SafeLoader):
+    """SafeLoader that refuses anchors and aliases (``&name``, ``*name``), whose nesting lets a few hundred
+    bytes expand into gigabytes, and mappings or lists nested deeper than MAX_DEPTH."""
+
+    def __init__(self, stream: str) -> None:
+        super().__init__(stream)
+        self._depth = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        event = self.peek_event()
+        if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None) is not None:
+            raise _Refused("YAML anchors and aliases (&name, *name) aren't read here. Write the values out "
+                           "in full.", event.start_mark)
+        self._depth += 1
+        try:
+            if self._depth > MAX_DEPTH:
+                raise _Refused(f"The YAML is nested more than {MAX_DEPTH} levels deep.", event.start_mark)
+            return super().compose_node(parent, index)
+        finally:
+            self._depth -= 1
 
 
 @dataclass(frozen=True)
@@ -178,6 +218,17 @@ class _Checker:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.findings: list[Finding] = []
+        self._abs_root = Path(os.path.abspath(root))
+        self._real_root = root.resolve()
+
+    def inside(self, path: Path) -> bool:
+        """Whether ``path`` stays inside the bundle folder, written out and with links followed."""
+        if not Path(os.path.normpath(os.path.abspath(path))).is_relative_to(self._abs_root):
+            return False
+        try:
+            return path.resolve().is_relative_to(self._real_root)
+        except (OSError, RuntimeError):
+            return False
 
     def add(self, doc: _Doc | str, severity: str, path: str, message: str, line: int | None = None,
             column: int | None = None) -> None:
@@ -194,14 +245,20 @@ class _Checker:
     def load(self, path: Path) -> _Doc | None:
         name = _rel(path, self.root)
         try:
+            if path.stat().st_size > MAX_FILE_BYTES:
+                self.add(name, ERROR, "", f"The file is over {MAX_FILE_BYTES // (1024 * 1024)} MB, so it isn't read.")
+                return None
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             self.add(name, ERROR, "", f"The file can't be read ({type(exc).__name__}).")
             return None
-        loader = yaml.SafeLoader(text)
+        loader = _NoAliasLoader(text)
         try:
             node = loader.get_single_node()
             data = loader.construct_document(node) if node is not None else None
+        except _Refused as exc:
+            self.add(name, ERROR, "", exc.message, exc.mark.line + 1, exc.mark.column + 1)
+            return None
         except yaml.MarkedYAMLError as exc:
             mark = exc.problem_mark or exc.context_mark
             problem = " ".join(str(exc.problem or exc.context or "invalid YAML").split())
@@ -242,10 +299,31 @@ class _Checker:
             if not isinstance(pattern, str) or not pattern.strip():
                 self.add(main, ERROR, where, "Each include is a path glob, such as resources/*.yml.")
                 continue
-            matches = sorted(Path(p) for p in glob.glob(os.path.join(str(base), pattern), recursive=True)
-                             if os.path.isfile(p))
+            if _leaves_folder(pattern):
+                self.add(main, ERROR, where, f"The include {pattern!r} leads outside the bundle folder. An include "
+                                             "must stay inside the bundle folder, relative to databricks.yml.")
+                continue
+            matches: list[Path] = []
+            outside = 0
+            for p in glob.iglob(os.path.join(glob.escape(str(base)), pattern), recursive=True):
+                if not os.path.isfile(p):
+                    continue
+                if not self.inside(Path(p)):
+                    outside += 1
+                    continue
+                if len(matches) == MAX_INCLUDE_FILES:
+                    self.add(main, ERROR, where, f"The include {pattern!r} matches more than {MAX_INCLUDE_FILES} "
+                                                 f"files, so only {MAX_INCLUDE_FILES} are read.")
+                    break
+                matches.append(Path(p))
+            matches.sort()
+            if outside:
+                self.add(main, ERROR, where, f"The include {pattern!r} matches {outside} file"
+                                             f"{'' if outside == 1 else 's'} outside the bundle folder, which "
+                                             "aren't read. An include must stay inside the bundle folder.")
             if not matches:
-                self.add(main, ERROR, where, f"The include {pattern!r} matches no file.")
+                if not outside:
+                    self.add(main, ERROR, where, f"The include {pattern!r} matches no file.")
                 continue
             for path in matches:
                 real = path.resolve()
@@ -428,7 +506,10 @@ class _Checker:
                 continue
             folder = doc.path.parent / value
             shown = _rel(folder, self.root)
-            if not folder.exists():
+            if not self.inside(folder):
+                self.add(doc, ERROR, where, f"{value!r} leads outside the bundle folder ({shown}, relative to "
+                                            f"{doc.name}). path must stay inside the bundle folder.")
+            elif not folder.exists():
                 self.add(doc, ERROR, where, f"{value!r} doesn't exist. There's no folder at {shown}, relative to {doc.name}.")
             elif not folder.is_dir():
                 self.add(doc, ERROR, where, f"{value!r} is a file, but path is the artifact's folder ({shown}, relative "
@@ -528,8 +609,12 @@ class _Checker:
         if _not_local(value):
             return
         base = doc.path.parent / value
+        if not self.inside(base):
+            self.add(doc, ERROR, path, f"{value!r} leads outside the bundle folder ({_rel(base, self.root)}, "
+                                       f"relative to {doc.name}). A local path must stay inside the bundle folder.")
+            return
         tries = NOTEBOOK_EXTENSIONS if notebook else ("",)
-        if not any(Path(f"{base}{ext}").is_file() for ext in tries):
+        if not any(self.inside(c) and c.is_file() for c in (Path(f"{base}{ext}") for ext in tries)):
             shown = _rel(base, self.root)
             self.add(doc, ERROR, path, f"{value!r} doesn't exist. There's no file at {shown}"
                      + (" (with or without a notebook extension)" if notebook else "")
@@ -635,6 +720,13 @@ def _duplicate_keys(node: yaml.Node, path: str) -> Iterator[tuple[str, int, int]
     elif isinstance(node, yaml.SequenceNode):
         for i, item in enumerate(node.value):
             yield from _duplicate_keys(item, f"{path}[{i}]")
+
+
+def _leaves_folder(pattern: str) -> bool:
+    """An include glob that is absolute, names a drive or a share, or has a ``..`` part. It is refused
+    before anything is globbed."""
+    return (pattern.startswith(("/", "\\")) or bool(re.match(r"^[A-Za-z]:", pattern)) or os.path.isabs(pattern)
+            or ".." in re.split(r"[\\/]", pattern))
 
 
 def _not_local(value: str) -> bool:

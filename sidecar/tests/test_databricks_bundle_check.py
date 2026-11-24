@@ -859,3 +859,119 @@ def test_the_check_uses_no_network_or_subprocess(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", refuse)
     write(tmp_path, {"databricks.yml": RUN_JOB_EXAMPLE, "src/test.py": ""})
     assert validate(tmp_path) == []
+
+
+# ---------------------------------------------------------------- bundle includes stay inside the folder; YAML aliases refused
+
+
+@pytest.mark.parametrize("pattern", ["C:/x/*.yml", "c:x.yml", "\\\\host\\share\\x.yml", "\\x.yml", "/x/*.yml",
+                                     "../x.yml", "resources/../../x.yml", "resources\\..\\x.yml"])
+def test_an_include_that_leaves_the_folder_is_refused_before_globbing(tmp_path, monkeypatch, pattern):
+    import glob as glob_module
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a refused include must not be globbed")
+
+    monkeypatch.setattr(glob_module, "iglob", refuse)
+    write(tmp_path, {"databricks.yml": f"bundle:\n  name: x\ninclude:\n  - '{pattern}'\n"})
+    finding = one(validate(tmp_path), "include[0]")
+    assert finding.severity == ERROR and finding.line == 4
+    assert finding.message == (f"The include {pattern!r} leads outside the bundle folder. An include must stay "
+                               "inside the bundle folder, relative to databricks.yml.")
+
+
+def test_an_include_match_outside_the_folder_through_a_link_is_not_read(tmp_path):
+    outside = tmp_path / "outside"
+    write(outside, {"evil.yml": "resources:\n  bogus: {}\n"})
+    bundle = write(tmp_path / "bundle", {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - res/*.yml\n"})
+    try:
+        (bundle / "res").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("this PC can't make a symbolic link")
+    findings = validate(bundle)
+    assert [(f.path, f.file) for f in findings] == [("include[0]", "databricks.yml")]
+    assert "matches 1 file outside the bundle folder, which aren't read" in findings[0].message
+
+
+def test_an_include_reads_at_most_the_cap(tmp_path, monkeypatch):
+    from fabric_desktop.engines import databricks_bundle_check as check
+
+    monkeypatch.setattr(check, "MAX_INCLUDE_FILES", 3)
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - res/*.yml\n",
+                     **{f"res/{i}.yml": "resources: {}\n" for i in range(5)}})
+    assert [f.message for f in validate(tmp_path)] == [
+        "The include 'res/*.yml' matches more than 3 files, so only 3 are read."]
+
+
+@pytest.mark.parametrize("value", ["../outside.py", "src/../../outside.py"])
+def test_a_local_path_outside_the_folder_is_a_finding_and_not_looked_for(tmp_path, value):
+    bundle = tmp_path / "bundle"
+    write(tmp_path, {"outside.py": ""})
+    write(bundle, {"databricks.yml": "bundle:\n  name: x\nresources:\n  jobs:\n    j:\n      tasks:\n"
+                                     f"        - task_key: a\n          spark_python_task:\n            python_file: {value}\n"
+                                     f"artifacts:\n  w:\n    path: {value}\n"})
+    findings = validate(bundle)
+    task = one(findings, "resources.jobs.j.tasks[0].spark_python_task.python_file")
+    assert task.message == (f"{value!r} leads outside the bundle folder (../outside.py, relative to databricks.yml). "
+                            "A local path must stay inside the bundle folder.")
+    art = one(findings, "artifacts.w.path")
+    assert art.message.startswith(f"{value!r} leads outside the bundle folder")
+
+
+def test_a_relative_path_that_climbs_but_stays_inside_is_still_checked(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - resources/*.yml\n",
+                     "resources/job.yml": "resources:\n  jobs:\n    j:\n      tasks:\n        - task_key: a\n"
+                                          "          notebook_task:\n            notebook_path: ../src/nb\n",
+                     "src/nb.py": ""})
+    assert validate(tmp_path) == []
+
+
+def test_a_local_path_through_a_link_outside_is_a_finding(tmp_path):
+    write(tmp_path, {"outside/real.py": ""})
+    bundle = write(tmp_path / "bundle", {"databricks.yml": "bundle:\n  name: x\nresources:\n  jobs:\n    j:\n"
+                                         "      tasks:\n        - task_key: a\n          spark_python_task:\n"
+                                         "            python_file: link.py\n"})
+    try:
+        (bundle / "link.py").symlink_to(tmp_path / "outside" / "real.py")
+    except OSError:
+        pytest.skip("this PC can't make a symbolic link")
+    assert "leads outside the bundle folder" in one(
+        validate(bundle), "resources.jobs.j.tasks[0].spark_python_task.python_file").message
+
+
+def test_an_alias_bomb_is_refused_quickly_with_its_line(tmp_path):
+    import time
+
+    lines = ["bundle:\n  name: x\n", "a0: &a0 [lol, lol, lol, lol, lol, lol, lol, lol, lol]\n"]
+    lines += [f"a{i}: &a{i} [{', '.join([f'*a{i - 1}'] * 9)}]\n" for i in range(1, 10)]
+    write(tmp_path, {"databricks.yml": "".join(lines)})
+    assert len("".join(lines)) < 1000
+    started = time.monotonic()
+    findings = validate(tmp_path)
+    assert time.monotonic() - started < 1
+    assert [(f.severity, f.line, f.column) for f in findings] == [(ERROR, 3, 5)]
+    assert findings[0].message == ("YAML anchors and aliases (&name, *name) aren't read here. Write the values out "
+                                   "in full.")
+
+
+def test_an_alias_without_its_own_anchor_is_refused_on_its_line(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\nvariables:\n  a:\n    default: *nowhere\n"})
+    findings = validate(tmp_path)
+    assert [f.line for f in findings] == [5] and "aliases" in findings[0].message
+
+
+def test_deep_nesting_is_a_finding_not_a_recursion_error(tmp_path):
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\nx: " + "[" * 5000 + "]" * 5000 + "\n"})
+    findings = validate(tmp_path)
+    assert [f.message for f in findings] == ["The YAML is nested more than 200 levels deep."]
+    assert findings[0].line == 3
+
+
+def test_a_file_over_the_size_cap_is_not_read(tmp_path, monkeypatch):
+    from fabric_desktop.engines import databricks_bundle_check as check
+
+    assert check.MAX_FILE_BYTES == 5 * 1024 * 1024
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - big.yml\n",
+                     "big.yml": "# " + "x" * check.MAX_FILE_BYTES + "\n"})
+    findings = validate(tmp_path)
+    assert [(f.file, f.message) for f in findings] == [("big.yml", "The file is over 5 MB, so it isn't read.")]

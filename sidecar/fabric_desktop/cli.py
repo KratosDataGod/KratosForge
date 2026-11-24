@@ -475,7 +475,8 @@ def _backup(args: argparse.Namespace) -> int:
 def _restore_audited(zip_path: Path, folder: Path, home: Path | None) -> int:
     """restore --yes replaces this PC's data, so it always fails closed: a "started" line naming the backup
     file is written to this PC's audit log (the app's, Service.audit) before any file changes, and nothing
-    is restored when it can't be; then how the restore ended. The person is this PC's account, marked
+    is restored when it can't be; then how the restore ended, with how many audit entries the backup held that
+    weren't restored (restore leaves the audit trails as they are). The person is this PC's account, marked
     (cli), as for the CLI's other audited commands."""
     import time
 
@@ -491,11 +492,11 @@ def _restore_audited(zip_path: Path, folder: Path, home: Path | None) -> int:
         print("error: " + audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}"))
         return 2
 
-    def note(outcome: str, error: str = "", reason: str = "") -> None:
+    def note(outcome: str, error: str = "", reason: str = "", **more: int) -> None:
         """How the restore ended: never changes what it did, as for the app's own calls."""
         try:
-            log.record("backup_restore", outcome, time.monotonic() - began, call, who=who, error=error,
-                       reason=reason)
+            log.record("backup_restore", outcome, time.monotonic() - began, dict(call, **more), who=who,
+                       error=error, reason=reason)
         except Exception as exc:  # noqa: BLE001 - stderr says the line is missing
             print(f"audit: could not record backup_restore: {type(exc).__name__}: {exc}", file=sys.stderr)
 
@@ -508,7 +509,8 @@ def _restore_audited(zip_path: Path, folder: Path, home: Path | None) -> int:
     except BaseException as exc:
         note("error", error=f"{type(exc).__name__}: {exc}", reason="failed")
         raise
-    note("ok")
+    left = result.get("audit_entries_not_restored", 0)
+    note("ok", **({"audit_entries_not_restored": left} if left else {}))
     print(backup.describe(result), end="")
     return 0
 

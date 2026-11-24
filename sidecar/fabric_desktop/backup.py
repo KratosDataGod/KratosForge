@@ -60,6 +60,10 @@ TEXT_SUFFIXES = {".json", ".jsonl", ".toml", ".ipynb", ".sql", ".py", ".md", ".t
 SECRET_KEYS = {"teams_webhook", "platform_notify"}  # platform_notify holds webhook addresses
 AGENT_FILES = ("queue.sqlite3", "alerts.sqlite3")
 DB_WAIT = 10.0  # seconds a backup waits for a database another program is writing to
+# The audit trails, under app/ (this PC's data folder) and agent/ (the agent's home): this PC's, and the
+# integrations'. A backup keeps them, and a restore never writes them.
+AUDIT_TRAILS = (("audit",), ("integrations", "audit"))
+AUDIT_REASON = "restore leaves the audit trails as they are"
 
 
 class BackupError(ValueError):
@@ -73,6 +77,18 @@ def _skipped(rel: PurePosixPath) -> str | None:
         return "tokens are never backed up"
     if rel.suffix.lower() in SKIP_SUFFIXES or rel.name.endswith(SQLITE_COMPANIONS):
         return "rebuilt by the app"
+    return None
+
+
+def _audit_trail(name: str) -> str | None:
+    """The audit trail folder (``app/audit/``) a backup's ``name`` is in or names, or None. Matched by name
+    as Windows reads a path: any case, and a trailing dot or space dropped from each part."""
+    parts = [p.rstrip(" .").lower() for p in PurePosixPath(name).parts]
+    if len(parts) < 2 or parts[0] not in ("app", "agent"):
+        return None
+    for trail in AUDIT_TRAILS:
+        if tuple(parts[1:1 + len(trail)]) == trail:
+            return "/".join((parts[0], *trail)) + "/"
     return None
 
 
@@ -216,8 +232,10 @@ def _fill(z: zipfile.ZipFile, files: list[tuple[str, Path]], skipped: list[dict[
                 cleaned.append({"path": name, "removed": ", ".join(removed)})
         z.writestr(name, data)
         entries.append({"path": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    trails = sorted({t for e in entries if (t := _audit_trail(e["path"]))})
     manifest = {"schema": SCHEMA, "created": now.isoformat(timespec="seconds"), "files": entries,
-                "cleaned": cleaned, "not_included": skipped}
+                "cleaned": cleaned, "not_included": skipped,
+                "not_restored": [{"path": t, "reason": AUDIT_REASON} for t in trails]}
     z.writestr(MANIFEST, json.dumps(manifest, indent=2))
 
 
@@ -241,6 +259,7 @@ def _no_longer(name: str) -> bool:
 def _safe(name: str) -> bool:
     path = PurePosixPath(name)
     return (not path.is_absolute() and ".." not in path.parts and "\\" not in name and ":" not in name
+            and not {"", "."} & set(name.split("/"))  # each part as written: app//x would name /x
             and len(path.parts) >= 2 and path.parts[0] in ("app", "agent")
             and _skipped(PurePosixPath(*path.parts[1:])) is None)
 
@@ -271,7 +290,10 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
             if name.lower() in {n.lower() for n in listed}:  # Windows paths ignore case
                 problems.append(f"{name} is listed twice in its manifest")
             listed[name] = entry
-        manifest = dict(manifest, files=kept)
+        # Never restored, whatever the manifest says: every entry in an audit trail, by name.
+        manifest = dict(manifest, files=kept, not_restored=[
+            {"path": str(e.get("path", "")), "reason": AUDIT_REASON} for e in kept
+            if _audit_trail(str(e.get("path", "")))])
         all_names = z.namelist()
         names = {n for n in all_names if not _no_longer(n)} - {MANIFEST}
         problems += [f"{name} is in the zip twice" for name in sorted({n for n in all_names if all_names.count(n) > 1})]
@@ -366,13 +388,17 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
     plan = []
     for entry in manifest["files"]:
         name = entry["path"]
-        top, rest = name.split("/", 1)
-        if top == "agent" and not agent_home:
+        if _audit_trail(name):
             continue
-        dest = (agent_home if top == "agent" else data_dir) / rest
+        top, *rest = PurePosixPath(name).parts  # the parts validate checked: never the raw name
+        base = agent_home if top == "agent" else data_dir
+        if base is None:
+            continue
+        dest = base.joinpath(*rest)
         plan.append({"path": name, "to": str(dest), "replaces": dest.exists()})
     result: dict[str, Any] = {"created": manifest["created"], "files": plan, "applied": False,
-                              "cleaned": manifest.get("cleaned", [])}
+                              "cleaned": manifest.get("cleaned", []), "not_restored": manifest["not_restored"],
+                              "audit_entries_not_restored": _audit_entries(zip_path, manifest["not_restored"])}
     if not apply:
         return result
     hashes = {entry["path"]: entry["sha256"] for entry in manifest["files"]}
@@ -432,6 +458,17 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
     return result
 
 
+def _audit_entries(zip_path: Path, names: list[dict[str, str]]) -> int:
+    """How many audit lines the backup's audit trails hold (its .jsonl files' lines)."""
+    count = 0
+    with zipfile.ZipFile(zip_path) as z:
+        for item in names:
+            if item["path"].lower().endswith(".jsonl"):
+                with z.open(item["path"]) as src:
+                    count += sum(1 for line in src if line.strip())
+    return count
+
+
 def _prune_safety(folder: Path, keep: int = KEEP_SAFETY) -> list[str]:
     """Delete all but the newest ``keep`` restores' copies in ``folder``, after a restore that worked.
     Only plain folders named as restore names them: restore never makes a link there, so one (a symbolic
@@ -482,6 +519,11 @@ def describe(result: dict[str, Any]) -> str:
               f"({replaces} replace a file already here).\n")
     for item in result["cleaned"]:
         out.write(f"  {item['path']}: {item['removed']} was left out of the backup; set it again.\n")
+    if result.get("not_restored"):
+        trails = sorted({_audit_trail(n["path"]) or n["path"] for n in result["not_restored"]})
+        count = result.get("audit_entries_not_restored", 0)
+        out.write(f"Restore leaves the audit trails as they are: the backup's {', '.join(trails)} "
+                  f"({count} audit {'entry' if count == 1 else 'entries'}) aren't restored.\n")
     if result.get("safety"):
         out.write(f"The files it replaced are in {result['safety']}.\n")
     if not result["applied"]:

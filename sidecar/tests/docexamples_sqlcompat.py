@@ -28,6 +28,10 @@ def _column_type(select: str, table: str, column: str = "v") -> dict:
 
 
 CLAIMS: list[Claim] = [
+    # DECIMAL and NUMERIC with no precision are decimal(18, 0) (WR-706)
+    _ts("CAST(1.5 AS DECIMAL)"),
+    _ts("CAST(2.5 AS NUMERIC(5))"),
+    _ts("CAST(-2.5 AS DECIMAL)"),
     # Spark's date and time functions on this PC
     _nb("DATE'2024-01-31' + INTERVAL 1 MONTH"),
     _nb("unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')"),

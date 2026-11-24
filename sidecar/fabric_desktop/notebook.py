@@ -2965,6 +2965,10 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
     else:
         meta.pop("dependencies", None)
     raw_cells = [c for c in before.get("cells", []) if isinstance(c, dict)] if isinstance(before.get("cells"), list) else []
+    problem = ipynb_cell_problem(raw_cells)
+    if problem:
+        raise ValueError(f"The notebook wasn't saved, because {problem} in the file on disk. Fix that cell in a text "
+                         "editor or Jupyter, then save again.")
     read_ids = [c["cell_id"] for c in from_ipynb({"cells": raw_cells})["cells"]]
     old_cells = dict(zip(read_ids, raw_cells, strict=True))
     cells = []
@@ -3094,6 +3098,11 @@ def ipynb_cell_problem(cells: list[Any]) -> str | None:
     return None
 
 
+def other_cell_type_note(cell_type: Any) -> str:
+    """The import note for a cell that isn't code or markdown (a raw cell), which comes in as code."""
+    return f"The cell's type ({str(cell_type or 'none')[:40]}) isn't code or markdown, so it comes in as a code cell."
+
+
 def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
     cells = []
     for c in nb.get("cells", []):
@@ -3195,6 +3204,10 @@ class NotebookStore:
             raise ValueError(f"{self.path(name).name} is damaged or isn't a notebook any more, so it can't be "
                              "opened. The file has been left as it is. Fix it in a text editor, or put back an "
                              "earlier copy.") from exc
+        problem = ipynb_cell_problem(nb["cells"]) if isinstance(nb, dict) and isinstance(nb.get("cells"), list) else None
+        if problem:
+            raise ValueError(f"{self.path(name).name} can't be opened, because {problem}. The file has been left as it "
+                             "is. Fix that cell in a text editor or Jupyter, then open it again.")
         return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
 
     def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
@@ -3234,6 +3247,10 @@ class NotebookStore:
             now = disk_stamp(before) if parsed else raw_stamp(raw)
             if now != expected_stamp:
                 return {"name": name, "changed_on_disk": True, "disk_stamp": now, "unreadable": not parsed}
+        problem = ipynb_cell_problem(before["cells"]) if isinstance(before.get("cells"), list) else None
+        if problem:
+            raise ValueError(f"{path.name} wasn't saved, because {problem} in the file on disk. Fix that cell in a "
+                             "text editor or Jupyter, then save again.")
         saved = from_ipynb(before) if before and (compute is None or workspace is None) else {}
         if compute is None:
             compute = saved.get("compute", "default")

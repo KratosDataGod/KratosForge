@@ -200,6 +200,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |
+| Merge a notebook changed in VS Code and here, cell by cell | Notebook, when a save finds the file also saved in VS Code (or by a Git pull): each cell that differs is picked ([vscode.md](vscode.md#when-both-sides-changed)) |
 | OneLake shortcuts | OneLake > Shortcuts |
 | Shortcut fixes | OneLake > Shortcuts > Health and a shortcut's panel (find a lakehouse that moved, repoint many at once, accept a crossed environment; [shortcuts.md](shortcuts.md#fixing-shortcuts)) |
 | OneLake access | OneLake > Access |

@@ -2344,7 +2344,8 @@ async function saveNotebook() {
   if (!ok) return false;
   if (ok.changed_on_disk) {
     nb.diskConflict = true;  // autosave waits until the person decides
-    nbDiskConflict(nb, ok);
+    if (ok.merge && previewShown()) nbSyncMerge(nb, ok);  // merged by cell, each difference picked (Preview)
+    else nbDiskConflict(nb, ok);
     return false;
   }
   nb.diskStamp = ok.disk_stamp || null;

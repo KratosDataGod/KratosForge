@@ -30,7 +30,7 @@ import zlib
 from pathlib import PurePosixPath
 from typing import Any
 
-from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, ipynb_cell_problem, to_ipynb
+from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, ipynb_cell_problem, other_cell_type_note, to_ipynb
 
 FORMATS = ("ipynb", "ipynb_outputs", "fabric_py", "databricks_py", "html")
 EXTENSIONS = {"ipynb": ".ipynb", "ipynb_outputs": ".ipynb", "fabric_py": ".py", "databricks_py": ".py", "html": ".html"}
@@ -119,11 +119,19 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
             "default_lakehouse": lakehouse["lakehouse_id"], "default_lakehouse_name": lakehouse.get("name", ""),
             "default_lakehouse_workspace_id": lakehouse.get("workspace_id", "")}}
     out = [FABRIC_HEADER, ""] + _meta_block(meta)
-    for c in cells:
+    for n, c in enumerate(cells, 1):
         source = c.get("source", "")
         out.append("")
         if c.get("type") == "markdown":
-            out += [FABRIC_MARKDOWN, ""] + _prefixed("#", _lines(source))
+            lines = _prefixed("#", _lines(source))
+            bad = next((raw for raw, ln in zip(_lines(source), lines, strict=True) if ln.rstrip() in _FABRIC_MARKERS), None)
+            if bad is not None:
+                # Fabric's markdown has no escape: such a line would split the cell and lose text.
+                quoted = repr(bad if len(bad) <= 80 else bad[:77] + "...")
+                raise ValueError(f"The notebook wasn't exported as Fabric source, because line {quoted} in cell {n}, a "
+                                 "markdown cell, would read back as a cell marker and split it. Change that line, or "
+                                 "export as .ipynb.")
+            out += [FABRIC_MARKDOWN, ""] + lines
             continue
         source = _magic_first(source)
         magic = _magic(source)
@@ -462,19 +470,29 @@ def _unprefix(lines: list[str], prefix: str) -> list[str]:
     return [ln[len(prefix):] if ln.startswith(prefix) else "" if ln.rstrip() == bare else ln for ln in lines]
 
 
-def _parse_fabric(lines: list[str]) -> list[dict[str, Any]]:
+# Fabric source by its first line's comment: notebook-content.py (#), .sql (--) and .scala (//). A
+# code cell with no cell magic and no language in its METADATA is in the notebook's own language.
+_FABRIC_COMMENTS = {"#": None, "--": "%%sql", "//": "%%spark"}
+
+
+def _parse_fabric(lines: list[str], comment: str = "#") -> list[dict[str, Any]]:
     cells: list[dict[str, Any]] = []
     blocks: list[tuple[str, list[str]]] = []
+    markers = {m.replace("#", comment, 1): m for m in _FABRIC_MARKERS}
     for ln in lines[1:]:
         s = ln.rstrip()
-        if s in (FABRIC_CELL, FABRIC_PARAMS, FABRIC_MARKDOWN, FABRIC_METADATA):
-            blocks.append((s, []))
+        if s in markers:
+            blocks.append((markers[s], []))
         elif blocks:
             blocks[-1][1].append(ln)
+    default = _FABRIC_COMMENTS[comment]
+    bare: list[dict[str, Any]] = []  # code cells that may get the notebook's language
     for kind, body in blocks:
         if kind == FABRIC_METADATA:
             if cells and cells[-1]["type"] == "code":
-                meta = _fabric_meta(body)
+                meta = _fabric_meta(body, comment)
+                if meta.get("language") and bare and bare[-1] is cells[-1]:
+                    bare.pop()
                 magic = _FABRIC_MAGIC.get(str(meta.get("language", "")))
                 if magic and not cells[-1]["source"].startswith("%%"):
                     cells[-1]["source"] = f"{magic}\n{cells[-1]['source']}"
@@ -484,23 +502,27 @@ def _parse_fabric(lines: list[str]) -> list[dict[str, Any]]:
                     cells[-1].setdefault("meta", {})["breakpoints"] = breakpoints
             continue
         if kind == FABRIC_MARKDOWN:
-            cells.append(_markdown(_trim(_unprefix(body, "# "))))
+            cells.append(_markdown(_trim(_unprefix(body, f"{comment} "))))
             continue
         text = _trim(body)
-        if all(ln.startswith("# MAGIC") for ln in _lines(text) if ln.strip()) and text:
-            text = "\n".join(_unprefix(_lines(text), "# MAGIC "))
+        if all(ln.startswith(f"{comment} MAGIC") for ln in _lines(text) if ln.strip()) and text:
+            text = "\n".join(_unprefix(_lines(text), f"{comment} MAGIC "))
         cell = _code(text)
         if kind == FABRIC_PARAMS:
             cell["meta"] = {"tags": ["parameters"]}
         cells.append(cell)
+        bare.append(cell)
+    for cell in bare:
+        if default and not cell["source"].startswith("%%"):
+            cell["source"] = f"{default}\n{cell['source']}"
     return cells
 
 
-def _fabric_meta(body: list[str]) -> dict[str, Any]:
-    text = "\n".join(_unprefix([ln for ln in body if ln.startswith("# META")], "# META "))
+def _fabric_meta(body: list[str], comment: str = "#") -> dict[str, Any]:
+    text = "\n".join(_unprefix([ln for ln in body if ln.startswith(f"{comment} META")], f"{comment} META "))
     try:
         value = json.loads(text) if text.strip() else {}
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: nested too deep to be cell settings
         return {}
     return value if isinstance(value, dict) else {}
 
@@ -610,8 +632,9 @@ def parse_source(text: str, file_name: str = "") -> dict[str, Any]:
     lines = _lines(text)
     first = lines[0].strip() if lines else ""
     ext = PurePosixPath(file_name.replace("\\", "/")).suffix.lower()
-    if first == FABRIC_HEADER:
-        return {"format": "Fabric notebook source", "cells": _parse_fabric(lines)}
+    for comment in _FABRIC_COMMENTS:
+        if first == f"{comment} {FABRIC_HEADER[2:]}":
+            return {"format": "Fabric notebook source", "cells": _parse_fabric(lines, comment)}
     for comment, default, label in (("#", None, "Databricks notebook source"), ("--", "%%sql", "Databricks SQL notebook source"),
                                     ("//", "%%spark", "Databricks Scala notebook source")):
         if first == f"{comment} {DATABRICKS_HEADER}":
@@ -642,8 +665,7 @@ def parse_ipynb(text: str) -> dict[str, Any]:
     notes: list[dict[str, Any]] = []
     for n, c in enumerate(nb["cells"], 1):
         if c.get("cell_type") not in ("code", "markdown"):
-            notes.append(_note(n, "changed", f"The cell's type ({str(c.get('cell_type') or 'none')[:40]}) isn't code or markdown, "
-                                             "so it comes in as a code cell."))
+            notes.append(_note(n, "changed", other_cell_type_note(c.get("cell_type"))))
         if c.get("outputs"):
             notes.append(_note(n, "dropped", "The cell's saved outputs were left out, because imported notebooks start without outputs. "
                                              "Run the cell to get them."))

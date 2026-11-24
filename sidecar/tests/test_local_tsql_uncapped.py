@@ -356,8 +356,8 @@ def test_a_delete_with_a_join_says_it_couldnt_tell_a_divisions_types():
     columns = {"dbo": {"t": {"n": "INTEGER"}}}
     out, notes = translate("DELETE t FROM dbo.t AS t JOIN dbo.t AS v ON t.n = v.n WHERE t.n / 2 = 1", columns)
     assert out == ["DELETE FROM dbo.t AS t USING dbo.t AS v WHERE (t.n = v.n) AND (t.n / 2 = 1)"]
-    assert notes == ["Couldn't tell the types in t.n / 2: it divides as DuckDB does, and T-SQL divides two "
-                     "integers as integers."]
+    assert notes == [("Couldn't tell the types in t.n / 2: it divides as DuckDB does, and T-SQL divides two "
+                      "integers as integers.")]
 
 
 def test_a_four_part_name_is_told_its_own_schema():

@@ -316,6 +316,68 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.3-q11",
+      "type": "order",
+      "stem": "At Quillon, put the steps that limit each adjuster to the claims of their own region in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Create an inline table-valued function Rls.fn_region(@Region) WITH SCHEMABINDING that returns 1 when dbo.AdjusterRegion maps USER_NAME() to @Region"
+        },
+        {
+          "id": "b",
+          "text": "Run CREATE SCHEMA Rls to hold the security objects"
+        },
+        {
+          "id": "c",
+          "text": "Run CREATE SECURITY POLICY with ADD FILTER PREDICATE Rls.fn_region(Region) ON dbo.Claims WITH (STATE = ON)"
+        }
+      ],
+      "answer": [
+        "b",
+        "a",
+        "c"
+      ],
+      "explanation": "Row-level security in a warehouse uses an inline table-valued function as the predicate, so its schema must exist first. The security policy then adds the function as a filter predicate on the table and is turned on with STATE = ON, after which rows the predicate doesn't return are silently filtered.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security",
+      "case": "quillon-claims",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.3.3-q12",
+      "type": "single",
+      "stem": "At Quillon, which statement gives adjusters access to dbo.Claims and meets the FraudScore requirement?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`DENY SELECT ON dbo.Claims TO [Adjusters]`, plus a grant on the whole table to investigators"
+        },
+        {
+          "id": "b",
+          "text": "`CREATE SECURITY POLICY` with a filter predicate on FraudScore for the Adjusters group"
+        },
+        {
+          "id": "c",
+          "text": "`GRANT SELECT ON dbo.Claims(ClaimId, Region, ClaimDate, Amount, Status) TO [Adjusters]`"
+        },
+        {
+          "id": "d",
+          "text": "`GRANT SELECT ON dbo.Claims TO [Adjusters]`, plus a view of dbo.Claims without FraudScore"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Column-level security is a GRANT SELECT on a list of columns, so the adjusters can read every column except FraudScore. A table-wide grant still lets them read FraudScore from the table even if a view hides it, a security policy filters rows rather than columns, and a DENY on the table blocks the adjusters entirely.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/column-level-security",
+      "case": "quillon-claims",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

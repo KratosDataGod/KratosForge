@@ -210,7 +210,7 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
         if found is None:
             continue
         arg = found
-        dtype = types.get(arg.meta.get(_ID, -1))
+        dtype = _arg_type(arg, types)
         if kind == "typeof" and _int_shift_type(arg, types) is not None:
             node.replace(exp.Literal.string("int"))  # a shift of an int is an int, though its SQL is a long
             continue
@@ -237,10 +237,11 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
             _lateral_map(node, value)
         elif kind == "int_shift" and dtype.is_type(*_INT_SHIFTED):
             # spark_builtins_sql._int_when_int: the int path's value, typed as the int Spark gives
-            new = exp.Cast(this=node.copy(), to=exp.DataType.build("INT"))
+            new = exp.Cast(to=exp.DataType.build("INT"))
             new.meta[TYPED] = True
             new.type = exp.DataType.build("INT")
             node.replace(new)
+            new.set("this", node)  # the node itself, not a copy: shifts inside it, still to fix, stay in the statement
         elif kind == "typeof" and (name := spark_json.type_name(dtype)) is not None:
             node.replace(exp.Literal.string(name))
     for node, json_type in reversed(json_types):
@@ -251,6 +252,15 @@ def spark_complex_types(statement: exp.Expr, conn: Any, kinds: tuple[str, ...] |
 _INT_SHIFTED = (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT)
 
 
+def _arg_type(arg: exp.Expr, types: dict[int, Any]) -> Any:
+    """``arg``'s type: the one a fix already gave it (a shift of an int cast to INT, written before the shift
+    around it), else the one worked out before any fix."""
+    parent = arg.parent
+    if isinstance(parent, exp.Cast) and parent.meta.get(TYPED) and parent.this is arg and parent.type is not None:
+        return parent.type
+    return _int_shift_type(arg, types) or types.get(arg.meta.get(_ID, -1))
+
+
 def _int_shift_type(value: exp.Expr, types: dict[int, Any]) -> exp.DataType | None:
     """INT when ``value`` is a shift of a tinyint, smallint or int not yet cast to one (an "int_shift" mark
     written after the typeof around it), else None."""
@@ -259,7 +269,7 @@ def _int_shift_type(value: exp.Expr, types: dict[int, Any]) -> exp.DataType | No
     if value.meta.get(_KEY) != "int_shift":
         return None
     arg = next((a for a in value.walk() if a is not value and a.meta.get(_ARG)), None)
-    dtype = types.get(arg.meta.get(_ID, -1)) if arg is not None else None
+    dtype = _arg_type(arg, types) if arg is not None else None  # a shift of a shift of an int is an int too
     return exp.DataType.build("INT") if dtype is not None and dtype.is_type(*_INT_SHIFTED) else None
 
 

@@ -14,7 +14,8 @@ overall, and the other dimensions' weights are scaled back up to 100.
 
 A rating comes from the score only at the profile's rated coverage (default 80%). Between the
 provisional and rated coverage it is ``provisional``; below, ``insufficient_evidence`` with no rating.
-A score of 100 needs coverage of 100%; otherwise it's shown as 99. ``critical_risk`` is set by any
+A score of 100 needs coverage of 100% and no failed control: a gap shows as 99 and a failure that
+would round to 100 as 99.9. ``critical_risk`` is set by any
 failed critical control, whatever the score.
 
 Ratings are KratosForge product ratings, not Microsoft certifications.
@@ -45,6 +46,25 @@ def rating(score: float | None) -> dict[str, str] | None:
 
 def _round(x: float) -> float:
     return round(x + 0.0, 1)
+
+
+def _shown(score: float | None, assured: float, coverage: float) -> tuple[float | None, float, float]:
+    """Score, assured score and coverage (a share) as shown, in percent to one decimal. Rounding never
+    makes a gap disappear: below full coverage the coverage shows at most 99.9 and the score at most 99
+    (a raw 99.96 would otherwise round to 100), and the assured score never shows above the coverage."""
+    cov = _round(100 * coverage)
+    sc = None if score is None else _round(score)
+    shown_assured = _round(assured)
+    # a failed control never rounds away: 9,999 passes and one failure is 99.99, shown as 99.9, not 100
+    if score is not None and score < 100 and sc is not None and sc >= 100:
+        sc = 99.9
+    if assured < 100 and shown_assured >= 100:
+        shown_assured = 99.9
+    if coverage < 1:
+        cov = min(cov, 99.9)
+        if sc is not None and sc >= 100:
+            sc = 99.0
+    return sc, min(shown_assured, cov), cov
 
 
 def control_rows(outcomes: list[dict[str, Any]], profile: Profile) -> list[dict[str, Any]]:
@@ -90,12 +110,10 @@ def _status(score: float | None, coverage: float, p: Profile) -> str:
 def _block(applicable: float, evaluated: float, passed: float, p: Profile) -> dict[str, Any]:
     coverage = evaluated / applicable if applicable else 0.0
     score = 100 * passed / evaluated if evaluated else None
-    assured = 100 * passed / applicable if applicable else None
-    if score is not None and score >= 100 and coverage < 1:
-        score = 99.0
-    st = _status(score, coverage, p)
-    return {"score": None if score is None else _round(score), "assured": None if assured is None else _round(assured),
-            "coverage": _round(100 * coverage), "status": st,
+    assured = 100 * passed / applicable if applicable else 0.0
+    sc, shown_assured, cov = _shown(score, assured, coverage)
+    st = _status(sc, coverage, p)
+    return {"score": sc, "assured": shown_assured if applicable else None, "coverage": cov, "status": st,
             "rating": rating(score) if st != "insufficient_evidence" else None}
 
 
@@ -122,12 +140,11 @@ def score(outcomes: list[dict[str, Any]], profile: Profile) -> dict[str, Any]:
         assured = sum(profile.weights[d] * 100 * x["_ps"] / x["_app"] for d, x in live.items()) / total_w
         scored = {d: x for d, x in live.items() if x["_ev"]}
         sw = sum(profile.weights[d] for d in scored)
-        sc = sum(profile.weights[d] * 100 * x["_ps"] / x["_ev"] for d, x in scored.items()) / sw if sw else None
-        if sc is not None and sc >= 100 and cov < 1:
-            sc = 99.0
+        raw = sum(profile.weights[d] * 100 * x["_ps"] / x["_ev"] for d, x in scored.items()) / sw if sw else None
+        sc, shown_assured, shown_cov = _shown(raw, assured, cov)
         st = _status(sc, cov, profile)
-        overall = {"score": None if sc is None else _round(sc), "assured": _round(assured), "coverage": _round(100 * cov),
-                   "status": st, "rating": rating(sc) if st != "insufficient_evidence" else None}
+        overall = {"score": sc, "assured": shown_assured, "coverage": shown_cov,
+                   "status": st, "rating": rating(raw) if st != "insufficient_evidence" else None}
     for x in dims.values():
         x["normalized_weight"] = _round(100 * profile.weights[x["dimension"]] / total_w) if x["dimension"] in live else 0.0
         for k in ("_app", "_ev", "_ps"):

@@ -5,8 +5,11 @@ running [semantic-link-labs](https://github.com/microsoft/semantic-link-labs) in
 is MIT licensed. It needs Microsoft's semantic-link library, which runs only inside Fabric, so the check runs
 there and not on this PC.
 
-The engine is in place. The screens (a Best practices card on **Data mesh > Deploy > Semantic model**, and
-model rows in **Optimize > Opportunities**) come next, once the mockup is approved.
+**Data mesh > Deploy > Semantic model** has a **Best practices check** card (Preview). It shows the model's
+last findings, worst first, with a count per severity. **Show** picks a category, and **Errors and warnings only** (ticked at first) hides Info findings. While a check runs, the card says so and looks again
+every 30 seconds. When a check fails in Fabric, the card shows the error the notebook saved, with its
+traceback and pip's output. **Check in Fabric** runs the risk check first, then asks before it publishes or
+runs anything. A blocked result has only **Close**. Model rows in **Optimize > Opportunities** come later.
 
 ## What a check does
 

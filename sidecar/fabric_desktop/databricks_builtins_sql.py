@@ -190,10 +190,13 @@ def _current_time(node: exp.CurrentTime | exp.Localtime) -> exp.Expression:
                      f"// {step} * {step})")
 
 
+_MAX_DIGITS = 40  # longer than any Spark number; int() of thousands of digits would stop with Python's own error
+
+
 def _int_literal(node: exp.Expression) -> int | None:
     """A whole number written in the query (10, -3), or None for anything else."""
     inner = node.this if isinstance(node, exp.Neg) else node
-    if isinstance(inner, exp.Literal) and inner.is_int:
+    if isinstance(inner, exp.Literal) and inner.is_int and len(inner.name) <= _MAX_DIGITS:
         return -int(inner.name) if isinstance(node, exp.Neg) else int(inner.name)
     return None
 
@@ -216,7 +219,7 @@ def _bound_type(value: exp.Expression) -> exp.DataType | None:
         kind = inner.to
         return kind if kind.this in (*_INTEGRAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT,
                                      exp.DataType.Type.DECIMAL) else None
-    if not (isinstance(inner, exp.Literal) and not inner.is_string):
+    if not (isinstance(inner, exp.Literal) and not inner.is_string) or len(inner.name) > _MAX_DIGITS:
         return None
     text = inner.name.lower()
     if "e" in text:
@@ -262,6 +265,9 @@ def _uniform(node: exp.Uniform) -> exp.Expression:
     return exp.cast(_template(f"({drawn})", a=low, b=high), kind)
 
 
+_RANDSTR_MAX = 1_000_000
+
+
 def _randstr(node: exp.Randstr) -> exp.Expression:
     if node.args.get("generator") is not None:
         raise _refusal("randstr", _RANDOM_SEED, "leave out the seed")
@@ -269,6 +275,9 @@ def _randstr(node: exp.Randstr) -> exp.Expression:
     if length is None or length < 0:
         raise _refusal("randstr", "its length isn't a whole number from 0 up written in the query here.",
                        "write the length as a number")
+    if length > _RANDSTR_MAX:
+        raise _refusal("randstr", f"this PC builds strings of up to {_RANDSTR_MAX:,} characters on each row.",
+                       "ask for a shorter string")
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return _template(f"array_to_string(list_transform(range({length}), __kf_i -> "
                      f"substr('{alphabet}', 1 + CAST(floor(random() * 62) AS INTEGER), 1)), '')")

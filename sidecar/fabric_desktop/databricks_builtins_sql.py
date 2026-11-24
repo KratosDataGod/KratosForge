@@ -968,7 +968,9 @@ def table_writes(statements: list[exp.Expression], con: Any) -> list[exp.Express
     value written into a generated column only when it equals the expression, where DuckDB refuses any. Both
     are refused by name. A DROP TABLE (or CREATE OR REPLACE) of a table with an identity column is followed by
     a DROP SEQUENCE of the sequence behind it, so none is left behind."""
-    here_row = con.execute("SELECT current_database(), current_schema()").fetchone()
+    from .duckdb_rows import one_row
+    # read to its end, which frees the connection on DuckDB 2.0 for what runs next (a read_files table's register)
+    here_row = one_row(con.execute("SELECT current_database(), current_schema()"))
     here = (str(here_row[0]), str(here_row[1]))
     made: dict[tuple[str, str, str], dict[str, tuple[str, str]] | None] = {}  # None: no such table
 

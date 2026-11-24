@@ -238,8 +238,10 @@ _HERE_CHECKS = (
      "dbutils.fs mounts are Databricks storage; there are no mounts on this PC."),
     (re.compile(r"\bdbutils\.library\.install"), "dbutils.library.install runs in Databricks; this PC's packages are fixed."),
     (re.compile(r"\bdbutils\.credentials\."), "dbutils.credentials is a Databricks on AWS feature; this PC signs in to Microsoft as you."),
-    (re.compile(r"(?i)(?:dbfs:/|[\"'\s(]/dbfs/|[\"'\s(]/Volumes/|[\"'\s(]/Workspace/)"),
-     ("A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which neither this PC nor Fabric "
+    # dbfs:/Volumes/... and /Volumes/... are Unity Catalog volumes, which run on this PC (databricks_volumes) and
+    # are listed in _FABRIC_CHECKS instead
+    (re.compile(r"(?i)(?:dbfs:/(?!(?-i:Volumes/))|[\"'\s(]/dbfs/|[\"'\s(]/Workspace/)"),
+     ("A Databricks storage path (dbfs:/, /dbfs/ or /Workspace/), which neither this PC nor Fabric "
      "can reach. Point it at Files/ or Tables/ in a lakehouse, or at a folder on this PC.")),
     # Delta Live Tables (Lakeflow declarative pipelines): Python decorators and SQL statements.
     (re.compile(r"(?m)^\s*(?:import\s+dlt\b|from\s+dlt\s+import\b|@dlt\.)|(?i:\bCREATE\s+(?:OR\s+REFRESH\s+)?"
@@ -271,6 +273,9 @@ _FABRIC_CHECKS = (
     (re.compile(r"""["']spark\.databricks\.(?!delta\.)\w[\w.]*["']"""),
      ("A Databricks Runtime setting (spark.databricks., other than Delta's), which Fabric doesn't have: "
      "setting it does nothing there, and reading it fails unless the call gives a default.")),
+    (re.compile(r"(?:dbfs:|[\"'\s(])/Volumes/"),
+     ("A Unity Catalog volume path (/Volumes/...). On this PC it reads and writes a volume's folder here (Preview); "
+     "Fabric has no volumes, so before running it in Fabric point it at Files/ in a lakehouse.")),
     (re.compile(r"\.trigger\(\s*(?:processingTime|continuous)\s*="),
      ("A stream that keeps running. In Fabric it uses capacity for as long as it runs, and continuous "
      "triggers aren't supported there. The usual Fabric pattern is trigger(availableNow=True) run on a "

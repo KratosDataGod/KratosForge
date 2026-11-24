@@ -2436,18 +2436,25 @@ def _fs_magic(fs: Any, line: str) -> Any:
         return True  # as dbutils.fs.refreshMounts() on this PC
     if command not in _FS_USAGE:
         raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")
-    from .dbutils_local import _file_info, fs_magic_path
-    for path in args[:1] if command in ("put", "head") else args:
+    from .dbutils_local import fs_magic_path, volume_arg, volume_info
+    paths = args[:1] if command in ("put", "head") else args
+    for path in paths:
         try:
             fs_magic_path(path)  # bare absolute paths and dbfs:/ are Databricks storage, as in dbutils.fs
         except ValueError as exc:
             raise ValueError(f"%fs {command}: {exc}") from None
+    try:  # a /Volumes path is its volume's folder on this PC, as in dbutils.fs (databricks_volumes)
+        whole = command == "mv" or (command in ("cp", "rm") and "-r" in flags)
+        args = [volume_arg(a, whole=whole and i == 0, change=command in ("mv", "rm") and i == 0)
+                if i < len(paths) else a for i, a in enumerate(args)]
+    except ValueError as exc:
+        raise ValueError(f"%fs {command}: {exc}") from None
     if len(args) < _FS_USAGE[command] - (command == "ls"):
         raise ValueError(f"%fs {command} needs {_FS_USAGE[command]} path{'s' if _FS_USAGE[command] > 1 else ''}.")
     if command == "ls":
         import polars as pl
         # As dbutils.fs.ls lists them, so a folder's name and path end with /, as in Databricks.
-        found = [_file_info(f) for f in fs.ls(args[0] if args else "Files")]
+        found = [volume_info(f) for f in fs.ls(args[0] if args else "Files")]
         return pl.DataFrame({"name": [f.name for f in found], "path": [f.path for f in found],
                              "size": [f.size for f in found], "isDir": [f.isDir() for f in found]},
                             schema={"name": pl.Utf8, "path": pl.Utf8, "size": pl.Int64, "isDir": pl.Boolean})

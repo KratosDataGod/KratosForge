@@ -379,6 +379,49 @@ lists Snowflake connections.
   a fake of it, not a live account. How TIME and TIMESTAMP_TZ values look on the wire, and that
   EXPLAIN runs without a warehouse, come from the documentation and haven't been checked live.
 
+## Unity Catalog volumes on this PC (Preview)
+
+Databricks notebooks and Databricks SQL cells that run on this PC can use managed Unity Catalog volumes. A
+volume is a folder on this PC, in the app's data folder:
+`%LOCALAPPDATA%\FabricDesktop\volumes\main\<schema>\<volume>`. Nothing in it is uploaded to
+Databricks, and nothing here reaches cloud storage. No screen shows volumes yet: they are made and used from
+code. The design and its sources are in [databricks-volumes-local.md](product/databricks-volumes-local.md).
+
+- **Paths** are written as on Databricks: `/Volumes/<catalog>/<schema>/<volume>/<path>` or
+  `dbfs:/Volumes/...`. The catalog is the session's, `main` (`workspace`, `hive_metastore` and
+  `spark_catalog` name it too); any other catalog is refused by name, and so is the schema `main`, as for
+  tables. Names are kept in lowercase, as Unity Catalog keeps them.
+- **SQL cells (Databricks SQL on DuckDB):** `CREATE VOLUME [IF NOT EXISTS] [catalog.][schema.]volume
+  [COMMENT '...']`, `DROP VOLUME [IF EXISTS]`, `SHOW VOLUMES [IN|FROM schema] [[LIKE] 'pattern']` (columns
+  `database`, `volumeName`), `DESCRIBE VOLUME` (columns `name`, `catalog`, `database`, `owner`,
+  `storageLocation`, `volumeType`, `comment`), `ALTER VOLUME ... RENAME TO`, `COMMENT ON VOLUME` and
+  `LIST '/Volumes/...' [LIMIT n]` (columns `path`, `name`, `size`, `modification_time`). A volume that is
+  already there stops CREATE with `VOLUME_ALREADY_EXISTS`; a schema that isn't there stops it with
+  `SCHEMA_NOT_FOUND`. Each statement runs in its place in the cell.
+- **Reading files in SQL:** `SELECT * FROM read_files('/Volumes/main/default/v/x.csv', format => 'csv')`
+  reads csv, json and parquet files, or every data file below a folder. It takes `format`, `header` and
+  `sep` (csv), `inferColumnTypes` (csv), `multiLine` (json) and `schemaEvolutionMode`; any other option is
+  refused by name. As on Databricks, a CSV file's first line is its header and a `_rescued_data` column is
+  added unless `schemaEvolutionMode => 'none'`. Here that column is always NULL: a value that doesn't fit
+  stops the read instead of being rescued. Integer columns are read as `bigint`, where Databricks may infer
+  `int`. `csv.`/Volumes/...`` (and `json.`, `parquet.`) reads as Spark's reader does by default. A cell
+  reads its files when it starts.
+- **Notebooks:** `dbutils.fs` and `%fs` (`ls`, `head`, `put`, `cp`, `mv`, `rm`, `mkdirs`) work on a volume,
+  and `ls` gives each entry's `dbfs:/Volumes/...` path, as Databricks' Python `dbutils.fs.ls` does, never
+  its folder on this PC. The volume's own folder can't be removed or moved with them: use `DROP VOLUME`.
+  `spark.read...load('/Volumes/...')` and `df.write...save('/Volumes/...')` read and write files in a
+  volume as they do any folder on this PC. Python's own `open()` and `os` calls don't map `/Volumes` paths
+  yet.
+- **Refused by name:** external volumes (`CREATE EXTERNAL VOLUME`, `LOCATION`), `ALTER VOLUME ... OWNER TO`,
+  `SET TAGS` and `UNSET TAGS`, `UNDROP VOLUME`, `LIST ... WITH (CREDENTIAL ...)`, `LIST` or `read_files` of
+  any other URL, and `PUT INTO`, `GET` and `REMOVE` (Databricks runs those only through its SQL connectors).
+- **DROP VOLUME removes the files at once.** Databricks keeps a dropped managed volume's files for 7 days so
+  `UNDROP` can bring them back; this PC keeps no copy.
+- **Nothing leaves the volume's folder.** A path that holds `..`, `.`, a backslash, a colon (a drive or a
+  stream), a name Windows changes (a final dot or space, a device name such as `NUL`) is refused before
+  anything is read, and so is a path whose real location, links and junctions followed, is outside the
+  volume. A folder that holds a link isn't copied, moved, removed or read whole.
+
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace

@@ -6351,6 +6351,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
+    "Unity Catalog volumes on this PC": ["docs/engines.md", /No screen shows volumes yet: they are made and used from\ncode/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
     "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],

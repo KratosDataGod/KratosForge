@@ -29,7 +29,7 @@ so it changes when a call is added or refused.
 | `dbutils.credentials.showCurrentRole` | Refused | AWS role credentials are a Databricks on AWS feature; this PC signs in to Microsoft as you. |
 | `dbutils.credentials.showRoles` | Refused | AWS role credentials are a Databricks on AWS feature; this PC signs in to Microsoft as you. |
 | `dbutils.data.summarize` | Differs | Shows a summary table of the DataFrame; the precise flag is ignored. |
-| `dbutils.fs.cp` | Differs | Paths are the attached lakehouse (Files/...) or file: paths on this PC. dbfs:/, /Volumes/ and other bare absolute paths are Databricks storage and are refused by name. |
+| `dbutils.fs.cp` | Differs | Paths are the attached lakehouse (Files/...), file: paths on this PC, or /Volumes/main/<schema>/<volume>/... (a Unity Catalog volume's folder on this PC, Preview). Other dbfs:/ and bare absolute paths are Databricks storage and are refused by name. |
 | `dbutils.fs.head` | Differs | Same paths as fs.cp. |
 | `dbutils.fs.ls` | Differs | Same paths as fs.cp. |
 | `dbutils.fs.mkdirs` | Differs | Same paths as fs.cp. |

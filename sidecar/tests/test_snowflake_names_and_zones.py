@@ -231,5 +231,5 @@ def test_typeof_of_a_zoned_timestamp_whose_kind_isnt_known_stops_by_name(query):
 
 def test_rules_version_and_the_new_rules_are_listed():
     table = sf.docs_table()
-    assert sf.RULES_VERSION == "2026.11.23"
+    assert sf.RULES_VERSION == "2026.11.24"
     assert all(f"| {rule} |" in table for rule in ("SFX-073", "SFX-074", "SFN-073"))

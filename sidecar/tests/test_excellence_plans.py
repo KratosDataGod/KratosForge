@@ -220,7 +220,8 @@ def test_hostile_names_are_cut_and_have_no_control_characters():
     for s in strings(p):
         assert not any(ord(ch) < 32 or ord(ch) == 127 for ch in s), s[:60]
     res = p["affected_resources"]
-    assert len(res["resource"]["name"]) == plans.MAX_TEXT
+    # the subject's name is already cut to evidence.MAX_NAME (255 and an ellipsis) before the plan cleans it
+    assert len(res["resource"]["name"]) <= plans.MAX_TEXT and res["resource"]["name"].endswith("…")
     assert len(p["blast_radius"]["listed"][0]["name"]) <= plans.MAX_TEXT
     assert len(p["blast_radius"]["source"]) <= plans.MAX_TEXT
     assert len(res["named_in_finding"]) == plans.MAX_NAMED and all(len(x) <= plans.MAX_TEXT for x in res["named_in_finding"])

@@ -66,6 +66,10 @@ _GIT_START = {"title": "Get started with Git integration",
               "url": "https://learn.microsoft.com/fabric/cicd/git-integration/git-get-started"}
 _GIT_PROCESS = {"title": "Basic concepts in Git integration",
                 "url": "https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process"}
+_MAINT = {"title": "Use table maintenance feature to manage delta tables in Fabric",
+          "url": "https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance"}
+_INTEROP = {"title": "Delta Lake table format interoperability",
+            "url": "https://learn.microsoft.com/fabric/fundamentals/delta-lake-interoperability"}
 
 
 def _p(role: str, where: str, *, also: tuple[str, ...] = (), refs: tuple[dict[str, str], ...] = (_ROLES,),
@@ -171,6 +175,18 @@ SPECIFIC: dict[str, dict[str, Any]] = {
                                                     "another workspace."),),
                        notes=(("Tables the notebook reads by name come from the new default lakehouse after the "
                               "change."),)),
+    "FEA-PERF-003": _p(_CONTENT, "workspace", refs=(_ROLES, _MAINT),
+                       notes=(("Table maintenance uses capacity while it runs, so run it outside busy hours; it "
+                              "rewrites files and changes no rows."),
+                              "A job that keeps writing many small batches makes small files again.")),
+    "FEA-PERF-004": _p(_CONTENT, "workspace", refs=(_ROLES, _MAINT),
+                       notes=(("VACUUM can't be undone: files older than the retention are removed, and the table "
+                              "can't be restored to a version that needed them."),),
+                       rollback=("Agree the days of history each table must keep before you vacuum it.",)),
+    "FEA-PERF-005": _p(_CONTENT, "workspace", refs=(_ROLES, _INTEROP),
+                       notes=(("Readers move to the rewritten table: check its rows and columns match before "
+                              "they do."),
+                              "A job that turns the feature on again undoes the change on its next run.")),
     "FEA-SM-001": _p(_CONTENT, "workspace", refs=(_ROLES, _RLS),
                      notes=(_REPUBLISH, "Visuals that relied on filtering both ways can show different numbers.")),
     "FEA-SM-003": _p(_CONTENT, "workspace", notes=(_REPUBLISH, ("With Direct Lake only, a query that would have "

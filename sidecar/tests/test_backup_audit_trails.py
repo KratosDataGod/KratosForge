@@ -94,8 +94,8 @@ def test_the_preview_says_the_audit_trails_arent_restored(pc, capsys):
 
 
 TRAIL_NAMES = ["app/audit/audit-2026-11.jsonl", "app/audit/head.json", "app/audit/.lock",
-               "app/audit/audit-2026-11.jsonl.anchor", "app/Audit/audit-2026-10.jsonl", "app/audit./planted.jsonl",
-               "app/AUDIT /planted.jsonl", "app/integrations/audit/audit-2026-11.jsonl",
+               "app/audit/audit-2026-11.jsonl.anchor", "app/Audit/audit-2026-10.jsonl",
+               "app/integrations/audit/audit-2026-11.jsonl",
                "app/integrations/audit/head.json", "agent/audit/audit-2026-11.jsonl", "agent/audit/head.json",
                "agent/integrations/audit/head.json"]
 
@@ -111,7 +111,7 @@ def _crafted(path, members: dict[str, bytes]):
     return path
 
 
-def test_a_crafted_backup_cant_plant_an_audit_trail(tmp_path):
+def test_restore_leaves_the_audit_folders_as_they_are(tmp_path):
     root, home = tmp_path / "FabricDesktop", tmp_path / "agent"
     root.mkdir()
     home.mkdir()
@@ -130,8 +130,9 @@ def test_a_crafted_backup_cant_plant_an_audit_trail(tmp_path):
     assert "Restore leaves the audit trails as they are" in backup.describe(preview)
 
 
-@pytest.mark.parametrize("name", ["app/./audit/planted.jsonl", "app//audit/planted.jsonl", "app/audit//head.json"])
-def test_a_backup_entry_with_an_empty_or_dot_part_is_refused_by_name(tmp_path, name):
+@pytest.mark.parametrize("name", ["app/./audit/planted.jsonl", "app//audit/planted.jsonl", "app/audit//head.json",
+                                  "app/audit./planted.jsonl", "app/AUDIT /planted.jsonl"])
+def test_a_backup_entry_with_an_empty_dot_or_windows_alias_part_is_refused_by_name(tmp_path, name):
     root = tmp_path / "FabricDesktop"
     root.mkdir()
     zip_path = _crafted(tmp_path / "crafted.zip", {name: b"{}\n", "app/app-settings.json": b"{}"})
@@ -141,7 +142,7 @@ def test_a_backup_entry_with_an_empty_or_dot_part_is_refused_by_name(tmp_path, n
     assert list(root.rglob("*")) == []
 
 
-def test_a_backup_entry_naming_a_folder_outside_is_refused(tmp_path):
+def test_a_backup_entry_with_an_empty_path_part_is_refused(tmp_path):
     root, outside = tmp_path / "FabricDesktop", tmp_path / "outside"
     root.mkdir()
     outside.mkdir()

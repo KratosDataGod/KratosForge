@@ -1851,6 +1851,8 @@ function dlNum(n) {
 }
 
 const dlLevel = (have, limit) => (have === null || have === undefined || !limit ? "" : have > limit ? "over" : have >= limit * 0.9 ? "near" : "");
+// a, b and c
+const dlList = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs.join(""));
 const dlGb = (bytes) => `${Math.round(bytes / 1024 ** 3)} GB`;
 
 function directLakeResult(out, plan, updateModel, pickedSku) {
@@ -1874,7 +1876,7 @@ function directLakeResult(out, plan, updateModel, pickedSku) {
     p.not_checked.length ? h("details", { class: "dl-unseen" }, h("summary", {}, `What this can't see from this PC (${p.not_checked.length})`),
       h("ul", { class: "gate-list" }, [...p.not_checked, ...p.notes].map((x) => h("li", {}, x)))) : null,
     h("div", { class: "dl-how" }, h("b", {}, "How it's judged."),
-      ` Will fall back means a table is past one of ${picked.sku || "the capacity"}'s Direct Lake limits, or its source is a view. Might fall back means it's within 10% of a limit. Not checked means it couldn't be read. The limits are Microsoft's Direct Lake guardrails for the capacity you pick. Nothing is sent to Fabric and nothing is changed.`),
+      ` Will fall back means a table is past one of ${picked.sku || "the capacity"}'s Direct Lake limits, or its source is a view. Might fall back means it's within 10% of a limit. Not checked means the table couldn't be read. The limits are Microsoft's Direct Lake guardrails for the capacity you pick. Nothing is sent to Fabric and nothing is changed.`),
     h("p", { class: "muted-text small" }, `Checked ${relTime(out.checked_at)}.`));
 }
 
@@ -1887,7 +1889,8 @@ function directLakeVerdict(p, picked) {
     h("div", {}, h("span", { class: `pill-s ${DL_RISK[v.verdict]}` }, v.label), " ", h("span", {}, v.message)),
     h("p", { class: "muted-text small" },
       `Smallest capacity within limits: ${fits(w.smallest_today)} today, ${fits(w.smallest_horizon)} in ${w.horizon_days} days at the current rate.`,
-      w.every_sku.length ? ` ${w.every_sku.join(", ")} ${picked.will_label.toLowerCase()} on every capacity, because a view or the endpoint's security doesn't depend on the limits.` : ""));
+      w.every_sku.length ? ` ${dlList(w.every_sku)} ${picked.will_label.toLowerCase()} on every capacity, because a view or the endpoint's security doesn't depend on the limits.` : ""),
+    p.caveat ? h("p", { class: "muted-text small dl-caveat" }, p.caveat) : null);
 }
 
 function directLakeTiles(picked, nc) {

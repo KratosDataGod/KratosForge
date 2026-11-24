@@ -276,6 +276,12 @@ MIN_DAYS = 7      # ... spread over at least this many days
 _DAY_MS = 86_400_000
 VERDICTS = ("will", "might", "within", "not_checked")
 LABELS = {"will": "Will fall back", "might": "Might fall back", "within": "Within limits", "not_checked": "Not checked"}
+# What the verdict is for a model on the SQL analytics endpoint whose tables are all within the limits, when the
+# endpoint's row-level or object-level security wasn't read (this PC never reads it): "within", with ENDPOINT_CAVEAT
+# shown beside it, or "not_checked". Pending Chris's pick; either way the caveat is listed under not_checked.
+ENDPOINT_SECURITY_UNREAD_VERDICT = "within"
+ENDPOINT_CAVEAT = ("SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make "
+                   "queries fall back.")
 _METRICS = (("files", "Parquet files", "Parquet file"), ("row_groups", "Row groups", "row group"), ("rows", "Rows", "row"))
 
 
@@ -374,6 +380,18 @@ def behavior_meaning(behavior: str, kind: str) -> tuple[str, str]:
                   "is a view sends only the queries that read it.")
 
 
+def past_limit(behavior: str, kind: str) -> str:
+    """What one table past a limit means for the model, said on that table's check."""
+    b = behavior.lower()
+    if kind == "onelake":
+        return "Past this limit, refresh of this model fails, because Direct Lake on OneLake doesn't fall back."
+    if b == "directlakeonly":
+        return "Past this limit, queries on this model fail instead of falling back."
+    if b == "directqueryonly":
+        return "The model is set to DirectQuery only, so this limit doesn't change where its queries run."
+    return "Past this limit, every query on this model goes to DirectQuery, not just queries on this table."
+
+
 def _smallest(key: str, have: int) -> str:
     """The smallest F SKU where this number is within its limit (not near it), or "" when none is."""
     for sku in GUARDRAILS:
@@ -408,7 +426,7 @@ def _forecast_text(g: dict[str, Any] | None, have: int | None, limit: int, noun:
 
 
 def _table_report(t: ModelTable, s: TableStats | None | str, lim: dict[str, Any] | None, commits: list[Commit] | None,
-                  kind: str, fails: bool, secured: set[str], horizon: int, layer: str) -> dict[str, Any]:
+                  kind: str, fails: bool, secured: set[str], horizon: int, layer: str, past: str) -> dict[str, Any]:
     where = f"{t.schema}.{t.entity}" if t.schema else t.entity
     verb = "fail" if fails else "go to DirectQuery"
     row: dict[str, Any] = {"read": s != "unread", "table": t.name, "delta_table": where, "view": False, "rows": None, "files": None,
@@ -447,7 +465,7 @@ def _table_report(t: ModelTable, s: TableStats | None | str, lim: dict[str, Any]
                 level = _level(have, limit)
                 if not level:
                     checks.append({"check": label, "evidence": "Not in the Delta log", "level": "", "fix": None,
-                                   "message": "Not checked: the Delta log doesn't hold every file's row count.",
+                                   "message": "Not checked, because the Delta log doesn't hold every file's row count.",
                                    "fix_text": None, "have": None, "limit": limit})
                     continue
                 about = s.row_groups_estimated and key == "row_groups"
@@ -457,7 +475,7 @@ def _table_report(t: ModelTable, s: TableStats | None | str, lim: dict[str, Any]
                     why = (" Compaction doesn't change this." if key == "rows" else
                            " Read from the Delta log and Parquet footers." if key == "row_groups" else
                            " Read from the Delta log.")
-                    c["message"] = f"Queries on this table {verb}, because the table has more {noun}s than {lim['sku']} allows.{why}"
+                    c["message"] = f"The table has more {noun}s than {lim['sku']} allows.{why} {past}"
                 elif level == "near":
                     more = limit - have + 1
                     c["message"] = (f"Within the limit now, but {_n(more)} more {noun}{'' if more == 1 else 's'} would "
@@ -537,8 +555,8 @@ def predict(bim: dict[str, Any], stats: dict[str, TableStats | None], history: d
     ``stats`` is as for check(): a table missing from it wasn't read, None means there's no Delta table there.
     ``history`` maps a table to its commits (model_directlake_service.history); a table missing from it has no
     forecast. ``endpoint_security`` lists the tables with row-level (``rls``) or object-level (``ols``) security at
-    the SQL analytics endpoint; None when it wasn't read, which leaves the model Not checked rather than Within
-    limits. ``layer`` names the layer of the app's own model, for the fixes' wording. Reads nothing; no wall clock."""
+    the SQL analytics endpoint; None when it wasn't read, which adds ENDPOINT_CAVEAT and, per
+    ENDPOINT_SECURITY_UNREAD_VERDICT, leaves a model within the limits Within limits or Not checked. ``layer`` names the layer of the app's own model, for the fixes' wording. Reads nothing; no wall clock."""
     tables = direct_lake_tables(bim)
     behavior = fallback_behavior(bim)
     kinds = {(source(bim, t.expression) or {}).get("kind") for t in tables}
@@ -550,7 +568,7 @@ def predict(bim: dict[str, Any], stats: dict[str, TableStats | None], history: d
     secured = set((endpoint_security or {}).get("rls") or []) | set((endpoint_security or {}).get("ols") or [])
     history = history or {}
     rows = [_table_report(t, stats.get(t.name, "unread"), lim, history.get(t.name), kind, fails, secured,
-                          horizon_days, layer.title()) for t in tables]
+                          horizon_days, layer.title(), past_limit(behavior, kind)) for t in tables]
     model_bytes = sum(r["bytes"] or 0 for r in rows)
     size_level = _level(model_bytes, lim["model_bytes"]) if lim and any(r["files"] is not None for r in rows) else ""
     counts = {v: sum(1 for r in rows if r["status"] == v) for v in VERDICTS}
@@ -562,9 +580,9 @@ def predict(bim: dict[str, Any], stats: dict[str, TableStats | None], history: d
     elif unread:
         not_checked.append(f"{_ns(len(unread), 'table')} that couldn't be read: {', '.join(unread[:10])}"
                            + (f" and {len(unread) - 10} more" if len(unread) > 10 else "") + ".")
-    if kind == "sql" and endpoint_security is None:
-        not_checked.append("Row-level and object-level security at the SQL analytics endpoint, which this PC doesn't "
-                           "read. Queries on a table with such security go to DirectQuery.")
+    caveat = ENDPOINT_CAVEAT if kind == "sql" and endpoint_security is None else ""
+    if caveat:
+        not_checked.append(caveat)
     not_checked += [("How busy the capacity's memory is when people query. Fabric can page tables out under pressure, "
                      "which metadata doesn't show."),
                     "Changes Microsoft makes to the guardrails after this app's table of them was last reviewed."]
@@ -573,11 +591,12 @@ def predict(bim: dict[str, Any], stats: dict[str, TableStats | None], history: d
     notes = [meaning]
     short = [r["table"] for r in rows if r["forecast"] and r["forecast"]["status"] in ("not_enough", "no_history")]
     if short:
-        notes.append(f"{_ns(len(short), 'table')} had no forecast, because too little history was read; at the "
-                     "horizon they're counted at today's numbers.")
-    notes.append("Model size at the horizon is counted at today's size: the forecast covers files, row groups and rows.")
+        notes.append(f"{_ns(len(short), 'table')} had no forecast, because too little history was read. At the "
+                     "horizon, they're counted at today's numbers.")
+    notes.append("Model size at the horizon is counted at today's size, because the forecast covers only files, row "
+                 "groups and rows.")
     return {"label": PREDICTED, "sku": lim["sku"] if lim else "", "limits": lim, "kind": kind, "behavior": behavior,
-            "behavior_label": name, "behavior_meaning": meaning, "will_label": will_label, "model": model,
+            "behavior_label": name, "behavior_meaning": meaning, "will_label": will_label, "model": model, "caveat": caveat,
             "counts": counts, "tables": rows, "horizon_days": horizon_days, "read_problem": read_problem,
             "size": {"bytes": model_bytes if any(r["files"] is not None for r in rows) else None, "limit": lim["model_bytes"] if lim else None,
                      "level": size_level},
@@ -626,7 +645,7 @@ def _model_verdict(rows: list[dict[str, Any]], lim: dict[str, Any] | None, size_
         t = near[0]
         c = next(c for c in t["checks"] if c["level"] == "near")
         return out("might", t["table"], f"{t['table']} is within 10% of {sku}'s {c['noun']} limit, so a few more "
-                   "loads will pass it.")
+                   "loads could pass it.")
     if size_level == "near":
         return out("might", "", f"The model's tables are within 10% of {sku}'s model size limit.")
     if not lim:
@@ -636,7 +655,7 @@ def _model_verdict(rows: list[dict[str, Any]], lim: dict[str, Any] | None, size_
         return out("not_checked", unread[0]["table"],
                    f"{_ns(len(unread), 'table')} weren't read, so the model can't be judged against {sku}'s limits."
                    .replace("1 table weren't", "1 table wasn't"))
-    if kind == "sql" and endpoint_security is None:
+    if kind == "sql" and endpoint_security is None and ENDPOINT_SECURITY_UNREAD_VERDICT == "not_checked":
         return out("not_checked", "", f"Every table is within {sku}'s limits, but security at the SQL analytics endpoint "
                    "couldn't be read from this PC, and it can send queries to DirectQuery.")
     return out("within", "", f"Every table is within {sku}'s published Direct Lake guardrails.")

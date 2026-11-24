@@ -85,6 +85,8 @@ test("F32, mixed: the verdict, the tiles, each table's risk, and the checks of t
     "Model size on OneLake 36 GB of 40 GB Within the limit, 4 GB left"]);
   assert.match(await card.locator(".dl-verdict").innerText(), /^Will fall back fact_sales is past F32's row group limit\. With the Automatic setting, one table past a limit sends every query on the model to DirectQuery/);
   assert.match(await card.locator(".dl-verdict").innerText(), /Smallest capacity within limits: F64 today, F64 in 90 days/);
+  assert.strictEqual(await card.locator(".dl-verdict .dl-caveat").innerText(),
+    "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.");
   assert.deepStrictEqual(await rows(card), [
     ["fact_sales", "Will fall back", "412 million of 300 million", "840 of 1,000", "1,240 of 1,000"],
     ["fact_returns", "Might fall back", "31 million of 300 million", "960 of 1,000", "610 of 1,000"],
@@ -95,14 +97,16 @@ test("F32, mixed: the verdict, the tiles, each table's risk, and the checks of t
   assert.deepStrictEqual(await card.locator(".dl-toggle[aria-expanded='true'] b").allTextContents(), ["fact_sales", "v_sales_targets"],
     "the tables past a limit start open");
   const sales = (await card.locator("#dl-detail-0 .dl-chk").allInnerTexts()).map((x) => x.replace(/\s+/g, " ").trim());
-  assert.match(sales[0], /^Row groups 1,240 of 1,000 Queries on this table go to DirectQuery, because the table has more row groups than F32 allows\. Read from the Delta log and Parquet footers\. Fix: Compact the table so its row groups are larger\. Compact in Table health$/);
-  assert.match(sales[1], /^Rows 412 million of 300 million Queries on this table go to DirectQuery, because the table has more rows than F32 allows\. Compaction doesn't change this\. Fix: Filter or aggregate the rows the model needs into a Gold table, or move the workspace to F64 or larger\.$/);
+  assert.match(sales[0], /^Row groups 1,240 of 1,000 The table has more row groups than F32 allows\. Read from the Delta log and Parquet footers\. Past this limit, every query on this model goes to DirectQuery, not just queries on this table\. Fix: Compact the table so its row groups are larger\. Compact in Table health$/);
+  assert.match(sales[1], /^Rows 412 million of 300 million The table has more rows than F32 allows\. Compaction doesn't change this\. Past this limit, every query on this model goes to DirectQuery, not just queries on this table\. Fix: Filter or aggregate the rows the model needs into a Gold table, or move the workspace to F64 or larger\.$/);
   assert.match(sales[2], /^Parquet files 840 of 1,000 Within the limit\.$/);
   assert.match(await card.locator("#dl-detail-4").innerText(), /Source is a view\s+SQL endpoint view\s+Every query on this table goes to DirectQuery, because Direct Lake reads only Delta tables\.\s+Fix: Materialize the view as a Delta table in Gold, then point the model's table at it\./);
   assert.strictEqual(await card.locator(".dl-risk span.over-text").count(), 4, "over a limit in red: rows, row groups, and both in the checks");
   assert.match(await card.innerText(), /Select a table to see each check, its evidence and the fix\./);
-  assert.match(await card.innerText(), /How it's judged\. Will fall back means a table is past one of F32's Direct Lake limits, or its source is a view\. Might fall back means it's within 10% of a limit\. Not checked means it couldn't be read\./);
+  assert.match(await card.innerText(), /How it's judged\. Will fall back means a table is past one of F32's Direct Lake limits, or its source is a view\. Might fall back means it's within 10% of a limit\. Not checked means the table couldn't be read\./);
   await shot(page, "1-f32-mixed");
+  assert.deepStrictEqual(await page.evaluate(() => [dlList(["a"]), dlList(["a", "b"]), dlList(["a", "b", "c"])]),
+    ["a", "a and b", "a, b and c"], "the tables on every capacity read as a list");
 
   // A table opens from the keyboard, and shows its forecast.
   const returns = card.locator(".dl-toggle:has-text('fact_returns')");
@@ -152,7 +156,7 @@ test("Direct Lake only: past a limit the label reads Will fail", { skip }, async
   assert.match((await card.locator(".dl-tile").first().innerText()).replace(/\s+/g, " "), /^Will fail 2 tables$/);
   const r = await rows(card);
   assert.deepStrictEqual(r.map((x) => x[1]), ["Will fail", "Might fall back", "Within limits", "Within limits", "Will fail", "Within limits"]);
-  assert.match(await card.locator("#dl-detail-0").innerText(), /Queries on this table fail, because the table has more row groups than F32 allows/);
+  assert.match(await card.locator("#dl-detail-0").innerText(), /The table has more row groups than F32 allows\. Read from the Delta log and Parquet footers\. Past this limit, queries on this model fail instead of falling back\./);
   assert.match(await card.locator("#dl-detail-4").innerText(), /Every query on this table fails, because Direct Lake reads only Delta tables and the model doesn't allow DirectQuery\./);
   assert.match(await card.locator(".dl-verdict").innerText(), /With Direct Lake only, queries on the model will fail instead of going to DirectQuery/);
   await shot(page, "3-direct-lake-only");

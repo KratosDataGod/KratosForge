@@ -102,7 +102,7 @@
          "have": 1240,
          "level": "over",
          "limit": 1000,
-         "message": "Queries on this table fail, because the table has more row groups than F32 allows. Read from the Delta log and Parquet footers.",
+         "message": "The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. Past this limit, queries on this model fail instead of falling back.",
          "noun": "row group"
         },
         {
@@ -113,7 +113,7 @@
          "have": 412000000,
          "level": "over",
          "limit": 300000000,
-         "message": "Queries on this table fail, because the table has more rows than F32 allows. Compaction doesn't change this.",
+         "message": "The table has more rows than F32 allows. Compaction doesn't change this. Past this limit, queries on this model fail instead of falling back.",
          "noun": "row"
         },
         {
@@ -776,6 +776,7 @@
      "will_label": "Will fail"
     }
    },
+   "caveat": "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
    "counts": {
     "might": 1,
     "not_checked": 0,
@@ -799,14 +800,14 @@
     "verdict": "will"
    },
    "not_checked": [
-    "Row-level and object-level security at the SQL analytics endpoint, which this PC doesn't read. Queries on a table with such security go to DirectQuery.",
+    "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
     "How busy the capacity's memory is when people query. Fabric can page tables out under pressure, which metadata doesn't show.",
     "Changes Microsoft makes to the guardrails after this app's table of them was last reviewed."
    ],
    "notes": [
     "Nothing falls back. Past a limit, queries on the model fail.",
-    "4 tables had no forecast, because too little history was read; at the horizon they're counted at today's numbers.",
-    "Model size at the horizon is counted at today's size: the forecast covers files, row groups and rows."
+    "4 tables had no forecast, because too little history was read. At the horizon, they're counted at today's numbers.",
+    "Model size at the horizon is counted at today's size, because the forecast covers only files, row groups and rows."
    ],
    "read_problem": "",
    "size": {
@@ -932,7 +933,7 @@
        "have": 1240,
        "level": "over",
        "limit": 1000,
-       "message": "Queries on this table fail, because the table has more row groups than F32 allows. Read from the Delta log and Parquet footers.",
+       "message": "The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. Past this limit, queries on this model fail instead of falling back.",
        "noun": "row group"
       },
       {
@@ -943,7 +944,7 @@
        "have": 412000000,
        "level": "over",
        "limit": 300000000,
-       "message": "Queries on this table fail, because the table has more rows than F32 allows. Compaction doesn't change this.",
+       "message": "The table has more rows than F32 allows. Compaction doesn't change this. Past this limit, queries on this model fail instead of falling back.",
        "noun": "row"
       },
       {
@@ -1412,7 +1413,7 @@
          "have": 1240,
          "level": "over",
          "limit": 1000,
-         "message": "Queries on this table go to DirectQuery, because the table has more row groups than F32 allows. Read from the Delta log and Parquet footers.",
+         "message": "The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. Past this limit, every query on this model goes to DirectQuery, not just queries on this table.",
          "noun": "row group"
         },
         {
@@ -1423,7 +1424,7 @@
          "have": 412000000,
          "level": "over",
          "limit": 300000000,
-         "message": "Queries on this table go to DirectQuery, because the table has more rows than F32 allows. Compaction doesn't change this.",
+         "message": "The table has more rows than F32 allows. Compaction doesn't change this. Past this limit, every query on this model goes to DirectQuery, not just queries on this table.",
          "noun": "row"
         },
         {
@@ -2086,6 +2087,7 @@
      "will_label": "Will fall back"
     }
    },
+   "caveat": "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
    "counts": {
     "might": 1,
     "not_checked": 0,
@@ -2109,14 +2111,14 @@
     "verdict": "will"
    },
    "not_checked": [
-    "Row-level and object-level security at the SQL analytics endpoint, which this PC doesn't read. Queries on a table with such security go to DirectQuery.",
+    "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
     "How busy the capacity's memory is when people query. Fabric can page tables out under pressure, which metadata doesn't show.",
     "Changes Microsoft makes to the guardrails after this app's table of them was last reviewed."
    ],
    "notes": [
     "Past a limit, every query on the model goes to DirectQuery, which is slower. A table whose source is a view sends only the queries that read it.",
-    "4 tables had no forecast, because too little history was read; at the horizon they're counted at today's numbers.",
-    "Model size at the horizon is counted at today's size: the forecast covers files, row groups and rows."
+    "4 tables had no forecast, because too little history was read. At the horizon, they're counted at today's numbers.",
+    "Model size at the horizon is counted at today's size, because the forecast covers only files, row groups and rows."
    ],
    "read_problem": "",
    "size": {
@@ -2242,7 +2244,7 @@
        "have": 1240,
        "level": "over",
        "limit": 1000,
-       "message": "Queries on this table go to DirectQuery, because the table has more row groups than F32 allows. Read from the Delta log and Parquet footers.",
+       "message": "The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. Past this limit, every query on this model goes to DirectQuery, not just queries on this table.",
        "noun": "row group"
       },
       {
@@ -2253,7 +2255,7 @@
        "have": 412000000,
        "level": "over",
        "limit": 300000000,
-       "message": "Queries on this table go to DirectQuery, because the table has more rows than F32 allows. Compaction doesn't change this.",
+       "message": "The table has more rows than F32 allows. Compaction doesn't change this. Past this limit, every query on this model goes to DirectQuery, not just queries on this table.",
        "noun": "row"
       },
       {
@@ -2910,6 +2912,7 @@
      "will_label": "Will fall back"
     }
    },
+   "caveat": "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
    "counts": {
     "might": 0,
     "not_checked": 6,
@@ -2934,13 +2937,13 @@
    },
    "not_checked": [
     "The tables' Delta logs, because there's no OneLake sign-in on this PC.",
-    "Row-level and object-level security at the SQL analytics endpoint, which this PC doesn't read. Queries on a table with such security go to DirectQuery.",
+    "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
     "How busy the capacity's memory is when people query. Fabric can page tables out under pressure, which metadata doesn't show.",
     "Changes Microsoft makes to the guardrails after this app's table of them was last reviewed."
    ],
    "notes": [
     "Past a limit, every query on the model goes to DirectQuery, which is slower. A table whose source is a view sends only the queries that read it.",
-    "Model size at the horizon is counted at today's size: the forecast covers files, row groups and rows."
+    "Model size at the horizon is counted at today's size, because the forecast covers only files, row groups and rows."
    ],
    "read_problem": "no_signin",
    "size": {

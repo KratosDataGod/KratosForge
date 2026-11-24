@@ -113,6 +113,8 @@ def test_the_docs_limits_table_says_what_the_guardrail_table_says():
 def test_golden_model_verdicts(stats, security, verdict):
     out = dl.predict(_bim(), stats, None, "F32", endpoint_security=security)
     assert out["model"]["verdict"] == verdict
+    if verdict == "might":
+        assert out["model"]["message"] == "FactSales is within 10% of F32's Parquet file limit, so a few more loads could pass it."
     assert out["label"] == "Predicted from metadata on this PC. Fabric hasn't run a query."
     assert out["model"]["label"] == {"will": "Will fall back", "might": "Might fall back", "within": "Within limits",
                                      "not_checked": "Not checked"}[verdict]
@@ -177,16 +179,44 @@ def test_a_onelake_model_has_no_view_or_endpoint_security_causes():
     out = dl.predict(_bim(source=ONELAKE), {"FactSales": _s(), "DimCustomer": None}, None, "F64")
     missing = _t(out, "DimCustomer")
     assert out["kind"] == "onelake" and not missing["view"] and missing["causes"] == ["missing"]
-    assert not [x for x in out["not_checked"] if "SQL analytics endpoint" in x]
+    assert not [x for x in out["not_checked"] if "SQL endpoint" in x] and out["caveat"] == ""
     within = dl.predict(_bim(source=ONELAKE), _small(), None, "F64")
     assert within["model"]["verdict"] == "within"
 
 
-def test_endpoint_security_that_wasnt_read_is_not_checked_never_within_limits():
+CAVEAT = ("SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make "
+          "queries fall back.")
+
+
+def test_endpoint_security_that_wasnt_read_is_within_limits_with_the_caveat():
+    assert dl.ENDPOINT_SECURITY_UNREAD_VERDICT == "within", "pending Chris's pick; the other value is tested below"
+    out = dl.predict(_bim(), _small(), None, "F64")
+    assert out["model"]["verdict"] == "within" and out["model"]["label"] == "Within limits"
+    assert out["caveat"] == CAVEAT and CAVEAT in out["not_checked"]
+    assert {t["status"] for t in out["tables"]} == {"within"}
+
+
+def test_the_switch_makes_unread_endpoint_security_not_checked(monkeypatch):
+    monkeypatch.setattr(dl, "ENDPOINT_SECURITY_UNREAD_VERDICT", "not_checked")
     out = dl.predict(_bim(), _small(), None, "F64")
     assert out["model"]["verdict"] == "not_checked" and "security at the SQL analytics endpoint" in out["model"]["message"]
-    assert any("Row-level and object-level security" in x for x in out["not_checked"])
+    assert out["caveat"] == CAVEAT and CAVEAT in out["not_checked"]
     assert {t["status"] for t in out["tables"]} == {"within"}, "each table's numbers are still judged"
+    assert dl.predict(_bim(), _small(), None, "F64", endpoint_security={})["model"]["verdict"] == "within", \
+        "security that was read and found none is within limits either way"
+
+
+@pytest.mark.parametrize("behavior,source,says", [
+    (None, SQL, "Past this limit, every query on this model goes to DirectQuery, not just queries on this table."),
+    ("DirectLakeOnly", SQL, "Past this limit, queries on this model fail instead of falling back."),
+    ("DirectQueryOnly", SQL, "The model is set to DirectQuery only, so this limit doesn't change where its queries run."),
+    (None, ONELAKE, "Past this limit, refresh of this model fails, because Direct Lake on OneLake doesn't fall back."),
+], ids=["automatic", "dl-only", "dq-only", "onelake"])
+def test_a_tables_check_says_what_its_limit_means_for_the_whole_model(behavior, source, says):
+    out = dl.predict(_bim(behavior=behavior, source=source), _small() | {"FactSales": _s(row_groups=1_240)}, None, "F32")
+    groups = next(c for c in _t(out, "FactSales")["checks"] if c["check"] == "Row groups")
+    assert groups["message"] == f"The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. {says}"
+    assert not [s for s in _strings(out) if "Queries on this table go to DirectQuery" in s]
 
 
 @pytest.mark.parametrize("kind", ["rls", "ols"])
@@ -194,7 +224,7 @@ def test_endpoint_security_on_a_table_sends_its_queries_to_directquery(kind):
     out = dl.predict(_bim(), _small(), None, "F64", endpoint_security={kind: ["DimCustomer"]})
     assert _t(out, "DimCustomer")["status"] == "will" and out["model"]["table"] == "DimCustomer"
     assert "security on DimCustomer" in out["model"]["message"]
-    assert not any("Row-level and object-level security at" in x for x in out["not_checked"])
+    assert out["caveat"] == "" and CAVEAT not in out["not_checked"]
 
 
 # ---- the forecast
@@ -231,12 +261,21 @@ def test_a_forecast_needs_three_commits_over_seven_days(commits, status):
 def test_too_little_history_says_how_much_was_used():
     out = dl.predict(_bim(), _small(), {"FactSales": _line(10, 1, 2)}, "F32", endpoint_security={})
     assert _t(out, "FactSales")["forecast"]["message"].startswith("Not enough history (2 commits over 1 day")
-    assert any("had no forecast" in n for n in out["notes"])
+    assert "2 tables had no forecast, because too little history was read. At the horizon, they're counted at today's " \
+        "numbers." in out["notes"]
+    assert "Model size at the horizon is counted at today's size, because the forecast covers only files, row groups " \
+        "and rows." in out["notes"]
 
 
 def test_growing_again_too_briefly_after_a_compaction_is_not_enough_history():
     commits = _line(100, 50, 10) + [dl.Commit(10, 10 * DAY, 12, None), dl.Commit(11, 11 * DAY, 40, None)]
     assert dl.growth([(c.timestamp, c.files) for c in commits])["status"] == "not_enough"
+
+
+def test_rows_a_writer_didnt_count_are_not_checked():
+    out = dl.predict(_bim(), _small() | {"FactSales": _s(rows=None)}, None, "F32", endpoint_security={})
+    rows = next(c for c in _t(out, "FactSales")["checks"] if c["check"] == "Rows")
+    assert rows["message"] == "Not checked, because the Delta log doesn't hold every file's row count."
 
 
 def test_rows_forecast_only_from_commits_whose_rows_are_known():
@@ -380,7 +419,7 @@ def test_the_check_carries_the_prediction_for_every_sku(svc):  # noqa: F811 - th
     assert set(p["by_sku"]) == set(dl.SKUS) and p["by_sku"]["P1"] == p["by_sku"]["F64"]
     assert p["by_sku"]["F2"]["model"] == p["model"]
     assert _t(p, "FactSales")["forecast"]["message"].startswith("Not enough history (1 commit")
-    assert p["model"]["verdict"] == "not_checked", "the endpoint's security isn't read from this PC"
+    assert p["model"]["verdict"] == "within" and p["caveat"] == CAVEAT, "the endpoint's security isn't read from this PC"
 
 
 def test_without_a_onelake_sign_in_the_tables_are_not_read(svc, monkeypatch):  # noqa: F811 - the fixture

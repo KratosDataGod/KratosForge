@@ -21,9 +21,9 @@ The card starts with one verdict for the whole model, and names the table that d
 | Verdict | What it means |
 | --- | --- |
 | Will fall back | A table is past one of the capacity's limits, its source is a SQL view, or the SQL analytics endpoint has security on it. With **Direct Lake only**, or a model that reads OneLake directly, this reads **Will fail** |
-| Might fall back | A table is within 10% of a limit, so a few more loads will pass it |
+| Might fall back | A table is within 10% of a limit, so a few more loads could pass it |
 | Within limits | Every table is within the capacity's published limits |
-| Not checked | A table couldn't be read, or nothing rules fallback out (see below) |
+| Not checked | A table couldn't be read, or no capacity is picked |
 
 What happens past a limit depends on the model's **Fallback setting**, which the card reads from
 the model:
@@ -37,7 +37,9 @@ the model:
 Below the verdict, tiles count the tables that will fall back, might, and are within limits,
 and show the model's size on OneLake against the capacity's limit (F2 to F32 only). The table
 lists each table's rows, Parquet files and row groups against the limits. Select a table to see
-each check, its evidence, the fix and the forecast; tables past a limit start open.
+each check, its evidence, the fix and the forecast; tables past a limit start open. A table's
+check says what its limit means for the whole model: with **Automatic**, past the limit every
+query on the model goes to DirectQuery, not just queries on that table.
 
 ### Fallback that doesn't depend on size
 
@@ -49,9 +51,10 @@ A model on the SQL analytics endpoint also falls back, on any capacity, when:
 - **the SQL analytics endpoint has row-level or object-level security** on a table: queries
   that read it go to DirectQuery.
 
-This PC doesn't read the endpoint's security, so a model on the SQL analytics endpoint whose
-tables are all within the limits reads **Not checked**, never **Within limits**. A model that
-reads OneLake directly has neither cause.
+This PC doesn't read the endpoint's security. A model on the SQL analytics endpoint whose
+tables are all within the limits reads **Within limits**, with this line under the verdict:
+"SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can
+make queries fall back." A model that reads OneLake directly has neither cause.
 
 ### The forecast
 

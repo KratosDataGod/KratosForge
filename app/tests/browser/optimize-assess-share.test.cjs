@@ -13,7 +13,7 @@ const skip = !playwright && "Playwright is not installed";
 const LH = "lh_optimization";
 const TEXT = `Adds 6 findings and 6 recommendations from this assessment to ${LH}, about 11 items in 1 workspace: their names and ids, `
   + "what was found and why, and the evidence and impact figures, with anything that looks like a secret removed. No code or data, "
-  + "and everyone who can read the lakehouse sees them, whatever they can open in Fabric. Confirm to continue.";
+  + "and everyone who can read the lakehouse sees them, whatever they can open in Fabric.";
 const WOULD = { findings: 6, recommendations: 6, items: 11, workspaces: 1, shared: 0, confirm: "c0ffee", lakehouse: LH, connected: true, access: "write", text: TEXT };
 const connected = { allowed: true, active: { lakehouse_id: "l1", workspace_id: "w1", lakehouse_name: LH, access: "write" }, connections: [] };
 
@@ -73,7 +73,7 @@ test("Share asks first: the dialog shows the engine's own words and sends back i
   await dlg.waitFor();
   const text = await dlg.textContent();
   assert.match(text, new RegExp(`Share 6 findings to ${LH}\\?`));
-  assert.ok(text.includes(TEXT.replace(" Confirm to continue.", "")), "the engine's sentence, word for word");
+  assert.ok(text.includes(TEXT), "the engine's sentence, word for word");
   assert.doesNotMatch(text, /Confirm to continue/);
   for (const k of ["Findings", "Recommendations", "Items", "Workspaces"]) assert.ok(text.includes(k), k);
   assert.equal(sharesSent().length, 0, "asking writes nothing");

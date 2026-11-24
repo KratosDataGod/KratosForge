@@ -131,7 +131,8 @@ class OpportunitiesMixin:
 
     def optimization_share_preview(self, share_id: str) -> dict[str, Any]:
         """What sharing this assessment would add (findings, recommendations, items, workspaces), the
-        engine's own sentence saying so (``text``) and the ``confirm`` that shares exactly those rows.
+        engine's own sentence saying so (``text``, without the ask's "Confirm to continue") and the
+        ``confirm`` that shares exactly those rows.
         Writes nothing: it is optimization_share's ask, returned instead of raised, for the Share dialog.
         With no findings there is nothing to share, and no ``confirm``."""
         rows = share.analysis_rows(self._kept(share_id))
@@ -144,7 +145,7 @@ class OpportunitiesMixin:
             would = getattr(ask, "would", None)
             if would is None:
                 raise
-            return dict(would) | where | {"text": str(ask)}
+            return dict(would) | where | {"text": str(getattr(ask, "what", "") or ask)}
         return out | where | {"text": ""}
 
     def _kept(self, share_id: str) -> dict[str, Any]:

@@ -176,7 +176,8 @@ def test_the_preview_is_the_ask_returned_and_writes_nothing(svc):  # noqa: F811
     preview = svc.optimization_share_preview(share_id)
     # The same counts, sentence and confirm as the engine's ask, plus where it goes.
     assert {k: preview[k] for k in asked.value.would} == asked.value.would
-    assert preview["text"] == str(asked.value) and preview["confirm"]
+    assert preview["text"] == asked.value.what and preview["confirm"]
+    assert str(asked.value) == preview["text"] + " Confirm to continue."
     assert preview["connected"] is True and preview["lakehouse"] and preview["access"]
     assert len(svc._optimize_shared().rows("findings")) == 0  # previewing wrote nothing
     out = svc.optimization_share(share_id, approve=True, confirm=preview["confirm"])

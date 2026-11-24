@@ -215,7 +215,7 @@ function assessShare(r) {
       changed ? note("warn", "alert", "The findings changed since you looked.", "Check what will be shared, then share again.") : null,
       h("dl", { class: "assess-share-facts" }, fact("Findings", would.findings), fact("Recommendations", would.recommendations),
         fact("Items", would.items), fact("Workspaces", would.workspaces)),
-      h("p", { class: "assess-share-would" }, String(would.text || "").replace(/^What would be added changed since you looked\. /, "").replace(/ Confirm to continue\.$/, "")),
+      h("p", { class: "assess-share-would" }, String(would.text || "")),
       h("p", { class: "muted-text small" }, "Where: the central lakehouse this PC is connected to in Settings > Optimize lakehouses. You can dismiss a shared finding later in Opportunities."));
     const ok = await new Promise((resolve) => {
       let settled = false;

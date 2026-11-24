@@ -527,7 +527,7 @@ Refused, each by name:
 - `PARSE` and `TRY_PARSE` of text .NET may read another way: a currency sign, parentheses, an exponent, a sign at the end, `Infinity`, decimals for an integer type, or separators away from groups of three. Text with no digit at all gives T-SQL's answer.
 - `PARSE` and `TRY_PARSE` to a date or time (use `CONVERT` with a style), and to `money`, which isn't carried (use `DECIMAL(19, 4)`). `CONVERT`'s `money` styles are refused with `money`.
 - A `CONVERT` style that isn't a number written in the query, such as one from a column: it would be ignored here. Write the style as a number, such as `101`.
-- `DATEPART` of a number (`DATEPART(year, 5)`), which T-SQL reads as that many days after 1900-01-01. Write the date instead, such as `DATEADD(day, 5, '1900-01-01')`.
+- A number with a fraction where a date function takes a date (`DAY(1.5)`), which T-SQL reads as a datetime part of a day after 1900-01-01. A whole number is carried as T-SQL reads it, that many days after 1900-01-01: `YEAR(5)` is `1900`, and `DATEADD(day, DATEDIFF(day, 0, d), 0)` is the date of `d`. That holds for `YEAR`, `MONTH`, `DAY`, `EOMONTH`, `DATENAME`, `DATEPART`, `DATEADD`, `DATEDIFF` and `DATETRUNC`.
 
 The static check and **Format SQL** can't read `PARSE`'s `AS ... USING` yet: they mark the query unverified and leave it as written. The live check (`fabric-desktop smoke-test`, flow 17) asks a test warehouse for the answers .NET's versions disagree on, so they can be carried once known.
 

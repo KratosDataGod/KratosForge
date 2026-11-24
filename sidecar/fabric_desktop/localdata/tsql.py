@@ -233,6 +233,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
         parts.replace(_timefromparts(parts))
     tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
+    _number_dates(tree)  # before CONVERT's rewrite and _big_integers, while the date arguments are as written
     notes += _converts(tree)
     _big_integers(tree)
     _regexps(tree)
@@ -1815,6 +1816,48 @@ def _unchecked_style(style: str) -> str:
             "Compare its values in Fabric if they matter.")
 
 
+# T-SQL's datetime runs from 1753-01-01 to 9999-12-31: as days from 1900-01-01, these.
+_DATETIME_DAYS = (-53690, 2958463)
+# The T-SQL functions whose date argument sqlglot keeps in this slot, each as T-SQL names it.
+_DATE_SLOTS: dict[type, tuple[str, str]] = {
+    exp.Year: ("YEAR", "this"), exp.Month: ("MONTH", "this"), exp.Day: ("DAY", "this"),
+    exp.LastDay: ("EOMONTH", "this"), exp.TimeToStr: ("DATENAME", "this"), exp.Extract: ("DATEPART", "expression"),
+    exp.DateAdd: ("DATEADD", "this"), exp.TimestampTrunc: ("DATETRUNC", "this"),
+}
+
+
+def _number_dates(tree: exp.Expression) -> None:
+    """A whole number where a date function takes a date is that many days after 1900-01-01, a datetime, as
+    T-SQL converts it: ``YEAR(5)`` is 1900 and ``DATEADD(day, DATEDIFF(day, 0, d), 0)`` is d's date. DuckDB
+    won't cast a number to a date. A number with a fraction (part of a day, rounded as a datetime) is refused
+    by name, and one past a datetime's range is T-SQL's overflow error."""
+    def slots(node: exp.Expression) -> list[tuple[str, exp.Expression, str]]:
+        if isinstance(node, exp.DateDiff):
+            return [("DATEDIFF", node, "this"), ("DATEDIFF", node, "expression")]
+        named = _DATE_SLOTS.get(type(node))
+        return [(named[0], node, named[1])] if named else []
+    for node in list(tree.find_all(*_DATE_SLOTS, exp.DateDiff)):
+        for name, holder, key in slots(node):
+            arg = holder.args.get(key)
+            if isinstance(arg, (exp.TsOrDsToDate, exp.TimeStrToTime)) or (
+                    isinstance(arg, exp.Cast) and arg.to.is_type(*exp.DataType.TEMPORAL_TYPES)):
+                holder, key, arg = arg, "this", arg.this  # sqlglot's own date cast around the argument
+            if arg is None or _number(arg) is None:
+                continue
+            literal = arg.this if isinstance(arg, exp.Neg) else arg
+            assert isinstance(literal, exp.Literal)
+            if not literal.name.isdigit():
+                raise ValueError(f"{_NOT_YET}{name} of a number with a fraction of a day ({arg.sql('tsql')}), which "
+                                 "T-SQL reads as a datetime after 1900-01-01, isn't carried yet. Write the date "
+                                 "and time instead.")
+            days = -_digits(literal.name, "int") if isinstance(arg, exp.Neg) else _digits(literal.name, "int")
+            if not _DATETIME_DAYS[0] <= days <= _DATETIME_DAYS[1]:
+                raise ValueError(f"{_NOT_YET}Arithmetic overflow error converting expression to data type datetime. "
+                                 "T-SQL gives the same error.")
+            holder.set(key, sqlglot.parse_one(f"CAST('1900-01-01' AS TIMESTAMP) + INTERVAL ({days}) DAY",
+                                              read="duckdb"))
+
+
 def _converts(tree: exp.Expression) -> list[str]:
     """``CONVERT`` fails on a value it can't convert, as ``CAST`` does; sqlglot writes it as TRY_CAST,
     which gives NULL instead. Write it as sqlglot does, then make the outer conversion strict. A date
@@ -2458,10 +2501,6 @@ def _functions(tree: exp.Expression) -> None:
             unit = node.this.name.upper()
             if isinstance(node.expression, exp.Literal) and node.expression.is_string:
                 node.set("expression", exp.cast(node.expression, "TIMESTAMP"))  # T-SQL reads the text as a datetime
-            elif _number(node.expression) is not None:
-                raise ValueError(f"{_NOT_YET}DATEPART of a number (T-SQL reads {node.expression.sql('tsql')} as that "
-                                 "many days after 1900-01-01) isn't carried yet. Write the date instead, such as "
-                                 f"DATEADD(day, {node.expression.sql('tsql')}, '1900-01-01').")
             day = node.expression
             if unit in ("MILLISECOND", "MICROSECOND"):  # within the second, as T-SQL counts them (DuckDB adds the seconds)
                 node.replace(exp.paren(exp.Mod(this=node.copy(), expression=exp.Literal.number(

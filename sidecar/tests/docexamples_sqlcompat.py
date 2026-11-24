@@ -97,6 +97,7 @@ CLAIMS: list[Claim] = [
     _ts("FORMAT(1234.5, 'C')"),
     _ts("PARSE('1.234,5' AS DECIMAL(10, 2) USING 'de-DE')"),
     _ts("STR(1234.5)"),
+    _ts("YEAR(5)"),
     # Local T-SQL text
     _ts("'a' = 'a  '"),
     _ts("'a' = 'A'"),

@@ -1,9 +1,11 @@
 """WR-274: T-SQL edges the mutation run of localdata/tsql.py (batch 223) found, each checked against T-SQL's documented
 answer: a comparison against ALL or ANY of a subquery ignores trailing spaces; SELECT DISTINCT * and a UNION of
 SELECT * over text say that 'a' and 'a ' stay apart here (WR-210); a literal count, start or length past a bigint
-is T-SQL's overflow error, negated ones too; and a CONVERT style or a DATEPART date the local engine would get
-wrong is refused by name."""
+is T-SQL's overflow error, negated ones too; a whole number as a date is days after 1900-01-01; and a CONVERT
+style from a column, or a date with a fraction of a day as a number, is refused by name."""
 from __future__ import annotations
+
+import datetime as dt
 
 import duckdb
 import pytest
@@ -110,7 +112,38 @@ def test_a_convert_style_from_a_column_is_refused_rather_than_ignored():
     assert run("SELECT CONVERT(VARCHAR(30), CAST('2024-02-29' AS DATE), 101)") == [("02/29/2024",)]
 
 
-@pytest.mark.parametrize("sql", ["SELECT DATEPART(year, 5)", "SELECT DATEPART(day, -1.5)"])
-def test_datepart_of_a_number_is_refused_by_name(sql):
-    with pytest.raises(ValueError, match=r"DATEPART of a number .* isn't carried yet.*DATEADD\(day, "):
+# ---- a whole number as a date is that many days after 1900-01-01, a datetime, as T-SQL converts it
+
+@pytest.mark.parametrize(("sql", "answer"), [
+    ("SELECT YEAR(5)", 1900),
+    ("SELECT MONTH(-1)", 12),  # 1899-12-31
+    ("SELECT DAY(40)", 10),  # 1900-02-10
+    ("SELECT DATEPART(year, 5)", 1900),
+    ("SELECT DATEPART(weekday, 0)", 2),  # 1900-01-01 was a Monday; Sunday is 1
+    ("SELECT DATENAME(month, 40)", "February"),
+    ("SELECT DATENAME(weekday, 0)", "Monday"),
+    ("SELECT EOMONTH(5)", dt.date(1900, 1, 31)),
+    ("SELECT DATEADD(day, 1, 5)", dt.datetime(1900, 1, 7)),
+    ("SELECT DATEDIFF(day, -1, 5)", 6),
+    ("SELECT DATETRUNC(year, 400)", dt.datetime(1901, 1, 1)),
+    ("SELECT DATEADD(day, DATEDIFF(day, 0, CAST('2024-02-29 13:00' AS DATETIME2)), 0)", dt.datetime(2024, 2, 29)),
+])
+def test_a_whole_number_as_a_date_is_days_after_1900(sql, answer):
+    assert run(sql) == [(answer,)]
+
+
+def test_a_number_as_a_date_past_a_datetime_is_t_sqls_overflow():
+    stops_with("SELECT YEAR(2958464)", "Arithmetic overflow error converting expression to data type datetime")
+    stops_with("SELECT YEAR(-53691)", "Arithmetic overflow error converting expression to data type datetime")
+    assert run("SELECT YEAR(2958463)") == [(9999,)]
+    assert run("SELECT YEAR(-53690)") == [(1753,)]
+
+
+@pytest.mark.parametrize("sql", ["SELECT DAY(1.5)", "SELECT DATEPART(hour, -0.25)", "SELECT DATENAME(year, 1e1)"])
+def test_a_number_with_a_fraction_of_a_day_as_a_date_is_refused_by_name(sql):
+    with pytest.raises(ValueError, match=r"of a number with a fraction of a day .* isn't carried yet"):
         translate(sql)
+
+
+def test_a_number_cast_to_a_number_type_is_left_as_written():
+    assert translate("SELECT CAST(5 AS INT) + 1")[0] == ["SELECT CAST(5 AS INT) + 1"]

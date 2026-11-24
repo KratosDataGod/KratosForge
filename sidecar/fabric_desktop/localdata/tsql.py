@@ -195,7 +195,6 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
             tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
-            _clocks(tree, batch)  # WR-707: GETDATE() is a datetime and SYSDATETIME() a datetime2(7)
             _styleless_converts(tree)  # WR-707: before CONVERT's rewrite, which drops the type it converts
             notes += _converts(tree)
             _big_integers(tree)
@@ -253,7 +252,11 @@ class KfTSQL(TSQL):
         # PARSE and TRY_PARSE take "x AS type USING culture", which sqlglot can't read (WR-229).
         FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
                             "TRY_PARSE": tsql_format.parser(True)}
+        # GETDATE() is a datetime and SYSDATETIME() a datetime2(7), which sqlglot reads as the same
+        # CURRENT_TIMESTAMP: each is marked with its type as it is read (WR-707).
         FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
+                     "GETDATE": lambda args: _clock("datetime", args),
+                     "SYSDATETIME": lambda args: _clock("datetime2", args),
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
                      "JSON_VALUE": lambda args: exp.JSONExtractScalar(this=seq_get(args, 0), expression=seq_get(args, 1),
@@ -261,6 +264,13 @@ class KfTSQL(TSQL):
                      "JSON_QUERY": lambda args: exp.JSONExtract(this=seq_get(args, 0),
                                                                 expression=seq_get(args, 1) or exp.Literal.string("$"),
                                                                 json_query=True)}
+
+
+def _clock(kind: str, args: list[exp.Expression]) -> exp.Expression:
+    """CURRENT_TIMESTAMP, marked with the T-SQL type of the function it was read from (see _clock_type)."""
+    node = exp.CurrentTimestamp.from_arg_list(args)
+    node.meta["kf_clock"] = kind
+    return node
 
 
 def _refuse_output(batch: str) -> None:
@@ -1059,7 +1069,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
-             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup)
+             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
+             exp.Case, exp.SetOperation, exp.GroupConcat)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
@@ -1150,8 +1161,11 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         elif isinstance(node, exp.Round):
             _round_keeps_type(node, info)
         elif isinstance(node, exp.Coalesce):
+            notes += _dates_and_text(node, info)
             if node.args.get("is_null"):
                 _isnull_first_type(node, info)
+        elif isinstance(node, (exp.Case, exp.SetOperation, exp.GroupConcat)):
+            notes += _dates_and_text(node, info)
         elif isinstance(node, exp.Pow):
             notes += _power(node, info.this.type)
         elif isinstance(node, (exp.Ceil, exp.Floor, exp.Degrees, exp.Radians)):
@@ -1858,17 +1872,70 @@ def _dates_joined(node: exp.Expression, info: exp.Expression) -> list[str]:
     return notes
 
 
-def _clocks(tree: exp.Expression, batch: str) -> None:
-    """Mark each GETDATE() and SYSDATETIME(), which sqlglot reads as the same CURRENT_TIMESTAMP, with the T-SQL
-    type it is, read from the query's text where it stands."""
-    for node in tree.find_all(exp.CurrentTimestamp):
-        start, end = node.meta.get("start"), node.meta.get("end")
-        if isinstance(start, int) and isinstance(end, int):
-            word = batch[start:end + 1].upper()
-            if word.startswith("SYSDATETIME"):
-                node.meta["kf_clock"] = "datetime2"
-            elif not word.startswith(("GETDATE", "CURRENT_TIMESTAMP")):
-                node.meta["kf_clock"] = None  # not told: a datetime2's 6 digits, with a note
+def _dated(value: exp.Expression, kind: exp.DataType | None) -> bool:
+    return _clock_type(value) is not None or tsql_types.is_rounded(value) or _is(kind, _DATE_TIMES)
+
+
+def _texty(value: exp.Expression, kind: exp.DataType | None) -> bool:
+    """Text that isn't a string written in the query (DuckDB reads one of those as the date it meets, as T-SQL
+    does) or NULL."""
+    return _is(kind, _TEXT) and not isinstance(value, (exp.Literal, exp.National, exp.Null))
+
+
+def _mixed(what: str) -> ValueError:
+    return ValueError(_NOT_YET + f"{what} of text and a date or time isn't mapped yet. In T-SQL a date or time "
+                      "outranks text, so the text is read as a date, and here the date would be written as text "
+                      "instead. CAST the text to the date's type, or the date to VARCHAR, first.")
+
+
+def _move_to_text(value: exp.Expression, kind: exp.DataType | None) -> list[str]:
+    """Write ``value``, a date or time, as text where it stands, as a CAST to text writes it."""
+    holder = exp.Null()
+    value.replace(holder)  # first, as the text may take value itself
+    dated, note = _datetime_text(value, kind)
+    holder.replace(dated if dated is not None else exp.cast(value, "VARCHAR"))
+    return [note] if note else []
+
+
+def _dates_and_text(node: exp.Expression, info: exp.Expression) -> list[str]:
+    """A date or time that meets text, where T-SQL converts one to the other (WR-707). STRING_AGG and ISNULL with
+    text first write the date as a CAST to text does. COALESCE, CASE and UNION take the type that ranks highest,
+    the date's, so the text is read as a date: DuckDB does the same with a string written in the query, but takes
+    text for a text column (and UNION always does), so those are refused by name."""
+    if isinstance(node, exp.GroupConcat):
+        value, typed = node.this, info.this
+        if isinstance(value, exp.Order):
+            value, typed = value.this, typed.this
+        return _move_to_text(value, typed.type) if _dated(value, typed.type) else []
+    if isinstance(node, exp.Coalesce):
+        values = [node.this, *node.expressions]
+        kinds = [info.this.type, *(e.type for e in info.expressions)]
+        if node.args.get("is_null") and len(values) == 2:
+            if _is(kinds[0], _TEXT) and _dated(values[1], kinds[1]):
+                return _move_to_text(values[1], kinds[1])  # ISNULL has its first value's type
+            if _dated(values[0], kinds[0]) and _texty(values[1], kinds[1]):
+                raise _mixed("ISNULL")
+            return []
+        if any(_dated(v, k) for v, k in zip(values, kinds, strict=True)) \
+                and any(_texty(v, k) for v, k in zip(values, kinds, strict=True)):
+            raise _mixed("COALESCE")
+        return []
+    if isinstance(node, exp.Case):
+        pairs = [(i.args["true"], t.args["true"]) for i, t in zip(node.args.get("ifs") or [], info.args.get("ifs") or [],
+                                                                  strict=True)]
+        if node.args.get("default") is not None:
+            pairs.append((node.args["default"], info.args["default"]))
+        if any(_dated(v, t.type) for v, t in pairs) and any(_texty(v, t.type) for v, t in pairs):
+            raise _mixed("a CASE")
+        return []
+    if isinstance(node, exp.SetOperation) and isinstance(info, exp.SetOperation):
+        left, right = info.this, info.expression
+        if isinstance(left, exp.Query) and isinstance(right, exp.Query):
+            for a, b in zip(left.selects, right.selects, strict=False):
+                ta, tb = a.unalias().type or a.type, b.unalias().type or b.type
+                if (_is(ta, _TEXT) and _is(tb, _DATE_TIMES)) or (_is(tb, _TEXT) and _is(ta, _DATE_TIMES)):
+                    raise _mixed(f"a {node.key.upper()} of a column")
+    return []
 
 
 def _styleless_converts(tree: exp.Expression) -> None:

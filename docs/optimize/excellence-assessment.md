@@ -25,7 +25,9 @@ collected, and how sure it is:
 | Insufficient | Something was read, but not enough to decide | No. The control isn't evaluated. |
 
 Secrets are removed from evidence before it is stored. Each record carries a hash of its content, so a
-record that was changed after collection is rejected and can't decide a control.
+record that was changed after collection is rejected and can't decide a control. So is a record that
+isn't shaped as its kind of evidence, such as a field that should be a list but isn't, or a missing
+field. The controls that need it are not evaluated, never passed.
 
 ## Control outcomes
 
@@ -267,7 +269,8 @@ this PC and only the result is kept as evidence (`item.inspection`):
 - for a pipeline, how many activities it has, and the names of those that are deactivated or name a
   fixed workspace id; of the activities that call out, the names of those with no retry and those
   with no timeout under 12 hours; and whether any activity runs when another fails or completes. Not
-  the ids, and not the policy values themselves.
+  the ids, and not the policy values themselves. An activity without a name is shown by its type and
+  place in the pipeline, such as "(unnamed Copy activity 2)".
 
 Notebook code and pipeline JSON never enter the evidence or the snapshot. A definition that couldn't
 be read leaves these controls not evaluated.

@@ -462,11 +462,54 @@ def _backup(args: argparse.Namespace) -> int:
         for item in result["cleaned"]:
             print(f"  {item['path']}: {item['removed']} left out")
         return 0
+    if not args.yes:  # only shows what it would do: nothing changes
+        try:
+            print(backup.describe(backup.restore(Path(args.backup), data_dir(), home)), end="")
+        except backup.BackupError as exc:
+            print(exc)
+            return 1
+        return 0
+    return _restore_audited(Path(args.backup), data_dir(), home)
+
+
+def _restore_audited(zip_path: Path, folder: Path, home: Path | None) -> int:
+    """restore --yes replaces this PC's data, so it always fails closed: a "started" line naming the backup
+    file is written to this PC's audit log (the app's, Service.audit) before any file changes, and nothing
+    is restored when it can't be; then how the restore ended. The person is this PC's account, marked
+    (cli), as for the CLI's other audited commands."""
+    import time
+
+    from . import audit, backup
+
+    log = audit.AuditLog(folder / "audit")
+    who = f"{log.os_user or 'unknown'} (cli)"
+    call = {"backup": str(zip_path), "agent_home": str(home) if home else ""}
+    began = time.monotonic()
     try:
-        print(backup.describe(backup.restore(Path(args.backup), data_dir(), home, apply=args.yes)), end="")
+        log.record("backup_restore", "started", 0.0, call, who=who)
+    except Exception as exc:  # noqa: BLE001 - any failure to write refuses the restore
+        print("error: " + audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}"))
+        return 2
+
+    def note(outcome: str, error: str = "", reason: str = "") -> None:
+        """How the restore ended: never changes what it did, as for the app's own calls."""
+        try:
+            log.record("backup_restore", outcome, time.monotonic() - began, call, who=who, error=error,
+                       reason=reason)
+        except Exception as exc:  # noqa: BLE001 - stderr says the line is missing
+            print(f"audit: could not record backup_restore: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    try:
+        result = backup.restore(zip_path, folder, home, apply=True)
     except backup.BackupError as exc:
+        note("error", error=str(exc), reason="refused")
         print(exc)
         return 1
+    except BaseException as exc:
+        note("error", error=f"{type(exc).__name__}: {exc}", reason="failed")
+        raise
+    note("ok")
+    print(backup.describe(result), end="")
     return 0
 
 

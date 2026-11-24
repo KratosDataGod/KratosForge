@@ -11,6 +11,8 @@ the scan below finds those calls in their modules, so a new one fails here until
   line that can't be written refuses it.
 - The agent's own Prod job is in test_failclosed_paths; it calls no listed action.
 - The CLI schedules a pipeline on this PC, which never names Prod, so that call never fails closed.
+- The CLI restores a backup over this PC's data itself (no RPC method does): CLI_ACTIONS names it, and the
+  scan finds the "started" line it records under that name (test_cli_restore_audit tests it).
 """
 
 from __future__ import annotations
@@ -53,6 +55,9 @@ IN_PROCESS: dict[tuple[str, str], str] = {
     ("integrations/services.py", "prove_delete_outputs"):
         "fabric_desktop_delete_proof_outputs is destructive and asks for approval every time, so Registry "
         "writes its started line first (WRITE_ONELAKE isn't offered to tools yet)",
+    ("cli.py", "backup_restore"):
+        "restore --yes: it replaces this PC's data, so the CLI writes its started line first, always, and "
+        "changes nothing when that line can't be written (test_cli_restore_audit)",
     ("cli.py", "add_pc_schedule"):
         "pipeline schedule: the target is a pipeline folder on this PC, which never names Prod, so the call "
         "never fails closed (a Prod PC schedule's run does: test_failclosed_paths)",
@@ -65,6 +70,10 @@ CAPABILITY_CALLS = {
 }
 
 _CALL = re.compile(r"""(?:\.|getattr\(\s*\w+\s*,\s*["'])(%s)\b""" % "|".join(sorted(ACTIONS, key=len, reverse=True)))
+# Actions an in-process caller runs itself that are no RPC method, so they aren't in ACTIONS: each always
+# fails closed, and the scan finds the line its caller records under its name.
+CLI_ACTIONS = {"backup_restore"}  # fabric-desktop restore --yes: replaces this PC's data with a backup's
+_RECORDED = re.compile(r"""\.record\(\s*["'](%s)["']""" % "|".join(sorted(CLI_ACTIONS, key=len, reverse=True)))
 
 
 def _found() -> set[tuple[str, str]]:
@@ -73,7 +82,7 @@ def _found() -> set[tuple[str, str]]:
     for module in CALLERS:
         for line in (ENGINE / module).read_text(encoding="utf-8").splitlines():
             if not line.lstrip().startswith("#"):
-                out |= {(module, m.group(1)) for m in _CALL.finditer(line)}
+                out |= {(module, m.group(1)) for pattern in (_CALL, _RECORDED) for m in pattern.finditer(line)}
     return out
 
 
@@ -84,6 +93,13 @@ def test_every_in_process_call_of_a_fail_closed_action_is_listed():
         "unrecorded, and test it here")
     assert sorted(set(IN_PROCESS) - found) == [], "listed in IN_PROCESS but no longer called there"
     assert all(len(why) >= 40 for why in IN_PROCESS.values())
+
+
+def test_the_clis_own_actions_are_no_rpc_method():
+    """An action in CLI_ACTIONS has no RPC method of that name, whose own fail-closed check would cover it."""
+    from fabric_desktop import server
+
+    assert not set(CLI_ACTIONS) & (set(server.METHODS) | set(ACTIONS))
 
 
 def test_the_transports_reach_the_engine_only_through_the_registry():

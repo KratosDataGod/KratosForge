@@ -1,0 +1,69 @@
+{
+  "_about": "A model of who gets access to the SalesDW warehouse and the Sales semantic model. For each person set workspace_role (null, Viewer, Contributor, Member or Admin), warehouse (null for no share, or a list of the warehouse permissions listed) and semantic_model (null, or a list of the model permissions listed). A share always includes Read, so list Read in every share. Give each person the least access that works.",
+  "warehouse_permissions": [
+    "Read",
+    "ReadData",
+    "ReadAll",
+    "Write"
+  ],
+  "semantic_model_permissions": [
+    "Read",
+    "Build",
+    "Reshare",
+    "Write"
+  ],
+  "people": {
+    "Hana": {
+      "needs": "Finance analyst in another workspace. Reads every table and view in SalesDW with T-SQL from SQL Server Management Studio. Needs nothing else in the workspace.",
+      "workspace_role": null,
+      "warehouse": [
+        "Read",
+        "ReadData"
+      ],
+      "semantic_model": null
+    },
+    "Ivo": {
+      "needs": "Data scientist in another workspace. Reads the SalesDW Delta files with Spark from his own notebooks. He never uses T-SQL.",
+      "workspace_role": null,
+      "warehouse": [
+        "Read",
+        "ReadAll"
+      ],
+      "semantic_model": null
+    },
+    "Jun": {
+      "needs": "Auditor. Connects to SalesDW and reads only the two views the DBA grants her with a T-SQL GRANT.",
+      "workspace_role": null,
+      "warehouse": [
+        "Read"
+      ],
+      "semantic_model": null
+    },
+    "Kai": {
+      "needs": "Report author in another workspace. Builds new reports on the Sales model and analyzes it in Excel. The model is in import mode, so his reports never query SalesDW.",
+      "workspace_role": null,
+      "warehouse": [
+        "Read",
+        "ReadData"
+      ],
+      "semantic_model": [
+        "Read",
+        "Build"
+      ]
+    },
+    "Lia": {
+      "needs": "Sales manager. Opens the existing reports built on the Sales model and uses Explore on them. Builds nothing new and doesn't share the model.",
+      "workspace_role": null,
+      "warehouse": null,
+      "semantic_model": [
+        "Read"
+      ]
+    },
+    "Max": {
+      "needs": "Data engineer joining the Sales team. Loads new tables into SalesDW with T-SQL every night.",
+      "workspace_role": "Contributor",
+      "warehouse": null,
+      "semantic_model": null
+    }
+  }
+}

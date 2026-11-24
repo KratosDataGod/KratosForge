@@ -74,7 +74,7 @@ WRITE_SITES = {
     ("maintenance.py", "_unnamed", "table.vacuum"): "dry_run=True",
     ("maintenance.py", "_named_anywhere", "table.vacuum"): "dry_run=True",
     ("maintenance.py", "compact_local", "DeltaTable(uri).optimize.compact"): LOCAL,
-    ("maintenance.py", "compact_local", "table.vacuum"): LOCAL,
+    ("maintenance.py", "compact_local", "DeltaTable(uri).vacuum"): LOCAL,
     ("prove_service.py", "ProveMixin._replay_seed", "write_deltalake"): LOCAL,
     ("livetest.py", "LiveTest._delta_write", "write_deltalake"): "the live test, run by hand in kf_tenant_test",
     ("livetest.py", "LiveTest._delta_append", "write_deltalake"): "the live test",

@@ -323,6 +323,58 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.9-q11",
+      "type": "code",
+      "language": "tsql",
+      "stem": "The staging table stg.Customer in a Fabric warehouse holds several versions of some customers. Return exactly one row per CustomerID: the one with the latest ModifiedAt. Complete the query.",
+      "snippet": "WITH Ranked AS (\n    SELECT *,\n        {{1}}() OVER ({{2}} CustomerID ORDER BY ModifiedAt {{3}}) AS rn\n    FROM stg.Customer\n)\nSELECT * FROM Ranked\nWHERE rn {{4}};",
+      "options": [
+        {
+          "id": "a",
+          "text": "RANK"
+        },
+        {
+          "id": "b",
+          "text": "> 1"
+        },
+        {
+          "id": "c",
+          "text": "PARTITION BY"
+        },
+        {
+          "id": "d",
+          "text": "ASC"
+        },
+        {
+          "id": "e",
+          "text": "ROW_NUMBER"
+        },
+        {
+          "id": "f",
+          "text": "= 1"
+        },
+        {
+          "id": "g",
+          "text": "GROUP BY"
+        },
+        {
+          "id": "h",
+          "text": "DESC"
+        }
+      ],
+      "answer": [
+        "e",
+        "c",
+        "h",
+        "f"
+      ],
+      "explanation": "ROW_NUMBER numbers the rows of each partition 1, 2, 3 and so on, so PARTITION BY CustomerID with ORDER BY ModifiedAt DESC gives the latest version of each customer the number 1, and WHERE rn = 1 keeps it. RANK gives tied rows the same number, so two versions with the same ModifiedAt would both be kept. GROUP BY isn't part of an OVER clause, and ASC would keep the oldest version.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/functions/row-number-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

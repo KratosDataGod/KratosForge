@@ -8,7 +8,6 @@ TMDL are saved in the metadata project's folder, so they go to Git with the rest
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
@@ -19,6 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from . import model_ossie, ossie_validate, tmdl
+from .fabric_api import definition_text
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
 from .notebook_files_service import _is_link
@@ -237,7 +237,12 @@ def _folder_bim(folder: Path, name: str, path: str) -> tuple[dict[str, Any], lis
             total += f.stat().st_size
             if total > tmdl.MAX_CHARS * 4:
                 raise ValueError(f"{name}'s TMDL is too large to read on this PC")
-            files[f.relative_to(folder).as_posix()] = f.read_text(encoding="utf-8-sig")
+            rel = f.relative_to(folder).as_posix()
+            try:
+                files[rel] = f.read_text(encoding="utf-8-sig")
+            except UnicodeDecodeError:
+                raise ValueError(f"{path}/{rel} isn't UTF-8 text, so the model can't be read. "
+                                 "Save it as UTF-8, then try again.") from None
         bim, read_report = tmdl.to_bim(files, name)
     elif _real(folder / "model.bim", stat.S_ISREG):
         if (folder / "model.bim").stat().st_size > tmdl.MAX_CHARS * 4:
@@ -246,6 +251,12 @@ def _folder_bim(folder: Path, name: str, path: str) -> tuple[dict[str, Any], lis
             bim, read_report = json.loads((folder / "model.bim").read_text(encoding="utf-8-sig")), []
         except RecursionError:
             raise ValueError(f"{path}/model.bim is nested too deeply to be a semantic model") from None
+        except UnicodeDecodeError:
+            raise ValueError(f"{path}/model.bim isn't UTF-8 text, so the model can't be read. Save it as UTF-8, then "
+                             "try again.") from None
+        except ValueError as exc:  # json's own error: where the JSON breaks
+            raise ValueError(f"{path}/model.bim isn't valid JSON ({exc}), so the model can't be read. Fix the JSON, "
+                             "then try again.") from None
         if not isinstance(bim, dict):
             raise ValueError(f"{path}/model.bim isn't a semantic model")
         bim["name"] = name
@@ -274,10 +285,10 @@ class ModelOssieMixin:
         except Exception as exc:  # an empty model here would turn into an update that removes everything
             raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
                                f"({type(exc).__name__}: {exc}). Try again.") from exc
-        part = next((p for p in (got.get("definition") or {}).get("parts", []) if p.get("path") == "model.bim"), None)
-        if part is None:
+        bim = definition_text(got).get("model.bim")  # a part that isn't whole base64 is FabricError, never empty
+        if bim is None or not bim.strip():  # empty base64 decodes to nothing; never an empty model
             raise RuntimeError(f"Fabric didn't return {model.get('displayName') or 'the model'}'s model.bim")
-        return json.loads(base64.b64decode(part.get("payload") or "").decode("utf-8-sig"))
+        return json.loads(bim)
 
     def meta_model_ossie_models(self, env: str = "test") -> dict[str, Any]:
         """The semantic models Export can read in the environment's workspace."""
@@ -329,9 +340,18 @@ class ModelOssieMixin:
 
     def _ossie_path(self, project: Any, path: str, suffixes: tuple[str, ...]) -> Path:
         rel = PurePosixPath(path.replace("\\", "/"))
-        if rel.is_absolute() or ".." in rel.parts or not rel.parts or not rel.name.endswith(suffixes):
+        # a ":" anywhere is a drive (C:/x, C:x) that Windows would join in place of the project, or a stream
+        if (rel.is_absolute() or ".." in rel.parts or not rel.parts or not rel.name.endswith(suffixes)
+                or ":" in rel.as_posix()):
             raise ValueError(f"Save it as a path inside the project ending {' or '.join(suffixes)}, like {FOLDER}/Sales.ossie.yaml")
-        return Path(project.root, *rel.parts)
+        if any(part.split(".")[0].upper().rstrip() in tmdl._RESERVED for part in rel.parts):
+            raise ValueError(f"{path} can't be used, because Windows reserves names like CON, NUL and COM1 for devices. "
+                             "Pick another name, then try again.")
+        target = Path(project.root, *rel.parts)
+        if not target.resolve().is_relative_to(Path(project.root).resolve()):  # a symlinked folder in a cloned repo
+            raise ValueError(f"{path} can't be used, because a link in it points outside the project. "
+                             "Pick a path inside the project, then try again.")
+        return target
 
     def meta_model_ossie_save(self, path: str, text: str) -> dict[str, Any]:
         """Save an Ossie document in the metadata project's folder (it shows in Changes, ready to commit)."""
@@ -347,7 +367,10 @@ class ModelOssieMixin:
         target = self._ossie_path(project, path, (".yaml", ".yml", ".json"))
         if target.stat().st_size > model_ossie.MAX_CHARS * 4:  # UTF-8 is at most 4 bytes a character
             raise ValueError(f"{path} is too large for an Ossie model")
-        text = target.read_text(encoding="utf-8")
+        try:
+            text = target.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            raise ValueError(f"{path} isn't UTF-8 text, so it isn't an Ossie file. Save it as UTF-8, then try again.") from None
         model_ossie.parse(text)  # refuse here what Import would refuse, before the UI shows it
         return {"path": target.relative_to(project.root).as_posix(), "text": text}
 
@@ -442,10 +465,15 @@ class ModelOssieMixin:
         if model is None:
             raise LookupError(f"There's no semantic model named {name} in {cfg.get('workspace_name') or 'the workspace'}")
         got = self.fabric.get_item_definition(cfg["workspace_id"], model["id"], "TMDL")  # type: ignore[attr-defined]
-        parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
-                 for p in (got.get("definition") or {}).get("parts", []) if p.get("path")}
+        # A part that isn't whole base64 is FabricError: written empty, or left out and removed as stale, it would lose the model.
+        parts = definition_text(got, "utf-8")
         if not parts:
             raise RuntimeError(f"Fabric returned no definition for {name}")
+        empty = sorted(path for path, content in parts.items() if path.endswith(".tmdl") and not content.strip())
+        if empty:  # valid base64 of nothing: written, it would blank the file in the project
+            raise RuntimeError(f"{name} wasn't saved, because Fabric sent {empty[0]} empty, and a TMDL file is never "
+                               "empty. Nothing in the project was changed. Try again, and if it keeps happening, open "
+                               "the model in Fabric to check it still loads.")
         folder = Path(project.root, FOLDER, f"{_SAFE.sub('_', name).strip() or 'model'}.SemanticModel")
         for path in parts:
             rel = PurePosixPath(path)

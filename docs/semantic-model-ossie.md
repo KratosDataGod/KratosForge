@@ -111,8 +111,8 @@ reading the Ossie file back gives the same model or names what differs.
 ## Fidelity report
 
 Export (from Fabric or from a folder), Import's preview and Ossie file to TMDL each return a
-`fidelity` report beside the `report` rows (OSSIE-004a, engine only; the card shows it in
-OSSIE-004b). It lists every object the conversion reads once: the model, tables or datasets,
+`fidelity` report beside the `report` rows (OSSIE-004a, engine only). The card doesn't show it
+yet; that is OSSIE-004b. It lists every object the conversion reads once: the model, tables or datasets,
 columns or fields, measures or metrics, hierarchies, calculation groups, relationships, roles,
 perspectives, cultures and shared expressions, including those that travel in a file's Power BI
 section. Each object is in one class:
@@ -225,6 +225,42 @@ return. The best result is still Structurally compatible but behavior unverified
 performance (L4) are listed under `not_checked`. Expressions can hold literals, so `redacted()`
 replaces their text and forms with a length and a hash.
 
+### Behavioral parity, SQL side (L3)
+
+`semantic_parity_l3.parity_l3(left, right)` (OSSIE-006c, engine only) runs L2 and keeps all its
+rows. For each measure or metric that L2 could read, it runs the SQL side on DuckDB, in memory
+with external access off, against seven small controlled datasets: plain values, NULLs, NULLs
+only, no rows, repeated values, zeros (a zero divisor, empty text, DAX's zero date) and precision
+(decimal fractions, integers past 2^53). The datasets are generated from the tables and columns the
+measures name, typed as each side types them, so a type change between sides is part of the run.
+They are never customer data, and nothing touches disk. The query is built from L2's canonical
+form with quoted names, never from the expression's own text. A referenced measure is computed
+once per dataset and read by each reference. Each measure is capped at 64 aggregates and each side at 2,000.
+A measure past either cap is not run, and the row gives the reason.
+
+| Sides | Result |
+| --- | --- |
+| Both SQL, same value on every dataset | Verified equivalent, on these datasets run on DuckDB only (the row says so) |
+| Both SQL, some values differ within the tolerances | Equivalent within tolerance |
+| Both SQL, a value differs past the tolerances | Different results, naming the dataset and both values |
+| One side DAX | The L2 result stands. The SQL values are evidence, and the DAX side is "not run" |
+| DuckDB refuses both sides' query on a dataset | The L2 result stands, with a note. The same error on both sides is never a match |
+| DuckDB refuses one side's query only | Different results, naming the dataset |
+
+**A DAX side never runs on this PC**, because there is no DAX engine here and DuckDB isn't one. A
+report never holds a DAX-side value without an executed DAX query. OSSIE-006d runs that side in
+`kf_tenant_test`. L3 never improves a row that L1 or L2 already found worse, but values that differ
+still mark the row Different results. Both SQL sides run with DuckDB's semantics, not their own
+engine's. For example, DuckDB gives infinity for 1/0 where T-SQL raises an error, and integer
+division and NULL order can differ too. Relationships, filter context and time intelligence aren't exercised, because the subset aggregates whole tables, so
+these are listed under `not_checked`.
+
+Tolerances are configuration, and the report states them: `absolute` 0 and `relative` 1e-9 by
+default, so only floating-point noise passes. A column type with no controlled values (binary,
+time of day, time zones) is not run, with the reason. Neither is SUM or AVERAGE over a text,
+Boolean, date or time column, because DuckDB sums a Boolean, where DAX and T-SQL refuse it. `semantic_parity_l3.redacted()` also replaces
+each built query with a length and a hash.
+
 ## Schema validation
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the
@@ -252,8 +288,9 @@ when the file goes to other tools.
   then the first ones in the file. A file of 2,000 datasets with 50 bad fields each is checked in
   about a second.
 - The file is read with the same limits as Import: at most 20 million characters, no YAML
-  aliases (`*name`), and no deeper nesting than a model needs. The schema can't refer to anything
-  outside the copies it ships with.
+  aliases (`*name`), no key given twice in one object, and no deeper nesting than a model needs.
+  A repeated key is refused with its name and line, because YAML would keep only the last one.
+  The schema can't refer to anything outside the copies it ships with.
 - `valid` is true only when a schema checked the file and found nothing. Rules beyond the schema,
   such as what Fabric or Snowflake accept, are the version profiles below.
 - Regular expressions in a schema (`pattern`, `patternProperties`) would be matched with Python's
@@ -429,6 +466,33 @@ existing folder in File Explorer and is written to the audit log, as the other O
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it
 to `semantic/<model>.SemanticModel/` in the Power BI project layout, next to the Ossie file.
 Files Fabric no longer returns are removed from that folder.
+
+### Compare two versions
+
+`ossie_compare.compare_versions(old, new)` says what changed between two versions of the same
+model (OSSIE-002b, engine only: no engine method and no screen yet). Each version can be an Ossie
+0.2.0.dev0 file, a `model.bim` (TMSL) or a TMDL folder's files, read as structural parity reads
+them, so a model and its own Ossie export are the same version. Ossie 0.3.0.dev0 and Snowflake's
+0.1.1 files are refused with the reason, because the converter reads 0.2.0.dev0 only.
+
+For tables, columns, measures, relationships, roles, calculation groups, hierarchies and
+perspectives the report lists each object added, removed or changed, and counts the unchanged
+ones by kind. A change says what changed: the data type, the expression, the format string, the
+description, a relationship's ends or flags, a role's permissions or a calculation item. A
+measure's expression is compared through the L2 canonical form when both versions are inside its
+subset, so a rewrite that computes the same thing ("expression text") is told apart from one that
+doesn't ("expression"). A SQL translation added beside unchanged DAX isn't a change. Roles and
+calculation groups that changed are also listed under `look_at`, so they are checked first.
+
+The model's own name and the order of columns aren't compared, and the report says so under
+`not_checked`, with the other properties left out: partitions and data sources, shared
+expressions, sourceColumn and summarizeBy. Bad input never raises: `status` is "failed" or
+"refused", `error` says why, and the summary says the versions weren't compared. A line the reader
+can't understand is left out of the comparison, so the summary and `notes` count it and each
+side's `warnings` name it.
+The report can quote a role's filter and name its members. Anything shown outside the local pane
+must use `ossie_compare.redacted(report)`, which gives a length and hash of each filter, counts of
+members and permissions, and no expression or format text.
 
 ## How this works
 

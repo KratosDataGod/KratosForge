@@ -204,6 +204,15 @@ def attribute(run: dict[str, Any], baseline: dict[str, Any], optimizations: list
         "local_basis": local_basis}
 
 
+def _shown(value: float, b: float | None) -> float:
+    """Round to 6 places without going over the baseline. A baseline in CU seconds isn't on the
+    6-place CU-hour grid, so plain rounding can lift a capped figure just above it."""
+    shown = round(value, 6)
+    if b is not None and shown > b:
+        shown = math.floor(b * 1e6) / 1e6
+    return shown
+
+
 def _result(run: dict[str, Any], b: float | None, b_cls: str, layers: list[dict[str, Any]], gross: float | None,
             gross_cls: str, overhead: dict[str, Any] | None, applied: list[dict[str, Any]]) -> dict[str, Any]:
     complete = all(x["classification"] != ms.UNKNOWN for x in layers)
@@ -221,9 +230,9 @@ def _result(run: dict[str, Any], b: float | None, b_cls: str, layers: list[dict[
     return {"execution_id": run["execution_id"], "workload_key": run["workload_key"],
             "baseline_version": run["baseline_version"], "at": run["at"], "ran": run["ran"], "baseline_cu_hours": b, "baseline_classification": b_cls,
             "layers": layers, "optimizations": [o_["optimization_id"] for o_ in applied],
-            "gross_cu_hours": None if gross is None else round(gross, 6), "gross_classification": gross_cls,
+            "gross_cu_hours": None if gross is None else _shown(gross, b), "gross_classification": gross_cls,
             "overhead_cu_hours": None if o is None else round(o, 6),
-            "net_cu_hours": None if net is None else round(net, 6), "net_classification": net_cls,
+            "net_cu_hours": None if net is None else _shown(net, b), "net_classification": net_cls,
             "complete": complete and o is not None,
             "net_includes_overhead": o is not None,
             "ledger_ready": b_cls == ms.MEASURED}

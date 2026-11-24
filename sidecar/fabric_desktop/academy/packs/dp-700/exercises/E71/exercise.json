@@ -1,0 +1,62 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E71",
+  "version": 1,
+  "status": "draft",
+  "title": "Dynamic data masking: work out what each person's SELECT returns",
+  "objectives": [
+    "1.3.4"
+  ],
+  "objective_text": "Given the masks on a warehouse table, the users' workspace roles and their column-level UNMASK grants, produce exactly what each user's SELECT returns: the output of email(), partial() and default(), and who sees real values in which column.",
+  "scenario": "Support wants to know what five people will really see before the Customers table goes live. Ana is a call-center agent, Ben handles card disputes, Dev runs the callback team, Chloe builds the warehouse and Eli, a workspace Member, builds the reports on it. The masks are already on the columns and the UNMASK grants are made. Before anyone queries the table, write down, row by row, what each of them gets back, so a wrong grant or a wrong mask shows up now and not in a customer's complaint.",
+  "prerequisites": [
+    "E15"
+  ],
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "simulated",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC, over a model of a warehouse table's masks and grants",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "masked_view.sql",
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your query gives every user's view of every customer: real values only in the columns a user holds UNMASK on or for a workspace role with CONTROL, and otherwise the documented output of email(), partial() and default() for each column's type, on a model of the table with DuckDB on this PC."
+  ],
+  "does_not_verify": [
+    "That the masks and grants work in a Fabric Warehouse: no T-SQL runs here. In Fabric the masks are ALTER TABLE ... ALTER COLUMN ... ADD MASKED WITH (FUNCTION = '...') and each grant is a GRANT UNMASK statement.",
+    "random(), whose output changes on every query, and values too short for a partial() mask, where Learn says only that part of the prefix or suffix isn't exposed.",
+    "How a masked NULL is shown: no column here holds one.",
+    "That masking keeps a value secret: a user who can query a masked column can still filter on it and infer it. E15 asks what protects such a column."
+  ],
+  "expected": {
+    "description": "Columns user_name, customer_id, full_name, email, phone, card_number, birth_date, credit_limit: 15 rows (5 users by 3 customers), ordered by user_name then customer_id."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Every user sees exactly what the warehouse would return them.",
+      "fail": "Some value is off: check each mask's output, and for each user and column whether a grant or a workspace role lets them see the real value."
+    }
+  ],
+  "hints": [
+    "Start with ana, who has no grant and a Viewer role, so every masked column shows its mask's output.",
+    "email() shows the first letter and then a constant XXX@XXXX.com, so the real domain isn't kept. partial(prefix, padding, suffix) shows prefix characters from the start, then the padding string exactly as written, then suffix characters from the end. The padding doesn't grow to the value's length.",
+    "default() depends on the column's type: XXXX for text (fewer X for a column shorter than 4 characters), 0 for numbers, 1900-01-01 for dates. It never returns NULL for a value.",
+    "UNMASK here is granted on single columns, so ben sees the real card number and nothing else unmasked. Admin, Member and Contributor have CONTROL on the database by design, and CONTROL includes UNMASK."
+  ],
+  "explanation": "Dynamic data masking changes what a query returns, not what's stored. A user sees a masked column's real value only with UNMASK on that column (or on the whole table) or with CONTROL on the database, which workspace Admins, Members and Contributors have by design. Everyone else gets the mask's output: email() keeps the first letter and returns XXX@XXXX.com after it, whatever the real domain; partial(0, \"XXXX-XXXX-XXXX-\", 4) keeps no leading characters, writes the padding string exactly as given and keeps the last four, so a 15-digit card and a 16-digit card look the same length; default() returns XXXX for text, 0 for numbers and 1900-01-01 for dates. So Ana sees only masks, Ben sees real card numbers and nothing else, Dev sees real emails and phones and nothing else, and Chloe and Eli see everything because they're a Contributor and a Member, without any grant. Those are the rows people miss, because workspace roles above Viewer bypass the masks, so the people who should see masked data mustn't hold Admin, Member or Contributor on the workspace.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-warehouse/dynamic-data-masking",
+    "https://learn.microsoft.com/fabric/data-warehouse/howto-dynamic-data-masking"
+  ],
+  "reset": "Reset rebuilds customers, column_masks, users and unmask_grants from setup.sql and puts the starter query back.",
+  "review_notes": [
+    "SIMULATED: the masks and grants are a model in tables; the learner computes what the warehouse would return, and nothing here runs T-SQL or reads Fabric.",
+    "Facts used, from Learn (dynamic-data-masking, read 2026-11-18): the four functions and their outputs (default: XXXX or fewer for strings shorter than 4, zero for numerics, 1900-01-01 00:00:00.0000000 for date and time; email: first letter and the constant suffix, aXXX@XXXX.com; partial(prefix,[padding],suffix), with partial(1,\"XXXXXXX\",0) turning 555.123.1234 into 5XXXXXXX); UNMASK on the column or CONTROL on the database to see unmasked data; Admin, Member and Contributor have CONTROL by design; masking doesn't stop inference with WHERE.",
+    "Not taken from Learn, so not taught as fact: how a NULL is masked, and the exact output of partial() on a value shorter than prefix plus suffix. The data avoids both."
+  ]
+}

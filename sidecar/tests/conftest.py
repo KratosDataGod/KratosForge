@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import threading
+import time
 
 import msal
 import pytest
@@ -18,6 +19,7 @@ def no_real_event_log(monkeypatch):
     from fabric_desktop import audit_anchor
     monkeypatch.setattr(audit_anchor, "writer", audit_anchor._no_writer)
     monkeypatch.setattr(audit_anchor, "reader", audit_anchor._no_reader)
+    monkeypatch.setattr(audit_anchor, "_off_until", 0.0)  # a failure another test caused doesn't carry over
 
 
 class FakeEventLog:
@@ -210,8 +212,10 @@ def runtime_grants_on_record_once_per_worker(request, monkeypatch, tmp_path_fact
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.
-# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, starts
-# another worker and the run still fails, with the stacks in the log.
+# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, and CI's
+# --max-worker-restart 0 then stops the run, which fails with the stacks in the log. (Without it,
+# xdist 3.8's loadfile scheduler starts a replacement worker that never gets work or a stop, and
+# the run waits for the job's time limit.)
 TEST_TIME_LIMIT = float(os.environ.get("FD_TEST_TIME_LIMIT", "300"))
 
 
@@ -288,3 +292,38 @@ def pytest_collection_modifyitems(session, config, items):
         shown = "\n".join(f"  {nodeid[:300]}" for nodeid in long[:20])
         raise pytest.UsageError(f"{len(long)} test id(s) are over {TEST_ID_LIMIT} characters; give the "
                                 f"parametrize call short ids= (tests/conftest.py TEST_ID_LIMIT):\n{shown}")
+
+
+@pytest.fixture
+def sleep_jump(monkeypatch):
+    """time.monotonic, which a call moves forward by ``seconds``, as waking from sleep does. Timed
+    waits (Event.wait, so threading.Timer too) are counted on that clock, as on Windows, where a wait
+    whose time passed during sleep ends on waking; elsewhere the OS's own monotonic clock stops
+    during sleep, so a plain jump wouldn't show the bug."""
+    real = time.monotonic
+    offset = [0.0]
+    active = [True]
+    monkeypatch.setattr(time, "monotonic", lambda: real() + offset[0])
+    from fabric_desktop import awake_timer
+    monkeypatch.setattr(awake_timer, "_monotonic", lambda: real() + offset[0])  # its own binding
+    monkeypatch.setattr(awake_timer, "_UNBIASED", None)  # on Windows, so the jumped clock is the one read
+    event_wait = threading.Event.wait
+
+    def windows_wait(self, timeout=None):
+        if timeout is None:
+            return event_wait(self)
+        deadline = time.monotonic() + timeout
+        while True:
+            if not active[0]:  # the test is over and the clock back: end early, as a wait may
+                return event_wait(self, 0.05)
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return self.is_set()
+            if event_wait(self, min(left, 0.05)):
+                return True
+    monkeypatch.setattr(threading.Event, "wait", windows_wait)
+
+    def jump(seconds: float) -> None:
+        offset[0] += seconds
+    yield jump
+    active[0] = False

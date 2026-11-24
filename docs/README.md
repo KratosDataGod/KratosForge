@@ -76,11 +76,11 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-import-export.md](notebook-import-export.md) | Engineers, analysts | Fabric and Databricks notebook formats: importing their source and .dbc archives, and exporting as .ipynb, Fabric or Databricks source or HTML (Preview) |
 | [notebook-versions.md](notebook-versions.md) | Engineers, analysts | Notebook version history: versions, checkpoints, Compare and Restore |
 | [forge-animations.md](forge-animations.md) | Engineers, analysts, IT | Motion and effects: intensity levels, every effect, performance, and the motion engine for developers |
-| [profile.md](profile.md) | Engineers, analysts | Profile: a private record of verified work, levels and achievements, and a professional report (Preview) |
+| [profile.md](profile.md) | Engineers, analysts | Profile: a private record of verified work, levels and achievements, skill trees, and a professional report (Preview) |
 | [notebook-editor/select-and-run-parts.md](notebook-editor/select-and-run-parts.md) | Engineers, analysts | Select several cells and act on them; run selected cells or selected text |
 | [notebook-editor/organise-cells.md](notebook-editor/organise-cells.md) | Engineers, analysts | Collapse heading sections, cell titles and tags, duplicate and drag cells |
 | [platforms.md](platforms.md) | Engineers | What KratosForge supports on Fabric, Databricks, Snowflake and this PC, at which level, and the evidence behind each level |
-| [engines.md](engines.md) | Engineers | Execution engines and what each can do, remote compute approval, the Databricks SQL warehouse engine, Databricks SQL and Snowflake SQL tried on DuckDB, usage figures, connection profiles for Fabric, Databricks, Snowflake or a mix (Preview) |
+| [engines.md](engines.md) | Engineers | Execution engines and what each can do, remote compute approval, the Databricks SQL warehouse and Snowflake SQL warehouse engines, Databricks SQL and Snowflake SQL tried on DuckDB, usage figures, connection profiles for Fabric, Databricks, Snowflake or a mix (Preview) |
 | [parity.md](parity.md) | Engineers, platform owners | How close KratosForge comes to Fabric, Databricks and Snowflake, area by area, at five levels judged separately |
 | [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
@@ -99,7 +99,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, asking another team for data, following a product, catalog text |
 | [direct-lake-check.md](direct-lake-check.md) | Engineers, team leads | The Direct Lake check (Preview): Direct Lake limits per capacity, schema drift and relationship keys, checked on this PC |
 | [data-dictionary.md](data-dictionary.md) | Engineers, data stewards | The data dictionary (Preview): descriptions for a layer's model, exported to Excel and imported back, then written into the model |
-| [semantic-model-ossie.md](semantic-model-ossie.md) | Engineers, team leads | Semantic models to and from Apache Ossie (Preview): export to a `.ossie.yaml` file, import with a preview of every change, what a round trip keeps, and an Ossie file written as TMDL in the project |
+| [semantic-model-ossie.md](semantic-model-ossie.md) | Engineers, team leads | Semantic models to and from Apache Ossie (Preview): export to a `.ossie.yaml` file, import with a preview of every change, what a round trip keeps, an Ossie file written as TMDL in the project, structural and expression parity checks, and Fabric Semantic View files with the steps to publish them |
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
 | [source-control.md](source-control.md) | Engineers, analysts | Source control (Preview): clone, diffs, branches, commit, pull and push, the secret check, what it doesn't do yet |
 | [orchestration/pipeline-definitions.md](orchestration/pipeline-definitions.md) | Engineers | Reading, checking and converting Fabric pipeline definitions on your PC (Preview) |
@@ -178,7 +178,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |
 | Validate notebook | Notebook ribbon |
 | Notebook runs | Notebook ribbon > Schedule > Recent runs, or the Run tab ([notebooks.md](notebooks.md#recent-runs-preview)) |
-| Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
+| Profile | Account menu (private record of verified work, levels, achievements, skill trees and the professional report) |
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
 | Run several notebooks from Home | Home > Recent notebooks: tick notebooks, then Run ([home-notebooks.md](home-notebooks.md#run-several-notebooks-preview)) |
 | Items pinned to Home | Home > Pinned; the pin on Home's notebook rows and on Workspaces item rows ([home-notebooks.md](home-notebooks.md#pinned-items-preview)) |
@@ -200,6 +200,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |
+| Merge a notebook changed in VS Code and here, cell by cell | Notebook, when a save finds the file also saved in VS Code (or by a Git pull): each cell that differs is picked ([vscode.md](vscode.md#when-both-sides-changed)) |
 | OneLake shortcuts | OneLake > Shortcuts |
 | Shortcut fixes | OneLake > Shortcuts > Health and a shortcut's panel (find a lakehouse that moved, repoint many at once, accept a crossed environment; [shortcuts.md](shortcuts.md#fixing-shortcuts)) |
 | OneLake access | OneLake > Access |
@@ -209,6 +210,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Semantic models and Apache Ossie | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md)) |
 | Semantic View files and publish steps | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md#publish-the-view-in-fabric-preview)) |
 | Direct Lake check | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
+| Semantic model best practices check | Data mesh > Deploy > Semantic model ([semantic-model-best-practices.md](semantic-model-best-practices.md)) |
 | Data dictionary | Data mesh > Deploy > Semantic model ([data-dictionary.md](data-dictionary.md)) |
 | Tests | Data mesh > Quality |
 | Estate X-ray | Home |
@@ -239,6 +241,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Column lineage | Entity page, Lineage card: Columns, and Impact for what a column change breaks ([metadata-guide.md](metadata-guide.md#impact-of-a-column-change-preview)); **Export OpenLineage...** in Impact writes the lineage to Downloads ([metadata-guide.md](metadata-guide.md#export-lineage-as-openlineage-preview)) |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
+| Delta table features at publish | Data mesh > Deploy > Environments and promote, a choice for each table |
 | Create workspace | Data mesh > Environments and Domains, Platform > Settings: Create workspace, Create platform and Finish setup (always shown) |
 | Sync keys | Data mesh > Surrogate keys, Sync to LH_Keys (always shown) |
 | Variable library | Data mesh > Source systems (always shown) |

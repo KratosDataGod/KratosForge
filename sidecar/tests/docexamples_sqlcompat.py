@@ -28,6 +28,9 @@ def _column_type(select: str, table: str, column: str = "v") -> dict:
 
 
 CLAIMS: list[Claim] = [
+    # Spark's date and time functions on this PC
+    _nb("DATE'2024-01-31' + INTERVAL 1 MONTH"),
+    _nb("unix_seconds(TIMESTAMP'2024-05-17 13:45:12.9')"),
     # Double rounding and text-to-number comparison (#3086), math at its edges (WR-116, #3120)
     Claim("sql-compatibility.md", "round(0.285D, 2)", "notebook"),
     Claim("sql-compatibility.md", "round(1.005D, 2)", "notebook"),
@@ -62,6 +65,17 @@ CLAIMS: list[Claim] = [
                              "GROUP BY a, b WITH ROLLUP ORDER BY g DESC LIMIT 1"),
     # Regular expressions and text on this PC
     _nb("regexp_count('abc', '')"),
+    # Regular expressions as Java and the source dialects read them (WR-257)
+    _nb("regexp_instr('xab', 'a*')"),
+    _nb("regexp_instr('abc', '')"),
+    _nb("regexp_instr('bcx', '(b)(c)', 2)"),
+    _nb("regexp_instr('😀a', 'a')"),
+    _nb("regexp_substr('xab', 'a*')"),
+    _nb("regexp_extract_all('abab', '(a)\\|(b)', 2)", want="true",
+        query="SELECT regexp_extract_all('abab', '(a)|(b)', 2) = array('', 'b', '', 'b')",
+        note="the page escapes | for its table, and writes the array as ['', 'b', '', 'b']"),
+    Claim("sql-compatibility.md", "REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm')", "local-tsql",
+          query="SELECT CASE WHEN REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm') THEN 1 ELSE 0 END = 1"),
     _nb("chr(321)"),
     # Differential tests: fixed cases
     _nb("'24-02-29'", query="SELECT to_date('24-02-29')"),
@@ -122,11 +136,23 @@ CLAIMS: list[Claim] = [
     _ts("1.50", query="SELECT JSON_VALUE('{\"a\": 1.50}', '$.a')", note="JSON_VALUE's number"),
     _ts("1.50", query="SELECT JSON_ARRAY(1.50)", want="[1.5]", note="JSON_ARRAY's decimal"),
     _ts("1e2", query="SELECT JSON_VALUE('{\"a\": 1e2}', '$.a')"),
+    _ts("9223372036854775807 + 1"),  # WR-247: a whole number past an int is a decimal of its digits
+    _ts("ABS(-2147483648)"),
+    _ts("CONCAT('a', NULL)"),
+    _ts("CONCAT(NULL, NULL)"),
+    _ts("CONCAT_WS('-', 'a', NULL, 'b')"),
+    _ts("'a ' BETWEEN 'a' AND 'a'", query="SELECT CASE WHEN 'a ' BETWEEN 'a' AND 'a' THEN 1 ELSE 0 END = 1"),
+    _ts("'a '", query="SELECT CASE WHEN 'a ' IN (SELECT 'a') THEN 1 ELSE 0 END", want="1",
+        note="WR-246: IN (SELECT ...) ignores trailing spaces"),
+    _ts("NULLIF('a ', 'a')"),
+    _ts("UPPER('é')"),
 ]
 
 # (page, expression) -> why it isn't run here
 ILLUSTRATIVE: dict[tuple[str, str], str] = {
     (P, "SELECT *"): "a fragment: a view made with SELECT *, not a statement",
+    (P, "SELECT 2147483647 + 1"): "an error example: it stops with Msg 8115 (test_tsql_arithmetic_errors)",
+    (P, "regexp_replace('aaa', 'a*', 'X')"): "Spark's answer; this PC refuses that pattern by name (WR-257)",
 }
 
 # Inline `SELECT ...` statements run as written (see Statement)

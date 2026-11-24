@@ -1,0 +1,126 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E80",
+  "version": 1,
+  "status": "draft",
+  "title": "Compact a partitioned Delta table and keep time travel",
+  "objectives": [
+    "3.3.1"
+  ],
+  "objective_text": "Compact a partitioned Delta table to one file per partition with OPTIMIZE, clean up unused files with VACUUM at the default retention, and keep the table's partitioning, rows and time travel.",
+  "scenario": "Freezer readings land in 12 small batches a day, and each batch is appended to its day's partition. After four days the table has 48 data files, and readers who filter by day open 12 files for every day they read. Support also needs time travel. When a reading looks wrong, they compare the table with an earlier version, so the files behind the last 7 days of versions must stay.",
+  "prerequisites": [
+    "E56"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "delta_lab",
+  "engine_label": "Python with delta-rs and Polars on this PC",
+  "lesson": "lesson.md",
+  "starter": "maintain_readings.py",
+  "files": [
+    "readings.csv"
+  ],
+  "verifies": [
+    "Your script ran on this PC and left a Delta table still partitioned by reading_date, with one data file per day, an OPTIMIZE in its history after the writes, and all 1,200 readings once each.",
+    "Version 0 of the table can still be read after your maintenance, and it holds the first batch of 25 readings."
+  ],
+  "does_not_verify": [
+    "That VACUUM ran. delta-rs adds nothing to the table's history when a vacuum has no file to delete, so a script that skips it passes too. What is checked is that time travel still works afterwards.",
+    "Read speed in Fabric. This checks file counts in the Delta log, not query timings.",
+    "V-Order, Z-Order and the lakehouse's table maintenance in Fabric, which do this from the lakehouse or a notebook.",
+    "That the table is a lakehouse table in OneLake. Here it's a Delta table in the exercise folder on this PC."
+  ],
+  "datasets": [],
+  "expected": {
+    "table": "tables/readings",
+    "partition_by": [
+      "reading_date"
+    ],
+    "files": 4,
+    "rows": 1200,
+    "first_batch_rows": 25
+  },
+  "validation": [
+    {
+      "kind": "notebook_ran",
+      "pass": "Your script ran to the end.",
+      "fail": "Your script stopped with an error. Read its output. Reading version 0 fails when its files are gone."
+    },
+    {
+      "kind": "delta_table",
+      "path": "tables/readings",
+      "partition_by": [
+        "reading_date"
+      ],
+      "files_min": 4,
+      "files_max": 4,
+      "operations": [
+        "WRITE",
+        "OPTIMIZE"
+      ],
+      "operations_in_order": true,
+      "pass": "Still partitioned by day, one file per day, and the history shows the compaction.",
+      "fail": "Check what the table is partitioned by, how many data files it has, and whether its history has an OPTIMIZE after the writes."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/readings.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "unique",
+          "column": "reading_id"
+        },
+        {
+          "rule": "row_count",
+          "equals": 1200
+        }
+      ],
+      "pass": "All 1,200 readings, once each.",
+      "fail": "Readings were lost or doubled during maintenance."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/first_batch.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "row_count",
+          "equals": 25
+        },
+        {
+          "rule": "accepted",
+          "column": "reading_date",
+          "values": [
+            "2026-06-01"
+          ]
+        }
+      ],
+      "pass": "Version 0 still reads back as the first batch.",
+      "fail": "Version 0 doesn't read back as the first batch of 25 readings."
+    }
+  ],
+  "hints": [
+    "How many data files does each day have? DeltaTable(TABLE).file_uris() lists them, with the partition folder in each path.",
+    "DeltaTable(TABLE).optimize.compact() compacts every partition in one OPTIMIZE commit. partition_filters limits it to some partitions.",
+    "target_size is in bytes. Leave it out to use the default.",
+    "Reading the table and writing it back with overwrite makes fewer files too, but it's a WRITE that rewrites every row, not a compaction.",
+    "DeltaTable(TABLE).vacuum(dry_run=False) removes unused files older than the default retention of 7 days (168 hours). A shorter retention deletes the files that time travel needs."
+  ],
+  "explanation": "Every append adds at least one file to its partition, so a table fed by small batches grows many small files. A reader who filters by day still opens every file of that day. OPTIMIZE rewrites each partition's small files into larger ones in one commit, without changing the rows, and keeps the partitioning. The old files are no longer part of the current version, but earlier versions still point to them. VACUUM deletes unused files only once they are older than the retention period, which is 7 days by default. That's what keeps time travel working. A retention of 0 frees the storage at once, but every earlier version loses its files and can't be read. Compacting only today's partition leaves the other days slow, and rewriting the table with overwrite changes every row's file in a WRITE, not an OPTIMIZE.",
+  "remediation": [
+    "LM-25",
+    "https://learn.microsoft.com/fabric/data-engineering/table-compaction",
+    "https://learn.microsoft.com/fabric/data-engineering/delta-lake-vacuum",
+    "https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance"
+  ],
+  "reset": "Reset removes the table and the snapshots and puts the starter script back.",
+  "review_notes": [
+    "Checked on Microsoft Learn 2026-11-23 (data-engineering/table-compaction). OPTIMIZE is the primary compaction operation and rewrites small files into larger ones. The page shows no partition filter, so the exercise uses delta-rs's partition_filters only in a wrong answer and makes no claim about Fabric's syntax for it.",
+    "Checked on Microsoft Learn 2026-11-23 (data-engineering/delta-lake-vacuum and lakehouse-table-maintenance). VACUUM removes unreferenced files older than the retention threshold, the default is 7 days (168 hours), files it removes take time travel to older versions with them, and a retention under 7 days needs the retention check turned off.",
+    "Checked locally with delta-rs 1.6.6. vacuum() at the default retention right after compact() deletes nothing and commits nothing, so the history can't show it. vacuum(retention_hours=0, enforce_retention_duration=False) commits VACUUM START and VACUUM END and reading version 0 then fails, which is what the wrong answer shows.",
+    "out/first_batch.parquet is written by the learner's own script from version 0. A script could fake it, but the planted mistake (a zero retention) fails because the read of version 0 itself fails."
+  ]
+}

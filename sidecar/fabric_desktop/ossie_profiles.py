@@ -392,7 +392,12 @@ def _merge(docs: list[tuple[str, dict[str, Any]]], per_file: dict[str, list[dict
         for key, value in doc.items():
             if key in ("version", "name"):
                 continue
-            if key in _LISTS and isinstance(value, list):
+            if key in _LISTS:
+                if not isinstance(value, list):  # never merged; datasets already has its fabric/fragment row
+                    if key != "datasets":
+                        per_file[name].append(ov._diag((key,), "type", ov.short(value), "should be a list",
+                                                       "Write it as a list."))
+                    continue
                 if not value:  # an empty list is the file's own problem (fabric/fragment), not the view's
                     continue
                 merged.setdefault(key, []).extend(value)

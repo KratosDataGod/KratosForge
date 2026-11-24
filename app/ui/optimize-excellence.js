@@ -162,7 +162,7 @@ function excResult(r, showGaps) {
   if (s.critical_risk) {
     const f = r.findings.find((x) => x.severity === "critical" && !x.advisory);
     out.push(h("div", { class: "exc-crit", role: "alert" },
-      h("span", {}, h("b", {}, "Critical Risk. "), `A critical control failed${f ? `: ${f.discovered}` : "."} This flag stands whatever the score, and the rating can't be Exemplary while it does.`),
+      h("span", {}, h("b", {}, "Critical Risk. "), `A critical control failed${f ? `: ${f.discovered}` : "."} This flag stands whatever the score, and the rating can't be Exemplary while the flag is set.`),
       f ? btn("Open the finding", null, () => excFinding(r, f), "tool outline") : null));
   }
   const stat = (k, v, ...rest) => h("div", { class: "exc-stat" }, h("span", { class: "exc-k" }, k), h("span", { class: "exc-v" }, v), ...rest);

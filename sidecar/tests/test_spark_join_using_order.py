@@ -146,3 +146,12 @@ def test_sql_star_over_chained_and_nested_using_joins(kernel):
         == "['w', 'k', 'l', 'v', 'z', 'k', 'z'] [('p', 2, 1, 'x', 9, 2, 9)]"
     assert frame(kernel, 'spark.sql("SELECT * FROM (SELECT * FROM ta) x JOIN tb USING (k) JOIN tb t3 ON t3.z = tb.z")') \
         == "['k', 'l', 'v', 'w', 'z', 'w', 'k', 'z'] [(2, 1, 'x', 'p', 9, 'p', 2, 9)]"
+
+
+def test_sql_star_over_chained_full_joins_coalesces_the_key_once_more_each_join(kernel):
+    # Fifth quality's probe: a second FULL JOIN USING nested the first join's COALESCE(...) AS k and DuckDB stopped
+    assert kernel.run('spark.createDataFrame([(7, "c"), (2, "d")], ["k", "c"]).createOrReplaceTempView("tc")')["status"] == "ok"
+    want = ("['k', 'l', 'v', 'w', 'z', 'c'] [(2, 1, 'x', 'p', 9, 'd'), (4, 3, 'y', None, None, None), "
+            "(5, None, None, 'q', 8, None), (7, None, None, None, None, 'c')]")
+    assert frame(kernel, 'spark.sql("SELECT * FROM ta FULL JOIN tb USING (k) FULL JOIN tc USING (k)")') == want
+    assert frame(kernel, 'spark.sql("SELECT * FROM ta NATURAL FULL JOIN tb NATURAL FULL JOIN tc")') == want

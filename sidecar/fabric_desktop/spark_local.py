@@ -1788,7 +1788,10 @@ def _using_star(statement: Any, conn: Any) -> Any:
                     if len(lhs) != 1 or len(rhs) != 1:
                         raise LookupError(key)  # DuckDB reports a missing or ambiguous key itself
                     if side == "FULL":
-                        merged.append((lhs[0][0], exp.alias_(exp.func("COALESCE", lhs[0][1], rhs[0][1]), lhs[0][0],
+                        # an earlier full join's key is already COALESCE(...) AS k: coalesce what it holds
+                        left_key, right_key = (c[0][1].this if isinstance(c[0][1], exp.Alias) else c[0][1]
+                                               for c in (lhs, rhs))
+                        merged.append((lhs[0][0], exp.alias_(exp.func("COALESCE", left_key, right_key), lhs[0][0],
                                                              quoted=True)))
                     else:
                         merged.append((rhs if side == "RIGHT" else lhs)[0])

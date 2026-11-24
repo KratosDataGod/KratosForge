@@ -49,3 +49,18 @@ def test_order_by_a_position_after_a_star_sorts_by_that_column(engine):
     engine.execute("INSERT INTO dbo.t VALUES ('b', 1), ('a', 2)", dialect="tsql")
     assert engine.execute("SELECT * FROM dbo.t ORDER BY 1", dialect="tsql")["rows"] == [["a", 2], ["b", 1]]
     assert engine.execute("SELECT t.* FROM dbo.t AS t ORDER BY 1 DESC", dialect="tsql")["rows"] == [["b", 1], ["a", 2]]
+
+
+def test_expressions_beside_a_star_ordered_by_position_keep_t_sql_types(engine):
+    # When sqlglot's qualifier stops at ORDER BY 1 after a star, the expressions beside the star are still
+    # typed as T-SQL types them: integer division, trailing spaces ignored, an int sum that overflows.
+    engine.execute("CREATE TABLE dbo.t (a INT, b INT, s VARCHAR(5))", dialect="tsql")
+    engine.execute("CREATE TABLE dbo.u (id INT, c INT)", dialect="tsql")
+    engine.execute("INSERT INTO dbo.t VALUES (7, 2, 'x '), (2147483647, 1, 'y')", dialect="tsql")
+    engine.execute("INSERT INTO dbo.u VALUES (7, 2)", dialect="tsql")
+    rows = engine.execute("SELECT *, a / b AS q FROM dbo.t WHERE s = 'x' ORDER BY 1", dialect="tsql")["rows"]
+    assert rows == [[7, 2, "x ", 3]]
+    joined = "SELECT t.*, a / c AS q FROM dbo.t AS t JOIN dbo.u AS u ON t.a = u.id ORDER BY 1"
+    assert engine.execute(joined, dialect="tsql")["rows"] == [[7, 2, "x ", 3]]
+    with pytest.raises(Exception, match="Arithmetic overflow error converting expression to data type int"):
+        engine.execute("SELECT *, a + b AS q FROM dbo.t ORDER BY 1", dialect="tsql")

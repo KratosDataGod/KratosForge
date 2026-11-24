@@ -25,6 +25,7 @@ from __future__ import annotations
 import dis
 import inspect
 import queue
+import sys
 import threading
 import time
 import types
@@ -69,7 +70,10 @@ class Stopped(KeyboardInterrupt):
 class Debugger:
     def __init__(self, lines: list[int], step: bool, describe: Callable[[str, Any], dict[str, Any]],
                  redact: Callable[[str], str] = lambda text: text, watches: list[str] | None = None, on_change: Callable[[dict[str, Any] | None], None] = lambda p: None):
+        self.asked = list(lines)  # the breakpoints as set, before add() moves them onto code
         self.lines = set(lines)
+        self.unplaced: list[int] = []  # breakpoints with no code at or after them in the cell
+        self._code_lines: set[int] = set()
         self.mode = "step" if step else "continue"
         self.depth = 0  # call depth (in this cell's code) where the last pause was
         self.codes: set[types.CodeType] = set()
@@ -85,6 +89,8 @@ class Debugger:
         self._raising: types.FrameType | None = None  # the frame an exception is leaving, if any
         self._tail: types.CodeType | None = None  # the cell's last expression (add)
         self._top_line: int | None = None  # the line the cell's own frame last ran
+        self._from: tuple[types.FrameType, int] | None = None  # where the last step or next started
+        self._scopes: dict[types.FrameType, dict[str, Any]] = {}  # a cell or class body's own namespace
         self.stopping = False  # Stop was asked for: its interrupt ends an expression instead of being its answer
 
     # ---- set up by the kernel, on the cell's thread
@@ -101,7 +107,12 @@ class Debugger:
             c = todo.pop()
             if c not in self.codes:
                 self.codes.add(c)
+                self._code_lines.update(n for _, _, n in c.co_lines() if n)
                 todo += [k for k in c.co_consts if isinstance(k, types.CodeType)]
+        # A breakpoint on a line with no code (blank, a comment, ``else:``) pauses at the next line that has some.
+        placed = {n: min((m for m in self._code_lines if m >= n), default=None) for n in self.asked}
+        self.lines = {m for m in placed.values() if m is not None}
+        self.unplaced = [n for n, m in placed.items() if m is None]
 
     def trace(self, frame: types.FrameType, event: str, arg: Any) -> Any:
         """sys.settrace on the cell's thread: only this cell's frames get the line tracer."""
@@ -109,6 +120,11 @@ class Debugger:
             if event == "call" and self.mode == "step" and frame.f_back is not None and frame.f_back.f_code in self.codes:
                 self._note_skipped(frame)
             return None
+        if event == "call" and not frame.f_code.co_flags & inspect.CO_OPTIMIZED:
+            # The cell's or a class body's own namespace, read before anything runs in it. Later, on 3.12,
+            # reading f_locals while an inlined comprehension runs there lets the trace hook write None (or
+            # the outer value) over the comprehension's variable as it returns, changing what the cell computes.
+            self._scopes[frame] = frame.f_globals if frame.f_code.co_name == "<module>" else frame.f_locals
         return self._line
 
     def _note_skipped(self, frame: types.FrameType) -> None:
@@ -134,6 +150,10 @@ class Debugger:
                     return self._line  # the line the cell's body ended on, already run (add)
             elif frame.f_code.co_name == "<module>":
                 self._top_line = frame.f_lineno
+        elif event == "return":
+            self._scopes.pop(frame, None)
+            if self._from is not None and self._from[0] is frame:
+                self._from = None
         if event == "line" and self._stops(frame):
             self._pause(frame, "breakpoint" if frame.f_lineno in self.lines and self.mode == "continue" else "step")
         elif event == "return" and self._stops_on_return(frame):
@@ -161,6 +181,8 @@ class Debugger:
     def _stops(self, frame: types.FrameType) -> bool:
         if frame.f_lineno in self.lines:
             return True
+        if self.mode in ("step", "next") and self._from == (frame, frame.f_lineno):
+            return False  # a comprehension or a one-line loop going round: still the line the step started on
         if self.mode == "step":
             return True
         if self.mode == "next":
@@ -183,7 +205,7 @@ class Debugger:
         Only the ones shown are described, so a frame full of large values stays quick to pause in."""
         at_top = frame.f_code.co_name == "<module>"
         shown = []
-        for name, value in list(frame.f_locals.items()):
+        for name, value in list(self._scope(frame).items()):
             if name.startswith("__") or (at_top and name in self.skip):
                 continue
             if at_top and (isinstance(value, (types.ModuleType, type)) or callable(value)):
@@ -197,12 +219,19 @@ class Debugger:
 
     def _evaluate(self, frame: types.FrameType, expr: str) -> dict[str, Any]:
         try:
-            value = eval(compile(expr, "<debug>", "eval"), frame.f_globals, frame.f_locals)  # noqa: S307 - the person's own notebook code
+            value = eval(compile(expr, "<debug>", "eval"), frame.f_globals, self._scope(frame))  # noqa: S307 - the person's own notebook code
         except BaseException as exc:  # noqa: BLE001 - exit(), KeyboardInterrupt and the like too: shown next to the expression
             if self.stopping:
                 raise  # Stop's interrupt, landing in an expression that ran on: it ends the cell
             return {"expr": expr, "error": self.redact(f"{type(exc).__name__}: {exc}")}
         return {"expr": expr, **self._row(expr, value)}
+
+    def _scope(self, frame: types.FrameType) -> dict[str, Any]:
+        """The names to show and evaluate in: a function's locals, or a cell's or class body's own namespace
+        (without the variables of an inlined comprehension running in it, see trace)."""
+        if frame.f_code.co_flags & inspect.CO_OPTIMIZED:
+            return frame.f_locals
+        return self._scopes.get(frame, frame.f_globals)
 
     def _row(self, name: str, value: Any) -> dict[str, Any]:
         row = self.describe(name, value)
@@ -240,11 +269,26 @@ class Debugger:
                     continue
                 self.mode = action
                 self.depth = self._depth(frame)
+                self._from = (frame, frame.f_lineno)
                 return
         finally:
             self.paused = None
             self.on_change(None)
             self.resumed.set()
+
+    def pause_here(self, frame: types.FrameType) -> bool:
+        """``breakpoint()`` in the cell's own code: a pause on its line. False when it isn't the cell's code
+        or the cell is already paused (a breakpoint() in an expression being evaluated)."""
+        if frame.f_code not in self.codes or self.paused is not None:
+            return False
+        self.skipped = []  # the hook breakpoint() called isn't a step over
+        self._pause(frame, "breakpoint")
+        return True
+
+    def lost(self) -> bool:
+        """Python's trace hook on this thread is no longer this debugger's: a RecursionError turned it off,
+        or the cell set its own with sys.settrace."""
+        return sys.gettrace() != self.trace
 
     # ---- commands, from the engine's request threads
 

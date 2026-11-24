@@ -908,7 +908,7 @@ function sqlIntelHover(provider, getDialect) {
         const { clientX: x, clientY: y } = e;
         sqlIntelHoverTimer = setTimeout(() => sqlIntelShowHover(view, x, y, provider, getDialect()), 450);
       },
-      mouseleave() { clearTimeout(sqlIntelHoverTimer); intelHide("hover"); },
+      mouseleave() { clearTimeout(sqlIntelHoverTimer); intelLeave(); },
       keydown() { intelHide("hover"); },
     },
   });

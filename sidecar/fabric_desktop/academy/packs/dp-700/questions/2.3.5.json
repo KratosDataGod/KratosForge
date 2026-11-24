@@ -316,6 +316,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.5-q11",
+      "type": "single",
+      "stem": "At Brightwater, which window gives the dispatch board its figures?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A hopping window 5 minutes long that hops forward every minute"
+        },
+        {
+          "id": "b",
+          "text": "A session window that closes after 5 minutes with no events"
+        },
+        {
+          "id": "c",
+          "text": "A tumbling window 5 minutes long, with no overlap between windows"
+        },
+        {
+          "id": "d",
+          "text": "A tumbling window 1 minute long, with no overlap between windows"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A hopping window hops forward by a fixed period and can be emitted more often than its size, so a 5-minute window that hops every minute gives the last 5 minutes once a minute. A 5-minute tumbling window reports only every 5 minutes, and a 1-minute one covers only the last minute.",
+      "source": "https://learn.microsoft.com/en-us/azure/stream-analytics/stream-analytics-window-functions",
+      "case": "brightwater-transit",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

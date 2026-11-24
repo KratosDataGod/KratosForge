@@ -24,14 +24,13 @@ Nothing here reads Fabric or writes anything.
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 from . import controls as ct
 from . import findings as fx
 from . import profiles as pf
 from . import scoring
-from .evidence import Bundle, canonical, subject
+from .evidence import Bundle, digest, subject
 
 SCHEMA = "kratosforge/excellence-assessment@1"
 INVENTORY = "workspace.inventory"
@@ -40,7 +39,7 @@ FIXTURE_NOTE = ("Demonstration fixture: made-up resources and evidence that show
 
 
 def policy_version(registry: ct.Registry, profile: pf.Profile) -> str:
-    return hashlib.sha256(canonical([profile.as_dict(), registry.versions()]).encode()).hexdigest()[:16]
+    return digest([profile.as_dict(), registry.versions()])[:16]
 
 
 def _inventory(bundle: Bundle, ws: dict[str, Any]) -> list[dict[str, Any]] | None:
@@ -49,8 +48,10 @@ def _inventory(bundle: Bundle, ws: dict[str, Any]) -> list[dict[str, Any]] | Non
         return None
     items: dict[str, dict[str, Any]] = {}
     for r in recs:
-        for it in (r["payload"] or {}).get("items") or []:
-            if isinstance(it, dict) and it.get("id") and it.get("type"):
+        listed = r["payload"].get("items") if isinstance(r["payload"], dict) else None
+        for it in listed if isinstance(listed, list) else []:
+            if isinstance(it, dict) and it.get("id") and isinstance(it["id"], str) and it.get("type") \
+                    and isinstance(it["type"], str):
                 items[str(it["id"])] = subject("item", str(it["id"]), it.get("name"), workspace_id=ws["id"],
                                                item_type=str(it["type"]))
     return [items[k] for k in sorted(items)]
@@ -85,7 +86,7 @@ def assess(records: list[dict[str, Any]], registry: ct.Registry, *, scope: dict[
            profile: pf.Profile | None = None, fixture: bool = False) -> dict[str, Any]:
     """The assessment of ``scope`` (``{"workspaces": [id | {id, name}], "capacities": [...]}``)."""
     profile = pf.checked(profile or pf.get())
-    bundle = Bundle(records)
+    bundle = Bundle(records, registry.payloads)
     workspaces = _subjects(scope, "workspaces", "workspace")
     capacities = _subjects(scope, "capacities", "capacity")
     outcomes: list[dict[str, Any]] = []
@@ -130,7 +131,7 @@ def assess(records: list[dict[str, Any]], registry: ct.Registry, *, scope: dict[
     return {"schema": SCHEMA, "fixture": fixture, "fixture_note": FIXTURE_NOTE if fixture else None,
             "assessed_at": assessed_at, "scope": {"workspaces": workspaces, "capacities": capacities},
             "profile": profile.as_dict(), "policy_version": pv, "rule_versions": registry.versions(),
-            "fingerprint": hashlib.sha256(canonical([pv, [r["id"] for r in bundle.records]]).encode()).hexdigest()[:16],
+            "fingerprint": digest([pv, [r["id"] for r in bundle.records]])[:16],
             "scores": scores, "workspace_scores": by_ws, "capacity_scores": by_cap,
             "findings": findings, "next_actions": fx.next_actions(findings),
             "counts": {"findings": len(scored), "advisory": len(findings) - len(scored),

@@ -319,6 +319,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.2.2-q11",
+      "type": "single",
+      "stem": "At Tidewater, how do you meet the publish requirements for ShipDW in development and production?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Save a publish profile for each environment, with DropObjectsNotInSource set to True in production's and False in development's"
+        },
+        {
+          "id": "b",
+          "text": "Build the project twice, choosing a different target platform for the production build of the warehouse"
+        },
+        {
+          "id": "c",
+          "text": "Use one publish profile for both environments, with BlockOnPossibleDataLoss False so both deploy the same"
+        },
+        {
+          "id": "d",
+          "text": "Save a publish profile for each environment, with BlockOnPossibleDataLoss True in production's and False in development's"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "BlockOnPossibleDataLoss stops a deployment that risks data loss, such as dropping a column that holds data, and a publish profile keeps different options for each environment. DropObjectsNotInSource does the opposite: it drops objects in the target that aren't in the project.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "case": "tidewater-releases",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

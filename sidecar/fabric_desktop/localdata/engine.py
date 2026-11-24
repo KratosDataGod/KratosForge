@@ -43,6 +43,7 @@ import duckdb
 import pyarrow as pa
 
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
+from ..awake_timer import AwakeTimer
 from . import delta, tsql, tsql_errors, tsql_merge
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
@@ -52,6 +53,19 @@ from ..sql import KfDuckDB, refuse_spark_hashes
 from .. import trees
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
+# An open DuckDB connection keeps a few hundred bytes of native memory for every query that reads a CSV
+# or Parquet file (the project's views do), and frees it only when it closes: about 2.5 MB per 10,000
+# queries, growing for as long as the app stays open. So a persistent project's connection is closed
+# and opened again after this many queries, between two of them. Every query is counted, a cheap and
+# conservative stand-in for "queries that read a file".
+RECYCLE_AFTER = 10_000
+# Objects that live only on the connection; while any exists, it isn't reopened (they'd be lost).
+_SESSION_OBJECTS = (
+    "SELECT 1 FROM duckdb_tables() WHERE temporary UNION ALL "
+    "SELECT 1 FROM duckdb_views() WHERE temporary AND NOT internal UNION ALL "
+    "SELECT 1 FROM duckdb_functions() WHERE database_name = 'temp' AND NOT internal UNION ALL "
+    "SELECT 1 FROM duckdb_sequences() WHERE temporary UNION ALL "
+    "SELECT 1 FROM duckdb_types() WHERE database_name = 'temp' AND NOT internal LIMIT 1")
 DIALECTS = ("duckdb", "spark", "tsql")
 OWN = "delta table"            # catalog kind of the project's own Delta tables
 OWN_KEY = "<project tables>"   # their entry in project.refreshed
@@ -447,6 +461,10 @@ class LocalEngine:
         self._cancel_first: set[str] = set()
         self._last_check = 0.0
         self.opened_at = 0.0
+        self.queries_since_open = 0            # toward RECYCLE_AFTER
+        self.reopened = 0                      # times the connection was recycled
+        self._borrowed = 0                     # cursors tables() took on a connection a query holds
+        self._borrow_lock = threading.Lock()
 
     # Lifecycle
 
@@ -490,6 +508,8 @@ class LocalEngine:
             # A folder was added or removed: the locked connection can't change its folders.
             # Temporary tables don't survive this; the database's own tables and views do.
             self._close_locked()
+        if self._con is not None and self.queries_since_open >= RECYCLE_AFTER:
+            self._recycle_locked()
         if self._con is None:
             p = self.project
             p.root.mkdir(parents=True, exist_ok=True)
@@ -513,6 +533,7 @@ class LocalEngine:
             self._con = con
             self.apply_settings()
             self.opened_at = time.time()
+            self.queries_since_open = 0
             if p.storage == "memory":  # nothing persisted: make the views again
                 for source in p.sources:
                     self._refresh_source(source, force=True)
@@ -528,6 +549,37 @@ class LocalEngine:
         con.execute(f"SET threads = {int(s.threads)}" if s.threads else "RESET threads")
         con.execute(f"SET max_temp_directory_size = {lit(s.max_temp_size)}" if s.max_temp_size
                     else "RESET max_temp_directory_size")
+
+    def _recycle_locked(self) -> None:
+        """Close the connection and let _open_locked open it again, to give back the native memory DuckDB
+        keeps per file-reading query (RECYCLE_AFTER). Called holding ``_lock``, so never during a query
+        or while a result streams, and holding ``_borrow_lock`` so tables() can't take a cursor on the
+        connection as it closes. Everything else the connection holds is made again on open (time zone,
+        search path, folders and lock-down, the project's settings, its views); what can't be is kept by
+        not recycling: a memory project, whose data would go with the connection (copying it to the new
+        one would hold it twice, and a failure halfway would lose it), and a connection with temporary
+        tables, views, macros, sequences or types. Those wait; it's tried again after another tenth."""
+        con = self._con
+        assert con is not None
+        with self._borrow_lock:
+            keep = self.project.storage != "persistent" or self._borrowed > 0
+            if not keep:
+                try:
+                    keep = first_row(con.execute(_SESSION_OBJECTS)) is not None
+                except duckdb.Error as exc:
+                    _log.info("Checking for temporary objects before reopening: %s", describe(exc))
+                    keep = True
+            if keep:
+                self.queries_since_open = RECYCLE_AFTER - max(1, RECYCLE_AFTER // 10)
+                return
+            _log.info("Reopening the project database %s after %d queries, to give back DuckDB's memory.",
+                      self.project.name, self.queries_since_open)
+            try:
+                self._close_locked()
+            except duckdb.Error as exc:  # the CHECKPOINT; the WAL is replayed on open, so nothing is lost
+                _log.warning("Closing the project database %s to reopen it: %s", self.project.name, describe(exc))
+                self._con = None
+            self.reopened += 1
 
     def close(self) -> None:
         with self._lock:
@@ -656,12 +708,16 @@ class LocalEngine:
         con: duckdb.DuckDBPyConnection | None = None
         try:
             if not own:
+                with self._borrow_lock:  # the connection isn't recycled while this cursor reads it
+                    self._borrowed += 1
                 held = self._con  # a running query holds the lock, so the connection is open
                 try:
                     con = held.cursor() if held is not None else None
                 except duckdb.Error:  # it was closed between the two lines
                     con = None
                 if con is None:  # nothing open to share: wait, as opening does
+                    with self._borrow_lock:
+                        self._borrowed -= 1
                     self._lock.acquire()
                     own = True
             if own:
@@ -695,6 +751,8 @@ class LocalEngine:
                 self._lock.release()
             elif con is not None:
                 con.close()
+                with self._borrow_lock:
+                    self._borrowed -= 1
 
     def set_override(self, table: str, columns: dict[str, str]) -> dict[str, Any]:
         key = table.lower()
@@ -800,6 +858,7 @@ class LocalEngine:
         self.refresh_if_changed()
         with self._lock:
             con = self._open_locked()
+            self.queries_since_open += 1
             self._refresh_own_if_moved()
             started = time.monotonic()
             state = {"cancelled": False, "timed_out": False, "started": started}
@@ -813,8 +872,7 @@ class LocalEngine:
                 def expire() -> None:
                     state["timed_out"] = True
                     con.interrupt()
-                timer = threading.Timer(timeout, expire)
-                timer.daemon = True
+                timer = AwakeTimer(timeout, expire)  # awake time only, as the SQL page's limit
                 timer.start()
             steps: list[dict[str, Any]] = []
             as_of: list[str] = []

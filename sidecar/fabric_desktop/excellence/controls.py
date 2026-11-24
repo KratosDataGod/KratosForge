@@ -171,6 +171,7 @@ class Registry:
 
     def __init__(self) -> None:
         self._controls: dict[str, Control] = {}
+        self.payloads: dict[str, Any] = {}  # evidence kind -> its payload's shape (evidence.fits)
 
     def register(self, c: Control) -> Control:
         bad = problems(c)

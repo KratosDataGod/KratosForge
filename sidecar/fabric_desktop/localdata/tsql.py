@@ -1778,8 +1778,8 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
                     default=other)
     # Read as VARCHAR: sqlglot may take a value for text that DuckDB types otherwise (COALESCE('7', 2) is an
     # INTEGER there), and REGEXP_FULL_MATCH of an integer stopped with DuckDB's binder error.
-    text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"))
-    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[text]), exp.Lambda(this=case, expressions=[v]))
+    as_text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"))
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[as_text]), exp.Lambda(this=case, expressions=[v]))
     node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 

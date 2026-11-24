@@ -1,8 +1,11 @@
 """Shared test setup."""
 
+import errno
 import faulthandler
+import ipaddress
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -119,6 +122,59 @@ class _Reply:
 
     def raise_for_status(self):
         pass
+
+
+# No test reaches the network. A connect to anything but this PC (loopback, or a local socket file) is refused
+# and remembered, and the test that made it fails, naming the address. Refused rather than only recorded, so code
+# that retries or swallows errors can't make the call anyway; remembered, so a test whose code catches the error
+# still fails. Child processes a test starts aren't covered.
+_outbound: list[str] = []
+_real_connect = socket.socket.connect
+_real_connect_ex = socket.socket.connect_ex
+
+
+def _is_local(sock: socket.socket, address) -> bool:
+    if sock.family not in (socket.AF_INET, socket.AF_INET6) or not isinstance(address, tuple):
+        return True  # a local socket file (AF_UNIX), or a family that never leaves this PC
+    host = str(address[0]).split("%")[0]
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False  # a host name other than localhost
+
+
+def _refuse_outbound(address) -> OSError:
+    _outbound.append(repr(address))
+    return ConnectionRefusedError(f"tests don't reach the network: refused a connect to {address!r}")
+
+
+def _guarded_connect(self, address):
+    if not _is_local(self, address):
+        raise _refuse_outbound(address)
+    return _real_connect(self, address)
+
+
+def _guarded_connect_ex(self, address):
+    if not _is_local(self, address):
+        _refuse_outbound(address)
+        return errno.ECONNREFUSED
+    return _real_connect_ex(self, address)
+
+
+socket.socket.connect = _guarded_connect  # type: ignore[method-assign]
+socket.socket.connect_ex = _guarded_connect_ex  # type: ignore[method-assign]
+
+
+@pytest.fixture(autouse=True)
+def no_network():
+    _outbound.clear()
+    yield
+    if _outbound:
+        tried = sorted(set(_outbound))
+        _outbound.clear()
+        pytest.fail(f"this test tried to reach the network: {', '.join(tried)}", pytrace=False)
 
 
 @pytest.fixture(autouse=True)

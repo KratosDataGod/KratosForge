@@ -253,11 +253,13 @@ AREAS: tuple[Area, ...] = (
                        "docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.")),
     _skinned("snowflake", "objects", "Databases, schemas and object browser"),
     _skinned("snowflake", "snowpark", "Snowpark",
-       local=Cell("partial", ("test_snowpark_api.py",),
-                  note="API compatibility check only (Preview): a Python cell's Snowpark calls, methods and keywords are "
-                       "checked against Snowpark Python 1.58.0's signatures without executing anything, and calls that "
-                       "need Snowflake's servers (Cortex, external access, stages, pandas on Snowflake) are flagged. "
-                       "It says nothing about results. Not a Snowflake runtime.")),
+       local=Cell("partial", ("test_snowpark_api.py", "test_snowpark_local.py"),
+                  note="Compatibility checks only (Preview). The Snowpark engine on this PC executes cells simulated by "
+                       "Snowflake's local testing framework (Snowpark Python 1.58, its own runtime folder, no network, "
+                       "telemetry off); session.sql and calls the framework doesn't implement are refused. The API "
+                       "compatibility check reads a cell's Snowpark calls, methods and keywords against 1.58.0's signatures "
+                       "and flags Cortex, external access, stages and pandas on Snowflake. Tested against a fake of "
+                       "Snowpark; no result has been compared with Snowflake. Not a Snowflake runtime.")),
     _skinned("snowflake", "loading", "Stages and data loading"),
     _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
     _skinned("snowflake", "history", "Query history, profiling and credits"),

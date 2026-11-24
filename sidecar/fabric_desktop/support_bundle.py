@@ -105,7 +105,7 @@ def about(data_dir: Path | None = None) -> dict[str, Any]:
             value = "Microsoft's Fabric sign-in" if value == app_settings.MICROSOFT_CLIENT_ID else "own app registration"
         elif key == "platform":
             value = sorted(value) if isinstance(value, dict) else []
-        elif key in ("support_url", "dbconnect_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
+        elif key in ("support_url", "dbconnect_index_url", "snowpark_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
             value = "set" if value else ""  # an internal help desk or package mirror names the organization by its host
         elif key in ("sql_temp_dir", "notebook_package_folder") and isinstance(value, str) and win_paths.is_share(value):
             value = "a network folder"  # a share's server name is the organization's

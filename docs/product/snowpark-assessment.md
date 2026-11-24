@@ -4,9 +4,10 @@ Research for backlog item SF-007 in [platform-parity-backlog.md](platform-parity
 which Snowpark Python calls KratosForge could check on this PC. When it was written nothing was built
 and no parity cell changed.
 
-- **Status.** Chris approved option C first, then option A, and the new dependency for A. Option C is
-  built: the [Snowpark API compatibility check](../engines.md#snowpark-api-compatibility-check-preview)
-  (Preview).
+- **Status.** Chris approved option C first, then option A, and the new dependency for A. Both are
+  built, as Preview: the [Snowpark API compatibility check](../engines.md#snowpark-api-compatibility-check-preview)
+  and [Snowpark on this PC](../engines.md#snowpark-on-this-pc-preview), whose runtime packages and
+  licences are listed there for Security's review. `session.sql` stays refused.
 
 - **Researched.** 2026-11-21, against Snowpark Python 1.58.0, the latest release on
   [PyPI](https://pypi.org/project/snowflake-snowpark-python/) that day.

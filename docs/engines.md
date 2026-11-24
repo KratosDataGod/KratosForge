@@ -51,7 +51,7 @@ engine, which hasn't run against a Snowflake account yet.
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
 | Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | Partial (up to 25 MB) | DBUs | Preview, tested against fakes |
 | Snowflake SQL warehouse (remote) | Your Snowflake warehouse | SQL | Snowflake SQL native, read-only statements only | Native | Partial (EXPLAIN USING TEXT) | No | Partial (every partition) | Snowflake credits | Preview, tested against fakes |
-| Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
+| Snowpark (this PC, simulated) | This PC, its own process, no network | Python (Snowpark) simulated by Snowflake's local testing framework | (session.sql refused) | Partial (ends the process) | No | No | No | Nothing | Preview, tested against a fake of Snowpark |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 
 Engines on this PC bill nothing themselves. **Reading or writing OneLake from this PC still uses
@@ -249,6 +249,83 @@ now it is an engine call (`snowpark_api_check`).
   It is written by hand with `sidecar/tools/capture_snowpark_api.py`, from the Snowpark wheel installed
   in a scratch environment of its own, never the app's: Snowpark isn't a dependency of KratosForge for
   this check.
+
+## Snowpark on this PC (Preview)
+
+Python cells that use Snowpark can run in Snowflake's own local testing framework, with no Snowflake
+account. Everything a cell does is **simulated by Snowflake's local testing framework**: tables live in
+the session's memory, nothing is billed, and no result has been compared with Snowflake. A cell that
+works here may still behave differently on Snowflake.
+
+- **Its own environment.** Snowpark brings the Snowflake connector and a large tree of its own, so it
+  never loads inside KratosForge. KratosForge installs `snowflake-snowpark-python[localtest]` 1.58
+  into a folder of its own, `runtimes\snowpark-1.58`, and runs each session as a separate process
+  there. Opening a session never installs anything.
+- **Pinned packages only.** A lock file in the app names every package, its exact version and its hash
+  (`sidecar/fabric_desktop/engines/snowpark_locks/1.58.txt`, listed below). pip installs only those
+  files, as prebuilt wheels, and refuses any whose hash differs. Your organization can point the
+  download at its own package mirror (`snowpark_index_url`) or turn installs off
+  (`allow_snowpark_install`) in the [policy file](azure-setup.md).
+- **No network, telemetry off.** Before Snowpark loads, the session's process refuses every name
+  lookup and every network connection, to this PC's own addresses too, so nothing a cell or a library
+  does can reach Snowflake or anywhere else. The session always opens with `local_testing` and
+  `disable_local_testing_telemetry` set, and doesn't start if Snowpark's telemetry service is still
+  on. Snowflake, Snowpark and proxy variables set on this PC are left out of the process.
+- **What's refused.** `session.sql` is refused: the local testing framework can't run SQL, and
+  whether KratosForge translates it here is still open. A call the framework doesn't implement
+  (Snowflake raises `NotImplementedError`) comes back as **Refused**, saying it can't be simulated on
+  this PC and that nothing was sent to Snowflake. Snowflake lists what local testing supports in
+  [its local testing guide](https://docs.snowflake.com/en/developer-guide/snowpark/python/testing-locally).
+- **Limits:** Python cells only. `session` is the local session, and `get_active_session()` returns it.
+  Results show the first rows, taken with `collect()`. `to_pandas` needs pyarrow, which the pinned
+  runtime doesn't include. Cancel ends the session's process, so its tables and variables are lost.
+  Anything that opens a network connection fails, including asyncio on Windows, which uses one on this
+  PC. Use the [API compatibility check](#snowpark-api-compatibility-check-preview) to see which calls
+  need Snowflake's own servers.
+
+### Snowpark runtime packages and licences
+
+Every package the Snowpark lock file installs, for Python 3.12 on Windows x64, with the licence its
+package metadata declares (PyPI's, for tzdata). "Needed by" is what pulls it in. The connector and its
+tree come in even though a local session never connects to Snowflake.
+
+| Package | Version | Licence | Needed by |
+| --- | --- | --- | --- |
+| asn1crypto | 1.5.1 | MIT | snowflake-connector-python |
+| boto3 | 1.44.10 | Apache-2.0 | snowflake-connector-python |
+| botocore | 1.44.10 | Apache-2.0 | boto3, s3transfer, snowflake-connector-python |
+| certifi | 2026.11.20 | MPL-2.0 | requests, snowflake-connector-python |
+| cffi | 2.1.1 | MIT-0 | cryptography |
+| charset-normalizer | 3.5.3 | MIT | requests, snowflake-connector-python |
+| cloudpickle | 3.1.2 | BSD-3-Clause | snowflake-snowpark-python |
+| cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause | pyopenssl, snowflake-connector-python |
+| filelock | 4.3.1 | MIT | snowflake-connector-python |
+| idna | 3.20 | BSD-3-Clause | requests, snowflake-connector-python |
+| jmespath | 1.1.0 | MIT | boto3, botocore |
+| numpy | 2.5.5 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | pandas |
+| packaging | 26.4 | Apache-2.0 OR BSD-2-Clause | snowflake-connector-python, wheel |
+| pandas | 3.1.1 | BSD-3-Clause | snowflake-snowpark-python |
+| platformdirs | 4.14.8 | MIT | snowflake-connector-python |
+| protobuf | 6.33.6 | BSD-3-Clause | snowflake-snowpark-python |
+| pycparser | 3.12 | BSD-3-Clause | cffi |
+| pyjwt | 2.15.1 | MIT | snowflake-connector-python |
+| pyopenssl | 26.4.0 | Apache-2.0 | snowflake-connector-python |
+| python-dateutil | 2.9.0.post0 | Apache-2.0 OR BSD-3-Clause | botocore, pandas, snowflake-snowpark-python |
+| pytz | 2026.6 | MIT | snowflake-connector-python |
+| pyyaml | 6.0.4 | MIT | snowflake-snowpark-python |
+| requests | 2.34.2 | Apache-2.0 | snowflake-connector-python, snowflake-snowpark-python |
+| s3transfer | 0.19.3 | Apache-2.0 | boto3 |
+| setuptools | 84.2.1 | MIT | snowflake-snowpark-python |
+| six | 1.17.0 | MIT | python-dateutil |
+| snowflake-connector-python | 4.8.1 | Apache-2.0 | snowflake-snowpark-python |
+| snowflake-snowpark-python | 1.58.0 | Apache-2.0 | (top level) |
+| sortedcontainers | 2.4.0 | Apache-2.0 | snowflake-connector-python |
+| tomlkit | 0.15.3 | MIT | snowflake-connector-python |
+| typing-extensions | 4.16.0 | PSF-2.0 | pyopenssl, snowflake-connector-python, snowflake-snowpark-python |
+| tzdata | 2026.6 | Apache-2.0 | pandas, tzlocal |
+| tzlocal | 5.4.5 | MIT | snowflake-snowpark-python |
+| urllib3 | 2.8.0 | MIT | botocore, requests |
+| wheel | 0.48.0 | MIT | snowflake-snowpark-python |
 
 ## Databricks SQL warehouse (Preview)
 
@@ -781,10 +858,10 @@ adapter has one.
 
 - Settings > Connections adds CLI-based connections only: service principals and the other sign-in
   methods are set in the profile file for now, and the profile in use isn't switched from Settings yet.
-- Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
+- Snowflake: Snowflake SQL and Snowpark Connect are listed so the plan is visible, but neither runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
-  will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's
-  local testing framework, which can't run `session.sql` and implements only some functions.
+  will ask first, as every remote engine does. Snowpark on this PC runs cells simulated by Snowflake's
+  local testing framework (Preview, above).
 - Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
   through the Statement Execution API, tested against fakes only. Workspace discovery and Databricks
   Connect stay Preview until tested against a live workspace.

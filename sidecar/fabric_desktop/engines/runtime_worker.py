@@ -1,7 +1,8 @@
 """The process a separate-runtime engine runs a notebook's cells in (engines/runtimes.py).
 
 Started as ``python -I runtime_worker.py <site-packages> <kind>``, where the folder holds the
-runtime's packages (databricks-connect and its own pyspark, for kind ``databricks-connect``). The
+runtime's packages (databricks-connect and its own pyspark, for kind ``databricks-connect``;
+Snowpark with local testing, for kind ``snowpark-local``). The
 folder is added as a site directory, so its .pth files run, and its entries go ahead of the
 engine's own site-packages. ``-I`` keeps this file's folder, the user's site-packages and PYTHON*
 variables off ``sys.path``, so the engine's modules and its local Spark stand-in can't load here.
@@ -45,7 +46,12 @@ def send(message: dict) -> None:
 
 
 def _preview(df: Any, rows: int) -> dict[str, Any]:
-    """The first ``rows`` rows of a DataFrame. Counting all of them would run another Spark job."""
+    """The first ``rows`` rows of a DataFrame. Counting all of them would run another Spark job.
+    A Snowpark DataFrame's come from collect(): its to_pandas needs pyarrow, which the pinned
+    Snowpark runtime doesn't include."""
+    if type(df).__module__.startswith("snowflake.snowpark"):
+        return {"type": "frame", "columns": [str(c) for c in df.columns],
+                "rows": [list(r) for r in df.limit(rows).collect()]}
     pdf = df.limit(rows).toPandas()
     data = pdf.astype(object).where(pdf.notna(), None).values.tolist()
     return {"type": "frame", "columns": [str(c) for c in pdf.columns], "rows": data}
@@ -104,11 +110,56 @@ def _start_databricks_connect() -> tuple[dict[str, Any], Callable[[], Any], str]
     return {"spark": spark}, spark.interruptAll, client
 
 
+# Said when a Snowpark cell calls session.sql (engines/snowpark_local.SQL_REFUSED says the same; this file
+# imports nothing from KratosForge).
+SNOWPARK_SQL_REFUSED = ("session.sql is refused here: Snowflake's local testing framework can't run SQL, and whether "
+                        "KratosForge translates it for this engine is still open. Use DataFrame calls, or a Snowflake "
+                        "SQL cell on DuckDB.")
+_LOOKUPS = ("socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex", "socket.gethostbyaddr")
+_SENDS = ("socket.connect", "socket.sendto", "socket.sendmsg")
+
+
+def _no_network() -> None:
+    """From now on this process refuses every name lookup and every IPv4 or IPv6 connection or datagram,
+    to this PC's own addresses too (a local proxy is a route out). An audit hook can't be removed, so
+    nothing a library or a cell does later in Python turns it off. Pipes (the engine's messages) and
+    AF_UNIX sockets are left alone."""
+    import socket
+    inet = (socket.AF_INET, socket.AF_INET6)
+
+    def hook(event: str, args: tuple[Any, ...]) -> None:
+        if event in _LOOKUPS:
+            raise PermissionError(f"This Snowpark session has no network: looking up {args[0]!r} was refused.")
+        if event in _SENDS and getattr(args[0], "family", None) in inet:
+            raise PermissionError(f"This Snowpark session has no network: connecting to {args[1]!r} was refused.")
+
+    sys.addaudithook(hook)
+
+
+def _start_snowpark_local() -> tuple[dict[str, Any], Callable[[], Any], str]:
+    """``session`` as a Snowpark session in Snowflake's local testing framework, with no network and
+    its telemetry off; session.sql refused. Nothing to interrupt: the engine ends the process."""
+    _no_network()
+    from snowflake.snowpark import Session
+    from snowflake.snowpark.mock._telemetry import LocalTestOOBTelemetryService
+    session = Session.builder.configs({"local_testing": True, "disable_local_testing_telemetry": True}).create()
+    if LocalTestOOBTelemetryService.get_instance().enabled:
+        session.close()
+        raise RuntimeError("Snowpark's local testing telemetry is still on, so the session wasn't started.")
+
+    def sql(*_args: Any, **_kwargs: Any) -> Any:
+        raise NotImplementedError("[KratosForge] " + SNOWPARK_SQL_REFUSED)
+
+    session.sql = sql
+    return {"session": session}, lambda: None, _version("snowflake-snowpark-python")
+
+
 # Each kind: how its session starts (names for the cells, how to interrupt, the client version), and
 # the variables holding a secret, removed once the session has signed in.
 STARTS = {
     "databricks-connect": (_start_databricks_connect,
                            ("DATABRICKS_CLIENT_SECRET", "DATABRICKS_TOKEN", "DATABRICKS_PASSWORD")),
+    "snowpark-local": (_start_snowpark_local, ()),
 }
 
 

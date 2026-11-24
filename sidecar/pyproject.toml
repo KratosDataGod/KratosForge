@@ -79,8 +79,8 @@ include = ["fabric_desktop*"]
 # Vendored third-party code ships with its license and notice.
 "fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
 "fabric_desktop._vendor.ossie_schema" = ["*.json", "LICENSE", "NOTICE", "README.md"]
-# Hash-pinned Databricks Connect requirements, one file per runtime line.
-"fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
+# Hash-pinned Databricks Connect requirements, one file per runtime line, and Snowpark's (snowpark_local.py).
+"fabric_desktop.engines" = ["dbconnect_locks/*.txt", "snowpark_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.
 "fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
 # The optimization engine's demonstration fixture (opportunities/fixture.py).

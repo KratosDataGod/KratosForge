@@ -182,7 +182,10 @@ as Snowflake runtime equivalence. Needs Chris's go before any runtime.
 
 The research is in [snowpark-assessment.md](snowpark-assessment.md). Chris approved option C first, then
 option A. Option C, the Snowpark API compatibility check, is built (Preview,
-[engines.md](../engines.md#snowpark-api-compatibility-check-preview)).
+[engines.md](../engines.md#snowpark-api-compatibility-check-preview)), and so is option A, the
+`snowpark-local` engine on Snowflake's local testing framework ([engines.md](../engines.md#snowpark-on-this-pc-preview)).
+Still open: whether `session.sql` goes through the Snowflake SQL translator, and Security's review of
+the runtime's packages.
 
 ### SF-008 Tasks, streams and dynamic tables (P2)
 

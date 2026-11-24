@@ -1319,7 +1319,7 @@ on quality.
 
 ### FEAT-META-13
 
-**Direct Lake semantic model.** Builds a Direct Lake semantic model over a layer's tables, with measures, relationships and catalog descriptions written into the TMDL. The Semantic model tab adds a Direct Lake check (fallback risks, blank rows from facts with no match) and a data dictionary to export, edit and import descriptions (Preview).
+**Direct Lake semantic model.** Builds a Direct Lake semantic model over a layer's tables, with measures, relationships and catalog descriptions written into the TMDL. The Semantic model tab adds Direct Lake fallback risk (a verdict for the model, a forecast from the Delta log, the smallest capacity that fits, blank rows from facts with no match) and a data dictionary to export, edit and import descriptions (Preview).
 
 - **Pillar and category:** Enterprise services; Fabric Integration and Deployment
 - **Status:** Implemented. **Verification:** Partially Verified.

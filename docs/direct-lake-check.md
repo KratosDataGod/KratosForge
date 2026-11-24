@@ -1,17 +1,92 @@
-# Direct Lake check
+# Direct Lake fallback risk
 
-**Preview.** The Direct Lake check finds what would make a semantic model fall back to
-DirectQuery, or fail, before anyone queries it. It lives on **Data mesh > Deploy > Semantic
-model**, in a card under the Direct Lake one, and shows only while Settings shows preview
-features.
+**Preview.** The Direct Lake fallback risk card (it was called the Direct Lake check) says
+whether a semantic model will fall back to DirectQuery, or fail, before anyone queries it. It
+lives on **Data mesh > Deploy > Semantic model**, in a card under the Direct Lake one, and shows
+only while Settings shows preview features.
 
 Pick a model in the environment's workspace (Test or Prod) and the capacity whose limits to
 check against, then **Check now**. KratosForge reads the model's definition from Fabric
 (getDefinition, read only) and each table's Delta log and Parquet footers from OneLake, then
-checks on this PC. The check starts no Fabric job and changes nothing; reading from OneLake
-uses capacity.
+checks on this PC. The check starts no Fabric job, runs no query and changes nothing; reading
+from OneLake uses capacity.
 
-## What it checks
+Everything on the card is **predicted from metadata on this PC**: Fabric hasn't run a query. It
+never says a model does fall back, only that it will, might, or is within the published limits.
+
+## The model's verdict
+
+The card starts with one verdict for the whole model, and names the table that decides it:
+
+| Verdict | What it means |
+| --- | --- |
+| Will fall back | A table is past one of the capacity's limits, its source is a SQL view, or the SQL analytics endpoint has security on it. With **Direct Lake only**, or a model that reads OneLake directly, this reads **Will fail** |
+| Might fall back | A table is within 10% of a limit, so a few more loads will pass it |
+| Within limits | Every table is within the capacity's published limits |
+| Not checked | A table couldn't be read, or nothing rules fallback out (see below) |
+
+What happens past a limit depends on the model's **Fallback setting**, which the card reads from
+the model:
+
+- **Automatic**: one table past a limit sends every query on the model to DirectQuery, which is
+  slower, even queries that don't read that table.
+- **Direct Lake only**: nothing falls back; queries on the model fail.
+- **DirectQuery only**: every query goes to DirectQuery, whatever the limits.
+- A model that reads OneLake directly (Direct Lake on OneLake) doesn't fall back: refresh fails.
+
+Below the verdict, tiles count the tables that will fall back, might, and are within limits,
+and show the model's size on OneLake against the capacity's limit (F2 to F32 only). The table
+lists each table's rows, Parquet files and row groups against the limits. Select a table to see
+each check, its evidence, the fix and the forecast; tables past a limit start open.
+
+### Fallback that doesn't depend on size
+
+A model on the SQL analytics endpoint also falls back, on any capacity, when:
+
+- **a table's source is a SQL view**, not a Delta table: every query that reads it goes to
+  DirectQuery. The fix is to materialize the view as a Delta table and point the model's table
+  at it.
+- **the SQL analytics endpoint has row-level or object-level security** on a table: queries
+  that read it go to DirectQuery.
+
+This PC doesn't read the endpoint's security, so a model on the SQL analytics endpoint whose
+tables are all within the limits reads **Not checked**, never **Within limits**. A model that
+reads OneLake directly has neither cause.
+
+### The forecast
+
+For each table, the card reads its latest commits from the Delta log (up to 200 a table, and
+2,000 for the whole model) and fits how fast its Parquet files, row groups and rows grow. It
+then says, for example, "Crosses F32's Parquet file limit in about 11 days at the current rate
+(16 commits over 15 days)".
+
+- It always says how many commits it used, and uses only commits it actually read.
+- A table with fewer than 3 commits, or less than 7 days of history, gets **Not enough
+  history**, never a guess.
+- Growth counts only since the last time the number went down: after OPTIMIZE merges files, the
+  forecast starts again, and a table that hasn't grown since says **No growth seen**.
+- Row groups aren't in the log, so they follow the Parquet files at today's row groups per file.
+
+### Which capacity fits
+
+Under the verdict, the card names the smallest capacity whose limits every table fits today,
+and at the current rate in 90 days. Pick another capacity in **Limits for capacity** to judge
+the same numbers against it; nothing is read again. A view or the endpoint's security doesn't
+depend on the capacity, so the card names those tables instead. The card shows no cost or
+capacity unit figure.
+
+### What it can't see
+
+**What this can't see from this PC** lists what the prediction leaves out: the endpoint's
+security on a model on the SQL analytics endpoint, how busy the capacity's memory is when people
+query (Fabric can page tables out under pressure), and changes Microsoft makes to the limits
+after this app's table of them was last reviewed. Without a OneLake sign-in on this PC, no table
+is read and each says **Not checked**, with the next step.
+
+## Other checks
+
+The card also lists what would make the model's queries or refresh fail, under **Other checks**.
+The limits checks are shown table by table above; this is the full list.
 
 | Severity | Check | What it means |
 | --- | --- | --- |

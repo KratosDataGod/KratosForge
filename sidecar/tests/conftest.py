@@ -121,6 +121,27 @@ class _Reply:
         pass
 
 
+_SESSION_ZONE = "spark.sql.session.timeZone"
+
+
+def spark_zone_back_to_utc() -> None:
+    """The process's one local Spark session goes back to UTC, if a test set its time zone. Every Kernel shares
+    that session (spark_local.session()), and SQL translated outside a cell reads its zone, so a zone one test set
+    and didn't unset changed what later tests in that worker translated."""
+    local = sys.modules.get("fabric_desktop.spark_local")
+    live = getattr(local, "_session", None)
+    if not isinstance(live, getattr(local, "LocalSparkSession", ())):  # none yet, or a test's stand-in
+        return
+    if live.conf.get(_SESSION_ZONE, None) is not None:
+        live.conf.unset(_SESSION_ZONE)
+
+
+@pytest.fixture(autouse=True)
+def spark_session_in_utc():
+    yield
+    spark_zone_back_to_utc()
+
+
 @pytest.fixture(autouse=True)
 def no_sign_in_service(monkeypatch):
     # The desktop's sign-in, and a service principal's (credentials.py) for agents.

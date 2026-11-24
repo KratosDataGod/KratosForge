@@ -122,9 +122,10 @@ def create(shelf: NotebookShelf, name: str, place: str | None, cells: list[dict[
         raise ValueError(f"A notebook named {name!r} already exists. Pick another name.")
     _, folder = shelf._place(place)  # noqa: SLF001
     path = folder / f"{name}.ipynb"
-    path.parent.mkdir(parents=True, exist_ok=True)  # its folder, for a name like "Sales/Daily load"
     try:
-        open(path, "xb").close()  # reserve the name: a file made in the meantime stops this
+        with jsonfile.long_path_named(path):  # a path past Windows' 260 without long paths: named
+            path.parent.mkdir(parents=True, exist_ok=True)  # its folder, for a name like "Sales/Daily load"
+            open(path, "xb").close()  # reserve the name: a file made in the meantime stops this
     except FileExistsError:
         raise ValueError(f"A notebook named {name!r} already exists. Pick another name.") from None
     try:
@@ -350,12 +351,14 @@ def delete(shelf: NotebookShelf, name: str, schedules_off: list[str]) -> dict[st
     trash = _trash(shelf)
     now = _now()
     _purge(trash, now)
-    trash.mkdir(parents=True, exist_ok=True)
     tid = f"{now:%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}"
     data = src.read_bytes()
     dest = trash / f"{tid}.ipynb"
-    with open(dest, "xb") as f:
-        f.write(data)
+    # Recently deleted past Windows' 260 without long paths: named by the notebook, not the copy's id.
+    with jsonfile.long_path_named(src, "deleted"):
+        trash.mkdir(parents=True, exist_ok=True)
+        with open(dest, "xb") as f:
+            f.write(data)
     if dest.read_bytes() != data:
         dest.unlink(missing_ok=True)
         raise OSError(f"Couldn't keep a copy of {name} in Recently deleted, so it wasn't deleted.")
@@ -411,10 +414,11 @@ def restore(shelf: NotebookShelf, tid: str, name: str | None = None) -> dict[str
         _, folder = shelf._place(None)  # noqa: SLF001
         moved = True
     dest = folder / f"{target}.ipynb"
-    dest.parent.mkdir(parents=True, exist_ok=True)  # its folder comes back too, if it was removed
     try:
-        with open(dest, "xb") as f:
-            f.write(data)
+        with jsonfile.long_path_named(dest, "restored"):  # a path past Windows' 260 without long paths: named
+            dest.parent.mkdir(parents=True, exist_ok=True)  # its folder comes back too, if it was removed
+            with open(dest, "xb") as f:
+                f.write(data)
     except FileExistsError:
         raise ValueError(f"A notebook named {target!r} already exists. Restore it under another name.") from None
     file.unlink(missing_ok=True)

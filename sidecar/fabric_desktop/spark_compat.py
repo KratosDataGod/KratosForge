@@ -1853,7 +1853,8 @@ def _drop_cols(fn: Any) -> Any:  # noqa: ARG001 - DuckDB's drop is replaced; kep
       drops the column named ``a.b.c``; a name that isn't there is skipped.
     - A column drops that column: after ``df.join(df2, ...)``, ``drop(df2.name)`` drops df2's name and
       keeps df's. ``col("name")`` that two columns answer to is Spark's AMBIGUOUS_REFERENCE error, and
-      a column the frame doesn't have, or an expression that isn't a column, is skipped.
+      a column the frame doesn't have, or an expression that isn't a column, is skipped. After a join on
+      names (``df.join(df2, "k")``), ``drop(df.k)`` and ``drop(df2.k)`` both drop the one merged key.
     - Once the frame was selected or changed after the join, this PC no longer knows which DataFrame
       a column came from, so ``drop(df2.name)`` drops the one column called name, as before; with
       two columns of that name it is refused by name rather than guessing. (Spark would also keep a
@@ -1884,6 +1885,10 @@ def _drop_cols(fn: Any) -> Any:  # noqa: ARG001 - DuckDB's drop is replaced; kep
             if not matches:
                 continue
             ref = ".".join(_ident(p) for p in parts)
+            if len(parts) > 1 and matches == 1:
+                # one column of that name: after df.join(df2, "k"), df.k and df2.k both name the one merged
+                # key, as in Spark (DuckDB's EXCLUDE (df.k) would drop it and bring back df2's hidden k)
+                parts = [name]
             if len(parts) > 1:
                 try:
                     self.relation.project(f"* EXCLUDE ({ref})")
@@ -2007,6 +2012,23 @@ def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, va
     return _frame(self, out.project(", ".join(_col_sql(c) for c in keep)))
 
 
+def _keys_first(df: DataFrame, keys: list[str]) -> DataFrame:
+    """A join on column names puts the keys first, in ``on``'s order, then the rest of the left's columns,
+    then the right's, as Spark does; DuckDB keeps the left's order. So the left goes in keys first (under
+    its own alias, so ``df.col`` still finds its columns). A key missing or named twice is left for the
+    join to report, and a left with a repeated name is left as it is."""
+    cols = df.columns
+    lower = [c.lower() for c in cols]
+    if len(set(lower)) != len(lower) or any(lower.count(k.lower()) != 1 for k in keys):
+        return df
+    front = list(dict.fromkeys(lower.index(k.lower()) for k in keys))
+    order = front + [i for i in range(len(cols)) if i not in front]
+    if order == list(range(len(cols))):
+        return df
+    rel = df.relation.project(", ".join(_col_sql(cols[i]) for i in order)).set_alias(df.relation.alias)
+    return DataFrame(rel, df.session)
+
+
 def _same_self(fn: Any) -> Any:
     """A join of a DataFrame with itself: DuckDB needs the two sides named apart. A join with no
     condition pairs every row with every row, as in Spark (``df.join(df2)``, any ``how``), and
@@ -2022,7 +2044,11 @@ def _same_self(fn: Any) -> Any:
                 given["how"] = "inner"
             if given.get("on") is None and given.get("how") is None:
                 given["how"] = "inner"  # DuckDB's join needs a condition; with a how it joins on true
-            return fn(self, other, given.get("on"), given.get("how"), *args[2:], **kwargs)
+            on, how = given.get("on"), given.get("how")
+            keys = [on] if isinstance(on, str) else on if isinstance(on, list) and all(isinstance(k, str) for k in on) else []
+            if keys:  # a semi or anti join too: the left's keys, then the rest of its columns
+                self = _keys_first(self, keys)
+            return fn(self, other, on, how, *args[2:], **kwargs)
         return fn(self, other, *args, **kwargs)
     join.__doc__ = fn.__doc__
     return join

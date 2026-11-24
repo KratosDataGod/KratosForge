@@ -1,0 +1,152 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E81",
+  "title": "The least workspace role for four groups and two apps",
+  "objectives": [
+    "1.3.1"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "E10"
+  ],
+  "objective_text": "Give four groups and two service principals the least workspace role that covers their tasks, and work out what a person in two groups and a person in a nested group end up with.",
+  "scenario": "The Claims workspace gives roles to groups and apps, never to single people. A new platform team wants Git and a workspace identity, an orchestrator app starts notebook runs, and a monitoring app only reads their status. The security review wants each one on the least role that works.",
+  "engine_label": "A model of workspace role assignments, checked on this PC",
+  "verifies": [
+    "Your role for each group and service principal is the least of Admin, Member, Contributor and Viewer that covers its tasks, as the workspace roles table and its notes on groups and the Job Scheduler API describe them, and your answers on overlapping and nested groups follow the same page, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That anyone gets a role in Fabric. Nothing is set in a workspace here.",
+    "Item permissions, sharing and OneLake security roles, which can give access without a workspace role.",
+    "Gateway permissions and permissions on shortcut targets, which are managed outside the workspace roles.",
+    "How a service principal is registered in Microsoft Entra ID and allowed to call Fabric APIs."
+  ],
+  "expected": {
+    "description": "Platform admins Admin, Team leads Member, Data engineers Contributor, claims-orchestrator Contributor, Claims reporting Viewer, claims-monitor Viewer. Mia ends up with Contributor. Ola gets the role through the nested group (true)."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "A group or app has a role that doesn't fit its tasks.",
+      "pass": "Every group and app has the least role that covers its tasks.",
+      "rules": [
+        {
+          "path": "principals",
+          "count": 1,
+          "where": {
+            "name": "Platform admins",
+            "role": "Admin"
+          },
+          "why": "Only Admin can connect the workspace to a Git repository and create the workspace identity."
+        },
+        {
+          "path": "principals",
+          "count": 1,
+          "where": {
+            "name": "Team leads",
+            "role": "Member"
+          },
+          "why": "Member can add members or others with lower permissions and allow others to reshare items. Updating or deleting the workspace and adding admins stay with Admin."
+        },
+        {
+          "path": "principals",
+          "count": 1,
+          "where": {
+            "name": "Data engineers",
+            "role": "Contributor"
+          },
+          "why": "Contributor is the least role that writes lakehouse, warehouse and shortcut data and subscribes to OneLake events."
+        },
+        {
+          "path": "principals",
+          "count": 1,
+          "where": {
+            "name": "claims-orchestrator",
+            "role": "Contributor"
+          },
+          "why": "Through the Job Scheduler API, Admin, Member and Contributor can start and cancel runs. A service principal gets the same permissions as a user with that role."
+        },
+        {
+          "path": "principals",
+          "count": 1,
+          "where": {
+            "name": "Claims reporting",
+            "role": "Viewer"
+          },
+          "why": "Viewer can read warehouse data with T-SQL through the TDS endpoint (ReadData) and view the output of pipeline runs."
+        },
+        {
+          "path": "principals",
+          "count": 1,
+          "where": {
+            "name": "claims-monitor",
+            "role": "Viewer"
+          },
+          "why": "Every role, Viewer included, can monitor run status and view execution output through the Job Scheduler API. Starting runs isn't part of its job."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The workspace should keep all six entries and exactly one Admin.",
+      "pass": "Six entries and one Admin, as planned.",
+      "rules": [
+        {
+          "path": "principals",
+          "count": 6,
+          "why": "Keep all six entries. Set a role to null instead of deleting an entry."
+        },
+        {
+          "path": "principals",
+          "count": 1,
+          "where": {
+            "role": "Admin"
+          },
+          "why": "An Admin can remove every other person, including other admins, so keep the list short."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "An answer about group membership doesn't follow how group roles combine.",
+      "pass": "Overlapping and nested groups are worked out correctly.",
+      "rules": [
+        {
+          "path": "questions.mia_role.answer",
+          "equals": "Contributor",
+          "why": "Someone in several groups gets the highest level of permission their roles give."
+        },
+        {
+          "path": "questions.nested_group.answer",
+          "equals": true,
+          "why": "When a role is given to a group, every user in its nested groups has those permissions too."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which two tasks in the role table only Admin can do?",
+    "What can Member do that Contributor can't, and what can't Member do?",
+    "Which roles can start and cancel runs through the Job Scheduler API, and which can only watch them?",
+    "If someone is in two groups with different roles, which role wins?"
+  ],
+  "explanation": "Connecting a workspace to Git and creating the workspace identity are Admin tasks, so Platform admins need Admin. Team leads add people below Admin and allow resharing, which is Member. Writing lakehouse, warehouse and shortcut data and subscribing to OneLake events is Contributor. A service principal gets the same permissions as a user with its role. Starting and cancelling runs through the Job Scheduler API needs Contributor, while every role can monitor run status, so the monitor app is a Viewer. Reading warehouse tables with T-SQL and viewing pipeline output also fit Viewer. A person in two groups gets the higher role, so Mia is a Contributor, and everyone in a nested group gets the role given to the outer group.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/give-access-workspaces"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23 (roles-workspaces, last updated 2026-08-18): only Admin updates and deletes the workspace, adds or removes admins, creates the workspace identity and connects the workspace to Git. Admin and Member add members or lower roles and allow resharing. Admin, Member and Contributor write lakehouse, warehouse and shortcut data, subscribe to OneLake events and execute or cancel notebooks and pipelines. Every role reads warehouse data with T-SQL through the TDS endpoint (ReadData) and views execution output. The Job Scheduler API note says Admin, Member and Contributor start and cancel runs and all roles, Viewer included, monitor run status and exit values. Roles go to individuals, security groups, Microsoft 365 groups and distribution lists. A person in several groups gets the highest permission, nested groups pass the role on, and service principals inherit the same permissions as users for API operations.",
+    "Checked on Learn 2026-11-23 (give-access-workspaces): Admin and Member add people or groups through Manage access, and a Member can only add Member, Contributor or Viewer."
+  ]
+}

@@ -54,7 +54,7 @@ from sqlglot.errors import SqlglotError
 from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
-from ..sql import KfDuckDB
+from ..sql import KfDuckDB, duckdb_sql
 from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
@@ -1300,7 +1300,7 @@ def _set_operation_types(tree: exp.Expression, typed: exp.Expression) -> None:
                 elif n:  # only the first SELECT names the columns
                     _text_converted(projection, to)
                 else:  # an unnamed first column: converted, under the name DuckDB gave it as written
-                    named = projection.replace(exp.alias_(projection.copy(), projection.sql("duckdb"), quoted=True))
+                    named = projection.replace(exp.alias_(projection.copy(), duckdb_sql(projection), quoted=True))
                     _text_converted(named.this, to)
 
 

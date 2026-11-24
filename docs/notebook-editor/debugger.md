@@ -66,7 +66,10 @@ cell shows:
   text or an object), shows as `hidden`. A frame with more
   than 200 variables lists the first 200 by name and says how many there are. A data frame shows
   its size and first columns, not its rows (evaluate its head(), such as `df.head()`, for those), and a long list or
-  text shows its first items, so pausing next to large data stays quick.
+  text shows its first items, so pausing next to large data stays quick. A value whose own code
+  (its repr, length or shape) takes more than a second shows as `?`, and once the frame's
+  variables have taken a few seconds the rest show their name and type with `?` for the value,
+  so a slow object never holds up the pause. The Variables pane does the same.
 - **Stepped over, not into**: after **Step into**, the library functions (such as `json.dumps`) and
   the functions from other cells it didn't go into, by name.
 - **Watches** from the Variables pane, evaluated in the paused frame.
@@ -109,6 +112,9 @@ variables the stopped cell left.
   supported in cells (use `asyncio.run`), with or without the debugger.
 - **Restarting the kernel while paused** ends the paused cell, as **Stop** does, but the variables
   go with the restart. A **Debug from here** run stops there and doesn't go on into the new kernel.
+- **In a shared session**, only the notebook whose cell is paused sees the pause and can step or
+  stop it. The other notebooks see the session busy. A notebook that restarts or leaves the session
+  while paused ends its paused cell, and one that is renamed keeps it.
 - **If the notebook's own process ends while paused** (with **Run notebooks in their own process**
   on, the process crashed or was ended), the cell ends with an error saying the process stopped,
   nothing stays paused, and the next run starts a fresh process.
@@ -147,7 +153,9 @@ Stop, Continue and restart, leave no trace hook, thread or memory behind), `side
 (Stop, a restart or the process dying while a step runs), `sidecar/tests/test_debugger_concurrency.py`
 (threads, asyncio, library callbacks and magics), `sidecar/tests/test_debugger_language.py`
 (comprehensions, class bodies, match, finally, exceptions, generators, recursion errors,
-`breakpoint()`, the cell's own trace hooks, breakpoints on lines without code) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
+`breakpoint()`, the cell's own trace hooks, breakpoints on lines without code), `sidecar/tests/test_debugger_engine.py` (slow or
+broken values, a shared session's other notebook, a guest left, restarted or renamed while paused,
+widgets, the memory limit, and a restart or close racing a command) and `app/tests/browser/debugger.test.cjs`. Before the feature leaves Preview, also go through this on
 Windows, with **Run notebooks in their own process** both on and off:
 
 1. Set breakpoints in two cells, save, close the notebook and reopen it. The red bars are on the

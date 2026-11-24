@@ -688,7 +688,7 @@ function dbgPausedPanel(cell) {
     h("div", { class: "dbg-frame" },
       h("div", { class: "dbg-head" }, p.stack?.length > 1 ? `Variables in ${p.stack[p.stack.length - 1].function}` : "Variables"),
       p.variables?.length ? h("table", { class: "vars" }, h("tbody", {}, p.variables.map((r) => h("tr", {},
-        h("td", { class: "name" }, r.name), h("td", {}, r.type), h("td", {}, r.size), h("td", { class: "val" }, r.value)))))
+        h("td", { class: "name" }, r.name), h("td", {}, r.type), h("td", {}, r.size), h("td", nbValAttrs(r.value), r.value)))))
         : h("div", { class: "muted-text" }, "None yet."),
       dbgVariablesNote(p),
       p.watches?.length ? h("div", { class: "dbg-head" }, "Watches") : null,

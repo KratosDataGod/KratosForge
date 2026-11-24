@@ -158,7 +158,7 @@ SQL page already makes to find a warehouse's connection), and each lakehouse's t
 [Estate X-ray](../xray-fixes.md) reads them. That is the folders under Tables and each Delta table's
 log, never a data file, read through OneLake with your own storage sign-in (at most 100 tables per
 assessment). The warehouse and table reads are made only with a sign-in the app already holds, so an
-assessment never asks you to sign in for them: without a OneLake sign-in on this PC no table is read.
+assessment never asks you to sign in for them. Without a OneLake sign-in on this PC, no table is read.
 It also uses the Capacity Metrics exports already imported on this PC (Optimize > Cost and savings).
 That is a local read, not a Fabric call. A read that fails is listed in `reads` and leaves its
 controls not evaluated.

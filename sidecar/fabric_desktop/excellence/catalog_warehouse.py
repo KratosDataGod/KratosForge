@@ -149,14 +149,14 @@ def _endpoint(ctx: ct.Context) -> dict[str, Any]:
     status = r["payload"].get("provisioning_status")
     lakehouse = r["payload"].get("lakehouse") or r["payload"].get("lakehouse_id")
     if status is None:
-        return ct.not_evaluated(f"Fabric didn't report a provisioning status for the SQL endpoint of {lakehouse}.",
-                                needs="the SQL endpoint's provisioning status")
+        return ct.not_evaluated(f"Fabric didn't report a provisioning status for the SQL analytics endpoint of {lakehouse}.",
+                                needs="the SQL analytics endpoint's provisioning status")
     if status.lower() == PROVISIONED:
         return ct.passed([r["id"]], f"The SQL analytics endpoint of {lakehouse} is provisioned.")
     if status.lower() == "failed":
         return ct.failed([r["id"]], f"Provisioning of the SQL analytics endpoint of {lakehouse} failed, so it can't "
                                     "be queried with T-SQL.", detail={"status": status})
-    return ct.not_evaluated(f"Fabric reports the SQL endpoint of {lakehouse} as {status}, so whether it works isn't "
+    return ct.not_evaluated(f"Fabric reports the SQL analytics endpoint of {lakehouse} as {status}, so whether it works isn't "
                             "known yet.", needs="a finished provisioning status")
 
 
@@ -218,7 +218,7 @@ CONTROLS = (
                         "Assess again."],
                        "T-SQL readers and reports on the lakehouse work again.", "low", "low",
                        "Fabric reports the endpoint as provisioned, and the control passes.",
-                       "Nothing to undo: provisioning changes no table.")),
+                       "Nothing to undo, because provisioning changes no table.")),
     ct.Control(
         id="FEA-WH-002", version="1.0.0", dimension="architecture",
         title="Warehouses in one workspace use different collations", severity="low",
@@ -240,5 +240,5 @@ CONTROLS = (
                         "Retire the old warehouse once nothing reads it.", "Assess again."],
                        "Cross-warehouse queries and loads join text columns without collation errors.", "high", "medium",
                        "Queries that joined the warehouses run without COLLATE, and the control passes.",
-                       "Point readers back at the old warehouse; keep it until the move is confirmed.")),
+                       "Point readers back at the old warehouse, and keep it until the move is confirmed.")),
 )

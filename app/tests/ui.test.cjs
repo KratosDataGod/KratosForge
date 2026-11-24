@@ -6335,7 +6335,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Snowflake SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
-      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
+      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost", "Compare platforms for one workload",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],

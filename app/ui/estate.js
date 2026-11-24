@@ -239,8 +239,11 @@ function measureFigure(title, m, cur) {
     measureValue(m, cur), " ", measureBadge(m));
 }
 
-function measureDialog(title, m, cur) {
-  const [label, , why] = MEASURE_KIND[m?.classification] || MEASURE_KIND.unknown;
+// `extra` (Compare platforms, platform-compare.js): the figure as shown, why it has its badge, its own
+// unit, runs counted, how runs were matched, the money at a scenario and the closing note.
+function measureDialog(title, m, cur, extra = {}) {
+  const [label, , kindWhy] = MEASURE_KIND[m?.classification] || MEASURE_KIND.unknown;
+  const why = extra.why || kindWhy;
   const list = (items) => items && items.length ? h("ul", { class: "text" }, items.map((x) => h("li", {}, x))) : null;
   const methods = m.methods || (m.method ? [m.method] : []);
   const sources = m.sources || (m.source ? [m.source] : []);
@@ -248,17 +251,19 @@ function measureDialog(title, m, cur) {
   const period = m.period && (m.period.start || m.period.end)
     ? `${dateTimeText(m.period.start, { empty: "?" })} to ${dateTimeText(m.period.end, { empty: "now" })}` : "";
   showDialog(title, h("div", { class: "scroll" },
-    h("p", { class: "text" }, h("b", {}, measureValue(m, cur)), " ", measureBadge(m), " ", why),
+    h("p", { class: "text" }, h("b", {}, extra.value || measureValue(m, cur)), " ", measureBadge(m), " ", why),
     h("table", { class: "list compact" }, h("tbody", {},
       row("Classification", label),
-      row("Unit", { cu_hours: "CU hours (capacity use)", cu_seconds: "CU-seconds (capacity use)", percent: "Percent of a capacity over the period", currency: m.metric === "billed_cost" ? `Money (${m.currency}), as billed` : `Money (${m.currency || cur}), a price applied to CU use` }[m.unit]),
+      row("Unit", extra.unit || { cu_hours: "CU hours (capacity use)", cu_seconds: "CU-seconds (capacity use)", percent: "Percent of a capacity over the period", currency: m.metric === "billed_cost" ? `Money (${m.currency}), as billed` : `Money (${m.currency || cur}), a price applied to CU use` }[m.unit]),
       row("Worked out as", methods.join("; ")),
-      row("Source", sources.join(", ")),
+      row("Source", extra.source || sources.join(", ")),
       row("Period", period),
-      row("Runs counted", m.parts !== undefined ? `${m.parts - (m.unknown_parts || 0)} of ${m.parts}` : ""),
+      row("Runs counted", extra.runs || (m.parts !== undefined ? `${m.parts - (m.unknown_parts || 0)} of ${m.parts}` : "")),
+      row("Matched by", extra.matched || ""),
       row("Not known", m.reason || ""))),
     m.assumptions?.length ? [h("p", { class: "text" }, h("b", {}, "Assumptions")), list(m.assumptions)] : null,
-    h("p", { class: "muted-text small" }, String(m.metric || "").startsWith("billed_")
+    extra.money || null,
+    extra.note ? h("p", { class: "muted-text small" }, extra.note) : h("p", { class: "muted-text small" }, String(m.metric || "").startsWith("billed_")
       ? "Azure Cost Management bills a capacity per meter and day, for the whole capacity: it can't be split into single runs."
       : "Fabric's Capacity Metrics app has the CU your capacity recorded. A price is not a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")),
   [btn("Close", null, closeDialog, "tool outline")]);

@@ -175,8 +175,9 @@ def create(out_dir: Path, data_dir: Path, agent_home: Path | None = None, now: d
     files, skipped = _collect(data_dir, agent_home)
     entries: list[dict[str, Any]] = []
     cleaned: list[dict[str, str]] = []
-    out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"fabric-desktop-backup-{now.strftime('%Y%m%d-%H%M%S')}.zip"
+    with jsonfile.long_path_named(target, "written"):  # a folder past Windows' 260 without long paths: named
+        out_dir.mkdir(parents=True, exist_ok=True)
     # Written as .part and renamed once whole, so a backup that stops part way leaves no zip behind.
     part = target.with_name(target.name + ".part")
     try:
@@ -190,7 +191,7 @@ def create(out_dir: Path, data_dir: Path, agent_home: Path | None = None, now: d
 
 def _write(part: Path, files: list[tuple[str, Path]], skipped: list[dict[str, str]], entries: list[dict[str, Any]],
            cleaned: list[dict[str, str]], now: datetime) -> None:
-    with open(part, "wb") as f:
+    with jsonfile.long_path_named(part.with_name(part.name.removesuffix(".part")), "written"), open(part, "wb") as f:
         with zipfile.ZipFile(f, "w", zipfile.ZIP_DEFLATED) as z:
             _fill(z, files, skipped, entries, cleaned, now)
         f.flush()

@@ -10,7 +10,7 @@ never publishes anything to Fabric.
 
 | Tab | What it shows |
 | --- | --- |
-| Home | The lesson to continue (the one you opened last, or the first one) and the practice labs |
+| Home | The lesson to continue (the one you opened last, else the first one you started, else the first one) and the practice labs |
 | Paths | Lessons grouped by subject: Data Fundamentals, SQL Development, Python & Data Engineering, Microsoft Fabric, Databricks, Snowflake and Enterprise Architecture |
 | Labs | The practice labs: a task, a lab with generated data, and checks that say when it's done |
 | Best practices | Every notebook and SQL rule, each with **About** to its explanation, example and when it's safe to leave |
@@ -41,7 +41,7 @@ A lesson marked **Draft** is still being written and may change.
 | LM-09 | Direct Lake: tables a Power BI model reads straight from OneLake | Microsoft Fabric | |
 | LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
 | LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
-| LM-23 | Warehouse or lakehouse: where T-SQL writes | Microsoft Fabric | SQ004 |
+| LM-23 | Warehouse or lakehouse: where T-SQL writes | Microsoft Fabric | SQ004, SQ010 |
 | LM-24 | Shortcuts and OneLake security | Microsoft Fabric | |
 | LM-25 | V-Order, OPTIMIZE and VACUUM | Microsoft Fabric | NB020 |
 | LAB-07 | A Gold layer that stays in Direct Lake: tables, the report's grain, and an Unknown member | Microsoft Fabric | |
@@ -65,6 +65,7 @@ A lesson marked **Draft** is still being written and may change.
 | LM-33 | Capacity and cost | Enterprise Architecture | SQ002 |
 | LM-34 | Environments, Git and deployments | Enterprise Architecture | |
 | LM-35 | Monitoring and incidents | Enterprise Architecture | |
+| LM-36 | Enterprise notebook templates | Enterprise Architecture | |
 | LAB-10 | Ship a domain data product | Enterprise Architecture | SQ004, SQ010 |
 | LAB-11 | Incident: late and broken data | Enterprise Architecture | |
 | LAB-12 | The Forge Trial: raw data to a trusted answer (capstone, listed under Labs) | Enterprise Architecture | |
@@ -74,10 +75,9 @@ teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the S
 where a lesson uses DuckDB's own SQL, it says so.
 Like every lab, they never read or write OneLake and never publish to Fabric.
 
-The Snowflake, Databricks and Python & Data Engineering paths start with one lesson each. They run on this
-PC in DuckDB too, and say where the SQL differs on the other platform: QUALIFY isn't in Fabric Warehouse,
-and the MERGE lesson checks the table a MERGE would leave with a read-only SELECT. More lessons, and the
-Enterprise Architecture path, come in later updates.
+The Snowflake, Databricks and Python & Data Engineering lessons run on this PC in DuckDB too, and say
+where the SQL differs on the other platform: QUALIFY isn't in Fabric Warehouse, and the MERGE lesson
+checks the table a MERGE would leave with a read-only SELECT.
 
 ## A lesson or lab
 
@@ -128,7 +128,7 @@ Guidance shows only while **Show preview features** is on.
 A governance policy can give a team a default level ([team guidance](governance.md#team-guidance)):
 for example Guided for a project's new starters. It applies only while you haven't chosen a level
 yourself, neither Learning guidance nor the subject's own, and the Best practices panel says so:
-"Guidance: Guided, your team's default from New starters." Pick a level in Settings and yours is
+"Guidance: Guided, your team's default from New starters. Choose your own in Settings › Appearance › Layout." Pick a level in Settings and yours is
 used instead. Like every level it's a preference: checks and required rules don't change. It comes
 with the project's policies, so it works offline from the project's policy package too. A level fixed
 by your organization's policy file (IT) always wins over a team's.

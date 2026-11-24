@@ -95,6 +95,7 @@ def settings_dirs(monkeypatch, tmp_path):
     """Empty policy and user settings folders, returned as (policy file, user file)."""
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "la"))
+    monkeypatch.delenv("FABRIC_DESKTOP_CHANNEL", raising=False)
     policy, user = tmp_path / "pd" / "FabricDesktop" / "policy.json", tmp_path / "la" / "FabricDesktop" / "app-settings.json"
     policy.parent.mkdir(parents=True)
     user.parent.mkdir(parents=True)
@@ -108,8 +109,22 @@ def test_channel_defaults_to_stable_and_policy_wins(settings_dirs):
     assert updater.channel() == "preview"
     policy.write_text(json.dumps({"channel": "stable"}))
     assert updater.channel() == "stable"
-    policy.write_text(json.dumps({"channel": "nightly"}))  # not a channel: ignored
+    for unset in ({"channel": ""}, {"channel": 1}, {}):  # no channel set: the person's
+        policy.write_text(json.dumps(unset))
+        assert updater.channel() == "preview", unset
+    for bad in ("nightly", "Preview"):  # not a channel: Stable, as app_settings.load and Settings show
+        policy.write_text(json.dumps({"channel": bad}))
+        assert updater.channel() == "stable", bad
+
+
+def test_the_shells_channel_wins_since_it_includes_group_policy(settings_dirs, monkeypatch):
+    policy, user = settings_dirs
+    policy.write_text(json.dumps({"channel": "stable"}))
+    monkeypatch.setenv("FABRIC_DESKTOP_CHANNEL", "preview")  # main.rs channel: Group Policy laid over the file
     assert updater.channel() == "preview"
+    for bad in ("", "nightly", "latest"):  # not a channel name: the files decide
+        monkeypatch.setenv("FABRIC_DESKTOP_CHANNEL", bad)
+        assert updater.channel() == "stable", bad
 
 
 def test_channel_uses_the_last_good_policy_when_the_policy_is_unreadable(settings_dirs):
@@ -619,3 +634,8 @@ def test_check_always_starts_a_developer_install(monkeypatch):
     monkeypatch.setattr(updater, "load_error", lambda: starts.append(1))
     updater.check(), updater.check()
     assert len(starts) == 2
+
+
+def test_the_shell_passes_its_channel_to_every_updater_command():
+    main = (Path(__file__).resolve().parents[2] / "app" / "src-tauri" / "src" / "main.rs").read_text(encoding="utf-8")
+    assert 'cmd.env("FABRIC_DESKTOP_CHANNEL", channel())' in main.split("fn updater(", 1)[1].split("\n}", 1)[0]

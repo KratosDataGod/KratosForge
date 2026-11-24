@@ -494,3 +494,294 @@ def test_a_simple_case_with_an_arm_that_isnt_text_is_left_alone():
     columns = {"dbo": {"t": {"s": "VARCHAR(20)", "n": "INTEGER"}}}
     sql = "SELECT CASE s WHEN 'a' THEN 1 WHEN n THEN 2 END FROM dbo.t"
     assert translate(sql, columns)[0] == [sql]
+
+
+def test_an_order_by_number_that_isnt_whole_names_no_column():
+    columns = {"dbo": {"t": {"s": "VARCHAR(20)", "a": "INTEGER"}}}
+    assert translate("SELECT s, a FROM dbo.t ORDER BY 1.5, a", columns)[0] == [
+        "SELECT s, a FROM dbo.t ORDER BY 1.5 NULLS FIRST, a NULLS FIRST"]
+
+
+def test_strs_decimals_run_to_16():
+    with pytest.raises(ValueError, match="decimals"):
+        translate("SELECT STR(1, 10, 17)")
+
+
+def test_substring_from_0_counts_the_place_before_the_text():
+    assert run("SELECT SUBSTRING('abc', 0, 2)") == [("a",)]
+    assert "GREATEST(0, 1)" in translate("SELECT SUBSTRING('abc', 0, 2)")[0][0]  # worked out, not left to DuckDB
+
+
+def test_substring_of_length_0_has_no_negative_length_check():
+    assert "Invalid length parameter" not in translate("SELECT SUBSTRING('abc', 0, 0)")[0][0]
+    assert run("SELECT SUBSTRING('abc', 0, 0)") == [("",)]
+
+
+def test_char_just_below_an_int_is_t_sqls_int_overflow():
+    assert translate("SELECT CHAR(-2147483648)")[0] == ["SELECT CAST(NULL AS TEXT)"]
+    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type int"):
+        translate("SELECT CHAR(-2147483649)")
+
+
+def test_a_length_far_below_a_bigint_is_t_sqls_bigint_overflow():
+    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
+        translate("SELECT LEFT('abc', -10000000000000000000)")
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Known bug: a negative literal reaches the bigint range check as a float (-9223372036854775809 is a Neg of "
+    "a literal, read through float), which rounds to -2**63, inside the range, so the answer is LEFT's "
+    "'Invalid length' error where T-SQL stops converting the value to a bigint"))
+def test_a_length_one_below_a_bigint_is_t_sqls_bigint_overflow():
+    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
+        translate("SELECT LEFT('abc', -9223372036854775809)")
+
+
+def test_char_of_a_column_keeps_0_and_255_and_nulls_256():
+    assert run_on_t("SELECT CHAR(n) FROM dbo.t", {"n": "INTEGER"}, "(0), (255), (256)") == [
+        ("\x00",), ("ÿ",), (None,)]
+
+
+def test_a_datediff_one_past_an_int_is_t_sqls_overflow():
+    assert run("SELECT DATEDIFF(second, '1970-01-01', '2038-01-19 03:14:07')") == [(2 ** 31 - 1,)]
+    with pytest.raises(duckdb.Error, match="The datediff function resulted in an overflow"):
+        run("SELECT DATEDIFF(second, '1970-01-01', '2038-01-19 03:14:08')")
+
+
+@pytest.mark.parametrize("sql", ["UPDATE dbo.t SET a =", "UPDATE dbo.t SET a +="])
+def test_an_updates_set_cut_off_after_its_operator_isnt_read_as_a_session_option(sql):
+    with pytest.raises(ValueError, match="Could not read the query as T-SQL"):
+        translate(sql)
+
+
+def test_set_statistics_names_its_kind_when_the_batch_ends_there():
+    with pytest.raises(ValueError, match="SET STATISTICS IO isn't mapped yet"):
+        translate("SET STATISTICS IO")
+
+
+def test_what_a_script_ends_inside_with_block_comments():
+    from fabric_desktop.localdata import tsql
+    assert tsql._left_open("/* a /* b */ c */ SELECT 1") is None
+    assert tsql._left_open("/* a /* b */ c") == "a comment"
+
+
+def test_the_integer_0_is_one_digit_in_a_product():
+    columns = {"dbo": {"t": {"d": "DECIMAL(5,2)"}}}
+    assert translate("SELECT 0 * d FROM dbo.t", columns)[0] == ["SELECT CAST(0 * d AS DECIMAL(7, 2)) FROM dbo.t"]
+
+
+def test_an_unchecked_convert_style_lists_the_checked_ones():
+    columns = {"dbo": {"t": {"s": "VARCHAR(20)"}}}
+    assert translate("SELECT CONVERT(DATETIME2, s, 3) FROM dbo.t", columns)[1] == [
+        ("CONVERT style 3 runs as a translation that hasn't been checked against T-SQL's answers; styles 101, 103, "
+         "112, 120, 121 and 126 have been. Compare its values in Fabric if they matter.")]
+
+
+def test_text_between_an_unknown_and_text_has_the_padding_note():
+    columns = {"dbo": {"t": {"s": "VARCHAR(20)"}}}
+    notes = translate("SELECT 1 FROM dbo.t, dbo.unk AS u WHERE t.s BETWEEN u.z AND 'b'", columns)[1]
+    assert len(notes) == 1 and notes[0].startswith("Couldn't tell the types in some comparisons")
+
+
+def test_text_in_a_list_of_an_int_and_a_float_is_left_to_duckdb():
+    columns = {"dbo": {"t": {"s": "VARCHAR(5)", "n": "INTEGER", "f": "FLOAT"}}}
+    assert translate("SELECT 1 FROM dbo.t WHERE s IN (n, f)", columns)[0] == ["SELECT 1 FROM dbo.t WHERE s IN (n, f)"]
+
+
+def test_a_wide_quotient_whose_dividend_is_past_the_room_is_worked_out_in_floating_point():
+    columns = {"x": "DECIMAL(38,0)", "y": "DECIMAL(10,0)"}
+    # 2 * 10**32 is past the 10**32 the exact path can move left by 6 places in a HUGEINT
+    [(value,)] = run_on_t("SELECT x / y FROM dbo.t", columns, f"({2 * 10 ** 32}, 10)")
+    assert abs(value - 2 * 10 ** 31) < 10 ** 17  # floating point: about the first 15 digits
+
+
+def test_left_of_a_column_length_of_0_is_empty():
+    assert run_on_t("SELECT LEFT('abc', n) FROM dbo.t", {"n": "INTEGER"}, "(0)") == [("",)]
+
+
+def test_replicate_past_8000_bytes_names_varchar_max():
+    with pytest.raises(duckdb.Error, match=r"its input isn't VARCHAR\(MAX\)"):
+        run_on_t("SELECT REPLICATE(s, n) FROM dbo.t", {"s": "VARCHAR(10)", "n": "INTEGER"}, "('aaaaaaaaaa', 1000)")
+
+
+def test_an_empty_comment_inside_a_comment_closes_on_its_own():
+    from fabric_desktop.localdata import tsql
+    assert tsql._left_open("/* /**/ */ SELECT 1") is None
+    assert tsql._left_open("/**/ SELECT 1") is None
+    assert tsql._left_open("/* x */'a") == "a string"  # the character right after */ is read
+
+
+def test_create_schema_authorization_at_the_batchs_end_is_refused_by_name():
+    with pytest.raises(ValueError, match=r"CREATE SCHEMA \.\.\. AUTHORIZATION isn't mapped yet"):
+        translate("CREATE SCHEMA s AUTHORIZATION")
+
+
+def test_a_batch_that_ends_in_for_and_holds_the_word_timestamp_is_read_without_an_index_error():
+    with pytest.raises(ValueError, match="Could not read the query as T-SQL"):
+        translate("SELECT 'TIMESTAMP' FOR")
+
+
+@pytest.mark.parametrize("name, said", [("v", "dbo.v"), ("sales.v", "sales.v")])
+def test_altering_a_view_that_isnt_there_names_it_with_its_schema(name, said):
+    with pytest.raises(ValueError, match=f"Invalid object name '{said}': ALTER VIEW changes a view that's there"):
+        translate(f"ALTER VIEW {name} AS SELECT 1 AS a", {"dbo": {"t": {"a": "INTEGER"}}})
+
+
+def test_substring_and_stuff_with_a_column_length_of_0():
+    columns = {"n": "INTEGER"}
+    assert run_on_t("SELECT SUBSTRING('abc', 1, n), STUFF('abc', 2, n, 'x') FROM dbo.t", columns, "(0)") == [
+        ("", "axbc")]
+
+
+def test_char_of_0_and_256_written_in_the_query():
+    assert translate("SELECT CHAR(0), CHAR(256)")[0] == ["SELECT CHR(0), CAST(NULL AS TEXT)"]
+
+
+def test_a_datediff_one_below_an_int_is_t_sqls_overflow():
+    assert run("SELECT DATEDIFF(second, '2038-01-19 03:14:08', '1970-01-01')") == [(-(2 ** 31),)]
+    with pytest.raises(duckdb.Error, match="The datediff function resulted in an overflow"):
+        run("SELECT DATEDIFF(second, '2038-01-19 03:14:09', '1970-01-01')")
+
+
+def test_altering_a_view_in_dbo_by_its_bare_name_finds_it():
+    assert translate("ALTER VIEW v AS SELECT 1 AS a", {"dbo": {"v": {"a": "INTEGER"}}})[0] == [
+        "CREATE OR REPLACE VIEW v AS SELECT 1 AS a"]
+
+
+def test_a_modulo_by_a_value_of_unknown_type_is_left_to_duckdb():
+    columns = {"dbo": {"t": {"n": "INTEGER"}}}
+    assert translate("SELECT n % u.z FROM dbo.t, dbo.unk AS u", columns)[0] == [
+        "SELECT n % u.z FROM dbo.t, dbo.unk AS u"]
+
+
+def test_a_decimal_avg_in_a_product_has_scale_6_and_precision_38():
+    columns = {"dbo": {"t": {"d": "DECIMAL(10,2)"}}}
+    assert translate("SELECT AVG(d) * 2 FROM dbo.t", columns)[0] == [
+        "SELECT CAST(CAST(AVG(d) AS DECIMAL(38, 6)) * 2 AS DECIMAL(38, 6)) FROM dbo.t"]
+
+
+def test_isnumeric_is_refused_by_name():
+    with pytest.raises(ValueError, match="ISNUMERIC isn't mapped yet"):
+        translate("SELECT ISNUMERIC('1')")
+
+
+@pytest.mark.parametrize("sql", ["SELECT QUOTENAME()", "SELECT QUOTENAME('a', '[', 1)"])
+def test_quotename_with_no_or_three_arguments_is_left_as_written(sql):
+    assert translate(sql)[0] == [sql]
+
+
+def test_a_go_inside_a_string_says_to_move_it_out_of_the_string():
+    from fabric_desktop.localdata.tsql import split_batches
+    with pytest.raises(ValueError, match="the GO on line 2 is inside a string.*Move the GO out of the string,"):
+        split_batches("SELECT 'a\nGO\n'")
+
+
+def test_a_variable_named_after_a_security_word_is_refused_as_a_variable():
+    with pytest.raises(ValueError, match=r"doesn't run T-SQL variables \(@grant\) yet"):
+        translate("SELECT @grant")
+
+
+def test_str_with_no_arguments_is_left_as_written():
+    assert translate("SELECT STR()")[0] == ["SELECT STR()"]
+
+
+def test_str_with_four_arguments_is_left_as_written():
+    assert translate("SELECT STR(1, 2, 3, 4)")[0] == ["SELECT STR(1, 2, 3, 4)"]
+
+
+def test_an_update_from_a_join_keeps_only_the_other_tables_in_from():
+    columns = {"dbo": {"t": {"a": "INTEGER"}, "u": {"a": "INTEGER"}}}
+    assert translate("UPDATE x SET a = 1 FROM dbo.t AS x JOIN dbo.u AS y ON x.a = y.a", columns)[0] == [
+        "UPDATE dbo.t AS x SET a = 1 FROM dbo.u AS y WHERE (x.a = y.a)"]
+
+
+def test_replicate_and_space_of_a_zero_count_column_are_empty_not_null():
+    assert run_on_t("SELECT REPLICATE('a', n), SPACE(n) FROM dbo.t", {"n": "INTEGER"}, "(0)") == [("", "")]
+
+
+def test_set_statistics_followed_by_a_query_names_the_statistics_kind():
+    with pytest.raises(ValueError, match="SET STATISTICS TIME isn't mapped yet"):
+        translate("SET STATISTICS TIME ON SELECT 1")
+
+
+@pytest.mark.parametrize("mode", ["PATH", "AUTO"])
+def test_for_json_names_its_mode(mode):
+    with pytest.raises(ValueError, match=f"FOR JSON {mode} isn't mapped yet"):
+        translate(f"SELECT 1 AS a FOR JSON {mode}")
+
+
+def test_a_timestamp_hint_beside_another_hint_says_to_use_it_alone():
+    with pytest.raises(ValueError, match=r"OPTION \(FOR TIMESTAMP AS OF \.\.\.\) takes a time written out in quotes"):
+        translate("SELECT 1 OPTION (MAXDOP 1, FOR TIMESTAMP AS OF '2026-11-01')")
+
+
+def test_char_of_0_and_255_are_characters():
+    assert translate("SELECT CHAR(0), CHAR(255)")[0] == ["SELECT CHR(0), CHR(255)"]
+
+
+def test_an_alter_table_adding_one_column_is_mapped():
+    assert translate("ALTER TABLE dbo.t ADD b INT", COLUMNS)[0] == ["ALTER TABLE dbo.t ADD COLUMN b INT"]
+
+
+def test_charindex_from_position_1_searches_from_the_start():
+    columns = {"dbo": {"t": {"s": "VARCHAR(10)"}}}
+    assert translate("SELECT CHARINDEX('a', s, 1) FROM dbo.t", columns)[0] == ["SELECT STRPOS(s, 'a') FROM dbo.t"]
+
+
+def test_a_length_of_the_largest_bigint_is_cut_to_the_longest_text():
+    assert translate("SELECT LEFT('abc', 9223372036854775807)")[0] == ["SELECT LEFT('abc', 2147483647)"]
+
+
+def test_a_decimal_length_of_the_smallest_bigint_is_an_invalid_length_not_an_overflow():
+    with pytest.raises(ValueError, match="Invalid length parameter passed to the LEFT function"):
+        translate("SELECT LEFT('abc', -9223372036854775808.0)")
+
+
+def test_replicate_of_a_literal_within_the_limit_needs_no_check():
+    assert translate("SELECT REPLICATE('a', 0), REPLICATE('a', 8000)")[0] == [
+        "SELECT REPEAT('a', 0), REPEAT('a', 8000)"]
+
+
+def test_a_fractional_count_below_1_is_cut_to_0_when_translated():
+    assert translate("SELECT SPACE(0.5), REPLICATE('a', 0.5)")[0] == [
+        "SELECT REPEAT(' ', CAST(0 AS BIGINT)), REPEAT('a', 0)"]
+
+
+def test_a_decimal_divided_with_a_shift_of_38_places_is_worked_out_in_hugeint():
+    # DECIMAL(10,0) / DECIMAL(32,32) is DECIMAL(38,6): the dividend moves 6 - 0 + 32 = 38 places, which a HUGEINT holds
+    columns = {"dbo": {"t": {"x": "DECIMAL(10,0)", "y": "DECIMAL(32,32)"}}}
+    assert "INT128" in translate("SELECT x / y FROM dbo.t", columns)[0][0]
+
+
+def test_an_order_by_position_of_a_text_column_before_another_key_is_trimmed():
+    columns = {"dbo": {"t": {"s": "VARCHAR(10)", "a": "INTEGER"}}}
+    assert "ORDER BY RTRIM(" in translate("SELECT UPPER(s), a FROM dbo.t ORDER BY 1, 2", columns)[0][0]
+    assert translate("SELECT s, a FROM dbo.t ORDER BY s, a", columns)[0] == [
+        "SELECT s, a FROM dbo.t ORDER BY RTRIM(s, ' ') NULLS FIRST, a NULLS FIRST"]
+
+
+def test_an_order_by_position_past_the_columns_is_left_for_the_engine_to_refuse():
+    columns = {"dbo": {"t": {"s": "VARCHAR(10)"}}}
+    assert translate("SELECT s FROM dbo.t ORDER BY 2, 1", columns)[0] == [
+        "SELECT s FROM dbo.t ORDER BY 2 NULLS FIRST, 1 NULLS FIRST"]
+
+
+def test_isjson_names_its_bad_second_argument():
+    with pytest.raises(ValueError, match="not foo\\."):
+        translate("SELECT ISJSON('[1]', foo)")
+
+
+def test_isjson_of_text_that_isnt_json_is_0():
+    assert run("SELECT ISJSON('x')") == [(0,)]
+
+
+def test_timefromparts_takes_fractions_of_0_from_a_column():
+    assert run_on_t("SELECT TIMEFROMPARTS(1, 2, 3, a, 3) FROM dbo.t", {"a": "INTEGER"}, "(0)") == [(dt.time(1, 2, 3),)]
+
+
+def test_the_first_of_a_year_that_starts_on_a_sunday_is_in_week_1():
+    assert run("SELECT DATEPART(week, '2023-01-01'), DATEPART(week, '2023-01-08')") == [(1, 2)]
+
+
+def test_adding_a_number_to_a_column_of_unknown_type_has_no_text_note():
+    assert translate("SELECT b + 1 FROM dbo.t", COLUMNS)[1] == []

@@ -105,8 +105,11 @@ def run(project: Project) -> dict[str, Any]:
                     status, message = "error", _failure(exc)
             tests.append({"id": test_id, "file": rel, "name": name, "status": status, "message": message,
                           "seconds": round(time.monotonic() - t0, 3), "used_by": used_by})
+    # A reference to one test needs that test to exist. Only when its file couldn't be imported is
+    # the file enough, since its functions can't be listed; the import error already fails the gate.
     found = {t["id"] for t in tests} | {t["file"] for t in tests}
-    missing = sorted(r for r in refs if r not in found and r.split("::")[0] not in found)
+    unimportable = {t["file"] for t in tests if t["name"] == "(import)"}
+    missing = sorted(r for r in refs if r not in found and r.split("::")[0] not in unimportable)
     return {"tests": tests, "passed": sum(t["status"] == "passed" for t in tests),
             "failed": sum(t["status"] != "passed" for t in tests), "missing": missing,
             "at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),

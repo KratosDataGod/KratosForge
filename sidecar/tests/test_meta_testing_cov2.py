@@ -1,5 +1,5 @@
 """The project's own tests (meta/testing.py): a file that can't be imported, a test that errors rather
-than fails, custom code that names no test, and a failure with no traceback."""
+than fails, custom code that names no test or a test that doesn't exist, and a failure with no traceback."""
 
 import sys
 from types import SimpleNamespace
@@ -22,6 +22,7 @@ def project(tmp_path):
         entities={"silver.orders": entity},
         purge_code=lambda: None,
         version="v3",
+        refs=refs,  # a test adds its own references here
     )
     for mod in [m for m in sys.modules if m == "tests" or m.startswith("tests.")]:
         del sys.modules[mod]
@@ -62,3 +63,24 @@ def test_referenced_skips_custom_code_that_names_no_test(project):
 def test_failure_without_a_traceback_is_its_text_alone():
     assert testing._failure(ValueError("bad value")) == "ValueError: bad value"
     assert testing._failure(AssertionError()) == "AssertionError"
+
+
+def test_a_reference_to_a_test_that_doesnt_exist_fails_the_gate(project):
+    # The file imports fine, so its tests can be listed: a typo in the function name is missing.
+    (project.root / "tests" / "test_a.py").write_text(
+        "def test_errors():\n    assert True\n", encoding="utf-8"
+    )
+    project.refs.append(("hook after_load", "hooks:load", {"test": "tests/test_a.py::test_typo"}))
+    project.refs.append(("custom step", "steps:dedupe", {"test": "tests/test_a.py"}))
+    result = testing.run(project)
+    assert result["missing"] == ["tests/test_a.py::test_typo"]
+    assert "test tests/test_a.py::test_typo doesn't exist" in testing.gate_errors(result)
+
+
+def test_a_reference_into_a_file_that_cant_be_imported_is_its_import_error(project):
+    # Its functions can't be listed, so the file's import error stands for the test and fails the gate.
+    (project.root / "tests" / "test_b.py").write_text("import not_a_module_here_cov\n", encoding="utf-8")
+    project.refs.append(("hook after_load", "hooks:load", {"test": "tests/test_b.py::test_anything"}))
+    result = testing.run(project)
+    assert "tests/test_b.py::test_anything" not in result["missing"]
+    assert any(e.startswith("test tests/test_b.py errored: ModuleNotFoundError") for e in testing.gate_errors(result))

@@ -128,7 +128,10 @@ class _Reply:
 # and remembered, and the test that made it fails, naming the address. Refused rather than only recorded, so code
 # that retries or swallows errors can't make the call anyway; remembered, so a test whose code catches the error
 # still fails. Child processes a test starts aren't covered.
-_outbound: list[str] = []
+# A test that imports this file again (from tests import conftest) runs this code twice: the guard is put in
+# once, and every copy shares its list, so no_network checks the list the guard writes to.
+_installed = getattr(socket.socket.connect, "kf_outbound", None)
+_outbound: list[str] = _installed if _installed is not None else []
 _real_connect = socket.socket.connect
 _real_connect_ex = socket.socket.connect_ex
 
@@ -163,8 +166,10 @@ def _guarded_connect_ex(self, address):
     return _real_connect_ex(self, address)
 
 
-socket.socket.connect = _guarded_connect  # type: ignore[method-assign]
-socket.socket.connect_ex = _guarded_connect_ex  # type: ignore[method-assign]
+if _installed is None:
+    _guarded_connect.kf_outbound = _outbound  # type: ignore[attr-defined]
+    socket.socket.connect = _guarded_connect  # type: ignore[method-assign]
+    socket.socket.connect_ex = _guarded_connect_ex  # type: ignore[method-assign]
 
 
 @pytest.fixture(autouse=True)

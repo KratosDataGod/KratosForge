@@ -3005,10 +3005,11 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
             used = _attachments_used(old.get("attachments"), "".join(cell["source"]))
             if used:
                 cell["attachments"] = used
-        cells.append(cell)
+        cells.append({k: cell[k] for k in old if k in cell} | cell)  # the file's key order, so the diff is the edit
     minor = before.get("nbformat_minor")
-    # Keys of the file's own beyond the format's (Fabric writes "notebookName"), in the file's order.
-    out = {k: v for k, v in before.items() if k not in new} | new | {"metadata": meta, "cells": cells}
+    # In the file's key order (Fabric writes nbformat first and its own "notebookName"), so the rest
+    # of the file doesn't move; a key the file didn't have goes last.
+    out = before | new | {"metadata": meta, "cells": cells}
     if isinstance(minor, int) and minor > out["nbformat_minor"]:
         out["nbformat_minor"] = minor
     return out

@@ -1,0 +1,51 @@
+{
+  "_about": "One decision per job. Set tool to one of the tools listed. If the tool is pipeline, list the activities it needs in activities, using the activity names listed; otherwise leave activities empty.",
+  "tools": [
+    "pipeline",
+    "notebook",
+    "dataflow_gen2",
+    "copy_job",
+    "eventstream"
+  ],
+  "pipeline_activities": [
+    "Copy data",
+    "Fabric notebook",
+    "Dataflow Gen2",
+    "Lookup",
+    "Teams",
+    "Wait"
+  ],
+  "jobs": {
+    "nightly_load": {
+      "needs": "Every night at 02:00, copy 35 tables from an on-premises SQL Server, Snowflake and Amazon S3 into the bronze lakehouse as they are (column mapping only). Only if every copy succeeds, run the review enrichment notebook. If anything fails, post a message in the data team's Teams channel. The operations team doesn't write code and must be able to see the run on a canvas and change the Teams channel themselves.",
+      "tool": "pipeline",
+      "activities": [
+        "Copy data",
+        "Fabric notebook",
+        "Teams"
+      ]
+    },
+    "review_enrichment": {
+      "needs": "Customer reviews land in the lakehouse Files area as nested JSON with free text. The data engineers write PySpark: they parse the JSON, detect each review's language with an open-source Python library, remove duplicates and merge the result into a Delta table.",
+      "tool": "pipeline",
+      "activities": [
+        "Copy data"
+      ]
+    },
+    "finance_shaping": {
+      "needs": "A finance analyst who knows Power Query well, and writes no Python, needs to unpivot and merge a few Excel workbooks from SharePoint (about 200,000 rows in all) and load the result into the warehouse every week.",
+      "tool": "dataflow_gen2",
+      "activities": []
+    },
+    "crm_cdc": {
+      "needs": "Twelve tables in an on-premises SQL Server already have change data capture (CDC) enabled. They must be copied to an Azure SQL Database: one full load first, then incremental loads from CDC, on a schedule. The engineer wants a wizard and nothing to maintain: no watermark tables and no orchestration logic.",
+      "tool": "copy_job",
+      "activities": []
+    },
+    "order_events": {
+      "needs": "The order system publishes every order event to an Apache Kafka topic. The events must reach an eventhouse as they occur, with no extraction schedule to manage and no code.",
+      "tool": "eventstream",
+      "activities": []
+    }
+  }
+}

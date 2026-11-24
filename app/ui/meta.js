@@ -339,7 +339,7 @@ function renderMetaSetup(p) {
     } },
   h("span", { class: "main" }, h("span", { class: "n" }, `${id} layers`),
     h("span", { class: "w" }, layers.map((l) => l.name).join(" → ")))));
-  const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\Documents\\metadata", "aria-label": "Folder with a layers.toml" });
+  const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\KratosForge\\metadata", "aria-label": "Folder with a layers.toml" });
   setView(h("div", { class: "page narrow" },
     h("h1", {}, "Set up a metadata project"),
     pageIntro("A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
@@ -603,6 +603,8 @@ function keysCard(e) {
 
 // opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
 // opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// opts.typeLabel says what to type when "Type <text> to confirm" isn't the right words.
+// opts.items: a list under the text, such as the reasons for the confirm.
 // opts.reason: { label, placeholder, max } asks why in a required box; the dialog then resolves with
 // the trimmed text instead of true.
 // Escape, the close button and a click outside count as Cancel.
@@ -622,12 +624,12 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     }
     if (opts.typeToConfirm) {
       ok.disabled = true;
-      typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
+      typed = h("label", { class: "field" }, opts.typeLabel || `Type ${opts.typeToConfirm} to confirm`,
         h("input", { autocomplete: "off", spellcheck: "false",
           oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
           onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
     }
-    showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), opts.items?.length ? gateList(opts.items) : null, typed), [cancel, ok],
       () => { if (!settled) { settled = true; resolve(false); } });
     if (opts.danger && (!typed || why)) cancel.focus();
   });
@@ -963,7 +965,79 @@ async function renderEnvTab(body, p) {
       box, promoteImpact(source, target), lastRelease(target, render));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
-    promoteRow("dev", "test"), promoteRow("test", "prod"));
+    promoteRow("dev", "test"), promoteRow("test", "prod"), deltaFeaturesCard(p));
+}
+
+// ---------- Delta table features at publish (Preview) ----------
+
+// Each table's delta_features, as the engine names them (delta_profile.TABLE_CHOICES); "" is no setting,
+// which is the modern profile.
+const DELTA_CHOICES = [
+  ["", "Default: deletion vectors and column mapping (modern)"],
+  ["every_reader", "Every reader: no deletion vectors or column mapping"],
+  ["deletion_vectors", "Allow deletion vectors only"],
+  ["column_mapping", "Allow column mapping by name only"],
+];
+
+// What each choice allows, for the typed confirm's title.
+const DELTA_ALLOWS = { "": "deletion vectors and column mapping", deletion_vectors: "deletion vectors", column_mapping: "column mapping" };
+
+// "a", "a and b", "a, b and c".
+function andList(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+function deltaFeaturesCard(p) {
+  if (!previewShown()) return null;
+  const tables = (p.entities || []).filter((e) => e.delta);
+  return h("div", { class: "card pad" },
+    previewMarked("deltaPerTable", h("b", {}, "Delta table features at publish")),
+    h("p", { class: "muted-text" }, "A run that publishes a table to OneLake uses only the Delta features you allow here. "
+      + "If the table already uses a feature you didn't allow, the run writes nothing, so change the setting first."),
+    tables.length ? h("div", { class: "delta-tables" }, tables.map((e) => deltaFeaturesRow(e)))
+      : h("p", { class: "muted-text" }, "This project has no tables yet. Add an entity to choose its features."));
+}
+
+function deltaFeaturesRow(e) {
+  const note = h("div");
+  const current = e.delta.features || "";
+  const select = h("select", { onchange: () => chooseDeltaFeatures(e, select, note) },
+    DELTA_CHOICES.map(([value, label]) => h("option", { value, selected: value === current ? true : null }, label)));
+  return h("div", { class: "row wrap" },
+    h("span", { class: "mono grow" }, e.name),
+    h("label", { class: "field" }, "Delta features", select),
+    h("span", { class: "muted-text small" }, `Checked against ${andList(e.delta.reader_names)}.`),
+    e.delta.problems?.length ? deltaRefusedNote(e.delta.problems[0]) : null,
+    note);
+}
+
+// Saves a table's choice. A choice one of its readers can't read asks for its full name first, and
+// the engine refuses it without that name (delta_profile.confirm_choice).
+async function chooseDeltaFeatures(e, select, note) {
+  const choice = select.value;
+  const reasons = e.delta.reasons[choice || "default"] || [];
+  let confirmName = null;
+  if (reasons.length) {
+    const ok = await confirmDialog(`Allow ${DELTA_ALLOWS[choice] || "this"} on ${e.name}?`,
+      `These readers of ${e.name} can't read it with this choice, or no source says they can. It applies to this table only.`, "Allow it",
+      { danger: true, typeToConfirm: e.name, typeLabel: `Type ${e.name} to allow it`, items: reasons });
+    if (!ok) { select.value = e.delta.features || ""; return; }
+    confirmName = e.name;
+  }
+  try {
+    const res = await rpc("meta_set_delta_features", { name: e.name, delta_features: choice || null, confirm_name: confirmName });
+    state.meta.project = res;
+    e.delta = (res.entities || []).find((x) => x.name === e.name)?.delta || e.delta;
+    note.replaceChildren();
+    toast(`Saved. Runs that publish ${e.name} now use this choice.`);
+  } catch (err) {
+    select.value = e.delta.features || "";
+    note.replaceChildren(deltaRefusedNote(friendlyError(err).text));
+  }
+}
+
+function deltaRefusedNote(text) {
+  return h("div", { class: "problems" }, h("p", {}, text), docLink("delta-reader-matrix.md#each-tables-own-choice-preview", "See the reader matrix"));
 }
 
 // This PC or Fabric runs the environment's entities. Fabric can only reach tables in OneLake.
@@ -1566,6 +1640,7 @@ async function renderModelTab(body) {
     dictionaryCard(plan),
     ossieCard(plan),
     semanticViewCard(plan),
+    modelBpaCard(plan),
     h("div", { class: "entity-grid" },
       h("div", { class: "card pad grow" }, h("b", {}, `Tables (${plan.tables.length})`),
         h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Kind", "Delta table", "Entity"].map((c) => h("th", {}, c)))),
@@ -2412,4 +2487,168 @@ async function profileEntity(name, source = true) {
       btn(source ? "Profile its table instead" : "Profile what it reads", null, () => profileEntity(name, !source), "tool link small")),
     h("b", {}, "Suggestions"), suggestions, preview, h("b", {}, "Columns"), columns),
   [btn("Close", null, closeDialog, "tool outline"), addBtn]).querySelector(".dialog").classList.add("wide");
+}
+
+// ---------- Best practices check of the model, run in Fabric (model_bpa_service.py) ----------
+
+const BPA_SEVERITY = { Error: ["Error", "fail"], Warning: ["Warning", "wrn"], Info: ["Info", "info"] };
+// A rule's link comes from a results file any workspace contributor can write, so only these open.
+const BPA_LINK_HOSTS = ["learn.microsoft.com", "docs.microsoft.com", "github.com", "www.sqlbi.com", "sqlbi.com"];
+const BPA_POLL_MS = 30000;
+
+function bpaRuleLink(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" || !BPA_LINK_HOSTS.includes(u.hostname)) return null;
+  } catch { return null; }
+  return h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); openLink(url); } }, "About this rule");
+}
+
+// The card under the Direct Lake one; null when preview features are hidden.
+function modelBpaCard(plan) {
+  const title = preview("modelBpa", h("b", {}, "Best practices check "));
+  if (!title) return null;
+  const m = state.meta;
+  const target = { env: m.env, layer: plan.layer, name: plan.name };
+  const result = h("div", { class: "bpa-result" });
+  const checkBtn = btn("Check in Fabric", "play", () => start(), "tool primary small");
+  const card = h("div", { class: "card pad bpa-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), plan.existing ? checkBtn : null),
+    h("p", { class: "muted-text" }, "Checks the model against Best Practice Analyzer rules with Microsoft's semantic-link-labs. It runs as a Python notebook in Fabric, because the library only runs there, so every check uses the workspace's capacity. It reads the model and never changes it."),
+    result,
+    howItWorks("modelBpa", {
+      reads: "The model, through its XMLA endpoint, from a notebook in the workspace. The app then reads the findings the notebook saved in LH_Meta.",
+      changes: "Publishes the notebook nb_fabric_desktop_bpa to the workspace once, and runs it once for each check. The model, its reports and its data stay as they are.",
+      results: "LH_Meta/Files/_fabric_desktop/results, and the last result for each model on this PC. Each check is listed in Monitor.",
+      more: [["Where the rules come from", "semantic-link-labs (MIT), which ports Microsoft's BPA rules. The check installs a fixed version in the notebook's own session."]],
+      anchor: "semantic-model-best-practices",
+    }));
+  if (!plan.existing) {
+    fill(result, h("p", { class: "muted-text" }, `${plan.name} isn't in the workspace yet. Create the model first, then check it.`));
+    return card;
+  }
+  let timer = null;
+  let version = "";  // the semantic-link-labs version a check installs, from the status
+  const view = { category: "", serious: true };  // the findings filter, kept across refreshes
+  const load = async () => {
+    clearTimeout(timer);
+    const status = await metaCall("model_bpa_status", target, "Last check not read");
+    if (!card.isConnected && timer !== null) return;  // the tab was left: stop asking
+    if (!status) { fill(result); return; }
+    version = status.version || version;
+    fill(result, bpaStatus(status, view));
+    checkBtn.disabled = !!status.running;
+    if (status.running) timer = setTimeout(() => { if (card.isConnected) load(); }, BPA_POLL_MS);
+  };
+  const start = async () => {
+    checkBtn.disabled = true;
+    try {
+      const risk = await rpc("model_bpa_risk", { ...target, refresh: true }).catch(riskCheckFailed);
+      if (!(await bpaConfirm(plan, risk, version))) return;
+      const res = await metaCall("model_bpa_check", { ...target, risk_id: risk.failed ? "" : risk.id || "" }, "Check not started");
+      if (!res) return;
+      toast(res.message);
+      timer = 0;
+      await load();
+    } finally {
+      if (!result.querySelector(".bpa-running")) checkBtn.disabled = false;
+    }
+  };
+  fill(result, h("p", { class: "muted-text" }, `Reading ${plan.name}'s last check...`));
+  timer = 0;
+  load();
+  return card;
+}
+
+// The confirm before a check: what it writes, what it doesn't change, and the risk check. Resolves true to go ahead.
+function bpaConfirm(plan, risk, version) {
+  return new Promise((resolve) => {
+    const done = (v) => { closeDialog(); resolve(v); };
+    const box = riskAckBox(risk);
+    const go = async () => {
+      if (risk?.result === "warning" && box && !box.querySelector("input").checked) {
+        toast("Tick \"I've looked at these\" first, or cancel.", true);
+        return;
+      }
+      done(true);
+    };
+    const blocked = risk?.result === "blocked";
+    showDialog(`Check ${plan.name} in Fabric?`, h("div", { class: "wl-confirm" },
+      h("b", {}, "What it writes"),
+      h("ul", { class: "gate-list" },
+        h("li", {}, `Publishes or updates the notebook nb_fabric_desktop_bpa in ${plan.workspace_name || "the workspace"}`),
+        h("li", {}, `Installs semantic-link-labs${version ? ` ${version}` : ""} into that notebook's session only`),
+        h("li", {}, "Saves the findings as one file in LH_Meta/Files/_fabric_desktop/results")),
+      h("b", {}, "What it doesn't change"),
+      h("p", {}, `${plan.name}, its reports and its data. The model is read through its XMLA endpoint, which needs XMLA read on the capacity (on by default).`),
+      riskPanel(risk, { box }),
+      risk?.note ? h("p", { class: "muted-text small" }, risk.note) : null),
+      blocked ? [btn("Close", null, () => done(false), "tool primary")]
+        : [btn("Cancel", null, () => done(false), "tool outline"), btn("Check in Fabric", null, go, "tool primary")]);
+  });
+}
+
+// semantic-link-labs' rule categories, as the filter names them.
+const BPA_CATEGORIES = ["Performance", "DAX expressions", "Error prevention", "Formatting", "Maintenance", "Naming conventions"];
+
+function bpaFindingsTable(findings, view) {
+  const shown = findings.filter((f) => (!view.serious || f.severity === "Error" || f.severity === "Warning")
+    && (!view.category || f.category.toLowerCase() === view.category.toLowerCase()));
+  if (!shown.length) return h("p", { class: "muted-text" }, "No findings match the filter.");
+  return h("table", { class: "mini" },
+    h("thead", {}, h("tr", {}, ["Severity", "Rule", "Object", "Category", "What the rule asks"].map((x) => h("th", {}, x)))),
+    h("tbody", {}, shown.map((f) => h("tr", {},
+      h("td", {}, h("span", { class: `pill-s ${(BPA_SEVERITY[f.severity] || BPA_SEVERITY.Info)[1]}` }, f.severity)),
+      h("td", {}, f.rule),
+      h("td", {}, h("span", { class: "muted-text" }, f.object_type ? `${f.object_type} ` : ""), h("span", { class: "mono" }, f.object)),
+      h("td", {}, f.category),
+      h("td", {}, f.description, f.url ? [" ", bpaRuleLink(f.url)] : null)))));
+}
+
+function bpaStatus(s, view = { category: "", serious: true }) {
+  const parts = [];
+  if (s.running) {
+    parts.push(h("div", { class: "info-box bpa-running" }, icon("info", 16),
+      ` Checking ${s.model} in Fabric, started ${relTime(s.running.started_at)}. This card looks again every 30 seconds.`,
+      s.running.url ? btn("Open the run in Fabric", "open", () => openInFabric(s.running.url), "tool link small") : null));
+  }
+  if (s.failed) {
+    const f = s.failed;
+    parts.push(h("div", { class: "card pad warn-box bpa-failed" },
+      h("b", {}, `The last check didn't finish (${f.status || "unknown"})`),
+      h("p", {}, f.message || "Fabric gave no reason. Check again, and if it fails again, open the run in Fabric."),
+      f.traceback ? h("details", {}, h("summary", {}, "Traceback"), h("pre", { class: "mono small" }, f.traceback)) : null,
+      f.pip ? h("details", {}, h("summary", {}, "pip output"), h("pre", { class: "mono small" }, f.pip)) : null,
+      f.url ? btn("Open the run in Fabric", "open", () => openInFabric(f.url), "tool link small") : null));
+  }
+  const last = s.last;
+  if (!last) {
+    if (!s.running && !s.failed) parts.push(h("p", { class: "muted-text" }, `${s.model} hasn't been checked yet.`));
+    return h("div", {}, parts);
+  }
+  const c = last.counts || {};
+  const tile = (sev) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, BPA_SEVERITY[sev][0]),
+    h("b", { class: `${BPA_SEVERITY[sev][1]}-text` }, String(c[sev] || 0)));
+  const table = h("div", { class: "bpa-table" });
+  const redraw = () => fill(table, bpaFindingsTable(last.findings, view));
+  const category = h("select", { "aria-label": "Category", onchange: (e) => { view.category = e.target.value; redraw(); } },
+    h("option", { value: "" }, "All categories"),
+    BPA_CATEGORIES.map((x) => h("option", { value: x, selected: x === view.category ? true : null }, x)));
+  const serious = h("input", { type: "checkbox", checked: view.serious ? true : null,
+    onchange: (e) => { view.serious = e.target.checked; redraw(); } });
+  redraw();
+  const when = `Checked ${relTime(last.checked_at)} with ${last.package || "semantic-link-labs"} ${last.version || ""}`.trim()
+    + (last.rules ? `, ${last.rules} rules.` : ".");
+  parts.push(h("div", { class: "bpa-out" },
+    h("div", { class: "dl-tiles" }, ["Error", "Warning", "Info"].map(tile)),
+    last.no_tables ? h("p", { class: "muted-text" }, "The model has no tables yet, so most rules had nothing to check.") : null,
+    last.findings.length ? [
+      h("div", { class: "row wrap bpa-filters" }, h("label", { class: "field" }, "Show", category),
+        h("label", { class: "check" }, serious, " Errors and warnings only")),
+      table,
+      h("p", { class: "muted-text" }, "Findings fixed by KratosForge's generator are fixed by the next Update model, not by editing in Fabric.")]
+      : h("div", { class: "pass-box" }, icon("ok", 16), " No rule found anything."),
+    h("p", { class: "muted-text" }, when, " ",
+      h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); monitorPage.panel = "runs"; go("monitor"); } }, "Open the run in Monitor"))));
+  return h("div", {}, parts);
 }

@@ -419,9 +419,92 @@ def _numbers_a_key(s: Stmt, i: int) -> bool:
     j = _close(s, i + 1) + 1
     if j < len(toks) and toks[j].kw == "OVER" and j + 1 < len(toks) and toks[j + 1].type == TokenType.L_PAREN:
         j = _close(s, j + 1) + 1
+    j = _whole_item(s, i, j)
+    if j < 0:
+        return False  # k.max_key + ROW_NUMBER() OVER (...): numbering only new keys past the largest is the fix
     if j < len(toks) and toks[j].kw == "AS":
         j += 1
-    return j < len(toks) and _is_name(toks[j]) and toks[j].text.lower().endswith(("_key", "_sk"))
+    column = _insert_column_for(s, i)  # INSERT INTO t (a_key, ...) SELECT ROW_NUMBER() ..., ...: the list decides
+    if column is not None:
+        return column.lower().endswith(("_key", "_sk"))
+    return (j < len(toks) and _is_name(toks[j]) and toks[j].kw not in _ALIAS_STOP | {"FROM"}
+            and toks[j].text.lower().endswith(("_key", "_sk")))
+
+
+def _whole_item(s: Stmt, i: int, end: int) -> int:
+    """Where the select item ends when ROW_NUMBER() at token i (ending before token ``end``) is the
+    whole item, or the whole item is CAST(ROW_NUMBER() OVER (...) AS type) or CONVERT(type, ROW_NUMBER()
+    OVER (...)); else -1. An expression
+    around it (an offset added) isn't. SELECT [ALL | DISTINCT] [TOP n | TOP (n) [PERCENT] [WITH TIES]]
+    may come before it."""
+    toks = s.toks
+    start = i
+    if i >= 2 and toks[i - 1].type == TokenType.L_PAREN and toks[i - 2].kw in {"CAST", "TRY_CAST"}:
+        close = _close(s, i - 1)
+        if end >= len(toks) or toks[end].kw != "AS" or close >= len(toks):
+            return -1
+        start, end = i - 2, close + 1
+    elif i >= 1 and toks[i - 1].type == TokenType.COMMA:  # CONVERT(INT, ROW_NUMBER() OVER (...))
+        k = i - 2  # back to CONVERT's own "(", over the type's balanced parentheses: DECIMAL(18, 0)
+        while k >= 0 and not (toks[k].type == TokenType.L_PAREN and toks[k].depth < toks[i].depth):
+            k -= 1
+        if k >= 1 and toks[k - 1].kw in {"CONVERT", "TRY_CONVERT"} and toks[k - 1].depth < toks[i].depth \
+                and end < len(toks) and toks[end].type == TokenType.R_PAREN:
+            start, end = k - 1, _close(s, k) + 1
+    depth = toks[start].depth
+    k = start - 1
+    while k >= 0 and not (toks[k].depth == depth and (toks[k].kw == "SELECT" or toks[k].type == TokenType.COMMA)):
+        t = toks[k]
+        if t.depth == depth and not (t.kw in _SELECT_PREFIX or t.type in {TokenType.NUMBER, TokenType.L_PAREN, TokenType.R_PAREN}
+                                     or t.text.startswith("@")):
+            return -1
+        k -= 1
+    if k < 0:
+        return -1
+    if end >= len(toks):
+        return end
+    nxt = toks[end]
+    ok = (nxt.type in {TokenType.COMMA, TokenType.SEMICOLON, TokenType.R_PAREN} or nxt.kw in _ALIAS_STOP | {"FROM", "AS", "INTO"}
+          or _is_name(nxt))
+    return end if ok else -1
+
+
+_SELECT_PREFIX = {"ALL", "DISTINCT", "TOP", "PERCENT", "WITH", "TIES"}
+
+
+def _insert_column_for(s: Stmt, i: int) -> str | None:
+    """The INSERT column list's name at the select-list position of token i, or None when it can't be told."""
+    toks = s.toks
+    ins = next((k for k, t in enumerate(toks) if t.kw == "INSERT"), None)
+    if ins is None:
+        return None
+    open_ = next((k for k in range(ins + 1, len(toks))
+                  if (toks[k].type == TokenType.L_PAREN and toks[k - 1].kw != "WITH")  # WITH (TABLOCK) is a hint
+                  or toks[k].kw in {"SELECT", "VALUES"}), None)
+    if open_ is None or toks[open_].type != TokenType.L_PAREN:
+        return None  # no column list
+    close = _close(s, open_)
+    inner = toks[open_].depth + 1
+    columns: list[str | None] = []
+    last: str | None = None
+    for t in toks[open_ + 1:close]:
+        if t.depth == inner and t.type == TokenType.COMMA:
+            columns.append(last)
+            last = None
+        elif t.depth == inner and _is_name(t):
+            last = t.text
+    columns.append(last)
+    select = next((k for k in range(close + 1, len(toks)) if toks[k].kw == "SELECT"), None)
+    if select is None or select > i:
+        return None
+    depth = toks[select].depth
+    position = 0
+    for t in toks[select + 1:i]:
+        if t.depth == depth and t.kw == "FROM":
+            return None
+        if t.depth == depth and t.type == TokenType.COMMA:
+            position += 1
+    return columns[position] if position < len(columns) else None
 
 
 def _reloads(stmts: list[Stmt]) -> Iterator[tuple[str, int, int]]:

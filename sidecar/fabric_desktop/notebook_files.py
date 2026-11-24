@@ -26,7 +26,7 @@ from typing import Any
 from . import jsonfile, notebook_resources
 from .fabric_run import SHIM_MARKER, uses_spark
 from .meta import diff as diff_mod
-from .notebook import NotebookShelf, NotebookStore, check_notebook_name, from_ipynb
+from .notebook import NotebookShelf, NotebookStore, check_notebook_name, from_ipynb, ipynb_cell_problem
 
 KEEP_DAYS = 30
 MAX_FILE_BYTES = 20 * 1024 * 1024
@@ -122,9 +122,10 @@ def create(shelf: NotebookShelf, name: str, place: str | None, cells: list[dict[
         raise ValueError(f"A notebook named {name!r} already exists. Pick another name.")
     _, folder = shelf._place(place)  # noqa: SLF001
     path = folder / f"{name}.ipynb"
-    path.parent.mkdir(parents=True, exist_ok=True)  # its folder, for a name like "Sales/Daily load"
     try:
-        open(path, "xb").close()  # reserve the name: a file made in the meantime stops this
+        with jsonfile.long_path_named(path):  # a path past Windows' 260 without long paths: named
+            path.parent.mkdir(parents=True, exist_ok=True)  # its folder, for a name like "Sales/Daily load"
+            open(path, "xb").close()  # reserve the name: a file made in the meantime stops this
     except FileExistsError:
         raise ValueError(f"A notebook named {name!r} already exists. Pick another name.") from None
     try:
@@ -147,10 +148,10 @@ def save_copy(shelf: NotebookShelf, name: str, new_name: str, place: str | None)
 
 
 def _parse(content: str) -> dict[str, Any]:
-    if len(content.encode("utf-8")) > MAX_FILE_BYTES:
+    if len(content.encode("utf-8", "surrogatepass")) > MAX_FILE_BYTES:
         raise ValueError(f"The file is over {MAX_FILE_BYTES // (1024 * 1024)} MB, so it isn't opened.")
     try:
-        nb = json.loads(content)
+        nb = json.loads(content.lstrip("\ufeff"))
     except (ValueError, RecursionError):  # RecursionError: nested too deep to be a notebook
         raise ValueError("This file isn't a notebook: it isn't JSON.") from None
     return checked(nb)
@@ -161,8 +162,9 @@ def checked(nb: Any) -> dict[str, Any]:
         raise ValueError("This file isn't a notebook: it has no cells.")
     if not isinstance(nb.get("nbformat"), int) or nb["nbformat"] < 4:
         raise ValueError("Only Jupyter notebook format 4 (.ipynb from Jupyter, VS Code or Fabric) can be opened.")
-    if any(not isinstance(c, dict) for c in nb["cells"]):
-        raise ValueError("This file isn't a notebook: a cell isn't readable.")
+    problem = ipynb_cell_problem(nb["cells"])
+    if problem:
+        raise ValueError(f"This file isn't a notebook, because {problem}.")
     return nb
 
 
@@ -247,11 +249,17 @@ def from_fabric(shelf: NotebookShelf, definition: dict[str, Any], item: dict[str
 def ipynb_of(definition: dict[str, Any]) -> dict[str, Any]:
     """The .ipynb JSON in a getDefinition result."""
     import base64
-    parts = (definition.get("definition") or definition).get("parts") or []
-    part = next((p for p in parts if str(p.get("path", "")).endswith(".ipynb")), None)
-    if part is None:
+    root = (definition.get("definition") if isinstance(definition, dict) else None) or definition
+    parts = root.get("parts") if isinstance(root, dict) else None
+    part = next((p for p in parts if isinstance(p, dict) and str(p.get("path", "")).endswith(".ipynb")), None) \
+        if isinstance(parts, list) else None
+    if part is None or not isinstance(part.get("payload"), str):
         raise ValueError("Fabric didn't return the notebook's cells.")
-    return json.loads(base64.b64decode(part["payload"]))
+    try:
+        return json.loads(base64.b64decode(part["payload"]))
+    except (ValueError, RecursionError):  # not base64, not UTF-8, not JSON, or nested too deep
+        raise ValueError("Fabric returned the notebook's cells in a form that can't be read. Open the notebook in Fabric to "
+                         "check it, then try again.") from None
 
 
 # ---- what was published, to see changes made in Fabric since
@@ -343,12 +351,14 @@ def delete(shelf: NotebookShelf, name: str, schedules_off: list[str]) -> dict[st
     trash = _trash(shelf)
     now = _now()
     _purge(trash, now)
-    trash.mkdir(parents=True, exist_ok=True)
     tid = f"{now:%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}"
     data = src.read_bytes()
     dest = trash / f"{tid}.ipynb"
-    with open(dest, "xb") as f:
-        f.write(data)
+    # Recently deleted past Windows' 260 without long paths: named by the notebook, not the copy's id.
+    with jsonfile.long_path_named(src, "deleted"):
+        trash.mkdir(parents=True, exist_ok=True)
+        with open(dest, "xb") as f:
+            f.write(data)
     if dest.read_bytes() != data:
         dest.unlink(missing_ok=True)
         raise OSError(f"Couldn't keep a copy of {name} in Recently deleted, so it wasn't deleted.")
@@ -404,10 +414,11 @@ def restore(shelf: NotebookShelf, tid: str, name: str | None = None) -> dict[str
         _, folder = shelf._place(None)  # noqa: SLF001
         moved = True
     dest = folder / f"{target}.ipynb"
-    dest.parent.mkdir(parents=True, exist_ok=True)  # its folder comes back too, if it was removed
     try:
-        with open(dest, "xb") as f:
-            f.write(data)
+        with jsonfile.long_path_named(dest, "restored"):  # a path past Windows' 260 without long paths: named
+            dest.parent.mkdir(parents=True, exist_ok=True)  # its folder comes back too, if it was removed
+            with open(dest, "xb") as f:
+                f.write(data)
     except FileExistsError:
         raise ValueError(f"A notebook named {target!r} already exists. Restore it under another name.") from None
     file.unlink(missing_ok=True)

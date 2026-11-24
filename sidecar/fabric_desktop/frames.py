@@ -528,7 +528,7 @@ class Frames:
         partial = target.with_name(target.name + ".partial")
         protected = 0
         try:
-            with open(partial, "xb") as sink:
+            with jsonfile.long_path_named(target, "downloaded"), open(partial, "xb") as sink:
                 if fmt == "csv":
                     import pyarrow.csv as pa_csv
                     ready, protected = csv_cells.protect_table(_csv_ready(table), raw=raw)

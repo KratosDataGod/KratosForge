@@ -60,7 +60,10 @@ def test_fallback_applies_only_to_a_read_model_with_direct_lake_tables():
 def test_direct_query_only_fails_and_says_no_query_uses_direct_lake(behavior):
     got = BY_ID["FEA-SM-003"].evaluate(ctx(model(direct_lake_tables=1, direct_lake_behavior=behavior)))
     assert got["outcome"] == "fail" and got["evidence_ids"] == ["ev-1"]
-    assert got["text"] == "Its 1 Direct Lake table are set to DirectQuery only, so no query uses Direct Lake."
+    # The verb after "1 Direct Lake table" isn't pinned: the product text says "are" there today, and
+    # that one-word fix is with the Fabric excellence thread, so this test holds either way.
+    assert got["text"].startswith("Its 1 Direct Lake table ")
+    assert got["text"].endswith(" set to DirectQuery only, so no query uses Direct Lake.")
     assert got["detail"] == {"behavior": behavior, "tables": 1}
 
 

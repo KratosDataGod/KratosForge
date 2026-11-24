@@ -1,0 +1,136 @@
+{
+  "_about": "One decision per pipeline. Set start_by to schedule or event_trigger, then fill in only that part and leave the other one as it is. A schedule takes frequency (minute, hourly, daily, weekly or monthly), interval (for minute and hourly), days (for weekly, in week order starting with Monday), times (24-hour, earliest first) and end. Use the simplest frequency that fits. A trigger takes source (azure_blob_events or onelake_events), event_types, folder and the parameters it passes to the pipeline. All times are UTC.",
+  "event_types": [
+    "Microsoft.Storage.BlobCreated",
+    "Microsoft.Storage.BlobDeleted",
+    "Microsoft.Storage.BlobRenamed",
+    "Microsoft.Fabric.OneLake.FileCreated",
+    "Microsoft.Fabric.OneLake.FileDeleted",
+    "Microsoft.Fabric.OneLake.FolderCreated"
+  ],
+  "pipelines": {
+    "price_feed": {
+      "needs": "Load supplier prices every 30 minutes, around the clock, every day.",
+      "start_by": "schedule",
+      "schedule": {
+        "frequency": "minute",
+        "interval": 30,
+        "days": [],
+        "times": [],
+        "end": "2099-12-31"
+      },
+      "trigger": {
+        "source": null,
+        "event_types": [],
+        "folder": null,
+        "parameters": {}
+      }
+    },
+    "store_close": {
+      "needs": "Load store sales at 07:00 and 13:00 on Monday to Friday. Never at the weekend.",
+      "start_by": "schedule",
+      "schedule": {
+        "frequency": "weekly",
+        "interval": null,
+        "days": [
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday"
+        ],
+        "times": [
+          "07:00",
+          "13:00"
+        ],
+        "end": "2099-12-31"
+      },
+      "trigger": {
+        "source": null,
+        "event_types": [],
+        "folder": null,
+        "parameters": {}
+      }
+    },
+    "nightly_rebuild": {
+      "needs": "Rebuild the gold tables every night at 01:00 for the foreseeable future. The team's rule is that a schedule with no planned end ends on 2099-12-31.",
+      "start_by": "schedule",
+      "schedule": {
+        "frequency": "daily",
+        "interval": null,
+        "days": [],
+        "times": [
+          "01:00"
+        ],
+        "end": "2099-12-31"
+      },
+      "trigger": {
+        "source": null,
+        "event_types": [],
+        "folder": null,
+        "parameters": {}
+      }
+    },
+    "partner_drop": {
+      "needs": "A partner writes .csv files into the orders folder of its Azure Blob Storage container. Load each new or overwritten file as soon as it lands. A deleted file must not start a run.",
+      "start_by": "event_trigger",
+      "schedule": {
+        "frequency": null,
+        "interval": null,
+        "days": [],
+        "times": [],
+        "end": null
+      },
+      "trigger": {
+        "source": "onelake_events",
+        "event_types": [
+          "Microsoft.Storage.BlobCreated"
+        ],
+        "folder": "orders",
+        "parameters": {}
+      }
+    },
+    "lake_landing": {
+      "needs": "Files land in the inbound folder of the Landing lakehouse in OneLake. Start a load for each new file and pass its name in the pipeline parameter file_name. The team also tests the pipeline by running it by hand.",
+      "start_by": "event_trigger",
+      "schedule": {
+        "frequency": null,
+        "interval": null,
+        "days": [],
+        "times": [],
+        "end": null
+      },
+      "trigger": {
+        "source": "onelake_events",
+        "event_types": [
+          "Microsoft.Fabric.OneLake.FileCreated"
+        ],
+        "folder": "inbound",
+        "parameters": {
+          "file_name": "@pipeline()?.TriggerEvent?.FileName"
+        }
+      }
+    },
+    "lake_cleanup": {
+      "needs": "When a file is deleted from the inbound folder of the Landing lakehouse, remove its row from the file log at once.",
+      "start_by": "event_trigger",
+      "schedule": {
+        "frequency": null,
+        "interval": null,
+        "days": [],
+        "times": [],
+        "end": null
+      },
+      "trigger": {
+        "source": "onelake_events",
+        "event_types": [
+          "Microsoft.Fabric.OneLake.FileDeleted"
+        ],
+        "folder": "inbound",
+        "parameters": {
+          "file_name": "@pipeline()?.TriggerEvent?.FileName"
+        }
+      }
+    }
+  }
+}

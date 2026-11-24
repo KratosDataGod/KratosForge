@@ -21,6 +21,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..awake_timer import AwakeTimer
 from ..timeutil import now_iso as _now
 from ..winexe import system32
 from . import cli
@@ -201,8 +202,13 @@ class Operations:
             cancel_now = bool(self._ops.get(op_id, {}).get("cancel_requested"))
         if cancel_now:  # Cancel was pressed before git started: it had no process to stop then
             _kill(proc)
-        timer = threading.Timer(cli.NETWORK_TIMEOUT, lambda: _kill(proc))
-        timer.daemon = True
+        timed_out = threading.Event()
+
+        def time_up() -> None:
+            timed_out.set()
+            _kill(proc)
+        # Awake time only: a clone going when the PC slept isn't stopped on waking for time it didn't run.
+        timer = AwakeTimer(cli.NETWORK_TIMEOUT, time_up)
         timer.start()
         try:
             out_lines: list[str] = []
@@ -258,7 +264,7 @@ class Operations:
                 kind = self._ops.get(op_id, {}).get("kind", "")
             self._finish(op_id, "ok", _done_message(details) or _DONE.get(kind, "Done."), details, None, res, took)
             return
-        if time.monotonic() - started >= cli.NETWORK_TIMEOUT - 1:
+        if timed_out.is_set():  # the limit stopped it (not elapsed time, which counts a sleep)
             err = GitError(f"Git took longer than {cli.NETWORK_TIMEOUT // 60} minutes and was stopped.", details, "timeout")
         else:
             err = cli.explain(details)

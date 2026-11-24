@@ -305,7 +305,8 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
     };
     input.addEventListener("input", () => { problem.hidden = true; });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submit();
+      // preventDefault: otherwise the keypress reaches the button focus returns to and opens the prompt again.
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
       if (e.key === "Escape") done(null);
     });
     showDialog(title, h("div", {}, h("label", { class: "field" }, label, input), problem), [
@@ -1845,7 +1846,11 @@ async function renderOneLake() {
     const q = cp.query.toLowerCase();
     return cp.data.items.filter((r) => inScope(r) && typeMatches(r)
       && (!q || `${r.name} ${r.workspace_name} ${typeLabel(r.type)} ${r.description} ${tablesOf(r).join(" ")}`.toLowerCase().includes(q)))
-      .sort((a, b) => cp.dir * String(sortValue[cp.sort](a)).localeCompare(String(sortValue[cp.sort](b)), undefined, { sensitivity: "base" }));
+      .sort((a, b) => {
+        const x = sortValue[cp.sort](a), y = sortValue[cp.sort](b);
+        // "~" is no endorsement or layer: after the rest, since localeCompare puts "~" before letters.
+        return cp.dir * ((x === "~") - (y === "~") || String(x).localeCompare(String(y), undefined, { sensitivity: "base" }));
+      });
   }
 
   async function toggleFavorite(r, e) {

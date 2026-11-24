@@ -368,3 +368,20 @@ def test_a_deleted_notebook_leaves_no_copies_of_its_cells_in_the_merge_bases(svc
     call(svc, "notebook_delete", name="Big")
     assert not _bases_of(svc, "Big")
     assert not any((svc.root / "notebook-sync").iterdir())
+
+
+def test_opening_an_unchanged_notebook_again_keeps_its_base_without_writing_it(svc, monkeypatch):
+    nb = big(svc)
+    writes = []
+    real = jsonfile.replace
+    monkeypatch.setattr(jsonfile, "replace", lambda *a, **k: (writes.append(a), real(*a, **k))[1])
+    again = call(svc, "open_notebook", name="Big")
+    assert again["disk_stamp"] == nb["disk_stamp"] and writes == []
+    assert svc._sync_bases.find("Big", nb["disk_stamp"])  # noqa: SLF001
+
+
+def test_a_base_for_the_same_stamp_with_other_cell_ids_is_replaced(tmp_path):
+    bases = SyncBases(tmp_path)
+    bases.remember("N", "stamp0001", [cell("a", "x = 1")])
+    bases.remember("N", "stamp0001", [cell("b", "x = 1")])  # the stamp leaves ids out
+    assert [c["cell_id"] for c in bases.find("N", "stamp0001")] == ["b"]

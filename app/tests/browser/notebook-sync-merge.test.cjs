@@ -87,6 +87,7 @@ test("a cell edited on both sides is shown side by side, and Save waits for a pi
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-sync-merge.png") });
   await dialog.getByRole("radio", { name: "Keep both" }).check();
   await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.waitFor({ state: "detached" });
   await page().waitForFunction(() => !state.notebook.dirty && !state.notebook.diskConflict);
   const cells = JSON.parse(fs.readFileSync(notebookFile(), "utf8")).cells;
   assert.deepStrictEqual(cells.slice(2, 4).map((c) => [].concat(c.source).join("")),
@@ -109,6 +110,7 @@ test("a cell deleted in VS Code and edited here, and cells moved on both sides, 
   await dialog.getByRole("button", { name: "Use all VS Code's" }).click();
   await dialog.getByText("Every difference has a pick.").waitFor();
   await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.waitFor({ state: "detached" });
   await page().waitForFunction(() => !state.notebook.dirty && !state.notebook.diskConflict);
   assert.deepStrictEqual(onDisk(), [CELLS[1], CELLS[0], CELLS[2], CELLS[3]]);  // VS Code's order, the chart deleted
   assert.deepStrictEqual(app.errors, []);

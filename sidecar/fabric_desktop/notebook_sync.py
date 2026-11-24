@@ -205,6 +205,10 @@ class SyncBases:
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{stamp}.json"
         keep = [{k: c[k] for k in ("cell_id", "type", "source", "meta") if k in c} for c in cells]
+        # Opened again unchanged: already kept. Compared in full, since the stamp leaves cell ids out.
+        if self.find(name, stamp) == keep:
+            os.utime(path)  # newest again, so it isn't the one pruned
+            return
         tmp = folder / f"{stamp}.{uuid.uuid4().hex}.tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as f:

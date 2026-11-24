@@ -96,8 +96,10 @@ async function nbSyncApplied(nb, res) {
 }
 
 // Sends the picks (none when nothing needs one). The engine saves only a merge with every pick made;
-// if the file changed again meanwhile, the person is asked again about the newer file.
-async function nbSyncSave(nb, choices) {
+// if the file changed again meanwhile, the person is asked again about the newer file. `saved` runs
+// once the merge is on disk, before the notebook is read back, so the screen never shows a saved
+// notebook behind a still-open chooser.
+async function nbSyncSave(nb, choices, saved = () => {}) {
   const res = await attempt(() => rpc("notebook_sync_merge", { ...notebookPayload(), disk_stamp: nb.diskStamp, choices }),
     "Couldn't save the merged notebook");
   if (!res) return null;
@@ -106,6 +108,7 @@ async function nbSyncSave(nb, choices) {
     return null;
   }
   if (!res.resolved) return res;
+  saved();
   await nbSyncApplied(nb, res);
   return res;
 }
@@ -114,9 +117,7 @@ function nbSyncMerge(nb, out) {
   const merge = out.merge;
   if (!merge || nbRunning(nb) || nb.diskConflictOpen) return nbDiskConflict(nb, out);  // a running cell's screen isn't replaced
   if (merge.resolved) {
-    nbSyncSave(nb, {}).then((res) => {
-      if (res?.resolved) toast(`Merged the changes saved in VS Code with yours in ${nb.name}. Both versions are under Versions.`);
-    });
+    nbSyncSave(nb, {}, () => toast(`Merged the changes saved in VS Code with yours in ${nb.name}. Both versions are under Versions.`));
     return;
   }
   nb.diskConflictOpen = true;
@@ -165,12 +166,12 @@ function nbSyncMerge(nb, out) {
   const cellConflicts = conflicts.filter((c) => c.cell_id).length;
   const run = async () => {
     save.disabled = true;
-    const res = await nbSyncSave(nb, { ...picks });
-    if (res?.resolved) {
+    const res = await nbSyncSave(nb, { ...picks }, () => {
       nb.diskConflictOpen = false;
       closeDialog();
       toast(`Saved ${nb.name} with your picks. Both full versions are under Versions.`);
-    } else count();
+    });
+    if (!res?.resolved) count();
   };
   const overlay = showDialog("This notebook changed in both places", h("div", { class: "scroll sync-chooser" },
     h("p", { class: "sync-banner" }, previewTag(), h("b", {}, "This notebook also changed in VS Code. "),

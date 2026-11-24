@@ -247,7 +247,7 @@ An extension is a named, versioned set of capabilities with the permission categ
 
 Extensions are off until the person turns each on in **Settings > Integrations > Extensions**. The policy key `integrations_extensions` (a list of ids) limits which ones can be turned on; `[]` or an unreadable value allows none, and one already on is taken away at the next sync. The switches live in the integration store, and each server process's `ExtensionHost.sync()` runs every 2 seconds, so a change reaches every MCP and HTTP server without a restart.
 
-When capabilities change, connected clients are told: `notifications/tools/list_changed` and `notifications/resources/list_changed` on the connection for clients on the 2025-11-25 protocol (advertised as `listChanged` at initialize), and the same events on `subscriptions/listen` streams for clients on 2026-07-28. Prompts don't change at run time.
+When capabilities change, connected clients are told: `notifications/tools/list_changed` and `notifications/resources/list_changed` on the connection for clients on the 2025-11-25 protocol or earlier (advertised as `listChanged` at initialize), and the same events on `subscriptions/listen` streams for clients on 2026-07-28. Prompts don't change at run time.
 
 The built-in **Notebook outline** extension is the sample: one read-only capability, `notebook_outline_get`, which returns a notebook's headings and the functions and classes each cell defines, never its code, using the notebook service the app already has.
 

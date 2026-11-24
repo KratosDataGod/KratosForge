@@ -325,6 +325,38 @@
     },
     {
       "id": "2.2.3-q11",
+      "type": "single",
+      "stem": "At Tidewater, ShipLake is deployed from Ship-Test to Ship-Prod. What happens to the shortcut to the carrier files, and how do you meet the requirement?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It's remapped to a container in Production's storage account automatically, so nothing more is needed"
+        },
+        {
+          "id": "b",
+          "text": "Deployment drops shortcuts with external targets, so recreate it by hand in Ship-Prod after each deploy"
+        },
+        {
+          "id": "c",
+          "text": "It points to Ship-Test's ShipLake, so add a data source deployment rule to ShipLake in the Production stage"
+        },
+        {
+          "id": "d",
+          "text": "It keeps Test's container as its target, so use variables in the shortcut definition for each stage"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Shortcuts with external targets such as ADLS Gen2 keep the same target in every stage after deployment. To point a shortcut at a different location in each stage, use variables in the shortcut definition. Lakehouses don't support deployment rules.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-git-deployment-pipelines",
+      "case": "tidewater-releases",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
+    },
+    {
+      "id": "2.2.3-q12",
       "type": "yesno",
       "stem": "A lakehouse has a shortcut named Landing in its Files folder that points to a folder in an ADLS Gen2 account. You have write and delete permissions in that account. For each statement, choose Yes if it is true. Otherwise, choose No.",
       "parts": [

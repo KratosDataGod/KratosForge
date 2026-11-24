@@ -12,7 +12,7 @@ only from its effective date and a run keeps the version it was priced at. The r
 come only from Cost Management exports or a SKU change (ESI-403). Scenario figures are never added
 to measured or estimated ones (``measurement.total`` refuses it).
 
-``from_settings`` turns today's single price (``costs.DEFAULTS``, Monitor > Cost > Prices) into the
+``from_settings`` turns today's single price (``costs.DEFAULTS``, Optimize > Cost and savings > Prices) into the
 first scenario, labelled an assumption.
 
 Pure: no I/O.
@@ -85,7 +85,7 @@ def from_settings(saved: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = costs.settings(saved)
     return scenario(scenario=DEFAULT_SCENARIO, rate_per_cu_hour=cfg["price_per_cu_hour"], currency=cfg["currency"],
                     effective_from=_BEGINNING, pricing_model=ASSUMPTION, confidence="assumption",
-                    source="Monitor > Cost > Prices")
+                    source="Optimize > Cost and savings > Prices")
 
 
 def check(versions: list[dict[str, Any]]) -> None:

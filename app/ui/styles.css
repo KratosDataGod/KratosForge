@@ -388,7 +388,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange); }
 .cell.frozen .cell-box { background: var(--surface-2); }
 .cell-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
-.cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag) { visibility: visible; }
+.cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag), .cell-head:has(.comment-badge) { visibility: visible; }
 .cell.markdown:not(.selected):not(:hover) .cell-head { display: none; }
 .cell-head .spacer { flex: 1; }
 .cell-head select.lang { height: 24px; padding: 0 4px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); font-size: 12px; color: var(--text-2); }
@@ -581,6 +581,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .toast.top { bottom: auto; top: 56px; }
 .toast .toast-action { margin-left: 8px; color: inherit; border-color: rgba(255,255,255,0.7); background: transparent; vertical-align: middle; }
 .toast .toast-action:hover, .toast .toast-action:focus-visible { background: rgba(255,255,255,0.16); }
+.toast .toast-close { margin-left: 4px; min-width: 24px; min-height: 24px; padding: 0 4px; color: inherit; border-color: transparent; background: transparent; vertical-align: middle; }
+.toast .toast-close:hover, .toast .toast-close:focus-visible { background: rgba(255,255,255,0.16); }
+/* The app's navy focus ring hardly shows on the toast's dark or red fill: its buttons ring in the toast's own text colour. */
+.toast .toast-action:focus-visible, .toast .toast-close:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 /* One error panel for every failure in a page or panel (UX-011) */
 .error-panel { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 12px;
@@ -2699,6 +2703,9 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 /* Hover docs and signature help in Python cells (nbintel.js). */
 .nb-intel { position: fixed; z-index: 60; max-width: 560px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); font-size: 12.5px; color: var(--text); pointer-events: none; }
 .nb-intel[hidden] { display: none; }
+/* A hover card can be pointed at, and a long doc scrolls inside it (WCAG 1.4.13). */
+.nb-intel.hover { pointer-events: auto; }
+.nb-intel.hover .nb-intel-doc { overflow-y: auto; overscroll-behavior: contain; }
 .nb-intel code, .nb-intel-info code { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
 .nb-intel.call b { color: var(--accent); text-decoration: underline; }
 .nb-intel-head { display: flex; align-items: baseline; gap: 10px; }

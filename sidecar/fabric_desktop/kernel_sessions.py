@@ -182,6 +182,7 @@ class KernelSessions:
 
     def rename(self, old: str, new: str) -> None:
         with self._lock:
+            host = self._sessions.get(self._joined.get(old, ""))
             self._joined = {new if g == old else g: new if h == old else h for g, h in self._joined.items()}
             if self.in_process and new not in self._sessions:
                 # An idle session reap_idle has out moves too, so a lookup by the new name gets it back.
@@ -192,6 +193,10 @@ class KernelSessions:
                         sessions[new] = session
             if self.active == old:
                 self.active = new
+        if host is not None:
+            # A guest: its variables and its cell (running or paused) in the host's process are kept by
+            # its name, so they go with it, or the renamed notebook could never resume or stop that cell.
+            host.kernel.rename_guest(old, new)
 
     def stop(self, notebook: str) -> dict[str, Any]:
         """End a notebook's session: its process ends and its variables are cleared. A shared

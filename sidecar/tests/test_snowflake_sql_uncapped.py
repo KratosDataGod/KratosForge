@@ -351,7 +351,8 @@ def test_to_date_of_epoch_text_at_each_units_first_value():
 
 def test_an_identity_start_below_bigints_range_is_refused():
     assert _notes("create table t (a int identity(-9223372036854775809, 1))") == ["SFX-000"]
-    assert _notes("create table t (a int identity(-9223372036854775808, 1))") == ["SFD-001"]
+    # the smallest BIGINT runs; the name A is stored in upper case as in Snowflake (SFX-072), so no SFD-001
+    assert _notes("create table t (a int identity(-9223372036854775808, 1))") == []
 
 
 def test_a_multi_table_insert_refusal_names_all_or_first():

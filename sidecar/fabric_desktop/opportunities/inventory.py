@@ -17,13 +17,13 @@ A workload::
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import json
 import re
 import statistics
 from typing import Any
 
+from .. import b64
 from ..orchestration.definition import DefinitionError, loads
 from ..timeutil import parse_time
 
@@ -69,15 +69,22 @@ def run_summary(jobs: list[dict[str, Any]] | None, now: dt.datetime, days: int) 
 
 
 def _parts(definition: dict[str, Any]) -> list[dict[str, Any]]:
-    parts = (definition.get("definition") or definition).get("parts")
+    inner = definition.get("definition")
+    parts = (inner if isinstance(inner, dict) else definition).get("parts")
     return [p for p in parts if isinstance(p, dict)] if isinstance(parts, list) else []
 
 
 def _decode(part: dict[str, Any]) -> str:
-    payload = part.get("payload") or ""
+    payload = part.get("payload")
     if part.get("payloadType", "InlineBase64") != "InlineBase64":
-        return str(payload)
-    return base64.b64decode(payload).decode("utf-8", "replace")
+        return str(payload or "")
+    try:  # read short or as empty, a notebook would look like it runs less than it does
+        if not isinstance(payload, str):
+            raise ValueError("no payload")
+        return b64.decode_exact(payload).decode("utf-8", "replace")
+    except ValueError:
+        raise ValueError("the notebook's content was left out because Fabric didn't send it as whole base64. Open "
+                         "the notebook in Fabric to check it still loads.") from None
 
 
 def notebook_content(definition: dict[str, Any]) -> tuple[list[str], str | None]:

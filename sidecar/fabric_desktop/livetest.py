@@ -671,6 +671,9 @@ class LiveTest:
         if error:
             raise RuntimeError(f"The check failed in Fabric: {error['type']}: {error['message']} "
                                f"(traceback and pip output in model_bpa.json)")
+        if status != "Completed" and out["result"] is not None:  # findings saved, then the run failed after
+            raise RuntimeError(f"Job {job_id} ended {status} after saving its findings; they're in model_bpa.json, "
+                               "but the run itself didn't succeed.")
         if status != "Completed" or out["result"] is None:
             reason = (job.get("failureReason") or {}).get("message", "") if isinstance(job.get("failureReason"), dict) else ""
             raise RuntimeError(f"Job {job_id} ended {status} and saved no findings. "

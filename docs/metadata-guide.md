@@ -1,6 +1,6 @@
 # Metadata framework guide
 
-The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 2 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. KratosForge runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
+The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 1 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. KratosForge runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
 
 This guide goes from an empty folder to Prod. The [reference](#reference) at the end lists every setting.
 
@@ -62,12 +62,13 @@ When you're ready to use Fabric for Dev, assign it a workspace (step 7) and swit
 | Column | What it sets |
 | --- | --- |
 | **Layer** | The name. The lakehouse is `LH_<Name>` in every environment. |
+| **Workspace** | Which workspace of each environment holds the layer's lakehouse: **Environment's own**, or a workspace set in Data mesh > Domains > This project (Preview). |
 | **Can read from** | **Any earlier layer**, or **Only** one earlier layer. The first layer reads files and sources. |
 | **Schema drift** | What happens when a source has a column the contract doesn't: **Keep new columns**, **Ignore new columns**, or **Stop on new columns**. An entity can override this. |
 | **Required checks** | **Key not null** and **Key unique**: every table in the layer must have these checks on its key. |
 | **Surrogate keys: Required** | Every table in the layer must take its surrogate keys from the environment's key tables ([section 8](#8-surrogate-keys)). |
 | **Keep history** | How many days back a table can be restored (at least 7). VACUUM keeps files this long. |
-| **↑ ↓** and **Remove** | Reorder, or remove a layer with no entities. |
+| **↑ ↓** and **Remove** | Reorder, or remove a layer with no entities. A project keeps at least one layer. |
 
 **Add layer** adds one at the end (up to 10). Reordering is refused if a table would end up reading a later layer.
 
@@ -490,7 +491,7 @@ To manage tables that already exist in a lakehouse, use **Adopt** on the lakehou
 
 ## 12. Run on a schedule or a server
 
-- **On this PC or in Fabric:** **Schedule** at the top of Metadata, or **Schedules** on an environment card (Preview). Listed in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
+- **On this PC or in Fabric:** **Schedule** at the top of Data mesh, or **Schedules** on an environment card (Preview). Listed in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
 - **On a server, unattended:** the [headless agent](agent.md) runs the same engine on Windows or Linux as a service principal or managed identity, with a durable queue and retries. It hasn't yet run against a live tenant.
 
 ## Reference

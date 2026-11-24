@@ -151,7 +151,7 @@ Rules 2026.11.23.
 | SFX-074 | Rewritten | INSERT, UPDATE and MERGE check each value they write to a TIMESTAMP_TZ column that a Snowflake cell in this session made (this cell or an earlier one), as SFX-071 checks a cast: text with no offset, or the session zone's own, is stored as Snowflake stores it; text with another offset stops the query (SFN-071). Any other value, and a column whose Snowflake type isn't known here, is SFD-002. INSERT ... SELECT * reads the query's columns by place. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: A column made by an expression keeps DuckDB's name | Snowflake stores and resolves an unquoted name in upper case, and so does this PC (SFX-072, SFX-073). A column made by an expression with no alias (a + 1) gets a name Snowflake writes its own way; here it keeps DuckDB's. Raised for CREATE TABLE ... AS and CREATE VIEW, where the name is stored; a query's result shows such a column under DuckDB's name too. |
-| SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. Raised for a TIMESTAMP_TZ column, a TIMESTAMP_TZ made from a number, and an INSERT, UPDATE or MERGE that writes a value other than text to a TIMESTAMP_TZ column (or to a timestamp column with a time zone that no Snowflake cell in this session made); TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ, a cast to TIMESTAMP_TZ and text written to a TIMESTAMP_TZ column check the offset instead (SFX-071, SFX-074, SFN-071). |
+| SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. Raised for a TIMESTAMP_TZ column, a TIMESTAMP_TZ made from a number, and an INSERT, UPDATE or MERGE that writes a value other than text to a TIMESTAMP_TZ column (or to a timestamp column with a time zone that no Snowflake cell in this session made). TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ, a cast to TIMESTAMP_TZ and text written to a TIMESTAMP_TZ column check the offset instead (SFX-071, SFX-074, SFN-071). |
 | SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. |
 | SFD-004 | Runs, with a difference: Local time zone is this PC's | TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter. |
 | SFD-006 | Runs, with a difference: Date arithmetic on a DATE returns a TIMESTAMP | DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC, of a value whose type isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. Raised when the value may be a DATE (a column's type isn't known here); a value that is plainly a DATE (a cast, TO_DATE, CURRENT_DATE) is cast back to DATE instead, and a TIMESTAMP cast or function raises nothing. |
@@ -192,9 +192,9 @@ Rules 2026.11.23.
 | SFN-030 | Runs only in Snowflake | CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits the open transaction first, and DuckDB doesn't. |
 | SFN-031 | Runs only in Snowflake | A regular expression written with a non-greedy quantifier ('*?', '+?', '??') or a backreference ('\1') in the pattern, which Snowflake doesn't support, or with a lookahead or lookbehind, which RE2 can't read. |
 | SFN-070 | Runs only in Snowflake | JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired. |
-| SFN-071 | Runs only in Snowflake | TIMESTAMP_TZ from text with a UTC offset other than the session zone's (the query stops at that row; also text written to a TIMESTAMP_TZ column, SFX-074), and TO_TIMESTAMP_TZ with TZH or TZM in its format: DuckDB keeps the instant, not the offset. |
-| SFN-072 | Runs only in Snowflake | TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a fraction or exponent read from a column or a path (the query stops at that row): Snowflake's answer depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired. |
-| SFN-073 | Runs only in Snowflake | TYPEOF of a timestamp with a time zone from a column or a computed value (the query stops at that row): Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or CURRENT_TIMESTAMP runs (SFX-009). |
+| SFN-071 | Runs only in Snowflake | TIMESTAMP_TZ from text with a UTC offset other than the session zone's (the query stops at that row; also text written to a TIMESTAMP_TZ column, SFX-074), and TO_TIMESTAMP_TZ with TZH or TZM in its format, because DuckDB keeps the instant, not the offset. |
+| SFN-072 | Runs only in Snowflake | TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a fraction or exponent read from a column or a path (the query stops at that row), because Snowflake's answer depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired. |
+| SFN-073 | Runs only in Snowflake | TYPEOF of a timestamp with a time zone from a column or a computed value (the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or CURRENT_TIMESTAMP runs (SFX-009). |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value
@@ -247,9 +247,11 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   on the warehouse with no further confirm, as in a Databricks notebook. The confirm is for starting
   the session, not for each statement.
 - **Try it on this PC first.** The DuckDB engine runs Databricks SQL translated by sqlglot, so you can
-  write and test a warehouse query against local tables without starting the warehouse. Unity
-  Catalog three-part names need that catalog and schema in the local session, and Delta-only
-  commands don't run there.
+  write and test a warehouse query against local tables without starting the warehouse. The local
+  session is the catalog `main` (`workspace`, `hive_metastore` and `spark_catalog` name it too) with
+  the schema `default`, so `main.default.orders`, `USE CATALOG main`, `USE SCHEMA sales` and
+  `current_schema()` answer as on Databricks. A name in any other Unity Catalog catalog is refused by
+  name, and Delta-only commands don't run there.
 - **Busy or briefly unavailable:** checking on a statement, and cancelling one, is tried up to four
   times through throttling (HTTP 429), gateway errors (502, 503, 504) and a dropped connection,
   waiting as Databricks' `Retry-After` says (at most 30 seconds in all). A statement is sent again
@@ -610,9 +612,10 @@ hidden, Runs on works as before.
 - **Connection.** For a Databricks engine, **Connection** picks the saved profile connection or
   Databricks CLI profile to use. Only the host and warehouse or cluster id reach the screen; tokens
   stay with the sidecar. The connection's default catalog and schema show beside it, as a label.
-- **Engine menu.** Python (this PC) first, then the other engines on this PC (DuckDB, SQLite,
-  Polars), then **Remote**: Run in Fabric (the whole notebook as a Fabric job, as before), Fabric
-  Spark, Databricks SQL warehouse and Databricks Connect, each marked Preview. Engines that are
+- **Engine menu.** Python (this PC) first, then **Same as** the environment, then the other engines
+  on this PC (DuckDB, SQLite, Polars), then **Remote**: **Fabric job** (the whole notebook run in
+  Fabric, as Run in Fabric did before), Fabric Spark, Databricks SQL warehouse and Databricks
+  Connect, each marked Preview. Engines that are
   planned but not built are listed under **More** as information only; they can't be chosen.
   Hover ⓘ for what each engine runs and how it differs from the platform.
 - **Remote confirm.** Choosing a remote engine opens a confirm that names the engine, the

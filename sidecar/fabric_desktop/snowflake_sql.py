@@ -130,7 +130,7 @@ SFD_TZ = _n("SFD-002", "TIMESTAMP_TZ loses its offset",
             "DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value "
             "is lost. Raised for a TIMESTAMP_TZ column, a TIMESTAMP_TZ made from a number, and an INSERT, UPDATE "
             "or MERGE that writes a value other than text to a TIMESTAMP_TZ column (or to a timestamp column "
-            "with a time zone that no Snowflake cell in this session made); TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ, "
+            "with a time zone that no Snowflake cell in this session made). TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ, "
             "a cast to TIMESTAMP_TZ and text written to a TIMESTAMP_TZ column check the offset instead (SFX-071, "
             "SFX-074, SFN-071).",
             "Compare instants, not offsets.", f"{_DOCS}/data-types-datetime")
@@ -245,21 +245,21 @@ _JARO_REFUSED = _refuse(
     f"{_DOCS}/functions/jarowinkler_similarity")
 _TZ_OFFSET = _refuse(
     "SFN-071", "TIMESTAMP_TZ with another UTC offset", "Snowflake keeps the UTC offset written in the text "
-    "(2024-01-01T10:00:00+05:00) with the value; DuckDB keeps only the instant and shows it in the session's time "
+    "(2024-01-01T10:00:00+05:00) with the value. DuckDB keeps only the instant and shows it in the session's time "
     "zone, so its hour, date and text would differ. A text with no offset, or with the session zone's own "
     "offset, runs. Use TO_TIMESTAMP_LTZ, or set the session's time zone to one with that offset.",
     f"{_DOCS}/data-types-datetime")
 _JSON_FRACTION = _refuse(
     "SFN-072", "The type of a JSON number with a fraction", "Snowflake's PARSE_JSON keeps a number written with a "
-    "fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE; DuckDB's JSON keeps neither "
+    "fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither "
     "way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER "
     "of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a "
-    "TO_VARIANT value they run.", f"{_DOCS}/functions/is_decimal")
+    "TO_VARIANT value, they run.", f"{_DOCS}/functions/is_decimal")
 
 # SFN-073 (2026.11.23): TYPEOF of a timestamp with a time zone gave DuckDB's name (SFD-007 in part).
 _ZONED_TYPEOF = _refuse(
     "SFN-073", "TYPEOF of a timestamp with a time zone", "Snowflake's TYPEOF names TIMESTAMP_TZ and TIMESTAMP_LTZ "
-    "apart; DuckDB keeps both as one type, so TYPEOF of such a value from a column or a computed value stops. "
+    "apart. DuckDB keeps both as one type, so TYPEOF of such a value from a column or a computed value stops. "
     "TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or CURRENT_TIMESTAMP runs.",
     f"{_DOCS}/functions/is_timestamp")
 
@@ -1344,7 +1344,7 @@ def _json_of_variant_lists(statement: exp.Expression) -> None:
             default=exp.Anonymous(this="to_json", expressions=[value.copy()]))
         new = exp.Cast(this=listed, to=exp.DataType.build("VARCHAR")) if isinstance(node, exp.JSONFormat) else listed
         if node.meta.get(_SNOWFLAKE_TO_JSON):  # still Snowflake's TO_JSON, for SFX-070
-            new.meta[_SNOWFLAKE_TO_JSON] = True
+            new.meta[_SNOWFLAKE_TO_JSON] = node.meta[_SNOWFLAKE_TO_JSON]
         node.replace(new)
 
 
@@ -2652,7 +2652,7 @@ def _mark_offsets_and_json(statement: exp.Expression) -> None:
             node.replace(kind(this=node.expressions[0].copy(), to=exp.DataType.build("TIMESTAMPTZ")))
     for found in statement.find_all(exp.Cast, exp.TryCast, exp.JSONFormat):
         if isinstance(found, exp.JSONFormat):
-            found.meta[_SNOWFLAKE_TO_JSON] = True
+            found.meta[_SNOWFLAKE_TO_JSON] = found.sql(dialect="snowflake")  # the call as written, for its name
         elif isinstance(found, (exp.Cast, exp.TryCast)) and found.to.this == exp.DataType.Type.TIMESTAMPTZ:
             found.meta[_OFFSET_CHECK] = True
 
@@ -2685,6 +2685,8 @@ def _check_offsets(statement: exp.Expression) -> exp.Expression:
 # of its ancestors' keys (an object's) or positions (an array's), so a node comes after its parent, siblings in
 # key order, and a container's closing bracket after its last child. The tree is MATERIALIZED: DuckDB 2.0
 # otherwise reruns json_tree for each reference in the recursion and drops rows ({"b":1,"a":2} gave {"a":2}).
+# A key given twice in one object stops the query, as Snowflake's PARSE_JSON does ("Duplicate field key"):
+# the two would share a place, so the text would come out with no comma between them.
 _SORTED_JSON = """(
   WITH RECURSIVE __sf_tree AS MATERIALIZED (SELECT * FROM json_tree(CAST(__sf_arg AS JSON))),
   __sf_walk(id, place) AS (
@@ -2703,7 +2705,10 @@ _SORTED_JSON = """(
     SELECT w.place || [{'z': 1, 'k': CAST(NULL AS VARCHAR), 'i': CAST(NULL AS BIGINT)}],
            CASE c.type WHEN 'OBJECT' THEN '}' ELSE ']' END
     FROM __sf_walk AS w JOIN __sf_tree AS c ON c.id = w.id WHERE c.type IN ('OBJECT', 'ARRAY'))
-  SELECT string_agg(token, '' ORDER BY place) FROM __sf_tokens)"""
+  SELECT coalesce((SELECT error(concat('Duplicate field key ', c.key)) FROM __sf_tree AS c
+                    JOIN __sf_tree AS p ON p.id = c.parent WHERE p.type = 'OBJECT'
+                    GROUP BY c.parent, c.key HAVING count(*) > 1 LIMIT 1),
+                  string_agg(token, '' ORDER BY place)) FROM __sf_tokens)"""
 
 
 def _sort_json_keys(statement: exp.Expression) -> exp.Expression:
@@ -2712,13 +2717,16 @@ def _sort_json_keys(statement: exp.Expression) -> exp.Expression:
     for node in list(statement.find_all(exp.Expression)):
         if not node.meta.get(_SNOWFLAKE_TO_JSON):
             continue
-        node.meta.pop(_SNOWFLAKE_TO_JSON)
+        written = node.meta.pop(_SNOWFLAKE_TO_JSON)
         tree = cast(exp.Expression, sqlglot.parse_one(_SORTED_JSON, read="duckdb"))
         for column in list(tree.find_all(exp.Column)):
             if column.name == "__sf_arg" and not column.table:
                 column.replace(node.copy())
         if node is statement:
             return tree
+        parent = node.parent
+        if isinstance(parent, exp.Select) and any(e is node for e in parent.expressions) and isinstance(written, str):
+            tree = cast(exp.Expression, exp.alias_(tree, exp.to_identifier(written, quoted=True)))  # named as written, not by the query
         node.replace(tree)
     return statement
 
@@ -2974,14 +2982,14 @@ CATALOG = (
     ("SFN-070", "Runs only in Snowflake", ("JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and "
                 "DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired.")),
     ("SFN-071", "Runs only in Snowflake", ("TIMESTAMP_TZ from text with a UTC offset other than the session zone's "
-                "(the query stops at that row; also text written to a TIMESTAMP_TZ column, SFX-074), and TO_TIMESTAMP_TZ with TZH or TZM in its format: DuckDB keeps the "
+                "(the query stops at that row; also text written to a TIMESTAMP_TZ column, SFX-074), and TO_TIMESTAMP_TZ with TZH or TZM in its format, because DuckDB keeps the "
                 "instant, not the offset.")),
     ("SFN-072", "Runs only in Snowflake", ("TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a "
-                "fraction or exponent read from a column or a path (the query stops at that row): Snowflake's answer "
+                "fraction or exponent read from a column or a path (the query stops at that row), because Snowflake's answer "
                 "depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a "
                 "path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired.")),
     ("SFN-073", "Runs only in Snowflake", ("TYPEOF of a timestamp with a time zone from a column or a computed value "
-                "(the query stops at that row): Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps "
+                "(the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps "
                 "one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or "
                 "CURRENT_TIMESTAMP runs (SFX-009).")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),

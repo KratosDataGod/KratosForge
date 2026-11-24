@@ -341,7 +341,7 @@ the known differences in more detail.
 | `IS_VARCHAR` | Runs |  | 1 value check |
 | `IS_DATE` | Runs |  | 1 value check |
 | `IS_DATE_VALUE` | Runs |  | 1 value check |
-| `IS_DECIMAL` | Refused |  | IS_DECIMAL (vartab): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE; DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value they run. Runs only in Snowflake. |
+| `IS_DECIMAL` | Refused |  | IS_DECIMAL (vartab): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. Runs only in Snowflake. |
 | `IS_DOUBLE` | Runs |  | 3 value checks |
 | `IS_REAL` | Runs |  | 2 value checks |
 | `IS_INTEGER` | Runs |  | 4 value checks |
@@ -351,7 +351,7 @@ the known differences in more detail.
 | `IS_TIMESTAMP_LTZ` | Refused |  | IS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
 | `IS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
 | `IS_TIMESTAMP_TZ` | Refused |  | IS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `TYPEOF` | Refused |  | TYPEOF (stored value with an exponent): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE; DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value they run. Runs only in Snowflake. |
+| `TYPEOF` | Refused |  | TYPEOF (stored value with an exponent): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. Runs only in Snowflake. |
 
 ## Aggregate
 

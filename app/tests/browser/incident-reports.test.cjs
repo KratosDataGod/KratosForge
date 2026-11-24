@@ -218,11 +218,11 @@ test("a priority with no target, and an incident left out of a measure, read as 
   await shot("2-partial.png");
 });
 
-test("with nothing measurable, the tiles say None judged and the cells say why, never 0", { skip }, async () => {
+test("with nothing measurable, the tiles say None judged yet and the cells say why, never 0", { skip }, async () => {
   reports["test:30"] = NOTHING;
   await openReport("test", 30);
   assert.deepStrictEqual(await tiles(), ["Opened 3 in the last 30 days", "Resolved 0", "Still open 3",
-    "Acknowledge SLA met None judged No incident has reached its target yet", "Resolve SLA met None judged No incident has reached its target yet"]);
+    "Acknowledge SLA met None judged yet No incident has reached its target yet", "Resolve SLA met None judged yet No incident has reached its target yet"]);
   const [p3] = await rows();
   assert.deepStrictEqual(p3.map((c) => [c.text, c.span]), [["P3 Wrong or slow, has a workaround", 1], ["3", 1], ["0", 1], ["3", 1],
     ["Nothing to measure", 2], ["Nothing to measure", 2], ["None judged yet", 3], ["None judged yet", 3]]);

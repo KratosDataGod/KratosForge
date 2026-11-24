@@ -82,7 +82,7 @@ For an incident about a metadata table, the incident page lists the published da
 
 **Monitor > KratosForge > Operations > Incidents > Reports**, beside **Board**, shows how incidents opened in one environment (Dev, Test or Prod) over the last 7, 30 or 90 days were handled:
 
-- **The summary**: how many opened, were resolved and are still open, and the share of incidents that met the acknowledge SLA and the resolve SLA, with how many are breached. When no incident has reached its target yet, it says **None judged**.
+- **The summary**: how many opened, were resolved and are still open, and the share of incidents that met the acknowledge SLA and the resolve SLA, with how many are breached. When no incident has reached its target yet, it says **None judged yet**.
 - **By priority**: one row per priority that had incidents, with the counts, time to acknowledge and time to resolve (median and 90th percentile), and met, missed and breached for each clock. A measure with nothing in it says **Nothing to measure**, a priority with no target says **No target**, and a clock nobody has reached yet says **None judged yet**. In a narrow window, each priority is a card.
 
 Nothing is estimated. An incident without the times a measure needs is left out of that measure, so counts can differ between columns. The share met counts breached incidents as not met. SLA counts use the targets in effect now: an incident still inside its window, or a priority with no target, counts as neither met nor missed. Missed means it was done late; breached means it's still open and already late.

@@ -246,7 +246,7 @@ function incReportBody(out, policy, setUp) {
     h("b", {}, value), sub ? h("span", { class: "muted-text small" }, sub) : null);
   const slaTile = (label, s = {}) => {
     const judged = (s.met || 0) + (s.missed || 0) + (s.breached || 0);
-    return tile(label, s.met_percent === null || s.met_percent === undefined ? h("span", { class: "muted-text" }, "None judged") : `${s.met_percent}%`,
+    return tile(label, s.met_percent === null || s.met_percent === undefined ? h("span", { class: "muted-text" }, "None judged yet") : `${s.met_percent}%`,
       judged ? [`${s.met} of ${judged} on time`, s.breached ? [", ", h("span", { class: "inc-report-breached" }, `${s.breached} breached`)] : null]
         : "No incident has reached its target yet");
   };

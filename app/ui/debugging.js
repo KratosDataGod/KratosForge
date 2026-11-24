@@ -307,6 +307,8 @@ function dbgWatchSection(nb, d) {
     if (await dbgSave(nb, { watches: [...d.watches, expr] })) {
       input.value = "";
       dbgPaint();
+      // The pane is drawn afresh: keep focus in the box, so the next watch can be typed straight away.
+      document.querySelector(".varpane .dbg-add")?.focus();
     }
   };
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });

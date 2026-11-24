@@ -1148,7 +1148,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction, dbgSpanGone, dbgBpLimit });`, ctx);
   return ctx;
 }
 
@@ -3142,6 +3142,20 @@ test("breakpoints follow their lines, and the debugger keys match VS Code", () =
   assert.strictEqual(key("Enter"), null);
 });
 
+test("a line counts as deleted only when one change takes all of it and its line break", () => {
+  const { dbgSpanGone, dbgBpLimit } = dbgHelpers();
+  // "a=1\nb=2\nc=3": line 2 is [4, 7), its line break 7.
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 8]]), true);    // Ctrl+Shift+K on line 2
+  assert.strictEqual(dbgSpanGone(4, 8, [[0, 9]]), true);    // a selection over it
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 7]]), false);   // its text only: an empty line keeps the breakpoint
+  assert.strictEqual(dbgSpanGone(4, 8, [[7, 8]]), false);   // its line break only: lines joined
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 6], [6, 8]]), false);
+  assert.strictEqual(dbgSpanGone(4, 4, [[0, 9]]), false);
+  assert.strictEqual(dbgBpLimit, 100);  // debugger.py MAX_BREAKPOINTS
+  const engine = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "debugger.py"), "utf8");
+  assert.match(engine, new RegExp(`^MAX_BREAKPOINTS = ${dbgBpLimit}$`, "m"));
+});
+
 test("a cell replaced whole keeps its breakpoints by line text, and names the ones it can't", () => {
   const { dbgBpRematch, dbgDroppedText } = dbgHelpers();
   const old = ["x=1", "", "def f(a):", "    return a*2", "y = f(x)"];
@@ -3767,7 +3781,7 @@ function errorHelpers() {
   const timers = [];
   const toastEl = node("div");
   const ctx = {
-    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label),
+    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label), icon: () => null,
     copied: [], toasts: [], logged: [], state: { view: "home" },
     navigator: { clipboard: { writeText: async (t) => { ctx.copied.push(t); } } },
     logActivity: (i) => ctx.logged.push(i),
@@ -3776,7 +3790,8 @@ function errorHelpers() {
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
   };
   const code = activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0] + activity.match(/function errorPanel\([\s\S]*?\n}\n/)[0] +
-    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
+    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/function toastClose\([\s\S]*?\n}\n/)[0] + app.match(/function toastReturnFocus\([\s\S]*?\n}\n/)[0] +
+    app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
   vm.runInNewContext(`${code}; Object.assign(this, { friendlyError, errorPanel, realToast: toast, attempt });`, ctx);
   return { ctx, node, find, timers, toastEl, live: () => timers.filter((t) => t.live) };
 }
@@ -3841,7 +3856,7 @@ test("errorPanel says what happened, what to do, and keeps the raw text under De
   assert.strictEqual(ctx.errorPanel("SignInCancelled: cancelled: closed"), null, "a cancelled sign-in shows nothing");
 });
 
-test("an error toast is an alert with Retry, and stays while the pointer is on it", async () => {
+test("an error toast is an alert with Retry, and a toast with a button isn't timed (WCAG 2.2.1)", async () => {
   const { ctx, find, toastEl, live } = errorHelpers();
   let calls = 0;
   const failing = async () => { calls++; throw "RuntimeError: 429 TooManyRequests"; };
@@ -3850,17 +3865,22 @@ test("an error toast is an alert with Retry, and stays while the pointer is on i
   assert.match(toastEl.textContent, /^Couldn't load runs: Fabric is busy/);
   const retry = find(toastEl, (n) => n.tag === "button" && n.textContent === "Retry");
   assert.ok(retry, "the toast has Retry");
-  assert.strictEqual(live().at(-1).ms, 8000);
+  assert.ok(find(toastEl, (n) => n.tag === "button" && n.attrs["aria-label"] === "Close"), "and a named ×");
+  assert.strictEqual(live().length, 0, "a toast with a button stays until it is closed");
   toastEl.fire("mouseenter");
-  assert.strictEqual(live().length, 0, "hovering pauses the auto-dismiss");
   toastEl.fire("mouseleave");
-  assert.strictEqual(live().length, 1, "leaving starts it again");
+  assert.strictEqual(live().length, 0, "leaving it doesn't start a timer either");
   await retry.fire("click");
   await new Promise((r) => setImmediate(r));
   assert.strictEqual(calls, 2, "Retry runs the same call again");
 
   await ctx.attempt(failing, "No retry here");
   assert.ok(!find(toastEl, (n) => n.tag === "button"), "no Retry unless the caller asks for one");
+  assert.strictEqual(live().at(-1).ms, 8000, "an error toast without a button goes by itself after 8 seconds");
+  toastEl.fire("mouseenter");
+  assert.strictEqual(live().length, 0, "hovering pauses it");
+  toastEl.fire("mouseleave");
+  assert.strictEqual(live().length, 1, "leaving starts it again");
   ctx.realToast("Saved");
   assert.strictEqual(toastEl.attrs.role, "status");
   assert.strictEqual(live().at(-1).ms, 4000);
@@ -6290,7 +6310,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
+    runSeveral: ["Run several notebooks"], modelBpa: ["Semantic model best practices"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
@@ -6332,10 +6352,10 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
-    "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
     "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
     "Notebook templates for Silver and Gold": ["docs/notebook-templates.md", /There is no page in the app to pick a template/],
+    "Check a bundle on this PC": ["docs/engines.md", /a command, with no screen in the app yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
@@ -6695,6 +6715,7 @@ const FABRIC_WRITES = {
   start_cell: ["notebook.js", null, "delta.concurrent"], // notebook writes go through the path that check runs
   run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run", "meta.js"],
   run_notebook_fabric_step: ["fabricstep.js", "fabricStep", null],
+  model_bpa_check: ["meta.js", "modelBpa", null],
   cancel_fabric_run: ["activity.js", "cancelFabricRun", null],
   add_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
   delete_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
@@ -6867,4 +6888,25 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
     "pipeline_run_start is called from Pipelines and the Motion sample only");
   // The access cache's writes are drawn only from the Access tab.
   assert.deepStrictEqual(files.filter((f) => f !== "access-cache.js" && /renderAccessAll\(/.test(text[f])), ["estate.js"], "only the Access tab draws the access cache");
+});
+
+// Academy board 5: an exercise's How this works. Only python_lab names the AppContainer; delta_lab and
+// pyspark_lab run in the learner process only (docs/academy/grading-sandbox.md), and SQL never says sandboxed.
+test("an Academy exercise's How this works names the AppContainer only for python_lab", () => {
+  const src = fs.readFileSync(path.join(ui, "academy.js"), "utf8");
+  const consts = ["ACADEMY_CLASS", "ACADEMY_SQL_ADAPTERS", "ACADEMY_PY_ADAPTERS", "ACADEMY_CLASS_MEANS"]
+    .map((n) => src.match(new RegExp(`const ${n} = [\\s\\S]*?;\\n`))[0]).join("");
+  const fn = src.match(/function academyExerciseHow\(ex\) \{[\s\S]*?\n\}\n/)[0];
+  const ctx = { howItWorks: (id, parts) => ({ id, ...parts }) };
+  vm.runInNewContext(`${consts}${fn}; this.how = academyExerciseHow;`, ctx);
+  const reach = (adapter) => Object.fromEntries(ctx.how({ adapter, class: "local_verified" }).more)["What your answer can reach"];
+  assert.match(reach("python_lab"), /AppContainer/);
+  for (const a of ["delta_lab", "pyspark_lab"]) {
+    assert.match(reach(a), /runs as you on this PC, without your sign-in, with time and memory limits/, a);
+    assert.doesNotMatch(reach(a), /AppContainer/, a);
+  }
+  assert.match(reach("duckdb_lab"), /no file or network access/);
+  for (const a of ["python_lab", "delta_lab", "pyspark_lab", "duckdb_lab", "config_model"]) {
+    assert.doesNotMatch(JSON.stringify(ctx.how({ adapter: a, class: "local_verified" })), /sandboxed/i, a);
+  }
 });

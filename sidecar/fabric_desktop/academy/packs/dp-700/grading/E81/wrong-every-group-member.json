@@ -1,0 +1,52 @@
+{
+  "_about": "A model of the Claims workspace's role assignments. Roles go to groups and service principals, not to single people. Set each role to Admin, Member, Contributor, Viewer or null for no access. Give each one the least role that covers every task in its needs. Then answer the two questions about group membership.",
+  "workspace": "Claims",
+  "principals": [
+    {
+      "name": "Platform admins",
+      "kind": "security group",
+      "needs": "Connect the workspace to the team's Git repository and create the workspace identity. Nobody else may do either.",
+      "role": "Member"
+    },
+    {
+      "name": "Team leads",
+      "kind": "Microsoft 365 group",
+      "needs": "Add new analysts and engineers to the workspace and allow others to reshare items. They never update or delete the workspace and never add admins.",
+      "role": "Member"
+    },
+    {
+      "name": "Data engineers",
+      "kind": "security group",
+      "needs": "Write lakehouse and warehouse tables, create shortcuts and subscribe to OneLake events for the landing lakehouse.",
+      "role": "Member"
+    },
+    {
+      "name": "claims-orchestrator",
+      "kind": "service principal",
+      "needs": "Starts and cancels notebook runs through the Job Scheduler API every hour. It changes no item by hand.",
+      "role": "Member"
+    },
+    {
+      "name": "Claims reporting",
+      "kind": "distribution list",
+      "needs": "Reads warehouse tables with T-SQL from Excel and SQL Server Management Studio, and views the output of pipeline runs. Writes nothing.",
+      "role": "Member"
+    },
+    {
+      "name": "claims-monitor",
+      "kind": "service principal",
+      "needs": "Polls the Job Scheduler API for the status and exit values of notebook runs, for an operations dashboard. It never starts or cancels a run.",
+      "role": "Member"
+    }
+  ],
+  "questions": {
+    "mia_role": {
+      "asks": "Mia is in both Claims reporting and Data engineers. Which role does she end up with in this workspace? Answer Admin, Member, Contributor or Viewer.",
+      "answer": "Contributor"
+    },
+    "nested_group": {
+      "asks": "Data engineers contains a nested group, Contractors. Does Ola, who is only in Contractors, get the Data engineers role? Answer true or false.",
+      "answer": true
+    }
+  }
+}

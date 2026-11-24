@@ -56,7 +56,7 @@ function variableBody(rows, redraw) {
         r.name),
       h("td", {}, r.type),
       h("td", { title: r.memory != null ? `About ${variableMemory(r.memory)} in memory` : "" }, r.size || variableMemory(r.memory)),
-      h("td", { class: "val" }, r.value)));
+      h("td", nbValAttrs(r.value), r.value)));
     if (open) trs.push(h("tr", { class: "vars-detail" }, h("td", { colspan: "4" }, variableDetail(r.name))));
   }
   const total = rows.reduce((t, r) => t + (r.memory || 0), 0);
@@ -101,8 +101,13 @@ function variableDetail(name) {
   if (d.items) {
     return h("div", {},
       h("table", { class: "vars inner" }, h("tbody", {}, d.items.map((it) => h("tr", {},
-        h("td", { class: "name" }, it.key), h("td", {}, it.type), h("td", { class: "val" }, it.value))))),
+        h("td", { class: "name" }, it.key), h("td", {}, it.type), h("td", nbValAttrs(it.value), it.value))))),
       d.total > d.items.length ? note(`Showing the first ${d.items.length} of ${d.total}.`) : null);
   }
   return note("Nothing more to show.");
+}
+
+// A value the engine couldn't read in time (or at all) comes as "?": say why on hover.
+function nbValAttrs(value) {
+  return value === "?" ? { class: "val", title: "This value couldn't be read in time, so it isn't shown." } : { class: "val" };
 }

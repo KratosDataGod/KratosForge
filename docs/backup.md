@@ -28,7 +28,8 @@ For a [headless agent](agent.md), add `--agent-home <its FABRIC_DESKTOP_HOME>` t
 | --- | --- |
 | Your sign-in (`msal_cache.bin`, the embedded Fabric pages' sign-in) | Tokens must not be copied. You sign in again after a restore |
 | The running app's link token (`link-port`) | It's made new each time the app starts, and an old one would stop links reaching the running app |
-| A Teams alerts webhook address | Anyone with it can post to that channel. Set it again in **Settings > Notifications** |
+| The VS Code pairing file (`editor-port`) | It holds this run's port and a random value, made new each time the app starts listening for VS Code |
+| A Teams alerts webhook address, and the addresses platform notices are sent to | Anyone with one can post there. Set them again in **Settings > Notifications** |
 | Anything that looks like a password, key or token inside a file | Replaced with `[removed]`. The backup command names each file this happened to; if a notebook was one of them, check it after a restore |
 | The engine, caches, logs and lock files | The app rebuilds them |
 
@@ -48,7 +49,7 @@ For a [headless agent](agent.md), add `--agent-home <its FABRIC_DESKTOP_HOME>` t
    & $py -m fabric_desktop.cli restore fabric-desktop-backup-20261017-120000.zip --yes
    ```
 
-4. Open the app and sign in. Set the Teams webhook again if you used one.
+4. Open the app and sign in. Set the Teams webhook and platform notice addresses again if you used them.
 5. Schedules on this PC come back in **Monitor > KratosForge > Schedules**, and the app adds them to Windows Task Scheduler again as it starts.
 
 A restore adds and replaces files. It writes and checks every file against the backup before it replaces any, so a restore that stops part way leaves the folder as it was. Those files and the copies of what they replace are flushed to disk before the first swap. Every file it replaces is copied first to `%LOCALAPPDATA%\FabricDesktop\restore-safety\<date>-<time>`, so you can put any of them back by hand. The copies of the newest five restores are kept; a restore that works deletes older ones. A replaced database's `-wal`, `-shm` and `-journal` files are moved there too, beside the database's copy: left in place, they would bring back changes made after the backup. To undo, put the database and those files back together.

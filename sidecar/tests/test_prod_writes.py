@@ -3,6 +3,7 @@ type the workspace's name (prod_writes_service.py), with or without a metadata p
 lets that notebook's next run through once."""
 
 import json
+import weakref
 
 import pyarrow as pa
 import pytest
@@ -92,6 +93,10 @@ def prod(lake, monkeypatch, tmp_path):  # noqa: F811
     svc = Svc(tmp_path)
     monkeypatch.setattr(lakehouse, "prod_guard", svc._prod_write_refusal)
     monkeypatch.setattr(lakehouse, "maintenance_guard", lambda op, ws, t: None)
+    # Only this test's cells count: while any cell runs, a write from outside it is asked (fail-closed), so a cell
+    # another test left running in this process would make this test's own app writes asked about too.
+    monkeypatch.setattr(lakehouse, "cell_prod_context", weakref.WeakKeyDictionary())
+    monkeypatch.setattr(lakehouse, "cell_started_threads", weakref.WeakSet())
     write_deltalake(str(lake / "dbo" / "sales"), pa.table({"id": [4], "region": ["APAC"]}), mode="append")
     return svc
 

@@ -138,6 +138,7 @@ def test_polars_eager_read_kept_in_a_name_then_only_filtered():
     assert ids([f, eu, 'for df in parts:\n    pass']) == []
     assert ids([f, eu, 'with open("x") as df:\n    pass']) == []
     assert ids([f, eu, 'def show(df):\n    return df']) == []
+    assert ids([f, eu, 'def only_eu(df):\n    return df.filter(pl.col("r") == "EU")']) == []  # its own df
     assert ids([f, eu, 'x = "dfx"']) == ["NB015"]  # a word in a string must be the whole name
 
 

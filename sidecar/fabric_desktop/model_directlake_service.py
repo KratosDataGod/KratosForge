@@ -16,10 +16,14 @@ from typing import Any
 from . import model_directlake
 from .model_directlake import TableStats
 from .onelake import TableRef
+from .auth import SignInError, SignInRequired
 from .redact import describe
 
 METHODS = {"meta_model_directlake_setup", "meta_model_directlake_check"}
 FOOTERS_READ = 200  # row groups come from this many files' footers at most; above it they're estimated
+HISTORY_COMMITS = 200  # the forecast reads at most this many of a table's latest commits ...
+HISTORY_BUDGET = 2_000  # ... and at most this many commit files for the whole model
+MIN_HISTORY = 20  # every table gets at least this many, however many tables the model has
 
 _log = logging.getLogger(__name__)
 
@@ -56,6 +60,88 @@ def table_stats(uri: str, options: dict[str, str] | None, footers: int = FOOTERS
             groups = round(groups / len(sample) * len(paths))
     return TableStats(columns=columns, rows=rows, files=len(paths), bytes=int(sum(sizes)),
                       row_groups=groups, row_groups_estimated=len(paths) > footers)
+
+
+def _log_actions(fs: Any, version: int) -> list[dict[str, Any]]:
+    """The actions of one commit's log file, or [] when it's gone (log retention removed it)."""
+    import json
+
+    try:
+        with fs.open_input_file(f"_delta_log/{version:020d}.json") as f:
+            text = f.read().decode("utf-8")
+    except FileNotFoundError:  # narrow: older commits are cleaned up after the log retention period
+        return []
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def _records(add: dict[str, Any]) -> int | None:
+    import json
+
+    try:
+        n = json.loads(add.get("stats") or "{}").get("numRecords")
+    except ValueError:  # narrow: a writer that wrote no or broken stats leaves the row count unknown
+        return None
+    return int(n) if isinstance(n, int) else None
+
+
+def history(uri: str, options: dict[str, str] | None, max_commits: int = HISTORY_COMMITS) -> list[model_directlake.Commit] | None:
+    """The table after each of its latest commits (at most ``max_commits``), rebuilt backwards from today's files
+    and the add and remove actions in each commit's log file, through the same reader as table_stats. Rows are
+    known back to the first commit that removes a file whose row count wasn't seen. None when there's no Delta
+    table there. Reads only the log; writes nothing."""
+    from deltalake import DeltaTable
+    from deltalake.exceptions import TableNotFoundError
+    from deltalake.fs import DeltaStorageHandler
+
+    try:
+        table = DeltaTable(uri, storage_options=options)
+    except TableNotFoundError:
+        return None
+    import pyarrow as pa
+
+    fs = DeltaStorageHandler(table.table_uri, options)
+    current = pa.table(table.get_add_actions(flatten=True)).to_pylist()
+    records: dict[str, int | None] = {a["path"]: a.get("num_records") for a in current}
+    logs = []  # newest first; a gap (log retention) ends the history
+    for version in range(table.version(), max(-1, table.version() - max_commits), -1):
+        actions = _log_actions(fs, version)
+        if not actions:
+            break
+        logs.append((version, actions))
+        for a in actions:
+            if "add" in a:
+                records.setdefault(a["add"]["path"], _records(a["add"]))
+    files = len(current)
+    counts = [a.get("num_records") for a in current]
+    rows: int | None = None if any(n is None for n in counts) else sum(int(n) for n in counts)
+    commits = []
+    for version, actions in logs:
+        info: dict[str, Any] = next((a["commitInfo"] for a in actions if "commitInfo" in a), {})
+        adds = [a["add"] for a in actions if "add" in a]
+        removes = [a["remove"] for a in actions if "remove" in a]
+        stamp = info.get("timestamp") or max((a.get("modificationTime") or 0 for a in adds), default=0)
+        if not stamp:
+            break  # a commit with no time can't be placed on the forecast's line
+        commits.append(model_directlake.Commit(version, int(stamp), files, rows))
+        files += len(removes) - len(adds)
+        if rows is not None:
+            added = [records.get(a["path"]) for a in adds]
+            gone = [records.get(r["path"], _records(r)) for r in removes]
+            known = [n for n in added + gone if n is not None]
+            rows = None if len(known) < len(added) + len(gone) else \
+                rows - sum(n for n in added if n is not None) + sum(n for n in gone if n is not None)
+    return commits[::-1]
+
+
+def predict_every_sku(bim: dict[str, Any], stats: dict[str, TableStats | None],
+                      commits: dict[str, list[model_directlake.Commit]], sku: str, **kw: Any) -> dict[str, Any]:
+    """The fallback prediction at the picked SKU, and at every other one under ``by_sku``, so picking another
+    capacity on the card judges the same numbers again without reading anything."""
+    out = model_directlake.predict(bim, stats, commits, sku, **kw)
+    keep = ("sku", "limits", "will_label", "model", "counts", "tables", "size")
+    out["by_sku"] = {s: {k: v for k, v in model_directlake.predict(bim, stats, commits, s, **kw).items() if k in keep}
+                     for s in model_directlake.SKUS}
+    return out
 
 
 def duplicate_values(uri: str, options: dict[str, str] | None, column: str) -> int:
@@ -165,6 +251,7 @@ class ModelDirectLakeMixin:
         stats: dict[str, TableStats | None] = {}
         where: dict[str, tuple[str, dict[str, str]]] = {}
         unread = []
+        signed_out = False
         for t in tables:
             found = model_directlake.source(bim, t.expression)
             lakehouse = self._directlake_lakehouse(project, env, cfg, found, cache) if found else None
@@ -175,8 +262,23 @@ class ModelDirectLakeMixin:
                 uri, options = self._directlake_uri(*lakehouse, t.schema, t.entity)
                 stats[t.name] = table_stats(uri, options)
                 where[t.name] = (uri, options)
+            except (SignInRequired, SignInError):  # narrow: no OneLake sign-in; the card says how to sign in
+                signed_out = True
+                unread.append({"table": t.name, "reason": "There's no OneLake sign-in on this PC."})
             except Exception as exc:  # noqa: BLE001 - one table that can't be read doesn't stop the others
                 unread.append({"table": t.name, "reason": describe(exc)})
+        commits: dict[str, list[model_directlake.Commit]] = {}
+        per_table = min(HISTORY_COMMITS, max(MIN_HISTORY, HISTORY_BUDGET // max(1, len(where))))
+        for table, (uri, options) in where.items():
+            if not stats.get(table):
+                continue
+            try:
+                found_commits = history(uri, options, per_table)
+            except Exception as exc:  # noqa: BLE001 - a table without history still gets today's verdict
+                _log.info("Delta history not read for the Direct Lake forecast: %s", describe(exc))
+                continue
+            if found_commits is not None:
+                commits[table] = found_commits
         duplicates = unmatched = None
         if keys:
             duplicates, unmatched = {}, {}
@@ -208,4 +310,6 @@ class ModelDirectLakeMixin:
                     unread.append({"table": r["from_table"], "reason": f"Key {r['from_column']} not matched ({describe(exc)})"})
         ours = name in {f"SM_{layer.title()}" for layer in project.layer_names()}
         out = model_directlake.check(bim, stats, lim, duplicates, ours=ours, unmatched=unmatched)
-        return base | out | {"direct_lake": True, "unread": unread, "keys_checked": keys}
+        prediction = predict_every_sku(bim, stats, commits, lim["sku"] if lim else "",
+                                       layer=name[3:] if ours else "", read_problem="no_signin" if signed_out else "")
+        return base | out | {"direct_lake": True, "unread": unread, "keys_checked": keys, "prediction": prediction}

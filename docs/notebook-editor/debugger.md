@@ -43,7 +43,7 @@ question on the roadmap.
 ## Run to a breakpoint
 
 - **Run** a cell with breakpoints and it pauses at the first one it reaches. **Run all**, **Run
-  cell and below** and **Run above** pause at breakpoints too.
+  cell and below** and **Run all above** pause at breakpoints too.
 - **Debug cell (pause at the first line)**, on the cell's **...** menu, pauses before the cell's
   first line, with or without breakpoints.
 - **Debug from here (this cell and below)**, on the same menu, runs this cell and every cell below

@@ -407,7 +407,7 @@ def monthly_statement(events: Iterable[dict[str, Any]], *, realized: Iterable[di
     for month, items in priced.items():
         rows += [[month or "", *row] for row in _money_rows(
             CAPACITY_VALUE, items, lambda c: "No price or no CU avoided." if c == ms.UNKNOWN else priced_note)]
-    rows.sort(key=lambda r: (_key(r[0]), _MEASURES[r[1]], _CLASS[r[3]], _key(r[4])))
+    rows.sort(key=lambda r: (_key(r[0]), _MEASURES[str(r[1])], _CLASS[str(r[3])], _key(r[4])))
     return _report("monthly_statement", STATEMENT_COLUMNS, rows, [APART, NO_NET, *_problems(problems)])
 
 
@@ -517,14 +517,14 @@ def capacity_readiness(events: Iterable[dict[str, Any]], *, validations: Iterabl
         if cap not in newest or _key(_realized_period(r)[1]) > _key(_realized_period(newest[cap])[1]):
             newest[cap] = r
     for cap in sorted(caps, key=_key):
-        r = newest.get(cap)
-        if r is None:
+        chosen = newest.get(cap)
+        if chosen is None:
             rows.append([cap, REALIZED, None, _label(ms.UNKNOWN), "", 0, NO_BILL])
         else:
-            m = r["realized_savings"]
-            start, end = _realized_period(r)
+            m = chosen["realized_savings"]
+            start, end = _realized_period(chosen)
             what = (f"Latest after period {start} to {end}. " if start else "") + (
-                (m.get("method") or "") if r["realized"] else (r.get("reason") or m.get("reason") or ""))
+                (m.get("method") or "") if chosen["realized"] else (chosen.get("reason") or m.get("reason") or ""))
             rows.append([cap, REALIZED, m["value"], _label(m["classification"]), m.get("currency") or "", 1,
                          what.strip()])
         rows.append([cap, HEADROOM, None, _label(ms.UNKNOWN), "", 0, NO_HEADROOM])

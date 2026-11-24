@@ -267,12 +267,13 @@ def _wait_pipeline(path: Path) -> Path:
 
 @pytest.fixture
 def cli_run(tmp_path, monkeypatch):
-    """`fabric-desktop pipeline run` with this PC's data folder in tmp_path; notes when the run itself starts,
-    with the audit lines written by then."""
+    """`fabric-desktop pipeline run` with this PC's data folder in tmp_path (conftest); notes when the run
+    itself starts, with the audit lines written by then."""
     from fabric_desktop.orchestration import runner
+    from fabric_desktop.service import data_dir
 
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
-    log = audit.AuditLog(tmp_path / "local" / "FabricDesktop" / "audit")
+    assert data_dir().is_relative_to(tmp_path)
+    log = audit.AuditLog(data_dir() / "audit")
     ran: list[list[tuple[str, str]]] = []
     real = runner.PipelineRun.run
 
@@ -341,3 +342,34 @@ def test_the_clis_refused_pipeline_run_records_why(cli_run, tmp_path):
     [started, ended] = list(cli_run.log.entries())
     assert (started["outcome"], ended["action"], ended["outcome"]) == ("started", "pipeline_run_start", "error")
     assert ended["reason"] in audit.REASONS
+
+
+def test_a_cli_pipeline_run_in_the_tests_writes_only_under_tmp_path(tmp_path, monkeypatch, capsys):
+    """conftest points the data folder at tmp_path in a module that runs `pipeline run`, so the audit lines
+    of a test's run never reach the audit trail of whoever runs the tests."""
+    from fabric_desktop.service import data_dir
+
+    sentinel = tmp_path / "home-sentinel"
+    sentinel.mkdir()
+    monkeypatch.setenv("HOME", str(sentinel))
+    monkeypatch.setenv("USERPROFILE", str(sentinel))
+    assert data_dir().is_relative_to(tmp_path)
+    mocks = tmp_path / "mocks.json"
+    mocks.write_text(json.dumps({"Pause": {"status": "Succeeded"}}), encoding="utf-8")
+    with pytest.raises(SystemExit) as done:
+        cli.main(["pipeline", "run", str(_wait_pipeline(tmp_path / "p.json")), "--mocks", str(mocks),
+                  "--wait-scale", "0", "--json"])
+    assert done.value.code == 0, capsys.readouterr().out
+    written = audit.AuditLog(data_dir() / "audit")
+    assert [e["action"] for e in written.entries()] == ["pipeline_run_start", "pipeline_run_finished"]
+    assert list(sentinel.iterdir()) == []
+
+
+def test_every_test_module_that_runs_cli_pipelines_gets_a_tmp_data_folder():
+    from conftest import runs_cli_pipelines
+
+    tests = Path(__file__).parent
+    found = {p.name for p in tests.glob("test_*.py") if runs_cli_pipelines(p)}
+    assert {"test_cli_cov2.py", "test_cli_tenant_commands.py", "test_fail_closed_in_process.py",
+            "test_pipeline_data.py", "test_pipeline_gotchas.py", "test_pipeline_notebooks.py",
+            "test_pipeline_runs.py", "test_pipeline_script.py"} <= found

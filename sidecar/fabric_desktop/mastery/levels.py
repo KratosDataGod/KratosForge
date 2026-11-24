@@ -79,6 +79,14 @@ def _day(stamp: Any) -> dt.date | None:
         return None
 
 
+def _local_day(stamp: Any) -> dt.date | None:
+    """The day on this PC's clock (rows are stored in UTC; evening work in Chicago is still that evening)."""
+    try:
+        return dt.datetime.fromisoformat(str(stamp)).astimezone().date() if stamp else None
+    except ValueError:
+        return None
+
+
 def _module(ref_id: str) -> str:
     return ref_id.split("/", 1)[0]
 
@@ -285,13 +293,13 @@ def earned_on(profile: dict[str, Any], cls: dict[str, Any], cat: dict[str, Any] 
     don't meet it (a row without a date can't be placed), never a guessed day."""
     cat = cat or catalog.load()
     rows = progress.included(profile)
-    days = sorted({d for d in (_day(r.get("at")) for r in rows) if d})
+    days = sorted({d for d in (_local_day(r.get("at")) for r in rows) if d})
     sids = {n["skill"] for n in catalog.nodes(cls)}
     seen: dict[int, dict[str, bool]] = {}
 
     def earned_by(i: int) -> dict[str, bool]:
         if i not in seen:
-            upto = [r for r in rows if (_day(r.get("at")) or dt.date.max) <= days[i]]
+            upto = [r for r in rows if (_local_day(r.get("at")) or dt.date.max) <= days[i]]
             ev: dict[str, list[dict[str, Any]]] = {sid: [] for sid in sids}
             for row in upto:
                 for sid in sids:

@@ -587,3 +587,17 @@ def test_an_any_achievement_names_only_the_talent_that_met_it():
     alpha, beta = lab_pass("LM-00", DAY1), lesson("LM-10", DAY1)        # beta.01 reaches only Apprentice
     a = awards(profile(alpha, beta), cat)["a0"]
     assert a["earned"] and a["evidence"] == [alpha["id"]]
+
+
+@pytest.mark.skipif(not hasattr(__import__("time"), "tzset"), reason="setting the zone needs time.tzset (not on Windows)")
+def test_the_earned_day_is_the_day_on_this_pcs_clock(monkeypatch):
+    import time
+    monkeypatch.setenv("TZ", "America/Chicago")
+    time.tzset()
+    try:
+        cat = award_cat({"level": 3, "talents": ["alpha.01"]})
+        late = lab_pass("LM-00", "2026-09-02T02:30:00+00:00")       # 21:30 on Sep 1 in Chicago
+        assert levels.earned_on(profile(late), cat["classes"]["test-class"], cat) == {"a0": "2026-09-01"}
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()

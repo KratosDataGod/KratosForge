@@ -13,7 +13,7 @@ const SOURCE_TEXT = {
 // so Settings says so plainly and how to go back (unit testing item 4).
 function clientIdNote(source) {
   const lead = "Sign-in isn't using Microsoft's Fabric sign-in. Microsoft shows this app's own name and publisher, and may ask you or an admin to approve it.";
-  if (source === "policy") return `${lead} Your organization set it, so only they can change it.`;
+  if (source === "policy") return `${lead} Your organization set it, so only they can change it. Ask IT to change client_id in Group Policy or the policy file.`;
   if (source === "environment") return `${lead} It comes from the FABRIC_DESKTOP_CLIENT_ID setting on this PC. To go back, remove that variable (setx FABRIC_DESKTOP_CLIENT_ID ""), restart KratosForge and sign in again.`;
   if (source === "user") return `${lead} To go back, clear the ID and sign in again.`;
   if (source === "built_in") return `${lead} It came with this build.`;

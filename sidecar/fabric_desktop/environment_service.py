@@ -99,13 +99,17 @@ class EnvironmentMixin:
 
     def _packages_allowed(self) -> None:
         if app_settings.value("allow_notebook_packages") is False:
-            raise PermissionError("Your organization doesn't allow installing packages for notebooks on this PC.")
+            raise PermissionError("Your organization doesn't allow installing packages for notebooks on this PC. "
+                                  + app_settings.ask_it("allow_notebook_packages"))
         folder, pypi, _ = self._package_source()
         if folder and app_settings.package_folder_problem(folder):
             raise PermissionError(f"Your organization's package folder setting {app_settings.package_folder_problem(folder)}. "
-                                  "Ask IT to fix notebook_package_folder in the policy file.")
+                                  f"Ask IT to fix notebook_package_folder in "
+                                  f"{app_settings.policy_source('notebook_package_folder')}.")
         if not folder and not pypi:
             raise PermissionError("Your organization doesn't allow installing packages from PyPI and names no package "
-                                  "folder, so packages can't be installed for notebooks on this PC.")
+                                  "folder, so packages can't be installed for notebooks on this PC. Ask IT to set "
+                                  "notebook_package_folder, or to change allow_pypi_packages in "
+                                  f"{app_settings.policy_source('allow_pypi_packages')}.")
         if not app_settings.value("kernel_process"):
             raise RuntimeError("Notebook environments need Run notebooks in their own process (Settings > Advanced > Notebooks).")

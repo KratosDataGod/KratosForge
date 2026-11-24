@@ -40,7 +40,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .. import __version__, jsonfile
+from .. import __version__, app_settings, jsonfile
 from . import peer
 from .core import CallContext, Caller, IntegrationError, error_from, redacted
 from .registry import Registry
@@ -525,7 +525,8 @@ def serve(port: int, parent_pid: int = 0) -> int:
     store = IntegrationStore.at(root)
     rules, settings = policy.current(), store.settings()
     if rules["enabled"] is False or not rules["http"]:
-        print("Your organization doesn't allow the local API on this PC.", file=sys.stderr)
+        key = "integrations" if rules["enabled"] is False else "integrations_http"
+        print("Your organization doesn't allow the local API on this PC. " + app_settings.ask_it(key), file=sys.stderr)
         return 2
     if not settings["enabled"] or not settings["http_enabled"]:
         print("The local API is turned off in Settings > Integrations.", file=sys.stderr)

@@ -228,7 +228,7 @@ Checks that depend on the platform fail closed: when a rule can't be read, Krato
 
 ## Storage
 
-Policies are five tables in the platform's catalog, next to domains and the glossary (no second database):
+Policies are five tables in the platform's catalog, next to domains and the glossary (no second database). Templates are a sixth table, `catalog.policy_template`, described above:
 
 | Table | Holds |
 | --- | --- |

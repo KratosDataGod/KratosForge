@@ -1178,11 +1178,28 @@ def _output_names(query: object) -> bool:
     return named
 
 
+_SELF_ALIAS = re.compile(r'Binder Error: Column "((?:[^"]|"")+)" referenced that exists in the SELECT clause - but '
+                         r'this column cannot be referenced before it is defined')
+
+
+def column_error(message: str) -> str:
+    """SFX-073 names ``SELECT nosuch`` as ``nosuch AS "NOSUCH"``. When the table has no such column, DuckDB
+    then finds the alias by its name and says the column can't be used before it's defined, which hides the
+    typo. That message becomes DuckDB's own for a missing column (Snowflake reports an invalid identifier).
+    Any other message is given back as it is."""
+    found = _SELF_ALIAS.search(message)
+    if found is None:
+        return message
+    return (f'{message[:found.start()]}Binder Error: Referenced column "{found.group(1)}" not found in FROM clause!'
+            + message[found.end():])
+
+
 def _rewrite_names(statement: exp.Expression) -> bool:
     """SFX-072: Snowflake stores an unquoted name in upper case (identifiers-syntax), so CREATE TABLE, CREATE
     TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE store the names they make that way here too: the
     table, view or schema, its columns, a renamed table or column, an added column. INFORMATION_SCHEMA and
-    SELECT * then give Snowflake's names; a query still finds them by any case, as in Snowflake. The schema
+    SELECT * then give Snowflake's names; a query finds them by any case, as Snowflake finds an unquoted
+    name (DuckDB also finds a quoted name by any case, where Snowflake needs its stored case). The schema
     of mysch.tab and a column list with no types (CREATE VIEW v (a, b) AS, CREATE TABLE t (a, b) AS) are
     names the statement makes too. False when a CREATE ... AS column is an expression with no alias and no
     column list names it (SFD-001)."""

@@ -425,6 +425,16 @@ class DuckDBSession(_SqlSession):
         else:
             _refuse_outside(request.code, request.dialect)
             code = self._sql(request.code, request.dialect)
+        if request.dialect == "snowflake":
+            import duckdb
+            from .. import snowflake_sql
+            try:
+                return self._execute(code, request)
+            except duckdb.BinderException as exc:
+                message = snowflake_sql.column_error(str(exc))
+                if message == str(exc):
+                    raise
+                raise duckdb.BinderException(message) from None
         if request.dialect not in ("spark", "databricks"):
             return self._execute(code, request)
         # Spark's TIMESTAMP is read in the session's time zone, which is UTC in Fabric and Databricks

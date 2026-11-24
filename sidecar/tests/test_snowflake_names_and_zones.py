@@ -89,6 +89,28 @@ def test_a_snowflake_cell_shows_upper_case_headers():
         session.close()
 
 
+@pytest.mark.parametrize("code", ["SELECT nosuch FROM base", "SELECT x, nosuch FROM base",
+                                  "SELECT * FROM (SELECT nosuch FROM base)"])
+def test_a_misspelled_column_says_it_is_not_found(code):
+    # SFX-073 writes nosuch AS "NOSUCH", and DuckDB would then say the column is used before it is defined
+    session = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        assert session.execute(CellRequest("CREATE TABLE base (x INT)", "sql", "snowflake")).status == "ok"
+        result = session.execute(CellRequest(code, "sql", "snowflake"))
+        text = str(result.outputs)
+        assert result.status == "error", result
+        assert 'Referenced column "nosuch" not found' in text and "before it is defined" not in text, text
+    finally:
+        session.close()
+
+
+def test_column_error_leaves_other_messages_as_they_are():
+    assert sf.column_error("Binder Error: Table \"t\" does not exist") == "Binder Error: Table \"t\" does not exist"
+    assert sf.column_error('Binder Error: Column "a""b" referenced that exists in the SELECT clause - but this column '
+                           'cannot be referenced before it is defined') == (
+        'Binder Error: Referenced column "a""b" not found in FROM clause!')
+
+
 # ---------------------------------------------------------------- SFX-074: writes to a TIMESTAMP_TZ column
 
 # data-types-datetime's TIMESTAMP_TZ example, in its America/Los_Angeles session: '2024-01-01 16:00:00' is

@@ -76,7 +76,7 @@ LINK_COLUMNS = ("record_id", "optimization_id", "artifact_key", "workspace_id", 
 # Opportunities in these states don't become optimizations: a rejected one stays rejected.
 _CLOSED_OPPORTUNITY = ("rejected", "superseded")
 # A definition fingerprint: letters, digits and . _ : - only, so code text can't pass as one.
-_REF = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_REF = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 _LEVELS = ("low", "medium", "high")
 
 
@@ -100,7 +100,7 @@ def _at(value: Any) -> str:
 def _ref(value: Any, what: str) -> str | None:
     if value is None or value == "":
         return None
-    if not isinstance(value, str) or not _REF.match(value):
+    if not isinstance(value, str) or not _REF.fullmatch(value):
         raise ValueError(f"The {what} must be a definition fingerprint (letters, digits, '.', '_', ':' or '-', "
                          "at most 128 characters), never code text.")
     return value

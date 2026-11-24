@@ -212,7 +212,8 @@ def _covered(rows: list[dict[str, Any]], start: dt.datetime, end: dt.datetime) -
 
 def _missing_days(rows: list[dict[str, Any]], start: dt.datetime, end: dt.datetime) -> str:
     """The days of [start, end) no compute row touches, as " (2026-11-12, ...)", or ""."""
-    days, day = [], start
+    days: list[str] = []
+    day = start
     while day < end and len(days) <= 10:
         nxt = min(day + dt.timedelta(days=1), end)
         if not any(r["cu"] is not None and r["start"] < nxt and r["end"] > day for r in rows):

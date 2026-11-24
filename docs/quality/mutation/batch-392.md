@@ -5,7 +5,7 @@ One module, run uncapped: every mutant, not a sample. This is the first mutation
 
 The run was at `main` 9c7201ae4 (2026-11-24), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 364 of 364 mutants ran (350 point + 14 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own, removed when the session ended (a small plugin, not committed).
 
-The set is test_academy_exam_service and test_academy_exam, about 9 s a session. The score counts only the files given. Before the "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11, on DuckDB 1.5.6 and 2.0.0. They passed every way. No `-k` filter was used. In both runs three mutants' runs timed out and count as killed: all three make `build`'s pick loop (lines 308 to 310) never end.
+The set is test_academy_exam_service and test_academy_exam, about 9 s a session. The score counts only the files given. Before the "after" run, its tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it, as in batch 11, on DuckDB 1.5.6 and 2.0.0. They passed every way. No `-k` filter was used. In both runs three mutants' runs timed out and count as killed: all three make `build`'s pick loop (lines 308 to 310) never end. Run by hand on their own, each of the three (mutants 186, 281 and 350) still hadn't finished one `build` after 60 s, while the unmutated module builds the same exam at once, so they are real hangs and the numbers stand.
 
 ## Results
 

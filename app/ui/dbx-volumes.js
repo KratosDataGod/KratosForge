@@ -34,7 +34,8 @@ async function renderDatabricksVolumes() {
     body));
   const out = await attempt(() => rpc("databricks_volumes"), "Couldn't read the volumes on this PC");
   if (state.view !== "databricks_volumes" || dbxVol.body !== body) return;
-  if (!out) { body.replaceChildren(h("p", { class: "muted-text" }, "The volumes on this PC couldn't be read.")); return; }
+  if (!out) { body.replaceChildren(h("p", { class: "muted-text" }, "The volumes on this PC couldn't be read. ",
+    btn("Try again", null, () => renderDatabricksVolumes(), "tool outline"))); return; }
   dbxVol.list = out.volumes || [];
   const vol = dbxVol.list.find((v) => dbxVolKey(v) === dbxVol.volume) || dbxVol.list[0] || null;
   if (!vol || dbxVolKey(vol) !== dbxVol.volume) Object.assign(dbxVol, { volume: vol ? dbxVolKey(vol) : "", parts: [] });
@@ -113,9 +114,10 @@ function dbxVolDetail(vol) {
       btn("Upload", null, () => dbxVolUpload(vol), "tool primary"),
       btn("New folder", null, () => dbxVolNewFolder(vol), "tool outline"),
       btn("Download", null, () => dbxVolDownload(picked), "tool outline",
-        { disabled: !picked.length || picked.some((e) => e.is_dir) || null, title: picked.some((e) => e.is_dir) ? "Download copies files; open a folder to download what's in it." : null }),
+        { disabled: !picked.length || picked.some((e) => e.is_dir) || null, title: picked.some((e) => e.is_dir) ? "Download copies files. To download what's in a folder, open it first." : null }),
       btn("Delete", null, () => dbxVolDelete(vol, picked), "tool outline danger", { disabled: !picked.length || null })),
-    files.error ? h("p", { class: "muted-text" }, `${here} couldn't be listed.`)
+    files.error ? h("p", { class: "muted-text" }, `${here} couldn't be listed. `,
+      btn("Try again", null, () => renderDatabricksVolumes(), "tool outline"))
       : entries.length ? dbxVolTable(entries, files.truncated)
       : h("div", { class: "dbx-vol-empty" }, h("b", {}, dbxVol.parts.length ? "This folder is empty" : "This volume is empty"),
         "Upload files, or write to ", h("code", {}, here), " from a notebook."));
@@ -172,7 +174,7 @@ function dbxVolCreate() {
     }
   }, "tool primary");
   showDialog("New volume", h("div", { class: "dbx-vol-form" },
-    h("p", { class: "text" }, "A managed volume in the catalog main: a folder on this PC that notebooks and SQL cells here read as /Volumes/main/<schema>/<volume>."),
+    h("p", { class: "text" }, "A managed volume in the catalog main. It's a folder on this PC that notebooks and SQL cells here read as /Volumes/main/<schema>/<volume>."),
     h("label", { class: "field" }, "Schema", schema), h("label", { class: "field" }, "Name", name),
     h("label", { class: "field" }, "Comment (optional)", comment), problem),
   [btn("Cancel", null, closeDialog, "tool outline"), create]);
@@ -183,7 +185,7 @@ async function dbxVolRename(vol) {
   const name = await askText(`Rename ${dbxVolFull(vol)}`, "New name", vol.name, "Rename", dbxVolNameProblem);
   if (!name || name === vol.name) return;
   const v = await attempt(() => rpc("databricks_volume_rename", { schema: vol.database, volume: vol.name, new_name: name }), "Couldn't rename the volume");
-  if (v) { toast(`Renamed. Code now reads it as ${v.path}.`); dbxVolPick(v); }
+  if (v) { toast(`Renamed. Notebooks and queries now read it at ${v.path}, and the old path no longer works.`); dbxVolPick(v); }
 }
 
 // Reads the comment again first: a notebook's COMMENT ON VOLUME may have changed it since the list was read.

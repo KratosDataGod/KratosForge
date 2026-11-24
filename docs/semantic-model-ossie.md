@@ -466,6 +466,33 @@ After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL a
 to `semantic/<model>.SemanticModel/` in the Power BI project layout, next to the Ossie file.
 Files Fabric no longer returns are removed from that folder.
 
+### Compare two versions
+
+`ossie_compare.compare_versions(old, new)` says what changed between two versions of the same
+model (OSSIE-002b, engine only: no engine method and no screen yet). Each version can be an Ossie
+0.2.0.dev0 file, a `model.bim` (TMSL) or a TMDL folder's files, read as structural parity reads
+them, so a model and its own Ossie export are the same version. Ossie 0.3.0.dev0 and Snowflake's
+0.1.1 files are refused with the reason, because the converter reads 0.2.0.dev0 only.
+
+For tables, columns, measures, relationships, roles, calculation groups, hierarchies and
+perspectives the report lists each object added, removed or changed, and counts the unchanged
+ones by kind. A change says what changed: the data type, the expression, the format string, the
+description, a relationship's ends or flags, a role's permissions or a calculation item. A
+measure's expression is compared through the L2 canonical form when both versions are inside its
+subset, so a rewrite that computes the same thing ("expression text") is told apart from one that
+doesn't ("expression"). A SQL translation added beside unchanged DAX isn't a change. Roles and
+calculation groups that changed are also listed under `look_at`, so they are checked first.
+
+The model's own name and the order of columns aren't compared, and the report says so under
+`not_checked`, with the other properties left out: partitions and data sources, shared
+expressions, sourceColumn and summarizeBy. Bad input never raises: `status` is "failed" or
+"refused", `error` says why, and the summary says the versions weren't compared. A line the reader
+can't understand is left out of the comparison, so the summary and `notes` count it and each
+side's `warnings` name it.
+The report can quote a role's filter and name its members. Anything shown outside the local pane
+must use `ossie_compare.redacted(report)`, which gives a length and hash of each filter, counts of
+members and permissions, and no expression or format text.
+
 ## How this works
 
 - Reads: the model's definition from Fabric (getDefinition, as TMSL or TMDL). Item.ReadWrite.All,

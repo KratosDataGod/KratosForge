@@ -158,9 +158,10 @@ def test_update_from_a_join_on_the_target_updates_the_matching_rows(engine):
 
 
 def test_text_plus_a_date_is_left_to_duckdb():
-    assert translate("SELECT '1' + CAST(1 AS DATE)")[0] == [
-        "SELECT '1' + CAST(1 AS DATE)"
-    ]
+    # WR-707: it was left to DuckDB, which stops in its own words; T-SQL refuses the + or reads the text as a
+    # date, so it is refused by name now
+    with pytest.raises(ValueError, match="of text and a date or time"):
+        translate("SELECT '1' + CAST(1 AS DATE)")
 
 
 def test_isnull_of_a_varchar_max_keeps_the_whole_second_value(engine):

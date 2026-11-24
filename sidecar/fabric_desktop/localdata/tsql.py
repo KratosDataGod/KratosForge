@@ -195,6 +195,8 @@ def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
             for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
                 parts.replace(_timefromparts(parts))
             tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
+            _clocks(tree, batch)  # WR-707: GETDATE() is a datetime and SYSDATETIME() a datetime2(7)
+            _styleless_converts(tree)  # WR-707: before CONVERT's rewrite, which drops the type it converts
             notes += _converts(tree)
             _big_integers(tree)
             _regexps(tree)
@@ -1158,11 +1160,16 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             tsql_format.rewrite(node, info.this.type)
         elif isinstance(node, (exp.Concat, exp.ConcatWs)):
             notes += _floats_joined(node, info)
+            notes += _dates_joined(node, info)
         elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc)):
             if _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
+            if _is(a, _TEXT) and _is(b, _DATE_TIMES) or _is(b, _TEXT) and _is(a, _DATE_TIMES):
+                raise ValueError(_NOT_YET + f"+ of text and a date or time ({node.sql(dialect='tsql')}) isn't mapped "
+                                 "yet. T-SQL doesn't join them: it reads the text as a date and adds the two, or "
+                                 "refuses the +. To join them as text, use CONCAT, or CAST the date to VARCHAR first.")
             if _is(a, _TEXT) and _is(b, _TEXT):
                 node.replace(exp.DPipe(this=node.this, expression=node.expression, safe=False))
             elif _is(a, _TEXT) and _is(b, _NUMBERS):
@@ -1186,7 +1193,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             if (unchecked := node.meta.pop("tsql_unchecked_style", None)) is not None:
                 notes.append(_unchecked_style(unchecked))
             _truncated(node, info.this.type)
-            _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
+            said = _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
+            if said and said not in notes:
+                notes.append(said)
     for again in later:
         again()
     return notes
@@ -1693,6 +1702,11 @@ def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> N
     if _is(kind, {exp.DataType.Type.TIME}):
         text.set("this", exp.Add(this=exp.cast(exp.Literal.string("1900-01-01"), "DATE"), expression=text.this))
     fmt = text.args.get("format")
+    if isinstance(fmt, exp.Literal) and fmt.name == _STYLE_0_SHAPE:
+        # Styles 0 and 100 pad the day and the hour with a space (Jan  2 2024  1:04PM); sqlglot's %d pads the day
+        # with a zero and its %-I doesn't pad the hour (WR-707).
+        text.replace(_style_0(text.this))
+        return
     if not isinstance(fmt, exp.Literal) or not fmt.name.startswith("%Y-%m-%d"):
         return
     if _is(kind, {exp.DataType.Type.DATE}):
@@ -1715,25 +1729,33 @@ _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Ty
 _PADDED = {exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
 
 
-def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
+def _sized_text(node: exp.Expression, source: exp.DataType | None) -> str | None:
     """``CAST(x AS VARCHAR(3))`` cuts text to 3 characters in T-SQL (and ``CHAR(3)`` pads it); DuckDB
     ignores the length. With no length a CAST or CONVERT to text is 30 characters long. A number too
-    long for the length is an error, not cut."""
+    long for the length is an error, not cut. A date or time is written as T-SQL writes it (WR-707), and a
+    note is returned when its precision can't be told."""
     to = node.args.get("to")
     if not isinstance(to, exp.DataType) or to.this not in _SIZED:
-        return
+        return None
     size = to.expressions[0].this if to.expressions else exp.Literal.number(30)
+    dated, note = _datetime_text(node.this, source)
     if not (isinstance(size, exp.Literal) and not size.is_string):
         to.set("expressions", [])  # VARCHAR(MAX): DuckDB's VARCHAR has no limit and takes no MAX
-        return
+        if dated is not None:
+            node.replace(dated)
+        return note
     n = int(size.name)
-    text: exp.Expr = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"), safe=isinstance(node, exp.TryCast))
-    if isinstance(node, exp.TryCast):
+    text: exp.Expr
+    if dated is not None:
+        # T-SQL cuts a date or time written as text to the length, as it cuts text: CONVERT(VARCHAR(10), x, 120)
+        # is the usual way to keep only yyyy-mm-dd, and CONVERT(VARCHAR(5), t, 108) hh:mi.
+        text = dated
+    elif isinstance(node, exp.TryCast):
         text = exp.TryCast(this=node.this, to=exp.DataType.build("VARCHAR"))
+    else:
+        text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"))
     if _is(source, _BITS):
         text = _bit_text(node.this)
-    if source is not None and (digits := _fraction_digits(source)) is not None:
-        text = _time_text(node.this, source, digits)
     if _is(source, _NUMBERS):
         # A float in T-SQL's style; a number written with a point (1.50) is a decimal there, and keeps its digits.
         shown = _float_text(node.this) if _is(source, _FLOATS) and not _written_decimal(node.this) else text
@@ -1745,6 +1767,119 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     if to.this in _PADDED:
         cut = exp.func("RPAD", cut, exp.Literal.number(n), exp.Literal.string(" "))
     node.replace(cut)
+    return note
+
+
+_DATE_TIMES = {exp.DataType.Type.DATE, exp.DataType.Type.TIME, exp.DataType.Type.DATETIME,
+               exp.DataType.Type.DATETIME2, exp.DataType.Type.SMALLDATETIME, exp.DataType.Type.TIMESTAMP,
+               exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMP_S, exp.DataType.Type.TIMESTAMP_MS,
+               exp.DataType.Type.TIMESTAMP_NS}
+_STAMPS = _DATE_TIMES - {exp.DataType.Type.DATE, exp.DataType.Type.TIME}
+_PRECISION_NOTE = ("A datetime2 or time column, or a value whose precision couldn't be told, is written as text with "
+                   "6 digits of a second, as a datetime2(6) or time(6) is (2024-01-02 13:04:05.000000). A warehouse "
+                   "writes a datetime2(n) or time(n) with its n digits, so one with n under 6 shows fewer there.")
+
+
+def _clock_type(value: exp.Expression) -> str | None:
+    """``datetime`` or ``datetime2`` for a value whose T-SQL type the types read don't carry: GETDATE() and
+    CURRENT_TIMESTAMP are datetime, SYSDATETIME() is datetime2(7) (sqlglot reads both as CURRENT_TIMESTAMP);
+    GETUTCDATE() is datetime and SYSUTCDATETIME() datetime2(7)."""
+    if isinstance(value, exp.CurrentTimestamp):
+        return value.meta.get("kf_clock", "datetime")
+    if isinstance(value, exp.Anonymous):
+        return {"GETUTCDATE": "datetime", "SYSUTCDATETIME": "datetime2"}.get(value.name.upper())
+    return None
+
+
+def _datetime_text(value: exp.Expression, source: exp.DataType | None) -> tuple[exp.Expr | None, str | None]:
+    """A date or time written as text with no style, as T-SQL writes it (WR-707), or None for any other value; and
+    a note when its precision is a guess. datetime and smalldatetime are style 0, ``Jan  2 2024  1:04PM``. date is
+    ``2024-01-02``. time and datetime2 are ISO-like with their n digits of a second, 7 when no n is written
+    (``13:04:05.1234567``; this PC keeps 6, so the 7th is 0). datetimeoffset is refused by name elsewhere."""
+    clock = _clock_type(value)
+    if clock == "datetime" or _is(source, {exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}) \
+            or tsql_types.is_rounded(value):
+        return _style_0(value), None
+    if clock == "datetime2":
+        return _time_text(value, exp.DataType.build("TIMESTAMP"), 7), None
+    if not isinstance(source, exp.DataType) or source.this not in _DATE_TIMES:
+        return None, None
+    if source.this == exp.DataType.Type.DATE:
+        return None, None  # DuckDB writes yyyy-mm-dd, as T-SQL does
+    digits = _fraction_digits(source)
+    written = value.to if isinstance(value, (exp.Cast, exp.TryCast)) else None
+    if digits is None and (source.this == exp.DataType.Type.DATETIME2 or source.this == exp.DataType.Type.TIME
+                           and isinstance(written, exp.DataType) and written.this == exp.DataType.Type.TIME):
+        digits = 7  # datetime2 and time written with no precision are datetime2(7) and time(7)
+    if digits is None:
+        # A table's datetime2 or time column (DuckDB keeps no precision; a warehouse table's is at most 6), or a
+        # value of no T-SQL type
+        return _time_text(value, source, 6), _PRECISION_NOTE
+    return _time_text(value, source, digits), None
+
+
+_STYLE_0_SHAPE = "%b %d %Y %-I:%M%p"  # what sqlglot reads CONVERT's styles 0 and 100 as
+
+
+def _style_0(value: exp.Expression) -> exp.Expr:
+    """T-SQL's style 0 (and 100) for a date and time: ``mon dd yyyy hh:miAM``, the day and the hour padded with a
+    space, not a zero (``Jan  2 2024  1:04PM``, 19 characters); midnight is ``12:00AM``. The value is read once,
+    bound in a LIST_TRANSFORM, and moved there, not copied, so a pass after this one still finds what it holds."""
+    v = exp.to_identifier("kf_stamp")
+
+    def strftime(shape: str) -> exp.Expr:
+        return exp.Anonymous(this="STRFTIME", expressions=[v.copy(), exp.Literal.string(shape)])
+
+    def spaced(shape: str) -> exp.Expr:
+        return exp.Pad(this=strftime(shape), expression=exp.Literal.number(2), fill_pattern=exp.Literal.string(" "),
+                       is_left=True)
+
+    out: exp.Expr = strftime("%b ")
+    for part in (spaced("%-d"), strftime(" %Y "), spaced("%-I"), strftime(":%M%p")):
+        out = exp.DPipe(this=out, expression=part, safe=False)
+    bound = exp.Anonymous(this="LIST_TRANSFORM", expressions=[exp.Array(expressions=[value]),
+                                                              exp.Lambda(this=out, expressions=[v.copy()])])
+    return exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1)
+
+
+def _dates_joined(node: exp.Expression, info: exp.Expression) -> list[str]:
+    """``CONCAT`` and ``CONCAT_WS`` write a date or time as a CAST to text does (WR-707): DuckDB writes ISO text,
+    where T-SQL writes a datetime as ``Jan  2 2024  1:04PM``."""
+    notes: list[str] = []
+    for arg, typed in zip(list(node.expressions), info.expressions, strict=True):
+        if _clock_type(arg) is None and not tsql_types.is_rounded(arg) and not _is(typed.type, _DATE_TIMES):
+            continue
+        holder = exp.Null()
+        arg.replace(holder)  # first, as the text may take arg itself: then it is no longer where it stood
+        dated, note = _datetime_text(arg, typed.type)
+        holder.replace(dated if dated is not None else arg)
+        if note and note not in notes:
+            notes.append(note)
+    return notes
+
+
+def _clocks(tree: exp.Expression, batch: str) -> None:
+    """Mark each GETDATE() and SYSDATETIME(), which sqlglot reads as the same CURRENT_TIMESTAMP, with the T-SQL
+    type it is, read from the query's text where it stands."""
+    for node in tree.find_all(exp.CurrentTimestamp):
+        start, end = node.meta.get("start"), node.meta.get("end")
+        if isinstance(start, int) and isinstance(end, int):
+            word = batch[start:end + 1].upper()
+            if word.startswith("SYSDATETIME"):
+                node.meta["kf_clock"] = "datetime2"
+            elif not word.startswith(("GETDATE", "CURRENT_TIMESTAMP")):
+                node.meta["kf_clock"] = None  # not told: a datetime2's 6 digits, with a note
+
+
+def _styleless_converts(tree: exp.Expression) -> None:
+    """``CONVERT(VARCHAR(n), x)`` with no style is ``CAST(x AS VARCHAR(n))`` in T-SQL: written as one, so the
+    value keeps the type it is written with (CONVERT's rewrite goes through DuckDB's SQL text, where a
+    datetime2 and a datetime both become a TIMESTAMP) and is written as text as T-SQL writes it (WR-707)."""
+    for node in list(tree.find_all(exp.Convert)):
+        to = node.this
+        if node.args.get("style") is None and isinstance(to, exp.DataType) and to.this in _SIZED:
+            kind = exp.TryCast if node.args.get("safe") else exp.Cast
+            node.replace(kind(this=node.expression, to=to))
 
 
 def _fraction_digits(source: exp.DataType | None) -> int | None:
@@ -1767,8 +1902,10 @@ def _time_text(value: exp.Expression, source: exp.DataType, digits: int) -> exp.
     whole = exp.Anonymous(this="STRFTIME", expressions=[stamp.copy(), exp.Literal.string(shape)])
     if digits <= 0:
         return whole
-    part = exp.func("LEFT", exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string("%f")]),
-                    exp.Literal.number(min(digits, 6)))
+    part: exp.Expr = exp.func("LEFT", exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string("%f")]),
+                              exp.Literal.number(min(digits, 6)))
+    if digits > 6:  # datetime2(7) and time(7): this PC keeps the microsecond, so the 7th digit is 0 (WR-707)
+        part = exp.DPipe(this=part, expression=exp.Literal.string("0" * (digits - 6)), safe=False)
     return exp.DPipe(this=exp.DPipe(this=whole, expression=exp.Literal.string(".")), expression=part)
 
 

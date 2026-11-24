@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | parity-check ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -148,6 +148,12 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("mcp", help="serve the Model Context Protocol on stdin/stdout, for an external AI tool to start")
     p.add_argument("--client", default="", help="the client id Settings > Integrations gave this tool")
     sub.add_parser("capabilities", help="print every capability external tools can use, with schemas, as JSON")
+    p = sub.add_parser("parity-check", help="run the cross-platform verification cases on this PC (local evidence only; "
+                                            "no network)")
+    p.add_argument("--case", help="one case id (default: every case)")
+    p.add_argument("--dialect", help="one dialect: spark, databricks, snowflake, tsql or duckdb")
+    p.add_argument("--out", help="a folder to write the run records to as JSON (default: write nothing)")
+    p.add_argument("--json", action="store_true", help="print the records as JSON")
     integ = sub.add_parser("integrations", help="external AI tools: the local HTTP API")
     integ_sub = integ.add_subparsers(dest="integrations_command", required=True)
     p = integ_sub.add_parser("serve", help="run the local HTTP API on 127.0.0.1 (the app starts this when it's switched on)")
@@ -278,6 +284,8 @@ def main(argv: list[str] | None = None) -> None:
         from .integrations.registry import default_registry
         print(json.dumps({"capabilities": [c.describe() for c in default_registry().all()]}, indent=2))
         return
+    if args.command == "parity-check":
+        raise SystemExit(_parity_check(args))
     if args.command == "integrations":
         from .integrations.http_server import serve as serve_http
         raise SystemExit(serve_http(args.port, args.parent_pid))
@@ -536,6 +544,26 @@ def _smoke_test(args: argparse.Namespace) -> int:
     print(smoketest.summary(result))
     print("\n".join(result["files"]))
     return 1 if result["outcome"] == "failed" else 0
+
+
+def _parity_check(args: argparse.Namespace) -> int:
+    """Runs the parity cases on this PC. Exit 2 for a case file or argument that isn't valid, else 0: a
+    difference is a finding the records report, not a failure of the run."""
+    from . import parity_harness
+    try:
+        records = parity_harness.run(case_id=args.case, dialect=args.dialect)
+    except parity_harness.CaseError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    if args.out:
+        print(f"Records written to {parity_harness.write(records, Path(args.out))}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(records, indent=2))
+        return 0
+    for r in records:
+        print(f"{r['case']:<20} {r['engine']['dialect']:<11} {r['outcome']}")
+    print("Evidence level: local. These runs can't mark a platform Verified.")
+    return 0
 
 
 def _env_drift(args: argparse.Namespace) -> int:

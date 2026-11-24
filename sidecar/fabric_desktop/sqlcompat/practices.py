@@ -433,7 +433,8 @@ def _numbers_a_key(s: Stmt, i: int) -> bool:
 
 def _whole_item(s: Stmt, i: int, end: int) -> int:
     """Where the select item ends when ROW_NUMBER() at token i (ending before token ``end``) is the
-    whole item, or the whole item is CAST(ROW_NUMBER() OVER (...) AS type); else -1. An expression
+    whole item, or the whole item is CAST(ROW_NUMBER() OVER (...) AS type) or CONVERT(type, ROW_NUMBER()
+    OVER (...)); else -1. An expression
     around it (an offset added) isn't. SELECT [ALL | DISTINCT] [TOP n | TOP (n) [PERCENT] [WITH TIES]]
     may come before it."""
     toks = s.toks
@@ -443,6 +444,13 @@ def _whole_item(s: Stmt, i: int, end: int) -> int:
         if end >= len(toks) or toks[end].kw != "AS" or close >= len(toks):
             return -1
         start, end = i - 2, close + 1
+    elif i >= 1 and toks[i - 1].type == TokenType.COMMA:  # CONVERT(INT, ROW_NUMBER() OVER (...))
+        k = i - 2  # back to CONVERT's own "(", over the type's balanced parentheses: DECIMAL(18, 0)
+        while k >= 0 and not (toks[k].type == TokenType.L_PAREN and toks[k].depth < toks[i].depth):
+            k -= 1
+        if k >= 1 and toks[k - 1].kw in {"CONVERT", "TRY_CONVERT"} and toks[k - 1].depth < toks[i].depth \
+                and end < len(toks) and toks[end].type == TokenType.R_PAREN:
+            start, end = k - 1, _close(s, k) + 1
     depth = toks[start].depth
     k = start - 1
     while k >= 0 and not (toks[k].depth == depth and (toks[k].kw == "SELECT" or toks[k].type == TokenType.COMMA)):

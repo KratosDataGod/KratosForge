@@ -442,19 +442,23 @@ class ProveMixin:
         """Write the bundle's sample of each table into the replay's sandbox, where reads then find it."""
         import zipfile
 
-        import pyarrow.parquet as pq
         from deltalake import write_deltalake
         path = self._replay_copy(info)
         bundle = replay.read(path)
+        seeded: set[str] = set()
         with zipfile.ZipFile(path) as z:
             for s in bundle.get("samples") or []:
                 table = s["table"].split("/", 1)[-1]
                 if table in tables:
+                    if replay_key(table) in seeded:
+                        raise ValueError(f"The bundle holds two samples of {table}, so the replay can't tell which "
+                                         "one to read. Choose the latest version of it instead.")
+                    seeded.add(replay_key(table))
                     schema, name = replay_key(table).split(".", 1)
                     check_name("schema", schema)  # replay.read checked it too: never build a path from a bad name
                     check_name("table", name)
                     uri = f"{root}/{PROOF_ROOT}/{rid}/pc/tables/{schema}/{name}"
-                    write_deltalake(uri, pq.read_table(z.open(s["file"])), storage_options=options())
+                    write_deltalake(uri, replay.read_sample(z, s["file"], table), storage_options=options())
 
     def replay_result(self, name: str, stopped_at: int, status: str,
                       outputs: list[dict[str, Any]] | None = None) -> dict[str, Any]:

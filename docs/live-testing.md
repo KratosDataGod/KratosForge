@@ -107,7 +107,7 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 
 ## The tenant smoke test
 
-The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
+The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check `--all` selects (not `model.bpa`) as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
 
 ## Fakes follow what live runs refused
 

@@ -195,7 +195,11 @@ def _wall_casts(statement: exp.Expression, shifting: tuple[int, ...]) -> None:
             wall = (f"(typeof({w}.w) IN ({_WALL_TYPES}) OR (typeof({w}.w) = 'VARCHAR' "
                     f"AND NOT regexp_matches(CAST({w}.w AS VARCHAR), '{_ZONED}')))")
         inner = node.copy()
-        inner.set("this", exp.column("w", table=w))
+        if not isinstance(operand, exp.Literal):
+            # A literal stays in its cast: TIMESTAMP '2026-13-01 00:00:00' is a typed literal, which Spark
+            # refuses ([INVALID_TYPED_LITERAL]) and a later pass leaves a Cast only while it holds the text
+            # itself. Read through kf_w it became a TRY_CAST, NULL in a zone with gaps, where UTC stopped.
+            inner.set("this", exp.column("w", table=w))
         inner.meta[_DONE] = True
         tree = _parse(f"(LIST_TRANSFORM([{{'w': kf_tz_operand}}], {w} -> (LIST_TRANSFORM([kf_tz_cast], {t} -> "
                       f"CASE WHEN NOT {wall} THEN {t} {_earlier(t, shifting)} ELSE {t} END))[1]))[1]")

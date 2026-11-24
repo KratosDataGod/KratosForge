@@ -1022,11 +1022,47 @@ def _from_json_schema(schema: exp.Expression) -> exp.DataType:
     ddl = schema.name.strip()
     try:
         try:
-            return exp.DataType.build(ddl, dialect="databricks")
+            text = ddl
+            dtype = exp.DataType.build(text, dialect="databricks")
         except (ParseError, TokenError, ValueError):
-            return exp.DataType.build(f"STRUCT<{ddl}>", dialect="databricks")
+            text = f"STRUCT<{ddl}>"
+            dtype = exp.DataType.build(text, dialect="databricks")
+        whole = _ddl_signature(text) == _ddl_signature(dtype.sql("databricks")) and (
+            text == ddl or not _top_level_colon(ddl))  # Spark's field list is 'a INT', not 'a: INT'
     except (ParseError, TokenError, ValueError) as exc:
         raise ValueError(f"from_json's schema {ddl!r} couldn't be read here, so nothing ran.") from exc
+    if not whole and (dtype.this != _T.STRUCT or dtype.expressions):  # struct<> is refused for having no fields
+        # sqlglot reads a struct's fields leniently: 'a INT, b' and 'a INT b INT' came back as just a, and the
+        # rest was dropped without a word. Spark stops on such a schema (ParseException).
+        raise ValueError(f"from_json's schema {ddl!r} isn't a schema Spark reads: Spark stops on it, so nothing "
+                         "ran here either. Write each field as a name and a type, with commas between them, "
+                         "such as 'a INT, b STRING'.")
+    return dtype
+
+
+def _top_level_colon(ddl: str) -> bool:
+    """A ':' outside any <> or () in a field list ('a: INT, b: STRING'), which Spark's from_json refuses."""
+    from sqlglot.dialects.databricks import Databricks
+
+    depth = 0
+    for token in Databricks().tokenize(ddl):
+        if token.token_type in (TokenType.LT, TokenType.L_PAREN):
+            depth += 1
+        elif token.token_type in (TokenType.GT, TokenType.R_PAREN):
+            depth -= 1
+        elif token.token_type == TokenType.COLON and depth == 0:
+            return True
+    return False
+
+
+def _ddl_signature(text: str) -> list[tuple[Any, str | None]]:
+    """The tokens of a type written in Spark's DDL, without the optional ':' after a field's name, so a schema
+    and sqlglot's text of what it read compare equal only when every part of it was read."""
+    from sqlglot.dialects.databricks import Databricks
+
+    named = (TokenType.VAR, TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER)
+    return [(t.token_type, t.text.lower() if t.token_type in named else None)
+            for t in Databricks().tokenize(text) if t.token_type != TokenType.COLON]
 
 
 def _from_json_template(schema: exp.Expression) -> str:

@@ -1182,21 +1182,31 @@ def _rewrite_names(statement: exp.Expression) -> bool:
     """SFX-072: Snowflake stores an unquoted name in upper case (identifiers-syntax), so CREATE TABLE, CREATE
     TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE store the names they make that way here too: the
     table, view or schema, its columns, a renamed table or column, an added column. INFORMATION_SCHEMA and
-    SELECT * then give Snowflake's names; a query still finds them by any case, as in Snowflake. False when
-    a CREATE ... AS column is an expression with no alias (SFD-001)."""
+    SELECT * then give Snowflake's names; a query still finds them by any case, as in Snowflake. The schema
+    of mysch.tab and a column list with no types (CREATE VIEW v (a, b) AS, CREATE TABLE t (a, b) AS) are
+    names the statement makes too. False when a CREATE ... AS column is an expression with no alias and no
+    column list names it (SFD-001)."""
     named = True
-    if isinstance(statement, exp.Create) and (statement.args.get("kind") or "").upper() in ("TABLE", "VIEW", "SCHEMA"):
+    kind = (statement.args.get("kind") or "").upper()
+    if isinstance(statement, exp.Create) and kind in ("TABLE", "VIEW", "SCHEMA"):
         target = statement.this
         table = target.this if isinstance(target, exp.Schema) else target
         if isinstance(table, exp.Table):
-            _upper(table.args.get("db") if (statement.args.get("kind") or "").upper() == "SCHEMA"
-                   and table.args.get("this") is None else table.args.get("this"))
+            if kind == "SCHEMA" and table.args.get("this") is None:
+                _upper(table.args.get("db"))
+            else:
+                _upper(table.args.get("this"))
+                _upper(table.args.get("db"))  # mysch.tab: the schema is resolved as MYSCH
+        listed = False
         if isinstance(target, exp.Schema):
             for column in target.expressions:
                 if isinstance(column, exp.ColumnDef):
                     _upper(column.this)
+                elif isinstance(column, exp.Identifier):  # CREATE VIEW v (a, b) AS: a name with no type
+                    _upper(column)
+                listed = True
         if statement.expression is not None:
-            named = _output_names(statement.expression)
+            named = _output_names(statement.expression) or listed
     elif isinstance(statement, exp.Alter) and (statement.args.get("kind") or "").upper() == "TABLE":
         for action in statement.args.get("actions") or []:
             if isinstance(action, exp.ColumnDef):
@@ -2735,8 +2745,9 @@ def _differences(statement: exp.Expression) -> list[Note]:
     notes = []
     if isinstance(statement, exp.Create) and statement.expression is not None \
             and (statement.args.get("kind") or "").upper() in ("TABLE", "VIEW") \
+            and not (isinstance(statement.this, exp.Schema) and statement.this.expressions) \
             and not _output_names(statement.expression.copy()):
-        notes.append(SFD_CASE)  # a column made by an expression with no alias (SFX-072 names the rest)
+        notes.append(SFD_CASE)  # a column made by an expression with no alias or column list (SFX-072 names the rest)
     types = {d.this for d in statement.find_all(exp.DataType)}
     if any(d.this == exp.DataType.Type.TIMESTAMPTZ and not _offset_checked(d) for d in statement.find_all(exp.DataType)):
         notes.append(SFD_TZ)
@@ -2899,9 +2910,10 @@ CATALOG = (
                 "the session zone's own offset at that time, gives Snowflake's value; text with another offset "
                 "stops the query (SFN-071).")),
     ("SFX-072", "Rewritten", ("CREATE TABLE, CREATE TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE "
-                "store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object, its "
-                "columns, a column or alias of CREATE ... AS and CREATE VIEW, a renamed table or column, an added "
-                "column. A quoted name keeps its case.")),
+                "store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object and the "
+                "schema it is made in (mysch.tab), its columns, a column list (CREATE VIEW v (a, b) AS), a column "
+                "or alias of CREATE ... AS and CREATE VIEW, an alias column list of VALUES (AS t(c1, c2), SFX-073), "
+                "a renamed table or column, an added column. A quoted name keeps its case.")),
     ("SFX-073", "Rewritten", ("A query's result names a column, or an unquoted alias, in upper case, as Snowflake "
                 "resolves an unquoted name (SELECT last_name gives LAST_NAME, AS area_of_circle gives AREA_OF_CIRCLE): in "
                 "each SELECT, in * RENAME and * REPLACE, and in an alias column list (AS v(a, b), WITH c(a) AS). A "

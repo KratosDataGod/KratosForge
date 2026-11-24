@@ -1363,3 +1363,51 @@ def test_unquoted_names_are_stored_in_upper_case():
     # a column made by an expression with no alias keeps DuckDB's name, and says so
     t = sf.translate("CREATE TABLE sums AS SELECT c1 + 1 FROM mytable")
     assert [n.id for n in t.statements[0].notes] == ["SFD-001"]
+
+
+def _stored_columns(con, *tables):
+    marks = ", ".join("?" for _ in tables)
+    return con.execute("SELECT table_schema, table_name, string_agg(column_name, ',' ORDER BY ordinal_position) "
+                       f"FROM information_schema.columns WHERE table_name IN ({marks}) GROUP BY ALL ORDER BY 2",
+                       list(tables)).fetchall()
+
+
+def test_a_column_list_of_create_view_and_create_table_as_is_stored_in_upper_case():
+    # identifiers-syntax: an unquoted name is stored in upper case, a quoted one as entered; the column list of
+    # CREATE VIEW v (a, b) AS and CREATE TABLE t (a, b) AS names the columns, so it is stored that way too
+    con = duckdb.connect()
+    for code in ("CREATE TABLE base (x INT, y INT)", "INSERT INTO base VALUES (1, 2)",
+                 'CREATE VIEW v (a, "Bq") AS SELECT x, y FROM base', "CREATE TABLE t (c1, c2) AS SELECT x, y FROM base",
+                 "CREATE VIEW sums (total) AS SELECT x + y FROM base"):
+        t = sf.translate(code)
+        assert t.statements[0].verdict == "translated", (code, t.summary())  # named by the list: no SFD-001
+        con.execute(t.duckdb_sql)
+    assert _stored_columns(con, "V", "T", "SUMS") == [("main", "SUMS", "TOTAL"), ("main", "T", "C1,C2"),
+                                                       ("main", "V", "A,Bq")]
+    assert con.execute(sf.translate("SELECT a, total FROM v, sums").duckdb_sql).fetchall() == [(1, 3)]
+
+
+def test_an_alias_column_list_of_values_is_stored_in_upper_case():
+    # SELECT ... FROM VALUES (...) AS t(c1, c2): the alias list names the columns CREATE ... AS stores
+    con = duckdb.connect()
+    for code in ("CREATE TABLE t AS SELECT * FROM VALUES (1, 2) AS v(c1, c2)",
+                 'CREATE VIEW w AS SELECT * FROM (VALUES (1, 2)) AS v(c1, "Cq")'):
+        t = sf.translate(code)
+        assert t.statements[0].verdict == "translated", (code, t.summary())
+        con.execute(t.duckdb_sql)
+    assert _stored_columns(con, "T", "W") == [("main", "T", "C1,C2"), ("main", "W", "C1,Cq")]
+
+
+def test_the_schema_of_a_qualified_name_is_resolved_in_upper_case():
+    # CREATE TABLE mysch.tab: the schema is an unquoted name too, so it is written as MYSCH, the name
+    # CREATE SCHEMA mysch stored; a quoted schema keeps its case
+    con = duckdb.connect()
+    t = sf.translate("CREATE TABLE mysch.tab (a INT)")
+    assert t.duckdb_sql.startswith('CREATE TABLE "MYSCH"."TAB"'), t.duckdb_sql
+    assert sf.translate('CREATE TABLE "mysch".tab (a INT)').duckdb_sql.startswith('CREATE TABLE "mysch"."TAB"')
+    assert sf.translate("CREATE VIEW mysch.v AS SELECT 1 AS q").duckdb_sql.startswith('CREATE VIEW "MYSCH"."V"')
+    for code in ("CREATE SCHEMA mysch", "CREATE TABLE mysch.tab (a INT)", "CREATE VIEW MySch.v AS SELECT 1 AS q"):
+        con.execute(sf.translate(code).duckdb_sql)
+    assert _stored_columns(con, "TAB", "V") == [("MYSCH", "TAB", "A"), ("MYSCH", "V", "Q")]
+    assert con.execute("SELECT DISTINCT table_schema FROM information_schema.tables "
+                       "WHERE table_schema ILIKE 'mysch'").fetchall() == [("MYSCH",)]

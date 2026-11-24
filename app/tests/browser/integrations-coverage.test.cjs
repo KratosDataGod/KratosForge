@@ -138,15 +138,15 @@ test("What tools can do lists each capability, what it needs and whether it asks
 
 test("an extension that didn't load says why, and one the organization stops can't be switched", { skip }, async () => {
   status = base({ extensions: [
-    { id: "x1", name: "Purview", version: "1.2", publisher: "Contoso", built_in: false, enabled: true, allowed: true, description: "Reads labels.",
-      capabilities: [], permissions: ["READ_METADATA"], error: "purview.py: no module named requests" },
+    { id: "x1", name: "Labels", version: "1.2", publisher: "Contoso", built_in: false, enabled: true, allowed: true, description: "Reads labels.",
+      capabilities: [], permissions: ["READ_METADATA"], error: "labels.py: no module named requests" },
     { id: "x2", name: "Lineage", version: "0.9", publisher: "KratosForge", built_in: true, enabled: false, allowed: false, description: "Draws lineage.",
       capabilities: [{ title: "Show lineage" }], permissions: ["READ_DATA"] }] });
   await openTab();
   const text = await card("Extensions").innerText();
-  assert.match(text, /Purview 1\.2 · Contoso/);
+  assert.match(text, /Labels 1\.2 · Contoso/);
   assert.match(text, /Adds: nothing\. Needs/);
-  assert.match(text, /Didn't load: purview\.py: no module named requests/);
+  assert.match(text, /Didn't load: labels\.py: no module named requests/);
   assert.match(text, /Lineage 0\.9 · KratosForge · built in/);
   assert.match(text, /Adds: Show lineage\./);
   assert.strictEqual(await card("Extensions").locator("input[type=checkbox]").nth(1).isDisabled(), true);

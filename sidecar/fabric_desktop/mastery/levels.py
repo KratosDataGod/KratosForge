@@ -257,7 +257,7 @@ def achievements(cls: dict[str, Any], view: dict[str, Any], skills: dict[str, di
     for t in view["talents"]:
         by_spec.setdefault(t["specialization"], []).append(t)
     out = []
-    for a in cls["achievements"]:
+    for a in cls.get("achievements") or []:   # a checked catalog always has them; a bare tree has none
         r = a["requires"]
         need = int(r["level"])
         if "talents" in r:

@@ -390,3 +390,16 @@ def test_a_unc_or_drive_path_can_never_come_out_of_a_volume_path_on_windows(here
         except ValueError:
             continue
         assert str(local).startswith(str(here / "default" / "v"))
+
+
+@pytest.mark.parametrize("name", ["con", "CON.txt", "con .txt", "nul  .csv", "COM1", "lpt9.log", "aux"])
+def test_a_windows_device_name_is_refused_even_with_spaces_before_its_extension(name):
+    with pytest.raises(ValueError, match="device name"):
+        volumes.parse(f"/Volumes/main/default/v/{name}")
+    with pytest.raises(ValueError, match="device name"):
+        volumes.check_name("volume", name.split(".")[0].strip())
+
+
+@pytest.mark.parametrize("name", ["console", "con_x.txt", "nully", "com10", "a con.txt"])
+def test_a_name_that_only_starts_like_a_device_is_kept(name):
+    assert volumes.parse(f"/Volumes/main/default/v/{name}").uc_path() == f"/Volumes/main/default/v/{name}"

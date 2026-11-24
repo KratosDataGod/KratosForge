@@ -48,7 +48,7 @@ _NAME_LIMIT = 255  # "Object names cannot exceed 255 characters." (Databricks, N
 # folder on Windows can't hold the rest, so a volume or schema named with one is refused by name too.
 _UC_FORBIDDEN = set("./ ") | {chr(c) for c in range(32)} | {chr(127)}
 _WINDOWS_FORBIDDEN = set('\\:*?"<>|')
-_DEVICE = re.compile(r"(?i)^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])(\..*)?$")
+_DEVICE = re.compile(r"(?i)(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]) *(\..*)?")  # "con .txt" is CON too
 # What a refusal or error from here starts with, so local_sql shows it without DuckDB's "Invalid Input Error: ".
 MESSAGE_STARTS = ("[VOLUME_ALREADY_EXISTS]", "[SCHEMA_NOT_FOUND]", "The volume ", "Volumes on this PC:")
 
@@ -89,7 +89,7 @@ def check_name(kind: str, name: str) -> str:
         raise _refused(f"the {kind} name {text!r} holds {shown}, which a {kind} name can't hold on this PC "
                        "(Unity Catalog refuses . / space and control characters; Windows refuses \\ : * ? \" < > | "
                        "in a folder name). Pick another name.")
-    if _DEVICE.match(text):
+    if _DEVICE.fullmatch(text):
         raise _refused(f"the {kind} name {text!r} is a device name on Windows, so it can't be a folder. Pick another "
                        "name.")
     return text.lower()
@@ -172,7 +172,7 @@ def parse(path: str) -> VolumePath:
         if bad:
             shown = ", ".join(repr(c) if c.isprintable() else f"U+{ord(c):04X}" for c in bad)
             raise _refused(f"{text} holds {shown} in {part!r}, which a file name on this PC can't hold.")
-        if part.endswith((".", " ")) or _DEVICE.match(part):
+        if part.endswith((".", " ")) or _DEVICE.fullmatch(part):
             raise _refused(f"{text}: {part!r} isn't a name Windows keeps as written (it drops a final dot or space, "
                            "and keeps device names such as CON or NUL for itself). Rename it.")
     return VolumePath(schema, volume, tuple(below))
@@ -393,10 +393,10 @@ def rename(schema: str, volume: str, new: str) -> None:
         target = _schema_folder(schema) / new
         if target.exists() or _is_link(target):
             raise already_exists(f"{CATALOG}.{schema}.{new}")
-        os.rename(folder, target)
+        jsonfile.replace(folder, target)  # waits out a reader holding the folder, as every swap here does
         meta = _meta_file(schema, volume)
         if meta.exists():
-            os.replace(meta, _meta_file(schema, new))
+            jsonfile.replace(meta, _meta_file(schema, new))
 
 
 def set_comment(schema: str, volume: str, comment: str | None) -> None:

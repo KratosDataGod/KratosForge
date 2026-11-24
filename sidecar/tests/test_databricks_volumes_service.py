@@ -417,3 +417,13 @@ def test_the_rpcs_answer_over_the_engine_s_json_lines(here, tmp_path):
     assert call("databricks_volume_drop", schema="sales", volume="landing", confirm=True)["result"] == {
         "dropped": "main.sales.landing"}
     assert dv.volumes() == []
+
+
+def test_delete_removes_a_path_picked_twice_or_inside_a_picked_folder_once(svc, here):
+    folder = here / "sales" / "landing"
+    (folder / "sub").mkdir()
+    (folder / "sub" / "a.csv").write_text("x", encoding="utf-8")
+    (folder / "b.csv").write_text("x", encoding="utf-8")
+    out = svc.databricks_volume_delete([f"{V}/sub/a.csv", f"{V}/sub", f"{V}/b.csv", f"dbfs:{V}/b.csv"], confirm=True)
+    assert out == {"deleted": [f"{V}/sub", f"{V}/b.csv"]}
+    assert list(folder.iterdir()) == []

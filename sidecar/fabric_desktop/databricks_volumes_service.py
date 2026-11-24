@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from . import databricks_volumes as dv
-from . import known_folders, trees
+from . import jsonfile, known_folders, trees
 
 METHODS = {"databricks_volumes", "databricks_volume_describe", "databricks_volume_files", "databricks_volume_create",
            "databricks_volume_drop", "databricks_volume_rename", "databricks_volume_set_comment",
@@ -64,7 +64,7 @@ def _copy(source: Path, target: Path) -> int:
     part = target.with_name(f".{target.name}.{uuid.uuid4().hex[:8]}.part")
     try:
         shutil.copyfile(source, part, follow_symlinks=True)
-        os.replace(part, target)
+        jsonfile.replace(part, target)
     finally:
         if part.exists():
             part.unlink()
@@ -183,6 +183,17 @@ class DatabricksVolumesMixin:
                 raise FileNotFoundError(f"{where.uc_path()} doesn't exist in the volume {where.full_name}.")
             if target.is_dir() and not dv._is_link(target):
                 dv.check_tree(target, where.uc_path())
+        # the same path twice, or a path inside a folder also picked, is removed once, with the folder
+        folders = [t for _, t in found if t.is_dir() and not dv._is_link(t)]
+        seen: set[str] = set()
+        once = []
+        for where, target in found:
+            key = os.path.normcase(str(target))
+            if key in seen or any(dv._inside(str(f), str(target)) and f != target for f in folders):
+                continue
+            seen.add(key)
+            once.append((where, target))
+        found = once
         for _where, target in found:
             if target.is_dir() and not dv._is_link(target):
                 trees.remove(target)

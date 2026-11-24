@@ -2,7 +2,7 @@
 middle of a script, and refuses what reads an error afterwards (@@ERROR, ERROR_NUMBER() ...) by name.
 
 SQL Server prints "Msg 8134, Level 16, State 1, Line 2" and then "Divide by zero error encountered.". The local
-engine gives the number and severity for 207, 208, 209, 239 and 8134, and no number where it isn't certain.
+engine gives the number and severity for 207, 208, 209, 239 and 8134 (and the arithmetic and conversion errors of WR-247), and no number where it isn't certain.
 TRY...CATCH waits on the T-SQL interpreter, so what reads the error inside it is refused until then.
 """
 
@@ -61,7 +61,7 @@ def test_a_duplicate_cte_name_after_another_statement_has_its_number_too(engine)
 
 
 @pytest.mark.parametrize("sql", [
-    "SELECT CAST('x' AS INT)",  # 245 names the value and its type, which the local engine words differently
+    "SELECT CAST(300 AS TINYINT)",  # 220 for a constant, whose words the local engine's message can't tell (WR-247)
     "DROP TABLE missing",  # 3701, whose text the local engine doesn't give
 ])
 def test_an_error_with_no_certain_number_shows_none(engine, sql):

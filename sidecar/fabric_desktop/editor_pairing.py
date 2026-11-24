@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import builtins
 import hashlib
+import hmac
 import secrets
 import threading
 import time
@@ -31,6 +32,7 @@ REQUEST_SECONDS = 120
 MAX_WAITING = 3
 CODE_LETTERS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L
 TOKEN_PREFIX = "kfp_"
+MAX_TOKEN = 128  # an issued token is 47 characters; anything far longer is refused unhashed
 
 
 def _hash(token: str) -> str:
@@ -99,11 +101,11 @@ class Pairings:
                     for r in self._requests.values() if r["state"] == "waiting"]
 
     def decide(self, request_id: str, approve: bool, keep: str = "session") -> dict[str, Any]:
-        if keep not in KEEP:
+        if not isinstance(keep, str) or keep not in KEEP:
             raise ValueError(f"keep must be one of {', '.join(KEEP)}")
         with self._lock:
             self._drop_old()
-            req = self._requests.get(request_id)
+            req = self._requests.get(request_id) if isinstance(request_id, str) else None
             if req is None or req["state"] != "waiting":
                 raise LookupError("That pairing request has expired. Pick KratosForge in VS Code again.")
             if not approve:
@@ -127,11 +129,15 @@ class Pairings:
 
     def check(self, token: Any) -> dict[str, Any] | None:
         """The pairing a token belongs to, while it lasts; None for any other token."""
-        if not isinstance(token, str) or not token.startswith(TOKEN_PREFIX):
+        if not isinstance(token, str) or not token.startswith(TOKEN_PREFIX) or len(token) > MAX_TOKEN or not token.isascii():
             return None
-        digest = _hash(token)
+        digest = _hash(token).encode("ascii")
         with self._lock:
-            record = self._session.get(digest) or next((r for r in self._saved() if r.get("hash") == digest), None)
+            # Every record is compared, each in constant time, so how long a refusal takes says nothing.
+            record = None
+            for r in [*self._session.values(), *self._saved()]:
+                if hmac.compare_digest(r["hash"].encode("utf-8", "replace"), digest) and record is None:
+                    record = r
             if record is None or self._expired(record):
                 return None
             self._used[record["id"]] = self.clock()

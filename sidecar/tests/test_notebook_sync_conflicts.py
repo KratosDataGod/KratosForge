@@ -347,3 +347,24 @@ def test_sync_bases_keep_a_few_per_notebook_and_skip_what_isnt_a_base(tmp_path):
 
 def test_the_atomic_write_used_by_saves_is_the_shared_one():
     assert notebook_mod.jsonfile is jsonfile  # the interruption test above patches the one saves use
+
+
+def _bases_of(svc, name):
+    return list(svc._sync_bases._folder(name).glob("*"))  # noqa: SLF001
+
+
+def test_a_renamed_notebook_leaves_no_bases_under_its_old_name(svc):
+    big(svc)
+    assert _bases_of(svc, "Big")
+    call(svc, "rename_notebook", name="Big", new_name="Bigger")
+    assert not _bases_of(svc, "Big") and not svc._sync_bases._folder("Big").exists()  # noqa: SLF001
+    nb = call(svc, "open_notebook", name="Bigger")  # the next open records one under the new name
+    assert svc._sync_bases.find("Bigger", nb["disk_stamp"])  # noqa: SLF001
+
+
+def test_a_deleted_notebook_leaves_no_copies_of_its_cells_in_the_merge_bases(svc):
+    big(svc)
+    assert _bases_of(svc, "Big")
+    call(svc, "notebook_delete", name="Big")
+    assert not _bases_of(svc, "Big")
+    assert not any((svc.root / "notebook-sync").iterdir())

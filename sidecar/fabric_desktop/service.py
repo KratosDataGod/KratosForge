@@ -1536,6 +1536,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             ("environment", lambda: self.environments.rename_notebook(name, new_name)),
             ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
             ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
+            ("merge bases", lambda: self._sync_bases.forget(name)),  # the next open records one under the new name
             ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
             ("pin", lambda: self._rename_item_pin("notebook", name, new_name)),
         ]

@@ -231,6 +231,12 @@ class SyncBases:
         return data["cells"]
 
     def forget(self, name: str) -> None:
+        """Drops the notebook's bases (renamed or deleted: no copies of its cells are left behind).
+        A merge after that asks for the whole notebook, as when no base is known."""
         folder = self._folder(name)
         for p in folder.glob("*"):
             p.unlink(missing_ok=True)
+        try:
+            folder.rmdir()
+        except OSError:
+            pass  # not there, or a write landed meanwhile: left for the next forget

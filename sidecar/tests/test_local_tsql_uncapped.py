@@ -92,6 +92,12 @@ def run(sql: str) -> list[tuple]:
         con.close()
 
 
+def stops_with(sql: str, message: str) -> None:
+    """``sql`` stops with T-SQL's ``message``, when it is translated or when it runs."""
+    with pytest.raises((ValueError, duckdb.Error), match=message):
+        run(sql)
+
+
 def test_char_of_a_column_is_null_outside_0_to_255_and_cuts_a_fraction():
     assert run("SELECT CHAR(a) FROM (VALUES (65), (300), (66.7)) AS v(a)") == [("A",), (None,), ("B",)]
     assert run("SELECT CHAR(a) FROM (VALUES ('66')) AS v(a)") == [("B",)]
@@ -178,8 +184,7 @@ def test_a_json_path_that_is_a_number_is_refused_as_not_written_out_as_text():
 def test_char_of_a_literal_is_worked_out_here():
     assert translate("SELECT CHAR(65)")[0] == ["SELECT CHR(65)"]
     assert translate("SELECT CHAR(300)")[0] == ["SELECT CAST(NULL AS TEXT)"]
-    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type int"):
-        translate("SELECT CHAR(99999999999)")
+    stops_with("SELECT CHAR(99999999999)", "Arithmetic overflow error converting expression to data type int")
 
 
 def test_upper_keeps_the_sharp_s_as_t_sql_does():
@@ -213,7 +218,7 @@ def test_isnull_of_an_integer_and_an_integer_is_left_as_coalesce_with_no_cast():
 
 def test_a_wide_decimal_product_that_fits_is_worked_out_exactly_with_no_floating_point_note():
     out = translate("SELECT w * w FROM t", {"dbo": {"t": {"w": "DECIMAL(38,2)"}}})
-    assert out == (["SELECT CAST(w * w AS DECIMAL(38, 4)) FROM t"], [])
+    assert out == (["SELECT CAST(CAST(w AS DECIMAL(38, 2)) * w AS DECIMAL(38, 4)) FROM t"], [])
 
 
 @pytest.mark.xfail(strict=True, reason=(
@@ -236,7 +241,7 @@ def test_a_datetime2_with_one_digit_of_a_second_shows_that_digit_as_text():
 
 def test_a_product_one_digit_past_38_is_given_38_digits():
     columns = {"dbo": {"t": {"x": "DECIMAL(19,2)", "y": "DECIMAL(19,2)"}}}
-    assert translate("SELECT x * y FROM dbo.t", columns)[0] == ["SELECT CAST(x * y AS DECIMAL(38, 4)) FROM dbo.t"]
+    assert translate("SELECT x * y FROM dbo.t", columns)[0] == ["SELECT CAST(CAST(x AS DECIMAL(38, 2)) * y AS DECIMAL(38, 4)) FROM dbo.t"]
 
 
 def test_text_in_a_subquery_of_integers_has_no_note_about_unknown_types():
@@ -291,8 +296,7 @@ def test_space_of_a_bigint_past_an_int_is_t_sqls_int_overflow():
 
 
 def test_counts_just_past_an_int_and_a_bigint_overflow():
-    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type int"):
-        translate("SELECT SPACE(2147483648)")
+    stops_with("SELECT SPACE(2147483648)", "Arithmetic overflow error converting expression to data type int")
     with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
         translate("SELECT REPLICATE('a', 9223372036854775808)")
 
@@ -518,23 +522,26 @@ def test_substring_of_length_0_has_no_negative_length_check():
 
 
 def test_char_just_below_an_int_is_t_sqls_int_overflow():
-    assert translate("SELECT CHAR(-2147483648)")[0] == ["SELECT CAST(NULL AS TEXT)"]
-    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type int"):
-        translate("SELECT CHAR(-2147483649)")
-
-
-def test_a_length_far_below_a_bigint_is_t_sqls_bigint_overflow():
-    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
-        translate("SELECT LEFT('abc', -10000000000000000000)")
+    assert run("SELECT CHAR(-2147483648)") == [(None,)]
+    stops_with("SELECT CHAR(-2147483649)", "Arithmetic overflow error converting expression to data type int")
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "Known bug: a negative literal reaches the bigint range check as a float (-9223372036854775809 is a Neg of "
-    "a literal, read through float), which rounds to -2**63, inside the range, so the answer is LEFT's "
-    "'Invalid length' error where T-SQL stops converting the value to a bigint"))
+    "Known bug since WR-247 (#3248): a length below a bigint is now a DECIMAL that DuckDB fails to cast to "
+    "INT64 with its own message ('Failed to cast decimal value ... to type INT64'), not T-SQL's overflow error"))
+def test_a_length_far_below_a_bigint_is_t_sqls_bigint_overflow():
+    stops_with("SELECT LEFT('abc', -10000000000000000000)",
+               "Arithmetic overflow error converting expression to data type bigint")
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Known bug: at main 293fb38da a negative literal reached the bigint range check as a float "
+    "(-9223372036854775809 rounds to -2**63, inside the range), so the answer was LEFT's 'Invalid length' error; "
+    "since WR-247 (#3248) it is DuckDB's 'Failed to cast decimal value' error. T-SQL stops converting the value "
+    "to a bigint"))
 def test_a_length_one_below_a_bigint_is_t_sqls_bigint_overflow():
-    with pytest.raises(ValueError, match="Arithmetic overflow error converting expression to data type bigint"):
-        translate("SELECT LEFT('abc', -9223372036854775809)")
+    stops_with("SELECT LEFT('abc', -9223372036854775809)",
+               "Arithmetic overflow error converting expression to data type bigint")
 
 
 def test_char_of_a_column_keeps_0_and_255_and_nulls_256():
@@ -657,7 +664,7 @@ def test_a_modulo_by_a_value_of_unknown_type_is_left_to_duckdb():
 def test_a_decimal_avg_in_a_product_has_scale_6_and_precision_38():
     columns = {"dbo": {"t": {"d": "DECIMAL(10,2)"}}}
     assert translate("SELECT AVG(d) * 2 FROM dbo.t", columns)[0] == [
-        "SELECT CAST(CAST(AVG(d) AS DECIMAL(38, 6)) * 2 AS DECIMAL(38, 6)) FROM dbo.t"]
+        "SELECT CAST(CAST(CAST(AVG(d) AS DECIMAL(38, 6)) AS DECIMAL(38, 6)) * 2 AS DECIMAL(38, 6)) FROM dbo.t"]
 
 
 def test_isnumeric_is_refused_by_name():

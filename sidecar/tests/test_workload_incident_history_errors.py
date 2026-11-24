@@ -14,7 +14,11 @@ NOW = dt.datetime(2026, 11, 18, 12, tzinfo=dt.timezone.utc)
 
 @pytest.fixture
 def chicago(monkeypatch):
-    """Local time in Chicago, so a time read as local instead of UTC shows."""
+    """Local time in Chicago, so a time read as local instead of UTC shows. Windows has no
+    time.tzset: there the test still runs, in the machine's own zone."""
+    if not hasattr(time, "tzset"):
+        yield
+        return
     monkeypatch.setenv("TZ", "America/Chicago")
     time.tzset()
     yield

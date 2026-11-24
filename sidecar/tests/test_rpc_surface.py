@@ -43,6 +43,10 @@ NO_UI_CALLER: dict[str, str] = {
     "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # Compare platforms (Preview): the card that reads it comes with the UI commit of the same change.
     "snowflake_query_credits": "Compare platforms engine call; its card is added next",
+    "compare_platforms": "Compare platforms engine call; its card is added next",
+    "compare_link": "Compare platforms engine call; its card is added next",
+    "compare_unlink": "Compare platforms engine call; its card is added next",
+    "compare_pricing_save": "Compare platforms engine call; its card is added next",
     # Best practices check (semantic-link-labs in Fabric).
     # Local data projects.
     "list_local_tables": _LOCAL,
@@ -153,6 +157,9 @@ NO_SCREEN_GATE: dict[str, str] = {
     "optimize_share_local_runs": "confirm",
 }
 NOT_DESTRUCTIVE: dict[str, str] = {
+    "compare_link": "links a job or a query tag to a workload in a file on this PC; nothing else changes",
+    "compare_unlink": "takes a link off a workload in a file on this PC; nothing else changes",
+    "compare_pricing_save": "keeps a pricing scenario in a file on this PC; nothing is charged or shared",
     "local_add_source": "adds views over a folder; the files are only read",
     "local_close_project": "closes the database file; nothing is deleted",
     "local_create_project": "makes a new project",

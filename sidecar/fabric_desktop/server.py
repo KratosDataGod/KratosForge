@@ -167,6 +167,11 @@ from .databricks_volumes_service import METHODS as DATABRICKS_VOLUME_METHODS  # 
 
 METHODS |= DATABRICKS_VOLUME_METHODS
 
+# Optimize > Cost and savings: Compare platforms for one workload (compare_service.py, Preview).
+from .compare_service import METHODS as COMPARE_METHODS  # noqa: E402
+
+METHODS |= COMPARE_METHODS
+
 # OneLake > Access across every workspace: the access cache (access_cache_service.py).
 from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
 

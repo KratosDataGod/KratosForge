@@ -38,7 +38,7 @@ Select **Import from Fabric or Databricks** under **Start something** on **Home*
 
 Before anything is written, the dialog shows the format it found and each notebook it will create, with its name, number of cells and languages. For a Databricks notebook it also lists, cell by cell, everything the conversion dropped or changed and anything that won't run the same on this PC (see below). For a `.ipynb` file it lists each cell whose saved outputs were left out or whose type changed. Select **Import** to create them. The first new notebook opens; all of them are in **Recent notebooks**.
 
-Limits: a `.dbc` archive can be up to 64 MB, and any other file up to 32 MB. A `.dbc` archive can hold up to 500 files, 16 MB per notebook and 128 MB in all once unpacked, and up to 200 notebooks. An archive with a path that climbs out of it (`..`, a drive letter or a leading slash) or that is encrypted isn't imported at all, and neither is a damaged one or one whose entries hold more than their headers say; the message says which.
+Limits: a `.dbc` archive can be up to 64 MB, and any other file up to 32 MB. A `.dbc` archive can hold up to 500 files, 16 MB per notebook and 128 MB in all once unpacked, and up to 200 notebooks. An archive with a path that climbs out of it (`..`, a drive letter or a leading slash) or that is encrypted isn't imported at all, and neither is a damaged one or one whose entries hold more than their headers say. The message says which.
 
 ## What a Databricks conversion doesn't carry over
 

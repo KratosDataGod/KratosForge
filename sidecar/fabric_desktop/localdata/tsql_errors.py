@@ -46,6 +46,10 @@ _COLUMN_CAST = re.compile(r"^Conversion Error: Type (?:U?INT\d+|DECIMAL\(\d+,\d+
                           r"(?P<kind>INT32|INT64|INT16|UINT8) when casting from source column ")
 _TEXT_TO = re.compile(r"""^Conversion Error: Could not convert string (?P<q>["'])(?P<value>.*)(?P=q) to """
                       r"(?P<kind>INT32|INT64|INT16|UINT8|DECIMAL\(\d+,\d+\)|DOUBLE|FLOAT)$")
+# A scalar subquery that returns more than one row: 512 (WR-705: SET @x = (SELECT ...))
+_SUBQUERY_ROWS = re.compile(r"^Invalid Input Error: More than one row returned by a subquery used as an expression")
+_SUBQUERY_ROWS_TEXT = ("Subquery returned more than 1 value. This is not permitted when the subquery follows =, !=, "
+                       "<, <= , >, >= or when the subquery is used as an expression.")
 _A_NUMBER = re.compile(r"^\s*[+-]?(?:\d+\.?\d*|\.\d+)\s*$")
 _DATE_TIME = re.compile(r"^Conversion Error: (?:invalid (?:date|time|timestamp) field format|"
                         r"(?P<range>(?:date|time|timestamp) field value out of range)): \"")
@@ -59,6 +63,7 @@ _NUMBERS = [
     (re.compile(r"^Ambiguous column name '"), 209),
     (re.compile(r"^Duplicate common table expression name '.*' was specified\.$"), 239),
     (re.compile(r"^Divide by zero error encountered\.$"), 8134),
+    (re.compile(r"^Subquery returned more than 1 value\. "), 512),
     (re.compile(r"^Arithmetic overflow error converting expression to data type \w+\.$"), 8115),
     (re.compile(r"^Arithmetic overflow error for type int, value = -?\d+\.\d{6}\.$"), 232),
     (re.compile(r"^Conversion failed when converting the n?varchar value '.*' to data type \w+\.$", re.DOTALL), 245),
@@ -84,6 +89,8 @@ def warehouse(message: str, sql: str, kind: str) -> str | None:
         return own  # the translator's own words, such as "Divide by zero error encountered."
     if (arithmetic := _arithmetic(first, sql)) is not None:
         return arithmetic
+    if _SUBQUERY_ROWS.match(first):
+        return _SUBQUERY_ROWS_TEXT
     for pattern in _COLUMN:
         if found := pattern.match(first):
             return f"Invalid column name '{found['name']}'."

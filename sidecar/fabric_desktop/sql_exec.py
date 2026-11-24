@@ -84,7 +84,7 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -190,6 +190,7 @@ class Execution:
     error_kind: str = ""
     refused: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)  # local T-SQL: where this PC's answer can differ from a warehouse's
+    messages: list[str] = field(default_factory=list)  # local T-SQL: what PRINT and low-severity RAISERROR said
     proc: subprocess.Popen[str] | None = field(default=None, repr=False)
     timer: AwakeTimer | None = field(default=None, repr=False)
     reader: threading.Thread | None = field(default=None, repr=False)  # follows the process; writes the audit line
@@ -250,7 +251,8 @@ class Execution:
                 "rows": self.rows, "columns": self.columns, "permission": self.permission,
                 "error": self.error, "error_kind": self.error_kind, "refused": self.refused,
                 "time_limit_minutes": round(self.time_limit_s / 60, 2),
-                **({"time_limit_from": self.time_limit_from, "notes": self.notes} if self.target == "local" else {}),
+                **({"time_limit_from": self.time_limit_from, "notes": self.notes, "messages": self.messages}
+                   if self.target == "local" else {}),
                 **({"change": True, "affected": self.affected, "committed": self.committed}
                    if "warehouse_write" in self.allow else {}),
                 **({"failed_batch": self.failed_batch} if self.failed_batch else {}),
@@ -500,7 +502,7 @@ class SqlExecutions:
         confirming. Nothing runs and no run is kept."""
         writes = "warehouse_write" in allowed
         verdicts = ((warehouse.unit_verdicts(units, writes=writes) if units else warehouse.verdicts(query, writes=writes))
-                    if target == "warehouse" else sql_policy.classify(_policy_statements(query, dialect), target))
+                    if target == "warehouse" else _classify(query, dialect, target))
         stop = sql_policy.refused(verdicts, allowed, bool(confirm))
         return {"dry_run": True, "target": target, "dialect": dialect,
                 "permission": sql_policy.strongest(verdicts),
@@ -823,9 +825,10 @@ class SqlExecutions:
         state, kind, error, refused = "completed", "", "", None
         rows, batches, columns = 0, [], []
         notes: list[str] = []
+        messages: list[str] = []
         engine = None
         try:
-            verdicts = sql_policy.classify(_policy_statements(run.query, run.dialect), "local")
+            verdicts = _classify(run.query, run.dialect, "local")
             stop = sql_policy.refused(verdicts, run.allow, run.confirm)
             if stop is not None:
                 refused = _refusal(stop)
@@ -847,6 +850,7 @@ class SqlExecutions:
                             run.rows = rows
                     columns = [{"name": f.name, "type": str(f.type)} for f in stream.schema]
                     notes = list(getattr(stream, "notes", None) or [])  # an engine without translation notes
+                    messages = list(getattr(stream, "messages", None) or [])  # WR-705: PRINT's lines
         except QueryCancelled:
             state, error = "cancelled", "Stopped."
         except TimeoutError as exc:
@@ -864,6 +868,7 @@ class SqlExecutions:
                 run.permission = refused["permission"]
             if state == "completed":
                 run.rows, run.batches, run.columns, run.notes = rows, batches, columns, notes
+                run.messages = messages
                 run.offsets = list(itertools.accumulate([0, *batches[:-1]])) if batches else []
             else:
                 shutil.rmtree(run.folder, ignore_errors=True)
@@ -1272,11 +1277,28 @@ def _policy_statements(query: str, dialect: str) -> list[Any]:
     return [st for text in texts for st in sql.parse(text, "duckdb")]
 
 
+def _classify(query: str, dialect: str, target: str) -> list[sql_policy.Verdict]:
+    """The policy's class of each statement. WR-705: a T-SQL script with variables or control flow is classed as
+    each of its statements and expressions in DuckDB SQL, each variable a typed NULL, and each verdict is numbered
+    by the statement it is part of, as the user counts them."""
+    if dialect == "tsql":
+        from .localdata import tsql_script
+        if tsql_script.is_script(query):
+            places, statements = [], []
+            for place, text in tsql_script.policy_texts(query):
+                for st in sql.parse(text, "duckdb"):
+                    places.append(place + 1)
+                    statements.append(st)
+            return [replace(v, statement=places[v.statement - 1])
+                    for v in sql_policy.classify(statements, target)]
+    return sql_policy.classify(_policy_statements(query, dialect), target)
+
+
 def check_local(query: str, dialect: str, confirm: bool = False) -> tuple[list[sql_policy.Verdict], sql_policy.Verdict | None]:
     """A local data project query's statements, classed, and the first that may not run, or None.
     The same check a managed local run makes (``target="local"``), for callers that run a query
     in the project's engine themselves (``local_query``)."""
-    verdicts = sql_policy.classify(_policy_statements(query, dialect), "local")
+    verdicts = _classify(query, dialect, "local")
     return verdicts, sql_policy.refused(verdicts, TARGET_ALLOWS["local"], confirm)
 
 

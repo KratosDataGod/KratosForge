@@ -44,7 +44,7 @@ import pyarrow as pa
 
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
 from ..awake_timer import AwakeTimer
-from . import delta, tsql, tsql_errors
+from . import delta, tsql, tsql_errors, tsql_script
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
@@ -823,11 +823,12 @@ class LocalEngine:
         # Start it now, so closing or dropping the reader before the first batch still frees the connection.
         stream = batches()
         notes = list((run.get("translation") or {}).get("notes") or [])
+        messages = list(run.get("messages") or [])
         try:
             first = next(stream)
         except StopIteration:
-            return ResultStream(inner.schema, iter(()), stream, notes)
-        return ResultStream(inner.schema, _chain(first, stream), stream, notes)
+            return ResultStream(inner.schema, iter(()), stream, notes, messages)
+        return ResultStream(inner.schema, _chain(first, stream), stream, notes, messages)
 
     @contextmanager
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
@@ -876,6 +877,10 @@ class LocalEngine:
                     if said is exc:
                         raise
                     raise said from None
+                script = statements[0].get("script") if statements else None
+                if script is not None and (write is not None or change or explain is not None):
+                    raise ValueError("A T-SQL script with variables or control flow runs only as a whole "
+                                     "query (local_query or sql_start), not as a Delta write, a change or a plan.")
                 if write is not None:
                     statements = [self._as_write(statements, write, sql)]
                 if change and (len(statements) != 1 or statements[0]["change"] is None):
@@ -883,7 +888,11 @@ class LocalEngine:
                                      "with no other statements.")
                 if explain is not None:
                     _one_read(con, statements)
-                result: duckdb.DuckDBPyConnection | duckdb.DuckDBPyRelation | None = None
+                result: Any = None
+                if script is not None:
+                    result = self._run_script(con, script, state, query_id, run, as_of, params,
+                                              confirm)
+                    statements = []
                 for i, step in enumerate(statements):
                     # Between statements, or before DuckDB saw the interrupt: DuckDB drops an interrupt
                     # that comes before a statement starts, so a limit that ran out while the query was
@@ -892,48 +901,8 @@ class LocalEngine:
                         raise duckdb.InterruptException("cancelled")
                     step_started = time.monotonic()
                     try:
-                        as_of += self._make_as_of(con, step["as_of"])
-                        if explain is None and step.get("matched") is not None:
-                            _matched_once(con, step["matched"])
-                        if dialect == "tsql" and step["kind"] in ("create", "alter") and step["write"] is None \
-                                and step["change"] is None:
-                            _within_column_limit(con, step["sql"])  # WR-235: before anything is made
-                        if explain is None and step.get("joined") is not None:
-                            _updated_once(con, step["joined"])
-                        if step["write"] is not None and step["write"].mode == "table":
-                            summary = self._make_table(con, step["write"], params)
-                            run["write"] = summary
-                            result = for_arrow(con, 'SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
-                                               [summary["table"], summary["rows"]])
-                        elif step["write"] is not None:
-                            summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
-                            run["write"] = summary
-                            result = for_arrow(
-                                con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
-                                '?::BIGINT AS rows_written',
-                                [summary["table"], summary["mode"], summary["version"], summary["rows"]])
-                        elif step["change"] is not None:
-                            summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
-                                                   confirm=confirm)
-                            run["change"] = summary
-                            result = for_arrow(
-                                con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
-                                '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
-                                [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
-                                 summary["rows_updated"], summary["rows_deleted"]])
-                        elif explain == "analyze":
-                            result = _analyze(con, step["sql"])
-                        elif explain == "plan":
-                            result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
-                        elif lazy and i == len(statements) - 1 and step["kind"] == "select":
-                            # A relation runs as it's read. DuckDB 2.0's reader over an executed result copies
-                            # every row before the first batch, so a big result filled memory and Stop
-                            # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
-                            result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
-                        elif i == len(statements) - 1:
-                            result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
-                        else:
-                            run_through(con, step["sql"], _bound(con, step["sql"], params))
+                        result = self._run_step(con, step, i == len(statements) - 1, state, query_id, run, as_of,
+                                                params, dry_run, confirm, explain, lazy, dialect)
                     except (duckdb.Error, ValueError) as exc:
                         if dialect != "tsql" or isinstance(exc, duckdb.InterruptException):
                             raise
@@ -984,6 +953,70 @@ class LocalEngine:
                     except duckdb.Error:
                         pass
 
+    def _run_step(self, con: duckdb.DuckDBPyConnection, step: dict[str, Any], last: bool, state: dict[str, Any],
+                  query_id: str, run: dict[str, Any], as_of: list[str], params: dict[str, Any] | None,
+                  dry_run: bool, confirm: bool, explain: str | None, lazy: bool, dialect: str) -> Any:
+        """Run one statement of a query; the result of the ``last`` one (a DuckDB result or relation), else None."""
+        result: Any = None
+        as_of.extend(self._make_as_of(con, step["as_of"]))
+        if explain is None and step.get("matched") is not None:
+            _matched_once(con, step["matched"])
+        if dialect == "tsql" and step["kind"] in ("create", "alter") and step["write"] is None \
+                and step["change"] is None:
+            _within_column_limit(con, step["sql"])  # WR-235: before anything is made
+        if explain is None and step.get("joined") is not None:
+            _updated_once(con, step["joined"])
+        if step["write"] is not None and step["write"].mode == "table":
+            summary = self._make_table(con, step["write"], params)
+            run["write"] = summary
+            result = for_arrow(con, 'SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
+                               [summary["table"], summary["rows"]])
+        elif step["write"] is not None:
+            summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
+            run["write"] = summary
+            result = for_arrow(
+                con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
+                '?::BIGINT AS rows_written',
+                [summary["table"], summary["mode"], summary["version"], summary["rows"]])
+        elif step["change"] is not None:
+            summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
+                                   confirm=confirm)
+            run["change"] = summary
+            result = for_arrow(
+                con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
+                '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
+                [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
+                 summary["rows_updated"], summary["rows_deleted"]])
+        elif explain == "analyze":
+            result = _analyze(con, step["sql"])
+        elif explain == "plan":
+            result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
+        elif lazy and last and step["kind"] == "select":
+            # A relation runs as it's read. DuckDB 2.0's reader over an executed result copies
+            # every row before the first batch, so a big result filled memory and Stop
+            # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
+            result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
+        elif last:
+            result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
+        else:
+            run_through(con, step["sql"], _bound(con, step["sql"], params))
+        return result
+
+    def _run_script(self, con: duckdb.DuckDBPyConnection, script: "tsql_script.Script", state: dict[str, Any],
+                    query_id: str, run: dict[str, Any], as_of: list[str], params: dict[str, Any] | None,
+                    confirm: bool) -> Any:
+        """WR-705: run a T-SQL script with variables and control flow, statement by statement. Each ordinary
+        statement runs as any T-SQL statement does here (_duckdb_steps, _run_step), so a write to one of the
+        project's Delta tables goes through delta-rs. Returns the last ordinary statement's result, read whole."""
+        runner = _ScriptRunner(self, con, state, query_id, run, as_of, params, confirm)
+        outcome = tsql_script.run(script, runner)
+        run["messages"] = outcome.messages
+        translation = run.setdefault("translation", {"from": "tsql", "notes": []})
+        translation["notes"] = list(dict.fromkeys(list(translation.get("notes") or []) + outcome.notes))
+        run["statements"][:] = [{"statement": place + 1, "type": kind.lower(), "seconds": round(seconds, 3),
+                                 "runs": times} for place, (kind, times, seconds) in sorted(outcome.runs.items())]
+        return None if outcome.result is None else _Held(outcome.result)
+
     # Statements, and the project's own Delta tables
 
     def _statements(self, con: duckdb.DuckDBPyConnection, sql: str, dialect: str,
@@ -1017,6 +1050,13 @@ class LocalEngine:
                 steps.append({"sql": text, "write": write, "change": None, "as_of": found,
                               "kind": "write delta" if write else _kind(text)})
             return steps
+        if dialect == "tsql" and tsql_script.is_script(sql):
+            # WR-705: variables and control flow. The whole script is checked here; it runs in _run_script.
+            checked = tsql_script.compile_script(sql, self._column_types(con),
+                                                 _FunctionNames(lambda: self._function_names(con)))
+            if run is not None:
+                run["translation"] = {"from": "tsql", "notes": checked.notes, "fabric_check": _fabric_check(sql)}
+            return [{"script": checked, "sql": "", "write": None, "change": None, "as_of": [], "kind": "script"}]
         if dialect == "tsql":
             # The function list is read only for a query that calls a function sqlglot doesn't know: building it
             # is most of a short T-SQL query's time (about 15 ms of 21 in examples/benchmark).
@@ -2061,6 +2101,90 @@ def _remove_tree(folder: Path, tables_dir: Path) -> None:
         trees.remove(folder)
 
 
+class _Held:
+    """A result read whole, as a T-SQL script's is (WR-705), read as a DuckDB result is (_collect, arrow_reader)."""
+
+    def __init__(self, table: pa.Table) -> None:
+        self.table = table
+        self.description = [(f.name, str(f.type)) for f in table.schema]
+
+    def to_arrow_reader(self, batch_rows: int) -> pa.RecordBatchReader:
+        return pa.RecordBatchReader.from_batches(self.table.schema, self.table.to_batches(max_chunksize=batch_rows))
+
+
+_CHANGES_DATA = {"insert", "update", "delete", "merge", "create", "drop", "alter", "truncate"}
+_COUNTED = {"insert", "update", "delete", "merge", "create"}  # DuckDB's Count is T-SQL's @@ROWCOUNT for these
+_RESHAPES = {"create", "drop", "alter"}  # the tables' columns change, so the translator reads them again
+
+
+class _ScriptRunner:
+    """What tsql_script runs a script's statements with: the project's connection, its time limit and Stop."""
+
+    def __init__(self, engine: "LocalEngine", con: duckdb.DuckDBPyConnection, state: dict[str, Any], query_id: str,
+                 run: dict[str, Any], as_of: list[str], params: dict[str, Any] | None, confirm: bool) -> None:
+        self.engine, self.con, self.state, self.query_id, self.run_record = engine, con, state, query_id, run
+        self.as_of, self.params, self.confirm = as_of, params, confirm
+        self.known = _FunctionNames(lambda: engine._function_names(con))
+        self.columns = engine._column_types(con)
+        self.schema: Any = None
+        self.views = 0  # time travel views made so far, so each has its own name
+
+    def translate(self, tree: Any, text: str) -> tuple[str, list[str]]:
+        if self.schema is None:
+            self.schema = tsql._schema(self.columns)
+        return tsql._one(text, tree, self.columns, self.known, self.schema)
+
+    def run(self, sql: str, kind: str) -> tuple[Any, int, bool]:
+        steps = self.engine._duckdb_steps(self.con, [sql], self.views, tsql=True)
+        table, rows, changed = None, 0, False
+        for step in steps:
+            self.views += len(step["as_of"])
+            result = self.engine._run_step(self.con, step, True, self.state, self.query_id, self.run_record,
+                                           self.as_of, self.params, False, self.confirm, None, False, "tsql")
+            table = None
+            if result is not None and result.description:
+                reader = arrow_reader(result, 100_000)
+                try:
+                    table = reader.read_all()
+                finally:
+                    reader.close()
+            done = step["kind"]
+            if step["change"] is not None and table is not None:
+                rows = sum(int(table.column(c)[0].as_py() or 0) for c in ("rows_inserted", "rows_updated",
+                                                                         "rows_deleted"))
+                changed = True
+            elif step["write"] is not None and table is not None:
+                rows, changed = int(table.column("rows_written")[0].as_py() or 0), True
+            elif done == "select" and table is not None:
+                rows = table.num_rows
+            elif done in _COUNTED and table is not None and table.column_names == ["Count"] and table.num_rows == 1:
+                rows = int(table.column("Count")[0].as_py() or 0)
+            else:
+                rows = 0
+            changed = changed or done in _CHANGES_DATA
+            if done in _RESHAPES or step["write"] is not None:
+                self.columns, self.schema = self.engine._column_types(self.con), None
+        return table, rows, changed
+
+    def rows(self, sql: str, last_only: bool = False) -> tuple[int, list[tuple[Any, ...]]]:
+        cursor = self.con.execute(sql)
+        if not last_only:
+            found = cursor.fetchall()
+            return len(found), found
+        count, last = 0, None
+        while chunk := cursor.fetchmany(10_000):
+            count += len(chunk)
+            last = chunk[-1]
+        return count, [] if last is None else [last]
+
+    def check(self) -> None:
+        if self.state["cancelled"] or self.state["timed_out"]:
+            raise duckdb.InterruptException("cancelled")
+
+    def error(self, exc: Exception, sql: str, kind: str) -> Exception:
+        return _as_warehouse_says(exc, {"sql": sql, "kind": kind})
+
+
 def _place_in_script(step: dict[str, Any], i: int, n: int) -> tuple[int, int, str]:
     """Where step ``i`` of ``n`` is in the user's script, as (index from 0, count, kind). A T-SQL step has its
     place in the script as the user wrote it, so a skipped SET NOCOUNT still counts (WR-256)."""
@@ -2201,9 +2325,11 @@ class ResultStream:
     """A query's whole result, batch by batch. Closing it (or reading it to the end) frees the
     project's connection; a pyarrow reader's own close() wouldn't, so this wraps one."""
 
-    def __init__(self, schema: pa.Schema, batches: Any, generator: Any, notes: list[str] | None = None):
+    def __init__(self, schema: pa.Schema, batches: Any, generator: Any, notes: list[str] | None = None,
+                 messages: list[str] | None = None):
         self.schema = schema
         self.notes = notes or []  # T-SQL: where this PC's answer can differ from a warehouse's (translation notes)
+        self.messages = messages or []  # T-SQL: what PRINT and RAISERROR of severity 10 or less said (WR-705)
         self._generator = generator
         self.reader = pa.RecordBatchReader.from_batches(schema, batches)
 
@@ -2258,6 +2384,8 @@ def _about(run: dict[str, Any], project: str) -> dict[str, Any]:
              "dialect": run["dialect"], "project": project}
     if "translation" in run:
         about["translation"] = run["translation"]
+    if "messages" in run:
+        about["messages"] = run["messages"]  # WR-705: PRINT, and RAISERROR of severity 10 or less, in order
     return about
 
 

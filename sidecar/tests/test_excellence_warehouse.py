@@ -243,7 +243,8 @@ def reads_of(r: dict) -> dict:
 def test_the_call_reads_warehouses_with_a_silent_token_only(make):
     s = make()
     r = s.excellence_assess(workspace_id=WSID)
-    assert s.auth.silent == [FABRIC_SCOPES] and len(SilentFabric.made) == 1
+    # the warehouse read asks for the Fabric scope silently (the table read asks for storage the same way)
+    assert s.auth.silent.count(FABRIC_SCOPES) == 1 and len(SilentFabric.made) == 1
     assert SilentFabric.made[0].token == "silent-token"
     assert [c[0] for c in SilentFabric.made[0].calls] == ["get_warehouse", "get_warehouse"]
     assert {outcome_of(r, "FEA-WH-002", wh_id(i))["outcome"] for i in range(2)} == {"pass"}
@@ -257,7 +258,7 @@ def test_the_call_reads_warehouses_with_a_silent_token_only(make):
 def test_without_a_silent_token_nothing_is_read_or_asked_and_the_controls_are_not_evaluated(make):
     s = make(token=None)
     r = s.excellence_assess(workspace_id=WSID)
-    assert SilentFabric.made == [] and s.auth.silent == [FABRIC_SCOPES]
+    assert SilentFabric.made == [] and s.auth.silent.count(FABRIC_SCOPES) == 1
     got = reads_of(r)
     assert got["ok"] is False and "without asking" in got["problem"]
     assert {outcome_of(r, "FEA-WH-002", wh_id(i))["outcome"] for i in range(2)} == {"not_evaluated"}
@@ -266,7 +267,7 @@ def test_without_a_silent_token_nothing_is_read_or_asked_and_the_controls_are_no
 def test_no_warehouse_means_no_token_is_asked_for(make):
     s = make(warehouses=0)
     r = s.excellence_assess(workspace_id=WSID)
-    assert s.auth.silent == [] and not [x for x in r["reads"] if x["read"] == "warehouse properties"]
+    assert FABRIC_SCOPES not in s.auth.silent and not [x for x in r["reads"] if x["read"] == "warehouse properties"]
 
 
 def test_a_failed_warehouse_read_is_reported_and_leaves_its_controls_not_evaluated(make):
@@ -328,3 +329,29 @@ def test_a_malformed_sql_endpoint_answer_is_not_evaluated_not_a_crash(props):
     assert outcome_of(run(endpoint_items(), lakehouses={LH: got}), "FEA-WH-001", EP)["outcome"] == "not_evaluated"
     for bad in (["x"], "text", {"properties": "x"}):
         assert cw.endpoint_properties(WSID, endpoint_items(), {LH: bad}, collected_at=AT) == []
+
+
+def test_warehouse_payload_shapes_refuse_junk():
+    from fabric_desktop.excellence import catalog
+    from fabric_desktop.excellence import evidence as ev
+    wh = catalog.PAYLOADS["workspace.warehouses"]
+    good = {"count": 2, "read": 2, "warehouses": [{"id": "a", "name": "A", "collation": "x"},
+                                                   {"id": "b", "name": "B", "collation": None}]}
+    assert wh(good)
+    for junk in ({**good, "count": 1}, {**good, "read": 1}, {**good, "count": True}, {**good, "warehouses": []},
+                 {**good, "warehouses": [{"id": "a", "name": "A"}]}, {**good, "count": -1}):
+        assert not wh(junk), junk
+    one = catalog.PAYLOADS["warehouse.properties"]
+    assert ev.fits({"collation": None}, one) and not ev.fits({"collation": 3}, one) and not ev.fits({}, one)
+    ep = catalog.PAYLOADS["sqlendpoint.properties"]
+    assert ev.fits({"lakehouse_id": "l", "lakehouse": "L", "provisioning_status": "Success"}, ep)
+    assert not ev.fits({"lakehouse_id": "l", "lakehouse": "L", "provisioning_status": True}, ep)
+
+
+def test_a_name_that_cant_be_printed_is_cut_to_nothing_not_a_crash():
+    from fabric_desktop.excellence import catalog_warehouse as cw
+
+    class Bad:
+        def __str__(self):
+            raise RuntimeError("no")
+    assert cw._cut(Bad()) == "" and cw._cut(None) == "" and cw._cut("x" * 300).endswith("…")

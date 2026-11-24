@@ -18,14 +18,15 @@ class _Key:
         return False
 
 
-def _winreg(value=None, error=None):
+def _winreg(value=None, error=None, kind=4):
     def open_key(root, path):
         assert path == r"SYSTEM\CurrentControlSet\Control\FileSystem"
         if error:
             raise error
         return _Key()
 
-    return SimpleNamespace(HKEY_LOCAL_MACHINE="HKLM", OpenKey=open_key, QueryValueEx=lambda key, name: (value, 4))
+    return SimpleNamespace(HKEY_LOCAL_MACHINE="HKLM", REG_DWORD=4, OpenKey=open_key,
+                           QueryValueEx=lambda key, name: (value, kind))
 
 
 def test_long_paths_are_unknown_off_windows(monkeypatch):
@@ -33,10 +34,10 @@ def test_long_paths_are_unknown_off_windows(monkeypatch):
     assert support_bundle.long_paths_enabled() is None
 
 
-@pytest.mark.parametrize(("value", "expected"), [(1, True), (0, False)])
-def test_long_paths_read_windows_registry_value(monkeypatch, value, expected):
+@pytest.mark.parametrize(("value", "kind", "expected"), [(1, 4, True), (0, 4, False), ("0", 1, False), ("1", 1, False)])
+def test_long_paths_read_windows_registry_value(monkeypatch, value, kind, expected):
     monkeypatch.setattr(support_bundle, "sys", SimpleNamespace(platform="win32"))
-    monkeypatch.setitem(sys.modules, "winreg", _winreg(value))
+    monkeypatch.setitem(sys.modules, "winreg", _winreg(value, kind=kind))
     assert support_bundle.long_paths_enabled() is expected
 
 

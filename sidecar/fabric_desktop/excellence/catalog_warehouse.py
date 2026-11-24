@@ -44,8 +44,7 @@ PROVISIONED = "success"
 
 
 def _cut(name: Any) -> str:
-    text = str(name or "")
-    return text if len(text) <= MAX_NAME else text[:MAX_NAME - 1] + "…"
+    return ev.text(name or None, MAX_NAME)  # the shared cut, which never fails on a value it can't print
 
 
 def _obj(value: Any) -> dict[str, Any]:

@@ -771,6 +771,13 @@ def _withheld(item: dict[str, Any]) -> dict[str, Any]:
     return kept | {"withheld": _fingerprint(json.dumps(item, sort_keys=True, ensure_ascii=False, default=str))}
 
 
+def _about_role(warning: dict[str, Any]) -> bool:
+    """A reader warning that may quote a role: it names a role, or comes from a role's file (an unreadable line
+    inside a role block names only itself)."""
+    file = str(warning.get("file", "")).replace("\\", "/").casefold()
+    return str(warning.get("object", "")).startswith("role") or "/roles/" in f"/{file}"
+
+
 def redacted(report: dict[str, Any]) -> dict[str, Any]:
     """A copy of ``report`` safe to log or attach outside the local pane: each role row's changes name no member
     (counts instead) and quote no filter (a length and hash instead), and its evidence other than the structure
@@ -788,8 +795,7 @@ def redacted(report: dict[str, Any]) -> dict[str, Any]:
                             ([f"{len(o['changes'])} change(s) withheld"] if o.get("changes") else []))
         o["evidence"] = [e if e.get("source") == "structure" else _withheld(e) for e in o.get("evidence") or []]
     for side in (out.get("sides") or {}).values():
-        side["warnings"] = [_withheld(w) if str(w.get("object", "")).startswith("role") else w
-                            for w in side.get("warnings") or []]
+        side["warnings"] = [_withheld(w) if _about_role(w) else w for w in side.get("warnings") or []]
     out["redacted"] = True
     return out
 

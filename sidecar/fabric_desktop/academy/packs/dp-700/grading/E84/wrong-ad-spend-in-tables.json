@@ -1,0 +1,74 @@
+{
+  "_about": "A model of five new shortcuts and one clean-up task for the Marketing team. For each shortcut set name, location (Tables, a folder under Files, or Shortcuts in a KQL database), type, target and auth. auth is caller identity or connection. cache_days is the OneLake cache retention for the shortcut's files, or null for no cache. readers_need is what someone reading through the shortcut needs on the target, or null. Then choose the clean-up action.",
+  "types": [
+    "OneLake",
+    "ADLS Gen2",
+    "Amazon S3",
+    "Google Cloud Storage",
+    "Azure Blob Storage"
+  ],
+  "readers_need_options": [
+    "nothing more",
+    "read access on the target"
+  ],
+  "cleanup_actions": [
+    "delete the shortcut",
+    "delete the files in the shortcut, then the shortcut"
+  ],
+  "shortcuts": {
+    "web_events": {
+      "needs": "In MarketingLH, read the Delta table events from Web_LH in the Web Analytics workspace as a table, without copying it. Readers query it from MarketingLH.",
+      "name": "web_events",
+      "location": "Tables",
+      "type": "OneLake",
+      "target": "Web Analytics/Web_LH/Tables/events",
+      "auth": "caller identity",
+      "cache_days": null,
+      "readers_need": "read access on the target"
+    },
+    "ledger": {
+      "needs": "In MarketingLH, read a Delta table that finance keeps in ADLS Gen2 (container finance, folder gl/ledger) as a table. Finance calls it GL ledger FY25+26.",
+      "name": "gl_ledger_fy25_26",
+      "location": "Tables",
+      "type": "ADLS Gen2",
+      "target": "finance/gl/ledger",
+      "auth": "connection",
+      "cache_days": null,
+      "readers_need": null
+    },
+    "ad_spend": {
+      "needs": "In MarketingLH, browse the CSV and JSON exports in the Amazon S3 bucket ad-exports, which has subfolders by day. Notebooks read the same files many times a day, and egress costs matter. Keep files cached for one week after they were last read.",
+      "name": "ad_spend",
+      "location": "Tables",
+      "type": "Amazon S3",
+      "target": "ad-exports",
+      "auth": "connection",
+      "cache_days": 7,
+      "readers_need": null
+    },
+    "surveys": {
+      "needs": "In MarketingLH, browse the survey CSV files in the Google Cloud Storage bucket surveys.",
+      "name": "surveys",
+      "location": "Files/marketing",
+      "type": "Google Cloud Storage",
+      "target": "surveys",
+      "auth": "connection",
+      "cache_days": null,
+      "readers_need": null
+    },
+    "kql_web_events": {
+      "needs": "In the Telemetry KQL database, query Web_LH's events table alongside the click stream, without ingesting it.",
+      "name": "web_events",
+      "location": "Shortcuts",
+      "type": "OneLake",
+      "target": "Web Analytics/Web_LH/Tables/events",
+      "auth": "caller identity",
+      "cache_days": null,
+      "readers_need": "read access on the target"
+    }
+  },
+  "cleanup": {
+    "needs": "The old shortcut old_spend in MarketingLH points at last year's folder in the S3 bucket. Remove it from MarketingLH. The files in S3 must stay where they are.",
+    "action": "delete the shortcut"
+  }
+}

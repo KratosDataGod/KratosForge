@@ -8,7 +8,10 @@ import json
 import pytest
 
 from fabric_desktop import audit, server
-from fabric_desktop.excellence import adapters, assess, catalog, catalog_architecture, catalog_artifacts, catalog_capacity, catalog_devops, catalog_models, catalog_warehouse, controls as ct, evidence as ev, profiles
+from fabric_desktop.excellence import (adapters, assess, catalog, catalog_architecture, catalog_artifacts, catalog_capacity,
+                                       catalog_devops, catalog_models, catalog_performance, catalog_warehouse,
+                                       controls as ct, evidence as ev,
+                                       profiles)
 from fabric_desktop.service import Service
 
 AT = "2026-11-18T02:00:00+00:00"
@@ -41,7 +44,7 @@ def test_the_catalog_registers_and_every_control_is_complete():
     r = catalog.registry()
     assert len(r) == (len(catalog.CONTROLS) + len(catalog_architecture.CONTROLS) + len(catalog_artifacts.CONTROLS)
                       + len(catalog_capacity.CONTROLS) + len(catalog_models.CONTROLS) + len(catalog_devops.CONTROLS)
-                      + len(catalog_warehouse.CONTROLS))
+                      + len(catalog_performance.CONTROLS) + len(catalog_warehouse.CONTROLS))
     assert len(catalog.CONTROLS) >= 10
     for c in r.controls():
         assert ct.problems(c) == []

@@ -175,7 +175,7 @@ Fabric's own Git integration connects a workspace to one branch and folder of a 
 
 Linking and checking status change nothing in Fabric.
 
-- **Update from Git…** brings the workspace up to the commit in Git. It is the only action on this tab that changes Fabric. It shows a preview first: what changes in the workspace, what isn't touched, and workspace changes that weren't committed and may be lost. When items changed on both sides, you pick one choice for all of them: **Keep the workspace version** (Git's change isn't applied) or **Take the Git version** (the workspace's change is lost). Then tick **Let Fabric replace the workspace items listed above with the Git versions** and type the workspace's name. Before it starts, KratosForge checks the status again; if anything changed since the preview, it stops and shows the new list.
+- **Update from Git…** brings the workspace up to the commit in Git. It is the only action on this tab that changes Fabric. It shows a preview first: what changes in the workspace, what isn't touched, and workspace changes that weren't committed and may be lost. When items changed on both sides, you pick one choice for all of them: **Keep the workspace version** (Git's change isn't applied) or **Take the Git version** (the workspace's change is lost). Then tick **Let Fabric replace the workspace items listed above with the Git versions** and type the workspace's name. Before it starts, KratosForge checks the status again. If anything changed since the preview, it stops and shows the new list.
 - **Commit in Fabric** opens the workspace in Fabric. Committing the workspace's changes to Git happens in Fabric's own Source control panel.
 
 ## What it doesn't do yet

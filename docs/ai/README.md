@@ -18,7 +18,7 @@ Only the MCP Python SDK client and an HTTP client are tested, automatically on e
 ## Connect a tool
 
 1. Open **Settings > Integrations** and turn on **Let AI tools connect**. It's off until you do, and your organization's policy can keep it off.
-2. **Add a tool**: pick which one, give it a name, and choose what it may do. **Read metadata** (names, structure, schemas, checks; no rows) is always included. **Read data** reads rows from tables, a few at a time, and runs read-only SQL. It asks you each time unless you tick **Don't ask me before it reads data**. **Run code on this PC** runs Python, notebooks and local pipeline runs, and asks you every time. **Write notebooks** is offered too, but no tool uses it yet.
+2. **Add a tool**: pick which one, give it a name, and choose what it may do. **Read metadata** (names, structure, schemas and checks, but no rows) is always included. **Read data** reads rows from tables, a few at a time, and runs read-only SQL. It asks you each time unless you tick **Don't ask me before it reads data**. **Run code on this PC** runs Python, notebooks and local pipeline runs, and asks you every time. **Write notebooks** is offered too, but no tool uses it yet.
 3. Select **Next**, copy the setup it shows, and paste it into your tool as shown below. **Edit > Copy setup** shows it again later. Your setup has your tool's own id in place of `YOUR-CLIENT-ID` and your own path in place of `C:\Users\you\...`. The command's path stays the same when KratosForge updates.
 4. **Test connection**, then ask your tool something like "What lakehouses can you see in KratosForge?".
 

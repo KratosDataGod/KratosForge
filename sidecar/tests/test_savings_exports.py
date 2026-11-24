@@ -306,6 +306,13 @@ def test_capacity_value_is_a_scenario_and_never_called_savings():
         ex.executive_summary([], capacity_value=bad)
 
 
+def test_a_scenario_with_no_runs_priced_says_scenario_in_the_classification_column():
+    priced = pr.value_runs([], [], "List price")
+    rows = [r for r in body(ex.executive_summary([], capacity_value=priced)) if r["Measure"] == ex.CAPACITY_VALUE]
+    assert [(r["Value"], r["Classification"], r["Unit"], r["Count"]) for r in rows] == [("0", "Scenario", "", "0")]
+    assert rows[0]["Note"] == "Scenario List price. No runs priced."
+
+
 def test_the_projection_is_estimated_and_unknown_projections_are_counted_beside():
     results = [pc(f"p{d}", f"2026-11-{d:02d}T09:00:00Z", estimated(6)) for d in range(20, 26)]
     for r in results:

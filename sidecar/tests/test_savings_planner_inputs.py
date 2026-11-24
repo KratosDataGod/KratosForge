@@ -121,6 +121,14 @@ def test_a_not_validated_optimization_feeds_the_estimated_input(world):
 
 # ---------- regressions and unknowns
 
+def test_a_regression_event_of_a_verified_optimization_is_listed_as_a_regression(world):
+    o1 = world["o1"]
+    world["acc"].append(events(o1, cu(12), "e6", when="2026-11-12T00:00:00Z"))
+    assert {e["event_type"] for e in world["acc"][-1]["events"]} == {at.REGRESSION}
+    v = shape(world)["capacities"][0]["verified"]
+    assert v["regressions"] == [o1] and v["increase_cu_hours"] == 2
+
+
 def test_a_regression_is_an_increase_labelled_as_one(world):
     p3 = proposal("nb-4")
     o3 = p3["optimization_id"]

@@ -213,6 +213,8 @@ def _value_runs(result: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not isinstance(result, dict) or "runs" not in result or "scenario" not in result:
         raise ValueError("Capacity value is a pricing.value_runs result.")
     for x in result["runs"]:
+        if not isinstance(x, dict) or not isinstance(x.get("value"), dict):
+            raise ValueError("Each capacity value run has a priced value from pricing.value_runs.")
         m = x["value"]
         if m["classification"] not in (ms.SCENARIO, ms.UNKNOWN) or (m["value"] is None) != (
                 m["classification"] == ms.UNKNOWN):
@@ -287,7 +289,7 @@ def executive_summary(events: Iterable[dict[str, Any]], *, realized: Iterable[di
                             lambda c: ("No price or no CU avoided for these runs." if c == ms.UNKNOWN
                                        else f"Scenario {scenario}. {PRICE_NOTE}"))
         if not priced:
-            rows.append([CAPACITY_VALUE, 0.0, "", _label(ms.SCENARIO), 0, f"Scenario {scenario}. No runs priced."])
+            rows.append([CAPACITY_VALUE, 0.0, _label(ms.SCENARIO), "", 0, f"Scenario {scenario}. No runs priced."])
 
     projections = list(projections)
     if projections:

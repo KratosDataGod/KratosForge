@@ -5,7 +5,7 @@ see, and finds work that doesn't need to run, runs twice, or could run better. E
 **opportunity** with its evidence, how sure the engine is, what it is worth (measured, estimated or
 Unknown), what to do next, how to check it and how to undo it.
 
-Use it in **Optimize > Assessment** (Preview): pick a workspace or a capacity and the run history period, then choose **Assess**, or try the demonstration fixture first. The engine call behind it is `optimization_assess`. The inventory, gap analysis, backlog and architecture are in [engine-plan.md](engine-plan.md).
+Use it in **Optimize > Assessment > Opportunities** (Preview): pick a workspace or a capacity and the run history period (7, 30 or 90 days), then choose **Assess**, or try the demonstration fixture first. The engine call behind it is `optimization_assess`. The inventory, gap analysis, backlog and architecture are in [engine-plan.md](engine-plan.md).
 
 ## What it reads
 
@@ -66,7 +66,7 @@ run locally, hybrid, keep in Fabric), then the surer one; the other is marked `c
 `overlaps` naming it. A workload whose saving isn't measured yet adds an Unknown part, which makes the
 total incomplete (`complete: false`, `unknown_parts`), never bigger.
 
-## The Assessment tab
+## The Opportunities view
 
 - **Highest-value next action**: the top counted opportunity, what's there now and what to do.
 - **Totals per month**: Fabric run time freed, capacity freed, CU value and Verified, each labelled Measured, Estimated or Unknown, with **Incomplete** when part is Unknown, and the reminder that freed capacity is not money saved.
@@ -112,10 +112,10 @@ are rebuilt from what this PC kept, never taken from the app.
   is shared.
 - A demonstration fixture is never shared.
 
-The Share button on the Assessment tab comes next, after its mockup.
+The Share button in Assessment > Opportunities comes next, after its mockup.
 
 ## Not done yet
 
-A background job with progress and Stop for large capacities, the Share button on the Assessment tab, near-duplicate notebooks, duplicate tables and semantic models, SQL and Spark analyzers,
+A background job with progress and Stop for large capacities, the Share button in Assessment > Opportunities, near-duplicate notebooks, duplicate tables and semantic models, SQL and Spark analyzers,
 local execution classes and the network model, the capacity planner and the savings ledger. See the
 backlog in [engine-plan.md](engine-plan.md).

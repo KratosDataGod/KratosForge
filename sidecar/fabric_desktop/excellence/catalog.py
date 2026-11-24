@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import catalog_architecture, catalog_artifacts, catalog_devops, catalog_models
+from . import catalog_architecture, catalog_artifacts, catalog_devops, catalog_models, catalog_performance
 from . import controls as ct
 
 WRITE_ROLES = ("Admin", "Member", "Contributor")
@@ -317,6 +317,6 @@ def registry() -> ct.Registry:
     from .catalog_capacity import CONTROLS as CAPACITY  # it imports this module
     for c in (*CONTROLS, *catalog_artifacts.CONTROLS, *catalog_models.CONTROLS, *CAPACITY):
         r.register(c)
-    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS):
+    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS, *catalog_performance.CONTROLS):
         r.register(c)
     return r

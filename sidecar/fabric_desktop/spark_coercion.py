@@ -173,7 +173,7 @@ def _from_datatype(dtype: Any) -> Type | None:
         return _SIMPLE[dtype.this]
     if dtype.this == _T.UNKNOWN:
         return None
-    return ("other", dtype.sql("duckdb"))
+    return ("other", dtype.sql("spark"))  # a name for messages, in Spark's words
 
 
 def _literal(node: exp.Literal) -> Type:

@@ -74,14 +74,14 @@ def test_a_write_whose_query_fails_in_duckdb_raises_duckdbs_own_error(engine):
     assert "Writing dbo.bad failed" not in str(caught.value)
 
 
-def test_a_change_to_a_table_fabric_couldnt_read_is_refused(engine, monkeypatch):
+def test_a_change_to_a_table_fabric_couldnt_read_is_refused(engine):
     def refuse(table):
         raise delta_profile.ProfileViolation("it uses a feature Fabric doesn't read")
 
-    monkeypatch.setattr(delta_profile, "check_table", refuse)
-    with pytest.raises(ValueError, match=r"dbo\.sales isn't changed here: it uses a feature"):
-        engine.change_delta("UPDATE sales SET amount = 11 WHERE id = 1")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(delta_profile, "check_table", refuse)
+        with pytest.raises(ValueError, match=r"dbo\.sales isn't changed here: it uses a feature"):
+            engine.change_delta("UPDATE sales SET amount = 11 WHERE id = 1")
     assert engine.execute("SELECT amount FROM sales")["rows"] == [[10]]
 
 

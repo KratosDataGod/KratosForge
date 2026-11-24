@@ -132,16 +132,16 @@ def test_delete_with_a_stale_etag_says_no_and_keeps_the_file(tmp_path):
     assert backend.read("k") is not None
 
 
-def test_a_replace_whose_copy_cant_be_written_raises_that_error(tmp_path, monkeypatch):
+def test_a_replace_whose_copy_cant_be_written_raises_that_error(tmp_path):
     backend = L.LocalBackend(tmp_path)
     etag = backend.create("k", b"{}")
 
     def full(self, data):
         raise OSError(28, "No space left on device")
-    monkeypatch.setattr(Path, "write_bytes", full)
-    with pytest.raises(OSError, match="No space left"):
-        backend.replace("k", b'{"a": 1}', etag)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Path, "write_bytes", full)
+        with pytest.raises(OSError, match="No space left"):
+            backend.replace("k", b'{"a": 1}', etag)
     assert backend.read("k").data == b"{}"
 
 

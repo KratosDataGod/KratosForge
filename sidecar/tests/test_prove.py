@@ -527,7 +527,7 @@ def test_cancel_that_lands_while_a_cell_is_starting_stops_it(svc, monkeypatch):
     assert out["pc"]["cells"]["2"]["status"] != "ok" and svc.fake.saved == []
 
 
-def test_interrupt_waits_for_a_cell_thread_that_hasnt_started_yet(monkeypatch):
+def test_interrupt_waits_for_a_cell_thread_that_hasnt_started_yet():
     import threading
     k = Kernel()
     answers = []
@@ -539,9 +539,9 @@ def test_interrupt_waits_for_a_cell_thread_that_hasnt_started_yet(monkeypatch):
                 time.sleep(0.3)
             super().start()
 
-    monkeypatch.setattr(threading, "Thread", SlowStart)
-    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(threading, "Thread", SlowStart)
+        k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
     deadline = time.monotonic() + 10
     while not answers and time.monotonic() < deadline:
         time.sleep(0.05)
@@ -550,7 +550,7 @@ def test_interrupt_waits_for_a_cell_thread_that_hasnt_started_yet(monkeypatch):
 
 
 
-def test_interrupt_before_the_cell_reaches_its_handlers_still_cancels_it(monkeypatch):
+def test_interrupt_before_the_cell_reaches_its_handlers_still_cancels_it():
     # Windows CI: the interrupt was raised as soon as the thread had an id, which can be before
     # _execute's handlers. The thread then died there, the run never finished and Prove waited on it.
     import threading
@@ -562,13 +562,13 @@ def test_interrupt_before_the_cell_reaches_its_handlers_still_cancels_it(monkeyp
         time.sleep(0.5)  # the thread runs, but isn't in _execute yet
         return execute(self, *args, **kwargs)
 
-    monkeypatch.setattr(Kernel, "_execute", late)
-    k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
-    assert entered.wait(5)
-    assert k.interrupt() == {"interrupted": True, "stopped": True}
-    snap = k.poll(-1, 0.0)
-    assert snap["status"] == "cancelled" and any("Cancelled" in o.get("text", "") for o in snap["outputs"])
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Kernel, "_execute", late)
+        k.start("import time\nfor _ in range(400):\n    time.sleep(0.05)")
+        assert entered.wait(5)
+        assert k.interrupt() == {"interrupted": True, "stopped": True}
+        snap = k.poll(-1, 0.0)
+        assert snap["status"] == "cancelled" and any("Cancelled" in o.get("text", "") for o in snap["outputs"])
     assert k.run("x = 1")["status"] == "ok"  # the kernel takes the next cell
 
 

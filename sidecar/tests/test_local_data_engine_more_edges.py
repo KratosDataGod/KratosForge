@@ -112,14 +112,14 @@ def test_the_connection_opens_when_it_is_first_used_and_says_so(engine):  # noqa
     assert engine.is_open is True
 
 
-def test_a_reader_that_fails_as_it_starts_frees_the_connection_for_the_next_query(engine, monkeypatch):  # noqa: F811
+def test_a_reader_that_fails_as_it_starts_frees_the_connection_for_the_next_query(engine):  # noqa: F811
     def broken(result, rows):
         raise MemoryError("no room for the first batch")
 
-    monkeypatch.setattr(eng, "arrow_reader", broken)
-    with pytest.raises(MemoryError, match="no room"):
-        engine.execute_reader("SELECT 1 AS n")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(eng, "arrow_reader", broken)
+        with pytest.raises(MemoryError, match="no room"):
+            engine.execute_reader("SELECT 1 AS n")
     assert engine.execute("SELECT 2 AS n")["rows"] == [[2]]
 
 

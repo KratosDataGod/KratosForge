@@ -122,7 +122,7 @@ def test_a_pipe_under_a_data_file_s_name_never_blocks_the_flush(tmp_path):
     assert not done.is_alive()
 
 
-def test_the_flush_costs_a_fraction_of_the_write(tmp_path, monkeypatch):
+def test_the_flush_costs_a_fraction_of_the_write(tmp_path):
     """What the flush costs next to the write, on this machine. Written to the CI run's summary (on
     each OS), so the cost on Windows is on record; it fails only if the flush costs well over the
     write itself (a CI disk's flush can spike, so the bound is loose)."""
@@ -130,11 +130,11 @@ def test_the_flush_costs_a_fraction_of_the_write(tmp_path, monkeypatch):
     rows = df(range(300_000))
     write_ms, flush_ms = [], []
     for i in range(3):
-        monkeypatch.setattr(durable, "sync_commits", lambda *a: True)
-        t0 = time.perf_counter()
-        v = s.write("lh", "dbo", f"t{i}", rows)
-        t1 = time.perf_counter()
-        monkeypatch.undo()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(durable, "sync_commits", lambda *a: True)
+            t0 = time.perf_counter()
+            v = s.write("lh", "dbo", f"t{i}", rows)
+            t1 = time.perf_counter()
         assert durable.sync_commits(s.uri("lh", "dbo", f"t{i}"), v, v)
         write_ms.append((t1 - t0) * 1000)
         flush_ms.append((time.perf_counter() - t1) * 1000)

@@ -57,16 +57,16 @@ def test_one_trim_that_drops_an_old_item_and_one_past_the_cap_counts_both(tmp_pa
     assert box.status("lh1")["dropped"] == 2  # one too old and one past the cap, in the same trim
 
 
-def test_a_failure_inside_a_write_undoes_it_and_is_raised(tmp_path, monkeypatch):
+def test_a_failure_inside_a_write_undoes_it_and_is_raised(tmp_path):
     box = ob.Outbox(tmp_path / "o.sqlite")
 
     def broken(kind, payload):
         raise RuntimeError("could not count rows")
 
-    monkeypatch.setattr(ob, "rows_in", broken)
-    with pytest.raises(RuntimeError, match="could not count rows"):
-        box.add("lh1", ob.ANALYSIS, payload(), "down")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ob, "rows_in", broken)
+        with pytest.raises(RuntimeError, match="could not count rows"):
+            box.add("lh1", ob.ANALYSIS, payload(), "down")
     assert box.status("lh1") == {"pending": 0, "pending_rows": 0, "oldest": None, "last_sync": None,
                                  "last_error": None, "last_error_at": None, "dropped": 0}
 

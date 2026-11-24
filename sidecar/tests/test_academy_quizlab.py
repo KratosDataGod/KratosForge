@@ -218,9 +218,9 @@ def test_start_answer_check_explain_and_reset(svc):
     assert lab.state(svc.root, PACK, EID)["answer"] == "{}"
 
 
-def test_other_exercises_carry_no_quiz(svc, monkeypatch):
-    monkeypatch.undo()
-    assert AcademyMixin.academy_exercise(svc, "dp-700", "E37")["quiz"] is None
+def test_other_exercises_carry_no_quiz(tmp_path):
+    # Not the svc fixture: it points the exercises at the quiz pack, and this reads the real ones.
+    assert AcademyMixin.academy_exercise(_Svc(tmp_path), "dp-700", "E37")["quiz"] is None
 
 
 def test_changed_compares_like_the_scoring_rule():

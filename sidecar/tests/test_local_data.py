@@ -453,7 +453,7 @@ def test_a_stream_can_be_stopped(local):
 
 
 @pytest.mark.parametrize("stream", [False, True], ids=["whole result", "stream"])
-def test_a_time_limit_that_runs_out_before_the_query_starts_still_stops_it(local, monkeypatch, stream):
+def test_a_time_limit_that_runs_out_before_the_query_starts_still_stops_it(local, stream):
     """DuckDB drops an interrupt that comes before a statement starts. A limit that ran out while
     the query was still being read and checked (a slow PC, a big script) stops it all the same."""
     e = local.engine(local.create("Limit early")["id"])
@@ -465,14 +465,14 @@ def test_a_time_limit_that_runs_out_before_the_query_starts_still_stops_it(local
         time.sleep(0.5)  # the 0.2 s limit runs out here, before DuckDB starts
         return out
 
-    monkeypatch.setattr(type(e), "_statements", slow_read)
-    with pytest.raises(TimeoutError, match="longer than 0.2 seconds"):
-        if stream:
-            for _ in e.execute_reader("SELECT 1 AS n", timeout=0.2):
-                pass
-        else:
-            e.execute("SELECT 1 AS n", timeout=0.2)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(type(e), "_statements", slow_read)
+        with pytest.raises(TimeoutError, match="longer than 0.2 seconds"):
+            if stream:
+                for _ in e.execute_reader("SELECT 1 AS n", timeout=0.2):
+                    pass
+            else:
+                e.execute("SELECT 1 AS n", timeout=0.2)
     assert e.execute("SELECT 1")["rows"] == [[1]]
 
 

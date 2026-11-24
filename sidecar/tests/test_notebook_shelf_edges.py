@@ -70,7 +70,7 @@ def test_a_notebook_already_at_the_target_is_never_replaced(shelf):
     assert (shelf.folder / "A.ipynb").is_file()
 
 
-def test_a_copy_that_doesnt_match_is_removed_and_the_notebook_stays(shelf, monkeypatch):
+def test_a_copy_that_doesnt_match_is_removed_and_the_notebook_stays(shelf):
     real = nb.Path.read_bytes
     calls = {"n": 0}
 
@@ -79,10 +79,10 @@ def test_a_copy_that_doesnt_match_is_removed_and_the_notebook_stays(shelf, monke
         data = real(self)
         return data + b"!" if calls["n"] == 2 else data  # the read back of the copy differs
 
-    monkeypatch.setattr(nb.Path, "read_bytes", read_bytes)
-    with pytest.raises(OSError, match="Couldn't copy A to repo .*the copy doesn't match.*still where it was"):
-        shelf.move("A", repo(shelf))
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(nb.Path, "read_bytes", read_bytes)
+        with pytest.raises(OSError, match="Couldn't copy A to repo .*the copy doesn't match.*still where it was"):
+            shelf.move("A", repo(shelf))
     assert not (shelf.places()[0]["folder"] / "A.ipynb").exists()
     assert (shelf.folder / "A.ipynb").is_file()
 
@@ -123,7 +123,7 @@ def test_rename_never_replaces_a_notebook_made_since_the_check(tmp_path):
     assert dest.read_text() == "theirs"
 
 
-def test_a_failed_rename_puts_the_resources_back_and_removes_the_new_folder(tmp_path, monkeypatch):
+def test_a_failed_rename_puts_the_resources_back_and_removes_the_new_folder(tmp_path):
     src = tmp_path / "A.ipynb"
     src.write_text("{}")
     Resources(notebook_resources.folder_for(src)).add("x.csv", b"1")
@@ -133,10 +133,10 @@ def test_a_failed_rename_puts_the_resources_back_and_removes_the_new_folder(tmp_
         raise OSError("locked")
 
     real_rename = nb.Path.rename
-    monkeypatch.setattr(nb.Path, "rename", lambda self, t: refuse(self, t) if self == src else real_rename(self, t))
-    with pytest.raises(OSError, match="locked"):
-        nb._rename_with_resources(src, dest, "Sales/B")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(nb.Path, "rename", lambda self, t: refuse(self, t) if self == src else real_rename(self, t))
+        with pytest.raises(OSError, match="locked"):
+            nb._rename_with_resources(src, dest, "Sales/B")
     assert (tmp_path / "A.resources" / "builtin" / "x.csv").is_file()
     assert not (tmp_path / "Sales").exists()
 

@@ -53,14 +53,14 @@ def test_a_damaged_workloads_file_is_refused_with_a_clear_message_and_kept_as_it
     assert path.read_bytes() == kept and not list(tmp_path.glob("*.corrupt-*"))
 
 
-def test_a_full_disk_fails_the_change_loudly_and_keeps_what_was_there(tmp_path, monkeypatch):
+def test_a_full_disk_fails_the_change_loudly_and_keeps_what_was_there(tmp_path):
     store = ManagementStore(tmp_path / "workloads.sqlite")
     store.assign("nb:a", {"team": "Sales"}, by="chris")
-    _full_disk(monkeypatch)
-    with pytest.raises(sqlite3.OperationalError, match="full"):
-        for n in range(500):  # enough history to need a new page
-            store.assign("nb:a", {"technical_owner": f"owner-{n}@contoso.com" + "x" * 200}, by="chris")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        _full_disk(mp)
+        with pytest.raises(sqlite3.OperationalError, match="full"):
+            for n in range(500):  # enough history to need a new page
+                store.assign("nb:a", {"technical_owner": f"owner-{n}@contoso.com" + "x" * 200}, by="chris")
     again = ManagementStore(tmp_path / "workloads.sqlite")
     assert again.assignments(["nb:a"])["nb:a"]["team"]["value"] == "Sales"
     # every change that was kept has its history line, and no line without its change
@@ -154,7 +154,7 @@ def test_a_damaged_incident_list_is_refused_with_a_clear_message_and_never_writt
     assert _file(log).read_bytes() == damage  # an empty list was written over a cut-short one before
 
 
-def test_a_full_disk_while_writing_the_incident_list_keeps_the_old_one_and_no_copy(log, monkeypatch):
+def test_a_full_disk_while_writing_the_incident_list_keeps_the_old_one_and_no_copy(log):
     log.sync([SIGNAL], evaluated=True, by="test")
     before = _file(log).read_bytes()
     real = Path.write_bytes
@@ -164,25 +164,25 @@ def test_a_full_disk_while_writing_the_incident_list_keeps_the_old_one_and_no_co
             real(self, data[: len(data) // 2])  # part of it reached the disk
             raise OSError(28, "No space left on device")
         return real(self, data)
-    monkeypatch.setattr(Path, "write_bytes", full)
-    with pytest.raises(OSError, match="No space left"):
-        log.sync([SIGNAL, _signal(2)], evaluated=True, by="test")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Path, "write_bytes", full)
+        with pytest.raises(OSError, match="No space left"):
+            log.sync([SIGNAL, _signal(2)], evaluated=True, by="test")
     assert _file(log).read_bytes() == before
     assert not list(_file(log).parent.glob("*.tmp"))  # the half-written copy was left behind before
     assert [c["change"] for c in log.sync([SIGNAL, _signal(2)], evaluated=True, by="test")] == ["opened"]
 
 
-def test_a_crash_between_writing_the_copy_and_renaming_it_keeps_the_old_list(log, monkeypatch):
+def test_a_crash_between_writing_the_copy_and_renaming_it_keeps_the_old_list(log):
     log.sync([SIGNAL], evaluated=True, by="test")
     before = _file(log).read_bytes()
 
     def crash(src, dst):
         raise KeyboardInterrupt  # the process stops before the rename
-    monkeypatch.setattr(leases.os, "replace", crash)
-    with pytest.raises(KeyboardInterrupt):
-        log.sync([SIGNAL, _signal(2)], evaluated=True, by="test")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(leases.os, "replace", crash)
+        with pytest.raises(KeyboardInterrupt):
+            log.sync([SIGNAL, _signal(2)], evaluated=True, by="test")
     assert _file(log).read_bytes() == before and not list(_file(log).parent.glob("*.tmp"))
     assert json.loads(before)["incidents"][0]["title"] == "silver.orders failed"
     assert [c["change"] for c in log.sync([SIGNAL, _signal(2)], evaluated=True, by="test")] == ["opened"]
@@ -224,12 +224,12 @@ def test_a_damaged_outbox_is_set_aside_and_new_messages_still_wait(tmp_path, cap
     assert [m["title"] for m in box.pending()] == ["new"]
 
 
-def test_a_full_disk_when_a_message_waits_fails_loudly_and_keeps_the_others(tmp_path, monkeypatch):
+def test_a_full_disk_when_a_message_waits_fails_loudly_and_keeps_the_others(tmp_path):
     box = Outbox(tmp_path / "alerts.sqlite3")
     box.add("first", ["l"], "Teams down")
-    _full_disk(monkeypatch)
-    with pytest.raises(sqlite3.OperationalError, match="full"):
-        for n in range(500):
-            box.add(f"m{n}", ["x" * 2000], "Teams down")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        _full_disk(mp)
+        with pytest.raises(sqlite3.OperationalError, match="full"):
+            for n in range(500):
+                box.add(f"m{n}", ["x" * 2000], "Teams down")
     assert Outbox(tmp_path / "alerts.sqlite3").pending()[0]["title"] == "first"

@@ -323,16 +323,16 @@ def test_a_through_with_no_hash_or_whose_month_is_gone_is_not_taken(tmp_path):
         assert [p.name for p in audit_chain.prunable(folder, 45, now=now)] == ["audit-2026-08.jsonl"], base
 
 
-def test_a_prune_whose_head_couldnt_be_written_deletes_nothing(tmp_path, monkeypatch):
+def test_a_prune_whose_head_couldnt_be_written_deletes_nothing(tmp_path):
     folder = tmp_path / "audit"
     log = _trail(folder, [(2020, 1), (2020, 2), (2026, 11)])
 
     def full(*_a, **_k):
         raise OSError("disk full")
-    monkeypatch.setattr(audit_chain.jsonfile, "write_json", full)
-    with pytest.raises(OSError):
-        audit_chain.prune(folder, 30, now=NOW)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(audit_chain.jsonfile, "write_json", full)
+        with pytest.raises(OSError):
+            audit_chain.prune(folder, 30, now=NOW)
     assert len(_names(folder)) == 3 and log.verify()["ok"]
 
 

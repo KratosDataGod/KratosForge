@@ -368,12 +368,12 @@ class Kernel32:
 
 
 @pytest.mark.parametrize("handle,code,alive", [(0, 259, False), (7, 259, True), (7, 0, False)])
-def test_on_windows_the_parent_is_alive_only_while_it_is_still_active(monkeypatch, handle, code, alive):
+def test_on_windows_the_parent_is_alive_only_while_it_is_still_active(handle, code, alive):
     k = Kernel32(handle, code)
-    monkeypatch.setattr(ctypes, "windll", type("W", (), {"kernel32": k})(), raising=False)
-    monkeypatch.setattr(http_server.os, "name", "nt")
-    result = http_server._parent_alive(4242)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ctypes, "windll", type("W", (), {"kernel32": k})(), raising=False)
+        mp.setattr(http_server.os, "name", "nt")
+        result = http_server._parent_alive(4242)
     assert result is alive
     assert k.closed == ([7] if handle else [])
     assert k.opened == (0x1000, False, 4242)

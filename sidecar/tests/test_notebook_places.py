@@ -167,7 +167,7 @@ def test_a_delete_character_is_refused(svc, tmp_path):
         svc.git_set_locations(root, {"test": TEST | {"workspace_name": "Sales\x7fTest"}})
 
 
-def test_a_failed_copy_leaves_nothing_behind(svc, tmp_path, monkeypatch):
+def test_a_failed_copy_leaves_nothing_behind(svc, tmp_path):
     root = repo_of(svc, tmp_path)
     name = svc.new_notebook()["name"]
     real_open = open
@@ -178,10 +178,10 @@ def test_a_failed_copy_leaves_nothing_behind(svc, tmp_path, monkeypatch):
             f.write = lambda data: real_open.__call__  # writes nothing: the check sees a mismatch
         return f
 
-    monkeypatch.setattr("builtins.open", short_write)
-    with pytest.raises(OSError, match="still where it was"):
-        svc.move_notebook(name, root)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("builtins.open", short_write)
+        with pytest.raises(OSError, match="still where it was"):
+            svc.move_notebook(name, root)
     assert not (tmp_path / "sales-notebooks" / "notebooks" / f"{name}.ipynb").exists()
     assert svc.move_notebook(name, root)["moved"]  # a retry works
 

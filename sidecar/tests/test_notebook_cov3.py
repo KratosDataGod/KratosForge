@@ -108,7 +108,7 @@ def test_renaming_onto_a_notebook_that_exists_is_refused(tmp_path):
     assert {n["name"] for n in store.list()} == {"Notebook 1", "Notebook 2"}
 
 
-def test_a_failed_rename_puts_the_resources_folder_back(tmp_path, monkeypatch):
+def test_a_failed_rename_puts_the_resources_folder_back(tmp_path):
     store = NotebookStore(tmp_path)
     store.new()
     res = store.resources("Notebook 1")
@@ -120,10 +120,10 @@ def test_a_failed_rename_puts_the_resources_folder_back(tmp_path, monkeypatch):
         if self.suffix == ".ipynb":
             raise OSError("in use")
         return real(self, target)
-    monkeypatch.setattr(type(tmp_path), "rename", refuse)
-    with pytest.raises(OSError, match="in use"):
-        store.rename("Notebook 1", "Sales")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(type(tmp_path), "rename", refuse)
+        with pytest.raises(OSError, match="in use"):
+            store.rename("Notebook 1", "Sales")
     assert (res / "a.txt").exists() and not store.resources("Sales").exists()
 
 

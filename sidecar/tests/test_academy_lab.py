@@ -333,12 +333,12 @@ def test_sandbox_status_counts_the_runtime_grants_on_record(svc, tmp_path):
     assert svc.academy_sandbox_status()["granted"] == (1 if sys.platform == "win32" else 0)
 
 
-def test_removing_the_sandbox_grants_answers_removed_and_failed(svc, monkeypatch):
+def test_removing_the_sandbox_grants_answers_removed_and_failed(svc):
     # Settings calls it; off Windows there is nothing to remove, and the answer has the same shape.
     calls = []
-    monkeypatch.setattr(appcontainer, "revoke_runtime", lambda root: calls.append(root) or {"removed": 2, "failed": ["C:\\x"]})
-    assert svc.academy_sandbox_remove_grants() == {"removed": 2, "failed": ["C:\\x"]}
-    assert calls == [svc.root]
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(appcontainer, "revoke_runtime", lambda root: calls.append(root) or {"removed": 2, "failed": ["C:\\x"]})
+        assert svc.academy_sandbox_remove_grants() == {"removed": 2, "failed": ["C:\\x"]}
+        assert calls == [svc.root]
     if sys.platform != "win32":
         assert svc.academy_sandbox_remove_grants() == {"removed": 0, "failed": []}

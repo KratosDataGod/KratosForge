@@ -401,17 +401,17 @@ def counted(s: Setup, monkeypatch) -> dict:
 
 
 @pytest.mark.parametrize("change", [False, True], ids=["same schema", "added column"])
-def test_a_run_reads_the_schema_once_and_only_its_own_history(tmp_path, monkeypatch, change):
+def test_a_run_reads_the_schema_once_and_only_its_own_history(tmp_path, change):
     s = Setup(tmp_path, True)
     s.source(rows(range(3), DAY1))
     s.run()
     new = rows([10], DAY2)
     s.source(new.with_columns(pl.lit("eu").alias("region")) if change else new)
-    seen = counted(s, monkeypatch)
-    res = s.run(day=DAY2)
-    assert seen["versioned scans"] == 0 and seen["whole history"] == 0
-    assert seen["history where"] == ([str(pl.col("entity") == "bronze.events")] if change else [])
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        seen = counted(s, mp)
+        res = s.run(day=DAY2)
+        assert seen["versioned scans"] == 0 and seen["whole history"] == 0
+        assert seen["history where"] == ([str(pl.col("entity") == "bronze.events")] if change else [])
     if change:
         assert history(s)[-1] == {"change": "added", "columns": "region", "detail": "region string", "breaking": False,
                                   "delta_version": res.delta_version, "schema_version": 2}

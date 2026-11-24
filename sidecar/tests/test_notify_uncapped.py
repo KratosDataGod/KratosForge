@@ -206,9 +206,7 @@ def test_kept_ids_that_arent_id_and_time_pairs_are_ignored(tmp_path):
     assert [i["title"] for i in Outbox(path, Clock()).pending()] == ["Waiting"]
 
 
-def test_a_kept_id_another_outbox_settled_meanwhile_is_left_alone(
-    tmp_path, monkeypatch
-):
+def test_a_kept_id_another_outbox_settled_meanwhile_is_left_alone(tmp_path):
     path = tmp_path / "o.sqlite3"
     outbox = Outbox(path, Clock())
     item_id = outbox.sending("Sent", ["x"])
@@ -227,9 +225,9 @@ def test_a_kept_id_another_outbox_settled_meanwhile_is_left_alone(
             shared.pop(item_id, None)
             return out
 
-    monkeypatch.setattr(outbox, "_db", Racing)
-    outbox.done(item_id)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(outbox, "_db", Racing)
+        outbox.done(item_id)
     assert outbox.pending() == [] and item_id not in shared
 
 

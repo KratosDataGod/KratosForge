@@ -44,13 +44,13 @@ def _racing(monkeypatch, error):
     monkeypatch.setattr(jobqueue.sqlite3, "connect", lambda *a, **k: _Racing(real(*a, **k), error))
 
 
-def test_columns_another_process_added_first_are_taken_as_added(tmp_path, monkeypatch):
+def test_columns_another_process_added_first_are_taken_as_added(tmp_path):
     path = tmp_path / "queue.db"
     _old_queue_file(path)
-    _racing(monkeypatch, "duplicate column name: claim_id")
-    q = JobQueue(path)
-    assert q.set_aside is None
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        _racing(mp, "duplicate column name: claim_id")
+        q = JobQueue(path)
+        assert q.set_aside is None
     with sqlite3.connect(path) as db:
         jobs = {r[1] for r in db.execute("pragma table_info(jobs)")}
         state = {r[1] for r in db.execute("pragma table_info(schedule_state)")}

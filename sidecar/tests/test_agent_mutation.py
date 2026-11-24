@@ -55,15 +55,15 @@ def test_a_weekly_schedule_waits_at_most_a_week_and_an_hour():
 
 
 @pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs time.tzset to set this process's time zone")
-def test_the_second_time_a_repeated_hour_comes_round_is_an_hour_later(monkeypatch):
-    monkeypatch.setenv("TZ", "America/New_York")
-    time.tzset()
+def test_the_second_time_a_repeated_hour_comes_round_is_an_hour_later():
     try:
-        # 2026-11-01: New York's clocks go back at 02:00, so 01:30 comes round twice.
-        assert _from_wall("2026-11-01T01:30+fold") - _from_wall("2026-11-01T01:30") == 3600
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("TZ", "America/New_York")
+            time.tzset()
+            # 2026-11-01: New York's clocks go back at 02:00, so 01:30 comes round twice.
+            assert _from_wall("2026-11-01T01:30+fold") - _from_wall("2026-11-01T01:30") == 3600
     finally:
-        monkeypatch.undo()
-        time.tzset()
+        time.tzset()  # after the block has put TZ back
 
 
 # ---- the clock

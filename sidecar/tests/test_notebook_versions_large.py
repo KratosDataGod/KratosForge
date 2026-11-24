@@ -47,7 +47,7 @@ def test_restoring_over_a_change_vs_code_saved_keeps_that_change_as_before_resto
     assert sources(svc, before["id"])[640] == "saved in VS Code" and before["cells"] == CELLS
 
 
-def test_a_restore_cut_short_after_keeping_the_current_file_leaves_the_file_as_it_was(svc, monkeypatch):
+def test_a_restore_cut_short_after_keeping_the_current_file_leaves_the_file_as_it_was(svc):
     big(svc)
     first = svc.notebook_versions("Big")["versions"][0]["id"]
     vs_code_saves(svc, lambda nb: nb["cells"][5].__setitem__("source", "saved in VS Code"))
@@ -55,10 +55,10 @@ def test_a_restore_cut_short_after_keeping_the_current_file_leaves_the_file_as_i
 
     def closed(*a, **k):
         raise KeyboardInterrupt("the app closed")
-    monkeypatch.setattr(svc.notebooks, "save", closed)
-    with pytest.raises(KeyboardInterrupt):
-        svc.notebook_version_restore("Big", first)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(svc.notebooks, "save", closed)
+        with pytest.raises(KeyboardInterrupt):
+            svc.notebook_version_restore("Big", first)
     assert svc.notebooks.path("Big").read_bytes() == before
     kept = next(v for v in svc.notebook_versions("Big")["versions"] if v["kind"] == "before restore")
     assert sources(svc, kept["id"])[5] == "saved in VS Code"
@@ -99,7 +99,7 @@ def test_a_list_of_versions_cut_short_is_rebuilt_from_the_versions(svc):
     assert json.loads(index.read_text(encoding="utf-8"))["versions"]  # and written whole again
 
 
-def test_a_version_cut_short_by_closing_the_app_leaves_no_half_file_and_the_list_as_it_was(svc, monkeypatch):
+def test_a_version_cut_short_by_closing_the_app_leaves_no_half_file_and_the_list_as_it_was(svc):
     big(svc)
     listed = svc.notebook_versions("Big")["versions"]
     folder = versions._folder(svc._versions_root, "Big")
@@ -107,10 +107,10 @@ def test_a_version_cut_short_by_closing_the_app_leaves_no_half_file_and_the_list
 
     def closed(src, dst):
         raise KeyboardInterrupt("the app closed")
-    monkeypatch.setattr(jsonfile, "replace", closed)
-    with pytest.raises(KeyboardInterrupt):
-        svc.notebook_checkpoint("Big", "never kept")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(jsonfile, "replace", closed)
+        with pytest.raises(KeyboardInterrupt):
+            svc.notebook_checkpoint("Big", "never kept")
     assert sorted(p.name for p in folder.iterdir()) == on_disk  # no half version, no temp file
     assert svc.notebook_versions("Big")["versions"] == listed
 

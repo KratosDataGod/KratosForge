@@ -149,26 +149,26 @@ def other_writer_first(monkeypatch, act):
                  id="property set"),
     pytest.param(lambda f: DeltaTable(f).alter.add_constraint({"pos": "n >= 0"}), id="constraint added"),
 ])
-def test_a_change_beside_another_writers_ddl_is_refused_by_name_and_keeps_theirs(engine, monkeypatch, act):
+def test_a_change_beside_another_writers_ddl_is_refused_by_name_and_keeps_theirs(engine, act):
     before = DeltaTable(folder(engine)).version()
-    other_writer_first(monkeypatch, lambda: act(folder(engine)))
-    with pytest.raises(ValueError, match="Nothing was committed to dbo.lake.*24556"):
-        rows(engine, "UPDATE lake SET n = n + 1 WHERE id = 1")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        other_writer_first(mp, lambda: act(folder(engine)))
+        with pytest.raises(ValueError, match="Nothing was committed to dbo.lake.*24556"):
+            rows(engine, "UPDATE lake SET n = n + 1 WHERE id = 1")
     table = DeltaTable(folder(engine))
     assert table.version() == before + 1  # only the other writer's commit
     assert "fabric_desktop.query" not in str(table.history(1)[0])
     rows(engine, "SELECT * FROM lake")  # readable as the other writer left it
 
 
-def test_a_change_to_a_table_another_writer_dropped_meanwhile_is_refused_by_name(engine, monkeypatch):
-    other_writer_first(monkeypatch, lambda: shutil.rmtree(folder(engine)))
-    with pytest.raises(ValueError) as caught:
-        rows(engine, "UPDATE lake SET n = 1 WHERE id = 1")
-    text = str(caught.value)
-    assert "dbo.lake was dropped by another writer" in text and "Invalid object name 'dbo.lake'" in text, text
-    assert text.endswith("Create dbo.lake again before you run the statement again."), text
-    monkeypatch.undo()
+def test_a_change_to_a_table_another_writer_dropped_meanwhile_is_refused_by_name(engine):
+    with pytest.MonkeyPatch.context() as mp:
+        other_writer_first(mp, lambda: shutil.rmtree(folder(engine)))
+        with pytest.raises(ValueError) as caught:
+            rows(engine, "UPDATE lake SET n = 1 WHERE id = 1")
+        text = str(caught.value)
+        assert "dbo.lake was dropped by another writer" in text and "Invalid object name 'dbo.lake'" in text, text
+        assert text.endswith("Create dbo.lake again before you run the statement again."), text
     assert "lake" not in [t["table"] for t in engine.tables()]
 
 

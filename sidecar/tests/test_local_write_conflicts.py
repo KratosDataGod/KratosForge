@@ -117,31 +117,31 @@ def test_a_change_that_loses_to_another_writer_is_refused_by_name_and_commits_no
     assert "fabric_desktop.query" not in str(table.history(1)[0])
 
 
-def test_after_a_conflict_the_table_shows_the_winners_change(engine, monkeypatch):
-    other_writer_first(monkeypatch, engine, lambda t: t.update(updates={"n": "n + 100"}, predicate="id = 1"))
-    with pytest.raises(ValueError, match="write-write conflict"):
-        engine.execute("UPDATE lake SET n = n + 1 WHERE id = 1", dialect="tsql")
-    monkeypatch.undo()
+def test_after_a_conflict_the_table_shows_the_winners_change(engine):
+    with pytest.MonkeyPatch.context() as mp:
+        other_writer_first(mp, engine, lambda t: t.update(updates={"n": "n + 100"}, predicate="id = 1"))
+        with pytest.raises(ValueError, match="write-write conflict"):
+            engine.execute("UPDATE lake SET n = n + 1 WHERE id = 1", dialect="tsql")
     assert n_of(engine, "lake") == 100  # the winner's change, not ours, and not the old value
     engine.execute("UPDATE lake SET n = n + 1 WHERE id = 1", dialect="tsql")  # run again: it lands
     assert n_of(engine, "lake") == 101
 
 
-def test_a_merge_that_loses_is_refused_the_same_way(engine, monkeypatch):
+def test_a_merge_that_loses_is_refused_the_same_way(engine):
     engine.execute("CREATE TABLE src AS SELECT 1 AS id, 5 AS n")
-    other_writer_first(monkeypatch, engine, lambda t: t.delete("id = 1"))
-    with pytest.raises(ValueError, match="write-write conflict"):
-        engine.execute("MERGE INTO lake AS t USING src AS s ON t.id = s.id WHEN MATCHED THEN UPDATE SET n = s.n")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        other_writer_first(mp, engine, lambda t: t.delete("id = 1"))
+        with pytest.raises(ValueError, match="write-write conflict"):
+            engine.execute("MERGE INTO lake AS t USING src AS s ON t.id = s.id WHEN MATCHED THEN UPDATE SET n = s.n")
     assert engine.execute("SELECT id FROM lake ORDER BY id")["rows"] == [[2]]
 
 
-def test_an_insert_beside_a_change_isnt_a_conflict_as_in_a_warehouse(engine, monkeypatch):
+def test_an_insert_beside_a_change_isnt_a_conflict_as_in_a_warehouse(engine):
     def append(t):
         write_deltalake(str(folder(engine)), t.to_pyarrow_table().slice(1, 1), mode="append")
-    other_writer_first(monkeypatch, engine, append)
-    engine.execute("UPDATE lake SET n = n + 1 WHERE id = 1", dialect="tsql")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        other_writer_first(mp, engine, append)
+        engine.execute("UPDATE lake SET n = n + 1 WHERE id = 1", dialect="tsql")
     assert engine.execute("SELECT id, n FROM lake ORDER BY id, n")["rows"] == [[1, 1], [2, 0], [2, 0]]
 
 

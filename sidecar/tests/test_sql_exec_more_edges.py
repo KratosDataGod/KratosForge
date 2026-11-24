@@ -123,13 +123,13 @@ def test_a_stopped_export_leaves_a_reserved_name_that_already_has_data(tmp_path)
     assert not empty.exists()
 
 
-def test_a_reserved_name_that_cant_be_removed_is_left_alone(tmp_path, monkeypatch):
+def test_a_reserved_name_that_cant_be_removed_is_left_alone(tmp_path):
     reserved = tmp_path / "out.csv"
     reserved.touch()
 
     def locked(self, *a, **k):
         raise PermissionError("locked by another program")
-    monkeypatch.setattr(Path, "unlink", locked)
-    se._discard(tmp_path / "gone.partial", reserved)  # neither removal raises
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Path, "unlink", locked)
+        se._discard(tmp_path / "gone.partial", reserved)  # neither removal raises
     assert reserved.exists()

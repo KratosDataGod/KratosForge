@@ -134,7 +134,7 @@ def test_outputs_vs_code_saved_for_a_cell_the_app_is_editing_go_with_the_old_cod
     assert cells[2]["outputs"] == []  # from code that's gone
 
 
-def test_a_save_cut_short_by_closing_the_app_leaves_the_file_as_it_was(svc, monkeypatch):
+def test_a_save_cut_short_by_closing_the_app_leaves_the_file_as_it_was(svc):
     opened = big(svc)
     path = svc.notebooks.path("Big")
     before = path.read_bytes()
@@ -142,21 +142,21 @@ def test_a_save_cut_short_by_closing_the_app_leaves_the_file_as_it_was(svc, monk
 
     def closed(src, dst):
         raise KeyboardInterrupt("the app closed")
-    monkeypatch.setattr(jsonfile, "replace", closed)
     mine = [dict(c) for c in opened["cells"]]
     mine[0]["source"] = "never saved"
-    with pytest.raises(KeyboardInterrupt):
-        svc.save_notebook("Big", mine, disk_stamp=opened["disk_stamp"])
-    assert path.read_bytes() == before
-    assert [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")] == []
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(jsonfile, "replace", closed)
+        with pytest.raises(KeyboardInterrupt):
+            svc.save_notebook("Big", mine, disk_stamp=opened["disk_stamp"])
+        assert path.read_bytes() == before
+        assert [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")] == []
     assert len(call(svc, "notebook_versions", name="Big")["versions"]) == count  # no version of a save that didn't happen
     again = Service(client_id="x", root=svc.root)  # the app starts again
     assert again.notebooks.load("Big")["disk_stamp"] == opened["disk_stamp"]
     assert "changed_on_disk" not in again.save_notebook("Big", mine, disk_stamp=opened["disk_stamp"])
 
 
-def test_a_versions_copy_cut_short_at_a_refusal_still_refuses_and_keeps_the_file(svc, monkeypatch):
+def test_a_versions_copy_cut_short_at_a_refusal_still_refuses_and_keeps_the_file(svc):
     opened = big(svc)
     vs_code_saves(svc, lambda nb: nb["cells"][3].__setitem__("source", "theirs = 1"))
     before = svc.notebooks.path("Big").read_bytes()
@@ -164,12 +164,12 @@ def test_a_versions_copy_cut_short_at_a_refusal_still_refuses_and_keeps_the_file
     def cut(path, record):
         path.write_text(json.dumps(record)[:500], encoding="utf-8")  # half a version, as a crash would leave it
         raise OSError("the app closed")
-    monkeypatch.setattr(versions, "_write", cut)
     mine = [dict(c) for c in opened["cells"]]
     mine[3]["source"] = "mine = 1"
-    out = svc.save_notebook("Big", mine, disk_stamp=opened["disk_stamp"])
-    assert out["changed_on_disk"] and svc.notebooks.path("Big").read_bytes() == before
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(versions, "_write", cut)
+        out = svc.save_notebook("Big", mine, disk_stamp=opened["disk_stamp"])
+        assert out["changed_on_disk"] and svc.notebooks.path("Big").read_bytes() == before
     listed = call(svc, "notebook_versions", name="Big")["versions"]  # the half-written copies don't break the list
     assert all(v["kind"] not in ("changed outside", "not saved") for v in listed)
 

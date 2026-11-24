@@ -18,7 +18,7 @@ def test_a_file_over_the_size_limit_is_refused_before_it_is_read(monkeypatch):
         reader.table("a,b\n1,2\n3,4\n")
 
 
-def test_csv_that_cant_be_parsed_or_has_only_blank_rows_is_refused(monkeypatch):
+def test_csv_that_cant_be_parsed_or_has_only_blank_rows_is_refused():
     class Broken:
         def __init__(self, *a, **k):
             pass
@@ -26,10 +26,10 @@ def test_csv_that_cant_be_parsed_or_has_only_blank_rows_is_refused(monkeypatch):
         def __iter__(self):
             raise csv.Error("new-line character seen in unquoted field")
 
-    monkeypatch.setattr(reader.csv, "reader", Broken)
-    with pytest.raises(reader.FileProblem, match="isn't valid CSV: new-line"):
-        reader.table("a,b\n1,2\n")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(reader.csv, "reader", Broken)
+        with pytest.raises(reader.FileProblem, match="isn't valid CSV: new-line"):
+            reader.table("a,b\n1,2\n")
     with pytest.raises(reader.FileProblem, match="has no rows"):
         reader.table(" , \n ,\n")
 

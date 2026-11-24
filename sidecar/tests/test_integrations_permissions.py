@@ -353,16 +353,16 @@ def test_a_launcher_rewrite_is_swapped_in_whole_and_leaves_no_temporary_file(tmp
     assert first == config._script_text(path, "mcp ").encode("utf-8")  # line endings exactly as made
     if os.name != "nt":
         assert path.stat().st_mode & 0o777 == 0o755
-    monkeypatch.setattr(sys, "executable", str(tmp_path / "another" / "python"))
 
     def refused(src, dst):
         raise PermissionError("the launcher is in use")
-    monkeypatch.setattr(config.jsonfile, "replace", refused)
-    with pytest.raises(PermissionError):
-        config.write_launcher(tmp_path)
-    assert path.read_bytes() == first
-    assert [p.name for p in path.parent.iterdir()] == [path.name]
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(sys, "executable", str(tmp_path / "another" / "python"))
+        mp.setattr(config.jsonfile, "replace", refused)
+        with pytest.raises(PermissionError):
+            config.write_launcher(tmp_path)
+        assert path.read_bytes() == first
+        assert [p.name for p in path.parent.iterdir()] == [path.name]
     monkeypatch.setattr(sys, "executable", str(tmp_path / "another" / "python"))
     assert str(tmp_path / "another" / "python") in config.write_launcher(tmp_path).read_text(encoding="utf-8")
     assert [p.name for p in path.parent.iterdir()] == [path.name]

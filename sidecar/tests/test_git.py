@@ -342,7 +342,7 @@ def test_carrying_changes_that_clash_is_refused_and_keeps_them(repo):
     assert repo.branch() == "main" and (repo.root / "entities" / "orders.toml").read_text() == "my edit\n"
 
 
-def test_a_failed_switch_after_stashing_puts_the_changes_back(repo, monkeypatch):
+def test_a_failed_switch_after_stashing_puts_the_changes_back(repo):
     repo.create_branch("other", switch=False)
     write(repo.root, "entities/orders.toml", "keep me\n")
     real = repo.git
@@ -351,10 +351,10 @@ def test_a_failed_switch_after_stashing_puts_the_changes_back(repo, monkeypatch)
         if args[:1] == ("switch",):
             raise GitError("simulated", kind="failed")
         return real(*args, **kw)
-    monkeypatch.setattr(repo, "git", failing)
-    with pytest.raises(GitError):
-        repo.switch("other", mode="stash")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(repo, "git", failing)
+        with pytest.raises(GitError):
+            repo.switch("other", mode="stash")
     assert (repo.root / "entities" / "orders.toml").read_text() == "keep me\n" and repo.stashes() == []
 
 

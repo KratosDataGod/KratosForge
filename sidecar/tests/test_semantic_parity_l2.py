@@ -366,10 +366,10 @@ def test_redacted_hashes_expression_text_and_forms_so_no_literal_leaves():
 def test_l2_refuses_to_report_anything_above_the_ceiling(monkeypatch):
     with pytest.raises(AssertionError):
         sp._check_ceiling([{"result": sp.COMPATIBLE, "expression_result": sp.VERIFIED}], sp.COMPATIBLE, "L2")
-    monkeypatch.setattr(sp, "_compare_forms", lambda *a: (sp.VERIFIED, [], []))
-    with pytest.raises(AssertionError):
-        sp.parity_l2(_bim(), _bim())
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(sp, "_compare_forms", lambda *a: (sp.VERIFIED, [], []))
+        with pytest.raises(AssertionError):
+            sp.parity_l2(_bim(), _bim())
     real = sp._pair
     monkeypatch.setattr(sp, "_pair", lambda *args: real(*args) | {"result": sp.WITHIN_TOLERANCE})
     with pytest.raises(AssertionError):

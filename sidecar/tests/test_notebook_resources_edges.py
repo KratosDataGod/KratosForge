@@ -36,7 +36,7 @@ def test_a_file_with_every_suggested_name_taken_says_so(tmp_path, monkeypatch):
         nr._free(tmp_path, "regions.csv")
 
 
-def test_a_write_that_fails_leaves_no_partial_file(tmp_path, monkeypatch):
+def test_a_write_that_fails_leaves_no_partial_file(tmp_path):
     res = Resources(tmp_path / "Sales.resources")
     real_open = open
 
@@ -54,10 +54,10 @@ def test_a_write_that_fails_leaves_no_partial_file(tmp_path, monkeypatch):
             self.f.write(data[:3])
             raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr("builtins.open", lambda p, mode="r", *a, **k: Full(real_open(p, mode, *a, **k)))
-    with pytest.raises(OSError, match="No space"):
-        res.add("regions.csv", b"region\nEast\n")
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("builtins.open", lambda p, mode="r", *a, **k: Full(real_open(p, mode, *a, **k)))
+        with pytest.raises(OSError, match="No space"):
+            res.add("regions.csv", b"region\nEast\n")
     assert not (res.files / "regions.csv").exists()
     assert res.add("regions.csv", b"x")["added"] is True  # a retry isn't blocked
 

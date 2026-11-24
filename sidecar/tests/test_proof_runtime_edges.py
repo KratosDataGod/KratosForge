@@ -45,17 +45,17 @@ def test_without_numpy_only_random_is_seeded(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(not hasattr(time, "tzset"), reason="the time zone can only be set where time.tzset exists")
-def test_restore_puts_back_the_time_zone_the_process_had(monkeypatch, tmp_path):
-    monkeypatch.setenv("TZ", "Europe/Paris")
+def test_restore_puts_back_the_time_zone_the_process_had(tmp_path):
     try:
-        rt = runtime().bind(tmp_path)
-        assert os.environ["TZ"] == "UTC" and rt.log["timezone"] == "UTC"
-        rt.restore()
-        assert os.environ["TZ"] == "Europe/Paris"
-        rt.restore()  # a second restore does nothing
-        assert os.environ["TZ"] == "Europe/Paris"
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("TZ", "Europe/Paris")
+            rt = runtime().bind(tmp_path)
+            assert os.environ["TZ"] == "UTC" and rt.log["timezone"] == "UTC"
+            rt.restore()
+            assert os.environ["TZ"] == "Europe/Paris"
+            rt.restore()  # a second restore does nothing
+            assert os.environ["TZ"] == "Europe/Paris"
     finally:
-        monkeypatch.undo()
         time.tzset()  # the rest of this process runs in the zone it had before, even when an assert failed
 
 

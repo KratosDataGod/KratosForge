@@ -165,6 +165,8 @@ class _Reply:
 # once, and every copy shares its list, so no_network checks the list the guard writes to.
 _installed = getattr(socket.socket.connect, "kf_outbound", None)
 _outbound: list[str] = _installed if _installed is not None else []
+# this PC's own addresses, learned from UDP route lookups: a connect to one of them doesn't leave the PC
+_own: set[str] = socket.socket.connect.kf_own if _installed is not None else set()  # type: ignore[attr-defined]
 _real_connect = socket.socket.connect
 _real_connect_ex = socket.socket.connect_ex
 
@@ -172,8 +174,10 @@ _real_connect_ex = socket.socket.connect_ex
 def _is_local(sock: socket.socket, address) -> bool:
     if sock.family not in (socket.AF_INET, socket.AF_INET6) or not isinstance(address, tuple):
         return True  # a local socket file (AF_UNIX), or a family that never leaves this PC
+    if sock.type == socket.SOCK_DGRAM:
+        return True  # a UDP connect sends nothing: it only picks a route (finding this PC's address)
     host = str(address[0]).split("%")[0]
-    if host == "localhost":
+    if host == "localhost" or host in _own:
         return True
     try:
         return ipaddress.ip_address(host).is_loopback
@@ -189,7 +193,10 @@ def _refuse_outbound(address) -> OSError:
 def _guarded_connect(self, address):
     if not _is_local(self, address):
         raise _refuse_outbound(address)
-    return _real_connect(self, address)
+    done = _real_connect(self, address)
+    if self.type == socket.SOCK_DGRAM and self.family in (socket.AF_INET, socket.AF_INET6):
+        _own.add(str(self.getsockname()[0]))
+    return done
 
 
 def _guarded_connect_ex(self, address):
@@ -201,6 +208,7 @@ def _guarded_connect_ex(self, address):
 
 if _installed is None:
     _guarded_connect.kf_outbound = _outbound  # type: ignore[attr-defined]
+    _guarded_connect.kf_own = _own  # type: ignore[attr-defined]
     socket.socket.connect = _guarded_connect  # type: ignore[method-assign]
     socket.socket.connect_ex = _guarded_connect_ex  # type: ignore[method-assign]
 

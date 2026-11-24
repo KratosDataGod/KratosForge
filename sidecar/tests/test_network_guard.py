@@ -23,7 +23,7 @@ def test_importing_conftest_again_keeps_one_guard_and_one_list():
     guard = socket.socket.connect
     again = _load_conftest_again()
     assert socket.socket.connect is guard
-    assert again._outbound is guard.kf_outbound
+    assert again._outbound is guard.kf_outbound and again._own is guard.kf_own
 
 
 def test_a_swallowed_connect_after_a_second_import_is_still_seen():
@@ -33,3 +33,13 @@ def test_a_swallowed_connect_after_a_second_import_is_still_seen():
         sock.connect(("192.0.2.1", 443))  # TEST-NET-1: refused here before any packet leaves
     assert guard.kf_outbound == ["('192.0.2.1', 443)"]
     guard.kf_outbound.clear()  # seen, so this test itself doesn't fail at no_network's check
+
+
+def test_a_udp_connect_that_only_picks_a_route_is_allowed():
+    # test_integrations_limits finds this PC's own address this way; no packet leaves
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.connect(("10.255.255.255", 1))
+        own = sock.getsockname()[0]
+    assert socket.socket.connect.kf_outbound == []
+    # the address the route lookup gave is this PC's own, so a connect to it stays on this PC
+    assert own in socket.socket.connect.kf_own

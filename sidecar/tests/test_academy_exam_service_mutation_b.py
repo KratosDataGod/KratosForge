@@ -21,6 +21,12 @@ def svc(tmp_path):
 
 
 def _first_answer(item):
+    """An answer the question takes, whichever type was drawn: a multi-part one (yes or no, hot area,
+    matching) has no options of its own, so each part gets its first choice."""
+    if item["type"] == "code":         # a different token in each gap
+        return [o["id"] for o in item["options"][:len(item["parts"])]]
+    if item.get("parts"):
+        return [p["options"][0]["id"] for p in item["parts"]]
     return [o["id"] for o in item["options"]] if item["type"] == "order" else [item["options"][0]["id"]]
 
 
@@ -59,6 +65,15 @@ def test_answer_returns_the_view_and_flag_turns_on_by_default(svc) -> None:
     assert view["id"] == v["id"] and view["items"][0]["answer"]
     flagged = svc.academy_exam_flag(v["id"], b["q"])
     assert flagged["flagged"] == 1 and flagged["items"][1]["flagged"]
+
+
+@pytest.mark.parametrize("seed", [10, 182])  # the first question drawn is a matching, then a hot area one
+def test_answer_takes_a_first_question_of_any_type(svc, monkeypatch, seed) -> None:
+    # The draw is random, so a multi-part first question (no options of its own) came up now and then.
+    monkeypatch.setattr(exam.secrets, "randbelow", lambda n: seed)
+    v = svc.academy_exam_start("dp-700", "practice", timed=False)
+    a = v["items"][0]
+    assert svc.academy_exam_answer(v["id"], a["q"], _first_answer(a))["items"][0]["answer"]
 
 
 def test_a_heartbeat_after_the_finish_says_the_clock_is_stopped(svc) -> None:

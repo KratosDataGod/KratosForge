@@ -317,6 +317,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.5-q11",
+      "type": "single",
+      "stem": "At Quillon, a reviewer exports data from a report built on ClaimsDW for offline review. Which export keeps the Highly Confidential label and its protection?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Export to a .csv file"
+        },
+        {
+          "id": "b",
+          "text": "None of them, because labels never leave Fabric"
+        },
+        {
+          "id": "c",
+          "text": "Copy the visual's data into a .txt file"
+        },
+        {
+          "id": "d",
+          "text": "Export to Excel"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Labels and the protection they apply stay with data exported from Power BI items to Excel, PDF and PowerPoint files. Other export paths, such as .csv and .txt files, don't carry the label or its protection.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
+      "case": "quillon-claims",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

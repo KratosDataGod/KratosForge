@@ -292,3 +292,30 @@ def test_a_breakpoint_on_a_blank_line_pauses_at_the_next_code_and_one_past_the_e
     assert [o["text"] for o in snap["outputs"]] == [
         ("The breakpoint on line 4 can't pause, because no code runs from there to the end of the cell. "
          "Move it to a line with code.")]
+
+
+@pytest.mark.parametrize("action", ["step", "next"])
+def test_a_step_from_a_comprehension_line_goes_on_to_the_next_line(action):
+    k = Kernel()
+    k.start("xs = [i for i in range(3)]\ny = 1", breakpoints=[], step=True)
+    assert waiting(k)["paused"]["line"] == 1
+    k.debug(action)
+    assert waiting(k)["paused"]["line"] == 2  # not line 1 again for each item
+    k.debug("continue")
+    assert waiting(k)["status"] == "ok"
+
+
+def test_a_generator_resumed_on_the_same_cell_line_is_a_new_place_to_stop():
+    k = Kernel()
+    k.start("def gen():\n    for i in range(3): yield i\nit = gen()\na = next(it)\nb = [next(it), next(it)]\nc = 1",
+            breakpoints=[5])
+    assert waiting(k)["paused"]["line"] == 5
+    k.debug("step")
+    assert [f["function"] for f in waiting(k)["paused"]["stack"]] == ["(cell)", "gen"]
+    k.debug("next")  # the generator yields, and the cell's line resumes it at once: the step ended when it left
+    paused = waiting(k)["paused"]
+    assert (paused["line"], [f["function"] for f in paused["stack"]]) == (2, ["(cell)", "gen"])
+    k.debug("next")
+    assert waiting(k)["paused"]["line"] == 6
+    k.debug("continue")
+    assert waiting(k)["status"] == "ok"

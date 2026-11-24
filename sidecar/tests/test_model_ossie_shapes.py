@@ -33,7 +33,7 @@ def _set(doc, at, value):
 def _refused(fn, path):
     with pytest.raises(ValueError, match=r"^(The Ossie file couldn't be converted|This model couldn't be converted to "
                                          r"Ossie|The model couldn't be updated), because part of it isn't the shape "
-                                         r".*: " + re.escape(path) + " is "):
+                                         r".*\. " + re.escape(path) + " is "):
         fn()
 
 

@@ -171,7 +171,7 @@ def detect_profile(doc: Any) -> str:
     UnknownProfile naming its version. ``fabric-semantic-view`` is never detected: it is the same version as
     ``ossie-0.2`` and is chosen by the caller."""
     if not isinstance(doc, dict):
-        raise UnknownProfile("This isn't an Ossie semantic model: it should be one object with version, name and "
+        raise UnknownProfile("This isn't an Ossie semantic model, which is one object with version, name and "
                              "datasets", (), "type")
     raw = doc.get("version")
     version = raw if isinstance(raw, str) else None

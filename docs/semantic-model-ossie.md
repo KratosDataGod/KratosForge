@@ -278,7 +278,7 @@ to leave it out without saying so. The check goes only as deep as the parts it k
 nested value elsewhere costs nothing.
 
 A file that isn't one object at all (a list, a number, plain text or an empty file) is refused the
-same way, with "This isn't an Ossie semantic model: it should be one object with version, name and
+same way, with "This isn't an Ossie semantic model, which is one object with version, name and
 datasets", by every entry point: reading, conversion, Ossie to TMDL, the Semantic View and structural
 parity. The TMDL reader refuses files that aren't path -> text.
 

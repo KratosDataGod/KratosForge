@@ -124,7 +124,7 @@ MAX_CHARS = 20_000_000
 # Levels of nesting a document may have, as the schema check (ossie_validate) allows: deeper is refused before the
 # converter recurses into it.
 MAX_DEPTH = tmdl.MAX_DEPTH
-NOT_A_MODEL = "This isn't an Ossie semantic model: it should be one object with version, name and datasets"
+NOT_A_MODEL = "This isn't an Ossie semantic model, which is one object with version, name and datasets"
 
 
 def unavailable() -> str:
@@ -467,7 +467,7 @@ def _refuse_shape(doc: Any, shape: Shape, kind: Literal["ossie", "export", "upda
         if not _fits(value, spec):
             hint = " (a name that is a number goes in quotes)" if isinstance(value, (int, float)) and \
                 not isinstance(value, bool) and _fits("", spec) else ""
-            raise ValueError(f"{_SHAPE_LEADS[kind]}: {path} is {_what(value)} where it should be {_wanted(spec)}{hint}. "
+            raise ValueError(f"{_SHAPE_LEADS[kind]}. {path} is {_what(value)} where it should be {_wanted(spec)}{hint}. "
                              "Fix that part, then try again.")
         if isinstance(spec, dict):
             todo.extend((value[key], want, f"{path}.{key}")

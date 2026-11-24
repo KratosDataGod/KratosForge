@@ -188,7 +188,7 @@ def test_nonzero_number_of_text_that_isnt_a_number():
     ("SELECT TO_CHAR(CURRENT_DATE, 'YYYY Q')", "not_translatable", "SFX-002"),
     ("SELECT {'a': 1, 2}", "translated", "SELECT {'a': 1, '_1': 2}"),
     ("SELECT ARRAY_INSERT(a, p, 1)", "not_translatable", "SFX-000"),
-    ("SELECT $1 FROM t", "translated", "SELECT $1 FROM t"),
+    ("SELECT $1 FROM t", "translated", 'SELECT #1 AS "$1" FROM t'),
     ("SELECT REGEXP_SUBSTR(s, x, 1, 1, 'e')", "translated", "REGEXP_EXTRACT(s, REGEXP_REPLACE(x, '^$', 'a^a', 'g'))"),
     ("SELECT TIMESTAMP_TZ_FROM_PARTS(2024, 1, 1, 0, 0, 0, 0, 'UTC')", "not_translatable", "SFX-000"),
     ("SELECT BITAND_AGG(DISTINCT x) FROM t", "translated", "SELECT BIT_AND(DISTINCT x) FROM t"),

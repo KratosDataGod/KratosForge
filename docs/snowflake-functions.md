@@ -21,12 +21,12 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 388 |
+| Runs | 389 |
 | Differs | 11 |
 | Refused | 91 |
 | Fails | 0 |
 | Not checked | 16 |
-| **All** | **506** |
+| **All** | **507** |
 
 ## String and binary
 
@@ -588,6 +588,7 @@ the known differences in more detail.
 | `BEGIN` | Runs |  | 1 value check |
 | `START TRANSACTION` | Runs |  | 1 value check |
 | `DDL INSIDE BEGIN` | Refused |  | DDL INSIDE BEGIN: Statement 4 runs only in Snowflake: CREATE, ALTER or DROP inside a transaction. Snowflake commits the open transaction before a CREATE, ALTER or DROP and runs it as its own transaction, where DuckDB keeps it inside the open one, so a later ROLLBACK would undo different work here. Put COMMIT before the statement. |
+| `VALUES` | Runs |  | 2 value checks |
 | `WITH` | Runs |  | 1 value check |
 | `UNION ALL` | Runs |  | 1 value check |
 | `CREATE STREAM` | Refused | `CREATE STREAM st ON TABLE t` | Streams. A stream tracks changes inside Snowflake; DuckDB has no equivalent. |

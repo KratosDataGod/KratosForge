@@ -936,6 +936,11 @@ CASES: tuple[Case, ...] = (
        "SELECT current_val + previous_val, current_val FROM current_f WHERE current_val + previous_val < 100) "
        "SELECT list(current_val ORDER BY current_val) FROM current_f",
        [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89], page="../constructs/with"),
+    # the VALUES page: SELECT $1, $2 FROM VALUES (1, 'one'), (2, 'two'), (3, 'three') reads each column by position
+    _c("VALUES ($1, $2)", "Statements", "SELECT max($2) FROM VALUES (1, 'one'), (2, 'two'), (3, 'three') WHERE $1 = 2",
+       "two", page="../constructs/values"),
+    _c("VALUES ($1 summed)", "Statements", "SELECT sum($1) FROM VALUES (1, 'one'), (2, 'two'), (3, 'three')", 6,
+       page="../constructs/values"),
     _c("UNION ALL (BY NAME)", "Statements", "SELECT list(a ORDER BY a) FROM (SELECT * FROM VALUES (1, 'one'), (2, 'two'), "
        "(3, 'three') AS t1(a, b) UNION ALL BY NAME SELECT * FROM VALUES ('three', 3), ('four', 4) AS t2(b, a))",
        [1, 2, 3, 3, 4], page="../operators-query"),

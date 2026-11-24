@@ -684,7 +684,7 @@ def _rewrite_object_construct(statement: exp.Expression) -> None:
         entries = ", ".join(f"{{'k': {_duck(_object_key(p.this))}, 'v': to_json({_duck(p.expression)})}}"
                             for p in pairs)
         node.replace(sqlglot.parse_one(
-            f"to_json(map_from_entries(list_sort(list_filter([{entries}], x -> x.v IS NOT NULL))))", read="duckdb"))
+            f"to_json(map_from_entries(list_sort(list_filter([{entries}], kf_e -> kf_e.v IS NOT NULL))))", read="duckdb"))
 
 
 def _rewrite_soundex(statement: exp.Expression) -> None:
@@ -953,6 +953,31 @@ _MERGE_DUPLICATE = ("A target row matches more than one source row, so the MERGE
                     "ORDER BY ...) = 1.")
 
 
+_POSITION_ELSEWHERE = _refuse(
+    "SFN-085", "$1 in ORDER BY, GROUP BY, HAVING or QUALIFY", "Snowflake reads $1 as the first column of the "
+    "FROM clause. In these clauses DuckDB reads a column position as the SELECT list's instead, so the query "
+    "could answer differently. Write the column's name there.", f"{_DOCS}/constructs/values")
+
+
+def _rewrite_positions(statement: exp.Expression) -> None:
+    """SFX-086: $1, $2, ... name a column of the FROM clause by its position, as on Snowflake's VALUES page
+    (SELECT $1, $2 FROM VALUES (1, 'one')). DuckDB's #1 means the same in the SELECT list, WHERE and ON. A
+    bare $1 in the SELECT list is named "$1", as Snowflake names it. In ORDER BY, GROUP BY, HAVING and
+    QUALIFY, DuckDB's #1 is a SELECT list position, so $1 there is refused by name (SFN-085)."""
+    for parameter in list(statement.find_all(exp.Parameter)):
+        if not (isinstance(parameter.this, exp.Literal) and not parameter.this.is_string
+                and str(parameter.this.this).isdigit()):
+            continue
+        if parameter.find_ancestor(exp.Order, exp.Group, exp.Having, exp.Qualify) is not None:
+            raise _Untranslatable(_POSITION_ELSEWHERE)
+        number = int(str(parameter.this.this))
+        column = exp.column(exp.Identifier(this=f"#{number}", quoted=False))
+        if isinstance(parameter.parent, exp.Select) and parameter.arg_key == "expressions":
+            parameter.replace(exp.alias_(column, exp.to_identifier(f"${number}", quoted=True)))
+        else:
+            parameter.replace(column)
+
+
 def _rewrite_statements(statement: exp.Expression) -> None:
     """SFX-025: what Snowflake's statements do that DuckDB's don't by themselves.
     - MERGE with WHEN MATCHED ... UPDATE stops when a target row matches more than one source row, as
@@ -990,6 +1015,7 @@ def _rewrite_statements(statement: exp.Expression) -> None:
                 if isinstance(value, exp.Literal) and value.is_string:
                     value.replace(exp.PivotAlias(this=value.copy(),
                                                  alias=exp.to_identifier(f"'{value.name}'", quoted=True)))
+    _rewrite_positions(statement)
     for parameter in list(statement.find_all(exp.Parameter)):
         if isinstance(parameter.this, exp.Var) and not isinstance(parameter.parent, exp.DynamicIdentifier):
             parameter.replace(exp.Anonymous(this="getvariable",
@@ -2571,6 +2597,9 @@ CATALOG = (
                 "store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object, its "
                 "columns, a column or alias of CREATE ... AS and CREATE VIEW, a renamed table or column, an added "
                 "column. A quoted name keeps its case.")),
+    ("SFX-086", "Rewritten", ("$1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM "
+                "VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, "
+                "as in Snowflake.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -2648,6 +2677,8 @@ CATALOG = (
                 "fraction or exponent read from a column or a path (the query stops at that row), because Snowflake's answer "
                 "depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a "
                 "path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired.")),
+    ("SFN-085", "Runs only in Snowflake", ("$1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a "
+                "column position as the SELECT list's, not the FROM clause's (SFX-086).")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 

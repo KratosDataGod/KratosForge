@@ -32,12 +32,12 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 52 | 0 | 2 | 96% |
+| Notebook | 54 | 53 | 0 | 1 | 98% |
 | SQL editor | 45 | 41 | 2 | 2 | 93% |
-| **Both** | **99** | **93** | **2** | **4** | **95%** |
+| **Both** | **99** | **94** | **2** | **3** | **96%** |
 
-The notebook is at 96%: its two gaps are rich-text Markdown editing (N23) and presentation mode
-(N49), the wave 2 items. Their mockup is approved (2026-11-17), and the builds wait on Chris's go. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+The notebook is at 98%: its one gap is rich-text Markdown editing (N23), a wave 2 item whose mockup
+is approved (2026-11-17). Presentation mode (N49), the other, is built as Preview. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), and its results
 grid now sorts, filters, resizes, opens and copies over every row, with several statements and
 result sets per run. Its open rows are data compare
@@ -98,7 +98,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N46 | Download a result as CSV, Excel or Parquet | N | P | Y | Y | Y | Have | `frame_download` |
 | N47 | Find inside outputs | Y | Y | N | N | N | Have | Find searches cell outputs too (#2581) |
 | N48 | Publish a notebook as a read-only report or app | P | N | N | Y | Y | Have | Notebook > Share > Open as report, outputs only in its own window (`nbreport.js`, Preview, #2797) |
-| N49 | Presentation (slide) mode | P | N | N | Y | Y | Gap | |
+| N49 | Presentation (slide) mode | P | N | N | Y | Y | Have | Notebook > View > Present, slides from # and ## headings or marked cells, outputs only (`nbpresent.js`, Preview) |
 | N50 | Autosave, versions, diff, restore | P | P | Y | Y | Y | Have | `notebook-versions.js` |
 | N51 | Export as .ipynb, .py, HTML | Y | Y | Y | Y | P | Have | `notebook-formats.js` |
 | N52 | Export as PDF | Y | Y | N | P | Y | Have | Export as PDF through print to PDF (#2584) |

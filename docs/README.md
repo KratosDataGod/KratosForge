@@ -252,6 +252,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Result history and pinned results on the SQL page | SQL query or Warehouse page, History beside Results ([sql-execution.md](sql-execution.md#result-history-and-pinned-results-preview)) |
 | Scratch console in notebooks | Notebook > View > Scratch ([user-guide.md](user-guide.md#scratch-console-preview)) |
 | Notebook as a report | Notebook > Share > Open as report ([user-guide.md](user-guide.md#notebook-as-a-read-only-report-preview)) |
+| Notebook Present mode | Notebook > View > Present, or Ctrl+Shift+F5 ([notebooks.md](notebooks.md#present-mode-preview)) |
 | Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |
 | SQL best practices | SQL query or Warehouse page, Best practices chip beside Compatibility, for T-SQL ([sql-best-practices.md](sql-best-practices.md)) |
 | New build banner | Below the top bar while KratosForge is open; Settings > Updates ([user-guide.md](user-guide.md#a-new-build-while-the-app-is-open-preview)) |

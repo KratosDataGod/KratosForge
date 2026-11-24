@@ -108,6 +108,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   nbConsole: "Scratch console in notebooks",
   nbReport: "Notebook as a report",
+  nbPresent: "Notebook Present mode",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
   forgeActivity: "Forge Activity view in Monitor",

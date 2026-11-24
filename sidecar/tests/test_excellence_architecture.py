@@ -52,7 +52,7 @@ def advice(o: dict) -> str:
 
 def test_architecture_controls_are_registered_and_complete():
     r = catalog.registry()
-    ids = [c.id for c in r.controls("architecture")]
+    ids = [c.id for c in r.controls("architecture") if c.id.startswith("FEA-ARCH-")]
     assert ids == ["FEA-ARCH-001", "FEA-ARCH-002", "FEA-ARCH-003", "FEA-ARCH-004"]
     for c in r.controls("architecture"):
         assert ct.problems(c) == []

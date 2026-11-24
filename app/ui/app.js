@@ -94,10 +94,15 @@ function toast(text, isError = false, opts = {}) {
   // A hidden status region isn't in the accessibility tree when its words change, so the first toast after a quiet
   // spell isn't read; the window's polite region (motion.js announce) says it. An error is an alert, read when shown.
   if (t.hidden && !isError && typeof announce === "function") announce(text);
+  // A new toast drops the old one's buttons: if focus was on one, it goes back to where it came from, as on close.
+  const hadFocus = !t.hidden && t.contains(document.activeElement);
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
+  // A toast with a button isn't timed (WCAG 2.2.1): someone who reaches it by keyboard still finds it. It goes when
+  // its × or Esc closes it, or when the next toast takes its place.
+  toast.timed = !opts.action;
   if (opts.action) {
-    t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
-      "tool small toast-action"));
+    t.append(" ", btn(opts.action.label, null, () => { toastClose(); opts.action.run(); }, "tool small toast-action"),
+      h("button", { class: "tool small toast-close", title: "Close", "aria-label": "Close", onclick: () => toastClose() }, icon("dismiss", 14)));
   }
   if ((isError || opts.log) && !opts.quiet) {
     const title = opts.title || (isError ? "Something didn't work" : text);
@@ -108,6 +113,7 @@ function toast(text, isError = false, opts = {}) {
   t.className = `toast${isError ? " error" : ""}${state.view === "monitor" ? " top" : ""}`;
   t.setAttribute("role", isError ? "alert" : "status");
   t.hidden = false;
+  if (hadFocus) { toast.held = false; toastReturnFocus(); }
   toast.wait = isError ? 8000 : 4000;
   if (!toast.wired) {
     toast.wired = true;
@@ -118,12 +124,39 @@ function toast(text, isError = false, opts = {}) {
       toast.later();
     };
     t.addEventListener("mouseenter", hold);
-    t.addEventListener("focusin", hold);
+    t.addEventListener("focusin", (e) => {
+      if (!t.contains(e.relatedTarget)) toast.returnTo = e.relatedTarget;  // where Esc or × puts focus back
+      hold();
+    });
     t.addEventListener("mouseleave", release);
     t.addEventListener("focusout", () => setTimeout(release));
+    t.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      toastClose();
+    });
   }
-  toast.later = () => { clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, toast.wait); };
+  toast.later = () => {
+    clearTimeout(toast.timer);
+    if (toast.timed) toast.timer = setTimeout(() => { t.hidden = true; }, toast.wait);
+  };
   if (!toast.held) toast.later(); else clearTimeout(toast.timer);
+}
+
+// Closes the toast; if focus was in it, focus goes back to where it came from.
+function toastClose() {
+  const t = document.getElementById("toast");
+  clearTimeout(toast.timer);
+  const had = t.contains(document.activeElement);
+  t.hidden = true;
+  toast.held = false;
+  if (had) toastReturnFocus();
+}
+
+// Focus goes back to where it was before it entered the toast, or to the page (#view has tabindex -1).
+function toastReturnFocus() {
+  (toast.returnTo?.isConnected ? toast.returnTo : document.getElementById("view"))?.focus();
 }
 
 // Runs fn and shows a failure as an error toast titled label. With retry (true, or another
@@ -272,7 +305,8 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
     };
     input.addEventListener("input", () => { problem.hidden = true; });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submit();
+      // preventDefault: otherwise the keypress reaches the button focus returns to and opens the prompt again.
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
       if (e.key === "Escape") done(null);
     });
     showDialog(title, h("div", {}, h("label", { class: "field" }, label, input), problem), [
@@ -1044,7 +1078,7 @@ function renderCreate() {
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
-      preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
+      preview("wizard", tile("notebook", "Notebook from a template", "Templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
       preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog))),
@@ -1812,7 +1846,11 @@ async function renderOneLake() {
     const q = cp.query.toLowerCase();
     return cp.data.items.filter((r) => inScope(r) && typeMatches(r)
       && (!q || `${r.name} ${r.workspace_name} ${typeLabel(r.type)} ${r.description} ${tablesOf(r).join(" ")}`.toLowerCase().includes(q)))
-      .sort((a, b) => cp.dir * String(sortValue[cp.sort](a)).localeCompare(String(sortValue[cp.sort](b)), undefined, { sensitivity: "base" }));
+      .sort((a, b) => {
+        const x = sortValue[cp.sort](a), y = sortValue[cp.sort](b);
+        // "~" is no endorsement or layer: after the rest, since localeCompare puts "~" before letters.
+        return cp.dir * ((x === "~") - (y === "~") || String(x).localeCompare(String(y), undefined, { sensitivity: "base" }));
+      });
   }
 
   async function toggleFavorite(r, e) {
@@ -2306,7 +2344,8 @@ async function saveNotebook() {
   if (!ok) return false;
   if (ok.changed_on_disk) {
     nb.diskConflict = true;  // autosave waits until the person decides
-    nbDiskConflict(nb, ok);
+    if (ok.merge && previewShown()) nbSyncMerge(nb, ok);  // merged by cell, each difference picked (Preview)
+    else nbDiskConflict(nb, ok);
     return false;
   }
   nb.diskStamp = ok.disk_stamp || null;

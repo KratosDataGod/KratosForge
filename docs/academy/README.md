@@ -17,7 +17,7 @@ The second path, **Databricks Certified Data Engineer Associate**, is planned in
 
 ## Status
 
-Planning (2026-11-03). Nothing in this folder is a shipped feature yet.
+Planning (2026-11-03). Academy now ships as Preview: [Academy](../academy-guide.md) says what it does today. This folder is the plan behind it.
 
 The DP-700 objective registry (ACD-001) is data in
 `sidecar/fabric_desktop/academy/packs/dp-700/certification.json`, read and checked by

@@ -21,6 +21,7 @@ database; they go into the safety folder beside the database's copy.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import json
@@ -31,6 +32,8 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
+import zlib
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -38,6 +41,7 @@ from typing import Any
 from .redact import secrets
 from . import jsonfile
 from . import trees
+from .tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names (NUL, CON, COM1 and the rest)
 
 _log = logging.getLogger(__name__)
 
@@ -55,6 +59,12 @@ SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin", "link-port", "editor-p
 SKIP_SUFFIXES = {".log", ".tmp", ".lock", ".pyc"}
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 SQLITE_HEADER = b"SQLite format 3\x00"
+# A manifest lists each file's path, size and SHA-256: a few hundred bytes a file. Its size is checked
+# before it is read, since a zip's entries can be far larger once unpacked.
+MAX_MANIFEST = 64 * 1024 * 1024
+# What a damaged or foreign zip raises while a member is read: a bad CRC or header, broken deflate data,
+# a compression method or zip version Python can't read, an encrypted member.
+_UNREADABLE = (OSError, EOFError, zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError)
 SQLITE_COMPANIONS = ("-wal", "-shm", "-journal")  # SQLite replays these onto the database they sit beside
 TEXT_SUFFIXES = {".json", ".jsonl", ".toml", ".ipynb", ".sql", ".py", ".md", ".txt", ".csv", ".yaml", ".yml"}
 SECRET_KEYS = {"teams_webhook", "platform_notify"}  # platform_notify holds webhook addresses
@@ -74,6 +84,20 @@ def _skipped(rel: PurePosixPath) -> str | None:
     if rel.suffix.lower() in SKIP_SUFFIXES or rel.name.endswith(SQLITE_COMPANIONS):
         return "rebuilt by the app"
     return None
+
+
+_FOLDED_DIRS = {d.casefold() for d in SKIP_DIRS}
+_FOLDED_FILES = {f.casefold() for f in SKIP_FILES}
+
+
+def _skipped_any_case(rel: PurePosixPath) -> str | None:
+    """:func:`_skipped` with names compared as Windows compares them, ignoring case."""
+    parts = tuple(part.casefold() for part in rel.parts)
+    if (len(parts) > 1 and parts[0] in _FOLDED_DIRS) or "__pycache__" in parts:
+        return "rebuilt by the app"
+    if parts[-1] in _FOLDED_FILES:
+        return "tokens are never backed up"
+    return _skipped(PurePosixPath(*parts))
 
 
 def _sqlite_bytes(path: Path) -> bytes:
@@ -161,6 +185,9 @@ def _collect(data_dir: Path, agent_home: Path | None) -> tuple[list[tuple[str, P
                 if reason.startswith("tokens"):
                     skipped.append({"path": f"app/{rel}", "reason": reason})
                 continue
+            if not _safe(f"app/{rel}"):  # restore would refuse it, so the backup leaves it out and says so
+                skipped.append({"path": f"app/{rel}", "reason": "its name looks like a Windows short name (such as draft~1.txt), so rename the file to back it up"})
+                continue
             files.append((f"app/{rel}", path))
     if agent_home:
         for name in AGENT_FILES:
@@ -175,8 +202,9 @@ def create(out_dir: Path, data_dir: Path, agent_home: Path | None = None, now: d
     files, skipped = _collect(data_dir, agent_home)
     entries: list[dict[str, Any]] = []
     cleaned: list[dict[str, str]] = []
-    out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"fabric-desktop-backup-{now.strftime('%Y%m%d-%H%M%S')}.zip"
+    with jsonfile.long_path_named(target, "written"):  # a folder past Windows' 260 without long paths: named
+        out_dir.mkdir(parents=True, exist_ok=True)
     # Written as .part and renamed once whole, so a backup that stops part way leaves no zip behind.
     part = target.with_name(target.name + ".part")
     try:
@@ -190,7 +218,7 @@ def create(out_dir: Path, data_dir: Path, agent_home: Path | None = None, now: d
 
 def _write(part: Path, files: list[tuple[str, Path]], skipped: list[dict[str, str]], entries: list[dict[str, Any]],
            cleaned: list[dict[str, str]], now: datetime) -> None:
-    with open(part, "wb") as f:
+    with jsonfile.long_path_named(part.with_name(part.name.removesuffix(".part")), "written"), open(part, "wb") as f:
         with zipfile.ZipFile(f, "w", zipfile.ZIP_DEFLATED) as z:
             _fill(z, files, skipped, entries, cleaned, now)
         f.flush()
@@ -237,43 +265,75 @@ def _no_longer(name: str) -> bool:
     return name in NO_LONGER_BACKED_UP or name.startswith(NO_LONGER_BACKED_UP_DIRS)
 
 
+# A name in 8.3 shape (MSAL_C~1.BIN, PROJEC~1) may be a short name, which Windows reads as the long name it
+# stands for, so restore refuses it and a backup leaves it out.
+_SHORT_NAME = re.compile(r"[^.~]{0,6}~\d{1,6}(\.[^.]{0,3})?", re.IGNORECASE)
+
+
+def _windows_alias(part: str) -> bool:
+    """Whether Windows would read ``part`` as another file's name: it drops a trailing dot or space, keeps
+    device names (NUL, COM1.txt) for the device, and reads a short name as its long name."""
+    return (part != part.rstrip(". ") or part.split(".")[0].upper().rstrip(" ") in _DEVICE_NAMES
+            or _SHORT_NAME.fullmatch(part) is not None)
+
+
 def _safe(name: str) -> bool:
     path = PurePosixPath(name)
-    return (not path.is_absolute() and ".." not in path.parts and "\\" not in name and ":" not in name
+    # name == path.as_posix(): "app//x" would be "/x" once split at its first slash.
+    return (name == path.as_posix() and not path.is_absolute() and ".." not in path.parts and "\\" not in name and ":" not in name
             and len(path.parts) >= 2 and path.parts[0] in ("app", "agent")
-            and _skipped(PurePosixPath(*path.parts[1:])) is None)
+            and not any(_windows_alias(part) for part in path.parts)
+            # Windows names ignore case: MSAL_CACHE.BIN is the token file msal_cache.bin
+            and _skipped_any_case(PurePosixPath(*path.parts[1:])) is None)
 
 
 def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
     """The backup's manifest and every reason not to restore it; nothing is written."""
     try:
         z = zipfile.ZipFile(zip_path)
-    except (OSError, zipfile.BadZipFile) as exc:
+    except _UNREADABLE as exc:  # a zip version it can't read raises NotImplementedError here
         return {}, [f"{zip_path} isn't a zip file: {exc}"]
     with z:
         try:
+            if z.getinfo(MANIFEST).file_size > MAX_MANIFEST:
+                return {}, [(f"Its manifest.json wasn't read, because it's over {MAX_MANIFEST // (1024 * 1024)} MB, far "
+                            "larger than any backup's. Pick a backup KratosForge made.")]
             manifest = json.loads(z.read(MANIFEST))
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, RecursionError, *_UNREADABLE):
             return {}, ["It has no readable manifest.json, so it isn't a KratosForge backup."]
         if not isinstance(manifest, dict) or manifest.get("schema") != SCHEMA:
             return {}, [f"It isn't a {SCHEMA} backup."]
+        entries, cleaned = manifest.get("files") or [], manifest.get("cleaned") or []
+        if (not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries)
+                or not isinstance(manifest.get("created"), str) or not isinstance(cleaned, list)
+                or not all(isinstance(c, dict) and {"path", "removed"} <= c.keys() for c in cleaned)):
+            return {}, [("Its manifest.json can't be used, because a part of it is missing or isn't the kind of value "
+                        "a backup writes. Make a new backup, or pick another one.")]
         problems = []
         listed: dict[str, Any] = {}
+        lower: set[str] = set()
         kept = []
-        for entry in manifest.get("files") or []:
+        for entry in entries:
             name = str(entry.get("path", ""))
             if _no_longer(name):
                 continue
             kept.append(entry)
             if not _safe(name):
                 problems.append(f"{name!r} would be written outside the app's folders or is never restored")
-            if name.lower() in {n.lower() for n in listed}:  # Windows paths ignore case
+            if name.lower() in lower:  # Windows paths ignore case
                 problems.append(f"{name} is listed twice in its manifest")
             listed[name] = entry
-        manifest = dict(manifest, files=kept)
+            lower.add(name.lower())
+        for name in listed:  # restore stages each file as <name>.restoring beside it, in its folder
+            parents = [p.as_posix().lower() for p in PurePosixPath(name).parents]
+            if f"{name.lower()}.restoring" in lower or any(p in lower for p in parents):
+                problems.append(f"{name} can't be restored, because another file in this backup would be written over "
+                                "it, or it over that one. Make a new backup, or pick another one.")
+        manifest = dict(manifest, files=kept, cleaned=cleaned)
         all_names = z.namelist()
         names = {n for n in all_names if not _no_longer(n)} - {MANIFEST}
-        problems += [f"{name} is in the zip twice" for name in sorted({n for n in all_names if all_names.count(n) > 1})]
+        counts = Counter(all_names)
+        problems += [f"{name} is in the zip twice" for name in sorted(n for n, c in counts.items() if c > 1)]
         for name in sorted(names - listed.keys()):
             problems.append(f"{name} is in the zip but not in its manifest")
         for name, entry in sorted(listed.items()):
@@ -285,7 +345,7 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
                 try:
                     if _zip_sha256(z, name) != entry.get("sha256"):
                         problems.append(f"{name} has changed since the backup was made")
-                except (OSError, zipfile.BadZipFile, EOFError, ValueError) as exc:  # damaged data, a bad CRC
+                except (ValueError, *_UNREADABLE) as exc:  # damaged data, a bad CRC
                     problems.append(f"{name} can't be read from the zip: {exc}")
         return manifest, problems
 
@@ -369,7 +429,16 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
         if top == "agent" and not agent_home:
             continue
         dest = (agent_home if top == "agent" else data_dir) / rest
-        plan.append({"path": name, "to": str(dest), "replaces": dest.exists()})
+        try:
+            staging = dest.with_name(dest.name + ".restoring")  # the longer name, written first
+            if _too_long(staging):  # Windows answers "not there" for such a name rather than refusing it
+                raise OSError(errno.ENAMETOOLONG, os.strerror(errno.ENAMETOOLONG), str(staging))
+            replaces = dest.exists()
+        except OSError as exc:  # a path too long for this PC
+            if refused := _unwritable(name, dest, exc):
+                raise refused from exc
+            raise
+        plan.append({"path": name, "to": str(dest), "replaces": replaces})
     result: dict[str, Any] = {"created": manifest["created"], "files": plan, "applied": False,
                               "cleaned": manifest.get("cleaned", [])}
     if not apply:
@@ -423,8 +492,11 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
                             aside.append((companion, keep.with_name(keep.name + suffix)))
                             moved = True
                 jsonfile.replace(tmp, dest)
-        except BaseException:
-            _put_back(swapped, staged)
+        except BaseException as exc:
+            back = _put_back(swapped, staged)
+            refused = _unwritable(item["path"], Path(item["to"]), exc) if isinstance(exc, OSError) and back else None
+            if refused:  # a folder in the way or a path this PC can't take: named, not a bare OSError
+                raise refused from exc
             raise
     kept = moved or any(i["replaces"] for i in plan)
     result.update(applied=True, safety=str(safety) if kept else None, pruned=_prune_safety(data_dir / SAFETY, KEEP_SAFETY))
@@ -449,10 +521,31 @@ def _prune_safety(folder: Path, keep: int = KEEP_SAFETY) -> list[str]:
     return gone
 
 
-def _put_back(swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]], staged: list[Path]) -> None:
+def _too_long(path: str | Path) -> bool:
+    """Whether a part of ``path`` is longer than the 255 characters (UTF-16 units) a Windows or Linux
+    folder takes. Windows reports such a name as an invalid argument, or as not there, rather than as too long."""
+    return any(len(part.encode("utf-16-le")) // 2 > 255 for part in Path(path).parts)
+
+
+def _unwritable(name: str, dest: Path, exc: OSError) -> BackupError | None:
+    """The restore refused by name when this PC's folder can't take ``name``; None for any other OSError."""
+    if exc.errno == errno.ENAMETOOLONG or _too_long(exc.filename if isinstance(exc.filename, str) else dest):
+        why = "its path is too long for this PC"
+    elif dest.is_dir():
+        why = "a folder is where the file goes"
+    elif isinstance(exc, (FileExistsError, NotADirectoryError)):
+        why = "a file is where one of its folders goes"
+    else:
+        return None
+    return BackupError(f"Nothing was restored, because {name} can't be written to {dest} ({why}). Move what is in "
+                       "the way, or restore into a folder with a shorter path, then run the restore again.")
+
+
+def _put_back(swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]], staged: list[Path]) -> bool:
     """Undo a restore that stopped part way: each file it swapped in goes back to its copy in
     restore-safety (or away, if the restore added it), with any database companions it moved, and no
-    ``.restoring`` file is left. The copies stay in restore-safety."""
+    ``.restoring`` file is left. The copies stay in restore-safety. False when a file couldn't be put back."""
+    back = True
     for dest, keep, aside in reversed(swapped):
         try:
             if dest.with_name(dest.name + ".restoring").exists():
@@ -464,12 +557,14 @@ def _put_back(swapped: list[tuple[Path, Path | None, list[tuple[Path, Path]]]], 
             for companion, kept in aside:
                 shutil.move(kept, companion)
         except OSError:
+            back = False
             _log.warning("restore: couldn't put %s back; its copy is in restore-safety", dest, exc_info=True)
     for tmp in staged:
         try:
             tmp.unlink(missing_ok=True)
         except OSError:  # the error that stopped the restore is the one to raise, not this
             _log.warning("restore: couldn't remove %s", tmp, exc_info=True)
+    return back
 
 
 def describe(result: dict[str, Any]) -> str:

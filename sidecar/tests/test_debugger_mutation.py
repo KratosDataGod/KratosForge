@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import sys
 import threading
 import time
@@ -11,6 +12,17 @@ import pytest
 
 from fabric_desktop import debugger, notebook
 from fabric_desktop.notebook import Kernel
+
+
+class Frame:
+    """A stand-in frame: compared and hashed by identity, as a real frame is (SimpleNamespace isn't hashable)."""
+
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+
+def code(name, flags=inspect.CO_OPTIMIZED):
+    return SimpleNamespace(co_name=name, co_flags=flags)
 
 
 def describe(name, value):
@@ -35,7 +47,7 @@ def test_at_most_100_breakpoints():
 @pytest.mark.parametrize("n, shown", [(200, 200), (201, 200)])
 def test_a_frame_shows_its_first_200_variables(n, shown):
     d = debugger.Debugger([], False, describe)
-    frame = SimpleNamespace(f_code=SimpleNamespace(co_name="f"), f_locals={f"v{i:03d}": i for i in range(n)})
+    frame = Frame(f_code=code("f"), f_locals={f"v{i:03d}": i for i in range(n)})
     rows, total = d._variables(frame)
     assert len(rows) == shown and total == n and rows[0]["name"] == "v000"
 
@@ -143,9 +155,9 @@ def test_a_generator_suspends_at_each_yield_and_ends_at_its_return():
 def test_dunder_names_are_never_variables_and_the_kernels_own_only_at_the_top():
     d = debugger.Debugger([], False, describe)
     d.skip = {"kernel_thing"}
-    inner = SimpleNamespace(f_code=SimpleNamespace(co_name="f"), f_locals={"__x": 1, "a": 2, "kernel_thing": 3})
+    inner = Frame(f_code=code("f"), f_locals={"__x": 1, "a": 2, "kernel_thing": 3})
     assert [r["name"] for r in d._variables(inner)[0]] == ["a", "kernel_thing"]
-    top = SimpleNamespace(f_code=SimpleNamespace(co_name="<module>"), f_locals={"__x": 1, "a": 2, "kernel_thing": 3})
+    top = Frame(f_code=code("<module>", 0), f_globals={"__x": 1, "a": 2, "kernel_thing": 3})  # the cell's namespace
     assert [r["name"] for r in d._variables(top)[0]] == ["a"]
 
 
@@ -161,8 +173,8 @@ def test_a_stepped_over_name_uses_its_module_only_when_that_is_text():
 
 
 def fake_frame(**names):
-    return SimpleNamespace(f_code=compile("pass", "lib.py", "exec").replace(co_name="f"), f_globals={}, f_locals=dict(names), f_lineno=3,
-                           f_back=None)
+    return Frame(f_code=compile("pass", "lib.py", "exec").replace(co_name="f"), f_globals={}, f_locals=dict(names), f_lineno=3,
+                 f_back=None)
 
 
 def test_an_expression_interrupted_by_stop_ends_the_cell_instead_of_answering():

@@ -11,6 +11,7 @@ is built from job-task-types' run_job_task example (the jobs my-first-job and my
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -797,7 +798,39 @@ def test_cli_prints_findings_and_exits_1_on_errors(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "databricks.yml:2:1: warning: bundle.nme: " in out
     assert ": error: bundle.name: " in out
-    assert "1 errors, 1 warnings" in out
+    assert out.splitlines()[-1] == "1 error, 1 warning (checked on this PC; not databricks bundle validate)"
+
+
+@pytest.mark.parametrize(("yml", "code", "summary"), [
+    ("bundle:\n  name: x\ninclude:\n  - nope.yml\n", 1, "1 error, 0 warnings"),
+    ("bundle:\n  nme: x\ninclude:\n  - nope.yml\n", 1, "2 errors, 1 warning"),
+    ("bundle:\n  name: x\n  nme: y\n", 0, "0 errors, 1 warning"),
+    ("bundle:\n  name: x\n  nme: y\n  nm: z\n", 0, "0 errors, 2 warnings"),
+])
+def test_cli_summary_is_pluralized(tmp_path, capsys, yml, code, summary):
+    write(tmp_path, {"databricks.yml": yml})
+    with pytest.raises(SystemExit) as done:
+        cli.main(["databricks-bundle", "validate", str(tmp_path)])
+    assert done.value.code == code
+    assert capsys.readouterr().out.splitlines()[-1] == f"{summary} (checked on this PC; not databricks bundle validate)"
+
+
+def test_docs_example_output_matches_a_real_run(tmp_path, capsys):
+    """docs/engines.md's example: its finding and summary lines, with this run's folder for C:\\repos\\sales-etl."""
+    tasks = "".join(f"      - task_key: t{i}\n        notebook_task:\n          notebook_path: ../src/t{i}.py\n"
+                    for i in range(2))
+    write(tmp_path, {"databricks.yml": "bundle:\n  name: sales-etl\ninclude:\n  - resources/*.yml\n",
+                     "resources/nightly.yml": "# The nightly load.\nresources:\n  jobs:\n    nightly:\n      tasks:\n" + tasks
+                     + "      - task_key: load\n        notebook_task:\n          notebook_path: ../src/load.py\n",
+                     "src/t0.py": "", "src/t1.py": ""})
+    with pytest.raises(SystemExit) as done:
+        cli.main(["databricks-bundle", "validate", str(tmp_path)])
+    assert done.value.code == 1
+    got = capsys.readouterr().out.replace(str(tmp_path.resolve() / "resources") + os.sep, "").splitlines()
+    docs = (Path(__file__).resolve().parents[2] / "docs" / "engines.md").read_text(encoding="utf-8")
+    block = docs.split("> fabric-desktop databricks-bundle validate C:\\repos\\sales-etl\n", 1)[1].split("```", 1)[0]
+    want = block.replace("C:\\repos\\sales-etl\\resources\\", "").splitlines()
+    assert got == want
 
 
 def test_cli_json_and_clean_exit(tmp_path, capsys):

@@ -284,7 +284,7 @@ class _Checker:
             main = docs[0]
             has_bundle = isinstance(main.data.get("bundle"), dict)
             self.add(main, ERROR, "bundle.name" if has_bundle else "bundle",
-                     "bundle.name is required: the bundle's name." if has_bundle
+                     "bundle.name is required. It's the bundle's name." if has_bundle
                      else "The bundle mapping with its name is required.", None if has_bundle else 1)
 
         defaults: dict[str, tuple[_Doc, str]] = {}
@@ -301,7 +301,7 @@ class _Checker:
             names = sorted(defaults)
             for name in names:
                 doc, path = defaults[name]
-                self.add(doc, ERROR, path, f"At most one target can be the default; {', '.join(names)} all set "
+                self.add(doc, ERROR, path, f"At most one target can be the default, and {', '.join(names)} all set "
                                            "default: true.")
 
     def top_level(self, doc: _Doc) -> None:
@@ -355,7 +355,7 @@ class _Checker:
             if not self.mapping_keys(doc, where, spec, VARIABLE):
                 continue
             if "type" in spec and spec["type"] != "complex":
-                self.add(doc, ERROR, f"{where}.type", "type's only valid value is complex; leave it out for a "
+                self.add(doc, ERROR, f"{where}.type", "type's only valid value is complex. Leave it out for a "
                                                       "string variable.")
             elif spec.get("type") == "complex" and "default" in spec and not isinstance(spec["default"], (dict, list)):
                 self.add(doc, ERROR, f"{where}.default", "A complex variable's default is a mapping or a list, "
@@ -429,9 +429,9 @@ class _Checker:
             folder = doc.path.parent / value
             shown = _rel(folder, self.root)
             if not folder.exists():
-                self.add(doc, ERROR, where, f"{value!r} doesn't exist: no folder at {shown}, relative to {doc.name}.")
+                self.add(doc, ERROR, where, f"{value!r} doesn't exist. There's no folder at {shown}, relative to {doc.name}.")
             elif not folder.is_dir():
-                self.add(doc, ERROR, where, f"{value!r} is a file; path is the artifact's folder ({shown}, relative "
+                self.add(doc, ERROR, where, f"{value!r} is a file, but path is the artifact's folder ({shown}, relative "
                                             f"to {doc.name}).")
 
     def types(self, doc: _Doc, where: str, spec: dict[str, Any], expected: dict[str, str]) -> None:
@@ -457,7 +457,7 @@ class _Checker:
             if isinstance(key, str) and key:
                 if key in keys:
                     self.add(doc, ERROR, f"{jpath}.tasks[{i}].task_key",
-                             f"task_key {key!r} is used by tasks[{keys[key]}] too; each task_key in a job is unique.")
+                             f"task_key {key!r} is used by tasks[{keys[key]}] too. Each task_key in a job must be unique.")
                 else:
                     keys[key] = i
         known = set(keys) | (top_keys or set())
@@ -473,10 +473,10 @@ class _Checker:
         key = task.get("task_key")
         if not (isinstance(key, str) and key.strip()):
             self.add(doc, ERROR, f"{tpath}.task_key" if "task_key" in task else tpath,
-                     "task_key is required: each task has a unique task_key.")
+                     "task_key is required, because each task needs a unique task_key.")
         types = [t for t in task if t in TASK_TYPES]
         if len(types) > 1:
-            self.add(doc, ERROR, tpath, f"A task has one task type; this one has {len(types)}: {', '.join(types)}.")
+            self.add(doc, ERROR, tpath, f"A task has one task type, and this one has {len(types)}: {', '.join(types)}.")
         elif not types and needs_type:
             self.add(doc, ERROR, tpath, "A task needs a task type, such as notebook_task or spark_python_task.")
         deps = task.get("depends_on")
@@ -531,7 +531,7 @@ class _Checker:
         tries = NOTEBOOK_EXTENSIONS if notebook else ("",)
         if not any(Path(f"{base}{ext}").is_file() for ext in tries):
             shown = _rel(base, self.root)
-            self.add(doc, ERROR, path, f"{value!r} doesn't exist: no file at {shown}"
+            self.add(doc, ERROR, path, f"{value!r} doesn't exist. There's no file at {shown}"
                      + (" (with or without a notebook extension)" if notebook else "")
                      + f", relative to {doc.name}.")
 

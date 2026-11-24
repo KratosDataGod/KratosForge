@@ -601,7 +601,9 @@ def _databricks_bundle_validate(args: argparse.Namespace) -> int:
         for f in findings:
             where = folder / f.file
             print(f"{where}:{f.line or 1}:{f.column or 1}: {f.severity}: {f.path or '(file)'}: {f.message}")
-        print(f"{errors} errors, {len(findings) - errors} warnings (checked on this PC; not databricks bundle validate)")
+        warnings = len(findings) - errors
+        print(f"{errors} error{'' if errors == 1 else 's'}, {warnings} warning{'' if warnings == 1 else 's'} "
+              "(checked on this PC; not databricks bundle validate)")
     return 1 if errors else 0
 
 

@@ -498,21 +498,21 @@ names the field by its path, with the file and line:
 
 ```text
 > fabric-desktop databricks-bundle validate C:\repos\sales-etl
-C:\repos\sales-etl\resources\nightly.yml:14:1: error: resources.jobs.nightly.tasks[2].notebook_task.notebook_path: '../src/load.py' doesn't exist: no file at src/load.py (with or without a notebook extension), relative to resources/nightly.yml.
-1 errors, 0 warnings (checked on this PC; not databricks bundle validate)
+C:\repos\sales-etl\resources\nightly.yml:14:1: error: resources.jobs.nightly.tasks[2].notebook_task.notebook_path: '../src/load.py' doesn't exist. There's no file at src/load.py (with or without a notebook extension), relative to resources/nightly.yml.
+1 error, 0 warnings (checked on this PC; not databricks bundle validate)
 ```
 
 It exits 1 when there are errors, and `--json` prints every finding (severity, path, message, file,
 line, column). It checks:
 
 - YAML that can't be read, with its line and column, and a key given twice in one mapping (both lines
-  are named; YAML would quietly keep the second).
+  are named, because YAML would quietly keep the second).
 - `bundle.name` is set.
 - Unknown keys at the top level and under `bundle`, `targets.<name>`, `variables.<name>`, a job, a job
   task, a pipeline, an alert, an app, a catalog, an experiment, a model and a SQL warehouse, and unknown
-  resource types. These are **warnings**: Databricks adds fields, and a newer one isn't wrong. The other
-  resource types' own fields aren't checked yet: their field lists couldn't all be read from the
-  documentation.
+  resource types. These are **warnings**, because Databricks adds fields, and a newer one isn't wrong. The other
+  resource types' own fields aren't checked yet, because their field lists couldn't all be read
+  from the documentation.
 - Field types: a job's `max_concurrent_runs` and `timeout_seconds` are integers, `tasks` is a list and
   `email_notifications` a mapping; a task's `depends_on` and `libraries` are lists, `timeout_seconds` and
   `max_retries` integers and `email_notifications` a mapping; a pipeline's `libraries`, `clusters` and
@@ -525,7 +525,7 @@ line, column). It checks:
 - `${resources.<type>.<name>...}` names a resource the bundle defines (at the top level or in a target).
 - `${bundle.<field>}` and `${workspace.<field>}` name a documented field, such as `bundle.name`,
   `bundle.target`, `workspace.file_path` or `workspace.current_user.userName`. `${bundle.environment}` is a
-  warning: the documentation says to use `${bundle.target}`.
+  warning, because the documentation says to use `${bundle.target}`.
 - A target's `mode` is `development` or `production`, `default` is true or false, and at most one
   target is the default.
 - Every `include` glob matches a file. Globs are relative to `databricks.yml`.
@@ -542,9 +542,9 @@ The checks are written from Databricks' configuration reference
 [task types](https://docs.databricks.com/aws/en/dev-tools/bundles/job-task-types),
 [variables](https://docs.databricks.com/aws/en/dev-tools/bundles/variables),
 [resources](https://docs.databricks.com/aws/en/dev-tools/bundles/resources)) and the REST API create
-pages for jobs, pipelines, experiments, models and SQL warehouses. The CLI's own JSON schema isn't used: it is under the Databricks License, which allows
-use only with the Databricks Services. So this is not `databricks bundle validate`: it doesn't merge
-targets, resolve variables or know fields added after it was written, and its messages are its own.
+pages for jobs, pipelines, experiments, models and SQL warehouses. The CLI's own JSON schema isn't used,
+because it's under the Databricks License, which allows use only with the Databricks Services. So
+this isn't `databricks bundle validate`. It doesn't merge targets, resolve variables or know fields added after it was written, and its messages are its own.
 Run **Validate** in Source control > Bundles, which runs the CLI, before you deploy.
 
 ## Databricks DBUs in Optimize > Cost (Preview)

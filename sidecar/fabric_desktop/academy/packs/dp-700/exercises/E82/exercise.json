@@ -28,7 +28,7 @@
   "does_not_verify": [
     "That anything is shared in Fabric. Nothing is set on a warehouse or a model here.",
     "The T-SQL GRANT that gives the auditor her two views, and row-level security on the model.",
-    "Licenses and capacity, which a report author also needs before he can use Build.",
+    "Licenses and capacity, which a report author also needs before they can use Build.",
     "The Subscribe to events box, which this exercise leaves out."
   ],
   "expected": {

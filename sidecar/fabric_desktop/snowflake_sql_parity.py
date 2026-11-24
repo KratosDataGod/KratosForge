@@ -1188,7 +1188,7 @@ CASES: tuple[Case, ...] = (
     _c("INSERT (TIMESTAMP_TZ column, another session zone)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts "
        "TIMESTAMP_TZ); ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 "
        "16:00:00'); ALTER SESSION SET TIMEZONE = 'America/New_York'; SELECT hour(ts) FROM ts_test", 16, "differs",
-       "SFD-002: the value keeps -08:00 in Snowflake; here it is an instant, shown in the session's new zone "
+       "SFD-002: in Snowflake the value keeps -08:00. Here it's an instant, shown in the session's new zone "
        "(19). In the zone it was written in, it reads as in Snowflake.", page="../data-types-datetime"),
     # TO_TIMESTAMP_TZ's examples (to_timestamp page, in its America/Los_Angeles session): 01:02:03.000 -0700, the
     # session's offset, so its wall clock and its instant (08:02:03 UTC) are both checked.

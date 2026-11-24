@@ -121,9 +121,9 @@ def _n(id: str, title: str, reason: str, action: str, source: str = "") -> Note:
 
 SFD_CASE = _n("SFD-001", "A column made by an expression keeps DuckDB's name",
               "Snowflake stores and resolves an unquoted name in upper case, and so does this PC (SFX-072, SFX-073). "
-              "A column made by an expression with no alias (a + 1) gets a name Snowflake writes its own way; here "
-              "it keeps DuckDB's. Raised for CREATE TABLE ... AS and CREATE VIEW, where the name is stored; a "
-              "query's result shows such a column under DuckDB's name too.",
+              "A column made by an expression with no alias (a + 1) gets a name Snowflake writes its own way, and "
+              "here it keeps DuckDB's. It's raised for CREATE TABLE ... AS and CREATE VIEW, where the name is "
+              "stored. A query's result shows such a column under DuckDB's name too.",
               "Give such a column an alias.",
               f"{_DOCS}/identifiers-syntax")
 SFD_TZ = _n("SFD-002", "TIMESTAMP_TZ loses its offset",
@@ -259,7 +259,7 @@ _JSON_FRACTION = _refuse(
 # SFN-073 (2026.11.23): TYPEOF of a timestamp with a time zone gave DuckDB's name (SFD-007 in part).
 _ZONED_TYPEOF = _refuse(
     "SFN-073", "TYPEOF of a timestamp with a time zone", "Snowflake's TYPEOF names TIMESTAMP_TZ and TIMESTAMP_LTZ "
-    "apart. DuckDB keeps both as one type, so TYPEOF of such a value from a column or a computed value stops. "
+    "apart. DuckDB keeps both as one type, so TYPEOF of such a value from a column or a computed value stops the query. "
     "TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or CURRENT_TIMESTAMP runs.",
     f"{_DOCS}/functions/is_timestamp")
 
@@ -2808,8 +2808,8 @@ CATALOG = (
                 "CURRENT_TIMESTAMP (LTZ); SQL NULL for "
                 "SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. "
                 "A JSON number with a fraction whose writing isn't known stops the query (SFN-072), and so does "
-                "another timestamp with a time zone (SFN-073); a type with no Snowflake name is SFD-007. The argument is worked out more than once, "
-                "which matters only when it isn't deterministic.")),
+                "another timestamp with a time zone (SFN-073). A type with no Snowflake name is SFD-007. The argument "
+                "is worked out more than once, which matters only when it isn't deterministic.")),
     ("SFX-010", "Rewritten", ("a / b stops with Snowflake's \"Division by zero\" error when b is 0, where DuckDB gives "
                 "infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is "
                 "worked out twice, which matters only when it isn't deterministic.")),

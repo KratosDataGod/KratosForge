@@ -890,7 +890,7 @@ def test_an_include_match_outside_the_folder_through_a_link_is_not_read(tmp_path
         pytest.skip("this PC can't make a symbolic link")
     findings = validate(bundle)
     assert [(f.path, f.file) for f in findings] == [("include[0]", "databricks.yml")]
-    assert findings[0].message == ("The include 'res/*.yml' goes through 1 linked folder, which isn't followed. "
+    assert findings[0].message == ("The include 'res/*.yml' goes through 1 link, which isn't followed. "
                                    "An include must stay inside the bundle folder.")
 
 
@@ -912,11 +912,11 @@ def test_a_recursive_include_never_walks_into_a_linked_folder(tmp_path, monkeypa
     monkeypatch.setattr(os, "scandir", spy)
     findings = validate(bundle)
     assert not any(p.startswith(os.path.realpath(outside)) for p in listed), listed
-    assert [f.message for f in findings] == [("The include '**/*.yml' goes through 1 linked folder, which isn't "
+    assert [f.message for f in findings] == [("The include '**/*.yml' goes through 1 link, which isn't "
                                              "followed. An include must stay inside the bundle folder.")]
 
 
-def test_a_file_link_outside_the_folder_reads_in_the_singular(tmp_path):
+def test_a_file_link_outside_the_folder_is_never_followed(tmp_path, monkeypatch):
     write(tmp_path / "outside", {"evil.yml": "resources: {}\n"})
     bundle = write(tmp_path / "bundle", {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - res/*.yml\n",
                                          "res/ok.yml": "resources: {}\n"})
@@ -924,9 +924,50 @@ def test_a_file_link_outside_the_folder_reads_in_the_singular(tmp_path):
         (bundle / "res" / "evil.yml").symlink_to(tmp_path / "outside" / "evil.yml")
     except OSError:
         pytest.skip("this PC can't make a symbolic link")
+    stats = []
+    real_stat = os.stat
+
+    def spy(path, *args, **kwargs):
+        stats.append(os.path.realpath(path))
+        return real_stat(path, *args, **kwargs)
+    monkeypatch.setattr(os, "stat", spy)
     [finding] = validate(bundle)
-    assert finding.message == ("The include 'res/*.yml' matches 1 file outside the bundle folder, which isn't read. "
+    monkeypatch.undo()
+    assert not any(p.startswith(os.path.realpath(tmp_path / "outside")) for p in stats), stats
+    assert finding.message == ("The include 'res/*.yml' goes through 1 link, which isn't followed. "
                                "An include must stay inside the bundle folder.")
+
+
+def test_two_links_read_in_the_plural(tmp_path):
+    write(tmp_path / "outside", {"a.yml": "resources: {}\n", "b.yml": "resources: {}\n"})
+    bundle = write(tmp_path / "bundle", {"databricks.yml": "bundle:\n  name: x\ninclude:\n  - res/*.yml\n",
+                                         "res/ok.yml": "resources: {}\n"})
+    try:
+        for name in ("a", "b"):
+            (bundle / "res" / f"{name}.yml").symlink_to(tmp_path / "outside" / f"{name}.yml")
+    except OSError:
+        pytest.skip("this PC can't make a symbolic link")
+    [finding] = validate(bundle)
+    assert finding.message == ("The include 'res/*.yml' goes through 2 links, which aren't followed. "
+                               "An include must stay inside the bundle folder.")
+
+
+def test_a_run_of_double_stars_walks_each_folder_once(tmp_path, monkeypatch):
+    from fabric_desktop.engines.databricks_bundle_check import _walk_glob
+    write(tmp_path, {"databricks.yml": "x: 1\n", "res/a.yml": "", "res/sub/c.yml": "", "res/sub/deep/d.yml": ""})
+    listed = []
+    real_scandir = os.scandir
+
+    def spy(path):
+        listed.append(path)
+        return real_scandir(path)
+    monkeypatch.setattr(os, "scandir", spy)
+    once, _ = _walk_glob(tmp_path, "**/*.yml", 100)
+    single = len(listed)
+    listed.clear()
+    many, linked = _walk_glob(tmp_path, "**/**/**/**/*.yml", 100)
+    assert sorted(many) == sorted(once) and linked == 0
+    assert len(listed) == single
 
 
 @pytest.mark.parametrize("pattern,want", [

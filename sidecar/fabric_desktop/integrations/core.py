@@ -130,6 +130,13 @@ def _last_part(path: str) -> str:
     return next((p for p in reversed(re.split(r"[\\/]+", path)) if p), "")
 
 
+def _is_folder(path: Any) -> bool:
+    try:
+        return isinstance(path, (str, bytes, os.PathLike)) and os.path.isdir(path)
+    except (OSError, ValueError):
+        return False
+
+
 def plain_message(text: str) -> str:
     """``text`` without colour codes, a backtrace or the folders of a full path."""
     lines = []
@@ -182,6 +189,9 @@ def error_from(exc: BaseException) -> IntegrationError:
         return IntegrationError("upstream", message)
     if hasattr(exc, "errors"):  # a metadata gate: its message lists every reason
         return IntegrationError("failed", message, details={"reasons": [redact_secrets(str(e)) for e in exc.errors]})
+    if isinstance(exc, IsADirectoryError) or (isinstance(exc, PermissionError) and _is_folder(exc.filename)):
+        # A folder where a file should be: Linux says "Is a directory", Windows "Permission denied".
+        return IntegrationError("failed", message)
     if isinstance(exc, PermissionError):
         return IntegrationError("permission_denied", message)
     if isinstance(exc, (FileNotFoundError, LookupError)):  # LookupError covers KeyError

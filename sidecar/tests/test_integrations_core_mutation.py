@@ -490,3 +490,15 @@ def test_check_gives_up_at_the_deadline_itself(monkeypatch):
 ])
 def test_only_a_path_with_folders_is_cut_to_its_file(text, plain):
     assert plain_message(text) == plain
+
+
+def test_a_folder_where_a_file_should_be_is_failed_on_every_platform(tmp_path):
+    """Opening a folder as a file: Linux raises IsADirectoryError, Windows PermissionError. Both are
+    the same damage, so both are failed; a real permission refusal stays permission_denied."""
+    folder = tmp_path / "x.ipynb"
+    folder.mkdir()
+    windows = error_from(PermissionError(13, "Permission denied", str(folder)))
+    linux = error_from(IsADirectoryError(21, "Is a directory", str(folder)))
+    assert (windows.code, linux.code) == ("failed", "failed")
+    assert windows.message == "Permission denied: 'x.ipynb'" and str(tmp_path) not in windows.message
+    assert error_from(PermissionError(13, "Permission denied", str(tmp_path / "f.txt"))).code == "permission_denied"

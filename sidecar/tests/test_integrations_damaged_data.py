@@ -307,7 +307,7 @@ def test_a_project_being_written_while_it_is_read_reads_as_the_old_or_the_new(re
         try:
             while not stop.is_set():
                 app.local_data.store.save(engine.project)
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:  # noqa: BLE001 - reported by the test
             problems.append(exc)
 
     threads = [threading.Thread(target=appender), threading.Thread(target=saver)]

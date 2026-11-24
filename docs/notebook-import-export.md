@@ -27,7 +27,7 @@ Select **Import from Fabric or Databricks** under **Start something** on **Home*
 
 | File | How it's read |
 | --- | --- |
-| `.ipynb` | A Jupyter notebook from Fabric, Databricks, VS Code or Jupyter. Cells and their settings come in; outputs don't. |
+| `.ipynb` | A Jupyter notebook from Fabric, Databricks, VS Code or Jupyter. Cells and their settings come in; outputs don't. A cell that isn't code or markdown (a raw cell) comes in as a code cell. The dialog lists both, cell by cell. |
 | `.py` starting `# Fabric notebook source` | Fabric source, as above. A cell whose metadata says it is Spark SQL, Scala or R gets `%%sql`, `%%spark` or `%%sparkr`. |
 | `.py` starting `# Databricks notebook source` | Databricks source. `%md` cells become markdown, `%sql`, `%scala` and `%r` become `%%sql`, `%%spark` and `%%sparkr` cells, `%python` cells become plain Python, and `%run`, `%pip` and other line magics are kept as they are. `# DBTITLE` lines are dropped. |
 | `.sql` starting `-- Databricks notebook source` | A Databricks SQL notebook: each cell becomes a `%%sql` cell, except `%md` and other magic cells. |
@@ -36,7 +36,7 @@ Select **Import from Fabric or Databricks** under **Start something** on **Home*
 | Any other `.py` or `.sql` | One code cell with the whole file (a `.sql` file gets `%%sql`). |
 | `.dbc` | A Databricks archive: every notebook in it, each as its own new notebook. The dialog shows the folder each came from. |
 
-Before anything is written, the dialog shows the format it found and each notebook it will create, with its name, number of cells and languages. For a Databricks notebook it also lists, cell by cell, everything the conversion dropped or changed and anything that won't run the same on this PC (see below). Select **Import** to create them. The first new notebook opens; all of them are in **Recent notebooks**.
+Before anything is written, the dialog shows the format it found and each notebook it will create, with its name, number of cells and languages. For a Databricks notebook it also lists, cell by cell, everything the conversion dropped or changed and anything that won't run the same on this PC (see below). For a `.ipynb` file it lists each cell whose saved outputs were left out or whose type changed. Select **Import** to create them. The first new notebook opens; all of them are in **Recent notebooks**.
 
 Limits: a file can be up to 64 MB. A `.dbc` archive can hold up to 500 files, 16 MB per notebook and 128 MB in all once unpacked, and up to 200 notebooks. An archive with a path that climbs out of it (`..`, a drive letter or a leading slash) or that is encrypted isn't imported at all, and neither is a damaged one or one whose entries hold more than their headers say; the message says which.
 

@@ -1277,6 +1277,20 @@ def test_to_json_sorts_an_objects_keys_at_every_level(code, want):
     assert _first(code) == want
 
 
+@pytest.mark.parametrize("text", ['{"a":1,"a":2}', '{"x":{"b":1,"b":1}}', '[{"k":1,"k":2}]'])
+def test_to_json_of_an_object_with_a_key_given_twice_stops_as_parse_json_does(text):
+    # Snowflake's PARSE_JSON stops at a key given twice; written with the keys sorted the two would run together
+    with pytest.raises(duckdb.Error, match="Duplicate field key"):
+        _first(f"SELECT to_json(parse_json('{text}'))")
+
+
+def test_to_json_with_no_alias_keeps_a_short_column_name():
+    con = duckdb.connect()
+    cur = con.execute(sf.translate("""SELECT to_json(parse_json('{"b":1,"a":2}'))""").duckdb_sql)
+    [name] = [d[0] for d in cur.description]
+    assert name.lower().startswith("to_json(") and len(name) < 80, name
+
+
 def test_to_json_of_a_column_sorts_each_rows_keys():
     con = duckdb.connect()
     con.execute(sf.translate("CREATE TABLE j (v VARIANT)").duckdb_sql)

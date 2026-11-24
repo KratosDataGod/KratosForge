@@ -829,7 +829,29 @@ When a T-SQL statement on this PC names a column or table that isn't there, the 
 
 Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full.
 
-Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name and `Msg 8134` for `Divide by zero error encountered.`. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
+Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name, `Msg 8134` for `Divide by zero error encountered.` (`/` and `%`, for integers, decimals and floats), and the arithmetic and conversion errors below. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
+
+Arithmetic and conversion errors (WR-247), with SQL Server's words as Microsoft Learn's T-SQL pages and SQL Server's message list give them:
+
+| A warehouse says | When |
+| --- | --- |
+| `Msg 8115, Level 16: Arithmetic overflow error converting expression to data type int.` (or `bigint`, `numeric`) | `+`, `-`, `*`, `ABS` or `-x` past an `int` or `bigint`, or a decimal past 38 digits: `SELECT 2147483647 + 1`, `ABS(CAST(-2147483648 AS INT))`. `SUM` of an `int`, `smallint` or `tinyint` is an `int`, and of a `bigint` a `bigint`, so a total past it stops too (it came back as a wider number before). A column's value cast to a smaller integer type names that type (`smallint`, `tinyint`) |
+| `Msg 232, Level 16: Arithmetic overflow error for type int, value = 2147483648.000000.` | `POWER` of an integer past an `int`: `POWER(2, 31)` |
+| `Msg 245, Level 16: Conversion failed when converting the varchar value 'x' to data type int.` | Text that isn't a whole number, to `int`, `bigint`, `smallint` or `tinyint`, in a `CAST`, `CONVERT`, `+` or a comparison: `CAST('1.5' AS INT)`. `N'...'` text is named `nvarchar` |
+| `Msg 248, Level 16: The conversion of the varchar value '3000000000' overflowed an int column.` | A whole number in text too big for an `int` |
+| `Msg 8114, Level 16: Error converting data type varchar to numeric.` (or `float`, `real`) | Text that isn't a number, to a decimal or a float: `CAST('abc' AS DECIMAL(5,2))`, and `''` to a decimal |
+| `Msg 241, Level 16: Conversion failed when converting date and/or time from character string.` | Text that isn't a date or time, to `date`, `time`, `datetime2` or `datetime`, or a date that isn't there (`'2024-02-30'`) to `date` or `datetime2`. For `datetime` and `smalldatetime` that's `Msg 242` (`The conversion of a varchar data type to a datetime data type resulted in an out-of-range value.`) |
+
+A whole number written in a query that's too big for an `int` is a `decimal` of its digits, as in T-SQL, so `9223372036854775807 + 1` is `9223372036854775808` and `ABS(-2147483648)` is `2147483648`, where the local engine overflowed a `bigint`. A result column that is only such a number is a `decimal` too, not a `bigint`, so a query that reads it as an integer may need a `CAST`. When an error shows a value, it shows the value's first 1,000 characters.
+
+These keep the local engine's words, with no number, because SQL Server's words depend on what the local engine's message doesn't say:
+
+- A number written in the query cast to a smaller type, such as `CAST(300 AS TINYINT)` or `CAST(2147483648 AS INT)`: SQL Server says error 220 or 8115, by the constant's type.
+- A cast to a smaller decimal, such as `CAST(123.45 AS DECIMAL(4,2))` and `CAST('99999' AS DECIMAL(5,2))`: SQL Server's 8115 names the source type (`converting numeric to data type numeric`).
+- Whole-number text too big for a `bigint`, `smallint` or `tinyint` (SQL Server's 244 or 8114), and an expression (not a column) cast to a smaller integer type.
+- `+`, `-` or `*` past a `smallint` or `tinyint`, and an `int`'s smallest value divided by `-1` (`Overflow in division of -2147483648 / -1` here; the local engine says the same for `%`).
+
+One word can differ: `N'...'` text that isn't a number, to a decimal or a float, shows `Msg 8114` naming `varchar`, where SQL Server says `nvarchar`, because the local engine's message doesn't say which it was.
 
 `@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 
@@ -932,8 +954,9 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | --- | --- |
 | `/` and `%` on integers | Cut toward zero, and the remainder takes the dividend's sign: `-7 / 2` is `-3`, and `-7 % 2` is `-1` |
 | Dividing by zero | `/` and `%` stop with "Msg 8134, Level 16: Divide by zero error encountered.", for integers, decimals and floats. `NULL / 0` is `NULL` |
-| A result past `int` or `bigint` | An error, as in T-SQL. The message is DuckDB's ("Overflow in addition of INT32"), not T-SQL's "Arithmetic overflow error" |
-| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with "Conversion failed". Two texts are concatenated (`'1' + '1'` is `'11'`). In a comparison with an integer or a float, the text is converted as a `CAST` would: `0 = ''` is true, and `2 = '1.5'` is a conversion error |
+| A result past `int` or `bigint` | An error, as in T-SQL, in its words: `Msg 8115, Level 16: Arithmetic overflow error converting expression to data type int.` `SUM` of an integer keeps an `int` (or a `bigint`), and a total past it stops the same way (see Local T-SQL errors) |
+| Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with `Msg 245`, "Conversion failed when converting the varchar value 'x' to data type int." Two texts are concatenated (`'1' + '1'` is `'11'`). In a comparison with an integer or a float, the text is converted as a `CAST` would: `0 = ''` is true, and `2 = '1.5'` is a conversion error |
+| `NULL` in `+` and `CONCAT` | `+` with a `NULL` side is `NULL`, for text and numbers (`'a' + NULL`). `CONCAT` takes a `NULL` as `''` (`CONCAT('a', NULL)` is `'a'`, and `CONCAT(NULL, NULL)` is `''`), and `CONCAT_WS` skips it (`CONCAT_WS('-', 'a', NULL, 'b')` is `'a-b'`) |
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |

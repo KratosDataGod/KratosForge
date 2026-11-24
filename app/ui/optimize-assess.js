@@ -190,7 +190,7 @@ function assessShare(r) {
     } else if (st?.state === "error") {
       shown = note("warn", "alert", "Couldn't share.", `${st.text} Nothing was shared.`, btn("Try again", null, () => ask(false), "tool outline small"));
     } else if (st?.state === "restart") {
-      shown = note("warn", "alert", "This assessment can't be shared any more.",
+      shown = note("warn", "alert", "This assessment can't be shared anymore.",
         "The engine restarted or newer assessments replaced it, and an assessment isn't kept across that. Assess again to share it.");
     }
     line.replaceChildren(...(shown ? [shown] : []));
@@ -208,7 +208,7 @@ function assessShare(r) {
       return;
     }
     a.share = null; paint();
-    if (!would.confirm) { toast("There's nothing to share: this assessment found no opportunities."); return; }
+    if (!would.confirm) { toast("There's nothing to share, because this assessment found no opportunities."); return; }
     const lh = would.lakehouse || "the central lakehouse";
     const fact = (k, v) => h("div", {}, h("dt", {}, k), h("dd", {}, String(v)));
     const body = h("div", { class: "assess-share-dialog" },

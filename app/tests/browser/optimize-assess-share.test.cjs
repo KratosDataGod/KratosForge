@@ -145,7 +145,7 @@ test("waiting, refused and after a restart each say what happened", { skip }, as
 
   preview = () => { throw new Error("ValueError: That assessment isn't kept on this PC any more (KratosForge restarted, or 5 newer ones were made). Assess again, then share it."); };
   await line().getByRole("button", { name: "Try again" }).click();
-  await page().waitForFunction(() => /can't be shared any more/.test(document.querySelector(".assess-share-line").textContent));
+  await page().waitForFunction(() => /can't be shared anymore/.test(document.querySelector(".assess-share-line").textContent));
   assert.ok(await shareBtn().isDisabled());
   await shot("assess-share-restart");
   share = () => ({ ...WOULD, shared: 6, queued: 0 });

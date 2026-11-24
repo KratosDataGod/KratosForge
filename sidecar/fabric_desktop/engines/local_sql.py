@@ -263,7 +263,7 @@ def _refusal_text(text: str) -> str:
     """A refusal written into the query (an error(...) with a Databricks error class, such as MERGE's) without
     the "Invalid Input Error: " DuckDB puts in front of it, so it reads as Databricks writes it."""
     prefix = "Invalid Input Error: "
-    return text[len(prefix):] if text.startswith(prefix + "[DELTA_") else text
+    return text[len(prefix):] if text.startswith((prefix + "[DELTA_", prefix + "[SCHEMA_NOT_FOUND]")) else text
 
 
 class OutsideSession(PermissionError):
@@ -324,6 +324,8 @@ def _databricks(code: str) -> list[Any]:
         if "the way it runs in Fabric" not in text:
             raise
         raise ValueError(_databricks_wording(text)) from None
+    # and Unity Catalog names: main.default.t, the schema default, USE CATALOG and USE SCHEMA (WR-316)
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.unity_names(statement)]
     # and its table statements: identity and generated columns, USING DELTA, refusals for the rest (WR-309)
     rewritten = [written for statement in rewritten for written in databricks_builtins_sql.table_statements(statement)]
     # and the statements Databricks answers another way: DESCRIBE TABLE, MERGE's multiple matches, refusals
@@ -409,12 +411,12 @@ class DuckDBSession(_SqlSession):
             raise Unsupported(_databricks_wording(str(exc)) if dialect == "databricks" else str(exc)) from None
 
     def _spark_types(self, statement: Any, dialect: str) -> Any:
-        """Spark SQL's to_json, written from its argument's type as Spark writes it (spark_json). Databricks
-        SQL keeps DuckDB's to_json, as listed in docs/sql-compatibility.md."""
+        """Spark SQL's to_json, written from its argument's type as Spark writes it (spark_json), and a shift of
+        an int typed int, as in Spark. Databricks SQL keeps DuckDB's to_json, as listed in docs/sql-compatibility.md."""
         if dialect == "databricks":
             return statement
         from ..spark_complex import spark_complex_types
-        return spark_complex_types(statement, self._con, kinds=("to_json",))
+        return spark_complex_types(statement, self._con, kinds=("to_json", "int_shift"))
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label

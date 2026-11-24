@@ -113,13 +113,10 @@ DATABRICKS_CHECKS: dict[str, dict[str, Any]] = {
              "value": [["Bob", 5, 1], ["Alice", 2, 1], ["Alice", None, 1], [None, 2, 1], [None, None, 2],
                        ["Bob", None, 1], [None, 5, 1]]},
     "current_catalog": {"example": "SELECT current_catalog()", "value": [["spark_catalog"]],
-                        "note": "'memory' here, DuckDB's own catalog; the session's catalog in Databricks"},
-    # a synonym of current_schema(), so it names the same schema, 'main' here
-    "current_database": {"example": "SELECT current_database()", "value": [["default"]],
-                         "note": "'main' here, DuckDB's own schema, as current_schema() gives; the session's schema "
-                                 "in Databricks"},
-    "current_schema": {"example": "SELECT current_schema()", "value": [["default"]],
-                       "note": "'main' here, DuckDB's own schema; the session's schema in Databricks"},
+                        "note": ("'main' here, the session's catalog, as in a workspace with Unity Catalog; "
+                                 "spark_catalog in Databricks' reference, a workspace without it")},
+    "current_database": {"example": "SELECT current_database()", "value": [["default"]]},
+    "current_schema": {"example": "SELECT current_schema()", "value": [["default"]]},
     # a TIME in the session's zone, cut to the precision: 16:57:04 in the reference
     "current_time": {"example": "SELECT current_time(0)", "pattern": r"time:\d\d:\d\d:\d\d"},
     # the session's zone: a Databricks SQL warehouse's starts in UTC, as this PC's does

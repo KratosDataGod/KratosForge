@@ -190,10 +190,13 @@ def _current_time(node: exp.CurrentTime | exp.Localtime) -> exp.Expression:
                      f"// {step} * {step})")
 
 
+_MAX_DIGITS = 40  # longer than any Spark number; int() of thousands of digits would stop with Python's own error
+
+
 def _int_literal(node: exp.Expression) -> int | None:
     """A whole number written in the query (10, -3), or None for anything else."""
     inner = node.this if isinstance(node, exp.Neg) else node
-    if isinstance(inner, exp.Literal) and inner.is_int:
+    if isinstance(inner, exp.Literal) and inner.is_int and len(inner.name) <= _MAX_DIGITS:
         return -int(inner.name) if isinstance(node, exp.Neg) else int(inner.name)
     return None
 
@@ -217,7 +220,7 @@ def _bound_type(value: exp.Expression) -> exp.DataType | None:
         kind = inner.to
         return kind if kind.this in (*_INTEGRAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT,
                                      exp.DataType.Type.DECIMAL) else None
-    if not (isinstance(inner, exp.Literal) and not inner.is_string):
+    if not (isinstance(inner, exp.Literal) and not inner.is_string) or len(inner.name) > _MAX_DIGITS:
         return None
     text = inner.name.lower()
     if "e" in text:
@@ -263,6 +266,9 @@ def _uniform(node: exp.Uniform) -> exp.Expression:
     return exp.cast(_template(f"({drawn})", a=low, b=high), kind)
 
 
+_RANDSTR_MAX = 1_000_000
+
+
 def _randstr(node: exp.Randstr) -> exp.Expression:
     if node.args.get("generator") is not None:
         raise _refusal("randstr", _RANDOM_SEED, "leave out the seed")
@@ -270,6 +276,9 @@ def _randstr(node: exp.Randstr) -> exp.Expression:
     if length is None or length < 0:
         raise _refusal("randstr", "its length isn't a whole number from 0 up written in the query here.",
                        "write the length as a number")
+    if length > _RANDSTR_MAX:
+        raise _refusal("randstr", f"this PC builds strings of up to {_RANDSTR_MAX:,} characters on each row.",
+                       "ask for a shorter string")
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return _template(f"array_to_string(list_transform(range({length}), __kf_i -> "
                      f"substr('{alphabet}', 1 + CAST(floor(random() * 62) AS INTEGER), 1)), '')")
@@ -1224,3 +1233,109 @@ def other_statements(statement: exp.Expression) -> list[exp.Expression]:
     if isinstance(statement, exp.Merge):
         return [_merge_matches_once(statement)]
     return [statement]
+
+
+# Unity Catalog names (WR-316). A Databricks SQL cell here runs in one session database, which stands for the
+# workspace's default catalog: main (and workspace, hive_metastore and spark_catalog, the other names a notebook
+# uses for it) is this session, and its schema default is DuckDB's main schema. Any other catalog is a Unity
+# Catalog catalog this PC doesn't hold, so a name in it is refused by name rather than read from somewhere else.
+SESSION_CATALOGS = ("main", "workspace", "hive_metastore", "spark_catalog")
+_DUCKDB_CATALOGS = {"system", "temp", "memory"}  # USE x in DuckDB would switch to one of its own catalogs
+
+
+def _catalog_refusal(name: str, what: str | None = None) -> ValueError:
+    others = SESSION_CATALOGS[1:]
+    kind = ("a catalog of this PC's own engine, not one of the session's" if name.lower() in _DUCKDB_CATALOGS
+            else "a Unity Catalog catalog")
+    return _statement_refusal(what or f"A table in the catalog {name}",
+                              f"{name} is {kind}, and this session holds only its own tables, in "
+                              f"the catalog main ({', '.join(others[:-1])} and {others[-1]} name it too)",
+                              "name the table as main.schema.table, schema.table or table")
+
+
+def _main_schema_refusal(what: str) -> ValueError:
+    """A schema named main: DuckDB's own name for the schema this session shows as default, so it can't be
+    another schema here, and reading it as default would answer where Databricks finds no such schema."""
+    return _statement_refusal(what, "this PC's engine already uses the name main for the schema shown as default",
+                              "use default or another schema name")
+
+
+def _default_schema(identifier: exp.Identifier | None) -> exp.Identifier | None:
+    if identifier is not None and identifier.name.lower() == "default":
+        return exp.to_identifier("main")
+    return identifier
+
+
+def _current_schema() -> exp.Expression:
+    """Databricks' current_schema() (and current_database(), the same thing there): default for DuckDB's main."""
+    return exp.Case(this=exp.CurrentSchema(), ifs=[exp.If(this=exp.Literal.string("main"),
+                                                          true=exp.Literal.string("default"))],
+                    default=exp.CurrentSchema())
+
+
+def unity_names(statement: exp.Expression) -> list[exp.Expression]:
+    """``statement`` with Unity Catalog names read as Databricks reads them: catalog.schema.table in the session's
+    catalog, the schema default, current_catalog(), current_schema() and current_database(), and USE CATALOG,
+    USE SCHEMA, USE DATABASE and USE. A name in another catalog is refused by name."""
+    if isinstance(statement, exp.Use):
+        return _use(statement)
+    for table in list(statement.find_all(exp.Table)):
+        if table.args.get("catalog") is not None:
+            catalog = table.catalog.lower()
+            if catalog == "system" and table.db.lower() == "information_schema":
+                pass  # the session's own information_schema
+            elif catalog in SESSION_CATALOGS:
+                table.set("catalog", None)
+            else:
+                raise _catalog_refusal(table.catalog)
+        if table.args.get("db") is not None and table.db.lower() == "main":
+            raise _main_schema_refusal(f"The schema main in {'.'.join(p.name for p in table.parts)}")
+        table.set("db", _default_schema(table.args.get("db")))
+    for column in list(statement.find_all(exp.Column)):
+        # main.default.t.id: the session's catalog and schema in front of a table's name. Only those are touched:
+        # any other leading parts may be a table, an alias or a struct's fields (t.s.a.b), so they stay as written.
+        column_catalog = column.args.get("catalog")
+        if column_catalog is not None and column_catalog.name.lower() in SESSION_CATALOGS:
+            column.set("catalog", None)
+            column.set("db", _default_schema(column.args.get("db")))
+        elif column_catalog is None and column.args.get("db") is not None and column.args["db"].name.lower() == "default":
+            column.set("db", _default_schema(column.args.get("db")))
+    for node in list(statement.find_all(exp.CurrentSchema, exp.CurrentDatabase, exp.CurrentCatalog)):
+        node.replace(exp.Literal.string("main") if isinstance(node, exp.CurrentCatalog) else _current_schema())
+    return [statement]
+
+
+def _use(statement: exp.Use) -> list[exp.Expression]:
+    """USE CATALOG main (or another name for this session's catalog) makes default the current schema, as on
+    Databricks. USE [SCHEMA | DATABASE] [catalog.]schema makes it current for the cells after it, and a schema
+    the session doesn't have stops the cell with Databricks' SCHEMA_NOT_FOUND."""
+    kind = str(statement.args.get("kind") or "").upper()
+    target = statement.this
+    parts = [p for p in (target.args.get("catalog"), target.args.get("db"), target.this) if p is not None] \
+        if isinstance(target, exp.Table) else [target]
+    names = [p.name for p in parts]
+    said = f"USE {kind + ' ' if kind else ''}{'.'.join(names)}"
+    if kind == "CATALOG":
+        if len(names) != 1:
+            raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: USE CATALOG takes one catalog name.")
+        if names[0].lower() not in SESSION_CATALOGS:
+            raise _catalog_refusal(names[0], said)
+        schema = "main"
+    else:
+        if len(names) > 2:
+            raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: a schema is named as schema or catalog.schema.")
+        if len(names) == 2 and names[0].lower() not in SESSION_CATALOGS:
+            raise _catalog_refusal(names[0], said)
+        if names[-1].lower() == "main":  # on Databricks USE main is USE SCHEMA main, not the catalog
+            raise _main_schema_refusal(said)
+        schema = "main" if names[-1].lower() == "default" else names[-1]
+        if schema.lower() in _DUCKDB_CATALOGS:
+            raise _statement_refusal(said, f"DuckDB keeps the name {schema} for one of its own catalogs",
+                                     "give the schema another name")
+    shown = "default" if schema == "main" else schema
+    check = cast(exp.Expression, parse_one(
+        "SELECT error(" + _quoted(f"[SCHEMA_NOT_FOUND] The schema `main`.`{shown}` cannot be found. Verify the "
+                                  "spelling and correctness of the schema and catalog.") + ") "
+        "WHERE NOT EXISTS (SELECT 1 FROM duckdb_schemas() WHERE database_name = current_database() "
+        f"AND lower(schema_name) = lower({_quoted(schema)}))", read="duckdb"))
+    return [check, exp.Use(this=exp.Table(this=exp.to_identifier(schema, quoted=True)))]

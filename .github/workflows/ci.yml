@@ -114,6 +114,10 @@ jobs:
           - os: ubuntu-latest
             image: ubuntu-24.04
     runs-on: ${{ matrix.image }}
+    # A hung test would otherwise hold the runner for GitHub's 6-hour default. A green run takes
+    # about 55 minutes on Windows and 70 on Linux (the main suite plus the sqlglot and next-DuckDB
+    # runs), so 90 ends a hang without cutting off a slow but healthy run.
+    timeout-minutes: 90
     env:
       RUN_TESTS: ${{ matrix.os == 'windows-latest' && needs.changes.outputs.windows || needs.changes.outputs.ubuntu }}
     defaults:

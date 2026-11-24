@@ -62,7 +62,13 @@ KratosForge has no service of its own. Nothing on this page leaves the PC unless
 ## Requests from a person
 
 - **See it:** the files above are JSON, JSONL or SQLite on the person's own PC. `fabric-desktop audit` prints the audit trail ([Audit trail](user-guide.md#audit-trail)).
-- **Delete it:** **Profile > Delete my profile data** for the profile. Everything else on the PC: close the app and run `uninstall-kratosforge.ps1 -RemoveData` ([Uninstall](install.md#uninstall)). It keeps the audit trails unless you also pass `-RemoveAuditTrail`, so decide first whether your organization has to keep them. There's no single "remove my data" button in the app yet.
+- **Delete it:** **Profile > Delete my profile data** for the profile. Everything else on the PC: close the app and run `uninstall-kratosforge.ps1 -RemoveData` ([Uninstall](install.md#uninstall)). It keeps the audit trails unless you also pass `-RemoveAuditTrail`, so decide first whether your organization has to keep them. It removes only what is on this PC for that Windows account. It leaves:
+  - A headless agent's folder (`%ProgramData%\FabricDesktop\agent` or a server, with its queue, alerts and logs). IT deletes it with the agent stopped.
+  - Each environment's incident list, which is shared with the team in OneLake or the project folder.
+  - The Windows event log, which only an administrator can clear.
+  - Copies in Git.
+
+  There's no single "remove my data" button in the app yet. A test (`test_delete_my_data_stores.py`) checks that every store above is either removed or named here.
 - **Correct it:** Profile details and settings can be edited in the app. Audit lines are hash-chained, so they can't be edited without `fabric-desktop audit --verify` showing it.
 - **Data in Fabric, Git or your platform** is outside the PC: use those systems' own processes.
 

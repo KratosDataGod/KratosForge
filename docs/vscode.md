@@ -67,6 +67,7 @@ A `kratosforge://` link shows a notebook or a page in KratosForge, from VS Code,
 | `kratosforge://` | Brings the open window to the front. |
 
 - If KratosForge is open, the link goes to that window and brings it to the front. If it isn't open, the link starts it. Only one copy of KratosForge runs at a time; starting it again brings the open window forward.
+- A link can't name a notebook or path that has right-to-left or other text-direction marks in it, though a notebook's name may have them. Open that notebook from KratosForge itself.
 - A link only shows something. Nothing in it runs, publishes or changes anything. Unsaved edits in the open notebook are saved first, as when you open another notebook yourself. A link that isn't one of the forms above opens nothing: KratosForge only says it didn't open the link, and why.
 - `kratosforge nb open <file>` opens the link for a file, and `--print` prints it instead. The **Open notebook in KratosForge** task runs this command.
 - KratosForge registers `kratosforge://` for your Windows user (under `HKCU\Software\Classes`) each time it starts. Your organization can turn that off with `register_link_scheme` in its policy file ([the key](azure-setup.md#4-push-settings-to-everyone)).

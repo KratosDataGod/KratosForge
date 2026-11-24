@@ -89,7 +89,6 @@ class Outbox:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time, max_items: int = MAX_ITEMS,
                  max_age_days: float = MAX_AGE_DAYS):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
         self.max_items, self.max_age = max(1, int(max_items)), max_age_days * 86400
         # A file SQLite can't read is moved aside and the outbox starts empty, so a damaged file never

@@ -142,9 +142,30 @@ a promised saving), effort, risk of change, how to validate, how to roll back, r
 confidence and the exact rule version. Findings are ranked by severity first, so a critical security
 finding is never listed below a minor one with a bigger estimate.
 
+## Accepted risk and exceptions
+
+An exception records that someone accepts the risk of a failed control instead of fixing it for now.
+It names the control, the resource it covers (or every resource of that control), the person who owns
+the decision, the reason, and the date it expires. The expiry is required and must fall within a year
+of the day the exception was recorded. An exception with no owner, no reason, no expiry, an expiry
+already past or more than a year out, or a control that doesn't exist is refused, and nothing is
+assessed.
+
+An exception never changes the assessment. The control still fails, the finding stays open, and every
+score, assured score, coverage figure, rating and Critical Risk flag is exactly what it would be
+without it. The exception is shown next to the failed control and its finding with its owner, reason
+and expiry. From its expiry date on, counted by the assessment's date, it is shown as expired and no
+longer counts as accepted.
+The result also says how many exceptions are active, how many have expired, and which ones matched no
+failed control.
+
+There is no screen for exceptions yet. The engine call takes them as the `exceptions` parameter, and
+they are kept with the snapshot so that rescoring it shows them the same way. They aren't saved
+anywhere else.
+
 ## The engine call
 
-`excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you
+`excellence_assess(workspace_id, days, profile, demo, exceptions)` assesses one workspace, and its capacity when you
 can see it. It reads only, with your own access, and makes no read the app didn't already make: the
 optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
 the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see

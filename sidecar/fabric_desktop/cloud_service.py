@@ -8,7 +8,6 @@ here too: it runs locally and turns what it finds into cleaning rules and checks
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import json
 import logging
@@ -25,7 +24,7 @@ from deltalake.exceptions import DeltaError, TableNotFoundError
 from . import fabric_step, jsonfile, maintenance, notebook_files, profiling, retrying, risk, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
 from .errors import NotSetUp
-from .fabric_api import FabricClient, FabricError
+from .fabric_api import FabricClient, FabricError, definition_text
 from .fabric_compute import BUNDLE_DIR, RESULTS_DIR, RUNNER, bundle_files, bundle_hash, run_parameters, runner_ipynb
 from .fabric_run import TERMINAL, describe_schedule, fabric_ipynb, schedule_configuration, uses_local_module, uses_spark
 from .meta.engine import Engine, RunResult, apply_clean
@@ -124,7 +123,8 @@ class CloudMixin:
                 continue
             unreachable = 0
             was = r.get("status")
-            r["status"] = job.get("status", r["status"])
+            status = job.get("status")
+            r["status"] = status if isinstance(status, str) and status else r["status"]  # junk isn't a status
             r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
             reason = job.get("failureReason") or {}
             r["message"] = one_line((reason.get("message") or "") if isinstance(reason, dict) else reason, 1000)
@@ -840,8 +840,7 @@ class CloudMixin:
         if fresh or key not in cache:
             try:
                 got = self.fabric.get_item_definition(workspace_id, model["id"], "TMDL")  # type: ignore[attr-defined]
-                cache[key] = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
-                              for p in (got.get("definition") or {}).get("parts", []) if p.get("path", "").endswith(".tmdl")}
+                cache[key] = {path: text for path, text in definition_text(got, "utf-8").items() if path.endswith(".tmdl")}
             except Exception as exc:  # guessing would rename tables that reports use
                 raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
                                    f"({type(exc).__name__}: {exc}), so its table names aren't known. Try again.") from exc

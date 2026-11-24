@@ -77,10 +77,16 @@ def _parts(definition: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _decode(part: dict[str, Any]) -> str:
-    payload = part.get("payload") or ""
+    payload = part.get("payload")
     if part.get("payloadType", "InlineBase64") != "InlineBase64":
-        return str(payload)
-    return b64.decode_exact(payload).decode("utf-8", "replace")
+        return str(payload or "")
+    try:  # read short or as empty, a notebook would look like it runs less than it does
+        if not isinstance(payload, str):
+            raise ValueError("no payload")
+        return b64.decode_exact(payload).decode("utf-8", "replace")
+    except ValueError:
+        raise ValueError("the notebook's content was left out because Fabric didn't send it as whole base64. Open "
+                         "the notebook in Fabric to check it still loads.") from None
 
 
 def notebook_content(definition: dict[str, Any]) -> tuple[list[str], str | None]:

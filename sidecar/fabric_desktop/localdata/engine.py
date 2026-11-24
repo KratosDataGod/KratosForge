@@ -45,7 +45,7 @@ import pyarrow as pa
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
 from ..awake_timer import AwakeTimer
 from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
-from . import delta, tsql, tsql_errors
+from . import delta, tsql, tsql_errors, tsql_merge
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
@@ -367,6 +367,20 @@ def _matched_once(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", target_
         f"{acted} GROUP BY __fd_row HAVING count(*) > 1 LIMIT 1"))
     if row is not None:
         raise ValueError(f"{TSQL_SAME_ROW_TWICE} Nothing in {name or c.name} was changed.")
+
+
+def _column_names(con: duckdb.DuckDBPyConnection, query: str) -> list[str]:
+    """The names of the columns ``query`` gives, read without reading any row."""
+    return [d[0] for d in con.execute(f"SELECT * FROM ({query}) AS __fd_columns LIMIT 0").description or []]
+
+
+def _placed(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
+    """Place a T-SQL MERGE's unqualified columns on a database table by the columns its table and its source have
+    now (WR-257): a temporary table, a table the script made or a table-valued function has them only when the
+    MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words."""
+    target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
+    tsql_merge.place(tsql_merge.clauses(c), _column_names(con, f"SELECT * FROM {target}"),
+                     _column_names(con, c.source_sql(KfDuckDB)))
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
@@ -919,6 +933,8 @@ class LocalEngine:
                     step_started = time.monotonic()
                     try:
                         as_of += self._make_as_of(con, step["as_of"])
+                        if explain is None and step.get("placed") is not None:
+                            _placed(con, step["placed"])
                         if explain is None and step.get("matched") is not None:
                             _matched_once(con, step["matched"])
                         if dialect == "tsql" and step["kind"] in ("create", "alter") and step["write"] is None \
@@ -1065,6 +1081,7 @@ class LocalEngine:
         steps: list[dict[str, Any]] = []
         for text in texts:
             matched: delta_dml.Change | None = None
+            placed: delta_dml.Change | None = None
             joined: str | None = None
             if delta_dml.looks_like(text):
                 rewritten, found = delta.rewrite_as_of(text, n)
@@ -1082,6 +1099,8 @@ class LocalEngine:
                 if change is None and parsed is not None and parsed.kind == "merge" \
                         and any(w.match == "matched" for w in parsed.whens):
                     matched = parsed  # a MERGE on a database table: checked before it runs (_matched_once)
+                if change is None and parsed is not None and parsed.kind == "merge" and tsql:
+                    placed = parsed  # WR-257: its columns placed by the source's columns as it runs (_placed)
                 if change is not None:
                     n += len(found)
                     steps.append({"sql": "", "write": None, "change": change, "as_of": found,
@@ -1102,7 +1121,7 @@ class LocalEngine:
             n += len(found)
             steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
                           "kind": "write delta" if write else _kind(text), "matched": matched,
-                          "joined": joined})
+                          "joined": joined, "placed": placed})
         return steps
 
     def _database_table(self, target: tuple[str | None, str] | None) -> bool:
@@ -1631,6 +1650,9 @@ class LocalEngine:
         query = c.source_sql(KfDuckDB)
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
+        if c.tsql:  # WR-257: the source's columns as it has them now, before anything is written
+            tsql_merge.place(tsql_merge.clauses(c), [f.name for f in current.schema().fields],
+                             _column_names(con, f"SELECT * FROM temp.{q(source_table)}"))
         if c.tsql:  # WR-244: as a warehouse does, whose tables are Delta tables too
             if any(w.match == "matched" for w in c.whens):
                 _matched_once(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}", f"temp.{q(source_table)}", name)

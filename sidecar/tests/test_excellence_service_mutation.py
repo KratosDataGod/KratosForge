@@ -220,3 +220,27 @@ def test_inspect_items_is_what_the_engine_inspects_with(make, monkeypatch):
     monkeypatch.setattr(Service, "_optimization_assess", spy)
     make().excellence_assess(workspace_id=WSID)
     assert seen == [inspect_items.inspect]
+
+
+def test_exactly_fifty_lakehouses_are_all_read():
+    reads: list[dict] = []
+    items = [{"id": f"lh{i}", "type": "Lakehouse"} for i in range(50)]
+    assert len(es._lakehouses(FakeFabric(), WSID, items, reads)) == 50
+    assert reads == [{"read": "lakehouse properties", "ok": True, "problem": None}]
+
+
+def test_a_workspace_whose_settings_were_read_carries_them_as_evidence(make):
+    s = make(workspace={"id": WSID, "displayName": "Sales", "capacityId": CAP, "description": "Team space"})
+    info = [e for e in s.excellence_assess(workspace_id=WSID)["evidence"] if e["kind"] == "workspace.info"]
+    assert [e["payload"] for e in info] == [{"description": "Team space", "capacity_id": CAP}]
+
+
+def test_a_workspace_whose_settings_couldnt_be_read_has_no_settings_evidence(make, monkeypatch):
+    s = make()
+
+    def refuse(ws):
+        raise RuntimeError("403 Forbidden")
+    monkeypatch.setattr(s.fake, "get_workspace", refuse)
+    r = s.excellence_assess(workspace_id=WSID)
+    assert [e for e in r["evidence"] if e["kind"] == "workspace.info"] == []
+    assert read(r, "workspace settings")["ok"] is False

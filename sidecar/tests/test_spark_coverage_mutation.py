@@ -143,7 +143,8 @@ def test_markdown_counts_each_status_and_lists_groups_in_order():
         "| Runs | 1 |", "| Differs | 1 |", "| Refused | 0 |", "| Fails | 1 |", "| Not checked | 0 |", "| **All** | **3** |"]
     heads = [line for line in page if line.startswith("## ")]
     assert heads == ["## Math", "## String", "## Zz new"]
-    assert "| `abs` | Runs | `SELECT abs(-1)` |  |" in page
+    at = page.index("## Math")
+    assert page[at + 4:at + 6] == ["| `abs` | Runs | `SELECT abs(-1)` |  |", ""]
     assert "| `x` | Differs |  | a\\|b c |" in page
     assert "| `concat` | Fails | `SELECT 'a' \\|\\| 'b'` |  |" in page
     assert page[-1] == ""

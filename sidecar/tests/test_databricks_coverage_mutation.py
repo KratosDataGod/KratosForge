@@ -109,6 +109,9 @@ def test_a_listed_error_runs_only_when_the_message_matches_and_isnt_a_refusal(mo
     fake_run(monkeypatch, lambda _code: [["ok"]])
     assert dc._listed({"example": "x", "error": "m"}, None) == ("differs", '[["ok"]] here; Databricks stops with an error')
     assert dc._listed(listed, None) == ("differs", "n")
+    fake_run(monkeypatch, lambda _code: [["o" * 100]])
+    assert dc._listed({"example": "x", "error": "m"}, None) == (
+        "differs", '[["' + "o" * 77 + " here; Databricks stops with an error")
 
 
 def test_a_pattern_needs_a_value_and_every_value_to_match(monkeypatch):
@@ -158,7 +161,8 @@ def test_markdown_counts_statuses_and_puts_databricks_groups_last():
     assert [line for line in page if line.startswith("## ")] == [
         "## Math", "## New", "## Databricks only: IP addresses", "## Databricks:zz"]
     assert "| `b` | Fails | `SELECT b()` | x\\|y z |" in page
-    assert "| `a` | Runs |  |  |" in page
+    at = page.index("## Databricks only: IP addresses")
+    assert page[at + 4:at + 6] == ["| `a` | Runs |  |  |", ""]
     assert page[-1] == ""
 
 

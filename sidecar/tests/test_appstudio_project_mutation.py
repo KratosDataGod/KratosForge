@@ -185,3 +185,21 @@ def test_a_zip_with_strangers_names_five_of_them_cut_to_60():
         project.import_(_zip(files), "unused")
     named = str(got.value).split(": ", 1)[1].rstrip(".").split(", ")
     assert named == ["x" * 60] * 5
+
+
+def test_a_secret_in_a_torn_line_is_found_in_the_raw_text():
+    assert project.text_problems("not json password=hunter2hunter2", "history.jsonl") == [
+        "history.jsonl holds something that looks like a key, token or password."]
+
+
+def test_a_nested_long_key_is_cut_to_40_too():
+    got = project.secret_problems({"a": {"password" + "y" * 50: "s3cret-value"}})
+    assert got[0].startswith("a.password" + "y" * 32 + " looks like")
+
+
+def test_a_project_that_no_longer_validates_gets_no_version(tmp_path):
+    folder = project.create(tmp_path, "Sales", sales())
+    (folder / project.SPEC).write_text(json.dumps({"name": ""}), encoding="utf-8")
+    with pytest.raises(SpecError):
+        project.save_version(folder)
+    assert list((folder / project.VERSIONS).iterdir()) == []

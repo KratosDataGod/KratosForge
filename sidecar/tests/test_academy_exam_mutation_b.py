@@ -124,3 +124,83 @@ def test_review_needs_both_finished_and_a_result():
     with pytest.raises(exam.ExamError, match="Finish the exam"):
         exam.review(not_finished, bank)
     assert len(exam.review(s, bank)) == 3
+
+
+@pytest.mark.parametrize("cases", [{"Bad Id": {"title": "T", "text": "X"}}, {"good-id": "just text"}])
+def test_a_case_with_a_bad_id_or_that_isnt_an_object_is_named(tmp_path, cases):
+    packs = _pack(tmp_path)
+    (packs / "my-pack" / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
+    cid = next(iter(cases))
+    out = exam.problems("my-pack", None, packs)
+    assert f"case {cid}: ids are lowercase words joined by hyphens" in out
+
+
+def test_view_numbers_the_questions_from_1():
+    bank = _bank()
+    s = _session(bank)
+    assert [it["n"] for it in exam.view(s, bank)["items"]] == [1, 2, 3]
+
+
+def test_a_finished_exam_with_every_answer_right_is_100_percent():
+    bank = _bank()
+    s = _session(bank)
+    for it in s["items"]:
+        exam.answer(s, it["q"], ["b"], now=at(1))
+    assert exam.finish(s, bank, now=at(2))["result"]["percent"] == 100
+
+
+def test_the_clock_is_kept_to_the_millisecond():
+    bank = _bank()
+    s = _session(bank)
+    exam.heartbeat(s, now=T0 + dt.timedelta(microseconds=123))  # 0.000123 s
+    assert s["elapsed"] == 0.0
+    exam.heartbeat(s, now=T0 + dt.timedelta(microseconds=1600))  # last_seen keeps whole seconds: 0.0016 s again
+    assert s["elapsed"] == 0.002
+
+
+def test_an_exam_without_a_seed_gets_a_31_bit_seed():
+    seeds = {exam.build(_bank(), cert_version="1", now=T0)["seed"] for _ in range(20)}
+    assert all(isinstance(x, int) and 0 <= x < 2**31 for x in seeds) and len(seeds) > 1
+
+
+def _order(**over) -> dict:
+    return _q(type="order", options=[{"id": "a", "text": "Load"}, {"id": "b", "text": "Clean"},
+                                     {"id": "c", "text": "Publish"}], answer=["b", "a", "c"], **over)
+
+
+def test_also_accept_that_repeats_the_answer_is_named():
+    out = exam._question_problems("1.1", _order(also_accept=[["b", "a", "c"]]), {})
+    assert any("also_accept is for ordering questions" in p for p in out)
+
+
+def test_a_different_full_order_in_also_accept_is_fine():
+    assert exam._question_problems("1.1", _order(also_accept=[["a", "b", "c"]]), {}) == []
+
+
+def _multiple(n_options: int, answer: list[str]) -> dict:
+    ids = "abcdefgh"[:n_options]
+    return _q(type="multiple", options=[{"id": i, "text": f"Option {i}"} for i in ids], answer=answer)
+
+
+@pytest.mark.parametrize("n,answer", [(4, ["a", "b"]), (4, ["a", "b", "c"]), (8, ["a", "h"])])
+def test_a_multiple_answer_question_at_its_limits_is_fine(n, answer):
+    assert exam._question_problems("1.1", _multiple(n, answer), {}) == []
+
+
+@pytest.mark.parametrize("n,answer", [(4, ["a", "b", "c", "d"]), (3, ["a", "b"]), (4, ["a"])])
+def test_a_multiple_answer_question_past_its_limits_is_named(n, answer):
+    out = exam._question_problems("1.1", _multiple(n, answer), {})
+    assert any("a multiple-answer question has 4 to 8 options" in p for p in out)
+
+
+def test_an_objective_with_exactly_the_minimum_of_live_questions_is_enough(tmp_path):
+    root = tmp_path / "my-pack"
+    (root / "questions").mkdir(parents=True)
+    live = [_q(f"1.1-q{i}", status="live", reviewed="2026-11-01") for i in range(1, exam.MIN_PER_OBJECTIVE + 1)]
+    (root / "questions" / "1.1.json").write_text(json.dumps(
+        {"schema": exam.QUESTION_SCHEMA, "objective": "1.1", "questions": live}), encoding="utf-8")
+    assert exam.problems("my-pack", ["1.1"], tmp_path) == []
+    (root / "questions" / "1.1.json").write_text(json.dumps(
+        {"schema": exam.QUESTION_SCHEMA, "objective": "1.1", "questions": live[:-1]}), encoding="utf-8")
+    assert exam.problems("my-pack", ["1.1"], tmp_path) == [
+        f"objective 1.1: has {exam.MIN_PER_OBJECTIVE - 1} live questions; needs {exam.MIN_PER_OBJECTIVE}"]

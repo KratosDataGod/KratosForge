@@ -114,3 +114,10 @@ def test_a_certification_must_name_a_file_in_the_packs_own_folder(tmp_path, name
     (folder / "pack.json").write_text(json.dumps({"schema": r.PACK_SCHEMA, "id": "dp-700", "status": "draft",
                                                   "platform": "fabric", "certification": name}))
     assert "dp-700: certification names a file in the pack's folder" in r.problems(tmp_path)
+
+
+def test_a_skill_area_with_no_objectives_is_a_problem():
+    def empty(c):
+        c["domains"][0]["skills"][0]["objectives"] = []
+
+    assert any("skill area 1.1: needs a title and objectives" in p for p in problems_of(FABRIC, empty))

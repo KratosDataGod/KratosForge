@@ -141,7 +141,7 @@ def test_a_cancelled_resource_read_is_left_behind_at_once():
 
 
 def test_a_resource_reads_error_code_says_what_went_wrong():
-    def bad(svc, ctx):
+    def bad(svc, ctx):  # an error with a hint: the message carries it
         raise IntegrationError("invalid_input", "No such page.", hint="Use a number.")
 
     def broken(svc, ctx):
@@ -151,15 +151,16 @@ def test_a_resource_reads_error_code_says_what_went_wrong():
     reg.register(cap("ext_broken", broken, resource="fabric-desktop://broken"))
     read = handler(build_server(reg), "resources/read")
 
-    async def code(uri):
+    async def error(uri):
         with pytest.raises(MCPError) as raised:
             await read(CTX, types.ReadResourceRequestParams(uri=uri))
-        return raised.value.error.code
+        return raised.value.error
 
     async def go():
-        assert await code("fabric-desktop://nowhere") == mcp_server.RESOURCE_NOT_FOUND == -32002
-        assert await code("fabric-desktop://bad") == types.INVALID_PARAMS
-        assert await code("fabric-desktop://broken") == types.INTERNAL_ERROR
+        assert (await error("fabric-desktop://nowhere")).code == mcp_server.RESOURCE_NOT_FOUND == -32002
+        bad = await error("fabric-desktop://bad")
+        assert bad.code == types.INVALID_PARAMS and bad.message == "No such page. What to do: Use a number."
+        assert (await error("fabric-desktop://broken")).code == types.INTERNAL_ERROR
     anyio.run(go)
 
 

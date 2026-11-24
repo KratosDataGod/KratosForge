@@ -130,3 +130,10 @@ def test_the_summary_mentions_what_was_left_behind_only_when_something_was(tmp_p
     assert "**Left behind** by the platform flows" in _summary(
         tmp_path / "d", platform_test={"left_behind": left, "kept": False})
     assert "**Kept** by the platform flows" in _summary(tmp_path / "e", platform_test={"left_behind": left, "kept": True})
+
+
+def test_the_summary_names_the_workspace_and_says_whether_it_ran_in_fabric(tmp_path):
+    named = _summary(tmp_path / "a", workspace={"id": WS, "name": "Live tests"}, run_in_fabric=False)
+    assert "workspace Live tests, started" in named and ", without Run in Fabric." in named
+    bare = _summary(tmp_path / "b", workspace={"id": WS, "name": ""}, run_in_fabric=True)
+    assert f"workspace {WS}, started" in bare and ", with Run in Fabric." in bare

@@ -1194,7 +1194,8 @@ def test_session_variables_and_identifier_of_a_variable_the_cell_sets():
 
 
 @pytest.mark.parametrize(("sql", "want"), [
-    ("SELECT array_construct(1, 'a', NULL)", [1, "a", None]),
+    # JSON null (a SQL NULL there is Snowflake's undefined, refused by SFN-084: test_snowflake_array_bugs)
+    ("SELECT array_construct(1, 'a', PARSE_JSON('null'))", [1, "a", None]),
     ("SELECT array_construct_compact(NULL, 'a', -1)", ["a", -1]),
     ("SELECT array_insert(array_construct(0, 1), 2, 'x')", [0, 1, "x"]),
     ("SELECT array_prepend(array_construct('a'), 2.5::double)", [2.5, "a"]),

@@ -190,16 +190,96 @@ def _scalar_kind(node: exp.Expression | None) -> str:
     return "other"
 
 
+_WRITTEN_ARRAY = "kf_sf_written_array"  # early: an array the query wrote, which SFX-085 reads (a copy keeps it)
+_ARRAY_BUILDERS = (exp.Array, exp.ArrayConstructCompact, exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)
+
+
+def _number_kind(kind: exp.DataType) -> str:
+    """SFX-085: the kind of number a cast to ``kind`` gives: int (a whole-number type, or NUMBER with scale 0),
+    decimal:<scale>, or double."""
+    if kind.this in exp.DataType.INTEGER_TYPES:
+        return "int"
+    if kind.this in (exp.DataType.Type.DECIMAL, exp.DataType.Type.BIGDECIMAL):
+        params = [p.this for p in kind.expressions if isinstance(p, exp.DataTypeParam)]
+        scale = params[1].name if len(params) > 1 and isinstance(params[1], exp.Literal) else "0"
+        return "int" if scale == "0" else f"decimal:{scale}"
+    return "double"
+
+
+def _element_kind(node: exp.Expression | None) -> str:
+    """SFX-085: the kind of an array element, by what the query wrote: null, text, bool, int, decimal:<scale>
+    (a number written with a fraction, 2.5), double (one written with an exponent, or cast to FLOAT), json (a
+    VARIANT or OBJECT), or other (a column, a lambda's variable or anything else, whose type only the run tells)."""
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        node = node.this
+    if isinstance(node, exp.Null):
+        return "null"
+    if isinstance(node, exp.Boolean):
+        return "bool"
+    if isinstance(node, exp.Literal):
+        if node.is_string:
+            return "text"
+        text = node.name.lower()
+        if "e" in text:
+            return "double"
+        return f"decimal:{len(text.split('.')[1])}" if "." in text else "int"
+    if isinstance(node, exp.Anonymous) and node.name == _TEXT_MARK:  # a cast to text SFX-081 writes
+        return "text"
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        if node.to.this in exp.DataType.TEXT_TYPES:
+            return "text"
+        if node.to.this in exp.DataType.NUMERIC_TYPES:
+            return _number_kind(node.to)
+        if node.to.this == exp.DataType.Type.BOOLEAN:
+            return "bool"
+        if node.to.this in (exp.DataType.Type.VARIANT, exp.DataType.Type.OBJECT, exp.DataType.Type.JSON):
+            return "json"
+        return "other"
+    if isinstance(node, _VARIANT_NODES + _OBJECT_NODES):
+        return "json"
+    return "other"
+
+
+def _never_null(node: exp.Expression) -> bool:
+    """SFX-085: whether an array element is plainly not SQL NULL: a literal, a CAST of one (not TRY_CAST), or
+    PARSE_JSON of text that isn't blank."""
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        node = node.this
+    if isinstance(node, (exp.Literal, exp.Boolean)):
+        return True
+    if type(node) is exp.Cast:
+        return _never_null(node.this)
+    if isinstance(node, exp.ParseJSON):
+        value = node.this
+        return isinstance(value, exp.Literal) and value.is_string and bool(value.name.strip())
+    return False
+
+
+def _array_values(node: object) -> list[exp.Expression] | None:
+    """The elements of an array written in the query, with the one ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND
+    adds; None for anything else."""
+    if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
+        return list(node.expressions)
+    if isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
+        return [*node.this.expressions, node.args.get("expression")]
+    return None
+
+
 def _mixed_array(node: object) -> bool:
     """SFX-075: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
-    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one)."""
-    if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
-        values = list(node.expressions)
-    elif isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
-        values = [*node.this.expressions, node.args.get("expression")]
-    else:
+    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one).
+    SFX-085: or, for an array the query wrote, elements of more than one kind (_element_kind), or one whose type
+    only the run tells beside one of a known kind: DuckDB's list would make them one type, or fail to."""
+    values = _array_values(node)
+    if values is None:
         return False
-    return {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}
+    if {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}:
+        return True
+    if not (isinstance(node, exp.Expression) and node.meta.get(_WRITTEN_ARRAY)):
+        return False
+    kinds = {_element_kind(v) for v in values} - {"null"}
+    known = kinds - {"other"}
+    return len(known) > 1 or bool(known) and "other" in kinds
 
 
 _ONLY_IN_SNOWFLAKE = "Runs only in Snowflake"
@@ -1056,21 +1136,83 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
                 call.replace(_date_literal(epoch))
 
 
+# SFX-085 and SFN-084 (2026.11.23): arrays_construct: "The argument values can be different data types" and "An array
+# can contain both SQL NULL values and JSON null values"; ARRAY_CONSTRUCT(NULL, PARSE_JSON('null'), 'hello',
+# 3::DOUBLE, 4, 5) shows undefined, null, "hello", 3.000000000000000e+00, 4, 5.
+_UNDEFINED_REFUSED = _refuse(
+    "SFN-084", "A SQL NULL in an array of values of more than one type", "Snowflake keeps a SQL NULL element apart "
+    "from JSON null and shows it as undefined (the ARRAY_CONSTRUCT page: ARRAY_CONSTRUCT(NULL, PARSE_JSON('null'), "
+    "'hello', 3::DOUBLE, 4, 5) is [undefined, null, \"hello\", 3.000000000000000e+00, 4, 5]). Such an array is a "
+    "list of VARIANT values here, which can't hold the two apart: both would be null. A NULL written in the array "
+    "is refused, and the query stops at a row where another element is SQL NULL (or a VARIANT holding JSON null, "
+    "which DuckDB's VARIANT doesn't keep apart either). Use PARSE_JSON('null') for JSON null, or "
+    "ARRAY_CONSTRUCT_COMPACT to leave out NULL elements.", f"{_DOCS}/functions/array_construct")
+
+
+def _mark_written_arrays(statement: exp.Expression) -> None:
+    """SFX-085, first, on the Snowflake tree: each array the query wrote is marked, so SFX-085 reads only those,
+    not a list a rewrite builds."""
+    for node in statement.find_all(*_ARRAY_BUILDERS):
+        node.meta[_WRITTEN_ARRAY] = True
+
+
+def _as_variant(element: exp.Expression, compact: bool) -> None:
+    """``element`` of an array SFX-075 or SFX-085 makes a list of VARIANT values, cast to VARIANT in its place (it
+    moves into the cast, so an array inside it that is rewritten later is still found). An element that may be
+    SQL NULL stops the query at a row where it is (SFN-084), unless ARRAY_CONSTRUCT_COMPACT leaves it out."""
+    from .sql import _with_args
+    variant = exp.Cast(to=exp.DataType.build("VARIANT"))
+    element.replace(variant)
+    if isinstance(element, exp.Anonymous) and element.name == _TEXT_MARK:  # text, though it may be written as JSON
+        element = exp.Cast(this=element, to=exp.DataType.build("VARCHAR"))
+    variant.set("this", element)
+    if compact or _never_null(element):
+        return
+    # DuckDB 2.0 fails when json_tree reads a value whose lambda (TRANSFORM's, or the one below) or window holds
+    # error(), so there the stop is a cast that fails (_stop_cast). A column is read twice; anything else once.
+    if isinstance(element, exp.Column):
+        stop = (_stop_cast if element.find_ancestor(exp.Lambda, exp.Window) is not None else _stop_sql)
+        variant.replace(_with_args(f"CASE WHEN fj_arg0 IS NULL THEN {stop(_UNDEFINED_REFUSED)} ELSE fj_arg1 END",
+                                   [element, variant]))
+        return
+    checked = _with_args(f"list_transform([fj_arg0], lambda __sf_u: CASE WHEN __sf_u IS NULL THEN "
+                         f"{_stop_cast(_UNDEFINED_REFUSED)} ELSE __sf_u END)[1]", [exp.Null()])
+    holder = next(checked.find_all(exp.Null))
+    variant.replace(checked)
+    holder.replace(variant)  # the element itself moves in, not a copy, so a [...] it holds is still known (SFD-009)
+
+
 def _variant_arrays(statement: exp.Expression) -> None:
     """SFX-075: an array written in the query with both text and numbers in it is a list of VARIANT values, as
     an ARRAY column is (SFX-024), so each element keeps its own type, as in Snowflake's array; a DuckDB list of
-    plain values holds one type. SFN-025, which refused it, is retired."""
-    variant = exp.DataType.build("VARIANT")
-    for node in list(statement.find_all(exp.Array, exp.ArrayConstructCompact, exp.ArrayInsert, exp.ArrayPrepend,
-                                        exp.ArrayAppend)):
+    plain values holds one type. SFN-025, which refused it, is retired. SFX-085: so is one with elements of more
+    than one kind (_mixed_array): JSON null beside text, a column or a lambda's variable beside text, a whole
+    number beside one with a fraction. A SQL NULL element in such a list is refused or stops by name (SFN-084):
+    Snowflake shows it as undefined, apart from JSON null, and a list of VARIANT values here can't."""
+    # innermost first, so an array inside another is rewritten in its place before the outer one is read
+    for node in reversed(list(statement.find_all(*_ARRAY_BUILDERS))):
+        added = node.args.get("expression")
+        if (isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and added is not None
+                and isinstance(node.this, exp.Cast) and _variant_list_type(node.this.to)):
+            # one more element of a list made of VARIANT values above: it is checked as theirs are
+            if _element_kind(added) == "null":
+                raise _Untranslatable(_UNDEFINED_REFUSED)
+            _as_variant(added, False)
+            continue
         if not _mixed_array(node):
             continue
         array = node if isinstance(node, (exp.Array, exp.ArrayConstructCompact)) else node.this
-        for element in [*array.expressions, *([] if array is node else [node.args["expression"]])]:
-            element.replace(exp.Cast(this=element.copy(), to=variant.copy()))
+        compact = isinstance(array, exp.ArrayConstructCompact)
+        elements = [*array.expressions, *([] if array is node else [node.args["expression"]])]
+        if not compact and any(_element_kind(e) == "null" for e in elements):
+            raise _Untranslatable(_UNDEFINED_REFUSED)
+        for element in elements:
+            _as_variant(element, compact)
         # a VARIANT[] cast marks each list as such a list for TO_JSON (SFX-024)
         for made in {id(array): array, id(node): node}.values():
-            made.replace(exp.Cast(this=made.copy(), to=exp.DataType.build("VARIANT[]", dialect="duckdb")))
+            listed = exp.Cast(to=exp.DataType.build("VARIANT[]", dialect="duckdb"))
+            made.replace(listed)
+            listed.set("this", made)
 
 
 def _rewrite_arrays(statement: exp.Expression) -> None:
@@ -1575,8 +1717,9 @@ _JSON_DOUBLE_REFUSED = _refuse(
     "SFN-083", "TO_JSON of an ARRAY or OBJECT holding a DOUBLE", "The ARRAY_CONSTRUCT and ARRAY_CONSTRUCT_COMPACT "
     "pages show 3::DOUBLE in an array as 3.000000000000000e+00, where DuckDB writes 3.0, and Snowflake's docs don't "
     "show how it writes another DOUBLE, so the query stops at a row holding one. A list of VARIANT values (an array "
-    "of text and numbers, or an ARRAY column) stops at any number with a fraction or exponent, whose type isn't kept "
-    "here. Cast the numbers to NUMBER or to whole numbers first.", f"{_DOCS}/functions/array_construct")
+    "of text and numbers, an array of whole numbers and numbers with a fraction such as ARRAY_CONSTRUCT(1, 2.5), or "
+    "an ARRAY column) stops at any number with a fraction or exponent: its type isn't kept here, or no page shows "
+    "how TO_JSON writes it beside a whole number. Cast the numbers to NUMBER or to whole numbers first.", f"{_DOCS}/functions/array_construct")
 _SF_DT = "typeof(__sf_d)"
 _SF_VT = "variant_typeof(CAST(__sf_d AS VARIANT))"
 # a DOUBLE or FLOAT in a typed value (DOUBLE, DOUBLE[], STRUCT(a DOUBLE), MAP(.., DOUBLE)); in a VARIANT scalar by its
@@ -1618,27 +1761,40 @@ def _check_json_doubles(statement: exp.Expression) -> None:
                                         f"{_SF_DOUBLE})[1] THEN {stop} ELSE fj_arg1 END", [value, value.copy()]))
 
 
-def _keep_name(node: exp.Expr) -> None:
+def _keep_name(node: exp.Expr, as_written: bool = False) -> None:
     """Name the select-list item ``node`` is in as it reads now, when it has no name of its own, so a
     rewrite that writes a long CASE in its place doesn't give the column that CASE's text as its name. The
-    same for each query it sits in, outward, so a scalar subquery in a select list keeps its name too."""
+    same for each query it sits in, outward, so a scalar subquery in a select list keeps its name too.
+    ``as_written``: the tree is still Snowflake's, and the item, which holds Snowflake's TO_JSON, is named by its
+    Snowflake text (SFX-070), as a TO_JSON that is the item itself is."""
     from . import sql
+    named: list[tuple[exp.Expr, str]] = []  # each item and its name, all read before any is named
     item = node
     while item.parent is not None:
         while isinstance(item.parent, exp.Expression) and not isinstance(item.parent, exp.Select):
             item = item.parent
         select = item.parent
         if select is None:
-            return
+            break
         # a * (its REPLACE's value) names its own columns: an alias would give them all one name
         star = isinstance(item, exp.Star) or isinstance(item, exp.Column) and isinstance(item.this, exp.Star)
         if not isinstance(item, exp.Alias) and not star and any(e is item for e in select.expressions):
             written = item.meta.get(_SNOWFLAKE_TO_JSON)  # Snowflake's TO_JSON is named as written (SFX-070)
-            named = exp.Alias(alias=exp.to_identifier(written if isinstance(written, str) else sql.duckdb_sql(item),
-                                                      quoted=True))
-            item.replace(named)
-            named.set("this", item)
+            if as_written and not isinstance(written, str):
+                written = item.sql(dialect="snowflake")
+            named.append((item, written if isinstance(written, str) else sql.duckdb_sql(item)))
+            if not as_written:  # as before: an outer query's item is read with this one named
+                _name_item(*named.pop())
         item = select
+    for item, name in named:
+        _name_item(item, name)
+
+
+def _name_item(item: exp.Expr, name: str) -> None:
+    """``item``, a select-list item, named ``name``."""
+    alias = exp.Alias(alias=exp.to_identifier(name, quoted=True))
+    item.replace(alias)
+    alias.set("this", item)
 
 
 def _rewrite_semi_structured_types(statement: exp.Expression) -> None:
@@ -2754,6 +2910,12 @@ def _mark_offsets_and_json(statement: exp.Expression) -> None:
             found.meta[_SNOWFLAKE_TO_JSON] = found.sql(dialect="snowflake")  # the call as written, for its name
         elif isinstance(found, (exp.Cast, exp.TryCast)) and found.to.this == exp.DataType.Type.TIMESTAMPTZ:
             found.meta[_OFFSET_CHECK] = True
+    # a TO_JSON inside a select-list item (a cast of it, or a call on it) is named as written too, so the column
+    # isn't named by the subquery that sorts its keys
+    for found in list(statement.find_all(exp.JSONFormat)):
+        parent = found.parent
+        if not (isinstance(parent, exp.Select) and any(e is found for e in parent.expressions)):
+            _keep_name(found, as_written=True)
 
 
 def _check_offsets(statement: exp.Expression) -> exp.Expression:
@@ -3023,6 +3185,11 @@ CATALOG = (
                 "RENAME d AS dept) gives the replaced value under the new name, in the column's place, as Snowflake "
                 "does; DuckDB stopped with a parser error. Beside another * or a column of the old or new name it "
                 "stops (SFN-082).")),
+    ("SFX-085", "Rewritten", ("An array written with elements of more than one kind is a list of VARIANT values, as "
+                "SFX-075's is, so each element keeps its own type: JSON null (PARSE_JSON('null')) beside text, a column "
+                "or a lambda's variable beside text or a number (TO_JSON(ARRAY_CONSTRUCT(n, 'x')) is [1,\"x\"]), an "
+                "array cast to text beside a number, a whole number beside one with a fraction. A SQL NULL element in "
+                "one stops (SFN-084).")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -3121,8 +3288,13 @@ CATALOG = (
                 "named as its old or new name: the rename would be ambiguous here.")),
     ("SFN-083", "Runs only in Snowflake", ("TO_JSON of an ARRAY or OBJECT holding a DOUBLE (the query stops at that "
                 "row): the ARRAY_CONSTRUCT pages show 3::DOUBLE in an array as 3.000000000000000e+00, where DuckDB "
-                "writes 3.0, and no page shows how TO_JSON writes another. In a list of VARIANT values any number with "
-                "a fraction or exponent stops it, since its type isn't kept here.")),
+                "writes 3.0, and no page shows how TO_JSON writes another. In a list of VARIANT values (an ARRAY "
+                "column, or an array of more than one kind, such as ARRAY_CONSTRUCT(1, 2.5)) any number with a fraction "
+                "or exponent stops it: its type isn't kept here, or no page shows how TO_JSON writes it there.")),
+    ("SFN-084", "Runs only in Snowflake", ("A SQL NULL element in an array of values of more than one kind (SFX-075, "
+                "SFX-085): Snowflake shows it as undefined, apart from JSON null, and a list of VARIANT values here "
+                "can't keep the two apart. A NULL written in the array is refused; a column or other value that is "
+                "SQL NULL stops the query at that row. ARRAY_CONSTRUCT_COMPACT, which leaves NULLs out, runs.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -3166,6 +3338,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _mark_offsets_and_json(tree)
         _mark_semi_text(tree)
         _mark_json_doubles(tree)
+        _mark_written_arrays(tree)
         _rewrite_flatten(tree)
         _rewrite_to_char(tree)
         _rewrite_date_trunc(tree)

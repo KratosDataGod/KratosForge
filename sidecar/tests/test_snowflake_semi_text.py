@@ -131,7 +131,7 @@ def test_an_array_or_object_column_joined_with_text_stops(sql):
 
 
 @pytest.mark.parametrize("sql", [
-    "SELECT ARRAY_CONSTRUCT(NULL, PARSE_JSON('null'), 3::DOUBLE, 4)::VARCHAR",  # the page's own: 3.000000000000000e+00
+    "SELECT ARRAY_CONSTRUCT(PARSE_JSON('null'), 3::DOUBLE, 4)::VARCHAR",  # the page's own: 3.000000000000000e+00
     "SELECT ARRAY_CONSTRUCT(1.5, 2)::VARCHAR",
     "SELECT ARRAY_CONSTRUCT(NULL, 1)::VARCHAR",                                 # undefined in Snowflake
     "SELECT ARRAY_CONSTRUCT(CURRENT_DATE)::VARCHAR",

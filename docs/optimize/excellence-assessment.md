@@ -1,6 +1,6 @@
 # Fabric Excellence Assessment: methodology (engine, Phase 1)
 
-The Fabric Excellence Assessment reviews a workspace or a capacity against versioned **controls** in
+The Fabric Excellence Assessment reviews a workspace, and its capacity when you can see it, against versioned **controls** in
 ten dimensions and gives each a score you can trace back to the evidence behind it. This page explains
 how the engine decides and scores, and the screen that shows it. The plan and phased stories are in
 the [assessment plan](../product/fabric-excellence-assessment-plan.md).

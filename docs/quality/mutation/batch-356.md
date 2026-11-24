@@ -7,6 +7,8 @@ The run was at `main` ea988e99 (2026-11-23), with `sidecar/tools/mutate.py` and 
 
 Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0, and against the module as it is on `main` today. The "after" figures come from `--only` runs of the survivors with the new tests added.
 
+#3229 then made the catalog ask for one capstone talent alone on each specialization's top tier, and a `requires` rule on each achievement. So the small class the new tests build now marks its tier-6 talent as the capstone and gives each achievement a rule (level 2, any specialization). The checks the tests pin are the same.
+
 ## Results
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |

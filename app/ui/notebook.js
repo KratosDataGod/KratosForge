@@ -435,8 +435,10 @@ function cellResults(cell) {
 function updateResults(cell) {
   const el = document.querySelector(`[data-cell="${cell.id}"]`);
   if (!el) return;
+  const keep = dbgFocusKey(el);  // debugging.js: focus in the debugger panel stays there
   el.querySelector(".cell-results")?.replaceChildren(...cellResults(cell));
   if (cell.type === "code") el.querySelector(".gutter")?.replaceWith(renderGutter(cell));
+  dbgRefocus(el, keep);
   if (typeof findOutputsChanged === "function") findOutputsChanged();  // nbfind.js: matches in outputs
 }
 
@@ -575,6 +577,7 @@ function moveCell(delta, cell = selectedCell()) {
 
 function deleteCell(cell) {
   if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it to delete it."); return; }
+  if (dbgPausedIn([cell])) return;  // debugging.js
   const cells = state.notebook.cells;
   const i = cells.indexOf(cell);
   cells.splice(i, 1);
@@ -968,8 +971,9 @@ function cellKeymap(cell) {
 document.addEventListener("keydown", (e) => {
   if (state.view !== "notebook" || !state.notebook || document.getElementById("dialog-root").childElementCount) return;
   const t = e.target;
-  // A result's grid (sqlgrid.js) has keys of its own: arrows, Ctrl+C, Enter.
-  if (t.closest?.(".cm-editor, .sql-result-table") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
+  // A result's grid (sqlgrid.js) has keys of its own: arrows, Ctrl+C, Enter. So has the debugger panel
+  // (debugging.js): Enter presses its buttons, and D D there doesn't delete the paused cell.
+  if (t.closest?.(".cm-editor, .sql-result-table, .dbg-paused") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
   // The view itself counts too: opening a notebook focuses it (focusPage), and a click on a cell
   // part that can't take focus (its gutter) leaves it there until the cell takes focus just after.
   if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;

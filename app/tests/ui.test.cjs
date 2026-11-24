@@ -1148,7 +1148,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction, dbgSpanGone, dbgBpLimit });`, ctx);
   return ctx;
 }
 
@@ -3140,6 +3140,20 @@ test("breakpoints follow their lines, and the debugger keys match VS Code", () =
   assert.strictEqual(key("F11", { shiftKey: true }), "out");
   assert.strictEqual(key("F5", { ctrlKey: true }), null);
   assert.strictEqual(key("Enter"), null);
+});
+
+test("a line counts as deleted only when one change takes all of it and its line break", () => {
+  const { dbgSpanGone, dbgBpLimit } = dbgHelpers();
+  // "a=1\nb=2\nc=3": line 2 is [4, 7), its line break 7.
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 8]]), true);    // Ctrl+Shift+K on line 2
+  assert.strictEqual(dbgSpanGone(4, 8, [[0, 9]]), true);    // a selection over it
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 7]]), false);   // its text only: an empty line keeps the breakpoint
+  assert.strictEqual(dbgSpanGone(4, 8, [[7, 8]]), false);   // its line break only: lines joined
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 6], [6, 8]]), false);
+  assert.strictEqual(dbgSpanGone(4, 4, [[0, 9]]), false);
+  assert.strictEqual(dbgBpLimit, 100);  // debugger.py MAX_BREAKPOINTS
+  const engine = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "debugger.py"), "utf8");
+  assert.match(engine, new RegExp(`^MAX_BREAKPOINTS = ${dbgBpLimit}$`, "m"));
 });
 
 test("a cell replaced whole keeps its breakpoints by line text, and names the ones it can't", () => {

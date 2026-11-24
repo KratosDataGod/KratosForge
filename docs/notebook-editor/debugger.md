@@ -26,7 +26,8 @@ question on the roadmap.
   breakpoint finds its line's code again, wherever it moved.
 - A breakpoint is never lost without a word. When its line is deleted, or its code is no longer in
   the cell, it is removed and a message names the line, such as "Removed the breakpoint on line 5,
-  because its line was deleted." A breakpoint past the cell's end (its code was changed in another program)
+  because its line was deleted." **Undo** (Ctrl+Z) puts the line back with its breakpoint, and
+  **Redo** removes both again. A breakpoint past the cell's end (its code was changed in another program)
   is removed and named the same way when the cell runs.
 - **Editing a cell while it's paused** doesn't change the run: the cell keeps running the code as it
   started, and your edits and breakpoint changes take effect the next time it runs. The paused line
@@ -55,7 +56,9 @@ question on the roadmap.
 
 ## While paused
 
-The paused line is highlighted, and a panel under the cell shows:
+The paused line is highlighted and scrolled into view (a collapsed section around it opens), and
+screen readers hear it once, such as "Cell 2 paused at line 3 (breakpoint)". A panel under the
+cell shows:
 
 - **Call stack**: where the cell is, outermost first, such as `(cell) line 5 › double line 3`.
 - **Variables** in the paused frame: names, types, sizes and a short value. A variable whose name
@@ -82,6 +85,15 @@ The paused line is highlighted, and a panel under the cell shows:
 
 After **Stop**, nothing of the debugger is left behind: the next cell runs at full speed with the
 variables the stopped cell left.
+
+- **One command at a time.** A key pressed again, or held, while a step, **Continue** or
+  **Evaluate** is on its way does nothing until the next pause shows, so you never step past
+  lines you haven't seen.
+- **From the keyboard**, Tab moves through the panel's buttons and Enter or Space presses one.
+  Focus stays on the button, or in the **Evaluate** box, as the panel updates. When the cell
+  finishes, focus goes to the cell.
+- **A paused cell can't be deleted.** Stop it first. Deleting a notebook while one of its cells is
+  paused stops that cell, and the delete message says so.
 
 ## Limits
 
@@ -116,7 +128,7 @@ variables the stopped cell left.
 - **A RecursionError, or a cell that sets its own `sys.settrace`**, turns the debugger off for the
   rest of that cell (Python does this), so later breakpoints may not pause. The cell's output says
   so, and the next cell debugs as usual. `sys.setprofile` doesn't affect it.
-- **Up to 100 breakpoints per cell.**
+- **Up to 100 breakpoints per cell.** Setting one more says so, and sets nothing.
 - **`%%time`, `%%capture` and line magics** keep their line numbers: line 1 is the magic line.
   `%time f()` stops at the cell's breakpoints in `f`. Cell magics that run the cell some
   other way (`%%sql`, `%%html`, `%%timeit`, `%%sh` and the like) run without pausing.

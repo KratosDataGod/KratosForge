@@ -224,7 +224,7 @@ function whMonitorView(ref, actions) {
         h("p", { class: "muted-text small" }, "Who runs what lists each person's sign-in name with their queries and CPU time, as Fabric records them."),
         h("div", { class: "wh-mon-row" },
           s.build_allowed ? btn(builtId ? "Update views…" : "Build views…", null, () => whMonitorBuild(ref), builtId ? "tool outline small" : "tool primary small")
-            : h("span", { class: "muted-text small" }, "Your organization turned off building monitoring views. Ask IT to change wh_monitoring_views in Group Policy or the policy file."),
+            : h("span", { class: "muted-text small" }, "Your organization has turned off building monitoring views. Ask IT to change wh_monitoring_views in Group Policy or the policy file."),
           builtId ? btn("Open in Fabric", "open", () => openInFabric(fabricItemLink({ type: "KQLQueryset", workspace_id: ref.workspace_id, item_id: builtId })), "tool outline small") : null),
         h("p", { class: "muted-text small" }, s.auto ? "New warehouses in this workspace get theirs without asking (you said yes when you built them)."
           : "Tick “without asking again” when you build, and new warehouses in this workspace get theirs when the app opens them."))));

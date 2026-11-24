@@ -314,3 +314,183 @@ def test_a_quote_ending_a_line_comment_opens_no_string():
     from fabric_desktop.localdata import tsql
     assert tsql._left_open("SELECT 1 -- it's\nSELECT 2") is None
     assert tsql._left_open("SELECT 1 -- '\nSELECT 2") is None
+
+
+def test_the_column_list_is_read_without_regard_to_case():
+    assert translate("SELECT n / 2 FROM t", {"DBO": {"T": {"N": "INTEGER"}}}) == (["SELECT n // 2 FROM t"], [])
+
+
+def test_isnull_with_a_first_argument_of_a_sized_date_type_leaves_the_second_alone():
+    assert translate("SELECT ISNULL(CAST(NULL AS DATETIME2(3)), '2024-01-02 03:04:05.6789')")[0] == [
+        "SELECT COALESCE(CAST(NULL AS TIMESTAMP(3)), '2024-01-02 03:04:05.6789')"]
+
+
+def test_a_decimal_written_with_only_a_precision_has_scale_0_in_a_product():
+    columns = {"dbo": {"t": {"d": "DECIMAL(5)"}}}
+    assert translate("SELECT d * d FROM dbo.t", columns)[0] == ["SELECT CAST(d * d AS DECIMAL(11, 0)) FROM dbo.t"]
+
+
+def test_patindex_of_a_number_is_refused_as_not_written_out_as_text():
+    with pytest.raises(ValueError, match="PATINDEX needs its pattern written out as text"):
+        translate("SELECT PATINDEX(5, 'a5')")
+
+
+def test_an_integer_between_integers_has_no_note():
+    columns = {"dbo": {"t": {"n": "INTEGER"}}}
+    assert translate("SELECT 1 FROM dbo.t WHERE n BETWEEN 1 AND 2", columns) == (
+        ["SELECT 1 FROM dbo.t WHERE n BETWEEN 1 AND 2"], [])
+
+
+def test_grouping_on_a_text_column_named_rtrim_still_has_the_grouping_note():
+    columns = {"dbo": {"t": {"rtrim": "VARCHAR(5)"}}}
+    notes = translate("SELECT rtrim FROM dbo.t GROUP BY rtrim", columns)[1]
+    assert len(notes) == 1 and notes[0].startswith("T-SQL counts text that differs only in trailing spaces")
+
+
+def test_a_subquerys_alias_in_an_updates_from_isnt_its_target():
+    with pytest.raises(ValueError, match="Invalid object name 'u'.*Write sales.u"):
+        translate("UPDATE u SET a = 1 FROM dbo.t AS x JOIN (SELECT 1 AS a) AS u ON 1 = 1", COLUMNS)
+
+
+def test_a_delete_with_a_join_says_it_couldnt_tell_a_divisions_types():
+    columns = {"dbo": {"t": {"n": "INTEGER"}}}
+    out, notes = translate("DELETE t FROM dbo.t AS t JOIN dbo.t AS v ON t.n = v.n WHERE t.n / 2 = 1", columns)
+    assert out == ["DELETE FROM dbo.t AS t USING dbo.t AS v WHERE (t.n = v.n) AND (t.n / 2 = 1)"]
+    assert notes == ["Couldn't tell the types in t.n / 2: it divides as DuckDB does, and T-SQL divides two "
+                     "integers as integers."]
+
+
+def test_a_four_part_name_is_told_its_own_schema():
+    with pytest.raises(ValueError, match=r"four-part names \(srv.db.sales.u\).*Write sales.u for this project's table"):
+        translate("SELECT * FROM srv.db.sales.u")
+
+
+def test_a_sized_column_of_a_table_with_no_schema_names_the_table_alone_in_its_error():
+    assert "truncated in table ''x'', column ''s''." in translate("CREATE TABLE x (s VARCHAR(3))")[0][0]
+
+
+def test_a_like_pattern_that_is_a_number_has_the_like_note():
+    notes = translate("SELECT 1 WHERE 'a5' LIKE 5")[1]
+    assert len(notes) == 1 and notes[0].startswith("A LIKE pattern that isn't written in the query")
+
+
+def test_a_wide_product_whose_size_is_past_the_room_is_worked_out_in_floating_point():
+    columns = {"x": "DECIMAL(38,10)", "y": "DECIMAL(10,2)"}
+    out = translate("SELECT x * y FROM dbo.t", {"dbo": {"t": columns}})[0][0]
+    assert "ABS(CAST((x) AS DOUBLE)) * ABS(CAST((y) AS DOUBLE)) < 1e25" in out
+    [(value,)] = run_on_t("SELECT x * y FROM dbo.t", columns, "(100000000000000000000, 1000000)")
+    assert abs(value - 10 ** 26) < 10 ** 12  # floating point: about the first 15 digits
+
+
+def test_regexp_likes_s_flag_is_moved_into_the_pattern():
+    columns = {"dbo": {"t": {"s": "VARCHAR(20)"}}}
+    assert translate("SELECT 1 FROM dbo.t WHERE REGEXP_LIKE(s, 'a.b', 's')", columns)[0] == [
+        "SELECT 1 FROM dbo.t WHERE REGEXP_MATCHES(s, '(?s)a.b')"]
+
+
+def test_nullif_of_integers_is_left_alone():
+    columns = {"dbo": {"t": {"n": "INTEGER"}}}
+    assert translate("SELECT NULLIF(n, 1) FROM dbo.t", columns)[0] == ["SELECT NULLIF(n, 1) FROM dbo.t"]
+
+
+def test_an_order_by_alias_is_matched_by_its_name_not_by_being_an_alias():
+    columns = {"dbo": {"t": {"s": "VARCHAR(20)", "a": "INTEGER"}}}
+    assert translate("SELECT a AS y, s AS x FROM dbo.t ORDER BY x, a", columns)[0] == [
+        "SELECT a AS y, s AS x FROM dbo.t ORDER BY RTRIM(s, ' ') NULLS FIRST, a NULLS FIRST"]
+
+
+def test_strs_length_runs_from_1_to_8000():
+    for length in (0, 8001):
+        with pytest.raises(ValueError, match="STR's length has to be a whole number from 1 to 8000"):
+            translate(f"SELECT STR(1, {length})")
+    assert run("SELECT STR(1, 1)") == [("1",)]
+    assert run("SELECT LEN(STR(1, 8000))") == [(8000,)]  # padded on the left
+
+
+def test_translate_of_numbers_still_checks_the_lists_lengths():
+    assert translate("SELECT TRANSLATE('abc', 1, 2)")[0][0].startswith("SELECT CASE WHEN LENGTH(1) <> LENGTH(2)")
+
+
+def test_a_replicate_count_under_one_is_cut_to_zero():
+    assert translate("SELECT REPLICATE('ab', 0.5)")[0] == ["SELECT REPEAT('ab', 0)"]
+
+
+def test_replicate_of_a_column_zero_times_is_checked_without_working_out_the_count():
+    columns = {"dbo": {"t": {"s": "VARCHAR(20)"}}}
+    out = translate("SELECT REPLICATE(s, 0) FROM dbo.t", columns)[0][0]
+    assert out.startswith("SELECT CASE WHEN CAST(STRLEN(CAST(s AS TEXT)) AS DOUBLE) * 0 > 8000")
+
+
+def test_a_negative_count_written_as_text_is_null():
+    assert run("SELECT REPLICATE('a', '-5')") == [(None,)]
+
+
+def test_timefromparts_at_precision_7_drops_the_last_digit_exactly():
+    out = translate("SELECT TIMEFROMPARTS(1, 2, 3, 1234560, 7)")[0][0]
+    assert "NOT ((123456)) IS NULL" in out and "0.1" not in out
+    assert run("SELECT TIMEFROMPARTS(1, 2, 3, 1234560, 7)") == [(dt.time(1, 2, 3, 123456),)]
+
+
+def test_a_count_of_thirteen_nodes_is_bound_once_and_not_copied():
+    columns = {"dbo": {"t": {"n": "INTEGER"}}}
+    count = "CAST(CAST(CAST(CAST(CAST((n) AS INT) AS INT) AS INT) AS INT) AS INT)"  # 13 nodes, one past _small's 12
+    out = translate(f"SELECT SPACE({count}) FROM dbo.t", columns)[0][0]
+    assert out.startswith(f"SELECT LIST_TRANSFORM([STRUCT_PACK(a := LIST_TRANSFORM([STRUCT_PACK(a := {count})]")
+
+
+def test_charindex_from_1_is_from_the_start():
+    assert translate("SELECT CHARINDEX('b', 'abc', 1)")[0] == ["SELECT STRPOS('abc', 'b')"]
+
+
+def test_charindex_from_a_column_below_1_looks_from_the_start():
+    assert run_on_t("SELECT CHARINDEX('b', 'abc', n) FROM dbo.t", {"n": "INTEGER"}, "(-5), (3), (NULL)") == [
+        (2,), (0,), (None,)]
+
+
+def test_a_function_duckdb_cant_write_is_refused_by_name():
+    with pytest.raises(ValueError, match="This T-SQL can't be run on the local engine: SOUNDEX is not supported in DuckDB"):
+        translate("SELECT SOUNDEX('abc')")
+
+
+@pytest.mark.parametrize("sql", ["CREATE TABLE x (a INT); THROW 50000, 'x', 1",
+                                 "SELECT 1 AS [function]; THROW 50000, 'x', 1"])
+def test_throw_is_refused_by_name_when_the_batch_makes_no_routine(sql):
+    with pytest.raises(ValueError, match="The local engine doesn't run T-SQL THROW yet"):
+        translate(sql)
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Known gap: SELECT DISTINCT * and a UNION of SELECT * over a text column give no note that 'a' and 'a ' stay "
+    "apart here (WR-210). The typed copy is qualified with expand_stars=False, so _grouped_text sees a Star, "
+    "whose type isn't text, where SELECT DISTINCT s gets the note"))
+@pytest.mark.parametrize("sql", ["SELECT DISTINCT * FROM dbo.t", "SELECT * FROM dbo.t UNION SELECT * FROM dbo.t"])
+def test_distinct_over_a_star_with_a_text_column_has_the_grouping_note(sql):
+    notes = translate(sql, {"dbo": {"t": {"s": "VARCHAR(20)", "n": "INTEGER"}}})[1]
+    assert len(notes) == 1 and notes[0].startswith("T-SQL counts text that differs only in trailing spaces")
+
+
+def test_a_wide_product_with_scale_7_and_34_whole_digits_is_cut_to_scale_6():
+    columns = {"dbo": {"t": {"x": "DECIMAL(31,7)", "y": "DECIMAL(9,0)"}}}
+    assert "AS DECIMAL(38, 6))" in translate("SELECT x * y FROM dbo.t", columns)[0][0]
+
+
+def test_zero_point_is_a_decimal_of_precision_1():
+    columns = {"dbo": {"t": {"d": "DECIMAL(5,2)"}}}
+    assert translate("SELECT 0. * d FROM dbo.t", columns)[0] == ["SELECT CAST(0. * d AS DECIMAL(7, 2)) FROM dbo.t"]
+
+
+def test_a_negated_like_class_doesnt_hold_its_own_caret():
+    assert run("SELECT 1 WHERE '^' LIKE '[^a]'") == [(1,)]
+    assert run("SELECT 1 WHERE 'a' LIKE '[^a]'") == []
+
+
+@pytest.mark.parametrize("where", ["t.n BETWEEN u.z AND 2", "t.n IN (u.z, 2)"])
+def test_an_unknown_side_with_no_text_has_no_padding_note(where):
+    columns = {"dbo": {"t": {"n": "INTEGER"}}}
+    assert translate(f"SELECT 1 FROM dbo.t, dbo.unk AS u WHERE {where}", columns)[1] == []
+
+
+def test_a_simple_case_with_an_arm_that_isnt_text_is_left_alone():
+    columns = {"dbo": {"t": {"s": "VARCHAR(20)", "n": "INTEGER"}}}
+    sql = "SELECT CASE s WHEN 'a' THEN 1 WHEN n THEN 2 END FROM dbo.t"
+    assert translate(sql, columns)[0] == [sql]

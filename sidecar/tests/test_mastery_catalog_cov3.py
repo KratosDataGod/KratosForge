@@ -14,11 +14,12 @@ def tiny():
     tiers, req = [1, 2, 2, 3, 3, 4, 4, 5, 5, 6], [[], [0], [0], [1], [2], [3], [3, 4], [5], [6], [7, 8]]
     specs = [{"id": sp, "title": sp.title(), "nodes": [
         {"id": f"{sp}.{i + 1:02d}", "skill": f"s{k * 10 + i}", "tier": tiers[i],
-         "requires": [f"{sp}.{j + 1:02d}" for j in req[i]]} for i in range(10)]}
+         "requires": [f"{sp}.{j + 1:02d}" for j in req[i]], **({"capstone": True} if i == 9 else {})} for i in range(10)]}
         for k, sp in enumerate(("alpha", "beta", "gamma"))]
     cls = {"schema": catalog.CLASS_SCHEMA, "id": "test-class", "version": 1, "title": "Test Warden",
            "professional": "Tester", "fantasy": "F", "competency": "C", "emblem": "E",
-           "specializations": specs, "achievements": [{"id": f"a{i}", "name": f"Award {i}"} for i in range(5)]}
+           "specializations": specs, "achievements": [{"id": f"a{i}", "name": f"Award {i}",
+                                                              "requires": {"level": 3, "talents": ["alpha.01"]}} for i in range(5)]}
     return skills, cls
 
 

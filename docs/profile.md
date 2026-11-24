@@ -60,8 +60,8 @@ report stay.
 | The Guardian | A Learn exercise that plants data quality problems passes: your query finds every one | 100 |
 
 Each Learn achievement needs a published lesson or lab with that kind of check. Today LAB-02 has a
-speed check, LM-02 and LM-05 have table shape and integrity checks, and LAB-01 plants data quality
-problems.
+speed check and LAB-01 plants data quality problems. Eleven lessons and labs have a table shape or
+integrity check, among them LM-02, LM-05 and LAB-03.
 
 When Validate, Prove, Side by side or a Learn check earns you an achievement, a short message names it (turn that off with **Settings >
 Achievement notifications**). Each achievement is announced once, even if you open the same result

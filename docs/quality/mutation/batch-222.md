@@ -11,7 +11,7 @@ The set is every test file that uses the module, about 20 seconds in all, so no 
 
 Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They passed both ways, with DuckDB 1.5.6 and 2.0.0.
 
-Eight mutants timed out, and they count as killed. Each was read, and each is a real hang: with no worker started (lines 270 twice), a worker that stops at once or takes a write that isn't there (277 twice, 283), a write that never finishes (244), or a write that waits for memory that is never given back (236 twice), a flush waits for ever.
+Eight mutants timed out, and they count as killed. Each was read, and each is a real hang: with no worker started (lines 270 twice), a worker that stops at once or takes a write that isn't there (277 twice, 283), a write that never finishes (244), or a write that waits for memory that is never given back (236 twice), a flush waits for ever. **Rechecked on 2026-11-24:** on a machine this loaded a mutant can time out without hanging, so each of the eight was applied again, alone, to `sidecar/` as it was at the batch's commit and the set run with a 1,500-second limit instead of 120. All eight really never end, and the numbers don't change: the test suite's own 300-second limit for one test stopped each, with the stack in `flush` (21, 36, 38, 39, 65 and 93) or in `submit` waiting for memory (35 and 61).
 
 ## Results
 

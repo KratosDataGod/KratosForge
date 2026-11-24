@@ -392,6 +392,8 @@ class DuckDBSession(_SqlSession):
         target = str(Path(config.database)) if config.database else ":memory:"
         self._con = duckdb.connect(target, read_only=bool(config.database), config=dict(_DUCKDB_CLOSED))
         keep_try_cast(self._con)
+        # the tables Snowflake cells made, with each column's Snowflake type (SFX-074)
+        self._snowflake_tables: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {}
         from .. import databricks_bytes, databricks_ip, databricks_variant
         databricks_ip.register(self._con)  # Databricks SQL's IP address functions (databricks_builtins_sql)
         databricks_bytes.register(self._con)  # its byte-level string functions
@@ -405,6 +407,15 @@ class DuckDBSession(_SqlSession):
         if dialect == "snowflake":
             from .. import snowflake_sql
             translation = snowflake_sql.translate(code)
+            if translation.runnable and snowflake_sql.may_write(code):
+                # again with the session's tables, so a write to a TIMESTAMP_TZ column an earlier cell made is
+                # checked (SFX-074); a cell that runs only in Snowflake reads nothing
+                translation = snowflake_sql.translate(code, snowflake_sql.session_tables(self._con,
+                                                                                         self._snowflake_tables))
+                if translation.runnable:
+                    self._snowflake_tables = dict(translation.tables)
+            elif translation.runnable:
+                self._snowflake_tables = snowflake_sql.tables_after(code, self._snowflake_tables)
             self._preamble = [translation.as_output()]
             if not translation.runnable:
                 raise Unsupported(translation.first_refusal() + " Nothing in the cell ran.")
@@ -454,6 +465,16 @@ class DuckDBSession(_SqlSession):
         else:
             _refuse_outside(request.code, request.dialect)
             code = self._sql(request.code, request.dialect)
+        if request.dialect == "snowflake":
+            import duckdb
+            from .. import snowflake_sql
+            try:
+                return self._execute(code, request)
+            except duckdb.BinderException as exc:
+                message = snowflake_sql.column_error(str(exc))
+                if message == str(exc):
+                    raise
+                raise duckdb.BinderException(message) from None
         if request.dialect not in ("spark", "databricks"):
             return self._execute(code, request)
         # Spark's TIMESTAMP is read in the session's time zone, which is UTC in Fabric and Databricks

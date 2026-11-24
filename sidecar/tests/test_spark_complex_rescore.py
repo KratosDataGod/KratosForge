@@ -79,8 +79,6 @@ def test_a_shift_of_a_shift_of_an_int_keeps_its_value():
     assert got.to_pylist() == [{"a": 12, "b": 6}]
 
 
-@pytest.mark.xfail(strict=True, reason="a shift of a shift of an int is typed bigint on this PC; Spark types it int, "
-                                       "as the inner shift is an int")
 def test_a_shift_of_a_shift_of_an_int_is_an_int():
     got = sql.run("SELECT shiftleft(shiftleft(i, 1), 1) a, typeof(shiftleft(shiftleft(i, 1), 1)) b "
                   "FROM VALUES (CAST(3 AS INT)) t(i)")

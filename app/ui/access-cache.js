@@ -140,7 +140,7 @@ function accessCacheDetail(w, flags) {
   const fixButton = (f) => (f.fix === "fabric"
     ? btn("Open the lakehouse in Fabric", "open", () => openInFabric(fabricItemLink({ type: "Lakehouse", workspace_id: w.workspace_id, item_id: f.lakehouse.item_id })), "tool outline small")
     : btn("Review in Workspace roles", null, toRoles, "tool outline small"));
-  const pathLabel = (p) => (p === "*" ? "Everything" : p.replace(/^\/Tables\//, "").replace(/\//g, ".").replace(/^\/Files/, "Files"));
+  const pathLabel = (p) => (p === "*" ? "Everything" : p.replace(/^\/Tables\//, "").replace(/^\/Files/, "Files").replace(/\//g, "."));
   return h("div", { class: "card pad" },
     h("div", { class: "row wrap" }, h("h2", { class: "flush grow" }, w.workspace_name),
       btn("Open in Fabric", "open", () => openInFabric(fabricItemLink({ type: "", workspace_id: w.workspace_id })), "tool small link"),

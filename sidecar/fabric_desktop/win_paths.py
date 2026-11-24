@@ -15,6 +15,7 @@ module: it imports nothing from the package.
 from __future__ import annotations
 
 import ntpath
+import os
 
 
 def plain(text: str) -> str:
@@ -43,3 +44,31 @@ def keep_drive_letter(given: str, resolved: str) -> str:
     if len(drive) == 2 and drive[1] == ":" and is_share(resolved):
         return ntpath.abspath(plain(given)) if ntpath.isabs(plain(given)) else resolved
     return resolved
+
+
+# Windows' limit on a path, unless long paths are turned on for the PC (LongPathsEnabled).
+PATH_LIMIT = 260
+# ERROR_PATH_NOT_FOUND and ERROR_FILENAME_EXCED_RANGE: what Windows answers for a path past the limit.
+_TOO_LONG_WINERRORS = frozenset({3, 206})
+_ENAMETOOLONG = 36
+
+
+def too_long(exc: BaseException, path: str | os.PathLike[str], doing: str = "saved",
+             long_paths: bool | None = None) -> str | None:
+    """Words for the person when writing ``path`` failed because its path, or that of the file Windows
+    was asked for (``exc.filename``, such as a temporary file beside it), is past Windows' 260
+    characters on a PC where long paths are turned off (``long_paths`` False; None off Windows or when
+    it isn't known). Windows then says only "The system cannot find the path specified", which sends
+    the person looking for a folder that is there. None for any other failure."""
+    if long_paths is not False or not isinstance(exc, OSError):
+        return None
+    if getattr(exc, "winerror", None) not in _TOO_LONG_WINERRORS and exc.errno != _ENAMETOOLONG:
+        return None
+    named = [p for p in (path, exc.filename, exc.filename2) if isinstance(p, (str, os.PathLike))]
+    longest = max(len(os.path.abspath(os.fspath(p))) for p in named)
+    if longest < PATH_LIMIT:
+        return None
+    name = ntpath.basename(os.fspath(path)) or os.fspath(path)  # either separator, as Windows takes
+    return (f"{name} couldn't be {doing}, because its path is {longest} characters, past the {PATH_LIMIT} Windows "
+            "allows on this PC while long paths are turned off. Move it to a folder with a shorter path, or ask IT to "
+            "turn on long paths.")

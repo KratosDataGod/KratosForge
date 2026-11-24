@@ -339,7 +339,8 @@ test("hovering a column, a table or a function shows what it is, and typing a ca
     await card.waitFor({ timeout: 15000 });  // the first answer starts the engine's DuckDB
     return card.innerText();
   };
-  const away = () => page().mouse.move(5, 5);
+  // The card stays a moment after the pointer leaves, so it can be pointed at (WCAG 1.4.13): wait for it to go.
+  const away = async () => { await page().mouse.move(5, 5); await page().locator(".nb-intel.hover").waitFor({ state: "hidden" }); };
   assert.match(await hoverAt(text.indexOf("amount") + 2), /amount[\s\S]*decimal\(18,2\)[\s\S]*Column of sales/);
   await away();
   const fn = await hoverAt(text.indexOf("date_trunc") + 2);

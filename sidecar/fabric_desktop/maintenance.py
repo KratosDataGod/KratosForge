@@ -309,10 +309,17 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     present = table_files(uri)
     keep, _oldest = skewed_versions(table, retention_hours(days))
     # VACUUM commits too (its start and end), so it can lose the same race; deleting again what is already
-    # gone is a no-op, so it is safe to repeat on the table's latest version.
-    listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
-        retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
-        "this table's next version")
+    # gone is a no-op, so it is safe to repeat on the table's latest version. A file it deletes may also be
+    # open for a moment in a virus scanner or the indexer (os error 32 or 33 on Windows); that is waited out
+    # the same way, and a file still held after that gets a plain message rather than delta-rs's.
+    try:
+        listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
+            retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
+            "this table's next version", when=lambda e: retrying.windows_file_held(e) or retrying.windows_log_race(e))
+    except OSError as exc:
+        if not retrying.windows_file_held(exc):
+            raise
+        raise OSError(retrying.held_file_message("Compact")) from exc
     # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
     listed = [relative_to_table(uri, p) for p in listed]
     removed = [p for p in listed if path_key(p) in present and not (Path(uri) / p).exists()]

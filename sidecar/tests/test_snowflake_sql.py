@@ -46,7 +46,7 @@ PROBE = [
      "translated", []),
     ("MERGE", ("merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
               "when not matched then insert (id, amt) values (s.id, s.amt)"), "translated", []),
-    ("CREATE OR REPLACE TABLE AS", "create or replace table t2 as select * from t", "difference", ["SFD-001"]),
+    ("CREATE OR REPLACE TABLE AS", "create or replace table t2 as select * from t", "translated", []),
     ("Time travel AT", "select * from t at(offset => -60)", "not_translatable", ["SFN-006"]),
     ("GENERATOR/SEQ4", "select seq4() from table(generator(rowcount => 3))", "translated", []),
     ("UNPIVOT", "select * from (select id, amt, amt*2 as amt2 from t) unpivot (val for col in (amt, amt2))",
@@ -55,12 +55,12 @@ PROBE = [
     ("EXECUTE IMMEDIATE", "execute immediate 'select 1'", "not_translatable", ["SFN-005"]),
     ("DDL VARIANT/NUMBER/TIMESTAMP_TZ",
      "create table s(a variant, b number(38,0), c timestamp_ltz, d timestamp_tz, e string)",
-     "difference", ["SFD-001", "SFD-002", "SFD-004"]),
+     "difference", ["SFD-002", "SFD-004"]),
     ("TIMESTAMP_TZ literal with offset", "select '2026-01-01 10:00:00 +05:00'::timestamp_tz",
      "not_translatable", ["SFN-013"]),
     ("Integer division 7/2", "select 7/2, 7 % 2", "difference", ["SFD-003"]),
     ("Quoted alias", 'select 1 as "Mixed", 2 as plain', "translated", []),
-    ("Unquoted identifier case", "create table up_test(MyCol int)", "difference", ["SFD-001"]),
+    ("Unquoted identifier case", "create table up_test(MyCol int)", "translated", []),
     ("CREATE STREAM", "create stream s1 on table t", "not_translatable", ["SFN-001"]),
     ("CREATE DYNAMIC TABLE", "create dynamic table dt target_lag='1 minute' warehouse=wh as select * from t",
      "not_translatable", ["SFN-003"]),
@@ -228,8 +228,8 @@ def test_sfx004_object_construct_star_is_refused():
 
 
 @pytest.mark.parametrize("code,note", [
-    ("create table x(MyCol int)", "SFD-001"),
-    ("select '2026-01-01'::timestamp_tz", "SFD-002"),
+    ("create view x as select MyCol * 2 from t", "SFD-001"),
+    ("create table x (c timestamp_tz)", "SFD-002"),
     ("select amt / 2 from t", "SFD-003"),
     ("select current_timestamp()", "SFD-004"),
     ("select date_trunc('month', ts) from t", "SFD-006"),
@@ -526,20 +526,29 @@ def test_typeof_of_a_column_names_json_values_and_flags_what_it_cant_know():
                 """ ('99999999999999999999'), ('123.12'), ('1.912e2')""")
     (report,) = sf.translate("select typeof(v) from j").statements
     assert report.verdict == "difference" and [n.id for n in report.notes] == ["SFD-007"]
-    got = [r[0] for r in con.execute(report.duckdb_sql).fetchall()]
-    # A fraction or an exponent in a column: DuckDB may have written it again, so it isn't named.
-    assert got == ["NULL_VALUE", "BOOLEAN", "INTEGER", "VARCHAR", "ARRAY", "OBJECT", None, "INTEGER",
-                   "DECIMAL or DOUBLE", "DECIMAL or DOUBLE"]
+    got = [r[0] for r in con.execute(report.duckdb_sql + " LIMIT 8").fetchall()]
+    assert got == ["NULL_VALUE", "BOOLEAN", "INTEGER", "VARCHAR", "ARRAY", "OBJECT", None, "INTEGER"]
+    # A fraction or an exponent in a column: DuckDB may have written it again, so the query stops at it (SFN-072)
+    # rather than name it
+    for number in ("123.12", "1.912e2"):
+        con.execute("delete from j")
+        con.execute("insert into j values (?)", [number])
+        with pytest.raises(duckdb.Error, match="SFN-072 The type of a JSON number with a fraction"):
+            con.execute(report.duckdb_sql).fetchall()
 
 
 @pytest.mark.parametrize("code, want", [
-    ("""select typeof(v:a) from (select parse_json('{"a": 1.912e2}') as v)""", "DECIMAL or DOUBLE"),  # 191.2 here
+    ("""select typeof(v:a) from (select parse_json('{"a": 1.912e2}') as v)""", "SFN-072"),  # 191.2 here: it stops
     ("""select typeof(v:a) from (select parse_json('{"a": 10}') as v)""", "INTEGER"),
     ("select typeof('2026-01-01 10:00'::timestamp_ltz)", "TIMESTAMP WITH TIME ZONE"),  # LTZ or TZ: DuckDB's name
 ])
 def test_typeof_never_gives_a_confident_wrong_name(code, want):
     (report,) = sf.translate(code).statements
     assert "SFD-007" in [n.id for n in report.notes]
+    if want.startswith("SFN-"):
+        with pytest.raises(duckdb.Error, match=want):
+            duckdb.connect().execute(report.duckdb_sql).fetchone()
+        return
     assert duckdb.connect().execute(report.duckdb_sql).fetchone()[0] == want
 
 
@@ -628,10 +637,24 @@ def test_is_and_as_of_sql_null_are_null_and_json_null_is_its_own_type():
     assert row == (None, None, True, False, None)
 
 
-def test_the_decimal_family_is_labelled_and_the_rest_is_not():
-    assert [n.id for n in _one("SELECT is_decimal(parse_json('1.5'))")[1].notes] == ["SFD-008"]
-    assert [n.id for n in _one("SELECT as_number(parse_json('1.5'), 4, 1)")[1].notes] == ["SFD-008"]
+def test_the_decimal_family_goes_by_how_the_number_was_written_or_stops():
+    # SFN-072 (SFD-008 retired): PARSE_JSON's own text says DECIMAL or DOUBLE, as does a path into PARSE_JSON of
+    # text in the query; a stored value doesn't, so the query stops at it instead of calling 1.912e2 a decimal
+    assert _one("SELECT is_decimal(parse_json('1.5'))")[1].notes == ()
     assert _one("SELECT is_integer(parse_json('1')), as_double(parse_json('1.5'))")[1].notes == ()
+    assert _first("SELECT is_decimal(parse_json('1.5'))") is True
+    assert _first("SELECT is_decimal(parse_json(' 1.912e2 '))") is False
+    assert _first("SELECT as_number(parse_json('1.912E2'))") is None
+    assert float(_first("SELECT as_number(parse_json('1.5'), 4, 1)")) == 1.5
+    assert _first("SELECT is_decimal(parse_json('{\"a\": 1.912e2}'):a)") is False
+    assert _first("SELECT is_decimal(parse_json('{\"a\": [191.2]}'):a[0])") is True
+    assert _first("SELECT is_decimal(parse_json(column1)) FROM VALUES ('1.912e2')") is False
+    assert _first("SELECT is_decimal(v) FROM (SELECT parse_json('-17') AS v)") is True
+    for code in ("SELECT is_decimal(v) FROM (SELECT parse_json('1.912e2') AS v)",
+                 "SELECT as_decimal(v:a) FROM (SELECT parse_json('{\"a\": 123.12}') AS v)",
+                 "SELECT as_number(v) FROM (SELECT parse_json('0.5') AS v)"):
+        with pytest.raises(duckdb.Error, match="SFN-072 .*Runs only in Snowflake"):
+            _first(code)
 
 
 @pytest.mark.parametrize("sql, rule", [
@@ -846,7 +869,7 @@ def test_time_of_a_timestamp_is_its_time_of_day():
     "SELECT TIME(SYSDATE())",
     "SELECT TIME('2024-01-01 10:20:30+00:00'::TIMESTAMP_TZ)",
     "SELECT TIME('2024-01-01 10:20:30'::TIMESTAMP_LTZ)",
-    "SELECT TIME(CONVERT_TIMEZONE('UTC', '2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ))",
+    "SELECT TIME(CONVERT_TIMEZONE('UTC', '2024-01-01 10:20:30+00:00'::TIMESTAMP_TZ))",
 ])
 def test_time_of_a_zoned_timestamp_runs(code):
     import duckdb
@@ -861,9 +884,14 @@ def test_time_of_a_zoned_timestamp_runs(code):
 def test_time_of_a_timestamp_tz_is_the_local_time():
     import duckdb
     con = duckdb.connect()
-    con.execute("SET TimeZone = 'UTC'")
+    con.execute("SET TimeZone = 'Etc/GMT-2'")  # UTC+02:00, the text's own offset, as Snowflake keeps it
     t = sf.translate("SELECT TIME('2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ)")
-    assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "08:20:30"
+    assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "10:20:30"
+    # in another zone Snowflake still gives 10:20:30 (the value keeps +02:00); DuckDB would give that zone's
+    # time, so it stops by name (SFN-071)
+    con.execute("SET TimeZone = 'UTC'")
+    with pytest.raises(duckdb.Error, match="SFN-071 TIMESTAMP_TZ with another UTC offset"):
+        con.execute(t.duckdb_sql).fetchone()
 _EVENTS = ("SELECT * FROM VALUES ('a', 1, 5), ('a', 2, NULL), ('a', 3, 5), ('a', 4, 7), ('b', 1, NULL), ('b', 2, 9) "
            "AS t(p, o, x)")
 
@@ -1206,8 +1234,131 @@ def test_to_timestamp_ntz_of_a_column_reads_it_by_its_type(fn):
         "('2024-01-02T03:04:05Z'), ('2024-01-02')) AS t(x)").duckdb_sql).fetchall()
     assert offsets == [(dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2, 3, 4, 5, 500000),),
                        (dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2),)]
-    # A TIMESTAMPTZ column: the session time zone's wall clock (DuckDB keeps no offset of its own per value).
-    con.execute("SET TimeZone = 'UTC'")
+    # A TIMESTAMPTZ column: the session time zone's wall clock (DuckDB keeps no offset of its own per value),
+    # which is the value's own when its offset is the session zone's (SFN-071 stops any other)
+    con.execute("SET TimeZone = 'Etc/GMT-2'")
     zoned = con.execute(sf.translate(
         f"SELECT {fn}(x) FROM (SELECT CAST('2024-01-02 03:04:05+02' AS TIMESTAMPTZ) AS x) AS t").duckdb_sql).fetchall()
-    assert zoned == [(dt.datetime(2024, 1, 2, 1, 4, 5),)]
+    assert zoned == [(dt.datetime(2024, 1, 2, 3, 4, 5),)]
+
+
+# ---------------------------------------------------------------- 2026.11.23: no answer that differs silently
+
+
+def test_jarowinkler_similarity_is_refused_by_name():
+    # https://docs.snowflake.com/en/sql-reference/functions/jarowinkler_similarity: 'Gute nacht' and
+    # 'Ich weis nicht' score 56 there, 'Ich weiß nicht' and 'Ich weiss nicht' 97; DuckDB's gives 57 and 94
+    t = sf.translate("SELECT jarowinkler_similarity(s, t) FROM ed")
+    assert not t.runnable and t.statements[0].notes[0].id == "SFN-070"
+    assert "EDITDISTANCE runs here" in t.first_refusal()
+    assert sf.RULES_VERSION == "2026.11.23" and "SFN-070" in sf.docs_table()
+
+
+@pytest.mark.parametrize("code, want", [
+    # https://docs.snowflake.com/en/sql-reference/functions/to_json: TO_JSON(PARSE_JSON('{"b":1,"a":2}')) is {"a":2,"b":1}
+    ("""SELECT to_json(parse_json('{"b":1,"a":2}'))""", '{"a":2,"b":1}'),
+    ("""SELECT to_json(parse_json('{"food":"bard"}'))""", '{"food":"bard"}'),
+    # every level, inside arrays too; an array keeps its order
+    ("""SELECT to_json(parse_json('{"b":[3,{"z":1,"y":[]}],"a":{"d":null,"c":"x"}}'))""",
+     '{"a":{"c":"x","d":null},"b":[3,{"y":[],"z":1}]}'),
+    ("""SELECT to_json(parse_json('[{"b":1,"a":2},{}]'))""", '[{"a":2,"b":1},{}]'),
+    # keys that need escaping, and the empty key, sort by the key itself
+    ("""SELECT to_json(parse_json('{"k\\\\"q":1,"a b":2,"":3}'))""", '{"":3,"a b":2,"k\\"q":1}'),
+    ("SELECT to_json(parse_json('\"s\"'))", '"s"'),
+    ("SELECT to_json(NULL)", None),
+    ("SELECT to_json(v) FROM (SELECT parse_json('{\"b\":1,\"a\":2}') AS v)", '{"a":2,"b":1}'),
+    ("SELECT to_json(object_construct('b', 1, 'a', object_construct('d', 1, 'c', 2)))", '{"a":{"c":2,"d":1},"b":1}'),
+])
+def test_to_json_sorts_an_objects_keys_at_every_level(code, want):
+    t = sf.translate(code)
+    assert t.statements[0].verdict == "translated", t.summary()
+    assert _first(code) == want
+
+
+@pytest.mark.parametrize("text", ['{"a":1,"a":2}', '{"x":{"b":1,"b":1}}', '[{"k":1,"k":2}]'])
+def test_to_json_of_an_object_with_a_key_given_twice_stops_as_parse_json_does(text):
+    # Snowflake's PARSE_JSON stops at a key given twice; written with the keys sorted the two would run together
+    with pytest.raises(duckdb.Error, match="Duplicate field key"):
+        _first(f"SELECT to_json(parse_json('{text}'))")
+
+
+def test_to_json_with_no_alias_keeps_a_short_column_name():
+    con = duckdb.connect()
+    cur = con.execute(sf.translate("""SELECT to_json(parse_json('{"b":1,"a":2}'))""").duckdb_sql)
+    [name] = [d[0] for d in cur.description]
+    assert name.lower().startswith("to_json(") and len(name) < 80, name
+
+
+def test_to_json_of_a_column_sorts_each_rows_keys():
+    con = duckdb.connect()
+    con.execute(sf.translate("CREATE TABLE j (v VARIANT)").duckdb_sql)
+    con.execute(sf.translate("""INSERT INTO j SELECT parse_json(s) FROM (SELECT column1 AS s FROM VALUES """
+                             """('{"b":1,"a":2}'), ('{"y":{"q":1,"p":2}}'), (NULL))""").duckdb_sql)
+    rows = con.execute(sf.translate("SELECT to_json(v) FROM j").duckdb_sql).fetchall()
+    assert sorted(rows, key=str) == [('{"a":2,"b":1}',), ('{"y":{"p":2,"q":1}}',), (None,)]
+
+
+def test_to_timestamp_tz_answers_as_snowflake_or_stops_by_name():
+    # https://docs.snowflake.com/en/sql-reference/functions/to_timestamp: in America/Los_Angeles,
+    # TO_TIMESTAMP_TZ('2024-04-05 01:02:03') is 2024-04-05 01:02:03.000 -0700
+    import datetime as dt
+    con = duckdb.connect()
+    la = "ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; "
+    value = con.execute(sf.translate(la + "SELECT to_timestamp_tz('2024-04-05 01:02:03')").duckdb_sql).fetchone()[0]
+    assert value.replace(tzinfo=None) == dt.datetime(2024, 4, 5, 1, 2, 3)
+    assert value.utcoffset() == dt.timedelta(hours=-7)
+    # of a column (sqlglot left TO_TIMESTAMP_TZ, which DuckDB doesn't have), and its own offset when it is the zone's
+    code = ("SELECT to_timestamp_tz(x), try_to_timestamp_tz(x) FROM "
+            "(SELECT column1 AS x FROM VALUES ('2024-04-05 01:02:03'), ('2024-04-05T01:02:03-07:00'))")
+    t = sf.translate(code)
+    assert t.statements[0].verdict == "translated", t.summary()
+    rows = con.execute(t.duckdb_sql).fetchall()
+    assert {r[0] for r in rows} == {r[1] for r in rows} == {value}
+    assert con.execute(sf.translate("SELECT try_to_timestamp_tz('Invalid')").duckdb_sql).fetchone() == (None,)
+    # another offset: Snowflake keeps +05:00 with the value (hour 10), DuckDB would show 21:00 the day before
+    for stop in ("SELECT hour(to_timestamp_tz('2024-01-01T10:00:00+05:00'))",
+                 "SELECT try_to_timestamp_tz(x) FROM (SELECT '2024-01-01 10:00:00Z' AS x)",
+                 "SELECT x::timestamp_tz FROM (SELECT '2024-01-01T10:00:00+05:00' AS x)"):
+        t = sf.translate(stop)
+        assert t.runnable, stop
+        with pytest.raises(duckdb.Error, match="SFN-071 TIMESTAMP_TZ with another UTC offset"):
+            con.execute(t.duckdb_sql).fetchall()
+    # a format with TZH or TZM reads an offset, which DuckDB doesn't keep
+    t = sf.translate("SELECT to_timestamp_tz(x, 'YYYY-MM-DD HH24:MI:SS TZH:TZM') FROM t")
+    assert not t.runnable and t.statements[0].notes[0].id == "SFN-071"
+    # a TIMESTAMP_TZ column keeps its label: what was written into it isn't seen here
+    assert [n.id for n in sf.translate("CREATE TABLE z (c TIMESTAMP_TZ)").statements[0].notes] == ["SFD-002"]
+
+
+def test_a_refusal_written_into_the_query_reads_as_one():
+    from fabric_desktop import snowflake_sql_parity as parity
+    case = parity.Case("TO_TIMESTAMP_TZ", "Conversion", "SELECT to_timestamp_tz('2024-01-01T10:00:00+05:00')",
+                       None, "untranslated", "", "")
+    outcome, value = parity.run(case)
+    assert outcome == "untranslated" and value.startswith("SFN-071 ")
+    assert not sf.stopped_by_name(duckdb.Error("Conversion Error: SFN-071 written by someone"))
+
+
+def test_unquoted_names_are_stored_in_upper_case():
+    # https://docs.snowflake.com/en/sql-reference/identifiers-syntax: unquoted identifiers "are stored and resolved
+    # as uppercase characters"; a double-quoted one "is stored and resolved exactly as entered, including case"
+    con = duckdb.connect()
+    for code in ("CREATE TABLE mytable (c1 INT, \"c2\" INT, MixedCase INT)", "INSERT INTO MyTable VALUES (1, 2, 3)",
+                 "CREATE VIEW v AS SELECT c1, c1 AS alias1, \"c2\" AS \"lower\", mytable.mixedcase FROM mytable",
+                 "CREATE TABLE copy AS SELECT * FROM mytable", "ALTER TABLE copy ADD COLUMN added INT",
+                 "ALTER TABLE copy RENAME COLUMN added TO renamed", "ALTER TABLE copy RENAME TO copy2",
+                 "CREATE SCHEMA mine", "CREATE TABLE mine.tmp (x INT)", "CREATE TEMPORARY TABLE tmp2 (y INT)"):
+        t = sf.translate(code)
+        assert t.statements[0].verdict == "translated", (code, t.summary())
+        con.execute(t.duckdb_sql)
+    names = con.execute("SELECT table_schema, table_name, string_agg(column_name, ',' ORDER BY ordinal_position) "
+                        "FROM information_schema.columns WHERE table_name IN ('MYTABLE', 'V', 'COPY2', 'TMP', 'TMP2') "
+                        "GROUP BY ALL ORDER BY 2").fetchall()
+    assert names == [("main", "COPY2", "C1,c2,MIXEDCASE,RENAMED"), ("main", "MYTABLE", "C1,c2,MIXEDCASE"),
+                     ("MINE", "TMP", "X"), ("main", "TMP2", "Y"), ("main", "V", "C1,ALIAS1,lower,MIXEDCASE")]
+    # a query finds them by any case, as in Snowflake, and SELECT * gives the stored names
+    result = con.execute(sf.translate("SELECT * FROM mytable WHERE c1 = 1").duckdb_sql)
+    assert [d[0] for d in result.description] == ["C1", "c2", "MIXEDCASE"]
+    # a column made by an expression with no alias keeps DuckDB's name, and says so
+    t = sf.translate("CREATE TABLE sums AS SELECT c1 + 1 FROM mytable")
+    assert [n.id for n in t.statements[0].notes] == ["SFD-001"]

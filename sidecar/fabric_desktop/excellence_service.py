@@ -31,6 +31,7 @@ import base64
 import builtins
 import datetime as dt
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
@@ -38,12 +39,14 @@ from . import delta_profile, maintenance, xray
 from .auth import GIT_STATUS_SCOPES, STORAGE_SCOPES
 from .excellence import (adapters, assess, catalog, catalog_architecture, catalog_capacity, catalog_devops,
                          catalog_performance, exceptions as excs, inspect_items, inspect_models, profiles)
+from .excellence import evidence as ev
 from .onelake import FileStore, TableRef, read_storage_options
-from .opportunities_service import _guid
+from .opportunities_service import MAX_DAYS, MIN_DAYS, _guid
 from .redact import describe
 
 METHODS = {"excellence_assess"}
 MAX_LAKEHOUSE_READS = 50  # lakehouse properties read per assessment; the rest are not evaluated, and reads says so
+_ID = re.compile(r"[0-9A-Za-z-]{1,64}")  # what a lakehouse id may be before it goes into a request path
 MAX_TABLE_LISTINGS = 300  # OneLake folder listings per assessment; a lakehouse past it isn't evaluated
 MAX_TABLE_READS = 100  # Delta logs read per assessment; the lakehouses with tables past it aren't passed
 TABLE_READ_WORKERS = 4
@@ -159,6 +162,31 @@ def _fixture_usage(workspace: str) -> list[dict[str, Any]]:
              "file_name": "timepoint-operations" + label, "rows": ops}]
 
 
+def _built(reads: list[dict[str, Any]], what: str, build: Any) -> list[dict[str, Any]]:
+    """``build()``'s evidence records, or none when what Fabric sent couldn't be used: ``reads`` then says
+    so and the controls that need it are not evaluated. Only the error's type is shown, never its text."""
+    try:
+        return build()
+    except Exception as exc:  # noqa: BLE001 - junk from a read is a read problem, never a crash or a pass
+        reads.append({"read": what, "ok": False,
+                      "problem": f"What was read couldn't be used ({type(exc).__name__}), so the controls that need "
+                                 "it aren't evaluated."})
+        return []
+
+
+def _check(workspace_id: Any, days: Any, profile: Any, demo: Any) -> profiles.Profile:
+    """The profile, after checking the parameters; ValueError with a short reason when one is wrong."""
+    if not isinstance(demo, bool):
+        raise ValueError("demo is true or false.")
+    prof = profiles.get(profiles.DEFAULT if profile in (None, "") else profile)
+    if isinstance(days, bool) or not isinstance(days, int) or not MIN_DAYS <= days <= MAX_DAYS:
+        raise ValueError(f"days is a whole number from {MIN_DAYS} to {MAX_DAYS}.")
+    if demo and (workspace_id or days != 30):
+        raise ValueError("The demonstration fixture is assessed on its own, over its own 30 days: leave out "
+                         "workspace_id and days.")
+    return prof
+
+
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -181,9 +209,12 @@ def _lakehouses(fabric: Any, wid: str, items: list[dict[str, Any]] | None,
     problems: list[str] = []
     for lh in lakehouses[:MAX_LAKEHOUSE_READS]:
         try:
+            # only an id-shaped value goes into the request path: never a "/", "?" or ".."
+            if not isinstance(lh["id"], str) or not _ID.fullmatch(lh["id"]):
+                raise ValueError("its id isn't a Fabric id")
             got[str(lh["id"])] = fabric.get_lakehouse(wid, lh["id"])
         except Exception as exc:  # noqa: BLE001 - that lakehouse's controls are then not evaluated
-            problems.append(f"{lh.get('displayName') or lh['id']} ({describe(exc)})")
+            problems.append(f"{ev.text(lh.get('displayName')) or ev.text(lh['id'])} ({describe(exc)})")
     left = len(lakehouses) - MAX_LAKEHOUSE_READS
     notes = []
     if problems:
@@ -407,7 +438,7 @@ class ExcellenceMixin:
         Reads only. ``profile`` is a built-in profile id. With ``demo`` a labelled fixture is assessed.
         ``exceptions`` are accepted risks (excellence.exceptions): checked before anything is read, a bad
         one refused with a ValueError, and shown on what they match without changing any outcome or score."""
-        prof = profiles.get(str(profile or profiles.DEFAULT))
+        prof = _check(workspace_id, days, profile, demo)
         at = _now()
         accepted = excs.validate(exceptions, catalog.registry(), today=dt.date.fromisoformat(at[:10]))
         reads: list[dict[str, Any]] = []
@@ -433,7 +464,7 @@ class ExcellenceMixin:
             info_read = True
             try:
                 got = fabric.get_workspace(wid)
-                ws = {**got, "id": got.get("id") or wid}
+                ws = {**got, "id": wid}  # the workspace asked for, whatever id the answer carries
                 reads.append({"read": "workspace settings", "ok": True, "problem": None})
             except Exception as exc:  # noqa: BLE001 - its controls are then not evaluated
                 ws, info_read = {"id": wid}, False
@@ -474,22 +505,30 @@ class ExcellenceMixin:
                 imports = None
                 reads.append({"read": "imported Capacity Metrics exports", "ok": False,
                               "problem": f"The imports on this PC couldn't be read ({describe(exc)})."})
-        cap_id = str(ws.get("capacityId") or "").lower()
-        records = (adapters.workspace(ws, _items(opt), collected_at=at, info_read=info_read)
-                   + adapters.roles(ws, assignments, collected_at=at)
-                   + adapters.capacity(cap_id, capacities, collected_at=at)
-                   + adapters.optimization(opt, collected_at=at)
-                   + adapters.inspection(opt, collected_at=at)
-                   + catalog_architecture.evidence(ws, _items(opt), opt, lakehouses, collected_at=at)
-                   + catalog_performance.table_layout(str(ws["id"]), [i for i in _items(opt) or []
-                                                                      if i.get("type") == "Lakehouse"],
-                                                      tables, collected_at=at)
-                   + adapters.models(models, collected_at=at)
-                   + catalog_devops.evidence(ws, git_conn, git_status, collected_at=at))
-        cap_name = next((c.get("displayName") for c in capacities or [] if str(c.get("id") or "").lower() == cap_id), None)
-        usage = catalog_capacity.usage(cap_id, cap_name, ws.get("displayName"), imports, collected_at=at)
+        cap = ws.get("capacityId")
+        cap_id = cap.lower() if isinstance(cap, str) and ev.ok_id(cap) else ""
+        items = _items(opt)
+        records = (_built(reads, "workspace settings and items",
+                          lambda: adapters.workspace(ws, items, collected_at=at, info_read=info_read))
+                   + _built(reads, "role assignments", lambda: adapters.roles(ws, assignments, collected_at=at))
+                   + _built(reads, "capacities", lambda: adapters.capacity(cap_id, capacities, collected_at=at))
+                   + _built(reads, "items, definitions and job history", lambda: (
+                       adapters.optimization(opt, collected_at=at) + adapters.inspection(opt, collected_at=at)))
+                   + _built(reads, "workspace names, lakehouse properties and notebook bindings",
+                            lambda: catalog_architecture.evidence(ws, items, opt, lakehouses, collected_at=at))
+                   + _built(reads, "lakehouse tables", lambda: catalog_performance.table_layout(
+                       str(ws["id"]), [i for i in items or [] if isinstance(i, dict) and i.get("type") == "Lakehouse"],
+                       tables, collected_at=at))
+                   + _built(reads, "semantic model definitions", lambda: adapters.models(models, collected_at=at))
+                   + _built(reads, "Git connection and status",
+                            lambda: catalog_devops.evidence(ws, git_conn, git_status, collected_at=at)))
+        cap_name = next((c.get("displayName") for c in capacities if isinstance(c, dict)
+                         and str(c.get("id") or "").lower() == cap_id), None) if isinstance(capacities, list) else None
+        unusable = len(reads)
+        usage = _built(reads, "imported Capacity Metrics exports", lambda: catalog_capacity.usage(
+            cap_id, cap_name, ws.get("displayName"), imports, collected_at=at))
         records += usage
-        if cap_id and imports is not None:
+        if cap_id and imports is not None and len(reads) == unusable:
             reads.append({"read": "imported Capacity Metrics exports", "ok": True, "problem": None if usage else (
                 "No Capacity Metrics export imported on this PC has this workspace's use, so the capacity usage "
                 "controls aren't evaluated. Import one in Optimize > Cost and savings.")})

@@ -3,8 +3,8 @@
 from fabric_desktop.localdata import tsql_errors
 
 
-def test_divide_by_zero_is_read_from_the_first_line_of_a_longer_message():
-    message = "Invalid Input Error: Divide by zero error encountered.\nLINE 1: SELECT 1 / 0\n               ^"
+def test_divide_by_zero_keeps_sql_servers_words_when_duckdb_adds_a_newline():
+    message = "Invalid Input Error: Divide by zero error encountered.\n"
     assert tsql_errors.warehouse(message, "SELECT 1 / 0", "select") == "Divide by zero error encountered."
 
 

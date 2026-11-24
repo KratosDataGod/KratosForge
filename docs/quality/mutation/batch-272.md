@@ -27,7 +27,7 @@ No bugs were found.
   - The run is a background (daemon) thread.
   - Seconds taken are rounded to a tenth.
   - Details are the last 40 lines, with at most 20 from standard output.
-  - A run a second short of the limit counts as timed out, and the message names the limit in whole minutes.
+  - A run a second short of the limit counts as timed out, and the message names the limit in whole minutes. Since #3240 the limit is an awake-time timer, not elapsed time, so the test now stands in for that timer and checks the limit it is given and the message in whole minutes.
   - → `test_git_ops_mutation.py`.
 
 ### Left

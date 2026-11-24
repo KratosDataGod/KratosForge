@@ -7,7 +7,6 @@ from __future__ import annotations
 import sys
 import threading
 import time
-import types
 
 from fabric_desktop.git import cli, ops
 
@@ -137,21 +136,25 @@ def test_details_are_the_last_forty_lines_and_at_most_twenty_from_stdout(tmp_pat
     assert len(lines) == 40 and lines[0] == "err19" and lines[-1] == "out19"
 
 
-def _clock(monkeypatch, later):
-    """ops' clock reads 0 when git starts and ``later`` after."""
-    calls = []
+class _TimeUpAtOnce:
+    """Stands in for ops.AwakeTimer: the limit is reached as soon as git starts."""
 
-    def monotonic():
-        calls.append(1)
-        return 0.0 if len(calls) == 1 else later
-    monkeypatch.setattr(ops, "time", types.SimpleNamespace(monotonic=monotonic))
+    def __init__(self, seconds, fn):
+        self.seconds, self.fn = seconds, fn
+
+    def start(self):
+        self.fn()
+
+    def cancel(self):
+        pass
 
 
 def test_the_timeout_message_names_the_limit_in_whole_minutes(tmp_path, monkeypatch):
-    git_says(monkeypatch, "import sys; sys.exit(128)")
-    monkeypatch.setattr(cli, "NETWORK_TIMEOUT", 120)
-    _clock(monkeypatch, 119.0)  # exactly a second short of the limit counts as the limit
+    git_says(monkeypatch, "import time; time.sleep(30)")
+    monkeypatch.setattr(cli, "NETWORK_TIMEOUT", 150)  # 2.5 minutes is said as 2
+    seen = []
+    monkeypatch.setattr(ops, "AwakeTimer", lambda s, fn: seen.append(s) or _TimeUpAtOnce(s, fn))
     o = ops.Operations()
     op = wait(o, o._start("fetch", None, ["fetch"], cwd=tmp_path)["id"])
-    assert op["error_kind"] == "timeout"
-    assert "longer than 2 minutes" in op["message"]
+    assert seen == [150] and op["error_kind"] == "timeout"
+    assert "longer than 2 minutes and was stopped" in op["message"]

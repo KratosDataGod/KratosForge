@@ -18,7 +18,7 @@ No bugs were found.
 ### What the survivors were, and the tests that now kill them
 
 - **localdata/tsql_errors.py**:
-  - A divide-by-zero error is read from the first line of a message that has more lines after it.
+  - A divide-by-zero error is read from the first line of a message that has more lines after it. Since #3248 the module reads the whole message instead, so the test now checks that a trailing newline from DuckDB still gives SQL Server's words.
   - A schema written two ways in one statement, such as `dbo.t` and `[dbo].t`, still counts as one schema, so the missing table is named with it.
   - → `test_localdata_tsql_errors_mutation.py`.
 

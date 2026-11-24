@@ -28,6 +28,7 @@ from typing import Any
 from .discovery import Source
 from .. import jsonfile, win_paths
 from ..redact import describe
+from ..tmdl import _RESERVED as _DEVICE_NAMES
 
 _log = logging.getLogger(__name__)
 
@@ -236,9 +237,16 @@ class ProjectStore:
         if any(p.name.lower() == name.lower() for p in self.list()):
             raise ValueError(f"There is already a local data project called {name!r}.")
         base = _SLUG_BAD.sub("-", name.lower()).strip("-") or "project"
+        if base.upper() in _DEVICE_NAMES:  # a folder called nul or com1 is the device on Windows, not a folder
+            base = f"{base}-project"
         pid, n = base, 2
         while pid in index:
             pid, n = f"{base}-{n}", n + 1
+        device = next((part for part in Path(folder).parts
+                       if part.split(".")[0].upper().rstrip(" ") in _DEVICE_NAMES), None) if folder else None
+        if device is not None:  # checked before any path call, which would turn it into the device itself
+            raise ValueError(f"{folder} can't hold a project, because Windows reads {device!r} as a device, "
+                             "not a folder. Pick another folder.")
         target = Path(folder).expanduser() if folder else self.root / pid
         from .. import known_folders
         if (refusal := known_folders.onedrive_refusal(target, "a local data project")):

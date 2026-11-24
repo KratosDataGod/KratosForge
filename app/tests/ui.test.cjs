@@ -6783,6 +6783,7 @@ const FABRIC_WRITES = {
   optimize_create: ["optimize.js", "page", null],
   optimize_connect: ["optimize.js", "page", null],
   optimize_set_recommendation: ["optimize.js", "page", null],
+  optimization_share: ["optimize-assess.js", "page", null, "optimize.js"], // Share on the Preview-only Assessment tab
   capacity_settings_read: ["optimize.js", "page", null], // reads Fabric, writes the central lakehouse
   tenant_settings_read: ["optimize.js", "page", null],
   platform_decide: ["platform.js", "page", null],

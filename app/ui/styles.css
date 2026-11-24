@@ -4092,3 +4092,18 @@ html[data-motion="on"][data-fx-ambient="on"] .tree-line.flow { animation: tree-f
 .tree-evidence { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
 @media (max-width: 1100px) { .tree-body { grid-template-columns: 1fr; } .tree-detail { border-left: 0; border-top: 1px solid var(--tree-node); } }
 @media (max-width: 760px) { .tree-head { grid-template-columns: 1fr; } .tree-node { width: 96px; } .tree-node-name { font-size: 11px; } }
+
+/* OE-004 Share on the Opportunities header (optimize-assess.js assessShare). */
+.assess-share-acts { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; }
+.assess-share-line:empty { display: none; }
+.assess-share-state { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+.assess-share-state.ok { background: var(--ok-soft); color: var(--ok-ink); }
+.assess-share-state.wait { background: var(--info-soft); color: var(--info); }
+.assess-share-state.warn { background: var(--warn-soft); color: var(--warn-ink); }
+.assess-share-state .tool { color: var(--text); }
+.assess-share-dialog { display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
+.assess-share-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin: 0; }
+.assess-share-facts div { border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 10px; }
+.assess-share-facts dt { font-size: 12px; color: var(--muted); }
+.assess-share-facts dd { margin: 0; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.assess-share-would { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 6px; padding: 10px 12px; margin: 0; }

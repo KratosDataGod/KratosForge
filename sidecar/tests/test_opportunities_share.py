@@ -162,3 +162,30 @@ def test_a_demonstration_is_not_kept_to_share_and_old_ones_drop_out(svc):  # noq
     with pytest.raises(ValueError, match="Assess again"):
         svc.optimization_share(ids[0])
     assert len(svc._kept_assessments()) == 5
+
+
+def test_the_preview_is_the_ask_returned_and_writes_nothing(svc):  # noqa: F811
+    svc.optimize_create("w1", workspace_name="Platform")
+    assert "optimization_share_preview" in server.METHODS and not audit.audited("optimization_share_preview")
+    with pytest.raises(ValueError, match="Assess again"):
+        svc.optimization_share_preview("oe-unknown")
+    result = _result()
+    share_id = svc._keep_assessment(result)
+    with pytest.raises(PermissionError) as asked:
+        svc.optimization_share(share_id)
+    preview = svc.optimization_share_preview(share_id)
+    # The same counts, sentence and confirm as the engine's ask, plus where it goes.
+    assert {k: preview[k] for k in asked.value.would} == asked.value.would
+    assert preview["text"] == str(asked.value) and preview["confirm"]
+    assert preview["connected"] is True and preview["lakehouse"] and preview["access"]
+    assert len(svc._optimize_shared().rows("findings")) == 0  # previewing wrote nothing
+    out = svc.optimization_share(share_id, approve=True, confirm=preview["confirm"])
+    assert out["shared"] == len(result["opportunities"])
+
+
+def test_a_preview_with_nothing_found_has_nothing_to_confirm(svc):  # noqa: F811
+    result = _result()
+    result["opportunities"] = []
+    preview = svc.optimization_share_preview(svc._keep_assessment(result))
+    assert preview["findings"] == 0 and "confirm" not in preview and preview["text"] == ""
+    assert preview["connected"] is False and preview["lakehouse"] == ""

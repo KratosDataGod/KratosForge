@@ -202,6 +202,7 @@ PREVIEWS: dict[str, str] = {
     "notebook_formats_import_check": "what importing would create; nothing is written",
     "notebook_import_check": "what importing would create; nothing is written",
     "notebook_publish_check": "what publishing would do; publish_notebook makes the change",
+    "optimization_share_preview": "what sharing would add and its confirm; optimization_share writes it",
     "pipeline_import": "reads a pipeline definition; stores nothing",
     "pipeline_run_check": "what a local pipeline run would do; pipeline_run_start runs it (allow_uncontained is checked there too)",
     "wh_project_deploy_plan": "the statements a deploy would run; nothing runs",

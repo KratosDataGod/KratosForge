@@ -56,10 +56,12 @@ def targets(policy: Any) -> tuple[dict[str, dict[str, int | None]], list[str]]:
 
 
 def _when(text: str | None) -> dt.datetime | None:
+    """A stored time, or None when unreadable; a time with no zone is UTC, as the incident history reads it."""
     try:
-        return dt.datetime.fromisoformat(str(text).replace("Z", "+00:00")) if text else None
+        t = dt.datetime.fromisoformat(str(text).replace("Z", "+00:00")) if text else None
     except ValueError:
         return None
+    return t.replace(tzinfo=dt.UTC) if t is not None and t.tzinfo is None else t
 
 
 def _iso(t: dt.datetime) -> str:

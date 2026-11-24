@@ -117,9 +117,8 @@ DATABRICKS_CHECKS: dict[str, dict[str, Any]] = {
                                  "spark_catalog in Databricks' reference, a workspace without it")},
     "current_database": {"example": "SELECT current_database()", "value": [["default"]]},
     "current_schema": {"example": "SELECT current_schema()", "value": [["default"]]},
-    "current_time": {"example": "SELECT current_time(0)", "pattern": r"time:\d\d:\d\d:\d\d",
-                     "note": ("a TIME WITH TIME ZONE here, with its microseconds: the precision isn't applied. "
-                              "Databricks gives a TIME (16:57:04 in its reference)")},
+    # a TIME in the session's zone, cut to the precision: 16:57:04 in the reference
+    "current_time": {"example": "SELECT current_time(0)", "pattern": r"time:\d\d:\d\d:\d\d"},
     # the session's zone: a Databricks SQL warehouse's starts in UTC, as this PC's does
     "current_timezone": {"example": "SELECT current_timezone()", "value": [["UTC"]]},
     "current_user": {"example": "SELECT current_user()", "value": [["user1"]],
@@ -133,16 +132,16 @@ DATABRICKS_CHECKS: dict[str, dict[str, Any]] = {
                         "note": "Databricks SQL no longer supports it either (17.3 LTS and above): use _metadata.file_name"},
     "java_method": {"example": "SELECT java_method('java.util.UUID', 'fromString', 'a5cf6c42-0c85-418f-af6c-3e4e5b1328f2')",
                     "value": [["A5cf6c42-0c85-418f-af6c-3e4e5b1328f2"]]},
-    "localtime": {"example": "SELECT localtime(3)", "pattern": r"time:\d\d:\d\d:\d\d\.\d{3}",
-                  "note": "localtime() with no precision runs, as a TIME"},
+    # a synonym of current_time: three digits after the second, then zeros (canonical writes six, and none
+    # when the fraction is zero)
+    "localtime": {"example": "SELECT localtime(3)", "pattern": r"time:\d\d:\d\d:\d\d(\.\d{3}000)?"},
     "monotonically_increasing_id": {"example": "SELECT monotonically_increasing_id()", "value": [[0]],
                                     "note": "0, 1, 2 ... here; Databricks' ids are unique and increasing, with gaps"},
     "raise_error": {"example": "SELECT raise_error('custom error message')", "error": "custom error message",
                     "note": "stops with the message; Databricks' error class is USER_RAISED_EXCEPTION"},
+    # refused with a seed (databricks_builtins_sql._RANDOM_SEED); without one each row gets its own draw
     "randstr": {"example": "SELECT randstr(10, 0), randstr(10, 0) FROM VALUES(1), (2), (3)",
-                "value": [["ceV0PXaR2I", "ceV0PXaR2I"], ["lBhHi56d0u", "lBhHi56d0u"], ["CtuwSOTLiL", "CtuwSOTLiL"]],
-                "note": ("10 letters and digits, as in Databricks, but a seed gives another series here, the same "
-                         "string on every row")},
+                "value": [["ceV0PXaR2I", "ceV0PXaR2I"], ["lBhHi56d0u", "lBhHi56d0u"], ["CtuwSOTLiL", "CtuwSOTLiL"]]},
     "reflect": {"example": "SELECT reflect('java.util.UUID', 'fromString', 'a5cf6c42-0c85-418f-af6c-3e4e5b1328f2')",
                 "value": [["A5cf6c42-0c85-418f-af6c-3e4e5b1328f2"]]},
     "session_user": {"example": "SELECT session_user()", "value": [["user1"]],
@@ -151,10 +150,10 @@ DATABRICKS_CHECKS: dict[str, dict[str, Any]] = {
     "spark_partition_id": {"example": "SELECT spark_partition_id()", "value": [[0]]},
     "sql_keywords": {"example": "SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2",
                      "value": [["ACTION", False], ["ADD", False]]},
+    # as randstr: refused with a seed
     "uniform": {"example": "SELECT uniform(10, 20, 0), uniform(10, 20, 0) FROM range(10)",
                 "value": [[10, 10], [11, 11], [19, 19], [18, 18], [19, 19], [14, 14], [18, 18], [14, 14], [10, 10],
-                          [17, 17]],
-                "note": "values stay between the bounds, but a seed gives another series here"},
+                          [17, 17]]},
     "user": {"example": "SELECT user()", "value": [["user1"]],
              "note": "'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference)"},
     "version": {"example": "SELECT version()", "pattern": r"\d+\.\d+\.\d+ [0-9a-f]{40}",

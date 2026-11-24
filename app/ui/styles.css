@@ -388,7 +388,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange); }
 .cell.frozen .cell-box { background: var(--surface-2); }
 .cell-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
-.cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag) { visibility: visible; }
+.cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag), .cell-head:has(.comment-badge) { visibility: visible; }
 .cell.markdown:not(.selected):not(:hover) .cell-head { display: none; }
 .cell-head .spacer { flex: 1; }
 .cell-head select.lang { height: 24px; padding: 0 4px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); font-size: 12px; color: var(--text-2); }
@@ -581,6 +581,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .toast.top { bottom: auto; top: 56px; }
 .toast .toast-action { margin-left: 8px; color: inherit; border-color: rgba(255,255,255,0.7); background: transparent; vertical-align: middle; }
 .toast .toast-action:hover, .toast .toast-action:focus-visible { background: rgba(255,255,255,0.16); }
+.toast .toast-close { margin-left: 4px; min-width: 24px; min-height: 24px; padding: 0 4px; color: inherit; border-color: transparent; background: transparent; vertical-align: middle; }
+.toast .toast-close:hover, .toast .toast-close:focus-visible { background: rgba(255,255,255,0.16); }
+/* The app's navy focus ring hardly shows on the toast's dark or red fill: its buttons ring in the toast's own text colour. */
+.toast .toast-action:focus-visible, .toast .toast-close:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 /* One error panel for every failure in a page or panel (UX-011) */
 .error-panel { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 12px;
@@ -2699,6 +2703,9 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 /* Hover docs and signature help in Python cells (nbintel.js). */
 .nb-intel { position: fixed; z-index: 60; max-width: 560px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); font-size: 12.5px; color: var(--text); pointer-events: none; }
 .nb-intel[hidden] { display: none; }
+/* A hover card can be pointed at, and a long doc scrolls inside it (WCAG 1.4.13). */
+.nb-intel.hover { pointer-events: auto; }
+.nb-intel.hover .nb-intel-doc { overflow-y: auto; overscroll-behavior: contain; }
 .nb-intel code, .nb-intel-info code { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
 .nb-intel.call b { color: var(--accent); text-decoration: underline; }
 .nb-intel-head { display: flex; align-items: baseline; gap: 10px; }
@@ -3559,6 +3566,49 @@ tr.fg-conflict { background: var(--danger-soft); }
 .assess-orders { display: flex; flex-direction: column; gap: 8px; }
 .assess-orders ol { margin: 4px 0 0; padding-left: 20px; }
 .assess-why { background: var(--surface-2); border-left: 3px solid var(--accent); padding: 8px 12px; font-size: 13px; color: var(--text-2); margin-top: 10px; }
+/* Multi-part questions (matching, hot area, yes or no, code completion), from the approved question-types mockup. */
+.assess-parts { display: flex; flex-direction: column; gap: 12px; }
+.assess-parts > p { margin: 0; }
+.assess-match { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; }
+.assess-pool { border: 1px dashed var(--border); border-radius: var(--r-md); padding: 8px; background: var(--surface-2); }
+.assess-pool ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.assess .assess-pool h3, .assess .assess-targets h3 { font-size: 12px; color: var(--muted); font-weight: 600; margin: 0 0 2px; }
+.assess-chip { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-sm); padding: 5px 8px; font-size: 13px; }
+.assess-chip[draggable="true"] { cursor: grab; }
+.assess-chip.lifted { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 4px 12px rgba(27, 54, 100, .25); }
+.assess-grip { color: var(--muted); font-size: 12px; letter-spacing: -2px; }
+.assess-uses { margin-left: auto; font-size: 11px; color: var(--muted); }
+.assess-targets { display: flex; flex-direction: column; gap: 8px; }
+.assess-target { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 10px; background: var(--surface); font-size: 13px; }
+.assess-target.over { border: 2px dashed var(--accent); background: var(--accent-soft); }
+.assess-target.r-ok, .assess-yn tr.r-ok { border-color: var(--ok); background: var(--ok-soft); }
+.assess-target.r-bad, .assess-yn tr.r-bad { border-color: var(--danger); background: var(--danger-soft); }
+.assess-slot { display: flex; gap: 6px; align-items: center; }
+.assess-slot select { flex: 1; min-width: 0; font: inherit; padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text); }
+.assess-slot select.empty, .assess-snippet select.empty { color: var(--muted); border-style: dashed; }
+.assess-res { font-size: 12.5px; }
+.assess-res .ok, .assess-yn .ok, .assess-score .ok { color: var(--ok); }
+.assess-res .bad, .assess-yn .bad, .assess-score .bad { color: var(--danger); }
+.assess-score .part { color: var(--warn); }
+.assess-score { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+.assess-snippet { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px; font-family: var(--mono); font-size: 13px; line-height: 2.1; white-space: pre-wrap; overflow-x: auto; }
+.assess-snippet select { font-family: var(--mono); font-size: 12.5px; padding: 1px 4px; border: 1px solid var(--accent-border, var(--border)); border-radius: 3px; background: var(--surface); color: var(--text); vertical-align: baseline; }
+.assess-gapn { font-family: var(--font-ui); font-size: 10px; font-weight: 700; background: var(--accent); color: var(--on-accent); border-radius: 8px; padding: 0 5px; margin-right: 2px; vertical-align: 2px; }
+.assess-fill { border: 1px solid; border-radius: 3px; padding: 0 4px; }
+.assess-fill.ok, .assess-fill.key { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.assess-fill.bad { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); text-decoration: line-through; }
+.assess-bank { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.assess-bank ul { list-style: none; margin: 0; padding: 0; display: contents; }
+.assess-bank li { font-family: var(--mono); font-size: 12.5px; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 8px; background: var(--surface); }
+.assess-bank li.used { color: var(--muted); text-decoration: line-through; background: var(--surface-2); }
+.assess-yn { border-collapse: collapse; width: 100%; }
+.assess-yn th, .assess-yn td { border-bottom: 1px solid var(--border-soft); padding: 9px 8px; text-align: left; font-size: 13.5px; vertical-align: middle; }
+.assess-yn th { color: var(--muted); font-size: 12px; font-weight: 600; }
+.assess-yn .c { text-align: center; width: 70px; }
+.assess-yn-label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+.assess-yn input, .assess-yn-label input { accent-color: var(--accent); }
+.assess-slot select:focus-visible, .assess-snippet select:focus-visible, .assess-yn input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 700px) { .assess-match, .assess-target { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .assess-exam { grid-template-columns: 1fr; } }
 .pn-send-by { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
 .pn-send-choice { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-md); cursor: pointer; }

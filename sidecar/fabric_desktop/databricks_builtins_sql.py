@@ -175,6 +175,114 @@ def _time_trunc(node: exp.TimeTrunc) -> exp.Expression:
                      a=node.args["unit"])
 
 
+def _current_time(node: exp.CurrentTime | exp.Localtime) -> exp.Expression:
+    """current_time([precision]) and its synonym localtime: a TIME, the session zone's time of day when the
+    query started, cut to ``precision`` (0 to 6, a constant; 6 when left out) digits after the second, as
+    Databricks documents (current_time(0) is 16:57:04 where current_time() is 16:57:04.304361)."""
+    name = "localtime" if isinstance(node, exp.Localtime) else "current_time"
+    given = node.this
+    digits = _int_literal(given) if given is not None else 6
+    if digits is None or not 0 <= digits <= 6:
+        raise ValueError(f"{name}() takes a precision from 0 to 6, an INTEGER literal, as in Databricks"
+                         f"{'' if given is None else ', not ' + given.sql(dialect='databricks')}.")
+    step = 10 ** (6 - digits)
+    return _template(f"TIME '00:00:00' + to_microseconds(epoch_us(CAST(CAST(current_timestamp AS TIMESTAMP) AS TIME)) "
+                     f"// {step} * {step})")
+
+
+_MAX_DIGITS = 40  # longer than any Spark number; int() of thousands of digits would stop with Python's own error
+
+
+def _int_literal(node: exp.Expression) -> int | None:
+    """A whole number written in the query (10, -3), or None for anything else."""
+    inner = node.this if isinstance(node, exp.Neg) else node
+    if isinstance(inner, exp.Literal) and inner.is_int and len(inner.name) <= _MAX_DIGITS:
+        return -int(inner.name) if isinstance(node, exp.Neg) else int(inner.name)
+    return None
+
+
+# uniform(min, max [, seed]) and randstr(length [, seed]), as Spark's (randomExpressions.scala): uniform is
+# min + (max - min) * rand(), cast to the bounds' type (a whole number is cut toward zero, so uniform(10, 20)
+# gives 10 to 19), and randstr draws each character from 0-9, a-z and A-Z. Without a seed each row gets its own
+# draw. With a seed Databricks gives its own series, which depends on its random generator and on how it splits
+# the rows, so a seed is refused.
+_RANDOM_SEED = ("with a seed Databricks gives its own series of values, from its own random generator and the "
+                "way it splits the rows, which this PC can't make.")
+_INTEGRAL = (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT, exp.DataType.Type.BIGINT)
+
+
+def _bound_type(value: exp.Expression) -> exp.DataType | None:
+    """The Databricks type of a bound of uniform written as a number or a cast of one: INT or BIGINT for a
+    whole number, DECIMAL(p, s) for one with a point, DOUBLE with an exponent; None for anything else."""
+    inner = value.this if isinstance(value, (exp.Neg, exp.Paren)) else value
+    if isinstance(inner, exp.Cast) and _bound_type(inner.this) is not None:
+        kind = inner.to
+        return kind if kind.this in (*_INTEGRAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT,
+                                     exp.DataType.Type.DECIMAL) else None
+    if not (isinstance(inner, exp.Literal) and not inner.is_string) or len(inner.name) > _MAX_DIGITS:
+        return None
+    text = inner.name.lower()
+    if "e" in text:
+        return exp.DataType.build("DOUBLE")
+    if "." not in text:
+        return exp.DataType.build("INT" if int(text) < 2 ** 31 else "BIGINT")
+    whole, _, fraction = text.partition(".")
+    digits = len(whole.lstrip("0")) + len(fraction)
+    return exp.DataType.build(f"DECIMAL({max(digits, len(fraction), 1)}, {len(fraction)})")
+
+
+def _decimal_sizes(kind: exp.DataType) -> tuple[int, int]:
+    sizes = [int(e.name) for e in kind.expressions if isinstance(e, exp.DataTypeParam)] or [10, 0]
+    return sizes[0], sizes[1] if len(sizes) > 1 else 0
+
+
+def _uniform_type(low: exp.DataType, high: exp.DataType) -> exp.DataType:
+    """Spark's Uniform.dataType for its bounds' types."""
+    order = list(_INTEGRAL)
+    if low.this in order and high.this in order:
+        return high if order.index(high.this) >= order.index(low.this) else low
+    for wide in (exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT):
+        if wide in (low.this, high.this):
+            return exp.DataType.build(wide.value)
+    if low.this == exp.DataType.Type.DECIMAL and high.this == exp.DataType.Type.DECIMAL:
+        (lp, ls), (hp, hs) = _decimal_sizes(low), _decimal_sizes(high)
+        return low if lp - ls >= hp - hs and ls >= hs else high
+    return low if low.this == exp.DataType.Type.DECIMAL else high
+
+
+def _uniform(node: exp.Uniform) -> exp.Expression:
+    if node.args.get("seed") is not None or node.args.get("gen") is not None:
+        raise _refusal("uniform", _RANDOM_SEED, "leave out the seed")
+    low, high = node.this, node.expression
+    kinds = [_bound_type(low), _bound_type(high)]
+    if kinds[0] is None or kinds[1] is None:
+        raise _refusal("uniform", "its bounds aren't numbers written in the query here, and this PC works out the "
+                                  "result's type from them.", "write the bounds as numbers")
+    kind = _uniform_type(kinds[0], kinds[1])
+    drawn = "CAST(_a AS DOUBLE) + (CAST(_b AS DOUBLE) - CAST(_a AS DOUBLE)) * random()"
+    if kind.this in _INTEGRAL:
+        drawn = f"trunc({drawn})"
+    return exp.cast(_template(f"({drawn})", a=low, b=high), kind)
+
+
+_RANDSTR_MAX = 1_000_000
+
+
+def _randstr(node: exp.Randstr) -> exp.Expression:
+    if node.args.get("generator") is not None:
+        raise _refusal("randstr", _RANDOM_SEED, "leave out the seed")
+    length = _int_literal(node.this)
+    if length is None or length < 0:
+        raise _refusal("randstr", "its length isn't a whole number from 0 up written in the query here.",
+                       "write the length as a number")
+    if length > _RANDSTR_MAX:
+        raise _refusal("randstr", f"this PC builds strings of up to {_RANDSTR_MAX:,} characters on each row.",
+                       "ask for a shorter string")
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return _template(f"array_to_string(list_transform(range({length}), __kf_i -> "
+                     f"substr('{alphabet}', 1 + CAST(floor(random() * 62) AS INTEGER), 1)), '')")
+
+
 def _parsed(name: str, args: list[exp.Expression], kind: str, safe: bool) -> exp.Expression:
     """to_time, try_to_time and try_to_date: a cast without a format, else strptime with the Spark
     pattern written for DuckDB, as sqlglot writes to_timestamp's; the try_ ones give NULL for text
@@ -541,6 +649,12 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
         if zone is statement:
             return setting
         zone.replace(setting)
+    # current_database() is a synonym of current_schema() in Databricks: the schema, not DuckDB's catalog
+    for database in list(statement.find_all(exp.CurrentDatabase)):
+        schema = exp.CurrentSchema()
+        if database is statement:
+            return schema
+        database.replace(schema)
     for node in statement.find_all(exp.Anonymous, *_TYPED_SKETCHES):
         name = node.name.lower() if isinstance(node, exp.Anonymous) else _TYPED_SKETCHES[type(node)]
         if name in _sketch_names():
@@ -563,6 +677,7 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
     # innermost first, so a call inside another's arguments is written before the outer one copies them
     for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, exp.Collate, exp.ParseJSON,
                                                    exp.Dayname, exp.Monthname, exp.GroupConcat, exp.Time,
+                                                   exp.CurrentTime, exp.Localtime, exp.Uniform, exp.Randstr,
                                                    bfs=False))):
         written = _written(call)
         if written is not None:
@@ -593,6 +708,12 @@ def _written(call: exp.Expr) -> exp.Expression | None:
         return joined
     if isinstance(call, exp.Time):  # a TIME from a string or a timestamp's time of day (in UTC here)
         return exp.cast(exp.cast(call.this.copy(), exp.DataType.build("TIMETZ")), exp.DataType.build("TIME"))
+    if isinstance(call, (exp.CurrentTime, exp.Localtime)):
+        return _current_time(call)
+    if isinstance(call, exp.Uniform):
+        return _uniform(call)
+    if isinstance(call, exp.Randstr):
+        return _randstr(call)
     if isinstance(call, exp.Anonymous):
         written = _function(call)
         return None if written is call else written

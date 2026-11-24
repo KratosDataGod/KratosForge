@@ -212,8 +212,10 @@ def runtime_grants_on_record_once_per_worker(request, monkeypatch, tmp_path_fact
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.
-# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, starts
-# another worker and the run still fails, with the stacks in the log.
+# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, and CI's
+# --max-worker-restart 0 then stops the run, which fails with the stacks in the log. (Without it,
+# xdist 3.8's loadfile scheduler starts a replacement worker that never gets work or a stop, and
+# the run waits for the job's time limit.)
 TEST_TIME_LIMIT = float(os.environ.get("FD_TEST_TIME_LIMIT", "300"))
 
 

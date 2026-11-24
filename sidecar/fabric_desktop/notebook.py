@@ -186,6 +186,26 @@ def _json_value(value: Any) -> Any:
     return str(value)
 
 
+def _python_values(column: Any) -> list[Any]:
+    """``column``'s values in Python. One Python can't hold stopped to_pylist, and the cell with it: a date
+    or timestamp before year 1 (DuckDB's year 0) with an OverflowError, a struct whose fields share a name
+    (DuckDB's (NULL, NULL)) with a ValueError. That value shows as Arrow's text instead."""
+    try:
+        return list(column.to_pylist())
+    except (OverflowError, ValueError):
+        return [_python_value(scalar) for scalar in column]
+
+
+def _python_value(scalar: Any) -> Any:
+    try:
+        return scalar.as_py()
+    except (OverflowError, ValueError):
+        try:
+            return scalar.cast(pa.string()).as_py()
+        except pa.ArrowException:  # no cast to text, as for a struct
+            return str(scalar)
+
+
 def as_table(value: Any) -> pa.Table | None:
     """Arrow view of a data frame-like value, or None if it is not one."""
     module = type(value).__module__
@@ -235,7 +255,7 @@ def display(value: Any) -> dict[str, Any]:
     if table is not None:
         shown = table.slice(0, PREVIEW_ROWS)
         # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
-        columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
+        columns = [[_json_value(v) for v in _python_values(column)] for column in shown.columns]
         rows = [list(row) for row in zip(*columns, strict=True)] if columns else \
             [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)

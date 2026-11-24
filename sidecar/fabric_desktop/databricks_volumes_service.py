@@ -189,7 +189,7 @@ class DatabricksVolumesMixin:
         once = []
         for where, target in found:
             key = os.path.normcase(str(target))
-            if key in seen or any(dv._inside(str(f), str(target)) and f != target for f in folders):
+            if key in seen or any(dv._inside(str(f), str(target)) and os.path.normcase(str(f)) != key for f in folders):
                 continue
             seen.add(key)
             once.append((where, target))

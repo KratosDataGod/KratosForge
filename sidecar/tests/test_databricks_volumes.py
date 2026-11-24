@@ -242,7 +242,7 @@ def test_volume_words_in_strings_and_comments_are_left_alone(sql):
 def test_list_answers_path_name_size_and_modification_time(sql, here):
     _ok(sql("CREATE VOLUME v"))
     folder = here / "default" / "v"
-    (folder / "b.csv").write_text("a,b\n1,x\n")
+    (folder / "b.csv").write_bytes(b"a,b\n1,x\n")  # 8 bytes on Windows too
     (folder / "sub").mkdir()
     columns, rows = _rows(sql("LIST '/Volumes/main/default/v'"))
     assert columns == ["path", "name", "size", "modification_time"]
@@ -392,7 +392,8 @@ def test_a_unc_or_drive_path_can_never_come_out_of_a_volume_path_on_windows(here
         assert str(local).startswith(str(here / "default" / "v"))
 
 
-@pytest.mark.parametrize("name", ["con", "CON.txt", "con .txt", "nul  .csv", "COM1", "lpt9.log", "aux"])
+@pytest.mark.parametrize("name", ["con", "CON.txt", "con .txt", "nul  .csv", "COM1", "lpt9.log", "aux", "CONIN$",
+                                  "conout$.txt"])
 def test_a_windows_device_name_is_refused_even_with_spaces_before_its_extension(name):
     with pytest.raises(ValueError, match="device name"):
         volumes.parse(f"/Volumes/main/default/v/{name}")

@@ -48,7 +48,7 @@ _NAME_LIMIT = 255  # "Object names cannot exceed 255 characters." (Databricks, N
 # folder on Windows can't hold the rest, so a volume or schema named with one is refused by name too.
 _UC_FORBIDDEN = set("./ ") | {chr(c) for c in range(32)} | {chr(127)}
 _WINDOWS_FORBIDDEN = set('\\:*?"<>|')
-_DEVICE = re.compile(r"(?i)(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]) *(\..*)?")  # "con .txt" is CON too
+_DEVICE = re.compile(r"(?i)(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]|CONIN\$|CONOUT\$) *(\..*)?")  # "con .txt" is CON too
 # What a refusal or error from here starts with, so local_sql shows it without DuckDB's "Invalid Input Error: ".
 MESSAGE_STARTS = ("[VOLUME_ALREADY_EXISTS]", "[SCHEMA_NOT_FOUND]", "The volume ", "Volumes on this PC:")
 

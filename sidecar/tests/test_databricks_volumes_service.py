@@ -193,10 +193,10 @@ def test_new_folder_refuses_one_through_a_link(svc, here, outside):
 
 def test_upload_copies_a_file_in_and_asks_before_replacing(svc, here, tmp_path):
     src = tmp_path / "orders.csv"
-    src.write_text("id\n1\n", encoding="utf-8")
+    src.write_bytes(b"id\n1\n")
     assert svc.databricks_volume_upload(str(src), V) == {"path": f"{V}/orders.csv", "size": 5}
     assert (here / "sales" / "landing" / "orders.csv").read_text(encoding="utf-8") == "id\n1\n"
-    src.write_text("id\n2\n", encoding="utf-8")
+    src.write_bytes(b"id\n2\n")
     assert svc.databricks_volume_upload(str(src), V) == {"exists": True, "path": f"{V}/orders.csv"}
     assert (here / "sales" / "landing" / "orders.csv").read_text(encoding="utf-8") == "id\n1\n"
     svc.databricks_volume_upload(str(src), f"dbfs:{V}", overwrite=True)
@@ -248,7 +248,7 @@ def test_upload_refuses_a_file_named_as_a_volume_path_cannot_hold(svc, tmp_path)
 # ---- download
 
 def test_download_copies_a_file_out_and_asks_before_replacing(svc, here, tmp_path):
-    (here / "sales" / "landing" / "orders.csv").write_text("id\n1\n", encoding="utf-8")
+    (here / "sales" / "landing" / "orders.csv").write_bytes(b"id\n1\n")
     out = tmp_path / "me" / "Downloads"
     out.mkdir(parents=True)
     target = out / "orders.csv"

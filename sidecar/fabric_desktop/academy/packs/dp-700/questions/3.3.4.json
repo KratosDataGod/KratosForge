@@ -317,6 +317,43 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.4-q11",
+      "type": "multiple",
+      "stem": "At Brightwater, which two policies do you set on the eventhouse tables? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A caching policy that keeps 365 days of data hot"
+        },
+        {
+          "id": "b",
+          "text": "A retention policy with a soft-delete period of 365 days"
+        },
+        {
+          "id": "c",
+          "text": "A batching policy with a 14-day maximum batching time"
+        },
+        {
+          "id": "d",
+          "text": "A caching policy that keeps 14 days of data hot"
+        },
+        {
+          "id": "e",
+          "text": "A retention policy with a soft-delete period of 14 days"
+        }
+      ],
+      "answer": [
+        "d",
+        "b"
+      ],
+      "explanation": "The caching policy keeps recent data on fast local storage for the most common queries, and the retention policy removes data once it's older than the soft-delete period. The two are independent, so older data in the year stays queryable from cold storage. A 14-day retention would delete data the case keeps for a year.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/cache-policy",
+      "case": "brightwater-transit",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

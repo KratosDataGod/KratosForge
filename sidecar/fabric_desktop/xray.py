@@ -115,7 +115,7 @@ def cost_findings(report: dict[str, Any], local_notebooks: set[str]) -> list[dic
         out.append({"kind": "cost", "severity": "medium" if item["cost"] >= 10 else "low",
                     "title": f"{name} cost about ${item['cost']:,.2f} in Fabric in {report['days']} days (estimated)",
                     "detail": f"{item['fabric_runs']} runs, about {item['cu_hours']:,.1f} CU hours, estimated from run time "
-                              "(Monitor > Cost shows how). Set it to run on this PC and those runs use no Fabric compute.",
+                              "(Optimize > Cost and savings shows how). Set it to run on this PC and those runs use no Fabric compute.",
                     "action": "run_local" if name in local_notebooks else "cost", "notebook": name, "cost": item["cost"]})
     return sorted(out, key=lambda f: -f["cost"])[:5]
 

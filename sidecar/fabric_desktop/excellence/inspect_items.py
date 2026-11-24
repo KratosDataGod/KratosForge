@@ -9,7 +9,8 @@ already read is still in memory (opportunities.assess.assess ``inspect=``). It r
 - for a pipeline, counts and activity names: which activities are deactivated and which name a
   fixed workspace id; of the activities that call out (CALLOUT_TYPES), which have no retry and which
   have no timeout below the 12-hour default; and whether any activity runs on another's failure.
-  Never the activity JSON, the ids or the policy values themselves.
+  Never the activity JSON, the ids or the policy values themselves. An activity without a name is
+  shown as ``(unnamed <type> activity <n>)``, n its place in the pipeline.
 
 No Fabric call is made here, and nothing runs.
 """
@@ -20,6 +21,7 @@ import re
 from typing import Any
 
 from .. import notebook_practices
+from .evidence import text
 
 MAX_PLACES = 20  # cell and line kept per rule; ``count`` has them all
 MAX_NAMES = 50  # activity names kept per list
@@ -46,6 +48,8 @@ MAX_NAME = 256  # characters kept of an activity name
 def inspect(w: dict[str, Any]) -> dict[str, Any]:
     """The inspection of one workload (see the module docstring). ``{"read": False}`` when its
     definition wasn't read, and ``{}`` for a type that isn't inspected."""
+    if not isinstance(w, dict):
+        return {}
     kind = w.get("type")
     if kind not in ("Notebook", "DataPipeline"):
         return {}
@@ -89,6 +93,32 @@ def _names_fixed_workspace(node: Any) -> bool:
     if isinstance(node, list):
         return any(_names_fixed_workspace(v) for v in node)
     return False
+
+
+def _given_name(a: Any) -> str:
+    name = a.get("name") if isinstance(a, dict) else None
+    return text(name) if isinstance(name, str) and name.strip() else ""  # cut, so a hostile name can't bloat evidence
+
+
+def _activity_names(acts: list[Any]) -> list[str]:
+    """One name per activity, none shared: its own name, or for an activity without one a marked name
+    with its type and place in the pipeline (``(unnamed Copy activity 2)``), so two of them aren't
+    counted as one and a finding names the right one. Never a real activity's name."""
+    given = [_given_name(a) for a in acts]
+    taken = set(given)
+    out = []
+    for n, (a, name) in enumerate(zip(acts, given, strict=True), start=1):
+        if not name:
+            kind = a.get("type") if isinstance(a, dict) else None
+            kind = text(kind, 64).strip() if isinstance(kind, str) else ""
+            base = f"(unnamed {kind} activity {n})" if kind else f"(unnamed activity {n})"
+            name, again = base, 1
+            while name in taken:
+                again += 1
+                name = f"{base[:-1]}, {again})"
+            taken.add(name)
+        out.append(name)
+    return out
 
 
 def _expression(value: Any) -> bool:
@@ -137,8 +167,7 @@ def pipeline(w: dict[str, Any]) -> dict[str, Any]:
     no_retry, no_timeout, no_depends = [], [], []
     retry_unknown, timeout_unknown = [], []
     callouts, failure_path, failure_path_unknown = 0, False, False
-    for a in acts:
-        name = str(a.get("name") or a.get("type") or "activity")[:MAX_NAME]
+    for a, name in zip(acts, _activity_names(acts), strict=True):
         if not isinstance(a.get("inactive"), bool):
             no_state.append(name)
         elif a["inactive"]:

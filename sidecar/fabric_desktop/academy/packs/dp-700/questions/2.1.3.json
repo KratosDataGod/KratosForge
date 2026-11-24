@@ -321,6 +321,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.3-q11",
+      "type": "single",
+      "stem": "At Brightwater, how do you keep the Positions table filled?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Define an update policy on Positions with RawGps as its source, a parsing function as its query, and IsTransactional set to true"
+        },
+        {
+          "id": "b",
+          "text": "Define an update policy on Positions with RawGps as its source, a parsing function as its query, and IsTransactional left at false"
+        },
+        {
+          "id": "c",
+          "text": "Schedule a pipeline every 15 minutes that copies the newest RawGps rows into Positions after parsing them"
+        },
+        {
+          "id": "d",
+          "text": "Define an update policy on RawGps with Positions as its source and the parsing function as its query"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "An update policy on the target table runs a query each time data is ingested into its source table. With IsTransactional true, a failed policy fails the whole ingestion, so the tables stay consistent. With the default of false, rows can land in RawGps but not in Positions. A scheduled pipeline is the separate job the planners don't want.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy?view=microsoft-fabric",
+      "case": "brightwater-transit",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

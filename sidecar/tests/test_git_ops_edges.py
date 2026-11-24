@@ -145,8 +145,8 @@ def test_a_conflict_brings_back_the_result_when_it_can(tmp_path, monkeypatch):
 
 
 def test_a_run_past_the_network_limit_is_reported_as_timed_out(tmp_path, monkeypatch):
-    git_says(monkeypatch, "import sys; sys.exit(128)")
-    monkeypatch.setattr(cli, "NETWORK_TIMEOUT", 1)  # every run counts as having taken the whole limit
+    git_says(monkeypatch, "import time; time.sleep(30)")
+    monkeypatch.setattr(cli, "NETWORK_TIMEOUT", 1)  # the limit stops it
     o = ops.Operations()
     op = wait(o, o._start("fetch", None, ["fetch"], cwd=tmp_path)["id"])
     assert op["status"] == "failed" and op["error_kind"] == "timeout" and "was stopped" in op["message"]

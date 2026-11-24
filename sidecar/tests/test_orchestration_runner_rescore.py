@@ -68,6 +68,7 @@ def _context(monkeypatch, clock, deadline):
     from fabric_desktop.orchestration import runner as R
 
     monkeypatch.setattr(R, "time", clock)
+    monkeypatch.setattr(R, "awake_monotonic", clock.monotonic)  # the deadline's clock
     run_ = SimpleNamespace(wait_scale=1.0, cancelled=False, _cancel=_Event())
     return R._Context(run_, SimpleNamespace(name="W"), None, {}, deadline), run_
 

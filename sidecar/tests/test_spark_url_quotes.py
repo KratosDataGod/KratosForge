@@ -67,9 +67,9 @@ def test_url_decode_and_encode_answer_as_spark(kernel):
     assert _printed(kernel, URL_CELL).splitlines() == URL_SPARK.splitlines()
 
 
-def test_url_decode_refuses_bytes_that_are_not_utf8(kernel):
-    out = kernel.run("spark.sql(\"select url_decode('%C3')\").collect()")
-    assert out["status"] == "error" and "U+FFFD" in str(out["outputs"])
+def test_url_decode_writes_bytes_that_are_not_utf8_as_u_fffd(kernel):
+    # Java's URLDecoder decodes the bytes as UTF-8 with a replacement character, so Spark gives U+FFFD
+    assert _printed(kernel, "print(ascii(spark.sql(\"select url_decode('%C3')\").collect()[0][0]))").strip() == "'\\ufffd'"
 
 
 def test_a_quote_or_backslash_in_a_key_or_name_is_read_as_written(kernel):

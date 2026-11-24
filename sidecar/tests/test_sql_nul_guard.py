@@ -309,3 +309,67 @@ def test_a_sql_expression_built_from_text_is_guarded():
     assert con.table("t").filter(duckdb.SQLExpression("k = 1")).fetchall() == [(1,)]
     with pytest.raises(duckdb.ParserException, match="NUL character"):
         con.table("t").filter(duckdb.SQLExpression("k = 1\0 OR TRUE")).fetchall()
+
+
+DATAFRAME_SCANS = '''
+import duckdb
+import pandas as pd
+frame = pd.DataFrame({"a": [1, 2, 3]})
+out = [duckdb.sql("SELECT count(*) FROM frame").fetchall()[0][0],
+       duckdb.connect().execute("SELECT count(*) FROM frame").fetchone()[0]]
+
+def inside():
+    local_frame = pd.DataFrame({"a": [1]})
+    con = duckdb.connect()
+    return [con.sql("SELECT count(*) FROM local_frame").fetchall()[0][0],
+            con.sql("SELECT a FROM frame").filter("a > 1").aggregate("count(*)").fetchall()[0][0]]
+
+def outer():
+    closed = pd.DataFrame({"a": [7, 8]})
+    def inner():
+        closed  # noqa: B018 - a closure, as a cell's helper function has
+        return duckdb.query("SELECT sum(a) FROM closed").fetchall()[0][0]
+    return inner()
+
+out += inside() + [outer()]
+'''
+
+
+def test_a_dataframe_named_in_the_sql_is_still_found_where_the_caller_holds_it():
+    """DuckDB finds a DataFrame by name in the calling frame; the guard must not stand in that frame's place."""
+    pytest.importorskip("pandas")
+    scope: dict = {}
+    exec(compile(DATAFRAME_SCANS, "<cell>", "exec"), scope)  # noqa: S102 - the test's own cell text
+    assert scope["out"] == [3, 3, 1, 2, 15]
+
+
+def test_a_callers_variable_named_like_the_guards_own_cant_take_the_call_over():
+    pytest.importorskip("pandas")
+    import pandas as pd
+    frame = pd.DataFrame({"a": [1, 2]})  # noqa: F841 - found by name by DuckDB
+    __kf_nul_call = lambda *a, **k: "hijacked"  # noqa: E731,N806 - the guard's own name, on purpose
+    __kf_nul_args = ("SELECT 0",)  # noqa: N806
+    assert duckdb.sql("SELECT count(*) FROM frame").fetchall() == [(2,)]
+    assert (__kf_nul_call, __kf_nul_args) != (None, None)
+    with pytest.raises(duckdb.ParserException, match="NUL character"):
+        duckdb.sql("SELECT count(*) FROM frame\0")
+
+
+def test_a_dataframe_two_frames_up_is_found_or_not_just_as_without_the_guard():
+    """DuckDB looks only in the frame that calls it (unless python_scan_all_frames is set). A DataFrame held
+    by an outer function is not found from an inner one that doesn't name it; that is DuckDB's own rule,
+    the same without the guard, so it isn't a guard bug to fix."""
+    pytest.importorskip("pandas")
+    import pandas as pd
+
+    def outer(sql_call):
+        held_outside = pd.DataFrame({"a": [1]})  # noqa: F841 - two frames up from DuckDB's call
+
+        def inner():
+            try:
+                return sql_call("SELECT count(*) FROM held_outside").fetchall()
+            except duckdb.CatalogException:
+                return "not found"
+        return inner()
+
+    assert outer(duckdb.sql) == outer(duckdb.sql.__wrapped__)

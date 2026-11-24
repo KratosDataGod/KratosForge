@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import bisect
 import functools
+import sys
 from typing import Any
 
 import duckdb
@@ -109,12 +110,22 @@ def guard(sql: str) -> str:
     return "".join(out)
 
 
+# DuckDB finds a DataFrame named in the SQL (SELECT * FROM df) in the frame that called it, so the call is
+# made from a frame with the caller's own globals and locals, never from this module's.
+_EVAL = eval  # held at import: the call never goes through a builtins.eval swapped in later
+_CALL = compile("__kf_nul_call(*__kf_nul_args, **__kf_nul_kwargs)", "<duckdb>", "eval")
+
+
 def _guarded(call: Any) -> Any:
     @functools.wraps(call)
     def guarded(*args: Any, **kwargs: Any) -> Any:
         args = tuple(guard(a) if isinstance(a, str) else a for a in args)
         kwargs = {k: guard(v) if isinstance(v, str) and k not in _VALUES else v for k, v in kwargs.items()}
-        return call(*args, **kwargs)
+        caller = sys._getframe(1)
+        names = caller.f_locals
+        scope = {} if names is caller.f_globals else dict(names)
+        scope.update(__kf_nul_call=call, __kf_nul_args=args, __kf_nul_kwargs=kwargs)
+        return _EVAL(_CALL, caller.f_globals, scope)  # noqa: S307 - a fixed expression, compiled above
 
     guarded.__kf_nul_guard__ = True  # type: ignore[attr-defined]
     return guarded

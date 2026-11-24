@@ -900,3 +900,26 @@ def test_a_negative_count_in_imported_capacity_usage_doesnt_fit():
     for bad in ({**ops, "refreshes_per_day": [{**ops["refreshes_per_day"][0], "count": -30}]},
                 {**ops, "refresh_days_over": -1}, {**ops, "rows": -1}, {**ops, "operation_rows": True}):
         assert not ev.fits(bad, spec), bad
+
+
+def test_lakehouse_tables_shape_refuses_junk_tables_and_keeps_real_ones():
+    from fabric_desktop.excellence import catalog_performance as cp
+    spec = catalog.PAYLOADS["lakehouse.tables"]
+    good = {"tables": [cp.table_facts("a", {"exists": True, "files": 3, "bytes": 30, "avg_file_bytes": 10,
+                                             "versions_since_vacuum": 1, "last_vacuum": None}, []),
+                       cp.table_facts("b", None, None, error="no log"),
+                       {"name": "c", "read": True, "delta": False}],
+            "past_budget": 0, "staging": False}
+    assert ev.fits(good, spec)
+    for junk in ({**good["tables"][0], "read": "yes"}, {**good["tables"][0], "files": -1},
+                 {**good["tables"][0], "features": "columnMapping"}, {"name": "d", "read": True},
+                 {**good["tables"][0], "files": True}):
+        assert not ev.fits({**good, "tables": [junk]}, spec), junk
+    assert not ev.fits({**good, "staging": "no"}, spec)
+    assert not ev.fits({k: v for k, v in good.items() if k != "tables"}, spec)
+
+
+def test_demo_lakehouse_tables_fit_their_shape(demo):
+    kinds = {r["kind"] for r in demo["evidence"]}
+    assert "lakehouse.tables" in kinds
+    assert not demo["evidence_rejected"]

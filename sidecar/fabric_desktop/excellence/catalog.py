@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import catalog_architecture, catalog_artifacts, catalog_devops, catalog_models
+from . import catalog_architecture, catalog_artifacts, catalog_devops, catalog_models, catalog_performance
 from . import controls as ct
 from .evidence import Map, fits
 
@@ -355,6 +355,14 @@ _OPERATIONS = {"rows": _count, "cu_seconds": float, "status_rows": _count, "cu_b
                "window": {"start": (str, None), "end": (str, None)},
                "refreshes_per_day": [{"workspace": str, "item": str, "day": str, "count": _count}],
                "?refresh_days_over": _count}
+# FEA-204: a table whose Delta log was read has its layout; one that wasn't read has why; a folder that
+# isn't a Delta table has neither. ``read`` and ``delta`` are flags, so junk never reads as "read".
+_TABLE_UNREAD = {"name": str, "read": lambda v: v is False, "problem": str}
+_TABLE_PLAIN = {"name": str, "read": lambda v: v is True, "delta": lambda v: v is False}
+_TABLE_DELTA = {"name": str, "read": lambda v: v is True, "delta": lambda v: v is True, "files": _count,
+                "bytes": _count, "avg_file_bytes": _count, "versions_since_vacuum": _count,
+                "last_vacuum": (str, None), "features": _NAMES}
+_TABLES = {"tables": [(_TABLE_UNREAD, _TABLE_PLAIN, _TABLE_DELTA)], "past_budget": _count, "staging": bool}
 PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
     "workspace.info": {"description": str, "?capacity_id": _PLAIN},
     "workspace.inventory": {"items": [{"id": str, "type": str, "?name": str}]},
@@ -378,6 +386,7 @@ PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
                    "types_unknown": _NAMES, "columns_unknown": _NAMES},
     "item.binding": {"default_lakehouse": (str, None), "?definition": str},
     "lakehouse.properties": {"schemas_enabled": bool, "default_schema": (str, None)},
+    "lakehouse.tables": _TABLES,
     "workspace.git": {"state": lambda v: v is None or v in catalog_devops.STATES, "provider": str, "branch": str,
                       "status": (None, {"uncommitted": _count, "incoming": _count, "conflicts": _count})},
 }
@@ -389,7 +398,7 @@ def registry() -> ct.Registry:
     from .catalog_capacity import CONTROLS as CAPACITY  # it imports this module
     for c in (*CONTROLS, *catalog_artifacts.CONTROLS, *catalog_models.CONTROLS, *CAPACITY):
         r.register(c)
-    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS):
+    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS, *catalog_performance.CONTROLS):
         r.register(c)
     r.payloads.update(PAYLOADS)
     return r

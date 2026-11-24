@@ -1,0 +1,120 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E77",
+  "version": 1,
+  "status": "draft",
+  "title": "A new column and a reporting schema in a warehouse database project",
+  "objectives": [
+    "1.2.2"
+  ],
+  "objective_text": "Change an existing table in a warehouse's database project so a deploy can add the column in place, and add a schema with a view in its own files.",
+  "scenario": "The Sales warehouse is kept as a database project, with one file per object. Sales now record the channel they came through, Online or Store. FactSales already holds rows from before the channel was tracked, and those rows have no channel. Finance wants a report of sales by channel in a new reporting schema, kept apart from the dbo tables. Reports still read dbo.vw_SalesByCategory, so it stays where it is.",
+  "prerequisites": [
+    "E08"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "sqlproj_lab",
+  "engine_label": "The project's T-SQL read and built in DuckDB on this PC",
+  "lesson": "lesson.md",
+  "starter": "changes.sql",
+  "files": [
+    "dimproduct.sql",
+    "factsales.sql",
+    "seed.sql",
+    "vw_category.sql"
+  ],
+  "project": {
+    "dbo/Tables/DimProduct.sql": "dimproduct.sql",
+    "dbo/Tables/FactSales.sql": "factsales.sql",
+    "dbo/Views/vw_SalesByCategory.sql": "vw_category.sql"
+  },
+  "seed": "seed.sql",
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your change set puts each object in its own file in the project's folders, every table and view builds, a deploy would add the column without rebuilding FactSales and drop nothing, and vw_SalesByChannel returns the right sales per channel, checked on this PC."
+  ],
+  "does_not_verify": [
+    "A build with the SQL project tools or a deploy to a Fabric Warehouse. The T-SQL is read and built in DuckDB, which isn't the Warehouse engine.",
+    "The exact plan a DacFx deploy makes. This lab's own compare decides what counts as adding a column in place.",
+    "Where Fabric's Git integration writes a schema's file. Security/reporting.sql is where this lab keeps the reporting schema, and Learn doesn't show it in text.",
+    "Moving the rows or the reports. Old rows keep an empty Channel, and no report is pointed at the new view."
+  ],
+  "expected": {
+    "description": "FactSales.sql gains Channel VARCHAR(10) NULL as its last column. New files Security/reporting.sql and reporting/Views/vw_SalesByChannel.sql. Online 869.00 from 2 sales, Store 73.00 from 2, Unknown 959.00 from 2."
+  },
+  "validation": [
+    {
+      "kind": "project_builds",
+      "fail": "Some file doesn't define one object in its place, or a table or view doesn't build.",
+      "pass": "Every file defines one object in its place, and every table and view builds."
+    },
+    {
+      "kind": "objects_present",
+      "fail": "The new schema, the new view, the Channel column or the category view is missing.",
+      "pass": "The reporting schema, the new view, FactSales.Channel and dbo.vw_SalesByCategory are in the project.",
+      "objects": [
+        {
+          "kind": "schema",
+          "schema": "reporting",
+          "name": "reporting"
+        },
+        {
+          "kind": "table",
+          "schema": "dbo",
+          "name": "FactSales",
+          "columns": [
+            "SaleKey",
+            "ProductKey",
+            "SaleDate",
+            "Amount",
+            "Channel"
+          ]
+        },
+        {
+          "kind": "view",
+          "schema": "reporting",
+          "name": "vw_SalesByChannel"
+        },
+        {
+          "kind": "view",
+          "schema": "dbo",
+          "name": "vw_SalesByCategory"
+        }
+      ]
+    },
+    {
+      "kind": "deploy_safe",
+      "fail": "Deploying this would drop something or rebuild FactSales.",
+      "pass": "A deploy adds Channel in place, adds the new objects and drops nothing."
+    },
+    {
+      "kind": "result_matches",
+      "query": "SELECT Channel, Sales, Orders FROM reporting.vw_SalesByChannel",
+      "fail": "vw_SalesByChannel doesn't give the right sales per channel.",
+      "pass": "vw_SalesByChannel gives the right sales per channel, with Unknown for sales that have none."
+    }
+  ],
+  "hints": [
+    "Run lists each file, whether it builds and what a deploy would do with it. Look at the row for FactSales.",
+    "A changed table file holds the whole new CREATE TABLE. A deploy can add a column in place only when it is new, at the end and NULL. Anything else rebuilds the table.",
+    "Old rows have no channel, so a NOT NULL column can't be added to them.",
+    "A schema is an object too. Give CREATE SCHEMA [reporting] its own file at Security/reporting.sql.",
+    "A view in the reporting schema goes in reporting/Views/vw_SalesByChannel.sql.",
+    "COALESCE(Channel, 'Unknown') in both the SELECT and the GROUP BY keeps the old sales in the report."
+  ],
+  "explanation": "In a database project a table's file always holds its whole CREATE TABLE. The deploy compares that file with the warehouse and works out the change. A new column that is NULL and comes last can be added with ALTER TABLE ... ADD, so the rows already in the table stay where they are. A NOT NULL column has no value for those rows, and a column in the middle changes the column order. Either way the deploy can't just add it and would have to rebuild the table. A new schema is its own object with its own file, and the views in it live under that schema's folder. Moving dbo.vw_SalesByCategory into the new schema would drop the view that reports read today, so it stays. Old sales have no channel, and the report shows them as Unknown so the totals still match FactSales.",
+  "remediation": [
+    "LM-23",
+    "https://learn.microsoft.com/fabric/data-warehouse/git-integration",
+    "https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area"
+  ],
+  "reset": "Reset puts the starter change set back. The project and its sample rows come from the exercise.",
+  "review_notes": [
+    "Checked on Microsoft Learn 2026-11-23 (data-warehouse/git-integration). A warehouse in Git is committed as a database project, shown as individual .sql files, and synced with DacFx-based incremental schema deployment. The page doesn't describe the folder layout or how a column change is applied.",
+    "Checked on Microsoft Learn 2026-11-23 (data-warehouse/tsql-surface-area). Fabric Warehouse supports ALTER TABLE ADD for nullable columns and DROP COLUMN, ALTER COLUMN is in preview, and other ALTER TABLE operations are blocked. The exercise grades the add-in-place rule with this lab's compare, not with DacFx.",
+    "Not confirmed on Learn. That Fabric writes a schema to Security/reporting.sql. This is the SDK-style project layout the lab uses (warehouse_project_service.default_path)."
+  ]
+}

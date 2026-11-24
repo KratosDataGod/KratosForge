@@ -190,7 +190,6 @@ class Ledger:
 
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         # A file SQLite can't read is moved aside and the ledger starts empty. It forgets what was sent
         # and which breaks are open: an alert already sent may be sent once more, and a fix for a break
         # posted before isn't posted. Nothing else is lost.

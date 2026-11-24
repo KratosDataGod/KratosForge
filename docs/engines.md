@@ -493,6 +493,68 @@ the CLI signs in and KratosForge never handles a token. Install the Databricks C
 - **Deploying runs nothing.** No job or pipeline starts; their next scheduled run bills as usual.
 - Deploys are recorded in the audit log.
 
+### Check a bundle on this PC (Preview)
+
+This is a command, with no screen in the app yet.
+
+`fabric-desktop databricks-bundle validate <folder>` checks `databricks.yml` and the files its
+`include:` globs name without the Databricks CLI, a sign-in, a workspace or the network. Each finding
+names the field by its path, with the file and line:
+
+```text
+> fabric-desktop databricks-bundle validate C:\repos\sales-etl
+C:\repos\sales-etl\resources\nightly.yml:14:1: error: resources.jobs.nightly.tasks[2].notebook_task.notebook_path: '../src/load.py' doesn't exist. There's no file at src/load.py (with or without a notebook extension), relative to resources/nightly.yml.
+1 error, 0 warnings (checked on this PC; not databricks bundle validate)
+```
+
+It exits 1 when there are errors, and `--json` prints every finding (severity, path, message, file,
+line, column). It checks:
+
+- YAML anchors and aliases (`&name`, `*name`) are refused, as are a file over 5 MB and nesting deeper than
+  200 levels, and such a file isn't read further.
+- YAML that can't be read, with its line and column, and a key given twice in one mapping (both lines
+  are named, because YAML would quietly keep the second).
+- `bundle.name` is set.
+- Unknown keys at the top level and under `bundle`, `targets.<name>`, `variables.<name>`, a job, a job
+  task, a pipeline, an alert, an app, a catalog, an experiment, a model and a SQL warehouse, and unknown
+  resource types. These are **warnings**, because Databricks adds fields, and a newer one isn't wrong. The other
+  resource types' own fields aren't checked yet, because their field lists couldn't all be read
+  from the documentation.
+- Field types: a job's `max_concurrent_runs` and `timeout_seconds` are integers, `tasks` is a list and
+  `email_notifications` a mapping; a task's `depends_on` and `libraries` are lists, `timeout_seconds` and
+  `max_retries` integers and `email_notifications` a mapping; a pipeline's `libraries`, `clusters` and
+  `notifications` are lists and `configuration` a mapping. A `${...}` value isn't type-checked.
+- Each job task has a `task_key`, no two tasks in a job share one, each task has exactly one task type
+  (a target's task that overrides a task with the same `task_key` may leave the type out), and every
+  `depends_on` names a task in the job.
+- `${var.<name>}` names a variable declared under `variables`, a target only sets declared variables,
+  a variable's `type` is `complex` or left out, and a complex variable's default isn't a single value.
+- `${resources.<type>.<name>...}` names a resource the bundle defines (at the top level or in a target).
+- `${bundle.<field>}` and `${workspace.<field>}` name a documented field, such as `bundle.name`,
+  `bundle.target`, `workspace.file_path` or `workspace.current_user.userName`. `${bundle.environment}` is a
+  warning, because the documentation says to use `${bundle.target}`.
+- A target's `mode` is `development` or `production`, `default` is true or false, and at most one
+  target is the default.
+- Every `include` glob matches a file and stays inside the bundle folder. Globs are relative to
+  `databricks.yml`.
+- `sync.include` and `sync.exclude` are lists of strings, and a relative `artifacts.<name>.path` is a
+  folder inside the bundle folder, relative to the YAML file that names it.
+- A relative `notebook_path`, `python_file`, `sql_task` file path or pipeline `notebook` or `file`
+  library path names a file inside the bundle folder, relative to the YAML file that names it (a notebook may
+  leave out its extension). Workspace paths (`/Workspace/...`), paths with a `${...}` substitution, and paths
+  into a Git source (`source: GIT` or the job's `git_source`) aren't looked for.
+
+The checks are written from Databricks' configuration reference
+([bundle settings](https://docs.databricks.com/aws/en/dev-tools/bundles/settings),
+[configuration reference](https://docs.databricks.com/aws/en/dev-tools/bundles/reference),
+[task types](https://docs.databricks.com/aws/en/dev-tools/bundles/job-task-types),
+[variables](https://docs.databricks.com/aws/en/dev-tools/bundles/variables),
+[resources](https://docs.databricks.com/aws/en/dev-tools/bundles/resources)) and the REST API create
+pages for jobs, pipelines, experiments, models and SQL warehouses. The CLI's own JSON schema isn't used,
+because it's under the Databricks License, which allows use only with the Databricks Services. So
+this isn't `databricks bundle validate`. It doesn't merge targets, resolve variables or know fields added after it was written, and its messages are its own.
+Run **Validate** in Source control > Bundles, which runs the CLI, before you deploy.
+
 ## Databricks DBUs in Optimize > Cost (Preview)
 
 **Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,

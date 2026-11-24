@@ -111,8 +111,8 @@ reading the Ossie file back gives the same model or names what differs.
 ## Fidelity report
 
 Export (from Fabric or from a folder), Import's preview and Ossie file to TMDL each return a
-`fidelity` report beside the `report` rows (OSSIE-004a, engine only; the card shows it in
-OSSIE-004b). It lists every object the conversion reads once: the model, tables or datasets,
+`fidelity` report beside the `report` rows (OSSIE-004a, engine only). The card doesn't show it
+yet; that is OSSIE-004b. It lists every object the conversion reads once: the model, tables or datasets,
 columns or fields, measures or metrics, hierarchies, calculation groups, relationships, roles,
 perspectives, cultures and shared expressions, including those that travel in a file's Power BI
 section. Each object is in one class:
@@ -288,8 +288,9 @@ when the file goes to other tools.
   then the first ones in the file. A file of 2,000 datasets with 50 bad fields each is checked in
   about a second.
 - The file is read with the same limits as Import: at most 20 million characters, no YAML
-  aliases (`*name`), and no deeper nesting than a model needs. The schema can't refer to anything
-  outside the copies it ships with.
+  aliases (`*name`), no key given twice in one object, and no deeper nesting than a model needs.
+  A repeated key is refused with its name and line, because YAML would keep only the last one.
+  The schema can't refer to anything outside the copies it ships with.
 - `valid` is true only when a schema checked the file and found nothing. Rules beyond the schema,
   such as what Fabric or Snowflake accept, are the version profiles below.
 - Regular expressions in a schema (`pattern`, `patternProperties`) would be matched with Python's

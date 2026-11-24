@@ -18,6 +18,7 @@ def no_real_event_log(monkeypatch):
     from fabric_desktop import audit_anchor
     monkeypatch.setattr(audit_anchor, "writer", audit_anchor._no_writer)
     monkeypatch.setattr(audit_anchor, "reader", audit_anchor._no_reader)
+    monkeypatch.setattr(audit_anchor, "_off_until", 0.0)  # a failure another test caused doesn't carry over
 
 
 class FakeEventLog:

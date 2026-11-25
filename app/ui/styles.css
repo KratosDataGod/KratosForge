@@ -448,6 +448,37 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .md-img { max-width: 100%; height: auto; }
 .md-img-off { font-size: 12px; }
 .md-math.block { display: block; margin: 4px 0 8px; overflow-x: auto; }
+
+/* A Markdown cell being edited, with Preview features shown (nbmarkdown.js): a formatting toolbar, the
+   View switch (Edit, Split, Preview), the editor and its live preview, and a hint line. Split turns into
+   Edit and Preview tabs on a cell narrower than about 620px. */
+.md-rich { container-type: inline-size; background: var(--surface); }
+.md-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 8px; border-bottom: 1px solid var(--border-soft); }
+.md-toolbar .md-fmt { min-width: 28px; justify-content: center; }
+.md-toolbar .md-fmt-bold { font-weight: 700; }
+.md-toolbar .md-fmt-italic { font-style: italic; }
+.md-toolbar .sep { height: 20px; margin: 0 4px; }
+.md-toolbar .preview-tag { margin-right: 8px; }
+.md-view-pick { display: inline-flex; align-items: center; white-space: nowrap; }
+.md-view-label { margin-right: 6px; color: var(--text-2); font-size: 12px; }
+.md-switch { display: inline-flex; border: 1px solid var(--border-input); border-radius: var(--r-sm); overflow: hidden; }
+.md-switch button { min-height: 26px; padding: 0 10px; border: 0; border-right: 1px solid var(--border-input); background: var(--surface); color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; }
+.md-switch button:last-child { border-right: 0; }
+.md-switch button.on { background: var(--accent); color: var(--on-accent); }
+.md-tabs { display: none; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--border-soft); }
+.md-tabs .tab { min-height: 32px; font-size: 13px; }
+.md-tabs .tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); font-weight: 600; }
+.md-panes { display: flex; align-items: stretch; }
+.md-panes > .md-edit, .md-panes > .md-preview { flex: 1 1 0; min-width: 0; }
+.md-panes > .md-preview { border-left: 1px solid var(--border-soft); }
+.md-rich[data-view="edit"] .md-preview, .md-rich[data-view="preview"] .md-edit { display: none; }
+.md-rich[data-view="preview"] .md-preview { border-left: 0; }
+.md-hint { margin: 0; padding: 4px 12px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 12px; }
+@container (max-width: 620px) {
+  .md-rich[data-view="split"] .md-tabs { display: flex; }
+  .md-rich[data-view="split"][data-tab="edit"] .md-preview, .md-rich[data-view="split"][data-tab="preview"] .md-edit { display: none; }
+  .md-rich[data-view="split"] .md-preview { border-left: 0; }
+}
 .md-math math { font-size: 1.1em; }
 .md-eqno { float: right; color: var(--text-2); }
 
@@ -3643,6 +3674,39 @@ tr.fg-conflict { background: var(--danger-soft); }
 .dbx-pair .mono { overflow-wrap: anywhere; }
 .dbx-add { display: flex; flex-direction: column; gap: 8px; }
 .dbx-sync-table tr.dbx-conflict td, .dbx-sync-table tr.dbx-blocked td { background: var(--danger-soft); }
+.dbx-views { margin: 0 0 12px; }
+
+/* Workspaces > Databricks > Volumes on this PC (dbx-volumes.js, Preview) */
+.dbx-vol-banner { display: flex; gap: 12px; align-items: baseline; padding: 8px 12px; margin: 0 0 12px; border-radius: var(--r-md); background: var(--ok-soft); color: var(--ok-ink); font-size: 13px; }
+.dbx-vol-banner b { color: var(--ok); font-size: 12px; white-space: nowrap; }
+.dbx-vol-split { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .dbx-vol-split { grid-template-columns: minmax(0, 1fr); } }
+.dbx-vol-list h2, .dbx-vol-detail h2 { font-size: 14px; margin: 0; }
+.dbx-vol-tree { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
+.dbx-vol-schema { color: var(--muted); font-size: 12px; padding: 6px 6px 3px; }
+.dbx-vol-item { display: flex; width: 100%; gap: 6px; padding: 3px 6px 3px 18px; border: 0; border-radius: var(--r-sm); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.dbx-vol-item:hover { background: var(--hover); }
+.dbx-vol-item.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.dbx-vol-count { color: var(--muted); font-size: 12px; font-weight: 400; }
+.dbx-vol-kind { padding: 1px 8px; border-radius: 10px; background: var(--hover); color: var(--text-2); font-size: 11px; font-weight: 600; }
+.dbx-vol-where { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 6px 12px; margin: 8px 0 12px; font-size: 13px; align-items: center; }
+.dbx-vol-where dt { color: var(--muted); }
+.dbx-vol-where dd { margin: 0; overflow-wrap: anywhere; }
+.dbx-vol-bar { flex-wrap: wrap; margin: 4px 0 8px; }
+.dbx-vol-crumbs { font-size: 13px; }
+.dbx-vol-crumb.tool.link { padding: 0; min-height: 0; color: var(--info); }
+.dbx-vol-crumb.here { color: var(--info); }
+.dbx-vol-files { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dbx-vol-files th, .dbx-vol-files td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; }
+.dbx-vol-files thead th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.dbx-vol-files .tick { width: 28px; }
+.dbx-vol-files .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dbx-vol-files tr.sel td { background: var(--accent-soft); }
+.dbx-vol-folder.tool.link { padding: 0; min-height: 0; gap: 6px; color: inherit; font: inherit; }
+.dbx-vol-empty { padding: 26px 10px; text-align: center; color: var(--muted); font-size: 13px; }
+.dbx-vol-empty b { display: block; color: var(--text); margin-bottom: 4px; }
+.dbx-vol-list .dbx-vol-empty { padding: 16px 4px; }
+.dbx-vol-form { display: flex; flex-direction: column; gap: 8px; }
 
 /* Zoomed to 200% the tabs of a page wrap to a second row rather than scroll, so none is out of sight (story 1681). */
 @media (max-width: 860px) {

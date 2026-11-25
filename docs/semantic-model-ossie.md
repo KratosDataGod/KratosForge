@@ -371,6 +371,40 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   result gives the `profile`, a `status` (Valid, Invalid, Unverified or Not checked), `warnings`,
   `notes` and the `rules` that ran. It still only informs.
 
+### Snowflake export profile (engine only)
+
+`ossie_snowflake.to_snowflake(doc_or_text, translate_ossie_sql=True)` (OSSIE-010a) turns an Ossie
+0.2.0.dev0 document into Snowflake's Ossie 0.1.1 file. It returns `yaml` and a `report`. The file
+has `version: 0.1.1` and a `semantic_model` list that holds the model, the same layout as the
+output of `SYSTEM$READ_OSSIE_YAML_FROM_SEMANTIC_VIEW`. No YAML aliases are written. Input that
+isn't a 0.2.0.dev0 model is refused with a plain ValueError, and the input is never changed.
+Nothing calls Snowflake.
+
+Each report row has a fidelity class and its label, the path in the output, a message and a
+remediation.
+
+- The whole file is one Unverified row, because no 0.1.1 schema is pinned and Snowflake hasn't
+  read the file. The report's `validation` reads the output back through the `snowflake-ossie`
+  profile. A correct export reads back with no errors.
+- Extension `data` that isn't text is written as JSON text (Preserved through extensions). An
+  extension with no `vendor_name` or no `data`, or a `custom_extensions` that isn't a list, is
+  Unsupported and left out.
+- A field or metric with no `SNOWFLAKE` or `ANSI_SQL` expression is Unsupported and listed in
+  `skipped_by_snowflake`, because Snowflake skips it without a message. It stays in the file, so
+  other tools still read it. A metric with only DAX always gets this row.
+- An `OSSIE_SQL_2026` expression is translated to Snowflake SQL by sqlglot on this PC and added as
+  a `SNOWFLAKE` entry beside the original (Unverified: Snowflake hasn't run it). It is translated
+  only when it is one expression (no statement, query or `;`), calls no function sqlglot doesn't
+  know and sqlglot can write all of it as Snowflake SQL. Otherwise the row is Unsupported with a
+  short reason, such as "calls FOO_BAR, which sqlglot doesn't know". Reasons never quote the
+  expression. With `translate_ossie_sql=False` nothing is translated.
+- `datatype`, `ai_context`, other dialect entries such as DAX, metrics inside datasets and vendor
+  names are left as they are.
+
+Open questions for the live `verify_only` run (OSSIE-010b): which `vendor_name` and `dialect`
+values Snowflake accepts, whether it accepts `datatype` on fields, whether metrics may sit inside
+datasets, and whether `semantic_model` may also be one object instead of a list.
+
 ## Semantic View files (Preview)
 
 Fabric Semantic Views (Preview) take Fabric's own profile of Ossie: version 0.2.0.dev0, a flat

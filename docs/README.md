@@ -97,7 +97,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
 | [governance-guide.md](governance-guide.md) | Platform owners, team leads | Governance guide (Preview): draft to result, worked examples (naming, classification, ownership), what can be enforced and by whom |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, asking another team for data, following a product, catalog text |
-| [direct-lake-check.md](direct-lake-check.md) | Engineers, team leads | The Direct Lake check (Preview): Direct Lake limits per capacity, schema drift and relationship keys, checked on this PC |
+| [direct-lake-check.md](direct-lake-check.md) | Engineers, team leads | Direct Lake fallback risk (Preview): whether a model will fall back to DirectQuery, Direct Lake limits per capacity with a forecast, schema drift and relationship keys, predicted on this PC |
 | [data-dictionary.md](data-dictionary.md) | Engineers, data stewards | The data dictionary (Preview): descriptions for a layer's model, exported to Excel and imported back, then written into the model |
 | [semantic-model-ossie.md](semantic-model-ossie.md) | Engineers, team leads | Semantic models to and from Apache Ossie (Preview): export to a `.ossie.yaml` file, import with a preview of every change, what a round trip keeps, an Ossie file written as TMDL in the project, structural and expression parity checks, and Fabric Semantic View files with the steps to publish them |
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
@@ -209,7 +209,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Semantic model | Data mesh > Deploy |
 | Semantic models and Apache Ossie | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md)) |
 | Semantic View files and publish steps | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md#publish-the-view-in-fabric-preview)) |
-| Direct Lake check | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
+| Direct Lake fallback risk | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
 | Semantic model best practices check | Data mesh > Deploy > Semantic model ([semantic-model-best-practices.md](semantic-model-best-practices.md)) |
 | Data dictionary | Data mesh > Deploy > Semantic model ([data-dictionary.md](data-dictionary.md)) |
 | Tests | Data mesh > Quality |

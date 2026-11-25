@@ -64,7 +64,7 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
   semanticView: "Semantic View files and publish steps",
-  directLakeCheck: "Direct Lake check",
+  directLakeCheck: "Direct Lake fallback risk",
   modelBpa: "Semantic model best practices check",
   dataDictionary: "Data dictionary",
   tests: "Tests",

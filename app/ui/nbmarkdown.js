@@ -1,4 +1,4 @@
-// Rich-text editing of Markdown cells (Preview: mdToolbar). While a Markdown cell is being edited
+// Markdown toolbar and preview (Preview: mdToolbar). While a Markdown cell is being edited
 // (cell.editing), a formatting toolbar sits above its editor and a View switch shows the editor, the
 // rendered cell, or both side by side. Every button edits the Markdown source through the cell's
 // CodeMirror editor, so Ctrl+Z undoes it, and the cell is saved as Markdown, as it is today. The View

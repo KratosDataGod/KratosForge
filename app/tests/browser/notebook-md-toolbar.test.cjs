@@ -1,4 +1,4 @@
-// Rich-text editing of Markdown cells (nbmarkdown.js, Preview): the formatting toolbar while a Markdown
+// Markdown toolbar and preview (nbmarkdown.js, Preview): the formatting toolbar while a Markdown
 // cell is being edited, each button with and without a selection, Ctrl+B, Ctrl+I and Ctrl+K, undo, the
 // live Split preview, the View switch remembered per notebook, tabs on a narrow cell, the hint, plain
 // Markdown in what is saved, Esc and a click outside finishing editing, and nothing new with Preview

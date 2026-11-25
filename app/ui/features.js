@@ -108,7 +108,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   nbConsole: "Scratch console in notebooks",
   nbReport: "Notebook as a report",
-  mdToolbar: "Rich-text editing of Markdown cells",
+  mdToolbar: "Markdown toolbar and preview",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
   forgeActivity: "Forge Activity view in Monitor",

@@ -233,6 +233,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
+      nbPresentButton(),  // nbpresent.js (Preview)
       toggleBtn("Variables", "braces", state.showVariables, toggleVariables), consoleToggle(nb), depsToggle(), commentsToggle(nb), practicesToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
@@ -454,6 +455,7 @@ function renderCell(cell, index, shown) {
     isParams(cell) ? h("span", { class: "tag" }, "Parameters") : null,
     meta.frozen ? h("span", { class: "tag frozen-tag" }, icon("shield", 12), "Frozen") : null,
     fabricStepBadge(cell),  // fabricstep.js
+    nbPresentHeadTag(cell),  // nbpresent.js
     cell.type === "code" ? depsHead(cell) : null,
     ...cellHeadExtras(cell),
     commentBadge(cell),  // notebook-comments.js
@@ -553,6 +555,7 @@ function cellMenu(cell) {
   items.push({ label: "Paste cell below", icon: "add", action: () => pasteCell(cell, 1) });
   items.push({ label: "Find in this cell", icon: "search", action: () => findInCell(cell) });
   items.push(...commentMenuItems(cell));  // notebook-comments.js
+  items.push(...nbPresentMenuItems(cell));  // nbpresent.js: Starts a slide (Preview)
   return [...items, ...cellMenuExtras(cell)];
 }
 

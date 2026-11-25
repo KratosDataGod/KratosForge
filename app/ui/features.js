@@ -108,6 +108,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   nbConsole: "Scratch console in notebooks",
   nbReport: "Notebook as a report",
+  nbPresent: "Notebook Present mode",
   mdToolbar: "Markdown toolbar and preview",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",

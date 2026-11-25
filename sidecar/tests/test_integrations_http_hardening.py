@@ -137,7 +137,7 @@ def test_a_caller_without_a_loopback_address_is_refused_before_the_account_check
 
 # --------------------------------------------------------------------------- failures don't leak
 
-SECRET = "fdt_" + "s3cr3t" * 6
+SECRET = "fdt_" + "s3cr3t" * 6  # pragma: allowlist secret (made up)
 
 
 def test_an_unexpected_failure_is_a_plain_500_without_its_text_or_a_traceback(store):

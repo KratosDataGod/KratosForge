@@ -32,12 +32,11 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 53 | 0 | 1 | 98% |
+| Notebook | 54 | 54 | 0 | 0 | 100% |
 | SQL editor | 45 | 41 | 2 | 2 | 93% |
-| **Both** | **99** | **94** | **2** | **3** | **96%** |
+| **Both** | **99** | **95** | **2** | **2** | **97%** |
 
-The notebook is at 98%: its one gap is rich-text Markdown editing (N23), a wave 2 item whose mockup
-is approved (2026-11-17). Presentation mode (N49), the other, is built as Preview. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+The notebook is at 100%. Its last two gaps, the Markdown toolbar and preview (N23) and Present mode (N49), are both built as Preview. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), and its results
 grid now sorts, filters, resizes, opens and copies over every row, with several statements and
 result sets per run. Its open rows are data compare
@@ -72,7 +71,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N20 | Markdown: numbered and nested lists, tables, code blocks, quotes, H4 to H6, clickable links | Y | Y | Y | Y | Y | Have | markdown-it: CommonMark, GitHub tables, nested lists, code, quotes, links opened in the browser (#2589) |
 | N21 | LaTeX math in Markdown | Y | Y | Y | Y | Y | Have | KaTeX drawn as MathML, nothing fetched (#2589) |
 | N22 | Images in Markdown, including pasted attachments | Y | Y | Y | Y | Y | Have | pasted attachments and inline data images; remote images are not fetched (#2589) |
-| N23 | Rich-text Markdown editing (toolbar, live preview) | N | P | Y | N | Y | Gap | raw source, rendered on leaving the cell |
+| N23 | Rich-text Markdown editing (toolbar, live preview) | N | P | Y | N | Y | Have | Formatting toolbar and Edit, Split or Preview view while editing a Markdown cell (`nbmarkdown.js`, Preview, #3329) |
 | N24 | Run cell, all, above, below; restart and run all; interrupt | Y | Y | Y | Y | Y | Have | `notebook.js`, `nbnext.js` |
 | N25 | Run the selected text or current line | P | Y | Y | Y | N | Have | `nbselect.js` |
 | N26 | Execution count and time per cell | Y | Y | Y | Y | Y | Have | `notebook.js:465` |
@@ -245,7 +244,7 @@ each its own PR and Preview until used for real:
 | F5 | MERGE with schema evolution and dynamic partition overwrite, under the write lease | No | Merged #2631, #2635 (Preview) |
 | F6 | `OPTIMIZE`, `VACUUM`, `RESTORE` and `DeltaTable` maintenance from code, behind the app's guards | No | Merged #2639 (Preview) |
 | F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No | Done as far as it can go on this PC: `lakehouse.loadTable` runs here (#2637, Preview). Creating or changing Fabric items from code is a hand-off: the notebook is marked as needing Fabric and runs there (`fabric_run.py` `_UTILS_FABRIC`), as Publish to OneLake is the guarded way from this PC |
-| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Mockup approved 2026-11-17; the build waits on Chris's go |
+| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Merged #3329 (Preview) |
 | F9 | Editor display settings (N17, Wave 1 item 16) | Yes | Merged #2791 (Preview for Vim) |
 | F10 | Dark mode applied (N60): mockup approved 2026-11-13, merged in #2585 | Yes | Merged #2585 |
 

@@ -98,7 +98,7 @@ async function nbPresentOpen(nb) {
   const slides = split.map((s) => ({ ...s, parts: s.parts.filter((p) => !p.code || outputs.has(p.cell)) })).filter((s) => s.parts.length);
   if (state.notebook !== nb || state.view !== "notebook") return;  // left the notebook while the outputs were read
   if (!slides.length) {
-    toast("There's nothing to present: the notebook has no Markdown and no outputs yet.");
+    toast("There's nothing to present, because the notebook has no Markdown and no outputs yet. Add a Markdown cell or run the notebook first.");
     return;
   }
   slides.forEach((s, i) => { s.title = nbPresentTitle(s, i + 1); });

@@ -352,7 +352,7 @@ A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run`
 
 ### Present mode (Preview)
 
-**Present** (View tab, or **Ctrl+Shift+F5**) shows the notebook as slides, full screen. Like the report, it shows the Markdown and the outputs saved from the last run, without the code, and nothing in it runs; a cell with no output is left out. A slide starts at each `#` or `##` heading in a Markdown cell, and a `###` heading stays on the slide. To choose the slides yourself, pick **Starts a slide** in a cell's **...** menu: once any cell is marked, only the marks start slides. The mark is saved in the `.ipynb` under the cell's `fabric_desktop` metadata, and the cell's other metadata is kept. **Left** and **Right** or **Page Up** and **Page Down** move between slides, **S** shows the slides as a numbered list, and **Esc** leaves and goes back to the cell you started from.
+**Present** (View tab, or **Ctrl+Shift+F5**) shows the notebook as slides, full screen. Like the report, it shows the Markdown and the outputs saved from the last run, without the code, and nothing in it runs. A cell with no output is left out. A slide starts at each `#` or `##` heading in a Markdown cell, and a `###` heading stays on the slide. To choose the slides yourself, pick **Starts a slide** in a cell's **...** menu. Once any cell is marked, only the marks start slides. The mark is saved in the `.ipynb` under the cell's `fabric_desktop` metadata, and the cell's other metadata is kept. **Left** and **Right** or **Page Up** and **Page Down** move between slides, **S** shows the slides as a numbered list, and **Esc** leaves and goes back to the cell you started from.
 
 ### Formatting Markdown cells (Preview)
 

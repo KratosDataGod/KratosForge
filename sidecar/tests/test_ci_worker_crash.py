@@ -33,10 +33,14 @@ def test_every_xdist_run_in_ci_stops_when_a_worker_dies():
 
 
 def test_a_run_with_a_worker_that_dies_ends_and_names_the_test(tmp_path):
+    # The file whose test dies sorts last, so it is the last file the first hand-out sends: the worker
+    # that runs it gets no more work after it starts (only "shutdown", whose failed send xdist ignores).
+    # When it sorted first, the worker could die while the hand-out was still sending to it, and the run
+    # ended in an xdist INTERNALERROR ("cannot send (already closed?)") instead of naming the test.
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
-    (tmp_path / "test_dies.py").write_text("import os\n\ndef test_dies():\n    os._exit(1)\n\n"
-                                           "def test_after():\n    pass\n", encoding="utf-8")
-    for name in ("one", "two", "three"):
+    (tmp_path / "test_d_dies.py").write_text("import os\n\ndef test_dies():\n    os._exit(1)\n\n"
+                                             "def test_after():\n    pass\n", encoding="utf-8")
+    for name in ("a", "b", "c"):
         (tmp_path / f"test_{name}.py").write_text("def test_a():\n    pass\n\ndef test_b():\n    pass\n",
                                                   encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
@@ -45,5 +49,5 @@ def test_a_run_with_a_worker_that_dies_ends_and_names_the_test(tmp_path):
                           cwd=tmp_path, env=env, capture_output=True, text=True, timeout=240)
     out = done.stdout + done.stderr
     assert done.returncode == 1, out
-    assert "worker 'gw" in out and "crashed while running 'test_dies.py::test_dies'" in out, out
+    assert "worker 'gw" in out and "crashed while running 'test_d_dies.py::test_dies'" in out, out
     assert "crashed and worker restarting disabled" in out, out

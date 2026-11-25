@@ -64,7 +64,7 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
   semanticView: "Semantic View files and publish steps",
-  directLakeCheck: "Direct Lake check",
+  directLakeCheck: "Direct Lake fallback risk",
   modelBpa: "Semantic model best practices check",
   dataDictionary: "Data dictionary",
   tests: "Tests",
@@ -108,6 +108,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   nbConsole: "Scratch console in notebooks",
   nbReport: "Notebook as a report",
+  nbPresent: "Notebook Present mode",
   mdToolbar: "Markdown toolbar and preview",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
@@ -321,8 +322,11 @@ function initAppearance() {
     if (e.key === "Escape" && howView.open && !document.querySelector(".overlay, #menu")) setHowDrawer(false);
   });
   let queued = false;
-  new MutationObserver(() => {
-    if (queued) return;
+  new MutationObserver((records) => {
+    // A code editor's own changes (typing, a notebook cell's editor coming and going as it scrolls,
+    // notebook.js) never add or remove a page's explanation: each sync searches the whole page, which in
+    // a long notebook took ~10 ms a frame while scrolling (WR-134).
+    if (queued || records.every((r) => r.target.closest?.(".cells .editor, .cm-editor"))) return;
     queued = true;
     requestAnimationFrame(() => { queued = false; syncHowToggle(); });
   }).observe(document.getElementById("view"), { childList: true, subtree: true });

@@ -6181,7 +6181,7 @@ test("the Direct Lake check is a Preview card that only reads, with fixes that o
   assert.match(card, /reading from OneLake uses capacity/, "capacity wording (QA-008)");
   assert.match(card, /goMeta\("health"\)/, "compacting happens in Table health");
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
-  assert.match(features, /directLakeCheck: "Direct Lake check"/);
+  assert.match(features, /directLakeCheck: "Direct Lake fallback risk"/);
 });
 
 test("the data dictionary is a Preview card whose import saves only from its preview", () => {
@@ -6311,7 +6311,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
     runSeveral: ["Run several notebooks"], modelBpa: ["Semantic model best practices"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
-    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], mdToolbar: ["Formatting Markdown cells"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], nbPresent: ["Present mode"], mdToolbar: ["Formatting Markdown cells"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],

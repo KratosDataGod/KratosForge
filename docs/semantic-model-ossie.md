@@ -261,6 +261,32 @@ time of day, time zones) is not run, with the reason. Neither is SUM or AVERAGE 
 Boolean, date or time column, because DuckDB sums a Boolean, where DAX and T-SQL refuse it. `semantic_parity_l3.redacted()` also replaces
 each built query with a length and a hash.
 
+## Parts of the wrong type
+
+Before a conversion runs, export, import, Ossie to TMDL and the update merge check the types of
+the parts they read: in an Ossie file the name, datasets, fields, metrics, expressions and
+relationships, and in a `model.bim` the tables, columns, measures, partitions, relationships,
+roles and expressions. A part of the wrong type, such as text where the datasets go, a list where
+a name goes or a number where an object goes, is refused with a plain message that gives where
+it is as a path such as `$.datasets['sales'].fields[2].name`. The message names objects by name,
+cut short past 1,024 characters, and never shows the value. A name that is a number is told to go
+in quotes.
+
+A part that is missing, null or empty is read as missing, as before. An item of a list that isn't
+an object (a field written as plain text, say) is now refused by path, where the converter used
+to leave it out without saying so. The check goes only as deep as the parts it knows, so a deeply
+nested value elsewhere costs nothing.
+
+A file that isn't one object at all (a list, a number, plain text or an empty file) is refused the
+same way, with "This isn't an Ossie semantic model, which is one object with version, name and
+datasets", by every entry point: reading, conversion, Ossie to TMDL, the Semantic View and structural
+parity. The TMDL reader refuses files that aren't path -> text.
+
+Conversion also keeps the schema check's depth limit: an Ossie file, or a `model.bim`, nested more
+than 64 levels deep is refused with a plain message that names the limit, before the converter
+reads it. That applies to Import, Export, the round-trip check, Ossie file to TMDL, writing TMDL from
+a model and the Semantic View's reading of an Ossie file. A real model nests about ten levels.
+
 ## Schema validation
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the
@@ -344,6 +370,40 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   schema, documented or derived) and, in `derived`, any part of it that KratosForge reads in. The
   result gives the `profile`, a `status` (Valid, Invalid, Unverified or Not checked), `warnings`,
   `notes` and the `rules` that ran. It still only informs.
+
+### Snowflake export profile (engine only)
+
+`ossie_snowflake.to_snowflake(doc_or_text, translate_ossie_sql=True)` (OSSIE-010a) turns an Ossie
+0.2.0.dev0 document into Snowflake's Ossie 0.1.1 file. It returns `yaml` and a `report`. The file
+has `version: 0.1.1` and a `semantic_model` list that holds the model, the same layout as the
+output of `SYSTEM$READ_OSSIE_YAML_FROM_SEMANTIC_VIEW`. No YAML aliases are written. Input that
+isn't a 0.2.0.dev0 model is refused with a plain ValueError, and the input is never changed.
+Nothing calls Snowflake.
+
+Each report row has a fidelity class and its label, the path in the output, a message and a
+remediation.
+
+- The whole file is one Unverified row, because no 0.1.1 schema is pinned and Snowflake hasn't
+  read the file. The report's `validation` reads the output back through the `snowflake-ossie`
+  profile. A correct export reads back with no errors.
+- Extension `data` that isn't text is written as JSON text (Preserved through extensions). An
+  extension with no `vendor_name` or no `data`, or a `custom_extensions` that isn't a list, is
+  Unsupported and left out.
+- A field or metric with no `SNOWFLAKE` or `ANSI_SQL` expression is Unsupported and listed in
+  `skipped_by_snowflake`, because Snowflake skips it without a message. It stays in the file, so
+  other tools still read it. A metric with only DAX always gets this row.
+- An `OSSIE_SQL_2026` expression is translated to Snowflake SQL by sqlglot on this PC and added as
+  a `SNOWFLAKE` entry beside the original (Unverified: Snowflake hasn't run it). It is translated
+  only when it is one expression (no statement, query or `;`), calls no function sqlglot doesn't
+  know and sqlglot can write all of it as Snowflake SQL. Otherwise the row is Unsupported with a
+  short reason, such as "calls FOO_BAR, which sqlglot doesn't know". Reasons never quote the
+  expression. With `translate_ossie_sql=False` nothing is translated.
+- `datatype`, `ai_context`, other dialect entries such as DAX, metrics inside datasets and vendor
+  names are left as they are.
+
+Open questions for the live `verify_only` run (OSSIE-010b): which `vendor_name` and `dialect`
+values Snowflake accepts, whether it accepts `datatype` on fields, whether metrics may sit inside
+datasets, and whether `semantic_model` may also be one object instead of a list.
 
 ## Semantic View files (Preview)
 
@@ -460,6 +520,57 @@ The card reads with `meta_model_semantic_view_status`. It reads only `semantic-v
 the project's folder, refuses a link or junction there, and reads nothing past 200 entries or
 16 MB of YAML. **Open folder** uses `meta_model_semantic_view_reveal`, which opens only that view's
 existing folder in File Explorer and is written to the audit log, as the other Open folder buttons are.
+
+## Compatibility matrix (engine only)
+
+`semantic_matrix.compatibility(definition, kind=None)` (OSSIE-015a; `sidecar/fabric_desktop/semantic_matrix.py`)
+checks one definition against every target KratosForge writes, on this PC. The definition is a `model.bim`, a TMDL
+folder's files or an Ossie file, as structural parity reads them. Nothing is written, and nothing calls Fabric or
+Snowflake. There's no engine method or screen yet.
+
+It returns `definition` (its kind and label), `targets` (one row per target), `columns`, `summary`, `security`
+(the source's role and calculation group names), `not_checked` (L3 and L4) and `ceiling`. The four targets are:
+
+| Target | How it's made |
+| --- | --- |
+| `power-bi-model` | Import's converter (`to_tmsl`) |
+| `ossie-0.2` | Export (`model_ossie.export`) |
+| `fabric-semantic-view` | The Semantic View emitter |
+| `snowflake-ossie` | The Snowflake export profile, run on the Ossie 0.2 export |
+
+Each row has:
+
+- `status`: **converted**, **source** (the definition is already this kind), **refused** (the converter or emitter
+  refuses it by a rule), **failed** (it tripped), or **not available** (Snowflake when the Ossie export isn't
+  there).
+- `result`, in the plan's words. The best is **Structurally compatible but behavior unverified**. No row ever says
+  Verified equivalent or Equivalent within tolerance, because nothing is run or timed. A converted row's result is
+  its L2 parity summary, the worst object result.
+- `fidelity`: the counts with their basis, which is the converter's fidelity report, the Semantic View report or
+  the Snowflake report. When a fidelity report can't be built, the counts are derived from the parity rows and say
+  so.
+- `dropped`: the source objects the target leaves out, by the source's names. At most 50 are listed, with the
+  total. A view report names a column "dataset ... field" and parity names it "table ... column". They're matched
+  by structural key, so each object is listed once. `extension_only` lists, the same way, what the target carries
+  only in the Power BI section.
+- `parity`: the full `parity_l2` report of the source against the target, with its summary and counts.
+- `roles` and `calculation_groups`: every role and calculation group of the source, named in every row with what
+  the target does to it: **kept**, **extension only**, **changed**, **dropped** or **unverified**.
+  `roles_dropped` and `calculation_groups_dropped` name the dropped ones, and `warnings` lists security warnings
+  first. Ossie 0.2 keeps roles and calculation groups only in the Power BI section, so that row has an "extension
+  only" security warning. Snowflake keeps that section in the file but doesn't apply it, so its row says the same.
+  A view has no place for them, so they're dropped there.
+
+A definition that can't be read is **Test failed** on every row, with the reason. An Ossie 0.3.0.dev0 file is
+**Unsupported** on every row, because the converter reads 0.2.0.dev0 only. A Snowflake 0.1.1 file is its own
+row, and the others are Unsupported.
+
+Known limit: a Semantic View has no dataset fields, because Fabric reads the columns from the lakehouse. So L2
+can't resolve the columns a view metric's SQL names, and a measure the view keeps can show Unsupported at L2. The
+view row's notes count these measures, and they aren't listed as dropped.
+
+`semantic_matrix.redacted(matrix)` gives a copy that's safe outside the local pane. Each parity report goes
+through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and hash instead.
 
 ## Keeping Git in step
 

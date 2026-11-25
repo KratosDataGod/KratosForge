@@ -440,7 +440,7 @@ def _read_view(side: _Side, value: Any) -> None:
             and all(k.lower().endswith((".yaml", ".yml")) for k in value):
         value = semantic_view.merged(value)
     if not isinstance(value, dict):
-        raise TypeError(f"A semantic view is its .yaml files or one document, not {type(value).__name__}")
+        raise ValueError(f"A semantic view is its .yaml files or one document, not {type(value).__name__}")
     if ossie_profiles.detect_profile(value) != "ossie-0.2":
         raise ValueError(f"A Fabric Semantic View is Ossie {ossie_profiles.V02}, and this is version "
                          f"{mo._short(value.get('version'))}")
@@ -488,7 +488,7 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
         return
     if isinstance(value, str):
         if kind == "tmdl":
-            raise TypeError("TMDL is a folder of files: pass them as path -> text")
+            raise ValueError("TMDL is a folder of files: pass them as path -> text")
         size = len(value)
         if kind == "tmsl" or (kind is None and value.lstrip("\ufeff \t\r\n").startswith("{")):
             value = _json_text(value)  # a model.bim: JSON under its own, larger cap
@@ -500,7 +500,7 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
     kind = kind or _detect(value)
     side.kind = kind
     if not isinstance(value, dict):
-        raise TypeError(f"A {kind.upper()} definition is one object, not {type(value).__name__}")
+        raise ValueError(f"A {kind.upper()} definition is one object, not {type(value).__name__}")
     if kind == "tmsl":
         side.format, side.version = "TMSL", str(value.get("compatibilityLevel", ""))
         side.label = f"TMSL (compatibility level {mo._short(side.version)})" if side.version else "TMSL"
@@ -510,7 +510,7 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
         from . import tmdl
 
         if not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
-            raise TypeError("TMDL files are path -> text")
+            raise ValueError("TMDL files are path -> text")
         bim, rows = tmdl.to_bim(value)
         side.format, side.version = "TMDL", str(bim.get("compatibilityLevel", ""))
         side.label = f"TMDL (compatibility level {mo._short(side.version)})"

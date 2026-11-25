@@ -2742,7 +2742,8 @@ COMPUTE = ("default", "local", "fabric")
 def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     """A cell's settings as Jupyter and Fabric store them: the parameters tag, hidden input or
     output, and frozen (can't be edited or run); a collapsed heading section as JupyterLab stores it,
-    and a cell title where Databricks keeps it, so both read them back."""
+    and a cell title where Databricks keeps it, so both read them back. KratosForge's own settings
+    (a chart, the Fabric step, breakpoints, a slide start) go under fabric_desktop."""
     md: dict[str, Any] = {}
     tags = [t for t in meta.get("tags", []) if isinstance(t, str)]
     if tags:
@@ -2765,6 +2766,8 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
             md["fabric_desktop"]["charts"] = charts
     if meta.get("fabric_step"):  # the last cell runs on Fabric Spark (fabric_step.py)
         md.setdefault("fabric_desktop", {})["run_on"] = "fabric"
+    if meta.get("slide_start"):  # Present mode starts a slide at this cell (nbpresent.js)
+        md.setdefault("fabric_desktop", {})["slide_start"] = True
     breakpoints = breakpoints_meta(meta.get("breakpoints"))
     if breakpoints:  # the debugger's breakpoints (debugger.py), kept with the cell
         md.setdefault("fabric_desktop", {})["breakpoints"] = breakpoints
@@ -2834,6 +2837,8 @@ def _cell_meta(md: Any) -> dict[str, Any]:
         meta["charts"] = charts
     if own.get("run_on") == "fabric":
         meta["fabric_step"] = True
+    if own.get("slide_start") is True:
+        meta["slide_start"] = True
     breakpoints = breakpoints_meta(own.get("breakpoints"))
     if breakpoints:
         meta["breakpoints"] = breakpoints
@@ -2903,7 +2908,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
             else:
                 del keep[key]
     if isinstance(keep.get("fabric_desktop"), dict) and keep["fabric_desktop"]:
-        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on", "breakpoints")}
+        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on", "breakpoints", "slide_start")}
         if rest:
             keep["fabric_desktop"] = rest
         else:

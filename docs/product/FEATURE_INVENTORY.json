@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "84a36dd631772d2e33f0fb2b6b92046eddde3c47",
-    "date": "2026-11-24",
+    "commit": "b4bc548d8aab6deb39a312cdf1953dbcca58d9c2",
+    "date": "2026-11-25",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -79,7 +79,8 @@
       "Product check 2026-11-23 11:42 (the 11-21 and 11-22 checks found main unchanged) at 0fdeb4d7d293f77a9d91644fbc92661e9883d0bb: 42 PRs merged after ea988e99; 2 were product data, docs audit, operations or plan PRs and the other 40 were linked by title; other rows were not re-read.",
       "Product check 2026-11-23 23:42 at 293fb38daae81c9e80fd2e5a5b49c13d608d556a: 16 PRs merged after 0fdeb4d7; 1 were product data, docs audit, operations or plan PRs and the other 15 were linked by title; other rows were not re-read.",
       "Product check 2026-11-24 11:42 at a73ebb71a6c292261c8b2a20c995b0441121a52c: 38 PRs merged after 293fb38d; 3 were product data, docs audit, operations or plan PRs and the other 35 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-24 23:42 at 84a36dd631772d2e33f0fb2b6b92046eddde3c47: 30 PRs merged after a73ebb71; 3 were product data, docs audit, operations or plan PRs and the other 27 were linked by title; other rows were not re-read."
+      "Product check 2026-11-24 23:42 at 84a36dd631772d2e33f0fb2b6b92046eddde3c47: 30 PRs merged after a73ebb71; 3 were product data, docs audit, operations or plan PRs and the other 27 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-25 11:42 at b4bc548d8aab6deb39a312cdf1953dbcca58d9c2: 11 PRs merged after 84a36dd6; 0 were product data, docs audit, operations or plan PRs and the other 11 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -341,7 +342,8 @@
         3268,
         3312,
         3319,
-        3321
+        3321,
+        3325
       ]
     },
     {
@@ -2812,7 +2814,8 @@
         3273,
         3314,
         3315,
-        3320
+        3320,
+        3329
       ]
     },
     {
@@ -4413,7 +4416,7 @@
     {
       "id": "FEAT-META-13",
       "name": "Direct Lake semantic model",
-      "description": "Builds a Direct Lake semantic model over a layer's tables, with measures, relationships and catalog descriptions written into the TMDL. The Semantic model tab adds a Direct Lake check (fallback risks, blank rows from facts with no match) and a data dictionary to export, edit and import descriptions (Preview).",
+      "description": "Builds a Direct Lake semantic model over a layer's tables, with measures, relationships and catalog descriptions written into the TMDL. The Semantic model tab adds Direct Lake fallback risk (a verdict for the model, a forecast from the Delta log, the smallest capacity that fits, blank rows from facts with no match) and a data dictionary to export, edit and import descriptions (Preview).",
       "pillar": "Enterprise services",
       "category": "Fabric Integration and Deployment",
       "status": "Implemented",
@@ -6009,7 +6012,8 @@
         3000,
         3009,
         3049,
-        3244
+        3244,
+        3259
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -8671,10 +8675,13 @@
         3163,
         3171,
         3172,
+        3188,
         3266,
         3285,
         3316,
-        3324
+        3323,
+        3324,
+        3331
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",

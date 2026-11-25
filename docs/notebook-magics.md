@@ -134,8 +134,10 @@ rules (writes to OneLake need a lakehouse you can write to, and a proof refuses 
 | `%fs mounts`, `%fs refreshMounts` | Answer as `dbutils.fs` does on this PC: there are no mounts |
 
 `%fs mount`, `%fs unmount`, `%fs updateMount` and any other command stop with an error that names
-the command. So does a `dbfs:/`, `/Volumes/` or other bare absolute path, which is Databricks
-storage. Use `Files/...` for the attached lakehouse or `file:` for a folder on this PC. The **Runs
+the command. So does a `dbfs:/` or other bare absolute path, which is Databricks
+storage. Use `Files/...` for the attached lakehouse or `file:` for a folder on this PC. A
+`/Volumes/main/<schema>/<volume>/...` path is a Unity Catalog volume's folder on this PC
+([volumes on this PC](engines.md#unity-catalog-volumes-on-this-pc-preview)), as in `dbutils.fs`. The **Runs
 on** check lists such a `%fs` cell by number before the notebook runs.
 
 Dependencies treat shell commands and `%fs` changes as side effects, so **Run stale cells** asks

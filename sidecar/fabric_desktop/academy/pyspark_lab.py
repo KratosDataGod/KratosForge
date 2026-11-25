@@ -184,8 +184,7 @@ except pyspark_shim.NotebookExit:   # notebookutils.notebook.exit ends the noteb
 except BaseException:
     traceback.print_exc(limit=3)
     rc = 1
-sys.stdout.flush(); sys.stderr.flush()
-os._exit(rc)
+kf_end_now(rc)   # the learner process's own ending (academy/_bootstrap.py _ender): on Windows not os._exit
 """
 LEARNER_FILE = "kf_run.py"
 

@@ -235,8 +235,9 @@ def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blo
             if not under(full, _reads):
                 raise _err("An Academy exercise can read only its own folder.")
             return
-        if (event == "ctypes.call_function" and _end and args[0] == _end and len(args[1]) == 2
-                and args[1][0] == -1 and isinstance(args[1][1], int)):
+        if (event == "ctypes.call_function" and _end and args[0] == _end and type(args[1]) is tuple
+                and len(args[1]) == 2 and type(args[1][0]) is int and args[1][0] == -1
+                and type(args[1][1]) is int):   # plain ints: ctypes passes an object's _as_parameter_
             return   # kf_end_now: TerminateProcess on this process only (_ender)
         if event in _refuse or any(r.endswith(".") and event.startswith(r) for r in _refuse):
             raise _err(f"An Academy exercise can't do that ({event}).")

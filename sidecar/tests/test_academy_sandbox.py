@@ -592,14 +592,24 @@ def test_a_script_that_ends_now_keeps_its_output_and_exit_code(lab: tuple[Path, 
 
 def test_the_hook_lets_through_only_the_end_call_on_this_process() -> None:
     """The audit hook allows one native call, kf_end_now's TerminateProcess on this process (-1); any
-    other ctypes call, the same function on another handle included, is refused as before."""
+    other ctypes call, the same function on another handle included, is refused as before. Only plain
+    ints pass: ctypes passes a handle object's _as_parameter_, whatever its __eq__ says."""
     import subprocess
     source = sandbox.BOOTSTRAP.read_text(encoding="utf-8")
     source = source[:source.rindex("\ntry:\n    _main()")]
     probe = source + """
 _install("/nowhere", (), (), frozenset(), (), os.path.realpath, 4242)
 seen = []
-for args in ((4242, (-1, 0)), (4242, (-1, 5)), (4242, (7, 0)), (4242, (-1,)), (999, (-1, 0))):
+class Like(int):
+    def __eq__(self, other):
+        return True
+    __hash__ = int.__hash__
+class Any_:
+    _as_parameter_ = 7
+    def __eq__(self, other):
+        return True
+for args in ((4242, (-1, 0)), (4242, (-1, 5)), (4242, (7, 0)), (4242, (-1,)), (999, (-1, 0)),
+             (4242, (Any_(), 0)), (4242, (Like(7), 0)), (4242, (-1.0, 0)), (4242, (-1, Like(0)))):
     try:
         sys.audit("ctypes.call_function", *args)
         seen.append("allowed")
@@ -609,4 +619,5 @@ print(seen)
 """
     out = subprocess.run([sys.executable, "-I", "-c", probe], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "['allowed', 'allowed', 'refused', 'refused', 'refused']"
+    # an object that only claims to equal -1 (or an int subclass, or a float) names some other handle
+    assert out.stdout.strip() == str(["allowed"] * 2 + ["refused"] * 7)

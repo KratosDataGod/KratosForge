@@ -468,6 +468,8 @@ class LakehouseWriter:
         if given is not None and path is not None:  # Spark refuses both too, rather than pick one
             raise ValueError("There's a path option and a path given to save(). Give the path once.")
         path = given if path is None else path
+        if path is not None and (volume := _volume_path(path, write=True)) is not None:
+            path = str(volume)  # the volume's folder on this PC (databricks_volumes)
         fmt = format or self._format
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta" and rel and rel.startswith("Tables/"):
@@ -1050,8 +1052,24 @@ def read_option_refusal(fmt: str, options: list[tuple[str, Any]], has_schema: bo
     return None
 
 
+def _volume_path(path: Any, write: bool = False) -> Any:
+    """The file or folder on this PC that a /Volumes path names (a Unity Catalog volume here, databricks_volumes),
+    or None for any other path. A read of a folder holding a link is refused (what it points at may be outside the
+    volume), and so is a read of a path that isn't there, as Spark's PATH_NOT_FOUND."""
+    from . import databricks_volumes
+    if not databricks_volumes.is_volume_path(path):
+        return None
+    local = databricks_volumes.local_path(str(path))
+    shown = databricks_volumes.parse(str(path)).uc_path()
+    if not write and not local.exists():
+        raise FileNotFoundError(f"[PATH_NOT_FOUND] Path does not exist: {shown}.")
+    if local.is_dir():
+        databricks_volumes.check_tree(local, shown)
+    return local
+
+
 class LakehouseReader:
-    """``spark.read``: tables and files of the attached lakehouse, or files on this PC."""
+    """``spark.read``: tables and files of the attached lakehouse, files on this PC, or a /Volumes path."""
 
     def __init__(self, session: LocalSparkSession):
         self._session = session
@@ -1145,7 +1163,7 @@ class LakehouseReader:
     def _local(self, path: str) -> str | list[str]:
         """A local path for ``path``; a folder is its data files, as Spark reads one: every file below
         it except those (and folders) whose names start with _ or . (_SUCCESS, .crc files)."""
-        local = str(lakehouse.local_path(path))
+        local = str(_volume_path(path) or lakehouse.local_path(path))
         if not os.path.isdir(local):
             return local
         self._root = local
@@ -1185,7 +1203,7 @@ class LakehouseReader:
             if rel and rel.startswith("Tables/"):
                 return self.table(".".join(p for p in rel.split("/")[1:] if p))
             from deltalake import DeltaTable
-            opened = DeltaTable(path)
+            opened = DeltaTable(str(_volume_path(path) or path))
             from . import delta_cdf
             if delta_cdf.asked(self._options):
                 return self._session._from_arrow_dataset(delta_cdf.read(opened, path, self._options,

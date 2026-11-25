@@ -466,6 +466,17 @@ CASES: tuple[Case, ...] = (
        page="typeof"),
     _c("TYPEOF (path to a fraction)", "Semi-structured", "SELECT typeof(parse_json('{\"a\": [1, 191.2]}'):a[1])",
        "DECIMAL", page="typeof"),
+    # is_timestamp's example: SELECT v, TYPEOF(v) over TO_VARIANT of each kind of timestamp, row by row
+    _c("TYPEOF (TIMESTAMP_TZ)", "Semi-structured",
+       "SELECT typeof(to_variant(to_timestamp_tz('2020-02-24 15:00:00.123 +01:00')))", "TIMESTAMP_TZ",
+       page="is_timestamp"),
+    _c("TYPEOF (TIMESTAMP_LTZ)", "Semi-structured",
+       "SELECT typeof(to_variant(to_timestamp_ltz('2022-02-24 13:00:00.123 +01:00')))", "TIMESTAMP_LTZ",
+       page="is_timestamp"),
+    _c("TYPEOF (TIMESTAMP_NTZ)", "Semi-structured",
+       "SELECT typeof(to_variant(to_timestamp('2023-02-24 12:00:00.456')))", "TIMESTAMP_NTZ", page="is_timestamp"),
+    _c("TYPEOF (DATE)", "Semi-structured", "SELECT typeof(to_variant(to_date('2024-02-24')))", "DATE",
+       page="is_timestamp"),
     _c("TYPEOF (stored value with an exponent)", "Semi-structured",
        "SELECT typeof(v:a) FROM (SELECT parse_json('{\"a\": 1.912e2}') AS v)", "DOUBLE", "untranslated",
        "Refused by SFN-072 when the query reaches the value: DuckDB doesn't keep how a stored JSON number was "
@@ -1160,6 +1171,30 @@ CASES: tuple[Case, ...] = (
     _c("TRY_TO_DOUBLE (not a number)", "Conversion", "SELECT try_to_double('Invalid')", None, page="try_to_double"),
     _c("TRY_TO_TIME", "Conversion", "SELECT try_to_time('12:30:00')", dt.time(12, 30)),
     _c("TRY_TO_TIME (not a time)", "Conversion", "SELECT try_to_time('Invalid')", None, page="try_to_time"),
+    # data-types-datetime's TIMESTAMP_LTZ and TIMESTAMP_TZ examples: a table ts_test(ts) gets '2024-01-01 16:00:00'
+    # and '2024-01-02 16:00:00 +00:00' in an America/Los_Angeles session, then SELECT ts, HOUR(ts), and again
+    # after ALTER SESSION SET TIMEZONE = 'America/New_York'.
+    _c("INSERT (TIMESTAMP_LTZ column)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts TIMESTAMP_LTZ); ALTER SESSION "
+       "SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 16:00:00'); INSERT INTO "
+       "ts_test VALUES('2024-01-02 16:00:00 +00:00'); SELECT list(hour(ts) ORDER BY ts) FROM ts_test", [16, 8],
+       page="../data-types-datetime"),
+    _c("INSERT (TIMESTAMP_LTZ column, another session zone)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts "
+       "TIMESTAMP_LTZ); ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 "
+       "16:00:00'); INSERT INTO ts_test VALUES('2024-01-02 16:00:00 +00:00'); ALTER SESSION SET TIMEZONE = "
+       "'America/New_York'; SELECT list(hour(ts) ORDER BY ts) FROM ts_test", [19, 11], page="../data-types-datetime"),
+    _c("INSERT (TIMESTAMP_TZ column)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts TIMESTAMP_TZ); ALTER SESSION "
+       "SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 16:00:00'); SELECT hour(ts) "
+       "FROM ts_test", 16, page="../data-types-datetime"),
+    _c("INSERT (TIMESTAMP_TZ column, text with an offset)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts "
+       "TIMESTAMP_TZ); ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-02 "
+       "16:00:00 +00:00'); SELECT hour(ts) FROM ts_test", 16, "untranslated",
+       "Refused by SFN-013: DuckDB can't keep the +00:00 Snowflake keeps with the value (SFX-074). Text with "
+       "another offset and no space stops the query (SFN-071).", page="../data-types-datetime"),
+    _c("INSERT (TIMESTAMP_TZ column, another session zone)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts "
+       "TIMESTAMP_TZ); ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 "
+       "16:00:00'); ALTER SESSION SET TIMEZONE = 'America/New_York'; SELECT hour(ts) FROM ts_test", 16, "differs",
+       "SFD-002: in Snowflake the value keeps -08:00. Here it's an instant, shown in the session's new zone "
+       "(19). In the zone it was written in, it reads as in Snowflake.", page="../data-types-datetime"),
     # TO_TIMESTAMP_TZ's examples (to_timestamp page, in its America/Los_Angeles session): 01:02:03.000 -0700, the
     # session's offset, so its wall clock and its instant (08:02:03 UTC) are both checked.
     _c("TO_TIMESTAMP_TZ", "Conversion", "ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; "

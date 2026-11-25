@@ -1563,7 +1563,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync", "powerbi", "embedstudio"\]/);  // Databricks sync and Power BI are Workspaces tabs too
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync", "databricks_volumes", "powerbi", "embedstudio"\]/);  // Databricks (sync, volumes) and Power BI are Workspaces tabs too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -6340,7 +6340,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
     semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],
-    kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"],
+    kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"], ucVolumes: ["Unity Catalog volumes on this PC"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

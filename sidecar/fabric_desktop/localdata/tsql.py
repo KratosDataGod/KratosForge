@@ -163,73 +163,106 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
         raise ValueError(_TOO_DEEP) from None
 
 
+class InScript(ValueError):
+    """WR-238: a refusal of statement ``index`` (from 0) of a script of ``count``, which is translated whole before
+    any of it runs. ``str()`` is the refusal on its own; the engine adds which statement it was."""
+
+    def __init__(self, message: str, index: int, count: int, kind: str) -> None:
+        super().__init__(message)
+        self.index, self.count, self.kind = index, count, kind
+
+
+def _statement_kind(tree: exp.Expression) -> str:
+    try:
+        return (tree.sql(dialect="tsql").split(None, 1) or ["?"])[0].upper().rstrip("(;")
+    except Exception:  # noqa: BLE001 - only names the statement in a message
+        return type(tree).__name__.upper()
+
+
 def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
                known: Container[str] | None) -> tuple[list[str], list[str]]:
     texts: list[str] = []
     notes: list[str] = []
     skipped = False
     schema = _schema(columns or {})
-    for batch in split_batches(sql):
-        for tree in _parse(batch):
-            if isinstance(tree, exp.Semicolon):  # WR-236: only a comment after the last ``;``, not a statement
-                continue
-            if _harmless_setting(tree):
-                skipped = True
-                continue
-            tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
-            _refuse(tree)
-            tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
-            notes += _collations(tree)
-            _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
-            _national_text(tree)
-            notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
-            notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
-            tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
-            _temp_tables(tree)
-            notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
-            _joined_changes(tree)
-            tree = _views(tree, columns)
-            notes += _names(tree, columns)
-            notes += _as_of(tree)
-            _table_columns(tree)
-            for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
-                parts.replace(_timefromparts(parts))
-            tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
-            notes += _converts(tree)
-            _big_integers(tree)
-            _regexps(tree)
-            notes += _types(tree, schema)
-            _percentiles(tree)
-            notes += _likes(tree)
-            _patindex(tree)
-            notes += _json(tree)
-            tsql_tables.rewrite(tree)  # WR-227: before _gaps, which reads TOP ... WITH TIES
-            _functions(tree)
-            _gaps(tree)
-            _string_edges(tree)
-            _char_codes(tree)
-            _sharp_s(tree)
-            _key_columns(tree)
-            tsql_types.expand_datetimes(tree)
-            if known is not None:
-                _unknown_functions(tree, known)
-            tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
-            if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
-                                                   for a in tree.args.get("actions") or []) > 1:
-                raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
-                                 "mapped yet. Add each column in an ALTER TABLE of its own.")
-            try:
-                text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
-            except SqlglotError as exc:
-                raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
-            if len(text) > 50 * len(batch) + 200_000:  # a backstop: each rewrite reads its arguments once
-                raise ValueError(_TOO_DEEP)
-            if text.strip():
-                texts.append(text)
+    # every statement is read before any is translated, so a refusal can say which of how many it was
+    parsed = [(batch, tree) for batch in split_batches(sql) for tree in _parse(batch)
+              if not isinstance(tree, exp.Semicolon)]  # WR-236: only a comment after the last ``;``
+    count = sum(not _harmless_setting(tree) for _, tree in parsed)
+    index = -1
+    for batch, tree in parsed:
+        if _harmless_setting(tree):
+            skipped = True
+            continue
+        index += 1
+        try:
+            text, more = _one(batch, tree, columns, known, schema)
+        except ValueError as exc:
+            if count < 2:
+                raise
+            raise InScript(str(exc), index, count, _statement_kind(tree)) from None
+        notes += more
+        if text.strip():
+            texts.append(text)
     if not texts:
         raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
                          "nothing on the local engine, so they're skipped." if skipped else "The query is empty.")
     return texts, list(dict.fromkeys(notes))
+
+
+def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None,
+         known: Container[str] | None, schema: Any) -> tuple[str, list[str]]:
+    """One statement of ``batch`` as DuckDB SQL, and its notes."""
+    notes: list[str] = []
+    tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
+    _refuse(tree)
+    tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
+    notes += _collations(tree)
+    _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
+    _national_text(tree)
+    notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
+    notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
+    tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
+    _temp_tables(tree)
+    notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
+    _joined_changes(tree)
+    tree = _views(tree, columns)
+    notes += _names(tree, columns)
+    notes += _as_of(tree)
+    _table_columns(tree)
+    for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
+        parts.replace(_timefromparts(parts))
+    tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
+    notes += _converts(tree)
+    _big_integers(tree)
+    _regexps(tree)
+    notes += _types(tree, schema)
+    _percentiles(tree)
+    notes += _likes(tree)
+    _patindex(tree)
+    notes += _json(tree)
+    tsql_tables.rewrite(tree)  # WR-227: before _gaps, which reads TOP ... WITH TIES
+    _functions(tree)
+    _gaps(tree)
+    _string_edges(tree)
+    _char_codes(tree)
+    _sharp_s(tree)
+    _key_columns(tree)
+    tsql_types.expand_datetimes(tree)
+    if known is not None:
+        _unknown_functions(tree, known)
+    tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
+    if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
+                                           for a in tree.args.get("actions") or []) > 1:
+        raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
+                         "mapped yet. Add each column in an ALTER TABLE of its own.")
+    try:
+        text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
+    except SqlglotError as exc:
+        raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
+    if len(text) > 50 * len(batch) + 200_000:  # a backstop: each rewrite reads its arguments once
+        raise ValueError(_TOO_DEEP)
+    return text, notes
 
 
 class KfTSQL(TSQL):

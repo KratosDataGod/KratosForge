@@ -27,7 +27,8 @@ def zipped(path, bundle, extra=None):
 
 
 def minimal(**kw):
-    return {"format": replay.FORMAT, "version": 1, "inputs": {"tables": [], "files": []}, "samples": []} | kw
+    return {"format": replay.FORMAT, "version": 1, "cells": [], "failed_cell": 1,
+            "inputs": {"tables": [], "files": []}, "samples": []} | kw
 
 
 # ---- versions

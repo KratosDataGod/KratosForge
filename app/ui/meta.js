@@ -629,7 +629,9 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
           oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
           onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
     }
-    showDialog(title, h("div", {}, h("p", { class: "text" }, text), opts.items?.length ? gateList(opts.items) : null, typed), [cancel, ok],
+    // opts.after: a closing sentence under the list, such as what can't be undone.
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), opts.items?.length ? gateList(opts.items) : null,
+      opts.after ? h("p", { class: "text" }, opts.after) : null, typed), [cancel, ok],
       () => { if (!settled) { settled = true; resolve(false); } });
     if (opts.danger && (!typed || why)) cancel.focus();
   });

@@ -81,6 +81,7 @@ from .powerbi_embed_service import PowerBiEmbedMixin
 from .model_dictionary_service import ModelDictionaryMixin
 from .environment_service import EnvironmentMixin
 from .local_writes_service import LocalWritesMixin
+from .databricks_volumes_service import DatabricksVolumesMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
 from .editor_service import EditorMixin
@@ -145,7 +146,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, DatabricksVolumesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -1158,7 +1159,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Write a table diagram as a new .svg file in the Downloads folder. Never replaces a file."""
         if not isinstance(svg, str) or not svg.startswith("<svg ") or not svg.rstrip().endswith("</svg>"):
             raise ValueError("That isn't a diagram from the SQL page.")
-        if len(svg.encode("utf-8")) > self.DIAGRAM_SVG_MAX:
+        try:
+            size = len(svg.encode("utf-8"))
+        except UnicodeEncodeError:  # a lone surrogate, which JSON allows and a file can't hold
+            raise ValueError("The diagram wasn't saved, because it holds a character that can't be written "
+                             "to a file. Draw the diagram again on the SQL page.") from None
+        if size > self.DIAGRAM_SVG_MAX:
             raise ValueError("The diagram is too big to save (over 4 MB).")
         problem = self._diagram_problem(svg)
         if problem:
@@ -1361,10 +1367,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 break
             else:
                 raise ValueError("Couldn't find a free file name in Downloads for the export.")
-            header, protected = csv_cells.protect_header(result.schema or pa.schema([]))
+            # Binary goes out as hex and lists as JSON text, as the SQL page's export writes them (WR-221):
+            # Arrow wrote binary as its raw bytes, past the protection below.
+            header, protected = csv_cells.protect_header(sql_exec.csv_ready_schema(result.schema or pa.schema([])))
             with sink, pa_csv.CSVWriter(sink, header) as out:
                 for batch in result:
-                    batch, n = csv_cells.protect_batch(batch)  # WR-228: no cell runs as a formula when opened
+                    batch, n = csv_cells.protect_batch(sql_exec.csv_ready_batch(batch))  # WR-228
                     out.write_batch(batch)
                     rows, protected = rows + batch.num_rows, protected + n
         return {"path": str(path), "rows": rows, "protected": protected,

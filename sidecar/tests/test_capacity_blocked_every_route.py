@@ -198,7 +198,7 @@ def test_a_jobs_v_order_is_stopped_by_every_blocked_reading_and_the_written_rows
     from tests.test_job_v_order import Fabric, _job
     m = _mixin(name)
     fabric = Fabric()
-    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path,
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, guard=lambda *a: None,
                              capacity_gate=lambda ws, t: MetaMixin._job_v_order_refusal(m, ws, t))
     assert fabric.maintenance == [] and record.v_order_job is None and record.delta_version == 0
     assert f"the capacity check is Blocked ({classify(name)[1]})" in record.v_order_error

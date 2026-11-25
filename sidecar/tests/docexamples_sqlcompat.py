@@ -76,6 +76,9 @@ CLAIMS: list[Claim] = [
         note="the page escapes | for its table, and writes the array as ['', 'b', '', 'b']"),
     Claim("sql-compatibility.md", "REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm')", "local-tsql",
           query="SELECT CASE WHEN REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm') THEN 1 ELSE 0 END = 1"),
+    # CASE, coalesce and UNION result types (WR-259)
+    _nb("coalesce(1.0D, 'x')"),
+    _nb("coalesce(1L, 2.5)", typeof=True),
     _nb("chr(321)"),
     # Differential tests: fixed cases
     _nb("'24-02-29'", query="SELECT to_date('24-02-29')"),
@@ -97,9 +100,11 @@ CLAIMS: list[Claim] = [
     _ts("FORMAT(1234.5, 'C')"),
     _ts("PARSE('1.234,5' AS DECIMAL(10, 2) USING 'de-DE')"),
     _ts("STR(1234.5)"),
+    _ts("YEAR(5)"),
     # Local T-SQL text
     _ts("'a' = 'a  '"),
     _ts("'a' = 'A'"),
+    _ts("'a ' = ALL (SELECT 'a')"),
     _ts("'abc' LIKE 'abc '"),
     _ts("LEN('ab  ')"),
     _ts("DATALENGTH('ab  ')"),
@@ -157,6 +162,9 @@ ILLUSTRATIVE: dict[tuple[str, str], str] = {
 
 # Inline `SELECT ...` statements run as written (see Statement)
 STATEMENTS: list[Statement] = [
+    Statement(P, "SELECT 1L UNION ALL SELECT 1.5 UNION ALL SELECT 'x'", "notebook",
+              note="WR-259: one string column, '1.0', '1.5', 'x'"),
+    Statement(P, "SELECT 1 EXCEPT SELECT ' 1'", "local-tsql", note="WR-259: empty, ' 1' is the int 1"),
     Statement(P, "SELECT * FROM t", "local-tsql", setup=("CREATE TABLE dbo.t (a INT)",),
               note="a name without a schema reads dbo.t"),
 ]

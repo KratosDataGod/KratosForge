@@ -128,6 +128,17 @@ Spark SQL run on this PC, and the DataFrame API's filters and columns, compare t
 | `IN` with a subquery | Casts to the wider type | DuckDB's own comparison |
 | `CASE x WHEN ...` whose values mix text and numbers, or numbers of two types | Casts each pair | DuckDB's own comparison |
 
+## CASE, coalesce and UNION result types on this PC (WR-259)
+
+Spark SQL run on this PC gives `CASE`, `if`, `coalesce`, `nvl`, `ifnull`, `nvl2`, `greatest`, `least`, `UNION`, `INTERSECT` and `EXCEPT` the result type Spark gives them with ANSI mode off. Text with a number, a date or a timestamp is text, so `CASE WHEN c THEN 1 ELSE 'a' END` is the string `'1'` and `coalesce(1.0D, 'x')` is `'1.0'`, written as Spark's `CAST` to `STRING` writes it. An integer with a decimal is the decimal that holds both, with a `bigint` counted as `decimal(20,0)`: `coalesce(1L, 2.5)` is a `decimal(21,1)`, and a value too large for a 38-digit decimal is NULL. A `UNION` widens each column the same way, pair by pair from the left, so `SELECT 1L UNION ALL SELECT 1.5 UNION ALL SELECT 'x'` gives `'1.0'`. Before, DuckDB cast the text to the number instead (1, or a stop on `'a'`), and turned a boolean into a number. A boolean with a number or text, binary with text, a date with a number, and `greatest` or `least` of a number and text are refused by name, because Spark stops on them too. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_branch_types.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A statement whose types can't be worked out, or a `UNION` with `*` | Spark's result type | DuckDB's own type |
+| A tiny decimal turned to text, such as `CAST(0.00000001 AS DECIMAL(9,8))` in a `CASE` with `'a'` | `'1E-8'` | `'0.00000001'`, as this PC's `CAST` to `STRING` writes it |
+| `array`, `map` and `IN` with values of two types | Spark's wider type, or an error for a boolean and a number | DuckDB's own type, or its error |
+| The DataFrame API's `when`, `coalesce` and `union` | Spark's result type | DuckDB's own type |
+
 ## Whole-number arithmetic on this PC
 
 Spark SQL run on this PC, in a notebook or on the DuckDB engine, computes `+`, `-` and `*` of two whole numbers as Spark does with ANSI mode off: in the wider of the two types (`tinyint`, `smallint`, `int` or `bigint`; a whole-number literal is an `int` when it fits, else a `bigint`), wrapping around past the type's range as Java does. For example, `2147483647 + 1` is `-2147483648` and `CAST(100 AS TINYINT) + CAST(100 AS TINYINT)` is `-56`, where DuckDB stops with "Overflow in addition". The cases are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_integer_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric. Databricks SQL on the DuckDB engine, which runs with ANSI mode on, still stops on an overflow, as Databricks does.
@@ -474,6 +485,7 @@ When a project runs T-SQL on this PC, NULLs, ties and window functions give a wa
 | `CUME_DIST`, `PERCENT_RANK` | Ties share a value, as in T-SQL |
 | `LAG`, `LEAD` | `NULL` past the edge of the partition, or the default you give: `LAG(x, 1, 0)` |
 | `SUM`, `COUNT`, `MAX` and the other aggregates `OVER (ORDER BY ...)` | The default frame is `RANGE`, so rows that tie share a running total. Write `ROWS UNBOUNDED PRECEDING` for one total per row |
+| `RANGE` with a number of rows, such as `RANGE BETWEEN 1 PRECEDING AND CURRENT ROW` | Refused by name, as a warehouse refuses it, because T-SQL takes `RANGE` only with `UNBOUNDED` and `CURRENT ROW`. Use `ROWS` |
 | `PERCENTILE_CONT` | A `float`, with `NULL`s left out, for a decimal column too: 0.25 of `1.25`, `2.50` and `4.00` is `1.875` |
 | `PERCENTILE_CONT` and `PERCENTILE_DISC` with `ORDER BY ... DESC` | p counts from the largest value: 0.25 of 1 to 5 descending is `4`. `PERCENTILE_DISC` keeps its value's type |
 
@@ -526,6 +538,8 @@ Refused, each by name:
 - `FORMAT`'s `E`, `G` and `R` number formats, a precision of more than two digits, a custom format with a third section, scientific notation, `‰`, more than one `%`, `,` right before the point (which divides by 1,000), text among the digits with `#` or `,`, and `FORMAT` of a `float`, `money` or `time`.
 - `PARSE` and `TRY_PARSE` of text .NET may read another way: a currency sign, parentheses, an exponent, a sign at the end, `Infinity`, decimals for an integer type, or separators away from groups of three. Text with no digit at all gives T-SQL's answer.
 - `PARSE` and `TRY_PARSE` to a date or time (use `CONVERT` with a style), and to `money`, which isn't carried (use `DECIMAL(19, 4)`). `CONVERT`'s `money` styles are refused with `money`.
+- A `CONVERT` style that isn't a number written in the query, such as one from a column: it would be ignored here. Write the style as a number, such as `101`.
+- A number with a fraction where a date function takes a date (`DAY(1.5)`), which T-SQL reads as a datetime part of a day after 1900-01-01. A whole number is carried as T-SQL reads it, that many days after 1900-01-01: `YEAR(5)` is `1900`, and `DATEADD(day, DATEDIFF(day, 0, d), 0)` is the date of `d`. That holds for `YEAR`, `MONTH`, `DAY`, `EOMONTH`, `DATENAME`, `DATEPART`, `DATEADD`, `DATEDIFF` and `DATETRUNC`.
 
 The static check and **Format SQL** can't read `PARSE`'s `AS ... USING` yet: they mark the query unverified and leave it as written. The live check (`fabric-desktop smoke-test`, flow 17) asks a test warehouse for the answers .NET's versions disagree on, so they can be carried once known.
 
@@ -535,7 +549,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 
 | What | Here, as in a warehouse |
 | --- | --- |
-| `=`, `<>`, `<`, `IN`, `JOIN ... ON` | `'a' = 'a  '` is true and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
+| `=`, `<>`, `<`, `IN`, `ALL`, `ANY`, `JOIN ... ON` | `'a' = 'a  '` is true, `'a ' = ALL (SELECT 'a')` is true, and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
 | `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
 | `CHARINDEX` with a `NULL` start | `NULL` |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
@@ -851,6 +865,8 @@ These keep the local engine's words, with no number, because SQL Server's words 
 
 One word can differ: `N'...'` text that isn't a number, to a decimal or a float, shows `Msg 8114` naming `varchar`, where SQL Server says `nvarchar`, because the local engine's message doesn't say which it was.
 
+A statement of a script that the local engine refuses (one it can't translate, or Msg 239) is named by its place, such as "Statement 2 of 3 (WITH) was refused: Msg 239, Level 16: …". The local engine checks the whole script before it runs any of it, so the message ends by saying none of the script ran. A warehouse also stops a batch before its first statement for an error it finds while compiling it, such as Msg 239. A script of one statement shows the refusal on its own.
+
 `@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 
 ## Local T-SQL wide tables and long values
@@ -955,7 +971,8 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | A result past `int` or `bigint` | An error, as in T-SQL, in its words: `Msg 8115, Level 16: Arithmetic overflow error converting expression to data type int.` `SUM` of an integer keeps an `int` (or a `bigint`), and a total past it stops the same way (see Local T-SQL errors) |
 | Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with `Msg 245`, "Conversion failed when converting the varchar value 'x' to data type int." Two texts are concatenated (`'1' + '1'` is `'11'`). In a comparison with an integer or a float, the text is converted as a `CAST` would: `0 = ''` is true, and `2 = '1.5'` is a conversion error |
 | `NULL` in `+` and `CONCAT` | `+` with a `NULL` side is `NULL`, for text and numbers (`'a' + NULL`). `CONCAT` takes a `NULL` as `''` (`CONCAT('a', NULL)` is `'a'`, and `CONCAT(NULL, NULL)` is `''`), and `CONCAT_WS` skips it (`CONCAT_WS('-', 'a', NULL, 'b')` is `'a-b'`) |
-| `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
+| `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. A number too long for `a`'s text stops, as `CAST(12345 AS VARCHAR(2))` does here, rather than being cut to `'12'`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
+| Text in a `CASE`, `IIF`, `COALESCE`, `UNION`, `INTERSECT` or `EXCEPT` with an integer, `bit` or date | Converted to the type that ranks highest, as T-SQL's data type precedence says: `CASE WHEN c THEN 1 ELSE '2' END` is the int `2`, `'2.5'` or `'a'` there stops with "Conversion failed", and `SELECT 1 EXCEPT SELECT ' 1'` is empty. A `UNION` of an int column and a text column is an int column, sorted as numbers. Text with a decimal or a float is converted as DuckDB converts it, and a `UNION` whose first `SELECT` has an unnamed column that isn't a plain column keeps DuckDB's type |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
 
@@ -1135,8 +1152,8 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
 
 - **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
-- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS`, `+`, and `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT` and `REGEXP_INSTR` with their `c`, `i`, `m` and `s` flags on text with line breaks, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
-- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD`, `ORDER BY`'s NULL order, and `REGEXP_LIKE`, `REGEXP_SUBSTR`, `REGEXP_SUBSTR_ALL`, `REGEXP_COUNT` and `REGEXP_REPLACE` with the `c`, `i`, `m` and `s` parameters and with an empty pattern, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
+- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 1,700 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS`, `+`, text meeting an int in `CASE`, `IIF`, `COALESCE`, `UNION` and `EXCEPT`, and `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT` and `REGEXP_INSTR` with their `c`, `i`, `m` and `s` flags on text with line breaks, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
+- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 1,700 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD`, `ORDER BY`'s NULL order, window functions' default frames, a set operation of text and numbers, and `REGEXP_LIKE`, `REGEXP_SUBSTR`, `REGEXP_SUBSTR_ALL`, `REGEXP_COUNT` and `REGEXP_REPLACE` with the `c`, `i`, `m` and `s` parameters and with an empty pattern, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 

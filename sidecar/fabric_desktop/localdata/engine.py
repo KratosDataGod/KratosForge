@@ -44,6 +44,7 @@ import pyarrow as pa
 
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
 from ..awake_timer import AwakeTimer
+from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
 from . import delta, tsql, tsql_errors, tsql_merge
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
@@ -251,7 +252,10 @@ def _data_files(table: Any, folder: str) -> list[str]:
     """The data files of the loaded version, as paths on disk. From the log's own paths (each one
     percent-encoded once), not file_uris(): delta-rs 1.x percent-encodes the table's folder there but
     leaves a partition folder as it is on disk, so neither decoding nor not decoding it names the files
-    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith)."""
+    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith).
+
+    A path that leaves the table's folder (``..``, a rooted path, a URI elsewhere) is refused, never read:
+    a damaged or hostile log would otherwise show the rows of any Parquet file the project can reach."""
     files = []
     for rel in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
         path = unquote(rel)
@@ -259,8 +263,35 @@ def _data_files(table: Any, folder: str) -> list[str]:
             path = _local_path(path)
         elif not os.path.isabs(path):
             path = os.path.normpath(os.path.join(folder, path))
+        # Checked by name before anything resolves the path: on Windows, resolving one turns it into the device
+        if any(part.split(".")[0].upper().rstrip(" .") in _DEVICE_NAMES for part in _parts_below(path, folder)):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"({rel[:200]!r}) that Windows reserves for a device, like CON or NUL. Check where the "
+                             "table's _delta_log came from, or write the table again.")
+        if not _inside(path, folder):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"outside the table's folder ({rel[:200]!r}), and only files inside it are read. Check "
+                             "where the table's _delta_log came from, or write the table again.")
         files.append(path)
     return files
+
+
+def _parts_below(path: str, folder: str) -> list[str]:
+    """The names in ``path`` below ``folder``, compared as text only (never resolved), split on / and \\."""
+    p, r = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.normpath(folder))
+    below = p[len(r):] if p.startswith(r.rstrip("\\/") + os.path.sep) else p
+    return [part for part in below.replace("\\", "/").split("/") if part]
+
+
+def _inside(path: str, folder: str) -> bool:
+    """Whether ``path`` is a file within ``folder``, after ``..``, links (a linked data file or partition
+    folder) and case (on Windows) are resolved."""
+    p = os.path.normcase(os.path.realpath(path))
+    r = os.path.normcase(os.path.realpath(folder))
+    try:
+        return p != r and os.path.commonpath([p, r]) == r
+    except ValueError:  # silent-ok: another drive (Windows) is outside the folder
+        return False
 
 
 def _local_path(uri: str) -> str:
@@ -882,7 +913,12 @@ class LocalEngine:
                 try:
                     statements = self._statements(con, sql, dialect, run)
                 except ValueError as exc:
-                    if dialect != "tsql" or (said := _as_warehouse_says(exc, {})) is exc:
+                    if isinstance(exc, tsql.InScript):  # WR-238: which statement, and that none of it ran
+                        said: Exception = ValueError(_refused_in_script(_as_warehouse_says(ValueError(str(exc)), {}),
+                                                                        exc))
+                    else:
+                        said = exc if dialect != "tsql" else _as_warehouse_says(exc, {})
+                    if said is exc:
                         raise
                     raise said from None
                 if write is not None:
@@ -2110,6 +2146,17 @@ def _without_leading_comments(text: str) -> str:
                     i += 1
         else:
             return text[i:]
+
+
+def _refused_in_script(said: Exception, where: "tsql.InScript") -> str:
+    """The refusal of one statement of a T-SQL script, naming it. The script is translated whole before any of it
+    runs, so nothing ran, where a warehouse would also stop the batch before it runs for an error it finds in
+    compiling it, such as Msg 239."""
+    error = str(said)
+    if not error.endswith((".", "!", "?")):
+        error += "."
+    return (f"Statement {where.index + 1} of {where.count} ({where.kind}) was refused: {error} None of the script ran, "
+            "because every statement is checked before the first one runs.")
 
 
 def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:

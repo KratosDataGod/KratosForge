@@ -54,7 +54,7 @@ from sqlglot.errors import SqlglotError
 from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
-from ..sql import KfDuckDB
+from ..sql import KfDuckDB, duckdb_sql
 from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
@@ -163,73 +163,106 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
         raise ValueError(_TOO_DEEP) from None
 
 
+class InScript(ValueError):
+    """WR-238: a refusal of statement ``index`` (from 0) of a script of ``count``, which is translated whole before
+    any of it runs. ``str()`` is the refusal on its own; the engine adds which statement it was."""
+
+    def __init__(self, message: str, index: int, count: int, kind: str) -> None:
+        super().__init__(message)
+        self.index, self.count, self.kind = index, count, kind
+
+
+def _statement_kind(tree: exp.Expression) -> str:
+    try:
+        return (tree.sql(dialect="tsql").split(None, 1) or ["?"])[0].upper().rstrip("(;")
+    except Exception:  # noqa: BLE001 - only names the statement in a message
+        return type(tree).__name__.upper()
+
+
 def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
                known: Container[str] | None) -> tuple[list[str], list[str]]:
     texts: list[str] = []
     notes: list[str] = []
     skipped = False
     schema = _schema(columns or {})
-    for batch in split_batches(sql):
-        for tree in _parse(batch):
-            if isinstance(tree, exp.Semicolon):  # WR-236: only a comment after the last ``;``, not a statement
-                continue
-            if _harmless_setting(tree):
-                skipped = True
-                continue
-            tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
-            _refuse(tree)
-            tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
-            notes += _collations(tree)
-            _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
-            _national_text(tree)
-            notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
-            notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
-            tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
-            _temp_tables(tree)
-            notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
-            _joined_changes(tree)
-            tree = _views(tree, columns)
-            notes += _names(tree, columns)
-            notes += _as_of(tree)
-            _table_columns(tree)
-            for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
-                parts.replace(_timefromparts(parts))
-            tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
-            notes += _converts(tree)
-            _big_integers(tree)
-            _regexps(tree)
-            notes += _types(tree, schema)
-            _percentiles(tree)
-            notes += _likes(tree)
-            _patindex(tree)
-            notes += _json(tree)
-            tsql_tables.rewrite(tree)  # WR-227: before _gaps, which reads TOP ... WITH TIES
-            _functions(tree)
-            _gaps(tree)
-            _string_edges(tree)
-            _char_codes(tree)
-            _sharp_s(tree)
-            _key_columns(tree)
-            tsql_types.expand_datetimes(tree)
-            if known is not None:
-                _unknown_functions(tree, known)
-            tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
-            if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
-                                                   for a in tree.args.get("actions") or []) > 1:
-                raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
-                                 "mapped yet. Add each column in an ALTER TABLE of its own.")
-            try:
-                text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
-            except SqlglotError as exc:
-                raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
-            if len(text) > 50 * len(batch) + 200_000:  # a backstop: each rewrite reads its arguments once
-                raise ValueError(_TOO_DEEP)
-            if text.strip():
-                texts.append(text)
+    # every statement is read before any is translated, so a refusal can say which of how many it was
+    parsed = [(batch, tree) for batch in split_batches(sql) for tree in _parse(batch)
+              if not isinstance(tree, exp.Semicolon)]  # WR-236: only a comment after the last ``;``
+    count = sum(not _harmless_setting(tree) for _, tree in parsed)
+    index = -1
+    for batch, tree in parsed:
+        if _harmless_setting(tree):
+            skipped = True
+            continue
+        index += 1
+        try:
+            text, more = _one(batch, tree, columns, known, schema)
+        except ValueError as exc:
+            if count < 2:
+                raise
+            raise InScript(str(exc), index, count, _statement_kind(tree)) from None
+        notes += more
+        if text.strip():
+            texts.append(text)
     if not texts:
         raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
                          "nothing on the local engine, so they're skipped." if skipped else "The query is empty.")
     return texts, list(dict.fromkeys(notes))
+
+
+def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None,
+         known: Container[str] | None, schema: Any) -> tuple[str, list[str]]:
+    """One statement of ``batch`` as DuckDB SQL, and its notes."""
+    notes: list[str] = []
+    tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
+    _refuse(tree)
+    tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
+    notes += _collations(tree)
+    _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
+    _national_text(tree)
+    notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
+    notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
+    tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
+    _temp_tables(tree)
+    notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
+    _joined_changes(tree)
+    tree = _views(tree, columns)
+    notes += _names(tree, columns)
+    notes += _as_of(tree)
+    _table_columns(tree)
+    for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
+        parts.replace(_timefromparts(parts))
+    tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
+    notes += _converts(tree)
+    _big_integers(tree)
+    _regexps(tree)
+    notes += _types(tree, schema)
+    _percentiles(tree)
+    notes += _likes(tree)
+    _patindex(tree)
+    notes += _json(tree)
+    tsql_tables.rewrite(tree)  # WR-227: before _gaps, which reads TOP ... WITH TIES
+    _functions(tree)
+    _gaps(tree)
+    _string_edges(tree)
+    _char_codes(tree)
+    _sharp_s(tree)
+    _key_columns(tree)
+    tsql_types.expand_datetimes(tree)
+    if known is not None:
+        _unknown_functions(tree, known)
+    tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
+    if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
+                                           for a in tree.args.get("actions") or []) > 1:
+        raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
+                         "mapped yet. Add each column in an ALTER TABLE of its own.")
+    try:
+        text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
+    except SqlglotError as exc:
+        raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
+    if len(text) > 50 * len(batch) + 200_000:  # a backstop: each rewrite reads its arguments once
+        raise ValueError(_TOO_DEEP)
+    return text, notes
 
 
 class KfTSQL(TSQL):
@@ -1057,7 +1090,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
-             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup)
+             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
+             exp.Case, exp.If)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
@@ -1119,6 +1153,11 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             if _FLOAT_NOTE not in notes:
                 notes.append(_FLOAT_NOTE)
             done.add(id(node))
+        elif (isinstance(node, exp.Coalesce) and not node.args.get("is_null")
+              or isinstance(node, exp.Case | exp.If) and not isinstance(node.parent, exp.Case)):
+            # Before the arithmetic around it copies it: COALESCE(s, i) + 1 took the text and int as they were.
+            _values_by_precedence(_branch_values(node), _branch_values(info))
+            done.add(id(node))
     for node, info in pairs:
         if id(node) in done:
             continue
@@ -1150,6 +1189,11 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         elif isinstance(node, exp.Coalesce):
             if node.args.get("is_null"):
                 _isnull_first_type(node, info)
+            else:
+                _values_by_precedence(_branch_values(node), _branch_values(info))
+        elif isinstance(node, exp.Case | exp.If):
+            if not isinstance(node.parent, exp.Case):  # a CASE's WHEN ... THEN is an If too
+                _values_by_precedence(_branch_values(node), _branch_values(info))
         elif isinstance(node, exp.Pow):
             notes += _power(node, info.this.type)
         elif isinstance(node, (exp.Ceil, exp.Floor, exp.Degrees, exp.Radians)):
@@ -1187,9 +1231,120 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(_unchecked_style(unchecked))
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
+    _set_operation_types(tree, typed)
     for again in later:
         again()
     return notes
+
+
+def _branch_values(node: exp.Expression) -> list[exp.Expression]:
+    """The values a CASE, IIF or COALESCE can give, in order."""
+    if isinstance(node, exp.Case):
+        values = [i.args["true"] for i in node.args.get("ifs") or []]
+        return values + ([node.args["default"]] if node.args.get("default") is not None else [])
+    if isinstance(node, exp.If):
+        return [node.args["true"]] + ([node.args["false"]] if node.args.get("false") is not None else [])
+    return [node.this, *node.expressions]
+
+
+_WIDER_INTS = (exp.DataType.Type.BIGINT, exp.DataType.Type.INT, exp.DataType.Type.SMALLINT, exp.DataType.Type.TINYINT,
+               exp.DataType.Type.UTINYINT)
+_TIMES = {exp.DataType.Type.DATE, exp.DataType.Type.DATETIME2, exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIME}
+
+
+def _precedence_target(kinds: list[exp.DataType | None]) -> exp.DataType | None:
+    """The type T-SQL converts text to when it meets values of ``kinds`` in a CASE, IIF, COALESCE or set operation
+    (data-types/data-type-precedence-transact-sql: "the data type with the lower precedence is first converted to
+    the data type with the higher precedence", and text ranks below every number, bit and date): the widest
+    integer, bit, or a date or time type that all the other values share. None when no text meets one of those, or
+    a type can't be told; decimals and floats are left as DuckDB converts them."""
+    if any(k is None or k.this == exp.DataType.Type.UNKNOWN for k in kinds):
+        return None
+    known = [k for k in kinds if k is not None and k.this != exp.DataType.Type.NULL]
+    others = [k for k in known if not _is(k, _TEXT)]
+    if not others or len(others) == len(known):
+        return None
+    if all(_is(k, _INTEGERS | _BITS) for k in others):
+        ints = [k for k in others if not _is(k, _BITS)]
+        if not ints:
+            return exp.DataType.build("BOOLEAN")
+        return min(ints, key=lambda k: _WIDER_INTS.index(k.this) if k.this in _WIDER_INTS else 0).copy()
+    if all(_is(k, _TIMES) and k.this == others[0].this for k in others):
+        return others[0].copy()
+    return None
+
+
+def _text_converted(value: exp.Expression, to: exp.DataType) -> None:
+    """``value`` (text, in the tree) converted to ``to`` as T-SQL converts it: text for an integer has to be a
+    whole number ('2.5' is an error, where DuckDB rounded it to 3, and '' is 0)."""
+    cast = exp.Cast(this=exp.Null(), to=to.copy())
+    value.replace(cast)
+    cast.set("this", value)
+    if to.this in _INTEGERS - _BITS:
+        _whole_text(cast, to)
+
+
+def _values_by_precedence(values: list[exp.Expression], typed: list[exp.Expression]) -> None:
+    """A CASE's, IIF's or COALESCE's text values converted to the type that ranks highest among its values
+    (expressions/case-transact-sql: "Returns the highest precedence type from the set of types in
+    result_expressions"; COALESCE and IIF the same). DuckDB rounded '2.5' to 3, and stopped on a text column."""
+    if len(values) != len(typed):
+        return
+    kinds = [exp.DataType.build("NULL") if isinstance(t, exp.Null) else t.type for t in typed]
+    to = _precedence_target(kinds)
+    if to is None:
+        return
+    for value, kind in zip(values, kinds, strict=True):
+        if _is(kind, _TEXT):
+            _text_converted(value, to)
+
+
+def _set_leaves(query: exp.Expr) -> list[exp.Select] | None:
+    if isinstance(query, exp.Subquery):
+        return _set_leaves(query.this)
+    if isinstance(query, exp.SetOperation):
+        left, right = _set_leaves(query.left), _set_leaves(query.right)
+        return None if left is None or right is None else left + right
+    return [query] if isinstance(query, exp.Select) else None
+
+
+def _set_operation_types(tree: exp.Expression, typed: exp.Expression) -> None:
+    """A UNION's, INTERSECT's or EXCEPT's text column converted to the type that ranks highest among its
+    columns (queries/set-operators-union-transact-sql: "When data types differ, the resulting data type is
+    determined based on the rules for data type precedence"): ``SELECT 1 UNION SELECT '2'`` is an int column, so
+    ' 1' and 1 are one row and '2.5' is an error. DuckDB made such a column text."""
+    here, there = _in_order(tree, (exp.SetOperation,)), _in_order(typed, (exp.SetOperation,))
+    if len(here) != len(there):
+        return
+    for node, info in zip(here, there, strict=True):
+        if isinstance(node.parent, exp.SetOperation) or isinstance(node.parent, exp.Subquery) and isinstance(
+                node.parent.parent, exp.SetOperation):
+            continue  # an inner one: the outermost set operation types all of its columns
+        leaves, typed_leaves = _set_leaves(node), _set_leaves(info)
+        if not leaves or not typed_leaves or len(leaves) != len(typed_leaves):
+            continue
+        widths = {len(leaf.expressions) for leaf in leaves + typed_leaves}
+        if len(widths) != 1 or any(p.is_star for leaf in leaves for p in leaf.expressions):
+            continue
+        for i in range(widths.pop()):
+            kinds = [leaf.expressions[i].type for leaf in typed_leaves]
+            to = _precedence_target(kinds)
+            if to is None:
+                continue
+            for n, (leaf, kind) in enumerate(zip(leaves, kinds, strict=True)):
+                if not _is(kind, _TEXT):
+                    continue
+                projection = leaf.expressions[i]
+                if isinstance(projection, exp.Alias):
+                    _text_converted(projection.this, to)
+                elif isinstance(projection, exp.Column):
+                    named = projection.replace(exp.alias_(projection.copy(), projection.name))
+                    _text_converted(named.this, to)
+                elif n:  # only the first SELECT names the columns
+                    _text_converted(projection, to)
+                else:  # an unnamed first column: converted, under the name DuckDB gave it as written
+                    named = projection.replace(exp.alias_(projection.copy(), duckdb_sql(projection), quoted=True))
+                    _text_converted(named.this, to)
 
 
 _BY_ZERO = "Divide by zero error encountered."
@@ -1325,7 +1480,12 @@ def _isnull_first_type(node: exp.Coalesce, info: exp.Expression) -> None:
     other, other_type = node.expressions[0], info.expressions[0].type
     if kind.this in _SIZED and kind.expressions:
         size = kind.expressions[0].this
-        if isinstance(size, exp.Literal) and not size.is_string:
+        if isinstance(size, exp.Literal) and not size.is_string and _is(other_type, _NUMBERS):
+            # A number too long for the text isn't cut ('12' for 12345): it converts as CAST(12345 AS VARCHAR(2)).
+            sized = exp.Cast(this=other, to=kind.copy())
+            node.set("expressions", [sized])
+            _sized_text(sized, other_type)
+        elif isinstance(size, exp.Literal) and not size.is_string:
             node.set("expressions", [exp.func("LEFT", exp.cast(other, "VARCHAR"), exp.Literal.number(int(size.name)))])
     elif kind.this in _INTEGERS - {exp.DataType.Type.BIT, exp.DataType.Type.BOOLEAN} and not _is(other_type, _INTEGERS):
         cut = exp.Cast(this=other, to=kind.copy())
@@ -1649,7 +1809,10 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
                          exp.If(this=exp.Is(this=v.copy(), expression=exp.Null()),
                                 true=exp.Cast(this=exp.Null(), to=to.copy()))],
                     default=other)
-    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[node.this]), exp.Lambda(this=case, expressions=[v]))
+    # Read as VARCHAR: sqlglot may take a value for text that DuckDB types otherwise (COALESCE('7', 2) is an
+    # INTEGER there), and REGEXP_FULL_MATCH of an integer stopped with DuckDB's binder error.
+    as_text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"))
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[as_text]), exp.Lambda(this=case, expressions=[v]))
     node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 
@@ -2729,6 +2892,15 @@ def _refused_by_name(tree: exp.Expression) -> None:
         raise ValueError(_NOT_YET + "GET_BIT isn't mapped yet. Use & with a power of 2, such as x & 4.")
     if any(a.name.upper() == "SET_BIT" for a in tree.find_all(exp.Anonymous)):
         raise ValueError(_NOT_YET + "SET_BIT isn't mapped yet. Use | with a power of 2, such as x | 4.")
+    for spec in tree.find_all(exp.WindowSpec):
+        # queries/select-over-clause-transact-sql: "<unsigned value specification> PRECEDING ... This specification
+        # isn't allowed for RANGE." (and FOLLOWING the same). A warehouse stops on it; DuckDB would run it.
+        if str(spec.args.get("kind") or "").upper() == "RANGE" and any(
+                end is not None and not (isinstance(end, str) and end.upper() in ("UNBOUNDED", "CURRENT ROW"))
+                for end in (spec.args.get("start"), spec.args.get("end"))):
+            raise ValueError("A window frame of RANGE with a number of rows before or after can't run, so nothing ran. "
+                             "T-SQL takes RANGE only with UNBOUNDED PRECEDING, UNBOUNDED FOLLOWING and CURRENT ROW, and "
+                             "a Fabric Warehouse stops on it. Use ROWS BETWEEN n PRECEDING AND CURRENT ROW to count rows.")
 
 
 def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:

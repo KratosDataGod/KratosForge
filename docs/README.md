@@ -200,6 +200,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |
+| Merge a notebook changed in VS Code and here, cell by cell | Notebook, when a save finds the file also saved in VS Code (or by a Git pull): each cell that differs is picked ([vscode.md](vscode.md#when-both-sides-changed)) |
 | OneLake shortcuts | OneLake > Shortcuts |
 | Shortcut fixes | OneLake > Shortcuts > Health and a shortcut's panel (find a lakehouse that moved, repoint many at once, accept a crossed environment; [shortcuts.md](shortcuts.md#fixing-shortcuts)) |
 | OneLake access | OneLake > Access |
@@ -253,6 +254,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Scratch console in notebooks | Notebook > View > Scratch ([user-guide.md](user-guide.md#scratch-console-preview)) |
 | Notebook as a report | Notebook > Share > Open as report ([user-guide.md](user-guide.md#notebook-as-a-read-only-report-preview)) |
 | Notebook Present mode | Notebook > View > Present, or Ctrl+Shift+F5 ([notebooks.md](notebooks.md#present-mode-preview)) |
+| Markdown toolbar and preview | Notebook > a Markdown cell you're editing: the formatting toolbar and View ([notebooks.md](notebooks.md#formatting-markdown-cells-preview)) |
 | Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |
 | SQL best practices | SQL query or Warehouse page, Best practices chip beside Compatibility, for T-SQL ([sql-best-practices.md](sql-best-practices.md)) |
 | New build banner | Below the top bar while KratosForge is open; Settings > Updates ([user-guide.md](user-guide.md#a-new-build-while-the-app-is-open-preview)) |
@@ -260,6 +262,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | Embed Studio (Power BI) | Workspaces > Power BI tab and Embed Studio ([embed-studio.md](embed-studio.md)) |
 | KratosForge Environment | Settings > Environment ([user guide](user-guide.md#kratosforge-environment-preview)) |
+| Unity Catalog volumes on this PC | Workspaces > Databricks > Volumes on this PC ([engines.md](engines.md#unity-catalog-volumes-on-this-pc-preview)) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
 | Academy | Academy at the bottom of the left rail: certification prep for DP-700 with exercises on this PC, readiness by objective ([academy-guide.md](academy-guide.md)) |
 | Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |

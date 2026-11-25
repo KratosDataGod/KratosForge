@@ -109,6 +109,7 @@ const PREVIEW_FEATURES = {
   nbConsole: "Scratch console in notebooks",
   nbReport: "Notebook as a report",
   nbPresent: "Notebook Present mode",
+  mdToolbar: "Markdown toolbar and preview",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
   forgeActivity: "Forge Activity view in Monitor",
@@ -127,6 +128,7 @@ const PREVIEW_FEATURES = {
   updateBanner: "New build banner",
   engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  syncChooser: "Merge a notebook changed in VS Code and here, cell by cell",
   runSeveral: "Run several notebooks from Home",
   itemPins: "Items pinned to Home",
   learn: "Learn",
@@ -134,6 +136,7 @@ const PREVIEW_FEATURES = {
   appStudio: "App Studio",
   embedStudio: "Embed Studio (Power BI)",
   kfEnvironment: "KratosForge Environment",
+  ucVolumes: "Unity Catalog volumes on this PC",
 };
 
 function previewShown() {
@@ -350,7 +353,7 @@ function registerShortcuts(group, list) {
 // The keys that work everywhere in the window (app.js handles each through isShortcut).
 registerShortcuts("Anywhere", [
   { id: "palette", keys: ["Ctrl+K"], match: ["k"], mod: true,
-    label: "Open the command bar: find a page, action, notebook, workspace or entity" },
+    label: "Open the command bar: find a page, action, notebook, workspace or entity. While you edit a Markdown cell with its toolbar, Ctrl+K adds a link instead" },
   { id: "shortcuts", keys: ["?"], match: ["?"], label: "Show this list (when you aren't typing in a box)" },
   { id: "close", keys: ["Esc"], match: ["Escape"],
     label: "Close the command bar, a menu, a dialog or the activity tray, then go back to where you were" },

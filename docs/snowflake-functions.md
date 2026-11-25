@@ -23,10 +23,10 @@ the known differences in more detail.
 | --- | ---: |
 | Runs | 388 |
 | Differs | 11 |
-| Refused | 91 |
+| Refused | 92 |
 | Fails | 0 |
 | Not checked | 16 |
-| **All** | **506** |
+| **All** | **507** |
 
 ## String and binary
 
@@ -38,7 +38,7 @@ the known differences in more detail.
 | `CHAR` | Runs | 2 value checks |
 | `CONCAT` | Runs | 1 value check |
 | `CONCAT_WS` | Runs | 1 value check |
-| `INSERT` | Runs | 1 value check |
+| `INSERT` | Refused | INSERT (TIMESTAMP_TZ column, text with an offset): Statement 3 runs only in Snowflake: TIMESTAMP_TZ text with an offset. DuckDB can't read an offset written after a space ('2026-01-01 10:00:00 +05:00'): it takes it for a time zone name. |
 | `LENGTH` | Runs | 1 value check |
 | `LEN` | Runs | 1 value check |
 | `LPAD` | Runs | 1 value check |
@@ -302,13 +302,13 @@ the known differences in more detail.
 | `OBJECT_PICK` | Runs |  | 2 value checks |
 | `OBJECT_KEYS` | Runs |  | 1 value check |
 | `FILTER` | Runs |  | 2 value checks |
-| `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
+| `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB. |
 | `TRANSFORM` | Runs |  | 2 value checks |
 | `MAP_CAT` | Runs |  | 2 value checks |
 | `MAP_CONTAINS_KEY` | Runs |  | 1 value check |
 | `MAP_DELETE` | Runs |  | 1 value check |
 | `MAP_ENTRIES` | Runs |  | 2 value checks |
-| `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB.. |
+| `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB. |
 | `MAP_KEYS` | Runs |  | 1 value check |
 | `MAP_PICK` | Runs |  | 1 value check |
 | `MAP_SIZE` | Runs |  | 1 value check |
@@ -588,6 +588,7 @@ the known differences in more detail.
 | `BEGIN` | Runs |  | 1 value check |
 | `START TRANSACTION` | Runs |  | 1 value check |
 | `DDL INSIDE BEGIN` | Refused |  | DDL INSIDE BEGIN: Statement 4 runs only in Snowflake: CREATE, ALTER or DROP inside a transaction. Snowflake commits the open transaction before a CREATE, ALTER or DROP and runs it as its own transaction, where DuckDB keeps it inside the open one, so a later ROLLBACK would undo different work here. Put COMMIT before the statement. |
+| `VALUES` | Runs |  | 2 value checks |
 | `WITH` | Runs |  | 1 value check |
 | `UNION ALL` | Runs |  | 1 value check |
 | `CREATE STREAM` | Refused | `CREATE STREAM st ON TABLE t` | Streams. A stream tracks changes inside Snowflake; DuckDB has no equivalent. |

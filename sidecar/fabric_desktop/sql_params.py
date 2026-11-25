@@ -75,11 +75,15 @@ def names(text: str, tsql: bool = False, backslash: bool | None = None) -> list[
     return list(dict.fromkeys(name for _a, _b, name in find(text, tsql, backslash)))
 
 
-def as_colons(text: str, tsql: bool = False, backslash: bool | None = None) -> str:
-    """``text`` with each ``{{name}}`` written ``:name``, which sqlglot reads as a placeholder."""
+def as_colons(text: str, tsql: bool = False, backslash: bool | None = None, dollar: bool = False) -> str:
+    """``text`` with each ``{{name}}`` written ``:name``, which sqlglot reads as a placeholder.
+
+    ``dollar`` (DuckDB SQL) writes ``$name `` instead: sqlglot reads DuckDB's ``SELECT :a`` as the prefix alias
+    ``alias: expr``, so a parameter first in the select list failed to parse. The space after it keeps the next
+    ``$`` from reading as the end of a ``$tag$`` string, as in ``{{a}},{{b}}``."""
     out, at = [], 0
     for a, b, name in find(text, tsql, backslash):
-        out += [text[at:a], f":{name}"]
+        out += [text[at:a], f"${name} " if dollar else f":{name}"]
         at = b
     return "".join(out) + text[at:]
 

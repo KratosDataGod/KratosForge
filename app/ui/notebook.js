@@ -381,7 +381,7 @@ function renderCell(cell) {
   if (cell.type === "markdown") {
     let body;
     if (cell.editing && !meta.frozen) {
-      body = h("div", { class: "md-edit" }, editorFor(cell).dom);
+      body = mdRichOn() ? mdRichBody(cell) : h("div", { class: "md-edit" }, editorFor(cell).dom);  // nbmarkdown.js: toolbar and preview (Preview)
     } else {
       body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source, { attachments: cell.attachments }));
     }
@@ -893,6 +893,7 @@ function editorFor(cell) {
         // reachable from the keyboard when a long line makes it scroll sideways (axe scrollable-region-focusable).
         CM.EditorView.contentAttributes.of({ "aria-label": cell.type === "markdown" ? "Markdown cell" : "Code cell", tabindex: "0" }),
         dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
+        cell.type === "markdown" ? mdKeys(cell) : [],  // nbmarkdown.js: Ctrl+B, Ctrl+I and Ctrl+K
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
@@ -917,7 +918,7 @@ function editorFor(cell) {
             }
             markDirty();
             findCellChanged();  // nbfind.js
-            if (cell.type === "markdown") refreshOutline();
+            if (cell.type === "markdown") { refreshOutline(); mdSourceChanged(cell); }  // nbmarkdown.js: the live preview
             else { depsChanged(); dbgEdited(cell, u); }
           }
           if (u.focusChanged && u.view.hasFocus) {
@@ -959,6 +960,7 @@ function cellKeymap(cell) {
     { key: "Escape", run: (view) => {
       if (view.dom.querySelector(".cm-tooltip-autocomplete") || editorVimTakesEscape(view)) return false;
       view.contentDOM.blur();
+      if (cell.type === "markdown" && mdRichOn()) { mdFinish(cell); return true; }  // nbmarkdown.js: Esc finishes editing
       enterCommandMode(cell);
       return true;
     } },

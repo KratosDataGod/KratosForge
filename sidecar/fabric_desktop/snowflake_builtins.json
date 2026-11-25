@@ -2020,6 +2020,11 @@
   "probe": "BEGIN; CREATE TABLE n (a INT); COMMIT"
  },
  {
+  "name": "VALUES",
+  "group": "Statements",
+  "probe": "SELECT $1, $2 FROM VALUES (1, 'one')"
+ },
+ {
   "name": "WITH",
   "group": "Statements",
   "probe": "WITH c AS (SELECT 1 AS x) SELECT x FROM c"

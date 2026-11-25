@@ -260,6 +260,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | Embed Studio (Power BI) | Workspaces > Power BI tab and Embed Studio ([embed-studio.md](embed-studio.md)) |
 | KratosForge Environment | Settings > Environment ([user guide](user-guide.md#kratosforge-environment-preview)) |
+| Unity Catalog volumes on this PC | Workspaces > Databricks > Volumes on this PC ([engines.md](engines.md#unity-catalog-volumes-on-this-pc-preview)) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
 | Academy | Academy at the bottom of the left rail: certification prep for DP-700 with exercises on this PC, readiness by objective ([academy-guide.md](academy-guide.md)) |
 | Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |

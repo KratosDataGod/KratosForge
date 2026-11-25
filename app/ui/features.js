@@ -134,6 +134,7 @@ const PREVIEW_FEATURES = {
   appStudio: "App Studio",
   embedStudio: "Embed Studio (Power BI)",
   kfEnvironment: "KratosForge Environment",
+  ucVolumes: "Unity Catalog volumes on this PC",
 };
 
 function previewShown() {

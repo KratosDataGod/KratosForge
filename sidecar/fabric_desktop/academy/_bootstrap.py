@@ -114,17 +114,52 @@ def _main() -> None:
                 sys.stderr.write("academy: the learner process isn't in its AppContainer; nothing was run.\n")
                 os._exit(3)
 
+    end_now, end_addr = _ender()   # before the hook, which refuses ctypes from then on
     _guard_imports(blocked)
     _wrap_native(work, real)       # imports the data libraries first: some load native code through ctypes
-    _install(norm(work), reads, denied, blocked, libs, real)
+    _install(norm(work), reads, denied, blocked, libs, real, end_addr)
     os.chdir(work)
     script = os.path.join(work, cfg["script"])
     with open(script, encoding="utf-8") as fh:
         source = fh.read()
     code = compile(source, script, "exec")
     sys.argv = [script]
-    scope = {"__name__": "__main__", "__file__": script, "__builtins__": __builtins__}
+    scope = {"__name__": "__main__", "__file__": script, "__builtins__": __builtins__, "kf_end_now": end_now}
     exec(code, scope)  # noqa: S102 - the learner's own exercise script, in this guarded process
+
+
+def _ender() -> "tuple[Callable[[int], NoReturn], int]":
+    """``kf_end_now(rc)``, for a script that must end at once (pyspark_lab.LEARNER_SCRIPT), and the address
+    of the one native call it makes, for the audit hook to allow.
+
+    On Windows ``os._exit`` is ExitProcess: it stops delta-rs's and DuckDB's worker threads wherever they
+    are, then runs each library's shutdown code, which can crash (0xC0000005) on what a stopped thread
+    left behind, after the learner's code finished. TerminateProcess runs none of it. It is looked up
+    here, before the hook refuses ctypes, and only on this process (the pseudo-handle -1)."""
+    def flush() -> None:
+        for f in (sys.stdout, sys.stderr):
+            try:
+                f.flush()
+            except Exception:   # noqa: BLE001  # silent-ok: a closed stream has nothing left to lose
+                pass
+
+    if sys.platform != "win32":
+        def end(rc: int, _flush: "Callable[[], None]" = flush, _exit: "Callable[[int], NoReturn]" = os._exit) -> "NoReturn":
+            _flush()
+            _exit(rc)
+        return end, 0
+    import ctypes
+    k = ctypes.WinDLL("kernel32")
+    terminate = k.TerminateProcess
+    terminate.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+    addr = ctypes.cast(terminate, ctypes.c_void_p).value or 0
+
+    def end_win(rc: int, _flush: "Callable[[], None]" = flush, _terminate: "Any" = terminate,
+                _exit: "Callable[[int], NoReturn]" = os._exit) -> "NoReturn":
+        _flush()
+        _terminate(-1, rc & 0xFFFFFFFF)   # -1: this process
+        _exit(rc)   # if TerminateProcess returned
+    return end_win, addr
 
 
 def _guard_imports(blocked: "frozenset[str]") -> None:
@@ -145,7 +180,7 @@ def _guard_imports(blocked: "frozenset[str]") -> None:
 
 
 def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blocked: "frozenset[str]", libs: "tuple[str, ...]" = (),
-             real: "Callable[[str], str]" = os.path.realpath) -> None:
+             real: "Callable[[str], str]" = os.path.realpath, end_addr: int = 0) -> None:
     """The audit hook. Its state is bound as default arguments of immutable values, and the
     function is kept nowhere the learner's code can name."""
     refuse_names = ("socket.", "subprocess.", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
@@ -171,7 +206,7 @@ def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blo
              _real: "Callable[[str], str]" = real, _fspath: "Callable[[Any], str]" = os.fsdecode,
              _norm: "Callable[[str], str]" = os.path.normcase, _sep: str = os.sep,
              _paths: "Callable[[tuple[Any, ...]], Iterator[Any]]" = _paths,
-             _err: "type[Exception]" = PermissionError) -> None:
+             _err: "type[Exception]" = PermissionError, _end: int = end_addr) -> None:
         def under(path: str, roots: "tuple[str, ...]") -> bool:
             return any(path == r or path.startswith(r.rstrip(_sep) + _sep) for r in roots)
 
@@ -200,6 +235,9 @@ def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blo
             if not under(full, _reads):
                 raise _err("An Academy exercise can read only its own folder.")
             return
+        if (event == "ctypes.call_function" and _end and args[0] == _end and len(args[1]) == 2
+                and args[1][0] == -1 and isinstance(args[1][1], int)):
+            return   # kf_end_now: TerminateProcess on this process only (_ender)
         if event in _refuse or any(r.endswith(".") and event.startswith(r) for r in _refuse):
             raise _err(f"An Academy exercise can't do that ({event}).")
         if event in _write or any(r.endswith(".") and event.startswith(r) for r in _write):

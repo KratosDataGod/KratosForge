@@ -580,3 +580,33 @@ def test_the_engines_sealed_files_sit_directly_in_the_folders_the_appcontainer_c
     class Meta(meta_service.MetaMixin):
         root = tmp_path
     assert Meta().settings_file == tmp_path / "settings.json"        # sealed settings, in the data folder itself
+
+
+def test_a_script_that_ends_now_keeps_its_output_and_exit_code(lab: tuple[Path, Path]) -> None:
+    # kf_end_now is how pyspark_lab.LEARNER_SCRIPT ends: on Windows TerminateProcess, so delta-rs's and
+    # DuckDB's shutdown code (which os._exit's ExitProcess runs) can't crash it after the answer finished.
+    res = run(lab, "import sys\nprint('done')\nsys.stderr.write('note\\n')\nkf_end_now(5)\nprint('not reached')\n")
+    assert res["status"] == "error" and res["exit_code"] == 5, res
+    assert res["stdout"].strip() == "done" and "note" in res["stderr"]
+
+
+def test_the_hook_lets_through_only_the_end_call_on_this_process() -> None:
+    """The audit hook allows one native call, kf_end_now's TerminateProcess on this process (-1); any
+    other ctypes call, the same function on another handle included, is refused as before."""
+    import subprocess
+    source = sandbox.BOOTSTRAP.read_text(encoding="utf-8")
+    source = source[:source.rindex("\ntry:\n    _main()")]
+    probe = source + """
+_install("/nowhere", (), (), frozenset(), (), os.path.realpath, 4242)
+seen = []
+for args in ((4242, (-1, 0)), (4242, (-1, 5)), (4242, (7, 0)), (4242, (-1,)), (999, (-1, 0))):
+    try:
+        sys.audit("ctypes.call_function", *args)
+        seen.append("allowed")
+    except PermissionError:
+        seen.append("refused")
+print(seen)
+"""
+    out = subprocess.run([sys.executable, "-I", "-c", probe], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "['allowed', 'allowed', 'refused', 'refused', 'refused']"

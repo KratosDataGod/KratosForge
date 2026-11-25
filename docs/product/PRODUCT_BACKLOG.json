@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-24",
+  "updated": "2026-11-25",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -4661,7 +4661,8 @@
         "Mutation batches 97 to 100, 177 to 187 and 251 to 260 (#3160, #3167, #3186, #3187); engines/ and policy packages at 100% coverage (#3178); test stability fixes (#3157, #3170, #3204); url crate update (#3200) on main at 0fdeb4d7",
         "Mutation batches 231 to 250 and 310 to 319 (#3189, #3209); WCAG 2.2 target size and text spacing checks (#3197); reader fuzzing (#3176); browser test fix (#3206); cookie crate update (#3208) on main at 293fb38d",
         "Browser tests for 77 pages and panels with 10 UI fixes (#3236); WCAG 2.2.1 and 1.4.13 fixes (#3254, #3231); mutation batches 213 to 340 (#3211, #3249) and a per-batch log (#3270); coverage to 100% for several modules (#3246, #3265); CI time limits (#3252, #3272); test stability (#3213, #3261) on main at a73ebb71",
-        "Mutation batches 263 to 279, 320 to 324, 350 to 361, 368 to 374 and 406 to 411 (#3251, #3258, #3260); a dead test worker stops the run instead of hanging (#3313); MERGE checks pass on DuckDB 2.0.1 (#3318) on main at 84a36dd6"
+        "Mutation batches 263 to 279, 320 to 324, 350 to 361, 368 to 374 and 406 to 411 (#3251, #3258, #3260); a dead test worker stops the run instead of hanging (#3313); MERGE checks pass on DuckDB 2.0.1 (#3318) on main at 84a36dd6",
+        "Test stability: exam answer draw (#3326), worker-crash order (#3330), Home batch toast (#3332), computing-cell write wait (#3333); no test reaches the network (#3311) on main at b4bc548d"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5290,8 +5291,13 @@
         3265,
         3270,
         3272,
+        3311,
         3313,
-        3318
+        3318,
+        3326,
+        3330,
+        3332,
+        3333
       ],
       "issues": [
         910,
@@ -5463,7 +5469,8 @@
         "Notebook Cancel releases a partly read result (#3185); the debugger steps through awaits (#3196) and variables hide secrets inside lists and objects (#3195); NB015 and DM002 best-practice fixes (#3003) on main at 0fdeb4d7",
         "Regular expressions answer as Spark, Snowflake and T-SQL do or stop by name (#3181, WR-257); NULL concatenations and nested shifts (#3220); a finished cell never reports a pause (#3216) on main at 293fb38d",
         "Notebook debugger hardening rounds 6 to 7 (#3233, #3243, #3273); Spark joins on column names put the keys first (#3262) on main at a73ebb71",
-        "A crashed kernel leaves no process behind (#3314, WR-130); an .ipynb edit keeps key order (#3320, WR-132); df.show() matches Spark 3.5 (#3315, WR-133); pandas_udf type checks as in Spark (#3190) on main at 84a36dd6"
+        "A crashed kernel leaves no process behind (#3314, WR-130); an .ipynb edit keeps key order (#3320, WR-132); df.show() matches Spark 3.5 (#3315, WR-133); pandas_udf type checks as in Spark (#3190) on main at 84a36dd6",
+        "Markdown toolbar and preview for Markdown cells (#3329, N23, Preview) on main at b4bc548d"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5729,7 +5736,8 @@
         3273,
         3314,
         3315,
-        3320
+        3320,
+        3329
       ]
     },
     {
@@ -5824,7 +5832,8 @@
         "Data health (owned by Workload management): an engine for freshness, volume and schema from the Delta log (#2912), Monitor > Data health watches tables (#2919), and an alert can open an incident (#2968) on main at 7be2906d",
         "Data health saves survive crashes and other processes (#2979); a hanging check shows as not finished (#3000); incidents keep an opening or a told-downstream note when a write fails partway (#3009) on main at ad1ac4cf",
         "An incident opening reaches Teams even if a later step fails, with end-to-end tests from Data health to Teams (#3049) on main at 1719d5db",
-        "A time with no zone no longer breaks the incident board; watch and SLA error paths tested (#3244) on main at a73ebb71"
+        "A time with no zone no longer breaks the incident board; watch and SLA error paths tested (#3244) on main at a73ebb71",
+        "A time with no zone is UTC everywhere in incidents; desk, history and evaluate error paths tested (#3259) on main at b4bc548d"
       ],
       "features": [
         "FEAT-OPS-02"
@@ -5879,7 +5888,8 @@
         3000,
         3009,
         3049,
-        3244
+        3244,
+        3259
       ]
     },
     {
@@ -6984,10 +6994,13 @@
         3106,
         3133,
         3163,
+        3188,
         3266,
         3285,
         3316,
-        3324
+        3323,
+        3324,
+        3331
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -7013,7 +7026,8 @@
         "Snowflake TO_TIMESTAMP_NTZ and TO_TIMESTAMP of a column answer by the value's type (#3133) on main at bdb6f251",
         "Unity Catalog names in Databricks SQL cells on this PC: three-part names, USE CATALOG/SCHEMA and current_schema() (#3163, WR-316) on main at 293fb38d",
         "Databricks and Snowflake functions marked Differs fixed, refused by name or kept with a reason (#3266, WR-318/WR-319) on main at a73ebb71",
-        "Databricks Asset Bundle check on this PC (#3285, WR-321, Preview); Snowflake result columns in upper case, TIMESTAMP_TZ writes and TYPEOF (#3316); nested Snowflake functions translate in linear size (#3324) on main at 84a36dd6"
+        "Databricks Asset Bundle check on this PC (#3285, WR-321, Preview); Snowflake result columns in upper case, TIMESTAMP_TZ writes and TYPEOF (#3316); nested Snowflake functions translate in linear size (#3324) on main at 84a36dd6",
+        "Unity Catalog volumes on this PC with a Volumes screen (#3323, Preview); Snowflake $1, $2 positional columns and OBJECT_CONSTRUCT (#3331); CASE, coalesce and UNION take the source dialect's result type and T-SQL RANGE with an offset is refused (#3188, WR-255, WR-259) on main at b4bc548d"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -7252,7 +7266,8 @@
         "Every cell write path waits for a Prod workspace's name (#3168, WR-131), also from threads and control handlers (#3005); Group Policy values fail closed and the shell uses only the built-in engine source when policy can't be read (#3177, #3153); audit checks survive moved and rotated files (#3158); local files stay out of OneDrive (#3191); maintenance and Compact hardening (#3173, #3203); privacy inventory test (#3159); a CU hours threshold of 0 turns the risk warning off (#3202) on main at 0fdeb4d7",
         "The secret scan reads a file too deep for YAML line by line instead of crashing (#3174) on main at 293fb38d",
         "Every Prod, approve, confirm and typed-name action proven to fail closed (#3224, WR-410); delete-my-data removes every inventoried store (#3267, WR-412); link and pairing fuzz (#3268, WR-413); junk replies from Fabric, OneLake, Databricks and Snowflake refused by name (#3241); Windows hardening (#3240); the audit trail says when the event log couldn't record its end (#3225) on main at a73ebb71",
-        "Governance errors name the setting and what IT can do (#3319, WR-414); command-line pipeline runs use the audited, fail-closed call (#3321, WR-416); stricter checks for backups, samples, CSV export and redaction (#3312); SQL text fuzz (#3247) and reader fuzz round 3 (#3232) on main at 84a36dd6"
+        "Governance errors name the setting and what IT can do (#3319, WR-414); command-line pipeline runs use the audited, fail-closed call (#3321, WR-416); stricter checks for backups, samples, CSV export and redaction (#3312); SQL text fuzz (#3247) and reader fuzz round 3 (#3232) on main at 84a36dd6",
+        "Command-line restore is audited and restore leaves the audit trails as they are (#3325, WR-418) on main at b4bc548d"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -7534,7 +7549,8 @@
         3268,
         3312,
         3319,
-        3321
+        3321,
+        3325
       ],
       "issues": [],
       "computed": {

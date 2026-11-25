@@ -96,6 +96,7 @@ const JUDGED = [
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
   [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > (u|\.md-link-off):nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text(\.small)?))$/, "Pass: in both runs the decision pattern's text, links (a link that won't open is plain text with a dotted underline), headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
   [/^monitor: color-contrast @ (\.forge-(title|title > span|sub)|\.forge-more)$/, "Pass: on the Forge band's navy gradient (#000f22 to #0a2a4b, lightest taken), the title is #ffffff, 14.5:1, its state word at least 6.6:1 (#f8991c active, #7fd99b done 8.5:1, #ff9e9e failed 7.4:1, #c9d6ea quiet 9.9:1), the line under it #e6ecf5, 12.2:1, and the link to the table #ffcf8a, 10.1:1 (axe can't measure text on a gradient)."],
+  [/^databricks_volumes: color-contrast @ \.small$/, "Pass: the volume's More actions button is the glyph ⋯ in #242424 on the card's white, 15.5:1 (axe can't measure a glyph it takes for an icon); its aria-label names it in words."],
   [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\)( > \.learn-more\[href="#"\])?$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1, and the line it sits in is #616161, 6.2:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
 ];
 const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];
@@ -144,6 +145,8 @@ const EXTRA = [
     ready: "#view .page" },
   { id: "lakehouse", name: "A lakehouse", open: (p) => p.evaluate((lh) => openLakehouse(lh), LH), ready: "#view .page" },
   { id: "databricks_sync", name: "Workspaces > Databricks", open: (p) => p.evaluate(() => go("databricks_sync")), ready: "#view .page" },
+  { id: "databricks_volumes", name: "Workspaces > Databricks > Volumes on this PC", open: (p) => p.evaluate(() => go("databricks_volumes")),
+    ready: "#view .dbx-vol-files" },
   { id: "powerbi", name: "Workspaces > Power BI", open: (p) => p.evaluate(() => go("powerbi")), ready: "#view .page" },
   { id: "embedstudio", name: "Embed Studio", open: (p) => p.evaluate(() => openEmbedStudio({ workspace_id: "w1", workspace_name: "Sales Dev",
     item_id: "r1", type: "Report", name: "Sales performance" })), ready: "#view .page" },
@@ -180,6 +183,12 @@ before(async () => {
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],
       list_lakehouses: () => [{ id: "l1", displayName: "LH_Bronze" }],
+      databricks_volumes: () => ({ root: "C:\\vol\\main", volumes: [{ name: "landing", catalog: "main", database: "sales", owner: "ana",
+        storage_location: "", volume_type: "MANAGED", comment: "raw drops", path: "/Volumes/main/sales/landing",
+        folder: "C:\\Users\\ana\\AppData\\Local\\FabricDesktop\\volumes\\main\\sales\\landing", items: 2, created: 1 }] }),
+      databricks_volume_files: ({ path }) => ({ path, truncated: false, entries: [
+        { path: "dbfs:/Volumes/main/sales/landing/2026-11-22", name: "2026-11-22", size: 0, modification_time: 1, is_dir: true },
+        { path: "dbfs:/Volumes/main/sales/landing/customers.csv", name: "customers.csv", size: 1800000, modification_time: 1, is_dir: false }] }),
       list_notebooks: () => [{ name: "Daily sales" }, { name: "Orders" }],
       list_tables: () => ({ dbo: ["sales", "customers"] }),
       list_files: () => [{ name: "orders.csv", path: "Files/raw/orders.csv", is_dir: false, size: 2048 }],

@@ -137,8 +137,8 @@ class Host:
         # MERGE, UPDATE, DELETE, VACUUM and RESTORE on a Prod-marked workspace: the engine answers, with the
         # workspaces the person typed the name of for this run (kernel_proc.ProcessKernel._prod_refusal).
         setattr(lh, "in_kernel_process", True)  # noqa: B010 - a module hook: every write here is a cell's
-        setattr(lh, "prod_guard", lambda op, workspace_id, workspace_name, table, _notebook: self.channel.call(  # noqa: B010 - a module hook
-            "prod_guard", op, workspace_id, workspace_name, table))
+        setattr(lh, "prod_guard", lambda op, workspace_id, workspace_name, table, notebook: self.channel.call(  # noqa: B010 - a module hook
+            "prod_guard", op, workspace_id, workspace_name, table, notebook == lh.NO_CELL))
         return True
 
     def bind_proof(self, config: dict[str, Any], side: str, root: str) -> bool:
@@ -189,11 +189,14 @@ class Host:
     def forget_guest(self, notebook: str) -> dict[str, Any]:
         return self.kernel.forget_guest(notebook)
 
+    def rename_guest(self, old: str, new: str) -> dict[str, Any]:
+        return self.kernel.rename_guest(old, new)
+
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
     OPS = ("start", "poll", "interrupt", "debug", "variables", "variable_detail", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
-           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_query_profile", "ipywidget_event", "frame_download", "forget_guest", "ping")
+           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_query_profile", "ipywidget_event", "frame_download", "forget_guest", "rename_guest", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:
         mid = message.get("id")

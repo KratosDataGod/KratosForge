@@ -116,6 +116,7 @@ function deleteSelected() {
   const doomed = selectedCells().filter((c) => !c.meta?.frozen);
   const frozen = selectedCells().length - doomed.length;
   if (!doomed.length) { toast("The selected cells are frozen. Unfreeze them to delete them."); return; }
+  if (dbgPausedIn(doomed)) return;  // debugging.js
   // Undo (Z) puts them back together, at the places they came from.
   const group = doomed.map((c) => ({ cell: { type: c.type, source: c.source, meta: structuredClone(c.meta || {}), cell_id: c.cell_id }, index: cells.indexOf(c) }));
   const first = group[0].index;

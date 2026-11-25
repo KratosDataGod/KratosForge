@@ -17,6 +17,7 @@ import re
 import sys
 import threading
 import time
+from os import devnull  # not os.devnull: tests replace this module's os
 from pathlib import Path
 from typing import IO, Any, Callable
 
@@ -51,7 +52,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
-           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
+           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_set_delta_features", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
            "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_impact", "meta_edit_impact", "meta_openlineage_preview", "meta_openlineage_export", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_source_read", "meta_sources_move", "meta_keys_sync", "meta_key_notebook",
@@ -548,7 +549,8 @@ def main() -> None:
     _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
-    sys.stdin = _rpc_stdin(sys.stdin)
+    rpc_in = _rpc_stdin(sys.stdin)
+    sys.stdin = open(devnull, encoding="utf-8")  # noqa: SIM115 - a cell's pdb or sys.stdin.read gets nothing, never the app's requests
     _log_to_stderr()
     from . import data_format
     try:
@@ -556,7 +558,7 @@ def main() -> None:
     except data_format.NewerData as exc:
         # Every call gets the reason, so the app says it, and nothing opens a store.
         print(f"engine: {exc}", file=sys.stderr)
-        serve(_Refused(exc), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        serve(_Refused(exc), stdin=rpc_in, stdout=rpc_out)  # type: ignore[arg-type]
         return
     except OSError as exc:
         # A full or read-only profile disk (a new profile on a shared or virtual desktop): the
@@ -565,7 +567,7 @@ def main() -> None:
                                                     "restart KratosForge")
                          or f"KratosForge can't write to its data folder ({data_dir()}): {exc}. Restart KratosForge once that's fixed.")
         print(f"engine: {reason}", file=sys.stderr)
-        serve(_Refused(reason), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        serve(_Refused(reason), stdin=rpc_in, stdout=rpc_out)  # type: ignore[arg-type]
         return
     _refresh_integration_launcher()
     from . import notebook
@@ -574,7 +576,7 @@ def main() -> None:
     service.policy_record()  # a policy file changed since the last start goes in the audit trail (#1670)
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
     try:
-        serve(service, stdin=sys.stdin, stdout=rpc_out)
+        serve(service, stdin=rpc_in, stdout=rpc_out)
     finally:
         runs = getattr(service, "_sql_runs", None)
         if runs is not None:

@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "master-data-keeper",
+ "version": 1,
+ "title": "Master Data Keeper",
+ "professional": "Master Data Management Engineer",
+ "fantasy": "Keeper of true names. One customer, one product, one place: the Keeper decides which record is real.",
+ "competency": "Engineers master and reference data: matching and survivorship, golden records, hierarchies, reference data, key management and data stewardship workflows.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake"],
+ "technologies": ["SQL", "Python", "Delta Lake", "Reference data"],
+ "emblem": "A ring of keys around a single bright key, a wolf's head on the ring.",
+ "specializations": [
+  {"id": "golden", "title": "Truename Smith", "professional": "Matching and survivorship", "competency": "master-data",
+   "nodes": [
+    {"id": "golden.01", "skill": "duplicate-detection", "tier": 1, "requires": []},
+    {"id": "golden.02", "skill": "standardising-names-and-addresses", "tier": 2, "requires": ["golden.01"]},
+    {"id": "golden.03", "skill": "exact-and-fuzzy-matching", "tier": 2, "requires": ["golden.01"]},
+    {"id": "golden.04", "skill": "match-rules-and-thresholds", "tier": 3, "requires": ["golden.02"]},
+    {"id": "golden.05", "skill": "survivorship-rules", "tier": 3, "requires": ["golden.03"]},
+    {"id": "golden.06", "skill": "golden-record-tables", "tier": 4, "requires": ["golden.04"]},
+    {"id": "golden.07", "skill": "match-review-queues", "tier": 4, "requires": ["golden.04", "golden.05"]},
+    {"id": "golden.08", "skill": "merge-and-unmerge", "tier": 5, "requires": ["golden.06"]},
+    {"id": "golden.09", "skill": "match-quality-measurement", "tier": 5, "requires": ["golden.07"]},
+    {"id": "golden.10", "skill": "capstone-one-customer-one-record", "tier": 6, "requires": ["golden.08", "golden.09"], "capstone": true}
+   ]},
+  {"id": "reference", "title": "Lorekeeper", "professional": "Reference data and hierarchies", "competency": "master-data",
+   "nodes": [
+    {"id": "reference.01", "skill": "reference-data-tables", "tier": 1, "requires": []},
+    {"id": "reference.02", "skill": "code-sets-and-mappings", "tier": 2, "requires": ["reference.01"]},
+    {"id": "reference.03", "skill": "hierarchies", "tier": 2, "requires": ["reference.01"]},
+    {"id": "reference.04", "skill": "ragged-and-parent-child-hierarchies", "tier": 3, "requires": ["reference.02"]},
+    {"id": "reference.05", "skill": "effective-dated-reference-data", "tier": 3, "requires": ["reference.03"]},
+    {"id": "reference.06", "skill": "type-2-slowly-changing-dimensions", "tier": 4, "requires": ["reference.04"]},
+    {"id": "reference.07", "skill": "reference-data-ownership", "tier": 4, "requires": ["reference.04", "reference.05"]},
+    {"id": "reference.08", "skill": "change-requests", "tier": 5, "requires": ["reference.06"]},
+    {"id": "reference.09", "skill": "distribution-to-consumers", "tier": 5, "requires": ["reference.07"]},
+    {"id": "reference.10", "skill": "capstone-a-governed-product-hierarchy", "tier": 6, "requires": ["reference.08", "reference.09"], "capstone": true}
+   ]},
+  {"id": "keys", "title": "Key Warden", "professional": "Keys and identity", "competency": "master-data",
+   "nodes": [
+    {"id": "keys.01", "skill": "business-and-surrogate-keys", "tier": 1, "requires": []},
+    {"id": "keys.02", "skill": "surrogate-key-generation", "tier": 2, "requires": ["keys.01"]},
+    {"id": "keys.03", "skill": "cross-system-key-mapping", "tier": 2, "requires": ["keys.01"]},
+    {"id": "keys.04", "skill": "unknown-and-late-members", "tier": 3, "requires": ["keys.02"]},
+    {"id": "keys.05", "skill": "key-collisions", "tier": 3, "requires": ["keys.03"]},
+    {"id": "keys.06", "skill": "shared-key-stores", "tier": 4, "requires": ["keys.04"]},
+    {"id": "keys.07", "skill": "key-lineage", "tier": 4, "requires": ["keys.04", "keys.05"]},
+    {"id": "keys.08", "skill": "key-migration", "tier": 5, "requires": ["keys.06"]},
+    {"id": "keys.09", "skill": "identity-resolution", "tier": 5, "requires": ["keys.07"]},
+    {"id": "keys.10", "skill": "capstone-keys-shared-across-domains", "tier": 6, "requires": ["keys.08", "keys.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "true-name-spoken", "name": "True Name Spoken", "criteria": "Reach Journeyman in Duplicate detection.", "requires": {"level": 3, "talents": ["golden.01"]}},
+  {"id": "one-record", "name": "One Record", "criteria": "Reach Journeyman in Golden record tables.", "requires": {"level": 3, "talents": ["golden.06"]}},
+  {"id": "branches-mapped", "name": "Branches Mapped", "criteria": "Reach Journeyman in Hierarchies.", "requires": {"level": 3, "talents": ["reference.03"]}},
+  {"id": "keys-kept", "name": "Keys Kept", "criteria": "Reach Adept in Business and surrogate keys.", "requires": {"level": 4, "talents": ["keys.01"]}},
+  {"id": "keepers-ring", "name": "Keeper's Ring", "criteria": "Reach Adept in all ten talents of one Master Data Keeper specialization.", "requires": {"level": 4, "any_specialization": true}}
+ ]
+}

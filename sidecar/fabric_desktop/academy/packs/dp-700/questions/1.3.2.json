@@ -321,6 +321,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.2-q11",
+      "type": "single",
+      "stem": "At Quillon, which permissions do you give the external auditor when you share ClaimsDW, with the least privilege?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Viewer role on the workspace that holds ClaimsDW and the warehouse's other items"
+        },
+        {
+          "id": "b",
+          "text": "Read alone, with no additional permissions, which lets the auditor read every table"
+        },
+        {
+          "id": "c",
+          "text": "Read plus Read all data using Apache Spark, which gives access through the warehouse's files"
+        },
+        {
+          "id": "d",
+          "text": "Read plus Read all data using SQL, which reads every table and view in read-only mode"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Sharing gives Read, which only lets the recipient connect. Read all data using SQL (ReadData) adds read-only access to every table and view with T-SQL, which is what the auditor needs. ReadAll opens the files to Spark, and a workspace role reaches every item in the workspace, so both give more than needed.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/share-warehouse-manage-permissions",
+      "case": "quillon-claims",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

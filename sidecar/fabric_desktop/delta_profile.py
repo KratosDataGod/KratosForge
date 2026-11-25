@@ -19,6 +19,7 @@ https://learn.microsoft.com/fabric/fundamentals/delta-lake-interoperability
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -138,21 +139,33 @@ def _names(items: list[str]) -> str:
 def why(table: DeltaTable, readers: Iterable[str] = DEFAULT_READERS) -> list[str]:
     """For each feature the table uses that one of ``readers`` can't read (or that no source says it
     reads), one sentence that says which reader and on what source. Empty when every reader reads it."""
-    readers = list(readers)
+    return why_features(features_used(table), readers)
+
+
+def why_features(features: Iterable[str], readers: Iterable[str] = DEFAULT_READERS, lead: str = "It uses") -> list[str]:
+    """why() for a list of matrix features rather than a table's. ``lead`` starts each sentence: "It uses",
+    or "This choice allows" for a table's setting that only allows them."""
+    readers = list(dict.fromkeys(readers))  # a reader named twice is named once, in the order first given
     unknown = [r for r in readers if r not in READERS]
     if unknown:
         raise ValueError(f"Unknown Delta reader {unknown[0]!r}. Use one of {', '.join(READERS)}.")
     out = []
-    for feature in features_used(table):
+    for feature in features:
         cells = MATRIX[feature]
         cant = [READERS[r] for r in readers if cells[r] == CANT]
         unsure = [READERS[r] for r in readers if cells[r] == UNKNOWN]
         if cant:
-            out.append(f"It uses {feature}, which {_names(cant)} can't read ({SOURCES[feature]}).")
+            out.append(f"{lead} {feature}, which {_names(cant)} can't read ({SOURCES[feature]}).")
         if unsure:
-            out.append(f"It uses {feature}, and no source we found says whether {_names(unsure)} can read it "
+            out.append(f"{lead} {feature}, and no source we found says whether {_names(unsure)} can read it "
                        f"({SOURCES[feature]}).")
     return out
+
+
+def broken_by(features: Iterable[str], readers: Iterable[str]) -> list[str]:
+    """The reader keys in ``readers`` that can't read one of ``features``, or that no source says read it."""
+    features = list(features)
+    return [r for r in readers if any(MATRIX[f][r] != READS for f in features)]
 
 
 # ---- Profiles
@@ -180,6 +193,156 @@ PROFILES = {p.name: p for p in (CONSERVATIVE, MODERN)}
 DEFAULT_PROFILE = MODERN
 
 
+# ---- Each table's own choice (delta_features in a metadata project's entity file, Preview)
+
+# A table that allows only one of the modern profile's two features.
+DELETION_VECTORS_ONLY = Profile("deletion_vectors", "deletion vectors only", 3, 7,
+                                frozenset({"deletionVectors", "appendOnly", "invariants"}),
+                                {"delta.columnMapping.mode": {"name", "id"}, "delta.checkpointPolicy": {"v2"}})
+COLUMN_MAPPING_ONLY = Profile("column_mapping", "column mapping only", 3, 7,
+                              frozenset({"columnMapping", "appendOnly", "invariants"}),
+                              {"delta.enableDeletionVectors": {"true"}, "delta.columnMapping.mode": {"id"},
+                               "delta.checkpointPolicy": {"v2"}})
+# Each delta_features value and the profile its table is written with. No value means DEFAULT_PROFILE.
+TABLE_CHOICES = {"every_reader": CONSERVATIVE, "deletion_vectors": DELETION_VECTORS_ONLY,
+                 "column_mapping": COLUMN_MAPPING_ONLY}
+TABLE_KEYS = ("delta_features", "delta_readers", "delta_accepted")
+# The protocol feature a profile lists, as the matrix feature it allows. Column mapping by ID never is.
+_ALLOWS = {"deletionVectors": DELETION_VECTORS, "columnMapping": CM_NAME}
+
+
+def allowed_features(p: Profile) -> list[str]:
+    """The matrix features a table written with profile ``p`` may use."""
+    return [feature for name, feature in _ALLOWS.items() if name in p.features]
+
+
+def table_profile(choice: str | None) -> Profile:
+    """The profile for a table's delta_features. None (no setting) is DEFAULT_PROFILE."""
+    if choice is None:
+        return DEFAULT_PROFILE
+    if choice not in TABLE_CHOICES:
+        raise ValueError(_unknown_choice(choice))
+    return TABLE_CHOICES[choice]
+
+
+def _unknown_choice(choice: Any) -> str:
+    return (f"delta_features is {choice!r}, which isn't a choice KratosForge knows. Use one of "
+            f"{', '.join(TABLE_CHOICES)}, or leave it out for the default.")
+
+
+def table_readers(spec: dict[str, Any]) -> tuple[str, ...]:
+    """The readers an entity file names for its table, or DEFAULT_READERS when it names none."""
+    readers = spec.get("delta_readers")
+    return tuple(readers) if readers else DEFAULT_READERS
+
+
+def broken_readers(choice: str | None, readers: Iterable[str]) -> list[str]:
+    """The readers a table's delta_features choice would break."""
+    return broken_by(allowed_features(table_profile(choice)), readers)
+
+
+def choice_reasons(choice: str | None, readers: Iterable[str]) -> list[str]:
+    """Why a table's delta_features choice breaks one of ``readers``: one sentence per feature, as why() says it."""
+    return why_features(allowed_features(table_profile(choice)), readers, "This choice allows")
+
+
+def choice_problems(spec: dict[str, Any]) -> list[str]:
+    """What is wrong with an entity file's delta_features, delta_readers and delta_accepted, in plain
+    sentences: a value KratosForge doesn't know, or a choice that breaks a reader nobody confirmed.
+    Empty when they are right, or absent as in a file from before them."""
+    out = value_problems(spec)
+    if out:
+        return out
+    choice = spec.get("delta_features")
+    readers, accepted = table_readers(spec), list(spec.get("delta_accepted") or [])
+    stray = [r for r in accepted if r not in readers]
+    if stray:
+        out.append(f"delta_accepted names {stray[0]}, which isn't one of this table's delta_readers. Take it out.")
+    unconfirmed = [r for r in broken_readers(choice, readers) if r not in accepted]
+    if unconfirmed:
+        out.append(f"Its Delta table features would break {READERS[unconfirmed[0]]}, one of its readers, and nobody "
+                   "confirmed that. Choose the setting again on the Environments tab and type the table's name "
+                   "to allow it.")
+    return out
+
+
+def value_problems(spec: dict[str, Any]) -> list[str]:
+    """choice_problems' first half: a delta_ setting whose value KratosForge doesn't know."""
+    out = []
+    choice = spec.get("delta_features")
+    if choice is not None and (not isinstance(choice, str) or choice not in TABLE_CHOICES):
+        out.append(_unknown_choice(choice))
+    for key in ("delta_readers", "delta_accepted"):
+        value = spec.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list) or not all(isinstance(r, str) for r in value):
+            out.append(f'{key} is a list of reader names, like {key} = ["sql_endpoint", "direct_lake"].')
+            continue
+        unknown = [r for r in value if r not in READERS]
+        if unknown:
+            out.append(f"{key} names {unknown[0]!r}, which isn't a reader KratosForge knows. "
+                       f"Use any of {', '.join(READERS)}.")
+        elif key == "delta_readers" and not value:
+            out.append("delta_readers names no reader. Name at least one, or leave it out for the SQL analytics "
+                       "endpoint and Direct Lake.")
+    return out
+
+
+class ConfirmNeeded(ValueError):
+    """A table's Delta feature choice breaks one of its readers, and the save didn't carry the table's
+    name typed to allow it. ``reasons`` says which reader, which feature and on what source."""
+
+    def __init__(self, message: str, name: str, reasons: list[str]):
+        super().__init__(message)
+        self.name, self.reasons = name, reasons
+
+
+def confirm_choice(name: str, old: dict[str, Any], new: dict[str, Any], confirm_name: str | None) -> list[str] | None:
+    """Check a save of entity ``name`` whose file goes from ``old`` to ``new``. None when its delta_
+    settings didn't change; else the readers its choice breaks, which the save records as delta_accepted
+    (empty when it breaks none). ValueError for a value KratosForge doesn't know, and ConfirmNeeded for a
+    choice that breaks a reader without ``confirm_name`` equal to ``name``. Nothing is saved then."""
+    problems = value_problems(new)
+    if problems:
+        raise ValueError(f"{name} wasn't saved, because " + problems[0][0].lower() + problems[0][1:])
+
+    def key(spec: dict[str, Any]) -> tuple[Any, ...]:
+        return spec.get("delta_features"), table_readers(spec), sorted(spec.get("delta_accepted") or [])
+    if not value_problems(old) and key(old) == key(new):
+        return None
+    choice, readers = new.get("delta_features"), table_readers(new)
+    broken = broken_readers(choice, readers)
+    # A reader taken out of delta_readers in this save still counts: narrowing the readers to the ones a choice
+    # doesn't break is a way past the typed name otherwise. One already confirmed for this same choice isn't
+    # asked about again.
+    confirmed = set(old.get("delta_accepted") or []) if old.get("delta_features") == choice else set()
+    dropped = [] if value_problems(old) else [
+        r for r in table_readers(old) if r not in readers and r not in confirmed]
+    asked = list(readers) + [r for r in dropped if r in broken_readers(choice, dropped)]
+    if not broken and len(asked) == len(readers):
+        return []
+    reasons = choice_reasons(choice, asked)
+    typed = (confirm_name or "").strip()
+    if not typed:
+        raise ConfirmNeeded(f"{name} wasn't saved, because its Delta table features would break one of its readers. "
+                            + " ".join(reasons) + f" Type {name} to allow it.", name, reasons)
+    if typed != name:
+        raise ConfirmNeeded(f"{name} wasn't saved, because the name typed to allow it was {typed}, not {name}. "
+                            + " ".join(reasons) + f" Type {name} exactly to allow it.", name, reasons)
+    return broken
+
+
+def table_policy(spec: dict[str, Any]) -> tuple[Profile, tuple[str, ...]]:
+    """The profile and readers a write to an entity's table is checked with. A reader whose break was
+    confirmed (delta_accepted) isn't checked again. A file with a wrong setting is written with the
+    conservative profile, which every reader reads, and its save gate says what is wrong."""
+    if choice_problems(spec):
+        return CONSERVATIVE, DEFAULT_READERS
+    accepted = set(spec.get("delta_accepted") or [])
+    return table_profile(spec.get("delta_features")), tuple(r for r in table_readers(spec) if r not in accepted)
+
+
 def profile(name: str | Profile | None) -> Profile:
     if name is None:
         return DEFAULT_PROFILE
@@ -194,6 +357,37 @@ def profile(name: str | Profile | None) -> Profile:
 # 4 change data feed and generated columns, 5 column mapping, 6 identity columns.
 _LEGACY_WRITER_FEATURES = (("check constraints",), ("change data feed", "generated columns"), ("column mapping",),
                            ("identity columns",))
+
+
+def _field_metadata_keys(node: Any) -> set[str]:
+    """Every field metadata key in a Delta schema's JSON, nested fields (structs, arrays, maps) included."""
+    keys: set[str] = set()
+    if isinstance(node, dict):
+        meta = node.get("metadata")
+        if isinstance(meta, dict) and "name" in node:
+            keys.update(str(k) for k in meta)
+        for value in node.values():
+            keys |= _field_metadata_keys(value)
+    elif isinstance(node, list):
+        for value in node:
+            keys |= _field_metadata_keys(value)
+    return keys
+
+
+def _legacy_features_in_use(table: DeltaTable, writer: int) -> list[str]:
+    """Which of the features writer version ``writer`` (3 to 5) turns on the table uses, each with what shows it.
+    Column mapping isn't here: its mode is a table setting the profile checks on its own."""
+    config = {k: str(v) for k, v in (table.metadata().configuration or {}).items()}
+    used = []
+    constraints = sorted(k for k in config if k.startswith("delta.constraints."))
+    if constraints:
+        used.append(f"check constraints ({', '.join(constraints)})")
+    if writer >= 4:
+        if config.get("delta.enableChangeDataFeed", "").lower() == "true":
+            used.append("change data feed (delta.enableChangeDataFeed is true)")
+        if "delta.generationExpression" in _field_metadata_keys(json.loads(table.schema().to_json())):
+            used.append("generated columns (a column has delta.generationExpression)")
+    return used
 
 
 class ProfileViolation(ValueError):
@@ -212,10 +406,21 @@ def problems(table: DeltaTable, within: str | Profile | None = None) -> list[str
     elif p.max_writer >= 7 and MAX_WRITER < protocol.min_writer_version < 7:
         # Writer versions 3 to 6 turn on features without listing them (check constraints, change data
         # feed, generated columns, column mapping, identity columns), so the feature check below can't
-        # see them. Only version 7 lists its features.
-        names = [f for step in _LEGACY_WRITER_FEATURES[: protocol.min_writer_version - MAX_WRITER] for f in step]
-        implied = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-        found.append(f"writer version {protocol.min_writer_version}, which turns on {implied} without listing them")
+        # see them. Only version 7 lists its features. Versions 3 to 5 are inside when the table's settings
+        # and schema show none of them in use but column mapping, whose mode the settings check below
+        # decides: older Spark and Databricks made column-mapped tables as reader 2, writer 5, and delta-rs
+        # appends, overwrites and merges into those as Spark does (tests/fixtures/delta_spark/cm_legacy).
+        # Version 6 stays outside: no writer version 6 table was checked that way.
+        writer = protocol.min_writer_version
+        names = [f for step in _LEGACY_WRITER_FEATURES[: writer - MAX_WRITER] for f in step]
+        implied = _names(names)
+        if writer == 6:
+            found.append(f"writer version 6, which turns on {implied} without listing them")
+        else:
+            used = _legacy_features_in_use(table, writer)
+            if used:
+                found.append(f"writer version {writer}, which turns on {implied} without listing them, and the "
+                             f"table uses {_names(used)}, which the {p.label} Delta profile doesn't include")
     for features, kind in ((protocol.reader_features, "reader"), (protocol.writer_features, "writer")):
         outside = sorted(set(features or []) - p.features)
         if outside:
@@ -277,7 +482,7 @@ def check_target(uri: str, storage_options: dict[str, str] | None = None) -> Non
 
 
 def open_target(uri: str, storage_options: dict[str, str] | None = None,
-                within: str | Profile | None = None) -> DeltaTable | None:
+                within: str | Profile | None = None, readers: Iterable[str] | None = None) -> DeltaTable | None:
     """check_target, handing back the table it loaded (None when there is none yet), so the write
     can go through it rather than load the whole log again: on OneLake every load is a round trip
     per commit file."""
@@ -285,14 +490,14 @@ def open_target(uri: str, storage_options: dict[str, str] | None = None,
         table = DeltaTable(uri, storage_options=storage_options)
     except TableNotFoundError:
         return None
-    check_table(table, within)
+    check_table(table, within, readers)
     return table
 
 
-def note_after_write(table: DeltaTable, log: Any = None) -> list[str]:
+def note_after_write(table: DeltaTable, log: Any = None, within: str | Profile | None = None) -> list[str]:
     """After a commit, only report a table the write itself took outside the profile: the rows are
     committed, so raising would call a successful write failed."""
-    p = DEFAULT_PROFILE
+    p = profile(within)
     found = problems(table, p)
     if found:
         (log or logging.getLogger(__name__)).warning(

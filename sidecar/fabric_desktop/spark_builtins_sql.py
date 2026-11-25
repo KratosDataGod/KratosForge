@@ -1336,15 +1336,9 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     "WINDOW_TIME": _template("CAST(STRUCT_EXTRACT(fj_arg0, 'end') - INTERVAL 1 MICROSECOND AS TIMESTAMP)", 1),
     "SESSION_WINDOW": _refuse("session_window", "session windows run in Fabric only."),
     "PRINTF": _format_string,
-    # Java's URLDecoder, as Spark's: + is a space, and a % that doesn't start two hex digits is an error.
-    # Bytes that aren't UTF-8 are refused: Java puts U+FFFD in their place, by rules this PC doesn't follow.
-    "URL_DECODE": _template(
-        "CASE WHEN fj_arg0 IS NULL THEN NULL "
-        "WHEN NOT REGEXP_FULL_MATCH(fj_arg0, '([^%]|%[0-9A-Fa-f]{2})*') THEN ERROR('[CANNOT_DECODE_URL] The provided "
-        "URL cannot be decoded: ' || fj_arg0 || '. Please ensure that the URL is properly formatted and try again.') "
-        "ELSE COALESCE(TRY(URL_DECODE(REPLACE(fj_arg0, '+', ' '))), ERROR('url_decode() can''t run on this PC the way "
-        "it runs in Fabric, so nothing ran: ' || fj_arg0 || ' decodes to bytes that aren''t UTF-8, which Spark "
-        "replaces with U+FFFD. Run the cell in Fabric.')) END", 1),
+    # Java's URLDecoder, as Spark 3.5's: + is a space, %+1 is byte 1 (Integer.parseInt), a % that doesn't start
+    # an escape is CANNOT_DECODE_URL, and bytes that aren't UTF-8 are U+FFFD (spark_hash.register adds it)
+    "URL_DECODE": _template("__kf_url_decode(fj_arg0, false)", 1),
     # Java's URLEncoder, as Spark's: a space is +, and only A-Z a-z 0-9 . - * _ stay as they are.
     "URL_ENCODE": _template("REPLACE(REPLACE(REPLACE(URL_ENCODE(fj_arg0), '%20', '+'), '~', '%7E'), '%2A', '*')", 1),
     "XXHASH64": _hash("xxhash64"),
@@ -1449,17 +1443,20 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Format", _format_string),
         # from_utc_timestamp and to_utc_timestamp: Spark's timestamp (with time zone), whose wall time in
         # the session's zone is the converted one
-        ("AtTimeZone", lambda n, a: _with_args("CAST(TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP))) "
-                                               "AS TIMESTAMPTZ)", [_uncast(n.this), _zone(n.args["zone"])])),
-        ("FromTimeZone", lambda n, a: _with_args(
+        ("AtTimeZone", lambda n, a: _utc_shift(n, 1) or _with_args(
+            "CAST(TIMEZONE(fj_arg1, TIMEZONE('UTC', TRY_CAST(fj_arg0 AS TIMESTAMP))) AS TIMESTAMPTZ)",
+            [_uncast(n.this), _zone(n.args["zone"])])),
+        ("FromTimeZone", lambda n, a: _utc_shift(n, -1) or _with_args(
             "CAST(TIMEZONE('UTC', " + spark_time_zone.earlier_in("fj_arg1", "TIMEZONE(fj_arg1, TRY_CAST(fj_arg0 AS TIMESTAMP))")
             + ") AS TIMESTAMPTZ)", [_uncast(n.this), _zone(n.args["zone"])])),
+        ("UnixSeconds", _template(_floor_div(_EPOCH_US, 1_000_000), 1)),
+        ("UnixMillis", _template(_floor_div(_EPOCH_US, 1_000), 1)),
         ("TimestampFromParts", _make_timestamp),
         ("ToNumber", lambda n, a: _to_number(False)(n, [n.this, n.args["format"]] if n.args.get("format") else [n.this])),
         ("ToChar", lambda n, a: _to_char("to_char")(n, [n.this, n.args["format"]]) if n.args.get("format") else None),
         ("ParseUrl", _parse_url),
         ("Extract", _extract),
-        ("Hour", _template(f"HOUR({_TS})", 1)),
+        ("Hour", _time_field("HOUR")),
         # Spark casts a number, boolean or date to text where these take text (upper(14) = '14'). Not initcap:
         # sqlglot writes its DuckDB SQL by reading the argument back, which this one can't be.
         *((name, _text_this(fn)) for name, fn in (
@@ -1480,8 +1477,8 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("Hex", lambda n, a: _with_args(_HEX.replace("kf_spark_whole", _spark_whole("fj_arg0", "BIGINT")), [n.this])),
         ("Unhex", _template(_UNHEX, 1)),
         ("SHA2", _sha2),
-        ("Minute", _template(f"MINUTE({_TS})", 1)),
-        ("Second", _template(f"SECOND({_TS})", 1)),
+        ("Minute", _time_field("MINUTE")),
+        ("Second", _time_field("SECOND")),
         ("Quarter", _template(f"QUARTER({_DATE})", 1)),
         ("Inline", _template(_INLINE, 1)),
         ("Kurtosis", _template(_KURTOSIS, 1)),
@@ -1523,8 +1520,9 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("IsNan", _template("COALESCE(ISNAN(fj_arg0), FALSE)", 1)),
         ("PosexplodeOuter", _template(_POSEXPLODE_OUTER, 1)),
         ("ExplodeOuter", _template(_EXPLODE_OUTER, 1)),
+        # Spark's RegExpSubStr is NullIf(RegExpExtract(str, regexp, 0), ''): NULL with no match, and for an empty one
         ("RegexpSubstr", lambda n, a: None if len(a) != 2 else _with_args(
-            "CASE WHEN REGEXP_MATCHES(fj_arg0, fj_arg1) THEN REGEXP_EXTRACT(fj_arg0, fj_arg1) END", a)),
+            "NULLIF(REGEXP_EXTRACT(fj_arg0, fj_arg1, 0), '')", a)),
         ("Rint", _template("ROUND_EVEN(CAST(fj_arg0 AS DOUBLE), 0)", 1)),
         ("Sign", _sign),
         ("Stack", _stack),
@@ -1802,6 +1800,52 @@ def _date_part(node: exp.Expression, args: list[exp.Expression]) -> exp.Expressi
     if len(args) != 2 or not (isinstance(args[0], exp.Literal) and args[0].is_string):
         return None
     return _extract(exp.Extract(this=exp.var(args[0].name.upper()), expression=args[1].copy()), [])
+
+
+# unix_seconds and unix_millis round down, as Spark's Math.floorDiv of the microseconds does (DuckDB's
+# EPOCH rounds to the nearest second, and EPOCH_MS toward zero, so 1969's last half second was 0, not -1).
+_EPOCH_US = "EPOCH_US(TRY_CAST(fj_arg0 AS TIMESTAMPTZ))"
+
+
+def _floor_div(value: str, by: int) -> str:
+    return f"CAST({value} // {by} - CAST({value} % {by} < 0 AS BIGINT) AS BIGINT)"  # // rounds toward zero
+
+
+def _utc_shift(node: exp.Expression, sign: int) -> exp.Expression | None:
+    """from_utc_timestamp (``sign`` 1) or to_utc_timestamp (-1) to a zone written as a fixed offset that
+    DuckDB's zones don't take ('GMT+2', '+05:30'; 'UTC+05:30' was read as UTC+5): the time moves by the offset."""
+    from . import spark_datetime
+    zone = node.args.get("zone")
+    if not (isinstance(zone, exp.Literal) and zone.is_string):
+        return None
+    seconds = spark_datetime.fixed_offset(zone.name)
+    if seconds is None:
+        return None
+    return _with_args(f"CAST(TRY_CAST(fj_arg0 AS TIMESTAMP) + TO_SECONDS({sign * seconds}) AS TIMESTAMPTZ)",
+                      [_uncast(node.this)])
+
+
+# Spark reads text that is a time of day only ('13:45:12', 'T13:45'), as that time today; DuckDB's
+# TIMESTAMP doesn't read it. A time with a zone ('13:45:12Z') is left NULL, as before.
+_TIME_ONLY = r"^\s*T?[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2}(\.[0-9]{1,6})?)?\s*$"
+
+
+def _time_field(field: str) -> Callable[..., exp.Expression | None]:
+    """hour, minute and second of a timestamp, or of text read as one, as Spark casts it."""
+    def build(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | None:
+        if len(args) != 1:
+            return None
+        value = args[0]
+        plain = f"{field}({_TS})"
+        if isinstance(value, (exp.Cast, exp.TryCast)) and not value.to.is_type(*exp.DataType.TEXT_TYPES):
+            return _with_args(plain, args)  # TIMESTAMP'...', a cast to a timestamp or date: never text
+        # TYPEOF is fixed when DuckDB plans the query, so a timestamp column runs the plain branch only
+        text = "CAST(fj_arg0 AS VARCHAR)"
+        # read once: the CASE names its argument five times, so nested calls would multiply its SQL
+        return _read_once(f"CASE WHEN TYPEOF(fj_arg0) = 'VARCHAR' THEN COALESCE({plain}, CASE WHEN REGEXP_FULL_MATCH("
+                          f"{text}, '{_TIME_ONLY}') THEN {field}(TRY_CAST(LTRIM(TRIM({text}), 'T') AS TIME)) END) "
+                          f"ELSE {plain} END", args)
+    return build
 
 
 def _uncast(node: exp.Expression) -> exp.Expression:

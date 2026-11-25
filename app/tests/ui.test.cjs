@@ -1148,7 +1148,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgBpRematch, dbgDroppedText, dbgPausedLine, dbgCleanPause, dbgStackText, dbgKeyAction, dbgSpanGone, dbgBpLimit });`, ctx);
   return ctx;
 }
 
@@ -2449,7 +2449,7 @@ function dialogHelpers() {
   const section = app.slice(app.indexOf("// ---------- dialogs and menus ----------"), app.indexOf("function showMenu("));
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
   const keys = features.slice(features.indexOf("// ---------- keyboard shortcuts"), features.indexOf("function shortcutsDialog("));
-  const code = keys + section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
+  const code = keys + section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0] + meta.match(/function gateList\([\s\S]*?\n}\n/)[0];
   const node = (tag, attrs = {}, ...kids) => {
     const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {}, value: attrs?.value || "",
       addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
@@ -2510,6 +2510,135 @@ test("a workspace picker and a confirmation settle however they close", async ()
     e[close]();
     assert.deepStrictEqual(await settledOrHung(ok), { v: false }, close);
   }
+});
+
+// Delta table features at publish (Preview): each table's choice on Data mesh > Deploy, a typed confirm
+// when the choice breaks one of the table's readers, and a refused note that links the reader matrix.
+const DELTA_REASON = "This choice allows deletion vectors, which Fabric pipelines can't read (Microsoft's Delta Lake interoperability page).";
+function deltaUi({ shown = true, confirm = true, refuse = null, readers = null } = {}) {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const start = meta.indexOf("// ---------- Delta table features at publish (Preview) ----------");
+  const code = meta.slice(start, meta.indexOf("\n// ---------- ", start + 10));
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), value: "",
+      replaceChildren(...k) { this.kids = k.flat(Infinity).filter((x) => x != null); } };
+    if (tag === "select") {
+      const picked = n.kids.find((o) => o.attrs.selected);
+      n.value = picked ? picked.attrs.value : n.kids[0]?.attrs.value;
+    }
+    return n;
+  };
+  const calls = { confirm: [], rpc: [], toast: [] };  // copied out of the script's realm, so deepStrictEqual compares values
+  const ctx = {
+    h: node, state: { meta: {} },
+    previewShown: () => shown,
+    previewMarked: (id, n) => { n.kids.push(`Preview:${id}`); return n; },
+    confirmDialog: async (...args) => { calls.confirm.push(JSON.parse(JSON.stringify(args))); return confirm; },
+    rpc: async (method, params) => {
+      calls.rpc.push([method, JSON.parse(JSON.stringify(params))]);
+      if (refuse) throw new Error(refuse);
+      return { entities: [{ name: params.name, delta: { ...table.delta, features: params.delta_features } }] };
+    },
+    friendlyError: (e) => ({ text: String(e.message || e) }),
+    toast: (t) => calls.toast.push(t),
+    docLink: (page, label) => node("a", { href: page }, label),
+  };
+  vm.runInNewContext(`${code}; Object.assign(this, { deltaFeaturesCard, DELTA_CHOICES });`, ctx);
+  const table = { name: "gold.fact_sales", delta: { features: null, reader_names: readers || ["Fabric's SQL analytics endpoint", "Fabric pipelines"],
+    reasons: { default: [DELTA_REASON], every_reader: [], deletion_vectors: [DELTA_REASON], column_mapping: [] }, problems: [] } };
+  const card = ctx.deltaFeaturesCard({ entities: [table] });
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const text = (n) => !n ? "" : typeof n === "string" ? n : n.kids.map(text).join("");
+  const select = find(card, (n) => n.tag === "select");
+  const pick = async (value) => { select.value = value; await select.attrs.onchange(); };
+  return { ctx, card, table, select, calls, find, text, pick };
+}
+
+test("each table has a Delta table features at publish select, tagged Preview, that shows the modern default", () => {
+  const d = deltaUi();
+  const label = d.find(d.card, (n) => n.tag === "label" && n.kids.includes(d.select));
+  assert.strictEqual(label.kids[0], "Delta features", "the select's own label");
+  assert.deepStrictEqual(d.select.kids.map((o) => o.kids[0]), ["Default: deletion vectors and column mapping (modern)",
+    "Every reader: no deletion vectors or column mapping", "Allow deletion vectors only", "Allow column mapping by name only"]);
+  assert.deepStrictEqual(d.select.kids.map((o) => o.attrs.value), ["", "every_reader", "deletion_vectors", "column_mapping"]);
+  assert.strictEqual(d.select.value, "", "no setting shows the default");
+  assert.ok(d.text(d.card).includes("Preview:deltaPerTable"), "the heading carries the Preview tag");
+  assert.ok(d.text(d.card).includes("Checked against Fabric's SQL analytics endpoint and Fabric pipelines."));
+  assert.strictEqual(deltaUi({ shown: false }).card, null, "hidden with the other Preview features");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  assert.match(features, /\n  deltaPerTable: "Delta table features at publish",/);
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  assert.match(meta, /promoteRow\("dev", "test"\), promoteRow\("test", "prod"\), deltaFeaturesCard\(p\)\);/, "on the Environments tab");
+});
+
+test("three readers are listed as a, b and c, and the default's confirm names both features", async () => {
+  const d = deltaUi({ readers: ["Fabric's SQL analytics endpoint", "Direct Lake", "Fabric pipelines"] });
+  assert.ok(d.text(d.card).includes("Checked against Fabric's SQL analytics endpoint, Direct Lake and Fabric pipelines."));
+  const one = deltaUi({ readers: ["Direct Lake"] });
+  assert.ok(one.text(one.card).includes("Checked against Direct Lake."));
+  await d.pick("every_reader");
+  await d.pick("");
+  assert.strictEqual(d.calls.confirm[0][0], "Allow deletion vectors and column mapping on gold.fact_sales?");
+});
+
+test("a choice that breaks no reader saves without asking", async () => {
+  const d = deltaUi();
+  await d.pick("every_reader");
+  assert.deepStrictEqual(d.calls.confirm, []);
+  assert.deepStrictEqual(d.calls.rpc, [["meta_set_delta_features", { name: "gold.fact_sales", delta_features: "every_reader", confirm_name: null }]]);
+  assert.deepStrictEqual(d.calls.toast, ["Saved. Runs that publish gold.fact_sales now use this choice."]);
+  assert.strictEqual(d.table.delta.features, "every_reader");
+});
+
+test("a choice that breaks a reader asks for the table's name, in red, with the reasons", async () => {
+  const d = deltaUi();
+  await d.pick("deletion_vectors");
+  assert.strictEqual(d.calls.confirm.length, 1);
+  const [title, text, ok, opts] = d.calls.confirm[0];
+  assert.strictEqual(title, "Allow deletion vectors on gold.fact_sales?");
+  assert.strictEqual(text, "These readers of gold.fact_sales can't read it with this choice, or no source says they can. "
+    + "It applies to this table only.");
+  assert.strictEqual(ok, "Allow it");
+  assert.deepStrictEqual(opts, { danger: true, typeToConfirm: "gold.fact_sales", typeLabel: "Type gold.fact_sales to allow it", items: [DELTA_REASON] });
+  assert.deepStrictEqual(d.calls.rpc, [["meta_set_delta_features", { name: "gold.fact_sales", delta_features: "deletion_vectors", confirm_name: "gold.fact_sales" }]]);
+  // Cancel saves nothing and puts the select back.
+  const c = deltaUi({ confirm: false });
+  await c.pick("deletion_vectors");
+  assert.deepStrictEqual(c.calls.rpc, []);
+  assert.strictEqual(c.select.value, "");
+});
+
+test("the typed confirm keeps Allow it off until the table's full name is typed, and lists the reasons", () => {
+  const d = dialogHelpers();
+  d.confirmDialog("Allow deletion vectors on gold.fact_sales?", "x", "Allow it",
+    { danger: true, typeToConfirm: "gold.fact_sales", typeLabel: "Type gold.fact_sales to allow it", items: [DELTA_REASON] });
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const overlay = d.root.kids[0];
+  const label = find(overlay, (n) => n.tag === "label");
+  assert.strictEqual(label.kids[0], "Type gold.fact_sales to allow it");
+  assert.ok(find(overlay, (n) => n.tag === "li" && n.kids[0] === DELTA_REASON), "the reasons are listed");
+  const ok = find(overlay, (n) => n.tag === "button" && n.kids[0] === "Allow it");
+  assert.strictEqual(ok.attrs.class, "tool danger-solid");
+  const input = find(label, (n) => n.tag === "input");
+  for (const [typed, off] of [["gold.fact", true], ["GOLD.FACT_SALES", true], ["gold.fact_sales", false]]) {
+    input.fire("input", { target: { value: typed } });
+    assert.strictEqual(ok.disabled, off, typed);
+  }
+});
+
+test("a refused choice says why under the select and links the reader matrix", async () => {
+  const refusal = "gold.fact_sales wasn't saved, because the name typed to allow it was gold.fact, not gold.fact_sales.";
+  const d = deltaUi({ refuse: refusal });
+  await d.pick("every_reader");
+  const note = d.find(d.card, (n) => n.attrs?.class === "problems");
+  assert.ok(note, "a refused note");
+  assert.strictEqual(d.text(note.kids[0]), refusal);
+  const link = d.find(note, (n) => n.tag === "a");
+  assert.strictEqual(link.kids[0], "See the reader matrix");
+  assert.strictEqual(link.attrs.href, "delta-reader-matrix.md#each-tables-own-choice-preview");
+  assert.strictEqual(d.select.value, "", "the select goes back to what is saved");
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "delta-reader-matrix.md"), "utf8");
+  assert.match(doc, /\n## Each table's own choice \(Preview\)\n/, "the link's section exists");
 });
 
 test("a dialog's onClose runs exactly once, also when another dialog replaces it", () => {
@@ -3011,6 +3140,20 @@ test("breakpoints follow their lines, and the debugger keys match VS Code", () =
   assert.strictEqual(key("F11", { shiftKey: true }), "out");
   assert.strictEqual(key("F5", { ctrlKey: true }), null);
   assert.strictEqual(key("Enter"), null);
+});
+
+test("a line counts as deleted only when one change takes all of it and its line break", () => {
+  const { dbgSpanGone, dbgBpLimit } = dbgHelpers();
+  // "a=1\nb=2\nc=3": line 2 is [4, 7), its line break 7.
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 8]]), true);    // Ctrl+Shift+K on line 2
+  assert.strictEqual(dbgSpanGone(4, 8, [[0, 9]]), true);    // a selection over it
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 7]]), false);   // its text only: an empty line keeps the breakpoint
+  assert.strictEqual(dbgSpanGone(4, 8, [[7, 8]]), false);   // its line break only: lines joined
+  assert.strictEqual(dbgSpanGone(4, 8, [[4, 6], [6, 8]]), false);
+  assert.strictEqual(dbgSpanGone(4, 4, [[0, 9]]), false);
+  assert.strictEqual(dbgBpLimit, 100);  // debugger.py MAX_BREAKPOINTS
+  const engine = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "debugger.py"), "utf8");
+  assert.match(engine, new RegExp(`^MAX_BREAKPOINTS = ${dbgBpLimit}$`, "m"));
 });
 
 test("a cell replaced whole keeps its breakpoints by line text, and names the ones it can't", () => {
@@ -3638,7 +3781,7 @@ function errorHelpers() {
   const timers = [];
   const toastEl = node("div");
   const ctx = {
-    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label),
+    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label), icon: () => null,
     copied: [], toasts: [], logged: [], state: { view: "home" },
     navigator: { clipboard: { writeText: async (t) => { ctx.copied.push(t); } } },
     logActivity: (i) => ctx.logged.push(i),
@@ -3647,7 +3790,8 @@ function errorHelpers() {
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
   };
   const code = activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0] + activity.match(/function errorPanel\([\s\S]*?\n}\n/)[0] +
-    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
+    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/function toastClose\([\s\S]*?\n}\n/)[0] + app.match(/function toastReturnFocus\([\s\S]*?\n}\n/)[0] +
+    app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
   vm.runInNewContext(`${code}; Object.assign(this, { friendlyError, errorPanel, realToast: toast, attempt });`, ctx);
   return { ctx, node, find, timers, toastEl, live: () => timers.filter((t) => t.live) };
 }
@@ -3712,7 +3856,7 @@ test("errorPanel says what happened, what to do, and keeps the raw text under De
   assert.strictEqual(ctx.errorPanel("SignInCancelled: cancelled: closed"), null, "a cancelled sign-in shows nothing");
 });
 
-test("an error toast is an alert with Retry, and stays while the pointer is on it", async () => {
+test("an error toast is an alert with Retry, and a toast with a button isn't timed (WCAG 2.2.1)", async () => {
   const { ctx, find, toastEl, live } = errorHelpers();
   let calls = 0;
   const failing = async () => { calls++; throw "RuntimeError: 429 TooManyRequests"; };
@@ -3721,17 +3865,22 @@ test("an error toast is an alert with Retry, and stays while the pointer is on i
   assert.match(toastEl.textContent, /^Couldn't load runs: Fabric is busy/);
   const retry = find(toastEl, (n) => n.tag === "button" && n.textContent === "Retry");
   assert.ok(retry, "the toast has Retry");
-  assert.strictEqual(live().at(-1).ms, 8000);
+  assert.ok(find(toastEl, (n) => n.tag === "button" && n.attrs["aria-label"] === "Close"), "and a named ×");
+  assert.strictEqual(live().length, 0, "a toast with a button stays until it is closed");
   toastEl.fire("mouseenter");
-  assert.strictEqual(live().length, 0, "hovering pauses the auto-dismiss");
   toastEl.fire("mouseleave");
-  assert.strictEqual(live().length, 1, "leaving starts it again");
+  assert.strictEqual(live().length, 0, "leaving it doesn't start a timer either");
   await retry.fire("click");
   await new Promise((r) => setImmediate(r));
   assert.strictEqual(calls, 2, "Retry runs the same call again");
 
   await ctx.attempt(failing, "No retry here");
   assert.ok(!find(toastEl, (n) => n.tag === "button"), "no Retry unless the caller asks for one");
+  assert.strictEqual(live().at(-1).ms, 8000, "an error toast without a button goes by itself after 8 seconds");
+  toastEl.fire("mouseenter");
+  assert.strictEqual(live().length, 0, "hovering pauses it");
+  toastEl.fire("mouseleave");
+  assert.strictEqual(live().length, 1, "leaving starts it again");
   ctx.realToast("Saved");
   assert.strictEqual(toastEl.attrs.role, "status");
   assert.strictEqual(live().at(-1).ms, 4000);
@@ -5862,11 +6011,12 @@ test("SQL Forge events (KF-MO-005): a slow success sparks, a failure plays the e
   assert.ok(run.lastIndexOf("runFx(status, allow)") > run.lastIndexOf("sqlPage.redraw?.()"), "the effect plays before the redraw replaces the pill");
 });
 
-test("Profile shows proofs, and Journey and Achievements only while progression is on (KF-DX-002)", () => {
+test("Profile shows proofs, and Journey, Ranks, Skill trees and Achievements only while progression is on (KF-DX-002)", () => {
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
   assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
-  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "trees", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /p\.settings\.progression \? tab\("trees", "Skill trees"\) : null/);
   assert.match(p, /const proved = r\.type === "prove\.match";/);
   const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);
@@ -6160,7 +6310,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
+    runSeveral: ["Run several notebooks"], modelBpa: ["Semantic model best practices"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
@@ -6183,14 +6333,14 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
-    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
+    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Snowflake SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
     semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],
-    kfEnvironment: ["KratosForge Environment"],
+    kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -6202,10 +6352,10 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
-    "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
     "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
     "Notebook templates for Silver and Gold": ["docs/notebook-templates.md", /There is no page in the app to pick a template/],
+    "Check a bundle on this PC": ["docs/engines.md", /a command, with no screen in the app yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
@@ -6565,6 +6715,7 @@ const FABRIC_WRITES = {
   start_cell: ["notebook.js", null, "delta.concurrent"], // notebook writes go through the path that check runs
   run_notebook_in_fabric: ["app.js", "fabricRun", "notebook.run", "meta.js"],
   run_notebook_fabric_step: ["fabricstep.js", "fabricStep", null],
+  model_bpa_check: ["meta.js", "modelBpa", null],
   cancel_fabric_run: ["activity.js", "cancelFabricRun", null],
   add_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
   delete_notebook_schedule: ["app.js", "schedules", null, "notebook.js"],
@@ -6737,4 +6888,25 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
     "pipeline_run_start is called from Pipelines and the Motion sample only");
   // The access cache's writes are drawn only from the Access tab.
   assert.deepStrictEqual(files.filter((f) => f !== "access-cache.js" && /renderAccessAll\(/.test(text[f])), ["estate.js"], "only the Access tab draws the access cache");
+});
+
+// Academy board 5: an exercise's How this works. Only python_lab names the AppContainer; delta_lab and
+// pyspark_lab run in the learner process only (docs/academy/grading-sandbox.md), and SQL never says sandboxed.
+test("an Academy exercise's How this works names the AppContainer only for python_lab", () => {
+  const src = fs.readFileSync(path.join(ui, "academy.js"), "utf8");
+  const consts = ["ACADEMY_CLASS", "ACADEMY_SQL_ADAPTERS", "ACADEMY_PY_ADAPTERS", "ACADEMY_CLASS_MEANS"]
+    .map((n) => src.match(new RegExp(`const ${n} = [\\s\\S]*?;\\n`))[0]).join("");
+  const fn = src.match(/function academyExerciseHow\(ex\) \{[\s\S]*?\n\}\n/)[0];
+  const ctx = { howItWorks: (id, parts) => ({ id, ...parts }) };
+  vm.runInNewContext(`${consts}${fn}; this.how = academyExerciseHow;`, ctx);
+  const reach = (adapter) => Object.fromEntries(ctx.how({ adapter, class: "local_verified" }).more)["What your answer can reach"];
+  assert.match(reach("python_lab"), /AppContainer/);
+  for (const a of ["delta_lab", "pyspark_lab"]) {
+    assert.match(reach(a), /runs as you on this PC, without your sign-in, with time and memory limits/, a);
+    assert.doesNotMatch(reach(a), /AppContainer/, a);
+  }
+  assert.match(reach("duckdb_lab"), /no file or network access/);
+  for (const a of ["python_lab", "delta_lab", "pyspark_lab", "duckdb_lab", "config_model"]) {
+    assert.doesNotMatch(JSON.stringify(ctx.how({ adapter: a, class: "local_verified" })), /sandboxed/i, a);
+  }
 });

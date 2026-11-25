@@ -262,3 +262,13 @@ def test_this_pcs_own_trouble_writing_a_result_keeps_its_own_message(tmp_path, m
     assert not isinstance(failed.value, warehouse.Interrupted)
     kind, message = sql_worker.error_message(failed.value, job)
     assert kind == "disk" and "Fix that batch" not in message
+
+
+def test_a_run_the_app_closes_on_is_in_the_audit_before_the_engine_exits(runs):
+    # The reader that records how a run ended is a daemon thread; shutdown waits for it, so the line
+    # is there when the engine's main thread returns and the process ends.
+    run_id = change(runs, "UPDATE dbo.sales SET a = 1 -- HANG")["id"]
+    wait(runs, run_id, states=("running",))
+    runs.shutdown()
+    line = audited(runs, run_id)
+    assert line["execution"] == run_id and runs.status(run_id)["state"] == "cancelled"

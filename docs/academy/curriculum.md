@@ -51,6 +51,13 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E18 | Schedule a pipeline and trigger it when a file lands | 1.4.2 | C | SIM +FV | config | 20 | |
 | E19 | Parameterised pipeline: ForEach over tables with dynamic expressions | 1.4.3 | C | LV | pipeline | 30 | Orchestration |
 | E20 | Notebook orchestration with runMultiple, parameters and exit values | 1.4.3 | C | LV | pyspark | 25 | notebookutils |
+| E71 | Dynamic data masking: work out what each person's SELECT returns | 1.3.4 | C | SIM +FV | duckdb | 20 | |
+| E73 | Pipeline, notebook or something else: choose the tool for five jobs | 1.4.1 | C | SIM | config | 20 | LM-08 |
+| E76 | Govern a workspace: who can endorse, and where labels end up | 1.3.5, 1.3.6 | C | SIM +FV | config | 20 | Governance |
+| E77 | A new column and a reporting schema in a warehouse database project | 1.2.2 | C | LV | sqlproj | 25 | LM-23 |
+| E81 | The least workspace role for four groups and two apps | 1.3.1 | C | SIM +FV | config | 20 | |
+| E82 | Share a warehouse and a semantic model: ReadData, ReadAll and Build | 1.3.2 | C | SIM +FV | config | 20 | |
+| E83 | A schedule or a storage event trigger for six pipelines | 1.4.2 | C | SIM +FV | config | 25 | |
 
 ## 2. Ingest and transform data
 
@@ -80,6 +87,13 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E42 | Structured streaming with foreachBatch and MERGE | 2.3.3 | C | LV +FV | pyspark | 30 | |
 | E43 | Tumbling, hopping and session windows over device events | 2.3.5 | G | LV +FV | duckdb | 25 | LM-15 |
 | E67 | Reload one day of a Delta table with replaceWhere | 2.1.1 | C | LV | pyspark | 20 | LM-21 |
+| E69 | Flatten nested JSON order events with PySpark | 2.2.6 | C | LV | pyspark | 20 | |
+| E70 | Running totals per customer with a PySpark window | 2.2.8 | C | LV | pyspark | 20 | |
+| E74 | Six workloads, four stores: lakehouse, warehouse, eventhouse or SQL database | 2.2.1 | C | SIM | config | 20 | LM-06, LM-23 |
+| E75 | Five streaming flows: eventstream, Spark Structured Streaming or KQL | 2.3.1 | C | SIM | config | 20 | |
+| E78 | A wide sales table with each customer as they were on the day | 2.2.7 | C | LV | pyspark | 25 | LAB-05 |
+| E79 | Sliding windows and warm episodes over freezer readings | 2.3.5 | C | LV | duckdb | 25 | LM-15 |
+| E84 | Five shortcuts: type, location, identity and cache | 2.2.3 | C | SIM +FV | config | 25 | |
 
 ## 3. Monitor and optimize an analytics solution
 
@@ -95,6 +109,8 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E62 | Optimize an eventhouse: caching, retention, materialized views and query shape | 3.3.4 | G | KO +FV | quiz | 15 | |
 | E63 | File layout for Spark: partitioning and file pruning on a Delta table | 3.3.5 | C | LV +FV | delta | 25 | LM-27 |
 | E64 | Read a query plan and fix the expensive step | 3.3.6 | G | LV | duckdb | 20 | LM-18 |
+| E72 | Monitor ingestion: the Copy runs that succeeded but didn't load what they should | 3.1.1 | C | SIM +FV | duckdb (`runs`) | 20 | |
+| E80 | Compact a partitioned Delta table and keep time travel | 3.3.1 | C | LV | delta | 25 | LM-25 |
 
 ## Broken environments (Troubleshoot)
 
@@ -130,11 +146,11 @@ validation checks both the fix and that nothing else changed.
 
 | | Count |
 | --- | --- |
-| Exercises | 68 (54 Guided or Challenge, 14 Troubleshoot) |
-| LOCAL VERIFIED | 34 |
-| SIMULATED | 24 |
+| Exercises | 84 (70 Guided or Challenge, 14 Troubleshoot) |
+| LOCAL VERIFIED | 40 |
+| SIMULATED | 34 |
 | KNOWLEDGE ONLY | 10 |
-| With a planned FABRIC VERIFIED version | 35 |
+| With a planned FABRIC VERIFIED version | 42 |
 | Capstones | 3 |
 | Built from existing Learn lessons or labs | 26 |
 

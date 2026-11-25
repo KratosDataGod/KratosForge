@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import b64
+from . import b64, jsonfile
 from . import notebook_formats as nbf
 from .filenames import file_stem
 from .notebook import to_ipynb
@@ -110,7 +110,8 @@ class NotebookFormatsMixin:
                 continue
             path = folder / f"{name}.ipynb"
             try:
-                f = open(path, "xb")  # refuses when a file of that name is already there
+                with jsonfile.long_path_named(path):  # a path past Windows' 260 without long paths: named
+                    f = open(path, "xb")  # refuses when a file of that name is already there
             except FileExistsError:
                 continue
             try:
@@ -158,13 +159,14 @@ class NotebookFormatsMixin:
         report = getattr(self, "_notebook_report", None)
         if not report:
             raise ValueError("There's no report to export. Open it again from the notebook (Share > Open as report).")
-        folder = known_folders.downloads()
-        folder.mkdir(parents=True, exist_ok=True)
+        folder = known_folders.export_folder()
         base = f"{file_stem(report['name'], 'Notebook')} report"
+        with jsonfile.long_path_named(folder / f"{base}.html", "exported"):  # an export folder past Windows' 260
+            folder.mkdir(parents=True, exist_ok=True)
         for n in range(1, 1000):
             path = folder / (f"{base}.html" if n == 1 else f"{base} ({n}).html")
             try:
-                with open(path, "x", encoding="utf-8", newline="\n") as f:
+                with jsonfile.long_path_named(path, "exported"), open(path, "x", encoding="utf-8", newline="\n") as f:
                     f.write(report["html"])
             except FileExistsError:
                 continue
@@ -178,14 +180,15 @@ class NotebookFormatsMixin:
         if not isinstance(cells, list) or not all(isinstance(c, dict) for c in cells):
             raise ValueError("cells is a list of cells")
         text = nbf.export_text(format, name, cells, lakehouse_ref)
-        folder = known_folders.downloads()
-        folder.mkdir(parents=True, exist_ok=True)
+        folder = known_folders.export_folder()
         ext = nbf.EXTENSIONS[format]
         base = file_stem(name, "Notebook") + (" with outputs" if format == "ipynb_outputs" else "")
+        with jsonfile.long_path_named(folder / f"{base}{ext}", "exported"):  # an export folder past Windows' 260
+            folder.mkdir(parents=True, exist_ok=True)
         for n in range(1, 1000):
             path = folder / (f"{base}{ext}" if n == 1 else f"{base} ({n}){ext}")
             try:
-                with open(path, "x", encoding="utf-8", newline="\n") as f:
+                with jsonfile.long_path_named(path, "exported"), open(path, "x", encoding="utf-8", newline="\n") as f:
                     f.write(text)
             except FileExistsError:
                 continue

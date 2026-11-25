@@ -33,13 +33,15 @@ def broken(monkeypatch):
 def test_an_unreadable_key_is_reported_as_unknown_and_its_restrictions_take_their_safest_values(policy, broken):  # noqa: F811
     out, problems, unknown = registry_policy.read_all()
     assert unknown == {registry_policy.ALL}
-    assert out == {k: v for k, v in app_settings.RESTRICTED.items() if not isinstance(v, list)}
+    on_off = {**app_settings.RESTRICTED, **registry_policy._safest()}  # external AI tools and App Studio's too
+    assert out == {k: v for k, v in on_off.items() if not isinstance(v, list)}
+    assert out["integrations"] is False and out["appstudio_models"] is False
     assert "allowed_tenants" not in out  # people can still sign in (Chris, 2026-10-18)
     assert problems == [("The Group Policy settings couldn't be read ([Errno 5] Access is denied). Until they can, "
                          "each on/off restriction takes its most restrictive value, as it does when the policy file "
                          "can't be read, and settings that widen what KratosForge trusts don't apply. Other settings "
                          "Group Policy can manage stay as they are and can only be made stricter here. Sign-in still "
-                         "works. Ask IT if this doesn't clear.")]
+                         "works. If this doesn't clear, ask IT to check that this PC can read the Group Policy key.")]
     assert problems[0] in app_settings.policy_problems()
 
 
@@ -88,7 +90,8 @@ def test_one_unreadable_list_leaves_only_that_setting_unknown(policy, gp):  # no
     assert out == {"telemetry": False, "allowed_tenants": ["contoso.com"]}
     assert unknown == {"fabric_view_sign_in_hosts"}
     assert problems == [("Group Policy key fabric_view_sign_in_hosts couldn't be read ([Errno 5] Access is denied), "
-                        "so fabric_view_sign_in_hosts is kept as it is and can't be changed here until the key can be read")]
+                        "so fabric_view_sign_in_hosts is kept as it is and can't be changed here until the key can be read. "
+                        "Ask IT to check that this PC can read the fabric_view_sign_in_hosts key in Group Policy.")]
     policy({"fabric_view_sign_in_hosts": HOSTS, "support_url": "https://help.contoso.example"})
     data, _ = app_settings.read_policy()
     assert "fabric_view_sign_in_hosts" not in data  # unknown: no source loosens it
@@ -100,7 +103,8 @@ def test_an_unreadable_subkey_that_isnt_a_list_setting_is_only_ignored(policy, g
     gp({}, {"not_a_setting": PermissionError(5, "Access is denied")})
     out, problems, unknown = registry_policy.read_all()
     assert out == {} and unknown == frozenset()
-    assert problems == ["Group Policy key 'not_a_setting' isn't a list setting KratosForge reads, so it's ignored"]
+    assert problems == [("Group Policy key 'not_a_setting' isn't a list setting KratosForge reads, so it's ignored. "
+                         "Ask IT to remove it from Group Policy.")]
 
 
 def test_the_record_of_policy_changes_notes_group_policy_it_couldnt_read(policy, broken, tmp_path):  # noqa: F811
@@ -121,4 +125,5 @@ def test_an_unreadable_tenant_list_says_the_restriction_may_not_apply(policy, gp
     assert unknown == {"allowed_tenants"}
     assert problems == [("Group Policy key allowed_tenants couldn't be read ([Errno 5] Access is denied), so the "
                          "restriction it sets may not apply. Until the key can be read, allowed_tenants comes from "
-                         "the policy file or its default.")]
+                         "the policy file or its default. Ask IT to check that this PC can read the allowed_tenants key in "
+                         "Group Policy.")]

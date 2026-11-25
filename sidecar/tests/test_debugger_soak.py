@@ -5,8 +5,10 @@ Continue and a restart leaves nothing paused; and a poll waits for an ended proc
 from __future__ import annotations
 
 import gc
+import threading
 import time
 import tracemalloc
+from collections import Counter
 
 import pytest
 
@@ -42,7 +44,8 @@ def threads_and_trace(k):
     snap = wait(k)
     assert snap["status"] == "ok", snap
     untraced, _, names = snap["outputs"][-1]["text"].strip().partition(" ")
-    return set(names.split("|")) - {""}, untraced == "True"
+    # A Counter, not a set: a leaked thread whose name repeats one already running still counts.
+    return Counter(n for n in names.split("|") if n), untraced == "True"
 
 
 def assert_no_threads_left(k, before, seconds=10):
@@ -52,10 +55,10 @@ def assert_no_threads_left(k, before, seconds=10):
     while True:
         after, untraced = threads_and_trace(k)
         assert untraced
-        if after <= before or time.monotonic() > deadline:
+        if not after - before or time.monotonic() > deadline:
             break
         time.sleep(0.2)
-    assert after <= before, f"threads left behind: {sorted(after - before)}"
+    assert not after - before, f"threads left behind: {sorted((after - before).elements())}"
 
 
 PAUSES = 1000
@@ -181,3 +184,47 @@ def test_a_thread_that_stays_is_named(kernel):
         assert_no_threads_left(kernel, before, seconds=0.5)
     kernel.start("stay.set()")
     assert wait(kernel)["status"] == "ok"
+    # One that takes the name of a thread already running is counted too.
+    before, _ = threads_and_trace(kernel)
+    kernel.start("import threading\nstay2 = threading.Event()\n"
+                 "threading.Thread(target=stay2.wait, name='MainThread', daemon=True).start()")
+    assert wait(kernel)["status"] == "ok"
+    with pytest.raises(AssertionError, match="MainThread"):
+        assert_no_threads_left(kernel, before, seconds=0.5)
+    kernel.start("stay2.set()")
+    assert wait(kernel)["status"] == "ok"
+
+
+# ---------- a finished cell is free at once ----------
+
+def test_a_cell_is_marked_done_with_its_final_status_never_after():
+    # A poll that sees a final status must never find the run still running: the next cell would be
+    # refused ("A cell is already running") in the gap. done is set while the status is held.
+    from fabric_desktop import notebook
+
+    seen = []
+
+    class Done(threading.Event):
+        def set(self):
+            seen.append((run.lock.locked(), run.status))
+            super().set()
+
+    run = notebook._Run(1)
+    run.done = Done()
+    run.finish("ok")
+    assert seen == [(True, "ok")]
+
+
+
+def test_a_finished_cell_never_reports_a_pause():
+    # Cancel resends its interrupt while the cell evaluates an expression; one can land in the
+    # debugger's clean-up before it clears the pause. The run must still not report a pause.
+    from fabric_desktop import notebook
+
+    run = notebook._Run(1)
+    run.debugger = object()
+    run.set_paused({"line": 5, "reason": "breakpoint", "stack": [], "variables": []})
+    assert run.snapshot()["paused"]["line"] == 5
+    run.finish("cancelled")
+    snap = run.snapshot()
+    assert snap["status"] == "cancelled" and snap["paused"] is None

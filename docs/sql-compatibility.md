@@ -538,6 +538,8 @@ Refused, each by name:
 - `FORMAT`'s `E`, `G` and `R` number formats, a precision of more than two digits, a custom format with a third section, scientific notation, `‰`, more than one `%`, `,` right before the point (which divides by 1,000), text among the digits with `#` or `,`, and `FORMAT` of a `float`, `money` or `time`.
 - `PARSE` and `TRY_PARSE` of text .NET may read another way: a currency sign, parentheses, an exponent, a sign at the end, `Infinity`, decimals for an integer type, or separators away from groups of three. Text with no digit at all gives T-SQL's answer.
 - `PARSE` and `TRY_PARSE` to a date or time (use `CONVERT` with a style), and to `money`, which isn't carried (use `DECIMAL(19, 4)`). `CONVERT`'s `money` styles are refused with `money`.
+- A `CONVERT` style that isn't a number written in the query, such as one from a column: it would be ignored here. Write the style as a number, such as `101`.
+- A number with a fraction where a date function takes a date (`DAY(1.5)`), which T-SQL reads as a datetime part of a day after 1900-01-01. A whole number is carried as T-SQL reads it, that many days after 1900-01-01: `YEAR(5)` is `1900`, and `DATEADD(day, DATEDIFF(day, 0, d), 0)` is the date of `d`. That holds for `YEAR`, `MONTH`, `DAY`, `EOMONTH`, `DATENAME`, `DATEPART`, `DATEADD`, `DATEDIFF` and `DATETRUNC`.
 
 The static check and **Format SQL** can't read `PARSE`'s `AS ... USING` yet: they mark the query unverified and leave it as written. The live check (`fabric-desktop smoke-test`, flow 17) asks a test warehouse for the answers .NET's versions disagree on, so they can be carried once known.
 
@@ -547,7 +549,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 
 | What | Here, as in a warehouse |
 | --- | --- |
-| `=`, `<>`, `<`, `IN`, `JOIN ... ON` | `'a' = 'a  '` is true and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
+| `=`, `<>`, `<`, `IN`, `ALL`, `ANY`, `JOIN ... ON` | `'a' = 'a  '` is true, `'a ' = ALL (SELECT 'a')` is true, and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
 | `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
 | `CHARINDEX` with a `NULL` start | `NULL` |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |

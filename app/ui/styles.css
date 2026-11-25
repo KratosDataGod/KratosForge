@@ -454,6 +454,37 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .md-img { max-width: 100%; height: auto; }
 .md-img-off { font-size: 12px; }
 .md-math.block { display: block; margin: 4px 0 8px; overflow-x: auto; }
+
+/* A Markdown cell being edited, with Preview features shown (nbmarkdown.js): a formatting toolbar, the
+   View switch (Edit, Split, Preview), the editor and its live preview, and a hint line. Split turns into
+   Edit and Preview tabs on a cell narrower than about 620px. */
+.md-rich { container-type: inline-size; background: var(--surface); }
+.md-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 8px; border-bottom: 1px solid var(--border-soft); }
+.md-toolbar .md-fmt { min-width: 28px; justify-content: center; }
+.md-toolbar .md-fmt-bold { font-weight: 700; }
+.md-toolbar .md-fmt-italic { font-style: italic; }
+.md-toolbar .sep { height: 20px; margin: 0 4px; }
+.md-toolbar .preview-tag { margin-right: 8px; }
+.md-view-pick { display: inline-flex; align-items: center; white-space: nowrap; }
+.md-view-label { margin-right: 6px; color: var(--text-2); font-size: 12px; }
+.md-switch { display: inline-flex; border: 1px solid var(--border-input); border-radius: var(--r-sm); overflow: hidden; }
+.md-switch button { min-height: 26px; padding: 0 10px; border: 0; border-right: 1px solid var(--border-input); background: var(--surface); color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; }
+.md-switch button:last-child { border-right: 0; }
+.md-switch button.on { background: var(--accent); color: var(--on-accent); }
+.md-tabs { display: none; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--border-soft); }
+.md-tabs .tab { min-height: 32px; font-size: 13px; }
+.md-tabs .tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); font-weight: 600; }
+.md-panes { display: flex; align-items: stretch; }
+.md-panes > .md-edit, .md-panes > .md-preview { flex: 1 1 0; min-width: 0; }
+.md-panes > .md-preview { border-left: 1px solid var(--border-soft); }
+.md-rich[data-view="edit"] .md-preview, .md-rich[data-view="preview"] .md-edit { display: none; }
+.md-rich[data-view="preview"] .md-preview { border-left: 0; }
+.md-hint { margin: 0; padding: 4px 12px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 12px; }
+@container (max-width: 620px) {
+  .md-rich[data-view="split"] .md-tabs { display: flex; }
+  .md-rich[data-view="split"][data-tab="edit"] .md-preview, .md-rich[data-view="split"][data-tab="preview"] .md-edit { display: none; }
+  .md-rich[data-view="split"] .md-preview { border-left: 0; }
+}
 .md-math math { font-size: 1.1em; }
 .md-eqno { float: right; color: var(--text-2); }
 
@@ -3675,7 +3706,7 @@ tr.fg-conflict { background: var(--danger-soft); }
 .dbx-vol-files th, .dbx-vol-files td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; }
 .dbx-vol-files thead th { font-size: 12px; color: var(--muted); font-weight: 600; }
 .dbx-vol-files .tick { width: 28px; }
-.dbx-vol-files .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dbx-vol-files .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: inherit; }
 .dbx-vol-files tr.sel td { background: var(--accent-soft); }
 .dbx-vol-folder.tool.link { padding: 0; min-height: 0; gap: 6px; color: inherit; font: inherit; }
 .dbx-vol-empty { padding: 26px 10px; text-align: center; color: var(--muted); font-size: 13px; }

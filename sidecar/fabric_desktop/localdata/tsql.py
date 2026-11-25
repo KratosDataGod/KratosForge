@@ -1886,9 +1886,8 @@ def _converts(tree: exp.Expression) -> list[str]:
                     new.this.set("safe", True)  # TRY_CONVERT gives NULL for a date that doesn't exist, not an error
             style = node.args.get("style")
             if style is not None and not (isinstance(style, exp.Literal) and not style.is_string):
-                raise ValueError(f"{_NOT_YET}CONVERT's style has to be a number written in the query; a style "
-                                 f"from {style.sql('tsql')} isn't carried yet, and would be ignored here. "
-                                 "Write the style as a number, such as 101.")
+                raise ValueError(f"{_NOT_YET}CONVERT's style has to be a number written in the query. A style "
+                                 f"from {style.sql('tsql')} isn't carried yet. Write the style as a number, such as 101.")
             if isinstance(new.this, exp.StrToTime) and isinstance(style, exp.Literal) \
                     and style.name not in CHECKED_DATE_STYLES:
                 notes.append(_unchecked_style(style.name))  # text read as a date; a date written as text: _types

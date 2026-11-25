@@ -537,7 +537,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 
 | What | Here, as in a warehouse |
 | --- | --- |
-| `=`, `<>`, `<`, `IN`, `ALL`, `ANY`, `JOIN ... ON` | `'a' = 'a  '` is true, and so is `'a ' = ALL (SELECT 'a')` and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
+| `=`, `<>`, `<`, `IN`, `ALL`, `ANY`, `JOIN ... ON` | `'a' = 'a  '` and `'a ' = ALL (SELECT 'a')` are true, and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
 | `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
 | `CHARINDEX` with a `NULL` start | `NULL` |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |

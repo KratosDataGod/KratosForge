@@ -351,7 +351,7 @@ function registerShortcuts(group, list) {
 // The keys that work everywhere in the window (app.js handles each through isShortcut).
 registerShortcuts("Anywhere", [
   { id: "palette", keys: ["Ctrl+K"], match: ["k"], mod: true,
-    label: "Open the command bar: find a page, action, notebook, workspace or entity" },
+    label: "Open the command bar: find a page, action, notebook, workspace or entity. While you edit a Markdown cell with its toolbar, Ctrl+K adds a link instead" },
   { id: "shortcuts", keys: ["?"], match: ["?"], label: "Show this list (when you aren't typing in a box)" },
   { id: "close", keys: ["Esc"], match: ["Escape"],
     label: "Close the command bar, a menu, a dialog or the activity tray, then go back to where you were" },

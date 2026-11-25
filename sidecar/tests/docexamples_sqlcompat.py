@@ -101,6 +101,7 @@ CLAIMS: list[Claim] = [
     # Local T-SQL text
     _ts("'a' = 'a  '"),
     _ts("'a' = 'A'"),
+    _ts("'a ' = ALL (SELECT 'a')"),
     _ts("'abc' LIKE 'abc '"),
     _ts("LEN('ab  ')"),
     _ts("DATALENGTH('ab  ')"),

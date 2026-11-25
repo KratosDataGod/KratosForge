@@ -49,6 +49,9 @@ async function home({ mocks = {}, pins = [], storage = {} } = {}) {
     notebook_batch_stop: () => ({ id: "b1", state: "running", stopping: true, items: [{ name: "Clean orders", status: "running" }] }),
     notebook_batch_fabric: ({ name }) => ({ job_id: `j-${name}`, name, workspace_name: "Ops", url: "" }),
     open_notebook: ({ name }) => ({ name, cells: [{ type: "code", source: "x = 1" }] }),
+    // Home reads the X-ray each time it draws, and again when a batch ends. Unanswered, that read fails
+    // with an error toast that takes the batch's notice off the screen moments after it appears.
+    xray: () => ({ findings: [], scanned_at: null }),
     ...mocks,
   } });
   await app.page.waitForFunction(() => state.view === "home" && homeCache.done, null, { timeout: 20000 });

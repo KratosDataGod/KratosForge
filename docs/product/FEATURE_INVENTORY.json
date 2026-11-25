@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "a73ebb71a6c292261c8b2a20c995b0441121a52c",
+    "commit": "84a36dd631772d2e33f0fb2b6b92046eddde3c47",
     "date": "2026-11-24",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -78,7 +78,8 @@
       "Product check 2026-11-20 23:42 at ea988e99e0c8ed1b7feffe72f4ef8a062f83ddf1: 23 PRs merged after bdb6f251; 2 were product data, docs audit, operations or plan PRs and the other 21 were linked by title; other rows were not re-read.",
       "Product check 2026-11-23 11:42 (the 11-21 and 11-22 checks found main unchanged) at 0fdeb4d7d293f77a9d91644fbc92661e9883d0bb: 42 PRs merged after ea988e99; 2 were product data, docs audit, operations or plan PRs and the other 40 were linked by title; other rows were not re-read.",
       "Product check 2026-11-23 23:42 at 293fb38daae81c9e80fd2e5a5b49c13d608d556a: 16 PRs merged after 0fdeb4d7; 1 were product data, docs audit, operations or plan PRs and the other 15 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-24 11:42 at a73ebb71a6c292261c8b2a20c995b0441121a52c: 38 PRs merged after 293fb38d; 3 were product data, docs audit, operations or plan PRs and the other 35 were linked by title; other rows were not re-read."
+      "Product check 2026-11-24 11:42 at a73ebb71a6c292261c8b2a20c995b0441121a52c: 38 PRs merged after 293fb38d; 3 were product data, docs audit, operations or plan PRs and the other 35 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-24 23:42 at 84a36dd631772d2e33f0fb2b6b92046eddde3c47: 30 PRs merged after a73ebb71; 3 were product data, docs audit, operations or plan PRs and the other 27 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -332,10 +333,15 @@
         3203,
         3224,
         3225,
+        3232,
         3240,
         3241,
+        3247,
         3267,
-        3268
+        3268,
+        3312,
+        3319,
+        3321
       ]
     },
     {
@@ -2795,6 +2801,7 @@
         3161,
         3181,
         3185,
+        3190,
         3195,
         3196,
         3216,
@@ -2802,7 +2809,10 @@
         3233,
         3243,
         3262,
-        3273
+        3273,
+        3314,
+        3315,
+        3320
       ]
     },
     {
@@ -3431,7 +3441,9 @@
         3145,
         3164,
         3179,
+        3184,
         3230,
+        3242,
         3248,
         3274
       ],
@@ -6703,7 +6715,9 @@
         2077,
         2156,
         2167,
-        2199
+        2199,
+        3306,
+        3322
       ]
     },
     {
@@ -8305,7 +8319,10 @@
         3212,
         3222,
         3227,
-        3264
+        3264,
+        3275,
+        3305,
+        3317
       ],
       "workstream": "Optimize central lakehouse (PB-104)",
       "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-09): Optimize's central lakehouse set up on a tenant.",
@@ -8361,7 +8378,9 @@
         1722,
         2206,
         2934,
-        2955
+        2955,
+        3229,
+        3277
       ],
       "workstream": "Developer profile",
       "next_action": "Proof Forged from Prove, Journey and Achievements tabs (KF-DX-002); implementation review of #598."
@@ -8652,7 +8671,10 @@
         3163,
         3171,
         3172,
-        3266
+        3266,
+        3285,
+        3316,
+        3324
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -9216,7 +9238,8 @@
         3183,
         3237,
         3239,
-        3256
+        3256,
+        3302
       ],
       "backlog": [
         "PB-119",

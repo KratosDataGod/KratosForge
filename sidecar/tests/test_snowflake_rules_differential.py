@@ -305,3 +305,31 @@ def test_nanoseconds_are_refused_by_name() -> None:
                        ("SELECT TIMESTAMP_FROM_PARTS(2024, 1, 2, 3, 4, 5, 123456000)", dt.datetime(2024, 1, 2, 3, 4, 5, 123456)),
                        ("SELECT TO_TIMESTAMP(1704164645123456000, 9)", dt.datetime(2024, 1, 2, 3, 4, 5, 123456))):
         assert con.execute(sf.translate(code).duckdb_sql).fetchall() == [(want,)], code
+
+
+def test_windows_take_snowflakes_default_frames() -> None:
+    """window-functions (window frame usage notes): with ORDER BY and no frame, SUM, COUNT and the other
+    aggregates use RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, so ties are summed together;
+    FIRST_VALUE, LAST_VALUE and NTH_VALUE use the whole partition, ROWS BETWEEN UNBOUNDED PRECEDING AND
+    UNBOUNDED FOLLOWING. NULLs sort last ascending (DEFAULT_NULL_ORDERING LAST)."""
+    con = duckdb.connect()
+    sql = ("SELECT k, SUM(v) OVER (ORDER BY k), COUNT(*) OVER (ORDER BY k), LAST_VALUE(v) OVER (ORDER BY k), "
+           "NTH_VALUE(v, 2) OVER (ORDER BY k), FIRST_VALUE(v) OVER (ORDER BY k DESC), "
+           "SUM(v) OVER (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) "
+           "FROM (VALUES (1, 10), (2, 20), (2, 30), (NULL, 5), (4, NULL)) AS t(k, v) ORDER BY k, v")
+    rows = con.execute(sf.translate(sql).duckdb_sql).fetchall()
+    assert rows == [(1, 10, 1, 5, 20, 5, 10), (2, 60, 3, 5, 20, 5, 60), (2, 60, 3, 5, 20, 5, 60),
+                    (4, 60, 4, 5, 20, 5, None), (None, 65, 5, 5, 20, 5, 5)]
+
+
+def test_a_set_operation_of_text_and_numbers_is_refused_by_name() -> None:
+    """operators-query: a UNION of a VARCHAR and an INTEGER column converts the text to a number ("Numeric value
+    'Smith, Jane' is not recognized"); DuckDB made the column text, so '10' sorted before 9 (SFN-032)."""
+    for sql in ["SELECT '10' AS a UNION ALL SELECT 9", "SELECT 1 AS a, 'x' AS b UNION SELECT 2, 3",
+                "SELECT 1 AS a INTERSECT SELECT '1'", "SELECT 1 AS a MINUS SELECT '1'",
+                "SELECT 1 AS a UNION ALL SELECT NULL UNION ALL SELECT '2'::VARCHAR"]:
+        translation = sf.translate(sql)
+        assert not translation.runnable and translation.statements[0].notes[0].id == "SFN-032", sql
+    for sql in ["SELECT '10' AS a UNION ALL SELECT '9'", "SELECT 1 AS a UNION ALL SELECT NULL",
+                "SELECT '10'::NUMBER AS a UNION ALL SELECT 9"]:
+        assert sf.translate(sql).runnable, sql

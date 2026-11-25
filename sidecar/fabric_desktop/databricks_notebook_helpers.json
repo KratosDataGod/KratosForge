@@ -5,7 +5,7 @@
     "credentials.showCurrentRole": "",
     "credentials.showRoles": "",
     "data.summarize": "Shows a summary table of the DataFrame; the precise flag is ignored.",
-    "fs.cp": "Paths are the attached lakehouse (Files/...) or file: paths on this PC. dbfs:/, /Volumes/ and other bare absolute paths are Databricks storage and are refused by name.",
+    "fs.cp": "Paths are the attached lakehouse (Files/...), file: paths on this PC, or /Volumes/main/<schema>/<volume>/... (a Unity Catalog volume's folder on this PC, Preview). Other dbfs:/ and bare absolute paths are Databricks storage and are refused by name.",
     "fs.head": "Same paths as fs.cp.",
     "fs.ls": "Same paths as fs.cp.",
     "fs.mkdirs": "Same paths as fs.cp.",

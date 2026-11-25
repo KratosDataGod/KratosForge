@@ -23,8 +23,8 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import (spark_aggregates, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals, spark_hash,
-               spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
+from . import (spark_aggregates, spark_branch_types, spark_builtins_sql, spark_complex, spark_datetime, spark_decimals,
+               spark_hash, spark_sql_names, spark_strings, spark_time_zone, spark_windows, sql_dialects)
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # sqlglot logs a warning when it reads a statement as a bare command ('SHOW TABLES' ...). With no
@@ -192,7 +192,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     ``databricks``: schema_of_json writes every field name in backticks, as Databricks documents it;
     Apache Spark 3.5 (Fabric) quotes only names that need it. timestampdiff counts whole units
     (_spark_timestampdiff)."""
-    statement = spark_builtins_sql.mark(statement)
+    statement = spark_branch_types.mark(spark_builtins_sql.mark(statement))
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
     statement = spark_builtins_sql.check_nested_concat_ws(statement)
     if databricks:
@@ -2555,6 +2555,7 @@ written from its argument's type as Spark writes it (spark_json), and a shift of
     if sql_dialects.get(dialect)["id"] != "spark":
         return statement
     from . import spark_text_compare
+    statement = cast(exp.Expression, spark_branch_types.spark_branch_types(statement, con))
     statement = cast(exp.Expression, spark_text_compare.spark_text_comparisons(statement, con))
     statement = cast(exp.Expression, spark_decimals.spark_decimal_types(statement, con))
     return cast(exp.Expression, spark_complex.spark_complex_types(statement, con, kinds=("to_json", "int_shift")))

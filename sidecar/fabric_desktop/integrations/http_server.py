@@ -139,12 +139,10 @@ class Guard:
             return
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
         client, client_port = (scope.get("client") or ("", 0))[:2]
-        if client not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        if client not in ("127.0.0.1", "::1", "localhost"):
             await self._refuse(scope, receive, send, IntegrationError("permission_denied", "Only this PC can use the local API."))
             return
-        # "testclient" is Starlette's in-process test client: no socket, so no program to ask about.
-        if (self.same_user is not None and client != "testclient"
-                and not await anyio.to_thread.run_sync(self.same_user, int(client_port or 0), self.port)):
+        if self.same_user is not None and not await anyio.to_thread.run_sync(self.same_user, int(client_port or 0), self.port):
             await self._refuse(scope, receive, send, IntegrationError(
                 "permission_denied", "Only programs running as the Windows account KratosForge runs as can use the local API.",
                 hint="Start the tool signed in to Windows as the same person as KratosForge."))
@@ -298,7 +296,8 @@ def openapi(registry: Registry, port: int) -> dict[str, Any]:
 
 
 def build_app(registry: Registry, store: IntegrationStore, port: int, service_factory: Callable[[], Any] | None = None,
-              limiter: RateLimiter | None = None, refresh: Callable[[], Any] | None = None) -> ASGIApp:
+              limiter: RateLimiter | None = None, refresh: Callable[[], Any] | None = None,
+              same_user: Callable[[int, int], bool] | None = None) -> ASGIApp:
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from mcp.server.transport_security import TransportSecuritySettings
 
@@ -424,7 +423,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
                             Route("/mcp", MCPEndpoint(), methods=["GET", "POST", "DELETE"])],
                     exception_handlers={404: _http_error, 405: _http_error, 500: _http_error},
                     lifespan=lambda _app: manager.run())
-    return Guard(app, store, port, limiter, registry)
+    return Guard(app, store, port, limiter, registry, same_user)
 
 
 # ---- running it
@@ -481,11 +480,15 @@ def _protocol() -> type:
 
 
 def server_config(app: ASGIApp, port: int) -> Any:
-    """The local API's uvicorn settings: loopback only, a cap on open connections, and deadlines."""
+    """The local API's uvicorn settings: loopback only, a cap on open connections, and deadlines.
+
+    No proxy headers: the caller's address and port come from the socket, and request headers
+    never decide who is calling.
+    """
     import uvicorn
 
     return uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
-                          timeout_graceful_shutdown=10, server_header=False, http=_protocol(),
+                          timeout_graceful_shutdown=10, server_header=False, http=_protocol(), proxy_headers=False,
                           # uvicorn counts the new connection too, and refuses at the limit
                           limit_concurrency=MAX_CONNECTIONS + 1, timeout_keep_alive=IDLE_SECONDS)
 

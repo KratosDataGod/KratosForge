@@ -149,7 +149,7 @@ def _read(source: Any, view: str) -> tuple[dict[str, Any], str, dict[str, Any] |
         else:
             source = mo.parse(source)
     if not isinstance(source, Mapping):
-        raise TypeError("A semantic view is made from a model.bim, a TMDL folder's files or an Ossie document")
+        raise ValueError("A semantic view is made from a model.bim, a TMDL folder's files or an Ossie document")
     source = dict(source)
     if isinstance(source.get("model"), dict) and not isinstance(source.get("version"), str):
         out = mo.export(source, translate_dax=True)
@@ -167,6 +167,7 @@ def _read(source: Any, view: str) -> tuple[dict[str, Any], str, dict[str, Any] |
         raise ValueError(refusal)
     if not source.get("name") or not isinstance(source.get("datasets"), list) or not source["datasets"]:
         raise ValueError("An Ossie model needs a name and at least one dataset")
+    mo.refuse_depth(source)  # as conversion and the schema check refuse it
     return copy.deepcopy(source), "ossie", None
 
 

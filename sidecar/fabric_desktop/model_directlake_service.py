@@ -24,6 +24,7 @@ FOOTERS_READ = 200  # row groups come from this many files' footers at most; abo
 HISTORY_COMMITS = 200  # the forecast reads at most this many of a table's latest commits ...
 HISTORY_BUDGET = 2_000  # ... and at most this many commit files for the whole model
 MIN_HISTORY = 20  # every table gets at least this many, however many tables the model has
+LOG_FILE_BYTES = 16 * 1024 * 1024  # a commit file bigger than this (a huge OPTIMIZE or overwrite) ends the history
 
 _log = logging.getLogger(__name__)
 
@@ -63,14 +64,19 @@ def table_stats(uri: str, options: dict[str, str] | None, footers: int = FOOTERS
 
 
 def _log_actions(fs: Any, version: int) -> list[dict[str, Any]]:
-    """The actions of one commit's log file, or [] when it's gone (log retention removed it)."""
+    """The actions of one commit's log file, or [] when it's gone (log retention removed it) or is bigger than
+    LOG_FILE_BYTES. Either ends the history there, so no more than LOG_FILE_BYTES of one file is ever held."""
     import json
 
     try:
         with fs.open_input_file(f"_delta_log/{version:020d}.json") as f:
-            text = f.read().decode("utf-8")
+            data = f.read(LOG_FILE_BYTES + 1)
     except FileNotFoundError:  # narrow: older commits are cleaned up after the log retention period
         return []
+    if len(data) > LOG_FILE_BYTES:
+        _log.info("Direct Lake history stops at a commit file over %d bytes", LOG_FILE_BYTES)
+        return []
+    text = data.decode("utf-8")
     return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 

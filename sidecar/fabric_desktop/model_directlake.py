@@ -137,10 +137,10 @@ def _guardrail(t: ModelTable, label: str, noun: str, have: int | None, limit: in
     shown = ("about " if about else "") + _n(have)
     fix = "compact" if noun != "rows" else None  # compacting cuts files and row groups; rows only shrink by filtering
     if have > limit:
-        return _finding("warn", t.name, label, f"{shown} {noun}; {sku} allows {_n(limit)} a table. {past}", fix)
+        return _finding("warn", t.name, label, f"{shown} {noun}, but {sku} allows {_n(limit)} a table. {past}", fix)
     if have >= limit * NEAR:
         return _finding("warn", t.name, label,
-                        f"{shown} {noun}; {sku} allows {_n(limit)} a table, so a few more loads will pass it.", fix)
+                        f"{shown} {noun}, and {sku} allows {_n(limit)} a table, so a few more loads could pass it.", fix)
     return None
 
 
@@ -278,7 +278,8 @@ VERDICTS = ("will", "might", "within", "not_checked")
 LABELS = {"will": "Will fall back", "might": "Might fall back", "within": "Within limits", "not_checked": "Not checked"}
 # What the verdict is for a model on the SQL analytics endpoint whose tables are all within the limits, when the
 # endpoint's row-level or object-level security wasn't read (this PC never reads it): "within", with ENDPOINT_CAVEAT
-# shown beside it, or "not_checked". Pending Chris's pick; either way the caveat is listed under not_checked.
+# shown beside it, or "not_checked". Chris picked "Within limits, with a caveat"; the caveat is also listed under
+# not_checked.
 ENDPOINT_SECURITY_UNREAD_VERDICT = "within"
 ENDPOINT_CAVEAT = ("SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make "
                    "queries fall back.")

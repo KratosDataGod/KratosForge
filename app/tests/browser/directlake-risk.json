@@ -22,7 +22,7 @@
     "check": "Parquet files",
     "column": "",
     "fix": "compact",
-    "message": "960 Parquet files; F32 allows 1,000 a table, so a few more loads will pass it.",
+    "message": "960 Parquet files, and F32 allows 1,000 a table, so a few more loads could pass it.",
     "severity": "warn",
     "table": "fact_returns"
    },
@@ -30,7 +30,7 @@
     "check": "Row groups",
     "column": "",
     "fix": "compact",
-    "message": "1,240 row groups; F32 allows 1,000 a table. Queries on it fail until the table is compacted, because fallback is off.",
+    "message": "1,240 row groups, but F32 allows 1,000 a table. Queries on it fail until the table is compacted, because fallback is off.",
     "severity": "warn",
     "table": "fact_sales"
    },
@@ -38,7 +38,7 @@
     "check": "Rows",
     "column": "",
     "fix": null,
-    "message": "412,000,000 rows; F32 allows 300,000,000 a table. Queries on it fail until the table is compacted, because fallback is off.",
+    "message": "412,000,000 rows, but F32 allows 300,000,000 a table. Queries on it fail until the table is compacted, because fallback is off.",
     "severity": "warn",
     "table": "fact_sales"
    }
@@ -1333,7 +1333,7 @@
     "check": "Parquet files",
     "column": "",
     "fix": "compact",
-    "message": "960 Parquet files; F32 allows 1,000 a table, so a few more loads will pass it.",
+    "message": "960 Parquet files, and F32 allows 1,000 a table, so a few more loads could pass it.",
     "severity": "warn",
     "table": "fact_returns"
    },
@@ -1341,7 +1341,7 @@
     "check": "Row groups",
     "column": "",
     "fix": "compact",
-    "message": "1,240 row groups; F32 allows 1,000 a table. Queries on it fall back to DirectQuery and run slower.",
+    "message": "1,240 row groups, but F32 allows 1,000 a table. Queries on it fall back to DirectQuery and run slower.",
     "severity": "warn",
     "table": "fact_sales"
    },
@@ -1349,7 +1349,7 @@
     "check": "Rows",
     "column": "",
     "fix": null,
-    "message": "412,000,000 rows; F32 allows 300,000,000 a table. Queries on it fall back to DirectQuery and run slower.",
+    "message": "412,000,000 rows, but F32 allows 300,000,000 a table. Queries on it fall back to DirectQuery and run slower.",
     "severity": "warn",
     "table": "fact_sales"
    }

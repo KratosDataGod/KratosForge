@@ -389,6 +389,18 @@ def test_history_is_bounded_and_stops_where_the_log_was_cleaned_up(tmp_path):
     assert mds.history(str(tmp_path / "none"), None) is None
 
 
+
+def test_history_stops_at_a_commit_file_too_big_to_read(tmp_path, monkeypatch):
+    uri = str(tmp_path / "t")
+    for n in range(4):
+        _append(uri, n + 1)
+    log = tmp_path / "t" / "_delta_log"
+    limit = max((log / f"{v:020d}.json").stat().st_size for v in range(4))
+    monkeypatch.setattr(mds, "LOG_FILE_BYTES", limit)
+    padded = log / f"{1:020d}.json"
+    padded.write_bytes(padded.read_bytes() + b"\n" * (limit + 1 - padded.stat().st_size))
+    assert [c.version for c in mds.history(uri, None)] == [2, 3], "the oversized commit ends the history"
+
 def test_rows_before_a_compaction_whose_files_werent_read_are_unknown(tmp_path):
     uri = str(tmp_path / "t")
     for n in (5, 6, 7):

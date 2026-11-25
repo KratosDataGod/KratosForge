@@ -3,10 +3,14 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-24 23:42 UTC, main 84a36dd6.** Covers the PRs merged from #135 to #3324.
+**Product check of 2026-11-25 11:42 UTC, main b4bc548d.** Covers the PRs merged from #135 to #3333.
 
 ## Summary
 
+- Morning check, 2026-11-25: 11 PRs merged after 84a36dd6, all linked. Databricks Unity Catalog volumes work on this
+  PC with a Volumes screen (#3323, Preview, PB-120), and Markdown cells have a toolbar and preview (N23, #3329,
+  Preview, PB-103). Command-line restore is audited (WR-418, PB-124). Five test-stability PRs landed, and no test
+  reaches the network (#3311, PB-101). No item changed state.
 - Evening check, 2026-11-24: 30 PRs merged after a73ebb71. 3 were product data and a docs accuracy sweep, and the
   other 27 were linked. A failed critical control now caps the Excellence rating below Exemplary (#3305, PB-138), and
   Warehouse controls joined it (FEA-303). Command-line pipeline runs go through the audited, fail-closed call (WR-416)

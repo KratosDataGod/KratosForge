@@ -3700,7 +3700,7 @@ tr.fg-conflict { background: var(--danger-soft); }
 .dbx-vol-files th, .dbx-vol-files td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; }
 .dbx-vol-files thead th { font-size: 12px; color: var(--muted); font-weight: 600; }
 .dbx-vol-files .tick { width: 28px; }
-.dbx-vol-files .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dbx-vol-files .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: inherit; }
 .dbx-vol-files tr.sel td { background: var(--accent-soft); }
 .dbx-vol-folder.tool.link { padding: 0; min-height: 0; gap: 6px; color: inherit; font: inherit; }
 .dbx-vol-empty { padding: 26px 10px; text-align: center; color: var(--muted); font-size: 13px; }

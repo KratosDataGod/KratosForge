@@ -39,6 +39,8 @@ def test_a_position_in_the_select_list_where_and_on_reads_the_from_clause(code, 
     "SELECT $1, count(*) FROM t GROUP BY $1",
     "SELECT $1 FROM t GROUP BY x HAVING max($1) > 1",
     "SELECT $1 FROM t QUALIFY $1 > 1",
+    "SELECT t.$1 FROM VALUES (1) t",
+    "SELECT a.$2 FROM t AS a JOIN t AS b ON a.x = b.x WHERE b.$1 = 1",
 ])
 def test_a_position_where_duckdb_reads_the_select_list_is_refused_by_name(code):
     translation = sf.translate(code)

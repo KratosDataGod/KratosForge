@@ -1080,17 +1080,26 @@ _POSITION_ELSEWHERE = _refuse(
     "could answer differently. Write the column's name there.", f"{_DOCS}/constructs/values")
 
 
+_POSITION_OF_TABLE = _refuse(
+    "SFN-085", "$1 of a named table (t.$1)", "Snowflake reads t.$1 as the first column of t. DuckDB has no way to "
+    "name a column of one table by its position, so it isn't rewritten. Write the column's name, or $1 alone "
+    "when the FROM clause reads one table.", f"{_DOCS}/constructs/values")
+
+
 def _rewrite_positions(statement: exp.Expression) -> None:
     """SFX-086: $1, $2, ... name a column of the FROM clause by its position, as on Snowflake's VALUES page
     (SELECT $1, $2 FROM VALUES (1, 'one')). DuckDB's #1 means the same in the SELECT list, WHERE and ON. A
     bare $1 in the SELECT list is named "$1", as Snowflake names it. In ORDER BY, GROUP BY, HAVING and
-    QUALIFY, DuckDB's #1 is a SELECT list position, so $1 there is refused by name (SFN-085)."""
+    QUALIFY, DuckDB's #1 is a SELECT list position, so $1 there is refused by name (SFN-085), and so is t.$1,
+    which DuckDB can't write."""
     for parameter in list(statement.find_all(exp.Parameter)):
         if not (isinstance(parameter.this, exp.Literal) and not parameter.this.is_string
                 and str(parameter.this.this).isdigit()):
             continue
         if parameter.find_ancestor(exp.Order, exp.Group, exp.Having, exp.Qualify) is not None:
             raise _Untranslatable(_POSITION_ELSEWHERE)
+        if isinstance(parameter.parent, exp.Column) and parameter.parent.args.get("table") is not None:
+            raise _Untranslatable(_POSITION_OF_TABLE)
         number = int(str(parameter.this.this))
         column = exp.column(exp.Identifier(this=f"#{number}", quoted=False))
         if isinstance(parameter.parent, exp.Select) and parameter.arg_key == "expressions":
@@ -3129,7 +3138,8 @@ CATALOG = (
                 "one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or "
                 "CURRENT_TIMESTAMP runs (SFX-009).")),
     ("SFN-085", "Runs only in Snowflake", ("$1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a "
-                "column position as the SELECT list's, not the FROM clause's (SFX-086).")),
+                "column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position "
+                "of one named table's column, which DuckDB has no way to write.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 

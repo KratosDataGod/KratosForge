@@ -196,7 +196,7 @@ Rules 2026.11.23.
 | SFN-071 | Runs only in Snowflake | TIMESTAMP_TZ from text with a UTC offset other than the session zone's (the query stops at that row; also text written to a TIMESTAMP_TZ column, SFX-074), and TO_TIMESTAMP_TZ with TZH or TZM in its format, because DuckDB keeps the instant, not the offset. |
 | SFN-072 | Runs only in Snowflake | TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a fraction or exponent read from a column or a path (the query stops at that row), because Snowflake's answer depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired. |
 | SFN-073 | Runs only in Snowflake | TYPEOF of a timestamp with a time zone from a column or a computed value (the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or CURRENT_TIMESTAMP runs (SFX-009). |
-| SFN-085 | Runs only in Snowflake | $1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a column position as the SELECT list's, not the FROM clause's (SFX-086). |
+| SFN-085 | Runs only in Snowflake | $1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position of one named table's column, which DuckDB has no way to write. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value

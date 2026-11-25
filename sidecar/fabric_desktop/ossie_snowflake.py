@@ -54,7 +54,8 @@ def translate(sql: Any) -> tuple[str | None, str]:
     """``sql`` (an OSSIE_SQL_2026 expression) as Snowflake SQL with an empty reason, or None and a short reason (at most
     MAX_REASON characters, never quoting the expression). sqlglot reads it as generic SQL and writes Snowflake SQL,
     and both steps must succeed in full: one expression (no statement, query or ``;``), no function sqlglot doesn't
-    know (an Anonymous call would be copied as written, unchecked) and nothing Snowflake SQL can't express."""
+    know (an Anonymous call would be copied as written, unchecked) and nothing Snowflake SQL can't express. Comments
+    are dropped, so no comment text reaches the semantic view whatever sqlglot's comment escaping does."""
     from sqlglot import exp
     from sqlglot.errors import ErrorLevel, SqlglotError, UnsupportedError
     if not isinstance(sql, str) or not sql.strip():
@@ -72,7 +73,7 @@ def translate(sql: Any) -> tuple[str | None, str]:
         names = " and ".join(unknown[:2]) + (f" and {len(unknown) - 2} more" if len(unknown) > 2 else "")
         return None, _cut(f"calls {names}, which sqlglot doesn't know", MAX_REASON)
     try:
-        out = tree.sql(dialect="snowflake", unsupported_level=ErrorLevel.RAISE)
+        out = tree.sql(dialect="snowflake", comments=False, unsupported_level=ErrorLevel.RAISE)
     except UnsupportedError:  # narrow: sqlglot can't write part of it as Snowflake SQL
         return None, "uses something sqlglot can't write as Snowflake SQL"
     except RecursionError:  # narrow: nested deeper than sqlglot can write

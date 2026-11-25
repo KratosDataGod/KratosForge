@@ -302,6 +302,13 @@ def test_long_function_names_keep_the_reason_short():
     assert len(why) <= osf.MAX_REASON and why.startswith("calls ")
 
 
+
+@pytest.mark.parametrize("sql", ["a -- x */ ; DROP TABLE t", "a /* note */ + b", "/* x */ SUM(a)"], ids=["line", "inline", "lead"])
+def test_comments_never_reach_the_snowflake_sql(sql):
+    out, why = osf.translate(sql)
+    assert why == "" and out is not None
+    assert "/*" not in out and "*/" not in out and "--" not in out and "DROP" not in out.upper()
+
 # ---- left unchanged
 
 def test_datatype_and_ai_context_are_left_unchanged():

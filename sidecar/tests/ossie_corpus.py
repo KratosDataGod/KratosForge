@@ -80,7 +80,7 @@ def run(e: dict[str, Any], point: str, value: Any) -> tuple[str, dict[str, Any]]
     object -> class for a conversion)."""
     try:
         return _run(e, point, value)
-    except Exception as exc:  # noqa: BLE001  # narrow: the outcome is the point; any exception is summed up as a word
+    except Exception as exc:  # noqa: BLE001 - the outcome is the point; any exception is summed up as a word
         return _word(exc), {"message": str(exc), "type": type(exc).__name__}
 
 

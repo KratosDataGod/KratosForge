@@ -91,7 +91,7 @@ def load_candidate(path: Path) -> ModuleType:
     sys.modules[CANDIDATE] = module  # before it runs, so its relative imports find it
     try:
         spec.loader.exec_module(module)
-    except Exception as exc:  # noqa: BLE001  # narrow: any failure importing the candidate is the reason it's unusable
+    except Exception as exc:  # noqa: BLE001 - any failure importing the candidate is the reason it's unusable
         raise BadCandidate(f"it doesn't import: {type(exc).__name__}: {mo._short(exc)}") from exc
     missing = [name for name in REQUIRED if not callable(getattr(module, name, None))]
     if missing:

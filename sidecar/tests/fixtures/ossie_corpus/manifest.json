@@ -380,7 +380,7 @@
     "semantic_view": "refused",
     "parity_l1": "Test failed"
    },
-   "says": "it should be one object with version, name and datasets",
+   "says": "which is one object with version, name and datasets",
    "findings": [
     "Fixed in typed-errors: a root that isn't an object used to be a plain TypeError from parse; it is now a ValueError with the same message at every entry point."
    ]
@@ -397,7 +397,7 @@
     "semantic_view": "refused",
     "parity_l1": "Test failed"
    },
-   "says": "it should be one object with version, name and datasets",
+   "says": "which is one object with version, name and datasets",
    "findings": [
     "Fixed in typed-errors: a root that isn't an object used to be a plain TypeError from parse; it is now a ValueError with the same message at every entry point."
    ]

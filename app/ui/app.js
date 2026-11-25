@@ -1078,7 +1078,7 @@ function renderCreate() {
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
-      preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
+      preview("wizard", tile("notebook", "Notebook from a template", "Templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
       preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog))),
@@ -2344,7 +2344,8 @@ async function saveNotebook() {
   if (!ok) return false;
   if (ok.changed_on_disk) {
     nb.diskConflict = true;  // autosave waits until the person decides
-    nbDiskConflict(nb, ok);
+    if (ok.merge && previewShown()) nbSyncMerge(nb, ok);  // merged by cell, each difference picked (Preview)
+    else nbDiskConflict(nb, ok);
     return false;
   }
   nb.diskStamp = ok.disk_stamp || null;

@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-map", "name": "First Map", "criteria": "Reach Journeyman in Lineage for audits."},
-  {"id": "borders-drawn", "name": "Borders Drawn", "criteria": "Reach Journeyman in Domains and data products."},
-  {"id": "decision-recorded", "name": "Decision Recorded", "criteria": "Reach Journeyman in Architecture decision records."},
-  {"id": "road-ahead", "name": "Road Ahead", "criteria": "Reach Journeyman in Impact analysis before change."},
-  {"id": "cartographers-atlas", "name": "Cartographer's Atlas", "criteria": "Reach Adept in all ten talents of one Data Cartographer specialization."}
+  {"id": "first-map", "name": "First Map", "criteria": "Reach Journeyman in Lineage for audits.", "requires": {"level": 3, "talents": ["lineage.01"]}},
+  {"id": "borders-drawn", "name": "Borders Drawn", "criteria": "Reach Journeyman in Domains and data products.", "requires": {"level": 3, "talents": ["mesh.01"]}},
+  {"id": "decision-recorded", "name": "Decision Recorded", "criteria": "Reach Journeyman in Architecture decision records.", "requires": {"level": 3, "talents": ["blueprint.05"]}},
+  {"id": "road-ahead", "name": "Road Ahead", "criteria": "Reach Journeyman in Impact analysis before change.", "requires": {"level": 3, "talents": ["lineage.03"]}},
+  {"id": "cartographers-atlas", "name": "Cartographer's Atlas", "criteria": "Reach Adept in all ten talents of one Data Cartographer specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

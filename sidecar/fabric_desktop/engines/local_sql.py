@@ -296,15 +296,23 @@ def _databricks(code: str) -> list[Any]:
     """Databricks SQL statements read by sqlglot's Databricks dialect, with the same Spark spellings and
     fixes sql.parse makes for Spark SQL (X '1010', substring from 0, date_add returning a date, trunc,
     unix_timestamp, Spark's column names), so a query answers here as it does on the warehouse. ValueError when
-    it can't be read."""
+    it can't be read, or is nested too deeply to rewrite (as sql.parse)."""
+    from .. import sql_dialects
+    try:
+        return _databricks_statements(code)
+    except RecursionError:  # 1::string::string... a thousand times: read, but too deep to rewrite
+        raise ValueError(sql_dialects.TOO_DEEP) from None
+
+
+def _databricks_statements(code: str) -> list[Any]:
     from sqlglot import exp
-    from sqlglot.errors import ParseError
+    from sqlglot.errors import ParseError, TokenError
 
     from .. import sql, sql_dialects
     try:  # every statement sqlglot returns is an Expression (a Command when it can't read it)
         statements = [s for s in sql_dialects.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
                       if isinstance(s, exp.Expression)]
-    except ParseError as exc:
+    except (ParseError, TokenError) as exc:  # TokenError: an unclosed quote or comment
         if re.search(r"\bMERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", code, re.IGNORECASE):  # sqlglot can't read it
             from ..databricks_builtins_sql import _statement_refusal
             raise _statement_refusal("MERGE WITH SCHEMA EVOLUTION", "DuckDB's MERGE can't add the source's "
@@ -318,6 +326,8 @@ def _databricks(code: str) -> list[Any]:
     from .. import databricks_builtins_sql
     try:
         rewritten = [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+    except ParseError as exc:  # a rewrite reads its own SQL again, and sqlglot misread the query the first time
+        raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
     except ValueError as exc:  # a Spark refusal names Fabric: this cell runs as Databricks SQL
         text = str(exc)
         if "the way it runs in Fabric" not in text:
@@ -338,7 +348,27 @@ def _databricks(code: str) -> list[Any]:
                 continue
             for piece in pieces:
                 piece.replace(exp.Literal.string(_databricks_wording(piece.name)))
+    for statement in rewritten:
+        _short_path_chains(statement)
     return rewritten
+
+
+_PATH_CHAIN = 8  # links of v:a:b:c... written as -> before the rest are json_extract()
+
+
+def _short_path_chains(statement: Any) -> None:
+    """A chain of more than _PATH_CHAIN JSON paths (v:a:b:c...) with its inner links written as json_extract(),
+    the function -> stands for: DuckDB 1.x binds each -> as a lambda too, in time that doubles with each link,
+    so 20 links took a second and 27 never ended. A shorter chain keeps its ->, and its column name."""
+    from sqlglot import exp
+    for node in list(statement.find_all(exp.JSONExtract)):
+        if isinstance(node.parent, exp.JSONExtract):
+            continue  # not the outermost link
+        chain = [node]
+        while isinstance(chain[-1].this, exp.JSONExtract):
+            chain.append(chain[-1].this)
+        for link in reversed(chain[_PATH_CHAIN:]):  # innermost first, so each takes its rewritten argument
+            link.replace(exp.Anonymous(this="json_extract", expressions=[link.this, link.expression]))
 
 
 _REFUSAL = "can't run on this PC the way it runs in Fabric"
@@ -362,6 +392,8 @@ class DuckDBSession(_SqlSession):
         target = str(Path(config.database)) if config.database else ":memory:"
         self._con = duckdb.connect(target, read_only=bool(config.database), config=dict(_DUCKDB_CLOSED))
         keep_try_cast(self._con)
+        # the tables Snowflake cells made, with each column's Snowflake type (SFX-074)
+        self._snowflake_tables: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {}
         from .. import databricks_bytes, databricks_ip, databricks_variant
         databricks_ip.register(self._con)  # Databricks SQL's IP address functions (databricks_builtins_sql)
         databricks_bytes.register(self._con)  # its byte-level string functions
@@ -375,6 +407,15 @@ class DuckDBSession(_SqlSession):
         if dialect == "snowflake":
             from .. import snowflake_sql
             translation = snowflake_sql.translate(code)
+            if translation.runnable and snowflake_sql.may_write(code):
+                # again with the session's tables, so a write to a TIMESTAMP_TZ column an earlier cell made is
+                # checked (SFX-074); a cell that runs only in Snowflake reads nothing
+                translation = snowflake_sql.translate(code, snowflake_sql.session_tables(self._con,
+                                                                                         self._snowflake_tables))
+                if translation.runnable:
+                    self._snowflake_tables = dict(translation.tables)
+            elif translation.runnable:
+                self._snowflake_tables = snowflake_sql.tables_after(code, self._snowflake_tables)
             self._preamble = [translation.as_output()]
             if not translation.runnable:
                 raise Unsupported(translation.first_refusal() + " Nothing in the cell ran.")
@@ -408,12 +449,32 @@ class DuckDBSession(_SqlSession):
         return spark_complex_types(statement, self._con, kinds=("to_json", "int_shift"))
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
+        try:
+            return self._run_cell(request)
+        except UnicodeDecodeError:
+            # DuckDB cuts a long error message at a byte count, which can split a character in two, and
+            # its Python package then fails to read the message: 'utf-8' codec can't decode byte 0xd9.
+            raise ValueError("DuckDB stopped the cell, but its error message can't be shown, because DuckDB "
+                             "cut the message in the middle of a non-ASCII character. Shorten the text values "
+                             "in the query, or run it a part at a time, to see the error.") from None
+
+    def _run_cell(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label
             code = self._sql(request.code, request.dialect)
             _refuse_outside(request.code, request.dialect)
         else:
             _refuse_outside(request.code, request.dialect)
             code = self._sql(request.code, request.dialect)
+        if request.dialect == "snowflake":
+            import duckdb
+            from .. import snowflake_sql
+            try:
+                return self._execute(code, request)
+            except duckdb.BinderException as exc:
+                message = snowflake_sql.column_error(str(exc))
+                if message == str(exc):
+                    raise
+                raise duckdb.BinderException(message) from None
         if request.dialect not in ("spark", "databricks"):
             return self._execute(code, request)
         # Spark's TIMESTAMP is read in the session's time zone, which is UTC in Fabric and Databricks

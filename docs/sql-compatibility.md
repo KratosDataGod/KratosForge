@@ -453,6 +453,7 @@ When a project runs a T-SQL `MERGE` on this PC, on a database table or on one of
 | Two `WHEN MATCHED` clauses, or two `WHEN NOT MATCHED BY SOURCE` | The first clause whose condition holds takes the row, and the second takes only what the first leaves. The clauses can be written in any order |
 | A third `WHEN MATCHED` or `WHEN NOT MATCHED BY SOURCE`, a second `WHEN NOT MATCHED [BY TARGET]`, a first of two clauses with no `AND` condition, or two clauses that both `UPDATE` or both `DELETE` | Refused by name, with the rule it breaks |
 | `WHEN NOT MATCHED BY SOURCE` that reads a source column, or `WHEN NOT MATCHED [BY TARGET]` that reads a table column (`s.x` or `t.x`) | Refused by name, because there is no such row to read |
+| The same column without `s.` or `t.` | Placed by the table's columns and the source's. A column both have is refused with SQL Server's error 209, "Ambiguous column name 'x'.", in any `WHEN` clause. A column only the table has, in `WHEN NOT MATCHED [BY TARGET]`, and a column only the source has, in `WHEN NOT MATCHED BY SOURCE`, are refused by name, because there is no such row to read. The source's columns are a table's, a CTE's or a subquery's, with `SELECT *` and `x.*` read from the tables they name, or the alias's own list, as in `USING (VALUES (2, 'Q')) AS s(k, w)`. A source whose columns are known only when it runs, such as a temporary table (`#src`), a table the script creates or a table-valued function (`STRING_SPLIT`, `GENERATE_SERIES`), is placed the same way by the columns it has when the `MERGE` runs, before anything is written |
 | `UPDATE SET t.v = ...` with the table's alias | Runs as `SET v = ...`. A column set twice in one clause, or named twice in an `INSERT`, is refused by name (SQL Server's error 264) |
 | `INSERT VALUES (...)` with no column list | A value for each of the table's columns, in order. A different number of values is refused by name |
 | `INSERT DEFAULT VALUES` | Refused by name, because a warehouse's `MERGE` doesn't take it |
@@ -849,6 +850,8 @@ These keep the local engine's words, with no number, because SQL Server's words 
 - `+`, `-` or `*` past a `smallint` or `tinyint`, and an `int`'s smallest value divided by `-1` (`Overflow in division of -2147483648 / -1` here; the local engine says the same for `%`).
 
 One word can differ: `N'...'` text that isn't a number, to a decimal or a float, shows `Msg 8114` naming `varchar`, where SQL Server says `nvarchar`, because the local engine's message doesn't say which it was.
+
+A statement of a script that the local engine refuses (one it can't translate, or Msg 239) is named by its place, such as "Statement 2 of 3 (WITH) was refused: Msg 239, Level 16: …". The local engine checks the whole script before it runs any of it, so the message ends by saying none of the script ran. A warehouse also stops a batch before its first statement for an error it finds while compiling it, such as Msg 239. A script of one statement shows the refusal on its own.
 
 `@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 

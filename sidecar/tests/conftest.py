@@ -3,6 +3,7 @@
 import faulthandler
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -84,6 +85,38 @@ def no_remembered_secrets():
     secret_redaction.forget_all()
     yield
     secret_redaction.forget_all()
+
+
+# A test module that runs `fabric-desktop pipeline run` through the command line: ["pipeline", "run", ...],
+# on one line or split over several.
+CLI_PIPELINE_RUN = re.compile(r"""["']pipeline["']\s*,\s*["']run["']""")
+_cli_pipeline_modules: dict[str, bool] = {}
+
+
+def runs_cli_pipelines(path) -> bool:
+    """Whether the test module at ``path`` runs a pipeline through the command line."""
+    key = str(path)
+    if key not in _cli_pipeline_modules:
+        try:
+            text = open(key, encoding="utf-8").read()
+        except OSError:
+            text = ""
+        _cli_pipeline_modules[key] = bool(CLI_PIPELINE_RUN.search(text))
+    return _cli_pipeline_modules[key]
+
+
+@pytest.fixture(autouse=True)
+def cli_pipeline_runs_keep_their_data_in_tmp(request):
+    """A command-line pipeline run writes its audit lines to this PC's data folder (cli._pipeline_run), so
+    in a module that runs one, the data folder is in the test's tmp_path, never the real one of whoever
+    runs the tests. A module's own fixture can still point it at another folder in tmp_path."""
+    if not runs_cli_pipelines(request.node.path):
+        return
+    tmp_path = request.getfixturevalue("tmp_path")
+    monkeypatch = request.getfixturevalue("monkeypatch")
+    folder = tmp_path / "cli-data"
+    monkeypatch.setenv("LOCALAPPDATA", str(folder))
+    monkeypatch.setattr("fabric_desktop.service.data_dir", lambda: folder / "FabricDesktop")
 
 
 class _NoSignInService:
@@ -212,8 +245,10 @@ def runtime_grants_on_record_once_per_worker(request, monkeypatch, tmp_path_fact
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.
-# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, starts
-# another worker and the run still fails, with the stacks in the log.
+# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, and CI's
+# --max-worker-restart 0 then stops the run, which fails with the stacks in the log. (Without it,
+# xdist 3.8's loadfile scheduler starts a replacement worker that never gets work or a stop, and
+# the run waits for the job's time limit.)
 TEST_TIME_LIMIT = float(os.environ.get("FD_TEST_TIME_LIMIT", "300"))
 
 

@@ -76,7 +76,7 @@ The M text is only read, never evaluated: there's no local M engine. It passes t
 
 The Pipelines page's **Dataflows** tab (Preview) sits between Pipelines and Connections. You pick a workspace (the same one the open dialog remembers, `fd.pipelines.workspace`) and its dataflows are listed with `workspace_dataflows`. Opening one reads `workspace_dataflow_definition` and `fabric_dataflow_refreshes` together. Its views are **Queries (M)**, with hidden destination and helper queries folded away, **Destinations** (and the connections the dataflow names) and **Refresh history**. **Open in Fabric** opens the workspace, because the address of a dataflow's own page isn't confirmed yet. The mockup's "Changes since Git" view comes with the Git diff work (DF-8).
 
-**Refresh in Fabric…** starts the dataflow's refresh through Workloads (see Run in Fabric below). No live refresh has run yet: the first needs Chris's OK.
+**Refresh in Fabric…** starts the dataflow's refresh through Workloads (see Run in Fabric below). A refresh ran on a tenant on 2026-10-27 ([Tested on a tenant](#tested-on-a-tenant)).
 
 ## DF-6 engine: copy jobs from a workspace
 

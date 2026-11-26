@@ -65,6 +65,22 @@ def test_a_clone_into_a_file_or_with_a_bad_name_is_refused(tmp_path):
             o.clone("https://example.com/r.git", str(tmp_path), name=bad)
 
 
+@pytest.mark.parametrize("name, why", [("proj.", "it ends with a dot"), ("proj .", "it ends with a dot"),
+                                       ("CON", "keeps for devices"), ("nul.git", "keeps for devices"),
+                                       ("com1", "keeps for devices")])
+def test_a_clone_folder_windows_cant_make_is_refused_before_git_starts(tmp_path, name, why):
+    o = ops.Operations()
+    with pytest.raises(GitError, match=why):
+        o.clone("https://example.com/r.git", str(tmp_path), name=name)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_repository_called_con_needs_a_folder_name_of_its_own(tmp_path):
+    with pytest.raises(GitError, match=r"^CON is a name Windows keeps for devices, so it can't be a folder name\. "
+                                       r"Pick another name\.$"):
+        ops.Operations().clone("https://example.com/team/CON.git", str(tmp_path))
+
+
 @pytest.mark.parametrize("status, mode, message", [
     ({"merging": True}, "ff-only", "A merge is in progress"),
     ({"branch": None}, "ff-only", "not on a branch"),

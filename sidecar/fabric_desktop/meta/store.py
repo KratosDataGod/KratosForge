@@ -15,6 +15,8 @@ import os
 import re
 import time
 from pathlib import Path
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Callable, cast
 from urllib.parse import unquote
 
@@ -26,7 +28,7 @@ from deltalake.exceptions import TableNotFoundError
 from .. import delta_profile, delta_read, durable
 from ..errors import NotSetUp
 from ..leases import LeaseBusy, LeaseLost, Leases, LocalBackend, check_held, table_key
-from ..retrying import commit_conflict, local_retry, lost_commit, staged_commit_race
+from ..retrying import commit_conflict, held_write_message, local_retry, lost_commit, staged_commit_race
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
 
@@ -806,6 +808,32 @@ class LocalStore(Store):
     def landing_lakehouse(self, zone: dict[str, Any]) -> str:
         return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
 
+    def write(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, mode: str = "overwrite",
+              metadata: dict[str, str] | None = None, read_version: int | None | bool = False) -> int:
+        with self._held_named(lakehouse, schema, table):
+            return super().write(lakehouse, schema, table, df, mode, metadata, read_version)
+
+    def write_stream(self, lakehouse: str, schema: str, table: str, rows: Any,
+                     metadata: dict[str, str] | None = None, read_version: int | None = None) -> int:
+        with self._held_named(lakehouse, schema, table):
+            return super().write_stream(lakehouse, schema, table, rows, metadata, read_version)
+
+    @contextmanager
+    def _held_named(self, lakehouse: str, schema: str, table: str) -> Iterator[None]:
+        """A write that stopped because OneDrive, a virus scanner or the indexer held one of the table's
+        files (retrying.held_write_message) is said so, naming the file and, where Windows says, the
+        program; only when the log shows no new commit since the write started, so "nothing was
+        committed" is true. Any other failure is raised as it was."""
+        log = Path(self.uri(lakehouse, schema, table)) / "_delta_log"
+        before = _latest_commit(log)
+        try:
+            yield
+        except OSError as exc:
+            held = held_write_message(f"Writing {schema}.{table}", exc)
+            if held is None or _latest_commit(log) != before:
+                raise
+            raise OSError(held) from exc
+
     removes_unwritten = True
 
     def _tidy_meta(self, table: str, version: int) -> None:
@@ -934,3 +962,15 @@ class OneLakeStore(Store):
             out.append(self._files.download(ws, lh, f"Files/{e['path']}",
                                             self.cache_dir / self.env / lakehouse / folder / e["path"]))
         return out
+
+
+_COMMIT_FILE = re.compile(r"(\d{20})\.json")
+
+
+def _latest_commit(log: Path) -> int:
+    """The newest version in a local table's _delta_log folder, by its commit file names; -1 for none."""
+    try:
+        names = os.listdir(log)
+    except OSError:  # no table yet, or the folder can't be listed: no commit seen
+        return -1
+    return max((int(m.group(1)) for n in names if (m := _COMMIT_FILE.fullmatch(n))), default=-1)

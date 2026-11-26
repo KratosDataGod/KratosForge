@@ -86,3 +86,47 @@ def test_a_held_file_after_the_commit_went_in_isnt_said_to_have_committed_nothin
     with pytest.raises(ValueError) as caught:
         engine.execute("INSERT INTO s SELECT 2")
     assert "stopped because" not in str(caught.value)
+
+
+# ---- a pipeline run's write to a table on this PC (meta.store.LocalStore)
+
+def _store_held(monkeypatch, then=None):
+    from fabric_desktop.meta import store as store_mod
+    real = store_mod.write_deltalake
+
+    def write(*a, **kw):
+        if then is not None:
+            then(real, *a, **kw)
+        raise OSError(HELD)
+    monkeypatch.setattr(store_mod, "write_deltalake", write)
+
+
+def test_a_run_writing_a_local_table_with_a_held_file_says_so(tmp_path, monkeypatch):
+    import polars as pl
+
+    from fabric_desktop.meta.store import LocalStore
+    store = LocalStore(tmp_path)
+    store.write("LH_Bronze", "dbo", "orders", pl.DataFrame({"id": [1]}))
+    _store_held(monkeypatch)
+    monkeypatch.setattr(file_locks, "holders", lambda p: ["Microsoft OneDrive"])
+    for write in (lambda: store.write("LH_Bronze", "dbo", "orders", pl.DataFrame({"id": [2]}), mode="append"),
+                  lambda: store.write_stream("LH_Bronze", "dbo", "orders",
+                                             pl.DataFrame({"id": [3]}).to_arrow().to_reader(), read_version=0)):
+        with pytest.raises(OSError) as caught:
+            write()
+        assert str(caught.value) == (
+            "Writing dbo.orders stopped because 00000000000000000001.json, one of the table's files, is open in "
+            "Microsoft OneDrive. Nothing was committed. Close it there, or wait for it to finish, and run it again.")
+        assert "os error 32" in str(caught.value.__cause__)  # delta-rs's own words kept for the log
+    assert store.read("LH_Bronze", "dbo", "orders")["id"].to_list() == [1]
+
+
+def test_a_run_whose_commit_went_in_before_a_file_was_held_keeps_delta_rs_words(tmp_path, monkeypatch):
+    import polars as pl
+
+    from fabric_desktop.meta.store import LocalStore
+    store = LocalStore(tmp_path)
+    store.write("LH_Bronze", "dbo", "orders", pl.DataFrame({"id": [1]}))
+    _store_held(monkeypatch, then=lambda real, *a, **kw: real(*a, **kw))
+    with pytest.raises(OSError, match=r"os error 32\)$"):
+        store.write("LH_Bronze", "dbo", "orders", pl.DataFrame({"id": [2]}), mode="append")

@@ -8,15 +8,15 @@ links to, on the date in its last column. The same matrix is in the engine as da
 No read needs a Fabric administrator. Every one uses the signed-in person's own workspace role, so
 the assessment works without tenant admin rights. A read the person's role doesn't allow fails, is
 listed under the assessment's reads, and leaves the controls that need it **not evaluated**. It never
-counts as a pass. A control can't ship unless every read it relies on is in this matrix, checked,
-and not admin-only.
+counts as a pass. A control can't ship unless every read it relies on is in this matrix, checked and
+not admin-only.
 
 ## What each workspace role can assess
 
 - **Admin or Member:** everything below.
 - **Contributor:** everything except the security controls (FEA-SEC-001 to 004). Listing a workspace's
   role assignments needs Member or higher.
-- **Viewer:** the workspace's settings, its items, lakehouse and warehouse properties and capacities.
+- **Viewer:** the workspace's settings, items and capacities, plus lakehouse and warehouse properties.
   Not item definitions (notebook, pipeline and semantic model controls), which need write permission
   on the item. Not Git status or connection, which need Contributor. Not lakehouse tables through
   OneLake, unless a OneLake security role gives the Viewer read access.
@@ -27,8 +27,8 @@ which is a local read with no Fabric call.
 
 ## Throttling
 
-Fabric limits calls per identity in fixed one-minute windows: Platform APIs 500 calls a minute, Job
-Scheduler APIs 200, long-running operations 500. A single API can have a lower limit; the Git APIs
+Fabric limits calls per identity in fixed one-minute windows. Platform APIs allow 500 calls a minute,
+Job Scheduler APIs 200 and long-running operations 500. A single API can have a lower limit; the Git APIs
 allow 50. Over a limit, Fabric answers 429 with Retry-After. The assessment reads one workspace and
 caps its own reads (at most 50 lakehouses, 50 warehouses, 30 semantic models, 300 OneLake folder
 listings and 100 Delta logs), so it stays well under these. See Microsoft's

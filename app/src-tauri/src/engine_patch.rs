@@ -168,10 +168,36 @@ pub fn check_patched(dir: &Path, commit: &str, runtime: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// `file` as `cmd` should name it: by its path inside `folder`, with `cmd` run in `folder`, for Windows'
+/// own tar.exe and curl.exe. They read their command line in the ANSI code page, so the engine folder
+/// under a profile named outside it (C:\Users\日本 on a PC set to English) reached tar as C:\Users\??,
+/// and the engine never unpacked. The names inside the engine folder (download.zip, .new) are ASCII,
+/// and Windows takes the folder itself as UTF-16. A file outside `folder` keeps its whole path.
+pub fn named_in<'a>(cmd: &mut std::process::Command, folder: &Path, file: &'a Path) -> &'a std::ffi::OsStr {
+    cmd.current_dir(folder);
+    file.strip_prefix(folder).map(Path::as_os_str).unwrap_or(file.as_os_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn tar_and_curl_name_the_engine_files_in_ascii_under_a_profile_named_outside_the_ansi_code_page() {
+        let root = Path::new(r"C:\Users\Jöhn O'Brien 日本\AppData\Local\FabricDesktop\engine");
+        let (zip, staging) = (root.join("download.zip"), root.join(".new"));
+        let mut tar = std::process::Command::new("tar.exe");
+        let (zip_name, into) = (named_in(&mut tar, root, &zip), named_in(&mut tar, root, &staging));
+        tar.arg("-xf").arg(zip_name).arg("-C").arg(into);
+        assert_eq!(tar.get_current_dir(), Some(root));
+        let args: Vec<_> = tar.get_args().map(|a| a.to_str().unwrap().to_string()).collect();
+        assert_eq!(args, ["-xf", "download.zip", "-C", ".new"]);
+        assert!(args.iter().all(|a| a.is_ascii()), "{args:?}");
+
+        let elsewhere = Path::new(r"D:\Spiegel Ünited\engine.zip");
+        assert_eq!(named_in(&mut tar, root, elsewhere), elsewhere.as_os_str(), "a file outside keeps its path");
+    }
 
     const RUNTIME: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const COMMIT: &str = "1111111111111111111111111111111111111111";

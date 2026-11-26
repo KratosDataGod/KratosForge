@@ -1669,12 +1669,13 @@ fn install_engine_into(app: &tauri::AppHandle) -> Result<String, String> {
     for tag in &tags {
         release_tag_used = tag.as_str();
         let mut curl = Command::new(system_tool("curl.exe"));
+        let zip_name = engine_patch::named_in(&mut curl, &root, &zip); // ASCII, whatever the profile is called
         // Give up on a dead or stalled connection (under 1 KB/s for a minute) instead of
         // leaving "Downloading the engine" up for ever; Retry is then shown.
         curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
         curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                    "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
-            .arg(&zip)
+            .arg(zip_name)
             .args(download_args(&release_file(tag, "fabric-desktop-engine.zip"), nocache));
         result = run_tool(curl, "download the engine");
         if result.as_ref().is_err_and(|e| !missing_release_file(e)) {
@@ -1684,10 +1685,11 @@ fn install_engine_into(app: &tauri::AppHandle) -> Result<String, String> {
             // Its checksum comes from the same release, fetched after the zip: CI uploads
             // version.json last, so it never names a zip older than the one just downloaded.
             let mut curl = Command::new(system_tool("curl.exe"));
+            let json_name = engine_patch::named_in(&mut curl, &root, &release_json);
             curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
             curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                        "Cache-Control: no-cache", "-o"])
-                .arg(&release_json)
+                .arg(json_name)
                 .args(download_args(&release_file(tag, "version.json"), nocache));
             result = run_tool(curl, "read the engine's checksum");
             release = std::fs::read_to_string(&release_json)
@@ -1754,7 +1756,8 @@ fn install_engine_into(app: &tauri::AppHandle) -> Result<String, String> {
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
     let mut tar = Command::new(system_tool("tar.exe"));
-    tar.arg("-xf").arg(&zip).arg("-C").arg(&staging);
+    let (zip_name, into) = (engine_patch::named_in(&mut tar, &root, &zip), engine_patch::named_in(&mut tar, &root, &staging));
+    tar.arg("-xf").arg(zip_name).arg("-C").arg(into);
     run_tool(tar, "unpack the engine")?;
     let _ = std::fs::remove_file(&zip);
 
@@ -1807,10 +1810,11 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     let tags = engine_tags();
     for tag in &tags {
         let mut curl = Command::new(system_tool("curl.exe"));
+        let json_name = engine_patch::named_in(&mut curl, root, &release_json);
         curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
         curl.args(["--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                    "Cache-Control: no-cache", "-o"])
-            .arg(&release_json)
+            .arg(json_name)
             .args(download_args(&release_file(tag, "version.json"), nocache));
         match run_tool(curl, "read the engine's release") {
             Ok(()) => {
@@ -1850,10 +1854,11 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     say("Python and its packages are unchanged, so only the engine's own code is downloaded (a few MB)…");
     let zip = root.join("update.zip");
     let mut curl = Command::new(system_tool("curl.exe"));
+    let zip_name = engine_patch::named_in(&mut curl, root, &zip);
     curl.args(["-L", "--proto", "=https", "--proto-redir", "=https"]);
     curl.args(["--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
-        .arg(&zip)
+        .arg(zip_name)
         .args(download_args(&release_file(tag_used, engine_patch::UPDATE_ZIP), nocache));
     let checked = run_tool(curl, "download the engine update")
         .and_then(|()| sha256_file(&zip))
@@ -1869,7 +1874,8 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
     let staging = root.join(".new");
     let staged = engine_patch::stage_runtime(&source, &staging).and_then(|()| {
         let mut tar = Command::new(system_tool("tar.exe"));
-        tar.arg("-xf").arg(&zip).arg("-C").arg(&staging);
+        let (zip_name, into) = (engine_patch::named_in(&mut tar, root, &zip), engine_patch::named_in(&mut tar, root, &staging));
+        tar.arg("-xf").arg(zip_name).arg("-C").arg(into);
         run_tool(tar, "unpack the engine update")
     });
     let _ = std::fs::remove_file(&zip);

@@ -34,11 +34,12 @@ def test_an_unreadable_key_is_reported_as_unknown_and_its_restrictions_take_thei
     out, problems, unknown = registry_policy.read_all()
     assert unknown == {registry_policy.ALL}
     on_off = {**app_settings.RESTRICTED, **registry_policy._safest()}  # external AI tools and App Studio's too
-    assert out == {k: v for k, v in on_off.items() if not isinstance(v, list)}
+    assert out == {k: v for k, v in on_off.items() if not isinstance(v, list)
+                   or (k in app_settings.POLICY_RESTRICTS and k not in registry_policy.SIGN_IN)}
     assert out["integrations"] is False and out["appstudio_models"] is False
     assert "allowed_tenants" not in out  # people can still sign in (Chris, 2026-10-18)
     assert problems == [("The Group Policy settings couldn't be read ([Errno 5] Access is denied). Until they can, "
-                         "each on/off restriction takes its most restrictive value, as it does when the policy file "
+                         "each on/off and list restriction takes its most restrictive value, as it does when the policy file "
                          "can't be read, and settings that widen what KratosForge trusts don't apply. Other settings "
                          "Group Policy can manage stay as they are and can only be made stricter here. Sign-in still "
                          "works. If this doesn't clear, ask IT to check that this PC can read the Group Policy key.")]

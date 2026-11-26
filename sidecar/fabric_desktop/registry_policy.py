@@ -14,8 +14,8 @@ the same key in policy.json (app_settings._policy_file), since Group Policy is t
 a PC. A value of the wrong type, or a name that isn't a policy setting, is left out and reported
 (``problems``), and the policy file's value, if any, applies instead; a restriction then takes its most
 restrictive value. A key (or a list subkey) that exists but can't be read leaves what it sets unknown
-(``read_all``): with the whole key unreadable, each on/off restriction takes its most restrictive value (as
-for a policy file that can't be read); app_settings keeps the other settings as they are, refuses changes that
+(``read_all``): with the whole key unreadable, each on/off and list restriction takes its most restrictive value
+(as for a policy file that can't be read), except the tenant list, so people can still sign in; app_settings keeps the other settings as they are, refuses changes that
 aren't tightening, and applies no setting that widens what KratosForge trusts until the next read succeeds. Structured settings (``platform``,
 ``incident_sla``) can't be set here. Off Windows nothing is read.
 """
@@ -38,6 +38,7 @@ MAX_ITEMS = 1000  # list items read from one subkey; Group Policy numbers them f
 Raw = tuple[dict[str, tuple[Any, int]], dict[str, list[Any] | OSError]]
 ALL = "*"  # in read_all's unknown set: the whole key couldn't be read
 REG_SZ, REG_EXPAND_SZ, REG_DWORD = 1, 2, 4
+SIGN_IN = ("allowed_tenants",)  # list restrictions an unreadable key leaves as they are, so people can still sign in
 
 
 def _winreg_read() -> Raw:
@@ -77,7 +78,7 @@ def _winreg_read() -> Raw:
     return values, lists
 
 
-UNREADABLE = ("Until they can, each on/off restriction takes its most restrictive value, as it does when the policy "
+UNREADABLE = ("Until they can, each on/off and list restriction takes its most restrictive value, as it does when the policy "
               "file can't be read, and settings that widen what KratosForge trusts don't apply. Other settings Group "
               "Policy can manage stay as they are and can only be made stricter here. Sign-in still works. If this "
               "doesn't clear, ask IT to check that this PC can read the Group Policy key.")
@@ -100,10 +101,12 @@ def read_all(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], l
     try:
         values, lists = reader()
     except OSError as exc:
-        # What it sets is unknown: each on/off restriction takes its most restrictive value, as for a policy file
-        # that can't be read (Chris, 2026-10-18: people can still sign in and work, so the tenant list isn't one).
-        from .app_settings import RESTRICTED as SAFE
-        return ({k: v for k, v in {**SAFE, **_safest()}.items() if not isinstance(v, list)},
+        # What it sets is unknown: each on/off and list restriction takes its most restrictive value, as for a
+        # policy file that can't be read (Chris, 2026-10-18: people can still sign in and work, so the tenant list
+        # isn't one). A list that widens what KratosForge trusts (LOOSENING) already takes its default here.
+        from .app_settings import POLICY_RESTRICTS, RESTRICTED as SAFE
+        return ({k: v for k, v in {**SAFE, **_safest()}.items()
+                 if not isinstance(v, list) or (k in POLICY_RESTRICTS and k not in SIGN_IN)},
                 [f"The Group Policy settings couldn't be read ({exc}). {UNREADABLE}"], frozenset({ALL}))
     from .app_settings import RESTRICTED
     strict = {**_safest(), **{k: v for k, v in RESTRICTED.items() if not isinstance(v, list)}}

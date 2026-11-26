@@ -117,8 +117,9 @@ def _main() -> None:
     end_now, end_addr = _ender()   # before the hook, which refuses ctypes from then on
     _guard_imports(blocked)
     # The data libraries are imported and wrapped first (some load native code through ctypes). Their
-    # own readers and writers go straight from one call to the other, so no name here holds them.
-    _install(norm(work), reads, denied, blocked, libs, real, end_addr, _wrap_native(work, real))
+    # own readers and writers, and what DuckDB's hook needs, go straight from one call to the other, so
+    # no name here holds them.
+    _install(norm(work), reads, denied, blocked, libs, real, end_addr, *_wrap_native(work, real))
     os.chdir(work)
     script = os.path.join(work, cfg["script"])
     with open(script, encoding="utf-8") as fh:
@@ -182,10 +183,12 @@ def _guard_imports(blocked: "frozenset[str]") -> None:
 
 def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blocked: "frozenset[str]", libs: "tuple[str, ...]" = (),
              real: "Callable[[str], str]" = os.path.realpath, end_addr: int = 0,
-             originals: "tuple[Any, ...]" = ()) -> None:
+             originals: "tuple[Any, ...]" = (), duck: "tuple[Any, ...] | None" = None) -> None:
     """The audit hook. Its state is bound as default arguments of immutable values, and the
     function is kept nowhere the learner's code can name. A second hook holds the data libraries'
-    own readers and writers (``originals``, from _wrap_native) and runs them for the wrappers."""
+    own readers and writers (``originals``, from _wrap_native) and runs them for the wrappers. With
+    DuckDB (``duck``, from _lock_duckdb), a third hook opens its connections, and DuckDB's modules
+    can't be imported again."""
     refuse_names = ("socket.", "subprocess.", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
                     "os.fork", "os.forkpty", "os.startfile", "os.kill", "os.killpg", "signal.pthread_kill",
                     "pty.", "ctypes.", "winreg.", "_winapi.", "msvcrt.", "gc.get_objects", "gc.get_referrers",
@@ -209,7 +212,8 @@ def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blo
              _real: "Callable[[str], str]" = real, _fspath: "Callable[[Any], str]" = os.fsdecode,
              _norm: "Callable[[str], str]" = os.path.normcase, _sep: str = os.sep,
              _paths: "Callable[[tuple[Any, ...]], Iterator[Any]]" = _paths,
-             _err: "type[Exception]" = PermissionError, _end: int = end_addr) -> None:
+             _err: "type[Exception]" = PermissionError, _end: int = end_addr, _duck: bool = duck is not None,
+             _base: "Callable[[str], str]" = os.path.basename) -> None:
         def under(path: str, roots: "tuple[str, ...]") -> bool:
             return any(path == r or path.startswith(r.rstrip(_sep) + _sep) for r in roots)
 
@@ -219,6 +223,11 @@ def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blo
         if event == "import":
             if str(args[0]).partition(".")[0] in _blocked:
                 raise _err(f"{args[0]} isn't available in an Academy exercise.")
+            # DuckDB is imported (and its connect replaced) before this hook starts; a second import
+            # of the package or of its native module, under any name, would bring back the original.
+            if _duck and (str(args[0]) == "duckdb" or "_duckdb" in str(args[0]).split(".")
+                          or (isinstance(args[1], str) and _base(args[1]).startswith("_duckdb."))):
+                raise _err("An Academy exercise uses the duckdb module it starts with.")
             return
         if event == "open":
             path, mode, flags = args[0], args[1], args[2]
@@ -257,8 +266,68 @@ def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blo
             return
 
     sys.addaudithook(hook)
+    if duck is not None:
+        sys.addaudithook(_duckdb_hook(*duck))
     if originals:
         sys.addaudithook(_library_hook(tuple(originals)))
+
+
+# The settings a learner's duckdb.connect(config=...) may give, matched without case: ones that change how
+# queries run and name no file or folder (the PySpark shim's among them). memory_limit is set to 1GB again
+# after connecting, so a larger one doesn't hold.
+DUCKDB_CONFIG_KEYS = frozenset({
+    "threads", "worker_threads", "memory_limit", "max_memory", "timezone", "calendar", "default_null_order",
+    "null_order", "default_order", "disabled_optimizers", "preserve_insertion_order", "enable_progress_bar",
+    "enable_progress_bar_print", "enable_object_cache", "errors_as_json", "max_expression_depth",
+    "integer_division", "scalar_subquery_error_on_multiple_rows", "arrow_large_buffer_size",
+    "arrow_lossless_conversion", "arrow_output_list_view", "produce_arrow_string_view", "python_enable_replacements",
+    "pandas_analyze_sample", "order_by_non_integer_literal", "default_collation", "checkpoint_threshold",
+    "wal_autocheckpoint", "late_materialization_max_rows", "ieee_floating_point_ops",
+})
+
+
+def _duckdb_hook(connect: "Callable[..., Any]", at_open: "tuple[tuple[str, Any], ...]", settings: "tuple[str, ...]",
+                 work: str) -> "Callable[[str, tuple[Any, ...]], None]":
+    """The only holder of DuckDB's own connect: it answers the "academy.duckdb.connect" event that
+    duckdb.connect raises (_lock_duckdb). It takes only plain values, so no learner code runs while it
+    does, and puts the connection, or the error with no traceback into this hook, in the caller's list."""
+    win = sys.platform == "win32"
+    root = (work.replace("/", "\\").lower() if win else work).rstrip("\\/")
+
+    def hook(event: str, args: "tuple[Any, ...]", _connect: "Callable[..., Any]" = connect,
+             _at_open: "tuple[tuple[str, Any], ...]" = at_open, _settings: "tuple[str, ...]" = settings,
+             _root: str = root, _win: bool = win, _plain: "tuple[type, ...]" = (str, bool, int, float),
+             _keys: "frozenset[str]" = DUCKDB_CONFIG_KEYS) -> None:
+        if event != "academy.duckdb.connect":
+            return
+        if len(args) != 4 or type(args[3]) is not list or args[3]:
+            return
+        database, read_only, given, box = args
+        try:
+            if type(database) is not str or type(read_only) is not bool or type(given) is not dict:
+                raise PermissionError("An Academy exercise can't open that DuckDB database.")
+            if database != "" and not database.startswith(":memory:"):
+                path = database.replace("/", "\\").lower() if _win else database
+                sep = "\\" if _win else "/"
+                rest = path[len(_root) + 1:] if path.startswith(_root + sep) else None
+                if (not rest or any(p in ("", ".", "..") for p in rest.split(sep))
+                        or (_win and (":" in rest or path.startswith("\\\\")))):
+                    raise PermissionError("An Academy exercise can use only files in its own folder (a DuckDB database).")
+            config = dict(_at_open)
+            for k, v in given.items():
+                if type(k) is not str or type(v) not in _plain:
+                    raise PermissionError("A DuckDB setting takes a plain value in an Academy exercise.")
+                if k.lower() not in _keys:
+                    raise PermissionError(f"An Academy exercise can't give DuckDB the setting {k!r} when it connects.")
+                config[k] = v
+            con = _connect(database, read_only, config)
+            for s in _settings:
+                con.execute(s)
+            box.append(con)
+        except BaseException as exc:  # noqa: BLE001 - handed to duckdb.connect, which raises it there
+            box.append(exc.with_traceback(None))
+
+    return hook
 
 
 _CALL_EVENT = "academy.library.call"
@@ -317,7 +386,8 @@ def _through(index: int, args: "tuple[Any, ...]", kwargs: "dict[str, Any]",
     return value
 
 
-def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) -> "tuple[Any, ...]":
+def _wrap_native(work: str,
+                 resolve: "Callable[[str], str]" = os.path.realpath) -> "tuple[tuple[Any, ...], tuple[Any, ...] | None]":
     """Polars, DuckDB, delta-rs, pyarrow and pandas read and write files from native code the audit
     hook never sees. Their entry points refuse a URL, ``storage_options`` and a path outside the
     workspace. Only modules that are installed are wrapped; each import is checked by the hook.
@@ -325,7 +395,8 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
     A wrapper holds no reference to the function it stands for: not as ``__wrapped__``, a closure
     cell, a default or a global. It holds only that function's number, and _through asks the second
     audit hook (_install), the only holder of the originals, to run it. Returns the originals, in
-    that order, for that hook."""
+    that order, for that hook, and what _install's DuckDB hook needs (_lock_duckdb), or None without
+    DuckDB."""
     import importlib
 
     real, sep, norm = resolve, os.sep, os.path.normcase
@@ -512,13 +583,13 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
         wrap_all(pd, ("read_parquet", "read_feather", "read_orc", "read_csv", "read_json", "read_excel"), "a pandas read")
         wrap_all(pd.DataFrame, ("to_parquet", "to_feather", "to_orc"), "a pandas write")
     db = maybe("duckdb")
-    if db is not None:
-        _lock_duckdb(db, as_given, check)   # check, not guard: nothing a learner can reach leads to the originals
+    # check, not guard: nothing a learner can reach from duckdb.connect leads to the originals
+    duck = _lock_duckdb(db, as_given, check) if db is not None else None
     for package in ("polars", "pyarrow", "pandas", "deltalake"):
         rewire(package)
     out = tuple(originals)
     originals.clear()   # the hook gets the tuple; this list, which held() closes over, keeps nothing
-    return out
+    return out, duck
 
 
 def _describe(wrapper: "Any", fn: "Any") -> None:
@@ -631,21 +702,54 @@ def _lock_query_builder(held: "Callable[[Any], int]") -> None:
             setattr(mod, "PyQueryBuilder", refuse)  # noqa: B010 - replaces deltalake's own
 
 
-def _lock_duckdb(db: "Any", work: str, check: "Callable[[Any, str], None]") -> None:
-    """Every DuckDB connection, the module's default one included, reads only the workspace."""
-    settings = ("SET allowed_directories = ['" + work.replace("'", "''") + "']",
+def _lock_duckdb(db: "Any", work: str, check: "Callable[[Any, str], None]") -> "tuple[Any, ...] | None":
+    """Every DuckDB connection, the module's default one included, reads only the workspace and
+    installs or auto-loads no extension.
+
+    DuckDB keeps extensions under HOME, which is inside the workspace here, so its extension folder is
+    moved first to one outside the workspace and allowed_directories that is never created (a random
+    name at the top of the workspace's drive). With autoinstall and autoload off as well, INSTALL and
+    LOAD of any extension fail, and the extensions built into DuckDB (parquet, json, icu) work as before.
+
+    ``duckdb.connect`` and the native ``_duckdb.connect`` (and any module that holds it) become one
+    function that asks the second audit hook (_install) for the connection. That hook alone keeps
+    DuckDB's own connect, and it opens each connection with the three extension settings in its config,
+    ahead of the learner's own, so they hold while DuckDB applies the rest of it (a TimeZone setting,
+    say, would otherwise look for ICU before the SET statements run). Returns what that hook needs,
+    or None when DuckDB's connect can't be replaced (its module-level calls are then refused)."""
+    def quoted(text: str) -> str:
+        return "'" + text.replace("'", "''") + "'"
+
+    no_extensions = os.path.join(os.path.splitdrive(work)[0] + os.sep, "kf-no-extensions-" + os.urandom(16).hex())
+    at_open = (("extension_directory", no_extensions), ("autoinstall_known_extensions", False),
+               ("autoload_known_extensions", False))
+    settings = ("SET extension_directory = " + quoted(no_extensions),
+                "SET autoinstall_known_extensions = false", "SET autoload_known_extensions = false",
+                "SET allowed_directories = [" + quoted(work) + "]",
                 "SET enable_external_access = false", "SET memory_limit = '1GB'", "SET lock_configuration = true")
-    connect = db.connect
+    native = sys.modules.get("_duckdb")
+    original = db.connect
+    plain, audit = (str, bool, int, float), sys.audit
 
-    def locked(database: "Any" = ":memory:", *args: "Any", **kwargs: "Any") -> "Any":
-        if database not in (":memory:", "", None) and not str(database).startswith(":memory:"):
-            check(database, "a DuckDB database")
-        con = connect(database, *args, **kwargs)
-        for s in settings:
-            con.execute(s)
-        return con
+    def locked(database: "Any" = ":memory:", read_only: "Any" = False, config: "Any" = None) -> "Any":
+        if isinstance(database, os.PathLike):
+            database = os.fspath(database)
+        if database is None:
+            database = ":memory:"
+        if not isinstance(database, str):
+            raise TypeError("duckdb.connect takes a database file name or ':memory:'.")
+        if database != "" and not database.startswith(":memory:"):
+            check(database, "a DuckDB database")   # refused unless it is in the workspace
+            database = os.path.normpath(os.path.join(work, database))
+        given = {str(k): (v if type(v) in plain else str(v)) for k, v in dict(config or {}).items()}
+        box: "list[Any]" = []
+        audit("academy.duckdb.connect", str(database), bool(read_only), given, box)
+        if len(box) != 1:
+            raise PermissionError("An Academy exercise can't open a DuckDB connection here.")
+        if isinstance(box[0], BaseException):
+            raise box[0]
+        return box[0]
 
-    db.connect = locked
     try:
         default = db.default_connection() if callable(getattr(db, "default_connection", None)) else db.default_connection
         for s in settings:
@@ -653,9 +757,25 @@ def _lock_duckdb(db: "Any", work: str, check: "Callable[[Any, str], None]") -> N
     except Exception:  # noqa: BLE001 - fail closed: the module-level calls would use an unlocked connection
         for name in ("sql", "query", "execute", "executemany", "read_csv", "read_json", "read_parquet",
                      "from_csv_auto", "from_parquet", "from_query", "query_df", "table", "view", "values",
-                     "from_df", "from_arrow", "install_extension", "load_extension", "cursor"):
-            if hasattr(db, name):
-                setattr(db, name, _refused(f"duckdb.{name}; use duckdb.connect()"))
+                     "from_df", "from_arrow", "install_extension", "load_extension", "cursor", "connect"):
+            for mod in (db, native):
+                if mod is not None and hasattr(mod, name):
+                    setattr(mod, name, _refused(f"duckdb.{name}"))
+        return None
+    for mod in list(sys.modules.values()):   # duckdb, _duckdb and anything that imported connect by name
+        if mod is None:
+            continue
+        try:
+            names = [n for n, v in vars(mod).items() if v is original]
+        except TypeError:
+            continue
+        for n in names:
+            try:
+                setattr(mod, n, locked)
+            except (AttributeError, TypeError):
+                pass
+    db.connect = locked
+    return (original, at_open, settings, work)
 
 
 try:

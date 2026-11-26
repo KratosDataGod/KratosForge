@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-25 11:42 UTC, main b4bc548d.** Covers the PRs merged from #135 to #3333.
+**Product check of 2026-11-25 23:42 UTC, main 9ea9dfde.** Covers the PRs merged from #135 to #3345.
 
 ## Summary
 
+- Evening check, 2026-11-25: 15 PRs merged after b4bc548d. 2 were product data, and the other 13 were linked.
+  Direct Lake fallback risk shipped in Preview with one verdict per model, a growth forecast and a SKU what-if
+  (#3343, PB-110), and Ossie gained a compatibility matrix and a Snowflake export profile (engine only). Notebooks
+  gained Present mode (N49, #3338, Preview) and a measured budget for 2,000-cell notebooks (WR-134, PB-103). The
+  local API takes the caller's address from the socket only (#3342, PB-095). No item changed state.
 - Morning check, 2026-11-25: 11 PRs merged after 84a36dd6, all linked. Databricks Unity Catalog volumes work on this
   PC with a Volumes screen (#3323, Preview, PB-120), and Markdown cells have a toolbar and preview (N23, #3329,
   Preview, PB-103). Command-line restore is audited (WR-418, PB-124). Five test-stability PRs landed, and no test

@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-constellation", "name": "First Constellation", "criteria": "Reach Journeyman in Facts and dimensions and in Relationships and cardinality."},
-  {"id": "words-of-power", "name": "Words of Power", "criteria": "Reach Adept in CALCULATE and filter modification."},
-  {"id": "unbroken-conduit", "name": "Unbroken Conduit", "criteria": "Reach Journeyman in Capstone: Gold that stays in Direct Lake."},
-  {"id": "measured-truth", "name": "Measured Truth", "criteria": "Reach Adept in Measure testing against SQL results."},
-  {"id": "archmages-circle", "name": "Archmage's Circle", "criteria": "Reach Adept in all ten talents of one Semantic Archmage specialization."}
+  {"id": "first-constellation", "name": "First Constellation", "criteria": "Reach Journeyman in Facts and dimensions and in Relationships and cardinality.", "requires": {"level": 3, "talents": ["star.02", "star.03"]}},
+  {"id": "words-of-power", "name": "Words of Power", "criteria": "Reach Adept in CALCULATE and filter modification.", "requires": {"level": 4, "talents": ["dax.03"]}},
+  {"id": "unbroken-conduit", "name": "Unbroken Conduit", "criteria": "Reach Journeyman in Capstone: Gold that stays in Direct Lake.", "requires": {"level": 3, "talents": ["directlake.10"]}},
+  {"id": "measured-truth", "name": "Measured Truth", "criteria": "Reach Adept in Measure testing against SQL results.", "requires": {"level": 4, "talents": ["dax.08"]}},
+  {"id": "archmages-circle", "name": "Archmage's Circle", "criteria": "Reach Adept in all ten talents of one Semantic Archmage specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

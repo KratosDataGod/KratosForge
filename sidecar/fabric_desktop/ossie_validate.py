@@ -43,7 +43,7 @@ MAX_RAW_ERRORS = 5_000
 # what it can't read. A caller that wants to stop on it decides that itself.
 EFFECT = "informs"
 MAX_VALUE = 80  # characters of a value's short form
-MAX_DEPTH = 64  # a real Ossie model nests about 8 levels; deeper is refused before the schema check recurses
+MAX_DEPTH = model_ossie.MAX_DEPTH  # 64: a real Ossie model nests about 8 levels; deeper is refused before the schema check recurses
 _ONCE = frozenset({"required", "additionalProperties"})  # one diagnostic per property, however often it is seen
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _REPR = reprlib.Repr(maxlevel=2, maxdict=4, maxlist=4, maxtuple=4, maxset=4, maxstring=MAX_VALUE - 10,

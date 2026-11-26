@@ -54,6 +54,9 @@ const askedSince = (from) => app.calls.slice(from).map((c) => c.method);
 before(async () => {
   if (skip) return;
   app = await openApp({ viewport: { width: 1440, height: 900 }, engine: ENGINE });
+  // The save asks the whole-notebook question: what's asked with preview features hidden. The per-cell
+  // merge (Preview) is notebook-sync-merge.test.cjs.
+  await page().evaluate(() => { state.settings = { ...(state.settings || {}), show_preview: { value: false } }; });
 });
 
 after(async () => { if (app) await app.close(); });

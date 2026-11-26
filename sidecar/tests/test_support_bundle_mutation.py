@@ -19,7 +19,7 @@ def test_a_log_keeps_its_last_two_thousand_lines(tmp_path):
 def test_only_the_last_four_mebibytes_are_read(tmp_path):
     log = tmp_path / "sidecar.log"
     line = "x" * 4095 + "\n"
-    log.write_text("first\n" + line * 1023 + "y" * 4094 + "\n", encoding="utf-8")  # 5 bytes past 4 MiB
+    log.write_bytes(("first\n" + line * 1023 + "y" * 4094 + "\n").encode())  # 5 bytes past 4 MiB, "\n" on every OS
     kept = support_bundle._tail(log)  # the read starts on the first line's newline, so only that is dropped
     assert kept.startswith("x") and kept.count("\n") == 1024 and kept.endswith("y\n")
 

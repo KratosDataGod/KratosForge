@@ -3,6 +3,7 @@
 import datetime as dt
 import hashlib
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -129,7 +130,7 @@ def _write(tmp_path, p, name="crm.json"):
 
 
 def test_reading_names_the_file_and_one_that_isnt_there(tmp_path):
-    with pytest.raises(pp.PackageError, match=f"^The policy package {tmp_path / 'nope.json'} isn't there"):
+    with pytest.raises(pp.PackageError, match=f"^The policy package {re.escape(str(tmp_path / 'nope.json'))} isn't there"):
         pp.read(tmp_path / "nope.json")
     with pytest.raises(pp.PackageError, match="^Mine isn't there"):
         pp.read(tmp_path / "nope.json", where="Mine")

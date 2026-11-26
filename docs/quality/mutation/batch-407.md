@@ -1,0 +1,34 @@
+# Mutation testing, batch 407
+
+One module not scored before, run with `--kinds all`:
+- Academy exercises and their verification classes: reading an exercise and its reference answer, whether a pass completes an objective, grading a duckdb_lab answer in memory, sending each adapter to its own self-test, and the checker that finds broken exercises without running anything (`academy/exercises.py`).
+
+The run was at `main` ea988e99 (2026-11-23), with `sidecar/tools/mutate.py` and the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The per-mutant timeout was raised from 120 to 600 seconds by a wrapper that sets `mutate.TIMEOUT`, with the tool unchanged, because three runs shared the machine; no mutant's run timed out. Each pytest session got a fresh temporary folder, so a mutant can't leave one that breaks later runs. Each test set was run with `-x`. Test files were given as paths relative to `sidecar/`, and they first passed once on the unmutated copy. None of them reads `docs/`, `examples/` or `app/`. The module has 317 mutants, so 150 were sampled. `main` hasn't changed this module since.
+
+The test set was test_academy_exercises, test_academy_readiness, test_academy_databricks_pack, test_academy_databricks_content and test_academy_limits, with `-k "not reference_passes and not starter_does_not_pass and not runaway and not never_ends and not wrong_answer"`. That leaves out 91 tests that run every exercise's reference solution, starter and planted wrong answers, which take about ten minutes per mutant; 98 tests ran. Leaving them out can only lower the "before" figure, and the new tests reach the same lines without running a learner's answer.
+
+Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `academy/exercises.py` | test_academy_exercises, test_academy_readiness, test_academy_databricks_pack, test_academy_databricks_content, test_academy_limits, 91 deselected (+ test_academy_exercises_mutation_b) | 150 of 317 (146 + 4) | 104 / 46 | **69.3%** | 104/146 → 146/146 | 0/4 → 4/4 | 150 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **academy/exercises.py**:
+  - self_test sends python_lab and delta_lab, pipeline_lab, config_model, git_lab, sqlproj_lab, quiz, dbsql_lab and pyspark_lab exercises each to its own self-test. A duckdb_lab exercise is graded here, with its reference passing and each planted answer failing. Any other adapter is refused.
+  - Knowledge is weaker than a simulation, and local evidence is weaker than a platform's. An unknown best_local counts as LOCAL VERIFIED.
+  - get refuses an exercise that isn't there. The list of exercises holds drafts unless asked not to.
+  - An exercise built on a Learn lab takes the lab's starter. The planted answers come from the grading folder, and there are none when it holds none.
+  - SQL that fails to run fails its check, with the reason.
+  - The checker: the version starts at 1, minutes run from 1 to 240 at both edges, and a Fabric pack can't hold Databricks work. Blank hints, a prerequisite exercise that doesn't exist and a fault without all its parts are caught.
+  - Each adapter's own check problems are reported: pipeline_outcome, config_matches, quiz_score and repo_matches.
+  - A pyspark result check needs a table. A duckdb_lab check takes no table and no hidden data, and a hidden-data check needs hidden.sql.
+  - A missing child pipeline and a missing notebook are caught. files_folder is only for pyspark_lab, and a pipeline's mocks must be a map.
+  - Two planted answers are enough and one is too few, for config_model, git_lab and sqlproj_lab.
+  - A grading folder with no exercise is caught.
+  - → `test_academy_exercises_mutation_b.py`, on copies of the bundled packs. The adapters' self-tests are stood in for, so nothing runs a learner's answer; the one real run is a duckdb_lab reference in the in-memory `grade`.

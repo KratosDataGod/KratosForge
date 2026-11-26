@@ -16,7 +16,7 @@ from fabric_desktop.integrations import http_server, peer
 from fabric_desktop.integrations.http_server import Guard, build_app
 from fabric_desktop.integrations.store import IntegrationStore
 
-from test_integrations_http import PORT, auth, http_client, registry
+from test_integrations_http import IN_PROCESS, PORT, auth, http_client, registry, this_account
 
 BASE = f"http://127.0.0.1:{PORT}"
 
@@ -109,8 +109,8 @@ def test_a_flood_of_refusals_writes_one_line_then_counts_the_rest(store, monkeyp
     now = [1000.0]
     monkeypatch.setattr(http_server.time, "monotonic", lambda: now[0])
     audit = Audit()
-    guard = Guard(Reached(), store, PORT, registry=type("R", (), {"audit": audit})())
-    with TestClient(guard, base_url=BASE) as c:
+    guard = Guard(Reached(), store, PORT, registry=type("R", (), {"audit": audit})(), same_user=this_account)
+    with TestClient(guard, base_url=BASE, client=IN_PROCESS) as c:
         for _ in range(5):
             assert c.get("/api/v1/capabilities", headers={"Host": "evil.example"}).status_code == 403
         assert len(audit.lines) == 1 and "refused_since_last_line" not in audit.lines[0]["request"]
@@ -124,8 +124,8 @@ def test_a_flood_of_refusals_writes_one_line_then_counts_the_rest(store, monkeyp
 
 def test_each_reason_is_audited_on_its_own(store):
     audit = Audit()
-    guard = Guard(Reached(), store, PORT, registry=type("R", (), {"audit": audit})())
-    with TestClient(guard, base_url=BASE) as c:
+    guard = Guard(Reached(), store, PORT, registry=type("R", (), {"audit": audit})(), same_user=this_account)
+    with TestClient(guard, base_url=BASE, client=IN_PROCESS) as c:
         c.get("/api/v1/capabilities", headers={"Host": "evil.example"})
         c.get("/api/v1/capabilities", headers={"Origin": "https://evil.example"})
         c.get("/api/v1/capabilities")
@@ -134,16 +134,16 @@ def test_each_reason_is_audited_on_its_own(store):
 
 def test_an_audit_that_fails_doesnt_turn_a_refusal_into_a_pass(store, capsys):
     inner = Reached()
-    guard = Guard(inner, store, PORT, registry=type("R", (), {"audit": Audit(fail=True)})())
-    with TestClient(guard, base_url=BASE) as c:
+    guard = Guard(inner, store, PORT, registry=type("R", (), {"audit": Audit(fail=True)})(), same_user=this_account)
+    with TestClient(guard, base_url=BASE, client=IN_PROCESS) as c:
         assert c.get("/api/v1/capabilities", headers={"Origin": "null"}).status_code == 403
     assert inner.calls == [] and "could not record a refused request: OSError: disk full" in capsys.readouterr().err
 
 
 def test_a_path_in_the_audit_is_cut_to_200_characters(store):
     audit = Audit()
-    guard = Guard(Reached(), store, PORT, registry=type("R", (), {"audit": audit})())
-    with TestClient(guard, base_url=BASE) as c:
+    guard = Guard(Reached(), store, PORT, registry=type("R", (), {"audit": audit})(), same_user=this_account)
+    with TestClient(guard, base_url=BASE, client=IN_PROCESS) as c:
         c.get("/api/v1/" + "x" * 500)
     assert len(audit.lines[0]["request"]["path"]) == 200
 
@@ -156,7 +156,7 @@ def test_a_chunked_body_past_the_limit_is_refused_while_it_is_read(store):
     def chunks():
         for _ in range(http_server.MAX_BODY_BYTES // 65536 + 2):
             yield b"a" * 65536
-    with TestClient(build_app(registry(store), store, PORT), base_url=BASE) as c:
+    with TestClient(build_app(registry(store), store, PORT, same_user=this_account), base_url=BASE, client=IN_PROCESS) as c:
         r = c.post("/api/v1/capabilities/ext_slow/invoke", headers=auth(token), content=chunks())
     assert r.status_code == 413 and r.json()["error"]["code"] == "too_large"
 
@@ -164,7 +164,7 @@ def test_a_chunked_body_past_the_limit_is_refused_while_it_is_read(store):
 def test_a_content_length_that_isnt_a_number_is_refused(store):
     _, token = http_client(store)
     inner = Reached()
-    with TestClient(Guard(inner, store, PORT), base_url=BASE) as c:
+    with TestClient(Guard(inner, store, PORT, same_user=this_account), base_url=BASE, client=IN_PROCESS) as c:
         r = c.post("/api/v1/capabilities/x/invoke", headers=auth(token) | {"Content-Length": "-1"}, content=b"")
     assert r.status_code == 413 and inner.calls == []
 
@@ -173,7 +173,7 @@ def test_a_call_that_waits_too_long_for_a_slot_is_told_to_try_again(store, monke
     monkeypatch.setattr(http_server, "MAX_CONCURRENT", 0)  # every slot taken
     monkeypatch.setattr(http_server, "QUEUE_WAIT_SECONDS", 0.05)
     _, token = http_client(store)
-    with TestClient(build_app(registry(store), store, PORT), base_url=BASE) as c:
+    with TestClient(build_app(registry(store), store, PORT, same_user=this_account), base_url=BASE, client=IN_PROCESS) as c:
         r = c.post("/api/v1/capabilities/ext_slow/invoke", headers=auth(token), json={"arguments": {}})
     assert r.status_code == 429 and r.headers["Retry-After"] == "5" and r.json()["error"]["retryable"]
 
@@ -254,7 +254,7 @@ def test_serve_wont_start_where_another_account_listens_on_the_port(serving, mon
 
 def test_resources_are_listed_and_read_with_the_same_token_checks(store):
     _, token = http_client(store)
-    with TestClient(build_app(registry(store), store, PORT), base_url=BASE) as c:
+    with TestClient(build_app(registry(store), store, PORT, same_user=this_account), base_url=BASE, client=IN_PROCESS) as c:
         assert c.get("/api/v1/resources").status_code == 401
         listed = c.get("/api/v1/resources", headers=auth(token)).json()
         uris = {r["uri"]: r for r in listed["resources"]}

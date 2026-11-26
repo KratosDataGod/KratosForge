@@ -166,3 +166,130 @@ def test_loading_a_table_that_wasnt_written_says_so(tmp_path):
         assert con.execute('SELECT id FROM "s"."t"').fetchall() == [(1,)]
     finally:
         con.close()
+
+
+def test_a_table_over_the_byte_limit_names_the_limit_in_mb(tmp_path, monkeypatch):
+    pl.prepare(tmp_path, "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT md5(i::VARCHAR) || md5((i + 7)::VARCHAR) AS v "
+                         "FROM range(60000) r(i);")
+    monkeypatch.setattr(pl, "MAX_TABLE_BYTES", 1024 * 1024)
+    with pytest.raises(pl.ws.Refused, match=r"^s.t is bigger than 1 MB; "):
+        pl._rows(tmp_path, "s.t")
+
+
+def test_cleanup_of_a_package_folder_already_gone_is_no_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(pl, "_PKG", tmp_path / "gone")
+    pl.cleanup_package()
+    assert pl._PKG is None
+
+
+def test_a_reference_run_keeps_the_last_4000_characters_of_its_output(tmp_path):
+    pl.prepare(tmp_path, "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT 1 AS id;")
+    run = pl.run_reference(tmp_path, "import sys\nprint('x' * 5000, end='')\nsys.stderr.write('e' * 5000)\n")
+    assert run["status"] == "ok" and run["stdout"] == "x" * 4000 and run["stderr"] == "e" * 4000
+
+
+def test_tables_can_be_prepared_again_in_the_same_workspace(tmp_path):
+    assert pl.prepare(tmp_path, SETUP) == ["s.t"]
+    assert pl.prepare(tmp_path, SETUP) == ["s.t"]
+    assert pl._rows(tmp_path, "s.t") == (["id"], [(1,)])
+
+
+# ---- grading, with the runs stood in for
+
+
+SETUP = "CREATE SCHEMA s; CREATE TABLE s.t AS SELECT 1 AS id;"
+FAILED = {"status": "error", "exit_code": 1, "stderr": "Traceback\nValueError: bad"}
+
+
+def _write(work, ids, name="s.out"):
+    import deltalake
+    import pyarrow as pa
+    path = pl.table_path(work, name)
+    path.mkdir(parents=True, exist_ok=True)
+    deltalake.write_deltalake(str(path), pa.table({"id": pa.array(ids, pa.int64())}), mode="overwrite")
+
+
+def _runner(plan):
+    """``plan(code, work, call)`` writes what that run leaves and returns its result, or None for ok."""
+    calls: dict[str, int] = {}
+
+    def run(work, code):
+        calls[str(work)] = calls.get(str(work), 0) + 1
+        return plan(code, work, calls[str(work)]) or {"status": "ok", "exit_code": 0, "stdout": "", "stderr": ""}
+    return run
+
+
+def _grade(validation, plan, hidden=None):
+    return pl.grade({"id": "X1", "validation": validation}, SETUP, hidden, "answer", "solution", _runner(plan))
+
+
+def _writes(answer_ids, solution_ids=(1,)):
+    def plan(code, work, call):
+        _write(work, list(answer_ids if code == "answer" else solution_ids))
+    return plan
+
+
+def test_a_failed_first_run_fails_every_check():
+    out = _grade([{"kind": "result_matches", "table": "s.out"}, {"kind": "idempotent", "table": "s.out"}],
+                 lambda code, work, call: FAILED if code == "answer" else _write(work, [1]))
+    assert [r["passed"] for r in out["results"]] == [False, False]
+    assert {r["detail"] for r in out["results"]} == {"Your code stopped with an error: ValueError: bad"}
+
+
+def test_a_failure_on_hidden_data_fails_its_check():
+    def plan(code, work, call):
+        if code == "answer" and work.name == "hidden":
+            return FAILED
+        _write(work, [1])
+    out = _grade([{"kind": "result_matches", "table": "s.out", "data": "hidden"}], plan, hidden=SETUP)
+    assert out["results"] == [{"kind": "result_matches", "passed": False, "detail": pl.HIDDEN_FAILED}]
+
+
+def test_a_reference_solution_that_fails_is_an_error_of_the_exercise():
+    def plan(code, work, call):
+        if code == "solution":
+            return FAILED
+        _write(work, [1])
+    with pytest.raises(RuntimeError, match="^X1: the reference solution failed: Your code stopped with an error"):
+        _grade([{"kind": "result_matches", "table": "s.out"}], plan)
+
+
+def test_the_score_is_rounded_to_two_places():
+    out = _grade([{"kind": "result_matches", "table": "s.out"}, {"kind": "table_shape", "table": "s.none"},
+                  {"kind": "table_shape", "table": "s.nada"}], _writes([1]))
+    assert [r["passed"] for r in out["results"]] == [True, False, False] and out["score"] == 0.33
+
+
+def test_wrong_rows_are_told_in_counts():
+    out = _grade([{"kind": "result_matches", "table": "s.out"}], _writes([1, 2], [1, 3]))
+    assert out["results"][0]["detail"] == "s.out on the exercise data has the right number of rows, but 1 of them isn't right."
+
+
+def test_a_second_run_that_fails_says_it_was_the_second():
+    def plan(code, work, call):
+        if call == 2:
+            return FAILED
+        _write(work, [1])
+    out = _grade([{"kind": "idempotent", "table": "s.out"}], plan)
+    assert out["results"][0] == {"kind": "idempotent", "passed": False,
+                                 "detail": "Run a second time, your code stopped with an error: ValueError: bad"}
+
+
+def test_a_rerun_that_writes_the_table_first_counts_from_zero():
+    def plan(code, work, call):
+        if call == 2:
+            _write(work, [1])
+    out = _grade([{"kind": "idempotent", "table": "s.out"}], plan)
+    assert out["results"][0]["detail"].startswith("Running your code again changed s.out (0 rows, then 1).")
+
+
+def test_a_rerun_that_removes_the_table_counts_to_zero():
+    import shutil
+
+    def plan(code, work, call):
+        if call == 1:
+            _write(work, [1])
+        else:
+            shutil.rmtree(pl.table_path(work, "s.out"))
+    out = _grade([{"kind": "idempotent", "table": "s.out"}], plan)
+    assert out["results"][0]["detail"].startswith("Running your code again changed s.out (1 rows, then 0).")

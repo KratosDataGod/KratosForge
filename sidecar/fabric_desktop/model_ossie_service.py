@@ -344,7 +344,14 @@ class ModelOssieMixin:
         if (rel.is_absolute() or ".." in rel.parts or not rel.parts or not rel.name.endswith(suffixes)
                 or ":" in rel.as_posix()):
             raise ValueError(f"Save it as a path inside the project ending {' or '.join(suffixes)}, like {FOLDER}/Sales.ossie.yaml")
-        return Path(project.root, *rel.parts)
+        if any(part.split(".")[0].upper().rstrip() in tmdl._RESERVED for part in rel.parts):
+            raise ValueError(f"{path} can't be used, because Windows reserves names like CON, NUL and COM1 for devices. "
+                             "Pick another name, then try again.")
+        target = Path(project.root, *rel.parts)
+        if not target.resolve().is_relative_to(Path(project.root).resolve()):  # a symlinked folder in a cloned repo
+            raise ValueError(f"{path} can't be used, because a link in it points outside the project. "
+                             "Pick a path inside the project, then try again.")
+        return target
 
     def meta_model_ossie_save(self, path: str, text: str) -> dict[str, Any]:
         """Save an Ossie document in the metadata project's folder (it shows in Changes, ready to commit)."""

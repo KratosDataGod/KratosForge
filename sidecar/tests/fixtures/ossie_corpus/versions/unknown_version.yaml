@@ -1,0 +1,12 @@
+version: 0.9.0
+name: corpus_unknown_version
+datasets:
+- name: orders
+  source: dbo.orders
+  fields:
+  - name: order_id
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: order_id
+    datatype: Integer

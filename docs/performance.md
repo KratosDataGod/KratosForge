@@ -213,7 +213,7 @@ What the baseline shows:
 
 ## What it is not
 
-The engine benchmark (`startup_and_sql.py`) is not run in CI and nothing fails on its numbers yet; the
-[quality gates](audits/QUALITY_GATES.md) propose recording it per build, warning-only at first. It does not time WebView2 or the Tauri shell
+The engine benchmark (`startup_and_sql.py`) isn't part of the test run: only the Performance workflow runs
+it, and only that workflow fails on its numbers ([In CI](#in-ci)). It does not time WebView2 or the Tauri shell
 (see [The app window](#the-app-window) for the page itself), a notebook on Fabric, or OneLake reads and
 writes. For TPC-H on your PC and in Fabric side by side, see [the TPC-H benchmark notebooks](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark).

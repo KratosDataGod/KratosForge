@@ -25,6 +25,7 @@ import time
 from typing import Any, Callable
 
 from . import sql, sql_policy
+from .awake_timer import awake_monotonic
 from .localdata import tsql
 from .orchestration.adapters import ActivityFailed, timespan
 from .orchestration.definition import Activity
@@ -185,7 +186,7 @@ class LocalScripts:
             started = runs.start(text, ref, "duckdb", ["read_only"])
         run_id, state = started["id"], started
         while state["state"] not in ("completed", "failed", "cancelled", "timed_out"):
-            if cancelled() or (deadline is not None and time.monotonic() > deadline):
+            if cancelled() or (deadline is not None and awake_monotonic() > deadline):
                 runs.cancel(run_id)
                 if cancelled():
                     raise ActivityFailed("Cancelled.", "LocalCancelled")

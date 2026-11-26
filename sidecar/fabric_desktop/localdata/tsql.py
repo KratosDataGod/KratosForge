@@ -2678,12 +2678,6 @@ def _functions(tree: exp.Expression) -> None:
             join.this.set("cross_apply", None)
             join.set("side", None if apply else "LEFT")
             join.set("on", exp.true())
-    for day in list(tree.find_all(exp.TsOrDsToDate, exp.TimeStrToTime)):
-        number = day.this.this if isinstance(day.this, exp.Neg) else day.this
-        if isinstance(number, exp.Literal) and number.is_int:
-            # A whole number as a date counts days from T-SQL's base date: YEAR(0) is 1900, DAY(-1) is 31.
-            since = exp.Add(this=exp.cast(exp.Literal.string("1900-01-01"), "DATE"), expression=day.this)
-            day.set("this", since if isinstance(day, exp.TsOrDsToDate) else exp.cast(since, "TIMESTAMP"))
     for reverse in tree.find_all(exp.Reverse):  # REVERSE(1234) is '4321': T-SQL reverses a number's text
         reverse.set("this", exp.cast(reverse.this, "VARCHAR"))
     # Children before parents: DATEDIFF's rewrites copy their arguments, so a call inside one (GETUTCDATE(),

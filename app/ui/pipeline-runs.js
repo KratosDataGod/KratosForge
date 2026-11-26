@@ -161,7 +161,7 @@ async function showPipelineActivities(tr, r) {
   try {
     record = await rpc("pipeline_run_status", { run_id: id, values: true });
   } catch (err) {
-    problem = friendlyError(err).text;
+    problem = friendlyError(err).text.replace(/\.$/, "");  // the sentence below ends with its own full stop
   }
   if (!wait.isConnected || !pipelineRunsOpen.has(id)) return;
   if (!record) {

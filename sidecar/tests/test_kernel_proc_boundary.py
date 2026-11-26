@@ -43,6 +43,7 @@ def _watched(monkeypatch, *, rounds=1, now=0.0, memory=0):
     ends, asked = [], []
     monkeypatch.setattr(kernel_proc.time, "sleep", lambda s: None)
     monkeypatch.setattr(kernel_proc.time, "monotonic", lambda: now)
+    monkeypatch.setattr(kernel_proc, "awake_monotonic", lambda: now)  # the time limit's clock
     monkeypatch.setattr(k, "_memory", lambda p, pid: memory)
     monkeypatch.setattr(k, "_end", lambda p, why: ends.append(why))
     monkeypatch.setattr(k, "_request", lambda what, **kw: asked.append(what))

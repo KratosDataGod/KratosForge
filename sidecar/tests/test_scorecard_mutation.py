@@ -42,7 +42,7 @@ def test_python_cost_figures_and_assumptions():
     assert c["amount"] == round(100 / 3600 * 0.18, 4) == 0.005
     assert c["currency"] == "USD"
     timing, price, billed = c["assumptions"]
-    assert timing == "Job time 100.0 s (from Fabric's job API) x 1 CU for a Python notebook (Monitor > Cost settings)."
+    assert timing == "Job time 100.0 s (from Fabric's job API) x 1 CU for a Python notebook (Optimize > Cost and savings > Prices)."
     assert price.startswith("Priced at 0.18 USD per CU hour (pay-as-you-go).") and "not an added charge" in price
     assert billed == "Billed numbers are in Fabric's Capacity Metrics app."
     m = c["measurement"]

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote
 
-from deltalake import DeltaTable, PostCommitHookProperties
+from deltalake import CommitProperties, DeltaTable, PostCommitHookProperties
 from deltalake.exceptions import TableNotFoundError
 
 from . import durable, retrying
@@ -409,7 +409,9 @@ def keep_log(uri: str, hours: float, options: dict[str, str] | None = None, now:
     days = max(days, math.ceil(_own_seconds(str((table.metadata().configuration or {}).get(
         "delta.logRetentionDuration") or "")) / 86400))
     retrying.local_commit(lambda: DeltaTable(uri, storage_options=options).alter.set_table_properties(
-        {"delta.logRetentionDuration": f"interval {days} days"}, post_commithook_properties=KEEP_LOG),
+        {"delta.logRetentionDuration": f"interval {days} days"}, post_commithook_properties=KEEP_LOG,
+        # named in the table's history, so a property change nobody typed can be told apart from a person's
+        commit_properties=CommitProperties(custom_metadata={"fabric_desktop.operation": "keep_log"})),
         "this table's next version")
     return True
 
@@ -437,7 +439,8 @@ def after_write(uri: str, before: int | None, table: DeltaTable, options: dict[s
     of ``days`` (a layer's Keep history), the table's own delta.deletedFileRetentionDuration and MIN_RETENTION_DAYS.
     ``table`` is the table as committed; the log is listed only after a checkpoint, so other writes cost nothing
     more. True when the log was cleaned. Nothing here fails the write, which is in: a step that fails leaves the
-    log as it is until the next checkpoint (with a warning)."""
+    log as it is until the next checkpoint (with a warning). keep_log runs before cleanup_metadata because the
+    cleanup deletes by the retention keep_log may have to raise first; the other way round the log is already gone."""
     try:
         config = table.metadata().configuration or {}
         if not checkpoints_between(config, before, table.version()) or math.isinf(log_seconds(config)):

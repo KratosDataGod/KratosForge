@@ -313,3 +313,14 @@ def test_set_retention_with_log_cleanup_off_and_no_log_retention(tmp_path):
     _history(uri, {"delta.enableExpiredLogCleanup": "false"}, [3, 2])
     assert maintenance.set_retention(uri, 7) is True
     assert DeltaTable(uri).metadata().configuration["delta.logRetentionDuration"] == "interval 30 days"
+
+
+def test_the_retention_keep_log_raises_is_named_in_the_tables_history(tmp_path):
+    """Its SET TBLPROPERTIES commit says what made it, so the table's history and the audit can tell it from a
+    person's own change."""
+    uri = str(tmp_path / "t")
+    _history(uri, {}, [40, 35, 2])
+    assert maintenance.keep_log(uri, maintenance.retention_hours(7)) is True
+    newest = DeltaTable(uri).history(1)[0]
+    assert newest.get("operation") == "SET TBLPROPERTIES"
+    assert newest.get("fabric_desktop.operation") == "keep_log"

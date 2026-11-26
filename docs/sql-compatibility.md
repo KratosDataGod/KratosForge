@@ -1002,8 +1002,6 @@ Refused by name, so nothing runs with another answer:
 - Text in another form (`'12-10-25 12:32:10 +01:00'`), `CONVERT` styles, text shorter than the value (`VARCHAR` with no length is 30 characters), and text of a column that came from `AT TIME ZONE` on a table's column, whose digits of a second aren't known here: cast it to `datetimeoffset(6)` first.
 - `SYSDATETIMEOFFSET` (Microsoft's page doesn't list Warehouse in Microsoft Fabric; use `SYSUTCDATETIME()`) and `DATETIMEOFFSETFROMPARTS`.
 
-`DATENAME` of every part now gives T-SQL's text: `DATENAME(hour, ...)` is `7`, `DATENAME(day, ...)` is `5` and `DATENAME(quarter, ...)` is `1`. They gave the month's short name, `05` and the word `quarter` before.
-
 Sources, read 2026-11-18: Microsoft Learn's datetimeoffset (last updated 2026-09-21), AT TIME ZONE (2026-09-29), SWITCHOFFSET (2026-10-08), TODATETIMEOFFSET (2026-10-08), DATEPART (2026-10-08), SYSDATETIMEOFFSET (2026-09-29) and Data types in Fabric Data Warehouse (2026-06-11), and the Unicode CLDR windowsZones.xml mapping.
 
 ## Local T-SQL decimals

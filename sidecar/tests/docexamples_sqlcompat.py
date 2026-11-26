@@ -157,7 +157,7 @@ CLAIMS: list[Claim] = [
         note="WR-246: IN (SELECT ...) ignores trailing spaces"),
     _ts("NULLIF('a ', 'a')"),
     _ts("UPPER('é')"),
-    # WR-241: datetimeoffset, SWITCHOFFSET, AT TIME ZONE and DATENAME
+    # WR-241: datetimeoffset, SWITCHOFFSET, AT TIME ZONE and DATENAME's tzoffset
     _ts("datetimeoffset(0)", query="SELECT LEN(CAST(CAST('2024-01-01 10:00 +01:00' AS DATETIMEOFFSET(0)) AS VARCHAR(34)))",
         note="its text's length"),
     _ts("2025-12-10 12:32:10.1237 +01:00",
@@ -178,9 +178,6 @@ CLAIMS: list[Claim] = [
         query="SELECT CONCAT(SUBSTRING(v, 12, 5), ' ', RIGHT(v, 6)) FROM (SELECT CAST(CAST('2026-11-01 01:30' AS "
               "DATETIME2(0)) AT TIME ZONE 'Pacific Standard Time' AS VARCHAR(34)) AS v) AS t",
         note="the repeated hour"),
-    _ts("DATENAME(hour, ...)", query="SELECT DATENAME(hour, CAST('2024-01-05 07:00' AS DATETIME2))"),
-    _ts("DATENAME(day, ...)", query="SELECT DATENAME(day, CAST('2024-01-05 07:00' AS DATETIME2))"),
-    _ts("DATENAME(quarter, ...)", query="SELECT DATENAME(quarter, CAST('2024-01-05 07:00' AS DATETIME2))"),
 ]
 
 # (page, expression) -> why it isn't run here

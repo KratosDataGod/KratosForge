@@ -20,6 +20,13 @@ the version in effect when each run happened; always a Scenario figure, never sa
 (time, CU, DBU, credits), never converted into each other. Money only under one pricing version, a
 Scenario figure, and a closing line that compares, never recommends (Preview).
 
+``headroom``: capacity headroom (measure B), always Estimated: per capacity and per imported timepoint,
+used CU against the CU limit of the SKU in effect then, as observed and with the runs' CU avoided added
+back, and peak and p95 of both with the headroom gained. A timepoint with no data is Unknown, never 0 or an
+average; timepoints that don't cover the period make the result Incomplete with the missing windows listed;
+capacities are never mixed. Estimated capacity value (measure C) prices the same CU avoided with
+``pricing.value_runs`` under a named scenario: a Scenario figure, never savings (ESI-402).
+
 ``overhead``: what one run on a PC still cost (transfer seconds, bytes, OneLake read and write
 operations, and its share of the sync that carried it), one measurement per figure, Unknown where
 not recorded, and the Fabric CU overhead the waterfall subtracts for net: Unknown unless a measured

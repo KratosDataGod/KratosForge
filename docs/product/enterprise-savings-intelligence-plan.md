@@ -439,7 +439,7 @@ confidence. The current single price becomes a scenario labelled as an assumptio
 - Tests: scenario 18 (price change applies only from its effective date; history keeps its
   pricing version).
 
-**ESI-402 Capacity value and headroom.** Measures B and C from 4.6, with time-based headroom
+**ESI-402 Capacity value and headroom.** **Built** (engine only, no writes). `savings/headroom.py`. Measures B and C from 4.6, with time-based headroom
 from imported timepoints.
 
 **ESI-403 Realized savings.** **Built** (engine only, no writes). `savings/realized.py`. Measure E from Cost Management exports and `fdcap_` SKU changes,

@@ -115,7 +115,7 @@ def test_fill_and_drop_nulls(spark, df):
 @pytest.mark.parametrize("call, says", [
     (lambda df, F: df.select(F.printf(F.col("region"), "id")), "takes its format as text"),
     (lambda df, F: df.fillna([1]), "fillna takes a number, text, a boolean or a dict"),
-    (lambda df, F: df.show(truncate="no"), "`truncate` should be a bool or an int"),
+    (lambda df, F: df.show(truncate="no"), "`truncate` should be a bool, got str"),
     (lambda df, F: df.show(vertical=1), "`vertical` should be a bool"),
     (lambda df, F: df.select(F.col("region").getItem(1.5)), "getItem takes a whole number or text"),
     (lambda df, F: df.select(F.col("region").getField(1)), "getField takes a field name"),

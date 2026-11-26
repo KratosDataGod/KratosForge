@@ -119,7 +119,7 @@ function connectCard(status, refresh) {
         btn("Copy", "copyArrowRight", () => copyText(status.launcher, "Command"), "tool outline small"))),
     settingRow("Local HTTP API",
       http.allowed ? `REST and MCP over HTTP at ${http.url}, this PC only, with a token per tool. Off unless a tool needs it.`
-        : "Your organization doesn't allow the local HTTP API on this PC.",
+        : "Your organization doesn't allow the local HTTP API on this PC. Ask IT to change integrations_http in Group Policy or the policy file.",
       httpToggle, http.allowed ? null : "policy"),
     http.switch && !http.running ? h("p", { class: "fail-text small" }, `It isn't running. The log is in ${http.log}.`) : null,
     settingRow("Things tools can do", `${offered.length} capabilities. ${Object.entries(counts)
@@ -208,7 +208,7 @@ function permissionChoices(status, granted, auto) {
     boxes[p.id] = input;
     return h("label", { class: "choice-row" }, input,
       h("span", {}, h("b", {}, PERMISSION_LABEL[p.id], required ? h("span", { class: "pill-s neu" }, "Required") : null),
-        h("span", { class: "muted-text small" }, p.allowed ? PERMISSION_HELP[p.id] : "Your organization doesn't allow this.")));
+        h("span", { class: "muted-text small" }, p.allowed ? PERMISSION_HELP[p.id] : "Your organization doesn't allow this. Ask IT to change integrations_max_permissions in Group Policy or the policy file.")));
   });
   const later = status.permissions.filter((p) => !p.offered).map((p) => PERMISSION_LABEL[p.id]);
   const node = h("div", { class: "choices" }, rows,
@@ -234,7 +234,7 @@ function addTool(status, refresh) {
   drawTiles();
   const perms = permissionChoices(status, ["READ_METADATA"], []);
   const next = async () => {
-    if (kind === "http" && !status.http.allowed) { toast("Your organization doesn't allow the local HTTP API.", true); return; }
+    if (kind === "http" && !status.http.allowed) { toast("Your organization doesn't allow the local HTTP API. Ask IT to change integrations_http in Group Policy or the policy file.", true); return; }
     const { grants, auto } = perms.value();
     const res = await attempt(() => rpc("integrations_add_client", { name: name.value.trim(), kind, grants, auto,
       transport: kind === "http" ? "http" : "stdio" }), "Not added");

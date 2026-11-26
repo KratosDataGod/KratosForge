@@ -115,8 +115,11 @@ def test_the_schema_options_still_read_true_and_false_text(spark):
     assert "note" in t.schema().to_arrow().names
 
 
+# The probe ends as the learner process does (pyspark_lab.END_NOW): os._exit on Windows can crash in
+# delta-rs's or DuckDB's shutdown code with 0xC0000005 after the probe has finished.
 PROBE = """
-import os, sys
+import faulthandler, os, sys
+faulthandler.enable()
 sys.path.insert(0, sys.argv[1])
 from kf_learner import pyspark_shim
 spark = pyspark_shim.session(sys.argv[2])
@@ -125,8 +128,8 @@ df = spark.read.table("silver.sales").where(F.col("id") == 2).withColumn("amount
 df.write.mode("overwrite").option("replaceWhere", "day = '2026-03-02'").saveAsTable("silver.sales")
 bad = sorted(m for m in sys.modules if m.split(".")[0] in ("fabric_desktop", "msal", "requests", "azure"))
 print(repr(bad))
-sys.stdout.flush(); os._exit(0)
-"""
+rc = 0
+""" + pyspark_lab.END_NOW
 
 
 def test_the_learner_package_runs_replace_where_without_the_engine(tmp_path):
@@ -135,8 +138,10 @@ def test_the_learner_package_runs_replace_where_without_the_engine(tmp_path):
     pyspark_lab.prepare(work, SETUP)
     pkg = learner_pkg.build(tmp_path / "pkg")
     env = {k: v for k, v in os.environ.items() if k in ("SYSTEMROOT", "TEMP", "TMP", "PATH")}
-    out = subprocess.run([sys.executable, "-I", "-c", PROBE, str(pkg), str(work)], cwd=work, env=env,
-                         capture_output=True, text=True, timeout=120, check=True).stdout
+    done = subprocess.run([sys.executable, "-I", "-c", PROBE, str(pkg), str(work)], cwd=work, env=env,
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, (hex(done.returncode & 0xFFFFFFFF), done.stderr[-4000:])
+    out = done.stdout
     assert eval(out.strip().splitlines()[-1]) == []  # noqa: S307 - our own probe's repr
     t = deltalake.DeltaTable(str(pyspark_shim.table_path(work, "silver.sales")))
     assert sorted(r["amount"] for r in t.to_pyarrow_table().to_pylist()) == [10.0, 30.0, 40.0]

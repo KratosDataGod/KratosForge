@@ -144,7 +144,7 @@ def test_outer_apply_keeps_rows_with_no_match(engine):
 def test_plus_with_a_number_adds_as_numbers(engine):
     r = tsql(engine, "SELECT '1' + 1 AS a, qty + '7' AS b, name + '!' AS c FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [[2, 14, "Ann  !"]]
-    with pytest.raises(Exception, match="Conversion failed when converting the text to data type INT"):
+    with pytest.raises(Exception, match="Conversion failed when converting the varchar value 'x' to data type int"):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
@@ -452,7 +452,7 @@ def test_text_added_to_a_number_follows_tsql(engine):
     engine.execute("CREATE TABLE dbo.f AS SELECT * FROM (VALUES (1, CAST(1.5 AS DOUBLE), ''), (2, NULL, ' 2 ')) v(id, d, s)")
     assert tsql(engine, "SELECT d + '' AS a, '' + 7 AS b, s + 1 AS c, s + d AS e FROM dbo.f ORDER BY id")["rows"] == [
         [1.5, 7, 1, 1.5], [None, 7, 3, None]]
-    with pytest.raises(Exception, match="Conversion failed when converting the text to data type INT"):
+    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value '1\.5' to data type int"):
         tsql(engine, "SELECT '1.5' + 1 AS a")
 
 

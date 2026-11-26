@@ -179,7 +179,8 @@
               "fabric_required": true,
               "best_local": "local_verified",
               "exercises": [
-                "E08"
+                "E08",
+                "E77"
               ],
               "capstones": [],
               "lessons": [
@@ -239,7 +240,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E10"
+                "E10",
+                "E81"
               ],
               "capstones": [
                 "C3"
@@ -266,7 +268,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E11"
+                "E11",
+                "E82"
               ],
               "capstones": [
                 "C3"
@@ -440,7 +443,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E18"
+                "E18",
+                "E83"
               ],
               "capstones": [],
               "lessons": [],
@@ -651,7 +655,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E29"
+                "E29",
+                "E84"
               ],
               "capstones": [],
               "lessons": [
@@ -764,7 +769,8 @@
               "fabric_required": false,
               "best_local": "local_verified",
               "exercises": [
-                "E35"
+                "E35",
+                "E78"
               ],
               "capstones": [
                 "C1"
@@ -964,7 +970,8 @@
               "fabric_required": true,
               "best_local": "local_verified",
               "exercises": [
-                "E43"
+                "E43",
+                "E79"
               ],
               "capstones": [
                 "C2"
@@ -1281,7 +1288,8 @@
               "fabric_required": true,
               "best_local": "local_verified",
               "exercises": [
-                "E56"
+                "E56",
+                "E80"
               ],
               "capstones": [],
               "lessons": [

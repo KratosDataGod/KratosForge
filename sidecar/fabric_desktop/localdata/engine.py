@@ -377,7 +377,10 @@ def _column_names(con: duckdb.DuckDBPyConnection, query: str) -> list[str]:
 def _placed(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
     """Place a T-SQL MERGE's unqualified columns on a database table by the columns its table and its source have
     now (WR-257): a temporary table, a table the script made or a table-valued function has them only when the
-    MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words."""
+    MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words.
+
+    The LIMIT 0 probe of the source reads no row, but DuckDB still plans it, and may open it, once more than the
+    MERGE itself does: a table-valued function is called, or a file is opened to read its columns, an extra time."""
     target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
     tsql_merge.place_change(c, _column_names(con, f"SELECT * FROM {target}"),
                             _column_names(con, c.source_sql(KfDuckDB)))

@@ -33,7 +33,7 @@ from deltalake.exceptions import TableNotFoundError
 from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import CommitOutcomeUnknown  # noqa: F401 - lakehouse.CommitOutcomeUnknown, as before
-from .publish import WriteTokenExpired, commit_outcome_unknown, publish, refuse_conversions, resolve_schema_mode, stage_locally
+from .publish import WriteTokenExpired, commit_outcome_unknown, data_upload_failed, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
 from .retrying import (data_upload_dropped, held_file_message, local_commit, log_commit_dropped, lost_commit,
                        windows_file_held, windows_log_race)
@@ -706,8 +706,10 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
                 except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
                     if log_commit_dropped(exc):
                         raise commit_outcome_unknown(name_) from exc
-                    if attempt == UPLOAD_ATTEMPTS - 1 or not data_upload_dropped(exc):
+                    if not data_upload_dropped(exc):
                         raise
+                    if attempt == UPLOAD_ATTEMPTS - 1:  # object_store's words name a URL and its retries
+                        raise data_upload_failed(name_) from exc
                     wait = UPLOAD_RETRY_WAIT * (attempt + 1)
                     _log.warning("Writing %s again in %.0f s: a data file's upload was dropped (%s)", name_, wait, describe(exc))
                     time.sleep(wait)

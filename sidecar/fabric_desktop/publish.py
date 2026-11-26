@@ -28,7 +28,7 @@ from .jobs import Job, run_local
 from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
 from .redact import describe
-from .retrying import log_commit_dropped, write_token_refused
+from .retrying import data_upload_dropped, log_commit_dropped, write_token_refused
 
 _log = logging.getLogger(__name__)
 
@@ -125,6 +125,23 @@ def commit_outcome_unknown(name: str) -> CommitOutcomeUnknown:
     return CommitOutcomeUnknown(f"Writing {name}: the connection to OneLake dropped while the commit was being "
                                 "written, so it may or may not have gone in. Look at the table's history before "
                                 "writing it again, so an append isn't in the table twice.")
+
+
+class DataUploadDropped(ConnectionError):
+    """A table write whose data files' upload kept dropping (retrying.data_upload_dropped) after its tries:
+    nothing was committed. A ConnectionError, so a caller that tries passing outages again (is_retryable) does."""
+
+
+def data_upload_failed(name: str) -> DataUploadDropped:
+    return DataUploadDropped(f"Writing {name}: the connection to OneLake kept dropping while its data was uploading "
+                             "(Wi-Fi, a VPN or a proxy), even after trying again. Nothing was committed, so the table "
+                             "is as it was. Write it again once you're connected.")
+
+
+# A job's write whose data file upload was dropped is written again, whole (nothing of it was committed),
+# as a notebook's is (lakehouse.UPLOAD_ATTEMPTS): on top of object_store's own retries of each part.
+JOB_UPLOAD_ATTEMPTS = 3
+JOB_UPLOAD_RETRY_WAIT = 15.0  # seconds, then twice that
 
 
 class WriteTokenExpired(RuntimeError):
@@ -339,11 +356,27 @@ def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
     data = run_local(job)
     stage_locally(data, work_dir / "staging", job.name)
     ref = resolve_target(job, fabric)
-    try:
-        table = publish(data, ref, job.target.mode, storage_token)
-    except WriteTokenExpired as exc:  # nothing was committed: once more, with a fresh token
-        _log.warning("Writing %s again with a fresh token: %s", job.name, describe(exc))
-        table = publish(data, ref, job.target.mode, storage_token)
+    # Written again when nothing was committed: once at once after a refused token (WriteTokenExpired),
+    # and up to JOB_UPLOAD_ATTEMPTS in all after a dropped data file upload.
+    refused, table = False, None
+    for attempt in range(JOB_UPLOAD_ATTEMPTS + 1):
+        try:
+            table = publish(data, ref, job.target.mode, storage_token)
+            break
+        except WriteTokenExpired as exc:  # nothing was committed: once more, with a fresh token
+            if refused:
+                raise
+            refused = True
+            _log.warning("Writing %s again with a fresh token: %s", job.name, describe(exc))
+        except Exception as exc:  # noqa: BLE001 - only a dropped data file upload is tried again
+            if not data_upload_dropped(exc):
+                raise
+            if attempt >= JOB_UPLOAD_ATTEMPTS - 1 + refused:
+                raise data_upload_failed(f"{ref.schema}.{ref.table}") from exc
+            wait = JOB_UPLOAD_RETRY_WAIT * (attempt + 1 - refused)
+            _log.warning("Writing %s again in %.0f s: a data file's upload was dropped (%s)", job.name, wait, describe(exc))
+            time.sleep(wait)
+    assert table is not None
     version = table.version()
     v_order_job, v_order_error = (_queue_v_order(fabric, ref, version, capacity_gate) if job.target.v_order else (None, None))
     record = RunRecord(

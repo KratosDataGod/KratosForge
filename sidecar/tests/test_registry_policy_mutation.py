@@ -37,21 +37,25 @@ def test_values_of_windows_types_read_as_the_templates_write_them():
 @pytest.mark.parametrize("value", [("forge", DWORD), ("forge", BINARY), (7, SZ)])
 def test_a_string_setting_needs_a_string_type_and_a_string(value):
     out, problems = read({"ui_skin": value})
-    assert out == {} and problems == ["Group Policy value ui_skin should be a string, so it's ignored"]
+    assert out == {} and problems == [("Group Policy value ui_skin should be a string, so it's ignored. "
+                                         "Ask IT to fix ui_skin in Group Policy.")]
 
 
 def test_a_bool_out_of_range_takes_the_restrictive_value():
     out, problems = read({"allow_fabric_runs": (2, DWORD)})
     assert out == {"allow_fabric_runs": False}
-    assert problems == ["Group Policy value allow_fabric_runs should be 1 or 0, so its most restrictive value applies"]
+    assert problems == [("Group Policy value allow_fabric_runs should be 1 or 0, so its most restrictive value applies. "
+                         "Ask IT to fix allow_fabric_runs in Group Policy.")]
 
 
 def test_long_unknown_names_are_cut_to_80_characters():
     name = "x" * 79 + "yz" + "w" * 20
     _, problems = read({name: (1, DWORD)}, {name: ["a"]})
     cut = repr(name[:80])
-    assert problems == [f"Group Policy value {cut} isn't a setting KratosForge reads, so it's ignored",
-                        f"Group Policy key {cut} isn't a list setting KratosForge reads, so it's ignored"]
+    assert problems == [(f"Group Policy value {cut} isn't a setting KratosForge reads, so it's ignored. "
+                         "Ask IT to remove it from Group Policy."),
+                        (f"Group Policy key {cut} isn't a list setting KratosForge reads, so it's ignored. "
+                         "Ask IT to remove it from Group Policy.")]
     assert cut == repr("x" * 79 + "y")  # z, the 81st, is cut off
 
 

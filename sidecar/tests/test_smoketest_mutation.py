@@ -32,7 +32,7 @@ def test_a_full_run_records_each_step_under_its_flow_with_what_it_found(tmp_path
         "auth.fabric": "Token received (not recorded).", "auth.onelake": "Token received (not recorded).",
         "catalog.workspaces": "2 workspaces listed, the test workspace among them.",
         "catalog.items": "3 items (Lakehouse, Notebook).",
-        "support.bundle": "Checked 36 characters: no token, user name, tenant id or workspace id."}
+        "support.bundle": "Checked 60 characters: no token, user name, tenant id or workspace id."}
     assert steps["lakehouse.bad_name"]["detail"].startswith("Refused: Fabric doesn't accept the lakehouse name '1 bad name'")
     assert not steps["auth.sql"]["required"] and not steps["auth.kusto"]["required"]
     assert result["run_in_fabric"] is False and result["warehouse_check"] is None

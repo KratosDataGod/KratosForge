@@ -45,8 +45,12 @@ def _expected(key):
         return ("int", (), *s.SQL_RANGES[key])
     if key == "motion_level":
         return ("int", (), *s.MOTION_LEVELS)
-    high = {"editor_font_size": 24, "local_retention_days": 3650, "audit_retention_days": 3650,
-            "receipt_retention_days": 3650}.get(key, 0)
+    dword = 0xFFFFFFFF  # the largest number Group Policy can write
+    ranges = {"editor_font_size": tuple(s.EDITOR_FONT_SIZES), "audit_retention_days": (s.RETENTION_MIN_DAYS, dword),
+              "receipt_retention_days": (s.RETENTION_MIN_DAYS, dword)}
+    if key in ranges:
+        return ("int", (), *ranges[key])
+    high = {"local_retention_days": dword}.get(key, 0)
     return "int", (), 0, int(s.LIMITS.get(key, high))
 
 

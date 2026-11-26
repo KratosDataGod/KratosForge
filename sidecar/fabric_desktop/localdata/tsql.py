@@ -229,7 +229,7 @@ def _datename(args: list[exp.Expression]) -> exp.Expression:
     for spot in list(number.find_all(exp.Column)):
         if spot.name == "kf_datename":
             spot.replace(value)
-    return exp.Cast(this=number, to=exp.DataType.build("VARCHAR"))
+    return exp.Cast(this=number, to=exp.DataType.build("TEXT"))  # TEXT: no VARCHAR length check, which would copy the number
 def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None,
          known: Container[str] | None, schema: Any) -> tuple[str, list[str]]:
     """One statement of ``batch`` as DuckDB SQL, and its notes."""
@@ -1491,8 +1491,8 @@ def _round_keeps_type(node: exp.Round, info: exp.Expression) -> None:
                        f"THEN CAST(error('{message}') AS {to}) ELSE CAST((__x) AS {to}) END")
 
 
-_ROUND_LENGTH = ("This T-SQL can't be run on the local engine: ROUND of a decimal needs its length written in the query, such as ROUND(x, 2): the "
-                 "local engine can't round a decimal to a length read from a column or worked out. Nothing ran. "
+_ROUND_LENGTH = ("This T-SQL can't be run on the local engine: ROUND of a decimal needs its length written in the query, such as ROUND(x, 2), "
+                 "because the local engine can't round a decimal to a length read from a column or worked out. Nothing ran. "
                  "Write the length as a number, or use a CASE with one ROUND for each length.")
 _FIXED = (exp.Literal, exp.Null, exp.Cast, exp.Neg, exp.Paren, exp.DataType, exp.DataTypeParam)
 

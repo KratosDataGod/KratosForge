@@ -529,7 +529,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `DATEDIFF` | Boundaries crossed, not whole spans: `DATEDIFF(year, '2023-12-31', '2024-01-01')` is `1`, `DATEDIFF(week, Saturday, Sunday)` is `1`. The answer is an `int`, and a count past an int's range stops with T-SQL's "The datediff function resulted in an overflow" (`DATEDIFF(millisecond, ...)` over more than 24 days) |
 | `DATEDIFF_BIG` | The same counts as a `bigint`, with no overflow |
 | `DATENAME` | The month's and the weekday's names, and every other part as its number written as text: `DATENAME(hour, '2024-02-29 13:04:05')` is `13`, `DATENAME(month, '2024-02-29')` is `February` |
-| A `NULL` argument | `NULL`, whether it is written `NULL`, cast to a type, or a column holding `NULL`: `DATEPART(hour, NULL)` is `NULL`, `DATEDIFF(day, NULL, '2024-01-01')` is `NULL`, `DATEADD(day, 1, NULL)` is `NULL`, and so are `DATETRUNC`, `DATENAME`, `EOMONTH`, the `...FROMPARTS` functions and `CONVERT` with a style |
+| A `NULL` argument | `NULL`, whether it is written `NULL`, cast to a type or a column holding `NULL`: `DATEPART(hour, NULL)` is `NULL`, `DATEDIFF(day, NULL, '2024-01-01')` is `NULL`, `DATEADD(day, 1, NULL)` is `NULL`, and so are `DATETRUNC`, `DATENAME`, `EOMONTH`, the `...FROMPARTS` functions and `CONVERT` with a style |
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
 | `FORMAT` | .NET's date formats in `en-US`, `en-GB` or `de-DE`, on a `date` or a date-and-time column. See [Local T-SQL formatting](#local-t-sql-formatting) |
@@ -583,7 +583,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `=`, `<>`, `<`, `IN`, `ALL`, `ANY`, `JOIN ... ON` | `'a' = 'a  '` is true, `'a ' = ALL (SELECT 'a')` is true, and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
 | `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
 | `CHARINDEX` with a `NULL` start | `NULL` |
-| `LEFT` and `RIGHT` with a `NULL` length | `NULL` (they kept the whole text) |
+| `LEFT`, `RIGHT` with a `NULL` length | `NULL`, as in T-SQL: `LEFT('abc', NULL)` is `NULL` (it was the whole text here) |
 | `STRING_AGG` with a separator from a column | Refused by name: T-SQL takes a separator written as text or a variable |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
@@ -1007,7 +1007,7 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. A number too long for `a`'s text stops, as `CAST(12345 AS VARCHAR(2))` does here, rather than being cut to `'12'`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
 | Text in a `CASE`, `IIF`, `COALESCE`, `UNION`, `INTERSECT` or `EXCEPT` with an integer, `bit` or date | Converted to the type that ranks highest, as T-SQL's data type precedence says: `CASE WHEN c THEN 1 ELSE '2' END` is the int `2`, `'2.5'` or `'a'` there stops with "Conversion failed", and `SELECT 1 EXCEPT SELECT ' 1'` is empty. A `UNION` of an int column and a text column is an int column, sorted as numbers. Text with a decimal or a float is converted as DuckDB converts it, and a `UNION` whose first `SELECT` has an unnamed column that isn't a plain column keeps DuckDB's type |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
-| `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`). A `NULL` length gives `NULL`, a `bigint` one too. A decimal rounded to a length read from a column is refused by name: write the length as a number |
+| `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`). A `NULL` length gives `NULL`, and a `bigint` length works as an `int` one does. A decimal rounded to a length read from a column is refused by name. Write the length as a number. |
 
 ## Local T-SQL JSON
 

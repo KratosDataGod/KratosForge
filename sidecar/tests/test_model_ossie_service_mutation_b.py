@@ -87,13 +87,13 @@ def test_a_tmdl_folder_of_exactly_the_cap_is_read_and_one_byte_more_isnt(tmp_pat
     monkeypatch.setattr(mos, "tmdl", types.SimpleNamespace(MAX_CHARS=30, to_bim=tmdl.to_bim))
     folder = tmp_path / "M.SemanticModel"
     (folder / "definition").mkdir(parents=True)
-    (folder / "definition" / "model.tmdl").write_text("model Model\n" + "\n" * 18, encoding="utf-8")  # 30
-    (folder / "definition" / "a.tmdl").write_text("\n" * 30, encoding="utf-8")
-    (folder / "definition" / "b.tmdl").write_text("\n" * 30, encoding="utf-8")
-    (folder / "definition" / "c.tmdl").write_text("\n" * 30, encoding="utf-8")
+    (folder / "definition" / "model.tmdl").write_bytes(("model Model\n" + "\n" * 18).encode())  # 30
+    (folder / "definition" / "a.tmdl").write_bytes(("\n" * 30).encode())
+    (folder / "definition" / "b.tmdl").write_bytes(("\n" * 30).encode())
+    (folder / "definition" / "c.tmdl").write_bytes(("\n" * 30).encode())
     bim, _ = mos._folder_bim(folder, "M", "semantic/M.SemanticModel")
     assert bim["name"] == "M"
-    (folder / "definition" / "c.tmdl").write_text("\n" * 31, encoding="utf-8")
+    (folder / "definition" / "c.tmdl").write_bytes(("\n" * 31).encode())
     with pytest.raises(ValueError, match="M's TMDL is too large to read on this PC"):
         mos._folder_bim(folder, "M", "semantic/M.SemanticModel")
 
@@ -293,11 +293,11 @@ def test_a_view_folder_eight_down_is_read_and_nine_down_isnt(svc):  # noqa: F811
 def test_view_yaml_of_exactly_the_fabric_cap_is_read_and_more_isnt(svc, monkeypatch):  # noqa: F811
     monkeypatch.setattr(ossie_profiles, "FABRIC_MAX_YAML_BYTES", 20)
     folder = _view(svc, 0)
-    (folder / "a.yaml").write_text("name: abc\n", encoding="utf-8")  # 10
-    (folder / "b.yaml").write_text("name: xyz\n", encoding="utf-8")  # 10
+    (folder / "a.yaml").write_bytes(("name: abc\n").encode())  # 10
+    (folder / "b.yaml").write_bytes(("name: xyz\n").encode())  # 10
     out = svc.meta_model_semantic_view_status("Sales")
     assert out["files"] == ["a.yaml", "b.yaml"]
-    (folder / "c.yaml").write_text("x: 1\n", encoding="utf-8")
+    (folder / "c.yaml").write_bytes(("x: 1\n").encode())
     with pytest.raises(ValueError, match="hold more than 16 MB"):
         svc.meta_model_semantic_view_status("Sales")
 

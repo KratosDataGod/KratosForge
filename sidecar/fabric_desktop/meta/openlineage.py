@@ -224,10 +224,11 @@ def _dataset_key(names: Names, inp: dict[str, Any]) -> tuple[str, str] | None:
     return None
 
 
-def _own_sources(cols: dict[str, Any], entity: str, col: str) -> list[dict[str, Any]]:
+def _own_sources(cols: dict[str, Any], entity: str, col: str, seen: set[str] | None = None) -> list[dict[str, Any]]:
     """The inputs from outside the entity that one of its own columns is built from, however many steps in
-    (depth first, each own column once; a stack, not recursion, so a long chain of derives ends)."""
-    seen: set[str] = set()
+    (depth first, each own column once; a stack, not recursion, so a long chain of derives ends). ``seen``
+    holds own columns already walked, which are skipped."""
+    seen = set() if seen is None else seen
     out: list[dict[str, Any]] = []
     todo: list[Any] = [col]
     while todo:

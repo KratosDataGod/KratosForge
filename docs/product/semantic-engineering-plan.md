@@ -512,7 +512,8 @@ never equivalent. Tolerances are configuration, with defaults stated in the resu
 - **OSSIE-012a Fixture corpus.** Synthetic `.bim`, TMDL and Ossie fixtures per profile in
   `sidecar/tests/fixtures/`. Tests: scenarios 4, 5, 17. Owner: TMDL/Ossie thread.
 - **OSSIE-012b Semantic CI lane and large models.** Runs fidelity, L1 and L2 on the corpus; times a
-  large generated model. Tests: scenario 18 (baseline to be measured in OSSIE-012b). Owner:
+  large generated model. Tests: scenario 18 (baseline measured; the CI job is proposed in
+  semantic-model-ossie.md for Release management to adopt). Owner:
   TMDL/Ossie thread with Release management.
 - **OSSIE-012c Converter-upgrade regression.** Diff fidelity reports of the corpus between the
   vendored commit and a candidate commit; upgrade only behind D.3 profiles. Tests: scenario 20.
@@ -705,7 +706,7 @@ Status: **Built** (a test exists on main or a reviewed branch), **Planned**, **N
 | 15 | Fabric deploy (authorized test resources) | 015b, 005c | `test_import_previews_then_writes_only_when_confirmed` (fake API) | Needs live tenant |
 | 16 | Deploy failure and recovery | 015b | `test_a_model_that_cant_be_read_is_not_imported_over` (fake API) | Built (fake); Needs live tenant |
 | 17 | Malicious imports | 003a, 012a | `test_files_that_arent_ossie_are_refused_with_a_reason`, `test_links_and_junctions_on_the_way_are_refused_and_never_followed`, `test_a_hostile_model_reads_back_with_the_same_objects_and_nothing_extra`, `test_tmdl_fuzz.py` (branch), D1 test (branch), `test_ossie_corpus.py` (012a corpus) | Built |
-| 18 | Large-model performance | 012b | `test_too_many_tables_or_too_much_text_is_refused` (limits only) | Planned |
+| 18 | Large-model performance | 012b | `test_too_many_tables_or_too_much_text_is_refused` (limits), `test_ossie_large.py` (work grows linearly), `tools/ossie_large_timing.py` (baseline in semantic-model-ossie.md) | Built (engine); CI lane proposed |
 | 19 | Offline | 002a, 003a | `test_a_model_kept_in_git_exports_offline` | Built |
 | 20 | Converter-upgrade regression | 012c | `test_ossie_vendor_converters.py` (pins current behavior), `test_ossie_upgrade_diff.py` (corpus diff against a candidate) | Built |
 
@@ -723,7 +724,7 @@ Status: **Built** (a test exists on main or a reviewed branch), **Planned**, **N
 | Semantic features run on a live tenant | 0 (WR-502) | FEAT-META-19 round trip plus 005c and 006d |
 | Measures with traced consumers | 0 | Every measure in traced models after 011a |
 | Semantic opportunities in Optimize | 0 analyzers | OE-013 and OE-023 analyzers after 009 |
-| Large-model conversion time | Baseline to be measured in OSSIE-012b | Within the budget 012b sets |
+| Large-model conversion time | 3.6 s Ossie to TMSL, 13.2 s Export with round trip, 4,000 columns and 1,600 measures (2026-11-23, Linux container, not Windows) | Grows linearly with the model (counted in `test_ossie_large.py`); no wall-clock budget |
 | Academy items on Ossie or TMDL | 0 | One module and exercises after 014 |
 | 13-step developer workflow steps doable in the app | Baseline to be measured in OSSIE-001b | All 13 by the end of Phase 5 |
 

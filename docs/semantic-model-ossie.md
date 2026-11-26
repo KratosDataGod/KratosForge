@@ -604,6 +604,95 @@ The manifest also records what the corpus shows that may be worth changing, with
 - The Semantic View emitter leaves a wrong-typed part out and names it under `excluded`, and the view
   can still be Valid.
 
+### Large models
+
+`tests/ossie_large.py` generates a model of N tables with M columns and K measures each, chained by
+relationships, with one security role and one calculation group, as a `model.bim` and as an Ossie
+0.2.0.dev0 file that describe the same model (OSSIE-012b, tests and tools only). The choices come from a
+fixed seed, so each size gives the same model on every run. The measures cycle through the parts of the L2
+subset, and every eighth one is a CALCULATE outside it. In the Ossie file the role and the calculation group
+travel in the Power BI section, as an export writes them.
+
+`tests/test_ossie_large.py` runs the fidelity report (Ossie to TMSL, and Export with its round-trip check),
+L1 and L2 on a small model and on one four times as big by tables, by columns or by measures. It counts the
+work rather than timing it: the objects added to and found in the fidelity report, the lookups behind them,
+L1's pairs, L2's expression reads, the converter runs, and every Python and C function call made. Each count
+may grow at most 1.25 times as fast as the kind of object that grew the most, and each add or find in the
+fidelity report may cost at most three lookups, so a step that compares each object with every other fails.
+The models are small to keep the file to a few seconds, so a quadratic step that costs little per pair can
+still hide in the total call count; the timing tool shows it on big models. L3 is checked to run no more
+measures than its cap.
+
+`tools/ossie_large_timing.py` times each stage for given sizes and prints JSON: seconds per stage, object
+counts, each stage's result, and the Python, DuckDB, sqlglot and PyYAML versions. It never goes online.
+
+    cd sidecar
+    python tools/ossie_large_timing.py --size 10x50x20 --size 40x50x20
+
+The scenario 18 baseline below was measured once on 2026-11-23 on this project's Linux build container
+(x86_64, CPython 3.13.18, DuckDB 1.5.6, sqlglot 30.23.0), not on Windows. A Windows PC or runner will be
+slower. Times are seconds, one run each; sizes are tables x columns x measures per table.
+
+| Size | Columns | Measures | Ossie to TMSL | Export | Export with round trip | L1 | L2 | L3 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10x50x20 | 500 | 200 | 0.38 | 0.40 | 1.58 | 0.72 | 0.83 | 2.54 |
+| 20x50x20 | 1,000 | 400 | 0.84 | 0.87 | 3.13 | 1.57 | 1.60 | 4.28 |
+| 40x50x20 | 2,000 | 800 | 1.76 | 1.87 | 6.53 | 3.03 | 3.16 | 7.91 |
+| 80x50x20 | 4,000 | 1,600 | 3.62 | 3.98 | 13.15 | 6.25 | 6.79 | 14.84 |
+| 20x200x20 | 4,000 | 400 | 2.36 | 2.51 | 8.72 | 4.47 | 4.45 | 10.21 |
+| 20x50x80 | 1,000 | 1,600 | 1.82 | 1.86 | 6.40 | 3.17 | 3.68 | 8.18 |
+
+Every stage grows about linearly: eight times the tables take 8 to 10 times as long, and L3 about 6 times,
+because its DuckDB run is capped. The fidelity report of an Ossie import adds at most 0.04 s. Export with
+the round-trip check takes about 3.3 times as long as Export. L3 includes L2 and reads both sides again, so
+it costs about L1 plus L2 plus DuckDB's run of at most 200 measures a side. The round trip passed at every
+size. A profile of Export with the round trip shows about two thirds of the time is reading and writing
+YAML with PyYAML's pure-Python code, not the conversion itself.
+
+### Semantic CI lane (proposed)
+
+The main `sidecar` job already runs these tests with the rest of the suite. Release management owns
+`.github/workflows/ci.yml`, so this lane is a proposal for them to adopt, not a change to it. It names the
+semantic tests so a failure points at them, and keeps the timing as an informational artifact that never
+fails the build:
+
+```yaml
+  semantic:
+    # Ossie and semantic parity (OSSIE-012b): the fixture corpus, large generated models, L1 to L3.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/requirements/test-linux.txt
+      - run: |
+          python -m pip install --only-binary=:all: --require-hashes -r ../.github/requirements/test-linux.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+        working-directory: sidecar
+      - run: >-
+          python -m pytest -q tests/test_ossie_corpus.py tests/test_ossie_upgrade_diff.py
+          tests/test_ossie_large.py tests/test_semantic_parity.py tests/test_semantic_parity_l3.py
+          tests/test_model_ossie.py
+        working-directory: sidecar
+      - name: Time large models (informational)
+        continue-on-error: true
+        run: python tools/ossie_large_timing.py --size 10x50x20 --size 40x50x20 > "$RUNNER_TEMP/ossie-large-timing.json"
+        working-directory: sidecar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: ossie-large-timing
+          path: ${{ runner.temp }}/ossie-large-timing.json
+          if-no-files-found: ignore
+```
+
+The timing step takes about 40 seconds on this container. Its numbers are for watching a trend, not a
+gate: runners vary too much for a time limit, which is why the tests count work instead.
+
 ## Converter upgrade check
 
 Before the vendored converter is updated, `sidecar/tools/ossie_upgrade_diff.py` runs the fixture

@@ -117,6 +117,7 @@ def test_a_script_runs_on_until_the_clock_passes_the_deadline(monkeypatch):
     # At exactly the deadline the script keeps running; only a later reading ends it.
     clock = iter([100.0, 100.5])
     monkeypatch.setattr(ps, "time", SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda s: None))
+    monkeypatch.setattr(ps, "awake_monotonic", lambda: next(clock))  # the deadline's clock
     runs = Runs([{"state": "running"}, {"state": "running"}, {"state": "running"}])
     with pytest.raises(ActivityFailed, match="policy timeout") as raised:
         scripts(runs, {"Load": "proj"}).run(activity(), {"scripts": [{"text": "SELECT 1"}]}, lambda: False, 100.0)

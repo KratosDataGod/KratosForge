@@ -1,0 +1,27 @@
+version: 0.2.0.dev0
+name: "Umsätze 売上 ventas"
+description: "Accents, CJK, right-to-left, an emoji and a line separator ( ) in names."
+datasets:
+- name: "Bestellungen"
+  source: dbo.bestellungen
+  fields:
+  - name: "Größe"
+    expression: {dialects: [{dialect: ANSI_SQL, expression: "\"Größe\""}]}
+    datatype: Decimal
+  - name: "顧客"
+    expression: {dialects: [{dialect: ANSI_SQL, expression: "\"顧客\""}]}
+    datatype: String
+  - name: "מחיר"
+    expression: {dialects: [{dialect: ANSI_SQL, expression: "\"מחיר\""}]}
+    datatype: Decimal
+  - name: "status 🚚"
+    expression: {dialects: [{dialect: ANSI_SQL, expression: "\"status 🚚\""}]}
+    datatype: String
+  - name: "line break"
+    expression: {dialects: [{dialect: ANSI_SQL, expression: "\"line_break\""}]}
+    datatype: String
+metrics:
+- name: "Σ Größe"
+  expression:
+    dialects:
+    - {dialect: ANSI_SQL, expression: "SUM(\"Bestellungen\".\"Größe\")"}

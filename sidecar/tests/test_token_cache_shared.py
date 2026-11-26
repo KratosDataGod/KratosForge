@@ -173,14 +173,16 @@ def test_a_change_that_cant_read_the_file_writes_nothing(tmp_path, monkeypatch):
     sign_in(app, "ana")
     scheduled = auth.Authenticator(OWN_APP, cache_path=path)
     app.sign_out()
-    monkeypatch.setattr(auth.jsonfile, "REPLACE_BACKOFF", 0)
 
     def busy(p):
         raise PermissionError(13, "being used by another process")
-    monkeypatch.setattr(auth, "read_cache", busy)
-    sign_in(scheduled, "ana", token="refreshed")  # kept in memory, never raised to MSAL mid sign-in
-    assert scheduled.cache.has_state_changed
-    monkeypatch.undo()
+    # Scoped, not monkeypatch.undo(): that would also undo conftest's offline sign-in, so the next
+    # Authenticator would ask login.microsoftonline.com for the tenant's settings.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(auth.jsonfile, "REPLACE_BACKOFF", 0)
+        mp.setattr(auth, "read_cache", busy)
+        sign_in(scheduled, "ana", token="refreshed")  # kept in memory, never raised to MSAL mid sign-in
+        assert scheduled.cache.has_state_changed
     assert users_on_disk(path) == set() and refresh_tokens_on_disk(path) == set()
     scheduled.cache._busy_until = 0  # the wait after a busy file is over
     scheduled._save()  # once the file can be read: the sign-out written elsewhere stays
@@ -194,10 +196,10 @@ def test_a_sign_out_that_cant_be_written_says_so_and_signs_nothing_out(tmp_path,
 
     def disk_full(p, text):
         raise OSError(28, "No space left on device")
-    monkeypatch.setattr(auth, "write_cache", disk_full)
-    with pytest.raises(RuntimeError, match="Couldn't sign out"):
-        app.sign_out()
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:  # scoped: conftest's offline sign-in stays
+        mp.setattr(auth, "write_cache", disk_full)
+        with pytest.raises(RuntimeError, match="Couldn't sign out"):
+            app.sign_out()
     assert app.signed_in_user() == "ana@contoso.com" and users_on_disk(path) == {"ana"}
 
 

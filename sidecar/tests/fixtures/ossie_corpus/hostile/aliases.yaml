@@ -1,0 +1,10 @@
+version: 0.2.0.dev0
+name: aliases
+datasets:
+- name: orders
+  source: dbo.orders
+  fields:
+  - &f
+    name: order_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: order_id}]}
+  - *f

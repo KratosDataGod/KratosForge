@@ -107,6 +107,13 @@ CLAIMS: list[Claim] = [
     _ts("PARSE('1.234,5' AS DECIMAL(10, 2) USING 'de-DE')"),
     _ts("STR(1234.5)"),
     _ts("YEAR(5)"),
+    # Local T-SQL text and numbers read as dates (WR-275)
+    _ts("CAST('20240115' AS DATE)"),
+    _ts("CAST('Jan 15, 2024' AS DATE)"),
+    _ts("CAST('01/15/49' AS DATE)"),
+    _ts("DATEADD(hour, 1, '20240131 10:30')"),
+    _ts("CAST('1900-01-10' AS DATETIME) + 1.25"),
+    _ts("CAST(45000 AS DATETIME)"),
     # Local T-SQL text
     _ts("'a' = 'a  '"),
     _ts("'a' = 'A'"),

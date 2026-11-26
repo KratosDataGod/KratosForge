@@ -297,6 +297,12 @@ def written_type(value: exp.Expression) -> exp.DataType | None:
     return kind if isinstance(kind, exp.DataType) else None
 
 
+def mark_rounded(node: exp.Expr, kind: exp.DataType, message: str) -> None:
+    """``node`` (a date and time) rounded as ``kind``, a datetime or smalldatetime, by ``expand_datetimes``, and
+    ``message`` as the error outside its range."""
+    _mark(node, kind, safe=False, message=message)
+
+
 def _mark(node: exp.Expr, kind: exp.DataType, safe: bool, message: str) -> None:
     """Wrap ``node`` in the mark ``expand_datetimes`` rounds to ``kind``. What the rounding needs rides in the
     mark's arguments, which survive the rewrites that rebuild the tree around it (CONVERT's styles make a new
@@ -388,6 +394,16 @@ def delta_times(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str
         query = exp.select(star).from_(inner)
         table.replace(exp.Subquery(this=query, alias=alias.copy() if alias else
                                    exp.TableAlias(this=exp.to_identifier(table.name, quoted=True))))
+
+
+def rounded_kind(value: exp.Expression) -> str | None:
+    """'datetime' or 'smalldatetime' for a value ``round_datetimes`` marked as one (see is_rounded), else None."""
+    while isinstance(value, (exp.Cast, exp.Paren)):
+        value = value.this
+    if isinstance(value, exp.Anonymous) and value.name.upper() == _MARK \
+            and value.expressions[1].name in ("datetime", "smalldatetime"):
+        return value.expressions[1].name
+    return None
 
 
 def is_rounded(value: exp.Expression) -> bool:

@@ -266,7 +266,42 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         # MAX of an int column is the larger number; of a text column, the later text ('9' after '10').
         out.append(("UNION_TEXT", f"(SELECT MAX(a) FROM (SELECT {n} AS a UNION ALL SELECT {q(t)}) AS u)", max(n, whole)))
         out.append(("EXCEPT_TEXT", f"(SELECT COUNT(*) FROM (SELECT {whole} AS a EXCEPT SELECT {q(t)}) AS u)", 0))
-    return out + _regex_cases(random.Random(SEED + 3), q)
+    return out + _regex_cases(random.Random(SEED + 3), q) + _text_date_cases(random.Random(SEED + 5), q)
+
+
+_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                "November", "December"]
+
+
+def _text_date_cases(r: random.Random, q) -> list[tuple[str, str, object]]:
+    """WR-275: text read as a date with DATEFORMAT mdy, and a number of days added to a datetime.
+
+    data-types/date-transact-sql: "A six-digit or eight-digit string is always interpreted as ymd", the numeric
+    [m]m/dd/[yy]yy (mdy, with /, - or .), and the alphabetical mon [dd][,] yyyy and dd mon[,] yyyy forms; a
+    two-digit year takes the cutoff 2049. language-elements/add-transact-sql: "can also add a number, in days, to a
+    date", converted to a datetime (1/300 of a second, data-types/datetime-transact-sql) first."""
+    out: list[tuple[str, str, object]] = []
+    for _ in range(60):
+        d = dt.date(1950, 1, 1) + dt.timedelta(days=r.randint(0, 36524))  # 1950 to 2049: two digits read back
+        mon = _MONTH_NAMES[d.month - 1]
+        text = r.choice([f"{d:%Y%m%d}", f"{d:%y%m%d}", f"{d.month}/{d.day}/{d.year}", f"{d:%m/%d/%Y}",
+                         f"{d.month}-{d.day}-{d.year}", f"{d.month}.{d.day}.{d.year}", f"{d:%m/%d/%y}",
+                         f"{mon[:3]} {d.day} {d.year}", f"{mon[:3]} {d.day}, {d.year}", f"{d.day} {mon[:3]} {d.year}",
+                         f"{mon} {d.day}, {d.year}", f"{d.day} {mon.lower()} {d.year}"])
+        out.append(("TEXT_DATE", f"TRY_CAST({q(text)} AS DATE)", d))
+        out.append(("TEXT_DATE", f"DATEADD(day, 1, {q(text)})", f"{d + dt.timedelta(days=1)} 00:00:00"))  # a datetime
+        out.append(("TEXT_DATE", f"CASE WHEN CAST('{d}' AS DATE) = {q(text)} THEN 1 ELSE 0 END", 1))
+        ticks = r.randint(0, 300 * 86400 - 1)
+        start = dt.datetime.combine(d, dt.time()) + dt.timedelta(milliseconds=(ticks * 10 + 1) // 3)
+        n = r.choice([r.randint(-40, 40), round(r.uniform(-5, 5), 2)])
+        total = ticks + round(Decimal(str(n)) * 300 * 86400)
+        days, within = divmod(total, 300 * 86400)
+        added = dt.datetime.combine(d + dt.timedelta(days=days), dt.time()) + dt.timedelta(
+            milliseconds=(within * 10 + 1) // 3)
+        shown = f"{start:%Y-%m-%d %H:%M:%S}.{start.microsecond // 1000:03d}"
+        out.append(("DATETIME_PLUS", f"CONVERT(VARCHAR(23), CAST('{shown}' AS DATETIME) + {n}, 121)",
+                    f"{added:%Y-%m-%d %H:%M:%S}.{added.microsecond // 1000:03d}"))
+    return out
 
 
 def _regex(pattern: str, flags: str) -> re.Pattern[str]:

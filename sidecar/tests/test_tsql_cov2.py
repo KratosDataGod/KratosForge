@@ -158,8 +158,9 @@ def test_update_from_a_join_on_the_target_updates_the_matching_rows(engine):
 
 
 def test_text_plus_a_date_is_left_to_duckdb():
-    assert translate("SELECT '1' + CAST(1 AS DATE)")[0] == [
-        "SELECT '1' + CAST(1 AS DATE)"
+    # WR-275: CAST(1 AS DATE) is T-SQL's "Explicit conversion from data type int to date is not allowed."
+    assert translate("SELECT '1' + CAST('2024-01-01' AS DATE)")[0] == [
+        "SELECT '1' + CAST('2024-01-01' AS DATE)"
     ]
 
 

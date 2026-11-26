@@ -29,7 +29,10 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
   ``BETWEEN``, ``IN``/``= ANY`` with a subquery, ``NULLIF``, a simple ``CASE``, ``COUNT(DISTINCT ...)``,
   a window's ``PARTITION BY``/``ORDER BY`` and an ``ORDER BY`` key before the last (WR-246);
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
-- returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
+- returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does;
+- reads text as a date as T-SQL does with DATEFORMAT mdy ('20240115', '01/15/2024', 'Jan 15 2024'; see
+  tsql_dates), adds a number of days to a datetime with ``+`` and ``-``, and casts a number to a datetime as that
+  many days after 1900-01-01 (WR-275).
 
 It refuses, rather than half-translates: variables, control flow and batches (``DECLARE``,
 ``SET @x``, ``IF``, ``WHILE``, ``BEGIN ... END``, ``EXEC``, ``PRINT``), transactions (a Delta write
@@ -55,7 +58,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB, duckdb_sql
-from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_dates, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
@@ -252,6 +255,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     _table_columns(tree)
     for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
         parts.replace(_timefromparts(parts))
+    _text_dates(tree)  # WR-275: before the datetime rounding reads the text written in the query
     tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
     _number_dates(tree)  # before CONVERT's rewrite and _big_integers, while the date arguments are as written
     notes += _converts(tree)
@@ -286,6 +290,16 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     return text, notes
 
 
+def _sysdatetime(args: list[exp.Expression]) -> exp.Expression:
+    """SYSDATETIME() is a datetime2, where GETDATE() and CURRENT_TIMESTAMP are datetimes (WR-275: + a number)."""
+    node = exp.CurrentTimestamp.from_arg_list(args)
+    node.meta[_DATETIME2_CLOCK] = True
+    return node
+
+
+_DATETIME2_CLOCK = "kf_datetime2_clock"
+
+
 class KfTSQL(TSQL):
     """T-SQL as SQL Server reads it: ``FLOAT`` is an 8-byte float, ``FLOAT(1)`` to ``FLOAT(24)`` and
     ``REAL`` 4 bytes. sqlglot reads ``FLOAT`` as ``REAL``, which DuckDB runs as 4 bytes, so
@@ -306,6 +320,7 @@ class KfTSQL(TSQL):
         FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
                             "TRY_PARSE": tsql_format.parser(True)}
         FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build, "DATENAME": _datename,
+                     "SYSDATETIME": _sysdatetime,
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
                      "JSON_VALUE": lambda args: exp.JSONExtractScalar(this=seq_get(args, 0), expression=seq_get(args, 1),
@@ -1112,7 +1127,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
-             exp.Case, exp.If)
+             exp.Case, exp.If, exp.TsOrDsToDate, exp.TimeStrToTime, exp.Extract)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
@@ -1161,6 +1176,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "with at most 6 significant digits).")]
     pairs = list(zip(here, there, strict=True))
     done: set[int] = set()
+    for node, info in reversed(pairs):  # WR-275, inner first, before a rewrite around a value copies it
+        if _text_or_number_date(node, info):
+            done.add(id(node))
     # Decimal arithmetic first, and inner before outer: a rewrite copies its operands, which by then carry theirs.
     for node, info in reversed(pairs):
         if isinstance(node, tuple(_DECIMAL_OPS)) and (sides := _decimal_operands(info)) is not None:
@@ -1182,7 +1200,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     for node, info in pairs:
         if id(node) in done:
             continue
-        if isinstance(node, exp.Sub | exp.Mul):
+        if isinstance(node, (exp.TsOrDsToDate, exp.TimeStrToTime, exp.Extract)):
+            pass
+        elif isinstance(node, exp.Sub | exp.Mul):
             pass  # numbers, as DuckDB does them; only decimals need T-SQL's precision and scale
         elif isinstance(node, exp.WithinGroup):
             ordered = info.expression.expressions if isinstance(info.expression, exp.Order) else []
@@ -2022,36 +2042,118 @@ _DATE_SLOTS: dict[type, tuple[str, str]] = {
 }
 
 
+def _date_args(tree: exp.Expression) -> list[tuple[str, exp.Expression, str, exp.Expression]]:
+    """(the function's T-SQL name, holder, key, argument) for each date argument of a date function, under
+    sqlglot's own date cast around it."""
+    out: list[tuple[str, exp.Expression, str, exp.Expression]] = []
+    for node in list(tree.find_all(*_DATE_SLOTS, exp.DateDiff)):
+        slots: list[tuple[str, exp.Expression, str]]
+        if isinstance(node, exp.DateDiff):
+            slots = [("DATEDIFF", node, "this"), ("DATEDIFF", node, "expression")]
+        else:
+            named = _DATE_SLOTS[type(node)]
+            slots = [(named[0], node, named[1])]
+        for name, holder, key in slots:
+            arg = holder.args.get(key)
+            if isinstance(arg, (exp.TsOrDsToDate, exp.TimeStrToTime)) or (
+                    isinstance(arg, exp.Cast) and arg.to.is_type(*exp.DataType.TEMPORAL_TYPES)):
+                holder, key, arg = arg, "this", arg.this  # sqlglot's own date cast around the argument
+            if arg is not None:
+                out.append((name, holder, key, arg))
+    return out
+
+
+def _text_date_literal(value: exp.Expression) -> None:
+    """A text literal read as a date, rewritten to the ISO text T-SQL reads it as (tsql_dates)."""
+    if isinstance(value, exp.Literal) and value.is_string and (iso := tsql_dates.literal(value.name)) is not None:
+        value.replace(exp.Literal.string(iso))
+
+
+_SECONDS_DATETIMES = {exp.DataType.Type.DATETIME: "datetime", exp.DataType.Type.SMALLDATETIME: "smalldatetime"}
+
+
+def _text_dates(tree: exp.Expression) -> None:
+    """WR-275: text written in the query where T-SQL reads a date (a date function's date, and CAST, CONVERT with
+    no style, and their TRY_ forms, to date, datetime, datetime2 or smalldatetime) as T-SQL reads it with DATEFORMAT
+    mdy: '20240115', '01/15/2024' and 'Jan 15 2024' are 2024-01-15 (tsql_dates). And a number cast or converted to a
+    datetime or smalldatetime is that many days after 1900-01-01, a fraction being part of a day ("+ (Addition)"
+    and cast-and-convert: 45000 is 2023-03-15); to a date or datetime2 it is T-SQL's error. Text and numbers from a
+    column are done in _typed, which knows their types."""
+    slotted = set()
+    for _, holder, key, arg in _date_args(tree):
+        slotted.add(id(holder))  # sqlglot's own cast around a date argument, which _number_dates reads
+        _text_date_literal(arg)
+        if isinstance(holder, exp.DateAdd) and isinstance(holder.args.get(key), exp.Literal) \
+                and holder.args[key].is_string:
+            # Text in DATEADD is a datetime, its time kept (dateadd-transact-sql: "the return value data type is
+            # ... datetime" for a string literal); sqlglot cast it to a date, so DATEADD(hour, 1, '... 10:30') was 01:00.
+            holder.set(key, exp.Cast(this=holder.args[key], to=exp.DataType.build("DATETIME")))
+    for node in list(tree.find_all(exp.Cast, exp.Convert)):
+        to = node.args.get("to") if isinstance(node, exp.Cast) else node.this
+        if not isinstance(to, exp.DataType) or to.this not in tsql_dates.TARGETS or id(node) in slotted:
+            continue
+        source = node.this if isinstance(node, exp.Cast) else node.expression
+        safe = isinstance(node, exp.TryCast) or bool(node.args.get("safe"))
+        if _number(source) is not None:
+            if to.this not in _SECONDS_DATETIMES:
+                raise ValueError(f"{_NOT_YET}Explicit conversion from data type {_number_name(source, None)} to "
+                                 f"{_date_type_name(to)} is not allowed. T-SQL gives the same error.")
+            literal = source.this if isinstance(source, exp.Neg) else source
+            text = tsql_dates.number_text(("-" if isinstance(source, exp.Neg) else "") + literal.name)
+            low, high = tsql_dates.RANGES[to.this]
+            if to.this == exp.DataType.Type.SMALLDATETIME:
+                high += dt.timedelta(seconds=29.998)  # rounds down to the last minute
+            if text is None or not low <= dt.datetime.fromisoformat(text) <= high:
+                if safe:
+                    node.replace(exp.null())
+                    continue
+                raise ValueError(f"{_NOT_YET}Arithmetic overflow error converting expression to data type "
+                                 f"{_SECONDS_DATETIMES[to.this]}. T-SQL gives the same error.")
+            source.replace(exp.Literal.string(text))
+            if isinstance(node, exp.Convert):
+                node.set("style", None)  # a number takes no date style
+        elif not isinstance(node, exp.Convert) or node.args.get("style") is None:
+            _text_date_literal(source)
+
+
+def _date_type_name(kind: exp.DataType) -> str:
+    return {exp.DataType.Type.DATE: "date", exp.DataType.Type.TIME: "time"}.get(
+        kind.this, _SECONDS_DATETIMES.get(kind.this, "datetime2"))
+
+
+def _number_name(value: exp.Expression, kind: exp.DataType | None) -> str:
+    """A number's T-SQL type name, as T-SQL's messages write it: a literal with a point is a numeric."""
+    while isinstance(value, (exp.Neg, exp.Paren)):
+        value = value.this
+    if isinstance(value, exp.Literal) and not value.is_string:
+        return "int" if value.name.isdigit() and int(value.name) <= 2 ** 31 - 1 else \
+            "float" if "e" in value.name.lower() else "numeric" if "." in value.name else "bigint"
+    if kind is not None and kind.this in _TSQL_INT_NAMES:
+        return _TSQL_INT_NAMES[kind.this]
+    return {exp.DataType.Type.DOUBLE: "float", exp.DataType.Type.FLOAT: "real"}.get(
+        kind.this if kind is not None else exp.DataType.Type.UNKNOWN, "decimal")
+
+
 def _number_dates(tree: exp.Expression) -> None:
     """A whole number where a date function takes a date is that many days after 1900-01-01, a datetime, as
     T-SQL converts it: ``YEAR(5)`` is 1900 and ``DATEADD(day, DATEDIFF(day, 0, d), 0)`` is d's date. DuckDB
     won't cast a number to a date. A number with a fraction (part of a day, rounded as a datetime) is refused
     by name, and one past a datetime's range is T-SQL's overflow error."""
-    def slots(node: exp.Expression) -> list[tuple[str, exp.Expression, str]]:
-        if isinstance(node, exp.DateDiff):
-            return [("DATEDIFF", node, "this"), ("DATEDIFF", node, "expression")]
-        named = _DATE_SLOTS.get(type(node))
-        return [(named[0], node, named[1])] if named else []
-    for node in list(tree.find_all(*_DATE_SLOTS, exp.DateDiff)):
-        for name, holder, key in slots(node):
-            arg = holder.args.get(key)
-            if isinstance(arg, (exp.TsOrDsToDate, exp.TimeStrToTime)) or (
-                    isinstance(arg, exp.Cast) and arg.to.is_type(*exp.DataType.TEMPORAL_TYPES)):
-                holder, key, arg = arg, "this", arg.this  # sqlglot's own date cast around the argument
-            if arg is None or _number(arg) is None:
-                continue
-            literal = arg.this if isinstance(arg, exp.Neg) else arg
-            assert isinstance(literal, exp.Literal)
-            if not literal.name.isdigit():
-                raise ValueError(f"{_NOT_YET}{name} of a number with a fraction of a day ({arg.sql('tsql')}), which "
-                                 "T-SQL reads as a datetime after 1900-01-01, isn't carried yet. Write the date "
-                                 "and time instead.")
-            days = -_digits(literal.name, "int") if isinstance(arg, exp.Neg) else _digits(literal.name, "int")
-            if not _DATETIME_DAYS[0] <= days <= _DATETIME_DAYS[1]:
-                raise ValueError(f"{_NOT_YET}Arithmetic overflow error converting expression to data type datetime. "
-                                 "T-SQL gives the same error.")
-            holder.set(key, sqlglot.parse_one(f"CAST('1900-01-01' AS TIMESTAMP) + INTERVAL ({days}) DAY",
-                                              read="duckdb"))
+    for name, holder, key, arg in _date_args(tree):
+        if _number(arg) is None:
+            continue
+        literal = arg.this if isinstance(arg, exp.Neg) else arg
+        assert isinstance(literal, exp.Literal)
+        if not literal.name.isdigit():
+            raise ValueError(f"{_NOT_YET}{name} of a number with a fraction of a day ({arg.sql('tsql')}), which "
+                             "T-SQL reads as a datetime after 1900-01-01, isn't carried yet. Write the date "
+                             "and time instead.")
+        days = -_digits(literal.name, "int") if isinstance(arg, exp.Neg) else _digits(literal.name, "int")
+        if not _DATETIME_DAYS[0] <= days <= _DATETIME_DAYS[1]:
+            raise ValueError(f"{_NOT_YET}Arithmetic overflow error converting expression to data type datetime. "
+                             "T-SQL gives the same error.")
+        holder.set(key, sqlglot.parse_one(f"CAST('1900-01-01' AS TIMESTAMP) + INTERVAL ({days}) DAY",
+                                          read="duckdb"))
 
 
 def _converts(tree: exp.Expression) -> list[str]:
@@ -2082,6 +2184,7 @@ def _converts(tree: exp.Expression) -> list[str]:
                     # Styles 120, 121 and 126 read ISO text, with or without its time and fraction (WR-208),
                     # which a plain cast does; the style's own pattern would demand every part.
                     new.set("this", new.this.this)
+                    new.meta[_STYLED] = True  # read as the style reads it, not as text with no style
                 elif kind is exp.TryCast:
                     new.this.set("safe", True)  # TRY_CONVERT gives NULL for a date that doesn't exist, not an error
             style = node.args.get("style")
@@ -2263,7 +2366,8 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
                 unsure = True  # as for =: a text pattern on a value whose type can't be told
             continue
         if isinstance(node, exp.Between):
-            if _text_against_numbers(node, info, ["this", "low", "high"]):
+            if _text_against_dates(node, info, ["this", "low", "high"]) or \
+                    _text_against_numbers(node, info, ["this", "low", "high"]):
                 continue
             sides = [info.this, info.args["low"], info.args["high"]]
             if all(_is(v.type, _TEXT) for v in sides):
@@ -2279,7 +2383,8 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
             if not info.expressions:
                 continue
             sides = [info.this, *info.expressions]
-            if _text_against_numbers(node, info, ["this"], listed=True):
+            if _text_against_dates(node, info, ["this"], listed=True) or \
+                    _text_against_numbers(node, info, ["this"], listed=True):
                 continue
             if all(_is(v.type, _TEXT) for v in sides):
                 node.set("this", _rtrim(node.this))
@@ -2293,7 +2398,8 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
             unsure |= _padded_subquery(node, node.expression, "this", info.this, info.expression.this)
             continue
         a, b = info.this.type, info.expression.type
-        if _text_against_numbers(node, info, ["this", "expression"]):
+        if _text_against_dates(node, info, ["this", "expression"]) or \
+                _text_against_numbers(node, info, ["this", "expression"]):
             continue
         if _is(a, _TEXT) and _is(b, _TEXT):
             if isinstance(node, exp.EQ) and _column_and_text(node):
@@ -2426,6 +2532,138 @@ def _text_against_numbers(node: exp.Expression, info: exp.Expression, keys: list
     if listed:
         node.set("expressions", items)
     return True
+
+
+_DATE_KINDS = {exp.DataType.Type.DATE, exp.DataType.Type.DATETIME, exp.DataType.Type.DATETIME2,
+               exp.DataType.Type.SMALLDATETIME, exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMP_S,
+               exp.DataType.Type.TIMESTAMP_MS, exp.DataType.Type.TIMESTAMP_NS, exp.DataType.Type.TIMESTAMPNTZ}
+
+
+def _text_against_dates(node: exp.Expression, info: exp.Expression, keys: list[str], listed: bool = False) -> bool:
+    """WR-275: text compared with a date or a date and time is read as T-SQL reads it (a date outranks text):
+    ``d >= '20240101'`` and ``d = '01/15/2024'`` compare with 2024-01-01 and 2024-01-15 (tsql_dates). Whether
+    any side was."""
+    sides: list[tuple[str | int, exp.Expression]] = [(key, info.args[key]) for key in keys]
+    if listed:
+        sides += list(enumerate(info.expressions))
+    kinds = [typed.type for _, typed in sides]
+    if not any(_is(k, _DATE_KINDS) for k in kinds) or not any(_is(k, _TEXT) for k in kinds):
+        return False
+    items = list(node.expressions) if listed else []
+    for (key, _), kind in zip(sides, kinds, strict=True):
+        if _is(kind, _TEXT):
+            _text_as_date(node.args[key] if isinstance(key, str) else items[key])
+    return True
+
+
+def _text_as_date(value: exp.Expression) -> None:
+    if isinstance(value, exp.Literal) and value.is_string:
+        _text_date_literal(value)
+    else:
+        tsql_dates.column(value)
+
+
+def _clock_kind(node: exp.Expression, kind: exp.DataType | None) -> str | None:
+    """The T-SQL date type of a value with a date or time type: 'datetime', 'smalldatetime', 'datetime2', 'date'
+    or 'time'; '' when it is a date and time whose type can't be told (datetime or datetime2), None when it isn't a
+    date or time. A table's date and time column here is a datetime2 (a warehouse table holds no datetime)."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if kind is None:
+        return None
+    if (rounded := tsql_types.rounded_kind(node)) is not None:
+        return rounded  # CONVERT's rewrite, through DuckDB SQL, made the datetime a TIMESTAMP
+    t = exp.DataType.Type
+    if kind.this in (t.DATETIME, t.SMALLDATETIME):
+        return _SECONDS_DATETIMES[kind.this]
+    if kind.this in (t.DATE, t.TIME, t.DATETIME2):
+        return _date_type_name(kind)
+    if kind.this not in _DATE_KINDS:
+        return None
+    if isinstance(node, exp.CurrentTimestamp):
+        return "datetime2" if node.meta.get(_DATETIME2_CLOCK) else "datetime"  # GETDATE(), CURRENT_TIMESTAMP
+    if isinstance(node, exp.Column):
+        return "datetime2"
+    return ""
+
+
+def _whole_days(number: exp.Expression, kind: exp.DataType | None) -> exp.Expression:
+    """``number`` days as an interval: whole for an integer, else to the microsecond (rounded as a datetime later)."""
+    if _is(kind, _INTEGERS):
+        return exp.Anonymous(this="TO_DAYS", expressions=[exp.cast(number, "INTEGER")])
+    micro = exp.Round(this=exp.Mul(this=exp.paren(number, copy=False), expression=exp.Literal.number(86_400_000_000)))
+    return exp.Anonymous(this="TO_MICROSECONDS", expressions=[exp.cast(micro, "BIGINT")])
+
+
+_DATE_NUMBERS = _NUMBERS - _BITS
+
+
+def _text_or_number_date(node: exp.Expression, info: exp.Expression) -> bool:
+    """WR-275, for values whose types the query's columns tell: text from a column read as a date where T-SQL reads
+    one (CAST, CONVERT with no style, and a date function's date), as tsql_dates reads it; a number cast to a
+    datetime or smalldatetime, that many days after 1900-01-01; and a datetime + or - a number of days ("+
+    (Addition)": "can also add a number, in days, to a date", ``@startdate + 1.25`` is 1.25 days later). T-SQL
+    refuses a number with a datetime2, date or time, and so does this, in T-SQL's words. Whether it rewrote
+    ``node``."""
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        to = node.args.get("to")
+        if not isinstance(to, exp.DataType) or to.this not in tsql_dates.TARGETS:
+            return False
+        source = info.this.type
+        if _is(source, _TEXT) and not isinstance(node.this, exp.Literal) and not node.meta.get(_STYLED):
+            tsql_dates.column(node.this)
+            return True
+        if not _is(source, _DATE_NUMBERS):
+            return False
+        if to.this not in _SECONDS_DATETIMES:
+            raise ValueError(f"{_NOT_YET}Explicit conversion from data type {_number_name(node.this, source)} to "
+                             f"{_date_type_name(to)} is not allowed. T-SQL gives the same error.")
+        base = exp.cast(exp.Literal.string("1900-01-01"), "TIMESTAMP")
+        node.set("this", exp.Add(this=base, expression=_whole_days(node.this, source)))
+        mark = node.parent
+        if isinstance(mark, exp.Anonymous) and len(mark.expressions) == 4:  # tsql_types' rounding, which says why
+            mark.expressions[3].replace(exp.Literal.string(
+                f"Arithmetic overflow error converting expression to data type {_SECONDS_DATETIMES[to.this]}."))
+        return True
+    if isinstance(node, (exp.TsOrDsToDate, exp.TimeStrToTime, exp.DateAdd, exp.Extract, exp.TimestampTrunc)):
+        key = "expression" if isinstance(node, exp.Extract) else "this"
+        value = node.args.get(key)
+        if value is not None and _is(info.args[key].type, _TEXT) and not isinstance(value, exp.Literal):
+            read = tsql_dates.column(value)
+            if isinstance(node, (exp.DateAdd, exp.Extract, exp.TimestampTrunc)):  # read as a datetime there
+                stamp = exp.Cast(this=exp.Null(), to=exp.DataType.build("TIMESTAMP"))
+                read.replace(stamp)
+                stamp.set("this", read)
+        return False
+    if not isinstance(node, (exp.Add, exp.Sub)):
+        return False
+    a, b = info.this.type, info.expression.type
+    clock_a, clock_b = _clock_kind(node.this, a), _clock_kind(node.expression, b)
+    if clock_a is not None and _is(b, _DATE_NUMBERS):
+        clock, stamp, number, kind = clock_a, node.this, node.expression, b
+    elif clock_b is not None and _is(a, _DATE_NUMBERS):
+        clock, stamp, number, kind = clock_b, node.expression, node.this, a
+        if isinstance(node, exp.Sub):
+            raise ValueError(f"{_NOT_YET}a number minus a date ({node.sql('tsql')}) isn't carried yet. Write "
+                             "DATEADD(day, -x, d), or d - x for a datetime d.")
+    else:
+        return False
+    if clock in ("datetime2", "date", "time"):
+        raise ValueError(f"{_NOT_YET}Operand type clash: {clock} is incompatible with {_number_name(number, kind)}. "
+                         "T-SQL gives the same error. Use DATEADD(day, n, x).")
+    if clock == "":
+        raise ValueError(f"{_NOT_YET}{node.sql('tsql')} adds a number to a date and time whose type here can't be "
+                         "told: T-SQL adds days to a datetime and refuses a datetime2. Use DATEADD(day, n, x).")
+    days = _whole_days(number, kind)
+    new: exp.Expression = exp.Add(this=stamp, expression=days) if isinstance(node, exp.Add) else \
+        exp.Sub(this=stamp, expression=days)
+    node.replace(new)
+    tsql_types.mark_rounded(new, exp.DataType(this=exp.DataType.Type[clock.upper()]),
+                            f"Arithmetic overflow error converting expression to data type {clock}.")
+    return True
+
+
+_STYLED = "kf_styled"
 
 
 def _padded_equal(node: exp.EQ) -> None:

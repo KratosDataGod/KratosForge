@@ -362,20 +362,13 @@ def parity_l3(left: Any, right: Any, *, tolerances: dict[str, Any] | None = None
     """The L3 behavioral parity report, SQL side (module docstring): the L2 report with each measure row's
     ``behavior``. Same inputs as ``parity_l2``; never raises for bad input."""
     tol = _tolerances(tolerances)
-    report = sp.parity_l2(left, right, left_kind=left_kind, right_kind=right_kind)
+    report, sides = sp._parity_l2_sides(left, right, left_kind=left_kind, right_kind=right_kind)
     report["level"] = LEVEL_L3
     report["not_checked"] = [dict(n) for n in NOT_CHECKED_L3]
     report["tolerances"] = tol
     report["scenarios"] = sorted(SCENARIOS)
     if report["error"] or not any(o["kind"] == "measure" for o in report["objects"]):
         return report
-    sides = [sp._Side("left"), sp._Side("right")]
-    for side, value, kind in ((sides[0], left, left_kind), (sides[1], right, right_kind)):
-        try:
-            sp._read(side, value, kind)
-        except sp._READ_ERRORS as exc:  # narrow: L2 read it, so this is a reader that isn't deterministic
-            report["error"] = f"the {side.which} side couldn't be read again for L3: {type(exc).__name__}"
-            return report
     runs = {s.which: _Run(s) for s in sides}
     queries: dict[str, dict[str, str]] = {"left": {}, "right": {}}
     behaviors: dict[str, dict[str, Any]] = {}

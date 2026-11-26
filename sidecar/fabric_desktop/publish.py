@@ -28,7 +28,7 @@ from .jobs import Job, run_local
 from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
 from .redact import describe
-from .retrying import write_token_refused
+from .retrying import log_commit_dropped, write_token_refused
 
 _log = logging.getLogger(__name__)
 
@@ -115,6 +115,18 @@ def writer_properties() -> WriterProperties:
     return WriterProperties(compression="ZSTD", compression_level=3)
 
 
+class CommitOutcomeUnknown(RuntimeError):
+    """A table write whose Delta log entry may or may not have gone in (retrying.log_commit_dropped)."""
+
+
+def commit_outcome_unknown(name: str) -> CommitOutcomeUnknown:
+    """The error for a write whose connection dropped while its Delta log entry was being written: never
+    written again by itself, since an append whose commit went in would be in the table twice."""
+    return CommitOutcomeUnknown(f"Writing {name}: the connection to OneLake dropped while the commit was being "
+                                "written, so it may or may not have gone in. Look at the table's history before "
+                                "writing it again, so an append isn't in the table twice.")
+
+
 class WriteTokenExpired(RuntimeError):
     """OneLake refused a table write's sign-in token partway through (retrying.write_token_refused) and
     nothing was committed, so the write can be sent again with a fresh token (HD-034)."""
@@ -174,6 +186,8 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[
             except Exception as exc:
                 if write_token_refused(exc):
                     raise _after_refusal(ref, before, token, exc) from exc
+                if log_commit_dropped(exc):  # a job, a notebook cell or a live test: each says the same
+                    raise commit_outcome_unknown(f"{ref.schema}.{ref.table}") from exc
                 raise
             # A current token for the load after the commit: a long write may have outlasted the first one.
             committed = table if table is not None else DeltaTable(ref.uri, storage_options=storage_options(token()))

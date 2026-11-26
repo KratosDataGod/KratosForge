@@ -65,12 +65,13 @@ def bundle_file(folder: str) -> Path:
 def targets(folder: str) -> dict[str, Any]:
     """The bundle's name and targets from databricks.yml: {name, targets: [{name, mode, default}]}."""
     path = bundle_file(folder)
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise BundleError(f"databricks.yml can't be read: {_text(type(exc).__name__)}.") from None
+    data = _load(path)
     if not isinstance(data, dict):
         raise BundleError("databricks.yml isn't a bundle definition.")
+    for section in ("bundle", "targets"):
+        if not isinstance(data.get(section) or {}, dict):
+            raise BundleError(f"databricks.yml wasn't read, because its {section} section isn't a set of named "
+                              "settings. Fix the file, then try again.")
     found = []
     for name, spec in (data.get("targets") or {}).items():
         spec = spec if isinstance(spec, dict) else {}
@@ -79,11 +80,106 @@ def targets(folder: str) -> dict[str, Any]:
     return {"name": _text((data.get("bundle") or {}).get("name")), "file": str(path), "targets": found}
 
 
+# A bundle file's values once its YAML aliases are written out (a string counts its length). Aliases
+# share one value, so a few hundred bytes can stand for gigabytes once the commands check writes them out.
+_MAX_SIZE = 5_000_000
+
+
+class _TwiceError(yaml.YAMLError):
+    def __init__(self, key: Any, line: int) -> None:
+        super().__init__(key, line)
+        self.key, self.line = key, line
+
+
+_MERGE = "tag:yaml.org,2002:merge"
+
+
+def _keys(loader: yaml.SafeLoader, node: Any) -> dict[Any, int]:
+    """Each key a mapping node gives, its own and those its merge keys bring in, with the line it is on."""
+    out: dict[Any, int] = {}
+    for key_node, value_node in node.value:
+        if isinstance(key_node, yaml.ScalarNode) and key_node.tag == _MERGE:
+            sources = value_node.value if isinstance(value_node, yaml.SequenceNode) else [value_node]
+            for src in sources:
+                if isinstance(src, yaml.MappingNode):
+                    out.update({k: line for k, line in _keys(loader, src).items() if k not in out})
+        elif isinstance(key_node, yaml.ScalarNode):
+            out[loader.construct_object(key_node)] = key_node.start_mark.line + 1
+    return out
+
+
+class _Loader(yaml.SafeLoader):
+    """yaml.safe_load's loader, refusing a key given twice in one mapping, written out or brought in by two
+    merge keys: which copy the CLI uses isn't known. A key written out beside a merge key is the usual YAML
+    override and is read as written."""
+
+    def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+        seen: set[Any] = set()
+        merged: dict[Any, int] = {}
+        for key_node, value_node in node.value:
+            if not isinstance(key_node, yaml.ScalarNode):
+                continue
+            if key_node.tag == _MERGE:
+                sources = value_node.value if isinstance(value_node, yaml.SequenceNode) else [value_node]
+                for src in sources:
+                    if isinstance(src, yaml.MappingNode):
+                        for key in _keys(self, src):
+                            if key in merged:
+                                merged[key] = -(key_node.start_mark.line + 1)  # given by two merged sources
+                            else:
+                                merged[key] = key_node.start_mark.line + 1
+                continue
+            key = self.construct_object(key_node)
+            if key in seen:
+                raise _TwiceError(key, key_node.start_mark.line + 1)
+            seen.add(key)
+        for key, line in merged.items():
+            if line < 0 and key not in seen:
+                raise _TwiceError(key, -line)
+        return super().construct_mapping(node, deep)
+
+
+def _size(value: Any, sizes: dict[int, int], open_: set[int]) -> int:
+    """How big ``value`` is with every alias written out; -1 when it contains itself."""
+    if isinstance(value, str):
+        return len(value) + 1
+    if not isinstance(value, (dict, list)):
+        return 1
+    if id(value) in sizes:
+        return sizes[id(value)]
+    if id(value) in open_:
+        return -1
+    open_.add(id(value))
+    total = 1
+    for item in (x for kv in value.items() for x in kv) if isinstance(value, dict) else value:
+        n = _size(item, sizes, open_)
+        if n < 0:
+            return -1
+        total = min(total + n, _MAX_SIZE + 1)
+    open_.discard(id(value))
+    sizes[id(value)] = total
+    return total
+
+
 def _load(path: Path) -> Any:
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_Loader) or {}  # noqa: S506 - _Loader is a SafeLoader
+        size = _size(data, {}, set())
+    except _TwiceError as exc:
+        raise BundleError(f"{path.name} wasn't read, because it gives {_text(exc.key, 80)!r} twice in one "
+                          f"section (line {exc.line}). Keep one, then try again.") from None
+    except RecursionError:
+        raise BundleError(f"{path.name} wasn't read, because it's nested too deeply. Move its deepest settings "
+                          "up a level, then try again.") from None
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise BundleError(f"{path.name} can't be read: {_text(type(exc).__name__)}.") from None
+    if size < 0:
+        raise BundleError(f"{path.name} wasn't read, because one of its YAML aliases refers to itself. "
+                          "Write that part out in full, then try again.")
+    if size > _MAX_SIZE:
+        raise BundleError(f"{path.name} wasn't read, because its YAML aliases make it too large to check once "
+                          "they are written out. Use fewer aliases, then try again.")
+    return data
 
 
 def _bundle_docs(folder: str) -> list[tuple[str, Any]]:
@@ -94,8 +190,14 @@ def _bundle_docs(folder: str) -> list[tuple[str, Any]]:
     root = main.parent.resolve()
     first = _load(main)
     docs = [(main.name, first)]
-    for pattern in (first.get("include") or []) if isinstance(first, dict) else []:
+    includes = (first.get("include") or []) if isinstance(first, dict) else []
+    if not isinstance(includes, list):
+        raise BundleError(f"{main.name} wasn't read, because its include isn't a list of file patterns. "
+                          "Fix the file, then try again.")
+    for pattern in includes:
         pattern = str(pattern)
+        if "\0" in pattern:  # glob raises ValueError on it
+            raise BundleError(f"The include {_text(pattern)!r} matches no file, so the bundle can't be checked.")
         # Path.anchor also catches "/etc/x" and "C:x" on Windows, which aren't is_absolute() there
         # and which glob refuses with NotImplementedError; the posix view catches "/x" written either way.
         here, posix = Path(pattern), PurePosixPath(pattern.replace("\\", "/"))
@@ -124,7 +226,10 @@ def _commands_in(where: str, doc: Any) -> list[tuple[str, list[str]]]:
     if not isinstance(doc, dict):
         return []
     found: list[tuple[str, list[str]]] = []
-    scopes = [("", doc)] + [(f"targets.{n}.", t) for n, t in (doc.get("targets") or {}).items() if isinstance(t, dict)]
+    tgts = doc.get("targets")
+    if not isinstance(tgts, dict):  # not a mapping: targets() refuses it, and so does the CLI
+        tgts = {}
+    scopes = [("", doc)] + [(f"targets.{n}.", t) for n, t in tgts.items() if isinstance(t, dict)]
     for prefix, scope in scopes:
         exp: dict[str, Any] = scope["experimental"] if isinstance(scope.get("experimental"), dict) else {}
         for hook, cmd in (exp.get("scripts") or {}).items() if isinstance(exp.get("scripts"), dict) else []:

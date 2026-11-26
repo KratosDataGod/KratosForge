@@ -391,7 +391,7 @@ function dbgMarks(cell) {
   const at = cell.paused?.line ? dbgPausedLine(cell.dbgRan, cell.source, cell.paused.line).line : null;
   if (at) lines.set(at, `${lines.has(at) ? "cm-bp " : ""}cm-paused`);
   if (!lines.size) return [];
-  const view = editors.get(cell.id);
+  const view = editors.peek(cell.id);  // called while the editor is built: never build another (notebook.js)
   const doc = view ? view.state.doc : CM.EditorState.create({ doc: cell.source }).doc;
   const b = new CM.RangeSetBuilder();
   for (const n of [...lines.keys()].sort((x, y) => x - y)) {

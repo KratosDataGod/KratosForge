@@ -274,7 +274,6 @@ def test_databricks_sql_keeps_ansi_errors_with_the_same_patterns():
 
 STILL_DIFFERS = {
     "a year or a year and month": "SELECT CAST('2024-02' AS DATE)",
-    "more fraction digits": "SELECT to_timestamp(s, 'yyyy-MM-dd HH:mm:ss.SS') FROM t",
     "one digit where the pattern has two": "SELECT to_date(s, 'yyyy-MM-dd') FROM t",
     "timeParserPolicy": "SELECT to_date(s, 'yyyy-MM-dd') FROM t",
 }

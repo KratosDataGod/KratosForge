@@ -21,8 +21,13 @@ Preview.
 | Assessment | Questions | Time |
 | --- | --- | --- |
 | Practice exam | The certification's published length when it has one (Databricks: 45 in 90 minutes), otherwise 50 in 100 minutes; spread evenly over every objective | That time, or untimed |
-| Domain diagnostic | 2 for each objective in the domain you pick | Untimed |
+| Diagnostic | 2 for each objective in the domain you pick, or in all of them | Untimed |
 | Objective drill | Every question for the objectives you pick, with the answer and why after each one | Untimed |
+
+The diagnostic screen opens from **Take a diagnostic** on Academy Home or from the diagnostic card in
+Assessments. Each choice shows how many questions it asks, about how long that takes at the practice exam's
+pace, and the last time you finished it on this PC with how many you got right. Right answers count toward
+Knowledge in Readiness only.
 
 Questions are single answer, multiple answers (the question says how many to pick), ordering, or one of
 four kinds with several parts:

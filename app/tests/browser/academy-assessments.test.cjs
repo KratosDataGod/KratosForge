@@ -347,3 +347,26 @@ test("Code completion: a token used in another gap moves; the review shows each 
   if (axeSource) await axe();
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "assess-code-review.png") });
 });
+
+test("The diagnostic screen offers each domain or all of them, with its size, and starts the one picked", { skip }, async () => {
+  await openTab();
+  await page().locator(".assess-card .tool", { hasText: "Choose a diagnostic" }).click();
+  await page().locator(".assess-diag").waitFor();
+  const choices = (await page().locator(".assess-diag-choice b").allTextContents()).map((t) => t.trim());
+  assert.deepStrictEqual(choices.map((t) => t.split(" ")[0]), ["1", "2", "3", "All"]);
+  assert.match(choices[3], /^All of DP-700$/);
+  const text = await page().locator(".assess-diag").textContent();
+  assert.match(text, /98 questions · about \d+ min · not taken yet/);
+  assert.match(text, /count toward Knowledge in Readiness, and nothing else/);
+  assert.match(text, /^Diagnostic\s*Two questions per objective/);
+  assert.strictEqual(await page().locator(".assess-diag .tool.primary").count(), 1);
+  if (axeSource) await axe();
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "assess-diagnostic.png") });
+  await page().locator('.assess-diag-choice input[value="all"]').check();
+  await page().locator(".assess-diag .tool.primary", { hasText: "Start the diagnostic" }).click();
+  await page().locator(".assess-qpanel").waitFor();
+  const start = calls("academy_exam_start").at(-1);
+  assert.strictEqual(start.params.kind, "diagnostic");
+  assert.strictEqual(start.params.domain, "all");
+  assert.strictEqual(await page().evaluate(() => assess.view.title), "Diagnostic: all of DP-700");
+});

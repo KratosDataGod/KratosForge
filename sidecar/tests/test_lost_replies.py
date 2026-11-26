@@ -173,3 +173,24 @@ def test_a_delta_commit_whose_reply_was_lost_is_never_committed_again(error, aga
     """A dropped data file is sent again (nothing is in the table until the log is written); a dropped
     write of the log itself may have committed, so the table write fails and says so instead."""
     assert data_upload_dropped(RuntimeError(error)) is again
+
+
+def test_a_metadata_run_whose_commit_connection_dropped_says_to_check_history(tmp_path):
+    """A metadata run's write whose Delta log entry was cut off: the run fails in plain words naming the
+    table, keeps object_store's text as a step for support, and isn't marked for the agent to retry."""
+    from test_large_tables import DAY1, Setup, rows
+
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1), mode="overwrite")
+    dropped = OSError("Generic MicrosoftAzure error: Error performing PUT https://onelake.blob.fabric.microsoft.com/"
+                      "ws/lh/Tables/bronze/events/_delta_log/00000000000000000001.json in 30s - error sending request")
+
+    def fail(*a, **k):
+        raise dropped
+    for n in ("write", "write_stream", "merge_insert", "upsert"):
+        setattr(s.store, n, fail)
+    res = s.engine(DAY1).run("bronze.events")
+    assert res.status == "failed" and res.retryable is False
+    assert res.message.startswith("The connection to OneLake dropped while the commit to bronze.events was being")
+    assert "may or may not have gone in" in res.message and "history" in res.message
+    assert any(st.name == "error" and "Error performing PUT" in st.detail for st in res.steps)

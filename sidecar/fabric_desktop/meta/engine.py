@@ -77,6 +77,19 @@ def _out_of_memory(exc: BaseException) -> bool:
             return True
         cur = cur.__cause__ or cur.__context__
     return False
+_LOG_TABLE = re.compile(r"/Tables/([^/?#\s]+)/([^/?#\s]+)/_delta_log/")
+
+
+def _commit_dropped_message(exc: BaseException, entity_table: str) -> str:
+    """What to say when the connection dropped while a Delta log entry was being written
+    (retrying.log_commit_dropped): the table the log is in (the run's own, unless the error names another)."""
+    found = _LOG_TABLE.search(str(exc))
+    name = ".".join(found.groups()) if found else entity_table
+    return (f"The connection to OneLake dropped while the commit to {name} was being written, so it may or may "
+            "not have gone in. Look at the table's history before running this again, so an append isn't in "
+            "the table twice.")
+
+
 # What this app writes in a commit's metadata (new_run_id, Project.version, Project.fingerprint). Any
 # writer to the table can set commit metadata, so a run is recorded from it only in these formats.
 _RUN_ID = re.compile(r"r-\d{8}-\d{6}-[0-9a-f]{12}")
@@ -521,6 +534,9 @@ class Engine:
                 res.message = disk_full.message(
                     self._local_path((self.lakehouse(e), e.schema, e.table)),
                     "The table was not changed." if res.delta_version is None else "")
+            elif retrying.log_commit_dropped(ex):  # object_store's words; and the run mustn't be rerun blind
+                res.steps.append(Step("error", 0, 0.0, res.message[:2000]))
+                res.message = _commit_dropped_message(ex, f"{e.schema}.{e.table}")
             elif _out_of_memory(ex):  # a bare "MemoryError: " says nothing the user can act on
                 res.steps.append(Step("error", 0, 0.0, res.message[:2000]))
                 res.message = " ".join(part for part in (

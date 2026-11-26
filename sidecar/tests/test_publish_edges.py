@@ -169,3 +169,30 @@ def test_a_job_cannot_run_without_a_guard(tmp_path, monkeypatch):
     monkeypatch.setattr(P, "run_local", lambda j: pytest.fail("the job ran"))
     with pytest.raises(TypeError, match="guard"):
         P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work")  # type: ignore[call-arg]
+
+
+COMMIT_DROPPED = ("Generic MicrosoftAzure error: Error performing PUT https://onelake.blob.fabric.microsoft.com/ws/lh/"
+                  "Tables/dbo/orders/_delta_log/00000000000000000003.json in 30.1s - HTTP error: error sending request")
+
+
+def test_a_job_whose_commit_connection_dropped_isnt_written_again_and_says_to_check_history(tmp_path, monkeypatch):
+    """Wi-Fi or the VPN went while the Delta log entry was being written: the commit may be in the table.
+    A job (as a notebook cell does) says so in plain words, names the table and is never written again,
+    by itself or by the agent, so an append can't be in the table twice."""
+    from fabric_desktop.retrying import is_retryable
+    lake = tmp_path / "lake" / "orders"
+    monkeypatch.setattr(P, "resolve_target", lambda j, fabric: Ref(lake))
+    real, tries = P.write_deltalake, []
+
+    def drops_commit(target, *a, **k):
+        if str(lake) not in str(getattr(target, "table_uri", target)):
+            return real(target, *a, **k)  # the schema check staged on this PC
+        tries.append(1)
+        raise OSError(COMMIT_DROPPED)
+    monkeypatch.setattr(P, "write_deltalake", drops_commit)
+    with pytest.raises(P.CommitOutcomeUnknown) as err:
+        P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+    text = str(err.value)
+    assert text.startswith("Writing dbo.orders: the connection to OneLake dropped while the commit")
+    assert "may or may not have gone in" in text and "history" in text and "Error performing" not in text
+    assert len(tries) == 1 and not is_retryable(err.value)

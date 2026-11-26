@@ -59,7 +59,7 @@ async function renderOptimize() {
   if (OPTIMIZE_OWN_TABS.includes(optimizePage.tab)) return;
   if (!status?.active) {
     const note = h("p", { class: "muted-text" }, status && !status.allowed
-      ? "Your organization has turned off shared optimization lakehouses."
+      ? "Your organization has turned off shared optimization lakehouses. Ask IT to change allow_optimize_lakehouse in Group Policy or the policy file."
       : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. One lakehouse holds what every installation finds, fixes and saves, and your organization usually needs only one. Cost and savings works without one.");
     // Overview still acts on what this PC's own Estate X-ray found (AF-5).
     if (optimizePage.tab === "overview") fill(body, optimizeLocalCard(), note);
@@ -335,7 +335,7 @@ async function optimizeSettingsSection() {
   if (!s) return null;
   const section = h("section", { class: "card pad" }, h("h2", {}, "Optimize lakehouses ", previewTag()));
   if (!s.allowed) {
-    section.append(h("p", { class: "muted-text small" }, "Your organization has turned off shared optimization lakehouses (allow_optimize_lakehouse in its policy file)."));
+    section.append(h("p", { class: "muted-text small" }, "Your organization has turned off shared optimization lakehouses. Ask IT to change allow_optimize_lakehouse in Group Policy or the policy file."));
     return section;
   }
   const access = { write: "Read and write", read: "Read only", none: "No access" };

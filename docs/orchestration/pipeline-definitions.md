@@ -42,4 +42,4 @@ From your own AI tool, through MCP or the local API ([connect your AI tool](../a
 
 To see which activities could run on your PC and which need Fabric, see [Pipeline activity compatibility](activity-registry.md). To run a pipeline's control flow on your PC, see [Running pipelines on your PC](local-runs.md).
 
-There is no pipeline page in the app yet.
+In the app, **Create > Pipeline** opens a definition on the **Pipelines** page (Preview). Its **Definition** tab shows the definition ([user guide](../user-guide.md#pipelines-preview)).

@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-transmutation", "name": "First Transmutation", "criteria": "Reach Journeyman in Python data frames or Spark DataFrames."},
-  {"id": "clean-bench", "name": "Clean Bench", "criteria": "Reach Adept in Notebooks that pass Validate."},
-  {"id": "same-here-and-there", "name": "Same Here and There", "criteria": "Reach Journeyman in Proven same result here and in Fabric. This one needs a run in Fabric."},
-  {"id": "tested-elixir", "name": "Tested Elixir", "criteria": "Reach Adept in Unit tests for data code."},
-  {"id": "alchemists-shelf", "name": "Alchemist's Shelf", "criteria": "Reach Adept in all ten talents of one Notebook Alchemist specialization."}
+  {"id": "first-transmutation", "name": "First Transmutation", "criteria": "Reach Journeyman in Python data frames or Spark DataFrames.", "requires": {"level": 3, "talents": ["python.01", "spark.01"], "any": true}},
+  {"id": "clean-bench", "name": "Clean Bench", "criteria": "Reach Adept in Notebooks that pass Validate.", "requires": {"level": 4, "talents": ["craft.03"]}},
+  {"id": "same-here-and-there", "name": "Same Here and There", "criteria": "Reach Journeyman in Proven same result here and in Fabric. This one needs a run in Fabric.", "requires": {"level": 3, "talents": ["craft.09"]}},
+  {"id": "tested-elixir", "name": "Tested Elixir", "criteria": "Reach Adept in Unit tests for data code.", "requires": {"level": 4, "talents": ["python.09"]}},
+  {"id": "alchemists-shelf", "name": "Alchemist's Shelf", "criteria": "Reach Adept in all ten talents of one Notebook Alchemist specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

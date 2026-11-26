@@ -34,6 +34,7 @@ With Microsoft's sign-in, KratosForge asks each Microsoft API for its default ac
 | Capacities (creating a workspace, the cost view) | Fabric | Yes |
 | OneLake shortcuts and data access roles, cloud connections | Fabric | Yes |
 | [Shortcut command center](shortcuts.md) health checks (listing one entry through each shortcut) | OneLake (Azure Storage) | Yes. Nothing new is asked |
+| [Excellence assessment](optimize/excellence-assessment.md#table-layout) table layout (the folders under Tables and each Delta table's log, read only) | OneLake (Azure Storage) | Yes. Nothing new is asked |
 | Giving someone a workspace role by email | Power BI | Yes. No directory permission is needed |
 | Adding someone to a data access role who has no role in the workspace yet | Microsoft Graph | Possibly not. Give them a workspace role first, or paste their object ID |
 | The [platform](platform.md): creating its SQL database and user data functions, and calling the functions for keys and the catalog | Fabric | Expected, not yet tried. Calls use the same run access as Run in Fabric |

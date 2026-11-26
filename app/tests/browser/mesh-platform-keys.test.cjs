@@ -36,8 +36,8 @@ const WORKSPACES = [{ id: "ws-plat-dev", displayName: "Platform Dev" }, { id: "w
 // core.require_admin's refusal, as server.py sends a PlatformError: "<type>: <message>".
 const NOT_ADMIN = "PlatformError: Only platform admins can add platform admins. Send a request in Data mesh > Requests, or ask a platform admin.";
 // service._save_platform and service._check_can_share when IT's policy.json sets the platform.
-const POLICY_SETS = "PermissionError: Your organization sets the platform, so it can't be changed here";
-const POLICY_KEYS = "PermissionError: Your organization sets the platform, so keys can't be moved from this PC";
+const POLICY_SETS = "PermissionError: Your organization sets the platform, so it can't be changed here. Ask IT to change platform in the policy file.";
+const POLICY_KEYS = "PermissionError: Your organization sets the platform, so keys can't be moved from this PC. Ask IT to change platform in the policy file.";
 
 const copy = (x) => JSON.parse(JSON.stringify(x));
 
@@ -362,14 +362,14 @@ test("refusals read as the engine's sentence: not a platform admin, and the orga
   fail.share_plan = POLICY_KEYS;
   await settingRow("Keys:").getByRole("button", { name: "Move keys in" }).click();
   assert.strictEqual((await toastText(/Could not read the keys/)).split("\n")[0],
-    "Could not read the keys: Your organization sets the platform, so keys can't be moved from this PC");
+    "Could not read the keys: Your organization sets the platform, so keys can't be moved from this PC. Ask IT to change platform in the policy file.");
 
   fail.platform_forget = POLICY_SETS;
   await settingRow("Test: Platform Test").getByRole("button", { name: "Forget" }).click();
   await waitDialog("Stop using Platform Test for Test?");
   await dialogButton("Forget").click();
   const forgot = await toastText(/Not changed/);
-  assert.strictEqual(forgot.split("\n")[0], "Not changed: Your organization sets the platform, so it can't be changed here");
+  assert.strictEqual(forgot.split("\n")[0], "Not changed: Your organization sets the platform, so it can't be changed here. Ask IT to change platform in the policy file.");
   assert.doesNotMatch(forgot, /PermissionError|undefined|\[object Object\]/);
   assert.ok(await page().$(".setting:has-text('Test: Platform Test')"), "the platform stays as it was");
   assert.deepStrictEqual(app.errors, []);

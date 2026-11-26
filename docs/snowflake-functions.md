@@ -21,12 +21,12 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 380 |
-| Differs | 22 |
-| Refused | 88 |
+| Runs | 388 |
+| Differs | 11 |
+| Refused | 92 |
 | Fails | 0 |
 | Not checked | 16 |
-| **All** | **506** |
+| **All** | **507** |
 
 ## String and binary
 
@@ -38,7 +38,7 @@ the known differences in more detail.
 | `CHAR` | Runs | 2 value checks |
 | `CONCAT` | Runs | 1 value check |
 | `CONCAT_WS` | Runs | 1 value check |
-| `INSERT` | Runs | 1 value check |
+| `INSERT` | Refused | INSERT (TIMESTAMP_TZ column, text with an offset): Statement 3 runs only in Snowflake: TIMESTAMP_TZ text with an offset. DuckDB can't read an offset written after a space ('2026-01-01 10:00:00 +05:00'): it takes it for a time zone name. |
 | `LENGTH` | Runs | 1 value check |
 | `LEN` | Runs | 1 value check |
 | `LPAD` | Runs | 1 value check |
@@ -71,7 +71,7 @@ the known differences in more detail.
 | `CONTAINS` | Runs | 1 value check |
 | `EDITDISTANCE` | Runs | 1 value check |
 | `ENDSWITH` | Runs | 1 value check |
-| `JAROWINKLER_SIMILARITY` | Differs | JAROWINKLER_SIMILARITY (phrase): Snowflake's reference shows 56; DuckDB's Jaro-Winkler gives 57 (SFD-012). |
+| `JAROWINKLER_SIMILARITY` | Refused | JAROWINKLER_SIMILARITY: Statement 1 runs only in Snowflake: JAROWINKLER_SIMILARITY. Snowflake doesn't document how it works out its score, and DuckDB's Jaro-Winkler gives other scores for pairs in Snowflake's own example: 'Gute nacht' and 'Ich weis nicht' score 56 there and 57 here, 'Ich weiß nicht' and 'Ich weiss nicht' 97 there and 94 here, 'święta' and 'swieta' 77 there and 72 here. A threshold tuned on Snowflake's scores would match other rows. EDITDISTANCE runs here. |
 | `LEFT` | Runs | 1 value check |
 | `POSITION` | Runs | 1 value check |
 | `REPLACE` | Runs | 1 value check |
@@ -219,7 +219,7 @@ the known differences in more detail.
 | `TO_TIMESTAMP` | Runs | 5 value checks |
 | `TO_TIMESTAMP_LTZ` | Differs | SFD-004 Local time zone is this PC's |
 | `TO_TIMESTAMP_NTZ` | Runs | 2 value checks |
-| `TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset |
+| `TO_TIMESTAMP_TZ` | Runs | 4 value checks |
 | `CONVERT_TIMEZONE` | Runs | 2 value checks |
 
 ## Conversion
@@ -249,7 +249,7 @@ the known differences in more detail.
 | `TRY_TO_TIMESTAMP` | Runs | 2 value checks |
 | `TRY_TO_TIMESTAMP_LTZ` | Differs | SFD-004 Local time zone is this PC's |
 | `TRY_TO_TIMESTAMP_NTZ` | Runs | 2 value checks |
-| `TRY_TO_TIMESTAMP_TZ` | Differs | SFD-002 TIMESTAMP_TZ loses its offset |
+| `TRY_TO_TIMESTAMP_TZ` | Runs | 2 value checks |
 | `TO_ARRAY` | Runs | 1 value check |
 | `TO_OBJECT` | Runs | 2 value checks |
 | `TO_VARIANT` | Runs | 1 value check |
@@ -260,13 +260,13 @@ the known differences in more detail.
 | --- | --- | --- | --- |
 | `CHECK_JSON` | Runs |  | 1 value check |
 | `CHECK_XML` | Refused |  | CHECK_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `JSON_EXTRACT_PATH_TEXT` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case |
-| `PARSE_JSON` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `JSON_EXTRACT_PATH_TEXT` | Runs |  | 3 value checks |
+| `PARSE_JSON` | Runs |  | 1 value check |
 | `TRY_PARSE_JSON` | Runs |  | 1 value check |
 | `PARSE_XML` | Refused |  | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `STRIP_NULL_VALUE` | Runs |  | 2 value checks |
 | `ARRAY_AGG` | Runs |  | 1 value check |
-| `ARRAY_APPEND` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case, SFD-007 TYPEOF can't always name Snowflake's type |
+| `ARRAY_APPEND` | Runs |  | 3 value checks; labelled SFD-007 TYPEOF can't always name Snowflake's type |
 | `ARRAY_CAT` | Runs |  | 1 value check |
 | `ARRAY_COMPACT` | Runs |  | 1 value check |
 | `ARRAY_CONSTRUCT` | Runs |  | 1 value check |
@@ -290,27 +290,27 @@ the known differences in more detail.
 | `ARRAY_SORT` | Runs |  | 3 value checks |
 | `ARRAY_TO_STRING` | Runs |  | 1 value check |
 | `ARRAY_UNION_AGG` | Refused |  | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
-| `ARRAY_UNIQUE_AGG` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `ARRAY_UNIQUE_AGG` | Runs |  | 1 value check |
 | `ARRAYS_OVERLAP` | Runs |  | 3 value checks |
 | `ARRAYS_TO_OBJECT` | Runs |  | 3 value checks |
 | `ARRAYS_ZIP` | Runs |  | 2 value checks |
 | `OBJECT_AGG` | Runs |  | 1 value check |
 | `OBJECT_CONSTRUCT` | Runs |  | 1 value check |
-| `OBJECT_CONSTRUCT_KEEP_NULL` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `OBJECT_CONSTRUCT_KEEP_NULL` | Runs |  | 1 value check |
 | `OBJECT_DELETE` | Runs |  | 2 value checks |
 | `OBJECT_INSERT` | Runs |  | 3 value checks |
 | `OBJECT_PICK` | Runs |  | 2 value checks |
 | `OBJECT_KEYS` | Runs |  | 1 value check |
 | `FILTER` | Runs |  | 2 value checks |
-| `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
+| `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB. |
 | `TRANSFORM` | Runs |  | 2 value checks |
 | `MAP_CAT` | Runs |  | 2 value checks |
 | `MAP_CONTAINS_KEY` | Runs |  | 1 value check |
-| `MAP_DELETE` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `MAP_DELETE` | Runs |  | 1 value check |
 | `MAP_ENTRIES` | Runs |  | 2 value checks |
-| `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB.. |
+| `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB. |
 | `MAP_KEYS` | Runs |  | 1 value check |
-| `MAP_PICK` | Runs |  | 1 value check; labelled SFD-014 TO_JSON keeps an object's keys in their order |
+| `MAP_PICK` | Runs |  | 1 value check |
 | `MAP_SIZE` | Runs |  | 1 value check |
 | `GET` | Runs |  | 1 value check |
 | `GET_IGNORE_CASE` | Refused |  | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
@@ -322,8 +322,8 @@ the known differences in more detail.
 | `AS_CHAR` | Runs |  | 1 value check |
 | `AS_VARCHAR` | Runs |  | 2 value checks |
 | `AS_DATE` | Runs |  | 1 value check |
-| `AS_DECIMAL` | Runs |  | 2 value checks; labelled SFD-008 A JSON fraction counts as a decimal |
-| `AS_NUMBER` | Runs |  | 1 value check; labelled SFD-008 A JSON fraction counts as a decimal |
+| `AS_DECIMAL` | Runs |  | 2 value checks |
+| `AS_NUMBER` | Runs |  | 1 value check |
 | `AS_DOUBLE` | Runs |  | 1 value check |
 | `AS_REAL` | Runs |  | 1 value check |
 | `AS_INTEGER` | Runs |  | 3 value checks |
@@ -332,7 +332,7 @@ the known differences in more detail.
 | `AS_TIMESTAMP_LTZ` | Refused |  | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
 | `AS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
 | `AS_TIMESTAMP_TZ` | Refused |  | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `TO_JSON` | Differs |  | TO_JSON: Snowflake sorts an object's keys; here they keep their order (SFD-014). |
+| `TO_JSON` | Runs |  | 1 value check |
 | `TO_XML` | Refused |  | TO_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
 | `IS_ARRAY` | Runs |  | 1 value check |
 | `IS_BOOLEAN` | Runs |  | 1 value check |
@@ -341,7 +341,7 @@ the known differences in more detail.
 | `IS_VARCHAR` | Runs |  | 1 value check |
 | `IS_DATE` | Runs |  | 1 value check |
 | `IS_DATE_VALUE` | Runs |  | 1 value check |
-| `IS_DECIMAL` | Differs |  | IS_DECIMAL (vartab): SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too. |
+| `IS_DECIMAL` | Refused |  | IS_DECIMAL (vartab): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. Runs only in Snowflake. |
 | `IS_DOUBLE` | Runs |  | 3 value checks |
 | `IS_REAL` | Runs |  | 2 value checks |
 | `IS_INTEGER` | Runs |  | 4 value checks |
@@ -351,7 +351,7 @@ the known differences in more detail.
 | `IS_TIMESTAMP_LTZ` | Refused |  | IS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
 | `IS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
 | `IS_TIMESTAMP_TZ` | Refused |  | IS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `TYPEOF` | Differs |  | TYPEOF (stored value with an exponent): A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
+| `TYPEOF` | Refused |  | TYPEOF (stored value with an exponent): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. Runs only in Snowflake. |
 
 ## Aggregate
 
@@ -540,10 +540,10 @@ the known differences in more detail.
 | `::` | Runs |  | 1 value check |
 | `CASE` | Runs |  | 2 value checks |
 | `BETWEEN` | Runs |  | 2 value checks |
-| `LIKE` | Runs |  | 3 value checks; labelled SFD-001 Unquoted names keep their case |
-| `ILIKE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
-| `LIKE ANY` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `LIKE ALL` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `LIKE` | Runs |  | 3 value checks |
+| `ILIKE` | Runs |  | 2 value checks |
+| `LIKE ANY` | Runs |  | 1 value check |
+| `LIKE ALL` | Runs |  | 1 value check |
 | `ILIKE ANY` | Runs |  | 1 value check |
 | `REGEXP` | Runs |  | 2 value checks |
 | `IS DISTINCT FROM` | Runs |  | 1 value check |
@@ -552,7 +552,7 @@ the known differences in more detail.
 | `PIVOT` | Runs |  | 2 value checks |
 | `UNPIVOT` | Runs |  | 3 value checks |
 | `LATERAL FLATTEN` | Runs |  | 5 value checks |
-| `SAMPLE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
+| `SAMPLE` | Runs |  | 2 value checks |
 | `MATCH_RECOGNIZE` | Refused | `SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) DEFINE x AS a > 0)` | MATCH_RECOGNIZE. DuckDB has no row pattern matching. |
 | `GENERATOR` | Runs |  | 1 value check |
 
@@ -560,34 +560,35 @@ the known differences in more detail.
 
 | Name | Status | Sample | Note |
 | --- | --- | --- | --- |
-| `CREATE TABLE` | Differs | `CREATE TABLE n (a INT, b VARCHAR)` | SFD-001 Unquoted names keep their case |
-| `CREATE TABLE AS` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `CREATE VIEW` | Differs | `CREATE VIEW v AS SELECT * FROM t` | SFD-001 Unquoted names keep their case |
-| `CREATE SCHEMA` | Differs | `CREATE SCHEMA n` | SFD-001 Unquoted names keep their case |
-| `CREATE TEMPORARY TABLE` | Differs | `CREATE TEMPORARY TABLE n (a INT)` | SFD-001 Unquoted names keep their case |
-| `CREATE TRANSIENT TABLE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `INSERT INTO` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
+| `CREATE TABLE` | Runs |  | 1 value check |
+| `CREATE TABLE AS` | Runs |  | 1 value check |
+| `CREATE VIEW` | Runs |  | 1 value check |
+| `CREATE SCHEMA` | Runs |  | 1 value check |
+| `CREATE TEMPORARY TABLE` | Runs |  | 1 value check |
+| `CREATE TRANSIENT TABLE` | Runs |  | 1 value check |
+| `INSERT INTO` | Runs |  | 2 value checks |
 | `INSERT OVERWRITE` | Refused | `INSERT OVERWRITE INTO t SELECT * FROM s` | INSERT OVERWRITE. Snowflake empties the table and inserts in one statement inside the current transaction; DuckDB has no INSERT OVERWRITE, and a DELETE then INSERT written here wouldn't be one statement. |
-| `UPDATE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `UPDATE FROM` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `DELETE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `DELETE USING` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `MERGE` | Runs |  | 5 value checks; labelled SFD-001 Unquoted names keep their case |
-| `TRUNCATE TABLE` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `DROP TABLE` | Runs |  | 2 value checks; labelled SFD-001 Unquoted names keep their case |
-| `ALTER TABLE ADD COLUMN` | Differs | `ALTER TABLE t ADD COLUMN c INT` | SFD-001 Unquoted names keep their case |
-| `ALTER TABLE RENAME` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `UPDATE` | Runs |  | 1 value check |
+| `UPDATE FROM` | Runs |  | 1 value check |
+| `DELETE` | Runs |  | 1 value check |
+| `DELETE USING` | Runs |  | 1 value check |
+| `MERGE` | Runs |  | 5 value checks |
+| `TRUNCATE TABLE` | Runs |  | 1 value check |
+| `DROP TABLE` | Runs |  | 2 value checks |
+| `ALTER TABLE ADD COLUMN` | Runs |  | 1 value check |
+| `ALTER TABLE RENAME` | Runs |  | 2 value checks |
 | `CREATE TABLE LIKE` | Refused |  | CREATE TABLE LIKE: Statement 2 runs only in Snowflake: CREATE TABLE ... LIKE. Snowflake copies the other table's column names, types, defaults and constraints, and the rewrite can't see that table's definition. Write the column definitions out in CREATE TABLE. |
-| `AUTOINCREMENT` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `PRIMARY KEY` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `AUTOINCREMENT` | Runs |  | 1 value check |
+| `PRIMARY KEY` | Runs |  | 1 value check |
 | `INSERT ALL` | Refused | `INSERT ALL INTO t INTO s SELECT 1, 2` | INSERT ALL. DuckDB has no multi-table INSERT, and separate INSERT statements written here wouldn't be one statement. Write one INSERT ... SELECT for each table, with a WHERE that picks the rows it takes. |
 | `INSERT FIRST` | Refused |  | INSERT FIRST: Statement 5 runs only in Snowflake: INSERT FIRST. DuckDB has no multi-table INSERT, and separate INSERT statements written here wouldn't be one statement. Write one INSERT ... SELECT for each table, with a WHERE that picks the rows it takes. |
 | `TRUNCATE TABLE IF EXISTS` | Refused |  | TRUNCATE TABLE IF EXISTS: Statement 3 runs only in Snowflake: TRUNCATE TABLE IF EXISTS. DuckDB's TRUNCATE has no IF EXISTS, and the rewrite can't tell whether the table is there. Leave out IF EXISTS when you know the table is there. |
 | `ALTER TABLE DROP COLUMN A, B` | Refused |  | ALTER TABLE DROP COLUMN A, B: Statement 2 runs only in Snowflake: ALTER TABLE with more than one column. DuckDB's ALTER TABLE changes one column at a time, and separate statements written here wouldn't change the table in one step. Write one ALTER TABLE for each column. |
 | `ALTER TABLE SWAP WITH` | Refused | `ALTER TABLE t SWAP WITH s` | ALTER TABLE ... SWAP WITH. DuckDB has no SWAP WITH. Rename the two tables one at a time with ALTER TABLE ... RENAME TO. |
-| `BEGIN` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
-| `START TRANSACTION` | Runs |  | 1 value check; labelled SFD-001 Unquoted names keep their case |
+| `BEGIN` | Runs |  | 1 value check |
+| `START TRANSACTION` | Runs |  | 1 value check |
 | `DDL INSIDE BEGIN` | Refused |  | DDL INSIDE BEGIN: Statement 4 runs only in Snowflake: CREATE, ALTER or DROP inside a transaction. Snowflake commits the open transaction before a CREATE, ALTER or DROP and runs it as its own transaction, where DuckDB keeps it inside the open one, so a later ROLLBACK would undo different work here. Put COMMIT before the statement. |
+| `VALUES` | Runs |  | 2 value checks |
 | `WITH` | Runs |  | 1 value check |
 | `UNION ALL` | Runs |  | 1 value check |
 | `CREATE STREAM` | Refused | `CREATE STREAM st ON TABLE t` | Streams. A stream tracks changes inside Snowflake; DuckDB has no equivalent. |

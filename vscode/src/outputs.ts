@@ -33,6 +33,10 @@ function json(value: unknown): string | undefined {
   }
 }
 
+// The image types the app sends (notebook.py _IMAGE_MIMES and SVG); bytes go to VS Code only as one of these.
+const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"];
+const NOT_AN_IMAGE: Item = { mime: "text/plain", text: "This image's type can't be shown here. Open the notebook in KratosForge to see it." };
+
 const UNREADABLE: Item = { mime: "text/plain", text: "This output is nested too deeply to show here. Open the notebook in KratosForge to see it." };
 
 /** Items whose text or bytes pass MAX_ITEM become one line saying so. */
@@ -51,10 +55,14 @@ function cell(value: unknown): string {
 }
 
 function table(out: Record<string, unknown>): Item[] {
-  const columns = (out.columns as string[]) || [];
-  const rows = (out.rows as unknown[][]) || [];
+  // Columns or rows that aren't lists aren't a table: the output shows a line instead (convert).
+  if ((out.columns !== undefined && !Array.isArray(out.columns)) || (out.rows !== undefined && !Array.isArray(out.rows))) {
+    throw new TypeError("not a table");
+  }
+  const columns = (Array.isArray(out.columns) ? out.columns : []).map(cell);
+  const rows = (Array.isArray(out.rows) ? out.rows : []).map((r) => (Array.isArray(r) ? r : [r]));
   const total = out.total_rows;
-  const note = `${rows.length} of ${typeof total === "number" ? total.toLocaleString("en-US") : total ?? rows.length} rows`;
+  const note = `${rows.length} of ${typeof total === "number" ? total.toLocaleString("en-US") : cell(total) || rows.length} rows`;
   const html = `<table><thead><tr>${columns.map((c) => `<th>${escape(c)}</th>`).join("")}</tr></thead><tbody>`
     + rows.map((r) => `<tr>${r.map((v) => `<td>${escape(cell(v))}</td>`).join("")}</tr>`).join("")
     + `</tbody></table><p>${escape(note)}</p>`;
@@ -78,7 +86,7 @@ function chart(mime: string, value: unknown, name: string): Output {
 }
 
 function convertOne(out: Record<string, unknown>): Output {
-  const text = (key: string) => String(out[key] ?? "");
+  const text = (key: string) => cell(out[key]);
   switch (out.type) {
     case "stream":
       return { items: capped([{ mime: STDOUT, text: plain(text("text")) }], "printed text") };
@@ -89,7 +97,8 @@ function convertOne(out: Record<string, unknown>): Output {
     case "html":
       return { items: capped([{ mime: "text/html", text: text("html") }], "HTML") };
     case "image": {
-      const mime = text("mime") || "image/png";
+      const mime = out.mime === undefined || out.mime === null || out.mime === "" ? "image/png" : out.mime;
+      if (typeof mime !== "string" || !IMAGE_MIMES.includes(mime)) return { items: [NOT_AN_IMAGE] };
       const data = text("data");
       if (data.length * 0.75 > MAX_ITEM) return { items: [tooBig("image", Math.floor(data.length * 0.75))] };
       const bytes = Buffer.from(data, "base64");

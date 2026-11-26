@@ -386,6 +386,14 @@ class _Started(Exception):
     pass
 
 
+class _NoJob:
+    def __init__(self, *args):
+        self.job = "job"
+
+    def close(self):
+        pass
+
+
 def _argv(monkeypatch, work, root, box):
     seen = []
 
@@ -393,6 +401,8 @@ def _argv(monkeypatch, work, root, box):
         seen.append(argv)
         raise _Started
     monkeypatch.setattr(sandbox, "_start", start)
+    # On Windows _run makes its job first; a stand-in keeps these 1-byte limits from reaching Windows.
+    monkeypatch.setattr(sandbox, "_WinJob", _NoJob)
     with pytest.raises(_Started):
         sandbox._run(work, work / "answer.py", root, [], 1, 1, 1, box)
     return seen[0]

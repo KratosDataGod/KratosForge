@@ -37,6 +37,26 @@ def test_an_array_of_text_and_numbers_keeps_each_elements_type():
     assert row == ('["hello",3.0,4,5]', '[1,2,"a"]', '[1,"a"]', 2, "a")
 
 
+@pytest.mark.parametrize(("sql", "expected"), [
+    ("SELECT ARRAY_CONSTRUCT(1, ARRAY_CONSTRUCT('a', 2))", [1, ["a", 2]]),
+    ("SELECT ARRAY_CONSTRUCT('x', 1, ARRAY_CONSTRUCT('a', 2))", ["x", 1, ["a", 2]]),
+    ("SELECT TO_JSON(ARRAY_CONSTRUCT('x', 1, ARRAY_CONSTRUCT('a', 2)))", '["x",1,["a",2]]'),
+    ("SELECT ARRAY_CONSTRUCT(ARRAY_CONSTRUCT(1, ARRAY_CONSTRUCT('a', 2)), 'z')", [[1, ["a", 2]], "z"]),
+    ("SELECT ARRAY_APPEND(ARRAY_CONSTRUCT(1), ARRAY_CONSTRUCT('a', 2))", [1, ["a", 2]]),
+    ("SELECT ARRAY_CONSTRUCT(ARRAY_CONSTRUCT('a', 2), ARRAY_CONSTRUCT(1))", [["a", 2], [1]]),
+])
+def test_an_array_holding_an_array_of_text_and_numbers(sql, expected):
+    # the inner array is a list of VARIANT values, so the array around it holds one beside other values and
+    # is made such a list too (a DuckDB list holds one type)
+    assert _run(sql)[0] == (expected,)
+
+
+def test_an_array_of_text_and_numbers_is_a_variant_list():
+    # the VARIANT[] cast around the list is what TO_JSON and the result grid read it by
+    _, types = _run("SELECT ARRAY_CONSTRUCT(1, 'a') AS a, ARRAY_CONSTRUCT(1, ARRAY_CONSTRUCT('a', 2)) AS b")
+    assert [str(t) for t in types] == ["VARIANT[]", "VARIANT[]"]
+
+
 def test_an_array_of_one_kind_stays_a_plain_list():
     sql = sf.translate("SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(0, 1), 1, 9), ARRAY_CONSTRUCT('a', NULL)").duckdb_sql
     assert "VARIANT" not in sql

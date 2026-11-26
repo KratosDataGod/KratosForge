@@ -204,16 +204,32 @@ def _scalar_kind(node: exp.Expression | None) -> str:
     return "other"
 
 
+def _array_values(node: object) -> list[Any] | None:
+    if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
+        return list(node.expressions)
+    if isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
+        return [*node.this.expressions, node.args.get("expression")]
+    return None
+
+
 def _mixed_array(node: object) -> bool:
     """SFX-075: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
-    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one)."""
-    if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
-        values = list(node.expressions)
-    elif isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
-        values = [*node.this.expressions, node.args.get("expression")]
-    else:
+    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one).
+    So is one that holds such an array (made a list of VARIANT values first) beside any other value, which
+    a DuckDB list can't hold either: ARRAY_CONSTRUCT(1, ARRAY_CONSTRUCT('a', 2))."""
+    values = _array_values(node)
+    if values is None:
         return False
-    return {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}
+    if {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}:
+        return True
+    lists = [_is_variant_list(v) for v in values if _scalar_kind(v) != "null"]
+    return any(lists) and not all(lists)
+
+
+def _is_variant_list(node: object) -> bool:
+    """A VARIANT[] cast, as _variant_arrays writes an array of text and numbers."""
+    return (isinstance(node, exp.Cast) and node.to.this == exp.DataType.Type.ARRAY
+            and bool(node.to.expressions) and node.to.expressions[0].this == exp.DataType.Type.VARIANT)
 
 
 def _set_leaves(node: exp.Expr) -> list[exp.Select]:
@@ -1198,8 +1214,10 @@ def _variant_arrays(statement: exp.Expression) -> None:
     an ARRAY column is (SFX-024), so each element keeps its own type, as in Snowflake's array; a DuckDB list of
     plain values holds one type. SFN-025, which refused it, is retired."""
     variant = exp.DataType.build("VARIANT")
-    for node in list(statement.find_all(exp.Array, exp.ArrayConstructCompact, exp.ArrayInsert, exp.ArrayPrepend,
-                                        exp.ArrayAppend)):
+    # deepest first (find_all goes breadth first): an array inside a mixed one is made a VARIANT[] before the
+    # array around it is looked at, which then holds a VARIANT[] beside other values and is made one too
+    for node in reversed(list(statement.find_all(exp.Array, exp.ArrayConstructCompact, exp.ArrayInsert,
+                                                 exp.ArrayPrepend, exp.ArrayAppend))):
         if not _mixed_array(node):
             continue
         array = node if isinstance(node, (exp.Array, exp.ArrayConstructCompact)) else node.this

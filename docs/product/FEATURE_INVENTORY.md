@@ -66,8 +66,8 @@ on quality.
 <!-- BEGIN GENERATED: summary -->
 | Status | Verified | Partially Verified | Unverified | Total |
 | --- | ---: | ---: | ---: | ---: |
-| Implemented | 2 | 116 | 3 | 121 |
-| Partially Implemented | 1 | 10 | 2 | 13 |
+| Implemented | 3 | 116 | 3 | 122 |
+| Partially Implemented | 0 | 10 | 2 | 12 |
 | Implemented but Not Exposed | 0 | 3 | 0 | 3 |
 | Missing | 0 | 0 | 2 | 2 |
 | Planned | 0 | 0 | 4 | 4 |
@@ -241,7 +241,7 @@ on quality.
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-SHL-08](#feat-shl-08) | Settings and the organization policy file | Implemented | Partially Verified | Settings (locked values show 'Set by your organization') | Missing keys through the enterprise program (PB-061); #569 closed the ten audit bugs #411 to #420. |
 | [FEAT-SHL-10](#feat-shl-10) | Report a problem with redaction | Implemented | Partially Verified | Account menu, Settings > Help, command bar | Keep. The user guide says what a report takes out (tenant name, email addresses), which matches the code. |
-| [FEAT-SHL-11](#feat-shl-11) | Support bundle | Partially Implemented | Verified | CLI only (fabric-desktop support-bundle) | Add 'Save support bundle' with a contents preview to Settings, as FD-138's acceptance asks (PB-062). |
+| [FEAT-SHL-11](#feat-shl-11) | Support bundle | Implemented | Verified | Settings > Help and about > Save support bundle; CLI fabric-desktop support-bundle | Keep. Settings saves the bundle after showing what it holds (#1679), as FD-138 asks. |
 | [FEAT-PRV-05](#feat-prv-05) | Scorecard and run measurement | Implemented | Partially Verified | Prove > Full scorecard (Preview) | Measure the kernel child process when it is on (FD-119). |
 | [FEAT-META-18](#feat-meta-18) | Estate X-ray and adopt | Implemented | Partially Verified | Home > Estate X-ray (Preview) | Keep. |
 | [FEAT-ORC-05](#feat-orc-05) | Agent status records | Implemented | Partially Verified | Monitor > KratosForge > Operations > Agents (Preview) | Implementation review of PR #133. |
@@ -471,19 +471,19 @@ on quality.
 
 ### FEAT-SHL-11
 
-**Support bundle.** A zip of versions, settings sources and the last 2,000 log lines with personal details taken out.
+**Support bundle.** A zip of versions, settings sources and the last 2,000 log lines with personal details taken out, saved from Settings after a preview of what it holds.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
-- **Status:** Partially Implemented. **Verification:** Verified.
-- **Where people reach it:** CLI only (fabric-desktop support-bundle)
-- **Evidence:** test: sidecar/tests/test_redact.py::test_support_bundle_holds_versions_and_logs_with_personal_details_taken_out (sidecar suite passed in this assessment (656 passed, 2 skipped)); smoke: fabric-desktop support-bundle --out <dir> wrote about.json and CONTENTS.txt
-- **Source:** `sidecar/fabric_desktop/support_bundle.py`, `sidecar/fabric_desktop/cli.py`
-- **Tests:** `sidecar/tests/test_redact.py`
-- **Known limitations:** No UI entry and no RPC. Non-Windows data folder differs from app_settings' folder.
+- **Status:** Implemented. **Verification:** Verified.
+- **Where people reach it:** Settings > Help and about > Save support bundle; CLI fabric-desktop support-bundle
+- **Evidence:** test: sidecar/tests/test_redact.py::test_support_bundle_holds_versions_and_logs_with_personal_details_taken_out (sidecar suite passed in this assessment (656 passed, 2 skipped)); smoke: fabric-desktop support-bundle --out <dir> wrote about.json and CONTENTS.txt; test: app/tests/browser/support-bundle.test.cjs (the dialog lists each file with its size; Save writes the zip and Show in folder reveals it); test: sidecar/tests/test_support_bundle_save.py (support_bundle_preview and support_bundle_save RPCs)
+- **Source:** `sidecar/fabric_desktop/support_bundle.py`, `sidecar/fabric_desktop/cli.py`, `sidecar/fabric_desktop/service.py`, `app/ui/settings.js`
+- **Tests:** `sidecar/tests/test_redact.py`, `sidecar/tests/test_support_bundle_save.py`, `app/tests/browser/support-bundle.test.cjs`
+- **Known limitations:** Non-Windows data folder differs from app_settings' folder.
 - **Pull requests and issues:** [#1177](https://github.com/KratosDataGod/KratosForge/pull/1177), [#1379](https://github.com/KratosDataGod/KratosForge/pull/1379), [#1387](https://github.com/KratosDataGod/KratosForge/pull/1387), [#1392](https://github.com/KratosDataGod/KratosForge/pull/1392), [#1679](https://github.com/KratosDataGod/KratosForge/pull/1679), [#1870](https://github.com/KratosDataGod/KratosForge/pull/1870), [#2433](https://github.com/KratosDataGod/KratosForge/pull/2433), [#2457](https://github.com/KratosDataGod/KratosForge/pull/2457), [#2599](https://github.com/KratosDataGod/KratosForge/pull/2599), [#3027](https://github.com/KratosDataGod/KratosForge/pull/3027), [#3182](https://github.com/KratosDataGod/KratosForge/pull/3182)
 - **Owning workstream:** Enterprise readiness (FD-138)
 - **Backlog:** [PB-062](PRODUCT_BACKLOG.md#pb-062)
-- **Recommended next action:** Add 'Save support bundle' with a contents preview to Settings, as FD-138's acceptance asks (PB-062).
+- **Recommended next action:** Keep. Settings saves the bundle after showing what it holds (#1679), as FD-138 asks.
 
 ### FEAT-AUTH-01
 

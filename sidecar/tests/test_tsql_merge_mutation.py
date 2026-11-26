@@ -44,10 +44,6 @@ def test_a_merge_after_another_statement_still_needs_its_semicolon():
         tsql_merge.refuse_unterminated(KfTSQL().tokenize(sql))
 
 
-@pytest.mark.xfail(strict=True, reason="Bug: _insert refuses an INSERT without VALUES only when sqlglot's "
-                   "expression is None, but sqlglot gives False for one, so WHEN NOT MATCHED THEN INSERT; ran "
-                   "(inserting the source row) and INSERT (id, v); stopped with DuckDB's parser error, where T-SQL "
-                   "needs VALUES or DEFAULT VALUES")
 @pytest.mark.parametrize("insert", ["INSERT", "INSERT (id, v)"])
 def test_an_insert_without_values_is_refused_by_name(insert):
     sql = f"MERGE dbo.tgt AS t USING dbo.src AS src {ON} WHEN NOT MATCHED THEN {insert};"

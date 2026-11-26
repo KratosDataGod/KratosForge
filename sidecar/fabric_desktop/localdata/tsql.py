@@ -240,6 +240,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     notes += _collations(tree)
     _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
     _national_text(tree)
+    _text_calls(tree)
     notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
     notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
     tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
@@ -270,8 +271,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     _sharp_s(tree)
     _key_columns(tree)
     tsql_types.expand_datetimes(tree)
-    if known is not None:
-        _unknown_functions(tree, known)
+    _unknown_functions(tree, known)
     tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
     if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
                                            for a in tree.args.get("actions") or []) > 1:
@@ -1182,6 +1182,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     for node, info in pairs:
         if id(node) in done:
             continue
+        if isinstance(node, _INT_OPS):
+            _int_operands(node, info)
         if isinstance(node, exp.Sub | exp.Mul):
             pass  # numbers, as DuckDB does them; only decimals need T-SQL's precision and scale
         elif isinstance(node, exp.WithinGroup):
@@ -1228,7 +1230,12 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 _stays_a_date(node)
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
-            if _is(a, _TEXT) and _is(b, _TEXT):
+            if _is(a, _TEXT) and (_is(b, _TEXT) or _null(info.expression)) or _null(info.this) and _is(b, _TEXT):
+                # string-concatenation-transact-sql: with CONCAT_NULL_YIELDS_NULL ON, a warehouse's setting, text +
+                # NULL is NULL, of the text's type; DuckDB has no + for text and NULL (WR-276).
+                for side in ("this", "expression"):
+                    if _null(node.args[side]):
+                        node.set(side, exp.cast(exp.null(), "VARCHAR"))
                 node.replace(exp.DPipe(this=node.this, expression=node.expression, safe=False))
             elif _is(a, _TEXT) and _is(b, _NUMBERS):
                 # A number outranks text in T-SQL: '1' + 1 is 2 (and 'x' + 1 is an error).
@@ -1443,13 +1450,60 @@ def _checked(node: exp.Expression, case: str) -> None:
     next(c for c in at.find_all(exp.Column) if c.name == "kf_holder").replace(node)
 
 
-_NEGATED_IN = {exp.DataType.Type.INT: ("INT", "BIGINT", "int"), exp.DataType.Type.BIGINT: ("BIGINT", "HUGEINT", "bigint")}
+_NEGATED_IN = {exp.DataType.Type.SMALLINT: ("SMALLINT", "INT", "smallint"), exp.DataType.Type.INT: ("INT", "BIGINT", "int"),
+               exp.DataType.Type.BIGINT: ("BIGINT", "HUGEINT", "bigint")}
+_TINY = {exp.DataType.Type.UTINYINT, exp.DataType.Type.TINYINT}
+
+
+def _null(typed: exp.Expression) -> bool:
+    """``typed`` is NULL as written, maybe in brackets."""
+    while isinstance(typed, exp.Paren):
+        typed = typed.this
+    return isinstance(typed, exp.Null)
+
+
+_INT_OPS = (exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod)
+
+
+def _tsql_int(typed: exp.Expression) -> Any:
+    """The T-SQL integer type of ``typed``, a DataType.Type (UTINYINT for tinyint; sqlglot's Type is a variable,
+    which mypy doesn't take as a type), or None when it isn't an integer: an operator on
+    two integers has the wider one's type (data-types/data-type-precedence-transact-sql), and ``-`` of a tinyint is a
+    smallint (language-elements/unary-operators-negative)."""
+    while isinstance(typed, exp.Paren):
+        typed = typed.this
+    if isinstance(typed, exp.Neg):
+        inner = _tsql_int(typed.this)
+        return exp.DataType.Type.SMALLINT if inner in _TINY else inner
+    if isinstance(typed, _INT_OPS):
+        a, b = _tsql_int(typed.this), _tsql_int(typed.expression)
+        return None if a is None or b is None else max(a, b, key=_INT_RANK.index)
+    kind = _int_kind(typed)
+    if kind is None or kind.this not in _INT_RANK:
+        return None
+    return exp.DataType.Type.UTINYINT if kind.this in _TINY else kind.this
+
+
+def _int_operands(node: exp.Expression, info: exp.Expression) -> None:
+    """WR-276: ``+ - * / %`` of two integers of different sizes converts the smaller one to the larger one's type
+    first (data-types/data-type-precedence-transact-sql: "the data type with the lower precedence is first converted
+    to the data type with the higher precedence"), so ``si + 1`` of a smallint 32767 is the int 32768. DuckDB kept
+    the literal at the column's size and overflowed a SMALLINT. Two of the same type keep it, as in T-SQL, and
+    overflow with error 8115 in that type's name (tsql_errors)."""
+    a, b = _tsql_int(info.this), _tsql_int(info.expression)
+    if a is None or b is None or a == b:
+        return
+    side = "this" if _INT_RANK.index(a) < _INT_RANK.index(b) else "expression"
+    node.set(side, exp.Cast(this=node.args[side], to=exp.DataType.build(max(a, b, key=_INT_RANK.index))))
 
 
 def _negated(node: exp.Neg, kind: exp.DataType | None) -> None:
     """WR-247: ``-x`` of an int's (or a bigint's) smallest value is error 8115 in T-SQL. DuckDB says "Overflow in
     negation of numeric value!", without the type, and DuckDB 2.0 works ``-(-2147483647 - 1)`` out as a BIGINT,
     2147483648. So it is negated a size wider and checked on the way back."""
+    if kind is not None and kind.this in _TINY:  # WR-276: -tinyint is a smallint, which -255 always fits
+        node.set("this", exp.Cast(this=node.this, to=exp.DataType.build("SMALLINT")))
+        return
     if kind is None or kind.this not in _NEGATED_IN:
         return
     to, wider, name = _NEGATED_IN[kind.this]
@@ -2785,6 +2839,28 @@ def _gaps(tree: exp.Expression) -> None:
                              "Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_CAST to the type you need.")
 
 
+# functions/string-escape-transact-sql: the JSON special characters, and CHAR(0) to CHAR(31) as \u0000 to \u001f.
+# The reverse solidus goes first, so the ones the others add aren't escaped again.
+_JSON_ESCAPES = [(92, "\\\\"), (34, '\\"'), (47, "\\/"), (8, "\\b"), (12, "\\f"), (10, "\\n"), (13, "\\r"),
+                 (9, "\\t")] + [(c, f"\\u{c:04x}") for c in range(32) if c not in (8, 9, 10, 12, 13)]
+
+
+def _string_escape(args: list[exp.Expression]) -> exp.Expression:
+    """``STRING_ESCAPE(text, 'json')`` (WR-276): text with each character of the page's tables replaced by its
+    sequence, NULL for NULL. The text is read once, at the heart of the REPLACEs."""
+    kind = args[1]
+    if not (isinstance(kind, exp.Literal) and kind.is_string and kind.name == "json"):
+        raise ValueError(_NOT_YET + "STRING_ESCAPE runs here with its type written as 'json', the one type T-SQL "
+                         "takes.")
+    # nvarchar(max) in and out, as the page has it: a CAST to text with no length would be cut to 30 characters,
+    # and the outer one types the REPLACEs as text for the passes after (+ joining it to text).
+    out: exp.Expression = exp.Cast(this=args[0].copy(), to=exp.DataType.build("VARCHAR(MAX)", dialect="tsql"))
+    for code, sequence in _JSON_ESCAPES:
+        out = exp.Replace(this=out, expression=exp.Chr(expressions=[exp.Literal.number(code)]),
+                          replacement=exp.Literal.string(sequence))
+    return exp.Cast(this=out, to=exp.DataType.build("VARCHAR(MAX)", dialect="tsql"))
+
+
 _QUOTES = {"[": ("[", "]"), "]": ("[", "]"), '"': ('"', '"'), "'": ("'", "'")}
 
 
@@ -3037,14 +3113,53 @@ def _refused_by_name(tree: exp.Expression) -> None:
                              "a Fabric Warehouse stops on it. Use ROWS BETWEEN n PRECEDING AND CURRENT ROW to count rows.")
 
 
-def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
-    """A function DuckDB doesn't have is refused by its T-SQL name, not with DuckDB's catalog error."""
+# WR-276: T-SQL's built-in functions (Microsoft Learn's function lists) that aren't carried yet. Each reached DuckDB
+# as written and stopped with its catalog error, or, for JARO_WINKLER_SIMILARITY, ran DuckDB's function of that name,
+# a float from 0 to 1 where T-SQL's is an int from 0 to 100. They're refused by name whether or not the caller passes
+# the engine's function list.
+_NOT_CARRIED = frozenset("""
+    APP_NAME APPLOCK_MODE APPLOCK_TEST ASSEMBLYPROPERTY ASYMKEY_ID ASYMKEYPROPERTY BINARY_CHECKSUM CERT_ID CERTENCODED
+    CERTPRIVATEKEY CERTPROPERTY CHECKSUM CHECKSUM_AGG COL_LENGTH COL_NAME COLUMNPROPERTY COLUMNS_UPDATED
+    CONNECTIONPROPERTY CONTEXT_INFO CRYPT_GEN_RANDOM CURRENT_REQUEST_ID CURRENT_TIMEZONE CURRENT_TIMEZONE_ID
+    CURSOR_STATUS DATABASE_PRINCIPAL_ID DATABASEPROPERTYEX DATE_BUCKET DATETIME2FROMPARTS DATETIMEOFFSETFROMPARTS DB_ID
+    DB_NAME DECOMPRESS DECRYPTBYASYMKEY DECRYPTBYCERT DECRYPTBYKEY DECRYPTBYKEYAUTOASYMKEY DECRYPTBYKEYAUTOCERT
+    DECRYPTBYPASSPHRASE DIFFERENCE EDIT_DISTANCE EDIT_DISTANCE_SIMILARITY ENCRYPTBYASYMKEY ENCRYPTBYCERT ENCRYPTBYKEY
+    ENCRYPTBYPASSPHRASE EVENTDATA FILE_ID FILE_IDEX FILE_NAME FILEGROUP_ID FILEGROUP_NAME FILEGROUPPROPERTY FILEPROPERTY
+    FORMATMESSAGE FULLTEXTCATALOGPROPERTY FULLTEXTSERVICEPROPERTY GET_FILESTREAM_TRANSACTION_CONTEXT GETANSINULL
+    HAS_DBACCESS HAS_PERMS_BY_NAME HASHBYTES HOST_ID HOST_NAME IDENT_CURRENT IDENT_INCR IDENT_SEED INDEX_COL
+    INDEXKEY_PROPERTY INDEXPROPERTY IS_MEMBER IS_OBJECTSIGNED IS_ROLEMEMBER IS_SRVROLEMEMBER ISDATE
+    JARO_WINKLER_DISTANCE JARO_WINKLER_SIMILARITY JSON_MODIFY JSON_PATH_EXISTS KEY_GUID KEY_ID KEY_NAME LEFT_SHIFT
+    LOGINPROPERTY MIN_ACTIVE_ROWVERSION NEWSEQUENTIALID OBJECT_DEFINITION OBJECT_NAME OBJECT_SCHEMA_NAME OBJECTPROPERTY
+    OBJECTPROPERTYEX ORIGINAL_DB_NAME ORIGINAL_LOGIN PERMISSIONS PWDCOMPARE PWDENCRYPT RIGHT_SHIFT ROWCOUNT_BIG
+    SCHEMA_ID SCOPE_IDENTITY SERVERPROPERTY SESSION_CONTEXT SESSIONPROPERTY SIGNBYASYMKEY SIGNBYCERT
+    SMALLDATETIMEFROMPARTS SQL_VARIANT_PROPERTY STATS_DATE SUSER_ID SUSER_SID SWITCHOFFSET SYMKEYPROPERTY
+    TODATETIMEOFFSET TRIGGER_NESTLEVEL TYPE_ID TYPE_NAME TYPEPROPERTY UNISTR USER_ID USER_NAME VECTOR_DISTANCE
+    VECTOR_NORM VECTOR_NORMALIZE VECTORPROPERTY VERIFYSIGNEDBYASYMKEY VERIFYSIGNEDBYCERT XACT_STATE
+""".split())
+# T-SQL functions the translator rewrites when they have as many arguments as T-SQL takes: one left as written had
+# another number, which T-SQL stops on too.
+_REWRITTEN = frozenset({"CHOOSE", "DATALENGTH", "NCHAR", "PARSENAME", "QUOTENAME", "STDEV", "STDEVP", "STR",
+                        "STRING_ESCAPE", "VAR", "VARP"})
+
+
+def _unknown_functions(tree: exp.Expression, known: Container[str] | None) -> None:
+    """A function DuckDB doesn't have is refused by its T-SQL name, not with DuckDB's catalog error: a T-SQL built-in
+    that isn't carried yet always, and with ``known`` (the engine's function names) any other."""
     for call in tree.find_all(exp.Anonymous):
         name = call.name.upper()
         if name in _ERROR_READERS:
             raise ValueError(_NOT_YET + _ERROR_READ.format(name=f"{name}()"))
-        if name and name not in known:
+        builtin = not isinstance(call.parent, exp.Dot)  # dbo.f(...) is a function of the project's own
+        if builtin and name in _NOT_CARRIED:
             raise ValueError(_NOT_YET + f"{name} isn't mapped yet.")
+        if builtin and name in _REWRITTEN:
+            count = len(call.expressions)
+            raise ValueError(f"{name} can't take {count} argument{'' if count == 1 else 's'}, so nothing ran "
+                             "(T-SQL stops on it too). See its Microsoft Learn page for the arguments it takes.")
+        if known is not None and name and name not in known:
+            raise ValueError(_NOT_YET + f"{name} isn't mapped yet.")
+    if any(True for _ in tree.find_all(exp.CurrentTimezone)):  # sqlglot reads CURRENT_TIMEZONE() as its own node
+        raise ValueError(_NOT_YET + "CURRENT_TIMEZONE isn't mapped yet.")
     if any(True for _ in tree.find_all(exp.CurrentTimestampLTZ)):
         raise ValueError(_NOT_YET + "SYSDATETIMEOFFSET isn't mapped yet. A warehouse's clock is UTC: "
                          "SYSUTCDATETIME() gives the same time without the offset.")
@@ -3526,6 +3641,9 @@ def _char_codes(tree: exp.Expression) -> None:
       input range", functions/char-transact-sql), and a count with a fraction is made an int first, toward
       zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal)."""
     for node in reversed(list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr))):  # deepest first: see _once
+        if isinstance(node, exp.Chr) and node.meta.get(_NCHAR):
+            _nchar(node)
+            continue
         if isinstance(node, (exp.Ascii, exp.Unicode)):
             text = node.this
             if not (isinstance(text, exp.Literal) and text.is_string and text.name):
@@ -3543,6 +3661,52 @@ def _char_codes(tree: exp.Expression) -> None:
         # The code is read once, and then its int once, so CHAR(RAND() * 300) draws one number, checks and
         # converts that one, and a call nested in the code is written once.
         node.replace(_once([code], lambda c: _once([_int_of(c)], _char_of)))
+
+
+_LAST_CODE = 0x10FFFF
+_SURROGATES = (0xD800, 0xDFFF)
+_SURROGATE = ("NCHAR of 55296 to 57343 (0xD800 to 0xDFFF) isn't mapped yet: each is half of a UTF-16 surrogate pair, "
+              "which the local engine's text can't hold. Give the character's own code, such as NCHAR(143743).")
+
+
+_NCHAR = "kf_nchar"
+
+
+def _text_calls(tree: exp.Expression) -> None:
+    """WR-276: NCHAR and STRING_ESCAPE as text before the types are read, so ``NCHAR(65) + 'b'`` joins two strings.
+    NCHAR becomes CHAR's node, marked, and _char_codes gives it NCHAR's range."""
+    for call in reversed(list(tree.find_all(exp.Anonymous))):  # deepest first
+        name, args = call.name.upper(), call.expressions
+        if name == "NCHAR" and len(args) == 1:
+            node = exp.Chr(expressions=[args[0]])
+            node.meta[_NCHAR] = True
+            call.replace(node)
+        elif name == "STRING_ESCAPE" and len(args) == 2:
+            call.replace(_string_escape(args))
+
+
+def _nchar(node: exp.Chr) -> None:
+    """``NCHAR(n)`` (WR-276): the Unicode character n, for 0 to 1114111 (functions/nchar-transact-sql, with a
+    collation that supports supplementary characters, as a warehouse's UTF-8 one does), and NULL outside it; a count
+    with a fraction is made an int first, as CHAR's is. sqlglot read NCHAR as the type, and DuckDB stopped."""
+    code = node.expressions[0]
+    value = _number(code)
+    if value is not None:
+        whole = _in_range(int(value) if math.isfinite(value) else _INFINITE, "int")
+        if _SURROGATES[0] <= whole <= _SURROGATES[1]:
+            raise ValueError(_NOT_YET + _SURROGATE)
+        node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= _LAST_CODE
+                     else exp.cast(exp.null(), "TEXT"))
+        return
+    node.replace(_once([code], lambda c: _once([_int_of(c)], _nchar_of)))
+
+
+def _nchar_of(v: exp.Expression) -> exp.Expression:
+    """``NCHAR`` of the int ``v``: T-SQL's overflow error past an int, NULL outside 0 to 1114111."""
+    half = exp.Between(this=v.copy(), low=exp.Literal.number(_SURROGATES[0]), high=exp.Literal.number(_SURROGATES[1]))
+    inside = exp.Between(this=v.copy(), low=exp.Literal.number(0), high=exp.Literal.number(_LAST_CODE))
+    return exp.Case(ifs=[_past(v, "int"), exp.If(this=half, true=exp.func("ERROR", exp.Literal.string(_SURROGATE))),
+                         exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(v.copy(), "INT")]))])
 
 
 def _char_of(v: exp.Expression) -> exp.Expression:

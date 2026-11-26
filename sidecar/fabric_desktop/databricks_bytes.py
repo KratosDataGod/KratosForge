@@ -86,11 +86,10 @@ def bit_reverse(kind: str, value: int | None) -> int | None:
 
 
 def register(con: Any) -> None:
-    """Add the __kf_ functions above to DuckDB connection ``con``. A NULL argument gives NULL."""
-    from duckdb.sqltypes import BIGINT, BOOLEAN, VARCHAR
+    """Add the __kf_ functions above to DuckDB connection ``con``, but __kf_url_decode, which Spark SQL uses too
+    (spark_hash.register adds it). A NULL argument gives NULL."""
+    from duckdb.sqltypes import BIGINT, VARCHAR
     pure: dict[str, Any] = {"side_effects": False}
-    con.create_function("__kf_url_decode", url_decode, [VARCHAR, BOOLEAN], VARCHAR, null_handling="special",
-                        **pure)  # try_url_decode gives NULL for bad input
     con.create_function("__kf_make_valid_utf8", make_valid_utf8, [VARCHAR], VARCHAR, **pure)
     con.create_function("__kf_hmac", hmac, [VARCHAR, VARCHAR, VARCHAR], VARCHAR, **pure)
     con.create_function("__kf_bit_reverse", bit_reverse, [VARCHAR, BIGINT], BIGINT, **pure)

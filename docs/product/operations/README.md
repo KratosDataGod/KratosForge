@@ -61,7 +61,7 @@ WR story ids come from a ledger, [story-ids.json](story-ids.json), so two lanes 
 
 | Lane | Workstream | Ids |
 | --- | --- | --- |
-| Local engine | Local Execution | WR-100 to WR-199, apart from Notebook parity's block; next WR-146, and WR-123 to WR-129 stay free |
+| Local engine | Local Execution | WR-100 to WR-199, apart from Notebook parity's block; next WR-147 (WR-146 is the decimal branch), and WR-123 to WR-129 stay free |
 | Notebook parity | Developer Experience | WR-130 to WR-139; next WR-138 (WR-135 to WR-137 are used by #3368) |
 | Warehouse | Microsoft Fabric | WR-200 to WR-269 (used up) and WR-700 to WR-749; next WR-708 |
 | SQL translator | Microsoft Fabric | WR-270 to WR-299 |

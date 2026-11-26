@@ -88,7 +88,7 @@
     },
     {
       "kind": "config_matches",
-      "fail": "A deployment rule is missing, can't exist, or is made by the wrong person.",
+      "fail": "A deployment rule is missing, can't exist or is made by the wrong person.",
       "pass": "Each later stage points the notebook and the mirror at its own lakehouse and database.",
       "rules": [
         {

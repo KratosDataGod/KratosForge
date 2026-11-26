@@ -116,7 +116,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E64 | Read a query plan and fix the expensive step | 3.3.6 | G | LV | duckdb | 20 | LM-18 |
 | E72 | Monitor ingestion: the Copy runs that succeeded but didn't load what they should | 3.1.1 | C | SIM +FV | duckdb (`runs`) | 20 | |
 | E80 | Compact a partitioned Delta table and keep time travel | 3.3.1 | C | LV | delta | 25 | LM-25 |
-| E90 | Refresh history: failures in a row, a schedule turned off, and slow refreshes | 3.1.3 | C | SIM +FV | duckdb (`runs`) | 20 | LM-09 |
+| E90 | Refresh history: failures in a row, a schedule turned off and slow refreshes | 3.1.3 | C | SIM +FV | duckdb (`runs`) | 20 | LM-09 |
 | E91 | Alerts: pipeline notifications, refresh failure emails and Activator rules | 3.1.4 | C | SIM +FV | config | 20 | |
 | E92 | Optimize a pipeline: partitioned copy, copy parallelism, throughput and no waits | 3.3.2 | C | SIM +FV | config | 25 | |
 

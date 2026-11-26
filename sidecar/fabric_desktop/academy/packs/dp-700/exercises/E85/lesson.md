@@ -17,6 +17,6 @@ This lab is a model, not Fabric. domains.json holds the people, the workspaces, 
 ## What it doesn't prove
 
 - That any domain is created or any workspace assigned in Fabric. Nothing is set here.
-- The tenant setting that lets Fabric and domain admins override existing workspace assignments. It's in preview, so the needs keep Fleet-Ops off the LOG-F64 capacity.
+- The tenant setting that lets Fabric and domain admins override existing workspace assignments. It's in preview, so this exercise keeps Fleet-Ops off the LOG-F64 capacity.
 - Domain settings that override tenant settings, such as certification and a default sensitivity label.
 - Whether a subdomain can be a default domain. The domains page doesn't say.

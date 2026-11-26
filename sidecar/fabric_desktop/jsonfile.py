@@ -33,6 +33,16 @@ REPLACE_BACKOFF = 0.05
 KEEP_SET_ASIDE = 5
 
 
+def damaged(message: str) -> ValueError:
+    """The ValueError for a file on disk that can't be read as what it should be (cut off, not JSON,
+    the wrong shape). It is a plain ValueError, so the app shows and logs it as before; it is marked
+    ``damaged_file`` so the local API and MCP tools answer ``failed`` for it (the request was right,
+    the file is what's wrong), where any other ValueError is ``invalid_input``."""
+    exc = ValueError(message)
+    exc.damaged_file = True  # type: ignore[attr-defined]
+    return exc
+
+
 def write_json(path: Path, data: Any, indent: int | None = 2) -> None:
     write_text(path, json.dumps(data, indent=indent))
 

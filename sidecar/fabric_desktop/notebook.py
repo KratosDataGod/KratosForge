@@ -3247,18 +3247,20 @@ class NotebookStore:
                    "file has been left as it is. Fix it in a text editor, or put back an earlier copy.")
         try:
             nb = json.loads(self.path(name).read_text(encoding="utf-8"))
+        except UnicodeEncodeError as exc:  # the name can't be a file name here (a lone surrogate on Linux): the
+            raise ValueError(damaged) from exc  # argument, not the file, so a plain ValueError (invalid_input), as before
         except (ValueError, RecursionError) as exc:  # cut off by a power cut, NUL bytes, Git conflict markers
-            raise ValueError(damaged) from exc
+            raise jsonfile.damaged(damaged) from exc
         problem = ipynb_cell_problem(nb["cells"]) if isinstance(nb, dict) and isinstance(nb.get("cells"), list) else None
         if problem:
-            raise ValueError(f"{self.path(name).name} can't be opened, because {problem}. The file has been left as it "
-                             "is. Fix that cell in a text editor or Jupyter, then open it again.")
+            raise jsonfile.damaged(f"{self.path(name).name} can't be opened, because {problem}. The file has been left as it "
+                                        "is. Fix that cell in a text editor or Jupyter, then open it again.")
         try:
             loaded = _loaded_notebook(nb)
             stamp = disk_stamp(nb)
         except (ValueError, TypeError, AttributeError, RecursionError) as exc:
             # JSON that isn't a notebook (a list, a lakehouse that is text): left as it is
-            raise ValueError(damaged) from exc
+            raise jsonfile.damaged(damaged) from exc
         return {"name": name, **loaded, "disk_stamp": stamp}
 
     def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,

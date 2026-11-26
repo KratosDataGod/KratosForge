@@ -157,7 +157,7 @@ def test_a_damaged_project_json_is_left_out_of_the_list_and_named_when_asked_for
     app.project_json.write_bytes(PROJECT_DAMAGE[damage](app.project_json.read_bytes()))
     assert ok(call(reg, tool, "fabric_desktop_list_local_projects", tmp_path))["projects"] == []
     for cap_id, args in (("fabric_desktop_get_local_tables", {}), ("fabric_desktop_get_local_table_history", {"table": "main.big_orders"})):
-        err = failed(call(reg, tool, cap_id, tmp_path, project=app.pid, **args), "invalid_input", "failed")
+        err = failed(call(reg, tool, cap_id, tmp_path, project=app.pid, **args), "failed")
         assert "project.json" in err.message, err.message
     assert opened(tool) == []
 
@@ -179,7 +179,7 @@ def test_a_catalog_entry_that_isnt_an_object_is_named_not_a_crash(reg, app, tool
     assert out["unreadable"] == ["main.junk"] and {t["table"] for t in out["items"]} == {"orders", "big_orders"}
     # Was: internal, "TableNotFoundError: Local path "5" does not exist".
     failed(call(reg, tool, "fabric_desktop_get_local_table_history", tmp_path, project=app.pid, table="main.big_orders"),
-           "invalid_input")
+           "failed")
 
 
 @pytest.mark.parametrize("damage", ["empty", "a list", "a bad entry", "truncated"])
@@ -441,7 +441,7 @@ def test_a_damaged_notebook_is_named_by_every_notebook_tool(reg, nbsvc, tmp_path
         else:
             # The file is named, and so is the cell when one is the problem (the reader's cell check, #3232).
             start = "bad.ipynb can't be opened, because" if damage in CELL_NAMED else "bad.ipynb is damaged"
-            assert failed(out, "invalid_input").message.startswith(start), cap_id
+            assert failed(out, "failed").message.startswith(start), cap_id
     names = [n["name"] for n in ok(call(reg, nbsvc, "fabric_desktop_list_notebooks", tmp_path))["items"]]
     assert set(names) == {"good", "bad"}
     ok(call(reg, nbsvc, "fabric_desktop_get_project", tmp_path, id="notebooks"))
@@ -691,7 +691,7 @@ def test_damaged_data_over_mcp_is_a_structured_error_without_paths(app, tmp_path
         out = results[name]
         assert out.is_error, name
         err = out.structured_content["error"]
-        assert err["code"] in ("invalid_input", "failed"), err
+        assert err["code"] == "failed", err
         text = out.content[0].text
         assert "Traceback" not in text and "<unknown>" not in text, text
         assert not any(p in text for p in _places(tmp_path)), text

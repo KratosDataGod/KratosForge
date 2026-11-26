@@ -49,6 +49,7 @@ from . import delta, tsql, tsql_errors, tsql_merge
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
+from ..jsonfile import damaged as damaged_file
 from ..redact import describe, one_line
 from ..sql import KfDuckDB, refuse_spark_hashes
 from .. import trees
@@ -1249,7 +1250,7 @@ class LocalEngine:
         if entry is None:
             raise ValueError(f"{name} isn't a Delta table in {self.project.name}, so it has no versions.")
         if not isinstance(entry, dict) or not isinstance(entry.get("folder") or "", str):  # a hand-edited project.json
-            raise ValueError(f"{name}'s entry in {self.project.name}'s saved catalog (project.json) can't be read.")
+            raise damaged_file(f"{name}'s entry in {self.project.name}'s saved catalog (project.json) can't be read.")
         if entry.get("format") != "delta" or not entry.get("folder"):
             raise ValueError(f"{name} isn't a Delta table ({entry.get('format')}), so it has no versions.")
         return entry

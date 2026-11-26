@@ -220,7 +220,7 @@ class ProjectStore:
             # and the file is left as it is for the person to fix (nothing here writes it back).
             what = f"{exc.args[0]!r} is missing" if isinstance(exc, KeyError) and exc.args else (
                 "it is nested too deeply" if isinstance(exc, RecursionError) else str(exc))
-            raise ValueError(f"{path} isn't a local data project file that can be read: {what}") from None
+            raise jsonfile.damaged(f"{path} isn't a local data project file that can be read: {what}") from None
 
     def save(self, project: Project) -> None:
         data = asdict(project)

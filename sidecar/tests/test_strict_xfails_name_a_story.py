@@ -18,7 +18,12 @@ TESTS = Path(__file__).resolve().parent
 STORY = re.compile(r"\b(?:WR|PB)-\d+\b|#\d+\b")
 
 # (file, enclosing top-level name) -> what the story that fixes it would need. Shrinks as stories are assigned.
-AWAITING_STORY: dict[tuple[str, str], str] = {}
+AWAITING_STORY: dict[tuple[str, str], str] = {
+    ("test_spark_text_compare_mutation.py", "test_the_dataframe_api_rewrites_a_null_safe_comparison"):
+        "SQL translator: spark_text_comparison_columns reads IS NOT DISTINCT FROM (the DataFrame API's <=>)",
+    ("test_tsql_merge_mutation.py", "test_an_insert_without_values_is_refused_by_name"):
+        "SQL translator: T-SQL MERGE's _insert refuses an INSERT without VALUES when sqlglot gives False",
+}
 
 
 def _checker_gaps() -> list[str]:
@@ -72,7 +77,7 @@ def xfails() -> list[tuple[str, str, bool, ast.expr | None]]:
 
 def test_the_scan_finds_the_known_xfails():
     keys = {(f, n) for f, n, _, _ in xfails()}
-    assert ("test_spark_complex_rescore.py", "test_a_shift_of_a_shift_of_an_int_is_an_int") in keys
+    assert ("test_spark_builtins_sql_uncapped.py", "test_sha2_with_a_decimal_bit_length_hashes_as_spark_does") in keys
     assert set(DYNAMIC_REASONS) <= keys
 
 

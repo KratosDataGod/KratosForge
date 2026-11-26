@@ -135,7 +135,7 @@ class ModelBpaMixin:
                 f"The check finished, but saved no findings in {META_LAKEHOUSE}. Open the run in Fabric to see why."
                 if failed.get("status") == "Completed" else "")
         return {"model": t["name"], "model_id": t["model_id"], "env": env, "workspace_id": t["workspace_id"],
-                "workspace_name": t["workspace_name"], "last": last, "running": running,
+                "workspace_name": t["workspace_name"], "version": model_bpa.VERSION, "last": last, "running": running,
                 "failed": {"status": failed.get("status"), "message": message, "url": failed.get("url", ""),
                            "traceback": (saved_error or {}).get("traceback", ""), "pip": (saved_error or {}).get("pip", "")}
                           if failed else None}

@@ -8,6 +8,9 @@ to it. Surrogate keys and the framework's own columns (``_run_id``, ``_loaded_at
 hidden. No column summarizes on its own (``summarizeBy: none``); each fact's visible numeric columns that
 aren't keys get a total measure instead, which is what Best Practice Analyzer's rules ask for. Lineage tags are
 derived from names, so updating the model keeps them stable.
+
+The model is built as TMSL (``model_bim``) and written by ``tmdl.from_bim``, the app's one TMDL writer, which
+reads what it writes back and reports anything that would come back different.
 """
 
 from __future__ import annotations
@@ -17,6 +20,8 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+
+from . import tmdl
 
 _NS = uuid.UUID("2b0e1b9c-6a51-4f0e-9b4d-6b8f3f1d7c11")
 _PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -44,6 +49,8 @@ def left_out(t: "ModelTable") -> list[dict[str, str]]:
 
 
 def quote(name: str) -> str:
+    """A table name as DAX writes it in a measure: bare when it is a plain identifier, otherwise in single
+    quotes. TMDL names are quoted by ``tmdl.quote``."""
     return name if _PLAIN.fullmatch(name) else "'" + name.replace("'", "''") + "'"
 
 
@@ -74,23 +81,24 @@ class Relationship:
     why: str = ""
 
 
-def _unquote(name: str) -> str:
-    return name[1:-1].replace("''", "'") if name.startswith("'") and name.endswith("'") else name
-
-
 def table_names(parts: dict[str, str], entities: list[str]) -> dict[str, str]:
     """The name each entity's table has in an existing model, found by its lineage tag, which is derived
-    from the entity (``tag('table', entity)``). ``parts`` are the model's TMDL files, keyed by path."""
-    by_tag = {}
+    from the entity (``tag('table', entity)``). ``parts`` are the model's TMDL files, keyed by path.
+
+    Each table file is read on its own with ``tmdl.to_bim``, so the reader's 20 MB limit applies to one
+    table's file, not the whole model; a file past it raises ValueError rather than guessing (a wrong guess
+    would rename a table that reports use)."""
+    by_tag: dict[str, str] = {}
     for path, text in parts.items():
-        if not path.startswith("definition/tables/"):
+        if not path.startswith("definition/tables/") or not path.endswith(".tmdl"):
             continue
-        # The table line can follow /// description lines, and other properties can come before its lineage
-        # tag; the table's own properties are indented once, its columns' and measures' twice.
-        head = re.search(r"^table (.+)$", text.replace("\r\n", "\n"), re.M)
-        own = head and re.search(r"^\tlineageTag: (\S+)", text.replace("\r\n", "\n")[head.end():], re.M)
-        if head and own:
-            by_tag[own.group(1)] = _unquote(head.group(1).strip())
+        try:
+            bim, _ = tmdl.to_bim({path: text})
+        except ValueError as exc:  # narrow: too large or nested too deeply to read; the reason is kept
+            raise ValueError(f"{path[:120]} couldn't be read ({exc}), so its table's name isn't known.") from None
+        for t in bim["model"].get("tables") or []:
+            if isinstance(t.get("name"), str) and isinstance(t.get("lineageTag"), str):
+                by_tag.setdefault(t["lineageTag"], t["name"])
     return {e: by_tag[tag("table", e)] for e in entities if tag("table", e) in by_tag}
 
 
@@ -163,73 +171,87 @@ def _summed(t: ModelTable) -> list[tuple[str, str]]:
     return out
 
 
-def _about(text: str | None, indent: str) -> list[str]:
-    """TMDL description lines (``///``), which go right before the object they describe."""
-    return [f"{indent}/// {line}".rstrip() for line in str(text or "").strip().splitlines()] if str(text or "").strip() else []
+def _about(text: str | None) -> str | None:
+    """A description as TMDL ``///`` lines keep it: each line trimmed, and none when it is blank."""
+    lines = [line.strip() for line in str(text or "").strip().splitlines()]
+    return "\n".join(lines) or None
 
 
-def _table_tmdl(t: ModelTable, expression: str, about: dict[str, str] | None = None) -> str:
-    """``about`` maps "" (the table) or a column's name to its description, from the catalog. Measures are
-    described here: what they add up, then the column's own description."""
+def _set(obj: dict[str, Any], **props: Any) -> dict[str, Any]:
+    """``obj`` with the properties that have a value."""
+    obj.update({k: v for k, v in props.items() if v is not None})
+    return obj
+
+
+def _table(t: ModelTable, expression: str, about: dict[str, str] | None = None) -> dict[str, Any]:
+    """One table as TMSL. ``about`` maps "" (the table) or a column's name to its description, from the catalog.
+    Measures are described here: what they add up, then the column's own description."""
     about = about or {}
-    lines = [*_about(about.get(""), ""), f"table {quote(t.name)}", f"\tlineageTag: {tag('table', t.entity)}"]
     date_key = t.date_column if any(c == t.date_column and tmdl_type(d) == "dateTime" for c, d in t.columns) else None
-    if date_key:
-        lines.append("\tdataCategory: Time")  # Mark as date table, with date_key as its key column
-    lines.append("")
+    table = _set({"name": t.name}, description=_about(about.get("")), lineageTag=tag("table", t.entity),
+                 dataCategory="Time" if date_key else None)  # a date table, with date_key as its key column
+    measures = []
     if not t.is_dimension:
-        lines += [*_about(f"Rows in {t.name}.", "\t"), f"\tmeasure {quote(t.name + ' rows')} = COUNTROWS({quote(t.name)})",
-                  "\t\tformatString: #,0", f"\t\tlineageTag: {tag('measure', t.entity)}", ""]
+        measures.append(_set({"name": f"{t.name} rows"}, description=_about(f"Rows in {t.name}."),
+                             expression=f"COUNTROWS({quote(t.name)})", formatString="#,0",
+                             lineageTag=tag("measure", t.entity)))
     for col, summed_type in _summed(t):
-        lines += [*_about(f"Sum of {col}." + (f" {about[col]}" if about.get(col) else ""), "\t"),
-                  f"\tmeasure {quote(f'{t.name} total {col}')} = SUM({quote(t.name)}[{col.replace(']', ']]')}])",
-                  f"\t\tformatString: {'#,0' if summed_type == 'int64' else '#,0.00'}",
-                  f"\t\tlineageTag: {tag('measure', t.entity, col)}", ""]
+        measures.append(_set({"name": f"{t.name} total {col}"},
+                             description=_about(f"Sum of {col}." + (f" {about[col]}" if about.get(col) else "")),
+                             expression=f"SUM({quote(t.name)}[{col.replace(']', ']]')}])",
+                             formatString="#,0" if summed_type == "int64" else "#,0.00",
+                             lineageTag=tag("measure", t.entity, col)))
+    columns = []
     for col, delta_type in t.columns:
         dtype = tmdl_type(delta_type)
         if dtype is None:
             continue  # arrays, maps and structs, which Direct Lake can't read; reported by left_out
-        lines += [*_about(about.get(col), "\t"), f"\tcolumn {quote(col)}"]
-        lines.append(f"\t\tdataType: {dtype}")
-        if _hidden(t, col):
-            lines.append("\t\tisHidden")
-        if col == date_key:
-            lines.append("\t\tisKey")
-        if dtype == "dateTime" and delta_type.lower() == "date":
-            lines.append("\t\tformatString: Short Date")
-        lines += [f"\t\tlineageTag: {tag('column', t.entity, col)}", "\t\tsummarizeBy: none",
-                  f"\t\tsourceColumn: {col}", ""]
-    lines += [f"\tpartition {quote(t.name)} = entity", "\t\tmode: directLake", "\t\tsource",
-              f"\t\t\tentityName: {t.table}", f"\t\t\tschemaName: {t.schema}", f"\t\t\texpressionSource: {expression}", ""]
-    return "\n".join(lines)
+        columns.append(_set({"name": col}, description=_about(about.get(col)), dataType=dtype,
+                            isHidden=True if _hidden(t, col) else None, isKey=True if col == date_key else None,
+                            formatString="Short Date" if dtype == "dateTime" and delta_type.lower() == "date" else None,
+                            lineageTag=tag("column", t.entity, col), summarizeBy="none", sourceColumn=col))
+    # Measures before columns, as this model's files have always listed them.
+    table.update({k: v for k, v in (("measures", measures), ("columns", columns)) if v})
+    table["partitions"] = [{"name": t.name, "mode": "directLake",
+                            "source": {"type": "entity", "entityName": t.table, "schemaName": t.schema,
+                                       "expressionSource": expression}}]
+    return table
+
+
+def _m_text(value: str) -> str:
+    """``value`` inside a Power Query M text literal: a double quote is written twice, so the text can't end early."""
+    return value.replace('"', '""')
+
+
+def model_bim(tables: list[ModelTable], rels: list[Relationship], sql_server: str, sql_endpoint_id: str,
+              descriptions: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
+    """The Direct Lake model as a TMSL ``model.bim`` document, which ``build`` writes as TMDL with
+    ``tmdl.from_bim``. ``descriptions`` maps an entity to {"": its table's description, column: the column's}
+    (model_dictionary.descriptions)."""
+    expression = "DatabaseQuery"
+    model: dict[str, Any] = {
+        "culture": "en-US", "defaultPowerBIDataSourceVersion": "powerBI_V3", "sourceQueryCulture": "en-US",
+        "expressions": [{"name": expression, "kind": "m",
+                         "expression": f'let\n    database = Sql.Database("{_m_text(sql_server)}", "{_m_text(sql_endpoint_id)}")\n'
+                                       "in\n    database",
+                         "lineageTag": tag("expression", sql_endpoint_id)}]}
+    if tables:  # an empty list would read back as no list at all
+        model["tables"] = [_table(t, expression, (descriptions or {}).get(t.entity)) for t in tables]
+    if rels:
+        model["relationships"] = [_set({"name": tag("rel", r.from_table, r.from_column, r.to_table, r.to_column)},
+                                       isActive=None if r.active else False, fromTable=r.from_table,
+                                       fromColumn=r.from_column, toTable=r.to_table, toColumn=r.to_column)
+                                  for r in rels]
+    return {"compatibilityLevel": 1604, "model": model}
 
 
 def build(tables: list[ModelTable], rels: list[Relationship], sql_server: str, sql_endpoint_id: str,
           descriptions: dict[str, dict[str, str]] | None = None) -> dict[str, str]:
-    """TMDL definition parts, keyed by path, for Fabric's semantic model API. ``descriptions`` maps an entity
-    to {"": its table's description, column: the column's} (model_dictionary.descriptions)."""
-    expression = "DatabaseQuery"
-    parts = {
-        "definition.pbism": json.dumps({"version": "4.0", "settings": {}}, indent=2),
-        "definition/database.tmdl": "database\n\tcompatibilityLevel: 1604\n",
-        "definition/model.tmdl": "\n".join(
-            ["model Model", "\tculture: en-US", "\tdefaultPowerBIDataSourceVersion: powerBI_V3",
-             "\tsourceQueryCulture: en-US", ""]
-            + [f"ref table {quote(t.name)}" for t in tables]) + "\n",
-        "definition/expressions.tmdl": "\n".join([
-            f"expression {expression} =", "\t\tlet",
-            f'\t\t    database = Sql.Database("{sql_server}", "{sql_endpoint_id}")', "\t\tin", "\t\t    database",
-            f"\tlineageTag: {tag('expression', sql_endpoint_id)}", ""]),
-    }
-    for t in tables:
-        parts[f"definition/tables/{t.name}.tmdl"] = _table_tmdl(t, expression, (descriptions or {}).get(t.entity))
-    if rels:
-        lines = []
-        for r in rels:
-            lines += [f"relationship {tag('rel', r.from_table, r.from_column, r.to_table, r.to_column)}"]
-            if not r.active:
-                lines.append("\tisActive: false")
-            lines += [f"\tfromColumn: {quote(r.from_table)}.{quote(r.from_column)}",
-                      f"\ttoColumn: {quote(r.to_table)}.{quote(r.to_column)}", ""]
-        parts["definition/relationships.tmdl"] = "\n".join(lines)
-    return parts
+    """TMDL definition parts, keyed by path, for Fabric's semantic model API: ``model_bim`` written by
+    ``tmdl.from_bim``, which reads its own output back. Anything that wouldn't come back as built raises
+    ValueError, so a model that would differ from the plan is never sent."""
+    files, report = tmdl.from_bim(model_bim(tables, rels, sql_server, sql_endpoint_id, descriptions))
+    if report:
+        lost = ", ".join(str(r.get("object"))[:80] for r in report[:3])
+        raise ValueError(f"The model wouldn't read back from TMDL as built ({lost}), so it wasn't written.")
+    return {"definition.pbism": json.dumps({"version": "4.0", "settings": {}}, indent=2), **files}

@@ -629,7 +629,9 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
           oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
           onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
     }
-    showDialog(title, h("div", {}, h("p", { class: "text" }, text), opts.items?.length ? gateList(opts.items) : null, typed), [cancel, ok],
+    // opts.after: a closing sentence under the list, such as what can't be undone.
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), opts.items?.length ? gateList(opts.items) : null,
+      opts.after ? h("p", { class: "text" }, opts.after) : null, typed), [cancel, ok],
       () => { if (!settled) { settled = true; resolve(false); } });
     if (opts.danger && (!typed || why)) cancel.focus();
   });
@@ -1537,10 +1539,14 @@ async function renderHealthTab(body) {
     maintainWarningDialog(check, (riskIds) => run(entities, riskIds, check));
   };
   const needs = hl.tables.filter((t) => t.status === "needs_maintenance");
+  const unreadable = hl.tables.filter((t) => t.status === "unreadable").length;
   const head = h("div", { class: "card pad" },
     h("div", { class: "row wrap" },
       h("b", {}, hl.local ? `${ENV_LABEL[m.env]} tables on this PC` : `${ENV_LABEL[m.env]} tables in OneLake`),
-      h("span", { class: "muted-text" }, needs.length ? `${needs.length} of ${hl.tables.length} would benefit from maintenance` : "Every table is in good shape"),
+      needs.length || !unreadable ? h("span", { class: "muted-text" }, needs.length ? `${needs.length} of ${hl.tables.length} would benefit from maintenance` : "Every table is in good shape") : null,
+      unreadable ? h("span", { class: "error-text" }, unreadable === 1
+        ? "1 table couldn't be read. Its row below says why and how to fix it."
+        : `${unreadable} tables couldn't be read. Their rows below say why and how to fix them.`) : null,
       h("span", { class: "spacer" }),
       btn("Refresh", "sync", () => renderHealthTab(body), "tool outline small"),
       btn(hl.local ? "Compact all" : "Optimize all in Fabric", "flash", () => optimize(null), "tool primary small")),
@@ -1573,7 +1579,7 @@ async function renderHealthTab(body) {
         h("td", { class: "n" }, t.versions_since_vacuum), h("td", {}, shortDate(t.last_optimize)),
         h("td", {}, t.advice.length ? h("ul", { class: "gate-list" }, t.advice.map((a) => h("li", {}, a))) : h("span", { class: "pill-s pass" }, "Healthy")),
         h("td", {}, btn(hl.local ? "Compact" : "Optimize", null, () => optimize([t.entity]), "tool link small")),
-      ] : h("td", { colspan: hl.local ? 8 : 9, class: "muted-text" }, t.message || "Not written in this environment yet")))));
+      ] : h("td", { colspan: hl.local ? 8 : 9, class: t.status === "unreadable" ? "error-text" : "muted-text" }, t.message || "Not written in this environment yet")))));
   const jobs = hl.maintenance || [];
   body.replaceChildren(head, list, jobs.length ? h("div", { class: "card pad" }, h("b", {}, "Recent maintenance jobs in Fabric"),
     h("table", { class: "mini" }, h("tbody", {}, jobs.map((j) => h("tr", {},
@@ -1640,6 +1646,7 @@ async function renderModelTab(body) {
     dictionaryCard(plan),
     ossieCard(plan),
     semanticViewCard(plan),
+    modelBpaCard(plan),
     h("div", { class: "entity-grid" },
       h("div", { class: "card pad grow" }, h("b", {}, `Tables (${plan.tables.length})`),
         h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Kind", "Delta table", "Entity"].map((c) => h("th", {}, c)))),
@@ -1764,21 +1771,27 @@ function dictionaryImportDialog(plan, reload) {
   [btn("Cancel", null, closeDialog, "tool outline"), go]);
 }
 
-// ---------- Direct Lake check (model_directlake_service.py) ----------
+// ---------- Direct Lake fallback risk (model_directlake_service.py) ----------
 
 const DL_SEVERITY = { fail: ["Would fail", "fail"], warn: ["Falls back", "wrn"], info: ["Info", "info"] };
+const DL_RISK = { will: "fail", might: "wrn", within: "pass", not_checked: "neu" };
+// The guardrail findings are shown table by table in the risk table; the other checks stay in their own list.
+const DL_IN_RISK = new Set(["Parquet files", "Row groups", "Rows", "Model size", "Table missing"]);
 
-// What would make a model fall back to DirectQuery or fail; null when preview features are hidden. Reads only.
+// Will the model fall back to DirectQuery, or fail, before people query it; null when preview features are hidden.
+// Reads only. Picking another capacity after a check judges the same numbers again without reading anything.
 function directLakeCard(plan, updateModel) {
-  const title = preview("directLakeCheck", h("b", {}, "Direct Lake check "));
+  const title = preview("directLakeCheck", h("b", {}, "Direct Lake fallback risk "));
   if (!title) return null;
   const m = state.meta;
-  const result = h("div", { class: "dl-result" });
+  const result = h("div", { class: "dl-result", "aria-live": "polite" });
   const model = h("select", { "aria-label": "Model to check" },
     h("option", { value: plan.existing ? plan.name : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the workspace's models..."));
   const sku = h("select", { "aria-label": "Capacity limits" }, h("option", { value: "" }, "Reading the capacity..."));
+  const behavior = h("select", { "aria-label": "Fallback setting", disabled: true }, h("option", {}, "Read from the model when you check"));
   const keys = h("input", { type: "checkbox" });
   const checkBtn = btn("Check now", "search", () => run(), "tool primary small");
+  let last = null;
   metaCall("meta_model_ossie_models", { env: m.env }, "Models not listed").then((res) => {
     if (!res) return;
     fill(model, ...(res.models.length ? res.models.map((x) => h("option", { value: x.name, selected: x.name === plan.name ? true : null },
@@ -1790,27 +1803,34 @@ function directLakeCard(plan, updateModel) {
     fill(sku, ...(known ? [] : [h("option", { value: "" }, res.capacity_sku ? `${res.capacity_sku} (no Direct Lake limits known)` : "Pick the capacity")]),
       ...res.skus.map((x) => h("option", { value: x, selected: x === known ? true : null }, x === known ? `${x} (this workspace's capacity)` : x)));
   });
+  sku.addEventListener("change", () => {
+    if (last?.prediction?.by_sku?.[sku.value]) fill(result, directLakeResult(last, plan, updateModel, sku.value));
+  });
   const run = async () => {
     if (!model.value) { toast("Pick a model to check"); return; }
     checkBtn.disabled = true;
     fill(result, h("p", { class: "muted-text" }, `Reading ${model.value}'s definition and its Delta tables...`));
     const out = await metaCall("meta_model_directlake_check", { env: m.env, name: model.value, sku: sku.value, keys: keys.checked }, "Not checked");
     checkBtn.disabled = false;
+    last = out;
     if (!out) { fill(result); return; }
-    fill(result, directLakeResult(out, plan, updateModel));
+    if (out.prediction) fill(behavior, h("option", {}, `${out.prediction.behavior_label} (from the model)`));
+    fill(result, directLakeResult(out, plan, updateModel, sku.value));
   };
   return h("div", { class: "card pad dl-card" },
     h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), checkBtn),
-    h("p", { class: "muted-text" }, "Finds what would make the model fall back to DirectQuery, or fail, before people query it: tables past the capacity's Direct Lake limits, columns the Delta table no longer has, relationship keys that aren't unique, and fact rows whose key has no match, which Power BI shows under (Blank). It reads the model's definition from Fabric and each table's Delta log from OneLake, then checks on this PC. It starts no Fabric job; reading from OneLake uses capacity."),
-    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Model", model), h("label", { class: "field" }, "Limits for capacity", sku),
-      h("label", { class: "check" }, keys, " Also check relationship keys: unique, and a match for every row (reads those columns from OneLake)")),
+    h("p", { class: "muted-text dl-predicted" }, "Predicted from metadata on this PC. Fabric hasn't run a query."),
+    h("div", { class: "row wrap dl-controls" }, h("label", { class: "field" }, "Model", model), h("label", { class: "field" }, "Limits for capacity", sku),
+      h("label", { class: "field" }, "Fallback setting", behavior)),
+    h("label", { class: "check" }, keys, " Also check relationship keys: unique, and a match for every row (reads those columns from OneLake)"),
     result,
     howItWorks("directLakeCheck", {
-      reads: "The model's definition from Fabric (getDefinition, read only), each table's Delta log and Parquet footers from OneLake, and both key columns of each relationship when you tick the box.",
+      reads: "The model's definition from Fabric (getDefinition, read only), each table's Delta log, its recent commits and Parquet footers from OneLake, and both key columns of each relationship when you tick the box. It starts no Fabric job and runs no query; reading from OneLake uses capacity.",
       changes: "Nothing. Fixes open where you make them: Update model, or Table health to compact a table.",
       results: "Shown here only.",
-      more: [["Where the limits come from", "Microsoft's Direct Lake guardrails for the capacity you pick. The idea comes from Microsoft's semantic-link-labs (MIT) and Elegant BI's blank row finder for Tabular Editor (MIT); the check is written for this PC and needs no notebook."]],
-      anchor: "direct-lake-check",
+      more: [["Where the limits come from", "Microsoft's Direct Lake guardrails for the capacity you pick. The idea comes from Microsoft's semantic-link-labs (MIT) and Elegant BI's blank row finder for Tabular Editor (MIT); the check is written for this PC and needs no notebook."],
+        ["The forecast", "From each table's recent commits in its Delta log: how fast its Parquet files, row groups and rows grow, and when that passes the limit. It needs at least 3 commits over 7 days, and says how many it used."]],
+      anchor: "direct-lake-fallback-risk",
     }));
 }
 
@@ -1822,47 +1842,123 @@ function directLakeFix(f, plan, updateModel) {
   return h("span", { class: "muted-text" }, "");
 }
 
-function directLakeResult(out, plan, updateModel) {
+// 412 million, 1.5 billion, 48,000: the mockup's way of saying a Direct Lake number.
+function dlNum(n) {
+  if (n === null || n === undefined) return "";
+  if (n >= 1e9) return `${(n / 1e9).toFixed(n % 1e9 ? 1 : 0)} billion`;
+  if (n >= 1e6) return `${Math.round(n / 1e6)} million`;
+  return Number(n).toLocaleString("en-US");
+}
+
+const dlLevel = (have, limit) => (have === null || have === undefined || !limit ? "" : have > limit ? "over" : have >= limit * 0.9 ? "near" : "");
+// a, b and c
+const dlList = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs.join(""));
+const dlGb = (bytes) => `${Math.round(bytes / 1024 ** 3)} GB`;
+
+function directLakeResult(out, plan, updateModel, pickedSku) {
   if (!out.direct_lake) return h("p", { class: "muted-text" }, `${out.name} has no Direct Lake tables, so there's nothing to check.`);
-  const c = out.counts;
-  const tile = (label, n, cls) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, label), h("b", { class: cls }, String(n)));
-  const lim = out.limits;
-  const num = (n) => (n === null || n === undefined ? "" : Number(n).toLocaleString());
-  const over = (n, limit) => (lim && n !== null && n !== undefined ? (n > limit ? "n over" : n >= limit * 0.9 ? "n near" : "n") : "n");
+  const p = out.prediction;
+  const picked = (p.by_sku && p.by_sku[pickedSku]) || p;
+  const nc = p.read_problem === "no_signin";
+  const others = out.findings.filter((f) => !DL_IN_RISK.has(f.check));
   return h("div", { class: "dl-out" },
-    h("div", { class: "dl-tiles" }, tile("Would fail", c.fail, "fail-text"), tile("Would fall back or slow down", c.warn, "warn-text"),
-      tile("Worth knowing", c.info, "info-text"),
-      h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, "Fallback setting"),
-        h("b", {}, out.behavior.toLowerCase() === "directlakeonly" ? "Direct Lake only" : "Automatic"),
-        h("span", { class: "muted-text" }, out.storage === "onelake" ? "Direct Lake on OneLake: past a limit, refresh fails"
-          : out.behavior.toLowerCase() === "directlakeonly" ? "Past a limit, queries fail" : "Past a limit, queries go to DirectQuery"))),
-    out.findings.length ? h("table", { class: "mini" },
+    nc ? h("div", { class: "dl-banner", role: "status" }, "The tables weren't read, because there's no OneLake sign-in on this PC. Sign in to OneLake in Settings, then check again.") : null,
+    directLakeVerdict(p, picked),
+    directLakeTiles(picked, nc),
+    directLakeRisk(picked, out, nc),
+    nc ? null : h("p", { class: "muted-text small" }, "Select a table to see each check, its evidence and the fix."),
+    others.length ? h("div", { class: "dl-others" }, h("b", {}, `Other checks (${others.length})`), h("table", { class: "mini" },
       h("thead", {}, h("tr", {}, ["Severity", "Table", "Check", "What we found", "Fix"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, out.findings.map((f) => h("tr", {},
+      h("tbody", {}, others.map((f) => h("tr", {},
         h("td", {}, h("span", { class: `pill-s ${DL_SEVERITY[f.severity][1]}` }, DL_SEVERITY[f.severity][0])),
         h("td", { class: "mono" }, f.table || "Model"), h("td", {}, f.check), h("td", {}, f.message),
-        h("td", {}, directLakeFix(f, plan, updateModel))))))
-      : h("div", { class: "pass-box" }, icon("ok", 16), ` Nothing found${lim ? ` at ${lim.sku}'s limits` : ""}.`),
-    out.unread.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Couldn't check (${out.unread.length})`),
-      h("ul", { class: "gate-list" }, out.unread.map((u) => h("li", {}, h("span", { class: "mono" }, u.table), `: ${u.reason}`)))) : null,
-    lim ? null : h("p", { class: "muted-text" }, "Pick the capacity to compare each table with its Direct Lake limits."),
-    out.tables.length ? h("details", {}, h("summary", {}, lim ? `Every table against ${lim.sku}'s limits` : "Every table"),
-      h("table", { class: "mini" }, h("thead", {}, h("tr", {},
-        h("th", {}, "Table"), h("th", {}, "Delta table"),
-        h("th", { class: "n" }, lim ? `Rows (limit ${num(lim.rows)})` : "Rows"),
-        h("th", { class: "n" }, lim ? `Parquet files (limit ${num(lim.files)})` : "Parquet files"),
-        h("th", { class: "n" }, lim ? `Row groups (limit ${num(lim.row_groups)})` : "Row groups"),
-        h("th", { class: "n" }, "Size on OneLake"))),
-        h("tbody", {}, out.tables.map((t) => h("tr", {}, h("td", { class: "mono" }, t.table), h("td", { class: "mono" }, t.delta_table),
-          t.exists ? [
-            h("td", { class: over(t.rows, lim?.rows) }, num(t.rows)), h("td", { class: over(t.files, lim?.files) }, num(t.files)),
-            h("td", { class: over(t.row_groups, lim?.row_groups) }, (t.row_groups_estimated ? "about " : "") + num(t.row_groups)),
-            h("td", { class: "n" }, sizeText(t.bytes))]
-            : h("td", { colspan: 4, class: "muted-text" }, "No Delta table")))),
-        lim?.model_bytes ? h("tfoot", {}, h("tr", {}, h("td", { colspan: 5, class: "muted-text" }, "Model total"),
-          h("td", { class: over(out.model_bytes, lim.model_bytes) }, `${sizeText(out.model_bytes)} of ${sizeText(lim.model_bytes)}`))) : null),
-      h("p", { class: "muted-text" }, "Row groups come from each file's Parquet footer, up to 200 files a table; above that they're estimated from a sample and marked \"about\".")) : null,
-    h("p", { class: "muted-text" }, `Checked ${relTime(out.checked_at)}.`));
+        h("td", {}, directLakeFix(f, plan, updateModel))))))) : null,
+    p.not_checked.length ? h("details", { class: "dl-unseen" }, h("summary", {}, `What this can't see from this PC (${p.not_checked.length})`),
+      h("ul", { class: "gate-list" }, [...p.not_checked, ...p.notes].map((x) => h("li", {}, x)))) : null,
+    h("div", { class: "dl-how" }, h("b", {}, "How it's judged."),
+      ` Will fall back means a table is past one of ${picked.sku || "the capacity"}'s Direct Lake limits, or its source is a view. Might fall back means it's within 10% of a limit. Not checked means the table couldn't be read. The limits are Microsoft's Direct Lake guardrails for the capacity you pick. Nothing is sent to Fabric and nothing is changed.`),
+    h("p", { class: "muted-text small" }, `Checked ${relTime(out.checked_at)}.`));
+}
+
+// The model's verdict, the table that decides it, and the smallest capacity that fits today and at the horizon.
+function directLakeVerdict(p, picked) {
+  const v = picked.model;
+  const w = p.skus;
+  const fits = (s) => (s ? s : "none");
+  return h("div", { class: "dl-verdict" },
+    h("div", {}, h("span", { class: `pill-s ${DL_RISK[v.verdict]}` }, v.label), " ", h("span", {}, v.message)),
+    h("p", { class: "muted-text small" },
+      `Smallest capacity within limits: ${fits(w.smallest_today)} today, ${fits(w.smallest_horizon)} in ${w.horizon_days} days at the current rate.`,
+      w.every_sku.length ? ` ${dlList(w.every_sku)} ${picked.will_label.toLowerCase()} on every capacity, because a view or the endpoint's security doesn't depend on the limits.` : ""),
+    p.caveat ? h("p", { class: "muted-text small dl-caveat" }, p.caveat) : null);
+}
+
+function directLakeTiles(picked, nc) {
+  const c = picked.counts;
+  const tables = (n) => (n === 1 ? "table" : "tables");
+  const tile = (label, n, cls, sub) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, label), h("b", { class: cls }, String(n)), h("span", { class: "muted-text" }, sub));
+  const s = picked.size;
+  const level = s.bytes !== null && s.limit ? dlLevel(s.bytes, s.limit) : "";
+  const size = s.bytes === null || s.bytes === undefined
+    ? [h("b", { class: "dl-size" }, "Not read"), h("span", { class: "muted-text" }, nc ? "Needs a OneLake sign-in" : "No table was read")]
+    : s.limit ? [h("b", { class: "dl-size" }, h("span", { class: level ? `${level}-text` : "" }, dlGb(s.bytes)), ` of ${dlGb(s.limit)}`),
+      h("span", { class: "muted-text" }, level === "over" ? "Past the limit" : `Within the limit, ${dlGb(s.limit - s.bytes)} left`)]
+      : [h("b", { class: "dl-size" }, `${dlGb(s.bytes)}, no limit on ${picked.sku}`), h("span", { class: "muted-text" }, "Within the limit")];
+  return h("div", { class: "dl-tiles" },
+    tile(picked.will_label, c.will, "fail-text", tables(c.will)),
+    tile("Might fall back", c.might, "warn-text", `${tables(c.might)}, near a limit`),
+    tile("Within limits", c.within, "pass-text", tables(c.within)),
+    h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, "Model size on OneLake"), ...size));
+}
+
+// One row a table, with its checks, evidence, forecast and fix under it.
+function directLakeRisk(picked, out, nc) {
+  const reasons = Object.fromEntries(out.unread.map((u) => [u.table, u.reason]));
+  const cell = (t, key, limit) => {
+    if (t.view || (t.causes || []).includes("missing")) return h("td", { class: "n muted-text" }, "n/a");
+    if (!t.read || t[key] === null || t[key] === undefined) return h("td", { class: "n muted-text" }, "Not read");
+    const lv = dlLevel(t[key], limit);
+    return h("td", { class: "n" }, h("span", { class: lv ? `${lv}-text dl-strong` : "" }, (key === "row_groups" && t.row_groups_estimated ? "about " : "") + dlNum(t[key])),
+      limit ? h("span", { class: "dl-lim" }, `of ${dlNum(limit)}`) : null);
+  };
+  const limits = picked.limits || {};
+  const body = h("tbody", {});
+  picked.tables.forEach((t, i) => {
+    const id = `dl-detail-${i}`;
+    const open = !nc && t.status === "will";
+    const label = t.status === "will" ? picked.will_label : { might: "Might fall back", within: "Within limits", not_checked: "Not checked" }[t.status];
+    const detail = h("tr", { class: "dl-detail", id, hidden: open ? null : true }, h("td", { colspan: 5 }, directLakeChecks(t, reasons[t.table])));
+    const row = h("tr", { class: open ? "dl-open" : "" });
+    const toggle = h("button", { class: "dl-toggle", "aria-expanded": open ? "true" : "false", "aria-controls": id,
+      onclick: () => {
+        const now = toggle.getAttribute("aria-expanded") !== "true";
+        toggle.setAttribute("aria-expanded", String(now));
+        detail.hidden = !now;
+        row.classList.toggle("dl-open", now);
+      } }, h("span", { class: "dl-caret", "aria-hidden": "true" }), h("b", {}, t.table));
+    row.append(h("td", {}, toggle, t.view ? h("span", { class: "muted-text small" }, " view") : null),
+      h("td", {}, h("span", { class: `pill-s ${DL_RISK[t.status]}` }, label)),
+      cell(t, "rows", limits.rows), cell(t, "files", limits.files), cell(t, "row_groups", limits.row_groups));
+    body.append(row, detail);
+  });
+  return h("table", { class: "mini dl-risk" },
+    h("thead", {}, h("tr", {}, h("th", {}, "Table"), h("th", {}, "Risk"), h("th", { class: "n" }, "Rows"), h("th", { class: "n" }, "Parquet files"), h("th", { class: "n" }, "Row groups"))),
+    body);
+}
+
+function directLakeChecks(t, reason) {
+  const chk = (label, evidence, message, fix) => h("div", { class: "dl-chk" }, h("b", {}, label), h("span", {}, evidence),
+    h("span", { class: "muted-text" }, message), fix);
+  if (!t.read) return h("div", { class: "dl-checks" }, chk("Not read", "", reason || t.reason || "Its Delta table wasn't read.", null));
+  if (!t.checks.length) return h("div", { class: "dl-checks" }, chk("Not checked", "", t.reason || "Pick the capacity to compare it with.", null));
+  const fix = (c) => (c.fix_text ? h("span", { class: "dl-fix" }, `Fix: ${c.fix_text}`,
+    c.fix === "compact" ? [" ", btn("Compact in Table health", null, () => goMeta("health"), "tool small dl-fixbtn")] : null) : null);
+  return h("div", { class: "dl-checks" },
+    t.checks.map((c) => chk(c.check,
+      "have" in c && c.have !== null ? [h("span", { class: c.level === "over" || c.level === "near" ? `${c.level}-text dl-strong` : "" },
+        (c.about ? "about " : "") + dlNum(c.have)), ` of ${dlNum(c.limit)}`] : c.evidence,
+      c.message, fix(c))),
+    t.forecast && t.forecast.status !== "no_history" ? chk("Forecast", t.forecast.commits ? `${t.forecast.commits} commits read` : "No history", t.forecast.message, null) : null);
 }
 
 // ---------- Apache Ossie: export and import a semantic model (model_ossie_service.py) ----------
@@ -2486,4 +2582,168 @@ async function profileEntity(name, source = true) {
       btn(source ? "Profile its table instead" : "Profile what it reads", null, () => profileEntity(name, !source), "tool link small")),
     h("b", {}, "Suggestions"), suggestions, preview, h("b", {}, "Columns"), columns),
   [btn("Close", null, closeDialog, "tool outline"), addBtn]).querySelector(".dialog").classList.add("wide");
+}
+
+// ---------- Best practices check of the model, run in Fabric (model_bpa_service.py) ----------
+
+const BPA_SEVERITY = { Error: ["Error", "fail"], Warning: ["Warning", "wrn"], Info: ["Info", "info"] };
+// A rule's link comes from a results file any workspace contributor can write, so only these open.
+const BPA_LINK_HOSTS = ["learn.microsoft.com", "docs.microsoft.com", "github.com", "www.sqlbi.com", "sqlbi.com"];
+const BPA_POLL_MS = 30000;
+
+function bpaRuleLink(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" || !BPA_LINK_HOSTS.includes(u.hostname)) return null;
+  } catch { return null; }
+  return h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); openLink(url); } }, "About this rule");
+}
+
+// The card under the Direct Lake one; null when preview features are hidden.
+function modelBpaCard(plan) {
+  const title = preview("modelBpa", h("b", {}, "Best practices check "));
+  if (!title) return null;
+  const m = state.meta;
+  const target = { env: m.env, layer: plan.layer, name: plan.name };
+  const result = h("div", { class: "bpa-result" });
+  const checkBtn = btn("Check in Fabric", "play", () => start(), "tool primary small");
+  const card = h("div", { class: "card pad bpa-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), plan.existing ? checkBtn : null),
+    h("p", { class: "muted-text" }, "Checks the model against Best Practice Analyzer rules with Microsoft's semantic-link-labs. It runs as a Python notebook in Fabric, because the library only runs there, so every check uses the workspace's capacity. It reads the model and never changes it."),
+    result,
+    howItWorks("modelBpa", {
+      reads: "The model, through its XMLA endpoint, from a notebook in the workspace. The app then reads the findings the notebook saved in LH_Meta.",
+      changes: "Publishes the notebook nb_fabric_desktop_bpa to the workspace once, and runs it once for each check. The model, its reports and its data stay as they are.",
+      results: "LH_Meta/Files/_fabric_desktop/results, and the last result for each model on this PC. Each check is listed in Monitor.",
+      more: [["Where the rules come from", "semantic-link-labs (MIT), which ports Microsoft's BPA rules. The check installs a fixed version in the notebook's own session."]],
+      anchor: "semantic-model-best-practices",
+    }));
+  if (!plan.existing) {
+    fill(result, h("p", { class: "muted-text" }, `${plan.name} isn't in the workspace yet. Create the model first, then check it.`));
+    return card;
+  }
+  let timer = null;
+  let version = "";  // the semantic-link-labs version a check installs, from the status
+  const view = { category: "", serious: true };  // the findings filter, kept across refreshes
+  const load = async () => {
+    clearTimeout(timer);
+    const status = await metaCall("model_bpa_status", target, "Last check not read");
+    if (!card.isConnected && timer !== null) return;  // the tab was left: stop asking
+    if (!status) { fill(result); return; }
+    version = status.version || version;
+    fill(result, bpaStatus(status, view));
+    checkBtn.disabled = !!status.running;
+    if (status.running) timer = setTimeout(() => { if (card.isConnected) load(); }, BPA_POLL_MS);
+  };
+  const start = async () => {
+    checkBtn.disabled = true;
+    try {
+      const risk = await rpc("model_bpa_risk", { ...target, refresh: true }).catch(riskCheckFailed);
+      if (!(await bpaConfirm(plan, risk, version))) return;
+      const res = await metaCall("model_bpa_check", { ...target, risk_id: risk.failed ? "" : risk.id || "" }, "Check not started");
+      if (!res) return;
+      toast(res.message);
+      timer = 0;
+      await load();
+    } finally {
+      if (!result.querySelector(".bpa-running")) checkBtn.disabled = false;
+    }
+  };
+  fill(result, h("p", { class: "muted-text" }, `Reading ${plan.name}'s last check...`));
+  timer = 0;
+  load();
+  return card;
+}
+
+// The confirm before a check: what it writes, what it doesn't change, and the risk check. Resolves true to go ahead.
+function bpaConfirm(plan, risk, version) {
+  return new Promise((resolve) => {
+    const done = (v) => { closeDialog(); resolve(v); };
+    const box = riskAckBox(risk);
+    const go = async () => {
+      if (risk?.result === "warning" && box && !box.querySelector("input").checked) {
+        toast("Tick \"I've looked at these\" first, or cancel.", true);
+        return;
+      }
+      done(true);
+    };
+    const blocked = risk?.result === "blocked";
+    showDialog(`Check ${plan.name} in Fabric?`, h("div", { class: "wl-confirm" },
+      h("b", {}, "What it writes"),
+      h("ul", { class: "gate-list" },
+        h("li", {}, `Publishes or updates the notebook nb_fabric_desktop_bpa in ${plan.workspace_name || "the workspace"}`),
+        h("li", {}, `Installs semantic-link-labs${version ? ` ${version}` : ""} into that notebook's session only`),
+        h("li", {}, "Saves the findings as one file in LH_Meta/Files/_fabric_desktop/results")),
+      h("b", {}, "What it doesn't change"),
+      h("p", {}, `${plan.name}, its reports and its data. The model is read through its XMLA endpoint, which needs XMLA read on the capacity (on by default).`),
+      riskPanel(risk, { box }),
+      risk?.note ? h("p", { class: "muted-text small" }, risk.note) : null),
+      blocked ? [btn("Close", null, () => done(false), "tool primary")]
+        : [btn("Cancel", null, () => done(false), "tool outline"), btn("Check in Fabric", null, go, "tool primary")]);
+  });
+}
+
+// semantic-link-labs' rule categories, as the filter names them.
+const BPA_CATEGORIES = ["Performance", "DAX expressions", "Error prevention", "Formatting", "Maintenance", "Naming conventions"];
+
+function bpaFindingsTable(findings, view) {
+  const shown = findings.filter((f) => (!view.serious || f.severity === "Error" || f.severity === "Warning")
+    && (!view.category || f.category.toLowerCase() === view.category.toLowerCase()));
+  if (!shown.length) return h("p", { class: "muted-text" }, "No findings match the filter.");
+  return h("table", { class: "mini" },
+    h("thead", {}, h("tr", {}, ["Severity", "Rule", "Object", "Category", "What the rule asks"].map((x) => h("th", {}, x)))),
+    h("tbody", {}, shown.map((f) => h("tr", {},
+      h("td", {}, h("span", { class: `pill-s ${(BPA_SEVERITY[f.severity] || BPA_SEVERITY.Info)[1]}` }, f.severity)),
+      h("td", {}, f.rule),
+      h("td", {}, h("span", { class: "muted-text" }, f.object_type ? `${f.object_type} ` : ""), h("span", { class: "mono" }, f.object)),
+      h("td", {}, f.category),
+      h("td", {}, f.description, f.url ? [" ", bpaRuleLink(f.url)] : null)))));
+}
+
+function bpaStatus(s, view = { category: "", serious: true }) {
+  const parts = [];
+  if (s.running) {
+    parts.push(h("div", { class: "info-box bpa-running" }, icon("info", 16),
+      ` Checking ${s.model} in Fabric, started ${relTime(s.running.started_at)}. This card looks again every 30 seconds.`,
+      s.running.url ? btn("Open the run in Fabric", "open", () => openInFabric(s.running.url), "tool link small") : null));
+  }
+  if (s.failed) {
+    const f = s.failed;
+    parts.push(h("div", { class: "card pad warn-box bpa-failed" },
+      h("b", {}, `The last check didn't finish (${f.status || "unknown"})`),
+      h("p", {}, f.message || "Fabric gave no reason. Check again, and if it fails again, open the run in Fabric."),
+      f.traceback ? h("details", {}, h("summary", {}, "Traceback"), h("pre", { class: "mono small" }, f.traceback)) : null,
+      f.pip ? h("details", {}, h("summary", {}, "pip output"), h("pre", { class: "mono small" }, f.pip)) : null,
+      f.url ? btn("Open the run in Fabric", "open", () => openInFabric(f.url), "tool link small") : null));
+  }
+  const last = s.last;
+  if (!last) {
+    if (!s.running && !s.failed) parts.push(h("p", { class: "muted-text" }, `${s.model} hasn't been checked yet.`));
+    return h("div", {}, parts);
+  }
+  const c = last.counts || {};
+  const tile = (sev) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, BPA_SEVERITY[sev][0]),
+    h("b", { class: `${BPA_SEVERITY[sev][1]}-text` }, String(c[sev] || 0)));
+  const table = h("div", { class: "bpa-table" });
+  const redraw = () => fill(table, bpaFindingsTable(last.findings, view));
+  const category = h("select", { "aria-label": "Category", onchange: (e) => { view.category = e.target.value; redraw(); } },
+    h("option", { value: "" }, "All categories"),
+    BPA_CATEGORIES.map((x) => h("option", { value: x, selected: x === view.category ? true : null }, x)));
+  const serious = h("input", { type: "checkbox", checked: view.serious ? true : null,
+    onchange: (e) => { view.serious = e.target.checked; redraw(); } });
+  redraw();
+  const when = `Checked ${relTime(last.checked_at)} with ${last.package || "semantic-link-labs"} ${last.version || ""}`.trim()
+    + (last.rules ? `, ${last.rules} rules.` : ".");
+  parts.push(h("div", { class: "bpa-out" },
+    h("div", { class: "dl-tiles" }, ["Error", "Warning", "Info"].map(tile)),
+    last.no_tables ? h("p", { class: "muted-text" }, "The model has no tables yet, so most rules had nothing to check.") : null,
+    last.findings.length ? [
+      h("div", { class: "row wrap bpa-filters" }, h("label", { class: "field" }, "Show", category),
+        h("label", { class: "check" }, serious, " Errors and warnings only")),
+      table,
+      h("p", { class: "muted-text" }, "Findings fixed by KratosForge's generator are fixed by the next Update model, not by editing in Fabric.")]
+      : h("div", { class: "pass-box" }, icon("ok", 16), " No rule found anything."),
+    h("p", { class: "muted-text" }, when, " ",
+      h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); monitorPage.panel = "runs"; go("monitor"); } }, "Open the run in Monitor"))));
+  return h("div", {}, parts);
 }

@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-from spark_values import Refused, check, load
+from spark_values import Refused, check_part, check_still_needed, parts
 
 from fabric_desktop import spark_datetime
 from fabric_desktop.notebook import Kernel
@@ -32,8 +32,13 @@ def one(spark, query: str) -> tuple:
     return tuple(v.replace(tzinfo=None) if isinstance(v, dt.datetime) else v for v in spark.sql(query).collect()[0])
 
 
-def test_spark_date_functions_answer_as_spark_3_5_or_are_refused_by_name(spark):
-    check(spark, load("dates"), REFUSED)
+@pytest.mark.parametrize("cases", parts("dates"))
+def test_spark_date_functions_answer_as_spark_3_5_or_are_refused_by_name(spark, cases):
+    check_part(spark, cases, REFUSED)
+
+
+def test_each_refusal_of_dates_is_still_needed_and_listed(spark):
+    check_still_needed(spark, "dates", REFUSED)
 
 
 def test_a_date_plus_years_months_weeks_or_days_is_a_date_and_plus_hours_a_timestamp(spark):

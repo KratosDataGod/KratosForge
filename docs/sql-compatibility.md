@@ -583,7 +583,7 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 | `=`, `<>`, `<`, `IN`, `ALL`, `ANY`, `JOIN ... ON` | `'a' = 'a  '` is true, `'a ' = ALL (SELECT 'a')` is true, and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
 | `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
 | `CHARINDEX` with a `NULL` start | `NULL` |
-| `LEFT`, `RIGHT` with a `NULL` length | `NULL`, as in T-SQL: `LEFT('abc', NULL)` is `NULL` (it was the whole text here) |
+| `LEFT` and `RIGHT` with a `NULL` length | `NULL`, as in T-SQL: `LEFT('abc', NULL)` is `NULL` (it was the whole text here) |
 | `STRING_AGG` with a separator from a column | Refused by name: T-SQL takes a separator written as text or a variable |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |

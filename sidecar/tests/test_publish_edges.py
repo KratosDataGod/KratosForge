@@ -196,3 +196,37 @@ def test_a_job_whose_commit_connection_dropped_isnt_written_again_and_says_to_ch
     assert text.startswith("Writing dbo.orders: the connection to OneLake dropped while the commit")
     assert "may or may not have gone in" in text and "history" in text and "Error performing" not in text
     assert len(tries) == 1 and not is_retryable(err.value)
+
+
+DATA_DROPPED = ("Failed to parse parquet: External: Generic MicrosoftAzure error: Error performing PUT "
+                "https://onelake.blob.fabric.microsoft.com/ws/lh/Tables/dbo/orders/part-00000-x.zstd.parquet "
+                "in 180.77s, after 5 retries - HTTP error: error sending request")
+
+
+@pytest.mark.parametrize("drops", [1, 99])
+def test_a_job_whose_data_upload_dropped_is_written_again_then_says_so_plainly(tmp_path, monkeypatch, drops):
+    """Nothing is committed until every data file is in, so a job's write is sent again, whole, as a
+    notebook's is. When the line stays down, the error says the table is as it was, in plain words."""
+    from fabric_desktop.retrying import is_retryable
+    lake = tmp_path / "lake" / "orders"
+    monkeypatch.setattr(P, "resolve_target", lambda j, fabric: Ref(lake))
+    monkeypatch.setattr(P, "JOB_UPLOAD_RETRY_WAIT", 0.0, raising=False)  # no wait in the test
+    real, tries = P.publish, []
+
+    def dropping(*a, **k):
+        tries.append(1)
+        if len(tries) <= drops:
+            raise OSError(DATA_DROPPED)
+        return real(*a, **k)
+    monkeypatch.setattr(P, "publish", dropping)
+    if drops == 1:
+        record = P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+        assert len(tries) == 2 and record.delta_version == 0
+        assert DeltaTable(str(lake)).to_pyarrow_table().to_pylist() == [{"id": 1, "name": "a"}]
+        return
+    with pytest.raises(P.DataUploadDropped) as err:
+        P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+    assert str(err.value) == ("Writing dbo.orders: the connection to OneLake kept dropping while its data was uploading "
+                              "(Wi-Fi, a VPN or a proxy), even after trying again. Nothing was committed, so the table "
+                              "is as it was. Write it again once you're connected.")
+    assert len(tries) == P.JOB_UPLOAD_ATTEMPTS and is_retryable(err.value) and not lake.exists()

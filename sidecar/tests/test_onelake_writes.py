@@ -429,3 +429,6 @@ def test_a_connection_that_stays_down_fails_after_its_tries_and_the_table_stays_
     assert out["status"] == "error" and len(tries) == lakehouse.UPLOAD_ATTEMPTS
     table = DeltaTable(str(service.onelake / "sales"))
     assert table.version() == 0 and sorted(table.to_pyarrow_table().column("id").to_pylist()) == [1, 2]
+    said = json.dumps(out)  # in words a person can act on, not object_store's
+    assert "kept dropping" in said and "Nothing was committed, so the table is as it was" in said
+    assert "Error performing PUT" not in said

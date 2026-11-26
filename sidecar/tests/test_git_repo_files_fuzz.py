@@ -346,3 +346,33 @@ def test_aliases_that_expand_past_what_can_be_checked_are_refused_quickly(tmp_pa
     assert str(got.value) == ("databricks.yml wasn't read, because its YAML aliases make it too large to check once "
                               "they are written out. Use fewer aliases, then try again.")
     assert time.monotonic() - start < 5
+
+
+@pytest.mark.parametrize("text", [
+    "a: &a {k: 1}\nt: {<<: [*a, *a]}\ntargets: {x: {}}\n",  # one base merged twice is one copy
+    "a: &a {k: 1}\nc: &c {<<: *a, m: 2}\nt: {<<: [*c, *a]}\ntargets: {x: {}}\n",  # a layer and its base
+    "a: &a {k: 1}\nb: &b {k: 2}\nt: {<<: [*a, *b], k: 3}\ntargets: {x: {}}\n",  # written out: the override
+])
+def test_merge_keys_that_give_one_value_or_are_overridden_still_read(tmp_path, text):
+    (tmp_path / "databricks.yml").write_text(text, encoding="utf-8")
+    assert [t["name"] for t in db.targets(str(tmp_path))["targets"]] == ["x"]
+
+
+def test_a_key_two_merge_sources_give_differently_is_refused_even_from_a_nested_merge(tmp_path):
+    (tmp_path / "databricks.yml").write_text("x: &x {<<: {mode: a}}\ny: &y {mode: b}\nt: {<<: [*x, *y]}\n",
+                                             encoding="utf-8")
+    with pytest.raises(db.BundleError, match="gives 'mode' twice in one section \\(line 3\\)"):
+        db.targets(str(tmp_path))
+
+
+@pytest.mark.parametrize("text", [
+    's: &s "' + "x" * 600_000 + '"\nl: [' + ", ".join(["*s"] * 10) + "]\n",  # long text, counted by length
+    "\n".join(["l0: &l0 {k: 1}"] + [f"l{i}: &l{i} {{<<: [*l{i - 1}, *l{i - 1}], k{i}: 1}}" for i in range(1, 25)])
+    + "\n",  # merge keys that double at every level
+])
+def test_aliases_and_merges_too_large_once_written_out_are_refused_quickly(tmp_path, text):
+    (tmp_path / "databricks.yml").write_text(text, encoding="utf-8")
+    start = time.monotonic()
+    with pytest.raises(db.BundleError, match="its YAML aliases make it too large to check"):
+        db.targets(str(tmp_path))
+    assert time.monotonic() - start < 5

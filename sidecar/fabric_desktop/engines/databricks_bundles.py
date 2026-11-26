@@ -94,28 +94,63 @@ class _TwiceError(yaml.YAMLError):
 _MERGE = "tag:yaml.org,2002:merge"
 
 
-def _keys(loader: yaml.SafeLoader, node: Any) -> dict[Any, int]:
-    """Each key a mapping node gives, its own and those its merge keys bring in, with the line it is on."""
-    out: dict[Any, int] = {}
+# Entries one mapping may have once its merge keys are written out; real bundles have a few hundred.
+_MAX_MERGED = 100_000
+
+
+class _TooLarge(yaml.YAMLError):
+    """Merge keys that would bring in more entries than a bundle file can hold."""
+
+
+def _merged_length(node: Any, lengths: dict[int, int]) -> int:
+    """How many entries ``node`` has once its merge keys are written out (PyYAML copies each merged entry
+    in): counted once per node, so a chain that doubles at every level is caught before it is built."""
+    if id(node) in lengths:
+        return lengths[id(node)]
+    lengths[id(node)] = _MAX_MERGED + 1  # a node that merges itself counts as too large
+    total = 0
+    for key_node, value_node in node.value:
+        if isinstance(key_node, yaml.ScalarNode) and key_node.tag == _MERGE:
+            sources = value_node.value if isinstance(value_node, yaml.SequenceNode) else [value_node]
+            total += sum(_merged_length(src, lengths) for src in sources if isinstance(src, yaml.MappingNode))
+        else:
+            total += 1
+        total = min(total, _MAX_MERGED + 1)
+    lengths[id(node)] = total
+    return total
+
+
+def _keys(loader: yaml.SafeLoader, node: Any) -> dict[Any, Any]:
+    """Each key a mapping node gives, its own and those its merge keys bring in, with the value node it
+    takes (the first merge source that gives it wins, as in YAML). Worked out once per node."""
+    done: dict[int, dict[Any, Any]] = loader.__dict__.setdefault("_kf_keys", {})
+    if id(node) in done:
+        return done[id(node)]
+    out: dict[Any, Any] = {}
     for key_node, value_node in node.value:
         if isinstance(key_node, yaml.ScalarNode) and key_node.tag == _MERGE:
             sources = value_node.value if isinstance(value_node, yaml.SequenceNode) else [value_node]
             for src in sources:
                 if isinstance(src, yaml.MappingNode):
-                    out.update({k: line for k, line in _keys(loader, src).items() if k not in out})
+                    out.update({k: v for k, v in _keys(loader, src).items() if k not in out})
         elif isinstance(key_node, yaml.ScalarNode):
-            out[loader.construct_object(key_node)] = key_node.start_mark.line + 1
+            out[loader.construct_object(key_node)] = value_node
+    done[id(node)] = out
     return out
 
 
 class _Loader(yaml.SafeLoader):
     """yaml.safe_load's loader, refusing a key given twice in one mapping, written out or brought in by two
-    merge keys: which copy the CLI uses isn't known. A key written out beside a merge key is the usual YAML
-    override and is read as written."""
+    merge keys with different values: which copy the CLI uses isn't known. A key written out beside a merge
+    key is the usual YAML override and is read as written; one base merged in twice is one copy."""
 
     def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+        lengths = self.__dict__.setdefault("_kf_lengths", {})
+        if _merged_length(node, lengths) > _MAX_MERGED:
+            raise _TooLarge()
         seen: set[Any] = set()
-        merged: dict[Any, int] = {}
+        merged: dict[Any, Any] = {}
+        clash: dict[Any, int] = {}
         for key_node, value_node in node.value:
             if not isinstance(key_node, yaml.ScalarNode):
                 continue
@@ -123,19 +158,18 @@ class _Loader(yaml.SafeLoader):
                 sources = value_node.value if isinstance(value_node, yaml.SequenceNode) else [value_node]
                 for src in sources:
                     if isinstance(src, yaml.MappingNode):
-                        for key in _keys(self, src):
-                            if key in merged:
-                                merged[key] = -(key_node.start_mark.line + 1)  # given by two merged sources
-                            else:
-                                merged[key] = key_node.start_mark.line + 1
+                        for key, value in _keys(self, src).items():
+                            if key in merged and merged[key] is not value:
+                                clash.setdefault(key, key_node.start_mark.line + 1)  # two different copies
+                            merged.setdefault(key, value)
                 continue
             key = self.construct_object(key_node)
             if key in seen:
                 raise _TwiceError(key, key_node.start_mark.line + 1)
             seen.add(key)
-        for key, line in merged.items():
-            if line < 0 and key not in seen:
-                raise _TwiceError(key, -line)
+        for key, line in clash.items():
+            if key not in seen:
+                raise _TwiceError(key, line)
         return super().construct_mapping(node, deep)
 
 
@@ -168,6 +202,9 @@ def _load(path: Path) -> Any:
     except _TwiceError as exc:
         raise BundleError(f"{path.name} wasn't read, because it gives {_text(exc.key, 80)!r} twice in one "
                           f"section (line {exc.line}). Keep one, then try again.") from None
+    except _TooLarge:
+        raise BundleError(f"{path.name} wasn't read, because its YAML aliases make it too large to check once "
+                          "they are written out. Use fewer aliases, then try again.") from None
     except RecursionError:
         raise BundleError(f"{path.name} wasn't read, because it's nested too deeply. Move its deepest settings "
                           "up a level, then try again.") from None

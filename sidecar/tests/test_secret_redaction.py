@@ -61,12 +61,13 @@ def test_get_bytes_and_rich_outputs_are_redacted(kernel):
 
 def test_the_overflow_file_never_holds_a_secret(monkeypatch, kernel):
     monkeypatch.setattr(notebook, "STREAM_CHARS", 50)
+    before = set(notebook._spills)  # another test's overflow files can still be listed in this process
     out = kernel.run("pw = dbutils.secrets.get('kv', 'pw')\nfor _ in range(20):\n    print(pw)")
     assert VAULT_VALUE not in _text(out)
-    spilled = [p for p in notebook._spills]
+    spilled = [p for p in notebook._spills - before if p.exists()]
+    assert spilled  # the output did overflow, so a file was written and is checked
     for path in spilled:
-        if path.exists():
-            assert VAULT_VALUE not in path.read_text(encoding="utf-8")
+        assert VAULT_VALUE not in path.read_text(encoding="utf-8")
 
 
 def test_a_value_the_notebook_never_read_as_a_secret_shows_as_is(kernel):

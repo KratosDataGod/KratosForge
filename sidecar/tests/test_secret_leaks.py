@@ -104,10 +104,11 @@ def test_the_support_bundle_never_holds_a_secret(tmp_path, monkeypatch):
 def test_the_overflow_file_never_holds_a_secret_printed_in_pieces(monkeypatch, kernel):
     from fabric_desktop import notebook
     monkeypatch.setattr(notebook, "STREAM_CHARS", 50)
+    before = set(notebook._spills)  # another test's overflow files can still be listed in this process
     out = kernel.run("import sys\nprint('x' * 60)\nfor _ in range(5):\n"
                      "    sys.stdout.write(pw[:7])\n    sys.stdout.write(pw[7:])\n    sys.stdout.write(' ')")
     assert out["status"] == "ok" and not _leaks(out)
-    spilled = [p for p in notebook._spills if p.exists()]
+    spilled = [p for p in notebook._spills - before if p.exists()]
     assert spilled
     text = "".join(p.read_text(encoding="utf-8") for p in spilled)
     assert not _leaks(text) and text.count("[REDACTED]") == 5

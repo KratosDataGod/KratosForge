@@ -214,3 +214,17 @@ def test_a_cell_is_marked_done_with_its_final_status_never_after():
     run.finish("ok")
     assert seen == [(True, "ok")]
 
+
+
+def test_a_finished_cell_never_reports_a_pause():
+    # Cancel resends its interrupt while the cell evaluates an expression; one can land in the
+    # debugger's clean-up before it clears the pause. The run must still not report a pause.
+    from fabric_desktop import notebook
+
+    run = notebook._Run(1)
+    run.debugger = object()
+    run.set_paused({"line": 5, "reason": "breakpoint", "stack": [], "variables": []})
+    assert run.snapshot()["paused"]["line"] == 5
+    run.finish("cancelled")
+    snap = run.snapshot()
+    assert snap["status"] == "cancelled" and snap["paused"] is None

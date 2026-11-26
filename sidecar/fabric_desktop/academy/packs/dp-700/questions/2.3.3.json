@@ -321,6 +321,54 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.3-q11",
+      "type": "code",
+      "language": "pyspark",
+      "stem": "A notebook streams parsed events into a managed Delta table. Only new rows are written, and data is collected into 5-minute batches so the table gets fewer, larger files. Complete the code.",
+      "snippet": "query = (\n    events\n    .{{1}}\n    .format(\"delta\")\n    .option(\"{{2}}\", \"Files/checkpoints/orders\")\n    .outputMode(\"{{3}}\")\n    .trigger({{4}}=\"5 minutes\")\n    .toTable(\"orders_stream\")\n)",
+      "options": [
+        {
+          "id": "a",
+          "text": "readStream"
+        },
+        {
+          "id": "b",
+          "text": "processingTime"
+        },
+        {
+          "id": "c",
+          "text": "append"
+        },
+        {
+          "id": "d",
+          "text": "writeStream"
+        },
+        {
+          "id": "e",
+          "text": "complete"
+        },
+        {
+          "id": "f",
+          "text": "checkpointLocation"
+        },
+        {
+          "id": "g",
+          "text": "update"
+        }
+      ],
+      "answer": [
+        "d",
+        "f",
+        "c",
+        "b"
+      ],
+      "explanation": "A streaming DataFrame is written with writeStream (readStream is how the stream is read). Fabric's examples give the query a checkpointLocation option, outputMode(\"append\") writes only new rows, and trigger(processingTime=...) collects data over an interval and writes it in fewer, larger operations, which produces bigger Delta files. toTable then persists the stream to a managed Delta table.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

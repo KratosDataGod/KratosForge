@@ -43,7 +43,9 @@ import duckdb
 import pyarrow as pa
 
 from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
-from . import delta, tsql, tsql_errors
+from ..awake_timer import AwakeTimer
+from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
+from . import delta, tsql, tsql_errors, tsql_merge
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
@@ -52,6 +54,19 @@ from ..sql import KfDuckDB, refuse_spark_hashes
 from .. import trees
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
+# An open DuckDB connection keeps a few hundred bytes of native memory for every query that reads a CSV
+# or Parquet file (the project's views do), and frees it only when it closes: about 2.5 MB per 10,000
+# queries, growing for as long as the app stays open. So a persistent project's connection is closed
+# and opened again after this many queries, between two of them. Every query is counted, a cheap and
+# conservative stand-in for "queries that read a file".
+RECYCLE_AFTER = 10_000
+# Objects that live only on the connection; while any exists, it isn't reopened (they'd be lost).
+_SESSION_OBJECTS = (
+    "SELECT 1 FROM duckdb_tables() WHERE temporary UNION ALL "
+    "SELECT 1 FROM duckdb_views() WHERE temporary AND NOT internal UNION ALL "
+    "SELECT 1 FROM duckdb_functions() WHERE database_name = 'temp' AND NOT internal UNION ALL "
+    "SELECT 1 FROM duckdb_sequences() WHERE temporary UNION ALL "
+    "SELECT 1 FROM duckdb_types() WHERE database_name = 'temp' AND NOT internal LIMIT 1")
 DIALECTS = ("duckdb", "spark", "tsql")
 OWN = "delta table"            # catalog kind of the project's own Delta tables
 OWN_KEY = "<project tables>"   # their entry in project.refreshed
@@ -237,7 +252,10 @@ def _data_files(table: Any, folder: str) -> list[str]:
     """The data files of the loaded version, as paths on disk. From the log's own paths (each one
     percent-encoded once), not file_uris(): delta-rs 1.x percent-encodes the table's folder there but
     leaves a partition folder as it is on disk, so neither decoding nor not decoding it names the files
-    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith)."""
+    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith).
+
+    A path that leaves the table's folder (``..``, a rooted path, a URI elsewhere) is refused, never read:
+    a damaged or hostile log would otherwise show the rows of any Parquet file the project can reach."""
     files = []
     for rel in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
         path = unquote(rel)
@@ -245,8 +263,35 @@ def _data_files(table: Any, folder: str) -> list[str]:
             path = _local_path(path)
         elif not os.path.isabs(path):
             path = os.path.normpath(os.path.join(folder, path))
+        # Checked by name before anything resolves the path: on Windows, resolving one turns it into the device
+        if any(part.split(".")[0].upper().rstrip(" .") in _DEVICE_NAMES for part in _parts_below(path, folder)):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"({rel[:200]!r}) that Windows reserves for a device, like CON or NUL. Check where the "
+                             "table's _delta_log came from, or write the table again.")
+        if not _inside(path, folder):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"outside the table's folder ({rel[:200]!r}), and only files inside it are read. Check "
+                             "where the table's _delta_log came from, or write the table again.")
         files.append(path)
     return files
+
+
+def _parts_below(path: str, folder: str) -> list[str]:
+    """The names in ``path`` below ``folder``, compared as text only (never resolved), split on / and \\."""
+    p, r = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.normpath(folder))
+    below = p[len(r):] if p.startswith(r.rstrip("\\/") + os.path.sep) else p
+    return [part for part in below.replace("\\", "/").split("/") if part]
+
+
+def _inside(path: str, folder: str) -> bool:
+    """Whether ``path`` is a file within ``folder``, after ``..``, links (a linked data file or partition
+    folder) and case (on Windows) are resolved."""
+    p = os.path.normcase(os.path.realpath(path))
+    r = os.path.normcase(os.path.realpath(folder))
+    try:
+        return p != r and os.path.commonpath([p, r]) == r
+    except ValueError:  # silent-ok: another drive (Windows) is outside the folder
+        return False
 
 
 def _local_path(uri: str) -> str:
@@ -322,6 +367,20 @@ def _matched_once(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", target_
         f"{acted} GROUP BY __fd_row HAVING count(*) > 1 LIMIT 1"))
     if row is not None:
         raise ValueError(f"{TSQL_SAME_ROW_TWICE} Nothing in {name or c.name} was changed.")
+
+
+def _column_names(con: duckdb.DuckDBPyConnection, query: str) -> list[str]:
+    """The names of the columns ``query`` gives, read without reading any row."""
+    return [d[0] for d in con.execute(f"SELECT * FROM ({query}) AS __fd_columns LIMIT 0").description or []]
+
+
+def _placed(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
+    """Place a T-SQL MERGE's unqualified columns on a database table by the columns its table and its source have
+    now (WR-257): a temporary table, a table the script made or a table-valued function has them only when the
+    MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words."""
+    target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
+    tsql_merge.place(tsql_merge.clauses(c), _column_names(con, f"SELECT * FROM {target}"),
+                     _column_names(con, c.source_sql(KfDuckDB)))
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
@@ -433,6 +492,10 @@ class LocalEngine:
         self._cancel_first: set[str] = set()
         self._last_check = 0.0
         self.opened_at = 0.0
+        self.queries_since_open = 0            # toward RECYCLE_AFTER
+        self.reopened = 0                      # times the connection was recycled
+        self._borrowed = 0                     # cursors tables() took on a connection a query holds
+        self._borrow_lock = threading.Lock()
 
     # Lifecycle
 
@@ -476,6 +539,8 @@ class LocalEngine:
             # A folder was added or removed: the locked connection can't change its folders.
             # Temporary tables don't survive this; the database's own tables and views do.
             self._close_locked()
+        if self._con is not None and self.queries_since_open >= RECYCLE_AFTER:
+            self._recycle_locked()
         if self._con is None:
             p = self.project
             p.root.mkdir(parents=True, exist_ok=True)
@@ -499,6 +564,7 @@ class LocalEngine:
             self._con = con
             self.apply_settings()
             self.opened_at = time.time()
+            self.queries_since_open = 0
             if p.storage == "memory":  # nothing persisted: make the views again
                 for source in p.sources:
                     self._refresh_source(source, force=True)
@@ -514,6 +580,37 @@ class LocalEngine:
         con.execute(f"SET threads = {int(s.threads)}" if s.threads else "RESET threads")
         con.execute(f"SET max_temp_directory_size = {lit(s.max_temp_size)}" if s.max_temp_size
                     else "RESET max_temp_directory_size")
+
+    def _recycle_locked(self) -> None:
+        """Close the connection and let _open_locked open it again, to give back the native memory DuckDB
+        keeps per file-reading query (RECYCLE_AFTER). Called holding ``_lock``, so never during a query
+        or while a result streams, and holding ``_borrow_lock`` so tables() can't take a cursor on the
+        connection as it closes. Everything else the connection holds is made again on open (time zone,
+        search path, folders and lock-down, the project's settings, its views); what can't be is kept by
+        not recycling: a memory project, whose data would go with the connection (copying it to the new
+        one would hold it twice, and a failure halfway would lose it), and a connection with temporary
+        tables, views, macros, sequences or types. Those wait; it's tried again after another tenth."""
+        con = self._con
+        assert con is not None
+        with self._borrow_lock:
+            keep = self.project.storage != "persistent" or self._borrowed > 0
+            if not keep:
+                try:
+                    keep = first_row(con.execute(_SESSION_OBJECTS)) is not None
+                except duckdb.Error as exc:
+                    _log.info("Checking for temporary objects before reopening: %s", describe(exc))
+                    keep = True
+            if keep:
+                self.queries_since_open = RECYCLE_AFTER - max(1, RECYCLE_AFTER // 10)
+                return
+            _log.info("Reopening the project database %s after %d queries, to give back DuckDB's memory.",
+                      self.project.name, self.queries_since_open)
+            try:
+                self._close_locked()
+            except duckdb.Error as exc:  # the CHECKPOINT; the WAL is replayed on open, so nothing is lost
+                _log.warning("Closing the project database %s to reopen it: %s", self.project.name, describe(exc))
+                self._con = None
+            self.reopened += 1
 
     def close(self) -> None:
         with self._lock:
@@ -642,12 +739,16 @@ class LocalEngine:
         con: duckdb.DuckDBPyConnection | None = None
         try:
             if not own:
+                with self._borrow_lock:  # the connection isn't recycled while this cursor reads it
+                    self._borrowed += 1
                 held = self._con  # a running query holds the lock, so the connection is open
                 try:
                     con = held.cursor() if held is not None else None
                 except duckdb.Error:  # it was closed between the two lines
                     con = None
                 if con is None:  # nothing open to share: wait, as opening does
+                    with self._borrow_lock:
+                        self._borrowed -= 1
                     self._lock.acquire()
                     own = True
             if own:
@@ -681,6 +782,8 @@ class LocalEngine:
                 self._lock.release()
             elif con is not None:
                 con.close()
+                with self._borrow_lock:
+                    self._borrowed -= 1
 
     def set_override(self, table: str, columns: dict[str, str]) -> dict[str, Any]:
         key = table.lower()
@@ -786,6 +889,7 @@ class LocalEngine:
         self.refresh_if_changed()
         with self._lock:
             con = self._open_locked()
+            self.queries_since_open += 1
             self._refresh_own_if_moved()
             started = time.monotonic()
             state = {"cancelled": False, "timed_out": False, "started": started}
@@ -799,8 +903,7 @@ class LocalEngine:
                 def expire() -> None:
                     state["timed_out"] = True
                     con.interrupt()
-                timer = threading.Timer(timeout, expire)
-                timer.daemon = True
+                timer = AwakeTimer(timeout, expire)  # awake time only, as the SQL page's limit
                 timer.start()
             steps: list[dict[str, Any]] = []
             as_of: list[str] = []
@@ -810,7 +913,12 @@ class LocalEngine:
                 try:
                     statements = self._statements(con, sql, dialect, run)
                 except ValueError as exc:
-                    if dialect != "tsql" or (said := _as_warehouse_says(exc, {})) is exc:
+                    if isinstance(exc, tsql.InScript):  # WR-238: which statement, and that none of it ran
+                        said: Exception = ValueError(_refused_in_script(_as_warehouse_says(ValueError(str(exc)), {}),
+                                                                        exc))
+                    else:
+                        said = exc if dialect != "tsql" else _as_warehouse_says(exc, {})
+                    if said is exc:
                         raise
                     raise said from None
                 if write is not None:
@@ -830,6 +938,8 @@ class LocalEngine:
                     step_started = time.monotonic()
                     try:
                         as_of += self._make_as_of(con, step["as_of"])
+                        if explain is None and step.get("placed") is not None:
+                            _placed(con, step["placed"])
                         if explain is None and step.get("matched") is not None:
                             _matched_once(con, step["matched"])
                         if dialect == "tsql" and step["kind"] in ("create", "alter") and step["write"] is None \
@@ -978,6 +1088,7 @@ class LocalEngine:
         steps: list[dict[str, Any]] = []
         for text in texts:
             matched: delta_dml.Change | None = None
+            placed: delta_dml.Change | None = None
             joined: str | None = None
             if delta_dml.looks_like(text):
                 rewritten, found = delta.rewrite_as_of(text, n)
@@ -995,6 +1106,8 @@ class LocalEngine:
                 if change is None and parsed is not None and parsed.kind == "merge" \
                         and any(w.match == "matched" for w in parsed.whens):
                     matched = parsed  # a MERGE on a database table: checked before it runs (_matched_once)
+                if change is None and parsed is not None and parsed.kind == "merge" and tsql:
+                    placed = parsed  # WR-257: its columns placed by the source's columns as it runs (_placed)
                 if change is not None:
                     n += len(found)
                     steps.append({"sql": "", "write": None, "change": change, "as_of": found,
@@ -1015,7 +1128,7 @@ class LocalEngine:
             n += len(found)
             steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
                           "kind": "write delta" if write else _kind(text), "matched": matched,
-                          "joined": joined})
+                          "joined": joined, "placed": placed})
         return steps
 
     def _database_table(self, target: tuple[str | None, str] | None) -> bool:
@@ -1544,6 +1657,9 @@ class LocalEngine:
         query = c.source_sql(KfDuckDB)
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
+        if c.tsql:  # WR-257: the source's columns as it has them now, before anything is written
+            tsql_merge.place(tsql_merge.clauses(c), [f.name for f in current.schema().fields],
+                             _column_names(con, f"SELECT * FROM temp.{q(source_table)}"))
         if c.tsql:  # WR-244: as a warehouse does, whose tables are Delta tables too
             if any(w.match == "matched" for w in c.whens):
                 _matched_once(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}", f"temp.{q(source_table)}", name)
@@ -2044,6 +2160,17 @@ def _without_leading_comments(text: str) -> str:
                     i += 1
         else:
             return text[i:]
+
+
+def _refused_in_script(said: Exception, where: "tsql.InScript") -> str:
+    """The refusal of one statement of a T-SQL script, naming it. The script is translated whole before any of it
+    runs, so nothing ran, where a warehouse would also stop the batch before it runs for an error it finds in
+    compiling it, such as Msg 239."""
+    error = str(said)
+    if not error.endswith((".", "!", "?")):
+        error += "."
+    return (f"Statement {where.index + 1} of {where.count} ({where.kind}) was refused: {error} None of the script ran, "
+            "because every statement is checked before the first one runs.")
 
 
 def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:

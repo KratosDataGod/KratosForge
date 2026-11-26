@@ -21,6 +21,10 @@ def svc(tmp_path):
 
 
 def _first_answer(item):
+    if item["type"] == "code":         # a different token in each gap
+        return [o["id"] for o in item["options"][:len(item["parts"])]]
+    if item.get("parts"):
+        return [p["options"][0]["id"] for p in item["parts"]]
     return [o["id"] for o in item["options"]] if item["type"] == "order" else [item["options"][0]["id"]]
 
 
@@ -148,3 +152,22 @@ def test_databricks_practice_exam_runs_to_a_result_named_for_databricks(svc):
     res = svc.academy_exam_finish(v["id"])["result"]
     assert res["vendor"] == "Databricks" and res["total"] == 45 and "Databricks" in res["notice"]
     assert svc.academy_exam_home("dp-700")["certification"]["code"] == "DP-700"
+
+
+def test_a_drill_with_multi_part_questions_scores_partial_credit(svc):
+    # 2.2.9 has a code completion question: right in one gap only, it earns that share of its point.
+    v = svc.academy_exam_start("dp-700", "drill", objectives=["2.2.9"])
+    code = next(it for it in v["items"] if it["type"] == "code")
+    assert code["snippet_label"] == "T-SQL code" and "{{1}}" in code["snippet"] and "key" not in code
+    key = exam.load_bank("dp-700")["questions"][code["q"]]["answer"]
+    other = [o["id"] for o in code["options"] if o["id"] not in key]
+    mine = [key[0]] + other[:len(key) - 1]
+    half = svc.academy_exam_answer(v["id"], code["q"], [mine[0], ""] + mine[2:])
+    assert next(it for it in half["items"] if it["q"] == code["q"])["answered"] is False
+    svc.academy_exam_answer(v["id"], code["q"], mine)
+    out = svc.academy_exam_check(v["id"], code["q"])
+    assert (out["parts_right"], out["part_count"], out["points"]) == (1, 4, 0.25)
+    res = svc.academy_exam_finish(v["id"])["result"]
+    assert res["correct"] == 0.25 and res["by_objective"][0]["correct"] == 0.25
+    item = next(it for it in svc.academy_exam_review(v["id"])["items"] if it["q"] == code["q"])
+    assert item["points"] == 0.25 and item["parts_right"] == 1 and item["key"] == key

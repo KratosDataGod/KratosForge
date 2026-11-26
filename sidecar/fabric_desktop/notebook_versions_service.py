@@ -8,24 +8,82 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import notebook_versions as versions
+from .notebook_sync import SyncBases, merge_cells
 from .meta import release
 from .redact import describe
-from .notebook import to_ipynb
+from .notebook import assign_cell_ids, from_ipynb, to_ipynb
 
 _log = logging.getLogger(__name__)
 
 METHODS = {"notebook_versions", "notebook_version", "notebook_version_compare", "notebook_checkpoint",
-           "notebook_version_restore", "notebook_version_delete"}
+           "notebook_version_restore", "notebook_version_delete", "notebook_sync_merge"}
 
 
 class NotebookVersionsMixin:
     @property
     def _versions_root(self) -> Path:
         return Path(self.root) / "notebook-versions"  # type: ignore[attr-defined]
+
+    @property
+    def _sync_bases(self) -> SyncBases:
+        return SyncBases(Path(self.root) / "notebook-sync")  # type: ignore[attr-defined]
+
+    def _remember_base(self, name: str, stamp: str | None, cells: list[dict[str, Any]],
+                       ids: list[str] | None = None) -> None:
+        """The cells the screen now holds, as of the file's ``stamp``: the base a later merge starts
+        from. A failure here never fails the open or save; a merge then falls back to choosing."""
+        if not stamp:
+            return
+        try:
+            if ids is not None:
+                cells = [dict(c, cell_id=i) for c, i in zip(cells, ids, strict=True)]
+            self._sync_bases.remember(name, stamp, cells)
+        except Exception as exc:  # noqa: BLE001 - Keep mine / Load its version still work without a base
+            _log.warning("Couldn't keep the sync base of %r: %s", name, describe(exc))
+
+    def _sync_preview(self, name: str, cells: list[dict[str, Any]], disk_stamp: str | None) -> dict[str, Any] | None:
+        """After a save found the file changed: the merge of both sides, when the base is known."""
+        try:
+            base = self._sync_bases.find(name, disk_stamp)
+            if base is None:
+                return None
+            theirs = from_ipynb(self._saved_nb(name))["cells"]
+            mine = [dict(c) for c in cells]
+            assign_cell_ids(mine)
+            saved = datetime.fromtimestamp(self.notebooks.path(name).stat().st_mtime, timezone.utc)  # type: ignore[attr-defined]
+            return merge_cells(base, mine, theirs) | {"theirs_saved_at": saved.isoformat(timespec="seconds")}
+        except Exception as exc:  # noqa: BLE001 - the person still chooses Keep mine or Load its version
+            _log.warning("Couldn't merge the two versions of %r: %s", name, describe(exc))
+            return None
+
+    def notebook_sync_merge(self, name: str, cells: list[dict[str, Any]], disk_stamp: str,
+                            choices: dict[str, str] | None = None, lakehouse_ref: dict[str, str] | None = None,
+                            compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
+        """Merges the screen's ``cells`` (as of ``disk_stamp``) with the file another program saved
+        since, and saves the merge once every conflict has a choice. Without one for each, nothing
+        is saved: {"resolved": False, "conflicts", "cells"} comes back, both versions in each. If the
+        file changes again meanwhile, ``changed_on_disk`` comes back as from save_notebook."""
+        base = self._sync_bases.find(name, disk_stamp)
+        if base is None:
+            raise ValueError("KratosForge no longer has the version both started from, so it can't merge "
+                             "them. Choose Keep mine or Load its version.")
+        loaded = self.notebooks.load(name)  # type: ignore[attr-defined]
+        mine = [dict(c) for c in cells]
+        assign_cell_ids(mine)
+        merged = merge_cells(base, mine, loaded["cells"], choices)
+        if not merged["resolved"]:
+            return {"name": name, "resolved": False, "conflicts": merged["conflicts"], "cells": merged["cells"],
+                    "disk_stamp": loaded["disk_stamp"]}
+        out = self.save_notebook(name, merged["cells"], lakehouse_ref, compute, workspace,  # type: ignore[attr-defined]
+                                 loaded["disk_stamp"])
+        if out.get("changed_on_disk"):
+            return out
+        return out | {"resolved": True, "conflicts": [], "cells": merged["cells"]}
 
     def _saved_nb(self, name: str) -> dict[str, Any]:
         path = self.notebooks.path(name)  # type: ignore[attr-defined]

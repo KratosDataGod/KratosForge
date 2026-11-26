@@ -3,8 +3,11 @@ of their own so pytest-xdist runs the two halves at once."""
 
 from __future__ import annotations
 
+import pytest
+
 from tests import spark_differential as diff
 
 
-def test_second_half_answers_as_spark() -> None:
-    diff.check(diff.part(1, 2))
+@pytest.mark.parametrize("cases", diff.chunks(1, 2))
+def test_second_half_answers_as_spark(cases: list[dict]) -> None:
+    diff.check(cases)

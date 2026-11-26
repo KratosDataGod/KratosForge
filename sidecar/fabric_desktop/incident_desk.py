@@ -175,8 +175,8 @@ class IncidentDeskMixin:
 
     def _history_unavailable(self) -> dict[str, Any] | None:
         if not app_settings.value("allow_optimize_lakehouse"):
-            return {"state": "off", "message": "Your organization has turned off the central lakehouse "
-                                               "(allow_optimize_lakehouse in its policy file)."}
+            return {"state": "off", "message": "Your organization has turned off the central lakehouse. "
+                                               + app_settings.ask_it("allow_optimize_lakehouse")}
         if not self.central_lakehouse():  # type: ignore[attr-defined]
             return {"state": "not_connected", "message": "Connect this PC to the central KratosForge lakehouse "
                                                          "(Settings > Optimize lakehouses) to keep incident history."}

@@ -21,6 +21,7 @@ or network access, the way CI proves an exercise is real (tests/test_academy_exe
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,8 @@ STRENGTH = {"knowledge_only": 0, "simulated": 1, "local_verified": 2, **{p["veri
 # A local result may not name a platform's engine as what it proved (docs/academy/README.md, ground rules).
 FABRIC_ENGINE = registry.PLATFORMS["fabric"]["engines"]
 
+_log = logging.getLogger(__name__)
+
 _ID = re.compile(r"^(E\d{2}|C\d)$")
 _FILE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
 _USES = re.compile(r"^((?:LM|LAB)-\d{2})/([a-z0-9][a-z0-9-]{0,60})$")
@@ -91,7 +94,11 @@ def get(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dict[str,
 def exercises(pack_id: str, root: Path = registry.ROOT, include_drafts: bool = True) -> list[dict[str, Any]]:
     out = []
     for eid in ids(pack_id, root):
-        ex = get(pack_id, eid, root)
+        try:
+            ex = get(pack_id, eid, root)
+        except (OSError, ValueError) as exc:   # damaged on disk after install: the rest still show (problems() names it)
+            _log.warning("Academy left out %s %s: its exercise.json can't be read: %s", pack_id, eid, exc)
+            continue
         if ex.get("status") == "retired" or (ex.get("status") == "draft" and not include_drafts):
             continue
         out.append(ex)
@@ -130,6 +137,21 @@ def reference(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
     """Where an exercise's reference answer comes from: its own grading folder, or the Learn lab it uses.
     ``{"setup": sql or None, "starter": sql, "solution": sql, "wrong": {name: sql}}``."""
     ex = get(pack_id, exercise_id, root)
+    uses = _USES.fullmatch(str(ex.get("uses") or ""))
+    if uses:
+        module_id, lab_ex = uses.groups()
+        lex = next(e for e in learn_content.get(module_id)["exercises"] if e["id"] == lab_ex)
+        solution = learn_content.file_text(module_id, lex["solution"])
+    else:
+        solution = (_grading(pack_id, exercise_id, root) / "solution.sql").read_text(encoding="utf-8")
+    grading = _grading(pack_id, exercise_id, root)
+    wrong = {p.name: p.read_text(encoding="utf-8") for p in sorted(grading.glob("wrong-*.sql"))} if grading.is_dir() else {}
+    return {**learner_files(pack_id, exercise_id, root), "solution": solution, "wrong": wrong}
+
+
+def learner_files(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dict[str, Any]:
+    """What Start needs of a SQL exercise, and nothing of its grading: ``{"setup": sql or None, "starter": sql}``."""
+    ex = get(pack_id, exercise_id, root)
     setup: str | None
     uses = _USES.fullmatch(str(ex.get("uses") or ""))
     if uses:
@@ -138,14 +160,10 @@ def reference(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
         lex = next(e for e in m["exercises"] if e["id"] == lab_ex)
         setup = "\n".join(learn_content.file_text(module_id, e["setup"]) for e in m["exercises"] if e.get("setup"))
         starter = learn_content.file_text(module_id, lex["starter"]) if lex.get("starter") else ""
-        solution = learn_content.file_text(module_id, lex["solution"])
     else:
         setup = file_text(pack_id, exercise_id, ex["setup"], root) if ex.get("setup") else None
         starter = file_text(pack_id, exercise_id, ex["starter"], root) if ex.get("starter") else ""
-        solution = (_grading(pack_id, exercise_id, root) / "solution.sql").read_text(encoding="utf-8")
-    grading = _grading(pack_id, exercise_id, root)
-    wrong = {p.name: p.read_text(encoding="utf-8") for p in sorted(grading.glob("wrong-*.sql"))} if grading.is_dir() else {}
-    return {"setup": setup or None, "starter": starter, "solution": solution, "wrong": wrong}
+    return {"setup": setup or None, "starter": starter}
 
 
 def run_check(con: duckdb.DuckDBPyConnection, c: dict[str, Any], answer: str, solution: str) -> dict[str, Any]:

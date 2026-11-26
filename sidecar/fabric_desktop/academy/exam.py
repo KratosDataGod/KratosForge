@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import random
 import re
 import secrets
@@ -67,6 +68,8 @@ from typing import Any
 
 from .. import jsonfile
 from . import registry
+
+_log = logging.getLogger(__name__)
 
 QUESTION_SCHEMA = "kratosforge/academy-question@1"
 SESSION_SCHEMA = "kratosforge/academy-exam-session@1"
@@ -151,7 +154,14 @@ def load_bank(pack: str, packs: Path = PACKS, include_drafts: bool = False) -> d
     cases = _read_json(root / "cases.json") if (root / "cases.json").is_file() else {}
     questions: dict[str, dict[str, Any]] = {}
     for f in sorted((root / "questions").glob("*.json")):
-        doc = _read_json(f)
+        try:
+            doc = _read_json(f)
+        except (OSError, ValueError) as exc:   # damaged on disk after install: the other objectives still work
+            _log.warning("Assessments left out %s/questions/%s: it can't be read: %s", pack, f.name, exc)
+            continue
+        if not isinstance(doc, dict):
+            _log.warning("Assessments left out %s/questions/%s: it isn't a question file", pack, f.name)
+            continue
         for q in doc.get("questions") or []:
             status = q.get("status")
             if status == "retired" or (status == "draft" and not include_drafts):

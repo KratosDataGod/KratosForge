@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from ..learn import content as learn_content
+from . import errors
 
 PACK_SCHEMA = "kratosforge/academy-pack@1"
 CERT_SCHEMA = "kratosforge/academy-certification@1"
@@ -84,7 +85,12 @@ def certification(pack_id: str, root: Path = ROOT) -> dict[str, Any]:
     """A pack's certification: the published hierarchy and Academy's plan for each objective, with the
     pack's ``platform`` added."""
     p = pack(pack_id, root)
-    return {**_read_json(root / pack_id / p["certification"]), "platform": p.get("platform", DEFAULT_PLATFORM)}
+    path = root / pack_id / p["certification"]
+    try:
+        cert = _read_json(path)
+    except (OSError, ValueError) as exc:   # damaged on disk after install: said plainly, the reason logged
+        raise errors.damaged(path, exc, "This certification's") from exc
+    return {**cert, "platform": p.get("platform", DEFAULT_PLATFORM)}
 
 
 def platform(cert_or_pack: dict[str, Any]) -> dict[str, Any]:

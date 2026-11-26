@@ -729,3 +729,16 @@ def test_a_drill_checks_a_multi_part_answer_only_when_every_part_is_filled():
     assert out["key"] == ["b", "b"]
     with pytest.raises(exam.ExamError, match="already checked"):
         exam.answer(s, "2.2.9-q1", ["b", "b"], now=at(5))
+
+
+def test_one_unreadable_question_file_leaves_the_rest_of_the_bank(tmp_path, caplog):   # offline audit D12
+    packs = tmp_path / "packs"
+    shutil.copytree(exam.PACKS, packs)
+    whole = exam.load_bank("dp-700", packs)
+    broken = sorted((packs / "dp-700" / "questions").glob("*.json"))[0]
+    lost = {q["id"] for q in json.loads(broken.read_text(encoding="utf-8"))["questions"]} & set(whole["questions"])
+    broken.write_text("{ not json", encoding="utf-8")
+    with caplog.at_level("WARNING"):
+        got = exam.load_bank("dp-700", packs)
+    assert lost and set(got["questions"]) == set(whole["questions"]) - lost
+    assert any(broken.name in m for m in caplog.messages)

@@ -237,3 +237,27 @@ def test_no_findings_reads_the_answer_without_running_it():
 def test_unchanged_and_no_findings_need_their_fields(broken):
     assert any("check unchanged needs tables" in p for p in broken("E36", {"validation": [{"kind": "unchanged"}]}))
     assert any("check no_findings needs rules" in p for p in broken("E36", {"validation": [{"kind": "no_findings"}]}))
+
+
+# --- the offline audit (2026-11-26): a pack file damaged on disk after install ---------------------------
+
+
+def test_one_unreadable_exercise_leaves_the_others_listed(tmp_path, caplog):   # D12
+    root = tmp_path / "packs"
+    shutil.copytree(registry.ROOT, root)
+    (root / PACK / "exercises" / "E12" / "exercise.json").write_text("{ not json", encoding="utf-8")
+    with caplog.at_level("WARNING"):
+        got = [e["id"] for e in exercises.exercises(PACK, root)]
+    assert "E12" not in got and "E21" in got and len(got) == len(exercises.ids(PACK, root)) - 1
+    assert any("E12" in m for m in caplog.messages)
+    assert any(p.startswith("E12: exercise.json can't be read") for p in exercises.problems(root))   # CI still names it
+
+
+def test_an_unreadable_certification_is_said_plainly(tmp_path):   # D12
+    from fabric_desktop.academy.errors import LabError
+    root = tmp_path / "packs"
+    shutil.copytree(registry.ROOT, root)
+    (root / PACK / registry.pack(PACK, root)["certification"]).write_text("{ not json", encoding="utf-8")
+    with pytest.raises(LabError) as got:
+        registry.certification(PACK, root)
+    assert str(got.value) == "This certification's files are damaged on this PC. Reinstall or update KratosForge to repair them."

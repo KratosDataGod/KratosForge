@@ -24,6 +24,7 @@ table function is read through a database in use. The query that reads the histo
 from __future__ import annotations
 
 import datetime as dt
+import re
 import time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
@@ -75,6 +76,24 @@ def _when(value: Any) -> str:
 
 _TAIL = 256  # longer than any credential redact.secrets looks for
 
+# Snowflake parameters whose value is a credential: CREATE STAGE, COPY, CREATE SECRET, CREATE USER, ALTER
+# USER, CREATE STORAGE or SECURITY INTEGRATION. redact.secrets doesn't know them by name, and a person's
+# query history holds exactly these statements. The value goes, whether quoted with '...' (doubled or
+# backslash-escaped quotes inside), "...", $$...$$, or bare, after = or =>; a quote cut off by Snowflake's
+# own limit runs to the end. A public key (RSA_PUBLIC_KEY) and a role or ARN aren't secrets and stay.
+_SF_SECRET_PARAMS = ("AWS_KEY_ID", "AWS_SECRET_KEY", "AWS_TOKEN", "AZURE_SAS_TOKEN", "MASTER_KEY",
+                     "OAUTH_CLIENT_SECRET", "OAUTH_REFRESH_TOKEN", "OAUTH_ACCESS_TOKEN", "PRIVATE_KEY",
+                     "SECRET_STRING", "PASSWORD", "PASSPHRASE", "PRIVATE_KEY_PASSPHRASE", "TOKEN")
+_SF_SECRET = re.compile(
+    r"(?<![A-Z0-9_$])(" + "|".join(sorted(_SF_SECRET_PARAMS, key=len, reverse=True)) + r")(\s*=>?\s*)"
+    r"('(?:[^'\\]|\\.|'')*(?:'|$)|\"(?:[^\"]|\"\")*(?:\"|$)|\$\$.*?(?:\$\$|$)|[^\s,()]+)",
+    re.IGNORECASE | re.DOTALL)
+
+
+def _sf_secrets(text: str) -> str:
+    """``text`` with the value of each Snowflake credential parameter replaced by [removed]."""
+    return _SF_SECRET.sub(lambda m: f"{m.group(1)}{m.group(2)}'[removed]'", text)
+
 
 def _cut(text: Any, chars: int) -> tuple[str, bool]:
     """``text`` with credentials removed, then cut to ``chars``, and whether it was cut. When Snowflake
@@ -84,13 +103,13 @@ def _cut(text: Any, chars: int) -> tuple[str, bool]:
     snowflake_cut = len(raw) >= _FETCH
     if snowflake_cut:
         raw = raw[:_FETCH - _TAIL]
-    clean = redact.secrets(raw)
+    clean = redact.secrets(_sf_secrets(raw))
     return (clean, snowflake_cut) if len(clean) <= chars else (clean[:chars], True)
 
 
 def _row(r: dict[str, Any], chars: int) -> dict[str, Any]:
     text, cut = _cut(r.get("query_text"), chars)
-    error = redact.one_line(r.get("error_message") or "", _ERROR_MAX) if r.get("error_message") else ""
+    error = redact.one_line(_sf_secrets(str(r["error_message"])), _ERROR_MAX) if r.get("error_message") else ""
     ms = _int(r.get("total_elapsed_time"))
     return {"query_id": _text(r.get("query_id"), 64), "status": _text(r.get("execution_status"), 40).lower(),
             "query_type": _text(r.get("query_type"), 60), "text": text, "text_cut": cut,

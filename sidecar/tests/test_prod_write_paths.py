@@ -85,6 +85,7 @@ WRITE_SITES = {
     ("academy/pyspark_shim.py", "Writer.saveAsTable", "deltalake.write_deltalake"): "Academy: a sandbox folder",
     ("sql_worker.py", "run", "writer.write_table"): "a Parquet export of a result, not a table",
     ("cli.py", "_backup", "backup.restore"): "the app's settings backup",
+    ("cli.py", "_restore_audited", "backup.restore"): "the app's settings backup, restore --yes (audited first)",
     ("kernel_host.py", "Host.unbind_proof", "self.proof.restore"): "puts a proof's patches back, writes no table",
     ("notebook.py", "Kernel.unbind_proof", "proof.restore"): "as Host.unbind_proof",
     ("notebook_files_service.py", "NotebookFilesMixin.notebook_restore", "files.restore"): "a notebook file's version",

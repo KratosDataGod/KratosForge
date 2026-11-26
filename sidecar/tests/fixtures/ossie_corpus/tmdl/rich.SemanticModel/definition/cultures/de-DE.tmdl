@@ -1,0 +1,7 @@
+cultureInfo de-DE
+
+	translations
+		model Model
+			table orders
+				caption: Bestellungen
+

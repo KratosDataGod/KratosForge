@@ -193,7 +193,7 @@ test("an HTTP tool can't be added when the organization turns the local API off"
   await add.getByRole("button", { name: /^An HTTP client/ }).click();
   assert.strictEqual(await add.getByLabel("Name (so you can tell your tools apart)").inputValue(), "An HTTP client (REST API) on this PC");
   await add.getByRole("button", { name: "Next" }).click();
-  await toastIs("Your organization doesn't allow the local HTTP API.");
+  await toastIs("Your organization doesn't allow the local HTTP API. Ask IT to change integrations_http in Group Policy or the policy file.");
   assert.deepStrictEqual(calls("integrations_add_client"), []);
 });
 

@@ -10,6 +10,8 @@ Six modules not covered before, the controls and inspections the excellence asse
 
 The run was at `main` 3424d8f33 (2026-11-23), with `sidecar/tools/mutate.py` and `--cap 100000 --seed 7 --kinds all`. Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each module's set is its own test file and test_excellence_catalog, which registers every control; the notebook and pipeline modules also have test_catalog_artifacts_cov3. test_excellence_ui_names was left out: it reads `app/`, which isn't in the copy. No `-k` filter or `--deselect` was used. No mutant's run timed out. The "after" numbers come from re-running each module's survivors with `--only` once its new tests were in.
 
+Later batches (356 to 361, 368 to 374 and 406 to 411) added their own `test_excellence_catalog_artifacts_mutation.py`, `test_excellence_catalog_capacity_mutation.py` and `test_excellence_catalog_models_mutation.py`. Those files are kept as they are. This batch's tests for the same three modules are in the files ending `_mutation_fea.py`, so neither set replaces the other. The numbers above are this batch's, measured before those files existed.
+
 Before the "after" runs, the new tests passed in a copy of `sidecar/` on their own and against each module as `ast.unparse` writes it.
 
 ## Results
@@ -17,10 +19,10 @@ Before the "after" runs, the new tests passed in a copy of `sidecar/` on their o
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `excellence/catalog_devops.py` | test_excellence_devops, test_excellence_catalog (+ test_excellence_catalog_devops_mutation) | 97 of 97 (96 + 1) | 87 / 10 | **89.7%** | 87/96 → 95/96 | 0/1 → 1/1 | 96 / 1 | **99.0%** | 1 equivalent |
-| `excellence/catalog_artifacts.py` | test_excellence_artifacts, test_catalog_artifacts_cov3, test_excellence_catalog (+ test_excellence_catalog_artifacts_mutation) | 128 of 128 (126 + 2) | 87 / 41 | **68.0%** | 87/126 → 124/126 | 0/2 → 2/2 | 126 / 2 | **98.4%** | 2 equivalent |
+| `excellence/catalog_artifacts.py` | test_excellence_artifacts, test_catalog_artifacts_cov3, test_excellence_catalog (+ test_excellence_catalog_artifacts_mutation_fea) | 128 of 128 (126 + 2) | 87 / 41 | **68.0%** | 87/126 → 124/126 | 0/2 → 2/2 | 126 / 2 | **98.4%** | 2 equivalent |
 | `excellence/inspect_items.py` | test_excellence_artifacts, test_catalog_artifacts_cov3, test_excellence_catalog (+ test_excellence_inspect_items_mutation) | 130 of 130 (124 + 6) | 114 / 16 | **87.7%** | 108/124 → 122/124 | 6/6 → 6/6 | 128 / 2 | **98.5%** | 2 equivalent |
-| `excellence/catalog_capacity.py` | test_excellence_capacity, test_excellence_catalog (+ test_excellence_catalog_capacity_mutation) | 179 of 179 (167 + 12) | 128 / 51 | **71.5%** | 127/167 → 162/167 | 1/12 → 12/12 | 174 / 5 | **97.2%** | 5 equivalent |
-| `excellence/catalog_models.py` | test_excellence_models, test_excellence_catalog (+ test_excellence_catalog_models_mutation) | 79 of 79 (77 + 2) | 54 / 25 | **68.4%** | 53/77 → 75/77 | 1/2 → 2/2 | 77 / 2 | **97.5%** | 2 equivalent |
+| `excellence/catalog_capacity.py` | test_excellence_capacity, test_excellence_catalog (+ test_excellence_catalog_capacity_mutation_fea) | 179 of 179 (167 + 12) | 128 / 51 | **71.5%** | 127/167 → 162/167 | 1/12 → 12/12 | 174 / 5 | **97.2%** | 5 equivalent |
+| `excellence/catalog_models.py` | test_excellence_models, test_excellence_catalog (+ test_excellence_catalog_models_mutation_fea) | 79 of 79 (77 + 2) | 54 / 25 | **68.4%** | 53/77 → 75/77 | 1/2 → 2/2 | 77 / 2 | **97.5%** | 2 equivalent |
 | `excellence/inspect_models.py` | test_excellence_models, test_excellence_catalog (+ test_excellence_inspect_models_mutation) | 63 of 63 (61 + 2) | 52 / 11 | **82.5%** | 52/61 → 57/61 | 0/2 → 2/2 | 59 / 4 | **93.7%** | 4 equivalent |
 
 No bugs were found.
@@ -40,7 +42,7 @@ No bugs were found.
   - The wording of every finding: "1 place" and "3 places", "1 activity is" and "2 activities are", "has" and "have", the first five places or names and "and N more" (none at exactly five), and the five names of activities that couldn't be read.
   - A notebook finding's count, and the activity lists kept in a pipeline finding's detail.
   - The VACUUM control names 7 days.
-  - → `test_excellence_catalog_artifacts_mutation.py`.
+  - → `test_excellence_catalog_artifacts_mutation_fea.py`.
 - **excellence/inspect_items.py**:
   - The exact answers for a definition not read (`{"read": False}`), a notebook without cells, a pipeline without activities, and an inspection that breaks (read, with the error's type only).
   - A workspace id inside a list in an activity's settings is found.
@@ -54,12 +56,12 @@ No bugs were found.
   - No operations leave the refresh control not evaluated.
   - The evidence: CU kept to three places, imports named, counted and listed by id, the top 20 refresh days with ties by name and their workspace.
   - The wording: CU-hours, the window's dates, five items named and every day counted, the refreshes the benefit would leave out, the days covered, and the unused capacity in the benefit.
-  - → `test_excellence_catalog_capacity_mutation.py`.
+  - → `test_excellence_catalog_capacity_mutation_fea.py`.
 - **excellence/catalog_models.py**:
   - A model not inspected (no kind, or no relationship count) is not evaluated by every control; dropping that answer made the control break instead. A rule control needs the rules the inspection kept.
   - A model set to DirectQuery only fails with its own reason, and the Direct Lake control applies from one Direct Lake table.
   - The wording: singular and plural, the first five names and "and N more", the roles and the tables they filter, and a model whose roles filter no rows.
-  - → `test_excellence_catalog_models_mutation.py`.
+  - → `test_excellence_catalog_models_mutation_fea.py`.
 - **excellence/inspect_models.py**:
   - A name is kept up to 256 characters and cut with an ellipsis after; 50 names a list and 50 objects a rule are kept, and every one is counted.
   - A definition without a model gives exactly that error.

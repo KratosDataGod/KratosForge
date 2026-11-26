@@ -195,8 +195,8 @@ def _limits(tree: exp.Expression) -> None:
 
 # ---------- datetime and smalldatetime: T-SQL's steps
 
-_DAY = "DATE_TRUNC('DAY', X)"
-_TICKS = f"FLOOR(((EPOCH_US(X) - EPOCH_US({_DAY})) * 3 + 5000) / 10000.0)"  # 1/300 s steps, half up, from midnight
+_DAY = "DATE_TRUNC('DAY', kf_t)"
+_TICKS = f"FLOOR(((EPOCH_US(kf_t) - EPOCH_US({_DAY})) * 3 + 5000) / 10000.0)"  # 1/300 s steps, half up, from midnight
 _ROUND = {T.DATETIME: f"{_DAY} + TO_MILLISECONDS(CAST(FLOOR({_TICKS} * 10.0 / 3.0 + 0.5) AS BIGINT))",
           T.SMALLDATETIME: f"{_DAY} + TO_MINUTES(CAST(FLOOR(({_TICKS} + 9000) / 18000.0) AS BIGINT))"}
 _RANGE = {T.DATETIME: ("1753-01-01 00:00:00", "9999-12-31 23:59:59.997"),
@@ -208,50 +208,143 @@ def round_datetimes(tree: exp.Expression) -> None:
     """``CAST``, ``CONVERT`` and their ``TRY_`` forms to ``datetime`` give T-SQL's value: rounded to 1/300 of a
     second (.000, .003, .007), ``smalldatetime`` to the minute (29.999 seconds rounds up), and T-SQL's error (or
     NULL, for TRY_) outside the type's range. Text with more than three digits of a second isn't a datetime in
-    T-SQL, which stops with its conversion error.
+    T-SQL, which stops with its conversion error. ``DATEADD`` of a datetime is a datetime, rounded the same way
+    (adding 1 millisecond to .000 leaves .000, 2 gives .003), and ``DATETIMEFROMPARTS`` too.
+
+    ``datetime2(n)`` and ``time(n)`` round to n digits of a second (WR-258): DuckDB has no 1, 2, 4 or 5 digit
+    timestamp, nor any time precision, so those are rounded here, and a ``DATEADD`` on one keeps its n. Text with
+    more than 7 digits of a second is T-SQL's conversion error, and text whose 7th digit isn't 0 is refused by name
+    where T-SQL would keep or round on it: times here keep microseconds.
 
     Here each one is marked, still typed as written, so the passes that follow read its type and not the
     arithmetic that rounds it; ``expand_datetimes`` writes the rounding in once they've run."""
+    for add in reversed(list(tree.find_all(exp.DateAdd, exp.TimestampFromParts))):  # inner first: a DATEADD of one
+        kind = exp.DataType.build("DATETIME") if isinstance(add, exp.TimestampFromParts) else written_type(add.this)
+        if isinstance(add, exp.TimestampFromParts) and add.args.get("milli") is None:
+            continue
+        unit = str(getattr(add.args.get("unit"), "name", "") or "").upper()
+        if kind is not None and kind.this in _ROUNDED and unit in _BELOW_A_MILLISECOND:
+            raise ValueError(f"The datepart {_BELOW_A_MILLISECOND[unit]} is not supported by date function dateadd "
+                             f"for data type {_NAMES[kind.this]}.")
+        if kind is not None and (kind.this in _ROUNDED or _steps(kind) is not None):
+            _mark(add, kind, safe=False, message=f"Adding a value to a '{_NAMES.get(kind.this, 'datetime2')}' "
+                  "column caused an overflow.")
     for node in list(tree.find_all(exp.Cast, exp.Convert)):
         if node.meta.get("kf_rounded"):
             continue
         kind = node.args.get("to") if isinstance(node, exp.Cast) else node.this
-        if not (isinstance(kind, exp.DataType) and kind.this in _ROUNDED):
+        if not isinstance(kind, exp.DataType):
             continue
         safe = bool(node.args.get("safe")) or isinstance(node, exp.TryCast)
         source = node.this if isinstance(node, exp.Cast) else node.expression
         text = source.name if isinstance(source, exp.Literal) and source.is_string else None
+        if kind.this in _FRACTIONS:
+            if text is not None and _PAST_SEVEN.search(text):
+                node.replace(exp.null() if safe else _fail("Conversion failed when converting date and/or time from "
+                                                             "character string."))
+                continue
+            if text is not None and _SEVENTH.search(text) and _fraction_size(kind) >= 6:
+                raise ValueError(_NOT_YET + f"'{text}' has a 7th digit of a second, which T-SQL's "
+                                 f"{_FRACTIONS[kind.this]} keeps or rounds on, and the local engine keeps times to the "
+                                 "microsecond, so nothing ran. Write at most 6 digits of a second, or run it in a "
+                                 "Fabric Warehouse.")
+            if _steps(kind) is not None:
+                _mark(node, kind, safe=safe, message="")
+            continue
+        if kind.this not in _ROUNDED:
+            continue
         if text is not None and _TOO_PRECISE.search(text):
             node.replace(exp.null() if safe else _fail("Conversion failed when converting date and/or time from "
                                                          "character string."))
             continue
         target = "datetime" if kind.this == T.DATETIME else "smalldatetime"
-        message = (f"The conversion of a {'varchar' if text is not None else 'datetime2'} data type to a {target} "
-                   "data type resulted in an out-of-range value.")
-        # What the rounding needs rides in the mark's arguments, which survive the rewrites that rebuild the tree
-        # around it (CONVERT's styles make a new node; meta would be lost).
-        mark = exp.Anonymous(this=_MARK, expressions=[exp.Literal.string(target), exp.Literal.string(
-            "safe" if safe else "strict"), exp.Literal.string(message)])
-        outer = exp.Cast(this=mark, to=kind.copy())
-        outer.meta["kf_rounded"] = True
-        node.replace(outer)
-        mark.set("expressions", [node, *mark.expressions])
+        _mark(node, kind, safe=safe, message=f"The conversion of a {'varchar' if text is not None else 'datetime2'} "
+              f"data type to a {target} data type resulted in an out-of-range value.")
 
 
 _MARK = "KF_TSQL_DATETIME"
+_PAST_SEVEN = re.compile(r"\.\d{8,}")  # more digits of a second than datetime2 and time hold
+_SEVENTH = re.compile(r"\.\d{6}[1-9]")
+_BELOW_A_MILLISECOND = {"MICROSECOND": "microsecond", "MCS": "microsecond", "NANOSECOND": "nanosecond",
+                        "NS": "nanosecond"}
+
+
+def _fraction_size(kind: exp.DataType) -> int:
+    size = _size(kind)
+    return 7 if size is None else size
+
+
+def _steps(kind: exp.DataType) -> int | None:
+    """The digits of a second a datetime2(n) or time(n) with n written below 6 rounds to: DuckDB has TIMESTAMP_S
+    and TIMESTAMP_MS but no 1, 2, 4 or 5 digit timestamp, its TIME takes no precision, and DATEADD on its
+    TIMESTAMP_MS gives a TIMESTAMP."""
+    if kind.this not in _FRACTIONS or _size(kind) is None:
+        return None
+    size = _fraction_size(kind)
+    return size if size < 6 else None
+
+
+def written_type(value: exp.Expression) -> exp.DataType | None:
+    """The type a value is cast or converted to as written, under parentheses."""
+    while isinstance(value, exp.Paren):
+        value = value.this
+    if isinstance(value, exp.Cast):
+        kind = value.args.get("to")
+    elif isinstance(value, exp.Convert):
+        kind = value.this
+    else:
+        return None
+    return kind if isinstance(kind, exp.DataType) else None
+
+
+def _mark(node: exp.Expr, kind: exp.DataType, safe: bool, message: str) -> None:
+    """Wrap ``node`` in the mark ``expand_datetimes`` rounds to ``kind``. What the rounding needs rides in the
+    mark's arguments, which survive the rewrites that rebuild the tree around it (CONVERT's styles make a new
+    node; meta would be lost). A datetime2(n) or time(n) cast inside is made the plain type, so DuckDB doesn't
+    round it first."""
+    kind = kind.copy()
+    if kind.this in _ROUNDED:
+        target = "datetime" if kind.this == T.DATETIME else "smalldatetime"
+    else:
+        target = f"{_FRACTIONS[kind.this]}:{_steps(kind)}"
+        inner = node.args.get("to") if isinstance(node, exp.Cast) else node.this if isinstance(node, exp.Convert) \
+            else None
+        if isinstance(inner, exp.DataType):
+            inner.set("expressions", [])
+    mark = exp.Anonymous(this=_MARK, expressions=[exp.Literal.string(target), exp.Literal.string(
+        "safe" if safe else "strict"), exp.Literal.string(message)])
+    outer = exp.Cast(this=mark, to=kind.copy())
+    outer.meta["kf_rounded"] = True
+    node.replace(outer)
+    mark.set("expressions", [node, *mark.expressions])
+
+
+# A datetime2(n) value to n digits of a second, half up, within its second (so never negative); a time on a day.
+_STEPPED = ("DATE_TRUNC('SECOND', kf_t) + TO_MICROSECONDS((EPOCH_US(kf_t) - EPOCH_US(DATE_TRUNC('SECOND', kf_t)) "
+            "+ {half}) // {step} * {step})")
 
 
 def expand_datetimes(tree: exp.Expression) -> None:
-    """The rounding ``round_datetimes`` marked, written as DuckDB SQL around the value."""
+    """The rounding ``round_datetimes`` marked, written as DuckDB SQL around the value, which is read once."""
     marks = [m for m in tree.find_all(exp.Anonymous) if m.name == _MARK]
     for mark in reversed(marks):  # the innermost first, so an outer one copies its value already rounded
         value, target, safe, message = mark.expressions
-        kind = T.DATETIME if target.name == "datetime" else T.SMALLDATETIME
-        low, high = _RANGE[kind]
-        rounded = _ROUND[kind]
-        wrapper = sqlglot.parse_one(
-            f"CASE WHEN ({rounded}) < CAST('{low}' AS TIMESTAMP) OR ({rounded}) > CAST('{high}' AS TIMESTAMP) "
-            f"THEN {'NULL' if safe.name == 'safe' else 'KF_FAIL'} ELSE ({rounded}) END", read="duckdb")
+        if ":" in target.name:
+            name, digits = target.name.split(":")
+            step = 10 ** (6 - int(digits))
+            body = _STEPPED.format(half=step // 2, step=step)
+            if name == "time":
+                body = f"CAST({body} AS TIME)"
+                value = exp.Add(this=exp.cast(exp.Literal.string("1970-01-01"), "DATE"), expression=value)
+            sql = f"LIST_TRANSFORM([X], kf_t -> {body})[1]"
+        else:
+            kind = T.DATETIME if target.name == "datetime" else T.SMALLDATETIME
+            low, high = _RANGE[kind]
+            rounded = _ROUND[kind]
+            sql = (f"LIST_TRANSFORM([X], kf_t -> CASE WHEN ({rounded}) < CAST('{low}' AS TIMESTAMP) OR ({rounded}) > "
+                   f"CAST('{high}' AS TIMESTAMP) THEN {'NULL' if safe.name == 'safe' else 'KF_FAIL'} ELSE ({rounded}) "
+                   "END)[1]")
+        wrapper = sqlglot.parse_one(sql, read="duckdb")
         for spot in list(wrapper.find_all(exp.Column)):
             if spot.name == "X":
                 spot.replace(value.copy())
@@ -302,4 +395,5 @@ def is_rounded(value: exp.Expression) -> bool:
     rewrite wraps it in (that rewrite goes through SQL text, so the type as written is lost there)."""
     while isinstance(value, (exp.Cast, exp.Paren)):
         value = value.this
-    return isinstance(value, exp.Anonymous) and value.name.upper() == _MARK
+    return isinstance(value, exp.Anonymous) and value.name.upper() == _MARK \
+        and value.expressions[1].name in ("datetime", "smalldatetime")

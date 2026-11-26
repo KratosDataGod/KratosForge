@@ -75,7 +75,7 @@ test("an organization that turned shared lakehouses off: the page and Settings s
   await page().getByText("Shared optimization lakehouses are turned off by your organization. Cost and savings still shows this PC's figures.").waitFor();
   await body().getByText("Your organization has turned off shared optimization lakehouses.").waitFor();
   await page().evaluate(async () => { const b = document.createElement("div"); b.id = "t-box"; document.body.append(b); b.append(await optimizeSettingsSection()); });
-  await page().locator("#t-box").getByText("allow_optimize_lakehouse in its policy file", { exact: false }).waitFor();
+  await page().locator("#t-box").getByText("Ask IT to change allow_optimize_lakehouse in Group Policy or the policy file.", { exact: false }).waitFor();
   assert.strictEqual(await page().locator("#t-box").getByRole("button").count(), 0);
   assert.deepStrictEqual(app.errors, []);
 });

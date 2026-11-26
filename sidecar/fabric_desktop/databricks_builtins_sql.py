@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from sqlglot import exp, parse_one
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, SqlglotError
 
 _WAREHOUSE = "Run the cell on a Databricks SQL warehouse"
 
@@ -173,6 +173,114 @@ def _time_trunc(node: exp.TimeTrunc) -> exp.Expression:
     n = _time_unit("time_trunc", node.this)
     return _template(f"TIME '00:00:00' + to_microseconds(epoch_us(CAST(_a AS TIME)) // {n} * {n})",
                      a=node.args["unit"])
+
+
+def _current_time(node: exp.CurrentTime | exp.Localtime) -> exp.Expression:
+    """current_time([precision]) and its synonym localtime: a TIME, the session zone's time of day when the
+    query started, cut to ``precision`` (0 to 6, a constant; 6 when left out) digits after the second, as
+    Databricks documents (current_time(0) is 16:57:04 where current_time() is 16:57:04.304361)."""
+    name = "localtime" if isinstance(node, exp.Localtime) else "current_time"
+    given = node.this
+    digits = _int_literal(given) if given is not None else 6
+    if digits is None or not 0 <= digits <= 6:
+        raise ValueError(f"{name}() takes a precision from 0 to 6, an INTEGER literal, as in Databricks"
+                         f"{'' if given is None else ', not ' + given.sql(dialect='databricks')}.")
+    step = 10 ** (6 - digits)
+    return _template(f"TIME '00:00:00' + to_microseconds(epoch_us(CAST(CAST(current_timestamp AS TIMESTAMP) AS TIME)) "
+                     f"// {step} * {step})")
+
+
+_MAX_DIGITS = 40  # longer than any Spark number; int() of thousands of digits would stop with Python's own error
+
+
+def _int_literal(node: exp.Expression) -> int | None:
+    """A whole number written in the query (10, -3), or None for anything else."""
+    inner = node.this if isinstance(node, exp.Neg) else node
+    if isinstance(inner, exp.Literal) and inner.is_int and len(inner.name) <= _MAX_DIGITS:
+        return -int(inner.name) if isinstance(node, exp.Neg) else int(inner.name)
+    return None
+
+
+# uniform(min, max [, seed]) and randstr(length [, seed]), as Spark's (randomExpressions.scala): uniform is
+# min + (max - min) * rand(), cast to the bounds' type (a whole number is cut toward zero, so uniform(10, 20)
+# gives 10 to 19), and randstr draws each character from 0-9, a-z and A-Z. Without a seed each row gets its own
+# draw. With a seed Databricks gives its own series, which depends on its random generator and on how it splits
+# the rows, so a seed is refused.
+_RANDOM_SEED = ("with a seed Databricks gives its own series of values, from its own random generator and the "
+                "way it splits the rows, which this PC can't make.")
+_INTEGRAL = (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT, exp.DataType.Type.BIGINT)
+
+
+def _bound_type(value: exp.Expression) -> exp.DataType | None:
+    """The Databricks type of a bound of uniform written as a number or a cast of one: INT or BIGINT for a
+    whole number, DECIMAL(p, s) for one with a point, DOUBLE with an exponent; None for anything else."""
+    inner = value.this if isinstance(value, (exp.Neg, exp.Paren)) else value
+    if isinstance(inner, exp.Cast) and _bound_type(inner.this) is not None:
+        kind = inner.to
+        return kind if kind.this in (*_INTEGRAL, exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT,
+                                     exp.DataType.Type.DECIMAL) else None
+    if not (isinstance(inner, exp.Literal) and not inner.is_string) or len(inner.name) > _MAX_DIGITS:
+        return None
+    text = inner.name.lower()
+    if "e" in text:
+        return exp.DataType.build("DOUBLE")
+    if "." not in text:
+        return exp.DataType.build("INT" if int(text) < 2 ** 31 else "BIGINT")
+    whole, _, fraction = text.partition(".")
+    digits = len(whole.lstrip("0")) + len(fraction)
+    return exp.DataType.build(f"DECIMAL({max(digits, len(fraction), 1)}, {len(fraction)})")
+
+
+def _decimal_sizes(kind: exp.DataType) -> tuple[int, int]:
+    sizes = [int(e.name) for e in kind.expressions if isinstance(e, exp.DataTypeParam)] or [10, 0]
+    return sizes[0], sizes[1] if len(sizes) > 1 else 0
+
+
+def _uniform_type(low: exp.DataType, high: exp.DataType) -> exp.DataType:
+    """Spark's Uniform.dataType for its bounds' types."""
+    order = list(_INTEGRAL)
+    if low.this in order and high.this in order:
+        return high if order.index(high.this) >= order.index(low.this) else low
+    for wide in (exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT):
+        if wide in (low.this, high.this):
+            return exp.DataType.build(wide.value)
+    if low.this == exp.DataType.Type.DECIMAL and high.this == exp.DataType.Type.DECIMAL:
+        (lp, ls), (hp, hs) = _decimal_sizes(low), _decimal_sizes(high)
+        return low if lp - ls >= hp - hs and ls >= hs else high
+    return low if low.this == exp.DataType.Type.DECIMAL else high
+
+
+def _uniform(node: exp.Uniform) -> exp.Expression:
+    if node.args.get("seed") is not None or node.args.get("gen") is not None:
+        raise _refusal("uniform", _RANDOM_SEED, "leave out the seed")
+    low, high = node.this, node.expression
+    kinds = [_bound_type(low), _bound_type(high)]
+    if kinds[0] is None or kinds[1] is None:
+        raise _refusal("uniform", "its bounds aren't numbers written in the query here, and this PC works out the "
+                                  "result's type from them.", "write the bounds as numbers")
+    kind = _uniform_type(kinds[0], kinds[1])
+    drawn = "CAST(_a AS DOUBLE) + (CAST(_b AS DOUBLE) - CAST(_a AS DOUBLE)) * random()"
+    if kind.this in _INTEGRAL:
+        drawn = f"trunc({drawn})"
+    return exp.cast(_template(f"({drawn})", a=low, b=high), kind)
+
+
+_RANDSTR_MAX = 1_000_000
+
+
+def _randstr(node: exp.Randstr) -> exp.Expression:
+    if node.args.get("generator") is not None:
+        raise _refusal("randstr", _RANDOM_SEED, "leave out the seed")
+    length = _int_literal(node.this)
+    if length is None or length < 0:
+        raise _refusal("randstr", "its length isn't a whole number from 0 up written in the query here.",
+                       "write the length as a number")
+    if length > _RANDSTR_MAX:
+        raise _refusal("randstr", f"this PC builds strings of up to {_RANDSTR_MAX:,} characters on each row.",
+                       "ask for a shorter string")
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return _template(f"array_to_string(list_transform(range({length}), __kf_i -> "
+                     f"substr('{alphabet}', 1 + CAST(floor(random() * 62) AS INTEGER), 1)), '')")
 
 
 def _parsed(name: str, args: list[exp.Expression], kind: str, safe: bool) -> exp.Expression:
@@ -408,7 +516,12 @@ def _variant_get(name: str, args: list[exp.Expression]) -> exp.Expression:
     from . import databricks_variant
     _arity(name, args, 3, 3)
     steps = json.dumps(databricks_variant.path(_literal(name, args[1], "path")))
-    kind = exp.DataType.build(_literal(name, args[2], "type"), dialect="databricks")
+    written = _literal(name, args[2], "type")
+    try:
+        kind = exp.DataType.build(written, dialect="databricks")
+    except SqlglotError:  # a ParseError, or a TokenError for an unclosed comment in it
+        raise ValueError(f"{name}() can't read {written!r} as a type, because it isn't a type name Databricks "
+                         "knows. Write one such as INT, STRING, DECIMAL(10,2) or VARIANT.") from None
     if kind.this == exp.DataType.Type.DECIMAL and not kind.expressions:
         kind = exp.DataType.build("DECIMAL(10,0)")  # Databricks' DECIMAL
     target = "variant" if kind.this == exp.DataType.Type.VARIANT else kind.sql(dialect="databricks").lower()
@@ -536,6 +649,12 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
         if zone is statement:
             return setting
         zone.replace(setting)
+    # current_database() is a synonym of current_schema() in Databricks: the schema, not DuckDB's catalog
+    for database in list(statement.find_all(exp.CurrentDatabase)):
+        schema = exp.CurrentSchema()
+        if database is statement:
+            return schema
+        database.replace(schema)
     for node in statement.find_all(exp.Anonymous, *_TYPED_SKETCHES):
         name = node.name.lower() if isinstance(node, exp.Anonymous) else _TYPED_SKETCHES[type(node)]
         if name in _sketch_names():
@@ -558,6 +677,7 @@ def rewrite(statement: exp.Expression) -> exp.Expression:
     # innermost first, so a call inside another's arguments is written before the outer one copies them
     for call in reversed(list(statement.find_all(exp.Anonymous, exp.TimeDiff, exp.TimeTrunc, exp.Collate, exp.ParseJSON,
                                                    exp.Dayname, exp.Monthname, exp.GroupConcat, exp.Time,
+                                                   exp.CurrentTime, exp.Localtime, exp.Uniform, exp.Randstr,
                                                    bfs=False))):
         written = _written(call)
         if written is not None:
@@ -588,6 +708,12 @@ def _written(call: exp.Expr) -> exp.Expression | None:
         return joined
     if isinstance(call, exp.Time):  # a TIME from a string or a timestamp's time of day (in UTC here)
         return exp.cast(exp.cast(call.this.copy(), exp.DataType.build("TIMETZ")), exp.DataType.build("TIME"))
+    if isinstance(call, (exp.CurrentTime, exp.Localtime)):
+        return _current_time(call)
+    if isinstance(call, exp.Uniform):
+        return _uniform(call)
+    if isinstance(call, exp.Randstr):
+        return _randstr(call)
     if isinstance(call, exp.Anonymous):
         written = _function(call)
         return None if written is call else written
@@ -847,7 +973,9 @@ def table_writes(statements: list[exp.Expression], con: Any) -> list[exp.Express
     value written into a generated column only when it equals the expression, where DuckDB refuses any. Both
     are refused by name. A DROP TABLE (or CREATE OR REPLACE) of a table with an identity column is followed by
     a DROP SEQUENCE of the sequence behind it, so none is left behind."""
-    here_row = con.execute("SELECT current_database(), current_schema()").fetchone()
+    # fetchall, not fetchone: DuckDB 2.0 keeps a result read part way, and the next con.sql on the session
+    # stopped with "Resource In Use" when this cell was refused before anything else ran
+    here_row = con.execute("SELECT current_database(), current_schema()").fetchall()[0]
     here = (str(here_row[0]), str(here_row[1]))
     made: dict[tuple[str, str, str], dict[str, tuple[str, str]] | None] = {}  # None: no such table
 
@@ -1079,3 +1207,109 @@ def other_statements(statement: exp.Expression) -> list[exp.Expression]:
     if isinstance(statement, exp.Merge):
         return [_merge_matches_once(statement)]
     return [statement]
+
+
+# Unity Catalog names (WR-316). A Databricks SQL cell here runs in one session database, which stands for the
+# workspace's default catalog: main (and workspace, hive_metastore and spark_catalog, the other names a notebook
+# uses for it) is this session, and its schema default is DuckDB's main schema. Any other catalog is a Unity
+# Catalog catalog this PC doesn't hold, so a name in it is refused by name rather than read from somewhere else.
+SESSION_CATALOGS = ("main", "workspace", "hive_metastore", "spark_catalog")
+_DUCKDB_CATALOGS = {"system", "temp", "memory"}  # USE x in DuckDB would switch to one of its own catalogs
+
+
+def _catalog_refusal(name: str, what: str | None = None) -> ValueError:
+    others = SESSION_CATALOGS[1:]
+    kind = ("a catalog of this PC's own engine, not one of the session's" if name.lower() in _DUCKDB_CATALOGS
+            else "a Unity Catalog catalog")
+    return _statement_refusal(what or f"A table in the catalog {name}",
+                              f"{name} is {kind}, and this session holds only its own tables, in "
+                              f"the catalog main ({', '.join(others[:-1])} and {others[-1]} name it too)",
+                              "name the table as main.schema.table, schema.table or table")
+
+
+def _main_schema_refusal(what: str) -> ValueError:
+    """A schema named main: DuckDB's own name for the schema this session shows as default, so it can't be
+    another schema here, and reading it as default would answer where Databricks finds no such schema."""
+    return _statement_refusal(what, "this PC's engine already uses the name main for the schema shown as default",
+                              "use default or another schema name")
+
+
+def _default_schema(identifier: exp.Identifier | None) -> exp.Identifier | None:
+    if identifier is not None and identifier.name.lower() == "default":
+        return exp.to_identifier("main")
+    return identifier
+
+
+def _current_schema() -> exp.Expression:
+    """Databricks' current_schema() (and current_database(), the same thing there): default for DuckDB's main."""
+    return exp.Case(this=exp.CurrentSchema(), ifs=[exp.If(this=exp.Literal.string("main"),
+                                                          true=exp.Literal.string("default"))],
+                    default=exp.CurrentSchema())
+
+
+def unity_names(statement: exp.Expression) -> list[exp.Expression]:
+    """``statement`` with Unity Catalog names read as Databricks reads them: catalog.schema.table in the session's
+    catalog, the schema default, current_catalog(), current_schema() and current_database(), and USE CATALOG,
+    USE SCHEMA, USE DATABASE and USE. A name in another catalog is refused by name."""
+    if isinstance(statement, exp.Use):
+        return _use(statement)
+    for table in list(statement.find_all(exp.Table)):
+        if table.args.get("catalog") is not None:
+            catalog = table.catalog.lower()
+            if catalog == "system" and table.db.lower() == "information_schema":
+                pass  # the session's own information_schema
+            elif catalog in SESSION_CATALOGS:
+                table.set("catalog", None)
+            else:
+                raise _catalog_refusal(table.catalog)
+        if table.args.get("db") is not None and table.db.lower() == "main":
+            raise _main_schema_refusal(f"The schema main in {'.'.join(p.name for p in table.parts)}")
+        table.set("db", _default_schema(table.args.get("db")))
+    for column in list(statement.find_all(exp.Column)):
+        # main.default.t.id: the session's catalog and schema in front of a table's name. Only those are touched:
+        # any other leading parts may be a table, an alias or a struct's fields (t.s.a.b), so they stay as written.
+        column_catalog = column.args.get("catalog")
+        if column_catalog is not None and column_catalog.name.lower() in SESSION_CATALOGS:
+            column.set("catalog", None)
+            column.set("db", _default_schema(column.args.get("db")))
+        elif column_catalog is None and column.args.get("db") is not None and column.args["db"].name.lower() == "default":
+            column.set("db", _default_schema(column.args.get("db")))
+    for node in list(statement.find_all(exp.CurrentSchema, exp.CurrentDatabase, exp.CurrentCatalog)):
+        node.replace(exp.Literal.string("main") if isinstance(node, exp.CurrentCatalog) else _current_schema())
+    return [statement]
+
+
+def _use(statement: exp.Use) -> list[exp.Expression]:
+    """USE CATALOG main (or another name for this session's catalog) makes default the current schema, as on
+    Databricks. USE [SCHEMA | DATABASE] [catalog.]schema makes it current for the cells after it, and a schema
+    the session doesn't have stops the cell with Databricks' SCHEMA_NOT_FOUND."""
+    kind = str(statement.args.get("kind") or "").upper()
+    target = statement.this
+    parts = [p for p in (target.args.get("catalog"), target.args.get("db"), target.this) if p is not None] \
+        if isinstance(target, exp.Table) else [target]
+    names = [p.name for p in parts]
+    said = f"USE {kind + ' ' if kind else ''}{'.'.join(names)}"
+    if kind == "CATALOG":
+        if len(names) != 1:
+            raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: USE CATALOG takes one catalog name.")
+        if names[0].lower() not in SESSION_CATALOGS:
+            raise _catalog_refusal(names[0], said)
+        schema = "main"
+    else:
+        if len(names) > 2:
+            raise ValueError(f"[PARSE_SYNTAX_ERROR] {said}: a schema is named as schema or catalog.schema.")
+        if len(names) == 2 and names[0].lower() not in SESSION_CATALOGS:
+            raise _catalog_refusal(names[0], said)
+        if names[-1].lower() == "main":  # on Databricks USE main is USE SCHEMA main, not the catalog
+            raise _main_schema_refusal(said)
+        schema = "main" if names[-1].lower() == "default" else names[-1]
+        if schema.lower() in _DUCKDB_CATALOGS:
+            raise _statement_refusal(said, f"DuckDB keeps the name {schema} for one of its own catalogs",
+                                     "give the schema another name")
+    shown = "default" if schema == "main" else schema
+    check = cast(exp.Expression, parse_one(
+        "SELECT error(" + _quoted(f"[SCHEMA_NOT_FOUND] The schema `main`.`{shown}` cannot be found. Verify the "
+                                  "spelling and correctness of the schema and catalog.") + ") "
+        "WHERE NOT EXISTS (SELECT 1 FROM duckdb_schemas() WHERE database_name = current_database() "
+        f"AND lower(schema_name) = lower({_quoted(schema)}))", read="duckdb"))
+    return [check, exp.Use(this=exp.Table(this=exp.to_identifier(schema, quoted=True)))]

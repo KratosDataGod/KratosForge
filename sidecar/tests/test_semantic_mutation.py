@@ -1,7 +1,7 @@
 """Mutation batch 64: semantic.py (see docs/quality/mutation-testing.md).
 
-Pins what the mutation run showed no test held: a quoted name is unquoted only when both ends are
-quoted, which entities count as dimensions, which lookups and same-named keys become relationships
+Pins what the mutation run showed no test held: a quoted table name is read back unquoted by
+table_names, which entities count as dimensions, which lookups and same-named keys become relationships
 (never one from a table to itself, and a lookup doesn't hide another dimension's key), Short Date
 only on date columns, and the exact definition.pbism text."""
 
@@ -29,9 +29,10 @@ def rels_of(*entities):
     return [(r.from_table, r.from_column, r.to_table, r.to_column) for r in rels]
 
 
-@pytest.mark.parametrize("name, plain", [("'it''s'", "it's"), ("'abc", "'abc"), ("abc'", "abc'"), ("abc", "abc")])
-def test_a_name_is_unquoted_only_when_both_ends_are_quoted(name, plain):
-    assert semantic._unquote(name) == plain
+@pytest.mark.parametrize("name, plain", [("'it''s'", "it's"), ("'a b'", "a b"), ("'abc'", "abc"), ("abc", "abc")])
+def test_a_quoted_table_name_is_read_unquoted(name, plain):
+    text = f"table {name}\n\tlineageTag: {semantic.tag('table', 'gold.x')}\n"
+    assert semantic.table_names({"definition/tables/x.tmdl": text}, ["gold.x"]) == {"gold.x": plain}
 
 
 @pytest.mark.parametrize("mode, sk, dimension", [("scd1", "c_sk", True), ("scd2", "c_sk", True), ("scd1", None, False),
@@ -80,7 +81,8 @@ def test_a_non_dimension_s_key_name_makes_no_relationship():
                                                ("timestamp_ntz", False), ("string", False), ("long", False)])
 def test_only_a_date_column_gets_the_short_date_format(delta_type, short):
     t = semantic.ModelTable("t", "gold.t", "dbo", "t", columns=[("when", delta_type)], is_dimension=True)
-    assert ("\t\tformatString: Short Date" in semantic._table_tmdl(t, "x").split("\n")) is short
+    text = semantic.build([t], [], "srv", "ep")["definition/tables/t.tmdl"]
+    assert ("\t\tformatString: Short Date" in text.split("\n")) is short
 
 
 def test_the_definition_file_is_indented_two_spaces():

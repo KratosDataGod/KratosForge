@@ -352,6 +352,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.2-q11",
+      "type": "single",
+      "stem": "At Brightwater, how do you deliver events to the dispatch app?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Send every event to the eventhouse, and have the app query RawGps for late buses every ten seconds"
+        },
+        {
+          "id": "b",
+          "text": "Add a Filter on DelayMinutes > 5, send its output to a derived stream, and add a custom endpoint destination to that derived stream"
+        },
+        {
+          "id": "c",
+          "text": "Add a Filter on DelayMinutes > 5 and connect its output straight to a custom endpoint destination, with no derived stream in between"
+        },
+        {
+          "id": "d",
+          "text": "Add a custom endpoint destination to the default stream, and filter on DelayMinutes in the app's own code"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A custom endpoint doesn't support an operator placed before it, so the Filter's output goes to a derived stream, which bridges to destinations such as a custom endpoint. Filtering in the app would still send it every event, and polling the eventhouse isn't reading from the eventstream.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "case": "brightwater-transit",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

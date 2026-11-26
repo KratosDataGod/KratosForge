@@ -1,0 +1,32 @@
+table customers
+	lineageTag: t-customers
+	column customer_id
+		dataType: int64
+		sourceColumn: customer_id
+		isKey
+		summarizeBy: none
+		lineageTag: c-cust-id
+	column country
+		dataType: string
+		sourceColumn: country
+		lineageTag: c-country
+	column city
+		dataType: string
+		sourceColumn: city
+		lineageTag: c-city
+	hierarchy Geography
+		lineageTag: h-geo
+		level country
+			ordinal: 0
+			column: country
+			lineageTag: l-country
+		level city
+			ordinal: 1
+			column: city
+			lineageTag: l-city
+	partition customers = entity
+		mode: directLake
+		source
+			entityName: customers
+			schemaName: dbo
+			expressionSource: DatabaseQuery

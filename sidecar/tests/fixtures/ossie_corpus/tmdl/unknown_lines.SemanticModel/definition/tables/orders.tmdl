@@ -1,0 +1,15 @@
+table orders
+	lineageTag: t-orders
+	column order_id
+		dataType: int64
+		sourceColumn: order_id
+		summarizeBy: none
+	calendar 'Fiscal year'
+		lineageTag: cal-1
+	measure 'order rows' = COUNTROWS('orders')
+	partition orders = entity
+		mode: directLake
+		source
+			entityName: orders
+			schemaName: dbo
+			expressionSource: DatabaseQuery

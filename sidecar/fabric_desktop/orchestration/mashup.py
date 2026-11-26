@@ -11,11 +11,11 @@ This only reads the text: nothing is evaluated, and there is no local M engine (
 
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 import re
 from typing import Any
+
+from .. import b64, redact
 
 _NAME = re.compile(r'\s*shared\s+(#"(?:[^"]|"")*"|[A-Za-z_][\w.]*)\s*=\s*', re.S)
 _SPACE = re.compile(r"\s*")
@@ -157,17 +157,26 @@ def describe(result: dict[str, Any]) -> dict[str, Any]:
     """A getDefinition result as {ok, queries, connections, mashup, problems}. Hidden queries
     (destinations, helpers) are listed too, marked hidden, so the page can fold them away."""
     parts: dict[str, str] = {}
+    problems = []
     definition = result.get("definition") if isinstance(result, dict) else None
     raw_parts = definition.get("parts") if isinstance(definition, dict) else None
     for part in raw_parts if isinstance(raw_parts, list) else []:
-        if not isinstance(part, dict):
+        path = _text(part.get("path")) if isinstance(part, dict) else ""
+        # Left out quietly, a queryMetadata.json would read as a dataflow with no connections.
+        if isinstance(part, dict) and not path:
+            problems.append("A part has no name because Fabric sent it without one, so the dataflow can't be shown in "
+                            "full. Open it in Fabric to check it still loads.")
             continue
+        payload = part.get("payload") if isinstance(part, dict) else None
         try:
-            parts[str(part.get("path") or "")] = base64.b64decode(part.get("payload") or "").decode("utf-8")
-        except (binascii.Error, UnicodeDecodeError, ValueError, TypeError):
-            continue
+            if not isinstance(payload, str):
+                raise ValueError("no payload")
+            parts[path] = b64.decode_exact(payload).decode("utf-8")
+        except ValueError:
+            problems.append(f"{redact.one_line(path, 100) or 'A part'} couldn't be read because Fabric didn't send it as "
+                            "whole base64 UTF-8 text, so the dataflow can't be shown in full. Open it in Fabric to "
+                            "check it still loads.")
     mashup = parts.get("mashup.pq", "")
-    problems = []
     try:
         meta = json.loads(parts.get("queryMetadata.json") or "{}")
     except (ValueError, RecursionError):

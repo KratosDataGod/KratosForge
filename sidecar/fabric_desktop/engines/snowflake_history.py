@@ -81,9 +81,9 @@ _TAIL = 256  # longer than any credential redact.secrets looks for
 # doesn't know them by name, and a person's query history holds exactly these statements. The value goes,
 # whether quoted with '...' (doubled or backslash-escaped quotes inside), "...", $$...$$, or bare, after
 # =, => or :=, with comments or line breaks around the operator; a value in brackets, IDENTIFIER(...) or
-# joined with || loses every literal; a quote cut off by Snowflake's own limit runs to the end. A name
-# with another word before it (MUST_CHANGE_PASSWORD, RSA_PUBLIC_KEY) isn't one, and a public key, a role
-# or an ARN isn't a secret, so they stay.
+# joined with || loses every literal; a quote cut off by Snowflake's own limit runs to the end. A name with
+# words before it counts too (EXTERNAL_OAUTH_CLIENT_SECRET, RSA_PRIVATE_KEY_PASSPHRASE), except
+# MUST_CHANGE_PASSWORD, which is true or false. A public key, a role or an ARN isn't a secret, so they stay.
 _SF_SECRET_PARAMS = ("AWS_KEY_ID", "AWS_SECRET_KEY", "AWS_TOKEN", "AZURE_SAS_TOKEN", "MASTER_KEY",
                      "OAUTH_CLIENT_SECRET", "OAUTH_REFRESH_TOKEN", "OAUTH_ACCESS_TOKEN", "PRIVATE_KEY",
                      "SECRET_STRING", "PASSWORD", "PASSPHRASE", "PRIVATE_KEY_PASSPHRASE", "TOKEN",
@@ -94,13 +94,14 @@ _LIT = r"(?:'(?:[^'\\]|\\.|'')*(?:'|$)|\"(?:[^\"]|\"\")*(?:\"|$)|\$\$.*?(?:\$\$|
 _VALUE = (r"(?:(?:\(|IDENTIFIER\s*\()" + _GAP + r")*(?:" + _LIT + r"(?:" + _GAP + r"\|\|" + _GAP + r"(?:" + _LIT
           + r"|[^\s,();|]+))*|[^\s,();|'\"]+)")
 _SF_SECRET = re.compile(
-    r"(?<![A-Z0-9_$])(" + "|".join(sorted(_SF_SECRET_PARAMS, key=len, reverse=True)) + r")(" + _GAP
+    r"(?<![A-Z0-9_$])((?!MUST_CHANGE_PASSWORD\b)(?:[A-Z0-9$]+_)*(?:"
+    + "|".join(sorted(_SF_SECRET_PARAMS, key=len, reverse=True)) + r"))(?![A-Z0-9_$])(" + _GAP
     + r"(?:=>?|:=)" + _GAP + r")" + _VALUE, re.IGNORECASE | re.DOTALL)
 # A session or scripting variable, or a SET parameter, one of whose underscore-separated words says it holds
-# a credential: SET pw = '...', LET db_api_token := '...'. MUST_CHANGE_PASSWORD (true or false) and a public
-# key aren't secrets; a word that only contains one (keyword_list) isn't one.
+# a credential: SET pw = '...', LET db_api_token := '...'. MUST_CHANGE_PASSWORD (true or false), a public
+# key and a policy's name (PASSWORD_POLICY) aren't secrets; a word that only contains one (keyword_list) isn't one.
 _SF_VARIABLE = re.compile(
-    r"(?<![A-Z0-9_$])((?:SET|LET)\s+(?!MUST_CHANGE_PASSWORD\b|RSA_PUBLIC_KEY)(?:[A-Z0-9$]+_)*"
+    r"(?<![A-Z0-9_$])((?:SET|LET)\s+(?!MUST_CHANGE_PASSWORD\b|RSA_PUBLIC_KEY|[A-Z0-9_$]*_POLICY\b)(?:[A-Z0-9$]+_)*"
     r"(?:PW|PWD|PASS|PASSWORD|PASSPHRASE|SECRET|TOKEN|KEY|APIKEY)(?:_[A-Z0-9$]+)*)(?![A-Z0-9_$])(" + _GAP
     + r"(?:=|:=)" + _GAP + r")" + _VALUE, re.IGNORECASE | re.DOTALL)
 

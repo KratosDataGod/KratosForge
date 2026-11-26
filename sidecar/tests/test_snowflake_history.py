@@ -233,6 +233,8 @@ _SF_SECRET_CASES = [
     ("SELECT 1; SET db_api_token = 'tokVar9'", ["tokVar9"]),  # pragma: allowlist secret
     ("ALTER USER u SET PASSWORD = 'multi\nline10'", ["multi", "line10"]),  # pragma: allowlist secret
     ("CREATE EXTERNAL FUNCTION f() API_KEY = 'apiKey11'", ["apiKey11"]),  # pragma: allowlist secret
+    ("CREATE SECURITY INTEGRATION i TYPE=EXTERNAL_OAUTH EXTERNAL_OAUTH_CLIENT_SECRET='extSecret12'", ["extSecret12"]),  # pragma: allowlist secret
+    ("ALTER SESSION SET RSA_PRIVATE_KEY_PASSPHRASE = 'rsaPass13'", ["rsaPass13"]),  # pragma: allowlist secret
 ]
 
 
@@ -255,6 +257,7 @@ def test_what_isnt_a_credential_stays():
             "ALTER USER u\nSET MUST_CHANGE_PASSWORD = TRUE",
             "SET row_count = 5",
             "LET keyword_list := 'a,b'",
-            "ALTER USER u SET RSA_PUBLIC_KEY = 'MIIBIjAN'"]  # pragma: allowlist secret
+            "ALTER USER u SET RSA_PUBLIC_KEY = 'MIIBIjAN'",
+            "ALTER ACCOUNT SET PASSWORD_POLICY = db.s.strict_policy"]  # pragma: allowlist secret
     for sql in kept:
         assert sh._cut(sql, 2000)[0] == sql

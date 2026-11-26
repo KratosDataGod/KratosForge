@@ -254,7 +254,7 @@ def _shrink(tmp: Path, nb: dict[str, Any], dump: Callable[[dict[str, Any]], byte
         for cand in _smaller(nb):
             try:
                 bad = fails(cand)
-            except Exception:  # a crash is a failure too  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - while shrinking, a crash counts as still failing
                 bad = True
             if bad:
                 nb = cand
@@ -277,7 +277,7 @@ def test_the_round_trip_holds_on_generated_notebooks(tmp_path, name, seed):
         check = random.Random(f"{name}-{seed}-{case}-check")
         try:
             problem = prop(tmp_path, raw, check)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 - any crash is a finding, reported with its smallest notebook
             problem = f"{type(e).__name__}: {e}"
         if problem:
             small = _shrink(tmp_path, nb, dump, prop, hash((name, seed, case)) & 0xFFFF)

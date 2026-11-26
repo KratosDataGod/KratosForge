@@ -136,6 +136,43 @@ def test_an_expression_that_changes_state_runs_as_notebook_code_and_the_pause_st
     continue_finishes(kernel)
 
 
+LOCALS = ("def f():\n"
+          "    q = 1\n"
+          "    def bump():\n"
+          "        nonlocal q\n"
+          "        q += 10\n"
+          "    r = 2\n"  # 6
+          "    return q, r\n"
+          "print(*f())")
+
+
+def test_a_function_local_an_expression_assigns_stays_after_more_expressions(kernel):
+    # Before 3.13 each read of a function's f_locals refreshes a snapshot from the frame, which undid an
+    # assignment as soon as a later expression (or a watch on the next pause) read it again.
+    kernel.start(LOCALS, breakpoints=[6], watches=["q"])
+    p = wait(kernel)["paused"]
+    assert p["line"] == 6 and p["watches"][0]["value"] == "1"
+    assert kernel.debug("eval", "(q := 5)")["value"] == "5"
+    assert kernel.debug("eval", "q + 1")["value"] == "6"
+    assert "error" in kernel.debug("eval", "(q := 7) / 0")  # assigned before it raised: kept too
+    assert kernel.debug("eval", "q")["value"] == "7"
+    kernel.debug("next")
+    p = wait(kernel)["paused"]
+    assert p["line"] == 7 and p["watches"][0]["value"] == "7"
+    assert "".join(o.get("text", "") for o in continue_finishes(kernel)["outputs"]) == "7 2\n"
+
+
+def test_a_function_local_a_called_function_changes_stays(kernel):
+    # The other side of the same snapshot: written back as the pause ends, it must not undo a nonlocal
+    # that a function the expression called changed in the frame.
+    kernel.start(LOCALS, breakpoints=[6])
+    assert wait(kernel)["paused"]["line"] == 6
+    kernel.debug("eval", "bump()")
+    assert kernel.debug("eval", "q")["value"] == "11"
+    kernel.debug("eval", "bump()")
+    assert "".join(o.get("text", "") for o in continue_finishes(kernel)["outputs"]) == "21 2\n"
+
+
 def test_an_expression_calling_a_function_with_a_breakpoint_does_not_pause_again(kernel):
     kernel.start(CODE, breakpoints=[3, 5])
     assert wait(kernel)["paused"]["line"] == 5

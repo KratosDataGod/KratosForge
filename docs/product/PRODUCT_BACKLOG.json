@@ -2671,7 +2671,8 @@
         "Save support bundle shows what the zip holds and saves it to a chosen folder (#1679); the bundle records the policy file's SHA-256 and last change (#1870) on main at a7631920",
         "Support bundles: proven to carry no secrets, a private key cut by the log tail is dropped (#2433), subscription keys and embed tokens hidden and UTF-16 logs read (#2457) on main at 47416473",
         "Support-text redaction reads long text once (#3027) on main at ad1ac4cf",
-        "PEM blocks on Cookie-style lines are redacted (#3182) on main at 293fb38d"
+        "PEM blocks on Cookie-style lines are redacted (#3182) on main at 293fb38d",
+        "The support bundle is listed as saved from Settings, with two Home copy fixes (#3356) on main at 7b43ff88"
       ],
       "features": [
         "FEAT-SHL-11"
@@ -2711,7 +2712,8 @@
         2457,
         2599,
         3027,
-        3182
+        3182,
+        3356
       ]
     },
     {
@@ -4664,7 +4666,8 @@
         "Browser tests for 77 pages and panels with 10 UI fixes (#3236); WCAG 2.2.1 and 1.4.13 fixes (#3254, #3231); mutation batches 213 to 340 (#3211, #3249) and a per-batch log (#3270); coverage to 100% for several modules (#3246, #3265); CI time limits (#3252, #3272); test stability (#3213, #3261) on main at a73ebb71",
         "Mutation batches 263 to 279, 320 to 324, 350 to 361, 368 to 374 and 406 to 411 (#3251, #3258, #3260); a dead test worker stops the run instead of hanging (#3313); MERGE checks pass on DuckDB 2.0.1 (#3318) on main at 84a36dd6",
         "Test stability: exam answer draw (#3326), worker-crash order (#3330), Home batch toast (#3332), computing-cell write wait (#3333); no test reaches the network (#3311) on main at b4bc548d",
-        "Spark differential and value checks split so no test nears the time limit (#3340, #3345); learner-package probes end cleanly on Windows (#3334) on main at 9ea9dfde"
+        "Spark differential and value checks split so no test nears the time limit (#3340, #3345); learner-package probes end cleanly on Windows (#3334) on main at 9ea9dfde",
+        "Mutation batch 261 for the Excellence Assessment controls (#3358); a story-id ledger so each lane takes WR ids from its own block (#3263, WR-616) on main at 7b43ff88"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5290,6 +5293,7 @@
         3258,
         3260,
         3261,
+        3263,
         3265,
         3270,
         3272,
@@ -5302,7 +5306,8 @@
         3333,
         3334,
         3340,
-        3345
+        3345,
+        3358
       ],
       "issues": [
         910,
@@ -5476,7 +5481,8 @@
         "Notebook debugger hardening rounds 6 to 7 (#3233, #3243, #3273); Spark joins on column names put the keys first (#3262) on main at a73ebb71",
         "A crashed kernel leaves no process behind (#3314, WR-130); an .ipynb edit keeps key order (#3320, WR-132); df.show() matches Spark 3.5 (#3315, WR-133); pandas_udf type checks as in Spark (#3190) on main at 84a36dd6",
         "Markdown toolbar and preview for Markdown cells (#3329, N23, Preview) on main at b4bc548d",
-        "Notebook Present mode, slides from headings or marked cells (#3338, N49, Preview); a 2,000-cell notebook opens, scrolls and saves within a measured budget (#3328, WR-134) on main at 9ea9dfde"
+        "Notebook Present mode, slides from headings or marked cells (#3338, N49, Preview); a 2,000-cell notebook opens, scrolls and saves within a measured budget (#3328, WR-134) on main at 9ea9dfde",
+        "Cell code can't read the app's request stream through fd 0 or sys.__stdin__ (#3362, hardening round 9); an ended notebook process is marked gone (#3354) on main at 7b43ff88"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5745,7 +5751,9 @@
         3320,
         3328,
         3329,
-        3338
+        3338,
+        3354,
+        3362
       ]
     },
     {
@@ -5926,7 +5934,8 @@
         "Local T-SQL MERGE edge cases follow Fabric Warehouse or are refused by name (#3145, WR-244) on main at ea988e99",
         "Local T-SQL pads and collates as Latin1_General_100_BIN2_UTF8 in more places, or says why not (#3179, WR-246) on main at 0fdeb4d7",
         "Local T-SQL overflow and conversion errors in SQL Server's numbers and words (#3248, WR-247); MERGE column placement as a Warehouse does (#3274, WR-253, WR-257) on main at a73ebb71",
-        "A refused statement of a T-SQL script is named by its place (#3184, WR-238); a DuckDB query parameter can come first in the select list (#3242) on main at 84a36dd6"
+        "A refused statement of a T-SQL script is named by its place (#3184, WR-238); a DuckDB query parameter can come first in the select list (#3242) on main at 84a36dd6",
+        "A T-SQL MERGE INSERT with no VALUES is refused, not run (#3250) on main at 7b43ff88"
       ],
       "features": [
         "FEAT-FAB-11",
@@ -6077,6 +6086,7 @@
         3184,
         3242,
         3248,
+        3250,
         3274
       ],
       "mandatory": "none",
@@ -8560,7 +8570,8 @@
         "Phase 0: assessment, scored backlog and a plan per parity area, with registry plan metadata on the parity page (#3112, PAR-001); Snowflake key-pair and PAT sign-in and a connection check through the SQL API (#3113, SF-001, SF-002, Preview) on main at bdb6f251",
         "Parity page: Snowflake sign-in's cloud API is Partial now that the connection check is on main (#3141) on main at ea988e99",
         "Read-only Snowflake SQL warehouse engine (#3172, SF-003, Preview) on main at 0fdeb4d7",
-        "Parity cases, a local runner and run records (#3171, PAR-002) on main at 293fb38d"
+        "Parity cases, a local runner and run records (#3171, PAR-002) on main at 293fb38d",
+        "21 more parity cases, including cases that expect an error (#3245, PAR-002) on main at 7b43ff88"
       ],
       "features": [
         "FEAT-EXT-05"
@@ -8596,7 +8607,8 @@
         3113,
         3141,
         3171,
-        3172
+        3172,
+        3245
       ],
       "computed": {
         "benefit": 3.8,

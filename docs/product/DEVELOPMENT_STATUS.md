@@ -3,10 +3,14 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-26 11:42 UTC, main 046f9d3e.** Covers the PRs merged from #135 to #3351.
+**Product check of 2026-11-26 23:42 UTC, main 7b43ff88.** Covers the PRs merged from #135 to #3362.
 
 ## Summary
 
+- Evening check, 2026-11-26: 8 PRs merged after 046f9d3e. 1 was product data, and the other 7 were linked. Cell code
+  can no longer read the app's request stream (hardening round 9, PB-103). A T-SQL MERGE INSERT with no VALUES is
+  refused (PB-106). Three-platform parity gained 21 cases, including expected errors (PAR-002, PB-140). The support
+  bundle is listed as saved from Settings (PB-062). No item changed state.
 - Morning check, 2026-11-26: 7 PRs merged after 9ea9dfde. 1 was product data, and the other 6 were linked. Ossie
   work dominated (PB-110). The Direct Lake model builder now writes through the one TMDL writer (OSSIE-007a), and
   Ossie gained a fixture corpus, a converter-upgrade check, large-model scale tests, stricter writers and speed-ups.

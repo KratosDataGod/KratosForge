@@ -190,12 +190,12 @@ def test_local_data_delta_table_statements_run_as_one_script(local):
     engine.execute(block.code)
 
 
-_DUCKDB_2 = __import__("duckdb").__version__.startswith("2.")
+_DUCKDB_200 = __import__("duckdb").__version__ == "2.0.0"  # 2.0.1 merges into a Delta table again, as 1.x does
 
 
 @pytest.mark.parametrize("dialect", [
-    pytest.param("duckdb", marks=pytest.mark.xfail(_DUCKDB_2, strict=True, reason=(
-        "on DuckDB 2.0 a DuckDB SQL MERGE into a project's Delta table reaches DuckDB itself, which says "
+    pytest.param("duckdb", marks=pytest.mark.xfail(_DUCKDB_200, strict=True, reason=(
+        "on DuckDB 2.0.0 a DuckDB SQL MERGE into a project's Delta table reaches DuckDB itself, which says "
         "'Can only merge into base tables'; Spark SQL takes the Delta path on both"))),
     "spark"])
 def test_local_data_merge_update_delete_run_in_either_dialect(local, dialect):

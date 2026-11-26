@@ -236,11 +236,11 @@ def _expressions(model: dict[str, Any], base: tuple[Any, ...], translate_sql: bo
 
 @functools.lru_cache(maxsize=1)
 def _dumper() -> Any:
-    """The vendored converter's dumper (through semantic_view's line-break fix) that never writes an alias, so an
-    object the document holds twice is written out twice."""
+    """The vendored converter's pure-Python dumper (through semantic_view's line-break fix) that never writes an
+    alias, so an object the document holds twice is written out twice."""
     from . import semantic_view
 
-    class _NoAliasDumper(semantic_view._dumper()):  # type: ignore[misc]
+    class _NoAliasDumper(semantic_view._dumper()[0]):  # type: ignore[misc]
         def ignore_aliases(self, data: Any) -> bool:
             return True
 

@@ -157,12 +157,12 @@ def _read(source: Any, view: str) -> tuple[dict[str, Any], str, dict[str, Any] |
     source = dict(source)
     if isinstance(source.get("model"), dict) and not isinstance(source.get("version"), str):
         out = mo.export(source, translate_dax=True)
-        return mo.yaml.safe_load(out["yaml"]), "tmsl", out["fidelity"]
+        return mo.load_own(out["yaml"]), "tmsl", out["fidelity"]
     if source and all(isinstance(k, str) and isinstance(v, str) for k, v in source.items()) \
             and any(k.endswith(".tmdl") for k in source):
         bim, read_report = tmdl.to_bim(source, view)
         out = mo.export(bim, translate_dax=True, read_report=read_report)
-        return mo.yaml.safe_load(out["yaml"]), "tmdl", out["fidelity"]
+        return mo.load_own(out["yaml"]), "tmdl", out["fidelity"]
     if "version" not in source:
         raise ValueError("This isn't a semantic model KratosForge can make a view from. Give a model.bim with a "
                          "model object, a TMDL folder's .tmdl files, or an Ossie document with a version.")
@@ -532,21 +532,30 @@ _BREAKS = ("\x85", "\u2028", "\u2029", "\r")
 
 
 @functools.lru_cache(maxsize=1)
-def _dumper() -> Any:
+def _dumper() -> tuple[Any, Any]:
     """The vendored converter's YAML dumper (multi-line text as a literal block, its NEL fix in
-    ``semantic_model_to_ossie._represent_str``) extended to every YAML line break, not only U+0085."""
+    ``semantic_model_to_ossie._represent_str``) extended to every YAML line break, not only U+0085: the pure-Python
+    one, and the same on libyaml (None without it) for ``mo.dump_yaml``."""
     from ._vendor.ossie_microsoft.semantic_model_to_ossie import _OssieDumper, _represent_str
-
-    class _ViewDumper(_OssieDumper):
-        pass
 
     def represent(dumper: Any, data: str) -> Any:
         if any(c in data for c in _BREAKS):
             return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
         return _represent_str(dumper, data)
 
+    class _ViewDumper(_OssieDumper):
+        pass
+
     _ViewDumper.add_representer(str, represent)
-    return _ViewDumper
+    mo.require()
+    if not getattr(mo.yaml, "__with_libyaml__", False):
+        return _ViewDumper, None
+
+    class _CViewDumper(mo.yaml.CSafeDumper):
+        pass
+
+    _CViewDumper.yaml_representers = dict(_ViewDumper.yaml_representers)
+    return _ViewDumper, _CViewDumper
 
 
 def _summary(files: dict[str, str]) -> list[dict[str, Any]]:
@@ -555,7 +564,7 @@ def _summary(files: dict[str, str]) -> list[dict[str, Any]]:
     (have DAX)."""
     out = []
     for path in sorted(files):
-        doc = mo.yaml.safe_load(files[path]) or {}
+        doc = mo.load_own(files[path]) or {}
         metrics = [m for m in doc.get("metrics") or [] if isinstance(m, dict)]
         out.append({"path": path, "bytes": len(files[path].encode("utf-8")),
                     "datasets": len(doc.get("datasets") or []), "relationships": len(doc.get("relationships") or []),
@@ -568,9 +577,9 @@ def _summary(files: dict[str, str]) -> list[dict[str, Any]]:
 
 def _dump(doc: dict[str, Any]) -> str:
     """One view file's YAML, refused (ValueError) unless it reads back as exactly ``doc``."""
-    text: str = mo.yaml.dump(doc, Dumper=_dumper(), sort_keys=False, default_flow_style=False, allow_unicode=True,
-                             width=float("inf"))
-    if any(c in text for c in _BREAKS[:3]) or mo.yaml.safe_load(text) != doc:
+    text = mo.dump_yaml(doc, _dumper(), sort_keys=False, default_flow_style=False, allow_unicode=True,
+                        width=float("inf"))
+    if any(c in text for c in _BREAKS[:3]) or mo.load_own(text) != doc:
         raise ValueError(f"The view file for {mo._q(doc.get('name'))} wouldn't read back as written, so it wasn't "
                          "made. Check names and expressions for unusual line-break characters.")
     return text

@@ -44,7 +44,7 @@ _LOAD_LOCK = threading.Lock()
 def _load() -> None:
     """Import PyYAML and the converter once, setting MISSING to "" or to the package that is missing."""
     global yaml, OSSIE_VERSION, ConversionError, convert_ossie_to_semantic_model, convert_semantic_model_to_ossie
-    global _NoAliasLoader, MISSING
+    global _NoAliasLoader, MISSING, _C
     with _LOAD_LOCK:
         if "MISSING" in globals():
             return
@@ -61,16 +61,17 @@ def _load() -> None:
             MISSING = {"yaml": "PyYAML"}.get((exc.name or "").partition(".")[0], exc.name or "") or str(exc)
             return
 
-        class _NoAlias(_yaml.SafeLoader):
-            """YAML without anchors and aliases (``*name``). Ossie files don't need them, and nested aliases let a
-            few hundred bytes expand into a model of gigabytes once it is written out as JSON."""
+        class _Refusals:
+            """Anchors and aliases (``*name``) refused: Ossie files don't need them, and nested aliases let a few
+            hundred bytes expand into a model of gigabytes once it is written out as JSON. A key given twice in one
+            object refused too."""
 
             def compose_node(self, parent: Any, index: Any) -> Any:
-                if self.check_event(_yaml.AliasEvent):
-                    event = self.peek_event()
+                if self.check_event(_yaml.AliasEvent):  # type: ignore[attr-defined]
+                    event = self.peek_event()  # type: ignore[attr-defined]
                     raise ValueError(f"This file repeats parts of itself with YAML aliases (line {event.start_mark.line + 1}); "
                                      "write them out in full")
-                return super().compose_node(parent, index)
+                return super().compose_node(parent, index)  # type: ignore[misc]
 
             def construct_mapping(self, node: Any, deep: bool = False) -> Any:
                 """A key given twice in one object is refused: YAML's keys are unique, and the later one would
@@ -79,17 +80,160 @@ def _load() -> None:
                 for key_node, _ in node.value:
                     if not isinstance(key_node, _yaml.ScalarNode) or key_node.tag == "tag:yaml.org,2002:merge":
                         continue
-                    key = self.construct_object(key_node)
+                    key = self.construct_object(key_node)  # type: ignore[attr-defined]
                     if key in seen:
                         raise ValueError(f"This file gives {str(key)[:80]!r} twice in one object (line "
                                          f"{key_node.start_mark.line + 1}). Keep one.")
                     seen.add(key)
-                return super().construct_mapping(node, deep)
+                return super().construct_mapping(node, deep)  # type: ignore[misc]
+
+        class _NoAlias(_Refusals, _yaml.SafeLoader):
+            """PyYAML's pure-Python SafeLoader with the refusals: the reference every fast read is held to."""
+
+        from ._vendor.ossie_microsoft import semantic_model_to_ossie as _s2o
 
         yaml, OSSIE_VERSION, ConversionError = _yaml, _version, _error
         convert_ossie_to_semantic_model, convert_semantic_model_to_ossie = _to_model, _to_ossie
         _NoAliasLoader = _NoAlias
+        _VENDORED.update(to_model=_to_model, to_ossie=_to_ossie, build=_s2o.build_ossie_document,
+                         ossie_dumper=_s2o._OssieDumper)
+        _C = _fast_classes(_yaml, _Refusals, _s2o._OssieDumper)
         MISSING = ""  # last: its presence means the names above are set
+
+
+class _NotSure(Exception):
+    """The libyaml read can't be trusted to match the pure-Python one here; the pure one reads it instead."""
+
+
+# Reading and writing YAML with libyaml (PyYAML's C extension) when the engine has it: several times faster
+# than PyYAML's pure-Python code, which took about two thirds of Export with its round trip. The two disagree
+# on some text, so libyaml is used only where it gives exactly what the pure code gives:
+# - Untrusted text (load_text) is scanned and parsed by libyaml, but composed and built by the same Python
+#   code as before (so aliases, repeated keys and nesting are refused in the same place). A text with a tab,
+#   a byte order mark after the start, or a block scalar header followed by "#" goes to the pure reader, as
+#   does a plain scalar holding "?" inside [ ] or { } (libyaml reads it, PyYAML refuses it). Whatever libyaml
+#   refuses, or nests past _FAST_DEPTH, is read again by the pure reader, so every refusal has its words.
+# - Writing: a document of plain values (objects, lists, text, numbers, true/false, null) with no carriage
+#   return, lone surrogate or character past U+FFFF in its text, and keys of 1 to _FAST_KEY_BYTES bytes, is
+#   written by libyaml; its output is the same, byte for byte. libyaml ends a document holding a "|+" block
+#   with "..." where PyYAML may not, so such a document is written again by the pure code.
+# - Text this module wrote itself is read back with libyaml's SafeLoader, the pure one when libyaml refuses.
+# tests/test_ossie_fast_yaml.py runs the fixture corpus and hostile input through both.
+_FAST_DEPTH = 2 * tmdl.MAX_DEPTH
+_FAST_KEY_BYTES = 100
+_FAST_UNSAFE_TEXT = re.compile(r"\t|[|>][-+0-9]*#")
+_FAST_UNSAFE_CHARS = re.compile("[\r\ud800-\udfff\U00010000-\U0010ffff]")
+_PLAIN = (int, float, bool, type(None))
+_VENDORED: dict[str, Any] = {}  # the vendored converter's functions, so a stand-in (the upgrade diff's) is noticed
+_C: Any = None  # libyaml's classes (see _fast_classes), or None to use only the pure-Python ones
+
+
+def _fast_classes(_yaml: Any, refusals: type, ossie_dumper: type) -> Any:
+    """libyaml's loader and dumpers, or None when PyYAML was built without it."""
+    if not getattr(_yaml, "__with_libyaml__", False):
+        return None
+    from types import SimpleNamespace
+
+    from yaml.composer import Composer
+    from yaml.constructor import SafeConstructor
+    from yaml.resolver import Resolver
+
+    class _CNoAlias(refusals, Composer, _yaml.cyaml.CParser, SafeConstructor, Resolver):
+        """libyaml's scanner and parser under the pure-Python composer and constructor, with the refusals."""
+
+        def __init__(self, stream: str) -> None:
+            _yaml.cyaml.CParser.__init__(self, stream)
+            Composer.__init__(self)
+            SafeConstructor.__init__(self)
+            Resolver.__init__(self)
+            self.depth = self.flow = 0
+
+        def compose_node(self, parent: Any, index: Any) -> Any:
+            event = self.peek_event()
+            flow = int(isinstance(event, _yaml.CollectionStartEvent) and bool(event.flow_style))
+            self.depth, self.flow = self.depth + 1, self.flow + flow
+            try:
+                if self.depth > _FAST_DEPTH:
+                    raise _NotSure
+                return super().compose_node(parent, index)
+            finally:
+                self.depth, self.flow = self.depth - 1, self.flow - flow
+
+        def compose_scalar_node(self, anchor: Any) -> Any:
+            event = self.peek_event()
+            if self.flow and not event.style and "?" in event.value:  # libyaml gives a plain scalar style ""
+                raise _NotSure  # PyYAML ends a plain scalar at "?" inside [ ] or { }; libyaml reads on
+            if event.tag is not None and not event.value:  # an empty scalar with a tag such as a lone "!":
+                raise _NotSure  # libyaml reads it as "", PyYAML as null or refuses it
+            return super().compose_scalar_node(anchor)
+
+    class _COssieDumper(_yaml.CSafeDumper):
+        """The converter's dumper (its str representer) on libyaml's emitter."""
+
+    _COssieDumper.yaml_representers = dict(ossie_dumper.yaml_representers)  # type: ignore[attr-defined]
+    return SimpleNamespace(no_alias=_CNoAlias, safe_loader=_yaml.CSafeLoader, safe_dumper=_yaml.CSafeDumper,
+                           ossie_dumper=_COssieDumper)
+
+
+def _fast_writable(doc: Any) -> bool:
+    """Whether libyaml writes ``doc`` exactly as the pure code does: plain values, text without a carriage return,
+    lone surrogate or character past U+FFFF, and keys of 1 to _FAST_KEY_BYTES bytes (libyaml and PyYAML measure
+    a key differently when deciding whether it needs a "?")."""
+    stack = [doc]
+    while stack:
+        value = stack.pop()
+        kind = type(value)
+        if kind is dict:
+            for key, item in value.items():
+                if type(key) is not str or not key or len(key) > _FAST_KEY_BYTES or _FAST_UNSAFE_CHARS.search(key) \
+                        or len(key.encode("utf-8")) > _FAST_KEY_BYTES:
+                    return False
+                stack.append(item)
+        elif kind is list:
+            stack.extend(value)
+        elif kind is str:
+            if _FAST_UNSAFE_CHARS.search(value):
+                return False
+        elif kind not in _PLAIN:
+            return False
+    return True
+
+
+def dump_yaml(doc: Any, dumpers: tuple[Any, Any] | None = None, **options: Any) -> str:
+    """``doc`` as YAML, as ``yaml.dump(doc, Dumper=dumpers[0], **options)`` writes it, byte for byte, with
+    libyaml (``dumpers[1]``) when it writes the same. ``dumpers`` defaults to the converter's dumper and the
+    converter's options (keys in order, block style, unicode as it is, no line folding)."""
+    if dumpers is None:
+        dumpers = (_VENDORED["ossie_dumper"], _C.ossie_dumper if _C is not None else None)
+        options = {"sort_keys": False, "default_flow_style": False, "allow_unicode": True, "width": float("inf")}
+    pure, fast = dumpers
+    if _C is not None and fast is not None and _fast_writable(doc):
+        text: str = yaml.dump(doc, Dumper=fast, **({**options, "width": -1} if options.get("width") == float("inf")
+                                                   else options))
+        if not text.endswith("\n...\n"):
+            return text
+    out: str = yaml.dump(doc, Dumper=pure, **options)
+    return out
+
+
+def load_own(text: str) -> Any:
+    """YAML this module (or the converter) wrote, as plain values: libyaml's SafeLoader, the pure one when libyaml
+    refuses it. Never for a file someone gives: that is ``load_text``."""
+    if _C is not None:
+        try:
+            return yaml.load(text, Loader=_C.safe_loader)  # noqa: S506 - a SafeLoader
+        except yaml.YAMLError:  # narrow: libyaml refused it; the pure reader decides, with its own words
+            pass
+    return yaml.safe_load(text)
+
+
+def _to_ossie(semantic_model: Any, translate_dax: bool = False) -> str:
+    """``convert_semantic_model_to_ossie``: the vendored one's document written by ``dump_yaml``, or the stand-in
+    the upgrade diff put there."""
+    if convert_semantic_model_to_ossie is not _VENDORED["to_ossie"] or not isinstance(semantic_model, dict):
+        out: str = convert_semantic_model_to_ossie(semantic_model, translate_dax=translate_dax)
+        return out
+    return dump_yaml(_VENDORED["build"](semantic_model, translate_dax=translate_dax))
 
 
 def __getattr__(name: str) -> Any:
@@ -171,6 +315,11 @@ def load_text(text: str) -> Any:
         raise ValueError("An Ossie file is text (YAML or JSON)")
     if len(text) > MAX_CHARS:
         raise ValueError(f"This file is {len(text) // 1_000_000} MB; an Ossie model is at most {MAX_CHARS // 1_000_000} MB")
+    if _C is not None and not _FAST_UNSAFE_TEXT.search(text) and text.find("\ufeff", 1) < 0:
+        try:
+            return yaml.load(text, Loader=_C.no_alias)  # noqa: S506 - a SafeLoader that also refuses aliases
+        except (yaml.YAMLError, ValueError, RecursionError, _NotSure):  # narrow: refused, or libyaml isn't sure:
+            pass  # the pure reader below decides, so a refusal has the same words either way
     try:
         return yaml.load(text, Loader=_NoAliasLoader)  # noqa: S506 - a SafeLoader that also refuses aliases
     except yaml.YAMLError as exc:
@@ -236,7 +385,7 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
         raise ValueError("This model couldn't be converted to Ossie, because part of it is nested too deeply to read "
                          f"(more than {MAX_DEPTH} levels). Flatten that part (often an annotation value), then try again.")
     try:
-        text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
+        text, report = _convert(_to_ossie, bim, translate_dax=translate_dax)
     except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a number for tables)
         raise ValueError("This model couldn't be converted to Ossie, because part of it isn't the shape a semantic model's "
                          f"part has ({exc}). Fix that part, then try again.") from exc
@@ -244,7 +393,7 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
         raise ValueError("This model couldn't be converted to Ossie, because part of it is nested too deeply to read. "
                          "Flatten that part (often an annotation value), then try again.") from None
     report = list(read_report or []) + report
-    doc = yaml.safe_load(text)
+    doc = load_own(text)
     datasets = doc.get("datasets") or []
     metrics = list(doc.get("metrics") or []) + [m for d in datasets for m in d.get("metrics") or []]
     portable = sum(1 for m in metrics if any(d.get("dialect") != "DAX"
@@ -354,7 +503,10 @@ def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) ->
     refuse_depth(parsed)  # after the shape check, which names a wrong type by path however deep it nests
     try:
         doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
-        bim, report = _convert(convert_ossie_to_semantic_model, yaml.safe_dump(doc, sort_keys=False), source=source)
+        text = dump_yaml(doc, (yaml.SafeDumper, _C.safe_dumper if _C is not None else None), sort_keys=False)
+        # The vendored converter reads the text with PyYAML's pure SafeLoader; it takes what that gives, read here.
+        given = load_own(text) if convert_ossie_to_semantic_model is _VENDORED["to_model"] else text
+        bim, report = _convert(convert_ossie_to_semantic_model, given, source=source)
     except ConversionError as exc:
         raise ValueError(f"The Ossie file couldn't be converted: {exc}") from exc
     except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a list for a name)

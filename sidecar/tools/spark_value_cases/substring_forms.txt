@@ -1,0 +1,143 @@
+# Spark 3.5 substring forms, left, right, instr, locate and position (WR-256): substr, FROM ... FOR, a
+# column, a number and binary, and the other functions at their edges. Each answer is shown with its type.
+SELECT substr('hello', 0, 2) AS v
+SELECT substring('hello' FROM 0 FOR 2) AS v
+SELECT substring(s, p, n) AS v FROM VALUES ('hello', 0, 2) AS t(s, p, n)
+SELECT substring(12345, 0, 2) AS v, typeof(substring(12345, 0, 2)) AS t
+SELECT hex(substring(X'0102030405', 0, 2)) AS v, typeof(substring(X'0102030405', 0, 2)) AS t
+SELECT substr('hello', -3, 2) AS v
+SELECT substring('hello' FROM -3 FOR 2) AS v
+SELECT substring(s, p, n) AS v FROM VALUES ('hello', -3, 2) AS t(s, p, n)
+SELECT substring(12345, -3, 2) AS v, typeof(substring(12345, -3, 2)) AS t
+SELECT hex(substring(X'0102030405', -3, 2)) AS v, typeof(substring(X'0102030405', -3, 2)) AS t
+SELECT substr('hello', -1, 5) AS v
+SELECT substring('hello' FROM -1 FOR 5) AS v
+SELECT substring(s, p, n) AS v FROM VALUES ('hello', -1, 5) AS t(s, p, n)
+SELECT substring(12345, -1, 5) AS v, typeof(substring(12345, -1, 5)) AS t
+SELECT hex(substring(X'0102030405', -1, 5)) AS v, typeof(substring(X'0102030405', -1, 5)) AS t
+SELECT substr('hello', 2, -1) AS v
+SELECT substring('hello' FROM 2 FOR -1) AS v
+SELECT substring(s, p, n) AS v FROM VALUES ('hello', 2, -1) AS t(s, p, n)
+SELECT substring(12345, 2, -1) AS v, typeof(substring(12345, 2, -1)) AS t
+SELECT hex(substring(X'0102030405', 2, -1)) AS v, typeof(substring(X'0102030405', 2, -1)) AS t
+SELECT substr('hello', -7, 3) AS v
+SELECT substring('hello' FROM -7 FOR 3) AS v
+SELECT substring(s, p, n) AS v FROM VALUES ('hello', -7, 3) AS t(s, p, n)
+SELECT substring(12345, -7, 3) AS v, typeof(substring(12345, -7, 3)) AS t
+SELECT hex(substring(X'0102030405', -7, 3)) AS v, typeof(substring(X'0102030405', -7, 3)) AS t
+SELECT substring('hello' FROM -2) AS v
+SELECT substring(s, p) AS v FROM VALUES ('héllo', -2), ('héllo', 0), (NULL, 1), ('x', NULL) AS t(s, p)
+SELECT left('hello', 0) AS v, typeof(left('hello', 0)) AS t
+SELECT right('hello', 0) AS v, typeof(right('hello', 0)) AS t
+SELECT left('hello', 2) AS v, typeof(left('hello', 2)) AS t
+SELECT right('hello', 2) AS v, typeof(right('hello', 2)) AS t
+SELECT left('hello', -1) AS v, typeof(left('hello', -1)) AS t
+SELECT right('hello', -1) AS v, typeof(right('hello', -1)) AS t
+SELECT left('hello', 6) AS v, typeof(left('hello', 6)) AS t
+SELECT right('hello', 6) AS v, typeof(right('hello', 6)) AS t
+SELECT left('hello', CAST(NULL AS INT)) AS v, typeof(left('hello', CAST(NULL AS INT))) AS t
+SELECT right('hello', CAST(NULL AS INT)) AS v, typeof(right('hello', CAST(NULL AS INT))) AS t
+SELECT left('hello', -2147483648) AS v, typeof(left('hello', -2147483648)) AS t
+SELECT right('hello', -2147483648) AS v, typeof(right('hello', -2147483648)) AS t
+SELECT left('', 0) AS v, typeof(left('', 0)) AS t
+SELECT right('', 0) AS v, typeof(right('', 0)) AS t
+SELECT left('', 2) AS v, typeof(left('', 2)) AS t
+SELECT right('', 2) AS v, typeof(right('', 2)) AS t
+SELECT left('', -1) AS v, typeof(left('', -1)) AS t
+SELECT right('', -1) AS v, typeof(right('', -1)) AS t
+SELECT left('', 6) AS v, typeof(left('', 6)) AS t
+SELECT right('', 6) AS v, typeof(right('', 6)) AS t
+SELECT left('', CAST(NULL AS INT)) AS v, typeof(left('', CAST(NULL AS INT))) AS t
+SELECT right('', CAST(NULL AS INT)) AS v, typeof(right('', CAST(NULL AS INT))) AS t
+SELECT left('', -2147483648) AS v, typeof(left('', -2147483648)) AS t
+SELECT right('', -2147483648) AS v, typeof(right('', -2147483648)) AS t
+SELECT left('😀a😀b', 0) AS v, typeof(left('😀a😀b', 0)) AS t
+SELECT right('😀a😀b', 0) AS v, typeof(right('😀a😀b', 0)) AS t
+SELECT left('😀a😀b', 2) AS v, typeof(left('😀a😀b', 2)) AS t
+SELECT right('😀a😀b', 2) AS v, typeof(right('😀a😀b', 2)) AS t
+SELECT left('😀a😀b', -1) AS v, typeof(left('😀a😀b', -1)) AS t
+SELECT right('😀a😀b', -1) AS v, typeof(right('😀a😀b', -1)) AS t
+SELECT left('😀a😀b', 6) AS v, typeof(left('😀a😀b', 6)) AS t
+SELECT right('😀a😀b', 6) AS v, typeof(right('😀a😀b', 6)) AS t
+SELECT left('😀a😀b', CAST(NULL AS INT)) AS v, typeof(left('😀a😀b', CAST(NULL AS INT))) AS t
+SELECT right('😀a😀b', CAST(NULL AS INT)) AS v, typeof(right('😀a😀b', CAST(NULL AS INT))) AS t
+SELECT left('😀a😀b', -2147483648) AS v, typeof(left('😀a😀b', -2147483648)) AS t
+SELECT right('😀a😀b', -2147483648) AS v, typeof(right('😀a😀b', -2147483648)) AS t
+SELECT left('éx', 0) AS v, typeof(left('éx', 0)) AS t
+SELECT right('éx', 0) AS v, typeof(right('éx', 0)) AS t
+SELECT left('éx', 2) AS v, typeof(left('éx', 2)) AS t
+SELECT right('éx', 2) AS v, typeof(right('éx', 2)) AS t
+SELECT left('éx', -1) AS v, typeof(left('éx', -1)) AS t
+SELECT right('éx', -1) AS v, typeof(right('éx', -1)) AS t
+SELECT left('éx', 6) AS v, typeof(left('éx', 6)) AS t
+SELECT right('éx', 6) AS v, typeof(right('éx', 6)) AS t
+SELECT left('éx', CAST(NULL AS INT)) AS v, typeof(left('éx', CAST(NULL AS INT))) AS t
+SELECT right('éx', CAST(NULL AS INT)) AS v, typeof(right('éx', CAST(NULL AS INT))) AS t
+SELECT left('éx', -2147483648) AS v, typeof(left('éx', -2147483648)) AS t
+SELECT right('éx', -2147483648) AS v, typeof(right('éx', -2147483648)) AS t
+SELECT left(CAST(NULL AS STRING), 0) AS v, typeof(left(CAST(NULL AS STRING), 0)) AS t
+SELECT right(CAST(NULL AS STRING), 0) AS v, typeof(right(CAST(NULL AS STRING), 0)) AS t
+SELECT left(CAST(NULL AS STRING), 2) AS v, typeof(left(CAST(NULL AS STRING), 2)) AS t
+SELECT right(CAST(NULL AS STRING), 2) AS v, typeof(right(CAST(NULL AS STRING), 2)) AS t
+SELECT left(CAST(NULL AS STRING), -1) AS v, typeof(left(CAST(NULL AS STRING), -1)) AS t
+SELECT right(CAST(NULL AS STRING), -1) AS v, typeof(right(CAST(NULL AS STRING), -1)) AS t
+SELECT left(CAST(NULL AS STRING), 6) AS v, typeof(left(CAST(NULL AS STRING), 6)) AS t
+SELECT right(CAST(NULL AS STRING), 6) AS v, typeof(right(CAST(NULL AS STRING), 6)) AS t
+SELECT left(CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(left(CAST(NULL AS STRING), CAST(NULL AS INT))) AS t
+SELECT right(CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(right(CAST(NULL AS STRING), CAST(NULL AS INT))) AS t
+SELECT left(CAST(NULL AS STRING), -2147483648) AS v, typeof(left(CAST(NULL AS STRING), -2147483648)) AS t
+SELECT right(CAST(NULL AS STRING), -2147483648) AS v, typeof(right(CAST(NULL AS STRING), -2147483648)) AS t
+SELECT left(s, n) AS a, right(s, n) AS b FROM VALUES ('héllo', -1), ('héllo', 2), ('héllo', 0), (NULL, 1) AS t(s, n)
+SELECT left(12345, 2) AS a, right(12345, 2) AS b, typeof(left(12345, 2)) AS t
+SELECT hex(left(X'010203', 2)) AS a, hex(right(X'010203', 2)) AS b, typeof(left(X'010203', 2)) AS t
+SELECT instr('hello', 'l') AS v, typeof(instr('hello', 'l')) AS t
+SELECT position('l' IN 'hello') AS v
+SELECT instr('hello', '') AS v, typeof(instr('hello', '')) AS t
+SELECT position('' IN 'hello') AS v
+SELECT instr('hello', '😀') AS v, typeof(instr('hello', '😀')) AS t
+SELECT position('😀' IN 'hello') AS v
+SELECT instr('hello', '́') AS v, typeof(instr('hello', '́')) AS t
+SELECT position('́' IN 'hello') AS v
+SELECT instr('hello', CAST(NULL AS STRING)) AS v, typeof(instr('hello', CAST(NULL AS STRING))) AS t
+SELECT position(CAST(NULL AS STRING) IN 'hello') AS v
+SELECT instr('', 'l') AS v, typeof(instr('', 'l')) AS t
+SELECT position('l' IN '') AS v
+SELECT instr('', '') AS v, typeof(instr('', '')) AS t
+SELECT position('' IN '') AS v
+SELECT instr('', '😀') AS v, typeof(instr('', '😀')) AS t
+SELECT position('😀' IN '') AS v
+SELECT instr('', '́') AS v, typeof(instr('', '́')) AS t
+SELECT position('́' IN '') AS v
+SELECT instr('', CAST(NULL AS STRING)) AS v, typeof(instr('', CAST(NULL AS STRING))) AS t
+SELECT position(CAST(NULL AS STRING) IN '') AS v
+SELECT instr('😀a😀b', 'l') AS v, typeof(instr('😀a😀b', 'l')) AS t
+SELECT position('l' IN '😀a😀b') AS v
+SELECT instr('😀a😀b', '') AS v, typeof(instr('😀a😀b', '')) AS t
+SELECT position('' IN '😀a😀b') AS v
+SELECT instr('😀a😀b', '😀') AS v, typeof(instr('😀a😀b', '😀')) AS t
+SELECT position('😀' IN '😀a😀b') AS v
+SELECT instr('😀a😀b', '́') AS v, typeof(instr('😀a😀b', '́')) AS t
+SELECT position('́' IN '😀a😀b') AS v
+SELECT instr('😀a😀b', CAST(NULL AS STRING)) AS v, typeof(instr('😀a😀b', CAST(NULL AS STRING))) AS t
+SELECT position(CAST(NULL AS STRING) IN '😀a😀b') AS v
+SELECT instr('éx', 'l') AS v, typeof(instr('éx', 'l')) AS t
+SELECT position('l' IN 'éx') AS v
+SELECT instr('éx', '') AS v, typeof(instr('éx', '')) AS t
+SELECT position('' IN 'éx') AS v
+SELECT instr('éx', '😀') AS v, typeof(instr('éx', '😀')) AS t
+SELECT position('😀' IN 'éx') AS v
+SELECT instr('éx', '́') AS v, typeof(instr('éx', '́')) AS t
+SELECT position('́' IN 'éx') AS v
+SELECT instr('éx', CAST(NULL AS STRING)) AS v, typeof(instr('éx', CAST(NULL AS STRING))) AS t
+SELECT position(CAST(NULL AS STRING) IN 'éx') AS v
+SELECT instr(CAST(NULL AS STRING), 'l') AS v, typeof(instr(CAST(NULL AS STRING), 'l')) AS t
+SELECT position('l' IN CAST(NULL AS STRING)) AS v
+SELECT instr(CAST(NULL AS STRING), '') AS v, typeof(instr(CAST(NULL AS STRING), '')) AS t
+SELECT position('' IN CAST(NULL AS STRING)) AS v
+SELECT instr(CAST(NULL AS STRING), '😀') AS v, typeof(instr(CAST(NULL AS STRING), '😀')) AS t
+SELECT position('😀' IN CAST(NULL AS STRING)) AS v
+SELECT instr(CAST(NULL AS STRING), '́') AS v, typeof(instr(CAST(NULL AS STRING), '́')) AS t
+SELECT position('́' IN CAST(NULL AS STRING)) AS v
+SELECT instr(CAST(NULL AS STRING), CAST(NULL AS STRING)) AS v, typeof(instr(CAST(NULL AS STRING), CAST(NULL AS STRING))) AS t
+SELECT position(CAST(NULL AS STRING) IN CAST(NULL AS STRING)) AS v
+SELECT instr(s, f) AS v FROM VALUES ('héllo', 'l'), ('😀a😀', 'a'), ('', '') AS t(s, f)

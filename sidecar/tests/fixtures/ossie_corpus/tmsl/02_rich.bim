@@ -1,0 +1,78 @@
+{
+  "name": "corpus_tmsl_rich",
+  "compatibilityLevel": 1604,
+  "model": {
+    "culture": "en-US",
+    "description": "Roles, a hierarchy, a calculation group, a perspective and a culture.",
+    "tables": [
+      {
+        "name": "orders",
+        "lineageTag": "t-orders",
+        "columns": [
+          {"name": "order_id", "dataType": "int64", "sourceColumn": "order_id", "isHidden": true, "summarizeBy": "none", "lineageTag": "c-order-id"},
+          {"name": "customer_id", "dataType": "int64", "sourceColumn": "customer_id", "isHidden": true, "summarizeBy": "none", "lineageTag": "c-o-cust"},
+          {"name": "amount", "dataType": "decimal", "sourceColumn": "amount", "formatString": "#,0.00", "summarizeBy": "none", "lineageTag": "c-amount"}
+        ],
+        "measures": [
+          {"name": "order rows", "expression": "COUNTROWS('orders')", "lineageTag": "m-rows"},
+          {"name": "total amount", "expression": "SUM('orders'[amount])", "formatString": "#,0.00", "lineageTag": "m-total"},
+          {"name": "amount per order", "expression": ["DIVIDE(", "    [total amount],", "    [order rows]", ")"], "lineageTag": "m-per"}
+        ],
+        "partitions": [
+          {"name": "orders", "mode": "directLake", "source": {"type": "entity", "entityName": "orders", "schemaName": "dbo", "expressionSource": "DatabaseQuery"}}
+        ]
+      },
+      {
+        "name": "customers",
+        "lineageTag": "t-customers",
+        "columns": [
+          {"name": "customer_id", "dataType": "int64", "sourceColumn": "customer_id", "isKey": true, "summarizeBy": "none", "lineageTag": "c-cust-id"},
+          {"name": "country", "dataType": "string", "sourceColumn": "country", "lineageTag": "c-country"},
+          {"name": "city", "dataType": "string", "sourceColumn": "city", "lineageTag": "c-city"}
+        ],
+        "hierarchies": [
+          {"name": "Geography", "lineageTag": "h-geo", "levels": [
+            {"name": "country", "ordinal": 0, "column": "country", "lineageTag": "l-country"},
+            {"name": "city", "ordinal": 1, "column": "city", "lineageTag": "l-city"}]}
+        ],
+        "partitions": [
+          {"name": "customers", "mode": "directLake", "source": {"type": "entity", "entityName": "customers", "schemaName": "dbo", "expressionSource": "DatabaseQuery"}}
+        ]
+      },
+      {
+        "name": "time intelligence",
+        "lineageTag": "t-ti",
+        "calculationGroup": {
+          "precedence": 1,
+          "calculationItems": [
+            {"name": "current", "expression": "SELECTEDMEASURE()", "ordinal": 0},
+            {"name": "doubled", "expression": "SELECTEDMEASURE() * 2", "ordinal": 1, "formatStringDefinition": {"expression": "\"#,0\""}}
+          ]
+        },
+        "columns": [
+          {"name": "period", "dataType": "string", "sourceColumn": "Name", "summarizeBy": "none", "lineageTag": "c-period"},
+          {"name": "Ordinal", "dataType": "int64", "sourceColumn": "Ordinal", "isHidden": true, "summarizeBy": "sum", "lineageTag": "c-ordinal"}
+        ],
+        "partitions": [
+          {"name": "time intelligence", "mode": "import", "source": {"type": "calculationGroup"}}
+        ]
+      }
+    ],
+    "relationships": [
+      {"name": "r-orders-customers", "fromTable": "orders", "fromColumn": "customer_id", "toTable": "customers", "toColumn": "customer_id"}
+    ],
+    "roles": [
+      {"name": "EU readers", "modelPermission": "read",
+       "tablePermissions": [{"name": "customers", "filterExpression": "[country] = \"DE\""}]}
+    ],
+    "perspectives": [
+      {"name": "Sales view", "tables": [{"name": "orders", "measures": [{"name": "total amount"}]}]}
+    ],
+    "cultures": [
+      {"name": "de-DE", "translations": {"model": {"name": "Model", "tables": [{"name": "orders", "translatedCaption": "Bestellungen"}]}}}
+    ],
+    "expressions": [
+      {"name": "DatabaseQuery", "kind": "m", "expression": "let\n    database = Sql.Database(\"corpus\", \"lh\")\nin\n    database"}
+    ]
+  }
+}

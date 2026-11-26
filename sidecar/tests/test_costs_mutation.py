@@ -105,7 +105,7 @@ def test_a_fabric_run_whose_time_is_not_known_says_why():
 def test_cus_follow_the_runs_engine(kind, engine, cu, what):
     row = costs.activities([], [_fabric(kind=kind, engine=engine)], [], CFG, now=NOW)[0]
     assert row["fabric_job_cu"]["value"] == 10 * cu
-    assert f"{cu:g} CU while it ran, the configured CUs of {what} (Monitor > Cost > Prices)." \
+    assert f"{cu:g} CU while it ran, the configured CUs of {what} (Optimize > Cost and savings > Prices)." \
         in row["fabric_job_cu"]["assumptions"]
 
 

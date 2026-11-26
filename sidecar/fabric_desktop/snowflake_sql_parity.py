@@ -394,8 +394,13 @@ CASES: tuple[Case, ...] = (
         ("IS_NULL_VALUE", "1"), ("IS_BOOLEAN", "3"), ("IS_INTEGER", "4"), ("IS_DOUBLE", "4,5,6"),
         ("IS_REAL", "4,5,6"), ("IS_VARCHAR", "7"), ("IS_CHAR", "7"), ("IS_ARRAY", "8"), ("IS_OBJECT", "9"))),
     _c("IS_DECIMAL (vartab)", "Semi-structured",
-       f"SELECT listagg(n, ',') WITHIN GROUP (ORDER BY n) FROM {_VARTAB} WHERE is_decimal(v)", "4,5", "differs",
-       "SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too.", page="is"),
+       f"SELECT listagg(n, ',') WITHIN GROUP (ORDER BY n) FROM {_VARTAB} WHERE is_decimal(v)", "4,5", "untranslated",
+       "Refused by SFN-072 when the query reaches row 5: how 123.12 and 1.912e2 were written isn't kept in a "
+       "stored VARIANT here. IS_DECIMAL(PARSE_JSON('1.912e2')) is FALSE, as in Snowflake.", page="is"),
+    _c("IS_DECIMAL (PARSE_JSON with an exponent)", "Semi-structured", "SELECT is_decimal(parse_json('1.912e2'))",
+       False, page="is"),
+    _c("IS_DECIMAL (PARSE_JSON with a fraction)", "Semi-structured", "SELECT is_decimal(parse_json('123.12'))",
+       True, page="is"),
     _c("IS_DECIMAL", "Semi-structured", "SELECT is_decimal(to_variant(1.23::decimal(6, 3)))", True),
     _c("IS_DECIMAL (a DOUBLE)", "Semi-structured", "SELECT is_decimal(to_variant(3.21::double))", False),
     _c("IS_DECIMAL (an integer)", "Semi-structured", "SELECT is_decimal(to_variant(15))", True),
@@ -461,11 +466,21 @@ CASES: tuple[Case, ...] = (
        page="typeof"),
     _c("TYPEOF (path to a fraction)", "Semi-structured", "SELECT typeof(parse_json('{\"a\": [1, 191.2]}'):a[1])",
        "DECIMAL", page="typeof"),
+    # is_timestamp's example: SELECT v, TYPEOF(v) over TO_VARIANT of each kind of timestamp, row by row
+    _c("TYPEOF (TIMESTAMP_TZ)", "Semi-structured",
+       "SELECT typeof(to_variant(to_timestamp_tz('2020-02-24 15:00:00.123 +01:00')))", "TIMESTAMP_TZ",
+       page="is_timestamp"),
+    _c("TYPEOF (TIMESTAMP_LTZ)", "Semi-structured",
+       "SELECT typeof(to_variant(to_timestamp_ltz('2022-02-24 13:00:00.123 +01:00')))", "TIMESTAMP_LTZ",
+       page="is_timestamp"),
+    _c("TYPEOF (TIMESTAMP_NTZ)", "Semi-structured",
+       "SELECT typeof(to_variant(to_timestamp('2023-02-24 12:00:00.456')))", "TIMESTAMP_NTZ", page="is_timestamp"),
+    _c("TYPEOF (DATE)", "Semi-structured", "SELECT typeof(to_variant(to_date('2024-02-24')))", "DATE",
+       page="is_timestamp"),
     _c("TYPEOF (stored value with an exponent)", "Semi-structured",
-       "SELECT typeof(v:a) FROM (SELECT parse_json('{\"a\": 1.912e2}') AS v)", "DOUBLE", "differs",
-       "A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' "
-       "here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into "
-       "PARSE_JSON of text in the query, is exact.", page="typeof"),
+       "SELECT typeof(v:a) FROM (SELECT parse_json('{\"a\": 1.912e2}') AS v)", "DOUBLE", "untranslated",
+       "Refused by SFN-072 when the query reaches the value: DuckDB doesn't keep how a stored JSON number was "
+       "written. TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact.", page="typeof"),
     _c("LISTAGG", "Aggregate", f"SELECT listagg(x, ',') WITHIN GROUP (ORDER BY x) FROM {_values(repr('b'), repr('a'))}",
        "a,b"),
     _c("ARRAY_AGG", "Aggregate", f"SELECT array_agg(x) WITHIN GROUP (ORDER BY x) FROM {_values(2, 1)}", [1, 2]),
@@ -599,15 +614,10 @@ CASES: tuple[Case, ...] = (
     _c("UNICODE (snowflake)", "String", "SELECT unicode('❄')", 10052, page="unicode"),
     _c("UNICODE (first character)", "String", "SELECT unicode('cde')", 99, page="unicode"),
     _c("UNICODE (empty)", "String", "SELECT unicode('')", 0, page="unicode"),
-    _c("JAROWINKLER_SIMILARITY", "String", "SELECT jarowinkler_similarity('Snowflake', 'Oracle')", 61),
-    _c("JAROWINKLER_SIMILARITY (phrase)", "String", "SELECT jarowinkler_similarity('Gute nacht', 'Ich weis nicht')", 56,
-       "differs", "Snowflake's reference shows 56; DuckDB's Jaro-Winkler gives 57 (SFD-012).",
-       page="jarowinkler_similarity"),
-    _c("JAROWINKLER_SIMILARITY (accents)", "String", "SELECT jarowinkler_similarity('święta', 'swieta')", 77,
-       "differs", "Snowflake's reference shows 77; DuckDB's Jaro-Winkler gives 72 (SFD-012).",
-       page="jarowinkler_similarity"),
-    _c("JAROWINKLER_SIMILARITY (empty)", "String", "SELECT jarowinkler_similarity('', '')", 0,
-       page="jarowinkler_similarity"),
+    _c("JAROWINKLER_SIMILARITY", "String", "SELECT jarowinkler_similarity('Gute nacht', 'Ich weis nicht')", 56,
+       "untranslated", "Refused by SFN-070: Snowflake doesn't document its score, and DuckDB's gives 57 for this pair "
+       "from Snowflake's example, 94 for 'Ich weiß nicht' and 'Ich weiss nicht' (97), and 72 for 'święta' and "
+       "'swieta' (77). EDITDISTANCE runs here.", page="jarowinkler_similarity"),
     _c("LOWER", "String", "SELECT lower('The Quick Gray Fox')", "the quick gray fox"),
     _c("LOWER (accents)", "String", "SELECT lower('ÄäÖößÜü')", "ääöößüü", page="lower"),
     _c("LOWER (Cyrillic)", "String", "SELECT lower('АаБбВвГгДдЕеЁёЖжЗзИиЙй')", "ааббввггддееёёжжззиийй", page="lower"),
@@ -937,6 +947,11 @@ CASES: tuple[Case, ...] = (
        "SELECT current_val + previous_val, current_val FROM current_f WHERE current_val + previous_val < 100) "
        "SELECT list(current_val ORDER BY current_val) FROM current_f",
        [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89], page="../constructs/with"),
+    # the VALUES page: SELECT $1, $2 FROM VALUES (1, 'one'), (2, 'two'), (3, 'three') reads each column by position
+    _c("VALUES ($1, $2)", "Statements", "SELECT max($2) FROM VALUES (1, 'one'), (2, 'two'), (3, 'three') WHERE $1 = 2",
+       "two", page="../constructs/values"),
+    _c("VALUES ($1 summed)", "Statements", "SELECT sum($1) FROM VALUES (1, 'one'), (2, 'two'), (3, 'three')", 6,
+       page="../constructs/values"),
     _c("UNION ALL (BY NAME)", "Statements", "SELECT list(a ORDER BY a) FROM (SELECT * FROM VALUES (1, 'one'), (2, 'two'), "
        "(3, 'three') AS t1(a, b) UNION ALL BY NAME SELECT * FROM VALUES ('three', 3), ('four', 4) AS t2(b, a))",
        [1, 2, 3, 3, 4], page="../operators-query"),
@@ -984,6 +999,25 @@ CASES: tuple[Case, ...] = (
        "CREATE TABLE t1 (n1 INTEGER); CREATE TABLE t2 (n1 INTEGER); INSERT FIRST WHEN n1 > 100 THEN INTO t1 "
        "WHEN n1 > 10 THEN INTO t1 INTO t2 ELSE INTO t2 SELECT n1 FROM src; SELECT list(n1 ORDER BY n1) FROM t1",
        [11, 101], "untranslated", "Refused by SFN-026. Write one INSERT ... SELECT for each table.", page="../sql/insert-multi-table"),
+    # identifiers-syntax: unquoted identifiers "are stored and resolved as uppercase characters (e.g. id is stored
+    # and resolved as ID)"; CREATE TABLE mytable(c1 INT, c2 INT) makes MYTABLE. A double-quoted one keeps its case.
+    _c("CREATE TABLE (stored names)", "Statements", "CREATE TABLE mytable (c1 INT, \"c2\" INT); SELECT "
+       "string_agg(table_name || '.' || column_name, ',' ORDER BY ordinal_position) FROM information_schema.columns "
+       "WHERE table_name = 'MYTABLE'", "MYTABLE.C1,MYTABLE.c2", page="../identifiers-syntax"),
+    _c("CREATE TEMPORARY TABLE (stored names)", "Statements", "CREATE TEMPORARY TABLE two (j INT); SELECT "
+       "table_name || '.' || column_name FROM information_schema.columns WHERE table_name = 'TWO'", "TWO.J",
+       page="../identifiers-syntax"),
+    _c("CREATE VIEW (stored names)", "Statements", "CREATE TABLE t (id INT); CREATE VIEW v AS SELECT id, id AS "
+       "id2 FROM t; SELECT string_agg(table_name || '.' || column_name, ',' ORDER BY ordinal_position) FROM "
+       "information_schema.columns WHERE table_name = 'V'", "V.ID,V.ID2", page="../identifiers-syntax"),
+    _c("CREATE SCHEMA (stored name)", "Statements", "CREATE SCHEMA mine; SELECT schema_name FROM "
+       "information_schema.schemata WHERE schema_name = 'MINE'", "MINE", page="../identifiers-syntax"),
+    _c("ALTER TABLE ADD COLUMN (stored name)", "Statements", "CREATE TABLE t (id INT); ALTER TABLE t ADD COLUMN "
+       "c2 INT; SELECT column_name FROM information_schema.columns WHERE table_name = 'T' AND ordinal_position = 2",
+       "C2", page="../identifiers-syntax"),
+    _c("ALTER TABLE RENAME (stored name)", "Statements", "CREATE TABLE t (id INT); ALTER TABLE t RENAME TO t2; "
+       "SELECT table_name FROM information_schema.tables WHERE table_name = 'T2'", "T2",
+       page="../identifiers-syntax"),
     # create-table: LIKE copies "Column names, types, defaults, and constraints"
     _c("CREATE TABLE LIKE", "Statements", "CREATE TABLE t (id INTEGER DEFAULT 7, v INTEGER); CREATE TABLE u LIKE t; "
        "INSERT INTO u (v) VALUES (1); SELECT id FROM u", 7, "untranslated",
@@ -1065,8 +1099,7 @@ CASES: tuple[Case, ...] = (
        [None, 0, 10, 20], page="array_sort"),
     _c("UUID_STRING (named)", "String", "SELECT uuid_string('fe971b24-9572-4005-b22f-351e9c09274d','foo')",
        "dc0b6f65-fca6-5b4b-9d37-ccc3fde1f3e2", page="uuid_string"),
-    _c("TO_JSON", "Semi-structured", "SELECT to_json(parse_json('{\"b\":1,\"a\":2}'))", '{"a":2,"b":1}', "differs",
-       "Snowflake sorts an object's keys; here they keep their order (SFD-014)."),
+    _c("TO_JSON", "Semi-structured", "SELECT to_json(parse_json('{\"b\":1,\"a\":2}'))", '{"a":2,"b":1}'),
     _c("PARSE_JSON", "Semi-structured", "SELECT to_json(parse_json('{\"food\":\"bard\"}'))", '{"food":"bard"}',
        page="to_json"),
     _c("TO_ARRAY", "Semi-structured", "SELECT to_array('snowman,snowball,snowcone')", ["snowman,snowball,snowcone"]),
@@ -1138,6 +1171,47 @@ CASES: tuple[Case, ...] = (
     _c("TRY_TO_DOUBLE (not a number)", "Conversion", "SELECT try_to_double('Invalid')", None, page="try_to_double"),
     _c("TRY_TO_TIME", "Conversion", "SELECT try_to_time('12:30:00')", dt.time(12, 30)),
     _c("TRY_TO_TIME (not a time)", "Conversion", "SELECT try_to_time('Invalid')", None, page="try_to_time"),
+    # data-types-datetime's TIMESTAMP_LTZ and TIMESTAMP_TZ examples: a table ts_test(ts) gets '2024-01-01 16:00:00'
+    # and '2024-01-02 16:00:00 +00:00' in an America/Los_Angeles session, then SELECT ts, HOUR(ts), and again
+    # after ALTER SESSION SET TIMEZONE = 'America/New_York'.
+    _c("INSERT (TIMESTAMP_LTZ column)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts TIMESTAMP_LTZ); ALTER SESSION "
+       "SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 16:00:00'); INSERT INTO "
+       "ts_test VALUES('2024-01-02 16:00:00 +00:00'); SELECT list(hour(ts) ORDER BY ts) FROM ts_test", [16, 8],
+       page="../data-types-datetime"),
+    _c("INSERT (TIMESTAMP_LTZ column, another session zone)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts "
+       "TIMESTAMP_LTZ); ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 "
+       "16:00:00'); INSERT INTO ts_test VALUES('2024-01-02 16:00:00 +00:00'); ALTER SESSION SET TIMEZONE = "
+       "'America/New_York'; SELECT list(hour(ts) ORDER BY ts) FROM ts_test", [19, 11], page="../data-types-datetime"),
+    _c("INSERT (TIMESTAMP_TZ column)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts TIMESTAMP_TZ); ALTER SESSION "
+       "SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 16:00:00'); SELECT hour(ts) "
+       "FROM ts_test", 16, page="../data-types-datetime"),
+    _c("INSERT (TIMESTAMP_TZ column, text with an offset)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts "
+       "TIMESTAMP_TZ); ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-02 "
+       "16:00:00 +00:00'); SELECT hour(ts) FROM ts_test", 16, "untranslated",
+       "Refused by SFN-013: DuckDB can't keep the +00:00 Snowflake keeps with the value (SFX-074). Text with "
+       "another offset and no space stops the query (SFN-071).", page="../data-types-datetime"),
+    _c("INSERT (TIMESTAMP_TZ column, another session zone)", "Statements", "CREATE OR REPLACE TABLE ts_test(ts "
+       "TIMESTAMP_TZ); ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; INSERT INTO ts_test VALUES('2024-01-01 "
+       "16:00:00'); ALTER SESSION SET TIMEZONE = 'America/New_York'; SELECT hour(ts) FROM ts_test", 16, "differs",
+       "SFD-002: in Snowflake the value keeps -08:00. Here it's an instant, shown in the session's new zone "
+       "(19). In the zone it was written in, it reads as in Snowflake.", page="../data-types-datetime"),
+    # TO_TIMESTAMP_TZ's examples (to_timestamp page, in its America/Los_Angeles session): 01:02:03.000 -0700, the
+    # session's offset, so its wall clock and its instant (08:02:03 UTC) are both checked.
+    _c("TO_TIMESTAMP_TZ", "Conversion", "ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; "
+       "SELECT to_timestamp_tz('2024-04-05 01:02:03')", dt.datetime(2024, 4, 5, 1, 2, 3), page="to_timestamp"),
+    _c("TO_TIMESTAMP_TZ (its instant)", "Conversion", "ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; "
+       "SELECT date_part(epoch_second, to_timestamp_tz('2024-04-05 01:02:03'))", 1712304123, page="to_timestamp"),
+    _c("TO_TIMESTAMP_TZ (format)", "Conversion", "ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; "
+       "SELECT to_timestamp_tz('04/05/2024 01:02:03', 'mm/dd/yyyy hh24:mi:ss')", dt.datetime(2024, 4, 5, 1, 2, 3),
+       page="to_timestamp"),
+    _c("TO_TIMESTAMP_TZ (day first)", "Conversion", "ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; "
+       "SELECT date_part(epoch_second, to_timestamp_tz('04/05/2024 01:02:03', 'dd/mm/yyyy hh24:mi:ss'))",
+       1714809723, page="to_timestamp"),
+    # TRY_TO_TIMESTAMP's page has one example, of TRY_TO_TIMESTAMP; its _TZ form answers it the same way
+    _c("TRY_TO_TIMESTAMP_TZ", "Conversion", "SELECT try_to_timestamp_tz('2024-01-15 12:30:00')",
+       dt.datetime(2024, 1, 15, 12, 30), page="try_to_timestamp"),
+    _c("TRY_TO_TIMESTAMP_TZ (not a timestamp)", "Conversion", "SELECT try_to_timestamp_tz('Invalid')", None,
+       page="try_to_timestamp"),
     _c("TRY_TO_TIMESTAMP", "Conversion", "SELECT try_to_timestamp('2024-01-15 12:30:00')", dt.datetime(2024, 1, 15, 12, 30)),
     _c("TRY_TO_TIMESTAMP (not a timestamp)", "Conversion", "SELECT try_to_timestamp('Invalid')", None,
        page="try_to_timestamp"),
@@ -1222,6 +1296,8 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
     except duckdb.Error as exc:
         if isinstance(case.expected, Raises) and case.expected.text in str(exc):
             return "same", case.expected
+        if snowflake_sql.stopped_by_name(exc):  # a refusal for a value only the run can tell (SFN-071, SFN-072)
+            return "untranslated", str(exc).splitlines()[0].split("Error: ", 1)[-1]
         return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     value = row[0] if row else None
     return ("same" if same(value, case.expected) else "differs"), value

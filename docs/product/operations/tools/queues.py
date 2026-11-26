@@ -1,6 +1,6 @@
 """Work queues for the six workstreams (docs/product/operations/workstreams.json).
 
-    python docs/product/operations/tools/queues.py check    # the queue file is well formed and names real stories
+    python docs/product/operations/tools/queues.py check    # the queue file is well formed, names real stories, and keeps to the WR id ledger
     python docs/product/operations/tools/queues.py render   # rewrite the generated table in README.md
     python docs/product/operations/tools/queues.py all      # render, then check
     python docs/product/operations/tools/queues.py body PB-072   # a story's GitHub issue body
@@ -13,15 +13,18 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[4]
 OPS = ROOT / "docs" / "product" / "operations"
 QUEUES = OPS / "workstreams.json"
+LEDGER = OPS / "story-ids.json"
+WR_ID = re.compile(r"WR-(\d+)")
 README = OPS / "README.md"
 BACKLOG = ROOT / "docs" / "product" / "PRODUCT_BACKLOG.json"
 INVENTORY = ROOT / "docs" / "product" / "FEATURE_INVENTORY.json"
@@ -34,6 +37,10 @@ def load() -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     queues = json.loads(QUEUES.read_text(encoding="utf-8"))
     backlog = {i["id"]: i for i in json.loads(BACKLOG.read_text(encoding="utf-8"))["items"]}
     return queues, backlog
+
+
+def load_ledger() -> dict[str, Any]:
+    return json.loads(LEDGER.read_text(encoding="utf-8"))
 
 
 def story(sid: str, queues: dict[str, Any], backlog: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -106,6 +113,8 @@ def check() -> tuple[list[str], list[str]]:
             if sid not in backlog and sid not in queues.get("new_stories", {}):
                 errors.append(f"{key}: backlog story {sid} doesn't exist")
     errors += _check_side(queues, seen)
+    errors += duplicate_keys(QUEUES.read_text(encoding="utf-8"))
+    errors += check_ids(queues, load_ledger())
     short += [f"side program {sp.get('key') or '?'}: {n} stories at review, over its cap of {sp['review_cap']}"
               for sp in queues.get("side_programs", [])
               if isinstance(sp.get("review_cap"), int)
@@ -143,6 +152,171 @@ def _check_side(queues: dict[str, Any], seen: dict[str, str]) -> list[str]:
             if sid in seen:
                 errors.append(f"{sid} is queued in both {seen[sid]} and {key}")
             seen[sid] = key
+    return errors
+
+
+class _Use(NamedTuple):
+    """One place the queue file uses a WR id. defines: the place carries the story itself (a title), not a reference."""
+    sid: str
+    number: int
+    workstream: str | None
+    place: str
+    title: str
+    issue: int | None
+    defines: bool
+
+
+def _wr_number(sid: Any) -> int | None:
+    m = WR_ID.fullmatch(sid) if isinstance(sid, str) else None
+    return int(m.group(1)) if m else None
+
+
+def _titled_id(title: Any) -> str | None:
+    """The WR id a free-text title starts with, as in "WR-250 Prod waits for the typed name"."""
+    m = re.match(r"(WR-\d+)(?![\w-])", title) if isinstance(title, str) else None
+    return m.group(1) if m else None
+
+
+def _same_title(a: str, b: str) -> bool:
+    def norm(t: str) -> str:
+        return re.sub(r"^WR-\d+[\s:.-]*", "", t).strip().casefold()
+    return norm(a) == norm(b)
+
+
+def _id_uses(queues: dict[str, Any]) -> list[_Use]:
+    uses = [_Use(sid, n, None, "new_stories", str(st.get("title") or ""), None, True)
+            for sid, st in queues.get("new_stories", {}).items() if (n := _wr_number(sid)) is not None]
+    for ws in queues["workstreams"]:
+        key = ws["key"]
+        for kind, slot in slots(ws):
+            sid = slot.get("story")
+            if sid:
+                if (n := _wr_number(sid)) is not None:
+                    uses.append(_Use(sid, n, key, f"{key} {kind} slot", "", None, False))
+            elif (sid := _titled_id(slot.get("title"))) and (n := _wr_number(sid)) is not None:
+                issue = slot.get("issue") if isinstance(slot.get("issue"), int) else None
+                uses.append(_Use(sid, n, key, f"{key} {kind} slot #{slot.get('issue')}", slot["title"], issue, True))
+        uses += [_Use(sid, n, key, f"{key} backlog", "", None, False)
+                 for sid in ws.get("backlog", []) if (n := _wr_number(sid)) is not None]
+    for sp in queues.get("side_programs", []):
+        for st in sp.get("stories", []):
+            if (sid := _titled_id(st.get("title"))) and (n := _wr_number(sid)) is not None:
+                issue = st.get("issue") if isinstance(st.get("issue"), int) else None
+                uses.append(_Use(sid, n, sp.get("workstream"), f"side program {sp.get('key') or '?'} #{st.get('issue')}",
+                                 st["title"], issue, True))
+    return uses
+
+
+def _span(entry: Any) -> tuple[int, int] | None:
+    """A ledger block or exception's first and last id numbers, or None when it isn't two WR ids in order."""
+    if not isinstance(entry, dict):
+        return None
+    first, last = _wr_number(entry.get("first")), _wr_number(entry.get("last"))
+    return (first, last) if first is not None and last is not None and first <= last else None
+
+
+def _span_text(first: int, last: int) -> str:
+    return f"WR-{first}" if first == last else f"WR-{first} to WR-{last}"
+
+
+def duplicate_keys(text: str) -> list[str]:
+    """A key twice in one object of workstreams.json: json.loads keeps the last, so the first story vanishes silently."""
+    errors: list[str] = []
+
+    def hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        seen: dict[str, Any] = {}
+        for k, v in pairs:
+            if k in seen:
+                titles = [x.get("title") for x in (seen[k], v) if isinstance(x, dict)]
+                both = f": {titles[0]!r} and {titles[1]!r}" if len(titles) == 2 and all(titles) else ""
+                errors.append(f"workstreams.json defines {k} twice in one object{both}; the second hides the first")
+            seen[k] = v
+        return dict(pairs)
+
+    json.loads(text, object_pairs_hook=hook)
+    return errors
+
+
+def check_ids(queues: dict[str, Any], ledger: dict[str, Any]) -> list[str]:
+    """WR ids keep to the ledger (story-ids.json): a queued id is in a block of one of its workstream's lanes,
+    and one id never names two stories, apart from the ledger's recorded exceptions."""
+    errors: list[str] = []
+    keys = {ws["key"] for ws in queues["workstreams"]}
+    lanes: dict[str, dict[str, Any]] = {}
+    blocks: list[tuple[int, int, dict[str, Any]]] = []
+    for lane in ledger.get("lanes", []):
+        lk = lane.get("key") or "?"
+        for field in ("key", "name", "workstream"):
+            if not lane.get(field):
+                errors.append(f"story-ids.json: lane {lk}: no {field}")
+        if lk in lanes:
+            errors.append(f"story-ids.json: lane {lk} is listed twice")
+        lanes[lk] = lane
+        if lane.get("workstream") and lane["workstream"] not in keys:
+            errors.append(f"story-ids.json: lane {lk}: workstream {lane['workstream']} doesn't exist")
+        if not lane.get("blocks"):
+            errors.append(f"story-ids.json: lane {lk}: no blocks")
+        for b in lane.get("blocks") or []:
+            if (r := _span(b)) is None:
+                errors.append(f"story-ids.json: lane {lk}: a block needs a first and a last WR id, first not after last")
+            else:
+                blocks.append((*r, lane))
+        if "next" in lane:
+            n = _wr_number(lane["next"])
+            own = [r for b in lane.get("blocks") or [] if (r := _span(b)) is not None]
+            if n is None or not any(b0 <= n <= b1 for b0, b1 in own):
+                errors.append(f"story-ids.json: lane {lk}: next {lane['next']} isn't a WR id in its own blocks")
+    for i, (a0, a1, la) in enumerate(blocks):
+        for b0, b1, lb in blocks[i + 1:]:
+            nested = (a0 <= b0 and b1 <= a1) or (b0 <= a0 and a1 <= b1)
+            if (a0, a1) == (b0, b1) or (a0 <= b1 and b0 <= a1 and not nested):
+                errors.append(f"story-ids.json: {_span_text(a0, a1)} ({la.get('key')}) and {_span_text(b0, b1)} "
+                              f"({lb.get('key')}) overlap; a block may only sit inside a larger one")
+    exceptions: dict[int, dict[str, Any]] = {}
+    for ex in ledger.get("exceptions", []):
+        if (r := _span(ex)) is None:
+            errors.append("story-ids.json: an exception needs a first and a last WR id, first not after last")
+            continue
+        name = _span_text(*r)
+        if not ex.get("note"):
+            errors.append(f"story-ids.json: exception {name}: no note saying what collided")
+        if not ex.get("lanes") or any(k not in lanes for k in ex["lanes"]):
+            errors.append(f"story-ids.json: exception {name}: lanes must name lanes in the ledger")
+        for n in range(r[0], r[1] + 1):
+            if n in exceptions:
+                errors.append(f"story-ids.json: WR-{n} is in two exceptions")
+            exceptions[n] = ex
+
+    def owner(n: int) -> tuple[int, int, dict[str, Any]] | None:
+        """The smallest block holding n: a block inside a larger one belongs to its own lane."""
+        return min((b for b in blocks if b[0] <= n <= b[1]), key=lambda b: b[1] - b[0], default=None)
+
+    uses = _id_uses(queues)
+    for u in uses:
+        block, ex = owner(u.number), exceptions.get(u.number)
+        if block is None and ex is None:
+            errors.append(f"{u.sid} ({u.place}) is in no block of story-ids.json; take the next id from its lane's block")
+            continue
+        if u.workstream is None:
+            continue
+        allowed = {block[2].get("workstream")} if block else set()
+        allowed |= {lanes[k].get("workstream") for k in (ex or {}).get("lanes", []) if k in lanes}
+        if u.workstream not in allowed:
+            given = (f"{block[2].get('name')} ({_span_text(block[0], block[1])}, workstream {block[2].get('workstream')})"
+                     if block else "no lane")
+            errors.append(f"{u.sid} is in the {u.place}, but story-ids.json gives {u.sid} to {given}")
+    defs: dict[str, list[_Use]] = {}
+    for u in uses:
+        if u.defines:
+            defs.setdefault(u.sid, []).append(u)
+    for sid, found in defs.items():
+        if _wr_number(sid) in exceptions:
+            continue
+        first = found[0]
+        for other in found[1:]:
+            same = (first.issue is not None and first.issue == other.issue) or _same_title(first.title, other.title)
+            if not same:
+                errors.append(f"{sid} names two stories: {first.place} ({first.title!r}) and {other.place} ({other.title!r})")
     return errors
 
 

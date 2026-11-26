@@ -28,10 +28,10 @@ matter.
 
 A second set of tokens on `:root` (`--border-warm`, `--warn-border`, `--warn-soft-4`, `--warn-soft-5`, `--warn-soft-7` to `--warn-soft-9`, `--warn-ink-2`,
 `--ok-ink`, `--danger-ink`, `--code-ref`, the syntax colors (`--code-keyword`, `--code-string`, `--code-function`, `--code-comment`, `--code-number`, `--code-builtin`), `--text-disabled`, `--bar-neutral` and others) holds shades that more than one rule shared. They
-are not in the table above, so a skin can't set them yet; dark mode will need them added once the
-near-duplicates among them are merged.
+are not in the table above, so a skin can't set them yet. Dark mode sets its own values for them in
+`styles.css`.
 
-50 colors are still written straight into rules (shades used once, the splash screen and the
+28 colors are still written straight into rules (shades used once, the splash screen and the
 celebration effects). A test in `app/tests/ui.test.cjs` lets that number only go down: a new rule uses a
 token, or adds one to `:root`.
 
@@ -211,7 +211,7 @@ Preview features are shown, and an administrator's policy can lock it.
 |---|---|
 | KratosForge | Nothing: the app's own look. Every engine and platform side by side, local runs up front. |
 | Fabric-familiar | A teal accent and lighter surfaces, and Create, Workspaces, OneLake and Monitor at the top of the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
-| Databricks-familiar | A blue accent, with the active rail item's stripe in the same blue, and Workspace, Recents, New, Catalog and Jobs and pipelines at the top of the rail, with those names, as Databricks developers expect. A dark version follows the mockup and shows once dark mode lands. It follows Databricks' documented layout, not its branding: no Databricks logos or assets. |
+| Databricks-familiar | A blue accent, with the active rail item's stripe in the same blue, and Workspace, Recents, New, Catalog and Jobs and pipelines at the top of the rail, with those names, as Databricks developers expect. In Dark color mode it draws with its own dark colors. It follows Databricks' documented layout, not its branding: no Databricks logos or assets. |
 | Snowflake-familiar | A blue accent and light surfaces, with the active rail item's stripe in the same blue, and Worksheets, Data, Load and create and Monitoring at the top of the rail, in that order, with those names, as Snowflake developers expect. It follows Snowflake's documented layout, not its branding: no Snowflake logos or assets. |
 
 Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
@@ -220,6 +220,5 @@ pages (Platform, Optimize and Data mesh) sit together under a "KratosForge" labe
 see what the app adds to the platform you know. Every skin also keeps the same "where it runs" chip
 beside the notebook's engine, such as "This PC · no Fabric job" (reading or writing OneLake from this PC still uses Fabric
 capacity), and a skin can't hide or change it.
-Dark versions of the
-skins come once the rest of the app's colors are on tokens. A skin renames rail entries only: the pages
+A skin renames rail entries only: the pages
 themselves, and where code runs, stay KratosForge's.

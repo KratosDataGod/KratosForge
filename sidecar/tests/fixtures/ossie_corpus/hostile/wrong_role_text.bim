@@ -1,0 +1,4 @@
+{"name": "wrong_role_text", "compatibilityLevel": 1604, "model": {"culture": "en-US", "tables": [
+  {"name": "orders", "columns": [{"name": "order_id", "dataType": "int64", "sourceColumn": "order_id"}],
+   "partitions": [{"name": "orders", "mode": "directLake", "source": {"type": "entity", "entityName": "orders", "schemaName": "dbo", "expressionSource": "DatabaseQuery"}}]}],
+  "roles": ["readers"]}}

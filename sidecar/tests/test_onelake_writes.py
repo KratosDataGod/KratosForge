@@ -301,25 +301,23 @@ def test_a_cell_reports_its_upload_wait_and_what_it_uploaded(service):
 
 
 def test_a_cell_that_computes_while_it_uploads_waits_less_than_the_upload(service, monkeypatch):
-    # The cell goes on until its upload is in, as a cell computing for longer than its upload does:
-    # an event, not a sleep, so a slow CI machine can't make the upload outlast the cell.
-    # The upload takes 1.2 s here: what's left to wait for after it (recording the write) took 0.23 s
-    # on a busy Windows runner (#771), longer than half the fixture's 0.2 s upload.
-    uploaded, upload = threading.Event(), lakehouse.publish
+    # The cell goes on until its write is all done, as a cell computing for longer than its upload does,
+    # so at its end there is nothing left to wait for. It waits on the write itself, not a sleep, so a slow
+    # CI machine can't make the upload outlast the cell. Waiting only until the upload returned (#771) left
+    # recording the write still to do when the cell ended: 0.95 s of a 1.24 s upload on a busy runner.
+    # The cell waits on the write's future directly: w.result() is the cell asking for the write, which
+    # may count as waiting on it.
+    upload = lakehouse.publish
 
-    def publish_and_tell(*args, **kwargs):
-        try:
-            time.sleep(1.0)
-            return upload(*args, **kwargs)
-        finally:
-            uploaded.set()
-    monkeypatch.setattr(lakehouse, "publish", publish_and_tell)
-    monkeypatch.setattr(lakehouse, "_test_uploaded", uploaded, raising=False)
-    out = service.run_cell(WRITE + "assert lakehouse._test_uploaded.wait(30)", LH)
+    def slow_publish(*args, **kwargs):
+        time.sleep(1.0)
+        return upload(*args, **kwargs)
+    monkeypatch.setattr(lakehouse, "publish", slow_publish)
+    out = service.run_cell(WRITE + "assert w._future.exception(30) is None", LH)
     assert out["status"] == "ok", out
     onelake = out["onelake"]
     assert onelake["upload_seconds"] >= 1.2
-    # Left to wait for at the end: recording the write, not the upload, which ran while the cell went on.
+    # Nothing was left to wait for at the end: the upload ran while the cell went on.
     assert onelake["wait_seconds"] < onelake["upload_seconds"] / 2, onelake
 
 

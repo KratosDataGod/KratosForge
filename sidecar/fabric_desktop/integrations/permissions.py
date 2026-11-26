@@ -28,6 +28,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
+from .. import app_settings
 from . import policy, scope
 from .core import CallContext, IntegrationError, redact_secrets
 from .registry import PERMISSIONS, Capability
@@ -77,7 +78,7 @@ class PermissionAuthorizer:
     def _enabled(self) -> tuple[bool, str]:
         rules = policy.current()
         if rules["enabled"] is False:
-            return False, "Your organization has turned off external AI tools on this PC."
+            return False, "Your organization has turned off external AI tools on this PC. " + app_settings.ask_it("integrations")
         if not self.store.settings()["enabled"]:
             return False, f"External AI tools are turned off. Turn them on in {WHERE}."
         return True, ""
@@ -88,7 +89,8 @@ class PermissionAuthorizer:
         if cap.permission not in OFFERED:
             return False, f"{cap.permission} isn't offered to external tools in this release."
         if cap.permission not in policy.current()["max_permissions"]:
-            return False, f"Your organization doesn't allow external tools {cap.permission}."
+            return False, (f"Your organization doesn't allow external tools {cap.permission}. "
+                           + app_settings.ask_it("integrations_max_permissions"))
         if client is None or cap.permission not in client["grants"]:
             return False, f"This tool hasn't been given {cap.permission}. The person can add it in {WHERE}."
         if cap.permission == "EXECUTE_LOCAL_CODE" and client["workspaces"]:

@@ -3,10 +3,10 @@
 These tests cover:
 - STRING_AGG of a date or time, which writes each value as a CAST to text does;
 - ISNULL with text first, which has text's type, so the date is written as a CAST writes it; ISNULL with a date
-  first and a text column, refused by name;
-- COALESCE and CASE, which take the date's type in T-SQL: a string written in the query is read as a date, as
-  there, and a text column is refused by name;
-- UNION of a text column with a date column, refused by name;
+  first, which reads the text as that date;
+- COALESCE, CASE and set operations, which take the date's type in T-SQL: main's precedence rule (#3188) converts
+  the text where the other values share one date type, and what it can't convert (a datetime, a table's datetime2
+  column in a set operation, dates of two types) is refused by name;
 - GETDATE() (datetime) and SYSDATETIME() (datetime2(7)) marked as they are read, so neither a comment, a string,
   the same function twice nor their order mislabels one.
 """
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 
+import duckdb
 import pytest
 
 from fabric_desktop.localdata import LocalData
@@ -44,6 +45,12 @@ def date_rows(engine, sql):
     result = engine.execute(sql, dialect="tsql")
     assert result["columns"][0]["type"] == "date32[day]", result["columns"]
     return [list(r) for r in result["rows"]]
+
+
+def fails(engine, sql, words):
+    """An error when the query runs, in SQL Server's words."""
+    with pytest.raises(duckdb.Error, match=re.escape(words)):
+        engine.execute(sql, dialect="tsql")
 
 
 def refused(engine, sql, words):
@@ -80,16 +87,25 @@ def test_isnull_with_a_date_first_reads_a_written_string_as_a_date(engine):
     assert date_rows(engine, "SELECT ISNULL(CAST(NULL AS DATE), '2024-05-06') AS v") == [["2024-05-06"]]
 
 
-def test_isnull_with_a_date_first_and_a_text_column_is_refused(engine):
-    refused(engine, "SELECT ISNULL(d, s) AS v FROM dbo.t", "ISNULL of text and a date or time isn't mapped yet")
+def test_isnull_with_a_date_first_reads_a_text_column_as_the_date(engine):
+    # ISNULL has its first value's type, so the text is read as a date: 'abc' is T-SQL's conversion error
+    assert date_rows(engine, "SELECT ISNULL(d, s) AS v FROM dbo.t ORDER BY id") == [["2024-01-02"], ["2024-03-05"]]
+    assert date_rows(engine, "SELECT ISNULL(CAST(NULL AS DATE), s) AS v FROM dbo.t WHERE id = 2") == [[None]]
+    fails(engine, "SELECT ISNULL(CAST(NULL AS DATE), s) AS v FROM dbo.t WHERE id = 1",
+            "Conversion failed when converting date and/or time from character string.")
 
 
 def test_coalesce_reads_a_written_string_as_the_date(engine):
     assert date_rows(engine, "SELECT COALESCE(NULL, CAST(NULL AS DATE), '2024-05-06') AS v") == [["2024-05-06"]]
 
 
-def test_coalesce_of_a_date_and_a_text_column_is_refused(engine):
-    refused(engine, "SELECT COALESCE(d, s) AS v FROM dbo.t", "COALESCE of text and a date or time isn't mapped yet")
+def test_coalesce_of_a_date_and_a_text_column_is_the_date(engine):
+    # main's precedence rule (#3188) reads the text as the date
+    assert date_rows(engine, "SELECT COALESCE(d, s) AS v FROM dbo.t ORDER BY id") == [["2024-01-02"], ["2024-03-05"]]
+
+
+def test_coalesce_of_a_datetime_and_a_text_column_is_refused(engine):
+    refused(engine, f"SELECT COALESCE({DT}, s) AS v FROM dbo.t", "COALESCE of text and a date or time isn't mapped yet")
 
 
 def test_case_reads_a_written_string_as_the_date(engine):
@@ -97,16 +113,34 @@ def test_case_reads_a_written_string_as_the_date(engine):
         [["2024-01-02"], ["2024-05-06"]]
 
 
-def test_case_of_a_date_and_a_text_column_is_refused(engine):
-    refused(engine, "SELECT CASE WHEN id = 1 THEN d ELSE s END AS v FROM dbo.t",
-            "a CASE of text and a date or time isn't mapped yet")
+def test_case_of_a_date_and_a_text_column_is_the_date(engine):
+    assert date_rows(engine, "SELECT CASE WHEN id = 1 THEN d ELSE s END AS v FROM dbo.t ORDER BY id") == \
+        [["2024-01-02"], [None]]
 
 
 @pytest.mark.parametrize("sql", [
-    "SELECT s FROM dbo.t UNION ALL SELECT d FROM dbo.t",
-    "SELECT d FROM dbo.t UNION SELECT s FROM dbo.t",
+    f"SELECT CASE WHEN id = 1 THEN {DT} ELSE s END AS v FROM dbo.t",
+    "SELECT CASE WHEN id = 1 THEN d WHEN id = 2 THEN a ELSE s END AS v FROM dbo.t",
+    f"SELECT IIF(id = 1, {DT}, s) AS v FROM dbo.t",
+])
+def test_case_of_a_datetime_or_two_date_types_and_a_text_column_is_refused(engine, sql):
+    with pytest.raises(ValueError, match="of text and a date or time isn't mapped yet"):
+        engine.execute(sql, dialect="tsql")
+
+
+def test_a_set_operation_of_a_text_column_and_a_date_column_reads_the_text_as_dates(engine):
+    # main's precedence rule (#3188): the column is a date, so 'abc' is T-SQL's conversion error
+    fails(engine, "SELECT s FROM dbo.t UNION ALL SELECT d FROM dbo.t",
+            "Conversion failed when converting date and/or time from character string.")
+    got = date_rows(engine, "SELECT d FROM dbo.t WHERE id = 1 UNION SELECT s FROM dbo.t WHERE id = 2")
+    assert sorted(got, key=str) == [["2024-01-02"], [None]]
+
+
+@pytest.mark.parametrize("sql", [
     f"SELECT '2024-01-01' UNION SELECT {DT}",
+    f"SELECT s FROM dbo.t UNION ALL SELECT {DT} FROM dbo.t",
     "SELECT id, s FROM dbo.t EXCEPT SELECT id, a FROM dbo.t",
+    "SELECT s FROM dbo.t INTERSECT SELECT a FROM dbo.t",
 ])
 def test_a_set_operation_of_text_and_a_date_is_refused(engine, sql):
     with pytest.raises(ValueError, match="of a column of text and a date or time isn't mapped yet"):

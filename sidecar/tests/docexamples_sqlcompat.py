@@ -89,6 +89,8 @@ CLAIMS: list[Claim] = [
     # Local T-SQL ordering and window functions
     _ts("4.00", query="SELECT TOP 1 PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY x) OVER () "
                       "FROM (VALUES (1.25), (2.50), (4.00)) AS t(x)"),
+    _ts("SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY v) FROM (VALUES (10), (20), (NULL)) AS t(v)",
+        query="SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY v) FROM (VALUES (10), (20), (NULL)) AS t(v)"),
     # Local T-SQL dates and times
     _ts("DATEADD(month, 1, '2024-01-31')"),
     _ts("DATEADD(year, 1, '2024-02-29')"),
@@ -173,4 +175,10 @@ STATEMENTS: list[Statement] = [
     Statement(P, "SELECT 1 EXCEPT SELECT ' 1'", "local-tsql", note="WR-259: empty, ' 1' is the int 1"),
     Statement(P, "SELECT * FROM t", "local-tsql", setup=("CREATE TABLE dbo.t (a INT)",),
               note="a name without a schema reads dbo.t"),
+    Statement(P, "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY v) FROM (VALUES (10), (20), (NULL)) AS t(v)",
+              "local-tsql", note="WR-709: the aggregate form runs, as a Fabric Warehouse runs it"),
+    Statement(P, "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY id, s) OVER () FROM dbo.t", "local-tsql",
+              refused=True, match=r"^Msg 10751, Level 15: The ORDER BY in WITHIN GROUP clause of 'PERCENTILE_CONT' "
+                                  r"function must have exactly one expression\.$",
+              setup=("CREATE TABLE dbo.t (id INT, s VARCHAR(10))",), note="WR-710: SQL Server's error 10751"),
 ]

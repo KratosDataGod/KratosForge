@@ -236,6 +236,8 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     notes: list[str] = []
     tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
     _refuse(tree)
+    _temp_views(tree)  # WR-708: before _temp_tables names the view "#v"
+    _percentile_clauses(tree)  # WR-710
     tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
     notes += _collations(tree)
     _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
@@ -2613,6 +2615,76 @@ def _unknown(kind: exp.DataType | None) -> bool:
 _ORDER_TYPE = "kf_order_type"
 
 
+def _temp_views(tree: exp.Expression) -> None:
+    """WR-708: a view named #v is refused before anything runs, as SQL Server refuses it (error 4103, "Temporary
+    views are not allowed"). DuckDB made a temporary view of it, so ``CREATE VIEW #v`` ran here. This covers
+    ``CREATE VIEW``, ``CREATE OR ALTER VIEW`` and ``ALTER VIEW``, with or without a schema or brackets. A ##name
+    is left to the refusal of global temporary tables."""
+    if not ((isinstance(tree, exp.Create) or isinstance(tree, exp.Alter))
+            and (tree.args.get("kind") or "").upper() == "VIEW"):
+        return
+    name = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
+    ident = name.this if isinstance(name, exp.Table) else None
+    if isinstance(ident, exp.Identifier) and (ident.args.get("temporary") or ident.name.startswith("#")) \
+            and not ident.args.get("global_"):
+        raise ValueError(f'"#{ident.name.lstrip("#")}": Temporary views are not allowed.')
+
+
+def _percentile_value(p: exp.Expression | None) -> float | None:
+    """The percentile written as a number, such as 0.5 or -0.1; None for anything else."""
+    negative = isinstance(p, exp.Neg)
+    if negative:
+        assert isinstance(p, exp.Neg)
+        p = p.this
+    while isinstance(p, exp.Paren):
+        p = p.this
+    if not (isinstance(p, exp.Literal) and not p.is_string):
+        return None
+    try:
+        value = float(p.name)
+    except ValueError:
+        return None
+    return -value if negative else value
+
+
+def _percentile_clauses(tree: exp.Expression) -> None:
+    """WR-710: ``PERCENTILE_CONT`` and ``PERCENTILE_DISC`` take what SQL Server and a Fabric Warehouse take, and
+    anything else is refused by name before it runs (functions/percentile-cont-transact-sql and
+    percentile-disc-transact-sql).
+
+    - Exactly one expression in ``WITHIN GROUP (ORDER BY ...)``, error 10751. DuckDB ordered by them all.
+    - ``OVER`` takes only ``PARTITION BY``: an ``ORDER BY`` in it is error 10758 and a ``ROWS`` or ``RANGE``
+      frame 10752. DuckDB ran a running percentile.
+    - The percentile is from 0.0 to 1.0. DuckDB refused a number outside that only in the aggregate form, and the
+      window form gave a value. SQL Server's number for it isn't documented, so the message has none.
+
+    The aggregate form, with no ``OVER``, runs: a Fabric Warehouse takes it (the Fabric notes on both pages, and
+    data-warehouse/analytical-functions), where SQL Server and Azure SQL Database need ``OVER`` (error 10753)."""
+    named = {w.name.lower(): w for w in tree.find_all(exp.Window) if isinstance(w.this, exp.Identifier)}
+    for group in tree.find_all(exp.WithinGroup):
+        if not isinstance(group.this, (exp.PercentileCont, exp.PercentileDisc)):
+            continue
+        function = "PERCENTILE_CONT" if isinstance(group.this, exp.PercentileCont) else "PERCENTILE_DISC"
+        order = group.expression
+        if isinstance(order, exp.Order) and len(order.expressions) != 1:
+            raise ValueError(f"The ORDER BY in WITHIN GROUP clause of '{function}' function must have exactly one "
+                             "expression.")
+        window = group.parent
+        if isinstance(window, exp.Window) and window.this is group:
+            specs = [window]
+            alias = window.args.get("alias")
+            if isinstance(alias, exp.Identifier) and alias.name.lower() in named:
+                specs.append(named[alias.name.lower()])  # OVER w, with WINDOW w AS (...)
+            if any(s.args.get("order") for s in specs):
+                raise ValueError(f"The function '{function}' may not have ORDER BY in OVER clause.")
+            if any(s.args.get("spec") for s in specs):
+                raise ValueError(f"The function '{function}' may not have a window frame.")
+        value = _percentile_value(group.this.this)
+        if value is not None and not 0 <= value <= 1:
+            raise ValueError(f"{function} takes a percentile from 0.0 to 1.0, and {group.this.this.sql('tsql')} "
+                             "isn't one. A Fabric Warehouse refuses it too.")
+
+
 def _percentiles(tree: exp.Expression) -> None:
     """``PERCENTILE_CONT`` and ``PERCENTILE_DISC`` as T-SQL gives them.
 
@@ -2621,18 +2693,24 @@ def _percentiles(tree: exp.Expression) -> None:
     - With ``ORDER BY x DESC``, p counts from the largest value. DuckDB's windowed QUANTILE ignores the
       DESC and counted from the smallest, so the 0.25 percentile came back as the 0.75 one. Here the
       values are negated, so ascending order is T-SQL's descending one, and the answer is negated back:
-      integers in a wider type, so the smallest one doesn't overflow, then returned to their own type."""
+      integers in a wider type, so the smallest one doesn't overflow, then returned to their own type.
+    - WR-709: the aggregate form, with no ``OVER``, which a Fabric Warehouse takes, is a float for a decimal too.
+      DuckDB's aggregate counts DESC from the largest value, but DuckDB 1.5 gave the smallest for a percentile of
+      0 (2.0 gives the largest), so that one is MAX of the values."""
     for group in list(tree.find_all(exp.WithinGroup)):
         window = group.parent
-        if not (isinstance(group.this, (exp.PercentileCont, exp.PercentileDisc)) and isinstance(window, exp.Window)
-                and window.this is group and isinstance(group.expression, exp.Order)
-                and len(group.expression.expressions) == 1):
+        if not (isinstance(group.this, (exp.PercentileCont, exp.PercentileDisc))
+                and isinstance(group.expression, exp.Order) and len(group.expression.expressions) == 1):
             continue
         ordered = group.expression.expressions[0]
         cont = isinstance(group.this, exp.PercentileCont)
         if cont:
             ordered.set("this", exp.Cast(this=ordered.this, to=exp.DataType.build("DOUBLE")))
         if not ordered.args.get("desc"):
+            continue
+        if not (isinstance(window, exp.Window) and window.this is group):
+            if _percentile_value(group.this.this) == 0:
+                group.replace(exp.Max(this=ordered.this.copy()))
             continue
         kind: exp.DataType | None = group.meta.get(_ORDER_TYPE)
         if not cont and not _unknown(kind) and (not _is(kind, _NUMBERS) or _is(kind, {exp.DataType.Type.BIT})):

@@ -513,10 +513,13 @@ When a project runs T-SQL on this PC, NULLs, ties and window functions give a wa
 | `RANGE` with a number of rows, such as `RANGE BETWEEN 1 PRECEDING AND CURRENT ROW` | Refused by name, as a warehouse refuses it, because T-SQL takes `RANGE` only with `UNBOUNDED` and `CURRENT ROW`. Use `ROWS` |
 | `PERCENTILE_CONT` | A `float`, with `NULL`s left out, for a decimal column too: 0.25 of `1.25`, `2.50` and `4.00` is `1.875` |
 | `PERCENTILE_CONT` and `PERCENTILE_DISC` with `ORDER BY ... DESC` | p counts from the largest value: 0.25 of 1 to 5 descending is `4`. `PERCENTILE_DISC` keeps its value's type |
+| `PERCENTILE_CONT` and `PERCENTILE_DISC` with no `OVER` | An aggregate, as a Fabric Warehouse takes it (SQL Server and Azure SQL Database need `OVER`), with the window form's values: `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY v) FROM (VALUES (10), (20), (NULL)) AS t(v)` is `15`. `NULL`s are left out, a group with no values gives `NULL`, `ORDER BY ... DESC` counts from the largest value, on dates and text too, and `GROUP BY` gives one per group |
+| Two expressions in `WITHIN GROUP (ORDER BY ...)`, or an `ORDER BY` or a `ROWS` or `RANGE` frame in the `OVER` of `PERCENTILE_CONT` or `PERCENTILE_DISC` | Refused before anything runs, with SQL Server's error 10751, 10758 or 10752: `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY id, s) OVER () FROM dbo.t` stops with Msg 10751. Their `OVER` takes `PARTITION BY` only |
+| A percentile outside 0.0 to 1.0, such as `PERCENTILE_CONT(1.5)` | Refused by name, in either form. The window form gave a value before |
 
 What can still differ:
 
-- `PERCENTILE_DISC` with `ORDER BY ... DESC` on a date or text column is refused by name. Run it in a Fabric Warehouse.
+- `PERCENTILE_DISC` with `ORDER BY ... DESC` on a date or text column, with `OVER`, is refused by name. Run it in a Fabric Warehouse, or use the aggregate form with `GROUP BY`, which runs.
 - Rows that tie in an `ORDER BY` can come back in any order, in a warehouse as here. Add a column that tells them apart when the order matters.
 
 ## Local T-SQL dates and times
@@ -871,7 +874,7 @@ When a T-SQL statement on this PC names a column or table that isn't there, the 
 
 Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full.
 
-Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name, `Msg 8134` for `Divide by zero error encountered.` (`/` and `%`, for integers, decimals and floats), and the arithmetic and conversion errors below. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
+Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name, `Msg 4103` (severity 15) for a view named `#v`, `Msg 10751`, `Msg 10752` and `Msg 10758` (severity 15) for the clauses of `PERCENTILE_CONT` and `PERCENTILE_DISC` (see [Local T-SQL ordering and window functions](#local-t-sql-ordering-and-window-functions)), `Msg 8134` for `Divide by zero error encountered.` (`/` and `%`, for integers, decimals and floats), and the arithmetic and conversion errors below. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
 
 Arithmetic and conversion errors (WR-247), with SQL Server's words as Microsoft Learn's T-SQL pages and SQL Server's message list give them:
 
@@ -1038,6 +1041,7 @@ When a project runs T-SQL on this PC, names resolve as in a Fabric Warehouse, an
 | `t`, `dbo.t`, `[dbo].[t]`, `"dbo"."t"` | The project's table. A name without a schema means `dbo`: `SELECT * FROM t` reads `dbo.t`, and if there's no `dbo.t` but another schema has a `t`, it stops with "Invalid object name 't'" and names that schema, where it used to read the other table |
 | `CREATE SCHEMA`, `DROP SCHEMA` | As in a warehouse. A schema with tables in it isn't dropped |
 | `CREATE VIEW`, `CREATE OR ALTER VIEW`, `ALTER VIEW`, `DROP VIEW` | As in a warehouse. `ALTER VIEW` changes a view that's there, and stops with "Invalid object name" otherwise. A name without a schema in a view's query is bound to `dbo` when the view is made, as T-SQL binds it |
+| A view named with `#`, such as `CREATE VIEW #v`, `CREATE OR ALTER VIEW #v` or `ALTER VIEW #v` | Refused before anything runs, as SQL Server refuses it: Msg 4103, Level 15: "#v": Temporary views are not allowed. A `#temp` table is the session's own, but a view can't be |
 | A view whose table was dropped | Stops with an error when it's read |
 | `INFORMATION_SCHEMA.TABLES`, `.COLUMNS` | List the project's tables and columns, with a note: `TABLE_CATALOG` names the local database, not the warehouse, and some columns differ |
 

@@ -16,6 +16,11 @@ WR-247: arithmetic and conversion errors too. An int, bigint or decimal that ove
 itself with SQL Server's words (DuckDB adds "Invalid Input Error: "), such as 8115 for SUM of ints and 245 with
 the value. A message whose SQL Server words depend on what DuckDB's text doesn't say (a constant, or the type
 of a value DuckDB names only by its value) keeps DuckDB's words.
+
+WR-708 and WR-710: errors SQL Server finds while it compiles a statement have severity 15, not 16: 4103 for a view
+named #v ("Temporary views are not allowed"), and 10751, 10752 and 10758 for a PERCENTILE_CONT or PERCENTILE_DISC
+with more than one ORDER BY expression, a window frame, or an ORDER BY in its OVER clause. The numbers, levels and
+words are those of Microsoft's "Database Engine events and errors" pages (4000 to 4999, 10000 to 10999).
 """
 
 from __future__ import annotations
@@ -67,8 +72,13 @@ _NUMBERS = [
     (re.compile(r"^Conversion failed when converting date and/or time from character string\.$"), 241),
     (re.compile(r"^The conversion of a varchar data type to a (?:small)?datetime data type resulted in an "
                 r"out-of-range value\.$"), 242),
+    (re.compile(r'^".*": Temporary views are not allowed\.$', re.DOTALL), 4103),
+    (re.compile(r"^The ORDER BY in WITHIN GROUP clause of '\w+' function must have exactly one expression\.$"), 10751),
+    (re.compile(r"^The function '\w+' may not have a window frame\.$"), 10752),
+    (re.compile(r"^The function '\w+' may not have ORDER BY in OVER clause\.$"), 10758),
 ]
 LEVEL = 16  # each of these is a user error that stops the statement, as SQL Server grades it
+_LEVELS = {4103: 15, 10751: 15, 10752: 15, 10758: 15}  # found while the statement compiles, as SQL Server grades it
 # A suggestion of one of DuckDB's own catalog tables: a warehouse project has none of them.
 _SYSTEM_HINT = re.compile(r'\n?Did you mean "(?:pg_catalog\.|pg_|information_schema\.|duckdb_|sqlite_|system\.|temp\.)'
                           r'[^"]*"\?', re.IGNORECASE)
@@ -143,5 +153,5 @@ def numbered(message: str) -> str:
     the messages above; otherwise as it is."""
     for pattern, number in _NUMBERS:
         if pattern.match(message):
-            return f"Msg {number}, Level {LEVEL}: {message}"
+            return f"Msg {number}, Level {_LEVELS.get(number, LEVEL)}: {message}"
     return message

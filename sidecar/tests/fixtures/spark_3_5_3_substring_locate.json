@@ -1,0 +1,1349 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT locate('l', 'hello') AS v",
+   "value": [
+    [
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 0) AS v, typeof(locate('l', 'hello', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', -1) AS v, typeof(locate('l', 'hello', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 3) AS v, typeof(locate('l', 'hello', 3)) AS t",
+   "value": [
+    [
+     3,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', 6) AS v, typeof(locate('l', 'hello', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'hello', CAST(NULL AS INT)) AS v, typeof(locate('l', 'hello', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 0) AS v, typeof(locate('', 'hello', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', -1) AS v, typeof(locate('', 'hello', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 3) AS v, typeof(locate('', 'hello', 3)) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', 6) AS v, typeof(locate('', 'hello', 6)) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'hello', CAST(NULL AS INT)) AS v, typeof(locate('', 'hello', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'hello') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'hello', 0) AS v, typeof(locate('😀', 'hello', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'hello', -1) AS v, typeof(locate('😀', 'hello', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'hello', 3) AS v, typeof(locate('😀', 'hello', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'hello', 6) AS v, typeof(locate('😀', 'hello', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'hello', CAST(NULL AS INT)) AS v, typeof(locate('😀', 'hello', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'hello') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'hello', 0) AS v, typeof(locate('́', 'hello', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'hello', -1) AS v, typeof(locate('́', 'hello', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'hello', 3) AS v, typeof(locate('́', 'hello', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'hello', 6) AS v, typeof(locate('́', 'hello', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'hello', CAST(NULL AS INT)) AS v, typeof(locate('́', 'hello', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'hello') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'hello', 0) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'hello', -1) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'hello', 3) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'hello', 6) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'hello', CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '', 0) AS v, typeof(locate('l', '', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '', -1) AS v, typeof(locate('l', '', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '', 3) AS v, typeof(locate('l', '', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '', 6) AS v, typeof(locate('l', '', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '', CAST(NULL AS INT)) AS v, typeof(locate('l', '', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '', 0) AS v, typeof(locate('', '', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '', -1) AS v, typeof(locate('', '', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '', 3) AS v, typeof(locate('', '', 3)) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '', 6) AS v, typeof(locate('', '', 6)) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '', CAST(NULL AS INT)) AS v, typeof(locate('', '', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '', 0) AS v, typeof(locate('😀', '', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '', -1) AS v, typeof(locate('😀', '', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '', 3) AS v, typeof(locate('😀', '', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '', 6) AS v, typeof(locate('😀', '', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '', CAST(NULL AS INT)) AS v, typeof(locate('😀', '', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '', 0) AS v, typeof(locate('́', '', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '', -1) AS v, typeof(locate('́', '', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '', 3) AS v, typeof(locate('́', '', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '', 6) AS v, typeof(locate('́', '', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '', CAST(NULL AS INT)) AS v, typeof(locate('́', '', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '', 0) AS v, typeof(locate(CAST(NULL AS STRING), '', 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '', -1) AS v, typeof(locate(CAST(NULL AS STRING), '', -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '', 3) AS v, typeof(locate(CAST(NULL AS STRING), '', 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '', 6) AS v, typeof(locate(CAST(NULL AS STRING), '', 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '', CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), '', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '😀a😀b') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '😀a😀b', 0) AS v, typeof(locate('l', '😀a😀b', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '😀a😀b', -1) AS v, typeof(locate('l', '😀a😀b', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '😀a😀b', 3) AS v, typeof(locate('l', '😀a😀b', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '😀a😀b', 6) AS v, typeof(locate('l', '😀a😀b', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate('l', '😀a😀b', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '😀a😀b') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '😀a😀b', 0) AS v, typeof(locate('', '😀a😀b', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '😀a😀b', -1) AS v, typeof(locate('', '😀a😀b', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '😀a😀b', 3) AS v, typeof(locate('', '😀a😀b', 3)) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '😀a😀b', 6) AS v, typeof(locate('', '😀a😀b', 6)) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate('', '😀a😀b', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '😀a😀b') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '😀a😀b', 0) AS v, typeof(locate('😀', '😀a😀b', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '😀a😀b', -1) AS v, typeof(locate('😀', '😀a😀b', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '😀a😀b', 3) AS v, typeof(locate('😀', '😀a😀b', 3)) AS t",
+   "value": [
+    [
+     3,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '😀a😀b', 6) AS v, typeof(locate('😀', '😀a😀b', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate('😀', '😀a😀b', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '😀a😀b') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '😀a😀b', 0) AS v, typeof(locate('́', '😀a😀b', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '😀a😀b', -1) AS v, typeof(locate('́', '😀a😀b', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '😀a😀b', 3) AS v, typeof(locate('́', '😀a😀b', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '😀a😀b', 6) AS v, typeof(locate('́', '😀a😀b', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate('́', '😀a😀b', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '😀a😀b') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '😀a😀b', 0) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '😀a😀b', -1) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '😀a😀b', 3) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '😀a😀b', 6) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'éx') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'éx', 0) AS v, typeof(locate('l', 'éx', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'éx', -1) AS v, typeof(locate('l', 'éx', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'éx', 3) AS v, typeof(locate('l', 'éx', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'éx', 6) AS v, typeof(locate('l', 'éx', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', 'éx', CAST(NULL AS INT)) AS v, typeof(locate('l', 'éx', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'éx') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'éx', 0) AS v, typeof(locate('', 'éx', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'éx', -1) AS v, typeof(locate('', 'éx', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'éx', 3) AS v, typeof(locate('', 'éx', 3)) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'éx', 6) AS v, typeof(locate('', 'éx', 6)) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', 'éx', CAST(NULL AS INT)) AS v, typeof(locate('', 'éx', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'éx') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'éx', 0) AS v, typeof(locate('😀', 'éx', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'éx', -1) AS v, typeof(locate('😀', 'éx', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'éx', 3) AS v, typeof(locate('😀', 'éx', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'éx', 6) AS v, typeof(locate('😀', 'éx', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', 'éx', CAST(NULL AS INT)) AS v, typeof(locate('😀', 'éx', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'éx') AS v",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'éx', 0) AS v, typeof(locate('́', 'éx', 0)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'éx', -1) AS v, typeof(locate('́', 'éx', -1)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'éx', 3) AS v, typeof(locate('́', 'éx', 3)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'éx', 6) AS v, typeof(locate('́', 'éx', 6)) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', 'éx', CAST(NULL AS INT)) AS v, typeof(locate('́', 'éx', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'éx') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'éx', 0) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'éx', -1) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'éx', 3) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'éx', 6) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), 'éx', CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', CAST(NULL AS STRING), 0) AS v, typeof(locate('l', CAST(NULL AS STRING), 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', CAST(NULL AS STRING), -1) AS v, typeof(locate('l', CAST(NULL AS STRING), -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', CAST(NULL AS STRING), 3) AS v, typeof(locate('l', CAST(NULL AS STRING), 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', CAST(NULL AS STRING), 6) AS v, typeof(locate('l', CAST(NULL AS STRING), 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('l', CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate('l', CAST(NULL AS STRING), CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', CAST(NULL AS STRING), 0) AS v, typeof(locate('', CAST(NULL AS STRING), 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', CAST(NULL AS STRING), -1) AS v, typeof(locate('', CAST(NULL AS STRING), -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', CAST(NULL AS STRING), 3) AS v, typeof(locate('', CAST(NULL AS STRING), 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', CAST(NULL AS STRING), 6) AS v, typeof(locate('', CAST(NULL AS STRING), 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('', CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate('', CAST(NULL AS STRING), CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', CAST(NULL AS STRING), 0) AS v, typeof(locate('😀', CAST(NULL AS STRING), 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', CAST(NULL AS STRING), -1) AS v, typeof(locate('😀', CAST(NULL AS STRING), -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', CAST(NULL AS STRING), 3) AS v, typeof(locate('😀', CAST(NULL AS STRING), 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', CAST(NULL AS STRING), 6) AS v, typeof(locate('😀', CAST(NULL AS STRING), 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('😀', CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate('😀', CAST(NULL AS STRING), CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', CAST(NULL AS STRING), 0) AS v, typeof(locate('́', CAST(NULL AS STRING), 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', CAST(NULL AS STRING), -1) AS v, typeof(locate('́', CAST(NULL AS STRING), -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', CAST(NULL AS STRING), 3) AS v, typeof(locate('́', CAST(NULL AS STRING), 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', CAST(NULL AS STRING), 6) AS v, typeof(locate('́', CAST(NULL AS STRING), 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate('́', CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate('́', CAST(NULL AS STRING), CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 0) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 0)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), -1) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), -1)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 3) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 3)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 6) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 6)) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT locate(f, s, p) AS v FROM VALUES ('l', 'héllo', 4), ('', 'héllo', 0), ('😀', '😀a😀', 2), ('l', NULL, 1) AS t(f, s, p)",
+   "value": [
+    [
+     0
+    ],
+    [
+     3
+    ],
+    [
+     4
+    ],
+    [
+     null
+    ]
+   ]
+  }
+ ]
+}

@@ -1,0 +1,22 @@
+table 'time intelligence'
+	lineageTag: t-ti
+	calculationGroup
+		precedence: 1
+		calculationItem current = SELECTEDMEASURE()
+			ordinal: 0
+		calculationItem doubled = SELECTEDMEASURE() * 2
+			ordinal: 1
+			formatStringDefinition = "#,0"
+	column period
+		dataType: string
+		sourceColumn: Name
+		summarizeBy: none
+		lineageTag: c-period
+	column Ordinal
+		dataType: int64
+		sourceColumn: Ordinal
+		isHidden
+		summarizeBy: sum
+		lineageTag: c-ordinal
+	partition 'time intelligence' = calculationGroup
+		mode: import

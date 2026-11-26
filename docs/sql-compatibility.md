@@ -128,6 +128,17 @@ Spark SQL run on this PC, and the DataFrame API's filters and columns, compare t
 | `IN` with a subquery | Casts to the wider type | DuckDB's own comparison |
 | `CASE x WHEN ...` whose values mix text and numbers, or numbers of two types | Casts each pair | DuckDB's own comparison |
 
+## CASE, coalesce and UNION result types on this PC (WR-259)
+
+Spark SQL run on this PC gives `CASE`, `if`, `coalesce`, `nvl`, `ifnull`, `nvl2`, `greatest`, `least`, `UNION`, `INTERSECT` and `EXCEPT` the result type Spark gives them with ANSI mode off. Text with a number, a date or a timestamp is text, so `CASE WHEN c THEN 1 ELSE 'a' END` is the string `'1'` and `coalesce(1.0D, 'x')` is `'1.0'`, written as Spark's `CAST` to `STRING` writes it. An integer with a decimal is the decimal that holds both, with a `bigint` counted as `decimal(20,0)`: `coalesce(1L, 2.5)` is a `decimal(21,1)`, and a value too large for a 38-digit decimal is NULL. A `UNION` widens each column the same way, pair by pair from the left, so `SELECT 1L UNION ALL SELECT 1.5 UNION ALL SELECT 'x'` gives `'1.0'`. Before, DuckDB cast the text to the number instead (1, or a stop on `'a'`), and turned a boolean into a number. A boolean with a number or text, binary with text, a date with a number, and `greatest` or `least` of a number and text are refused by name, because Spark stops on them too. These are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_branch_types.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Case | Spark | This PC |
+| --- | --- | --- |
+| A statement whose types can't be worked out, or a `UNION` with `*` | Spark's result type | DuckDB's own type |
+| A tiny decimal turned to text, such as `CAST(0.00000001 AS DECIMAL(9,8))` in a `CASE` with `'a'` | `'1E-8'` | `'0.00000001'`, as this PC's `CAST` to `STRING` writes it |
+| `array`, `map` and `IN` with values of two types | Spark's wider type, or an error for a boolean and a number | DuckDB's own type, or its error |
+| The DataFrame API's `when`, `coalesce` and `union` | Spark's result type | DuckDB's own type |
+
 ## Whole-number arithmetic on this PC
 
 Spark SQL run on this PC, in a notebook or on the DuckDB engine, computes `+`, `-` and `*` of two whole numbers as Spark does with ANSI mode off: in the wider of the two types (`tinyint`, `smallint`, `int` or `bigint`; a whole-number literal is an `int` when it fits, else a `bigint`), wrapping around past the type's range as Java does. For example, `2147483647 + 1` is `-2147483648` and `CAST(100 AS TINYINT) + CAST(100 AS TINYINT)` is `-56`, where DuckDB stops with "Overflow in addition". The cases are checked against Apache Spark 3.5.3's own answers in `sidecar/tests/test_spark_integer_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric. Databricks SQL on the DuckDB engine, which runs with ANSI mode on, still stops on an overflow, as Databricks does.
@@ -170,7 +181,6 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 
 | Case | Spark | This PC |
 | --- | --- | --- |
-| Text with more fraction digits than the pattern's `S` letters, such as `.123` with `ss.SS` | NULL | Read, up to 6 digits |
 | Text with one digit where the pattern has two, such as `2024-2-9` with `yyyy-MM-dd` | Not read: see the next row | Read |
 | A DATE column plus an interval of whole days or months, where the column's type isn't known before the query runs (a column of a subquery's or a DataFrame's expression) | `date` | `timestamp` at midnight. Cast it: `CAST(d + INTERVAL 1 MONTH AS DATE)` |
 | `from_utc_timestamp` and `to_utc_timestamp` with the zone from a column, written as an offset such as `GMT+2` | Read as that offset | Stops (`Unknown TimeZone`), or for `UTC+05:30` moves by 5 hours only. A zone id such as `Europe/Paris` gives Spark's answer |
@@ -179,6 +189,30 @@ These cases can still differ. LOC-003 warns wherever a pattern is used:
 | Text the pattern doesn't read the Spark 3 way, with `spark.sql.legacy.timeParserPolicy` at its default `EXCEPTION` | Stops with `SparkUpgradeException` when Spark 2's parser would have read it | NULL, as with the policy `CORRECTED`. The setting isn't read here |
 
 A cast of text that is only a year or a year and month, such as `CAST('2024-02' AS DATE)` or `to_timestamp('2024')`, also still differs. Spark reads it as the month's or the year's first day; here it is NULL. No rule warns about it yet.
+
+## Times below a second on this PC (WR-258)
+
+Spark keeps a timestamp to the microsecond, and Spark SQL run on this PC gives its answers where the fraction of a second matters, with ANSI mode off as Fabric runs it. The queries in `sidecar/tools/spark_value_cases/subseconds.txt` were run in Apache Spark 3.5.3 and are checked against this PC in `sidecar/tests/test_spark_subsecond_values.py`. None has been compared with a Fabric run, so treat them as UNVERIFIED in Fabric.
+
+| Query | On this PC, as in Spark |
+| --- | --- |
+| `CAST(x AS TIMESTAMP)` of a decimal or double, `timestamp_seconds` of a double | Cut to the microsecond toward zero: `CAST(1.23456789 AS TIMESTAMP)` is `1970-01-01 00:00:01.234567` (it was rounded to `.234568`). `timestamp_seconds` of NaN or infinity is NULL |
+| `timestamp_seconds` of a decimal with more than 6 places, such as `timestamp_seconds(1.23456789)` | Stops, as Spark stops with "Rounding necessary" (it was rounded) |
+| `CAST(CAST(x AS TIMESTAMP) AS STRING)` | The time with no offset after it (it had `+00`) |
+| `CAST(a_timestamp AS DOUBLE)` and `FLOAT` | Its seconds since 1970 with the microseconds as a fraction (it was NULL) |
+| `unix_seconds`, `unix_millis` | Whole units counted down: `unix_millis(TIMESTAMP'1969-12-31 23:59:59.9995')` is -1 (it was 0) |
+| `unix_timestamp` | Whole seconds toward zero: `unix_timestamp(TIMESTAMP'1969-12-31 23:59:59.9995')` is 0 (it was -1) |
+| `to_timestamp`, `to_date`, `unix_timestamp` with `S` letters | At most as many digits of a second as the pattern has `S`: `.123456` with `ss.SSS` is NULL. Seven to nine `S` letters read up to nine digits and keep six |
+| `date_trunc` | Always Spark's `timestamp`, also of a `timestamp_ntz` or a date. A unit Spark doesn't take, such as `'MS'`, gives NULL |
+| `timestampadd`, `dateadd` with `MICROSECOND` to `HOUR` | The count is read as Spark's `int` (`86400000001` microseconds is `500654081`), and a date or text becomes Spark's `timestamp` first |
+| `extract`, `date_part` | `SECOND` of an interval keeps its fraction (it was NULL). A field Spark doesn't take, such as `'MILLISECONDS'` or `MICROSECOND`, stops, as in Spark |
+
+Refused by name, and nothing runs:
+
+| Case | Why |
+| --- | --- |
+| `CAST(a_difference AS STRING)` of two timestamps, such as `CAST(t1 - t2 AS STRING)` | Spark writes it as `INTERVAL '0 00:00:00.2' DAY TO SECOND`, which this PC's interval doesn't carry. Use `extract()` for its parts |
+| `to_timestamp`, `to_date` or `unix_timestamp` with more than six `S` letters and an offset (`X`, `x` or `Z`) | This PC can't cut the fraction to the microsecond there. Use at most six `S` letters |
 
 ## The session time zone on this PC (WR-120)
 
@@ -327,6 +361,7 @@ Spark SQL run on this PC gives Spark's answers for these array and string functi
 | `array_size`, `size` | `array_size` of NULL is NULL; `size` of NULL is -1 |
 | `array_insert` | A position past the end pads with NULLs; a negative one counts from the end (-1 is after the last element) and pads at the front; 0 is an error |
 | `locate`, `instr`, `position` | An empty search text is found at 1 from any start of 1 or more |
+| `substring`, `substr` (WR-256) | A number is read as its text. With no length, from position -2147483648 it ends one character before the end, as Spark's `Int.MaxValue` length does (it kept the whole text). Zero, negative, NULL and past-the-end positions and lengths, empty text and characters past ASCII are checked in `sidecar/tests/test_spark_substring_values.py` |
 | `substring_index` | A delimiter that overlaps itself is counted at each place it starts (`substring_index('aaa', 'aa', -1)` is `''`) |
 | `concat_ws` | With only a separator it is `''` (NULL for a NULL separator) |
 | `format_number` | A whole number or a decimal keeps every digit; a decimal rounds half-even and keeps a `-` that rounds to 0 (`-0`) |
@@ -343,6 +378,7 @@ Refused by name, and nothing runs:
 | `format_number` with more than 18 decimal places | A decimal here keeps at most 38 digits in all |
 | `array_insert` that would pad the array with more than 10,000,000 NULLs | Spark pads up to its array limit, but that many would use up this PC's memory |
 | `format_string` and `printf` with `%s` of an array, map or struct | Spark writes them as text its own way (`[1,2]`) |
+| `substring`, `substr`, `left` and `right` of binary | Spark gives binary bytes back; this PC reads these functions' argument as text. Cast it to string first, or run the cell in Fabric |
 
 ## Hashing and encoding on this PC (WR-119)
 
@@ -474,6 +510,7 @@ When a project runs T-SQL on this PC, NULLs, ties and window functions give a wa
 | `CUME_DIST`, `PERCENT_RANK` | Ties share a value, as in T-SQL |
 | `LAG`, `LEAD` | `NULL` past the edge of the partition, or the default you give: `LAG(x, 1, 0)` |
 | `SUM`, `COUNT`, `MAX` and the other aggregates `OVER (ORDER BY ...)` | The default frame is `RANGE`, so rows that tie share a running total. Write `ROWS UNBOUNDED PRECEDING` for one total per row |
+| `RANGE` with a number of rows, such as `RANGE BETWEEN 1 PRECEDING AND CURRENT ROW` | Refused by name, as a warehouse refuses it, because T-SQL takes `RANGE` only with `UNBOUNDED` and `CURRENT ROW`. Use `ROWS` |
 | `PERCENTILE_CONT` | A `float`, with `NULL`s left out, for a decimal column too: 0.25 of `1.25`, `2.50` and `4.00` is `1.875` |
 | `PERCENTILE_CONT` and `PERCENTILE_DISC` with `ORDER BY ... DESC` | p counts from the largest value: 0.25 of 1 to 5 descending is `4`. `PERCENTILE_DISC` keeps its value's type |
 
@@ -494,15 +531,19 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
 | `FORMAT` | .NET's date formats in `en-US`, `en-GB` or `de-DE`, on a `date` or a date-and-time column. See [Local T-SQL formatting](#local-t-sql-formatting) |
-| `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000`. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
-| `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11 |
+| `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000` for a `datetime2(6)`. 121 and 126 write a `datetime2(n)` or `time(n)` with its `n` digits, as `CAST` does, and a `datetime` to the millisecond. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
+| `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11, and `datetime2` or `time` with no precision is `(7)`, so seven digits (`.1200000`) |
+| `CAST` of a `datetime` or `smalldatetime` to text, and style 0 or 100 | T-SQL's default for them, `mon dd yyyy hh:miAM`, where the day and the hour take two places, as in `Jan  2 2024  3:04PM` |
+| `datetime2(n)` and `time(n)` with `n` below 6 | Rounded to `n` digits, half up, from text or from another time: `CAST('03:04:05.126' AS TIME(2))` is `03:04:05.13`, and `DATEADD` of one keeps its `n` |
+| `DATEADD` and `DATETIMEFROMPARTS` of a `datetime` | A `datetime`, rounded to 1/300 of a second again: adding 1 millisecond to `.000` leaves `.000`, and adding 2 gives `.003`. `microsecond` or `nanosecond` on a `datetime` is T-SQL's error |
+| `DATENAME` | The month's and the weekday's names, and every other part as `DATEPART`'s number written as text: `DATENAME(hour, ...)` is `'3'`, `DATENAME(millisecond, ...)` is `'123'` |
 | `CONVERT` and `TRY_CONVERT` from text, the same styles | The date the style reads (`'29/02/2024'` with 103), to a `date`, `datetime` or `datetime2`. A date that doesn't exist is an error with `CONVERT` and `NULL` with `TRY_CONVERT`. Styles 120, 121 and 126 read ISO text with or without its time |
 
 What can still differ:
 
-- A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven.
+- A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven: written as text it has a 7th digit of `0` here, text whose 7th digit isn't `0` is refused by name in `CAST` and `CONVERT` to `datetime2`, `datetime2(6)`, `datetime2(7)` or `time` (T-SQL keeps or rounds on it), and text with more than seven digits is T-SQL's conversion error (`NULL` with `TRY_CAST`).
 - Any other `CONVERT` date style runs as translated, but its values haven't been checked. The run's `translation.notes` says so ("CONVERT style 104 runs as a translation that hasn't been checked ...").
-- `CAST(a_datetime AS VARCHAR)` with no style, and `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
+- `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
 
 ## Local T-SQL formatting
 
@@ -526,6 +567,8 @@ Refused, each by name:
 - `FORMAT`'s `E`, `G` and `R` number formats, a precision of more than two digits, a custom format with a third section, scientific notation, `‰`, more than one `%`, `,` right before the point (which divides by 1,000), text among the digits with `#` or `,`, and `FORMAT` of a `float`, `money` or `time`.
 - `PARSE` and `TRY_PARSE` of text .NET may read another way: a currency sign, parentheses, an exponent, a sign at the end, `Infinity`, decimals for an integer type, or separators away from groups of three. Text with no digit at all gives T-SQL's answer.
 - `PARSE` and `TRY_PARSE` to a date or time (use `CONVERT` with a style), and to `money`, which isn't carried (use `DECIMAL(19, 4)`). `CONVERT`'s `money` styles are refused with `money`.
+- A `CONVERT` style that isn't a number written in the query, such as one from a column: it would be ignored here. Write the style as a number, such as `101`.
+- A number with a fraction where a date function takes a date (`DAY(1.5)`), which T-SQL reads as a datetime part of a day after 1900-01-01. A whole number is carried as T-SQL reads it, that many days after 1900-01-01: `YEAR(5)` is `1900`, and `DATEADD(day, DATEDIFF(day, 0, d), 0)` is the date of `d`. That holds for `YEAR`, `MONTH`, `DAY`, `EOMONTH`, `DATENAME`, `DATEPART`, `DATEADD`, `DATEDIFF` and `DATETRUNC`.
 
 The static check and **Format SQL** can't read `PARSE`'s `AS ... USING` yet: they mark the query unverified and leave it as written. The live check (`fabric-desktop smoke-test`, flow 17) asks a test warehouse for the answers .NET's versions disagree on, so they can be carried once known.
 
@@ -535,9 +578,10 @@ When a project runs T-SQL on this PC, text compares as it does with a Fabric War
 
 | What | Here, as in a warehouse |
 | --- | --- |
-| `=`, `<>`, `<`, `IN`, `JOIN ... ON` | `'a' = 'a  '` is true and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
+| `=`, `<>`, `<`, `IN`, `ALL`, `ANY`, `JOIN ... ON` | `'a' = 'a  '` is true, `'a ' = ALL (SELECT 'a')` is true, and `'a' = 'A'` is false. Only spaces are taken off: `'a' = 'a' + NCHAR(160)` (a no-break space) is false |
 | `LIKE` | Case counts. The text's trailing spaces don't count, any number of them, but the pattern's do: `'abc  ' LIKE 'abc'`, `'abc  ' LIKE 'abc_'` and `'abc  ' LIKE 'abc__'` are true, and `'abc' LIKE 'abc '` is false |
 | `CHARINDEX` with a `NULL` start | `NULL` |
+| `LEFT` and `RIGHT` with a `NULL` length | `NULL` (they kept the whole text) |
 | `ORDER BY`, `STRING_AGG(...) WITHIN GROUP (ORDER BY ...)` | Code point order (`A`, `B`, `a`, `b`). `STRING_AGG` skips `NULL`s, and is `NULL` over no rows |
 | `LEN`, `DATALENGTH` | `LEN('ab  ')` is `2`, and `DATALENGTH('ab  ')` is `4`. `DATALENGTH` counts UTF-8 bytes (`'é'` is `2`) and two per character for `N'...'` |
 | `CHARINDEX`, `PATINDEX` | Case counts, and the answer is `0` when the text isn't found. A `CHARINDEX` start of 0 or below searches from the start, and an empty search text gives `0` |
@@ -851,6 +895,8 @@ These keep the local engine's words, with no number, because SQL Server's words 
 
 One word can differ: `N'...'` text that isn't a number, to a decimal or a float, shows `Msg 8114` naming `varchar`, where SQL Server says `nvarchar`, because the local engine's message doesn't say which it was.
 
+A statement of a script that the local engine refuses (one it can't translate, or Msg 239) is named by its place, such as "Statement 2 of 3 (WITH) was refused: Msg 239, Level 16: …". The local engine checks the whole script before it runs any of it, so the message ends by saying none of the script ran. A warehouse also stops a batch before its first statement for an error it finds while compiling it, such as Msg 239. A script of one statement shows the refusal on its own.
+
 `@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
 
 ## Local T-SQL wide tables and long values
@@ -905,7 +951,7 @@ T-SQL run on this PC takes the data types Microsoft's "Data types in Fabric Data
 | Type | In a table or view | In a query (`CAST`, `CONVERT`) |
 | --- | --- | --- |
 | `bit`, `smallint`, `int`, `bigint`, `decimal`/`numeric`, `float`, `real`, `date`, `char`, `varchar`, `varbinary`, `uniqueidentifier` | Yes | Yes |
-| `datetime2(n)`, `time(n)` | Only with n up to 6: `datetime2` with no precision is `datetime2(7)` and is refused, naming `datetime2(6)` | Yes, kept to the microsecond (a 7th digit is cut) |
+| `datetime2(n)`, `time(n)` | Only with n up to 6. `datetime2` with no precision is `datetime2(7)` and is refused, naming `datetime2(6)` | Yes, kept to the microsecond and rounded to `n` digits. Text with a 7th digit that isn't 0 is refused by name; more than 7 is T-SQL's conversion error |
 | `datetime` | Refused: use `datetime2(6)` | Yes, rounded as T-SQL rounds it, to 1/300 of a second (`.002` is `.003`, `.005` is `.007`, `23:59:59.999` is the next day). Before 1753 or after 9999-12-31 23:59:59.997 is T-SQL's out-of-range error (`NULL` with `TRY_CAST` and `TRY_CONVERT`), and text with more than three digits of a second is T-SQL's conversion error. `CONVERT` with style 121 or 126 writes it to the millisecond, as T-SQL does |
 | `smalldatetime` | Refused: use `datetime2(0)` | Yes, rounded to the minute (29.998 seconds rounds down, 29.999 up), from 1900-01-01 to 2079-06-06 23:59 |
 | `nchar`, `nvarchar`, `text`, `ntext` | Refused: use `char`, `varchar` or `varchar(max)` | Yes, as text |
@@ -926,7 +972,7 @@ Sizes T-SQL doesn't take stop with T-SQL's message: `varchar(8001)` is "The size
 What can still differ:
 
 - `CHAR(n)` isn't padded with spaces (see [Local T-SQL tables](#local-t-sql-tables)).
-- `GETDATE()` and `CURRENT_TIMESTAMP` give the time to the microsecond here. In T-SQL they're `datetime`, in 1/300-second steps.
+- `GETDATE()` and `CURRENT_TIMESTAMP` give the time to the microsecond here. In T-SQL they're `datetime`, in 1/300-second steps, and written as text in style 0.
 - A Delta table's own length limits aren't kept: a `varchar(10)` column written to Delta is text of any length there, as in a Spark table.
 
 ## Local T-SQL decimals
@@ -955,7 +1001,8 @@ When a project runs T-SQL on this PC, these are checked against T-SQL's referenc
 | A result past `int` or `bigint` | An error, as in T-SQL, in its words: `Msg 8115, Level 16: Arithmetic overflow error converting expression to data type int.` `SUM` of an integer keeps an `int` (or a `bigint`), and a total past it stops the same way (see Local T-SQL errors) |
 | Text meets a number | The number's type wins: `'1' + 1` is `2` and `'' + 1` is `1`, while `'1.5' + 1` and `'x' + 1` stop with `Msg 245`, "Conversion failed when converting the varchar value 'x' to data type int." Two texts are concatenated (`'1' + '1'` is `'11'`). In a comparison with an integer or a float, the text is converted as a `CAST` would: `0 = ''` is true, and `2 = '1.5'` is a conversion error |
 | `NULL` in `+` and `CONCAT` | `+` with a `NULL` side is `NULL`, for text and numbers (`'a' + NULL`). `CONCAT` takes a `NULL` as `''` (`CONCAT('a', NULL)` is `'a'`, and `CONCAT(NULL, NULL)` is `''`), and `CONCAT_WS` skips it (`CONCAT_WS('-', 'a', NULL, 'b')` is `'a-b'`) |
-| `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
+| `ISNULL(a, b)`, `COALESCE(a, b)` | `ISNULL` takes `a`'s type, so `b` is converted to it: `ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'`, and `ISNULL(int_column, 2.7)` is `2`. A number too long for `a`'s text stops, as `CAST(12345 AS VARCHAR(2))` does here, rather than being cut to `'12'`. `COALESCE` takes the type that ranks highest: `2.7` and `'abcd'` |
+| Text in a `CASE`, `IIF`, `COALESCE`, `UNION`, `INTERSECT` or `EXCEPT` with an integer, `bit` or date | Converted to the type that ranks highest, as T-SQL's data type precedence says: `CASE WHEN c THEN 1 ELSE '2' END` is the int `2`, `'2.5'` or `'a'` there stops with "Conversion failed", and `SELECT 1 EXCEPT SELECT ' 1'` is empty. A `UNION` of an int column and a text column is an int column, sorted as numbers. Text with a decimal or a float is converted as DuckDB converts it, and a `UNION` whose first `SELECT` has an unnamed column that isn't a plain column keeps DuckDB's type |
 | `CAST`, `TRY_CAST` | A value that doesn't convert stops `CAST` and is `NULL` with `TRY_CAST`. A decimal or float to an integer is cut toward zero, and a decimal to a narrower decimal rounds |
 | `ROUND` | Keeps its value's type: `ROUND(150.75, 0)` is `151.00`, `ROUND(748.58, -1)` is `750.00`, and `ROUND(150.75, 0, 1)` cuts to `150.00`. A result that no longer fits the type stops with "Arithmetic overflow error" (`ROUND(748.58, -3)`, `ROUND(999.5, 0)`) |
 
@@ -1135,8 +1182,8 @@ Fabric Warehouse loads files with `COPY INTO`, `BULK INSERT` and `OPENROWSET(BUL
 Besides the hand-picked cases above, three tests generate queries from a fixed seed and compare each answer here with the target's:
 
 - **Spark SQL** (`sidecar/tests/test_spark_differential.py` and `_more.py`): about 1,580 random scalar expressions over the functions this page lists (arithmetic, `div`, `pmod`, casts, text, dates, `LIKE`, three-valued logic), with NULLs mixed in. Each was run in Apache Spark 3.5.3 (local mode, UTC, ANSI mode off, as Fabric) by `sidecar/tools/capture_spark_differential.py`, and its answer is kept in `sidecar/tests/fixtures/spark_3_5_3_differential.json`. CI has no Spark, so the capture is run by hand and the fixture is checked in.
-- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 4,300 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS`, `+`, and `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT` and `REGEXP_INSTR` with their `c`, `i`, `m` and `s` flags on text with line breaks, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
-- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 4,300 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD`, `ORDER BY`'s NULL order, and `REGEXP_LIKE`, `REGEXP_SUBSTR`, `REGEXP_SUBSTR_ALL`, `REGEXP_COUNT` and `REGEXP_REPLACE` with the `c`, `i`, `m` and `s` parameters and with an empty pattern, a `FLOAT` written as text, `TO_CHAR` with a number format, `TO_NUMBER` with a scale, text cast to `INT`, `NUMBER` `*`, `/`, `+` and `DIV0` scales, and `ROUND` and `TRUNC` with a negative scale, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
+- **T-SQL** (`sidecar/tests/test_tsql_rules_differential.py`): about 4,300 inputs for `SUBSTRING`, `LEFT`, `RIGHT`, `CHARINDEX`, `REPLICATE`, `SPACE`, `ASCII`, `UNICODE`, `CHAR`, `LEN`, integer `/` and `%`, `ROUND`, `CAST` to `int`, `=` and `<` with trailing spaces, `LIKE` with `[a-c]` ranges, `DATEDIFF`, `DATEADD`, `EOMONTH`, `DATEPART`, `CONCAT`, `CONCAT_WS`, `+`, text meeting an int in `CASE`, `IIF`, `COALESCE`, `UNION` and `EXCEPT`, `LEFT` and `RIGHT` with a `NULL` length, times below a second (`datetime2(n)` and `time(n)` rounded to `n` digits and written as text, `datetime` after `DATEADD` and in style 0, and `DATENAME`), and `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT` and `REGEXP_INSTR` with their `c`, `i`, `m` and `s` flags on text with line breaks, each with `'...'` and with `N'...'` text. The expected answer is a short model of the rule in T-SQL's reference. No warehouse was used. `SPACE` and `REPLICATE` of a negative count are `NULL` here, as SQL Server answers them (Microsoft's `SPACE` page says only "null string").
+- **Snowflake** (`sidecar/tests/test_snowflake_rules_differential.py`): about 4,300 inputs for `SUBSTR`, `LEFT`, `RIGHT`, `REPEAT`, `CONCAT`, `||`, `CONCAT_WS`, `MOD`, `DIV0`, `DIV0NULL`, `ROUND` (both modes), `DATEDIFF`, `DAYOFWEEK`, `DAYOFWEEKISO`, `DATE_TRUNC('week')`, `WEEKISO`, `LAST_DAY`, `POSITION`, `CHARINDEX`, `SPLIT_PART`, `LPAD`, `RPAD`, `ORDER BY`'s NULL order, window functions' default frames, a set operation of text and numbers, and `REGEXP_LIKE`, `REGEXP_SUBSTR`, `REGEXP_SUBSTR_ALL`, `REGEXP_COUNT` and `REGEXP_REPLACE` with the `c`, `i`, `m` and `s` parameters and with an empty pattern, a `FLOAT` written as text, `TO_CHAR` with a number format, `TO_NUMBER` with a scale, text cast to `INT`, `NUMBER` `*`, `/`, `+` and `DIV0` scales, and `ROUND` and `TRUNC` with a negative scale, modeled on Snowflake's SQL reference with the default session parameters. No Snowflake account was used.
 
 A different answer, or an error where the target answers, fails these tests unless it is named in the test's `KNOWN` list. An entry that no case needs any more fails too, so each list is what still differs. Today they are:
 

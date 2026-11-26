@@ -73,7 +73,7 @@ async function replayDialog(nb, cell) {
     replayRow("The error, with secrets removed", h("span", { class: "mono small" }, err.length > 300 ? `${err.slice(0, 297)}...` : err), "Always included"),
     replayRow("Workspace and lakehouse IDs", "", "Untick to share outside your organization. Replay then asks which lakehouse to use.", ids),
     replayRow(`A sample of the input data (up to ${preview.sample_rows.toLocaleString()} rows per table)`, "",
-      !preview.samples_allowed ? "Your organization has turned this off."
+      !preview.samples_allowed ? "Your organization has turned this off. Ask IT to change allow_replay_samples in Group Policy or the policy file."
         : !preview.sample_tables.length ? "No table was read, so there is nothing to sample."
           : "Off by default. The bundle then holds your data: share it only with people allowed to see it.", sample),
     b.limitations.length ? h("div", { class: "replay-limits" }, h("b", {}, "What this bundle can't promise"),

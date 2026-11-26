@@ -2456,18 +2456,25 @@ def _fs_magic(fs: Any, line: str) -> Any:
         return True  # as dbutils.fs.refreshMounts() on this PC
     if command not in _FS_USAGE:
         raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")
-    from .dbutils_local import _file_info, fs_magic_path
-    for path in args[:1] if command in ("put", "head") else args:
+    from .dbutils_local import fs_magic_path, volume_arg, volume_info
+    paths = args[:1] if command in ("put", "head") else args
+    for path in paths:
         try:
             fs_magic_path(path)  # bare absolute paths and dbfs:/ are Databricks storage, as in dbutils.fs
         except ValueError as exc:
             raise ValueError(f"%fs {command}: {exc}") from None
+    try:  # a /Volumes path is its volume's folder on this PC, as in dbutils.fs (databricks_volumes)
+        whole = command == "mv" or (command in ("cp", "rm") and "-r" in flags)
+        args = [volume_arg(a, whole=whole and i == 0, change=command in ("mv", "rm") and i == 0)
+                if i < len(paths) else a for i, a in enumerate(args)]
+    except ValueError as exc:
+        raise ValueError(f"%fs {command}: {exc}") from None
     if len(args) < _FS_USAGE[command] - (command == "ls"):
         raise ValueError(f"%fs {command} needs {_FS_USAGE[command]} path{'s' if _FS_USAGE[command] > 1 else ''}.")
     if command == "ls":
         import polars as pl
         # As dbutils.fs.ls lists them, so a folder's name and path end with /, as in Databricks.
-        found = [_file_info(f) for f in fs.ls(args[0] if args else "Files")]
+        found = [volume_info(f) for f in fs.ls(args[0] if args else "Files")]
         return pl.DataFrame({"name": [f.name for f in found], "path": [f.path for f in found],
                              "size": [f.size for f in found], "isDir": [f.isDir() for f in found]},
                             schema={"name": pl.Utf8, "path": pl.Utf8, "size": pl.Int64, "isDir": pl.Boolean})
@@ -2735,7 +2742,8 @@ COMPUTE = ("default", "local", "fabric")
 def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     """A cell's settings as Jupyter and Fabric store them: the parameters tag, hidden input or
     output, and frozen (can't be edited or run); a collapsed heading section as JupyterLab stores it,
-    and a cell title where Databricks keeps it, so both read them back."""
+    and a cell title where Databricks keeps it, so both read them back. KratosForge's own settings
+    (a chart, the Fabric step, breakpoints, a slide start) go under fabric_desktop."""
     md: dict[str, Any] = {}
     tags = [t for t in meta.get("tags", []) if isinstance(t, str)]
     if tags:
@@ -2758,6 +2766,8 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
             md["fabric_desktop"]["charts"] = charts
     if meta.get("fabric_step"):  # the last cell runs on Fabric Spark (fabric_step.py)
         md.setdefault("fabric_desktop", {})["run_on"] = "fabric"
+    if meta.get("slide_start"):  # Present mode starts a slide at this cell (nbpresent.js)
+        md.setdefault("fabric_desktop", {})["slide_start"] = True
     breakpoints = breakpoints_meta(meta.get("breakpoints"))
     if breakpoints:  # the debugger's breakpoints (debugger.py), kept with the cell
         md.setdefault("fabric_desktop", {})["breakpoints"] = breakpoints
@@ -2827,6 +2837,8 @@ def _cell_meta(md: Any) -> dict[str, Any]:
         meta["charts"] = charts
     if own.get("run_on") == "fabric":
         meta["fabric_step"] = True
+    if own.get("slide_start") is True:
+        meta["slide_start"] = True
     breakpoints = breakpoints_meta(own.get("breakpoints"))
     if breakpoints:
         meta["breakpoints"] = breakpoints
@@ -2896,7 +2908,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
             else:
                 del keep[key]
     if isinstance(keep.get("fabric_desktop"), dict) and keep["fabric_desktop"]:
-        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on", "breakpoints")}
+        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on", "breakpoints", "slide_start")}
         if rest:
             keep["fabric_desktop"] = rest
         else:
@@ -3005,10 +3017,11 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
             used = _attachments_used(old.get("attachments"), "".join(cell["source"]))
             if used:
                 cell["attachments"] = used
-        cells.append(cell)
+        cells.append({k: cell[k] for k in old if k in cell} | cell)  # the file's key order, so the diff is the edit
     minor = before.get("nbformat_minor")
-    # Keys of the file's own beyond the format's (Fabric writes "notebookName"), in the file's order.
-    out = {k: v for k, v in before.items() if k not in new} | new | {"metadata": meta, "cells": cells}
+    # In the file's key order (Fabric writes nbformat first and its own "notebookName"), so the rest
+    # of the file doesn't move; a key the file didn't have goes last.
+    out = before | new | {"metadata": meta, "cells": cells}
     if isinstance(minor, int) and minor > out["nbformat_minor"]:
         out["nbformat_minor"] = minor
     return out

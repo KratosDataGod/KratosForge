@@ -218,6 +218,30 @@ def _mixed_array(node: object) -> bool:
     return {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}
 
 
+def _set_leaves(node: exp.Expr) -> list[exp.Select]:
+    if isinstance(node, exp.Subquery):
+        return _set_leaves(node.this)
+    if isinstance(node, exp.SetOperation):
+        return _set_leaves(node.left) + _set_leaves(node.right)
+    return [node] if isinstance(node, exp.Select) else []
+
+
+def _mixed_set_column(node: object) -> bool:
+    """SFN-032: a UNION, INTERSECT or MINUS whose column has text written in one SELECT and a number in
+    another. Snowflake converts the text to a number (operators-query: a VARCHAR and an INTEGER column give
+    "Numeric value 'Smith, Jane' is not recognized"); DuckDB makes the column text, so '10' sorted before 9."""
+    if not isinstance(node, exp.SetOperation) or isinstance(node.parent, exp.SetOperation):
+        return False
+    leaves = _set_leaves(node)
+    if len({len(leaf.expressions) for leaf in leaves}) != 1:
+        return False
+    for i in range(len(leaves[0].expressions)):
+        values = [leaf.expressions[i] for leaf in leaves]
+        if {_scalar_kind(v.this if isinstance(v, exp.Alias) else v) for v in values} - {"null"} >= {"text", "number"}:
+            return True
+    return False
+
+
 _ONLY_IN_SNOWFLAKE = "Runs only in Snowflake"
 
 
@@ -269,10 +293,88 @@ _ZONED_TYPEOF = _refuse(
 # ---------------------------------------------------------------- reading
 
 
+from sqlglot.dialects.snowflake import Snowflake as _Snowflake  # noqa: E402  (beside the reader it extends)
+
+# sqlglot builds DIV0, DIV0NULL, ZEROIFNULL and NULLIFZERO as an IF that repeats its arguments (DIV0(a, b) is
+# IF(b = 0 AND NOT a IS NULL, 0, a / b)), so each level of nesting doubled the tree and the SQL. Here each
+# argument that isn't a plain name or literal is worked out once, as it is read, in a LIST_TRANSFORM.
+_CHEAP = (exp.Column, exp.Literal, exp.Null, exp.Boolean, exp.Placeholder, exp.Parameter, exp.Star)
+_CONSTANT = (exp.Literal, exp.Null, exp.Boolean, exp.Cast, exp.Neg, exp.Paren, exp.DataType, exp.DataTypeParam)
+
+
+def _cheap(arg: exp.Expression) -> bool:
+    """Read as often as it's written at no cost and with one answer: a column, or a constant such as
+    5.4027::NUMBER(20, 4), whose type SFX-035's division scale reads from the call itself."""
+    return isinstance(arg, _CHEAP) or all(isinstance(n, _CONSTANT) for n in arg.walk())
+
+
+def _once(build: Any) -> Any:
+    def built(args: list[Any]) -> Any:
+        bound = [i for i, arg in enumerate(args) if arg is not None and not _cheap(arg)]
+        if not bound:
+            return build(args)
+        # One LIST_TRANSFORM over a list of one ROW of every bound value, so each is worked out outside any
+        # lambda (DuckDB refuses a subquery inside one). A list and an unnamed ROW, not a struct literal,
+        # which _rewrite_object_construct would read as OBJECT_CONSTRUCT. The name goes by height, so a
+        # nested call's differs.
+        name = f"__sf_once{_height(args[bound[0]])}"
+        reads: dict[int, exp.Expr]
+        if len(bound) == 1:
+            reads = {bound[0]: exp.column(name)}
+            listed = "__sf_value0"
+        else:
+            reads = {i: exp.func("struct_extract", exp.column(name), exp.Literal.number(j + 1))
+                     for j, i in enumerate(bound)}
+            listed = "ROW(" + ", ".join(f"__sf_value{j}" for j in range(len(bound))) + ")"
+        body = build([reads.get(i, arg) for i, arg in enumerate(args)])
+        once = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([{listed}], {name} -> __sf_body))[1]",
+                                                      read="duckdb"))
+        _swap(once, "__sf_body", body)
+        for j, i in enumerate(bound):
+            _swap(once, f"__sf_value{j}", args[i])
+        return once
+    return built
+
+
+class _KfSnowflake(_Snowflake):
+    class Parser(_Snowflake.Parser):  # type: ignore[misc,valid-type]  # sqlglot sets Parser per dialect at run time
+        FUNCTIONS = {**_Snowflake.Parser.FUNCTIONS,
+                     **{name: _once(_Snowflake.Parser.FUNCTIONS[name])
+                        for name in ("DIV0", "DIV0NULL", "ZEROIFNULL", "NULLIFZERO")}}
+
+
+def _height(node: exp.Expression) -> int:
+    return 1 + max((_height(child) for child in node.iter_expressions()), default=0)
+
+
+def _swap(tree: exp.Expression, name: str, value: exp.Expression) -> None:
+    """The column ``name`` in ``tree`` replaced by ``value`` itself (once; the template has one place)."""
+    for column in list(tree.find_all(exp.Column)):
+        if column.name == name and not column.table:
+            column.replace(value)
+            return
+
+
+def _length_once(tree: exp.Expression) -> None:
+    """LENGTH of a value that may be BINARY, which DuckDB's writer spells out as CASE TYPEOF(x) ... x ... x,
+    with the value worked out once, so LENGTH(LENGTH(...)) doesn't triple the SQL at each level."""
+    for node in reversed(list(tree.find_all(exp.Length))):
+        value = node.this
+        if not node.args.get("binary") or value is None or isinstance(value, _CHEAP):
+            continue
+        name = f"__sf_len{_height(node)}"
+        body = (f"CASE TYPEOF({name}) WHEN 'BLOB' THEN OCTET_LENGTH(CAST({name} AS BLOB)) "
+                f"ELSE LENGTH(CAST({name} AS TEXT)) END")
+        once = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([__sf_value], {name} -> {body}))[1]",
+                                                     read="duckdb"))
+        _swap(once, "__sf_value", value.copy())
+        node.replace(once)
+
+
 def parse(code: str) -> list[exp.Expression]:
     """Snowflake SQL statements as sqlglot reads them; ValueError when it can't be read."""
     try:
-        statements = [cast(exp.Expression, s) for s in sql_dialects.parse(code, read="snowflake") if s is not None]
+        statements = [cast(exp.Expression, s) for s in sql_dialects.parse(code, read=_KfSnowflake) if s is not None]
     except (ParseError, TokenError) as exc:  # TokenError: an unclosed quote or comment
         first = str(exc).splitlines()[0] if str(exc) else "it isn't valid Snowflake SQL"
         raise ValueError(f"Could not read the query: {first}") from None
@@ -468,6 +570,12 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                            "A DuckDB list holds values of one type, so an array written with both text and numbers "
                            "can't be made here. Cast them to one type (for example each value ::VARCHAR), or "
                            "build the array from a column.", f"{_DOCS}/functions/array_construct")
+        if _mixed_set_column(node):
+            return _refuse("SFN-032", "Text and numbers in one column of a UNION, INTERSECT or MINUS",
+                           "Snowflake converts the text to a number (and stops on text that isn't one), and DuckDB "
+                           "makes the column text, so the rows would sort and compare differently. Cast the column "
+                           "to one type in every SELECT (for example ::NUMBER or ::VARCHAR).",
+                           f"{_DOCS}/operators-query")
         if isinstance(node, exp.MatchRecognize):
             return _refuse("SFN-019", "MATCH_RECOGNIZE", "DuckDB has no row pattern matching.",
                            f"{_DOCS}/constructs/match_recognize")
@@ -715,6 +823,118 @@ def _rewrite_to_char(statement: exp.Expression) -> None:
                                           f"{_DOCS}/functions-conversion#date-and-time-formats-in-conversion-functions"))
 
 
+# SFN-033: Snowflake's timestamps and times keep nanoseconds (precision 9 by default); DuckDB's keep microseconds,
+# so a 7th to 9th digit of a second would be cut off here without a word.
+_NANO_TEXT = re.compile(r"\.\d{6}\d*[1-9]")
+_TIME_TYPES = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMPLTZ,
+               exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.DATETIME, exp.DataType.Type.TIME)
+
+
+def _nano_refusal(what: str) -> _Untranslatable:
+    return _Untranslatable(_refuse("SFN-033", "Nanoseconds", f"{what} Snowflake keeps a timestamp or time to the "
+                                   "nanosecond, and the local engine keeps it to the microsecond, so nothing ran. "
+                                   "Keep to whole microseconds (at most 6 digits of a second), or run it in Snowflake.",
+                                   f"{_DOCS}/data-types-datetime"))
+
+
+def _whole_microseconds(nanos: exp.Expression | None) -> bool:
+    """``nanos`` is written in the query as a whole number of microseconds (a multiple of 1000)."""
+    if isinstance(nanos, exp.Neg):
+        return _whole_microseconds(nanos.this)
+    return isinstance(nanos, exp.Literal) and nanos.is_int and int(nanos.name) % 1000 == 0
+
+
+def _refuse_nanoseconds(statement: exp.Expression) -> None:
+    """SFN-033: what would need a digit of a second past the microsecond, refused by name."""
+    for conversion in statement.find_all(exp.Cast, exp.TryCast):
+        to, text = conversion.args.get("to"), conversion.this
+        if not (isinstance(to, exp.DataType) and to.this in _TIME_TYPES and isinstance(text, exp.Literal)
+                and text.is_string and _NANO_TEXT.search(text.name)):
+            continue
+        size = to.expressions[0].this if to.expressions and isinstance(to.expressions[0], exp.DataTypeParam) else None
+        if size is None or not (isinstance(size, exp.Literal) and size.is_int and int(size.name) <= 6):
+            raise _nano_refusal(f"The text '{text.name}' has a digit of a second past the sixth.")
+    for add in statement.find_all(exp.DateAdd, exp.TimeAdd, exp.TimestampAdd):
+        unit = add.args.get("unit")
+        if isinstance(unit, (exp.Var, exp.Literal)) and unit.name.upper() == "NANOSECOND" \
+                and not _whole_microseconds(add.expression):
+            raise _nano_refusal("DATEADD, TIMEADD or TIMESTAMPADD by nanoseconds that aren't a written whole "
+                                "number of microseconds.")
+    for parts in statement.find_all(exp.TimestampFromParts, exp.TimeFromParts):
+        nano = parts.args.get("nano")
+        if nano is not None and not _whole_microseconds(nano):
+            raise _nano_refusal(f"{_function_name(parts)} with a nanosecond part that isn't a written whole "
+                                "number of microseconds.")
+    for unix in statement.find_all(exp.UnixToTime):
+        scale = unix.args.get("scale")
+        if isinstance(scale, exp.Literal) and scale.is_int and int(scale.name) > 6 \
+                and not _whole_microseconds(unix.this if int(scale.name) == 9 else None):
+            raise _nano_refusal(f"TO_TIMESTAMP with scale {scale.name}.")
+
+
+# SFX-029: a timestamp or time written as text in Snowflake's default output formats (TIMESTAMP_NTZ_OUTPUT_FORMAT
+# YYYY-MM-DD HH24:MI:SS.FF3, TIMESTAMP_OUTPUT_FORMAT with TZHTZM for TIMESTAMP_LTZ and TIMESTAMP_TZ,
+# TIME_OUTPUT_FORMAT HH24:MI:SS). DuckDB wrote its own ('2024-01-02 03:04:05.123456', '... +00'). ALTER SESSION
+# of these formats is refused (SFN-022), so the defaults hold. TYPEOF folds when the query is planned.
+_PLAIN_STAMPS = "'TIMESTAMP', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+_TIME_TEXT = (
+    "CASE WHEN TYPEOF(kf_v) IN (" + _PLAIN_STAMPS + ") THEN STRFTIME(TRY_CAST(kf_v AS TIMESTAMP), '%Y-%m-%d %H:%M:%S.%g') "
+    "WHEN TYPEOF(kf_v) = 'TIMESTAMP WITH TIME ZONE' THEN STRFTIME(TRY_CAST(kf_v AS TIMESTAMPTZ), '%Y-%m-%d %H:%M:%S.%g ') "
+    "|| (LIST_TRANSFORM([CAST(EPOCH(CAST(TRY_CAST(kf_v AS TIMESTAMPTZ) AS TIMESTAMP)) - EPOCH(TRY_CAST(kf_v AS "
+    "TIMESTAMPTZ)) AS INTEGER)], lambda kf_o: "
+    "CASE WHEN kf_o < 0 THEN '-' ELSE '+' END || LPAD(CAST(ABS(kf_o) // 3600 AS VARCHAR), 2, '0') "
+    "|| LPAD(CAST(ABS(kf_o) % 3600 // 60 AS VARCHAR), 2, '0')))[1] "
+    "WHEN TYPEOF(kf_v) = 'TIME' THEN STRFTIME(DATE '2000-01-01' + TRY_CAST(kf_v AS TIME), '%H:%M:%S') "
+    "ELSE kf_else END")
+def _as_time_text(value: exp.Expression, otherwise: exp.Expression) -> exp.Expression:
+    """_TIME_TEXT over ``value``, read once; ``otherwise`` (naming kf_v) for any other type."""
+    tree = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([kf_arg], lambda kf_v: {_TIME_TEXT}))[1]",
+                                                  read="duckdb"))
+    for column in list(tree.find_all(exp.Column)):
+        if column.name == "kf_arg" and not column.table:
+            column.replace(value.copy())
+        elif column.name == "kf_else" and not column.table:
+            column.replace(otherwise)
+    return tree
+
+
+def _maybe_time(node: exp.Expression) -> bool:
+    """``node`` isn't plainly something other than a timestamp or time: a literal, or a cast to another type."""
+    if isinstance(node, (exp.Literal, exp.Null, exp.Boolean, exp.Bracket, exp.JSONExtract, exp.JSONExtractScalar)):
+        return False
+    return not (isinstance(node, (exp.Cast, exp.TryCast)) and isinstance(node.to, exp.DataType)
+                and node.to.this not in _TIME_TYPES)
+
+
+_TEXT_NODES = (exp.Cast, exp.TryCast, exp.ToChar, exp.DPipe, exp.Concat)
+
+
+def _rewrite_time_text(statement: exp.Expression, written: list[Any]) -> None:
+    """SFX-029: casts to text (::VARCHAR, CAST, TRY_CAST, TO_VARCHAR and TO_CHAR with no format) and the parts
+    of || and CONCAT, written in Snowflake's default output formats when they are a timestamp or time. Only the
+    ones in ``written`` (the statement as written, held so no new node reuses an id) and still in it: the casts
+    the other rewrites make are their own. A JSON or VARIANT path isn't a timestamp, and is left as it is."""
+    ids = {id(n) for n in written}
+    for node in reversed(list(statement.find_all(*_TEXT_NODES))):
+        if id(node) not in ids:
+            continue
+        if isinstance(node, exp.ToChar):
+            if node.args.get("format") is None and _maybe_time(node.this):
+                node.replace(_as_time_text(node.this, exp.cast(exp.column("kf_v"), exp.DataType.Type.VARCHAR)))
+        elif isinstance(node, (exp.Cast, exp.TryCast)):
+            to = node.args.get("to")
+            if isinstance(to, exp.DataType) and to.this in _TEXT_TYPES and _maybe_time(node.this):
+                other = node.copy()
+                other.set("this", exp.column("kf_v"))
+                node.replace(_as_time_text(node.this, other))
+        else:
+            parts = [node.this, node.expression] if isinstance(node, exp.DPipe) else list(node.expressions)
+            for part in parts:
+                if isinstance(part, exp.Expression) and _maybe_time(part) \
+                        and not isinstance(part, (exp.DPipe, exp.Concat, exp.Paren)):
+                    part.replace(_as_time_text(part, exp.cast(exp.column("kf_v"), exp.DataType.Type.VARCHAR)))
+
+
 def _object_key(key: exp.Expression) -> exp.Expression:
     """A key as text: an OBJECT constant's {'a': 1} reads its key as a name, which would be a column."""
     return exp.Literal.string(key.name) if isinstance(key, exp.Identifier) else key
@@ -736,7 +956,7 @@ def _rewrite_object_construct(statement: exp.Expression) -> None:
         entries = ", ".join(f"{{'k': {_duck(_object_key(p.this))}, 'v': to_json({_duck(p.expression)})}}"
                             for p in pairs)
         node.replace(sqlglot.parse_one(
-            f"to_json(map_from_entries(list_sort(list_filter([{entries}], x -> x.v IS NOT NULL))))", read="duckdb"))
+            f"to_json(map_from_entries(list_sort(list_filter([{entries}], kf_e -> kf_e.v IS NOT NULL))))", read="duckdb"))
 
 
 def _rewrite_soundex(statement: exp.Expression) -> None:
@@ -1006,6 +1226,40 @@ _MERGE_DUPLICATE = ("A target row matches more than one source row, so the MERGE
                     "ORDER BY ...) = 1.")
 
 
+_POSITION_ELSEWHERE = _refuse(
+    "SFN-085", "$1 in ORDER BY, GROUP BY, HAVING or QUALIFY", "Snowflake reads $1 as the first column of the "
+    "FROM clause. In these clauses DuckDB reads a column position as the SELECT list's instead, so the query "
+    "could answer differently. Write the column's name there.", f"{_DOCS}/constructs/values")
+
+
+_POSITION_OF_TABLE = _refuse(
+    "SFN-085", "$1 of a named table (t.$1)", "Snowflake reads t.$1 as the first column of t. DuckDB has no way to "
+    "name a column of one table by its position, so it isn't rewritten. Write the column's name, or $1 alone "
+    "when the FROM clause reads one table.", f"{_DOCS}/constructs/values")
+
+
+def _rewrite_positions(statement: exp.Expression) -> None:
+    """SFX-086: $1, $2, ... name a column of the FROM clause by its position, as on Snowflake's VALUES page
+    (SELECT $1, $2 FROM VALUES (1, 'one')). DuckDB's #1 means the same in the SELECT list, WHERE and ON. A
+    bare $1 in the SELECT list is named "$1", as Snowflake names it. In ORDER BY, GROUP BY, HAVING and
+    QUALIFY, DuckDB's #1 is a SELECT list position, so $1 there is refused by name (SFN-085), and so is t.$1,
+    which DuckDB can't write."""
+    for parameter in list(statement.find_all(exp.Parameter)):
+        if not (isinstance(parameter.this, exp.Literal) and not parameter.this.is_string
+                and str(parameter.this.this).isdigit()):
+            continue
+        if parameter.find_ancestor(exp.Order, exp.Group, exp.Having, exp.Qualify) is not None:
+            raise _Untranslatable(_POSITION_ELSEWHERE)
+        if isinstance(parameter.parent, exp.Column) and parameter.parent.args.get("table") is not None:
+            raise _Untranslatable(_POSITION_OF_TABLE)
+        number = int(str(parameter.this.this))
+        column = exp.column(exp.Identifier(this=f"#{number}", quoted=False))
+        if isinstance(parameter.parent, exp.Select) and parameter.arg_key == "expressions":
+            parameter.replace(exp.alias_(column, exp.to_identifier(f"${number}", quoted=True)))
+        else:
+            parameter.replace(column)
+
+
 def _rewrite_statements(statement: exp.Expression) -> None:
     """SFX-025: what Snowflake's statements do that DuckDB's don't by themselves.
     - MERGE with WHEN MATCHED ... UPDATE stops when a target row matches more than one source row, as
@@ -1043,6 +1297,7 @@ def _rewrite_statements(statement: exp.Expression) -> None:
                 if isinstance(value, exp.Literal) and value.is_string:
                     value.replace(exp.PivotAlias(this=value.copy(),
                                                  alias=exp.to_identifier(f"'{value.name}'", quoted=True)))
+    _rewrite_positions(statement)
     for parameter in list(statement.find_all(exp.Parameter)):
         if isinstance(parameter.this, exp.Var) and not isinstance(parameter.parent, exp.DynamicIdentifier):
             parameter.replace(exp.Anonymous(this="getvariable",
@@ -3275,6 +3530,10 @@ CATALOG = (
                 "REGEXP_REPLACE, REGEXP_SUBSTR and REGEXP_SUBSTR_ALL. The c parameter is taken in REGEXP_COUNT and "
                 "REGEXP_INSTR too. An empty pattern matches nothing, except in REGEXP_LIKE and its aliases, where it "
                 "matches only an empty subject.")),
+    ("SFX-029", "Rewritten", ("A timestamp or time cast to text (::VARCHAR, CAST, TRY_CAST, and TO_VARCHAR or "
+                "TO_CHAR with no format), or joined with || or CONCAT, is written in Snowflake's default output "
+                "formats: TIMESTAMP_NTZ as YYYY-MM-DD HH24:MI:SS.FF3, TIMESTAMP_LTZ and TIMESTAMP_TZ with the "
+                "session time zone's offset as TZHTZM after it, and TIME as HH24:MI:SS.")),
     ("SFX-032", "Rewritten", ("A FLOAT written as text (TO_VARCHAR, TO_CHAR with no format, a cast to VARCHAR) has "
                 "no trailing zeros and up to 15 significant digits, with an exponent past them, as Snowflake writes it: "
                 "100 is '100', 1e15 is '1e+15', 1/3 is '0.333333333333333', and inf, -inf and NaN. A column is "
@@ -3315,6 +3574,9 @@ CATALOG = (
                 "with no offset, or the session zone's own, is stored as Snowflake stores it; text with another "
                 "offset stops the query (SFN-071). Any other value, and a column whose Snowflake type isn't known "
                 "here, is SFD-002. INSERT ... SELECT * reads the query's columns by place.")),
+    ("SFX-086", "Rewritten", ("$1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM "
+                "VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, "
+                "as in Snowflake.")),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -3383,6 +3645,14 @@ CATALOG = (
     ("SFN-031", "Runs only in Snowflake", ("A regular expression written with a non-greedy quantifier ('*?', '+?', "
                 "'??') or a backreference ('\\1') in the pattern, which Snowflake doesn't support, or with a "
                 "lookahead or lookbehind, which RE2 can't read.")),
+    ("SFN-032", "Runs only in Snowflake", ("A UNION, INTERSECT or MINUS with text written in one SELECT and a number "
+                "in another in the same column: Snowflake converts the text to a number (and stops on text that isn't "
+                "one), and DuckDB makes the column text.")),
+    ("SFN-033", "Runs only in Snowflake", ("Nanoseconds: text with a nonzero digit of a second past the sixth cast "
+                "to a timestamp or time, DATEADD, TIMEADD or TIMESTAMPADD by NANOSECOND, a nanosecond part of "
+                "TIMESTAMP_FROM_PARTS or TIME_FROM_PARTS, and TO_TIMESTAMP with scale 7 to 9, unless the "
+                "nanoseconds are written as whole microseconds. Snowflake keeps nanoseconds; DuckDB keeps "
+                "microseconds.")),
     ("SFN-035", "Runs only in Snowflake", ("TO_NUMBER, TO_DECIMAL, TO_NUMERIC and their TRY_ forms with a format: "
                 "Snowflake's rules for reading text by a format aren't rewritten.")),
     ("SFN-036", "Runs only in Snowflake", ("A cast to INT, BIGINT, SMALLINT or TINYINT of a value outside DuckDB's type "
@@ -3402,6 +3672,9 @@ CATALOG = (
                 "(the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps "
                 "one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or "
                 "CURRENT_TIMESTAMP runs (SFX-009).")),
+    ("SFN-085", "Runs only in Snowflake", ("$1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a "
+                "column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position "
+                "of one named table's column, which DuckDB has no way to write.")),
     ("SFN-099", "Runs only in Snowflake", "Any other Snowflake command sqlglot can't read as a statement."),
 )
 
@@ -3442,6 +3715,8 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
     brackets = list(tree.find_all(exp.Bracket))  # held, so no new node can reuse one of these ids
     written = {id(b) for b in brackets}
     try:
+        _refuse_nanoseconds(tree)
+        as_text = list(tree.find_all(*_TEXT_NODES))
         _mark_result_names(tree)
         if _rewrite_zoned_writes(tree, tables or {}) and SFD_TZ not in notes:
             notes.append(SFD_TZ)
@@ -3481,9 +3756,11 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
         unknown_brackets = _type_values(tree, written)
         _rewrite_json_text(tree)
         _rewrite_division(tree)
+        _rewrite_time_text(tree, as_text)
         _json_of_variant_lists(tree)
         _rewrite_result_names(tree)
         tree = _sort_json_keys(_check_offsets(tree))
+        _length_once(tree)
         sql = ";\n".join([_duck(b) for b in before] + [_duck(tree)])
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

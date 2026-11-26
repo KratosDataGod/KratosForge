@@ -331,6 +331,17 @@ def cases() -> list[tuple[str, str, object]]:
         want = None if inner is None else _position(find, text, inner + 1)
         if want is not None:
             out.append(("POSITION", f"POSITION({q(find)}, {q(text)}, POSITION('', {q(word)}, {start}) + 1)", want))
+    stamps = random.Random(SEED + 2)  # WR-258: timestamps and times written as text
+    for _ in range(80):
+        t = dt.datetime(1900, 1, 1) + dt.timedelta(microseconds=stamps.randint(0, 200 * 365 * 86400 * 10 ** 6))
+        text = t.isoformat(sep=" ")
+        # parameters: TIMESTAMP_NTZ_OUTPUT_FORMAT defaults to "YYYY-MM-DD HH24:MI:SS.FF3" and TIME_OUTPUT_FORMAT
+        # to "HH24:MI:SS"; TO_VARCHAR with no format, a cast to text and || use them.
+        want = f"{t:%Y-%m-%d %H:%M:%S}.{t.microsecond // 1000:03d}"
+        out.append(("TIMESTAMP_TEXT", f"{q(text)}::TIMESTAMP_NTZ::VARCHAR", want))
+        out.append(("TIMESTAMP_TEXT", f"TO_VARCHAR({q(text)}::TIMESTAMP_NTZ)", want))
+        out.append(("TIMESTAMP_TEXT", f"'at ' || {q(text)}::TIMESTAMP_NTZ", "at " + want))
+        out.append(("TIME_TEXT", f"CAST({q(t.time().isoformat())}::TIME AS VARCHAR)", f"{t:%H:%M:%S}"))
     return out + _regex_cases(random.Random(SEED + 2)) + _number_cases(random.Random(SEED + 3))
 
 
@@ -383,3 +394,62 @@ def test_cases_are_seeded_and_cover_every_known_family() -> None:
     first = cases()
     assert first == cases() and len(first) > 1500
     assert {f for f, _, _ in first} >= set(KNOWN) | {"POSITION", "CHARINDEX", "LPAD", "RPAD"}
+
+
+def test_a_timestamp_with_a_time_zone_as_text_has_the_offset() -> None:
+    """parameters: TIMESTAMP_OUTPUT_FORMAT defaults to "YYYY-MM-DD HH24:MI:SS.FF3 TZHTZM", which TIMESTAMP_LTZ and
+    TIMESTAMP_TZ use when their own output formats are unset."""
+    con = duckdb.connect()
+    for zone, want in (("UTC", "2024-01-02 03:04:05.678 +0000"), ("Asia/Kolkata", "2024-01-02 08:34:05.678 +0530"),
+                       ("America/St_Johns", "2024-01-01 23:34:05.678 -0330")):
+        con.execute(f"SET TimeZone = '{zone}'")
+        translation = sf.translate("SELECT '2024-01-02 03:04:05.678912+00:00'::TIMESTAMP_LTZ::VARCHAR")
+        assert con.execute(translation.duckdb_sql).fetchall() == [(want,)], zone
+
+
+def test_nanoseconds_are_refused_by_name() -> None:
+    """data-types-datetime: TIMESTAMP's precision is 9 (nanoseconds) by default; DuckDB keeps microseconds, so
+    each of these would lose digits without a word."""
+    for code in ("SELECT '2024-01-02 03:04:05.1234567'::TIMESTAMP_NTZ", "SELECT TO_TIME('03:04:05.000000001')",
+                 "SELECT TRY_TO_TIMESTAMP('2024-01-02 03:04:05.123456789')",
+                 "SELECT DATEADD(NANOSECOND, 1, '2024-01-02'::TIMESTAMP_NTZ)",
+                 "SELECT TIMEADD(ns, n, '03:04:05'::TIME) FROM t",
+                 "SELECT TIMESTAMP_FROM_PARTS(2024, 1, 2, 3, 4, 5, 123456789)", "SELECT TIME_FROM_PARTS(3, 4, 5, n) FROM t",
+                 "SELECT TO_TIMESTAMP(1704164645123456789, 9)", "SELECT TO_TIMESTAMP(n, 7) FROM t"):
+        translation = sf.translate(code)
+        assert not translation.runnable and "Nanoseconds" in translation.first_refusal(), code
+        assert "nothing ran" in translation.first_refusal(), code
+    con = duckdb.connect()
+    for code, want in (("SELECT '2024-01-02 03:04:05.1234560'::TIMESTAMP_NTZ", dt.datetime(2024, 1, 2, 3, 4, 5, 123456)),
+                       ("SELECT DATEADD(NANOSECOND, 3000, '2024-01-02'::TIMESTAMP_NTZ)", dt.datetime(2024, 1, 2, 0, 0, 0, 3)),
+                       ("SELECT TIMESTAMP_FROM_PARTS(2024, 1, 2, 3, 4, 5, 123456000)", dt.datetime(2024, 1, 2, 3, 4, 5, 123456)),
+                       ("SELECT TO_TIMESTAMP(1704164645123456000, 9)", dt.datetime(2024, 1, 2, 3, 4, 5, 123456))):
+        assert con.execute(sf.translate(code).duckdb_sql).fetchall() == [(want,)], code
+
+
+def test_windows_take_snowflakes_default_frames() -> None:
+    """window-functions (window frame usage notes): with ORDER BY and no frame, SUM, COUNT and the other
+    aggregates use RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, so ties are summed together;
+    FIRST_VALUE, LAST_VALUE and NTH_VALUE use the whole partition, ROWS BETWEEN UNBOUNDED PRECEDING AND
+    UNBOUNDED FOLLOWING. NULLs sort last ascending (DEFAULT_NULL_ORDERING LAST)."""
+    con = duckdb.connect()
+    sql = ("SELECT k, SUM(v) OVER (ORDER BY k), COUNT(*) OVER (ORDER BY k), LAST_VALUE(v) OVER (ORDER BY k), "
+           "NTH_VALUE(v, 2) OVER (ORDER BY k), FIRST_VALUE(v) OVER (ORDER BY k DESC), "
+           "SUM(v) OVER (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) "
+           "FROM (VALUES (1, 10), (2, 20), (2, 30), (NULL, 5), (4, NULL)) AS t(k, v) ORDER BY k, v")
+    rows = con.execute(sf.translate(sql).duckdb_sql).fetchall()
+    assert rows == [(1, 10, 1, 5, 20, 5, 10), (2, 60, 3, 5, 20, 5, 60), (2, 60, 3, 5, 20, 5, 60),
+                    (4, 60, 4, 5, 20, 5, None), (None, 65, 5, 5, 20, 5, 5)]
+
+
+def test_a_set_operation_of_text_and_numbers_is_refused_by_name() -> None:
+    """operators-query: a UNION of a VARCHAR and an INTEGER column converts the text to a number ("Numeric value
+    'Smith, Jane' is not recognized"); DuckDB made the column text, so '10' sorted before 9 (SFN-032)."""
+    for sql in ["SELECT '10' AS a UNION ALL SELECT 9", "SELECT 1 AS a, 'x' AS b UNION SELECT 2, 3",
+                "SELECT 1 AS a INTERSECT SELECT '1'", "SELECT 1 AS a MINUS SELECT '1'",
+                "SELECT 1 AS a UNION ALL SELECT NULL UNION ALL SELECT '2'::VARCHAR"]:
+        translation = sf.translate(sql)
+        assert not translation.runnable and translation.statements[0].notes[0].id == "SFN-032", sql
+    for sql in ["SELECT '10' AS a UNION ALL SELECT '9'", "SELECT 1 AS a UNION ALL SELECT NULL",
+                "SELECT '10'::NUMBER AS a UNION ALL SELECT 9"]:
+        assert sf.translate(sql).runnable, sql

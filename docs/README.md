@@ -97,7 +97,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
 | [governance-guide.md](governance-guide.md) | Platform owners, team leads | Governance guide (Preview): draft to result, worked examples (naming, classification, ownership), what can be enforced and by whom |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, asking another team for data, following a product, catalog text |
-| [direct-lake-check.md](direct-lake-check.md) | Engineers, team leads | The Direct Lake check (Preview): Direct Lake limits per capacity, schema drift and relationship keys, checked on this PC |
+| [direct-lake-check.md](direct-lake-check.md) | Engineers, team leads | Direct Lake fallback risk (Preview): whether a model will fall back to DirectQuery, Direct Lake limits per capacity with a forecast, schema drift and relationship keys, predicted on this PC |
 | [data-dictionary.md](data-dictionary.md) | Engineers, data stewards | The data dictionary (Preview): descriptions for a layer's model, exported to Excel and imported back, then written into the model |
 | [semantic-model-ossie.md](semantic-model-ossie.md) | Engineers, team leads | Semantic models to and from Apache Ossie (Preview): export to a `.ossie.yaml` file, import with a preview of every change, what a round trip keeps, an Ossie file written as TMDL in the project, structural and expression parity checks, and Fabric Semantic View files with the steps to publish them |
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
@@ -209,7 +209,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Semantic model | Data mesh > Deploy |
 | Semantic models and Apache Ossie | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md)) |
 | Semantic View files and publish steps | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md#publish-the-view-in-fabric-preview)) |
-| Direct Lake check | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
+| Direct Lake fallback risk | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
 | Semantic model best practices check | Data mesh > Deploy > Semantic model ([semantic-model-best-practices.md](semantic-model-best-practices.md)) |
 | Data dictionary | Data mesh > Deploy > Semantic model ([data-dictionary.md](data-dictionary.md)) |
 | Tests | Data mesh > Quality |
@@ -253,6 +253,8 @@ KratosForge is new, and it's honest about what has been proven.
 | Result history and pinned results on the SQL page | SQL query or Warehouse page, History beside Results ([sql-execution.md](sql-execution.md#result-history-and-pinned-results-preview)) |
 | Scratch console in notebooks | Notebook > View > Scratch ([user-guide.md](user-guide.md#scratch-console-preview)) |
 | Notebook as a report | Notebook > Share > Open as report ([user-guide.md](user-guide.md#notebook-as-a-read-only-report-preview)) |
+| Notebook Present mode | Notebook > View > Present, or Ctrl+Shift+F5 ([notebooks.md](notebooks.md#present-mode-preview)) |
+| Markdown toolbar and preview | Notebook > a Markdown cell you're editing: the formatting toolbar and View ([notebooks.md](notebooks.md#formatting-markdown-cells-preview)) |
 | Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |
 | SQL best practices | SQL query or Warehouse page, Best practices chip beside Compatibility, for T-SQL ([sql-best-practices.md](sql-best-practices.md)) |
 | New build banner | Below the top bar while KratosForge is open; Settings > Updates ([user-guide.md](user-guide.md#a-new-build-while-the-app-is-open-preview)) |
@@ -260,6 +262,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | Embed Studio (Power BI) | Workspaces > Power BI tab and Embed Studio ([embed-studio.md](embed-studio.md)) |
 | KratosForge Environment | Settings > Environment ([user guide](user-guide.md#kratosforge-environment-preview)) |
+| Unity Catalog volumes on this PC | Workspaces > Databricks > Volumes on this PC ([engines.md](engines.md#unity-catalog-volumes-on-this-pc-preview)) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
 | Academy | Academy at the bottom of the left rail: certification prep for DP-700 with exercises on this PC, readiness by objective ([academy-guide.md](academy-guide.md)) |
 | Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |

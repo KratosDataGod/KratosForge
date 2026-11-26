@@ -262,8 +262,10 @@ def _variants_as_json(rel: Any) -> Any:
 def _refusal_text(text: str) -> str:
     """A refusal written into the query (an error(...) with a Databricks error class, such as MERGE's) without
     the "Invalid Input Error: " DuckDB puts in front of it, so it reads as Databricks writes it."""
+    from ..databricks_volumes import MESSAGE_STARTS
     prefix = "Invalid Input Error: "
-    return text[len(prefix):] if text.startswith((prefix + "[DELTA_", prefix + "[SCHEMA_NOT_FOUND]")) else text
+    starts = (prefix + "[DELTA_", prefix + "[SCHEMA_NOT_FOUND]", *(prefix + s for s in MESSAGE_STARTS))
+    return text[len(prefix):] if text.startswith(starts) else text
 
 
 class OutsideSession(PermissionError):
@@ -308,7 +310,10 @@ def _databricks_statements(code: str) -> list[Any]:
     from sqlglot import exp
     from sqlglot.errors import ParseError, TokenError
 
-    from .. import sql, sql_dialects
+    from .. import databricks_volumes, sql, sql_dialects
+    # Unity Catalog volume statements (CREATE, DROP, SHOW, DESCRIBE, ALTER VOLUME, LIST), which sqlglot can't read
+    # or reads as text only: each is a placeholder query until the end, then DuckDB SQL that runs it here
+    code, volume_statements = databricks_volumes.prepare(code)
     try:  # every statement sqlglot returns is an Expression (a Command when it can't read it)
         statements = [s for s in sql_dialects.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
                       if isinstance(s, exp.Expression)]
@@ -350,7 +355,29 @@ def _databricks_statements(code: str) -> list[Any]:
                 piece.replace(exp.Literal.string(_databricks_wording(piece.name)))
     for statement in rewritten:
         _short_path_chains(statement)
-    return rewritten
+    return _volume_statements(rewritten, volume_statements) if volume_statements else rewritten
+
+
+def _volume_statements(statements: list[Any], written: dict[str, list[str]]) -> list[Any]:
+    """``statements`` with each placeholder databricks_volumes.prepare wrote replaced by the DuckDB SQL that runs
+    the volume statement, kept as text (a Command) so it reaches DuckDB as written, and marked as this engine's
+    own (the policy check skips it)."""
+    from sqlglot import exp
+
+    from .. import databricks_volumes
+    from ..databricks_builtins_sql import WRITTEN_HERE
+    out: list[Any] = []
+    for statement in statements:
+        key = databricks_volumes.placeholder(statement)
+        if key is None or key not in written:
+            out.append(statement)
+            continue
+        for text in written[key]:
+            word, _, rest = text.partition(" ")
+            command = exp.Command(this=word, expression=exp.Literal.string(rest))
+            command.meta[WRITTEN_HERE] = True
+            out.append(command)
+    return out
 
 
 _PATH_CHAIN = 8  # links of v:a:b:c... written as -> before the rest are json_extract()
@@ -400,6 +427,9 @@ class DuckDBSession(_SqlSession):
         databricks_variant.register(self._con)  # and its VARIANT ones
         from .. import spark_hash
         spark_hash.register(self._con)  # sha2 at 224, 384 and 512 bits
+        from .. import databricks_volumes
+        databricks_volumes.register(self._con)  # what Unity Catalog volume statements call (Preview)
+        self._volume_reads: list[str] = []      # the tables read_files read for the cell before
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":
@@ -432,6 +462,7 @@ class DuckDBSession(_SqlSession):
                 statements = table_writes(statements, self._con)
             except ValueError as exc:
                 raise Unsupported(str(exc)) from None
+            statements = self._read_volumes(statements)
         try:
             # Spark's (and Databricks') decimal result types, from the session's tables as they are now: a
             # table the same cell creates isn't there yet, so a statement reading it keeps DuckDB's types
@@ -439,6 +470,19 @@ class DuckDBSession(_SqlSession):
                                                             dialect)) for s in statements)
         except ValueError as exc:
             raise Unsupported(_databricks_wording(str(exc)) if dialect == "databricks" else str(exc)) from None
+
+    def _read_volumes(self, statements: list[Any]) -> list[Any]:
+        """read_files('/Volumes/...') and csv.`/Volumes/...` read now, each as a table of this cell's own; the
+        tables the cell before read are dropped first."""
+        from .. import databricks_volumes
+        for name in self._volume_reads:
+            with contextlib.suppress(Exception):  # silent-ok: a table this session made and no longer needs
+                self._con.unregister(name)
+        self._volume_reads = []
+        try:
+            return databricks_volumes.reads(statements, self._con, self._volume_reads)
+        except (ValueError, OSError) as exc:
+            raise Unsupported(str(exc)) from None
 
     def _spark_types(self, statement: Any, dialect: str) -> Any:
         """Spark SQL's to_json, written from its argument's type as Spark writes it (spark_json), and a shift of

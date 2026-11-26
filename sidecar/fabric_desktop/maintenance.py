@@ -17,9 +17,14 @@ import numbers
 import os
 import re
 import stat
+import tempfile
+import threading
 import time
+from contextlib import ExitStack, contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, cast
+from time import monotonic
+from typing import Any, Iterator, cast
 from urllib.parse import unquote
 
 from deltalake import CommitProperties, DeltaTable, PostCommitHookProperties
@@ -454,49 +459,113 @@ def after_write(uri: str, before: int | None, table: DeltaTable, options: dict[s
         return False
 
 
+# delta-rs 1.6.6 moves an OPTIMIZE (compaction or Z-Order) onto the table's latest version right before it commits,
+# without checking that the files it rewrote are still there: two at once on one table each commit, and the rows the
+# second rewrote are then in the table twice. Nor can a RESTORE, a VACUUM or the leftover cleanup here tell a file
+# another of them is about to commit or has just named from a leftover. So every one of them on this PC, in any
+# process (the app, a notebook's kernel, a scheduled run), takes this table's compaction lock first and waits for
+# the others. It is a file lock, which the system lets go of when its process ends, so a killed kernel never keeps
+# it. Writers elsewhere (Fabric's own Spark, another PC) don't take it.
+COMPACTION_WAIT = 120.0
+_COMPACTING: ContextVar[frozenset[str]] = ContextVar("compacting", default=frozenset())
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_key(uri: str) -> str:
+    """One name for a table however its address is written: a folder on this PC resolved as the disk compares it,
+    a OneLake address as given (its ids are GUIDs, so case doesn't matter)."""
+    if "://" in uri:
+        return uri.rstrip("/").lower()
+    return os.path.normcase(os.path.realpath(uri)).rstrip("/\\")
+
+
+def _lock_file(key: str) -> Path:
+    import hashlib
+    name = hashlib.sha256(key.encode("utf-8", "surrogatepass")).hexdigest()[:32]
+    return Path(tempfile.gettempdir()) / "KratosForge" / "table-locks" / f"{name}.lock"
+
+
+@contextmanager
+def compaction_lock(uri: str, name: str = "This table", wait: float | None = None) -> Iterator[None]:
+    """Hold ``uri``'s compaction lock for the block (see COMPACTION_WAIT). Waits up to ``wait`` seconds (default
+    COMPACTION_WAIT) for another holder, then raises LeaseBusy with nothing changed. A holder taking it again
+    (compact_local under the Maintain page's lease, say) goes straight in."""
+    from .leases import LeaseBusy, _file_lock
+
+    wait = COMPACTION_WAIT if wait is None else wait
+    key = _lock_key(uri)
+    if key in _COMPACTING.get():
+        yield
+        return
+    busy = (f"{name} is being optimized, vacuumed or restored by another process on this PC (the Maintain page's "
+            "Optimize, a notebook or a scheduled run), so nothing was changed. Run it again once that has finished.")
+    with _THREAD_LOCKS_GUARD:
+        local = _THREAD_LOCKS.setdefault(key, threading.Lock())
+    deadline = monotonic() + max(wait, 0.0)  # not time.monotonic: tests stand a clock in for the time module
+    got = local.acquire(timeout=wait) if wait > 0 else local.acquire(blocking=False)
+    if not got:
+        raise LeaseBusy(busy)
+    try:
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(_file_lock(_lock_file(key), timeout=max(deadline - monotonic(), 0.0)))
+            except TimeoutError:
+                raise LeaseBusy(busy) from None
+            token = _COMPACTING.set(_COMPACTING.get() | {key})
+            try:
+                yield
+            finally:
+                _COMPACTING.reset(token)
+    finally:
+        local.release()
+
+
 def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[str, Any]:
     """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history.
     Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``. The table's own
-    longer retention wins (and stays), and a version inside it keeps its files whatever a later commit's clock says."""
+    longer retention wins (and stays), and a version inside it keeps its files whatever a later commit's clock says.
+    All of it under the table's compaction_lock, so no other OPTIMIZE, VACUUM or RESTORE of it on this PC overlaps."""
     check_retention(days, allow_shorter)
-    first = DeltaTable(uri)
-    before, files_before = first.version(), len(first.file_uris())
-    days = _with_own(first, days)
-    set_retention(uri, days, allow_shorter=allow_shorter)
-    keep_log(uri, retention_hours(days))  # before OPTIMIZE and VACUUM, whose commits can clean the log
-    # On Windows a writer committing the same next version at the same moment makes this commit fail to open
-    # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
-    # so compacting again is safe.
-    # One that still loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
-    metrics = retrying.local_commit(lambda: DeltaTable(uri).optimize.compact(), "this table's next version")
-    table = DeltaTable(uri)
-    present = table_files(uri)
-    keep, _oldest = skewed_versions(table, retention_hours(days))
-    # VACUUM commits too (its start and end), so it can lose the same race; deleting again what is already
-    # gone is a no-op, so it is safe to repeat on the table's latest version. A file it deletes may also be
-    # open for a moment in a virus scanner or the indexer (os error 32 or 33 on Windows); that is waited out
-    # the same way, and a file still held after that gets a plain message rather than delta-rs's.
-    try:
-        listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
-            retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
-            "this table's next version", when=lambda e: retrying.windows_file_held(e) or retrying.windows_log_race(e))
-    except OSError as exc:
-        if not retrying.windows_file_held(exc):
-            raise
-        raise OSError(retrying.held_file_message("Compact")) from exc
-    # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
-    listed = [relative_to_table(uri, p) for p in listed]
-    removed = [p for p in listed if path_key(p) in present and not (Path(uri) / p).exists()]
-    # A data file no commit names (a write stopped before its commit) goes once it's as old as the
-    # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
-    unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
-    staged = _remove(uri, _stale_staged(uri))
-    after = DeltaTable(uri)
-    durable.sync_commits(uri, before + 1, after.version())  # the compacted files and their commits
-    # files_before and files_after are counted from the Delta log, before and after: measured, not estimated.
-    return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
-            "files_before": files_before, "files_after": len(after.file_uris()),
-            "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
+    with compaction_lock(uri):
+        first = DeltaTable(uri)
+        before, files_before = first.version(), len(first.file_uris())
+        days = _with_own(first, days)
+        set_retention(uri, days, allow_shorter=allow_shorter)
+        keep_log(uri, retention_hours(days))  # before OPTIMIZE and VACUUM, whose commits can clean the log
+        # On Windows a writer committing the same next version at the same moment makes this commit fail to open
+        # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
+        # so compacting again is safe.
+        # One that still loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
+        metrics = retrying.local_commit(lambda: DeltaTable(uri).optimize.compact(), "this table's next version")
+        table = DeltaTable(uri)
+        present = table_files(uri)
+        keep, _oldest = skewed_versions(table, retention_hours(days))
+        # VACUUM commits too (its start and end), so it can lose the same race; deleting again what is already
+        # gone is a no-op, so it is safe to repeat on the table's latest version. A file it deletes may also be
+        # open for a moment in a virus scanner or the indexer (os error 32 or 33 on Windows); that is waited out
+        # the same way, and a file still held after that gets a plain message rather than delta-rs's.
+        try:
+            listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
+                retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
+                "this table's next version", when=lambda e: retrying.windows_file_held(e) or retrying.windows_log_race(e))
+        except OSError as exc:
+            if not retrying.windows_file_held(exc):
+                raise
+            raise OSError(retrying.held_file_message("Compact")) from exc
+        # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
+        listed = [relative_to_table(uri, p) for p in listed]
+        removed = [p for p in listed if path_key(p) in present and not (Path(uri) / p).exists()]
+        # A data file no commit names (a write stopped before its commit) goes once it's as old as the
+        # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
+        unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
+        staged = _remove(uri, _stale_staged(uri))
+        after = DeltaTable(uri)
+        durable.sync_commits(uri, before + 1, after.version())  # the compacted files and their commits
+        # files_before and files_after are counted from the Delta log, before and after: measured, not estimated.
+        return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
+                "files_before": files_before, "files_after": len(after.file_uris()),
+                "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
 
 
 def _is_link(entry: os.DirEntry[str]) -> bool:

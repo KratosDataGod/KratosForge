@@ -518,8 +518,8 @@ def test_yaml_line_break_characters_are_escaped_and_read_back_exactly(brk):
 
 
 def test_a_file_that_wouldnt_read_back_as_written_is_refused(monkeypatch):
-    real = sv.mo.yaml.safe_load
-    monkeypatch.setattr(sv.mo.yaml, "safe_load", lambda text: {**real(text), "name": "other"})
+    real = sv.mo.load_own
+    monkeypatch.setattr(sv.mo, "load_own", lambda text: {**real(text), "name": "other"})
     with pytest.raises(ValueError, match="wouldn't read back as written"):
         sv._dump({"version": op.V02, "name": "V"})
 

@@ -66,7 +66,7 @@ function signedOutField(on) {
   const box = h("input", { type: "checkbox", checked: on ? true : null });
   const allowed = signedOutAllowed();
   const blocked = h("div", { class: "muted-text small", hidden: allowed ? true : null },
-    "Your organization doesn't allow runs while you're signed out (its policy file).");
+    "Your organization doesn't allow runs while you're signed out. Ask IT to change allow_signed_out_schedules in Group Policy or the policy file.");
   const field = h("div", { class: "signed-out-field" },
     h("label", { class: "check" }, box, h("span", {}, h("b", {}, "Run even when I'm signed out of Windows"), " ", previewTag(),
       h("div", { class: "muted-text small" }, "The PC still has to be on. Windows asks for your Windows password and keeps it with the task; KratosForge never sees or stores it."))),
@@ -166,7 +166,7 @@ function signedOutNote(s, changed) {
     password: ["Windows needs your new password. ", again(true, "Enter it")],
     moved: ["KratosForge moved, so Windows needs your password again. ", again(true, "Enter it")],
     not_allowed: ["Your organization doesn't allow runs while you're signed out. ", again(false, "Run only while signed in")],
-    policy: ["Your organization has turned off runs while you're signed out. ", again(false, "Run only while signed in")],
+    policy: ["Your organization has turned off runs while you're signed out. Ask IT to change allow_signed_out_schedules in Group Policy or the policy file. ", again(false, "Run only while signed in")],
   }[s.signed_out_problem];
   return h("div", {}, h("div", { class: "muted-text small" }, "Also while signed out"), problem ? h("div", { class: "reason" }, problem) : null);
 }

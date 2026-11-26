@@ -202,8 +202,11 @@ function nbPresentStrip(on) {
   }
 }
 
-// While presenting, the keys are Present's: the window's other key handlers (Back on Alt+Left, the
-// notebook's command keys) don't see the ones it uses. Tab stays inside.
+// While presenting, every key is Present's: the window's other key handlers (Back on Alt+Left, the
+// notebook's command keys, the debugger's F5, F10 and F11, find, the command bar, ?) see none of them,
+// so nothing behind the slides runs or opens. Tab stays inside. Copying the slide's text (Ctrl+C, and
+// Ctrl+A to select it) keeps the browser's own behaviour; any other key with Ctrl, Alt or an F key
+// is stopped (F5 would reload the window).
 function nbPresentKey(e) {
   if (!nbPresent.root) return;
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
@@ -217,7 +220,12 @@ function nbPresentKey(e) {
   else if (plain && !e.shiftKey && (e.key === "s" || e.key === "S")) nbPresentStrip(!nbPresent.strip);
   else if (e.key === "F5" && e.ctrlKey && e.shiftKey) { /* already presenting */ }
   else handled = false;
-  if (!handled) return;
+  if (!handled) {
+    const copy = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[ac]$/i.test(e.key);
+    if (!copy && (e.ctrlKey || e.metaKey || e.altKey || /^F\d{1,2}$/.test(e.key))) e.preventDefault();
+    e.stopImmediatePropagation();
+    return;
+  }
   if (e.key !== "Tab" || e.defaultPrevented) e.preventDefault();
   e.stopImmediatePropagation();
 }

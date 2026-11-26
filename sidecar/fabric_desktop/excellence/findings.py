@@ -12,11 +12,10 @@ counted in scores; views show them apart.
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 from .controls import DIMENSIONS, REQUIREMENTS, SEVERITIES, Control
-from .evidence import canonical
+from .evidence import digest
 
 _SEV = {s: i for i, s in enumerate(SEVERITIES)}
 _LVL = {"low": 0, "medium": 1, "high": 2}
@@ -28,7 +27,7 @@ CONFIDENCE_LABELS = {"measured": "Measured", "verified_configuration": "Verified
 def finding_id(control_id: str, subject_id: str) -> str:
     """Stable for the same control on the same resource, so a rerun finds the same finding and
     history can tell new, resolved and recurring ones apart."""
-    return "fx-" + hashlib.sha256(canonical([control_id, subject_id]).encode()).hexdigest()[:16]
+    return "fx-" + digest([control_id, subject_id])[:16]
 
 
 def make(c: Control, outcome: dict[str, Any], severity: str) -> dict[str, Any]:

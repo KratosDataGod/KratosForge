@@ -103,7 +103,7 @@
       <parentCategory ref="cat_fabric" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <decimal id="local_retention_days" valueName="local_retention_days" required="true" minValue="0" maxValue="3650" />
+        <decimal id="local_retention_days" valueName="local_retention_days" required="true" minValue="0" maxValue="4294967295" />
       </elements>
     </policy>
     <policy name="telemetry" class="Machine" displayName="$(string.telemetry)" explainText="$(string.telemetry_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="telemetry">
@@ -116,14 +116,14 @@
       <parentCategory ref="cat_fabric" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <decimal id="audit_retention_days" valueName="audit_retention_days" required="true" minValue="0" maxValue="3650" />
+        <decimal id="audit_retention_days" valueName="audit_retention_days" required="true" minValue="30" maxValue="4294967295" />
       </elements>
     </policy>
     <policy name="receipt_retention_days" class="Machine" displayName="$(string.receipt_retention_days)" explainText="$(string.receipt_retention_days_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.receipt_retention_days)">
       <parentCategory ref="cat_fabric" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <decimal id="receipt_retention_days" valueName="receipt_retention_days" required="true" minValue="0" maxValue="3650" />
+        <decimal id="receipt_retention_days" valueName="receipt_retention_days" required="true" minValue="30" maxValue="4294967295" />
       </elements>
     </policy>
     <policy name="telemetry_connection_string" class="Machine" displayName="$(string.telemetry_connection_string)" explainText="$(string.telemetry_connection_string_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.telemetry_connection_string)">
@@ -407,7 +407,7 @@
       <parentCategory ref="cat_notebooks" />
       <supportedOn ref="SUPPORTED_KratosForge" />
       <elements>
-        <decimal id="editor_font_size" valueName="editor_font_size" required="true" minValue="0" maxValue="24" />
+        <decimal id="editor_font_size" valueName="editor_font_size" required="true" minValue="10" maxValue="24" />
       </elements>
     </policy>
     <policy name="editor_keys" class="Machine" displayName="$(string.editor_keys)" explainText="$(string.editor_keys_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.editor_keys)">

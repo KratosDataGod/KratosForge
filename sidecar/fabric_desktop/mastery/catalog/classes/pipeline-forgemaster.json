@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-channel-cut", "name": "First Channel Cut", "criteria": "Reach Journeyman in Activities and dependencies."},
-  {"id": "nothing-lost", "name": "Nothing Lost", "criteria": "Reach Adept in Incremental loads with a watermark."},
-  {"id": "tide-turned-back", "name": "Tide Turned Back", "criteria": "Reach Adept in Idempotent loads and in Deduplicating retried loads."},
-  {"id": "self-healing-line", "name": "Self-Healing Line", "criteria": "Reach Journeyman in Retry and failure handling."},
-  {"id": "forgemasters-seal", "name": "Forgemaster's Seal", "criteria": "Reach Adept in all ten talents of one Pipeline Forgemaster specialization."}
+  {"id": "first-channel-cut", "name": "First Channel Cut", "criteria": "Reach Journeyman in Activities and dependencies.", "requires": {"level": 3, "talents": ["flow.02"]}},
+  {"id": "nothing-lost", "name": "Nothing Lost", "criteria": "Reach Adept in Incremental loads with a watermark.", "requires": {"level": 4, "talents": ["cdc.02"]}},
+  {"id": "tide-turned-back", "name": "Tide Turned Back", "criteria": "Reach Adept in Idempotent loads and in Deduplicating retried loads.", "requires": {"level": 4, "talents": ["cdc.04", "cdc.05"]}},
+  {"id": "self-healing-line", "name": "Self-Healing Line", "criteria": "Reach Journeyman in Retry and failure handling.", "requires": {"level": 3, "talents": ["flow.07"]}},
+  {"id": "forgemasters-seal", "name": "Forgemaster's Seal", "criteria": "Reach Adept in all ten talents of one Pipeline Forgemaster specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

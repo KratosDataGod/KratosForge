@@ -34,7 +34,6 @@ class ManagementStore:
     def __init__(self, path: Path | str):
         self.path = Path(path)
         self._lock = threading.Lock()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         # A file SQLite can't read is refused and kept as it is: it holds who owns each workload, what
         # changed and when, and audit entries not yet sent, which starting again would lose for good.
         sqlitefile.open_store(self.path, self._first_open, refuse=(

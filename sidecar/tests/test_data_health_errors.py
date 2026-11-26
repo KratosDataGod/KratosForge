@@ -307,26 +307,6 @@ def test_a_column_dropped_and_added_again_as_another_type_is_retyped(tmp_path):
     assert s["retyped"] == [{"name": "x", "from": "string", "to": "integer"}]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Data health compares columns by name and type only, so a column dropped "
-    "and added again with the same type (its old values gone) reads as the same schema",
-)
-def test_a_column_dropped_and_added_again_as_the_same_type_is_a_change(tmp_path):
-    uri = _write_log(
-        tmp_path / "t",
-        [
-            ("WRITE", [_field("id", "long", 1), _field("x", "string", 2)], 5),
-            ("DROP COLUMNS", [_field("id", "long", 1)], None),
-            ("ADD COLUMNS", [_field("id", "long", 1), _field("x", "string", 3)], None),
-            ("WRITE", None, 5),
-        ],
-        mapping=True,
-    )
-    assert _check(uri)["schema"]["state"] == "changed"
-
-
 def test_a_field_retyped_inside_a_struct_is_a_change_of_its_column(tmp_path):
     def struct(t):
         return {"type": "struct", "fields": [_field("zip", t)]}

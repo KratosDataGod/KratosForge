@@ -33,7 +33,7 @@ _log = logging.getLogger(__name__)
 # Shown in place of a workspace's or lakehouse's access when its rows in the cache can't be read: its
 # access isn't shown as none, it's shown as not known.
 UNREADABLE = ("Access for this item couldn't be read, because its entry in the access cache is damaged. "
-              "Refresh the access cache to read it again.")
+              "Select Refresh this workspace to read this item's access again.")
 
 S, B = pl.String, pl.Boolean
 WORKSPACE, LAKEHOUSE = "workspace_roles", "data_access_roles"

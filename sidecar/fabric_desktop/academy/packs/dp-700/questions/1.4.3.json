@@ -316,6 +316,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.3-q11",
+      "type": "single",
+      "stem": "At Marlow, a parent pipeline runs the sales load and then the returns load. Which dependency condition do you put on the connection from the sales load to the returns load?",
+      "options": [
+        {
+          "id": "a",
+          "text": "On success"
+        },
+        {
+          "id": "b",
+          "text": "On completion"
+        },
+        {
+          "id": "c",
+          "text": "On failure"
+        },
+        {
+          "id": "d",
+          "text": "On skip"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With On completion, the next activity runs when the previous one ends as either succeeded or failed. On success and On failure each cover only one outcome, and On skip runs only when the previous activity was skipped.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-canvas-experience",
+      "case": "marlow-sales",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

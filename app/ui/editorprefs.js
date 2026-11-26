@@ -109,6 +109,13 @@ function editorPrefsExtension(kind, keys) {
 
 // After settings load or change: every open editor takes them at once.
 function applyEditorPrefs() {
+  // A notebook cell's code shown as plain text while its editor is out of the page (.nb-lazy-code,
+  // notebook.js EAGER_EDITORS) takes the same size, line height and wrapping, so it is the same height.
+  const root = document.documentElement;
+  const size = editorFontSize();
+  root.style.setProperty("--nb-code-size", size ? `${size}px` : "13px");
+  root.style.setProperty("--nb-code-line", size ? `${Math.round(size * 1.6)}px` : "20px");
+  root.classList.toggle("nb-code-wrap", editorWraps("notebook"));
   for (const rec of editorOpen) {
     if (!rec.view) continue;
     rec.view.dispatch({ effects: [rec.prefs.reconfigure(editorPrefExtensions(rec.kind)),

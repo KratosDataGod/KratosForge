@@ -19,7 +19,7 @@ function symNameProblem(name) {
 
 // The notebook's cells as the engine reads them: each editor's own text when it has one.
 function symCells() {
-  return state.notebook.cells.map((c) => ({ type: c.type, source: editors.get(c.id)?.state.doc.toString() ?? c.source }));
+  return state.notebook.cells.map((c) => ({ type: c.type, source: editors.peek(c.id)?.state.doc.toString() ?? c.source }));
 }
 
 function symCellOf(view) {

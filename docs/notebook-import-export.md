@@ -38,7 +38,7 @@ Select **Import from Fabric or Databricks** under **Start something** on **Home*
 
 Before anything is written, the dialog shows the format it found and each notebook it will create, with its name, number of cells and languages. For a Databricks notebook it also lists, cell by cell, everything the conversion dropped or changed and anything that won't run the same on this PC (see below). For a `.ipynb` file it lists each cell whose saved outputs were left out or whose type changed. Select **Import** to create them. The first new notebook opens; all of them are in **Recent notebooks**.
 
-Limits: a file can be up to 64 MB. A `.dbc` archive can hold up to 500 files, 16 MB per notebook and 128 MB in all once unpacked, and up to 200 notebooks. An archive with a path that climbs out of it (`..`, a drive letter or a leading slash) or that is encrypted isn't imported at all, and neither is a damaged one or one whose entries hold more than their headers say; the message says which.
+Limits: a `.dbc` archive can be up to 64 MB, and any other file up to 32 MB. A `.dbc` archive can hold up to 500 files, 16 MB per notebook and 128 MB in all once unpacked, and up to 200 notebooks. An archive with a path that climbs out of it (`..`, a drive letter or a leading slash) or that is encrypted isn't imported at all, and neither is a damaged one or one whose entries hold more than their headers say. The message says which.
 
 ## What a Databricks conversion doesn't carry over
 
@@ -84,6 +84,7 @@ The Fabric entries are based on the migration gotchas in Microsoft's [skills-for
 | A cell that starts with a line magic and has Python after it | In Databricks the whole cell is the magic, so the Python won't run | Check |
 | `%%md` code cells | `%md`, which Databricks shows as markdown, so the cell comes back from Databricks as a markdown cell | Changed |
 | Options on a cell magic line, such as `%%sql -o result` | Dropped: the file has `%sql` on its own | Not carried over |
+| `notebookutils` or `mssparkutils` calls | Kept; Databricks has `dbutils` instead | Check |
 
 ## Round trips
 
@@ -97,7 +98,6 @@ What `.py` source can't hold, so it changes on the way through (`.ipynb` keeps a
 - **A markdown line that is a Fabric marker without its `# `,** such as `CELL ********************`. Fabric writes markdown lines behind `# `, which turns that line into Fabric's own cell marker, so in Fabric source the cell splits there, as it would in Fabric. Databricks source keeps it.
 - **A code cell that starts with a Databricks language magic** such as `%sql`, `%scala` or `%md` (one `%`). That is how Databricks marks a cell's language, so it comes back from Databricks source as a `%%sql`, `%%spark` or markdown cell.
 - **Databricks source only:** the parameter cell setting, `%%md` cells and cell magic options, each listed when you export (see above), and `%%pyspark`, which comes back as plain Python, the same language.
-| `notebookutils` or `mssparkutils` calls | Kept; Databricks has `dbutils` instead | Check |
 
 ## How this works
 

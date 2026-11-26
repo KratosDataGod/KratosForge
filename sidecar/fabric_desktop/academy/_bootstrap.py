@@ -116,8 +116,9 @@ def _main() -> None:
 
     end_now, end_addr = _ender()   # before the hook, which refuses ctypes from then on
     _guard_imports(blocked)
-    _wrap_native(work, real)       # imports the data libraries first: some load native code through ctypes
-    _install(norm(work), reads, denied, blocked, libs, real, end_addr)
+    # The data libraries are imported and wrapped first (some load native code through ctypes). Their
+    # own readers and writers go straight from one call to the other, so no name here holds them.
+    _install(norm(work), reads, denied, blocked, libs, real, end_addr, _wrap_native(work, real))
     os.chdir(work)
     script = os.path.join(work, cfg["script"])
     with open(script, encoding="utf-8") as fh:
@@ -180,9 +181,11 @@ def _guard_imports(blocked: "frozenset[str]") -> None:
 
 
 def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blocked: "frozenset[str]", libs: "tuple[str, ...]" = (),
-             real: "Callable[[str], str]" = os.path.realpath, end_addr: int = 0) -> None:
+             real: "Callable[[str], str]" = os.path.realpath, end_addr: int = 0,
+             originals: "tuple[Any, ...]" = ()) -> None:
     """The audit hook. Its state is bound as default arguments of immutable values, and the
-    function is kept nowhere the learner's code can name."""
+    function is kept nowhere the learner's code can name. A second hook holds the data libraries'
+    own readers and writers (``originals``, from _wrap_native) and runs them for the wrappers."""
     refuse_names = ("socket.", "subprocess.", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
                     "os.fork", "os.forkpty", "os.startfile", "os.kill", "os.killpg", "signal.pthread_kill",
                     "pty.", "ctypes.", "winreg.", "_winapi.", "msvcrt.", "gc.get_objects", "gc.get_referrers",
@@ -254,13 +257,75 @@ def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blo
             return
 
     sys.addaudithook(hook)
+    if originals:
+        sys.addaudithook(_library_hook(tuple(originals)))
 
 
-def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) -> None:
+_CALL_EVENT = "academy.library.call"
+
+
+def _library_hook(originals: "tuple[Any, ...]") -> "Callable[[str, tuple[Any, ...]], None]":
+    """The only holder of the data libraries' own readers and writers (_wrap_native). It answers the
+    event _through raises once a wrapper has checked its arguments, and puts the result, or the error
+    with no traceback into this hook, in the caller's list. The function it calls is let go of before
+    the call starts, so code the library calls back (a converter, an object passed in) finds no
+    reference to the others in this frame."""
+    def hook(event: str, args: "tuple[Any, ...]", _o: "tuple[Any, ...] | None" = originals,
+             _bare: "Callable[[BaseException], BaseException]" = _bare_error) -> None:
+        if event != _CALL_EVENT:
+            return
+        if (len(args) != 4 or type(args[0]) is not int or type(args[1]) is not tuple or type(args[2]) is not dict
+                or type(args[3]) is not list or args[3]):
+            return
+        i, a, k, box = args
+        if not 0 <= i < len(_o):  # type: ignore[arg-type]
+            box.append((True, PermissionError("An Academy exercise can't call that.")))
+            return
+        try:
+            # The function is taken from the tuple, then the name is cleared while the arguments are read.
+            box.append((False, _o[i](*a, **(k if (_o := None) is None else k))))  # type: ignore[index]
+        except BaseException as exc:  # noqa: BLE001 - handed to the wrapper, which raises it there
+            box.append((True, _bare(exc)))
+
+    return hook
+
+
+def _bare_error(exc: BaseException) -> BaseException:
+    """``exc`` and the errors it chains to, with no tracebacks (they would lead into the hook's frame)."""
+    seen: "set[int]" = set()
+    todo = [exc]
+    while todo:
+        e = todo.pop()
+        if e is None or id(e) in seen:
+            continue
+        seen.add(id(e))
+        e.__traceback__ = None
+        todo += [e.__cause__, e.__context__, *getattr(e, "exceptions", ())]  # type: ignore[list-item]
+    return exc
+
+
+def _through(index: int, args: "tuple[Any, ...]", kwargs: "dict[str, Any]",
+             _audit: "Callable[..., None]" = sys.audit) -> "Any":
+    """Run the library function _library_hook holds at ``index``, with arguments a wrapper checked."""
+    box: "list[Any]" = []
+    _audit(_CALL_EVENT, index, tuple(args), dict(kwargs), box)
+    if len(box) != 1:
+        raise PermissionError("An Academy exercise can't call that here.")
+    failed, value = box[0]
+    if failed:
+        raise value
+    return value
+
+
+def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) -> "tuple[Any, ...]":
     """Polars, DuckDB, delta-rs, pyarrow and pandas read and write files from native code the audit
     hook never sees. Their entry points refuse a URL, ``storage_options`` and a path outside the
-    workspace. Only modules that are installed are wrapped; each import is checked by the hook."""
-    import functools
+    workspace. Only modules that are installed are wrapped; each import is checked by the hook.
+
+    A wrapper holds no reference to the function it stands for: not as ``__wrapped__``, a closure
+    cell, a default or a global. It holds only that function's number, and _through asks the second
+    audit hook (_install), the only holder of the originals, to run it. Returns the originals, in
+    that order, for that hook."""
     import importlib
 
     real, sep, norm = resolve, os.sep, os.path.normcase
@@ -283,10 +348,18 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
         if full != work and not full.startswith(work.rstrip(sep) + sep):
             raise PermissionError(f"An Academy exercise can use only files in its own folder ({what}).")
 
+    originals: "list[Any]" = []
+
+    def held(fn: "Any") -> int:
+        """``fn``'s number among the originals the second audit hook keeps."""
+        originals.append(fn)
+        return len(originals) - 1
+
     def guard(fn: "Callable[..., Any]", what: str,
               arg_names: "tuple[str, ...]" = ("source", "file", "path", "target", "table_or_uri", "table_uri", "where",
                                            "database", "base_dir", "path_or_paths", "uri")) -> "Callable[..., Any]":
-        @functools.wraps(fn)
+        index = held(fn)
+
         def wrapper(*args: "Any", **kwargs: "Any") -> "Any":
             if kwargs.get("storage_options") or kwargs.get("filesystem"):
                 raise PermissionError("An Academy exercise can't use remote storage options.")
@@ -298,7 +371,8 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
             for name in arg_names:
                 if name in kwargs:
                     check(kwargs[name], what)
-            return fn(*args, **kwargs)
+            return _through(index, args, kwargs)
+        _describe(wrapper, fn)
         return wrapper
 
     swapped: dict[int, object] = {}   # id(original) -> wrapped, so the same function reached through a submodule is wrapped too
@@ -341,9 +415,11 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
             wrap_all(cls, ("write_", "sink_"), "a Polars write")
     dl = maybe("deltalake")
     if dl is not None:
-        dl.write_deltalake = guard(dl.write_deltalake, "a Delta write")
-        _guard_init(dl.DeltaTable, check, "a Delta table")
-        _lock_query_builder()
+        write = dl.write_deltalake
+        dl.write_deltalake = swapped[id(write)] = guard(write, "a Delta write")   # deltalake.writer gets it too (rewire)
+        del write
+        _guard_init(dl.DeltaTable, check, "a Delta table", held)
+        _lock_query_builder(held)
     for modname in ("pyarrow.parquet", "pyarrow.dataset", "pyarrow.csv", "pyarrow.feather", "pyarrow.orc",
                     "pyarrow.json"):
         mod = maybe(modname)
@@ -353,7 +429,7 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
                 cls = getattr(mod, cls_name, None)
                 if isinstance(cls, type):
                     try:
-                        _guard_init(cls, check, "a pyarrow file")
+                        _guard_init(cls, check, "a pyarrow file", held)
                     except (AttributeError, TypeError):
                         setattr(mod, cls_name, guard(cls, "a pyarrow file"))
     pa_fs = maybe("pyarrow.fs")
@@ -365,7 +441,7 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
         _local = pa_fs.LocalFileSystem
 
         def _checked_method(name: str, n_paths: int) -> "Callable[..., Any]":
-            original = getattr(_local, name)
+            index = held(getattr(_local, name))
 
             def method(self: "Any", *args: "Any", **kwargs: "Any") -> "Any":
                 for p in args[:n_paths]:
@@ -374,8 +450,8 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
                             check(getattr(q, "base_dir", q), "a pyarrow file")
                     else:
                         check(getattr(p, "base_dir", p), "a pyarrow file")
-                return original(self, *args, **kwargs)
-            method.__name__ = name
+                return _through(index, (self, *args), kwargs)
+            method.__name__ = method.__qualname__ = name
             return method
 
         two = ("move", "copy_file")
@@ -384,12 +460,13 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
         members = {n: _checked_method(n, 2 if n in two else 1) for n in one + two if hasattr(_local, n)}
         members["delete_root_dir_contents"] = _refused("pyarrow.fs delete_root_dir_contents")
         _base = pa_fs.FileSystem
+        base_from_uri = held(_base.from_uri)
 
         def from_uri(uri: str) -> "tuple[Any, str]":
             """A plain path in the workspace only; a local file system comes back checked."""
             check(uri, "a pyarrow file")
-            fs, path = _base.from_uri(uri)
-            return (checked_local() if isinstance(fs, _local) else fs), path
+            fs, path = _through(base_from_uri, (uri,), {})
+            return (checked_local() if type(fs).__name__ == "LocalFileSystem" else fs), path
 
         members["from_uri"] = staticmethod(from_uri)
         checked_local = type("LocalFileSystem", (_local,), members)
@@ -436,9 +513,23 @@ def _wrap_native(work: str, resolve: "Callable[[str], str]" = os.path.realpath) 
         wrap_all(pd.DataFrame, ("to_parquet", "to_feather", "to_orc"), "a pandas write")
     db = maybe("duckdb")
     if db is not None:
-        _lock_duckdb(db, as_given, guard)
+        _lock_duckdb(db, as_given, check)   # check, not guard: nothing a learner can reach leads to the originals
     for package in ("polars", "pyarrow", "pandas", "deltalake"):
         rewire(package)
+    out = tuple(originals)
+    originals.clear()   # the hook gets the tuple; this list, which held() closes over, keeps nothing
+    return out
+
+
+def _describe(wrapper: "Any", fn: "Any") -> None:
+    """The name and help text of ``fn`` on its wrapper, copied as plain strings (no reference to ``fn``)."""
+    for attr in ("__name__", "__qualname__", "__doc__"):
+        value = getattr(fn, attr, None)
+        if isinstance(value, str):
+            try:
+                setattr(wrapper, attr, str(value))
+            except (AttributeError, TypeError):
+                pass
 
 
 def _is_frame(value: object) -> bool:
@@ -451,22 +542,25 @@ def _refused(name: str) -> "Callable[..., NoReturn]":
     return refuse
 
 
-def _guard_init(cls: "Any", check: "Callable[[Any, str], None]", what: str) -> None:
-    original = cls.__init__
+def _guard_init(cls: "Any", check: "Callable[[Any, str], None]", what: str, held: "Callable[[Any], int]") -> None:
+    index = held(cls.__init__)
 
     def __init__(self: "Any", table_uri: "Any", *args: "Any", **kwargs: "Any") -> None:
         if kwargs.get("storage_options"):
             raise PermissionError("An Academy exercise can't use remote storage options.")
         check(table_uri, what)
-        original(self, table_uri, *args, **kwargs)
+        _through(index, (self, table_uri, *args), kwargs)
 
+    _describe(__init__, cls.__init__)
     cls.__init__ = __init__
 
 
-def _lock_query_builder() -> None:
+def _lock_query_builder(held: "Callable[[Any], int]") -> None:
     """deltalake's QueryBuilder runs DataFusion SQL, which reads and writes files from native code
     (CREATE EXTERNAL TABLE ... LOCATION, COPY ... TO). It runs one SELECT or WITH statement over the
-    Delta tables registered with it, and its session settings are limited to execution ones."""
+    Delta tables registered with it, and its session settings are limited to execution ones. The
+    native builders, and the functions that make and use them, are held by the second audit hook
+    (_wrap_native); a QueryBuilder holds only its builder's number."""
     import re
     import sys as _sys
     query = _sys.modules.get("deltalake.query")
@@ -479,39 +573,55 @@ def _lock_query_builder() -> None:
     banned = re.compile(r"\b(copy|create|location|insert|delete|update|drop|alter|set|external|merge|load|install|"
                         r"attach|prepare|execute|explain\s+analyze)\b", re.I)
 
-    def allowed(sql: "Any") -> "Any":
+    def allowed(sql: "Any") -> str:
         text = comments.sub(" ", str(sql))
         bare = strings.sub("''", text).strip().rstrip(";").strip()
         if ";" in bare or not re.match(r"(?is)\s*(select|with)\b", bare) or banned.search(bare):
             raise PermissionError("An Academy exercise runs one SELECT (or WITH ... SELECT) over the tables "
                                   "registered with the QueryBuilder.")
-        return sql
+        return str(sql)
 
-    def builder(session_config: "Any") -> "Any":
-        """The native builder stays in this closure; the instance holds only what the class calls."""
-        inner = real(session_config)
+    def settings(session_config: "Any") -> "dict[str, str] | None":
+        if session_config is None:
+            return None
+        out = {str(k): str(v) for k, v in dict(session_config).items()}
+        for key in out:
+            if not key.startswith("datafusion.execution."):
+                raise PermissionError("An Academy exercise can set only datafusion.execution settings.")
+        return out
 
+    builders: "dict[int, Any]" = {}
+
+    def new(session_config: "Any") -> int:
+        builders[len(builders) + 1] = real(settings(session_config))
+        return len(builders)
+
+    def register(number: "Any", table_name: "Any", delta_table: "Any") -> None:
+        builders[number].register(table_name=str(table_name), delta_table=delta_table)
+
+    def run(number: "Any", sql: "Any") -> "Any":
+        return builders[number].execute(allowed(sql))
+
+    to_new, to_register, to_execute = held(new), held(register), held(run)
+
+    def builder(number: int) -> "Any":
+        """What QueryBuilder calls on its builder; the native builder stays with the hook."""
         class _Builder:
             __slots__ = ()
 
-            def register(self, table_name: str, delta_table: "Any") -> "Any":
-                return inner.register(table_name=table_name, delta_table=delta_table)
+            def register(self, table_name: str, delta_table: "Any") -> None:
+                _through(to_register, (number, table_name, delta_table), {})
 
             def execute(self, sql: "Any") -> "Any":
-                return inner.execute(allowed(sql))
+                return _through(to_execute, (number, allowed(sql)), {})
 
         return _Builder()
 
     def __init__(self: "Any", session_config: "dict[str, Any] | None" = None) -> None:
-        for key in (session_config or {}):
-            if not str(key).startswith("datafusion.execution."):
-                raise PermissionError("An Academy exercise can set only datafusion.execution settings.")
-        self._query_builder = builder(session_config)
-
-    original = qb.execute
+        self._query_builder = builder(_through(to_new, (settings(session_config),), {}))
 
     def execute(self: "Any", sql: "Any") -> "Any":
-        return original(self, allowed(sql))
+        return self._query_builder.execute(allowed(sql))
 
     qb.__init__, qb.execute = __init__, execute
     refuse = _refused("deltalake's PyQueryBuilder; use deltalake.QueryBuilder")
@@ -521,7 +631,7 @@ def _lock_query_builder() -> None:
             setattr(mod, "PyQueryBuilder", refuse)  # noqa: B010 - replaces deltalake's own
 
 
-def _lock_duckdb(db: "Any", work: str, guard: "Callable[..., Any]") -> None:
+def _lock_duckdb(db: "Any", work: str, check: "Callable[[Any, str], None]") -> None:
     """Every DuckDB connection, the module's default one included, reads only the workspace."""
     settings = ("SET allowed_directories = ['" + work.replace("'", "''") + "']",
                 "SET enable_external_access = false", "SET memory_limit = '1GB'", "SET lock_configuration = true")
@@ -529,7 +639,7 @@ def _lock_duckdb(db: "Any", work: str, guard: "Callable[..., Any]") -> None:
 
     def locked(database: "Any" = ":memory:", *args: "Any", **kwargs: "Any") -> "Any":
         if database not in (":memory:", "", None) and not str(database).startswith(":memory:"):
-            guard(lambda d: d, "a DuckDB database")(database)
+            check(database, "a DuckDB database")
         con = connect(database, *args, **kwargs)
         for s in settings:
             con.execute(s)

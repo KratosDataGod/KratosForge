@@ -145,9 +145,17 @@ How each Security condition is met:
    and every pyarrow module that imported these names. If DuckDB's default connection can't be locked, its
    module-level functions are refused (fail closed). These
    libraries are imported before the audit hook starts, because some (Polars, pyarrow) load
-   native code through ctypes, which the hook then refuses. Learner code that deliberately
-   re-imports a module or reaches its internals can get past the wrappers; that is the accepted
-   limit until ACD-005b.
+   native code through ctypes, which the hook then refuses. A wrapper holds no reference to the
+   library function it stands for (no `__wrapped__`, closure cell, default or global): it holds that
+   function's number, and once its checks pass it raises an audit event that a second audit hook
+   answers. That hook alone holds the libraries' own readers and writers (and deltalake's native
+   query builders), as default arguments, and runs the one asked for; the error it hands back has no
+   traceback into the hook. `deltalake.writer.write_deltalake` and the other submodule names get the
+   same wrapper. What these guards don't cover, and is the accepted limit until ACD-005b: code that
+   imports one of these libraries afresh (a pure-Python module imported again is unwrapped), that
+   calls a library's native module or private helpers directly, that uses pyarrow's own file system
+   classes (the checked `LocalFileSystem` is a subclass of them), or that a library calls back while
+   a wrapped call runs (a converter, an object passed in), which runs in the library's own frames.
 4. **Wording.** The process holds no tokens and gets none from the app. It runs as the same
    Windows user, so the person's own sign-in cache on disk is theirs to read; only ACD-005b
    changes that.

@@ -79,6 +79,14 @@ def _day(stamp: Any) -> dt.date | None:
         return None
 
 
+def _local_day(stamp: Any) -> dt.date | None:
+    """The day on this PC's clock (rows are stored in UTC; evening work in Chicago is still that evening)."""
+    try:
+        return dt.datetime.fromisoformat(str(stamp)).astimezone().date() if stamp else None
+    except ValueError:
+        return None
+
+
 def _module(ref_id: str) -> str:
     return ref_id.split("/", 1)[0]
 
@@ -259,6 +267,7 @@ def achievements(cls: dict[str, Any], view: dict[str, Any], skills: dict[str, di
         else:
             groups = [by_spec[sp["id"]] for sp in cls["specializations"]]
         met = [g for g in groups if all(t["level"] >= need for t in g)]
+        counted = max(groups, key=lambda g: (sum(t["level"] >= need for t in g), -len(g)))   # the closest group
         used = [t for g in met for t in g if t["level"] >= need]
         if r.get("measured") and not any(row["measured"] for t in used for row in skills[t["skill"]]["evidence"]):
             met = []
@@ -272,7 +281,52 @@ def achievements(cls: dict[str, Any], view: dict[str, Any], skills: dict[str, di
         out.append({"id": a["id"], "name": a["name"], "criteria": a["criteria"], "earned": earned,
                     "level": need, "level_name": LEVELS[need], "progress": 1.0 if earned else round(min(best, 0.99), 2),
                     "available": earned or bool(reach), "unavailable_reason": why,
+                    "met": len(counted) if earned else sum(t["level"] >= need for t in counted), "of": len(counted),
                     "evidence": sorted({row["evidence"] for t in used for row in skills[t["skill"]]["evidence"]}) if earned else []})
+    return out
+
+
+def earned_on(profile: dict[str, Any], cls: dict[str, Any], cat: dict[str, Any] | None = None) -> dict[str, str | None]:
+    """The day (YYYY-MM-DD) each earned achievement of ``cls`` was first met, worked out by replaying the dated
+    evidence: the earliest day whose rows up to and including it meet the rule. Evidence only ever adds, so
+    once met a rule stays met and a binary search over the days finds it. None when the dated rows alone
+    don't meet it (a row without a date can't be placed), never a guessed day."""
+    cat = cat or catalog.load()
+    rows = progress.included(profile)
+    days = sorted({d for d in (_local_day(r.get("at")) for r in rows) if d})
+    sids = {n["skill"] for n in catalog.nodes(cls)}
+    seen: dict[int, dict[str, bool]] = {}
+
+    def earned_by(i: int) -> dict[str, bool]:
+        if i not in seen:
+            upto = [r for r in rows if (_local_day(r.get("at")) or dt.date.max) <= days[i]]
+            ev: dict[str, list[dict[str, Any]]] = {sid: [] for sid in sids}
+            for row in upto:
+                for sid in sids:
+                    c = counts(row, cat["skills"][sid])
+                    if c:
+                        ev[sid].append({"evidence": row["id"], "at": row.get("at"), "type": row["type"], **c})
+            skills = {}
+            for sid in sids:
+                top, why = ceiling(cat["skills"][sid], ev[sid])
+                skills[sid] = {"level": level(cat["skills"][sid], ev[sid]), "ceiling": top, "ceiling_reason": why,
+                               "evidence": ev[sid]}
+            seen[i] = {a["id"]: a["earned"] for a in class_view(cls, skills)["achievements"]}
+        return seen[i]
+
+    out: dict[str, str | None] = {}
+    for a in cls["achievements"]:
+        if not days or not earned_by(len(days) - 1)[a["id"]]:
+            out[a["id"]] = None
+            continue
+        lo, hi = 0, len(days) - 1
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if earned_by(mid)[a["id"]]:
+                hi = mid
+            else:
+                lo = mid + 1
+        out[a["id"]] = days[lo].isoformat()
     return out
 
 

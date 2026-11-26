@@ -10,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from spark_values import Refused, check, load
+from spark_values import Refused, check_part, parts
 
 from fabric_desktop import sql
 from fabric_desktop.notebook import Kernel
@@ -23,8 +23,9 @@ def spark():
     return Kernel().namespace["spark"]
 
 
-def test_spark_math_functions_answer_as_spark_3_5_or_are_refused_by_name(spark):
-    check(spark, load("math"), REFUSED)
+@pytest.mark.parametrize("cases", parts("math"))
+def test_spark_math_functions_answer_as_spark_3_5_or_are_refused_by_name(spark, cases):
+    check_part(spark, cases, REFUSED)
 
 
 def one(query: str):

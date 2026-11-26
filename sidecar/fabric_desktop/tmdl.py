@@ -22,6 +22,22 @@ from pathlib import PurePosixPath
 from typing import Any
 
 MAX_CHARS = 20_000_000
+# Levels of nesting a model may have: a model.bim nests about ten (a culture's translations), an Ossie file about
+# eight. Deeper is refused before a converter or a writer recurses into it (model_ossie and the schema check use it).
+MAX_DEPTH = 64
+
+
+def too_deep(value: Any) -> bool:
+    """Whether ``value`` nests objects and lists more than ``MAX_DEPTH`` levels deep (the top is level 0), found
+    without recursion, so a value nested past Python's stack is answered too."""
+    todo: list[tuple[Any, int]] = [(value, 0)]
+    while todo:
+        item, depth = todo.pop()
+        if depth > MAX_DEPTH:
+            return True
+        children = item.values() if isinstance(item, dict) else item if isinstance(item, list) else ()
+        todo.extend((c, depth + 1) for c in children if isinstance(c, (dict, list)))
+    return False
 
 # Object keyword: (collection in the parent, property the "= ..." default goes in).
 OBJECTS: dict[str, tuple[str, str | None]] = {
@@ -157,6 +173,9 @@ class _Reader:
         self.cultures = 0  # inside a culture
         self.raw = 0  # inside a culture's translations: objects are names and captions, not model objects
         self.order: dict[str, list[str]] = {}  # "ref table" and "ref cultureInfo" lines: the model's order of each
+        # The kinds of the objects the line being read is inside (model and database aside), outermost first: a
+        # line not understood carries them as "block", so a role's line is known as one in any file.
+        self.blocks: list[str] = []
 
     def _next_level(self) -> int | None:
         """The indent of the next non-blank line, or None at the end."""
@@ -271,8 +290,11 @@ class _Reader:
                     into[m.group(1)] = True
                 continue
             self._skip_block(here)
-            self.report.append({"object": text[:80], "kind": "lost", "message": f"not understood, left out ({where})",
-                                "file": self.path})
+            row = {"object": text[:80], "kind": "lost", "message": f"not understood, left out ({where})",
+                   "file": self.path}
+            if self.blocks:
+                row["block"] = "/".join(self.blocks)
+            self.report.append(row)
 
     def _object(self, kind: str, name: str, default: str | None, level: int, parent: dict[str, Any],
                 description: str) -> None:
@@ -285,7 +307,12 @@ class _Reader:
         where = f"{self.path}:{self.i}"
         culture = kind in CULTURES and not self.raw
         self.cultures += culture
+        nested = kind not in ("model", "database")
+        if nested:
+            self.blocks.append(kind)
         self.block(level, obj)
+        if nested:
+            self.blocks.pop()
         self.cultures -= culture
         if kind in ("model", "database"):
             parent.setdefault(kind, {}).update(obj)
@@ -383,7 +410,11 @@ def to_bim(files: dict[str, str], name: str = "") -> tuple[dict[str, Any], list[
     """A model's TMDL files (path -> text, paths as in a ``.SemanticModel`` folder) as a TMSL
     ``model.bim`` document, with the report of anything left out. ``name`` is the model's name
     (TMDL calls every model "Model"; the folder or item name is the real one). A row about something in one
-    file names it in ``file`` (its path as given), so a caller rewriting that file can say what it loses."""
+    file names it in ``file`` (its path as given), so a caller rewriting that file can say what it loses. A line
+    not understood inside an object (a role declared in model.tmdl, say) names the kinds it is inside in
+    ``block`` ("role/tablePermission"), so a caller can withhold a line that may quote a filter."""
+    if not isinstance(files, dict) or not all(isinstance(p, str) and isinstance(t, str) for p, t in files.items()):
+        raise ValueError("A model's TMDL is a folder of files: give them as path -> text")
     if sum(len(t) for t in files.values()) > MAX_CHARS:
         raise ValueError("The model's TMDL is larger than 20 MB, so it isn't read on this PC.")
     report: list[dict[str, str]] = []
@@ -786,7 +817,15 @@ def file_name(name: str, taken: set[str]) -> str:
 
 
 def from_bim(bim: dict[str, Any], culture_refs: list[str] | None = None) -> tuple[dict[str, str], list[dict[str, str]]]:
-    """See ``_from_bim``; a model nested deeper than Python's stack is refused with a plain reason."""
+    """See ``_from_bim``; a model nested more than ``MAX_DEPTH`` levels deep is refused with a plain reason, and a
+    part of the wrong type (text where the tables go, a number for a name) by its path, as export refuses it."""
+    if too_deep(bim):
+        raise ValueError(f"This model is nested too deeply to be a semantic model (more than {MAX_DEPTH} levels). "
+                         "Take out the extra nesting, then try again.")
+    if isinstance(bim, dict) and isinstance(bim.get("model") or {}, dict):  # else _from_bim says what it isn't
+        from . import model_ossie  # here: model_ossie imports this module
+
+        model_ossie._refuse_shape(bim, model_ossie._BIM_SHAPE, "tmdl")
     try:
         return _from_bim(bim, culture_refs)
     except RecursionError:

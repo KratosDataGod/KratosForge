@@ -134,6 +134,7 @@ class ProgressMixin:
         if class_id not in cat["classes"]:
             raise ValueError(f"{class_id} isn't a developer class")
         cls, view = cat["classes"][class_id], ev["classes"][class_id]
+        on = mastery_levels.earned_on(profile, cls, cat) if view["earned"] else {}
         talents = {t["id"]: t for t in view["talents"]}
 
         def talent(n: dict[str, Any]) -> dict[str, Any]:
@@ -153,7 +154,8 @@ class ProgressMixin:
                 "class": {"id": class_id, "title": cls["title"], "professional": cls["professional"], "fantasy": cls["fantasy"],
                           "competency": cls["competency"], "mastery": view["mastery"], "mastery_name": view["mastery_name"],
                           "mastered": view["mastered"],
-                          "achievements": view["achievements"], "earned": view["earned"],
+                          "achievements": [{**a, "earned_on": on.get(a["id"]) if a["earned"] else None} for a in view["achievements"]],
+                          "earned": view["earned"],
                           "specializations": [{"id": sp["id"], "title": sp["title"], "professional": sp["professional"],
                                                "nodes": [talent(n) for n in sp["nodes"]]} for sp in cls["specializations"]]}}
 

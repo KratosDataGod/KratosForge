@@ -1,0 +1,7 @@
+model Model
+	culture: en-US
+	description = Roles, a hierarchy, a calculation group, a perspective and a culture.
+ref table orders
+ref table customers
+ref table 'time intelligence'
+ref cultureInfo de-DE

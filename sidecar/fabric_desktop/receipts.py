@@ -11,7 +11,10 @@ The store writes each receipt once. Writing the same receipt again is a no-op; w
 content under an id that exists is refused. Reading checks the content still matches its id.
 
 Exports (Markdown, HTML) are rendered from a receipt with redaction chosen at export time: the
-receipt itself keeps everything, the export leaves out what the person chose to hide.
+receipt itself keeps everything, the export leaves out what the person chose to hide. A secret value
+the engine remembers (secret_redaction.py: one a kernel running inside it read) shows as
+``[REDACTED]`` anywhere in an export: in parameters, results, notes, limitations and every other
+text it shows, escaped or encoded forms included.
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Iterable
+
+from . import secret_redaction
 
 SCHEMA = "fabric-desktop/run-receipt@1"
 _ID = re.compile(r"^[0-9a-f]{64}$")
@@ -194,7 +199,22 @@ def _fmt(v: Any) -> str:
 def to_markdown(receipt: dict[str, Any], rid: str, hide: Iterable[str] = ()) -> str:
     """A readable report of a receipt, for someone who wasn't there."""
     hide = sorted(set(hide))
-    r = redact(receipt, hide)
+    return secret_redaction.redact_all(_markdown(_masked(redact(receipt, hide)), rid, hide))
+
+
+def _masked(v: Any) -> Any:
+    """``v`` with every remembered secret value replaced in each text inside it, keys included, before
+    the report changes any of it (a table cell's "|", say)."""
+    if isinstance(v, str):
+        return secret_redaction.redact_all(v)
+    if isinstance(v, dict):
+        return {_masked(k): _masked(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_masked(x) for x in v]
+    return v
+
+
+def _markdown(r: dict[str, Any], rid: str, hide: list[str]) -> str:
     nb = r.get("notebook") or {}
     v = r.get("verification") or {}
     lines = [f"# {nb.get('name') or 'Notebook'}: {r.get('kind', 'run')} receipt", "",
@@ -300,7 +320,8 @@ def to_html(receipt: dict[str, Any], rid: str, hide: Iterable[str] = ()) -> str:
             body.append(f"<p>{_inline(html.escape(line))}</p>")
     if in_table:
         body.append("</table>")
-    title = html.escape(((receipt.get("notebook") or {}).get("name") or "Notebook") + " receipt")
+    title = html.escape(secret_redaction.redact_all(((receipt.get("notebook") or {}).get("name") or "Notebook")
+                                                    + " receipt"))
     return ("<!doctype html><html><head><meta charset=\"utf-8\"><title>" + title + "</title><style>"
             "body{font-family:Segoe UI,system-ui,sans-serif;max-width:900px;margin:2em auto;padding:0 16px;color:#1b1b1b}"
             "table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}"

@@ -511,7 +511,7 @@ def _log_file() -> IO[str]:
 
 class _SafeFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        return secret_redaction.redact(secrets(super().format(record)))
+        return secrets(secret_redaction.redact_all(super().format(record)))
 
 
 # The engine's stderr, which the shell keeps in sidecar.log (secret_redaction.RedactedStream).

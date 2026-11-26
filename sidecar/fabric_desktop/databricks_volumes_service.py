@@ -194,7 +194,10 @@ class DatabricksVolumesMixin:
             seen.add(key)
             once.append((where, target))
         found = once
-        for _where, target in found:
+        # a link goes last, the deepest first: a file picked through a link to a folder (alias/x.csv beside
+        # alias) is removed while the link still leads to it, whatever order the paths were picked in
+        removal = sorted(found, key=lambda f: (dv._is_link(f[1]), -len(f[1].parts) if dv._is_link(f[1]) else 0))
+        for _where, target in removal:
             if target.is_dir() and not dv._is_link(target):
                 trees.remove(target)
             else:

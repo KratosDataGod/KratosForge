@@ -113,7 +113,7 @@ def test_type2_date_dimension(tmp_path):
 
 
 def _tmdl(t):
-    return semantic._table_tmdl(t, "x")
+    return semantic.build([t], [], "srv", "ep")[f"definition/tables/{t.name}.tmdl"]
 
 
 def test_update_model_marks_the_date_table():
@@ -123,7 +123,7 @@ def test_update_model_marks_the_date_table():
     text = _tmdl(t)
     assert "\tdataCategory: Time\n" in text
     day = text[text.index("column day"):]
-    day = day[:day.index("\n\n")]
+    day = day[:day.index("\tcolumn ", 1)] if "\tcolumn " in day else day
     assert "\t\tisKey" in day
     assert text.count("isKey") == 1
     # The model's tables are still found by their lineage tag.

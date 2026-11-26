@@ -23,8 +23,8 @@ checked here.
 | SM007 | Warning | Naming Conventions | Names have no tabs, line breaks or edge spaces | Rename the column or table |
 
 A type the project doesn't record (a derived column without a contract type, say) is never guessed, so
-it can't cause an SM001 or SM002 finding. Surrogate keys are whole numbers. SM003 leaves the
-framework's own columns (`_run_id`, `_loaded_at`) alone.
+it can't cause an SM001 or SM002 finding. Surrogate keys are whole numbers. SM003 leaves columns
+whose names start with `_` alone, such as the framework's own `_run_id` and `_loaded_at`.
 
 ## Each rule explained
 

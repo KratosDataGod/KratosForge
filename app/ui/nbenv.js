@@ -74,7 +74,7 @@ async function environmentDialog(nb, job = null) {
       env.notebooks.length > 1 ? h("p", { class: "muted" }, `Shared with ${env.notebooks.filter((n) => n !== nb.name).join(", ")}.`) : null,
       data.allowed ? h("label", { class: "field" }, "Add packages", h("div", { class: "env-row" }, specs,
         btn("Install", "add", install, "tool primary small", { disabled: job?.state === "running" ? true : null })))
-        : h("p", { class: "muted" }, "Your organization doesn't allow installing packages on this PC."),
+        : h("p", { class: "muted" }, "Your organization doesn't allow installing packages on this PC. Ask IT to change allow_notebook_packages in Group Policy or the policy file."),
       data.allowed && data.source ? h("p", { class: "muted env-source" }, `Packages come from: ${data.source}.`) : null,
       log,
     ] : null),

@@ -98,7 +98,7 @@ def test_the_watch_reports_an_environment_it_cant_read_and_carries_on(with_proje
     def log(env):
         if env == "prod":
             raise OSError("no workspace")
-        return real(env)
+        return real("dev" if env == "test" else env)  # Test's log opens, so its failing check is what's reached
     monkeypatch.setattr(with_project, "_incident_log", log)
 
     def evaluate(env, notify=False):
@@ -108,5 +108,6 @@ def test_the_watch_reports_an_environment_it_cant_read_and_carries_on(with_proje
     monkeypatch.setattr(with_project, "incidents_evaluate", evaluate)
     out = {e["env"]: e for e in with_project.incidents_watch(notify=True)["envs"]}
     assert out["prod"]["mode"] == "unreadable" and out["prod"]["incidents"] == []
-    assert out["test"]["mode"] == "unreadable" and out["test"]["detail"]
+    assert out["test"]["mode"] == "unreadable"
+    assert out["test"]["detail"] == "Couldn't reach Fabric. Check the network and try again."
     assert out["dev"]["mode"] == "app" and out["dev"]["notified"] == {"sent": 0}

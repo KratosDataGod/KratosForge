@@ -572,8 +572,8 @@ def grade(text: str, exercise_folder: Path, ex: dict[str, Any]) -> dict[str, Any
     with tempfile.TemporaryDirectory(prefix="kf-academy-git-") as tmp:
         try:
             repo, _ = _session(Path(tmp), exercise_folder, ex, text)
-        except Refused as exc:
-            results = [_no(str(c["kind"]), str(exc)) for c in ex["validation"]]
+        except Refused as exc:   # nothing could be checked (a refused line, or no Git): the reason is shown
+            results = [{**_no(str(c["kind"]), str(exc)), "ungraded": True} for c in ex["validation"]]
         else:
             results = [repo_matches(repo, list(c["rules"])) if c["kind"] == "repo_matches"
                        else _no(str(c["kind"]), f"A Git exercise can't check {c['kind']}.") for c in ex["validation"]]

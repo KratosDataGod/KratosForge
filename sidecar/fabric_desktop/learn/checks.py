@@ -31,6 +31,19 @@ from ..sqlcompat import practices as sql_practices
 from ..duckdb_rows import one_row
 
 MAX_ROWS = 1_000_000   # a result bigger than this isn't compared row by row
+# An answer with no statement in it (empty, or comments only): DuckDB runs nothing and returns no result.
+NO_QUERY = "Write a query first. There's no SQL here to run yet."
+
+
+def no_statement(sql: str) -> bool:
+    """Whether ``sql`` holds no statement at all. SQL that doesn't parse holds one: it fails when it runs."""
+    con = duckdb.connect(":memory:")
+    try:
+        return not con.extract_statements(str(sql))
+    except duckdb.Error:
+        return False
+    finally:
+        con.close()
 
 
 def guard(con: duckdb.DuckDBPyConnection, sql: str) -> None:
@@ -50,6 +63,8 @@ def _rows(con: duckdb.DuckDBPyConnection, sql: str) -> tuple[list[str], list[tup
     con.begin()
     try:
         cur = con.execute(sql)
+        if cur is None:   # nothing ran
+            raise ValueError(NO_QUERY)
         cols = [d[0] for d in cur.description or []]
         rows = cur.fetchmany(MAX_ROWS + 1)
     finally:
@@ -78,7 +93,7 @@ def result_matches(con: duckdb.DuckDBPyConnection, sql: str, reference: str | No
     try:
         cols, rows = _rows(con, sql)
     except (duckdb.Error, ValueError) as exc:
-        return _no(kind, f"Your query didn't run: {exc}")
+        return _no(kind, NO_QUERY if str(exc) == NO_QUERY else f"Your query didn't run: {exc}")
     if expected is not None:
         want_cols, want = list(expected["columns"]), [tuple(r) for r in expected["rows"]]
     elif reference is not None:
@@ -185,7 +200,7 @@ def defects_found(con: duckdb.DuckDBPyConnection, sql: str, defects: list[dict[s
     try:
         _, rows = _rows(con, sql)
     except (duckdb.Error, ValueError) as exc:
-        return _no(kind, f"Your query didn't run: {exc}")
+        return _no(kind, NO_QUERY if str(exc) == NO_QUERY else f"Your query didn't run: {exc}")
     flagged = {(str(r[0]).lower(), str(r[1])) for r in rows if len(r) >= 2}
     want = [d for d in defects if kinds is None or d["kind"] in kinds]
     missed = [d for d in want if (d["table"], str(d["key"])) not in flagged]

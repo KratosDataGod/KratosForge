@@ -290,12 +290,23 @@ def _error(run: dict[str, Any]) -> str:
     fatal = next((ln for ln in lines if ln.startswith(("Fatal Python error:", "Windows fatal exception:"))), None)
     if fatal:
         return f"Your code crashed: {fatal}" + (f" ({shown})." if shown else ".")
+    if lines and _engine_failed(run):
+        return ("The app's PySpark engine didn't start on this PC, so your code didn't run. This isn't a problem with "
+                f"your code. Restart KratosForge, and report a problem if it keeps happening. The engine said: {lines[-1]}")
     if lines:
         return f"Your code stopped with an error: {lines[-1]}"
     if shown:
         # A process killed by a native crash may leave no message at all; its exit code is the only clue.
         return f"Your code stopped without an error message ({shown})."
     return "Your code stopped with an error: no message"
+
+
+def _engine_failed(run: dict[str, Any]) -> bool:
+    """Whether the learner process stopped in LEARNER_SCRIPT's own lines (importing kf_learner, making
+    ``spark``) before the answer began: its traceback names kf_run.py and never answer.py. An answer that
+    raises, or doesn't compile, always has an answer.py frame or location under kf_run.py's."""
+    err = run.get("stderr") or ""
+    return re.search(rf'File "[^"]*{re.escape(LEARNER_FILE)}"', err) is not None and 'File "answer.py"' not in err
 
 
 _FRAME = re.compile(r'^File "(?P<path>[^"]+)", line (?P<line>\d+) in (?P<func>\S+)$')
@@ -383,8 +394,8 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
         hidden_run: dict[str, Any] | None = None
         for c in ex["validation"]:
             kind, table = c["kind"], c.get("table")
-            if first["status"] != "ok":
-                results.append(_check_result(kind, False, _error(first)))
+            if first["status"] != "ok":   # nothing to check: the reason is shown, not the check's fail sentence
+                results.append({**_check_result(kind, False, _error(first)), "ungraded": True})
                 continue
             try:
                 if kind == "table_shape":

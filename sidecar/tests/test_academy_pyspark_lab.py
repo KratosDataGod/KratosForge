@@ -433,3 +433,32 @@ Extension modules: duckdb, deltalake (total: 2)
     assert pyspark_lab._crash_frames({"stderr": "Traceback\nValueError: bad"}) == ""
     assert pyspark_lab._crash_frames({"stderr": "Fatal Python error: Aborted\n"}) == ""
     assert pyspark_lab._crash_frames({}) == ""
+
+
+# --- the offline audit (2026-11-26) ----------------------------------------------------------------------
+
+
+def test_a_broken_pyspark_engine_is_the_apps_problem_not_the_learners(tmp_path, monkeypatch):   # D13
+    pkg = learner_pkg.build(tmp_path / "pkg")
+    (pkg / learner_pkg.PACKAGE / "pyspark_shim.py").write_text("raise ImportError('the shim is broken')\n", encoding="utf-8")
+    monkeypatch.setattr(pyspark_lab, "_package_dir", lambda: pkg)
+    ex = exercises.get(PACK, "E19")
+    ref = pyspark_lab.reference(PACK, "E19")
+    data = tmp_path / "data"
+    got = pyspark_lab.grade(ex, ref["setup"], ref["hidden"], ref["solution"], ref["solution"],
+                            lambda work, code: pyspark_lab.run_learner(work, code, data_root=data), ref["assets"])
+    assert not got["passed"]
+    for r in got["results"]:
+        assert r["detail"].startswith("The app's PySpark engine didn't start on this PC"), r
+        assert "This isn't a problem with your code." in r["detail"] and "the shim is broken" in r["detail"]
+        assert r["ungraded"]
+
+
+def test_an_answer_that_raises_is_still_the_learners_error(tmp_path):   # D13: the other side
+    work = tmp_path / "data" / "w"
+    work.mkdir(parents=True)
+    pyspark_lab.prepare(work, exercises.file_text(PACK, "E19", "setup.sql"))
+    run = pyspark_lab.run_learner(work, "import nope_not_a_module\n", data_root=tmp_path / "data")
+    assert pyspark_lab._error(run).startswith("Your code stopped with an error: ModuleNotFoundError"), run
+    run = pyspark_lab.run_learner(work, "def (:\n", data_root=tmp_path / "data")
+    assert pyspark_lab._error(run).startswith("Your code stopped with an error: SyntaxError"), run

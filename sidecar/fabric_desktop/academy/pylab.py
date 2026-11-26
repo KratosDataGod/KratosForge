@@ -71,7 +71,8 @@ def _ran(run: dict[str, Any], prints: str | None) -> dict[str, Any]:
         if said is None:
             last = [line for line in run["stderr"].strip().splitlines() if line.strip()][-1:] or ["no message"]
             said = f"Your script stopped with an error: {last[0][:300]}"
-        return {"kind": kind, "passed": False, "detail": said}
+        # The script didn't finish, so nothing it should have left can be checked: the reason is shown.
+        return {"kind": kind, "passed": False, "detail": said, "ungraded": True}
     if prints and prints not in run["stdout"]:
         return {"kind": kind, "passed": False, "detail": f"Your script ran, but it didn't print {prints!r}."}
     return {"kind": kind, "passed": True, "detail": f"Your script ran to the end in {run['seconds']:.1f} s."}

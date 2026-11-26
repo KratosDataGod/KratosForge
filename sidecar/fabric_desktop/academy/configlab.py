@@ -94,17 +94,18 @@ def grade(text: str, ex: dict[str, Any]) -> dict[str, Any]:
     """Every check of ``ex`` on the learner's settings document ``text``. A document that can't be read
     fails every check with the same plain reason."""
     doc, problem = parse(text, str(ex.get("starter") or "settings.json"))
-    if problem:
-        results = [_no(str(c["kind"]), problem) for c in ex["validation"]]
+    if problem:   # nothing could be checked: the reason is shown, not each check's fail sentence
+        results = [{**_no(str(c["kind"]), problem), "ungraded": True} for c in ex["validation"]]
     else:
         results = [run_check(doc, c) for c in ex["validation"]]
     return {"passed": bool(results) and all(r["passed"] for r in results), "results": results}
 
 
-def outline(text: str, limit: int = 200) -> dict[str, Any]:
+def outline(text: str, limit: int = 200, name: str = "settings.json") -> dict[str, Any]:
     """What Run shows: every setting in the document as ``path, value`` rows (the first ``limit``), so the
-    learner sees what the checks will read. Nothing is checked here."""
-    doc, problem = parse(text)
+    learner sees what the checks will read. Nothing is checked here. ``name``: the document's file name, for
+    the reason it can't be read."""
+    doc, problem = parse(text, name)
     if problem:
         raise ValueError(problem)
     rows: list[list[Any]] = []

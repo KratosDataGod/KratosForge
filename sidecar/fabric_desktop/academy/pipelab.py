@@ -169,8 +169,8 @@ def run_check(work: Path, c: dict[str, Any], ex: dict[str, Any], children: dict[
         got = run_pipeline(work, c.get("path") or ex.get("starter") or "pipeline.json",
                            parameters=c.get("parameters", ex.get("parameters")), mocks=ex.get("mocks"),
                            children=children)
-        if not got["ok"]:
-            return _no(kind, got["detail"])
+        if not got["ok"]:   # the pipeline didn't start, so nothing about its run could be checked
+            return {**_no(kind, got["detail"]), "ungraded": True}
         return validators.pipeline_outcome(got["run"], c.get("status", "Succeeded"), c.get("activities"),
                                            c.get("outputs"), c.get("return_value"))
     return _no(kind, f"A pipeline exercise can't check {kind}.")

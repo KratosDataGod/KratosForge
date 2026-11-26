@@ -190,19 +190,24 @@ def check_all(ex: dict[str, Any], ref: dict[str, Any], answer: str,
     solution = translate(ref["solution"])   # the pack's own SQL: a failure here is a broken exercise
     try:
         duck = translate(answer)
-    except ValueError as exc:
-        return [_message(c, _no(c["kind"], str(exc))) for c in ex["validation"]]
+    except ValueError as exc:   # nothing could be checked: the reason is shown, not the fail sentences
+        return [{**_no(c["kind"], str(exc)), "ungraded": True} for c in ex["validation"]]
     results = []
     cons: dict[str, duckdb.DuckDBPyConnection] = {}
+    halted = False
     try:
         for c in ex["validation"]:
+            if halted:   # the same answer would only hit the time limit again: one wait, not one per check
+                results.append({**_no(c["kind"], stopped), "ungraded": True})
+                continue
             data = c.get("data") or "practice"
             if data not in cons:
                 cons[data] = connect_to(ref["hidden"] if data == "hidden" else ref["setup"])
             with limit(cons[data]) as stop:
                 r = run_check(cons[data], c, duck, solution)
             if stop.fired:
-                r = _no(c["kind"], stopped)
+                halted = True
+                r = {**_no(c["kind"], stopped), "ungraded": True}
             elif data == "hidden" and not r["passed"] and str(r.get("detail", "")).startswith(_ERROR_DETAILS):
                 r = _no(c["kind"], HIDDEN_FAILED)
             results.append(_message(c, r))
@@ -213,7 +218,9 @@ def check_all(ex: dict[str, Any], ref: dict[str, Any], answer: str,
 
 
 def _message(c: dict[str, Any], r: dict[str, Any]) -> dict[str, Any]:
-    message = c.get("pass") if r["passed"] else c.get("fail")
+    if not r["passed"] and str(r.get("detail") or "").startswith(_ERROR_DETAILS):   # the answer didn't run
+        r = {**r, "ungraded": True}
+    message = c.get("pass") if r["passed"] else None if r.get("ungraded") else c.get("fail")
     return {**r, "message": message} if message else r
 
 

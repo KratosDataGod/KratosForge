@@ -88,7 +88,7 @@ def test_a_script_that_runs_too_long_is_stopped_and_said_so(tmp_path):
     res = pylab.grade(work, "answer.py", VALIDATION, data_root, time_limit=3)
     assert not res["passed"] and res["run"]["status"] == "time_limit"
     assert res["results"] == [{"kind": "notebook_ran", "passed": False,
-                               "detail": "Your script ran past its time limit and was stopped."}]
+                               "detail": "Your script ran past its time limit and was stopped.", "ungraded": True}]
 
 
 def test_a_table_file_that_isnt_parquet_fails_in_words(tmp_path):

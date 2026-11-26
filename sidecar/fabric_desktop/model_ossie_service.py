@@ -8,7 +8,6 @@ TMDL are saved in the metadata project's folder, so they go to Git with the rest
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
@@ -19,6 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from . import model_ossie, ossie_validate, tmdl
+from .fabric_api import definition_text
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
 from .notebook_files_service import _is_link
@@ -285,10 +285,10 @@ class ModelOssieMixin:
         except Exception as exc:  # an empty model here would turn into an update that removes everything
             raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
                                f"({type(exc).__name__}: {exc}). Try again.") from exc
-        part = next((p for p in (got.get("definition") or {}).get("parts", []) if p.get("path") == "model.bim"), None)
-        if part is None:
+        bim = definition_text(got).get("model.bim")  # a part that isn't whole base64 is FabricError, never empty
+        if bim is None or not bim.strip():  # empty base64 decodes to nothing; never an empty model
             raise RuntimeError(f"Fabric didn't return {model.get('displayName') or 'the model'}'s model.bim")
-        return json.loads(base64.b64decode(part.get("payload") or "").decode("utf-8-sig"))
+        return json.loads(bim)
 
     def meta_model_ossie_models(self, env: str = "test") -> dict[str, Any]:
         """The semantic models Export can read in the environment's workspace."""
@@ -344,7 +344,14 @@ class ModelOssieMixin:
         if (rel.is_absolute() or ".." in rel.parts or not rel.parts or not rel.name.endswith(suffixes)
                 or ":" in rel.as_posix()):
             raise ValueError(f"Save it as a path inside the project ending {' or '.join(suffixes)}, like {FOLDER}/Sales.ossie.yaml")
-        return Path(project.root, *rel.parts)
+        if any(part.split(".")[0].upper().rstrip() in tmdl._RESERVED for part in rel.parts):
+            raise ValueError(f"{path} can't be used, because Windows reserves names like CON, NUL and COM1 for devices. "
+                             "Pick another name, then try again.")
+        target = Path(project.root, *rel.parts)
+        if not target.resolve().is_relative_to(Path(project.root).resolve()):  # a symlinked folder in a cloned repo
+            raise ValueError(f"{path} can't be used, because a link in it points outside the project. "
+                             "Pick a path inside the project, then try again.")
+        return target
 
     def meta_model_ossie_save(self, path: str, text: str) -> dict[str, Any]:
         """Save an Ossie document in the metadata project's folder (it shows in Changes, ready to commit)."""
@@ -458,10 +465,15 @@ class ModelOssieMixin:
         if model is None:
             raise LookupError(f"There's no semantic model named {name} in {cfg.get('workspace_name') or 'the workspace'}")
         got = self.fabric.get_item_definition(cfg["workspace_id"], model["id"], "TMDL")  # type: ignore[attr-defined]
-        parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
-                 for p in (got.get("definition") or {}).get("parts", []) if p.get("path")}
+        # A part that isn't whole base64 is FabricError: written empty, or left out and removed as stale, it would lose the model.
+        parts = definition_text(got, "utf-8")
         if not parts:
             raise RuntimeError(f"Fabric returned no definition for {name}")
+        empty = sorted(path for path, content in parts.items() if path.endswith(".tmdl") and not content.strip())
+        if empty:  # valid base64 of nothing: written, it would blank the file in the project
+            raise RuntimeError(f"{name} wasn't saved, because Fabric sent {empty[0]} empty, and a TMDL file is never "
+                               "empty. Nothing in the project was changed. Try again, and if it keeps happening, open "
+                               "the model in Fabric to check it still loads.")
         folder = Path(project.root, FOLDER, f"{_SAFE.sub('_', name).strip() or 'model'}.SemanticModel")
         for path in parts:
             rel = PurePosixPath(path)

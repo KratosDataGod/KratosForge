@@ -311,11 +311,12 @@ class Environments:
     def _install(self, job: dict[str, Any], target: Path, pins: Path, specs: builtins.list[str]) -> bool:
         folder, pypi = job.get("folder") or "", job.get("pypi", True)
         if not folder and not pypi:  # the service refuses this first; never reach an index regardless
-            job["log"] = "Your organization doesn't allow PyPI and names no package folder, so nothing was installed."
+            job["log"] = ("Your organization doesn't allow PyPI and names no package folder, so nothing was installed. "
+                          "Ask IT to set notebook_package_folder, or to change allow_pypi_packages.")
             return False
         if folder and not Path(folder).is_dir():
             job["log"] = (f"Your organization's package folder ({folder}) can't be reached from this PC, so nothing "
-                          "was installed. Check you're on the network, or ask IT.")
+                          "was installed. Check you're on the network, or ask IT to check notebook_package_folder.")
             return False
         approved = None
         if folder and pypi:
@@ -340,7 +341,8 @@ class Environments:
                 break
         if folder and not pypi and missing:
             log.append("A package isn't in your organization's package folder, and your organization doesn't allow "
-                       "installing from PyPI. Ask IT to add it to the folder.")
+                       "installing from PyPI (allow_pypi_packages). Ask IT to add it to the folder that "
+                       "notebook_package_folder names.")
         elif pypi and (offline := net_trust.pip_unreachable(log[-1], PIP_OFFLINE_FIX)):
             log.append(offline)
         job["log"] = "\n".join(log)[-20000:]

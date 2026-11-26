@@ -34,7 +34,8 @@ from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped, local_commit, log_commit_dropped, lost_commit
+from .retrying import (data_upload_dropped, held_file_message, local_commit, log_commit_dropped, lost_commit,
+                       windows_file_held, windows_log_race)
 
 _log = logging.getLogger(__name__)
 
@@ -943,7 +944,15 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
                             commit_properties=commit, **maintenance.vacuum_keep(keep))
         local = "://" not in ref.uri  # a table on this PC: what VACUUM actually deleted can be checked
         present = maintenance.table_files(ref.uri) if local else None
-        files = local_commit(vacuum, f"{name_}'s next version")
+        # A file VACUUM deletes may also be open for a moment in a virus scanner or the indexer (os error 32 or 33
+        # on Windows); what it already deleted no version kept reads, so it runs again. Still held, a plain message.
+        try:
+            files = local_commit(vacuum, f"{name_}'s next version",
+                                 when=lambda e: windows_file_held(e) or windows_log_race(e))
+        except OSError as exc:
+            if not windows_file_held(exc):
+                raise
+            raise OSError(held_file_message(f"VACUUM of {name_}")) from exc
         deleted = len(files)
         if present is not None:
             # delta-rs lists a removed file already gone (until a checkpoint drops it), and lists it relative to

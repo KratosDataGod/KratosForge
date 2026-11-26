@@ -51,10 +51,18 @@ def test_batch_by_must_name_a_contract_column(tmp_path, batch_by):
 
 def test_an_entity_name_needs_every_part_and_no_path_characters():
     assert mp.entity_name_problem("silver.orders") is None
-    for bad in ("silver..orders", "silver.or/ders", "silver.or:ders"):
+    for bad in ("silver..orders", "silver.or/ders", "silver.or:ders", "silver.or\\ders"):
         assert mp.entity_name_problem(bad) == ("each part of the name needs at least one character, and none can "
-                                               "hold / \\ or :")
+                                               "hold / \\ : * ? \" < > | or a control character")
     assert mp.entity_name_problem("orders") == "name must be <layer>.<table> or <layer>.<schema>.<table>"
+
+
+@pytest.mark.parametrize("bad", ["silver.orders?", "silver.ord*rs", 'silver."orders"', "silver.<orders>",
+                                 "silver.a|b", "silver.or\tders", "silver.orders\x01"])
+def test_an_entity_name_windows_cant_use_in_its_file_name_is_refused(bad):
+    """The entity is saved as <name>.toml: Windows refuses these characters in a file name with a bare
+    "The filename, directory name, or volume label syntax is incorrect" (WinError 123)."""
+    assert "none can hold" in mp.entity_name_problem(bad)
 
 
 def test_an_entity_is_in_dbo_unless_its_name_has_a_schema(tmp_path):

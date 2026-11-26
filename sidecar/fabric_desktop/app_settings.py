@@ -314,6 +314,8 @@ POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
 # may call. Only a source the person using the PC couldn't change may set them (Chris, 2026-11-10):
 # from a policy file or Group Policy key they could change, or the last good copy in their own profile,
 # they are ignored and reported; that source's restrictions still apply, with a warning.
+# audit_retention_days and receipt_retention_days: 0 keeps them, otherwise at least this many days.
+RETENTION_MIN_DAYS = 30
 LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "notebook_package_folder", "client_id",
              "telemetry_connection_string", "appstudio_hosts", "integrations_http", "support_url",
              "audit_retention_days", "receipt_retention_days")
@@ -499,12 +501,13 @@ def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
         copy = None
     if isinstance(copy, dict):
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
-                      "until it's fixed"), True
+                      "until it's fixed. Ask IT to fix or push the policy file again"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
                 "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry, "
                 "external AI tools, package installs, the Optimize lakehouse, KratosForge Environments and data samples "
                 "in replay bundles off. "
-                "Sign-in still works, and accounts from any tenant can sign in"), False
+                "Sign-in still works, and accounts from any tenant can sign in. Ask IT to fix or push the policy "
+                "file again"), False
 
 
 def _save_copy(saved: Path, text: str) -> None:
@@ -602,10 +605,12 @@ def policy_problems() -> list[str]:
         return [reason, *left_out]
     problems = [reason] if reason else []
     problems += left_out
-    for keys, cause in ignored.values():
+    for where, (keys, cause) in ignored.items():
+        fix = ("Ask IT to reset the Group Policy key's permissions so only administrators can change it" if where == "registry"
+               else "Ask IT to push policy.json as SYSTEM (Intune, Group Policy) or from an elevated prompt")
         problems.append(f"{', '.join(keys)} {'is' if len(keys) == 1 else 'are'} ignored, because only a source only "
-                        f"administrators could have written may widen what KratosForge trusts, and {cause}. Push "
-                        "policy.json as SYSTEM (Intune, Group Policy) or from an elevated prompt. Its restrictions still apply")
+                        f"administrators could have written may widen what KratosForge trusts, and {cause}. {fix}. "
+                        "Its restrictions still apply")
     if not from_copy and user_can_change(policy_path()):
         problems.append(f"{policy_path()} can be changed by the account you're signed in to this PC with, so "
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
@@ -614,8 +619,10 @@ def policy_problems() -> list[str]:
                         "the account you're signed in to this PC with, so anyone using it can change what they allow. "
                         "Ask IT to reset that key's permissions so only administrators can change it")
     for key, value in data.items():
+        first = len(problems)
         if key not in POLICY_KEYS:
-            problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
+            problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)}). "
+                            "Ask IT to remove it from the policy file")
         elif key in INTEGRATION_KEYS or key in APPSTUDIO_KEYS:
             continue  # integrations/policy.py and appstudio/policy.py check these, below
         elif key == "fabric_view_sign_in_hosts":
@@ -654,8 +661,8 @@ def policy_problems() -> list[str]:
             problems.append("client_id isn't an app (client) ID")
         elif key == "ui_skin" and not _skin_id(value):
             problems.append("ui_skin must be a skin id: lower-case letters, digits or hyphens")
-        elif key in ("audit_retention_days", "receipt_retention_days") and value != 0 and value < 30:
-            problems.append(f"{key} is 0 (keep them) or at least 30 days")
+        elif key in ("audit_retention_days", "receipt_retention_days") and value != 0 and value < RETENTION_MIN_DAYS:
+            problems.append(f"{key} is 0 (keep them) or at least {RETENTION_MIN_DAYS} days")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
         elif key in LIMITS and not 0 <= value <= LIMITS[key]:
@@ -670,13 +677,27 @@ def policy_problems() -> list[str]:
         elif key == "incident_sla":
             from .workloads.sla import targets
             problems.extend(targets(value)[1])
+        for i in range(first, len(problems)):  # each says what IT can do about it
+            if "Ask IT" not in problems[i]:
+                problems[i] = _with_fix(problems[i], ask_it(key))
     if any(key in data for key in INTEGRATION_KEYS):
         from .integrations import policy as integrations_policy
-        problems += integrations_policy.current()["problems"]
+        problems += [_fix(p) for p in integrations_policy.current()["problems"]]
     if any(key in data for key in APPSTUDIO_KEYS):
         from .appstudio import policy as appstudio_policy
-        problems += appstudio_policy.current()["problems"]
+        problems += [_fix(p) for p in appstudio_policy.current()["problems"]]
     return problems
+
+
+def _fix(problem: str) -> str:
+    """``problem`` (one that starts with its setting's key) with what IT can do about it."""
+    key = problem.split(" ", 1)[0]
+    return problem if key not in POLICY_KEYS or "Ask IT" in problem else _with_fix(problem, ask_it(key))
+
+
+def _with_fix(problem: str, fix: str) -> str:
+    """``problem`` as one sentence, then ``fix``: a problem that already ends in a full stop keeps just the one."""
+    return f"{problem.rstrip().rstrip('.')}. {fix}"
 
 
 def dns_name(host: str) -> bool:
@@ -699,8 +720,8 @@ def _sign_in_host_problems(value: Any) -> list[str]:
                 "(no *, https://, port or path), so it's skipped" for v in bad]
     ignored = os.environ.get("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", "")  # the shell's own check, at start
     if ignored:
-        problems.append(f"fabric_view_sign_in_hosts: {ignored}. Push policy.json as SYSTEM (Intune, Group Policy) "
-                        "or from an elevated prompt, so only administrators can change it")
+        problems.append(f"fabric_view_sign_in_hosts: {ignored}. Ask IT to push policy.json as SYSTEM (Intune, Group "
+                        "Policy) or from an elevated prompt, so only administrators can change it")
     return problems
 
 
@@ -721,11 +742,12 @@ def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
         return [(f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
                 "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub")]
     if auto_update is not False:
-        return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
+        return [('engine_download_url is used only with "auto_update": false, so the engine comes from GitHub. '
+                 + _auto_update_fix("engine_download_url", auto_update))]
     ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
     if ignored:
-        return [(f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
-                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it")]
+        return [(f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Ask IT to push "
+                "policy.json as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it")]
     return []
 
 
@@ -740,7 +762,11 @@ def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
         return [(f"engine_folder: {json.dumps(value)} isn't a full folder path on this PC like "
                  "C:\\Program Files\\KratosForge\\engine, so the engine can't start until it's fixed")]
     if auto_update is not False:
-        return ['engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set']
+        return [('engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set. '
+                 + _auto_update_fix("engine_folder", auto_update))]
+    ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", "")  # the shell's own check, at start
+    if ignored:
+        return [f"engine_folder is ignored, because {ignored}"]
     return []
 
 
@@ -804,7 +830,7 @@ def _in_range(key: str, value: Any) -> bool:
     if key == "local_retention_days":
         return value >= 0
     if key in ("audit_retention_days", "receipt_retention_days"):
-        return value == 0 or value >= 30
+        return value == 0 or value >= RETENTION_MIN_DAYS
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
     if key in SQL_RANGES:  # from any source: an out-of-range policy value never applies (policy_problems says so)
@@ -830,6 +856,30 @@ def _skin_id(value: Any) -> bool:
 def _telemetry_target(text: str) -> bool:
     from .telemetry import valid_connection_string
     return valid_connection_string(text)
+
+
+def policy_source(key: str) -> str:
+    """Which of the organization's sources sets ``key``, in words for a message: "Group Policy" when a value
+    Group Policy sets for it applies, which includes each on/off restriction's most restrictive value while
+    Group Policy's whole key can't be read. Otherwise "the policy file": when only the file sets it, when
+    neither does, when the file can't be read and the restriction takes its most restrictive value, when
+    Group Policy's value for a LOOSENING setting is ignored because its key isn't admin-only, and when
+    the list subkey for ``key`` can't be read (what Group Policy sets for it is then unknown and not used)."""
+    return "Group Policy" if key in _policy_sources()[3] else "the policy file"
+
+
+def _auto_update_fix(key: str, auto_update: Any) -> str:
+    """What IT can do when ``key`` (engine_download_url or engine_folder) is set without "auto_update": false:
+    set auto_update where it is set (that source wins), or where ``key`` is when it isn't set anywhere; or
+    remove ``key``, from where it is when that's elsewhere."""
+    there = policy_source(key)
+    where = policy_source("auto_update") if auto_update is not None else there
+    return f"Ask IT to set auto_update to false in {where}, or to remove {key}" + ("" if where == there else f" from {there}")
+
+
+def ask_it(key: str) -> str:
+    """What IT can do about a setting the organization fixed, as a sentence for an error message."""
+    return f"Ask IT to change {key} in {policy_source(key)}."
 
 
 def tenant_allowed(tenant_id: str | None) -> bool:
@@ -896,9 +946,10 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
         if unknown and _unknown(key, unknown) and not (key in RESTRICTED and new == RESTRICTED[key]):
             # What Group Policy says about it is unknown: it stays as it is, unless it's made stricter.
             raise ValueError(f"Group Policy on this PC couldn't be read, and it may set {key}, so {key} can only be made "
-                             "stricter until Group Policy can be read. Try again later, or ask IT.")
+                             "stricter until Group Policy can be read. Try again later. If it doesn't clear, ask IT to "
+                             "check that this PC can read the Group Policy key.")
         if current[key]["source"] == "policy":
-            raise ValueError(f"Your organization sets {key}, so it can't be changed here")
+            raise ValueError(f"Your organization sets {key}, so it can't be changed here. {ask_it(key)}")
         if current[key]["source"] == "environment":
             # Saving would say Saved for a value that never applies: the variable wins over this file.
             raise ValueError(f"The {ENV_VARS[key]} environment variable sets {key} on this PC, so a value saved "

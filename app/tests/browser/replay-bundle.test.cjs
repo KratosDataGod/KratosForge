@@ -181,7 +181,7 @@ test("when policy turns samples off, the box is disabled and says so", { skip },
     assert.strictEqual(await sample.isDisabled(), true);
     assert.strictEqual(await sample.isChecked(), false);
     const row = d.locator(".replay-row", { hasText: "A sample of the input data" });
-    assert.match(await row.innerText(), /Your organization has turned this off\./);
+    assert.match(await row.innerText(), /Your organization has turned this off\. Ask IT to change allow_replay_samples in Group Policy or the policy file\./);
     await d.getByRole("button", { name: "Cancel" }).click();
     await d.waitFor({ state: "detached" });
   } finally {

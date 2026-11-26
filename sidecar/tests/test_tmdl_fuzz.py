@@ -483,7 +483,7 @@ def test_something_that_isnt_a_model_is_refused_with_a_reason(bim):
 def test_lists_and_sources_of_the_wrong_type_are_refused_by_from_bim_and_reported_by_the_writer():
     for wrong in (5, 1.5, True, "x"):
         bim = {"name": "m", "model": {"tables": wrong, "roles": wrong}}
-        with pytest.raises(ValueError, match=r"^" + WRONG_TYPE + r".*: \$\.model\.roles is "):
+        with pytest.raises(ValueError, match=r"^" + WRONG_TYPE + r".*\. \$\.model\.roles is "):
             tmdl.from_bim(bim)
         _, report = tmdl._from_bim(bim)  # the writer itself, under the shape check, still never crashes
         assert {r["object"] for r in report} >= {"tables", "roles"}, report

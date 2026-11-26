@@ -21,7 +21,7 @@ def test_from_bim_refuses_what_export_refuses_with_the_same_path(path):
     with pytest.raises(ValueError) as written:
         tmdl.from_bim(oc.load(e))
     assert e["says"] in str(export.value) and e["says"] in str(written.value)
-    assert str(written.value).split(": ", 1)[1] == str(export.value).split(": ", 1)[1]
+    assert str(written.value).split(". ", 1)[1] == str(export.value).split(". ", 1)[1]
 
 
 @pytest.mark.parametrize("path", WRONG_BIMS, ids=lambda p: p.rsplit("/", 1)[-1])

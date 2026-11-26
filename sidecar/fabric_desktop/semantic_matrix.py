@@ -473,10 +473,12 @@ def compatibility(definition: Any, kind: str | None = None) -> dict[str, Any]:
         rows["power-bi-model"] = _attempt("power-bi-model", power_bi, src)
     rows["fabric-semantic-view"] = _attempt("fabric-semantic-view", lambda: _view_row(src), src)
     if doc is None:
-        assert ossie_failure is not None
-        rows["snowflake-ossie"] = _not_run("snowflake-ossie", NOT_AVAILABLE, ossie_failure["result"],
-                                           f"made from the Ossie 0.2.0.dev0 export, which is {ossie_failure['status']}: "
-                                           f"{ossie_failure['reason']}", src)
+        # an explicit check, not an assert (python -O drops those): the export's row always explains a missing doc
+        failure = ossie_failure or rows.get("ossie-0.2") or {"result": sp.TEST_FAILED, "status": FAILED,
+                                                             "reason": "it gave no model"}
+        rows["snowflake-ossie"] = _not_run("snowflake-ossie", NOT_AVAILABLE, failure["result"],
+                                           f"made from the Ossie 0.2.0.dev0 export, which is {failure['status']}: "
+                                           f"{failure['reason']}", src)
     else:
         sf_doc = doc
         rows["snowflake-ossie"] = _attempt("snowflake-ossie", lambda: _snowflake_row(src, sf_doc, ext_keys), src)

@@ -267,3 +267,26 @@ def test_semantic_py_writes_no_tmdl_text_of_its_own():
         source = f.read()
     for text in ("\\t", "lineageTag:", "ref table", "partition {", "/// "):
         assert text not in source, text
+
+
+# ---- review follow-ups: M text escaping and table_names' rules
+
+def test_a_double_quote_in_the_server_or_endpoint_is_doubled_in_the_m_text():
+    bim = semantic.model_bim([_fact()], [], 'srv"x', 'ep"); evil')
+    m = bim["model"]["expressions"][0]["expression"]
+    assert 'Sql.Database("srv""x", "ep""); evil")' in m
+    files, _ = tmdl.from_bim(bim)
+    back, _ = tmdl.to_bim(files)
+    assert back["model"]["expressions"][0]["expression"] == m
+
+
+def test_table_names_keeps_the_first_table_with_a_lineage_tag_and_reads_only_tmdl_table_files():
+    t = _fact()
+    first = semantic.build([t], [], "srv", "ep")
+    path = next(p for p in first if p.startswith("definition/tables/"))
+    renamed = first[path].replace("table fact_sales", "table other_name", 1)
+    assert "table other_name" in renamed
+    parts = {path: first[path], path.replace(".tmdl", "_2.tmdl"): renamed}
+    assert semantic.table_names(dict(sorted(parts.items())), [t.entity]) == {t.entity: "fact_sales"}
+    assert semantic.table_names({path.replace(".tmdl", ".txt"): first[path]}, [t.entity]) == {}
+    assert semantic.table_names({"definition/" + path.rsplit("/", 1)[1]: first[path]}, [t.entity]) == {}

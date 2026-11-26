@@ -54,7 +54,8 @@
         },
         {
           "path": "properties.activities.Copy orders.source.partition_upper_bound",
-          "equals": 1500000000
+          "equals": 1500000000,
+          "why": "Set the upper bound to the highest order_id. The bounds decide how the range is split into partitions, not which rows are copied."
         }
       ]
     },

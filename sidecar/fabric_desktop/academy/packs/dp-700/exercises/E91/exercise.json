@@ -101,7 +101,8 @@
         },
         {
           "path": "alerts.run_summary.setups.0.to",
-          "equals": "Data team"
+          "equals": "Data team",
+          "why": "The need names the Data team channel, so post there."
         }
       ]
     },

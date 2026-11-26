@@ -96,6 +96,32 @@ def _add_months(d: dt.date, n: int) -> dt.date:
     return dt.date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
 
 
+def _datetime_ms(ms: int) -> int:
+    # data-types/datetime-transact-sql, "Rounding of datetime fractional second precision": .990-.991 is .990,
+    # .992-.994 is .993, .995-.998 is .997, and .999 is the next second.
+    return ms - ms % 10 + {0: 0, 1: 0, 2: 3, 3: 3, 4: 3, 5: 7, 6: 7, 7: 7, 8: 7, 9: 10}[ms % 10]
+
+
+def _style_0(t: dt.datetime) -> str:
+    # functions/cast-and-convert-transact-sql: style 0 (and 100), the default for datetime and smalldatetime, is
+    # "mon dd yyyy hh:miAM (or PM)": the day and the hour each take two places.
+    return f"{t:%b} {t.day:2d} {t.year} {(t.hour - 1) % 12 + 1:2d}:{t:%M}{t:%p}"
+
+
+def _stepped(us: int, digits: int) -> int:
+    # data-types/datetime2-transact-sql and time-transact-sql: a value with more digits of a second than the
+    # type's n is rounded to n (half up), not cut.
+    step = 10 ** (6 - digits)
+    return (us + step // 2) // step * step
+
+
+def _with_digits(t: dt.datetime, digits: int, shape: str = "%Y-%m-%d %H:%M:%S") -> str:
+    # cast-and-convert: CAST to text of a datetime2(n) or time(n) is style 121, with n digits of a second, zeros
+    # too; datetime2 and time with no n are datetime2(7) and time(7).
+    whole = t.strftime(shape)
+    return whole if digits == 0 else whole + "." + f"{t.microsecond:06d}0"[:digits]
+
+
 def cases(prefix: str) -> list[tuple[str, str, object]]:
     """(family, T-SQL expression, T-SQL's answer) for seeded inputs; text written as ``prefix``'...'."""
     r = random.Random(SEED)
@@ -180,6 +206,53 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("CONCAT", f"CONCAT({listed})", "".join(x or "" for x in args)))
         out.append(("CONCAT_WS", f"CONCAT_WS('-', {listed})", "-".join(x for x in args if x is not None)))
         out.append(("PLUS", " + ".join(map(q, args)), None if None in args else "".join(x or "" for x in args)))
+    nulls = random.Random(SEED + 3)  # WR-256: a NULL length in LEFT and RIGHT is NULL (functions/left-transact-sql)
+    for _ in range(20):
+        s = nulls.choice(WORDS)
+        out.append(("LEFT_NULL", f"LEFT({q(s)}, {nulls.choice(['NULL', 'CAST(NULL AS INT)'])})", None))
+        out.append(("RIGHT_NULL", f"RIGHT({q(s)}, {nulls.choice(['NULL', 'CAST(NULL AS BIGINT)'])})", None))
+    times = random.Random(SEED + 4)  # WR-258: times below a second
+    base = dt.datetime(2024, 1, 2, 13, 4, 5)
+    for _ in range(60):
+        us, digits = times.choice([times.randint(0, 999_999), times.randint(0, 99) * 10_000, 999_995]), times.randint(0, 6)
+        t = base + dt.timedelta(seconds=times.randint(-90000, 90000), microseconds=us)
+        text = t.strftime("%Y-%m-%d %H:%M:%S.%f")
+        stepped = t.replace(microsecond=0) + dt.timedelta(microseconds=_stepped(t.microsecond, digits))
+        out.append(("DATETIME2_N", f"CAST(CAST('{text}' AS DATETIME2({digits})) AS VARCHAR(30))",
+                    _with_digits(stepped, digits)))
+        out.append(("DATETIME2_N", f"CONVERT(VARCHAR(30), CAST('{text}' AS DATETIME2({digits})), 121)",
+                    _with_digits(stepped, digits)))
+        out.append(("TIME_N", f"CAST(CAST('{text[11:]}' AS TIME({digits})) AS VARCHAR(30))",
+                    _with_digits(stepped, digits, "%H:%M:%S")))
+        out.append(("DATETIME2_7", f"CAST(CAST('{text}' AS DATETIME2) AS VARCHAR(30))", _with_digits(t, 7)))
+        out.append(("TIME_7", f"CAST(CAST('{text[11:]}' AS TIME) AS VARCHAR(30))", _with_digits(t, 7, "%H:%M:%S")))
+        wide, narrow = times.randint(digits, 6), times.randint(0, digits)  # rounded again to fewer digits
+        once = t.replace(microsecond=0) + dt.timedelta(microseconds=_stepped(t.microsecond, wide))
+        twice = once.replace(microsecond=0) + dt.timedelta(microseconds=_stepped(once.microsecond, narrow))
+        out.append(("DATETIME2_N", f"CAST(CAST(CAST('{text}' AS DATETIME2({wide})) AS DATETIME2({narrow})) AS VARCHAR(30))",
+                    _with_digits(twice, narrow)))
+        # datetime-transact-sql: text with at most 3 digits of a second, rounded to .000, .003 or .007; DATEADD of
+        # a datetime is a datetime (dateadd-transact-sql: "the return type is the data type of the date argument").
+        ms = times.randint(0, 999)
+        m = t.replace(microsecond=ms * 1000)
+        mtext = m.strftime("%Y-%m-%d %H:%M:%S.") + f"{ms:03d}"
+        rounded = m.replace(microsecond=0) + dt.timedelta(milliseconds=_datetime_ms(ms))
+        k = times.randint(-12, 12)
+        added = rounded + dt.timedelta(milliseconds=k)
+        added = added.replace(microsecond=0) + dt.timedelta(milliseconds=_datetime_ms(added.microsecond // 1000))
+        out.append(("DATETIME_DATEADD", f"CONVERT(VARCHAR(30), DATEADD(millisecond, {k}, CAST('{mtext}' AS DATETIME)), 121)",
+                    added.strftime("%Y-%m-%d %H:%M:%S.") + f"{added.microsecond // 1000:03d}"))
+        out.append(("DATETIME_TEXT", f"CAST(CAST('{mtext}' AS DATETIME) AS VARCHAR(30))", _style_0(rounded)))
+        out.append(("DATETIME_TEXT", f"CONVERT(VARCHAR(30), CAST('{text}' AS DATETIME2), 100)", _style_0(t)))
+        # datename-transact-sql: every part but month and weekday is DATEPART's number as text.
+        part = times.choice(["year", "quarter", "dayofyear", "day", "hour", "minute", "second", "millisecond",
+                             "microsecond", "nanosecond", "month", "weekday"])
+        number = {"year": t.year, "quarter": (t.month - 1) // 3 + 1, "dayofyear": t.timetuple().tm_yday,
+                  "day": t.day, "hour": t.hour, "minute": t.minute, "second": t.second,
+                  "millisecond": t.microsecond // 1000, "microsecond": t.microsecond,
+                  "nanosecond": t.microsecond * 1000, "month": t.strftime("%B"), "weekday": t.strftime("%A")}[part]
+        # + '|' keeps a number's text from reading back as a number.
+        out.append(("DATENAME", f"DATENAME({part}, CAST('{text}' AS DATETIME2)) + '|'", f"{number}|"))
     mixed = random.Random(SEED + 3)  # its own draws, so the families above keep their inputs
     for _ in range(40):
         # data-types/data-type-precedence-transact-sql: text meeting an int is converted to the int, and
@@ -476,3 +549,65 @@ def test_left_with_a_long_bigint_length_keeps_the_whole_text(engine) -> None:
     rows = engine.execute("SELECT LEFT(s, n) AS a, RIGHT(s, n) AS b FROM (VALUES ('abc', CAST(5000000000 AS BIGINT)))"
                           " AS t(s, n)", dialect="tsql")["rows"]
     assert list(rows[0]) == ["abc", "abc"]
+
+
+@pytest.mark.parametrize("expression", [
+    "CAST('2024-01-02 03:04:05.1234567' AS DATETIME2)", "CAST('2024-01-02 03:04:05.1234565' AS DATETIME2(6))",
+    "CONVERT(DATETIME2(7), '2024-01-02 03:04:05.0000001')", "TRY_CAST('03:04:05.9999999' AS TIME)",
+    "DATEPART(nanosecond, CAST('2024-01-02 03:04:05.1234567' AS DATETIME2))",
+])
+def test_a_seventh_digit_of_a_second_is_refused_by_name(engine, expression: str) -> None:
+    # WR-258: datetime2 and time keep 100-nanosecond steps in T-SQL (data-types/datetime2-transact-sql), and
+    # datetime2(6) rounds on the 7th digit; times here keep microseconds, so the digit would be lost unseen.
+    with pytest.raises(ValueError, match=r"7th digit of a second.*nothing ran.*at most 6 digits"):
+        engine.execute(f"SELECT {expression} AS v", dialect="tsql")
+
+
+@pytest.mark.parametrize(("expression", "want"), [
+    ("CAST('2024-01-02 03:04:05.1234560' AS DATETIME2(4))", "2024-01-02 03:04:05.123500"),  # a 7th 0 is fine
+    ("TRY_CAST('2024-01-02 03:04:05.12345678' AS DATETIME2)", None),
+    ("TRY_CONVERT(TIME, '03:04:05.123456789')", None),
+    ("CAST(CAST('0001-01-02 03:04:05.126' AS DATETIME2(2)) AS VARCHAR(30))", "0001-01-02 03:04:05.13"),
+    ("CONVERT(VARCHAR(30), CAST('2024-01-02 03:04:05.12' AS DATETIME2(4)), 126)", "2024-01-02T03:04:05.1200"),
+    ("CONVERT(VARCHAR(30), CAST('2024-01-02 03:04:05' AS DATETIME2(4)), 126)", "2024-01-02T03:04:05"),
+    ("CONVERT(VARCHAR(30), CAST('2024-01-02 03:04:05.12' AS DATETIME2))", "2024-01-02 03:04:05.1200000"),
+    ("CONVERT(VARCHAR(30), CAST('2024-01-02 00:04:05' AS SMALLDATETIME))", "Jan  2 2024 12:04AM"),
+    ("CONVERT(VARCHAR(30), DATETIMEFROMPARTS(2024, 1, 2, 3, 4, 5, 1), 121)", "2024-01-02 03:04:05.000"),
+    ("CONVERT(VARCHAR(30), DATETIMEFROMPARTS(2024, 1, 2, 3, 4, 5, 998), 121)", "2024-01-02 03:04:05.997"),
+    ("CAST(DATEADD(microsecond, 1, CAST('2024-01-02 03:04:05.123' AS DATETIME2(3))) AS VARCHAR(30))",
+     "2024-01-02 03:04:05.123"),
+    ("CAST(DATEADD(microsecond, 500, CAST('2024-01-02 03:04:05.123' AS DATETIME2(3))) AS VARCHAR(30))",
+     "2024-01-02 03:04:05.124"),
+    ("CONVERT(VARCHAR(30), DATEADD(ms, 1, DATEADD(ms, 1, DATEADD(ms, 1, CAST('2024-01-02 03:04:05' AS DATETIME)))), 121)",
+     "2024-01-02 03:04:05.000"),
+])
+def test_times_below_a_second_as_tsql_has_them(engine, expression: str, want: object) -> None:
+    # WR-258. Text with more than 7 digits of a second isn't a datetime2 or a time (data-types/datetime2-transact-sql:
+    # "hh:mm:ss[.nnnnnnn]"), so TRY_ gives NULL; datetimefromparts-transact-sql and dateadd-transact-sql give a
+    # datetime, rounded to .000, .003 or .007; DATEADD of a datetime2(3) is a datetime2(3).
+    got = engine.execute(f"SELECT {expression} AS v", dialect="tsql")["rows"][0][0]
+    assert (str(got) if got is not None else None) == want
+
+
+@pytest.mark.parametrize(("expression", "says"), [
+    ("CAST('2024-01-02 03:04:05.12345678' AS DATETIME2)", "Conversion failed when converting date and/or time"),
+    ("DATEADD(microsecond, 1, CAST('2024-01-02' AS DATETIME))",
+     "The datepart microsecond is not supported by date function dateadd for data type datetime"),
+])
+def test_tsqls_own_errors_for_times_below_a_second(engine, expression: str, says: str) -> None:
+    with pytest.raises(Exception, match=says):
+        engine.execute(f"SELECT {expression} AS v", dialect="tsql")
+
+
+def test_nested_rounding_of_times_grows_the_sql_linearly() -> None:
+    from fabric_desktop.localdata import tsql
+    for inner in ("CAST(x AS DATETIME)", "CAST(x AS DATETIME2(2))"):
+        sizes = []
+        for depth in range(1, 6):
+            expression = inner
+            for _ in range(depth):
+                expression = f"DATEADD(ms, 1, {expression})"
+            sizes.append(len(tsql.translate(f"SELECT CAST({expression} AS VARCHAR(30)) FROM (VALUES ('2024-01-02'))"
+                                            " AS t(x)")[0][-1]))
+        steps = [b - a for a, b in zip(sizes, sizes[1:], strict=False)]
+        assert max(steps) <= 1.2 * min(steps), (inner, sizes)

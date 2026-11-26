@@ -60,6 +60,9 @@ CLAIMS: list[Claim] = [
     _nb("CAST(1 AS DECIMAL(10,2)) / 3", want="0.333333"),
     # Dates and times on this PC
     _nb("add_months(DATE'2019-02-28', 1)"),
+    _nb("CAST(1.23456789 AS TIMESTAMP)", query="SELECT CAST(CAST(1.23456789 AS TIMESTAMP) AS STRING)"),
+    _nb("unix_millis(TIMESTAMP'1969-12-31 23:59:59.9995')"),
+    _nb("unix_timestamp(TIMESTAMP'1969-12-31 23:59:59.9995')"),
     # Aggregates on this PC: the grand-total row of a ROLLUP over a NULL in the data
     _nb("grouping(a)", query="SELECT grouping(a) AS g FROM VALUES (CAST(NULL AS INT), 1) AS t(a, b) "
                              "GROUP BY a, b WITH ROLLUP ORDER BY g DESC LIMIT 1"),
@@ -93,6 +96,9 @@ CLAIMS: list[Claim] = [
     _ts("DATEDIFF(week, Saturday, Sunday)", query="SELECT DATEDIFF(week, '2024-03-02', '2024-03-03')"),
     _ts("EOMONTH('2024-01-31', 1)"),
     _ts("datetime2(6)", query="SELECT CAST(CAST('2024-02-29 13:04:05' AS datetime2(6)) AS varchar(30))"),
+    _ts("CAST('03:04:05.126' AS TIME(2))", query="SELECT CAST(CAST('03:04:05.126' AS TIME(2)) AS VARCHAR(30))"),
+    _ts("DATENAME(hour, ...)", query="SELECT DATENAME(hour, CAST('2024-01-02 03:04:05.123' AS DATETIME2))"),
+    _ts("DATENAME(millisecond, ...)", query="SELECT DATENAME(millisecond, CAST('2024-01-02 03:04:05.123' AS DATETIME2))"),
     # Local T-SQL formatting
     _ts("FORMAT(1234.5, 'N')"),
     _ts("FORMAT(255, 'X4')"),

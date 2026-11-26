@@ -813,6 +813,118 @@ def _rewrite_to_char(statement: exp.Expression) -> None:
                                           f"{_DOCS}/functions-conversion#date-and-time-formats-in-conversion-functions"))
 
 
+# SFN-033: Snowflake's timestamps and times keep nanoseconds (precision 9 by default); DuckDB's keep microseconds,
+# so a 7th to 9th digit of a second would be cut off here without a word.
+_NANO_TEXT = re.compile(r"\.\d{6}\d*[1-9]")
+_TIME_TYPES = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMPLTZ,
+               exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.DATETIME, exp.DataType.Type.TIME)
+
+
+def _nano_refusal(what: str) -> _Untranslatable:
+    return _Untranslatable(_refuse("SFN-033", "Nanoseconds", f"{what} Snowflake keeps a timestamp or time to the "
+                                   "nanosecond, and the local engine keeps it to the microsecond, so nothing ran. "
+                                   "Keep to whole microseconds (at most 6 digits of a second), or run it in Snowflake.",
+                                   f"{_DOCS}/data-types-datetime"))
+
+
+def _whole_microseconds(nanos: exp.Expression | None) -> bool:
+    """``nanos`` is written in the query as a whole number of microseconds (a multiple of 1000)."""
+    if isinstance(nanos, exp.Neg):
+        return _whole_microseconds(nanos.this)
+    return isinstance(nanos, exp.Literal) and nanos.is_int and int(nanos.name) % 1000 == 0
+
+
+def _refuse_nanoseconds(statement: exp.Expression) -> None:
+    """SFN-033: what would need a digit of a second past the microsecond, refused by name."""
+    for conversion in statement.find_all(exp.Cast, exp.TryCast):
+        to, text = conversion.args.get("to"), conversion.this
+        if not (isinstance(to, exp.DataType) and to.this in _TIME_TYPES and isinstance(text, exp.Literal)
+                and text.is_string and _NANO_TEXT.search(text.name)):
+            continue
+        size = to.expressions[0].this if to.expressions and isinstance(to.expressions[0], exp.DataTypeParam) else None
+        if size is None or not (isinstance(size, exp.Literal) and size.is_int and int(size.name) <= 6):
+            raise _nano_refusal(f"The text '{text.name}' has a digit of a second past the sixth.")
+    for add in statement.find_all(exp.DateAdd, exp.TimeAdd, exp.TimestampAdd):
+        unit = add.args.get("unit")
+        if isinstance(unit, (exp.Var, exp.Literal)) and unit.name.upper() == "NANOSECOND" \
+                and not _whole_microseconds(add.expression):
+            raise _nano_refusal("DATEADD, TIMEADD or TIMESTAMPADD by nanoseconds that aren't a written whole "
+                                "number of microseconds.")
+    for parts in statement.find_all(exp.TimestampFromParts, exp.TimeFromParts):
+        nano = parts.args.get("nano")
+        if nano is not None and not _whole_microseconds(nano):
+            raise _nano_refusal(f"{_function_name(parts)} with a nanosecond part that isn't a written whole "
+                                "number of microseconds.")
+    for unix in statement.find_all(exp.UnixToTime):
+        scale = unix.args.get("scale")
+        if isinstance(scale, exp.Literal) and scale.is_int and int(scale.name) > 6 \
+                and not _whole_microseconds(unix.this if int(scale.name) == 9 else None):
+            raise _nano_refusal(f"TO_TIMESTAMP with scale {scale.name}.")
+
+
+# SFX-029: a timestamp or time written as text in Snowflake's default output formats (TIMESTAMP_NTZ_OUTPUT_FORMAT
+# YYYY-MM-DD HH24:MI:SS.FF3, TIMESTAMP_OUTPUT_FORMAT with TZHTZM for TIMESTAMP_LTZ and TIMESTAMP_TZ,
+# TIME_OUTPUT_FORMAT HH24:MI:SS). DuckDB wrote its own ('2024-01-02 03:04:05.123456', '... +00'). ALTER SESSION
+# of these formats is refused (SFN-022), so the defaults hold. TYPEOF folds when the query is planned.
+_PLAIN_STAMPS = "'TIMESTAMP', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+_TIME_TEXT = (
+    "CASE WHEN TYPEOF(kf_v) IN (" + _PLAIN_STAMPS + ") THEN STRFTIME(TRY_CAST(kf_v AS TIMESTAMP), '%Y-%m-%d %H:%M:%S.%g') "
+    "WHEN TYPEOF(kf_v) = 'TIMESTAMP WITH TIME ZONE' THEN STRFTIME(TRY_CAST(kf_v AS TIMESTAMPTZ), '%Y-%m-%d %H:%M:%S.%g ') "
+    "|| (LIST_TRANSFORM([CAST(EPOCH(CAST(TRY_CAST(kf_v AS TIMESTAMPTZ) AS TIMESTAMP)) - EPOCH(TRY_CAST(kf_v AS "
+    "TIMESTAMPTZ)) AS INTEGER)], lambda kf_o: "
+    "CASE WHEN kf_o < 0 THEN '-' ELSE '+' END || LPAD(CAST(ABS(kf_o) // 3600 AS VARCHAR), 2, '0') "
+    "|| LPAD(CAST(ABS(kf_o) % 3600 // 60 AS VARCHAR), 2, '0')))[1] "
+    "WHEN TYPEOF(kf_v) = 'TIME' THEN STRFTIME(DATE '2000-01-01' + TRY_CAST(kf_v AS TIME), '%H:%M:%S') "
+    "ELSE kf_else END")
+def _as_time_text(value: exp.Expression, otherwise: exp.Expression) -> exp.Expression:
+    """_TIME_TEXT over ``value``, read once; ``otherwise`` (naming kf_v) for any other type."""
+    tree = cast(exp.Expression, sqlglot.parse_one(f"(LIST_TRANSFORM([kf_arg], lambda kf_v: {_TIME_TEXT}))[1]",
+                                                  read="duckdb"))
+    for column in list(tree.find_all(exp.Column)):
+        if column.name == "kf_arg" and not column.table:
+            column.replace(value.copy())
+        elif column.name == "kf_else" and not column.table:
+            column.replace(otherwise)
+    return tree
+
+
+def _maybe_time(node: exp.Expression) -> bool:
+    """``node`` isn't plainly something other than a timestamp or time: a literal, or a cast to another type."""
+    if isinstance(node, (exp.Literal, exp.Null, exp.Boolean, exp.Bracket, exp.JSONExtract, exp.JSONExtractScalar)):
+        return False
+    return not (isinstance(node, (exp.Cast, exp.TryCast)) and isinstance(node.to, exp.DataType)
+                and node.to.this not in _TIME_TYPES)
+
+
+_TEXT_NODES = (exp.Cast, exp.TryCast, exp.ToChar, exp.DPipe, exp.Concat)
+
+
+def _rewrite_time_text(statement: exp.Expression, written: list[Any]) -> None:
+    """SFX-029: casts to text (::VARCHAR, CAST, TRY_CAST, TO_VARCHAR and TO_CHAR with no format) and the parts
+    of || and CONCAT, written in Snowflake's default output formats when they are a timestamp or time. Only the
+    ones in ``written`` (the statement as written, held so no new node reuses an id) and still in it: the casts
+    the other rewrites make are their own. A JSON or VARIANT path isn't a timestamp, and is left as it is."""
+    ids = {id(n) for n in written}
+    for node in reversed(list(statement.find_all(*_TEXT_NODES))):
+        if id(node) not in ids:
+            continue
+        if isinstance(node, exp.ToChar):
+            if node.args.get("format") is None and _maybe_time(node.this):
+                node.replace(_as_time_text(node.this, exp.cast(exp.column("kf_v"), exp.DataType.Type.VARCHAR)))
+        elif isinstance(node, (exp.Cast, exp.TryCast)):
+            to = node.args.get("to")
+            if isinstance(to, exp.DataType) and to.this in _TEXT_TYPES and _maybe_time(node.this):
+                other = node.copy()
+                other.set("this", exp.column("kf_v"))
+                node.replace(_as_time_text(node.this, other))
+        else:
+            parts = [node.this, node.expression] if isinstance(node, exp.DPipe) else list(node.expressions)
+            for part in parts:
+                if isinstance(part, exp.Expression) and _maybe_time(part) \
+                        and not isinstance(part, (exp.DPipe, exp.Concat, exp.Paren)):
+                    part.replace(_as_time_text(part, exp.cast(exp.column("kf_v"), exp.DataType.Type.VARCHAR)))
+
+
 def _object_key(key: exp.Expression) -> exp.Expression:
     """A key as text: an OBJECT constant's {'a': 1} reads its key as a name, which would be a column."""
     return exp.Literal.string(key.name) if isinstance(key, exp.Identifier) else key
@@ -3062,6 +3174,10 @@ CATALOG = (
                 "REGEXP_REPLACE, REGEXP_SUBSTR and REGEXP_SUBSTR_ALL. The c parameter is taken in REGEXP_COUNT and "
                 "REGEXP_INSTR too. An empty pattern matches nothing, except in REGEXP_LIKE and its aliases, where it "
                 "matches only an empty subject.")),
+    ("SFX-029", "Rewritten", ("A timestamp or time cast to text (::VARCHAR, CAST, TRY_CAST, and TO_VARCHAR or "
+                "TO_CHAR with no format), or joined with || or CONCAT, is written in Snowflake's default output "
+                "formats: TIMESTAMP_NTZ as YYYY-MM-DD HH24:MI:SS.FF3, TIMESTAMP_LTZ and TIMESTAMP_TZ with the "
+                "session time zone's offset as TZHTZM after it, and TIME as HH24:MI:SS.")),
     ("SFX-070", "Rewritten", ("TO_JSON writes an object's keys in sorted order at every level, as Snowflake keeps "
                 "an OBJECT's keys, and writes an object a VARIANT column holds as JSON (DuckDB 1.x's TO_JSON "
                 "wrote it as quoted text). SFD-014 is retired.")),
@@ -3157,6 +3273,11 @@ CATALOG = (
     ("SFN-032", "Runs only in Snowflake", ("A UNION, INTERSECT or MINUS with text written in one SELECT and a number "
                 "in another in the same column: Snowflake converts the text to a number (and stops on text that isn't "
                 "one), and DuckDB makes the column text.")),
+    ("SFN-033", "Runs only in Snowflake", ("Nanoseconds: text with a nonzero digit of a second past the sixth cast "
+                "to a timestamp or time, DATEADD, TIMEADD or TIMESTAMPADD by NANOSECOND, a nanosecond part of "
+                "TIMESTAMP_FROM_PARTS or TIME_FROM_PARTS, and TO_TIMESTAMP with scale 7 to 9, unless the "
+                "nanoseconds are written as whole microseconds. Snowflake keeps nanoseconds; DuckDB keeps "
+                "microseconds.")),
     ("SFN-070", "Runs only in Snowflake", ("JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and "
                 "DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired.")),
     ("SFN-071", "Runs only in Snowflake", ("TIMESTAMP_TZ from text with a UTC offset other than the session zone's "
@@ -3213,6 +3334,8 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
     brackets = list(tree.find_all(exp.Bracket))  # held, so no new node can reuse one of these ids
     written = {id(b) for b in brackets}
     try:
+        _refuse_nanoseconds(tree)
+        as_text = list(tree.find_all(*_TEXT_NODES))
         _mark_result_names(tree)
         if _rewrite_zoned_writes(tree, tables or {}) and SFD_TZ not in notes:
             notes.append(SFD_TZ)
@@ -3248,6 +3371,7 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
         unknown_brackets = _type_values(tree, written)
         _rewrite_json_text(tree)
         _rewrite_division(tree)
+        _rewrite_time_text(tree, as_text)
         _json_of_variant_lists(tree)
         _rewrite_result_names(tree)
         tree = _sort_json_keys(_check_offsets(tree))

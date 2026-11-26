@@ -30,7 +30,7 @@ No bugs were found.
 - **policy_trust.py**:
   - The registry rights have the values Windows defines (`KEY_SET_VALUE` 0x2, `KEY_CREATE_SUB_KEY` 0x4) and `INHERIT_ONLY` is 0x8.
   - Users reading Group Policy's key and its parent (`KEY_READ`) is trusted; setting values or adding subkeys isn't.
-  - An entry that children inherit (object or container inherit, no propagate) still applies to the path itself; only inherit-only is skipped.
+  - An entry that children inherit (object or container inherit, no propagate) still applies to the path itself; only an inherit-only entry leaves the path itself out.
   - → `test_policy_trust_mutation_501.py`.
 - **audit_chain.py**:
   - A line whose time is earlier than the line before it is noted only past five minutes (300 s isn't noted, 302 s is), and how far back is said in minutes up to 119, in hours from 120 minutes to 47 hours, and in days from 48 hours; one minute is "1 minute". A later line is judged against the latest time before it, not the earlier one just noted.

@@ -1492,9 +1492,17 @@ def _round_keeps_type(node: exp.Round, info: exp.Expression) -> None:
 
 
 _ROUND_LENGTH = ("This T-SQL can't be run on the local engine: ROUND of a decimal needs its length written in the query, such as ROUND(x, 2), "
-                 "because the local engine can't round a decimal to a length read from a column or worked out. Nothing ran. "
+                 "because the local engine can't round a decimal to a length read from a column, a subquery or a function such as RAND. Nothing ran. "
                  "Write the length as a number, or use a CASE with one ROUND for each length.")
-_FIXED = (exp.Literal, exp.Null, exp.Cast, exp.Neg, exp.Paren, exp.DataType, exp.DataTypeParam)
+# What makes an argument change from row to row: a column, a subquery, a window or an aggregate, or a function
+# that gives a new value each call. Anything else (CHAR(44), 1 + 0, ', ' + '') is worked out before the query runs.
+_PER_ROW = (exp.Column, exp.Query, exp.Subquery, exp.Window, exp.AggFunc, exp.Rand, exp.CurrentTimestamp,
+            exp.CurrentDate, exp.CurrentTime, exp.Uuid)
+
+
+def _per_row(arg: exp.Expression) -> bool:
+    return any(isinstance(n, _PER_ROW) or isinstance(n, exp.Anonymous) and n.name.upper() in ("NEWID", "RANDOM")
+               for n in arg.walk())
 
 
 def _round_length(node: exp.Round, info: exp.Expression, decimal: bool) -> None:
@@ -1506,7 +1514,7 @@ def _round_length(node: exp.Round, info: exp.Expression, decimal: bool) -> None:
     length = node.args.get("decimals")
     if length is None:
         return
-    if decimal and not all(isinstance(n, _FIXED) for n in length.walk()):
+    if decimal and _per_row(length):
         raise ValueError(_ROUND_LENGTH)
     if isinstance(length, exp.Null) or isinstance(length, exp.Cast) and isinstance(length.this, exp.Null):
         # A NULL length gives NULL; DuckDB 2.0 refuses a NULL length for a decimal. CASE WHEN FALSE THEN x END is
@@ -3066,8 +3074,8 @@ def _refused_by_name(tree: exp.Expression) -> None:
         raise ValueError(_NOT_YET + "SET_BIT isn't mapped yet. Use | with a power of 2, such as x | 4.")
     # WR-270: functions/string-agg-transact-sql takes a separator that is "literal or variable"; DuckDB stopped with
     # its own binder error for a column.
-    if any(not all(isinstance(n, _FIXED) for n in agg.args["separator"].walk())
-           for agg in tree.find_all(exp.GroupConcat) if agg.args.get("separator") is not None):
+    if any(_per_row(agg.args["separator"]) for agg in tree.find_all(exp.GroupConcat)
+           if agg.args.get("separator") is not None):
         raise ValueError(_NOT_YET + "STRING_AGG's separator has to be text written in the query, such as ', ', as "
                          "T-SQL takes it. Nothing ran. Write the separator as text.")
     for spec in tree.find_all(exp.WindowSpec):
@@ -3744,14 +3752,10 @@ def _null_dates(tree: exp.Expression) -> None:
     """WR-270: a NULL where a date function takes its date gives NULL in T-SQL (functions/datepart-transact-sql,
     dateadd-transact-sql, datetrunc-transact-sql, datename-transact-sql), where DuckDB couldn't choose among
     its overloads for an untyped NULL or a NULL written as text, and stopped with a binder error. Such a NULL
-    is made a timestamp, which T-SQL converts text to there. ``CONVERT(type, NULL, style)`` is NULL of the
-    type whatever the style (functions/cast-and-convert-transact-sql)."""
+    is made a timestamp, which T-SQL converts text to there. (``CONVERT(type, NULL, style)`` needs nothing here:
+    the CONVERT rewrite already gives NULL of the type, pinned in test_tsql_null_arguments.)"""
     timestamp = exp.DataType.build("TIMESTAMP")
-    for node in list(tree.find_all(exp.Extract, exp.DateAdd, exp.TimestampTrunc, exp.Convert)):
-        if isinstance(node, exp.Convert):
-            if isinstance(node.expression, exp.Null) and isinstance(node.this, exp.DataType):
-                node.replace(exp.Cast(this=exp.null(), to=node.this.copy()))
-            continue
+    for node in list(tree.find_all(exp.Extract, exp.DateAdd, exp.TimestampTrunc)):
         key = "expression" if isinstance(node, exp.Extract) else "this"
         if _null_text(node.args.get(key)):
             node.set(key, exp.Cast(this=exp.null(), to=timestamp.copy()))

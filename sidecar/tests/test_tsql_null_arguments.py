@@ -9,6 +9,7 @@ test_tsql_rules_differential.py (NULL ...); these are the cases it can't write a
 
 from __future__ import annotations
 
+import duckdb
 import pytest
 
 from fabric_desktop.localdata import LocalData, tsql
@@ -127,6 +128,51 @@ def test_string_agg_with_a_column_separator_is_refused_by_name(engine) -> None:
     # string-agg-transact-sql: the separator "can be literal or variable".
     with pytest.raises(ValueError, match="STRING_AGG's separator has to be text written in the query.*Nothing ran"):
         engine.execute("SELECT STRING_AGG(s, s) FROM dbo.n", dialect="tsql")
+
+
+@pytest.mark.parametrize(("separator", "want"), [
+    # string-agg-transact-sql: a separator that doesn't change from row to row runs, however it is written.
+    ("CHAR(13) + CHAR(10)", "a\r\nb"), ("CHAR(44)", "a,b"), ("CAST('|' AS VARCHAR(1))", "a|b"), ("', ' + ''", "a, b"),
+])
+def test_string_agg_with_a_separator_worked_out_from_text_runs(separator: str, want: str) -> None:
+    con = duckdb.connect()
+    try:
+        out = tsql.translate(f"SELECT STRING_AGG(s, {separator}) WITHIN GROUP (ORDER BY s) "
+                             "FROM (VALUES ('b'), ('a')) AS v(s)")[0][0]
+        assert con.execute(out).fetchall() == [(want,)]
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("separator", ["(SELECT MAX(s) FROM dbo.n)", "CASE WHEN RAND() < 2 THEN ',' END",
+                                       "LEFT(CAST(NEWID() AS VARCHAR(36)), 1)", "s + ','"])
+def test_string_agg_with_a_separator_that_changes_by_row_is_refused_by_name(engine, separator: str) -> None:
+    with pytest.raises(ValueError, match="STRING_AGG's separator has to be text written in the query"):
+        engine.execute(f"SELECT STRING_AGG(s, {separator}) FROM dbo.n", dialect="tsql")
+
+
+@pytest.mark.parametrize(("expression", "want"), [
+    ("ROUND(1.55, 1 + 0)", "1.60"), ("ROUND(1.55, LEN('a'))", "1.60"),
+    ("ROUND(1.55, CAST(1 AS BIGINT) + 0)", "1.60"),
+])
+def test_round_of_a_decimal_to_a_length_worked_out_from_numbers_runs(engine, expression: str, want: str) -> None:
+    assert _one(engine, expression) == want
+
+
+@pytest.mark.parametrize("length", ["(SELECT MAX(i) FROM dbo.n)", "CAST(RAND() * 2 AS INT)"])
+def test_round_of_a_decimal_to_a_length_that_changes_by_row_is_refused_by_name(engine, length: str) -> None:
+    with pytest.raises(ValueError, match="ROUND of a decimal needs its length written in the query"):
+        engine.execute(f"SELECT ROUND(m, {length}) FROM dbo.n", dialect="tsql")
+
+
+@pytest.mark.parametrize(("expression", "kind"), [
+    # cast-and-convert-transact-sql: CONVERT of NULL is NULL of the type asked for, whatever the style.
+    ("CONVERT(DATE, NULL, 112)", "DATE"), ("TRY_CONVERT(DATETIME2, NULL, 126)", "TIMESTAMP"),
+    ("CONVERT(VARCHAR(30), NULL, 126)", "VARCHAR"),
+])
+def test_convert_of_null_with_a_style_keeps_the_type(expression: str, kind: str) -> None:
+    out = tsql.translate(f"SELECT {expression}")[0][0]
+    assert duckdb.sql(f"SELECT typeof(x) FROM ({out}) AS t(x)").fetchall() == [(kind,)]
 
 
 def _size(expression: str) -> int:

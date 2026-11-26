@@ -202,7 +202,7 @@ def test_a_bad_model_path_is_bad_input(tmp_path, capsys, make, says):
 
 @pytest.mark.parametrize("argv, says", [
     (["--sku", "F3"], "isn't a capacity SKU this check knows"),
-    (["--horizon-days", "0"], "--horizon-days is from 1 to"),
+    (["--horizon-days", "0"], "--horizon-days takes a number of days from 1 to"),
     (["--table", "FactSales"], "should be NAME=PATH"),
     (["--table", "Nope=."], "The model has no Direct Lake table named Nope."),
     (["--table", "FactSales=nowhere-here"], "isn't a folder on this PC"),

@@ -104,7 +104,7 @@ fabric-desktop directlake-check --model Sales.SemanticModel --table FactSales=D:
 
 It prints the verdict first, the deciding table, a line for each table with its status, forecast
 and fix, the smallest capacity that fits today and at the horizon, then what it can't see. Only
-paths on this PC are read: a URI (`abfss://`, `https://`) or a network share is refused. The exit
+paths on this PC are read, so a URI (`abfss://`, `https://`) or a network share is refused. The exit
 code is 0 for **Within limits**, 1 for **Will fall back** (or **Will fail**) and **Might fall
 back**, and 2 for **Not checked** or input it can't use.
 

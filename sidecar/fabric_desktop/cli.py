@@ -684,8 +684,8 @@ def _dl_cap(text: str) -> str:
 def _dl_local(raw: str, what: str) -> Path:
     """A path on this PC, or ValueError for a URI or a network share: this command reads no network."""
     if _DL_SCHEME.match(raw) or raw[:2] in ("//", "\\\\"):
-        raise ValueError(f"{what} {_dl_cap(raw)} isn't a path on this PC. directlake-check reads only local files: "
-                         "copy the table or model to this PC first.")
+        raise ValueError(f"{what} {_dl_cap(raw)} isn't a path on this PC. directlake-check reads only local files, "
+                         "so copy the table or model to this PC first.")
     return Path(raw).expanduser().resolve()
 
 
@@ -701,11 +701,12 @@ def _dl_model(raw: str) -> dict[str, Any]:
         bim, _ = _folder_bim(folder, folder.name.removesuffix(".SemanticModel"), shown)
     elif path.is_file():
         if path.stat().st_size > tmdl.MAX_CHARS * 4:
-            raise ValueError(f"{shown} is too large to read on this PC")
+            raise ValueError(f"{shown} is too large to read on this PC. Check that it's a semantic model's model.bim.")
         try:
             bim = json.loads(path.read_text(encoding="utf-8-sig"))
         except RecursionError:
-            raise ValueError(f"{shown} is nested too deeply to be a semantic model") from None
+            raise ValueError(f"{shown} is nested too deeply to be a semantic model. "
+                             "Check that it's a semantic model's model.bim.") from None
         except UnicodeDecodeError:
             raise ValueError(f"{shown} isn't UTF-8 text, so the model can't be read.") from None
         except ValueError as exc:  # narrow: json's own error says where the JSON breaks
@@ -755,7 +756,7 @@ def _directlake_check(args: argparse.Namespace) -> int:
         print(f"{_dl_cap(args.sku)} isn't a capacity SKU this check knows. Pick one of {', '.join(dl.SKUS)}.")
         return 2
     if not 1 <= args.horizon_days <= DL_MAX_HORIZON:
-        print(f"--horizon-days is from 1 to {DL_MAX_HORIZON}.")
+        print(f"--horizon-days takes a number of days from 1 to {DL_MAX_HORIZON}. Pick one in that range.")
         return 2
     try:
         bim = _dl_model(args.model)
@@ -765,7 +766,7 @@ def _directlake_check(args: argparse.Namespace) -> int:
         print(_DL_CONTROL.sub("?", str(exc)))
         return 2
     if not tables:
-        print("Not checked: the model has no Direct Lake tables.")
+        print("Not checked: the model has no Direct Lake tables. Point --model at a Direct Lake model.")
         return 2
     stats: dict[str, dl.TableStats | None] = {}
     where: dict[str, str] = {}

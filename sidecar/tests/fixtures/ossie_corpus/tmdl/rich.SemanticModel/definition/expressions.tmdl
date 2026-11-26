@@ -1,0 +1,6 @@
+expression DatabaseQuery = ```
+	let
+	    database = Sql.Database("corpus", "lh")
+	in
+	    database
+	```

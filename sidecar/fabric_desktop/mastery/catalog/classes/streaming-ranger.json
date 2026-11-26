@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-track", "name": "First Track", "criteria": "Reach Journeyman in Structured streaming basics."},
-  {"id": "no-event-lost", "name": "No Event Lost", "criteria": "Reach Adept in Checkpoints and restarts."},
-  {"id": "three-moons", "name": "Three Moons", "criteria": "Reach Journeyman in Tumbling windows, Hopping windows and Session windows."},
-  {"id": "swift-query", "name": "Swift Query", "criteria": "Reach Journeyman in summarize, extend and project."},
-  {"id": "rangers-mark", "name": "Ranger's Mark", "criteria": "Reach Adept in all ten talents of one Streaming Ranger specialization."}
+  {"id": "first-track", "name": "First Track", "criteria": "Reach Journeyman in Structured streaming basics.", "requires": {"level": 3, "talents": ["stream.02"]}},
+  {"id": "no-event-lost", "name": "No Event Lost", "criteria": "Reach Adept in Checkpoints and restarts.", "requires": {"level": 4, "talents": ["stream.03"]}},
+  {"id": "three-moons", "name": "Three Moons", "criteria": "Reach Journeyman in Tumbling windows, Hopping windows and Session windows.", "requires": {"level": 3, "talents": ["windows.02", "windows.03", "windows.04"]}},
+  {"id": "swift-query", "name": "Swift Query", "criteria": "Reach Journeyman in summarize, extend and project.", "requires": {"level": 3, "talents": ["kql.02"]}},
+  {"id": "rangers-mark", "name": "Ranger's Mark", "criteria": "Reach Adept in all ten talents of one Streaming Ranger specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

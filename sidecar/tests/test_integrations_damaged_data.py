@@ -426,6 +426,7 @@ def nbsvc(tmp_path):
 
 # A file that still has readable cells: nbformat-invalid parts the app doesn't use, and metadata of
 # the wrong type, whose settings the notebook reader drops (#3176).
+CELL_NAMED = {"cells that aren't objects", "a source that is a number", "a source list with a number"}
 READ_ANYWAY = {"nbformat-invalid", "metadata is a list", "our metadata is text", "cell metadata is a list"}
 
 
@@ -439,7 +440,8 @@ def test_a_damaged_notebook_is_named_by_every_notebook_tool(reg, nbsvc, tmp_path
             assert not isinstance(out, IntegrationError) or out.code not in ("internal", "invalid_input"), (cap_id, out)
         else:
             # The file is named, and so is the cell when one is the problem (the reader's cell check, #3232).
-            assert failed(out, "invalid_input").message.startswith(("bad.ipynb is damaged", "bad.ipynb can't be opened, because")), cap_id
+            start = "bad.ipynb can't be opened, because" if damage in CELL_NAMED else "bad.ipynb is damaged"
+            assert failed(out, "invalid_input").message.startswith(start), cap_id
     names = [n["name"] for n in ok(call(reg, nbsvc, "fabric_desktop_list_notebooks", tmp_path))["items"]]
     assert set(names) == {"good", "bad"}
     ok(call(reg, nbsvc, "fabric_desktop_get_project", tmp_path, id="notebooks"))

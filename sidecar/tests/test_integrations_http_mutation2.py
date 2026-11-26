@@ -146,7 +146,7 @@ def test_any_other_caller_is_refused(store, client):
     assert inner.calls == 0
 
 
-def test_a_program_running_as_someone_else_is_refused_and_every_caller_is_asked(store):
+def test_a_program_running_as_someone_else_is_refused_and_the_test_client_is_refused(store):
     asked = []
 
     def other(client_port, port):

@@ -27,7 +27,8 @@ def policy(tmp_path, monkeypatch, rules):
 
 def test_integrations_turned_off_by_policy_say_so(svc, tmp_path, monkeypatch):  # noqa: F811
     policy(tmp_path, monkeypatch, {"integrations": False})
-    assert svc._editor_allowed() == "Your organization has turned integrations off on this PC."
+    assert svc._editor_allowed() == ("Your organization has turned integrations off on this PC. Ask IT to change "
+                                     "integrations in the policy file.")
     with pytest.raises(PermissionError, match="turned integrations off"):
         svc.editor_set_enabled(True)
 

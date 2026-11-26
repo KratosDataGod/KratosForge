@@ -479,3 +479,8 @@ def test_bad_report_back_arguments_are_refused(kw, message):
     p = lk.from_finding(finding(), at=AT)
     with pytest.raises(ValueError, match=message):
         lk.report_back(p, _validation(p["optimization_id"], "verified"), **kw)
+
+
+def test_a_reference_ending_in_a_line_break_is_refused():
+    with pytest.raises(ValueError, match="fingerprint"):
+        lk._ref("abc\n", "original reference")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import json
 import logging
@@ -17,7 +16,7 @@ from deltalake import DeltaTable
 
 from . import app_settings, http_session, jsonfile, maintenance, redact, risk, xray
 from .auth import FABRIC_SCOPES, POWERBI_DATAFLOW_SCOPES
-from .fabric_api import FabricClient
+from .fabric_api import FabricClient, definition_parts
 from .fabric_run import TERMINAL
 from .meta_service import NoMetadataProject
 from .meta.templates import _columns_toml, _dtype_name
@@ -486,7 +485,8 @@ class XRayMixin:
             out["why"][-1] += f", less than {xray.STAGING_QUIET_DAYS} days, so a dataflow may still be using it."
         out["dataflows"] = self._staging_dataflows(workspace_id, lakehouse_id, name, _when(last), out["why"])
         if not out["allowed"]:
-            out["why"].append("Your organization turned off removing staging lakehouses (allow_staging_cleanup in its policy file).")
+            out["why"].append("Your organization has turned off removing staging lakehouses. "
+                              + app_settings.ask_it("allow_staging_cleanup"))
         out["ok"] = not out["why"]
         return out
 
@@ -673,19 +673,13 @@ def _when(iso: Any) -> dt.datetime | None:
 
 def _definition_text(definition: dict[str, Any]) -> str:
     """Every part of an item definition, decoded, as one text to search. A definition with no
-    parts is unreadable, not proof of anything."""
-    parts = (definition.get("definition") or definition).get("parts") or []
-    out = []
-    for part in parts:
-        payload = part.get("payload") or ""
-        try:
-            out.append(base64.b64decode(payload).decode("utf-8", "replace") if part.get("payloadType", "InlineBase64") == "InlineBase64" else str(payload))
-        except ValueError:
-            out.append(str(payload))
-        out.append(str(part.get("path") or ""))
+    parts, or a part that isn't whole base64 (FabricError BadDefinitionPart), is unreadable, not
+    proof of anything: read short, it could miss the lakehouse's name."""
+    parts = definition_parts(definition)
     if not parts:
-        raise ValueError("Fabric returned no definition parts")
-    return "\n".join(out)
+        raise ValueError("Fabric's definition couldn't be read, because Fabric returned no parts. Open the item in Fabric "
+                         "to check it still loads.")
+    return "\n".join(f"{data.decode('utf-8', 'replace')}\n{path}" for path, data in parts.items())
 
 
 def _finding_id(f: dict[str, Any]) -> str:

@@ -223,9 +223,10 @@ def keep_copy(root: Path, name: str, src: Path) -> Path:
     """A byte copy of a notebook's file that isn't a notebook the app can read any more (a Git merge
     left conflict markers in it), kept beside its versions as ``outside-<time>.ipynb``."""
     folder = _folder(root, name)
-    folder.mkdir(parents=True, exist_ok=True)
     target = folder / f"outside-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}.ipynb"
-    shutil.copyfile(src, target)
+    with jsonfile.long_path_named(src, "kept"):  # past Windows' 260 without long paths: named by the notebook
+        folder.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, target)
     return target
 
 

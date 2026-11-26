@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-commit", "name": "First Commit", "criteria": "Reach Journeyman in Workspaces under Git."},
-  {"id": "conflict-resolved", "name": "Conflict Resolved", "criteria": "Reach Adept in Merge conflicts."},
-  {"id": "safe-road", "name": "Safe Road", "criteria": "Reach Journeyman in Rollback plans."},
-  {"id": "same-everywhere", "name": "Same Everywhere", "criteria": "Reach Journeyman in Promotion between environments."},
-  {"id": "pathfinders-cairn", "name": "Pathfinder's Cairn", "criteria": "Reach Adept in all ten talents of one DevOps Pathfinder specialization."}
+  {"id": "first-commit", "name": "First Commit", "criteria": "Reach Journeyman in Workspaces under Git.", "requires": {"level": 3, "talents": ["git.01"]}},
+  {"id": "conflict-resolved", "name": "Conflict Resolved", "criteria": "Reach Adept in Merge conflicts.", "requires": {"level": 4, "talents": ["git.04"]}},
+  {"id": "safe-road", "name": "Safe Road", "criteria": "Reach Journeyman in Rollback plans.", "requires": {"level": 3, "talents": ["release.07"]}},
+  {"id": "same-everywhere", "name": "Same Everywhere", "criteria": "Reach Journeyman in Promotion between environments.", "requires": {"level": 3, "talents": ["env.07"]}},
+  {"id": "pathfinders-cairn", "name": "Pathfinder's Cairn", "criteria": "Reach Adept in all ten talents of one DevOps Pathfinder specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

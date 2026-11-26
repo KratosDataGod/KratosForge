@@ -463,9 +463,16 @@ def _names(trees: list[ast.AST]) -> tuple[dict[str, str], dict[str, list[ast.exp
     utils: dict[str, str] = {}
     values: dict[str, list[ast.expr | None]] = {}
     plain: set[int] = set()
+    unseen: list[str] = []  # names given a value the check can't see, added after every seen value
     for tree in trees:
+        # One walk per tree: ast.walk visits an assignment before its target, so ``plain`` already
+        # holds a target by the time the walk reaches it.
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and id(node) not in plain:
+                unseen.append(node.id)
+            elif isinstance(node, ast.arg):
+                unseen.append(node.arg)
+            elif isinstance(node, ast.Import):
                 utils |= {a.asname: a.name for a in node.names if a.asname and a.name.split(".")[0] in _UTILS}
             elif isinstance(node, ast.ImportFrom) and not node.level and node.module \
                     and node.module.split(".")[0] in _UTILS:
@@ -477,12 +484,8 @@ def _names(trees: list[ast.AST]) -> tuple[dict[str, str], dict[str, list[ast.exp
                     if isinstance(t, ast.Name):
                         plain.add(id(t))
                         values.setdefault(t.id, []).append(node.value)
-    for tree in trees:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and id(node) not in plain:
-                values.setdefault(node.id, []).append(None)
-            elif isinstance(node, ast.arg):
-                values.setdefault(node.arg, []).append(None)
+    for name in unseen:
+        values.setdefault(name, []).append(None)
     for _ in range(5):  # fs = nu.fs, then mount = fs.mount
         found = {}
         for name, vals in values.items():

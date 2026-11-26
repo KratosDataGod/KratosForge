@@ -1,0 +1,21 @@
+version: 0.1.1
+semantic_model:
+- name: corpus_snowflake
+  description: Snowflake's 0.1.1 wrapper, as a Snowflake semantic view is read out.
+  datasets:
+  - name: orders
+    source: db.public.orders
+    fields:
+    - name: order_id
+      expression:
+        dialects:
+        - {dialect: SNOWFLAKE, expression: order_id}
+    - name: amount
+      expression:
+        dialects:
+        - {dialect: ANSI_SQL, expression: amount}
+  metrics:
+  - name: total amount
+    expression:
+      dialects:
+      - {dialect: SNOWFLAKE, expression: SUM(orders.amount)}

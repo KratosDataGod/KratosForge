@@ -572,6 +572,61 @@ view row's notes count these measures, and they aren't listed as dropped.
 `semantic_matrix.redacted(matrix)` gives a copy that's safe outside the local pane. Each parity report goes
 through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and hash instead.
 
+## Fixture corpus
+
+`sidecar/tests/fixtures/ossie_corpus/` holds small synthetic files that every converter and reader
+runs over (OSSIE-012a, tests only): Ossie 0.2.0.dev0 models of growing richness (one written as JSON,
+one with a Power BI section), two `model.bim` files, two TMDL folders, a Fabric Semantic View, a
+0.3.0.dev0 file, a Snowflake 0.1.1 file and a version no profile knows, and damaged or hostile files:
+parts of the wrong type, a root that isn't an object, an empty file, text that isn't YAML, aliases, a
+repeated key, values nested 300 levels deep, 2,000-character names and names in several scripts.
+Nesting stays at a few hundred levels, well under what the repository's secret scan can read.
+
+`manifest.json` gives each file's kind, what it is, and the outcome expected from each entry point:
+`to_tmsl` or `export`, `validate`, the round trip, Ossie or TMSL to TMDL, the Semantic View emitter and
+L1 parity. A refusal is a plain ValueError with the words the manifest names; wrong-typed parts are
+never a TypeError, AttributeError or KeyError. `tests/ossie_corpus.py` loads the corpus and sums each
+outcome up in a word, and `tests/test_ossie_corpus.py` checks every file against the manifest.
+
+Two things the corpus first showed are fixed, and the manifest says so: a root that isn't an object
+is now a ValueError rather than a TypeError, and conversion keeps the schema check's 64-level depth
+limit (see Parts of the wrong type). L1 still reads a `model.bim` side nested past it.
+
+The manifest also records what the corpus shows that may be worth changing, without changing it:
+
+- A Semantic View converted to TMDL loses its relationships: a view has no fields, so the converter
+  finds no column for either end. Each one is reported as lost.
+- On Import, a role that travels in the Power BI section comes back Fully preserved, with no security
+  warning, although only Power BI could read it in the file. On Export the same role is Preserved
+  through extensions, with a security warning.
+- The TMDL writer and L1 don't run the `model.bim` wrong-type check that Export runs; they skip such a
+  part with a report row, or read it as it is.
+- The Semantic View emitter leaves a wrong-typed part out and names it under `excluded`, and the view
+  can still be Valid.
+
+## Converter upgrade check
+
+Before the vendored converter is updated, `sidecar/tools/ossie_upgrade_diff.py` runs the fixture
+corpus through the converter KratosForge ships and through a candidate, and lists what changed
+(OSSIE-012c, a developer tool run by hand; the engine never uses it and it never goes online):
+
+    cd sidecar
+    python tools/ossie_upgrade_diff.py path/to/ossie_microsoft
+
+The candidate is a package folder or a single module with the converter's two functions,
+`convert_ossie_to_semantic_model` and `convert_semantic_model_to_ossie`. Loading it runs its code,
+so point it only at code you would run. For the candidate's run it stands in for the vendored
+package in `sys.modules` and in the conversion module, and both are put back afterwards, also when
+the run fails.
+
+Each line names a file, the entry point or object, the outcome or fidelity class before and after,
+and whether that is worse, better or changed. Worse means a refusal or error where the file
+converted, a lower fidelity class, an object that is gone, or an outcome the manifest expects that
+no longer happens, so a hostile file the candidate accepts counts as worse. `--only hostile/` limits
+the run to some files and `--json` prints the rows. The exit code is 0 when nothing got worse, 1
+when something did, and 2 when the candidate can't be used because it doesn't import or lacks a
+function.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it

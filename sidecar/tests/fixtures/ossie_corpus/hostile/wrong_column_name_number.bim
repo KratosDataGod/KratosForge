@@ -1,0 +1,3 @@
+{"name": "wrong_column_name_number", "compatibilityLevel": 1604, "model": {"culture": "en-US", "tables": [
+  {"name": "orders", "columns": [{"name": 42, "dataType": "int64", "sourceColumn": "order_id"}],
+   "partitions": [{"name": "orders", "mode": "directLake", "source": {"type": "entity", "entityName": "orders", "schemaName": "dbo", "expressionSource": "DatabaseQuery"}}]}]}}

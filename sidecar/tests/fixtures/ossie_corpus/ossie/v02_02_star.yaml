@@ -1,0 +1,40 @@
+version: 0.2.0.dev0
+name: corpus_star
+description: Orders by customer, written by another tool (no Power BI section).
+datasets:
+- name: orders
+  source: dbo.orders
+  primary_key: [order_id]
+  fields:
+  - name: order_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: order_id}]}
+    datatype: Integer
+  - name: customer_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: customer_id}]}
+    datatype: Integer
+  - name: amount
+    expression: {dialects: [{dialect: ANSI_SQL, expression: amount}]}
+    datatype: Decimal
+    description: Order amount
+- name: customers
+  source: dbo.customers
+  primary_key: [customer_id]
+  fields:
+  - name: customer_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: customer_id}]}
+    datatype: Integer
+  - name: country
+    expression: {dialects: [{dialect: ANSI_SQL, expression: country}]}
+    datatype: String
+relationships:
+- name: orders_customers
+  from: orders
+  to: customers
+  from_columns: [customer_id]
+  to_columns: [customer_id]
+metrics:
+- name: total amount
+  expression:
+    dialects:
+    - dialect: ANSI_SQL
+      expression: SUM(orders.amount)

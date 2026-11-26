@@ -1,0 +1,11 @@
+version: 0.2.0.dev0
+name: wrong_extension_json
+datasets:
+- name: orders
+  source: dbo.orders
+  fields:
+  - name: order_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: order_id}]}
+custom_extensions:
+- vendor_name: POWER_BI
+  data: '{"_v": 2, "roles": [unclosed'

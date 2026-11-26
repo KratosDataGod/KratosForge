@@ -554,8 +554,13 @@ def main() -> None:
     _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
-    rpc_in = _rpc_stdin(sys.stdin)
-    sys.stdin = open(devnull, encoding="utf-8")  # noqa: SIM115 - a cell's pdb or sys.stdin.read gets nothing, never the app's requests
+    # The same for requests: a private handle on fd 0, then fd 0 is the null device, so a cell's pdb,
+    # sys.stdin, sys.__stdin__ or os.read(0) gets nothing, never the app's requests (as kernel_host does).
+    rpc_in = _rpc_stdin(os.fdopen(os.dup(sys.stdin.fileno()), "r", encoding="utf-8"))
+    null = os.open(devnull, os.O_RDONLY)
+    os.dup2(null, sys.stdin.fileno())
+    os.close(null)
+    sys.stdin = open(devnull, encoding="utf-8")  # noqa: SIM115 - kept open for the engine's life
     _log_to_stderr()
     from . import data_format
     try:

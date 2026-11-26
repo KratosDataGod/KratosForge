@@ -975,10 +975,10 @@
     {
       "id": "FEAT-SHL-11",
       "name": "Support bundle",
-      "description": "A zip of versions, settings sources and the last 2,000 log lines with personal details taken out.",
+      "description": "A zip of versions, settings sources and the last 2,000 log lines with personal details taken out, saved from Settings after a preview of what it holds.",
       "pillar": "Enterprise services",
       "category": "Enterprise Administration and FinOps",
-      "status": "Partially Implemented",
+      "status": "Implemented",
       "verification": "Verified",
       "evidence": [
         {
@@ -989,25 +989,38 @@
         {
           "kind": "smoke",
           "ref": "fabric-desktop support-bundle --out <dir> wrote about.json and CONTENTS.txt"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/support-bundle.test.cjs",
+          "note": "the dialog lists each file with its size; Save writes the zip and Show in folder reveals it"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_support_bundle_save.py",
+          "note": "support_bundle_preview and support_bundle_save RPCs"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/support_bundle.py",
-        "sidecar/fabric_desktop/cli.py"
+        "sidecar/fabric_desktop/cli.py",
+        "sidecar/fabric_desktop/service.py",
+        "app/ui/settings.js"
       ],
       "tests": [
-        "sidecar/tests/test_redact.py"
+        "sidecar/tests/test_redact.py",
+        "sidecar/tests/test_support_bundle_save.py",
+        "app/tests/browser/support-bundle.test.cjs"
       ],
       "ui": {
-        "surface": "CLI only (fabric-desktop support-bundle)",
+        "surface": "Settings > Help and about > Save support bundle; CLI fabric-desktop support-bundle",
         "preview": false
       },
       "limitations": [
-        "No UI entry and no RPC",
         "Non-Windows data folder differs from app_settings' folder"
       ],
       "workstream": "Enterprise readiness (FD-138)",
-      "next_action": "Add 'Save support bundle' with a contents preview to Settings, as FD-138's acceptance asks (PB-062).",
+      "next_action": "Keep. Settings saves the bundle after showing what it holds (#1679), as FD-138 asks.",
       "backlog": [
         "PB-062"
       ],

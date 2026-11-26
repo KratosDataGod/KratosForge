@@ -12,7 +12,10 @@ Markdown, a third of the code cells with saved outputs):
 
 Most of the RPCs' time is compute_check reading every code cell. It used to scan each cell for
 line magics character by character five times over (magics._lines), and walk every cell's syntax
-tree once more than it needed (fabric_run._names); both are fixed.
+tree once more than it needed (fabric_run._names); both are fixed. Later the save_notebook RPC measured ~0.95 s
+here and ran over its budget on busy Windows runners (4.55 s, 6.05 s): compute_check parsed and walked every
+code cell again on each save. It now keeps each cell's tree and walk by its text (fabric_run._parse, _walked),
+so a save after one edit takes ~0.46 s.
 
 The budgets are about 5x the measurement (more for the sub-0.1 s store calls, where timer noise
 and a first fsync dominate), for a slow CI runner and for Windows, the target, where file writes

@@ -15,6 +15,7 @@ import datetime as dt
 import json
 import re
 from collections.abc import Callable, Collection
+from functools import lru_cache
 from typing import Any
 
 from . import magics
@@ -467,7 +468,7 @@ def _names(trees: list[ast.AST]) -> tuple[dict[str, str], dict[str, list[ast.exp
     for tree in trees:
         # One walk per tree: ast.walk visits an assignment before its target, so ``plain`` already
         # holds a target by the time the walk reaches it.
-        for node in ast.walk(tree):
+        for node in _walked(tree):
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and id(node) not in plain:
                 unseen.append(node.id)
             elif isinstance(node, ast.arg):
@@ -706,7 +707,7 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
     Fabric only), ``unknown_local`` (the check can't tell for this PC) and ``unknown`` (it can't tell
     for either place). ``runs`` are the notebooks it runs by a literal name, as (line, name, how)."""
     out: dict[str, list[Any]] = {"fabric": [], "unknown_local": [], "unknown": [], "runs": []}
-    for node in ast.walk(tree):
+    for node in _walked(tree):
         line = getattr(node, "lineno", 1)
         if isinstance(node, ast.ImportFrom) and not node.level and node.module and node.module.split(".")[0] in _UTILS:
             if any(_UTILS_USE.match(f"{node.module}.{a.name}".replace("notebookutils.mssparkutils", "mssparkutils", 1))
@@ -822,6 +823,22 @@ def _snippet(source: str, match: re.Match[str] | None = None) -> str:
     return line if len(line) <= 60 else line[:57] + "..."
 
 
+@lru_cache(maxsize=4096)
+def _parse(code: str) -> ast.AST | SyntaxError:
+    """A cell's syntax tree, or why it can't be read. Kept by text: the check runs on every save of a
+    notebook, and most of its cells haven't changed since the last one. The check only reads the trees."""
+    try:
+        return ast.parse(code)
+    except (SyntaxError, ValueError) as exc:
+        return exc if isinstance(exc, SyntaxError) else SyntaxError(str(exc))
+
+
+@lru_cache(maxsize=4096)
+def _walked(tree: ast.AST) -> tuple[ast.AST, ...]:
+    """ast.walk(tree), in its order, kept for a tree _parse kept: _names and _read_python both walk each tree."""
+    return tuple(ast.walk(tree))
+
+
 def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                   load: Loader | None = None, _seen: tuple[str, ...] = (), *,
                   resources: str | None = None) -> dict[str, Any]:
@@ -847,10 +864,7 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     trees: dict[int, ast.AST | SyntaxError] = {}
     for n, c in enumerate(cells, 1):
         if c.get("type") != "markdown" and (code := _python(c.get("source", ""))) is not None and code.strip():
-            try:
-                trees[n] = ast.parse(code)
-            except (SyntaxError, ValueError) as exc:
-                trees[n] = exc if isinstance(exc, SyntaxError) else SyntaxError(str(exc))
+            trees[n] = _parse(code)
     utils, values = _names([t for t in trees.values() if isinstance(t, ast.AST)])
     sessions = _sessions(values)
     from . import spark_local

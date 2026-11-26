@@ -19,7 +19,7 @@ from fabric_desktop import credential_facts
 
 NOT_AFTER = dt.datetime(2031, 3, 4, 5, 6, 7, tzinfo=dt.timezone.utc)
 PASSWORD = "made-up-pfx-password"  # pragma: allowlist secret (made up)
-PASSWORD_ENV = "KF_TEST_CERT_PASSWORD"
+PASSWORD_ENV = "KF_TEST_CERT_PASSWORD"  # pragma: allowlist secret (an environment variable name)
 
 
 @pytest.fixture(autouse=True)

@@ -64,6 +64,14 @@ outcome verified_fixed (FEA-602). Anything else leaves it open. Records hold fin
 never code or evidence text.
 Writing them, version-aware updates and the responsible user and device wait on ESI-301 (ESI-601).
 
+``records``: an optimization record's lifecycle (plan section 4.4, plus reversed and retired) as
+insert-only version rows built on a ``links`` proposal. Every change says the version it was based on;
+a stale one is refused as a conflict, never merged, and a move outside the graph is refused with the
+reason. References are fingerprints, never code. Applying records rollback information (what to restore,
+from which reference). The responsible party is the device (installation id) only: a person's identity
+waits on decision D3 and is refused. A reversal nets the optimization's accruals to zero through
+``corrections``; a retirement stops accruals and the ``recurring`` projection (ESI-301).
+
 ``planner_inputs``: optimization demand changes shaped for the capacity planner (OE-040, OE-041), which
 isn't built yet. Per capacity and per workload there are two inputs, verified first, never summed.
 ``verified`` holds Measured accruals of optimizations whose latest validation is Verified. ``estimated``

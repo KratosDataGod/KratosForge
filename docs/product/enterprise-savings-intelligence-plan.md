@@ -409,7 +409,7 @@ ledger's only accrual grain (section 4.5).
 
 ### Phase 3: Optimization ledger
 
-**ESI-301 Optimization records.** Lifecycle extension (4.4) with version-aware updates; links
+**ESI-301 Optimization records.** **Built** (engine only, no writes; the user field waits on D3). `savings/records.py`. Each change is a new version row built on the ESI-601 proposal; a change based on a stale version is refused as a conflict, never merged; moves outside the graph (4.4, plus `reversed` and `retired`) are refused with a reason. The responsible party is the device (installation id) only. Writing waits on additive `fdopt_recommendations` columns (previous state, implemented, reverted, reversed and retired times, rule id and version), co-signed with Lakehouse optimize. Lifecycle extension (4.4) with version-aware updates; links
 to artifacts, workspaces and capacities; original and optimized references (fingerprints,
 never code text); rollback information; responsible user and device. Through the Optimize
 lakehouse thread (`shared.py`).

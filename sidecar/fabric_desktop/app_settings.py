@@ -310,15 +310,16 @@ SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_downl
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
 # Settings that widen what KratosForge trusts or where it sends or fetches things: sign-in hosts, a
-# package source, the sign-in app, a telemetry or help-desk address, hosts App Studio and integrations
-# may call. Only a source the person using the PC couldn't change may set them (Chris, 2026-11-10):
+# package source, the sign-in app, a telemetry or help-desk address, how long audit trails and receipts
+# are kept, and the Platform workspaces whose functions run as the person (platform). Only a source the
+# person using the PC couldn't change may set them (Chris, 2026-11-10):
 # from a policy file or Group Policy key they could change, or the last good copy in their own profile,
 # they are ignored and reported; that source's restrictions still apply, with a warning.
 # audit_retention_days and receipt_retention_days: 0 keeps them, otherwise at least this many days.
 RETENTION_MIN_DAYS = 30
 LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "notebook_package_folder", "client_id",
-             "telemetry_connection_string", "appstudio_hosts", "integrations_http", "support_url",
-             "audit_retention_days", "receipt_retention_days")
+             "telemetry_connection_string", "support_url", "audit_retention_days", "receipt_retention_days",
+             "platform")
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -343,13 +344,13 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
 #   "neutral"    policy only, but neither widens trust nor takes anything away; the reason is given
 SHELL_LOOSENING = ("engine_download_url", "engine_folder")  # where the engine's code comes from
 POLICY_NEUTRAL: dict[str, str] = {
-    "platform": "where the platform catalog is; the person can choose their own in Settings > Platform",
     "local_retention_days": "how long local copies of tables are kept; they can be fetched again, and the person can delete them",
     "incident_sla": "targets an incident is measured against; changes no access",
 }
 POLICY_RESTRICTS = (*RESTRICTED, "auto_update", "register_link_scheme", "integrations",
-                    "integrations_max_permissions", "integrations_extensions", "integrations_editors",
-                    "receipt_redactions", "appstudio_models", "appstudio_providers", "appstudio_sample_rows")
+                    "integrations_max_permissions", "integrations_http", "integrations_extensions",
+                    "integrations_editors", "receipt_redactions", "appstudio_models", "appstudio_providers",
+                    "appstudio_hosts", "appstudio_sample_rows")
 
 
 def policy_effect(key: str) -> str:

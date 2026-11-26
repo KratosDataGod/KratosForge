@@ -52,6 +52,8 @@ IT can skip that step for everyone: add the platform to the [organization settin
 
 The ids are in each Platform workspace's `VL_Platform` variable library.
 
+The app takes `platform` only from a `policy.json` that only administrators could have written, as Intune, Group Policy and an elevated copy leave it ([Enterprise install](enterprise-install.md#deploy)). From any other, it's ignored and listed under **Settings > Help and about**.
+
 ## Who can do what
 
 Two things decide it: your **role on the Platform workspace** in Fabric (what you can reach at all), and whether you're a **platform admin** (what the platform lets you change). Nothing new needs to be registered or consented.

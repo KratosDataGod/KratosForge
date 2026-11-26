@@ -66,24 +66,26 @@ def test_a_file_only_admins_can_change_sets_them(policy, gp):
 
 
 def test_a_file_the_user_could_change_sets_no_loosening_but_its_restrictions_stay(policy, gp, file_changeable):
-    policy({**WIDE, "telemetry": False, "allowed_tenants": [TENANT], "integrations_http": ["api.contoso.com"]})
+    policy({**WIDE, "telemetry": False, "allowed_tenants": [TENANT], "integrations_http": False})
     data, reason = app_settings.read_policy()
     assert reason is None
     assert not set(data) & set(app_settings.LOOSENING)
     assert data["telemetry"] is False and data["allowed_tenants"] == [TENANT]  # restrictions still apply
+    assert data["integrations_http"] is False  # a restriction too
     settings = app_settings.load()
     assert settings["client_id"]["source"] != "policy" and settings["support_url"]["value"] == ""
     assert settings["telemetry"] == {"value": False, "source": "policy"}
     problems = app_settings.policy_problems()
     ignored = [p for p in problems if "ignored, because" in p]
-    assert len(ignored) == 1 and "client_id, dbconnect_index_url, fabric_view_sign_in_hosts, integrations_http" in ignored[0]
+    assert len(ignored) == 1 and "client_id, dbconnect_index_url, fabric_view_sign_in_hosts, notebook_package_folder" in ignored[0]
     assert "isn't owned by SYSTEM or Administrators" in ignored[0] and ignored[0].endswith("Its restrictions still apply")
     assert any("can be changed by the account" in p and "Ask IT" in p for p in problems)  # the warning stays
 
 
 def test_integrations_read_the_same_filtered_settings(policy, gp, file_changeable):
-    policy({"integrations_http": ["api.contoso.com"]})
-    assert "integrations_http" not in integrations_policy.app_settings.read_policy()[0]
+    policy({"client_id": WIDE["client_id"], "integrations_http": False})
+    data = integrations_policy.app_settings.read_policy()[0]
+    assert "client_id" not in data and data["integrations_http"] is False
 
 
 def test_a_changeable_file_without_loosening_settings_isnt_checked(policy, gp, monkeypatch):

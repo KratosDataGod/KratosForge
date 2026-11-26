@@ -42,7 +42,7 @@ from urllib.parse import unquote
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
+from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects, win_paths
 from ..awake_timer import AwakeTimer
 from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
 from . import delta, tsql, tsql_errors, tsql_merge
@@ -696,7 +696,9 @@ class LocalEngine:
                 if table.format == "csv" and (above := _lines_above_the_rows(con, table.paths[0])):
                     issues.append({"path": table.paths[0], "problem": _lines_above_problem(above, table)})
             except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
-                entry["status"], entry["error"] = "error", _short(exc)
+                from ..support_bundle import long_paths_enabled
+                entry["status"], entry["error"] = "error", (  # past Windows' 260 without long paths: named
+                    win_paths.read_too_long(table.paths, long_paths_enabled()) or _short(exc))
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
             catalog[key] = entry
         for key in mine - keep:

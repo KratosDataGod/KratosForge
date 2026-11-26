@@ -27,6 +27,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import win_paths
+
 # Suffix (lower case) -> format. Compressed CSV and JSON are read by DuckDB directly.
 FORMATS = {
     ".parquet": "parquet", ".parq": "parquet",
@@ -250,7 +252,9 @@ def discover(source: Source, max_files: int = 20000) -> Discovery:
         try:
             entries = sorted(os.scandir(folder), key=lambda e: e.name.lower())
         except OSError as exc:
-            issues.append(Issue(str(folder), f"Can't open the folder: {exc.strerror or exc}"))
+            from ..support_bundle import long_paths_enabled  # here: support_bundle imports much of the package
+            issues.append(Issue(str(folder), win_paths.read_too_long([str(folder)], long_paths_enabled(), "opened")
+                                or f"Can't open the folder: {exc.strerror or exc}"))
             return
         for entry in entries:
             path = Path(entry.path)

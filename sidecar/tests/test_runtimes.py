@@ -62,7 +62,23 @@ def test_the_install_is_hash_pinned_isolated_and_sees_only_a_minimal_environment
     assert cmd[cmd.index("-r") + 1] == str(locks / "1.2.txt")
     folder = str(r.folder("1.2"))
     assert cmd[cmd.index("--target") + 1] == folder and kw["cwd"] == folder
-    assert kw["env"] == {"PATH": "/bin", "TMP": "/t", "no_proxy": "corp"}
+    assert kw["env"] == {"PATH": "/bin", "TMP": "/t", "no_proxy": "corp", "PYTHONIOENCODING": "utf-8"}
+
+
+def test_pip_output_naming_a_folder_outside_the_ansi_code_page_reaches_the_log(tmp_path, locks):
+    """Windows gives a child Python's pipe the ANSI code page (cp1252 here) unless PYTHONIOENCODING says
+    otherwise; pip naming C:\\Users\\Jöhn 日本 then failed to write the line, so the log lost it."""
+    home = tmp_path / "Jöhn 日本"
+
+    def windows_run(cmd, **kw):
+        env = {**kw["env"], "PYTHONIOENCODING": kw["env"].get("PYTHONIOENCODING", "cp1252")}
+        line = "import sys; print('Processing', sys.argv[1])"
+        return subprocess.run([sys.executable, "-c", line, cmd[cmd.index("--target") + 1]],
+                              **{**kw, "env": {**os.environ, **env}, "creationflags": 0})
+
+    r = runtimes_for(home, locks, run=windows_run)
+    out = r.install("1.2", {"PATH": os.environ.get("PATH", "")})
+    assert out["ok"] and f"Processing {r.folder('1.2')}" in out["log"], out["log"]
 
 
 def test_policy_turns_installs_off_or_points_them_at_a_mirror(tmp_path, locks, monkeypatch):

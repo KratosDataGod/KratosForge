@@ -209,3 +209,21 @@ def test_a_cell_title_longer_than_the_app_keeps_still_counts_as_unchanged(tmp_pa
     loaded = store.load("nb")
     loaded["cells"][2]["source"] += "\n"
     assert json.loads(_save(store, loaded))["cells"][1]["outputs"] == nb["cells"][1]["outputs"]
+
+
+def test_protect_from_deletion_set_by_another_tool_stays_when_the_cell_is_edited(tmp_path):
+    # WR-136: editable and deletable false are KratosForge's only as part of frozen (with
+    # run_control.frozen); on their own they're JupyterLab's and stay. Unfreezing drops all three.
+    raw = (FIXTURES / "jupyter_4_4.ipynb").read_bytes()
+    nb = json.loads(raw)
+    nb["cells"][1]["metadata"]["deletable"] = False
+    nb["cells"][2]["metadata"].update(editable=False, deletable=False, run_control={"frozen": True})
+    (tmp_path / "nb.ipynb").write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    store = NotebookStore(tmp_path)
+    loaded = store.load("nb")
+    assert loaded["cells"][2]["meta"].get("frozen") is True
+    loaded["cells"][1]["source"] += "\nedited = True"
+    del loaded["cells"][2]["meta"]["frozen"]
+    after = json.loads(_save(store, loaded))
+    assert after["cells"][1]["metadata"]["deletable"] is False
+    assert not {"editable", "deletable", "run_control"} & set(after["cells"][2]["metadata"])

@@ -321,6 +321,11 @@ class OneLakeBackend:
         return True
 
 
+# The longest a lease body may say it runs from each write. Holders renew every few minutes at most,
+# so a body that says more is damaged, and runs no longer than this.
+MAX_LEASE_LENGTH = 24 * 3600
+
+
 class Leases:
     def __init__(self, backend: Backend, owner: str, ttl: float = 120, wait: float = 120,
                  clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep):
@@ -390,7 +395,9 @@ class Leases:
             return self.ttl
         # A damaged or hostile body (NaN, infinite, zero or less) can't make a lease last forever or
         # end at once: this writer's own length stands in.
-        return length if math.isfinite(length) and length > 0 else self.ttl
+        if not (math.isfinite(length) and length > 0):
+            return self.ttl
+        return min(length, max(self.ttl, MAX_LEASE_LENGTH))  # nor can a body's own very long length
 
     def holder(self, key: str) -> str:
         stored = self.backend.read(key)

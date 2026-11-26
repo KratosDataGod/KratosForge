@@ -21,7 +21,7 @@ from types import SimpleNamespace
 import pytest
 
 from fabric_desktop import access_cache, mailbox, notebook_versions
-from fabric_desktop.leases import Leases, LocalBackend
+from fabric_desktop.leases import Leases, LocalBackend, Stored
 from fabric_desktop.optimize.outbox import Outbox
 
 from tests.settings_fuzz import mutations
@@ -111,8 +111,8 @@ def test_a_request_nested_too_deeply_is_rejected_with_a_plain_reason():
     control = _check_poll({"requests/a.json": DEEP})
     status = json.loads(control.files["status/a.json"])
     assert status["state"] == "rejected"
-    assert status["reason"] == ("the request can't be read because it is nested too deeply; "
-                                "write it as one flat JSON object, as the contract shows")
+    assert status["reason"] == ("the request can't be read because it's nested too deeply, "
+                                "so write it as one flat JSON object, as the contract shows")
 
 
 @pytest.mark.parametrize("seed", [1, 2])
@@ -171,6 +171,23 @@ def test_a_damaged_lease_file_that_has_gone_unwritten_past_its_length_is_taken_o
         assert isinstance(leases._holder_and_host("k"), str), label
         assert leases.try_acquire("k", now) is not None, label
         assert leases.holder("k") == "me", label
+
+
+def test_a_lease_whose_body_gives_itself_a_very_long_length_runs_out_after_a_day(tmp_path):
+    now = time.time()
+    raw = json.dumps(GOOD_LEASE | {"ttl": 1e15, "expires": now + 1e15}).encode()
+    backend = LocalBackend(tmp_path / "local")
+    path = backend._path("k")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    os.utime(path, (now - 1000, now - 1000))
+    assert Leases(backend, "me", ttl=10, wait=0).try_acquire("k", now) is not None  # locally
+    leases = Leases(backend, "me", ttl=10, wait=0)
+    day = 24 * 3600
+    assert leases._expired(Stored(raw, "e", modified=now - day - 5, store_now=now))  # on OneLake's clock
+    assert not leases._expired(Stored(raw, "e", modified=now - day + 60, store_now=now))
+    normal = json.dumps(GOOD_LEASE | {"ttl": 300, "expires": now + 300}).encode()
+    assert not leases._expired(Stored(normal, "e", modified=now - 200, store_now=now))  # a live lease stands
 
 
 def test_a_live_lease_is_still_not_taken_over(tmp_path):
@@ -300,3 +317,32 @@ def test_the_access_view_reads_back_any_rows_a_refresh_wrote():
         frames += [pl.DataFrame(run.rows[k]) if run.rows[k] else None for k in (access_cache.WORKSPACE, access_cache.LAKEHOUSE)]
         out = access_cache.view(*frames, {"w0", "w1"})
         assert {w["workspace_id"] for w in out} <= {"w0", "w1"}
+
+
+def test_an_access_entry_that_cant_be_read_is_shown_as_not_known_and_the_others_still_show(caplog):
+    import polars as pl
+    run = access_cache.Refresh({}, "2027-01-20T00:00:00Z", "pc")
+    for w in ("w0", "w1"):
+        ws = {"id": w, "name": w.upper()}
+        people = access_cache.workspace_rows(w, [{"principal": {"id": "p", "type": "User", "displayName": "P"},
+                                                  "role": "Admin"}])
+        run.add(access_cache.WORKSPACE, ws, None, people)
+        run.add(access_cache.LAKEHOUSE, ws, {"id": "i1", "name": "L"},
+                access_cache.lakehouse_rows(w, "i1", [{"name": "R"}]))
+    lakes = [dict(r) for r in run.rows[access_cache.LAKEHOUSE]]
+    for r in lakes:
+        if r["workspace_id"] == "w0":
+            r["paths"] = "[not json"  # written by something else into the central lakehouse
+    scans = [dict(s) for s in run.scans]
+    for s in scans:
+        if s["workspace_id"] == "w1" and s["kind"] == access_cache.WORKSPACE:
+            s["observed_at"] = None
+    frames = [pl.DataFrame(scans), pl.DataFrame(run.rows[access_cache.WORKSPACE]), pl.DataFrame(lakes)]
+    with caplog.at_level("WARNING"):
+        out = {w["workspace_id"]: w for w in access_cache.view(*frames, {"w0", "w1"})}
+    bad_lake = out["w0"]["lakehouses"][0]
+    assert (bad_lake["problem"], bad_lake["known"], bad_lake["roles"]) == (access_cache.UNREADABLE, False, [])
+    assert [p["id"] for p in out["w0"]["people"]] == ["p"] and out["w0"]["known"]  # its workspace still shows
+    assert (out["w1"]["problem"], out["w1"]["known"], out["w1"]["people"]) == (access_cache.UNREADABLE, False, [])
+    assert out["w1"]["lakehouses"][0]["known"] and out["w1"]["lakehouses"][0]["roles"]
+    assert sum("can't be read" in r.message for r in caplog.records) == 2

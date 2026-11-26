@@ -439,8 +439,8 @@ class Mailbox:
         except ValueError as exc:
             return {}, f"the request isn't JSON: {exc}"
         except RecursionError:
-            return {}, ("the request can't be read because it is nested too deeply; "
-                        "write it as one flat JSON object, as the contract shows")
+            return {}, ("the request can't be read because it's nested too deeply, "
+                        "so write it as one flat JSON object, as the contract shows")
         if not isinstance(raw, dict):
             return {}, "the request is a JSON object"
         problems = []

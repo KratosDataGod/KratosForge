@@ -212,8 +212,8 @@ class Outbox:
                 self._state(db, lakehouse_id)
                 db.execute("update outbox_state set dropped = dropped + ? where lakehouse_id = ?",
                            (unreadable, lakehouse_id))
-                _log.warning("Dropped %d results waiting for the central lakehouse because they can't be read; "
-                             "run the X-ray or share the runs again to record them.",
+                _log.warning("Dropped %d results waiting for the central lakehouse because they can't be read. "
+                             "Run the X-ray or share the runs again to record them.",
                              unreadable)
         return out
 

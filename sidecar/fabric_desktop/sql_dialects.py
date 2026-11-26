@@ -156,6 +156,11 @@ def too_deep() -> Exception:
     return error
 
 
+# Arguments sqlglot builds a call without, though Spark needs them: levenshtein('a' 'b') (one string, as two
+# literals side by side read) and split_part('a.b', 2) stopped a rewrite with an AttributeError or a KeyError.
+_NEEDED = {"levenshtein": ("expression",), "splitpart": ("delimiter", "part_index")}
+
+
 def _check_arguments(statements: list[Any], read: Any) -> None:
     """A ParseError naming the call when Spark SQL leaves out an argument it must have: sqlglot builds some
     calls without checking their arguments (datediff('2024-02-01') is a DateDiff with nothing to compare),
@@ -169,7 +174,8 @@ def _check_arguments(statements: list[Any], read: Any) -> None:
         if not isinstance(statement, exp.Expression):
             continue
         for node in statement.walk():
-            if isinstance(node, exp.Func) and node.error_messages():
+            if isinstance(node, exp.Func) and (node.error_messages() or any(
+                    node.args.get(k) is None for k in _NEEDED.get(node.key, ()))):
                 call = node
                 while isinstance(call.parent, exp.Func) and call.meta.get("start") is None:
                     call = call.parent  # the call as written: sqlglot wraps arguments in its own conversions

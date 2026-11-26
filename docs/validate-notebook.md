@@ -1,6 +1,6 @@
 # Validate a notebook (Preview)
 
-**Validate** checks that a notebook works from the top, the way Fabric, a schedule or a pipeline runs it, and helps you clean up its code. Open a notebook and select **Validate** on the **Home** or **Run** tab. A panel opens beside the cells with two tabs: **Problems** and **Clean up**.
+**Validate** checks that a notebook works from the top, the way Fabric, a schedule or a pipeline runs it, and helps you clean up its code. Open a notebook and select **Validate** on the **Run** tab, or under **Check** on the **Home** tab. A panel opens beside the cells with two tabs: **Problems** and **Clean up**.
 
 ## Problems
 

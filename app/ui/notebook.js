@@ -10,7 +10,28 @@ state.mode = "command";        // command | edit, as in Fabric and Jupyter
 state.nbTables = {};           // lakehouse_id -> ["dbo.sales", ...], for autocomplete
 state.nbSchemas = {};          // lakehouse_id -> { tables: {schema: [names]}, cols, cached, pending }, for %%sql completion
 
-const editors = new Map();     // cell id -> CodeMirror view
+// A long notebook (WR-134: more than EAGER_EDITORS cells shown). With every cell's editor built and in
+// the page, a 2,000-cell notebook took seconds to open, and every scroll ran each editor's scroll
+// handler and measured the ones coming into view. So in a long notebook only code cells within
+// NEAR_MARGIN of the visible ones have their editor in the page; the others show their code as plain
+// text in the editor's font and size (.nb-lazy-code, the same height). A cell's editor is built when
+// it first comes near, and taken out of the page again, kept with its undo history, when the cell goes
+// far away. The first EAGER_EDITORS cells and the selected one are drawn with their editor, and a
+// notebook with fewer cells is drawn as it always was. editors.get(id) puts a waiting cell's editor in
+// the page first, so every caller gets one on screen; editors.peek(id) and has(id) don't.
+const EAGER_EDITORS = 40;
+const NEAR_MARGIN = "1500px 0px";
+const waitingEditors = new Map();  // cell id -> its editor slot showing plain text (attach, refresh)
+let nearSlots = [];                // editor slots drawn since the observer last started
+let nearObserver = null;
+class CellEditors extends Map {
+  get(id) {
+    waitingEditors.get(id)?.attach();
+    return super.get(id);
+  }
+  peek(id) { return super.get(id); }
+}
+const editors = new CellEditors();  // cell id -> CodeMirror view
 const deletedCells = [];       // for Z (undo delete)
 let cellClipboard = null;
 let lastDKey = 0;
@@ -47,11 +68,77 @@ const isParams = (cell) => (cell.meta?.tags || []).includes("parameters");
 function disposeEditors() {
   editors.forEach((v) => v.destroy());
   editors.clear();
+  waitingEditors.clear();
 }
 
 function dropEditor(cell) {
-  editors.get(cell.id)?.destroy();
+  waitingEditors.delete(cell.id);
+  editors.peek(cell.id)?.destroy();
   editors.delete(cell.id);
+}
+
+// A code cell's editor slot. ``index`` is the cell's place among the cells of a long notebook that
+// renderNotebook draws (see EAGER_EDITORS): its editor comes and goes with the cell's distance from the
+// screen (observeNear). Without it (a short notebook, updateCell) the editor is put in at once and stays.
+function editorSlot(cell, index) {
+  if (index === undefined) return h("div", { class: "editor" }, editorFor(cell).dom);
+  const slot = h("div", { class: "editor" });
+  const plain = () => {
+    const code = cell.source || "";
+    return h("pre", { class: `nb-lazy-code${state.lineNumbers ? "" : " plain"}`, "aria-hidden": "true" },
+      !code || code.endsWith("\n") ? `${code} ` : code);  // a last empty line still takes its height
+  };
+  slot.attach = () => {
+    if (!slot.isConnected) return;  // not in the page yet, or drawn again since
+    waitingEditors.delete(cell.id);
+    if (!slot.contains(editors.peek(cell.id)?.dom || null)) slot.replaceChildren(editorFor(cell).dom);
+  };
+  // The cell's text changed while it shows plain text (Replace all, or its editor out of the page).
+  slot.refresh = () => {
+    if (slot.firstChild?.classList?.contains("nb-lazy-code")) slot.firstChild.replaceWith(plain());
+  };
+  slot.park = () => {
+    const view = editors.peek(cell.id);
+    if (!slot.isConnected || !view || view.hasFocus || !slot.contains(view.dom)) return;
+    slot.replaceChildren(plain());
+    waitingEditors.set(cell.id, slot);
+  };
+  // On screen now (in the page that is being replaced), near the top, or selected: drawn with its editor.
+  if (index < EAGER_EDITORS || cell.id === state.selected || editors.peek(cell.id)?.dom.isConnected) {
+    waitingEditors.delete(cell.id);
+    slot.append(editorFor(cell).dom);
+  } else {
+    slot.append(plain());
+    waitingEditors.set(cell.id, slot);
+  }
+  nearSlots.push(slot);
+  return slot;
+}
+
+// Puts each slot's editor in as its cell comes within NEAR_MARGIN of the visible part of ``root`` (the
+// cells), and takes it out when the cell goes further away.
+function observeNear(root) {
+  nearObserver?.disconnect();
+  nearObserver = null;
+  const slots = nearSlots;
+  nearSlots = [];
+  if (!slots.length) return;
+  if (typeof IntersectionObserver !== "function") { slots.forEach((s) => s.attach()); return; }
+  nearObserver = new IntersectionObserver((entries) => entries.forEach((e) => (e.isIntersecting ? e.target.attach() : e.target.park())),
+    { root, rootMargin: NEAR_MARGIN });
+  slots.forEach((s) => nearObserver.observe(s));
+}
+
+// A cell drawn again on its own (updateCell) in a long notebook: its slot follows the screen too.
+function observeNewSlots() {
+  const slots = nearSlots;
+  nearSlots = [];
+  if (nearObserver) slots.forEach((s) => nearObserver.observe(s));
+}
+
+// A cell's text changed without going through an editor in the page: its plain text follows.
+function plainTextChanged(cell) {
+  waitingEditors.get(cell.id)?.refresh();
 }
 
 // ---------- the screen ----------
@@ -146,6 +233,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
+      nbPresentButton(),  // nbpresent.js (Preview)
       toggleBtn("Variables", "braces", state.showVariables, toggleVariables), consoleToggle(nb), depsToggle(), commentsToggle(nb), practicesToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
@@ -180,7 +268,8 @@ function renderNotebook() {
         : `Compute: Python ${state.python || "3"} on this PC, no Fabric job`),
       nbFabricRunStatus(nb)));
   document.querySelector(".cells").scrollTop = scrollTop;
-  editors.forEach((v) => v.requestMeasure());
+  observeNear(document.querySelector(".cells"));
+  editors.forEach((v) => { if (v.dom.isConnected) v.requestMeasure(); });
   depsChanged();
 }
 
@@ -332,7 +421,10 @@ async function refreshVariables() {
 
 // ---------- cells ----------
 
-function renderCell(cell) {
+// index and shown: from renderNotebook's map over the cells it draws. In a long notebook a code cell's
+// editor then follows its distance from the screen (editorSlot); updateCell draws one cell on its own.
+function renderCell(cell, index, shown) {
+  if (!(shown?.length > EAGER_EDITORS)) index = undefined;
   const selected = cell.id === state.selected;
   const meta = cell.meta || (cell.meta = {});
   const node = h("div", {
@@ -363,6 +455,7 @@ function renderCell(cell) {
     isParams(cell) ? h("span", { class: "tag" }, "Parameters") : null,
     meta.frozen ? h("span", { class: "tag frozen-tag" }, icon("shield", 12), "Frozen") : null,
     fabricStepBadge(cell),  // fabricstep.js
+    nbPresentHeadTag(cell),  // nbpresent.js
     cell.type === "code" ? depsHead(cell) : null,
     ...cellHeadExtras(cell),
     commentBadge(cell),  // notebook-comments.js
@@ -379,7 +472,7 @@ function renderCell(cell) {
   if (cell.type === "markdown") {
     let body;
     if (cell.editing && !meta.frozen) {
-      body = h("div", { class: "md-edit" }, editorFor(cell).dom);
+      body = mdRichOn() ? mdRichBody(cell) : h("div", { class: "md-edit" }, editorFor(cell).dom);  // nbmarkdown.js: toolbar and preview (Preview)
     } else {
       body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source, { attachments: cell.attachments }));
     }
@@ -395,7 +488,7 @@ function renderCell(cell) {
     box.append(h("button", { class: "hidden-input", onclick: () => setMeta(cell, "source_hidden", false) },
       `Code hidden (${cell.source.split("\n").length} lines): ${first.slice(0, 80)}`));
   } else {
-    box.append(h("div", { class: "editor" }, editorFor(cell).dom));
+    box.append(editorSlot(cell, index));
   }
   box.append(depsStrip(cell), practiceStrip(cell), h("div", { class: "cell-results" }, cellResults(cell)));  // nbpractices.js
   node.append(gutter, box);
@@ -435,8 +528,10 @@ function cellResults(cell) {
 function updateResults(cell) {
   const el = document.querySelector(`[data-cell="${cell.id}"]`);
   if (!el) return;
+  const keep = dbgFocusKey(el);  // debugging.js: focus in the debugger panel stays there
   el.querySelector(".cell-results")?.replaceChildren(...cellResults(cell));
   if (cell.type === "code") el.querySelector(".gutter")?.replaceWith(renderGutter(cell));
+  dbgRefocus(el, keep);
   if (typeof findOutputsChanged === "function") findOutputsChanged();  // nbfind.js: matches in outputs
 }
 
@@ -460,6 +555,7 @@ function cellMenu(cell) {
   items.push({ label: "Paste cell below", icon: "add", action: () => pasteCell(cell, 1) });
   items.push({ label: "Find in this cell", icon: "search", action: () => findInCell(cell) });
   items.push(...commentMenuItems(cell));  // notebook-comments.js
+  items.push(...nbPresentMenuItems(cell));  // nbpresent.js: Starts a slide (Preview)
   return [...items, ...cellMenuExtras(cell)];
 }
 
@@ -481,8 +577,9 @@ function statusLine(cell) {
 function updateCell(cell, focus = false) {
   const old = document.querySelector(`[data-cell="${cell.id}"]`);
   if (!old) return;
-  const fresh = renderCell(cell);
+  const fresh = renderCell(cell, 0, nearObserver ? visibleCells(state.notebook.cells) : null);
   old.replaceWith(fresh);
+  observeNewSlots();
   editors.get(cell.id)?.requestMeasure();
   if (focus) enterEditMode(cell);
 }
@@ -575,6 +672,7 @@ function moveCell(delta, cell = selectedCell()) {
 
 function deleteCell(cell) {
   if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it to delete it."); return; }
+  if (dbgPausedIn([cell])) return;  // debugging.js
   const cells = state.notebook.cells;
   const i = cells.indexOf(cell);
   cells.splice(i, 1);
@@ -874,8 +972,11 @@ async function pythonCompletions(ctx) {
 }
 
 function editorFor(cell) {
-  let view = editors.get(cell.id);
+  let view = editors.peek(cell.id);
   if (view) return view;
+  // Its slot showing plain text, if any, is being replaced: an editors.get(cell.id) while this one is
+  // built (dbgMarks) mustn't build a second editor through it.
+  waitingEditors.delete(cell.id);
   const keys = cellKeymap(cell);
   view = new CM.EditorView({
     state: CM.EditorState.create({
@@ -887,6 +988,7 @@ function editorFor(cell) {
         // reachable from the keyboard when a long line makes it scroll sideways (axe scrollable-region-focusable).
         CM.EditorView.contentAttributes.of({ "aria-label": cell.type === "markdown" ? "Markdown cell" : "Code cell", tabindex: "0" }),
         dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
+        cell.type === "markdown" ? mdKeys(cell) : [],  // nbmarkdown.js: Ctrl+B, Ctrl+I and Ctrl+K
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
@@ -904,6 +1006,7 @@ function editorFor(cell) {
           if (u.docChanged) {
             const before = `${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}`;
             cell.source = u.state.doc.toString();
+            if (!u.view.dom.isConnected) plainTextChanged(cell);  // an editor out of the page (EAGER_EDITORS)
             if (`${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}` !== before && cell.type === "code") {
               u.view.dispatch({ effects: langComp.reconfigure(languageFor(cell)) });
               const select = document.querySelector(`[data-cell="${cell.id}"] select.lang`);
@@ -911,7 +1014,7 @@ function editorFor(cell) {
             }
             markDirty();
             findCellChanged();  // nbfind.js
-            if (cell.type === "markdown") refreshOutline();
+            if (cell.type === "markdown") { refreshOutline(); mdSourceChanged(cell); }  // nbmarkdown.js: the live preview
             else { depsChanged(); dbgEdited(cell, u); }
           }
           if (u.focusChanged && u.view.hasFocus) {
@@ -953,6 +1056,7 @@ function cellKeymap(cell) {
     { key: "Escape", run: (view) => {
       if (view.dom.querySelector(".cm-tooltip-autocomplete") || editorVimTakesEscape(view)) return false;
       view.contentDOM.blur();
+      if (cell.type === "markdown" && mdRichOn()) { mdFinish(cell); return true; }  // nbmarkdown.js: Esc finishes editing
       enterCommandMode(cell);
       return true;
     } },
@@ -968,8 +1072,9 @@ function cellKeymap(cell) {
 document.addEventListener("keydown", (e) => {
   if (state.view !== "notebook" || !state.notebook || document.getElementById("dialog-root").childElementCount) return;
   const t = e.target;
-  // A result's grid (sqlgrid.js) has keys of its own: arrows, Ctrl+C, Enter.
-  if (t.closest?.(".cm-editor, .sql-result-table") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
+  // A result's grid (sqlgrid.js) has keys of its own: arrows, Ctrl+C, Enter. So has the debugger panel
+  // (debugging.js): Enter presses its buttons, and D D there doesn't delete the paused cell.
+  if (t.closest?.(".cm-editor, .sql-result-table, .dbg-paused") || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || t.isContentEditable) return;
   // The view itself counts too: opening a notebook focuses it (focusPage), and a click on a cell
   // part that can't take focus (its gutter) leaves it there until the cell takes focus just after.
   if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;

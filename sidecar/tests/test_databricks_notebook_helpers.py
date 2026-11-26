@@ -56,12 +56,20 @@ def test_a_cell_magic_runs_or_is_refused_as_listed(rows, header):
         assert out["status"] == "ok", out
 
 
-@pytest.mark.parametrize("path", ["/tmp", "/mnt/raw", "/FileStore/tables", "dbfs:/tmp", "/Volumes/main/raw/x"])
+@pytest.mark.parametrize("path", ["/tmp", "/mnt/raw", "/FileStore/tables", "dbfs:/tmp"])
 def test_fs_magic_refuses_databricks_storage_like_dbutils_fs(path):
     """In Databricks, %fs ls /tmp lists DBFS. Here it stops and says so, instead of listing this PC's /tmp."""
     out = Kernel().run(f"%fs ls {path}")
     assert out["status"] == "error"
     assert "Databricks storage" in out["outputs"][-1]["evalue"] or "DBFS path" in out["outputs"][-1]["evalue"]
+
+
+def test_fs_magic_reads_a_volume_path_as_a_volume_on_this_pc(tmp_path, monkeypatch):
+    """/Volumes/ is a Unity Catalog volume on this PC (databricks_volumes), as in dbutils.fs: one in another
+    catalog is refused by name, and one that isn't here says so."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert "prod is a Unity Catalog catalog" in Kernel().run("%fs ls /Volumes/prod/raw/x")["outputs"][-1]["evalue"]
+    assert "The volume main.raw.x cannot be found" in Kernel().run("%fs ls /Volumes/main/raw/x")["outputs"][-1]["evalue"]
 
 
 def test_fs_magic_still_takes_file_and_lakehouse_paths(tmp_path):

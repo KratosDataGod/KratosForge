@@ -8,11 +8,12 @@ It runs for actions that start work on a notebook, a metadata entity or a Fabric
 
 - **Workloads.** The run dialog shows the result under what the run will do. A pass folds its checks away under **Show checks**. Warnings and blocks are shown with their evidence, and the other checks fold away below them.
 - **Notebook > Run in Fabric** and **Data mesh > Run.** These have no dialog of their own, so the check stays quiet when it passes or finds nothing it can judge (Unknown), and the run starts as before. With warnings or a block, a dialog shows them first. When the check couldn't run at all (for example, a notebook that isn't deployed to a workspace yet), a dialog says **The risk check couldn't run** with the reason, and **Continue** or **Cancel**: the run never starts without you seeing that, and the check never blocks it. **Run all** in Data mesh checks every entity in one batch (each workspace's capacity and the run history are read once) and shows them in one dialog. If some are blocked, going ahead starts only the others: a blocked entity doesn't start, and neither does any entity that reads from it, so nothing runs on top of a table that wasn't refreshed. The dialog names the entities that wait and what they read. If none can start, the dialog only offers Close.
-- **Estate X-ray > Optimize.** Its confirm always shows the check, for the policy, your sign-in and the workspace's capacity (a table has no run history, so nothing about past runs or their CU). Going ahead past warnings there isn't recorded, because a table isn't a workload.
-- **Data mesh > Quality > Table health > Optimize.** It shows each workspace's capacity warning and asks first; going ahead is recorded before any job starts. Optimize after a run skips a workspace with a warning, and a notebook's OPTIMIZE or VACUUM is refused on one.
+- **Estate X-ray > Optimize and Vacuum.** Each confirm always shows the check, for the policy, your sign-in and the workspace's capacity (a table has no run history, so nothing about past runs or their CU). Vacuum has its own check, so an Optimize check can't stand in for it. Going ahead past warnings is recorded before the job starts.
+- **Data mesh > Quality > Table health > Optimize.** It shows each workspace's capacity warning and asks first; going ahead is recorded before any job starts. Optimize after a run skips a workspace with a warning, and a notebook's OPTIMIZE (with or without ZORDER BY), VACUUM or RESTORE is refused on one.
+- **A Blocked capacity is a hard stop for table maintenance.** X-ray's Optimize and Vacuum, table health's Optimize, Optimize after a run and a notebook's OPTIMIZE, ZORDER, VACUUM or RESTORE start nothing on it, and say why. There is no way to accept it.
 - **Check again** reads the capacity again instead of using the last reading.
 - **Blocked** has no way to run anyway. In a notebook whose cells don't need Fabric, **Run on this PC** runs it here instead. The run still reads and writes OneLake, which uses some capacity.
-- **Warning** lets you go ahead. Going ahead is recorded (see below) (except Estate X-ray > Optimize, above). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.
+- **Warning** lets you go ahead. Going ahead is recorded (see below). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.
 
 A notebook not yet linked to its Fabric item isn't checked, and its first Run in Fabric starts as before.
 
@@ -37,7 +38,7 @@ Each finding has a title, what it means, the evidence, where the evidence came f
 | --- | --- | --- |
 | Organization policy | `allow_fabric_runs` ([policies](../permissions.md)) | Blocked when IT turned Fabric runs off. Runs on this PC aren't affected. |
 | Sign-in | This PC's sign-in, without a prompt | Blocked when the action uses Fabric and you're signed out. |
-| Capacity | The [capacity reading](capacity.md): GET `/workspaces/{id}` and GET `/capacities` with your sign-in | Paused on a reading from the last hour: **blocked**. Paused on an older reading: **warning**, with its age. Running: **pass**, but how busy it is isn't known, because Fabric has no utilization API for developers. Not visible to you, or Capacity.Read.All not granted: **unknown**, with what to ask for. No workspace, no capacity, or no access to the workspace: **blocked**. |
+| Capacity | The [capacity reading](capacity.md): GET `/workspaces/{id}` and GET `/capacities` with your sign-in | Paused on a reading from the last hour: **blocked**. Paused on an older reading: **warning**, with its age. Running on a reading from the last hour: **pass**, but how busy it is isn't known, because Fabric has no utilization API for developers. Running on an older reading: **unknown**. Not read yet, not visible to you, or Capacity.Read.All not granted: **unknown**, with what to ask for. No workspace, no capacity, or no access to the workspace: **blocked**. |
 | Definition | The project's definitions and deployment records | Problems in the definition: **blocked**. An environment running an older version: **warning**. |
 | Notebook compatibility | The same check as **Runs on** | Cells that won't work where it runs: **warning**. For a Fabric run, whether this PC could run it instead. A notebook that needs Fabric is never suggested for this PC. |
 | Input size | The source's Delta log (metadata entities) | For reference in Fabric. On this PC, input over the memory guard: **blocked**. |
@@ -49,12 +50,12 @@ The check makes at most two reads in Fabric: the workspace and the capacity list
 
 ## Settings
 
-Change them in the Cost page's **Prices** dialog, under **Before a run**, or with `set_risk_settings`. The settings are kept with this PC's settings.
+Change them in the **Prices** dialog in **Optimize > Cost and savings**, under **Before a run**, or with `set_risk_settings`. The settings are kept with this PC's settings.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `warn_run_cu_hours` | off | Warn when the last run of this workload used more CU hours than this. Measured when an import matched the run, otherwise estimated, and labeled so. |
-| `warn_failed_runs` | 2 | Warn when this many of the last five runs failed. 0 turns it off. |
+| `warn_run_cu_hours` | off | Warn when the last run of this workload used more CU hours than this. Measured when an import matched the run, otherwise estimated, and labeled so. 0 or blank turns it off. |
+| `warn_failed_runs` | 2 | Warn when at least this many of the last five runs failed. 0 turns it off. |
 | `schedule_window_minutes` | 60 | Warn when a schedule on this PC runs the workload within this many minutes. |
 | `require_acknowledgement` | off | The run dialogs ask you to tick "I've looked at these" before running with warnings. |
 
@@ -66,7 +67,7 @@ The assessment is checked again first:
 - A blocked result can't be acknowledged.
 - If the findings changed since you looked, the acknowledgement is refused and you need to look again.
 
-A pass or an unknown result records nothing. X-ray's and table health's **Optimize** checks again and records going ahead past warnings itself, before it submits the Fabric job.
+A pass or an unknown result records nothing. X-ray's **Optimize** and **Vacuum**, and table health's **Optimize**, check again and record going ahead past warnings themselves, before they submit the Fabric job.
 
 Checking is never audited, because it only reads. That includes `meta_risk_gate`, the batch check behind Data mesh **Run all**, which returns each entity's assessment, the blocked entities, the ones waiting on them, and the ones that can start.
 

@@ -238,19 +238,29 @@ pub fn offered(path: &Path) -> Option<String> {
 /// or renamed for a few seconds, and Windows then refuses with "Access is denied" (5) or a
 /// sharing violation (32). Any other error, such as a missing file, fails at once.
 pub fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
+    rename_retrying_with(from, to, |from, to| std::fs::rename(from, to), Duration::from_millis(250))
+}
+
+/// rename_retrying with the rename and the pause between tries given, so tests can make it fail.
+pub fn rename_retrying_with(
+    from: &Path,
+    to: &Path,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+    pause: Duration,
+) -> std::io::Result<()> {
     let mut attempt = 0;
     loop {
-        match std::fs::rename(from, to) {
+        match rename(from, to) {
             Err(e) if attempt < 60 && is_lock(&e) => {
                 attempt += 1;
-                std::thread::sleep(Duration::from_millis(250));
+                std::thread::sleep(pause);
             }
             done => return done,
         }
     }
 }
 
-fn is_lock(e: &std::io::Error) -> bool {
+pub fn is_lock(e: &std::io::Error) -> bool {
     e.kind() == std::io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33))
 }
 

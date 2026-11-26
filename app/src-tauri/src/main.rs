@@ -1787,9 +1787,7 @@ fn install_engine_into(app: &tauri::AppHandle) -> Result<String, String> {
 
 /// Moves a checked engine from `staging` to engine\<commit>, then removes other builds' engines.
 fn put_engine_in_place(root: &std::path::Path, staging: &std::path::Path, commit: &str) -> Result<(), String> {
-    let dest = root.join(commit);
-    let _ = std::fs::remove_dir_all(&dest);
-    std::fs::rename(staging, &dest).map_err(|e| format!("Could not put the engine in place: {e}"))?;
+    engine_patch::put_in_place(staging, &root.join(commit))?; // waits out a virus scanner holding a new file
 
     // Engines of other builds are no longer needed; one still in use goes next time.
     engine_patch::prune_engines(root, &[commit, BUILD_COMMIT]);

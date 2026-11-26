@@ -286,8 +286,8 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
     as (DuckDB SQL, its ``AS`` name or None), or None when that changes nothing. Expressions whose
     types can't be worked out are None too, and keep DuckDB's types (logged)."""
     unchanged: list[tuple[str, str | None] | None] = [None] * len(expressions)
-    rounds = any(t.upper() in ("DOUBLE", "FLOAT", "REAL") for _, t in columns) and any(
-        "ROUND" in e.upper() for e in expressions)  # round and bround of a double (_double_round)
+    # round and bround of a double (_double_round), which may be a literal or a cast in a frame with no double
+    rounds = any("ROUND" in e.upper() for e in expressions)
     if not expressions or not (rounds or any(t.upper().startswith("DECIMAL") for _, t in columns)):
         return unchanged  # Spark's rules only change an expression with a decimal operand, or a double's round
     from sqlglot import parse_one
@@ -640,6 +640,12 @@ def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]
     if not operands or operands[0] is None:
         return None
     operand = operands[0]
+    if _is_text(operand, annotated):
+        # Spark casts text to a double for round, bround, ceil and floor (ImplicitTypeCasts); with ANSI off text
+        # that isn't a number is NULL. DuckDB has no ROUND of a VARCHAR, so round('0.285', 2) stopped.
+        operand = exp.TryCast(this=operand.copy(), to=exp.DataType.build("DOUBLE"))
+        operand.type = exp.DataType.build("DOUBLE")
+        annotated[id(operand)] = operand
     found = _decimal(operand, typed, annotated)
     if (isinstance(node, (exp.Ceil, exp.Floor)) and node.args.get("decimals") is None and found is None
             and _is_double(operand, annotated)):  # sqlglot types 0.1 as a DOUBLE: _decimal reads it as Spark's decimal
@@ -668,6 +674,19 @@ def _rounding(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]
             return None
         return _with_args(f"CAST({text} AS DECIMAL({precision}, {scale}))", [operand]), node, (precision, scale)
     return _with_args(f"CAST(fj_arg0 AS DECIMAL({precision}, {scale}))", [node]), node, (precision, scale)
+
+
+def _is_text(node: exp.Expr, annotated: dict[int, exp.Expr]) -> bool:
+    """``node`` is text: a string literal, or a value sqlglot typed as text."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.Literal):
+        return node.is_string
+    copy = annotated.get(id(node))
+    kind = copy.type if copy is not None else None
+    return isinstance(kind, exp.DataType) and kind.this in (exp.DataType.Type.VARCHAR, exp.DataType.Type.TEXT,
+                                                           exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR,
+                                                           exp.DataType.Type.NVARCHAR)
 
 
 def _is_double(node: exp.Expr, annotated: dict[int, exp.Expr]) -> bool:

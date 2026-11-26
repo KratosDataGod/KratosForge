@@ -983,6 +983,20 @@ def _operand_sql(value: Any) -> str:
     return str(duckdb.ConstantExpression(value))
 
 
+def _double_lit(fn: Any) -> Any:
+    """F.lit of a Python float is a DOUBLE in Spark. DuckDB 1.5 writes its constant as bare digits (0.285), which
+    the decimal rules (spark_decimals.spark_decimal_columns) read back as a decimal literal, so round(lit(0.285),
+    2) came back a Decimal; DuckDB 2.0 writes 0.285::DOUBLE. Written as a cast, it reads as a double on both."""
+    @functools.wraps(fn)
+    def lit(col: Any) -> Any:
+        if isinstance(col, float):
+            text = f"CAST('{col!r}' AS DOUBLE)" if col != col or col in (float("inf"), float("-inf")) else \
+                f"CAST({col!r} AS DOUBLE)"
+            return Column(duckdb.SQLExpression(text))
+        return fn(col)
+    return lit
+
+
 def _between(self: Column, lowerBound: Any, upperBound: Any) -> Column:  # noqa: N803 - PySpark's names
     """Column.between: lower <= x <= upper, both ends included, named as Spark names it."""
     me, lo, hi = _operand_sql(self), _operand_sql(lowerBound), _operand_sql(upperBound)
@@ -2602,6 +2616,7 @@ def install() -> None:
         if hasattr(F, name):
             setattr(F, name, _text_argument(name, at, getattr(F, name)))
     _install_java_regex()
+    F.lit = _double_lit(F.lit)
     _install_spark_names()  # after every other Column patch, so it names what they give
     DataFrame.agg = _agg  # type: ignore[attr-defined]
     DataFrame.show = _show  # type: ignore[method-assign,assignment]

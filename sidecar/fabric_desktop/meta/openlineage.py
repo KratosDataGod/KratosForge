@@ -12,6 +12,7 @@ Events carry names and how they link: no data rows, no run messages, no paths on
 from __future__ import annotations
 
 import datetime as dt
+from collections import Counter
 import ntpath
 import re
 import posixpath
@@ -61,10 +62,47 @@ _ORACLE_USER = re.compile(r"(?i)(\bjdbc:oracle:\w+:)[^@\s;,]+@")
 _INNER_USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#@]*@")
 _DRIVER_URL = re.compile(r"(?i)^(?:jdbc|odbc):")
 _ID_NAMESPACE = uuid.UUID("6b0f1a52-6f1d-4d8e-9b0e-2f1c9f6c4a11")
+# Object stores whose URL OpenLineage names as namespace scheme://container@host (or bucket), name the path.
+_STORE_SCHEMES = {"abfs": "abfs", "abfss": "abfss", "wasb": "wasb", "wasbs": "wasbs", "s3": "s3", "s3a": "s3",
+                  "s3n": "s3", "gs": "gs"}
+_ONELAKE_HOST = "onelake.dfs.fabric.microsoft.com"
+_GUID = re.compile(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_AT_NAME = re.compile(r"[\w.%+\-#]+@[\w.\-]+")  # ann@contoso, even when a dot splits it from its .com
 
 
 def _facet(url: str, **body: Any) -> dict[str, Any]:
     return {"_producer": PRODUCER, "_schemaURL": url, **body}
+
+
+def _safe_name(text: Any) -> str:
+    """A project, entity, table or type name as it can leave the PC: a name can be anything a file holds,
+    so a secret (password=..., a token) or an e-mail address in it is removed. Plain names stay as they are."""
+    text = _USER_KEY.sub(r"\1\2" + redact.REMOVED, redact.secrets(str(text)))
+    return _AT_NAME.sub("[email]", text)
+
+
+def _workspace(workspace_id: str) -> str:
+    """A workspace id as OneLake addresses carry it: a GUID in lower case, so one pasted in upper case names
+    the same namespace as the address Fabric reports."""
+    return workspace_id.lower() if _GUID.match(workspace_id) else workspace_id
+
+
+def _store_dataset(name: str) -> tuple[str, str] | None:
+    """An object store address, as OpenLineage's naming has it: namespace abfss://container@host (s3://bucket),
+    name the path; OneLake's https form (https://onelake.../<workspace>/...) is its abfss one. None for anything else."""
+    try:
+        u = urlsplit(name)
+        scheme, host, path = u.scheme.lower(), (u.hostname or ""), u.path.strip("/")
+        if scheme == "https" and host == _ONELAKE_HOST and "/" in path and not u.port:
+            ws, path = path.split("/", 1)
+            return f"abfss://{_workspace(ws)}@{_ONELAKE_HOST}", path.strip("/")
+        if scheme not in _STORE_SCHEMES or not host or not path:
+            return None
+        port = f":{u.port}" if u.port is not None else ""
+    except ValueError:
+        return None
+    container = f"{_workspace(u.username)}@" if u.username else ""
+    return f"{_STORE_SCHEMES[scheme]}://{container}{host}{port}", path
 
 
 class Names:
@@ -74,24 +112,28 @@ class Names:
     def __init__(self, project: Project, env: str, workspace_id: str | None):
         self.project, self.env, self.workspace_id = project, env, workspace_id
         info = getattr(project, "info", None)
-        self.project_name = (info.get("name") if isinstance(info, dict) else None) or project.root.name
+        self.project_name = _safe_name((info.get("name") if isinstance(info, dict) else None) or project.root.name)
 
     @property
     def namespace(self) -> str:
         if self.workspace_id:
-            return workspace_root(self.workspace_id)
+            return workspace_root(_workspace(self.workspace_id))
         return f"kratosforge://{self.project_name}/{self.env}"
 
     def table(self, entity: str) -> tuple[str, str]:
         e = self.project.entities[entity]
-        lakehouse = self.project.layer(e.layer).lakehouse
+        lakehouse, schema, table = (_safe_name(n) for n in (self.project.layer(e.layer).lakehouse, e.schema, e.table))
         if self.workspace_id:
-            return self.namespace, f"{lakehouse}.Lakehouse/Tables/{e.schema}/{e.table}"
-        return self.namespace, f"{lakehouse}.{e.schema}.{e.table}"
+            return self.namespace, f"{lakehouse}.Lakehouse/Tables/{schema}/{table}"
+        return self.namespace, f"{lakehouse}.{schema}.{table}"
 
     def origin(self, kind: str, value: Any) -> tuple[str, str]:
-        """A source that isn't an entity: landing files, a table, a link. Never with credentials or a path on this PC."""
-        return f"kratosforge://{self.project_name}/{kind}", safe_origin(value)
+        """A source that isn't an entity: landing files, a table, a link. Never with credentials or a path on this PC.
+        One object store address is named as OpenLineage names it, so a OneLake table another entity writes is
+        the dataset that entity's event names; anything else is a name in the project's namespace for its kind."""
+        name = safe_origin(value)
+        store = _store_dataset(name) if isinstance(value, str) else None
+        return store or (f"kratosforge://{self.project_name}/{kind}", name)
 
     @property
     def job_namespace(self) -> str:
@@ -208,11 +250,18 @@ def _event_time(run: dict[str, Any]) -> str | None:
     if start.tzinfo is None:
         start = start.replace(tzinfo=dt.timezone.utc)
     seconds = run.get("seconds")
-    if isinstance(seconds, (int, float)) and seconds >= 0:
+    if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and seconds >= 0:
         try:
             start += dt.timedelta(seconds=float(seconds))
         except OverflowError:  # an infinite or absurd duration: the run's start is still its time
             pass
+    offset = start.utcoffset()
+    if offset is not None and offset % dt.timedelta(minutes=1):
+        # +05:30:15 isn't an RFC 3339 offset (hours and minutes only), so the same moment is written in UTC
+        try:
+            start = start.astimezone(dt.timezone.utc)
+        except OverflowError:
+            return None
     return start.isoformat()
 
 
@@ -249,9 +298,13 @@ def entity_event(project: Project, names: Names, entity: str, run: dict[str, Any
     cols = lineage.entity_columns(project, entity)
     types = e.columns
     inputs: dict[tuple[str, str], set[str]] = {}
-    fields: dict[str, Any] = {}
+    fields: dict[str, dict[tuple[str, str, str], list[dict[str, Any]]]] = {}
+    lookups = {lk["as"]: lk for lk in e.spec.get("lookup", []) if isinstance(lk, dict) and "as" in lk}
     for col, rec in cols.items():
         kind = _TRANSFORM.get(rec["how"])
+        if rec["how"] == "lookup":  # the dimension's key comes first, when there is one; the rest are what it matches on
+            dim = project.entities.get(lookups.get(col, {}).get("dim") or "")
+            keyed = 1 if dim is not None and dim.surrogate_key else 0
         in_fields = []
         for n, inp in enumerate(rec["inputs"]):
             # A column it makes from its own columns (a derive over a cleaned or renamed one) traces back
@@ -268,22 +321,28 @@ def entity_event(project: Project, names: Names, entity: str, run: dict[str, Any
                 t, sub = kind
                 if up is not inp and sub == "IDENTITY":
                     sub = "TRANSFORMATION"
-                if rec["how"] == "lookup" and n > 0:  # the dimension's key comes first; the rest are what it matches on
+                if rec["how"] == "lookup" and n >= keyed:
                     t, sub = "INDIRECT", "JOIN"
                 in_fields.append({"namespace": key[0], "name": key[1], "field": field,
                                   "transformations": [{"type": t, "subtype": sub, "masking": False,
                                                        **({"description": safe_text(str(rec["expr"]))} if rec.get("expr") else {})}]})
         if in_fields:  # named as readers' events name it: a column named like a path or URL is cleaned the same way
-            merged = fields.setdefault(_safe_column(str(col)), {"inputFields": []})["inputFields"]
-            # Two columns whose names clean to the same text share one entry, each input listed once.
-            merged += [f for f in in_fields if f not in merged]
+            # Two columns whose names clean to the same text share one entry, and an input field read more than
+            # once (directly and through own columns) is listed once, with each way it is used.
+            merged = fields.setdefault(_safe_column(str(col)), {})
+            for f in in_fields:
+                ways = merged.setdefault((f["namespace"], f["name"], f["field"]), [])
+                ways += [t for t in f["transformations"] if t not in ways]
     schema: dict[str, dict[str, Any]] = {}
     for c in cols:  # the first column under a cleaned name stands for it, as in columnLineage
-        schema.setdefault(_safe_column(str(c)), {"name": _safe_column(str(c)), **({"type": str(types[c])} if c in types else {})})
+        schema.setdefault(_safe_column(str(c)), {"name": _safe_column(str(c)), **({"type": _safe_name(types[c])} if c in types else {})})
     out_ns, out_name = names.table(entity)
     output = {"namespace": out_ns, "name": out_name, "facets": {
         "schema": _facet(SCHEMA_FACET, fields=list(schema.values())),
-        **({"columnLineage": _facet(COLUMN_FACET, fields=fields)} if fields else {}),
+        **({"columnLineage": _facet(COLUMN_FACET, fields={
+            col: {"inputFields": [{"namespace": ns, "name": n, "field": f, "transformations": ways}
+                                  for (ns, n, f), ways in merged.items()]} for col, merged in fields.items()})}
+           if fields else {}),
     }}
     return {
         "eventType": _STATES[run["status"]],
@@ -293,7 +352,7 @@ def entity_event(project: Project, names: Names, entity: str, run: dict[str, Any
         "run": {"runId": _run_uuid(str(run.get("run_id") or ""), entity), "facets": {
             "processing_engine": _facet(ENGINE_FACET, version=__version__, name="KratosForge"),
         }},
-        "job": {"namespace": names.job_namespace, "name": entity, "facets": {
+        "job": {"namespace": names.job_namespace, "name": _safe_name(entity), "facets": {
             "jobType": _facet(JOB_TYPE_FACET, processingType="BATCH", integration="KRATOSFORGE", jobType="ENTITY"),
         }},
         "inputs": [{"namespace": ns, "name": n, "facets": {
@@ -311,7 +370,8 @@ def run_events(project: Project, runs: list[dict[str, Any]], env: str,
         ent = r.get("entity")
         if ent in project.entities and (ent not in last or _latest(r) >= _latest(last[ent])):
             last[ent] = r
-    events, left_out = [], []
+    made: list[tuple[str, dict[str, Any]]] = []
+    left_out = []
     for ent in sorted(project.entities):
         run = last.get(ent)
         if run is None:
@@ -321,5 +381,11 @@ def run_events(project: Project, runs: list[dict[str, Any]], env: str,
         elif _event_time(run) is None:
             left_out.append({"entity": ent, "why": "its last run has no start time"})
         else:
-            events.append(entity_event(project, names, ent, run))
+            made.append((ent, entity_event(project, names, ent, run)))
+    # A run id is one run of one job: a UUID that rows of several entities carry is made one per entity.
+    shared = Counter(ev["run"]["runId"] for _, ev in made)
+    for ent, ev in made:
+        if shared[ev["run"]["runId"]] > 1:
+            ev["run"]["runId"] = str(uuid.uuid5(_ID_NAMESPACE, f"{ev['run']['runId']}/{ent}"))
+    events = [ev for _, ev in made]
     return {"env": env, "namespace": names.namespace, "events": events, "left_out": left_out}

@@ -177,7 +177,8 @@ def test_no_secrets_connection_strings_or_paths_on_this_pc_leave_in_events(svc, 
     out = json.dumps(events(svc, runs))
     for leak in ("SECRETSIG", "sig=", "sv=", "ana", "hunter2", "token=abc", "Users"):
         assert leak not in out, leak
-    assert "abfss://raw@acct.dfs.core.windows.net/orders" in out
+    # an object store address is named as OpenLineage names it: the container is the namespace, the path the name
+    assert '"namespace": "abfss://raw@acct.dfs.core.windows.net", "name": "orders"' in out
     assert "<this PC>/customers.csv" in out
 
 

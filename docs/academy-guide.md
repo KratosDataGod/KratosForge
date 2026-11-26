@@ -16,7 +16,7 @@ starts a Fabric job and never publishes anything to Fabric.
 | Path | Every objective of the study guide, word for word, by domain: the best evidence you have, its status and its exercises. **Certification** picks DP-700 or the Databricks Certified Data Engineer Associate, whose exercises are still drafts. **Show only what's left** hides the objectives you've proved |
 | Practice | The published exercises, and Learn's lessons and labs with your progress kept |
 | Assessments | A practice exam, a domain diagnostic and objective drills, from KratosForge's own questions ([Assessments](academy/assessments.md)) |
-| Readiness | Six separate measures for each objective: knowledge, guided, independent, troubleshooting, verified on the platform, and retention |
+| Readiness | A dashboard of six separate measures: knowledge, guided, independent, troubleshooting, verified on the platform, and retention. Totals and your next exercise; how many of each domain's objectives meet each measure (choose a domain to see its objectives); strengths, weaknesses and what's left. **Export report** saves it as a new Markdown file in Downloads |
 | Portfolio | The exercises you've passed and what each counts for, with a link to your rank, achievements and profile picture in Profile |
 
 ## How work is checked
@@ -67,6 +67,12 @@ and the next exercise you run adds it back. How the sandbox works is in
 [Grading sandbox](academy/grading-sandbox.md).
 
 ## Readiness is an estimate
+
+On the Readiness dashboard, Knowledge counts as met for an objective once at least 2 of its questions are
+answered with 75% of the points right. The other measures each need an exercise passed that way, and
+verified on the platform counts only the objectives that need it. Strengths are proved objectives, then
+those meeting the most measures; weaknesses are objectives with under half of their question points right,
+then started objectives with no exercise passed.
 
 Readiness is KratosForge's own estimate from the evidence on this PC. It isn't Microsoft's score and it
 doesn't promise a pass. Results stay tied to the version of the study guide they were earned under;

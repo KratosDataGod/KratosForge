@@ -10,10 +10,11 @@ recording never changes the result.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from typing import Any
 
-from . import progress
+from . import jsonfile, known_folders, progress
 from .academy import appcontainer, exercises, lab, quizlab, readiness, registry, sandbox
 from .learn import content as learn_content
 from .redact import describe
@@ -21,7 +22,8 @@ from .redact import describe
 _log = logging.getLogger(__name__)
 
 METHODS = {"academy_catalog", "academy_exercise", "academy_start", "academy_save", "academy_run", "academy_validate",
-           "academy_hint", "academy_explanation", "academy_reset", "academy_readiness", "academy_sandbox_status",
+           "academy_hint", "academy_explanation", "academy_reset", "academy_readiness", "academy_readiness_export",
+           "academy_sandbox_status",
            "academy_sandbox_remove_grants"}
 
 _SUMMARY = ("id", "title", "objectives", "minutes", "mode", "class", "adapter", "status", "version")
@@ -107,6 +109,28 @@ class AcademyMixin:
         """Readiness by objective from this account's evidence: a labelled KratosForge estimate, never the
         vendor's score."""
         return readiness.readiness(progress.load(self._profile_path()), str(pack_id))  # type: ignore[attr-defined]
+
+    def academy_readiness_export(self, pack_id: str = "dp-700") -> dict[str, Any]:
+        """Readiness > Export report: the readiness estimate as a new Markdown file in Downloads (never replaces
+        one). Only what the Readiness tab shows; nothing is sent anywhere."""
+        pid = str(pack_id)
+        r = readiness.readiness(progress.load(self._profile_path()), pid)  # type: ignore[attr-defined]
+        cert = registry.certification(pid)
+        today = dt.date.today().isoformat()
+        text = readiness.report(r, str(cert.get("title") or pid), today)
+        folder = known_folders.export_folder()
+        base = f"{pid.upper()} readiness {today}"
+        with jsonfile.long_path_named(folder / f"{base}.md", "exported"):
+            folder.mkdir(parents=True, exist_ok=True)
+        for n in range(1, 1000):
+            path = folder / (f"{base}.md" if n == 1 else f"{base} ({n}).md")
+            try:
+                with jsonfile.long_path_named(path, "exported"), open(path, "x", encoding="utf-8", newline="\n") as f:
+                    f.write(text)
+            except FileExistsError:
+                continue
+            return {"path": str(path)}
+        raise ValueError("Couldn't find a free file name in Downloads for the report.")
 
     def academy_sandbox_status(self) -> dict[str, Any]:
         """For Settings: whether exercise scripts can and do run in an AppContainer on this PC (if not,

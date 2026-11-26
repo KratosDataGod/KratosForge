@@ -160,3 +160,61 @@ def test_the_estimate_is_labelled_and_suggests_what_is_next(cert):
     profile = progress.empty()
     progress.add(profile, _row("E37", cert))
     assert "E37" not in {n["exercise"] for n in readiness.readiness(profile, PACK)["next"]}
+
+
+# ---------- ACD-015: the Readiness dashboard's summary and its exported report ----------
+
+def _assessed(profile, cert, oid, correct, answered):
+    row = {"id": f"a-{oid}-{correct}-{answered}", "type": "academy.assessment", "at": "2026-11-20T10:00:00Z", "status": "verified",
+           "detail": {"certification": PACK, "certification_version": cert["version"], "objectives": [oid],
+                      "per_objective": {oid: {"correct": correct, "answered": answered}}}}
+    profile["evidence"].append(row)
+
+
+def test_the_dashboard_counts_each_measure_by_domain_with_fixed_rules(cert):
+    profile = progress.empty()
+    progress.add(profile, _row("E37", cert))          # 2.2.9, guided, local verified
+    _assessed(profile, cert, "2.2.9", 3, 4)           # 75% of 4: Knowledge met
+    _assessed(profile, cert, "2.1.1", 1, 4)           # under half: a weakness
+    _assessed(profile, cert, "1.1.1", 1, 1)           # one answered: not enough for Knowledge
+    r = readiness.readiness(profile, PACK)
+    dash = r["dashboard"]
+    two = next(d for d in dash["domains"] if d["id"] == "2")["measures"]
+    assert two["knowledge"] == {"met": 1, "of": sum(o["domain"] == "2" for o in r["objectives"])}
+    assert two["guided"]["met"] == 1 and two["independent"]["met"] == 0
+    assert two["platform_verified"]["of"] == sum(o["domain"] == "2" and o["platform_required"] for o in r["objectives"])
+    one = next(d for d in dash["domains"] if d["id"] == "1")["measures"]
+    assert one["knowledge"]["met"] == 0
+    assert dash["strengths"][0]["id"] == "2.2.9"
+    assert dash["weaknesses"][0] == {"id": "2.1.1", "text": _state(profile, "2.1.1")["text"], "domain": "2",
+                                     "why": "1 of 4 question points right"}
+    assert dash["todo"]["objectives"] == sum(o["state"] == "not_started" for o in r["objectives"])
+    assert sum(dash["todo"]["by_domain"].values()) == dash["todo"]["objectives"]
+
+
+def test_the_report_is_labelled_an_estimate_and_page_text_cant_break_its_tables(cert):
+    profile = progress.empty()
+    progress.add(profile, _row("E37", cert))
+    r = readiness.readiness(profile, PACK)
+    r["objectives"][0]["text"] = "a | b\nc"
+    text = readiness.report(r, "Implementing data engineering", "2026-11-26")
+    assert text.startswith("# Implementing data engineering: KratosForge readiness estimate")
+    assert r["note"] in text and "Exported 2026-11-26. Study guide of 2026-10-30." in text
+    assert "| 2.2.9 " in text and "E37" in text and "a / b c" in text
+    assert "## Strengths" in text and "## Weaknesses" in text and "not needed" in text
+
+
+def test_export_writes_a_new_file_in_downloads_and_never_replaces_one(tmp_path, monkeypatch):
+    from fabric_desktop import known_folders
+    from fabric_desktop.academy_service import AcademyMixin
+
+    class Svc(AcademyMixin):
+        root = tmp_path
+
+        def _profile_path(self):
+            return tmp_path / "profile.json"
+
+    monkeypatch.setattr(known_folders, "export_folder", lambda: tmp_path / "Downloads")
+    first, second = Svc().academy_readiness_export(PACK), Svc().academy_readiness_export(PACK)
+    assert first["path"] != second["path"] and second["path"].endswith(").md")
+    assert "KratosForge readiness estimate" in open(first["path"], encoding="utf-8").read()

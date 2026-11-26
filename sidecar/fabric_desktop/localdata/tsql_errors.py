@@ -7,9 +7,15 @@ map to one of those with certainty are rewritten. Any other message keeps DuckDB
 that names one of DuckDB's own system tables, which a warehouse project never has. The caller logs DuckDB's
 original text, so support can still read it.
 
-A message that has a SQL Server number with certainty (207, 208, 209, 239, 8134, and the IDENTITY errors 544, 1088, 2744, 8101, 8102 and 8106 for now) is shown as SQL
-Server prints it, "Msg 207, Level 16: Invalid column name 'x'.", alone or in a script. Others show no number:
-none is guessed.
+A message that has a SQL Server number with certainty is shown as SQL Server prints it, "Msg 207, Level 16:
+Invalid column name 'x'.", alone or in a script. Others show no number, because none is guessed.
+
+WR-247: arithmetic and conversion errors too. An int, bigint or decimal that overflows in + - * or ABS is 8115,
+"Arithmetic overflow error converting expression to data type int."; text that isn't a number for an integer is
+245, for a decimal or float 8114, and for a date or time 241. The translator (tsql.py) raises some of these
+itself with SQL Server's words (DuckDB adds "Invalid Input Error: "), such as 8115 for SUM of ints and 245 with
+the value. A message whose SQL Server words depend on what DuckDB's text doesn't say (a constant, or the type
+of a value DuckDB names only by its value) keeps DuckDB's words.
 """
 
 from __future__ import annotations
@@ -28,7 +34,24 @@ _OBJECT = [
                r"does not exist\."),
     re.compile(r"^Catalog Error: Table with name (?P<name>\S+) does not exist!"),
 ]
-_BY_ZERO = "Invalid Input Error: Divide by zero error encountered."
+_RAISED = "Invalid Input Error: "  # how DuckDB's error() gives a message the translator wrote in SQL Server's words
+_INTEGERS = {"INT32": "int", "INT64": "bigint", "INT16": "smallint", "UINT8": "tinyint"}
+_ARITHMETIC = re.compile(r"^Out of Range Error: Overflow in (?:addition|subtraction|multiplication) of "
+                         r"(?P<kind>INT32|INT64|DECIMAL\(\d+\)) \(")
+_ABS = re.compile(r"^Out of Range Error: Overflow on abs\((?P<value>-\d+)\)$")
+_ABS_KINDS = {str(-2 ** 31): "int", str(-2 ** 63): "bigint"}  # the one value of each whose ABS overflows
+# A column's value that doesn't fit an integer type; a constant has its own words in SQL Server (220).
+_COLUMN_CAST = re.compile(r"^Conversion Error: Type (?:U?INT\d+|DECIMAL\(\d+,\d+\)|DOUBLE|FLOAT) with value \S+ "
+                          r"can't be cast because the value is out of range for the destination type "
+                          r"(?P<kind>INT32|INT64|INT16|UINT8) when casting from source column ")
+_TEXT_TO = re.compile(r"""^Conversion Error: Could not convert string (?P<q>["'])(?P<value>.*)(?P=q) to """
+                      r"(?P<kind>INT32|INT64|INT16|UINT8|DECIMAL\(\d+,\d+\)|DOUBLE|FLOAT)$")
+_A_NUMBER = re.compile(r"^\s*[+-]?(?:\d+\.?\d*|\.\d+)\s*$")
+_DATE_TIME = re.compile(r"^Conversion Error: (?:invalid (?:date|time|timestamp) field format|"
+                        r"(?P<range>(?:date|time|timestamp) field value out of range)): \"")
+_DATE_TIME_TEXT = "Conversion failed when converting date and/or time from character string."
+# datetime and smalldatetime say 242 for a date that isn't there; the translator checks their range in these words
+_OLD_DATE_TIMES = re.compile(r"data type to a (?:small)?datetime data type resulted in an out-of-range value")
 # SQL Server's number and severity for each message this module or the local engine gives in its words
 _NUMBERS = [
     (re.compile(r"^Invalid column name '"), 207),
@@ -46,6 +69,14 @@ _NUMBERS = [
                 r"allowed\.$"), 2744),
     (re.compile(r"^Table '.*' does not have the identity property\. Cannot perform SET operation\.$"), 8106),
     (re.compile(r'^Cannot find the object ".*" because it does not exist or you do not have permissions\.$'), 1088),
+    (re.compile(r"^Arithmetic overflow error converting expression to data type \w+\.$"), 8115),
+    (re.compile(r"^Arithmetic overflow error for type int, value = -?\d+\.\d{6}\.$"), 232),
+    (re.compile(r"^Conversion failed when converting the n?varchar value '.*' to data type \w+\.$", re.DOTALL), 245),
+    (re.compile(r"^The conversion of the n?varchar value '.*' overflowed an int column\.$", re.DOTALL), 248),
+    (re.compile(r"^Error converting data type varchar to (?:numeric|float|real)\.$"), 8114),
+    (re.compile(r"^Conversion failed when converting date and/or time from character string\.$"), 241),
+    (re.compile(r"^The conversion of a varchar data type to a (?:small)?datetime data type resulted in an "
+                r"out-of-range value\.$"), 242),
 ]
 LEVEL = 16  # each of these is a user error that stops the statement, as SQL Server grades it
 # A suggestion of one of DuckDB's own catalog tables: a warehouse project has none of them.
@@ -59,8 +90,10 @@ def warehouse(message: str, sql: str, kind: str) -> str | None:
     """SQL Server's message for DuckDB's ``message`` from statement ``sql`` of ``kind``, or None when there isn't
     one that's certain."""
     first = message.strip().split("\n", 1)[0]
-    if first == _BY_ZERO:
-        return first.split(": ", 1)[1]
+    if first.startswith(_RAISED) and numbered(own := message.strip()[len(_RAISED):]) != own:
+        return own  # the translator's own words, such as "Divide by zero error encountered."
+    if (arithmetic := _arithmetic(first, sql)) is not None:
+        return arithmetic
     for pattern in _COLUMN:
         if found := pattern.match(first):
             return f"Invalid column name '{found['name']}'."
@@ -71,6 +104,31 @@ def warehouse(message: str, sql: str, kind: str) -> str | None:
     for pattern in _OBJECT:
         if found := pattern.match(first):
             return f"Invalid object name '{_as_written(found['name'], sql)}'."
+    return None
+
+
+def _arithmetic(first: str, sql: str) -> str | None:
+    """WR-247: SQL Server's words for an overflow or a failed conversion, where they are certain."""
+    overflow = "Arithmetic overflow error converting expression to data type {}."
+    if found := _ARITHMETIC.match(first):
+        return overflow.format(_INTEGERS.get(found["kind"], "numeric"))
+    if (found := _ABS.fullmatch(first)) and found["value"] in _ABS_KINDS:
+        return overflow.format(_ABS_KINDS[found["value"]])
+    if found := _COLUMN_CAST.match(first):
+        return overflow.format(_INTEGERS[found["kind"]])
+    if found := _TEXT_TO.fullmatch(first):
+        kind, value = found["kind"], found["value"]
+        if kind in _INTEGERS:
+            # A whole number too big for the type has other words (248 and 244), and '' is 0 in SQL Server
+            if re.fullmatch(r"\s*(?:[+-]?\d+)?\s*", value):
+                return None
+            return f"Conversion failed when converting the varchar value '{value}' to data type {_INTEGERS[kind]}."
+        if _A_NUMBER.fullmatch(value) or (not kind.startswith("DECIMAL") and not value.strip()):
+            return None  # too big for the decimal (8115 in other words), or '' that a float takes as 0
+        return "Error converting data type varchar to {}.".format(
+            "numeric" if kind.startswith("DECIMAL") else "float" if kind == "DOUBLE" else "real")
+    if (found := _DATE_TIME.match(first)) and not (found["range"] and _OLD_DATE_TIMES.search(sql)):
+        return _DATE_TIME_TEXT
     return None
 
 

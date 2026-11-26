@@ -114,6 +114,12 @@ jobs:
           - os: ubuntu-latest
             image: ubuntu-24.04
     runs-on: ${{ matrix.image }}
+    # A hung test would otherwise hold the runner for GitHub's 6-hour default. The main suite takes
+    # about 55 minutes on Windows and 25 on Linux. Where compat is true (every main push, and a pull
+    # request that changes package versions or code importing duckdb or sqlglot), Linux also runs the
+    # sqlglot-range and next-DuckDB suites: one green main run took 114 minutes, 41 of them on
+    # next-DuckDB. So those runs get 180 minutes and every other run 90.
+    timeout-minutes: ${{ needs.changes.outputs.compat == 'true' && 180 || 90 }}
     env:
       RUN_TESTS: ${{ matrix.os == 'windows-latest' && needs.changes.outputs.windows || needs.changes.outputs.ubuntu }}
     defaults:
@@ -158,7 +164,10 @@ jobs:
       # install, which would stop another worker's running exercise, so they run alone afterwards.
       # Each pytest run also writes its results (--junitxml), so a failure's name reaches the job's
       # summary page even when the log GitHub serves has lost it (failed_tests.py, after the last test).
-      - run: python -m pytest -q -n auto --dist loadfile --durations=25 -m "not machine_wide_grants" --junitxml="${{ runner.temp }}/junit-main.xml"
+      # --max-worker-restart 0: when a worker dies (conftest ends one whose test runs over its time
+      # limit), the run stops and fails at once. With loadfile, xdist's replacement worker gets no
+      # work and no word to stop, so the run waited until the job's time limit instead.
+      - run: python -m pytest -q -n auto --dist loadfile --max-worker-restart 0 --durations=25 -m "not machine_wide_grants" --junitxml="${{ runner.temp }}/junit-main.xml"
         if: env.RUN_TESTS == 'true'
         env:
           TMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}

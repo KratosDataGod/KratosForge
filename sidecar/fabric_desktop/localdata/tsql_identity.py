@@ -344,6 +344,11 @@ def _check_identity(column: exp.ColumnDef, constraint: exp.ColumnConstraint) -> 
                          "Fabric Warehouse, which takes IDENTITY on BIGINT only. Make the column BIGINT IDENTITY.")
 
 
+def is_set_insert(tree: exp.Expression) -> bool:
+    """True when ``tree`` is ``SET IDENTITY_INSERT table ON|OFF``, read without taking it (Script.set_insert does)."""
+    return _identity_insert(tree) is not None
+
+
 def _identity_insert(tree: exp.Expression) -> tuple[exp.Table, bool] | None:
     """The table and ON (True) or OFF of ``SET IDENTITY_INSERT table ON|OFF``, which sqlglot reads as a SET or as a
     Command, depending on how the name is written."""

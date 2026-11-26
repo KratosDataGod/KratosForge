@@ -17,19 +17,20 @@ A workload::
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import json
 import re
 import statistics
 from typing import Any
 
+from .. import b64
+from ..notebook_formats import parse_source
 from ..orchestration.definition import DefinitionError, loads
 from ..timeutil import parse_time
 
 ANALYZED = {"Notebook", "DataPipeline"}
 _PY_CELL = re.compile(r"^# (?:CELL|MARKDOWN|PARAMETERS CELL) \*+\s*$", re.MULTILINE)
-_PY_META = re.compile(r"^# META .*$\n?", re.MULTILINE)
+_PY_META = re.compile(r"^# META(?:DATA \*+[ \t]*| .*)?$\n?", re.MULTILINE)
 _PY_DEFAULT_LH = re.compile(r'"default_lakehouse"\s*:\s*"([^"]+)"')
 
 
@@ -69,37 +70,61 @@ def run_summary(jobs: list[dict[str, Any]] | None, now: dt.datetime, days: int) 
 
 
 def _parts(definition: dict[str, Any]) -> list[dict[str, Any]]:
-    parts = (definition.get("definition") or definition).get("parts")
+    inner = definition.get("definition") if isinstance(definition, dict) else None
+    inner = inner if isinstance(inner, dict) else definition
+    parts = inner.get("parts") if isinstance(inner, dict) else None
     return [p for p in parts if isinstance(p, dict)] if isinstance(parts, list) else []
 
 
 def _decode(part: dict[str, Any]) -> str:
-    payload = part.get("payload") or ""
+    payload = part.get("payload")
     if part.get("payloadType", "InlineBase64") != "InlineBase64":
-        return str(payload)
-    return base64.b64decode(payload).decode("utf-8", "replace")
+        return str(payload or "")
+    try:  # read short or as empty, a notebook would look like it runs less than it does
+        if not isinstance(payload, str):
+            raise ValueError("no payload")
+        return b64.decode_exact(payload).decode("utf-8", "replace")
+    except ValueError:
+        raise ValueError("the notebook's content was left out because Fabric didn't send it as whole base64. Open "
+                         "the notebook in Fabric to check it still loads.") from None
 
 
 def notebook_content(definition: dict[str, Any]) -> tuple[list[str], str | None]:
     """A notebook definition's code cells (sources, in order) and its default lakehouse id.
 
-    Reads the ipynb form (asked for with ?format=ipynb) and, failing that, Fabric's .py form.
+    Reads the ipynb form (asked for with ?format=ipynb) and, failing that, Fabric's .py, .sql or .scala form.
     Markdown cells are left out: they don't run. Raises ValueError when there's no content."""
     part = next((p for p in _parts(definition) if str(p.get("path", "")).startswith("notebook-content")), None)
     if part is None:
         raise ValueError("the definition has no notebook-content part")
     text = _decode(part)
     if str(part.get("path")).endswith(".ipynb"):
-        doc = json.loads(text)
-        lh = (((doc.get("metadata") or {}).get("dependencies") or {}).get("lakehouse") or {}).get("default_lakehouse")
+        try:
+            doc = json.loads(text)
+        except RecursionError:
+            raise ValueError("the notebook is nested too deep to be a notebook") from None
+        if not isinstance(doc, dict) or not isinstance(doc.get("cells") or [], list):
+            raise ValueError("the notebook has no cells list")
+        lh = doc.get("metadata")
+        for key in ("dependencies", "lakehouse", "default_lakehouse"):
+            lh = lh.get(key) if isinstance(lh, dict) else None
         cells = []
         for c in doc.get("cells") or []:
+            if not isinstance(c, dict):
+                raise ValueError("a cell in the notebook isn't an object")
             if c.get("cell_type") != "code":
                 continue
             src = c.get("source")
             cells.append("".join(src) if isinstance(src, list) else str(src or ""))
-        return cells, lh or None
+        return cells, lh if isinstance(lh, str) and lh else None
     found = _PY_DEFAULT_LH.search(text)
+    if str(part.get("path")).endswith((".sql", ".scala")):
+        parsed = parse_source(text, str(part.get("path")))
+        if parsed["format"] != "Fabric notebook source":
+            raise ValueError(f"{str(part.get('path'))[:80]} doesn't start with Fabric's notebook source header")
+        return [c["source"] for c in parsed["cells"] if c["type"] == "code"], found.group(1) if found else None
+    if not str(part.get("path")).endswith(".py"):
+        raise ValueError(f"{str(part.get('path'))[:80]} isn't a notebook format this reads (.ipynb, .py, .sql or .scala)")
     chunks = _PY_CELL.split(text)
     markers = _PY_CELL.findall(text)
     cells = [_PY_META.sub("", chunk).strip("\n") for marker, chunk in zip(markers, chunks[1:], strict=False)

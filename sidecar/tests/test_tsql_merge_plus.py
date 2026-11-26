@@ -106,7 +106,8 @@ def test_a_number_outranks_text_in_on(engine, name):
 @pytest.mark.parametrize("head", [MERGE, TEMP], ids=["known", "temp"])
 def test_text_that_isnt_a_number_is_a_conversion_error(engine, name, head):
     message = refused(engine, name, head + "WHEN MATCHED THEN UPDATE SET id = s.v + 1;")
-    assert "Conversion failed when converting the text to data type INTEGER." in message
+    # SQL Server's Msg 245 with the value, as WR-247 (main) words the conversion error
+    assert "Msg 245, Level 16: Conversion failed when converting the varchar value 'B' to data type int." in message
     assert "binder" not in message.lower() and "coerce" not in message.lower()
 
 

@@ -56,15 +56,20 @@ def _policy(policy: Path, saved: Path) -> dict:
 
 
 def channel() -> str:
-    """This PC's update channel: the organization's policy file (or its last good copy) wins over
-    the Settings page. The same rule as the sidecar's app_settings.py; this file can't import it."""
+    """This PC's update channel. The shell passes it (FABRIC_DESKTOP_CHANNEL, main.rs channel), with the
+    Group Policy this file can't read. Without it: the organization's policy file (or its last good copy)
+    wins over the Settings page, by the sidecar's rule in app_settings.py, which this file can't import:
+    a policy that sets a channel decides, and one that isn't a channel is Stable, as Settings shows."""
+    passed = os.environ.get("FABRIC_DESKTOP_CHANNEL")
+    if passed in CHANNEL_TAGS:
+        return passed
     policy = Path(os.environ.get("ProgramData") or "/etc") / "FabricDesktop" / "policy.json"
     user = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "FabricDesktop" / "app-settings.json"
-    for settings in (_policy(policy, user.with_name("policy-last-good.json")), _settings(user)):
-        value = settings.get("channel")
-        if value in CHANNEL_TAGS:
-            return value
-    return "stable"
+    value = _policy(policy, user.with_name("policy-last-good.json")).get("channel")
+    if isinstance(value, str) and value:
+        return value if value in CHANNEL_TAGS else "stable"
+    value = _settings(user).get("channel")
+    return value if value in CHANNEL_TAGS else "stable"
 
 
 def release_url(name: str = "") -> str:

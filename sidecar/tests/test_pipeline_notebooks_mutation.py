@@ -108,6 +108,7 @@ def stopper(monkeypatch, now):
     """notebook_cells.wait asks stop() once, as it does while a cell runs, then reports the cell ok."""
     asked = []
     monkeypatch.setattr(pn.time, "monotonic", lambda: now)
+    monkeypatch.setattr(pn, "awake_monotonic", lambda: now)  # the deadline's clock
 
     def wait(k, snap, stop):
         asked.append(stop())

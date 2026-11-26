@@ -38,14 +38,16 @@ CASES = [
  # integer division and modulo: toward zero, and the remainder takes the dividend's sign
  ("7 / 2", "3"), ("-7 / 2", "-3"), ("7 / -2", "-3"), ("-7 / -2", "3"), ("i / 2", "3"), ("-i / 2", "-3"),
  ("7 % 2", "1"), ("-7 % 2", "-1"), ("7 % -2", "1"), ("-7 % -2", "-1"), ("-i % 3", "-1"),
- # overflow: an error, as in T-SQL (DuckDB's words)
- ("CAST(2147483647 AS INT) + 1", "ERROR:Overflow"), ("2147483647 * 2", "ERROR:Overflow"),
- ("CAST(9223372036854775807 AS BIGINT) + 1", "ERROR:Overflow"), ("CAST(-2147483648 AS INT) / -1", "ERROR:Overflow"),
- ("ABS(CAST(-2147483648 AS INT))", "ERROR:Overflow"), ("CAST(2147483647 AS BIGINT) + 1", "2147483648"),
+ # overflow: an error, as in T-SQL (in SQL Server's words where they're certain, WR-247)
+ ("CAST(2147483647 AS INT) + 1", "ERROR:Arithmetic overflow error converting expression to data type int."),
+ ("2147483647 * 2", "ERROR:Arithmetic overflow error converting expression to data type int."),
+ ("CAST(9223372036854775807 AS BIGINT) + 1", "ERROR:Arithmetic overflow error converting expression to data type bigint."),
+ ("CAST(-2147483648 AS INT) / -1", "ERROR:Overflow"),
+ ("ABS(CAST(-2147483648 AS INT))", "ERROR:Arithmetic overflow error converting expression to data type int."), ("CAST(2147483647 AS BIGINT) + 1", "2147483648"),
  ("CAST(300 AS TINYINT)", "ERROR:"), ("CAST(-1 AS TINYINT)", "ERROR:"), ("CAST(255 AS TINYINT)", "255"),
  # text meets a number: the number's type wins
  ("'1' + 1", "2"), ("1 + '1'", "2"), ("'' + 1", "1"), ("' 2 ' + 1", "3"), ("'1' + 1.5", "2.5"),
- ("'1.5' + 1", "ERROR:Conversion failed when converting the text to data type"), ("'x' + 1", "ERROR:Conversion failed"),
+ ("'1.5' + 1", "ERROR:Conversion failed when converting the varchar value '1.5' to data type int."), ("'x' + 1", "ERROR:Conversion failed"),
  ("'1e2' + 1", "ERROR:Conversion failed"), ("'a' + 'b'", "ab"),
  # ISNULL takes the first argument's type, COALESCE the highest-ranked one
  ("ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')", "ab"), ("COALESCE(CAST(NULL AS VARCHAR(2)), 'abcd')", "abcd"),

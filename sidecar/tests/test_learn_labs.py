@@ -214,7 +214,8 @@ def test_labs_import_nothing_that_reaches_fabric():
                # fixes.py (GD-02) reads SQL with the compatibility checker's tokens: a parser, no I/O
                "sqlglot.tokens", "sqlcompat.analyzer", "sqlcompat.profiles", "sqlcompat.rules",
                "duckdb_rows",  # one-row reads from DuckDB (#1341): no I/O of its own
-               "trees"}  # deletes a lab folder on this PC (Windows read-only and busy files): no network
+               "trees",  # deletes a lab folder on this PC (Windows read-only and busy files): no network
+               "awake_timer"}  # the time limit, counting awake time only: imports only threading and time
     for path in LEARN.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []

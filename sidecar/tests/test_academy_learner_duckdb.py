@@ -232,6 +232,43 @@ def test_a_learner_duckdb_database_stays_in_its_folder(tmp_path: Path, code: str
     assert not outside.exists()
 
 
+@pytest.mark.parametrize("key", ["temp_directory", "secret_directory", "extension_directory", "TEMP_DIRECTORY",
+                                 "home_directory", "custom_extension_repository", "allowed_directories"])
+def test_a_learner_duckdb_setting_that_names_a_folder_is_refused(tmp_path: Path, key: str) -> None:
+    """Only settings that change how queries run may be given at connect time; one naming a folder is refused."""
+    root = tmp_path / "data"
+    work = ws.workspace_dir(root, "dp-700", "E22")
+    work.mkdir(parents=True)
+    outside = tmp_path / "spill"
+    (work / "answer.py").write_text(
+        "import duckdb\n"
+        f"con = duckdb.connect(config={{{key!r}: {str(outside)!r}}})\n"
+        "con.sql('SELECT count(*) FROM range(3000000) t1 ORDER BY 1').fetchall()\n", encoding="utf-8")
+    res = sandbox.run(work, "answer.py", root)
+    assert res["status"] == "error", res
+    assert res["stderr"].strip().splitlines()[-1].startswith("PermissionError"), res["stderr"]
+    assert not outside.exists()
+
+
+def test_learner_duckdb_settings_that_change_how_queries_run_still_apply(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    work = ws.workspace_dir(root, "dp-700", "E22")
+    work.mkdir(parents=True)
+    (work / "answer.py").write_text(
+        "import duckdb\n"
+        "con = duckdb.connect(config={'Threads': 3, 'default_null_order': 'nulls_first', 'memory_limit': '8GB',\n"
+        "                             'preserve_insertion_order': False})\n"
+        "print(con.sql(\"SELECT current_setting('threads')\").fetchall()[0][0])\n"
+        "print(con.sql('SELECT x FROM (VALUES (1), (NULL)) t(x) ORDER BY x').fetchall()[0][0])\n"
+        "print(con.sql(\"SELECT current_setting('memory_limit')\").fetchall()[0][0].replace(' ', ''))\n",
+        encoding="utf-8")
+    res = sandbox.run(work, "answer.py", root)
+    assert res["status"] == "ok", res["stderr"]
+    threads, first, memory = res["stdout"].split()
+    assert (threads, first) == ("3", "None")
+    assert memory.lower() in ("953.6mib", "1.0gib", "1000.0mib", "1gb", "976.5mib"), memory   # held to 1GB
+
+
 def test_learner_duckdb_still_opens_a_database_file_in_its_folder(tmp_path: Path) -> None:
     root = tmp_path / "data"
     work = ws.workspace_dir(root, "dp-700", "E22")

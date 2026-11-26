@@ -266,6 +266,20 @@ def _install(work: str, reads: "tuple[str, ...]", denied: "tuple[str, ...]", blo
         sys.addaudithook(_duckdb_hook(*duck))
 
 
+# The settings a learner's duckdb.connect(config=...) may give, matched without case: ones that change how
+# queries run and name no file or folder (the PySpark shim's among them). memory_limit is set to 1GB again
+# after connecting, so a larger one doesn't hold.
+DUCKDB_CONFIG_KEYS = frozenset({
+    "threads", "worker_threads", "memory_limit", "max_memory", "timezone", "calendar", "default_null_order",
+    "null_order", "default_order", "disabled_optimizers", "preserve_insertion_order", "enable_progress_bar",
+    "enable_progress_bar_print", "enable_object_cache", "errors_as_json", "max_expression_depth",
+    "integer_division", "scalar_subquery_error_on_multiple_rows", "arrow_large_buffer_size",
+    "arrow_lossless_conversion", "arrow_output_list_view", "produce_arrow_string_view", "python_enable_replacements",
+    "pandas_analyze_sample", "order_by_non_integer_literal", "default_collation", "checkpoint_threshold",
+    "wal_autocheckpoint", "late_materialization_max_rows", "ieee_floating_point_ops",
+})
+
+
 def _duckdb_hook(connect: "Callable[..., Any]", at_open: "tuple[tuple[str, Any], ...]", settings: "tuple[str, ...]",
                  work: str) -> "Callable[[str, tuple[Any, ...]], None]":
     """The only holder of DuckDB's own connect: it answers the "academy.duckdb.connect" event that
@@ -276,7 +290,8 @@ def _duckdb_hook(connect: "Callable[..., Any]", at_open: "tuple[tuple[str, Any],
 
     def hook(event: str, args: "tuple[Any, ...]", _connect: "Callable[..., Any]" = connect,
              _at_open: "tuple[tuple[str, Any], ...]" = at_open, _settings: "tuple[str, ...]" = settings,
-             _root: str = root, _win: bool = win, _plain: "tuple[type, ...]" = (str, bool, int, float)) -> None:
+             _root: str = root, _win: bool = win, _plain: "tuple[type, ...]" = (str, bool, int, float),
+             _keys: "frozenset[str]" = DUCKDB_CONFIG_KEYS) -> None:
         if event != "academy.duckdb.connect":
             return
         if len(args) != 4 or type(args[3]) is not list or args[3]:
@@ -292,13 +307,13 @@ def _duckdb_hook(connect: "Callable[..., Any]", at_open: "tuple[tuple[str, Any],
                 if (not rest or any(p in ("", ".", "..") for p in rest.split(sep))
                         or (_win and (":" in rest or path.startswith("\\\\")))):
                     raise PermissionError("An Academy exercise can use only files in its own folder (a DuckDB database).")
-            names = tuple(k for k, _ in _at_open)
             config = dict(_at_open)
             for k, v in given.items():
                 if type(k) is not str or type(v) not in _plain:
                     raise PermissionError("A DuckDB setting takes a plain value in an Academy exercise.")
-                if k.lower() not in names:
-                    config[k] = v
+                if k.lower() not in _keys:
+                    raise PermissionError(f"An Academy exercise can't give DuckDB the setting {k!r} when it connects.")
+                config[k] = v
             con = _connect(database, read_only, config)
             for s in _settings:
                 con.execute(s)

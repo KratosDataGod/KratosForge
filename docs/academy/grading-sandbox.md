@@ -148,7 +148,11 @@ How each Security condition is met:
    `duckdb.connect`, the native `_duckdb.connect` and any module that imported it by name are one
    replaced function. DuckDB's own connect is held only by a second audit hook, which opens each
    connection from plain values (a database in the workspace or `:memory:`, settings of plain types)
-   and hands it back; no module, closure, traceback or frame the learner's code can reach holds it.
+   and hands it back. A connection's config may hold only settings that change how queries run
+   (`threads`, `memory_limit`, which is set to 1GB again after connecting, `TimeZone`,
+   `default_null_order`, `disabled_optimizers` and a few like them, listed in `DUCKDB_CONFIG_KEYS`);
+   any other key, such as one naming a file or folder (`temp_directory`, `secret_directory`,
+   `extension_directory`), is refused with a PermissionError. No module, closure, traceback or frame the learner's code can reach holds it.
    Importing `duckdb` or `_duckdb` again (after removing it from `sys.modules`, through
    `importlib.util.module_from_spec`, `ExtensionFileLoader` under any name, or `_imp.create_dynamic`)
    is refused, since a fresh native module would bring back the original; `importlib.reload` of
@@ -186,7 +190,7 @@ Also:
   (the Databricks path's generated PySpark package). A folder is refused if it is a link, holds or
   sits in the engine package, or holds the workspace or the data folder.
 - What learner code can't do, by design, and what to do instead: change a DuckDB setting after
-  connecting (the configuration is locked; pass settings to `duckdb.connect(config=...)`); load
+  connecting (the configuration is locked; pass settings that change how queries run to `duckdb.connect(config=...)`); load
   an extension DuckDB doesn't have built in (the extension folder is outside the workspace and never
   created, and autoinstall and autoload are off);
   read a Delta table with `DeltaTable.to_pyarrow_table()` or `to_pyarrow_dataset()` (they go

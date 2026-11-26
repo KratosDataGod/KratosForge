@@ -875,6 +875,12 @@ models (`fabric_desktop_list_semantic_models`), export one as Ossie YAML
 reaches only environments in them. Importing writes the model, so it stays on this tab, where you
 see the preview and confirm.
 
+Export and the import preview withhold security roles from an AI tool: each role filter expression and
+each member's name and id comes back as its length and a short hash, in the YAML and in the fidelity
+report, because they say who may see which rows and an agent has no need to read them. Role names, model
+permissions and which tables have a filter are kept, the result's `note` says what was withheld, and
+this tab still shows them in full.
+
 ## Engine methods
 
 | Method | What it does | Writes |

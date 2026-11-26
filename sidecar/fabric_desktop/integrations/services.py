@@ -311,14 +311,16 @@ def list_semantic_models(svc: Any, ctx: CallContext, env: str = "test") -> dict[
 
 
 def export_semantic_model_ossie(svc: Any, ctx: CallContext, env: str, name: str, translate_dax: bool = True) -> dict[str, Any]:
-    """A semantic model as Apache Ossie YAML, with counts and what isn't portable. Writes no file."""
-    return svc.meta_model_ossie_export(env, name, translate_dax)
+    """A semantic model as Apache Ossie YAML, with counts and what isn't portable. Writes no file. Role filters and
+    members are withheld (model_ossie_redact): the app's Semantic model tab shows them, a tool doesn't get them."""
+    return svc.ossie_export_roles_withheld(env, name, translate_dax)
 
 
 def preview_ossie_import(svc: Any, ctx: CallContext, env: str, text: str, name: str = "", mode: str = "update",
                          remove: list[str] | None = None) -> dict[str, Any]:
-    """What importing an Ossie document would change in a semantic model. Writes nothing."""
-    return svc.meta_model_ossie_preview(env, text, name, mode, remove or [])
+    """What importing an Ossie document would change in a semantic model. Writes nothing. Role filters and members
+    are withheld, as in Export."""
+    return svc.ossie_preview_roles_withheld(env, text, name, mode, remove or [])
 
 
 def check_run_risk(svc: Any, ctx: CallContext, workload_id: str, action: str, env: str = "") -> dict[str, Any]:

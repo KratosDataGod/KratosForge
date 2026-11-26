@@ -1,26 +1,37 @@
-"""delta_cdf.py: what mutation testing showed no test checked. Only _commit_timestamp becomes a UTC
-microsecond timestamp; the table's own timestamp columns keep their type."""
-
-from __future__ import annotations
-
-from datetime import datetime
+"""Mutation batch 266: delta_cdf.py, first score (docs/quality/mutation-testing.md)."""
 
 import pyarrow as pa
+import pytest
 
 from fabric_desktop import delta_cdf
 
 
-def test_only_the_commit_timestamp_becomes_utc_microseconds():
-    when = datetime(2026, 1, 1, 12)
+class _Meta:
+    configuration: dict = {}
+
+
+class _Failing:
+    def metadata(self):
+        return _Meta()
+
+    def load_cdf(self, **_):
+        raise RuntimeError("the log could not be read")
+
+
+def test_any_other_delta_error_is_said_with_the_range_and_its_own_words():
+    with pytest.raises(ValueError) as caught:
+        delta_cdf.read(_Failing(), "sales", {"startingversion": 2})
+    assert str(caught.value) == ("Nothing was read from the change data feed of sales from 2 to latest: "
+                                 "the log could not be read")
+
+
+def test_only_the_commit_timestamp_becomes_a_utc_timestamp():
     table = pa.table({
-        "name": pa.array(["a"], pa.string_view()),
-        "local_ts": pa.array([when], pa.timestamp("us")),
-        "_change_type": pa.array(["insert"], pa.string_view()),
-        "_commit_version": pa.array([3], pa.int32()),
-        "_commit_timestamp": pa.array([when], pa.timestamp("ms")),
+        "seen": pa.array([0], pa.timestamp("ns")),
+        "_commit_timestamp": pa.array([0], pa.timestamp("ms")),
+        "_commit_version": pa.array([1], pa.int32()),
     })
     out = delta_cdf._spark_types(table).schema
-    assert out.field("name").type == pa.string() and out.field("_change_type").type == pa.string()
-    assert out.field("local_ts").type == pa.timestamp("us")  # no zone added
-    assert out.field("_commit_version").type == pa.int64()
+    assert out.field("seen").type == pa.timestamp("ns")
     assert out.field("_commit_timestamp").type == pa.timestamp("us", tz="UTC")
+    assert out.field("_commit_version").type == pa.int64()

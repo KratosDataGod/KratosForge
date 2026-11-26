@@ -79,3 +79,19 @@ def test_every_name_the_admx_uses_is_in_the_adml():
 def test_the_committed_templates_are_what_the_generator_writes(path, make):
     assert path.read_bytes().replace(b"\r\n", b"\n") == make().encode("utf-8"), \
         f"{path.name} is out of date: run python -m fabric_desktop.policy_schema"
+
+
+def test_a_templates_number_box_takes_only_numbers_the_app_accepts():
+    # A box is one range with no gap: where app_settings accepts 0 and then a range from above 1, the box
+    # holds that range and 0 comes from leaving the policy unset (editor_font_size, the retention days).
+    for st in policy_schema.settings():
+        if st.kind != "int":
+            continue
+        assert st.high <= policy_schema.DWORD_MAX, st.key  # all Group Policy can write
+        assert app_settings._in_range(st.key, st.low) and app_settings._in_range(st.key, st.high), st.key
+        if st.low > 0:
+            assert not app_settings._in_range(st.key, st.low - 1), st.key
+            if app_settings._in_range(st.key, 0):  # a gap: below it only 0, which leaving the policy unset gives
+                assert app_settings.DEFAULTS[st.key] == 0 and not app_settings._in_range(st.key, 1), st.key
+        elif st.high < policy_schema.DWORD_MAX:
+            assert not app_settings._in_range(st.key, st.high + 1), st.key

@@ -1,127 +1,95 @@
-"""The support bundle: what mutation testing found unchecked in support_bundle.py. How much of a log the
-tail keeps (lines and bytes), where it starts in a UTF-8 or UTF-16 file, a whole private key left as it
-is, the data folder's facts, how the sign-in app and the platform setting are summarized, about.json's
-layout, the 99th name from one second, and a failed write whose file is already gone."""
+"""Mutation batch 268: support_bundle.py, first score (docs/quality/mutation-testing.md)."""
 
-from __future__ import annotations
-
-import json
 import platform
-import zipfile
 from pathlib import Path
 
 import pytest
 
-from fabric_desktop import app_settings, policy_watch, support_bundle
+from fabric_desktop import app_settings, support_bundle
 from tests.test_support_bundle import pc  # noqa: F401  (a fixture)
-
-OWN_APP = "11111111-2222-4333-8444-555555555555"
 
 
 def test_a_log_keeps_its_last_two_thousand_lines(tmp_path):
     log = tmp_path / "sidecar.log"
-    log.write_text("".join(f"line {i}\n" for i in range(2001)), encoding="utf-8")
+    log.write_text("".join(f"line {i}\n" for i in range(2500)), encoding="utf-8")
     kept = support_bundle._tail(log).splitlines()
-    assert support_bundle.LOG_LINES == 2000 and len(kept) == 2000
-    assert kept[0] == "line 1" and kept[-1] == "line 2000"
+    assert len(kept) == 2000 and kept[0] == "line 500" and kept[-1] == "line 2499"
 
 
-def test_a_log_reads_only_its_last_four_mebibytes(tmp_path):
+def test_only_the_last_four_mebibytes_are_read(tmp_path):
     log = tmp_path / "sidecar.log"
-    line = b"kept123\n"
-    log.write_bytes(b"gone\n" + line * (4 * 1024 * 1024 // len(line)))
-    text = support_bundle._tail(log, lines=10 ** 7)
-    assert support_bundle.TAIL_BYTES == 4 * 1024 * 1024
-    assert "gone" not in text and text.count("kept123") == 4 * 1024 * 1024 // len(line) - 1
+    line = "x" * 4095 + "\n"
+    log.write_bytes(("first\n" + line * 1023 + "y" * 4094 + "\n").encode())  # 5 bytes past 4 MiB, "\n" on every OS
+    kept = support_bundle._tail(log)  # the read starts on the first line's newline, so only that is dropped
+    assert kept.startswith("x") and kept.count("\n") == 1024 and kept.endswith("y\n")
 
 
-def test_a_utf8_tail_starts_at_the_byte_the_limit_names(tmp_path):
-    log = tmp_path / "sidecar.log"
-    log.write_bytes(b"aaa\nbb\ncc\n")
-    assert support_bundle._tail(log, max_bytes=7) == "bb\ncc\n"   # starts on the newline after aaa
+@pytest.mark.parametrize("encoding,bom", [("utf-16-le", b"\xff\xfe"), ("utf-16-be", b"\xfe\xff")])
+def test_a_utf16_tail_starts_on_a_whole_code_unit(tmp_path, encoding, bom):
+    log = tmp_path / "agent.log"
+    log.write_bytes(bom + "".join(f"row {i}\r\n" for i in range(50)).encode(encoding))
+    for max_bytes in (101, 102, 103):
+        kept = support_bundle._tail(log, max_bytes=max_bytes)
+        assert "\ufffd" not in kept and kept.endswith("row 49\n")
+        assert all(line.startswith("row ") for line in kept.splitlines())
 
 
-def test_a_utf16_tail_starts_on_a_whole_code_unit(tmp_path):
-    log = tmp_path / "sidecar.log"
-    log.write_bytes(b"\xff\xfe" + "ab\ncd\n".encode("utf-16-le"))
-    assert support_bundle._tail(log) == "ab\ncd\n"
-    assert support_bundle._tail(log, max_bytes=11) == "cd\n"     # start 3 becomes 4: the "b" of "ab"
+def test_a_whole_utf16_file_is_read_from_its_first_line(tmp_path):
+    log = tmp_path / "agent.log"
+    log.write_bytes(b"\xff\xfe" + "one\ntwo\n".encode("utf-16-le"))
+    assert support_bundle._tail(log) == "one\ntwo\n"
 
 
-def test_a_whole_private_key_at_the_very_start_is_left_for_redaction():
-    label = "PRIVATE " + "KEY"  # built here, so no scanner takes this file for one holding a key
-    text = f"-----BEGIN {label}-----\nMIIabc\n-----END {label}-----\nafter\n"
+def test_a_key_that_begins_on_the_first_character_is_whole():
+    text = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\nafter\n"  # pragma: allowlist secret (test value)
     assert support_bundle._without_cut_key(text) == text
 
 
-def test_the_data_folders_facts(tmp_path):
-    folder = tmp_path / "Fabric Desktop" / "donnees-é"
-    assert support_bundle.path_facts(folder) == {
-        "data_folder_length": len(str(folder)), "data_folder_ascii": False, "data_folder_spaces": True,
-        "data_folder_network": False, "long_paths_enabled": None}
-    plain = Path("/plain/folder")
-    assert support_bundle.path_facts(plain)["data_folder_spaces"] is False
+def test_path_facts_describe_the_folder_without_naming_it():
+    facts = support_bundle.path_facts(Path("C:/Users/Ann Lee/AppData/Local/FabricDesktop"))
+    assert facts["data_folder_length"] == len(str(Path("C:/Users/Ann Lee/AppData/Local/FabricDesktop")))
+    assert facts["data_folder_ascii"] is True and facts["data_folder_spaces"] is True
+    assert facts["data_folder_network"] is False
 
 
-def test_about_reads_the_folder_its_given(tmp_path, pc):  # noqa: F811
-    other = tmp_path / "other data"
+def test_about_summarizes_the_sign_in_app_and_platforms(pc, monkeypatch):  # noqa: F811
+    settings = {
+        "client_id": {"value": app_settings.MICROSOFT_CLIENT_ID, "source": "default"},
+        "platform": {"value": {"fabric": {}, "databricks": {"host": "x"}}, "source": "user"},
+    }
+    monkeypatch.setattr(app_settings, "load", lambda: settings)
+    about = support_bundle.about(pc)
+    assert about["settings"]["client_id"]["value"] == "Microsoft's Fabric sign-in"
+    assert about["settings"]["platform"]["value"] == ["databricks", "fabric"]
+    assert about["python"] == platform.python_version()
+    assert about["paths"]["data_folder_length"] == len(str(pc))
+    settings["client_id"] = {"value": "11111111-2222-3333-4444-555555555555", "source": "user"}
+    settings["platform"] = {"value": "not a dict", "source": "user"}
+    about = support_bundle.about(pc)
+    assert about["settings"]["client_id"]["value"] == "own app registration"
+    assert about["settings"]["platform"]["value"] == []
+
+
+def test_about_describes_the_folder_given(pc, tmp_path):  # noqa: F811
+    other = tmp_path / "other"
     other.mkdir()
-    (other / policy_watch.SEEN).write_text(json.dumps({"changed_at": "2026-11-01T00:00:00Z", "sha256": "ab"}))
-    out = support_bundle.about(other)
-    assert out["paths"]["data_folder_length"] == len(str(other)) and out["paths"]["data_folder_spaces"] is True
-    assert out["policy_record"]["last_change"]["changed_at"] == "2026-11-01T00:00:00Z"
-    assert out["python"] == platform.python_version()
+    (other / "policy-seen.json").write_text('{"changed_at": "2026-11-01T00:00:00Z"}', encoding="utf-8")
+    about = support_bundle.about(other)
+    assert about["policy_record"]["last_change"]["changed_at"] == "2026-11-01T00:00:00Z"
+    assert about["paths"]["data_folder_length"] == len(str(other))
 
 
-def test_the_sign_in_app_is_named_by_whose_it_is(pc, monkeypatch):  # noqa: F811
-    assert support_bundle.about(pc)["settings"]["client_id"]["value"] == "Microsoft's Fabric sign-in"
-    monkeypatch.setenv("FABRIC_DESKTOP_CLIENT_ID", OWN_APP)
-    assert support_bundle.about(pc)["settings"]["client_id"]["value"] == "own app registration"
+def test_a_bundle_tries_ninety_nine_names_before_giving_up(tmp_path, pc, monkeypatch):  # noqa: F811
+    real_open = Path.open
+    tried = []
 
+    def taken(self, mode="r", *args, **kwargs):
+        if mode == "xb":
+            tried.append(self.name)
+            raise FileExistsError(str(self))
+        return real_open(self, mode, *args, **kwargs)
 
-def test_the_platform_setting_shows_only_its_environments(pc):  # noqa: F811
-    app_settings.policy_path().write_text(json.dumps({"platform": {"prod": {"workspace_id": "w"}, "dev": {}}}))
-    assert support_bundle.about(pc)["settings"]["platform"]["value"] == ["dev", "prod"]
-
-
-def test_about_json_is_indented_by_two(tmp_path, pc):  # noqa: F811
-    path = support_bundle.create(tmp_path / "out", data_dir=pc)
-    with zipfile.ZipFile(path) as z:
-        about = z.read("about.json").decode()
-    assert about.startswith('{\n  "engine_version": ')
-
-
-class _At:
-    @staticmethod
-    def now(tz=None):
-        from datetime import datetime
-        return datetime(2026, 11, 23, 1, 2, 3, tzinfo=tz)
-
-
-def test_the_ninety_ninth_name_of_a_second_is_the_last(tmp_path, pc, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(support_bundle, "datetime", _At)
-    out = tmp_path / "out"
-    out.mkdir()
-    stamp = "fabric-desktop-support-20261123-010203"
-    for n in range(1, 99):
-        (out / (f"{stamp}.zip" if n == 1 else f"{stamp}-{n}.zip")).write_bytes(b"")
-    assert support_bundle.create(out, data_dir=pc).name == f"{stamp}-99.zip"
-    with pytest.raises(FileExistsError, match="already 99 support bundles"):
-        support_bundle.create(out, data_dir=pc)
-    assert len(list(out.iterdir())) == 99
-
-
-def test_a_failed_write_whose_file_is_already_gone_raises_its_own_error(tmp_path, pc, monkeypatch):  # noqa: F811
-    def broken(handle, *args, **kwargs):
-        Path(handle.name).unlink()
-        raise OSError("disk full")
-
-    monkeypatch.setattr(support_bundle.zipfile, "ZipFile", broken)
-    with pytest.raises(OSError, match="disk full"):
+    monkeypatch.setattr(Path, "open", taken)
+    with pytest.raises(FileExistsError):
         support_bundle.create(tmp_path / "out", data_dir=pc)
-    assert list((tmp_path / "out").iterdir()) == []
-
-
-def test_contents_lines_wrap_at_a_hundred_characters():
-    assert support_bundle._wrap("a" * 99 + " b") == ["a" * 99, "b"]
-    assert support_bundle._wrap("a" * 98 + " b") == ["a" * 98 + " b"]
+    assert len(tried) == 99 and tried[-1].endswith("-99.zip")

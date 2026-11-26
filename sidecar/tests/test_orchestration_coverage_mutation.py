@@ -1,64 +1,75 @@
-"""The local pipeline coverage page (orchestration/coverage.py), held to exact values: every reference example the
-evaluator runs gives the reference's value (one differs, and says why), and the page's counts, tables, value
-columns and notes are written exactly, checked on a small coverage made here rather than the docs page."""
+"""Local pipeline coverage: what the first mutation run of orchestration/coverage.py left alive (batch 336).
+
+test_pipeline_coverage.py compares the generated page with docs/orchestration/coverage.md, which a copy of
+sidecar/ alone doesn't have. These tests pin the same facts without reading docs/."""
 
 from __future__ import annotations
 
-from fabric_desktop.orchestration import coverage as C
+import pytest
+
+from fabric_desktop.orchestration import coverage
+
+# Every function that doesn't give the reference's value, by status, as docs/orchestration/coverage.md lists them.
+NOT_RUNNING = {
+    "guid": "not checked", "uriComponent": "not checked", "uriComponentToString": "not checked",
+    "getFutureTime": "not checked", "getPastTime": "not checked", "utcNow": "not checked",
+    "activity": "not checked", "item": "not checked", "pipeline": "not checked", "variables": "not checked",
+    "base64ToBinary": "refused", "binary": "refused", "dataUriToBinary": "refused", "decodeDataUri": "refused",
+    "uriComponentToBinary": "refused", "xml": "refused", "xpath": "refused", "rand": "refused",
+    "convertFromUtc": "differs",
+}
 
 
-def test_every_checked_example_gives_the_references_value_but_one():
-    rows = {r["name"]: r for r in C.functions()}
-    checked = {n for n, r in rows.items() if r["status"] in ("runs", "differs", "fails")}
-    assert checked == set(C.EXAMPLES), "every example is run, and only those"
-    assert {n for n in checked if rows[n]["status"] != "runs"} == {"convertFromUtc"}, "its note says why"
+@pytest.fixture(scope="module")
+def cov():
+    return coverage.coverage()
+
+
+def test_every_example_but_convert_from_utc_gives_the_references_value(cov):
+    status = {r["name"]: r["status"] for r in cov["functions"]}
+    assert {n: s for n, s in status.items() if s != "runs"} == NOT_RUNNING
+    assert all(status[n] == "runs" for n in coverage.EXAMPLES if n != "convertFromUtc")
+
+
+def test_a_checked_row_keeps_its_example_and_what_it_gave(cov):
+    rows = {r["name"]: r for r in cov["functions"]}
+    assert rows["div"]["example"] == "div(11, 5)" and rows["div"]["expected"] == 2 and rows["div"]["got"] == 2
     assert rows["convertFromUtc"]["got"] == "2018-01-01T00:00:00.0000000"
-    for name in checked - {"convertFromUtc"}:
-        assert rows[name]["got"] == C.EXAMPLES[name][1] or C._canonical(rows[name]["got"]) == C._canonical(C.EXAMPLES[name][1])
+    assert rows["utcNow"]["example"] == "" and rows["utcNow"]["got"] is None
+    assert rows["item"]["category"] == "Scope"
 
 
-def test_a_cell_is_json_with_its_pipes_escaped_and_nothing_for_none():
-    assert C._cell(None) == ""
-    assert C._cell(0) == "0" and C._cell(False) == "false"
-    assert C._cell("a|b") == '"a\\|b"'
+def test_canonical_writes_whole_floats_as_ints_inside_lists_and_dicts_with_sorted_keys():
+    assert coverage._canonical(2.0) == "2"
+    assert coverage._canonical(2.5) == "2.5"
+    assert coverage._canonical([1.0, "a"]) == '[1, "a"]'
+    assert coverage._canonical({"b": 1.0, "a": [2.0]}) == '{"a": [2], "b": 1}'
+    assert coverage._canonical(None) == "null"
 
 
-ACTS = [{"type": "Copy", "title": "Copy data", "aliases": ["CopyData"], "classification": "local",
-         "status": "runs locally", "evidence": "unit_tests", "planned": ""},
-        {"type": "Web", "title": "Web", "aliases": [], "classification": "cloud", "status": "Fabric only",
-         "evidence": "", "planned": "AS-2"}]
-FNS = [{"name": "concat", "category": "String", "status": "runs", "example": "concat('a')", "expected": "a", "got": "a"},
-       {"name": "guid", "category": "String", "status": "not checked", "example": "", "expected": None, "got": None},
-       {"name": "div", "category": "Math", "status": "differs", "example": "div(1, 2)", "expected": 0, "got": 0.5},
-       {"name": "xml", "category": "Conversion", "status": "refused", "example": "", "expected": None, "got": None},
-       {"name": "ticks", "category": "Date", "status": "fails", "example": "ticks('x')", "expected": 1,
-        "got": "error: bad|x"}]
+def test_a_cell_is_json_with_pipes_escaped_and_empty_for_none():
+    assert coverage._cell(None) == ""
+    assert coverage._cell("a|b") == '"a\\|b"'
+    assert coverage._cell([1, 2]) == "[1, 2]"
 
 
-def _sections(page: str) -> dict[str, str]:
-    return {part.split("\n", 1)[0]: part.split("\n", 1)[1] for part in page.split("\n### ")[1:]}
+def test_the_page_counts_each_status_and_lists_each_category_apart(cov):
+    page = coverage.markdown(cov)
+    assert "88 functions: 69 runs, 1 differs, 0 fails, 10 not checked, 8 refused." in page
+    assert page.count("### ") == len(coverage.FUNCTIONS)
+    scope = page.split("### Scope\n", 1)[1]
+    assert scope.count("\n| `") == len(coverage.FUNCTIONS["Scope"])
+    assert "| `div` | runs | `div(11, 5)` | 2 |  |" in page
+    assert ('| `convertFromUtc` | differs | `convertFromUtc(\'2018-01-01T08:00:00.0000000Z\', '
+            '\'Pacific Standard Time\')` | "2018-01-01T00:00:00Z" | "2018-01-01T00:00:00.0000000" |') in page
+    assert "| `utcNow` | not checked |  |  |  |" in page
+    for name, note in coverage.NOTES.items():
+        assert f"`{name}`: {note}\n" in page
+    assert page.count("`: ") == len(coverage.NOTES)
 
 
-def test_the_page_counts_each_status():
-    lines = C.markdown({"activities": ACTS, "functions": FNS}).split("\n")
-    assert any(line.startswith("2 activity types: 1 runs locally, 0 simulated, 0 refused, 1 Fabric only. ")
-               for line in lines)
-    assert "5 functions: 1 runs, 1 differs, 1 fails, 1 not checked, 1 refused." in lines
-
-
-def test_the_activity_table_names_every_type_and_its_evidence():
-    lines = C.markdown({"activities": ACTS, "functions": FNS}).split("\n")
-    assert "| Copy data | `Copy`, `CopyData` | runs locally | unit tests |  |" in lines
-    assert "| Web | `Web` | Fabric only | none | AS-2 |" in lines
-
-
-def test_each_function_is_in_its_own_category_with_a_value_only_where_it_differs_or_fails():
-    sections = _sections(C.markdown({"activities": ACTS, "functions": FNS}))
-    assert list(sections) == list(C.FUNCTIONS)
-    head = "\n| Function | Status | Example | Reference value | Value here |\n| --- | --- | --- | --- | --- |\n"
-    assert sections["String"] == (head + "| `concat` | runs | `concat('a')` | \"a\" |  |\n"
-                                  "| `guid` | not checked |  |  |  |\n")
-    assert sections["Math"] == head + "| `div` | differs | `div(1, 2)` | 0 | 0.5 |\n"
-    assert sections["Conversion"] == head + "| `xml` | refused |  |  |  |\n"
-    assert sections["Date"] == head + f"| `ticks` | fails | `ticks('x')` | 1 | \"error: bad\\|x\" |\n\n`ticks`: {C.NOTES['ticks']}\n"
-    assert sections["Collection"] == head and sections["Scope"] == head
+def test_an_example_that_stops_with_an_error_fails(monkeypatch):
+    monkeypatch.setitem(coverage.EXAMPLES, "int", ("int('ten')", 10))
+    row = coverage._function_row("Conversion", "int")
+    assert row["status"] == "fails" and row["got"].startswith("error: ")
+    assert row["example"] == "int('ten')" and row["expected"] == 10

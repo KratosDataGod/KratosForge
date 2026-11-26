@@ -1,202 +1,202 @@
-"""spark_text_compare.py: what mutation testing showed no test checked, mostly through the DataFrame API's
-entry (spark_text_comparison_columns) run on DuckDB, and the module's helpers directly. Which comparisons are
-rewritten and which are left as they were (two numbers, two texts, values of two number types, a value with no
-type), Spark's answers for the ones rewritten, the size refusal, a literal's type at INT's limit, and what is
-returned when sqlglot can't type or rewrite a statement."""
+"""spark_text_compare's rewrite, read directly (mutation testing, batch 325).
+
+test_spark_text_comparisons.py checks Spark's answers end to end; these pin the rewrite itself: which
+comparisons are rewritten and which are left alone, the casts each side gets, the IN, BETWEEN and CASE
+forms, the growth limit and the DataFrame API's column list. Answers run on DuckDB here are the values the
+module's docstring and test_spark_text_comparisons.py give for Spark.
+"""
 
 from __future__ import annotations
-
-import logging
 
 import duckdb
 import pytest
 import sqlglot
-from sqlglot import exp
 from sqlglot.schema import MappingSchema
 
-from fabric_desktop import spark_text_compare as stc
 from fabric_desktop.spark_decimals import Refused
+from fabric_desktop.spark_text_compare import spark_text_comparison_columns, spark_text_comparisons
+from fabric_desktop.sql import duckdb_sql
 
-COLUMNS = [("t", "VARCHAR"), ("i", "INTEGER"), ("d", "DOUBLE"), ("m", "DECIMAL(10,2)"), ("b", "BIGINT"), ("dt", "DATE")]
-ROW = {"t": None, "i": 0, "d": 0.0, "m": 0, "b": 0, "dt": "2026-01-01"}
-
-
-def rewrite(expression):
-    return stc.spark_text_comparison_columns([expression], COLUMNS)[0]
-
-
-def value(expression, **row):
-    """The expression, rewritten as Spark compares (when it is), run on DuckDB over one row."""
-    out = rewrite(expression)
-    sql = out[0] if out else expression
-    values = {**ROW, **row}
-    with duckdb.connect() as con:
-        con.execute("CREATE TABLE kf_frame (t VARCHAR, i INTEGER, d DOUBLE, m DECIMAL(10,2), b BIGINT, dt DATE)")
-        con.execute("INSERT INTO kf_frame VALUES (?, ?, ?, ?, ?, ?)", [values[k] for k, _ in COLUMNS])
-        return con.execute(f"SELECT {sql} FROM kf_frame").fetchone()[0]
+COLUMNS = {"s": "VARCHAR", "n": "INTEGER", "d": "DECIMAL(10,2)", "f": "DOUBLE"}
+SCHEMA = MappingSchema({"t": COLUMNS}, dialect="duckdb", normalize=False)
+WHOLE = ("(CASE WHEN REGEXP_MATCHES(CAST({v} AS TEXT), '^\\s*[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]*)\\s*$') THEN "
+         "TRY_CAST(REGEXP_REPLACE(REGEXP_EXTRACT(CAST({v} AS TEXT), '^\\s*([+-]?[0-9]*)', 1), '^[+-]?$', '0') "
+         "AS {t}) END)")
 
 
-T = exp.DataType.build
+def whole(value: str, kind: str = "INT") -> str:
+    return WHOLE.format(v=value, t=kind)
 
 
-# Helpers
-
-def test_a_decimal_side_is_compared_as_a_double_and_others_as_they_are():
-    m, i = exp.column("m"), exp.column("i")
-    assert stc._number_of(m, T("DECIMAL(10, 2)")).sql() == "CAST(m AS DOUBLE)"
-    assert stc._number_of(i, T("INT")) is i
+def rewrite(query: str, schema: MappingSchema = SCHEMA) -> str:
+    return duckdb_sql(spark_text_comparisons(sqlglot.parse_one(query, read="duckdb"), None, schema))
 
 
-def test_a_number_as_text_writes_a_double_as_spark_does():
-    assert stc._as_text(exp.column("i"), T("INT")).sql() == "CAST(i AS VARCHAR)"
-    assert "CAST(d AS VARCHAR)" not in stc._as_text(exp.column("d"), T("DOUBLE")).sql()
+def unchanged(query: str) -> str:
+    return duckdb_sql(sqlglot.parse_one(query, read="duckdb"))
 
 
-@pytest.mark.parametrize("kind, numeric, text", [
-    (None, False, False), ("INT", True, False), ("DOUBLE", True, False), ("DECIMAL(5, 1)", True, False),
-    ("VARCHAR", False, True), ("DATE", False, False),
-])
-def test_number_and_text_kinds(kind, numeric, text):
-    built = T(kind) if kind else None
-    assert stc._numeric(built) is numeric and stc._text(built) is text
+@pytest.fixture(scope="module")
+def conn():
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t (s VARCHAR, n INTEGER, d DECIMAL(10,2), f DOUBLE)")
+    con.execute("INSERT INTO t VALUES ('1.5', 1, 1.55, 1e10), ('3000000000', 2, 1.50, 1.0)")
+    yield con
+    con.close()
 
 
-def test_a_side_with_no_known_type_has_none():
-    side = exp.column("x")
-    assert stc._kind(side, {}) is None
-    typed = exp.column("y")
-    typed.type = T("UNKNOWN")
-    assert stc._kind(side, {id(side): typed}) is None
-    typed.type = T("INT")
-    assert stc._kind(side, {id(side): typed}).this == exp.DataType.Type.INT
+def answer(conn, query: str) -> list:
+    return conn.execute(rewrite(query)).fetchall()
 
 
-@pytest.mark.parametrize("text, kind", [
-    ("1e2", "DOUBLE"), ("1.5", "DECIMAL(38, 18)"), ("2147483647", "INT"), ("2147483648", "BIGINT"),
-    ("-2147483647", "INT"), ("-2147483648", "BIGINT"),
-])
-def test_a_number_literals_spark_type(text, kind):
-    node = sqlglot.parse_one(text, read="spark")
-    assert stc._literal_kind(node) == T(kind)
+def test_numbers_compared_with_numbers_are_left_alone():
+    for query in ["SELECT n = 1 FROM t", "SELECT 1 = n FROM t", "SELECT n BETWEEN 1 AND 3 FROM t",
+                  "SELECT d BETWEEN 1 AND 2 FROM t", "SELECT CASE n WHEN 1 THEN 'a' END FROM t",
+                  "SELECT n IN (1, 2) FROM t"]:
+        assert rewrite(query) == unchanged(query), query
 
 
-def test_text_and_columns_have_no_literal_type():
-    assert stc._literal_kind(exp.Literal.string("1")) is None
-    assert stc._literal_kind(exp.column("i")) is None
+def test_text_compared_with_something_not_a_number_is_left_alone():
+    for query in ["SELECT s IN (1, DATE '2024-01-01') FROM t", "SELECT s IN (DATE '2024-01-01', '1') FROM t",
+                  "SELECT CASE s WHEN 1 THEN 'a' WHEN 1.5 THEN 'b' END FROM t",
+                  "SELECT CASE s WHEN 1 THEN 'a' WHEN 'x' THEN 'b' END FROM t"]:
+        assert rewrite(query) == unchanged(query), query
 
 
-def test_a_text_column_is_found_in_a_schema_or_on_the_connection():
-    sides = [exp.column("a")]
-    assert stc._has_text_column(sides, None, MappingSchema({"f": {"a": "VARCHAR(10)"}}, dialect="duckdb")) is True
-    assert stc._has_text_column(sides, None, MappingSchema({"f": {"a": "INT"}}, dialect="duckdb")) is False
-    assert stc._has_text_column([exp.Literal.number(1)], None, None) is False
-    with duckdb.connect() as con:
-        con.execute("CREATE TABLE n (a INT)")
-        assert stc._has_text_column(sides, con, None) is False
-        con.execute("CREATE TABLE s (a VARCHAR)")
-        assert stc._has_text_column(sides, con, None) is True
+def test_a_decimal_is_compared_with_text_as_a_double_and_a_whole_number_as_it_is():
+    assert rewrite("SELECT s = d FROM t").endswith(" = CAST(d AS DOUBLE) FROM t")
+    assert rewrite("SELECT s = n FROM t") == f"SELECT {whole('s')} = n FROM t"
+    assert rewrite("SELECT n = s FROM t") == f"SELECT n = {whole('s')} FROM t"
+    assert rewrite("SELECT s = 1.5 FROM t").endswith(" = CAST(1.5 AS DOUBLE) FROM t")
 
 
-# What is rewritten, and Spark's answers
-
-@pytest.mark.parametrize("expression", [
-    "i = 2", "t = 'x'", "i IN (1, 2)", "t IN ('a', 'b')", "t IN (1, dt)", "t IN (1, unknown_fn(i))",
-    "CASE i WHEN 2 THEN 'y' END", "CASE m WHEN 2 THEN 'y' END", "CASE t WHEN 1 THEN 'y' WHEN 2.5 THEN 'z' END",
-    "CASE t WHEN 1 THEN 'y' WHEN 'x' THEN 'z' END", "t BETWEEN t AND t", "i + 1", "upper(t)",
-])
-def test_comparisons_without_text_and_a_number_of_one_type_are_left(expression):
-    assert rewrite(expression) is None
+def test_a_whole_literal_is_an_int_until_it_is_past_one():
+    assert rewrite("SELECT s = 1 FROM t") == f"SELECT {whole('s')} = 1 FROM t"
+    assert rewrite("SELECT s = 2147483647 FROM t") == f"SELECT {whole('s')} = 2147483647 FROM t"
+    assert rewrite("SELECT s = 2147483648 FROM t") == f"SELECT {whole('s', 'BIGINT')} = 2147483648 FROM t"
+    assert rewrite("SELECT s = -2147483648 FROM t") == f"SELECT {whole('s', 'BIGINT')} = -2147483648 FROM t"
+    assert rewrite("SELECT s = 3000000000 FROM t") == f"SELECT {whole('s', 'BIGINT')} = 3000000000 FROM t"
 
 
-def test_text_and_a_number_are_rewritten_with_sparks_answer():
-    assert rewrite("t = i") is not None and value("t = i", t="1.5", i=1) is True
-    assert rewrite("i = t") is not None and value("i = t", t="1.5", i=1) is True
-    assert value("t = m", t="1.55", m=1.6) is False  # as doubles
+def test_text_past_an_int_still_equals_a_bigint_literal(conn):
+    assert answer(conn, "SELECT s = 3000000000 FROM t ORDER BY n") == [(False,), (True,)]
+    assert answer(conn, "SELECT s = 1 FROM t ORDER BY n") == [(True,), (None,)]
 
 
-def test_between_ends_of_two_types_compare_each_end_on_its_own():
-    assert rewrite("t BETWEEN i AND d") is not None
-    assert value("t BETWEEN i AND d", t="1.5", i=1, d=1.2) is False  # '1.5' as an INT is 1 >= 1, as a DOUBLE 1.5 > 1.2
-    assert value("t BETWEEN i AND d", t="1.5", i=1, d=1.5) is True
+def test_in_compares_a_double_as_spark_writes_it_and_a_decimal_as_written(conn):
+    # Spark writes 1e10 as 1.0E10 and keeps a decimal's scale: 1.50 is '1.50'.
+    assert answer(conn, "SELECT f IN ('1.0E10') FROM t ORDER BY n") == [(True,), (False,)]
+    assert answer(conn, "SELECT '1.50' IN (1.50) FROM t ORDER BY n") == [(True,), (True,)]
+    assert rewrite("SELECT n IN ('1') FROM t") == "SELECT CAST(n AS TEXT) IN ('1') FROM t"
 
 
-def test_a_number_between_text_ends_casts_each_text_end():
-    assert rewrite("i BETWEEN t AND 5") is not None
-    assert value("i BETWEEN t AND 5", t="1.5", i=1) is True  # '1.5' as an INT is 1
+def test_between_with_ends_of_two_types_casts_the_text_to_each(conn):
+    sql = rewrite("SELECT s BETWEEN 1 AND 2.5 FROM t")
+    assert "LIST_TRANSFORM([s], LAMBDA kf_text_cmpx" in sql
+    assert ">= 1 AND" in sql and "<= CAST(2.5 AS DOUBLE)" in sql
+    assert answer(conn, "SELECT s BETWEEN 1 AND 2.5 FROM t ORDER BY n") == [(True,), (False,)]
 
 
-def test_case_keeps_its_else():
-    assert rewrite("CASE t WHEN 1 THEN 'y' ELSE 'n' END") is not None
-    assert value("CASE t WHEN 1 THEN 'y' ELSE 'n' END", t="x") == "n"
-    assert value("CASE t WHEN 1 THEN 'y' ELSE 'n' END", t="1.5") == "y"
+def test_between_a_number_and_text_ends_casts_each_text_end():
+    assert rewrite("SELECT n BETWEEN s AND 3 FROM t") == f"SELECT n BETWEEN {whole('s')} AND 3 FROM t"
+    assert rewrite("SELECT n BETWEEN 0 AND s FROM t") == f"SELECT n BETWEEN 0 AND {whole('s')} FROM t"
+    assert rewrite("SELECT d BETWEEN s AND 3 FROM t").startswith("SELECT CAST(d AS DOUBLE) BETWEEN (CASE")
 
 
-def test_a_projections_name_is_kept():
-    named, plain = stc.spark_text_comparison_columns(["t = i AS same", "t = i"], COLUMNS)
-    assert named[1] == "same" and plain[1] is None and named[0] == plain[0]
+def test_a_simple_case_keeps_its_else(conn):
+    sql = rewrite("SELECT CASE s WHEN 1 THEN 'a' ELSE 'z' END FROM t")
+    assert sql == f"SELECT CASE {whole('s')} WHEN 1 THEN 'a' ELSE 'z' END FROM t"
+    assert rewrite("SELECT CASE s WHEN 1 THEN 'a' END FROM t") == f"SELECT CASE {whole('s')} WHEN 1 THEN 'a' END FROM t"
+    assert answer(conn, "SELECT CASE s WHEN 1 THEN 'a' ELSE 'z' END FROM t ORDER BY n") == [("a",), ("z",)]
 
 
-def test_a_string_literal_is_enough_to_type_the_statement():
-    out = stc.spark_text_comparison_columns(["i = '1.5'"], [("i", "INTEGER")])
-    assert out[0] is not None
+def test_a_statement_without_comparisons_or_that_cant_be_typed_is_returned_as_it_was():
+    statement = sqlglot.parse_one("SELECT s FROM t", read="duckdb")
+    assert spark_text_comparisons(statement, None, SCHEMA) is statement
+    statement = sqlglot.parse_one("SELECT '1' = 1", read="duckdb")
+    assert spark_text_comparisons(statement, None) is statement  # no connection to type it against
 
 
-# What comes back when nothing can be done
-
-def test_nothing_to_rewrite_or_nothing_readable_leaves_every_column():
-    assert stc.spark_text_comparison_columns([], COLUMNS) == []
-    assert stc.spark_text_comparison_columns(["t = = 1"], COLUMNS) == [None]
-    assert stc.spark_text_comparison_columns(["1 = 1 UNION SELECT 2"], COLUMNS) == [None]
+def test_a_statement_with_a_column_not_in_the_schema_is_still_rewritten():
+    assert rewrite("SELECT s = 1, zz FROM t") == f"SELECT {whole('s')} = 1, zz FROM t"
 
 
-def test_a_statement_with_nothing_to_compare_is_returned_as_it_is(caplog):
-    statement = sqlglot.parse_one("SELECT 1", read="spark")
-    assert stc.spark_text_comparisons(statement, None) is statement
-    plain = sqlglot.parse_one("SELECT 1 = 2", read="spark")
-    with caplog.at_level(logging.INFO, logger=stc.log.name):
-        assert stc.spark_text_comparisons(plain, None) is plain  # no text: not typed, so no connection needed
-    assert "not applied" not in caplog.text
+def test_a_side_sqlglot_cant_type_leaves_only_its_own_comparison_alone():
+    # WHERE x = 1 reads the SELECT's alias, which qualify doesn't type: that comparison stays, s = 1 is rewritten.
+    assert (rewrite("SELECT s = 1 AS y, s AS x FROM t WHERE x = 1")
+            == f"SELECT {whole('s')} = 1 AS y, s AS x FROM t WHERE x = 1")
 
 
-def test_a_statement_that_cant_be_typed_runs_as_it_was(monkeypatch):
-    statement = sqlglot.parse_one("SELECT t = 1 FROM f", read="spark")
-    monkeypatch.setattr(stc, "qualify", lambda *a, **k: 1 / 0)
-    assert stc.spark_text_comparisons(statement, None, MappingSchema({"f": {"t": "VARCHAR"}})) is statement
+def test_a_name_like_the_lambdas_anywhere_leaves_the_statement_as_it_was():
+    query = "SELECT s = 1 AS kf_text_cmp FROM t"
+    assert rewrite(query) == unchanged(query)
+    other = MappingSchema({"t": COLUMNS, "u": {"kf_text_cmp": "INTEGER"}}, dialect="duckdb", normalize=False)
+    assert rewrite("SELECT s = 1 FROM t", other) == unchanged("SELECT s = 1 FROM t")
 
 
-def test_a_rewrite_that_fails_returns_the_statement_as_it_was(monkeypatch):
-    statement = sqlglot.parse_one("SELECT t = 1 FROM f", read="spark")
-    monkeypatch.setattr(stc, "_rewritten", lambda node, kind: 1 / 0)
-    out = stc.spark_text_comparisons(statement, None, MappingSchema({"f": {"t": "VARCHAR"}}))
-    assert out is not None and out.sql() == "SELECT t = 1 FROM f"
+def test_a_statement_without_text_isnt_typed_against_the_connection():
+    con = duckdb.connect()
+    con.execute("CREATE TABLE w (n INTEGER)")
+    seen: list[str] = []
+
+    class Spy:
+        def execute(self, sql, *args):
+            seen.append(sql)
+            return con.execute(sql, *args)
+
+        def __getattr__(self, name):
+            return getattr(con, name)
+
+    statement = sqlglot.parse_one("SELECT n = 1 FROM w", read="duckdb")
+    assert spark_text_comparisons(statement, Spy()) is statement
+    assert len(seen) == 1 and "duckdb_columns()" in seen[0]
+    seen.clear()
+    statement = sqlglot.parse_one("SELECT 1 = 2", read="duckdb")
+    assert spark_text_comparisons(statement, Spy()) is statement
+    assert seen == []
+    con.close()
 
 
-def test_a_column_named_like_the_lambda_leaves_it():
-    out = stc.spark_text_comparisons(sqlglot.parse_one("SELECT kf_text_cmp = 1 FROM f", read="spark"), None,
-                                     MappingSchema({"f": {"kf_text_cmp": "VARCHAR"}}))
-    assert out.sql() == "SELECT kf_text_cmp = 1 FROM f"
+def _growth(length: int) -> int:
+    """How far the rewrite of ``<name> = 1.5`` (a name of ``length`` characters, read three times) is past
+    twice the statement."""
+    name = "a" * length
+    schema = MappingSchema({"t": {name: "VARCHAR"}}, dialect="duckdb", normalize=False)
+    query = f"SELECT {name} = 1.5 FROM t"
+    return len(rewrite(query, schema)) - 2 * len(unchanged(query))
 
 
-def test_a_rewrite_too_large_is_refused_naming_how_many(monkeypatch):
-    monkeypatch.setattr(stc, "_GROWTH", 0)
-    with pytest.raises(Refused, match="The query's 2 comparisons of text with numbers"):
-        stc.spark_text_comparison_columns(["t = i AND t = b"], COLUMNS)
-    monkeypatch.setattr(stc, "_GROWTH", 20_000)
-    assert rewrite("t = i AND t = b") is not None
-
-
-def test_a_decimal_between_numbers_is_left():
-    assert rewrite("m BETWEEN 1 AND 5") is None
-
-
-def test_a_rewrite_exactly_at_the_size_limit_runs(monkeypatch):
-    from fabric_desktop.sql import duckdb_sql
-    schema = MappingSchema({"f": {"t": "VARCHAR", "i": "INT"}}, dialect="duckdb", normalize=False)
-    size = len(duckdb_sql(sqlglot.parse_one("SELECT t = i FROM f", read="duckdb")))
-    grown = len(duckdb_sql(stc.spark_text_comparisons(sqlglot.parse_one("SELECT t = i FROM f", read="duckdb"), None, schema)))
-    assert grown > 2 * size
-    monkeypatch.setattr(stc, "_GROWTH", grown - 2 * size)  # exactly the limit: allowed
-    assert stc.spark_text_comparisons(sqlglot.parse_one("SELECT t = i FROM f", read="duckdb"), None, schema) is not None
-    monkeypatch.setattr(stc, "_GROWTH", grown - 2 * size - 1)
+def test_a_rewrite_past_its_growth_limit_is_refused_by_name():
+    assert _growth(11) - _growth(10) == 1
+    edge = 10 + 20_000 - _growth(10)  # grows by exactly 20,000 characters: still run
+    assert _growth(edge) == 20_000
+    name = "a" * (edge + 1)
+    schema = MappingSchema({"t": {name: "VARCHAR"}}, dialect="duckdb", normalize=False)
+    with pytest.raises(Refused, match="1 comparisons of text with numbers"):
+        rewrite(f"SELECT {name} = 1.5 FROM t", schema)
+    longer = name + "a" * 50  # the frame's statement is a little longer
     with pytest.raises(Refused):
-        stc.spark_text_comparisons(sqlglot.parse_one("SELECT t = i FROM f", read="duckdb"), None, schema)
+        spark_text_comparison_columns([f"{longer} = 1.5"], [(longer, "VARCHAR")])
+
+
+FRAME = [("s", "VARCHAR"), ("n", "INTEGER")]
+
+
+def test_the_dataframe_api_gets_each_changed_column_with_its_name():
+    out = spark_text_comparison_columns(["s = 1 AS x", "n + 1", "s IN (1, 2)"], FRAME)
+    assert out == [(f"{whole('s')} = 1", "x"), None, ("s IN (CAST(1 AS TEXT), CAST(2 AS TEXT))", None)]
+
+
+def test_the_dataframe_api_leaves_columns_it_cant_read_as_they_were():
+    assert spark_text_comparison_columns(["n + 1"], FRAME) == [None]
+    assert spark_text_comparison_columns(["s = ("], FRAME) == [None]
+    assert spark_text_comparison_columns(["s = 1, n + 2"], FRAME) == [None]
+
+
+@pytest.mark.xfail(strict=True, reason="Bug: spark_text_comparison_columns only reads an expression with =, <, >, "
+                   "' IN ', BETWEEN or CASE in it, and DuckDB writes <=> (eqNullSafe) as IS NOT DISTINCT FROM, so "
+                   "the DataFrame API's text <=> number isn't rewritten and '' <=> 1 stops the query instead of "
+                   "giving Spark's false")
+def test_the_dataframe_api_rewrites_a_null_safe_comparison():
+    out = spark_text_comparison_columns(["(s IS NOT DISTINCT FROM 1)"], FRAME)
+    assert out[0] is not None

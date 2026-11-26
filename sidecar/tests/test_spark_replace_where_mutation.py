@@ -1,21 +1,18 @@
-"""replaceWhere (spark_replace_where.py): what mutation testing found unchecked. Columns are quoted as the
-table spells them, and a check DuckDB can't run names only the first line of its error."""
-
-from __future__ import annotations
+"""Mutation batch 265: spark_replace_where.py, first score (docs/quality/mutation-testing.md)."""
 
 import pyarrow as pa
 import pytest
 
-from fabric_desktop import spark_replace_where as rw
+from fabric_desktop import spark_replace_where
 
 
-def test_columns_are_quoted_as_the_table_spells_them():
-    assert rw.predicate("Day = 1 AND region = 'EU'", "t", ["day", "Region"]) == "\"day\" = 1 AND \"Region\" = 'EU'"
+def test_a_column_is_quoted_as_the_table_spells_it():
+    assert spark_replace_where.predicate("region = 'EU'", "t", ["Region"]) == "\"Region\" = 'EU'"
+    assert spark_replace_where.predicate("`my col` = 1", "t", ["My Col"]) == '"My Col" = 1'
 
 
-def test_a_check_that_cant_run_names_the_first_line_of_duckdbs_error():
-    with pytest.raises(ValueError) as err:
-        rw.check_rows(pa.table({"day": [1]}), '"nope" = 1', "nope = 1", "sales")
-    message = str(err.value)
-    assert "The check stopped on: Binder Error: Referenced column \"nope\" not found" in message
-    assert "LINE 1" not in message and message.endswith("Write the condition as column comparisons, such as region = 'EU'.")
+def test_a_check_that_cant_run_says_the_first_line_it_stopped_on():
+    with pytest.raises(ValueError) as caught:
+        spark_replace_where.check_rows(pa.table({"region": ["EU"]}), "nosuchcol = 1", "nosuchcol = 1", "t")
+    assert ('The check stopped on: Binder Error: Referenced column "nosuchcol" not found in FROM clause!. '
+            "Nothing was written to t.") in str(caught.value)

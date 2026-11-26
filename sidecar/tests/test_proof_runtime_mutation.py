@@ -1,113 +1,116 @@
-"""The proof runtime: what mutation testing found unchecked in proof_runtime.py. Which tables are read
-through delta-rs's query reader, the default schema in keys and paths, the default seed and storage
-options, which writes are seeded from the pinned version, a file's size and the seconds a run took.
-Nothing reaches a lakehouse."""
+"""Mutation batch 360: the proof runtime's choice of Delta reader, its storage options, flat lakehouse
+paths and when a write is seeded from the pinned table (proof_runtime.py). Stand-in tables only;
+nothing reaches a lakehouse."""
 
 from __future__ import annotations
 
-import hashlib
-from types import SimpleNamespace
-
+import pyarrow as pa
 import pytest
 
 from fabric_desktop import proof_runtime as pr
 
 
-def runtime(**config):
-    return pr.ProofRuntime({"id": "p1"} | config, "local")
+class Protocol:
+    def __init__(self, reader=None, writer=None):
+        self.reader_features, self.writer_features = reader, writer
+
+
+class Metadata:
+    def __init__(self, configuration):
+        self.configuration = configuration
 
 
 class Table:
     def __init__(self, reader=None, writer=None, configuration=None):
-        self._protocol = SimpleNamespace(reader_features=reader, writer_features=writer)
-        self._configuration = configuration
+        self._p, self._m = Protocol(reader, writer), Metadata(configuration)
 
     def protocol(self):
-        return self._protocol
+        return self._p
 
     def metadata(self):
-        return SimpleNamespace(configuration=self._configuration)
+        return self._m
 
     def to_pyarrow_table(self):
-        return "plain"
+        return "pyarrow reader"
 
 
 @pytest.fixture
-def queried(monkeypatch):
+def datafusion(monkeypatch):
     import deltalake
-
-    seen = []
 
     class QueryBuilder:
         def register(self, name, table):
-            seen.append(name)
+            assert name == "kf_table"
             return self
 
         def execute(self, sql):
-            seen.append(sql)
-            return {"id": [1, 2]}
-
+            assert sql == "SELECT * FROM kf_table"
+            return {"via": ["datafusion"]}
     monkeypatch.setattr(deltalake, "QueryBuilder", QueryBuilder)
-    return seen
 
 
-@pytest.mark.parametrize("table", [
-    Table(), Table(configuration={}), Table(reader=[], writer=["appendOnly"]),
-    Table(configuration={"delta.columnMapping.mode": "None"}), Table(configuration={"delta.columnMapping.mode": None}),
-])
-def test_a_plain_table_is_read_through_pyarrow(table, queried):
-    assert pr._rows(table) == "plain" and queried == []
+def test_a_plain_table_is_read_with_the_pyarrow_reader(datafusion):
+    assert pr._rows(Table()) == "pyarrow reader"
+    assert pr._rows(Table(configuration={"delta.columnMapping.mode": "None"})) == "pyarrow reader"
 
 
-@pytest.mark.parametrize("table", [
-    Table(reader=["deletionVectors"]), Table(writer=["columnMapping"]),
-    Table(configuration={"delta.columnMapping.mode": "Name"}),
-])
-def test_deletion_vectors_or_column_mapping_are_read_through_the_query_reader(table, queried):
-    out = pr._rows(table)
-    assert out.to_pydict() == {"id": [1, 2]}
-    assert queried == ["kf_table", "SELECT * FROM kf_table"]
+@pytest.mark.parametrize("table", [Table(reader=["deletionVectors"]), Table(writer=["columnMapping"]),
+                                   Table(configuration={"delta.columnMapping.mode": "name"})])
+def test_deletion_vectors_or_column_mapping_are_read_through_datafusion(datafusion, table):
+    assert pr._rows(table) == pa.table({"via": ["datafusion"]})
 
 
-def test_a_table_without_a_schema_is_dbos_and_a_schema_is_kept():
-    rt = runtime()
-    rt.root = "lh"
-    assert (rt.key(None, "Orders"), rt.key("Sales", "Orders")) == ("dbo.orders", "sales.orders")
-    assert rt.shared_table(None, "Orders") == "lh/Tables/dbo/Orders"
-    assert rt.shared_table("sales", "Orders") == "lh/Tables/sales/Orders"
-
-
-def test_the_seed_is_zero_unless_given():
-    assert runtime().seed == 0 and runtime().log["seed"] == 0
-
-
-def test_storage_options_are_the_sides_own(tmp_path):
-    rt = runtime()
+def test_options_come_from_the_bound_side():
+    rt = pr.ProofRuntime({"id": "p1"}, "local")
     assert rt.options() == {}
-    rt.bind(tmp_path, options=lambda: {"bearer_token": "t"})
-    rt.restore()
-    assert rt.options() == {"bearer_token": "t"}
+    rt.bind("/lh", options=lambda: {"token": "t"})  # pragma: allowlist secret (test value)
+    try:
+        assert rt.options() == {"token": "t"}  # pragma: allowlist secret (test value)
+    finally:
+        rt.restore()
 
 
-def test_an_overwrite_isnt_seeded_from_the_pinned_version(tmp_path):
-    rt = runtime(pins={"dbo.orders": 3})
-    rt.root = str(tmp_path)
-    copied = []
-    uri = rt.write_location("dbo", "orders", "overwrite", lambda u, rows: copied.append(u))
-    assert uri.endswith("proofs/p1/local/tables/dbo/orders") and copied == []
-    assert rt.log["writes"] == {"dbo.orders": ["overwrite"]} and rt.log["reads"] == {}
+def test_a_flat_lakehouse_keeps_tables_without_a_schema_folder():
+    rt = pr.ProofRuntime({"id": "p1", "flat": True}, "local")
+    rt.root = "/lh"
+    assert rt.shared_table("sales", "Orders") == "/lh/Tables/Orders"
 
 
-def test_a_files_hash_and_size_are_recorded(tmp_path):
-    data = b"x" * 1234
-    (tmp_path / "f.csv").write_bytes(data)
-    rt = runtime()
-    rt.file_read("Files/f.csv", str(tmp_path / "f.csv"))
-    assert rt.log["files"]["Files/f.csv"] == {"sha256": hashlib.sha256(data).hexdigest(), "bytes": 1234}
+def test_an_overwrite_isnt_seeded_from_the_pinned_table_unless_it_keeps_rows():
+    rt = pr.ProofRuntime({"id": "p1", "pins": {"dbo.orders": 3}}, "local")
+    rt.root = "/lh"
+    written = []
+    uri = rt.write_location("dbo", "orders", "overwrite", lambda u, rows: written.append(u))
+    assert written == [] and uri == "/lh/Files/_fabric_desktop/proofs/p1/local/tables/dbo/orders"
+    assert rt.log["writes"] == {"dbo.orders": ["overwrite"]}
+    assert rt.log["reads"] == {}
 
 
-def test_seconds_are_kept_to_the_millisecond(monkeypatch):
-    rt = runtime()
-    rt._clock = 0.0
-    monkeypatch.setattr(pr, "time", SimpleNamespace(monotonic=lambda: 10.123456))
-    assert rt.finish(modules=[])["seconds"] == 10.123
+def test_the_seed_defaults_to_zero():
+    assert pr.ProofRuntime({"id": "p1"}, "local").log["seed"] == 0
+
+
+def test_keys_and_shared_paths_default_to_dbo():
+    assert pr.ProofRuntime.key(None, "Orders") == "dbo.orders"
+    assert pr.ProofRuntime.key("Sales", "Orders") == "sales.orders"
+    rt = pr.ProofRuntime({"id": "p1"}, "local")
+    rt.root = "/lh"
+    assert rt.shared_table(None, "Orders") == "/lh/Tables/dbo/Orders"
+    assert rt.shared_table("sales", "Orders") == "/lh/Tables/sales/Orders"
+
+
+def test_seconds_are_rounded_to_milliseconds(monkeypatch):
+    clock = iter([100.0, 101.23456])
+    monkeypatch.setattr(pr.time, "monotonic", lambda: next(clock))
+    rt = pr.ProofRuntime({"id": "p1"}, "local")
+    assert rt.finish(modules=[])["seconds"] == 1.235
+
+
+def test_a_file_read_records_its_hash_and_size(tmp_path):
+    f = tmp_path / "in.csv"
+    f.write_bytes(b"a,b\n1,2\n")
+    rt = pr.ProofRuntime({"id": "p1"}, "local")
+    rt.file_read("Files/in.csv", str(f))
+    assert rt.log["files"] == {"Files/in.csv": {
+        "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",  # pragma: allowlist secret (test value)
+        "bytes": 8}}

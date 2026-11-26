@@ -1,133 +1,199 @@
-"""central/client.py: what mutation testing found unchecked. How each UDF_Platform answer is read (its
-status, an empty or non-JSON body, a gateway's reason), what each call sends, and PlatformKeys' counts,
-its one look for a key table, and export from the unknown key on. UDF_Platform is a scripted session or a
-SQLite platform; nothing reaches a tenant."""
+"""Mutation batch 373: how central/client.py reads UDF_Platform's answers and issues keys in batches."""
 
-from __future__ import annotations
+import json
 
 import pytest
 import requests
 
-from fabric_desktop.central import core
-from fabric_desktop.central.client import KEY_BATCH, FabricPlatform, LocalPlatform, PlatformKeys
-from tests.test_central_client_cov3 import READ, fabric, response
-
-ADMIN, DEV = "ana@contoso.com", "dev@contoso.com"
+from fabric_desktop.central import client, core
+from fabric_desktop.central.client import FabricPlatform, LocalPlatform, PlatformKeys
 
 
-def answered(resp, times=1):
-    client, s = fabric([resp] * times)
-    return client, s
+class Resp:
+    def __init__(self, status=200, body=None, raw=None, reason=""):
+        self.status_code, self.reason = status, reason
+        self.content = raw if raw is not None else (b"" if body is None else json.dumps(body).encode())
+        self.text = self.content.decode("utf-8", "replace")
+
+    def json(self):
+        return json.loads(self.content)
 
 
-def test_a_401_or_403_is_a_permission_error():
-    for status in (401, 403):
-        client, _ = answered(response(status, {"errors": [{"message": "no"}]}))
-        with pytest.raises(PermissionError, match="at least Viewer on the Platform workspace"):
-            client.call(READ)
+def fabric(**kw):
+    return FabricPlatform(lambda: "token", "ws", "fn", session=kw.pop("session", None), sleep=lambda s: None)
 
 
-@pytest.mark.parametrize("status", [429, 500])
-def test_a_429_or_any_5xx_is_an_http_error_naming_the_status(status):
-    client, s = answered(response(status, {"errors": [{"message": "busy"}]}), times=3)
-    with pytest.raises(requests.HTTPError) as err:
-        client.call(READ)
-    assert str(err.value) == (f"UDF_Platform couldn't be reached to {READ.replace('_', ' ')}: Fabric answered "
-                              f"{status}. Try again in a few minutes.")
-    assert err.value.response.status_code == status and len(s.sent) == 3
+# --------------------------------------------------------------------------- reading an answer
 
 
-def test_a_gateways_reason_is_named_after_the_status():
-    resp = response(503, raw=b"<html>busy</html>")
-    resp.reason = "Service Unavailable"
-    client, _ = answered(resp, times=3)
-    with pytest.raises(requests.HTTPError, match="answered 503 Service Unavailable. Try again"):
-        client.call(READ)
+@pytest.mark.parametrize("status", [401, 403])
+def test_no_access_is_a_permission_error(status):
+    with pytest.raises(PermissionError, match="Viewer"):
+        fabric()._answer("list_domains", Resp(status, {"output": []}))
 
 
-def test_a_400_without_errors_is_still_a_refusal_with_the_bodys_text():
-    client, _ = answered(response(400, {"output": "made it"}))
-    with pytest.raises(core.PlatformError, match=r'couldn\'t .*: \{"output": "made it"\}$'):
-        client.call(READ)
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_busy_or_throttled_is_an_http_error_naming_the_status_and_reason(status):
+    with pytest.raises(requests.HTTPError, match=f"answered {status} Busy\\. Try again"):
+        fabric()._answer("list_domains", Resp(status, {"output": []}, reason="Busy"))
 
 
-def test_an_empty_body_is_an_empty_answer():
-    client, _ = answered(response(200))
-    assert client.call(READ) == {}
+def test_no_reason_adds_nothing_after_the_status():
+    with pytest.raises(requests.HTTPError, match="answered 500\\. Try again"):
+        fabric()._answer("list_domains", Resp(500, {"output": []}))
 
 
-def test_a_body_that_isnt_json_or_isnt_an_object_is_refused_saying_which():
-    client, _ = answered(response(200, raw=b"<html>gateway</html>"))
-    with pytest.raises(core.PlatformError, match="answered 200 with something that isn't JSON: <html>gateway</html>$"):
-        client.call(READ)
-    client, _ = answered(response(200, [1, 2]))
-    with pytest.raises(core.PlatformError, match=r"answered 200 with JSON that isn't an object: \[1, 2\]$"):
-        client.call(READ)
+@pytest.mark.parametrize("status", [400, 499])
+def test_a_client_error_with_a_json_object_is_the_platforms_refusal(status):
+    with pytest.raises(core.PlatformError, match="couldn't list domains: no such domain"):
+        fabric()._answer("list_domains", Resp(status, {"errors": [{"message": "no such domain"}]}))
 
 
-def test_each_call_waits_up_to_five_minutes_as_the_signed_in_person():
+def test_a_400_without_errors_is_still_refused_with_the_answers_text():
+    with pytest.raises(core.PlatformError, match='couldn\'t list domains: \\{"output": "x"\\}'):
+        fabric()._answer("list_domains", Resp(400, {"output": "x"}))
+
+
+def test_an_answer_below_400_is_read():
+    assert fabric()._answer("list_domains", Resp(399, {"output": ["a"]})) == ["a"]
+
+
+def test_an_answer_that_isnt_json_says_so():
+    with pytest.raises(core.PlatformError, match="something that isn't JSON: <html>busy</html>"):
+        fabric()._answer("list_domains", Resp(200, raw=b"<html>busy</html>"))
+
+
+def test_json_that_isnt_an_object_says_so():
+    with pytest.raises(core.PlatformError, match="JSON that isn't an object: \\[1, 2\\]"):
+        fabric()._answer("list_domains", Resp(200, [1, 2]))
+
+
+def test_an_empty_answer_is_an_empty_object():
+    assert fabric()._answer("list_domains", Resp(200)) == {}
+    assert client._body(Resp(200)) == {}
+    assert client._body(Resp(200, raw=b"nope")) is client._NOT_JSON
+
+
+def test_each_call_is_posted_with_a_five_minute_timeout_and_the_token():
     seen = []
 
     class Session:
-        def post(self, url, json=None, timeout=None, headers=None):  # noqa: A002 - requests' own name
+        def post(self, url, json=None, timeout=None, headers=None):
             seen.append((url, timeout, headers))
-            return response(200, {"output": 1})
+            return Resp(200, {"output": []})
 
-    client = FabricPlatform(lambda: "tok", "ws", "fn", session=Session(), sleep=lambda _s: None)
-    assert client.call(READ) == 1
-    assert seen == [(f"https://api.fabric.microsoft.com/v1/workspaces/ws/userDataFunctions/fn/functions/{READ}/invoke",
-                     300, {"Authorization": "Bearer tok"})]
-
-
-# ----------------------------------------------------------------------------- PlatformKeys
+    assert fabric(session=Session()).call("list_domains") == []
+    url, timeout, headers = seen[0]
+    assert url.endswith("/workspaces/ws/userDataFunctions/fn/functions/list_domains/invoke")
+    assert timeout == 300 and headers == {"Authorization": "Bearer token"}
 
 
-class Recorder:
-    def __init__(self, inner):
-        self.inner, self.ops = inner, []
-
-    def call(self, op, **kwargs):
-        self.ops.append(op)
-        return self.inner.call(op, **kwargs)
+# --------------------------------------------------------------------------- keys
 
 
-def test_keys_go_in_batches_of_twenty_thousand_by_default(tmp_path):
-    assert KEY_BATCH == 20000
-    assert PlatformKeys(LocalPlatform(tmp_path / "p.db"), "dev").batch == 20000
+class Keys:
+    """A key service stand-in that records each call."""
+
+    def __init__(self, created=True, ensure_refused=False, pages=None):
+        self.calls, self.created, self.ensure_refused, self.pages = [], created, ensure_refused, list(pages or [])
+        self.next = 1
+
+    def call(self, op, **kw):
+        self.calls.append((op, kw))
+        if op == "key_stats":
+            return {"created": self.created, "name": kw["name"]}
+        if op == "ensure_key_table":
+            if self.ensure_refused:
+                raise core.PlatformError("only platform admins")
+            return {"made": True}
+        if op == "lookup_key":
+            return {"value": kw["value"], "key": 7}
+        if op == "issue_keys":
+            out = {}
+            for b in kw["business_keys"]:
+                out[b] = self.next
+                self.next += 1
+            return {"keys": out, "inserted": len(out)} if kw["business_keys"][0] != "old" else {"keys": out}
+        if op == "export_keys":
+            return self.pages.pop(0) if self.pages else []
+        raise AssertionError(op)
 
 
-def test_a_key_table_is_looked_for_once_and_made_only_when_missing(tmp_path):
-    local = Recorder(LocalPlatform(tmp_path / "p.db", lambda: ADMIN))
-    keys = PlatformKeys(local, "dev", batch=2)
-    assert keys.exists("customer") is False
-    assert keys.issue("customer", ["b", "a", None, "c", "a"]) == ({"a": 1, "b": 2, "c": 3}, 3)
-    assert keys.issue("customer", ["a", "d"]) == ({"a": 1, "d": 4}, 1)
-    assert keys.issue("customer", ["a"]) == ({"a": 1}, 0)
-    assert keys.exists("customer") is True
-    assert local.ops == ["key_stats", "key_stats", "ensure_key_table", "issue_keys", "issue_keys", "issue_keys",
-                         "issue_keys", "key_stats"]
-    other = Recorder(local.inner)
-    assert PlatformKeys(other, "dev").issue("customer", ["a"]) == ({"a": 1}, 0)
-    assert other.ops == ["key_stats", "issue_keys"]   # there already: not made again
+def test_the_default_batch_is_twenty_thousand_keys():
+    assert client.KEY_BATCH == 20000
+    k = Keys()
+    keys, new = PlatformKeys(k, "prod").issue("customer", [f"b{i:05d}" for i in range(20001)])
+    sizes = [len(kw["business_keys"]) for op, kw in k.calls if op == "issue_keys"]
+    assert sizes == [20000, 1] and len(keys) == 20001 and new == 20001
 
 
-def test_someone_who_isnt_an_admin_is_told_to_request_the_key_table(tmp_path):
-    LocalPlatform(tmp_path / "p.db", lambda: ADMIN)
-    dev = Recorder(LocalPlatform(tmp_path / "p.db", lambda: DEV))
-    with pytest.raises(core.PlatformError, match=r"keys.customer isn't one of the platform's key tables yet\. "):
-        PlatformKeys(dev, "dev").issue("customer", ["a"])
-    assert dev.ops == ["key_stats", "ensure_key_table"]
+def test_keys_are_issued_in_batches_once_each_and_none_is_left_out():
+    k = Keys()
+    keys, new = PlatformKeys(k, "prod", batch=2).issue("customer", ["c", "a", None, "b", "a", "d", "e"])
+    batches = [kw["business_keys"] for op, kw in k.calls if op == "issue_keys"]
+    assert batches == [["a", "b"], ["c", "d"], ["e"]]
+    assert sorted(keys) == ["a", "b", "c", "d", "e"] and all(isinstance(v, int) for v in keys.values())
+    assert new == 5
 
 
-def test_an_answer_without_inserted_counts_none_new():
-    class Client:
-        def call(self, op, **kwargs):
-            return {"created": True} if op == "key_stats" else {"keys": {b: 7 for b in kwargs["business_keys"]}}
-
-    assert PlatformKeys(Client(), "dev").issue("customer", ["a"]) == ({"a": 7}, 0)
+def test_a_batch_without_a_count_adds_no_new_keys():
+    k = Keys()
+    keys, new = PlatformKeys(k, "prod").issue("customer", ["old"])
+    assert keys == {"old": 1} and new == 0
 
 
-def test_export_starts_below_the_unknown_key_so_it_comes_back_too(tmp_path):
-    keys = PlatformKeys(LocalPlatform(tmp_path / "p.db", lambda: ADMIN), "dev")
-    keys.issue("customer", ["a", "b"])
-    assert [r[:2] for r in keys.export("customer")][:3] == [[core.UNKNOWN_KEY, core.UNKNOWN_BK], [1, "a"], [2, "b"]]
+def test_no_business_keys_issues_nothing_and_says_none_were_new():
+    k = Keys()
+    assert PlatformKeys(k, "prod").issue("customer", [None]) == ({}, 0)
+    assert [op for op, _ in k.calls] == ["key_stats"]
+
+
+def test_a_table_is_checked_once_and_made_only_when_missing():
+    k = Keys(created=True)
+    pk = PlatformKeys(k, "prod")
+    pk.issue("customer", ["a"])
+    pk.issue("customer", ["b"])
+    assert [op for op, _ in k.calls] == ["key_stats", "issue_keys", "issue_keys"]
+    missing = Keys(created=False)
+    PlatformKeys(missing, "prod").issue("orders", ["a"])
+    assert [op for op, _ in missing.calls] == ["key_stats", "ensure_key_table", "issue_keys"]
+
+
+def test_someone_who_cant_make_the_table_is_told_to_request_it():
+    with pytest.raises(core.PlatformError, match="Request a key table"):
+        PlatformKeys(Keys(created=False, ensure_refused=True), "prod").issue("orders", ["a"])
+
+
+def test_the_key_table_calls_return_what_the_platform_says():
+    k = Keys(created=False)
+    pk = PlatformKeys(k, "prod")
+    assert pk.ensure("orders", "order_id", "Orders") is True
+    assert ("ensure_key_table", {"name": "orders", "business_key": "order_id", "description": "Orders"}) in k.calls
+    assert pk.exists("orders") is False and PlatformKeys(Keys(), "prod").exists("orders") is True
+    assert pk.stats("orders") == {"created": False, "name": "orders"}
+    assert pk.lookup("orders", "A1") == {"value": "A1", "key": 7}
+
+
+def test_export_reads_every_page_from_after_the_unknown_key():
+    k = Keys(pages=[[[1, "a"], [2, "b"]], [[3, "c"]]])
+    assert PlatformKeys(k, "prod").export("orders") == [[1, "a"], [2, "b"], [3, "c"]]
+    afters = [kw["after"] for op, kw in k.calls if op == "export_keys"]
+    assert afters == [core.UNKNOWN_KEY - 1, 2, 3]
+
+
+def test_export_of_an_empty_table_is_empty():
+    assert PlatformKeys(Keys(), "prod").export("orders") == []
+
+
+# --------------------------------------------------------------------------- the local platform
+
+
+def test_a_refused_change_is_recorded_and_a_refused_read_is_not(tmp_path):
+    p = LocalPlatform(tmp_path / "platform.sqlite", lambda: "ana@contoso.com")
+    with pytest.raises(core.PlatformError):
+        p.call("save_domain", domain={"name": ""})
+    refused = [a for a in p.call("audit") if a["action"].startswith("refused")]
+    assert refused
+    with pytest.raises(core.PlatformError):
+        p.call("get_policy", id="nope")
+    assert [a for a in p.call("audit") if a["action"].startswith("refused")] == refused

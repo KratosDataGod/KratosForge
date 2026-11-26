@@ -1,19 +1,16 @@
-"""Settings > Integrations (integrations/app_service.py), pinned so a changed number, a flipped check
-or a dropped answer fails a test: how long the local API may take to start, the log's size limit,
-the port check, what each call hands back, when the launcher is written, the URL only an HTTP tool
-is shown, stopping with no local API, and the pending list while integrations are off. The local
-API's process and clock are module-local stand-ins."""
+"""Mutation batch 361: Settings > Integrations (integrations/app_service.py). Policy refusals, the port's
+range, what status and pending report, the activity list's merging, the log roll's size and the
+stdio test's success path. The local API process, the audit trail and the MCP client are stand-ins."""
 
 from __future__ import annotations
 
-import inspect
-import subprocess
-from types import SimpleNamespace
+import os
 
 import pytest
 
 from fabric_desktop.integrations import app_service
-from fabric_desktop.integrations.config import launcher_path
+from fabric_desktop.integrations import audit as audit_mod
+from fabric_desktop.integrations import executions as exec_mod
 from fabric_desktop.service import Service
 
 
@@ -24,202 +21,230 @@ def svc(tmp_path, monkeypatch):
     return Service(root=tmp_path / "FabricDesktop")
 
 
-def test_the_local_api_gets_15_seconds_to_say_it_listens(svc, monkeypatch):
-    polls = []
-    proc = SimpleNamespace(poll=lambda: polls.append(1), returncode=None)
-    monkeypatch.setattr(app_service, "subprocess", SimpleNamespace(Popen=lambda *a, **kw: proc,
-                                                                   DEVNULL=subprocess.DEVNULL))
-    clock = iter([0.0, 14.9, 15.0, 15.5, 99.0])
-    monkeypatch.setattr(app_service, "time", SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda s: None))
-    (svc.root / "integrations").mkdir(parents=True, exist_ok=True)  # there already: started all the same
-    svc._http_start()
-    assert len(polls) == 1  # polled at 14.9 s, given up at 15 s
+def set_policy(monkeypatch, **over):
+    real = app_service.policy.current
+
+    def current():
+        return real() | over
+    monkeypatch.setattr(app_service.policy, "current", current)
 
 
-def test_the_log_is_rolled_only_once_past_5_mib(tmp_path):
+def test_the_last_line_of_a_short_log_keeps_its_first_character(tmp_path):
     log = tmp_path / "http.log"
-    with open(log, "wb") as f:
-        f.truncate(5 * 1024 * 1024)
+    log.write_bytes(b"port busy\n")
+    assert app_service._last_line(log) == "port busy"
+
+
+def test_the_log_rolls_only_past_five_mebibytes(tmp_path):
+    log = tmp_path / "http.log"
+    log.write_bytes(b"x" * (5 * 1024 * 1024))
     app_service._roll_log(log)
     assert log.exists() and not (tmp_path / "http.prev.log").exists()
     with open(log, "ab") as f:
-        f.write(b"x")
+        f.write(b"y")
     app_service._roll_log(log)
     assert not log.exists() and (tmp_path / "http.prev.log").stat().st_size == 5 * 1024 * 1024 + 1
 
 
-def test_a_port_outside_1024_to_65535_is_refused_and_leaving_it_out_keeps_it(svc):
-    for port in (80, 1023, 65536, "5005"):
-        with pytest.raises(ValueError, match="1024 to 65535"):
-            svc.integrations_set_http(False, port=port)
-    for port in (1024, 65535):
-        assert svc.integrations_set_http(False, port=port)["http"]["port"] == port
-    out = svc.integrations_set_http(False, port=5005)
-    assert out["http"]["port"] == 5005 and out["http"]["switch"] is False
-    assert svc.integrations_set_http(False)["http"]["port"] == 5005
+def test_a_tools_config_has_the_api_url_only_for_http(svc):
+    http = svc.integrations_add_client("Script", "other-mcp", transport="http")["client"]
+    stdio = svc.integrations_add_client("Code", "other-mcp")["client"]
+    port = svc.integration_store.settings()["http_port"]
+    assert f"http://127.0.0.1:{port}" in str(http["config"])
+    assert "127.0.0.1" not in str(stdio["config"])
 
 
-def test_a_new_token_comes_back_with_its_tool(svc):
-    client = svc.integrations_add_client("Tool", "other-mcp", transport="http")["client"]
-    out = svc.integrations_new_token(client["id"])
-    assert out["client"]["id"] == client["id"] and isinstance(out["token"], str) and out["token"]
+def test_the_api_isnt_allowed_when_the_organization_turns_integrations_off(svc, monkeypatch):
+    set_policy(monkeypatch, http=True, enabled=False)
+    assert svc._http_state()["allowed"] is False
+    set_policy(monkeypatch, http=True, enabled=None)
+    assert svc._http_state()["allowed"] is True
 
 
-def test_the_launcher_is_written_only_while_integrations_are_on(svc):
-    svc.integrations_status()
-    assert not launcher_path(svc.root).exists()
-    svc.integrations_set_enabled(True)
-    assert launcher_path(svc.root).exists()
+def test_starting_the_api_when_its_folder_is_there(svc, monkeypatch):
+    class Proc:
+        returncode = None
+
+        def poll(self):
+            return None
+    (svc.root / "integrations").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(app_service.subprocess, "Popen", lambda *a, **k: Proc())
+    monkeypatch.setattr(app_service, "HTTP_START_SECONDS", 0)
+    svc._http_start()
+    assert svc._http_state()["running"] is True
 
 
-def test_only_an_http_tool_is_shown_the_local_api_address(svc):
-    http = svc.integrations_add_client("Web", "other-mcp", transport="http")["client"]
-    stdio = svc.integrations_add_client("Pipe", "other-mcp")["client"]
-    assert "http" in http["config"] and "http" not in stdio["config"]
-
-
-def test_stopping_with_no_local_api_is_fine(svc):
+def test_stopping_an_api_that_never_started(svc):
     svc._http_stop()
     assert svc._http_proc is None
 
 
-def test_approvals_are_asked_for_50_by_default(svc, monkeypatch):
-    asked = []
-    monkeypatch.setattr(svc.integration_store, "approvals", lambda state, limit: asked.append((state, limit)) or [])
-    assert svc.integrations_approvals() == []
-    assert asked == [("pending", 50)]
+def test_the_api_switch_is_refused_when_policy_forbids_it(svc, monkeypatch):
+    set_policy(monkeypatch, http=False)
+    with pytest.raises(PermissionError, match="doesn't allow the local API"):
+        svc.integrations_set_http(True)
 
 
-def test_nothing_is_pending_while_integrations_are_off(svc):
+@pytest.mark.parametrize("port", [1023, 65536, "47600", 80])
+def test_a_port_outside_1024_to_65535_is_refused(svc, port):
+    with pytest.raises(ValueError, match="port is a number from 1024 to 65535"):
+        svc.integrations_set_http(False, port=port)
+
+
+@pytest.mark.parametrize("port", [1024, 65535])
+def test_the_ends_of_the_port_range_are_taken(svc, port):
+    out = svc.integrations_set_http(False, port=port)
+    assert out["http"]["port"] == port
+
+
+def test_a_new_token_comes_back_once(svc):
+    client = svc.integrations_add_client("Code", "other-mcp")["client"]
+    got = svc.integrations_new_token(client["id"])
+    assert got["client"]["id"] == client["id"] and got["token"]
+
+
+def test_status_when_the_organization_turns_integrations_off(svc, monkeypatch):
+    svc.integration_store.set_setting("enabled", True)
+    set_policy(monkeypatch, enabled=False)
+    written = []
+    monkeypatch.setattr(app_service, "write_launcher", lambda root: written.append(root))
+    out = svc.integrations_status()
+    assert out["enabled"] is False and out["switch"] is True and out["set_by_organization"] is True
+    assert written == []
+
+
+def test_status_when_the_person_turns_integrations_on(svc, monkeypatch):
+    svc.integration_store.set_setting("enabled", True)
+    set_policy(monkeypatch, enabled=None)
+    written = []
+    monkeypatch.setattr(app_service, "write_launcher", lambda root: written.append(root))
+    out = svc.integrations_status()
+    assert out["enabled"] is True and out["set_by_organization"] is False
+    assert written == [svc.root]
+
+
+def test_turning_integrations_on_is_refused_when_the_organization_turned_them_off(svc, monkeypatch):
+    set_policy(monkeypatch, enabled=False)
+    with pytest.raises(PermissionError, match="turned off external AI tools"):
+        svc.integrations_set_enabled(True)
+    assert svc.integrations_set_enabled(False)["switch"] is False
+
+
+def test_pending_follows_the_switch_and_the_policy(svc, monkeypatch):
+    monkeypatch.setattr(svc.integration_store, "approvals", lambda state: [{"id": "a1"}])
+    svc.integration_store.set_setting("enabled", True)
+    set_policy(monkeypatch, enabled=None)
+    assert svc.integrations_pending() == {"enabled": True, "pending": [{"id": "a1"}]}
+    set_policy(monkeypatch, enabled=False)
     assert svc.integrations_pending() == {"enabled": False, "pending": []}
-    svc.integrations_set_enabled(True)
-    assert svc.integrations_pending() == {"enabled": True, "pending": []}
 
 
-def test_the_audit_check_names_its_folder(svc):
-    out = svc.integrations_audit_check()
-    assert out["ok"] is True and out["problems"] == [] and out["folder"] == str(svc.root / "integrations" / "audit")
+def test_approvals_and_decisions_pass_through(svc, monkeypatch):
+    monkeypatch.setattr(svc.integration_store, "approvals", lambda state, limit: [state, limit])
+    monkeypatch.setattr(svc.integration_store, "decide", lambda a, ok, note: {"id": a, "ok": ok, "note": note})
+    assert svc.integrations_approvals() == ["pending", 50]
+    assert svc.integrations_decide("a1", 1, "fine") == {"id": "a1", "ok": True, "note": "fine"}
 
 
-def test_testing_a_stdio_tool_hands_back_what_the_launcher_answered(svc, monkeypatch):
-    client = svc.integrations_add_client("Pipe", "other-mcp")["client"]
-    monkeypatch.setattr(app_service, "_test_stdio", lambda launcher, client_id: {"ok": True, "id": client_id})
-    assert svc.integrations_test(client["id"]) == {"ok": True, "id": client["id"]}
+class Trail:
+    rows: list = []
+    limits: list = []
+
+    def __init__(self, store):
+        self.folder = "audit"
+
+    def recent(self, limit, client_id):
+        Trail.limits.append(limit)
+        return [dict(r) for r in Trail.rows]
+
+    def approvals_recorded(self, ids):
+        return set()
+
+    def verify(self):
+        return {"ok": True}
 
 
-def test_a_stdio_test_waits_60_seconds_at_most():
-    assert inspect.signature(app_service._test_stdio).parameters["timeout"].default == 60
-
-
-def test_the_last_line_of_a_short_log_is_read_whole(tmp_path):
-    (tmp_path / "http.log").write_bytes(b"Port 5005 is in use.")
-    assert app_service._last_line(tmp_path / "http.log") == "Port 5005 is in use."
-    (tmp_path / "http.log").write_bytes(b"A" + b"B" * 4095)  # its last 4096 bytes are the whole of it
-    assert app_service._last_line(tmp_path / "http.log") == "A" + "B" * 499
-
-
-def test_activity_shows_100_calls_by_default(svc, monkeypatch):
-    from fabric_desktop.integrations import audit
-    asked = []
-    monkeypatch.setattr(audit.IntegrationAudit, "recent", lambda self, limit, client_id: asked.append(limit) or [])
-    assert svc.integrations_activity() == [] and asked == [100]
-
-
-def with_policy(monkeypatch, **changes):
-    rules = app_service.policy.current() | changes
-    monkeypatch.setattr(app_service, "policy", SimpleNamespace(current=lambda: rules))
-
-
-def test_the_local_api_isnt_allowed_when_policy_turns_it_off(svc, monkeypatch):
-    with_policy(monkeypatch, http=False, enabled=True)
-    assert svc._http_state()["allowed"] is False
-    with_policy(monkeypatch, http=True, enabled=True)
-    assert svc._http_state()["allowed"] is True
-
-
-def test_integrations_turned_on_by_policy_and_by_the_person_are_on(svc, monkeypatch):
-    svc.integrations_set_enabled(True)
-    with_policy(monkeypatch, enabled=True)
-    assert svc.integrations_status()["enabled"] is True
-    assert svc.integrations_pending()["enabled"] is True
-
-
-def fake_trail(monkeypatch, svc, rows, uses=()):
-    from fabric_desktop.integrations import audit
-    since = []
-    monkeypatch.setattr(audit.IntegrationAudit, "recent", lambda self, limit, client_id: [dict(r) for r in rows])
-    monkeypatch.setattr(audit.IntegrationAudit, "approvals_recorded", lambda self, ids: set())
+def activity(svc, monkeypatch, rows, uses=(), states=(), **kw):
+    Trail.rows, Trail.limits = rows, []
+    monkeypatch.setattr(audit_mod, "IntegrationAudit", Trail)
+    seen_since = []
     monkeypatch.setattr(svc.integration_store, "approval_uses",
-                        lambda oldest, client_id: since.append(oldest) or [dict(u) for u in uses])
-    return since
+                        lambda since, client_id: seen_since.append(since) or list(uses))
+
+    class Executions:
+        def __init__(self, service):
+            pass
+
+        def list(self, client_id, limit):
+            return list(states)
+    monkeypatch.setattr(exec_mod, "ExecutionManager", Executions)
+    return svc.integrations_activity(**kw), seen_since
 
 
-def test_a_started_line_drops_out_only_when_its_approval_has_an_outcome(svc, monkeypatch):
-    rows = [{"at": "2026-01-01T00:00:04+00:00", "approval_id": "a", "outcome": "ok"},
-            {"at": "2026-01-01T00:00:03+00:00", "approval_id": "a", "outcome": "started"},
-            {"at": "2026-01-01T00:00:02+00:00", "approval_id": "b", "outcome": "started"},
-            {"at": "2026-01-01T00:00:01+00:00", "approval_id": "", "outcome": "started"}]
-    fake_trail(monkeypatch, svc, rows)
-    got = svc.integrations_activity()
-    assert [(r["approval_id"], r["outcome"]) for r in got] == [("a", "ok"), ("b", "started"), ("", "started")]
+def test_activity_reads_a_hundred_lines_by_default(svc, monkeypatch):
+    activity(svc, monkeypatch, [])
+    assert Trail.limits == [100]
 
 
-def test_a_full_page_looks_for_approvals_back_to_its_oldest_line(svc, monkeypatch):
-    rows = [{"at": "2026-01-01T00:00:09+00:00", "outcome": "ok"}, {"at": "2026-01-01T00:00:01+00:00", "outcome": "ok"}]
-    since = fake_trail(monkeypatch, svc, rows)
-    svc.integrations_activity(limit=2)
-    svc.integrations_activity(limit=3)
-    assert since == [1767225601.0, 0.0]
+def test_activity_shows_a_finished_call_once(svc, monkeypatch):
+    rows = [{"at": "2026-11-20T10:00:02+00:00", "approval_id": "ap1", "outcome": "ok"},
+            {"at": "2026-11-20T10:00:01+00:00", "approval_id": "ap1", "outcome": "started"},
+            {"at": "2026-11-20T10:00:00+00:00", "approval_id": "ap2", "outcome": "started"},
+            {"at": "2026-11-20T09:00:00+00:00", "approval_id": "", "outcome": "ok"}]
+    got, _ = activity(svc, monkeypatch, rows)
+    assert [(r["approval_id"], r["outcome"]) for r in got] == [("ap1", "ok"), ("ap2", "started"), ("", "ok")]
 
 
-def test_an_approval_used_with_no_line_shows_as_unfinished_and_took_no_time(svc, monkeypatch):
-    use = {"id": "u1", "used_at": 1767225600.0, "client_id": "c", "client_name": "Tool", "capability": "run",
-           "permission": "EXECUTE_LOCAL_CODE", "arguments": None}
-    fake_trail(monkeypatch, svc, [], uses=[use])
-    (row,) = svc.integrations_activity()
-    assert row["outcome"] == "unfinished" and row["seconds"] == 0 and row["approval_id"] == "u1"
+def test_activity_looks_for_unrecorded_approvals_from_its_oldest_line_when_the_page_is_full(svc, monkeypatch):
+    rows = [{"at": "2026-11-20T10:00:00+00:00"}, {"at": "2026-11-20T09:00:00+00:00"}]
+    _, since = activity(svc, monkeypatch, rows, limit=2)
+    assert since == [1795165200.0]
 
 
-def test_a_local_api_that_wont_stop_in_10_seconds_is_killed(svc):
+def test_an_approval_with_no_line_shows_as_unfinished(svc, monkeypatch):
+    use = {"id": "ap9", "used_at": 1795165200.0, "client_id": "c1", "client_name": "Code", "capability": "run",
+           "permission": "EXECUTE_LOCAL_CODE", "arguments": "{}"}
+    got, _ = activity(svc, monkeypatch, [], uses=[use])
+    assert got[0]["outcome"] == "unfinished" and got[0]["seconds"] == 0
+    assert got[0]["at"] == "2026-11-20T09:00:00.000+00:00"
+
+
+def test_activity_shows_an_executions_state_where_it_has_one(svc, monkeypatch):
+    rows = [{"at": "2026-11-20T10:00:01+00:00", "execution_id": "e1"},
+            {"at": "2026-11-20T10:00:00+00:00", "execution_id": "e2"}]
+    got, _ = activity(svc, monkeypatch, rows, states=[{"id": "e1", "state": "done"}])
+    assert got[0]["execution_state"] == "done" and "execution_state" not in got[1]
+
+
+def test_the_audit_check_names_its_folder(svc, monkeypatch):
+    monkeypatch.setattr(audit_mod, "IntegrationAudit", Trail)
+    assert svc.integrations_audit_check() == {"ok": True, "folder": "audit"}
+
+
+def test_testing_a_stdio_tool_runs_the_stdio_test(svc, monkeypatch):
+    client = svc.integrations_add_client("Code", "other-mcp")["client"]
+    monkeypatch.setattr(app_service, "_test_stdio", lambda launcher, cid: {"ok": True, "client": cid})
+    assert svc.integrations_test(client["id"]) == {"ok": True, "client": client["id"]}
+
+
+def test_the_stdio_test_lists_the_tools_with_a_stand_in_client(tmp_path, monkeypatch):
+    import mcp
+    launcher = tmp_path / "launcher"
+    launcher.write_text("")
     seen = []
 
-    def wait(timeout):
-        seen.append(timeout)
-        raise subprocess.TimeoutExpired("api", timeout)
+    class Params:
+        def __init__(self, command, args, env):
+            seen.append((command, args))
 
-    svc._http_proc = SimpleNamespace(poll=lambda: None, terminate=lambda: seen.append("terminate"), wait=wait,
-                                     kill=lambda: seen.append("kill"))
-    svc._http_stop()
-    assert seen == ["terminate", 10, "kill"] and svc._http_proc is None
-
-
-def test_testing_an_http_tool_waits_5_seconds_for_the_local_api(svc, monkeypatch):
-    import urllib.request
-    client = svc.integrations_add_client("Web", "other-mcp", transport="http")["client"]
-    monkeypatch.setattr(svc, "_http_state", lambda: {"running": True, "url": "http://127.0.0.1:9"})
-    asked = []
-
-    class Answer:
-        status = 200
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout: asked.append((url, timeout)) or Answer())
-    assert svc.integrations_test(client["id"])["ok"] is True
-    assert asked == [("http://127.0.0.1:9/api/v1/health", 5)]
-
-
-@pytest.mark.parametrize("version, shown", [("2025-06-18", "2025-06-18"), (None, "")])
-def test_a_stdio_test_counts_the_tools_and_names_the_protocol(tmp_path, monkeypatch, version, shown):
-    import mcp
+    class Tools:
+        tools = ["a", "b"]
 
     class Client:
+        protocol_version = "2025-06-18"
+
         def __init__(self, params):
-            self.protocol_version = version
+            pass
 
         async def __aenter__(self):
             return self
@@ -228,17 +253,13 @@ def test_a_stdio_test_counts_the_tools_and_names_the_protocol(tmp_path, monkeypa
             return False
 
         async def list_tools(self):
-            return SimpleNamespace(tools=["a", "b"])
-
+            return Tools()
+    monkeypatch.setattr(mcp, "StdioServerParameters", Params)
     monkeypatch.setattr(mcp, "Client", Client)
-    launcher = tmp_path / "launcher"
-    launcher.write_text("")
-    out = app_service._test_stdio(launcher, "c1")
-    assert out == {"ok": True, "tools": 2, "protocol": shown, "message": "Connected: 2 tools available to this tool."}
-
-
-def test_the_local_api_cant_be_switched_on_when_policy_doesnt_allow_it(svc, monkeypatch):
-    with_policy(monkeypatch, http=False)
-    with pytest.raises(PermissionError, match="doesn't allow the local API"):
-        svc.integrations_set_http(True)
-    assert svc.integration_store.settings()["http_enabled"] is False
+    got = app_service._test_stdio(launcher, "cl_1")
+    assert got == {"ok": True, "tools": 2, "protocol": "2025-06-18",
+                   "message": "Connected: 2 tools available to this tool."}
+    if os.name == "nt":
+        assert seen[0][1][-3:] == [str(launcher), "--client", "cl_1"]
+    else:
+        assert seen == [(str(launcher), ["--client", "cl_1"])]

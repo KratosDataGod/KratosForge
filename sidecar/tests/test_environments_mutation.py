@@ -1,12 +1,9 @@
-"""environments.py: what mutation testing showed no test checked. pip's retries and time limit, the log's
-length, which install try's output says pip was offline, a no-folder install writing no folder constraints,
-installed() leaving out the engine's own packages, updating an environment's package list, removing a
-package and its nested folders, delete's leftover folders and detaching only its own notebooks, and the ids.
-pip never runs: subprocess is a module-local fake."""
+"""Mutation batch 271: notebook environments (environments.py) where the earlier tests didn't look.
+pip never runs: ``subprocess.run`` is replaced by a stand-in that answers as pip would, and installed
+packages are small .dist-info folders written by the test."""
 
 from __future__ import annotations
 
-import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -17,163 +14,127 @@ from fabric_desktop.environments import Environments
 
 @pytest.fixture
 def env(tmp_path):
-    e = Environments(tmp_path, python="py")
+    e = Environments(tmp_path / "app")
     e.create("Data")
     return e
 
 
-def fake_pip(monkeypatch, *answers):
-    """subprocess for environments.py: each run answers the next (returncode, output)."""
-    calls = []
-    left = list(answers)
-
-    def run(cmd, **kwargs):
-        calls.append((cmd, kwargs))
-        code, out = left.pop(0)
-        return SimpleNamespace(returncode=code, stdout=out, stderr="")
-    monkeypatch.setattr(envs, "subprocess", SimpleNamespace(run=run, TimeoutExpired=subprocess.TimeoutExpired))
-    return calls
-
-
-def job(name="Data", **kw):
-    return {"id": "j", "environment": name, "packages": ["demo-pkg==1.0"], "remove": False, "state": "running",
-            "log": "", "finished": None, **kw}
-
-
-def test_pip_gets_two_retries_and_fifteen_minutes(env, monkeypatch, tmp_path):
-    assert envs.PIP_RETRIES == 2 and envs.INSTALL_SECONDS == 900
-    cmd = envs.install_commands("py", tmp_path / "t", tmp_path / "c.txt", ["a==1"])[0]
-    assert cmd[cmd.index("--retries") + 1] == "2"
-    calls = fake_pip(monkeypatch, (0, "ok"))
-    target = env.site_packages("Data")
-    assert env._install(job(), target, target.parent / "pins.txt", ["a==1"]) is True
-    assert calls[0][1]["timeout"] == 900 and calls[0][1]["capture_output"] is True
-    assert not (target.parent / "folder-constraints.txt").exists()  # no folder: no folder constraints
-
-
-def test_the_log_keeps_its_last_20000_characters(env, monkeypatch):
-    fake_pip(monkeypatch, (1, "x" * 30000))
-    j = job()
-    target = env.site_packages("Data")
-    assert env._install(j, target, target.parent / "pins.txt", ["a==1"]) is False
-    assert len(j["log"]) == 20000
-
-
-def test_refusals_before_pip_are_false(env, tmp_path):
-    target = env.site_packages("Data")
-    assert env._install(job(folder="", pypi=False), target, target, ["a==1"]) is False
-    assert env._install(job(folder=str(tmp_path / "nowhere"), pypi=True), target, target, ["a==1"]) is False
-
-
-def test_offline_is_read_from_the_last_tries_output(env, monkeypatch, tmp_path):
-    folder = tmp_path / "approved"
-    folder.mkdir()
-    fake_pip(monkeypatch, (1, "ERROR: No matching distribution found for a"),
-             (1, "ProxyError('Cannot connect to proxy.') ERROR: No matching distribution found for a"))
-    j = job(folder=str(folder), pypi=True)
-    target = env.site_packages("Data")
-    assert env._install(j, target, target.parent / "pins.txt", ["a==1"]) is False
-    assert j["log"].endswith("The proxy refused pip's connection to the package index, so it reported the packages "
-                             f"as not found. {envs.PIP_OFFLINE_FIX}")
-    assert "Ask IT to add it to the folder" not in j["log"]
-
-
-def test_a_package_missing_from_the_folder_without_pypi_says_ask_it(env, monkeypatch, tmp_path):
-    folder = tmp_path / "approved"
-    folder.mkdir()
-    fake_pip(monkeypatch, (1, "ERROR: No matching distribution found for a"))
-    j = job(folder=str(folder), pypi=False)
-    target = env.site_packages("Data")
-    env._install(j, target, target.parent / "pins.txt", ["a==1"])
-    assert j["log"].endswith("Ask IT to add it to the folder.")
-    fake_pip(monkeypatch, (1, "ERROR: No matching distribution found for a"))
-    j = job(folder="", pypi=True)
-    env._install(j, target, target.parent / "pins.txt", ["a==1"])
-    assert "Ask IT to add it to the folder" not in j["log"]
-
-
-def dist(folder, name, files=()):
-    info = folder / f"{name.replace('-', '_')}-1.0.dist-info"
+def _dist(target, name, files=(), version="1.0", metadata_name=True):
+    info = target / f"{name.replace('-', '_')}-{version}.dist-info"
     info.mkdir(parents=True)
-    (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n", encoding="utf-8")
+    head = f"Name: {name}\n" if metadata_name else ""
+    (info / "METADATA").write_text(f"Metadata-Version: 2.1\n{head}Version: {version}\n", encoding="utf-8")
     record = []
-    for rel in files:
-        path = folder / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("x = 1\n", encoding="utf-8")
-        record.append(f"{rel},,")
+    for f in files:
+        p = target / f
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x = 1\n", encoding="utf-8")
+        record.append(f"{f},,")
     (info / "RECORD").write_text("\n".join(record) + "\n", encoding="utf-8")
     return info
 
 
-def test_installed_leaves_out_the_engines_own_packages(env):
+def _job(name="Data", remove=False, specs=("demo-pkg==1.0",), folder="", pypi=True):
+    return {"id": "j", "environment": name, "packages": list(specs), "remove": remove, "state": "running",
+            "log": "", "finished": None, "folder": folder, "pypi": pypi}
+
+
+def _pip(monkeypatch, *answers):
+    """Each pip run answers with the next (returncode, output); the commands run are kept."""
+    runs, it = [], iter(answers)
+
+    def run(cmd, **kw):
+        runs.append(cmd)
+        code, out = next(it)
+        return SimpleNamespace(returncode=code, stdout=out, stderr="")
+    monkeypatch.setattr(envs.subprocess, "run", run)
+    return runs
+
+
+def test_pip_tries_twice_per_address_and_stops_after_fifteen_minutes():
+    assert envs.PIP_RETRIES == 2 and envs.INSTALL_SECONDS == 900
+    cmd = envs.install_commands("py", envs.Path("t"), envs.Path("p"), ["a"])[0]
+    assert cmd[cmd.index("--retries") + 1] == "2"
+
+
+def test_an_environment_is_made_in_a_new_app_folder(tmp_path):
+    e = Environments(tmp_path / "new" / "app")
+    e.create("Fresh")
+    assert e.site_packages("Fresh").is_dir()
+    e.site_packages("Left").mkdir(parents=True)  # a folder an earlier environment of that name left
+    e.create("Left")
+    assert [x["name"] for x in e.list()] == ["Fresh", "Left"]
+
+
+def test_deleting_one_environment_keeps_the_other_notebooks_attached(env):
+    env.create("Other")
+    env.attach("a.ipynb", "Data")
+    env.attach("b.ipynb", "Other")
+    assert [e["notebooks"] for e in env.list()] == [["a.ipynb"], ["b.ipynb"]]
+    (env.folder / ".deleting-stray").write_text("a file an earlier delete left", encoding="utf-8")
+    assert env.delete("Data") == {"deleted": "Data", "detached": ["a.ipynb"]}
+    assert env.of("b.ipynb") == "Other" and env.of("a.ipynb") is None
+
+
+def test_an_install_job_has_a_twelve_character_id(env, monkeypatch):
+    monkeypatch.setattr(env, "_run", lambda job: None)
+    assert len(env.start("Data", ["demo-pkg==1.0"])["id"]) == 12
+
+
+def test_installed_lists_named_packages_the_engine_doesnt_have(env):
     target = env.site_packages("Data")
-    dist(target, "duckdb")
-    dist(target, "demo-pkg")
+    _dist(target, "demo-pkg")
+    _dist(target, "polars", version="0.0.1")  # one of the engine's own packages
+    _dist(target, "nameless", metadata_name=False)
     assert env.installed("Data") == [{"name": "demo-pkg", "version": "1.0"}]
 
 
-def test_removing_a_package_takes_its_nested_folders_and_says_so(env):
+def test_an_install_that_cant_reach_anything_returns_false(env, tmp_path):
     target = env.site_packages("Data")
-    info = dist(target, "demo-pkg", ["demo_pkg/__init__.py", "demo_pkg/sub/mod.py"])
-    dist(target, "other-pkg", ["other_pkg/__init__.py"])
-    assert envs.Environments._remove(target, "missing") is False
-    j = job(remove=True)
-    env._run(j)
-    assert j["state"] == "done" and j["log"] == "Removed demo-pkg==1.0"
-    assert not (target / "demo_pkg").exists() and not info.exists()
-    assert (target / "other_pkg" / "__init__.py").exists()
-    dist(target, "third", ["third/__init__.py"])
-    assert envs.Environments._remove(target, "third") is True
+    assert env._install(_job(pypi=False), target, tmp_path / "pins", ["a"]) is False
+    assert env._install(_job(folder=str(tmp_path / "missing")), target, tmp_path / "pins", ["a"]) is False
 
 
-
-def test_removing_a_package_never_stops_at_a_folder_that_wont_go(env, monkeypatch):
+def test_pypi_alone_writes_no_folder_constraints_and_blames_no_folder(env, tmp_path, monkeypatch):
+    _pip(monkeypatch, (1, "ERROR: something else went wrong"))
     target = env.site_packages("Data")
-    info = dist(target, "demo-pkg", ["demo_pkg/__init__.py"])
-    cleared = []
-    monkeypatch.setattr(envs, "shutil", SimpleNamespace(rmtree=lambda path, ignore_errors=False: cleared.append((path, ignore_errors))))
-    assert envs.Environments._remove(target, "demo-pkg") is True
-    assert (info, True) in cleared and all(flag is True for _, flag in cleared)
+    job = _job()
+    assert env._install(job, target, tmp_path / "pins", ["a"]) is False
+    assert not (target.parent / "folder-constraints.txt").exists()
+    assert "organization's package folder" not in job["log"]
 
-def test_an_install_replaces_the_packages_version_and_keeps_the_others(env, monkeypatch):
+
+def test_the_offline_note_reads_the_last_try(env, tmp_path, monkeypatch):
+    folder = tmp_path / "pkgs"
+    folder.mkdir()
+    _pip(monkeypatch, (1, "ERROR: No matching distribution found for a"),
+         (1, "WARNING: NewConnectionError: Failed to establish a new connection"))
+    job = _job(folder=str(folder))
+    assert env._install(job, env.site_packages("Data"), tmp_path / "pins", ["a"]) is False
+    assert "couldn't reach the package index" in job["log"]
+
+
+def test_a_failed_install_log_keeps_its_last_twenty_thousand_characters(env, tmp_path, monkeypatch):
+    _pip(monkeypatch, (1, "x" * 30000))
+    job = _job()
+    env._install(job, env.site_packages("Data"), tmp_path / "pins", ["a"])
+    assert len(job["log"]) == 20000
+
+
+def test_reinstalling_a_package_replaces_its_line_and_keeps_the_others(env, monkeypatch):
     monkeypatch.setattr(env, "_install", lambda *a: True)
-    data = env._read()
-    data["environments"]["Data"]["packages"] = ["demo-pkg==0.9", "keep==1"]
-    env._write(data)
-    j = job()
-    env._run(j)
-    assert j["state"] == "done"
-    assert env._read()["environments"]["Data"]["packages"] == ["keep==1", "demo-pkg==1.0"]
+    env._run(_job(specs=["a==1"]))
+    env._run(_job(specs=["b==1"]))
+    env._run(_job(specs=["a==2"]))
+    assert env.list()[0]["packages"] == ["b==1", "a==2"]
 
 
-def test_creating_over_a_leftover_folder_works(tmp_path):
-    e = Environments(tmp_path)
-    (e.folder / "Old" / "site-packages").mkdir(parents=True)
-    assert e.create("Old") == {"name": "Old"}
-
-
-def test_delete_detaches_only_its_own_notebooks_and_clears_leftovers(env, monkeypatch):
-    env.create("Other")
-    env.attach("a", "Data")
-    env.attach("b", "Other")
-    cleared = []
-    monkeypatch.setattr(envs, "shutil", SimpleNamespace(rmtree=lambda path, ignore_errors=False: cleared.append((path, ignore_errors))))
-    assert env.delete("Data") == {"deleted": "Data", "detached": ["a"]}
-    assert env.of("b") == "Other" and env.of("a") is None
-    assert [e["notebooks"] for e in env.list()] == [["b"]]
-    (path, ignore), = cleared
-    assert ignore is True and path.name.startswith(".deleting-") and len(path.name) == len(".deleting-") + 8
-
-
-def test_list_names_each_environments_own_notebooks(env):
-    env.create("Other")
-    env.attach("a", "Data")
-    env.attach("b", "Other")
-    assert {e["name"]: e["notebooks"] for e in env.list()} == {"Data": ["a"], "Other": ["b"]}
-
-
-def test_a_job_id_is_twelve_characters(env, monkeypatch):
-    monkeypatch.setattr(env, "_run", lambda job: None)
-    started = env.start("Data", ["demo-pkg==1.0"])
-    assert len(started["id"]) == 12 and started["state"] == "running"
+def test_removing_an_installed_package_removes_its_nested_folders(env):
+    target = env.site_packages("Data")
+    _dist(target, "demo-pkg", files=["demo_pkg/__init__.py", "demo_pkg/sub/mod.py"])
+    assert env._remove(target, "other") is False
+    job = _job(remove=True)
+    env._run(job)
+    assert job["log"] == "Removed demo-pkg==1.0"
+    assert not (target / "demo_pkg").exists()
+    assert envs.Environments._remove(target, "demo-pkg") is False

@@ -438,7 +438,8 @@ def test_a_damaged_notebook_is_named_by_every_notebook_tool(reg, nbsvc, tmp_path
         if damage in READ_ANYWAY:  # the reader drops the settings it can't read and keeps the cells
             assert not isinstance(out, IntegrationError) or out.code not in ("internal", "invalid_input"), (cap_id, out)
         else:
-            assert failed(out, "invalid_input").message.startswith("bad.ipynb is damaged"), cap_id
+            # The file is named, and so is the cell when one is the problem (the reader's cell check, #3232).
+            assert failed(out, "invalid_input").message.startswith(("bad.ipynb is damaged", "bad.ipynb can't be opened, because")), cap_id
     names = [n["name"] for n in ok(call(reg, nbsvc, "fabric_desktop_list_notebooks", tmp_path))["items"]]
     assert set(names) == {"good", "bad"}
     ok(call(reg, nbsvc, "fabric_desktop_get_project", tmp_path, id="notebooks"))

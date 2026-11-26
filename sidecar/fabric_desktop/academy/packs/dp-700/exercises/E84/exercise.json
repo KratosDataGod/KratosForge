@@ -1,0 +1,194 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "shortcuts.json",
+  "reset": "Reset puts the original shortcuts.json back.",
+  "id": "E84",
+  "title": "Five shortcuts: type, location, identity and cache",
+  "objectives": [
+    "2.2.3"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [
+    "E29"
+  ],
+  "objective_text": "Set up five shortcuts to OneLake, ADLS Gen2, Amazon S3 and Google Cloud Storage, in a lakehouse and a KQL database, with the right location, identity and cache, and retire an old shortcut without losing its data.",
+  "scenario": "The Marketing team wants web events, a finance ledger, ad exports and survey files without copying any of them. One table is also needed in a KQL database. An old shortcut to last year's ad exports has to go, and the files behind it must stay.",
+  "engine_label": "A model of OneLake shortcuts, checked on this PC",
+  "verifies": [
+    "Your shortcuts follow the OneLake shortcuts page on where each kind can go (top of Tables, any level of Files, the Shortcuts folder of a KQL database), which names are recognized as tables, which identity each type uses, the cache retention range and what deleting a shortcut removes, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any shortcut is created or any data read in Fabric. Nothing is created here.",
+    "The identity of the Google Cloud Storage shortcut. The shortcuts page only names the identity for OneLake, ADLS and S3 shortcuts.",
+    "The cloud connection itself, its credential type and who has permission on it.",
+    "Workspace settings such as turning on the shortcut cache, and OneLake security roles on the target."
+  ],
+  "expected": {
+    "description": "web_events: Tables, OneLake, caller identity, readers need read access on the target. ledger: Tables, ADLS Gen2, connection, a name with no spaces, + or %. ad_spend: a folder under Files, Amazon S3, connection, cache_days 7. surveys: a folder under Files, Google Cloud Storage. kql_web_events: Shortcuts, OneLake, caller identity. cleanup: delete the shortcut."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "A table shortcut won't show up as a table.",
+      "pass": "Both table shortcuts sit at the top of Tables with names OneLake accepts.",
+      "rules": [
+        {
+          "path": "shortcuts.web_events.location",
+          "equals": "Tables",
+          "why": "In Tables, shortcuts can only be created at the top level, not in subfolders."
+        },
+        {
+          "path": "shortcuts.web_events.type",
+          "equals": "OneLake"
+        },
+        {
+          "path": "shortcuts.ledger.location",
+          "equals": "Tables",
+          "why": "In Tables, shortcuts can only be created at the top level, not in subfolders."
+        },
+        {
+          "path": "shortcuts.ledger.type",
+          "equals": "ADLS Gen2"
+        },
+        {
+          "path": "shortcuts.ledger.name",
+          "not_contains": " ",
+          "why": "OneLake doesn't recognize a shortcut with a space in its name as a Delta table."
+        },
+        {
+          "path": "shortcuts.ledger.name",
+          "not_contains": "+",
+          "why": "Shortcut names, parent paths and target paths can't contain % or + characters."
+        },
+        {
+          "path": "shortcuts.ledger.name",
+          "not_contains": "%",
+          "why": "Shortcut names, parent paths and target paths can't contain % or + characters."
+        },
+        {
+          "path": "shortcuts.web_events.name",
+          "not_contains": " "
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A shortcut signs in the wrong way, or readers would be refused.",
+      "pass": "OneLake shortcuts use the caller's identity, and ADLS and S3 shortcuts use their connection.",
+      "rules": [
+        {
+          "path": "shortcuts.web_events.auth",
+          "equals": "caller identity",
+          "why": "A OneLake shortcut uses the identity of the person reading through it, so that person needs permission to read the data in the target."
+        },
+        {
+          "path": "shortcuts.web_events.readers_need",
+          "equals": "read access on the target",
+          "why": "A OneLake shortcut uses the identity of the person reading through it, so that person needs permission to read the data in the target."
+        },
+        {
+          "path": "shortcuts.kql_web_events.auth",
+          "equals": "caller identity",
+          "why": "A OneLake shortcut uses the identity of the person reading through it, so that person needs permission to read the data in the target."
+        },
+        {
+          "path": "shortcuts.kql_web_events.readers_need",
+          "equals": "read access on the target",
+          "why": "A OneLake shortcut uses the identity of the person reading through it, so that person needs permission to read the data in the target."
+        },
+        {
+          "path": "shortcuts.ledger.auth",
+          "equals": "connection",
+          "why": "ADLS and S3 shortcuts delegate authorization to a cloud connection."
+        },
+        {
+          "path": "shortcuts.ad_spend.auth",
+          "equals": "connection",
+          "why": "ADLS and S3 shortcuts delegate authorization to a cloud connection."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The file shortcuts aren't where files go, or the cache won't keep them for a week.",
+      "pass": "The S3 and Google Cloud Storage files sit under Files, and the S3 files are cached for a week.",
+      "rules": [
+        {
+          "path": "shortcuts.ad_spend.type",
+          "equals": "Amazon S3"
+        },
+        {
+          "path": "shortcuts.ad_spend.location",
+          "contains": "Files",
+          "why": "CSV and JSON files aren't a Delta table. In Files a shortcut can go at any level."
+        },
+        {
+          "path": "shortcuts.ad_spend.location",
+          "not_contains": "Tables"
+        },
+        {
+          "path": "shortcuts.ad_spend.cache_days",
+          "equals": 7,
+          "why": "The cache keeps S3 files for 1 to 28 days after they were last read, which saves egress. The team wants one week."
+        },
+        {
+          "path": "shortcuts.surveys.type",
+          "equals": "Google Cloud Storage"
+        },
+        {
+          "path": "shortcuts.surveys.location",
+          "contains": "Files"
+        },
+        {
+          "path": "shortcuts.surveys.location",
+          "not_contains": "Tables"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The KQL shortcut is in the wrong place, or the clean-up would delete data.",
+      "pass": "The KQL shortcut is under Shortcuts, and the clean-up keeps the S3 files.",
+      "rules": [
+        {
+          "path": "shortcuts.kql_web_events.location",
+          "equals": "Shortcuts",
+          "why": "In a KQL database a shortcut appears in the Shortcuts folder and is treated like an external table."
+        },
+        {
+          "path": "shortcuts.kql_web_events.type",
+          "equals": "OneLake"
+        },
+        {
+          "path": "cleanup.action",
+          "equals": "delete the shortcut",
+          "why": "Deleting a shortcut only deletes the shortcut object. Deleting files inside it also deletes them in the target when you have permission there."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Where in Tables can a shortcut go, and where in Files?",
+    "Which characters can't a shortcut name contain? What about spaces in a table name?",
+    "Whose identity does a OneLake shortcut use? What do ADLS and S3 shortcuts use instead?",
+    "How long can the shortcut cache keep a file?",
+    "What happens to the target when you delete files through a shortcut?"
+  ],
+  "explanation": "A shortcut to a Delta table goes at the top level of Tables, and OneLake then recognizes it as a table. A name with a space isn't recognized as a table, and no shortcut name may contain % or +. Files that aren't a table go under Files, where a shortcut can sit at any level. A OneLake shortcut uses the identity of the person reading through it, so every reader needs read access on the target. ADLS and S3 shortcuts use a cloud connection instead. The cache keeps S3 and Google Cloud Storage files for 1 to 28 days after they were last read. In a KQL database a shortcut appears in the Shortcuts folder. Deleting a shortcut leaves the target alone, while deleting files through the shortcut deletes them in the target too.",
+  "remediation": [
+    "LM-24",
+    "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23: onelake-shortcuts (last updated 2026-11-08). External types include Amazon S3, S3 compatible, ADLS Gen2, Azure Blob Storage, Dataverse, Google Cloud Storage, Iceberg, OneDrive and SharePoint. Tables shortcuts only at the top level, Files at any level. In a KQL database shortcuts appear in the Shortcuts folder and are treated like external tables. A Delta target is recognized as a table, and a shortcut with a space in its name isn't. Names, parent paths and target paths can't contain % or +. Internal shortcuts use the calling user's identity, who must have permission in the target. ADLS and S3 shortcuts delegate authorization with cloud connections. Deleting a shortcut deletes only the shortcut, and deleting files within a shortcut deletes them in the target if you have permission. Cache retention is 1 to 28 days and is reset on each access, for GCS, S3, S3 compatible and gateway shortcuts, and files over 1 GB aren't cached. No type is marked preview.",
+    "Not graded: the Google Cloud Storage shortcut's auth (the page only names it for OneLake, ADLS and S3), the Direct Lake and delegated identity exception for internal shortcuts, and the 10 shortcuts per path limit that E29 covers."
+  ]
+}

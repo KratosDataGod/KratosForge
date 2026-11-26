@@ -128,7 +128,7 @@ def test_a_job_records_how_long_it_took_to_the_hundredth_of_a_second(tmp_path, m
                                                    gmtime=time.gmtime))
     monkeypatch.setattr(P, "resolve_target", lambda j, fabric: Ref(tmp_path / "lake" / "orders"))
     job = Job("orders", "duckdb", tmp_path, Target("ws1", "LH_Sales", "orders"), sql="SELECT 1 AS id")
-    record = P.run_job(job, None, lambda: "tok", tmp_path / "work")
+    record = P.run_job(job, None, lambda: "tok", tmp_path / "work", guard=lambda *_: None)
     assert record.seconds == 1.23
 
 

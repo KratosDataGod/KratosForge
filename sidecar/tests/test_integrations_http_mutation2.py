@@ -22,6 +22,8 @@ from fabric_desktop.integrations.registry import Capability, Registry, schema
 from fabric_desktop.integrations.store import IntegrationStore
 from fabric_desktop.redact import REMOVED
 
+from test_integrations_http import IN_PROCESS, this_account
+
 PORT = 47615
 HOST = {"host": f"127.0.0.1:{PORT}"}
 JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlc2lnbmF0dXJl"  # pragma: allowlist secret (a made-up token)
@@ -129,7 +131,7 @@ def _through(guard, headers, client=("127.0.0.1", 50000), path="/api/v1/health",
     return status, payload
 
 
-@pytest.mark.parametrize("client", [("127.0.0.1", 1), ("::1", 1), ("localhost", 1), ("testclient", 1)])
+@pytest.mark.parametrize("client", [("127.0.0.1", 1), ("::1", 1), ("localhost", 1)])
 def test_loopback_callers_pass(store, client):
     guard = http_server.Guard(Inner(), store, PORT, same_user=lambda a, b: True)
     assert _through(guard, HOST, client=client)[0] == 200
@@ -144,7 +146,7 @@ def test_any_other_caller_is_refused(store, client):
     assert inner.calls == 0
 
 
-def test_a_program_running_as_someone_else_is_refused_and_the_test_client_isnt_asked(store):
+def test_a_program_running_as_someone_else_is_refused_and_every_caller_is_asked(store):
     asked = []
 
     def other(client_port, port):
@@ -154,7 +156,8 @@ def test_a_program_running_as_someone_else_is_refused_and_the_test_client_isnt_a
     status, body = _through(guard, HOST, client=("127.0.0.1", 50001))
     assert status == 403 and body["error"]["message"].startswith("Only programs running as the Windows account")
     assert asked == [(50001, PORT)]
-    assert _through(guard, HOST, client=("testclient", 1))[0] == 200
+    # "testclient" (Starlette's in-process client) is no longer let through without a check (#3342).
+    assert _through(guard, HOST, client=("testclient", 1))[0] == 403
     assert asked == [(50001, PORT)]
 
 
@@ -282,8 +285,9 @@ def _app(store, run=None):
     lines = Lines()
     reg.audit = lines
     _, token = store.add_client("Script", "http", transport="http", grants=["READ_METADATA"])
-    app = http_server.build_app(reg, store, PORT)
-    return TestClient(app, base_url=f"http://127.0.0.1:{PORT}"), {"Authorization": f"Bearer {token}"}, lines
+    app = http_server.build_app(reg, store, PORT, same_user=this_account)
+    return (TestClient(app, base_url=f"http://127.0.0.1:{PORT}", client=IN_PROCESS),
+            {"Authorization": f"Bearer {token}"}, lines)
 
 
 URL = "/api/v1/capabilities/ext_echo/invoke"

@@ -91,7 +91,7 @@ def test_motion_level_defaults_to_subtle_saved_checked_and_lockable(dirs):
         app_settings.save({"motion_level": 2})
     dirs.write_text(json.dumps({"motion_level": 9}))
     assert app_settings.load()["motion_level"] == {"value": 3, "source": "user"}  # out of range: ignored
-    assert "motion_level must be between 0 and 3" in app_settings.policy_problems()
+    assert "motion_level must be between 0 and 3. Ask IT to change motion_level in the policy file." in app_settings.policy_problems()
 
 
 def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(dirs):
@@ -104,7 +104,8 @@ def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(d
     with pytest.raises(ValueError, match="beside, on_request"):
         app_settings.save({"ui_explanations": "hidden"})
     dirs.write_text(json.dumps({"ui_density": "tiny"}))
-    assert "ui_density must be one of comfortable, compact" in app_settings.policy_problems()
+    assert ("ui_density must be one of comfortable, compact. Ask IT to change ui_density in the policy file."
+            in app_settings.policy_problems())
 
 
 def test_learn_mode_defaults_to_professional_and_a_policy_can_set_it(dirs):

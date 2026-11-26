@@ -98,7 +98,7 @@ A proof's outputs stay in `Files/_fabric_desktop/proofs/<proof>/` so they can be
 
 ## Limits
 
-- Proofs cover notebooks that read and write through the lakehouse module, published to Fabric as Python notebooks. Spark notebooks need a Spark-side adapter (plan, stage 6).
+- Proofs cover notebooks that read and write through the lakehouse module, or through Spark's table calls (see [Spark notebooks](#spark-notebooks)). Scala and R cells stop a proof.
 - The check reads the code; it can't see calls built at run time. Notebook code runs as you on both sides and could write elsewhere with your access; a proof contains what goes through supported calls and reports what it can see.
 - A pinned version that is vacuumed away during the proof can't be read; the run fails and says so.
 - The clock differs between runs; outputs built from it differ too. The warning names the cell.

@@ -74,8 +74,18 @@ def http_client(store, **kw):
     return client, token
 
 
+# Starlette's test client has no socket: it calls from a loopback address, as uvicorn reports one, and the
+# account check is a stand-in that says yes (there is no program to ask Windows about).
+IN_PROCESS = ("127.0.0.1", 50000)
+
+
+def this_account(peer_port, server_port):
+    return True
+
+
 def api(store, limiter=None):
-    return TestClient(build_app(registry(store), store, PORT, limiter=limiter), base_url=f"http://127.0.0.1:{PORT}")
+    return TestClient(build_app(registry(store), store, PORT, limiter=limiter, same_user=this_account),
+                      base_url=f"http://127.0.0.1:{PORT}", client=IN_PROCESS)
 
 
 def auth(token):

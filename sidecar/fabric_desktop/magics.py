@@ -40,6 +40,10 @@ def _match(text: str) -> tuple[str, str, str, str | None] | None:
 def _lines(code: str) -> list[tuple[str, tuple[str, str, str, str | None] | None]]:
     """Each line with its magic, if it is one. As in IPython, only a line that starts a statement can
     be a magic: one inside a triple-quoted string, brackets or after a backslash is left alone."""
+    if "%" not in code and "!" not in code:
+        # No line can be a magic (each needs one of these), so the per-character scan is skipped. It
+        # ran several times per cell on every open and save (compute_check): most of a large notebook's time.
+        return [(text, None) for text in code.split("\n")]
     out = []
     quote, depth, joined = "", 0, False
     for text in code.split("\n"):

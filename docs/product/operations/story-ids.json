@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-23",
+  "updated": "2026-11-26",
   "about": "Ledger of WR story ids: each lane (a lead thread or a long-running member thread) owns blocks of ids, so two lanes never give two stories the same id. A lane takes its next id from its own block; where a lane lists next, that is the next id to use. A smaller block inside a larger one belongs to its own lane. queues.py check fails when a queued story's id is outside its workstream's lanes, or when one id names two stories. Exceptions record past collisions, which keep their ids: never rename a merged story's id.",
   "lanes": [
     {
@@ -17,7 +17,9 @@
       "name": "Notebook parity",
       "thread": "Build notebook parity items",
       "workstream": "devex",
-      "blocks": [{"first": "WR-130", "last": "WR-134"}]
+      "blocks": [{"first": "WR-130", "last": "WR-139"}],
+      "next": "WR-138",
+      "note": "WR-135 to WR-137 are used by #3368."
     },
     {
       "key": "warehouse",
@@ -25,7 +27,7 @@
       "thread": "Build full warehouse development experience",
       "workstream": "fabric",
       "blocks": [{"first": "WR-200", "last": "WR-269"}, {"first": "WR-700", "last": "WR-749"}],
-      "next": "WR-701"
+      "next": "WR-708"
     },
     {
       "key": "sql-translator",
@@ -47,14 +49,17 @@
       "name": "Governance",
       "thread": "Finish governance follow-ups",
       "workstream": "enterprise",
-      "blocks": [{"first": "WR-400", "last": "WR-499"}]
+      "blocks": [{"first": "WR-400", "last": "WR-499"}],
+      "next": "WR-419"
     },
     {
       "key": "devex",
       "name": "DevEx",
       "thread": "UX and simplicity oversight",
       "workstream": "devex",
-      "blocks": [{"first": "WR-500", "last": "WR-599"}]
+      "blocks": [{"first": "WR-500", "last": "WR-599"}],
+      "next": "WR-508",
+      "note": "WR-507 is the extension channel fuzz story."
     },
     {
       "key": "platform",

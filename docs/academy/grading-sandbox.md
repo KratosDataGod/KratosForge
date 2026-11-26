@@ -146,13 +146,14 @@ How each Security condition is met:
    URL read (`read_csv('http://...')`) fails because `httpfs` isn't loaded and won't be fetched. The
    extensions built into DuckDB (`parquet`, `json`, `icu`) still read and write the workspace.
    `duckdb.connect`, the native `_duckdb.connect` and any module that imported it by name are one
-   replaced function. DuckDB's own connect is held only by a second audit hook, which opens each
+   replaced function. DuckDB's own connect is held only by an audit hook of its own, which opens each
    connection from plain values (a database in the workspace or `:memory:`, settings of plain types)
-   and hands it back. A connection's config may hold only settings that change how queries run
-   (`threads`, `memory_limit`, which is set to 1GB again after connecting, `TimeZone`,
-   `default_null_order`, `disabled_optimizers` and a few like them, listed in `DUCKDB_CONFIG_KEYS`);
-   any other key, such as one naming a file or folder (`temp_directory`, `secret_directory`,
-   `extension_directory`), is refused with a PermissionError. No module, closure, traceback or frame the learner's code can reach holds it.
+   and hands it back; no module, closure, traceback or frame the learner's code can reach holds it.
+   A connection's config may hold only settings that change how queries run (`threads`,
+   `memory_limit`, which is set to 1GB again after connecting, `TimeZone`, `default_null_order`,
+   `disabled_optimizers` and a few like them, listed in `DUCKDB_CONFIG_KEYS`); any other key, such as
+   one naming a file or folder (`temp_directory`, `secret_directory`, `extension_directory`), is
+   refused with a PermissionError.
    Importing `duckdb` or `_duckdb` again (after removing it from `sys.modules`, through
    `importlib.util.module_from_spec`, `ExtensionFileLoader` under any name, or `_imp.create_dynamic`)
    is refused, since a fresh native module would bring back the original; `importlib.reload` of
@@ -166,11 +167,8 @@ How each Security condition is met:
    and every pyarrow module that imported these names. If DuckDB's default connection can't be locked, its
    module-level functions are refused (fail closed). These
    libraries are imported before the audit hook starts, because some (Polars, pyarrow) load
-   native code through ctypes, which the hook then refuses. Learner code that deliberately
-   re-imports a module or reaches its internals can get past the other libraries' wrappers (for
-   DuckDB, see above); that is the accepted limit until ACD-005b. These are Python-level guards:
-   the only control here that Python code can't undo is the AppContainer (L4), and Delta and
-   PySpark exercises never run in one (see "Delta exercises" below).
+   native code through ctypes, which the hook then refuses. These are Python-level guards, defense
+   in depth under the process limits. The process-level network boundary is ACD-005b.
 4. **Wording.** The process holds no tokens and gets none from the app. It runs as the same
    Windows user, so the person's own sign-in cache on disk is theirs to read; only ACD-005b
    changes that.

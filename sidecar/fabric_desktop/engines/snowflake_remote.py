@@ -186,7 +186,11 @@ class Client:
 def rows(answer: dict[str, Any]) -> list[dict[str, Any]]:
     """The answer's rows as dicts keyed by lower-case column name. Values stay Snowflake's strings."""
     meta = answer.get("resultSetMetaData") or {}
-    names = [str(c.get("name") or "").lower() for c in meta.get("rowType") or [] if isinstance(c, dict)]
+    columns = meta.get("rowType") or [] if isinstance(meta, dict) else None
+    if not isinstance(columns, list) or not all(isinstance(c, dict) for c in columns):
+        raise SnowflakeError("Snowflake's answer couldn't be read because its column list isn't one Snowflake sends. "
+                             "Try again.")
+    names = [str(c.get("name") or "").lower() for c in columns]
     data = answer.get("data") or []
     if not isinstance(data, list):
         raise SnowflakeError("Snowflake's answer had no rows where they belong.")

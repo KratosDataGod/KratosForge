@@ -42,15 +42,6 @@ def test_a_pattern_that_isnt_text_is_left_for_the_engine():
     assert "REGEXP_MATCHES('12', 1)" in written("SELECT '12' rlike 1")
 
 
-def _duckdb_1():
-    import duckdb
-    return duckdb.__version__.startswith("1.")
-
-
-@pytest.mark.xfail(_duckdb_1(), strict=True, reason=(
-    "Bug: on DuckDB 1.5, a concatenation with a NULL inside another one, ('a' || NULL) || 'b', comes back typed "
-    "INTEGER, not string as in Spark: only a concatenation whose own argument is the NULL is cast to text, and "
-    "not when it sits inside another concatenation (spark_text_results)."))
 def test_a_concatenation_with_a_null_inside_another_is_still_a_string():
     from fabric_desktop import sql
     for query in ("SELECT ('a' || NULL) || 'b' AS v", "SELECT concat(concat('a', NULL), 'b') AS v"):

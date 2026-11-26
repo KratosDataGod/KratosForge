@@ -31,15 +31,15 @@ def test_table_stats_and_guardrails_dont_say_about_unless_estimated():
     assert dl.TableStats([], rows=1, files=1, bytes=1, row_groups=1).row_groups_estimated is False
     t = dl.ModelTable("T", "", "t", "E")
     f = dl._guardrail(t, "Parquet files", "Parquet files", 2_000, 1_000, "F2", "Past.")
-    assert f["message"] == "2,000 Parquet files; F2 allows 1,000 a table. Past."
+    assert f["message"] == "2,000 Parquet files, but F2 allows 1,000 a table. Past."
 
 
 def test_files_and_rows_are_never_shown_as_estimates():
     stats = _stats(FactSales=dl.TableStats(FACT_COLS, rows=400_000_000, files=2_000, bytes=1, row_groups=1,
                                            row_groups_estimated=True))
     out = dl.check(_bim(), stats, dl.limits("F32"))
-    assert _by(out, "Parquet files")[0]["message"].startswith("2,000 Parquet files;")
-    assert _by(out, "Rows")[0]["message"].startswith("400,000,000 rows;")
+    assert _by(out, "Parquet files")[0]["message"].startswith("2,000 Parquet files,")
+    assert _by(out, "Rows")[0]["message"].startswith("400,000,000 rows,")
 
 
 def test_a_partition_that_isnt_an_entity_or_has_no_entity_name_isnt_read():
@@ -93,8 +93,8 @@ def test_a_column_with_no_source_is_read_by_its_name_and_one_with_a_source_by_th
 def test_at_a_limit_is_near_it_and_at_ninety_percent_is_near_too():
     stats = _stats(FactSales=dl.TableStats(FACT_COLS, rows=1, files=1_000, bytes=1, row_groups=900))
     out = dl.check(_bim(), stats, dl.limits("F2"))
-    assert "a few more loads will pass it" in _by(out, "Parquet files")[0]["message"]
-    assert "a few more loads will pass it" in _by(out, "Row groups")[0]["message"]
+    assert "a few more loads could pass it" in _by(out, "Parquet files")[0]["message"]
+    assert "a few more loads could pass it" in _by(out, "Row groups")[0]["message"]
     below = _stats(FactSales=dl.TableStats(FACT_COLS, rows=1, files=899, bytes=1, row_groups=1))
     assert not _by(dl.check(_bim(), below, dl.limits("F2")), "Parquet files")
 

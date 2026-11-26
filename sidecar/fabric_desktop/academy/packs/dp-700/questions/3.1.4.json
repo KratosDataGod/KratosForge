@@ -323,6 +323,102 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.4-q11",
+      "type": "single",
+      "stem": "At Brightwater, how do you send the late-bus messages?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Save a KQL queryset that lists the buses more than 15 minutes late, and have each supervisor run it every morning"
+        },
+        {
+          "id": "b",
+          "text": "Add an Activator destination to the eventstream, with one rule on the average DelayMinutes of all the buses that sends a Teams message"
+        },
+        {
+          "id": "c",
+          "text": "Add an Office 365 Outlook activity to a pipeline that runs every hour and emails the supervisors about late buses"
+        },
+        {
+          "id": "d",
+          "text": "Add an Activator destination to the eventstream, with a rule on DelayMinutes above 15 for each BusId that sends a Teams message"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Activator connects directly to an eventstream and evaluates its rules per object, such as each BusId, and can send a Teams message. A rule on the average of all buses misses a single late bus, and an hourly email or a morning query isn't immediate.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction",
+      "case": "brightwater-transit",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.1.4-q12",
+      "type": "single",
+      "stem": "At Quarry Hill, how do you send the Teams message about failed dataflow refreshes?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add an Office 365 Outlook activity to each Dataflow Gen2 item, connected through On failure to the dataflow's last query"
+        },
+        {
+          "id": "b",
+          "text": "Set a refresh schedule on the monitoring database so that it emails the team when a dataflow has failed"
+        },
+        {
+          "id": "c",
+          "text": "Save a KQL query on the monitoring database that finds failed refreshes, and create an alert from it"
+        },
+        {
+          "id": "d",
+          "text": "Pin the Monitor hub's Job runs page for the workspace to a dashboard that the team checks each morning"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Workspace monitoring supports proactive notifications. Save a KQL query that finds the condition and create an alert from its results, and Activator can send a Teams message. Outlook activities belong to pipelines, not dataflows, and a page someone checks each morning isn't an alert.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/workspace-monitoring-overview",
+      "case": "quarry-hill-monitoring",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.1.4-q13",
+      "type": "single",
+      "stem": "At Quarry Hill, CopyBatches failed last night but CopyAssays succeeded, and nobody got an email. Why, and what is the fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Both copies had to fail to trigger the email, so give each Copy activity its own Outlook activity"
+        },
+        {
+          "id": "b",
+          "text": "On failure only triggers when the whole pipeline run fails, so move the Outlook activity into a separate pipeline"
+        },
+        {
+          "id": "c",
+          "text": "Outlook activities only send email on manual runs, so run the nightly pipeline on demand instead"
+        },
+        {
+          "id": "d",
+          "text": "The email is sent from the workspace identity, which must be created before any email can go"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "When more than one activity connects to an Outlook activity, all the connected conditions must be met, so both copies had to fail. Use a separate Outlook activity for each activity you monitor. The email is sent from the account of the person who set up the activity, not a workspace identity.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/outlook-activity",
+      "case": "quarry-hill-monitoring",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

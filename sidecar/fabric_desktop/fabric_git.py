@@ -273,9 +273,9 @@ def status(raw: dict[str, Any] | None) -> dict[str, Any]:
         object_id = _text(ident.get("objectId")).lower()
         if not (_GUID.fullmatch(logical) or _GUID.fullmatch(object_id)):
             continue  # Fabric always names an item by at least one of these
-        ws_change = _CHANGES.get(change.get("workspaceChange") or "", "")
-        remote_change = _CHANGES.get(change.get("remoteChange") or "", "")
-        conflict = _CONFLICTS.get(change.get("conflictType") or "", "")
+        ws_change, remote_change, conflict = (  # a list or object there isn't a change: "" like any unknown word
+            table.get(word, "") if isinstance(word := change.get(key), str) else ""
+            for table, key in ((_CHANGES, "workspaceChange"), (_CHANGES, "remoteChange"), (_CONFLICTS, "conflictType")))
         item_type = _text(meta.get("itemType"), 80)
         cap = artifacts.capability(item_type)
         rows.append({"item_type": item_type, "label": cap.label, "name": _text(meta.get("displayName")) or "(no name)",

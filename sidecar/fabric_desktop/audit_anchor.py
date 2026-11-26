@@ -70,9 +70,10 @@ def parse(value: str) -> Anchor | None:
         return None
     fields = dict(part.strip().partition("=")[::2] for part in value[len(PREFIX) + 1:].split(";"))
     try:
-        return Anchor(fields["folder"], fields["hash"], int(fields["lines"]))
+        anchor = Anchor(fields["folder"], fields["hash"], int(fields["lines"]))
     except (KeyError, ValueError):
         return None
+    return anchor if anchor.lines >= 0 else None  # a negative count isn't one this app wrote
 
 
 # ----------------------------------------------------------------------------- the Windows event log
@@ -207,12 +208,39 @@ def _warn(what: str, error: BaseException) -> None:
                     "unaffected. This is logged once.", what, type(error).__name__)
 
 
-def record(folder: Path | str, head_hash: str, lines: int) -> None:
-    """Write the trail's new end to the event log. Never raises, and does nothing for a minute after a
-    failure."""
-    global _off_until
-    if not head_hash or time.monotonic() < _off_until:
-        return
+# Why a record couldn't be written, by Windows error code, and what IT can do about it.
+ACCESS_DENIED, FULL, UNAVAILABLE = "access denied", "full", "unavailable"
+_KINDS = {5: ACCESS_DENIED, 1502: FULL, 112: FULL, 1500: FULL, 1501: UNAVAILABLE, 1717: UNAVAILABLE,
+          1722: UNAVAILABLE, 1753: UNAVAILABLE, 1058: UNAVAILABLE, 1062: UNAVAILABLE}
+FIX = {
+    ACCESS_DENIED: "Windows refused this account access to the Application log. IT can restore the Application "
+                   "log's default permissions so signed-in users can add to it",
+    FULL: "the Application log is full and set not to overwrite old events. IT can raise its maximum size or set it "
+          "to overwrite events as needed",
+    UNAVAILABLE: "the Windows Event Log service isn't running or can't be reached. IT can start the Windows Event Log "
+                 "service and set it to start automatically",
+}
+
+
+def kind(error: BaseException) -> str:
+    """Why a record couldn't be written: ACCESS_DENIED, FULL or UNAVAILABLE (anything else)."""
+    code = getattr(error, "winerror", None) or getattr(error, "errno", None)
+    return _KINDS.get(code, UNAVAILABLE) if isinstance(code, int) else UNAVAILABLE
+
+
+_last_kind = UNAVAILABLE  # why the last failed write failed, while the next is waited for
+
+
+def record(folder: Path | str, head_hash: str, lines: int) -> str | None:
+    """Write the trail's new end to the event log. Never raises: it returns None when the record was written
+    (or there's no event log, off Windows), and otherwise why not (``kind``; for a minute after a
+    failure, when it isn't tried: then why the failure was), so the caller can keep that the end went
+    unrecorded."""
+    global _off_until, _last_kind
+    if not head_hash:
+        return None
+    if time.monotonic() < _off_until:
+        return _last_kind
     with _cache_lock:
         _cache.pop(fingerprint(folder), None)
     try:
@@ -220,6 +248,9 @@ def record(folder: Path | str, head_hash: str, lines: int) -> None:
     except Exception as error:  # noqa: BLE001 - the event log is extra evidence; the audit write goes on
         _off_until = time.monotonic() + RETRY_SECONDS
         _warn("written to", error)
+        _last_kind = kind(error)
+        return _last_kind
+    return None
 
 
 CACHE_SECONDS = 60.0

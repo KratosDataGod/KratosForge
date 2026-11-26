@@ -324,6 +324,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.2-q11",
+      "type": "single",
+      "stem": "At Marlow, how should the stored procedure apply the FactSales and DimStore changes?",
+      "options": [
+        {
+          "id": "a",
+          "text": "`BEGIN TRANSACTION`, then the MERGE into FactSales and the UPDATE of DimStore, then `COMMIT`, or `ROLLBACK` on an error"
+        },
+        {
+          "id": "b",
+          "text": "`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE` first, then run the MERGE and the UPDATE one after another"
+        },
+        {
+          "id": "c",
+          "text": "`BEGIN DISTRIBUTED TRANSACTION`, then the MERGE into FactSales and the UPDATE of DimStore, then `COMMIT` once both finish"
+        },
+        {
+          "id": "d",
+          "text": "Run the MERGE into FactSales and the UPDATE of DimStore as two Script activities in the load pipeline"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The warehouse supports ACID transactions across tables, so an explicit transaction commits both changes or neither. The warehouse always uses snapshot isolation and ignores isolation level changes, and distributed transactions aren't supported.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/transactions",
+      "case": "marlow-sales",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

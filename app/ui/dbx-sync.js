@@ -10,7 +10,7 @@ const DBX_SYNC_ACTION = { push: "info", conflict: "fail", delete: "wrn", blocked
 
 async function renderDatabricksSync() {
   const body = h("div", { class: "dbx-sync" }, loading("Reading synced folders…"));
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("databricks_sync"),
+  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("databricks_sync"), dbxViews("databricks_sync"),
     pageIntro("Folders of notebooks on this PC kept in step with a Databricks workspace folder. Comparing only reads; ",
       "pushing writes as you and never overwrites a change made in Databricks. ", learnMore("workspaces")),
     body));

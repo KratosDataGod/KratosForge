@@ -107,6 +107,12 @@ def ids(query, **kw):
     ("SELECT ALL ROW_NUMBER() OVER (ORDER BY id) AS customer_key INTO dbo.d FROM stg.c", ["DM002", "SQ004"]),
     ("INSERT INTO dbo.d (customer_key) SELECT TOP (10) ROW_NUMBER() OVER (ORDER BY id) FROM stg.c ORDER BY id",
      ["DM002"]),
+    ("SELECT CONVERT(INT, ROW_NUMBER() OVER (ORDER BY id)) AS customer_key INTO dbo.d FROM stg.c", ["DM002", "SQ004"]),
+    ("INSERT INTO dbo.d (customer_key, id) SELECT TRY_CONVERT(BIGINT, ROW_NUMBER() OVER (ORDER BY id)), id FROM stg.c",
+     ["DM002"]),
+    ("SELECT CONVERT(DECIMAL(18, 0), ROW_NUMBER() OVER (ORDER BY id)) AS customer_key INTO dbo.d FROM stg.c",
+     ["DM002", "SQ004"]),
+    ("SELECT CONVERT(INT, ROW_NUMBER() OVER (ORDER BY id) + 5) AS customer_key INTO dbo.d FROM stg.c", ["SQ004"]),
     ("SELECT TRY_CAST(ROW_NUMBER() OVER (ORDER BY id) AS INT) AS customer_key INTO dbo.d FROM stg.c", ["DM002", "SQ004"]),
     ("SELECT TOP (10) 5 + ROW_NUMBER() OVER (ORDER BY id) AS customer_key INTO dbo.d FROM stg.c ORDER BY id", ["SQ004"]),
     # WH001: a TRUNCATE and a reload of the same table

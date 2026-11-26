@@ -34,7 +34,13 @@ MIN_CHARS = 4
 _lock = threading.Lock()
 _values: set[str] = set()
 _pattern: re.Pattern[str] | None = None
-_starts: frozenset[str] = frozenset()  # every start, but not the whole, of a form remembered
+# Each start (not the whole) of a form remembered, kept as a hash with its length, not as text: a
+# long value has as many starts as characters, and storing each would grow with its length squared.
+_starts: set[int] = set()
+_longest = 0
+_powers: list[int] = [1]
+_MOD = (1 << 61) - 1
+_BASE = 1_000_003
 _JSON_U = re.compile(r"\\u[0-9a-f]{4}")
 _PERCENT = re.compile(r"%[0-9A-F]{2}")
 
@@ -75,12 +81,20 @@ def remember(value: Any) -> None:
     forms = _forms(value)
     if not forms:
         return
-    global _pattern, _starts
+    global _pattern, _longest
     with _lock:
-        if forms <= _values:
+        forms -= _values
+        if not forms:
             return
         _values.update(forms)
-        _starts = _starts | {f[:n] for f in forms for n in range(1, len(f))}
+        for form in forms:
+            h = 0
+            for n, ch in enumerate(form[:-1], 1):
+                h = (h * _BASE + ord(ch)) % _MOD
+                _starts.add(_key(n, h))
+        _longest = max(_longest, *map(len, forms))
+        while len(_powers) < _longest:
+            _powers.append(_powers[-1] * _BASE % _MOD)
         # Longest first, so a value that holds another is replaced whole.
         _pattern = re.compile("|".join(re.escape(v) for v in sorted(_values, key=len, reverse=True)))
 
@@ -92,13 +106,28 @@ def active() -> bool:
 def partial_tail(text: str) -> int:
     """The length of the longest end of ``text`` that is the start, but not the whole, of a value
     remembered: how much of it must wait for the next write before it can be redacted."""
-    starts = _starts
-    if not starts:
+    if not _starts:
         return 0
-    for n in range(min(len(text), longest() - 1), 0, -1):
-        if text[-n:] in starts:
+    starts, powers, values = _starts, _powers, _values
+    found, h = [], 0
+    for n in range(1, min(len(text), _longest - 1) + 1):
+        h = (ord(text[-n]) * powers[n - 1] + h) % _MOD
+        if _key(n, h) in starts:
+            found.append(n)
+    if not found:
+        return 0
+    with _lock:
+        forms = list(values)
+    for n in reversed(found):  # a hash can match by chance, so the text itself is checked
+        tail = text[-n:]
+        if any(len(f) > n and f.startswith(tail) for f in forms):
             return n
     return 0
+
+
+def _key(n: int, h: int) -> int:
+    """One number for a start's length and hash."""
+    return n * _MOD + h
 
 
 def _spans(text: str, pattern: re.Pattern[str]) -> list[tuple[int, int]]:
@@ -152,8 +181,7 @@ def safe_cut(text: str, cut: int) -> int:
 def longest() -> int:
     """The length of the longest value remembered (0 with none): how much of a text written in parts
     could be the start of one."""
-    with _lock:
-        return max(map(len, _values), default=0)
+    return _longest
 
 
 def redact(text: str) -> str:
@@ -204,10 +232,11 @@ def redact_output(value: Any) -> Any:
 
 def forget_all() -> None:
     """For tests, and a kernel restart starts clean anyway."""
-    global _pattern, _starts
+    global _pattern, _longest
     with _lock:
         _values.clear()
-        _starts = frozenset()
+        _starts.clear()
+        _longest = 0
         _pattern = None
 
 

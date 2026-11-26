@@ -14,6 +14,7 @@ import logging
 import random
 import string
 import time
+import tracemalloc
 from urllib.parse import quote
 
 import pytest
@@ -240,3 +241,54 @@ def test_ten_megabytes_with_fifty_values_goes_through_quickly(monkeypatch):
     assert not [v for v in values if v in shown]
     assert shown.count(REDACTED) == (written // len(block)) * sum(1 for x in lines if x.count(REDACTED) == 0
                                                                    and any(v in x for v in values))
+
+
+# ---- memory: a long value, such as a certificate's key, is remembered without storing its starts
+
+
+def _long_multiline(rng: random.Random, size: int) -> str:
+    alphabet = string.ascii_uppercase + string.digits + "+/"
+    body = "".join(rng.choice(alphabet) for _ in range(size))
+    return "\n".join(body[i:i + 64] for i in range(0, size, 64))
+
+
+def _naive_tail(text: str, forms: set[str]) -> int:
+    for n in range(min(len(text), max(map(len, forms)) - 1), 0, -1):
+        if any(len(f) > n and f.startswith(text[-n:]) for f in forms):
+            return n
+    return 0
+
+
+def test_an_eight_kilobyte_multiline_value_is_remembered_in_little_memory():
+    rng = random.Random(8)
+    values = [_long_multiline(rng, 8192) for _ in range(2)]
+    tracemalloc.start()
+    try:
+        for value in values:
+            secret_redaction.remember(value)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 20 * 1024 * 1024, peak
+    out = _through(["key: ", values[0][:3000], values[0][3000:], "\n", repr(values[1]), "\n"])
+    # Every 16 characters of either value are its own random run; none of them may show.
+    pieces = {v[i:i + 16] for v in values for i in range(0, len(v) - 16, 16)}
+    assert out.count(REDACTED) == 2 and not [p for p in pieces if p in out]
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_partial_tail_and_safe_cut_stay_exact_with_a_long_value(seed):
+    rng = random.Random(seed)
+    value = _long_multiline(rng, 8192)
+    secret_redaction.remember(value)
+    forms = secret_redaction._forms(value)
+    form = rng.choice(sorted(forms))
+    for k in [1, 2, 3, 4, 63, 64, 65, rng.randint(5, len(form) - 2), len(form) - 1]:
+        text = _filler(rng, 50) + form[:k]
+        assert secret_redaction.partial_tail(text) == _naive_tail(text, forms) == k
+        assert secret_redaction.safe_cut(text, len(text)) == 50
+    whole = _filler(rng, 50) + form + _filler(rng, 50)
+    assert secret_redaction.partial_tail(whole) == 0
+    for cut in (51, 50 + len(form) // 2, 50 + len(form) - 1):
+        assert secret_redaction.safe_cut(whole, cut) == 50
+    assert secret_redaction.safe_cut(whole, 50 + len(form) + 10) == 50 + len(form) + 10

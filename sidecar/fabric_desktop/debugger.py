@@ -50,6 +50,7 @@ DESCRIBE_SECONDS = 3.0
 # Before 3.13 (PEP 667), a function's f_locals is a snapshot that each read refreshes from the frame and
 # that Python writes back to it as the trace hook returns: see Debugger._scope.
 _SNAPSHOT_LOCALS = sys.version_info < (3, 13)
+_UNSET = object()
 
 
 def check_breakpoints(lines: Any) -> list[int]:
@@ -221,6 +222,7 @@ class Debugger:
         return rows, len(shown)
 
     def _evaluate(self, frame: types.FrameType, expr: str, assigned: dict[str, Any] | None = None) -> dict[str, Any]:
+        frame_had = dict(frame.f_locals) if assigned is not None else {}  # the frame's own values, without the overlay
         scope = self._scope(frame, assigned)
         before = dict(scope) if assigned is not None else {}
         try:
@@ -231,8 +233,12 @@ class Debugger:
             return {"expr": expr, "error": self.redact(f"{type(exc).__name__}: {exc}")}
         finally:
             if assigned is not None:  # what the expression assigned itself, (n := 5), kept on top of the frame
-                assigned.update((k, v) for k, v in scope.items() if k not in before or before[k] is not v)
-                self._scope(frame, assigned)  # and what the functions it called changed there, a nonlocal
+                wrote = {k: v for k, v in scope.items() if k not in before or before[k] is not v}
+                frame_has = frame.f_locals  # refreshed (the same dict as scope): a nonlocal a called function changed
+                for name in [k for k in assigned if frame_has.get(k, _UNSET) is not frame_had.get(k, _UNSET)]:
+                    del assigned[name]  # the frame's newer value wins over an earlier expression's
+                assigned.update(wrote)
+                self._scope(frame, assigned)
         return {"expr": expr, **self._row(expr, value)}
 
     def _scope(self, frame: types.FrameType, assigned: dict[str, Any] | None = None) -> dict[str, Any]:

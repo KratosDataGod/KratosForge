@@ -5,6 +5,7 @@ keeps the pause where it was, and Continue or Stop still ends the cell."""
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 
@@ -171,6 +172,26 @@ def test_a_function_local_a_called_function_changes_stays(kernel):
     assert kernel.debug("eval", "q")["value"] == "11"
     kernel.debug("eval", "bump()")
     assert "".join(o.get("text", "") for o in continue_finishes(kernel)["outputs"]) == "21 2\n"
+
+
+def test_a_nonlocal_a_called_function_changes_after_an_expression_assigned_it_stays(kernel):
+    # Both at once: an earlier expression's assignment must not be put back over the frame's newer value.
+    # Before 3.13 the assignment reaches the frame only as the pause ends, so bump() still adds to 1 there.
+    kernel.start(LOCALS, breakpoints=[6])
+    assert wait(kernel)["paused"]["line"] == 6
+    assert kernel.debug("eval", "(q := 5)")["value"] == "5"
+    kernel.debug("eval", "bump()")
+    assert kernel.debug("eval", "q")["value"] == ("11" if sys.version_info < (3, 13) else "15")
+    assert kernel.debug("eval", "(q := 3)")["value"] == "3"  # and a later assignment still holds
+    assert "".join(o.get("text", "") for o in continue_finishes(kernel)["outputs"]) == "3 2\n"
+
+
+def test_a_function_local_a_watch_assigns_stays(kernel):
+    kernel.start(LOCALS, breakpoints=[6], watches=["(q := 8)"])
+    p = wait(kernel)["paused"]
+    assert p["line"] == 6 and p["watches"][0]["value"] == "8"
+    assert kernel.debug("eval", "q")["value"] == "8"
+    assert "".join(o.get("text", "") for o in continue_finishes(kernel)["outputs"]) == "8 2\n"
 
 
 def test_an_expression_calling_a_function_with_a_breakpoint_does_not_pause_again(kernel):

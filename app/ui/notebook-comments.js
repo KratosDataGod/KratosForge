@@ -99,8 +99,11 @@ function commentMenuItems(cell) {
 // Repaint the badges and the panel in place, so editors keep focus.
 function drawComments(nb) {
   if (state.view !== "notebook" || state.notebook !== nb) return;
-  for (const cell of nb.cells) {
-    const slot = document.querySelector(`[data-cell="${cell.id}"] .comment-slot`);
+  // One pass over the drawn cells: a document-wide query per cell was quadratic in a long notebook (WR-134).
+  const byId = new Map(nb.cells.map((c) => [String(c.id), c]));
+  for (const el of document.querySelectorAll("[data-cell]")) {
+    const cell = byId.get(el.dataset.cell);
+    const slot = cell && el.querySelector(".comment-slot");
     if (slot) paintBadge(slot, nb, cell);
   }
   document.querySelector(".commentspane")?.replaceChildren(...commentsContent(nb));

@@ -1,0 +1,153 @@
+# Spark 3.5 locate at its edges (WR-256): zero, negative, NULL and past-the-end starts, empty text and
+# characters past ASCII. Its own file, as these are the slowest to run here.
+SELECT locate('l', 'hello') AS v
+SELECT locate('l', 'hello', 0) AS v, typeof(locate('l', 'hello', 0)) AS t
+SELECT locate('l', 'hello', -1) AS v, typeof(locate('l', 'hello', -1)) AS t
+SELECT locate('l', 'hello', 3) AS v, typeof(locate('l', 'hello', 3)) AS t
+SELECT locate('l', 'hello', 6) AS v, typeof(locate('l', 'hello', 6)) AS t
+SELECT locate('l', 'hello', CAST(NULL AS INT)) AS v, typeof(locate('l', 'hello', CAST(NULL AS INT))) AS t
+SELECT locate('', 'hello') AS v
+SELECT locate('', 'hello', 0) AS v, typeof(locate('', 'hello', 0)) AS t
+SELECT locate('', 'hello', -1) AS v, typeof(locate('', 'hello', -1)) AS t
+SELECT locate('', 'hello', 3) AS v, typeof(locate('', 'hello', 3)) AS t
+SELECT locate('', 'hello', 6) AS v, typeof(locate('', 'hello', 6)) AS t
+SELECT locate('', 'hello', CAST(NULL AS INT)) AS v, typeof(locate('', 'hello', CAST(NULL AS INT))) AS t
+SELECT locate('😀', 'hello') AS v
+SELECT locate('😀', 'hello', 0) AS v, typeof(locate('😀', 'hello', 0)) AS t
+SELECT locate('😀', 'hello', -1) AS v, typeof(locate('😀', 'hello', -1)) AS t
+SELECT locate('😀', 'hello', 3) AS v, typeof(locate('😀', 'hello', 3)) AS t
+SELECT locate('😀', 'hello', 6) AS v, typeof(locate('😀', 'hello', 6)) AS t
+SELECT locate('😀', 'hello', CAST(NULL AS INT)) AS v, typeof(locate('😀', 'hello', CAST(NULL AS INT))) AS t
+SELECT locate('́', 'hello') AS v
+SELECT locate('́', 'hello', 0) AS v, typeof(locate('́', 'hello', 0)) AS t
+SELECT locate('́', 'hello', -1) AS v, typeof(locate('́', 'hello', -1)) AS t
+SELECT locate('́', 'hello', 3) AS v, typeof(locate('́', 'hello', 3)) AS t
+SELECT locate('́', 'hello', 6) AS v, typeof(locate('́', 'hello', 6)) AS t
+SELECT locate('́', 'hello', CAST(NULL AS INT)) AS v, typeof(locate('́', 'hello', CAST(NULL AS INT))) AS t
+SELECT locate(CAST(NULL AS STRING), 'hello') AS v
+SELECT locate(CAST(NULL AS STRING), 'hello', 0) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', 0)) AS t
+SELECT locate(CAST(NULL AS STRING), 'hello', -1) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', -1)) AS t
+SELECT locate(CAST(NULL AS STRING), 'hello', 3) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', 3)) AS t
+SELECT locate(CAST(NULL AS STRING), 'hello', 6) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', 6)) AS t
+SELECT locate(CAST(NULL AS STRING), 'hello', CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), 'hello', CAST(NULL AS INT))) AS t
+SELECT locate('l', '') AS v
+SELECT locate('l', '', 0) AS v, typeof(locate('l', '', 0)) AS t
+SELECT locate('l', '', -1) AS v, typeof(locate('l', '', -1)) AS t
+SELECT locate('l', '', 3) AS v, typeof(locate('l', '', 3)) AS t
+SELECT locate('l', '', 6) AS v, typeof(locate('l', '', 6)) AS t
+SELECT locate('l', '', CAST(NULL AS INT)) AS v, typeof(locate('l', '', CAST(NULL AS INT))) AS t
+SELECT locate('', '') AS v
+SELECT locate('', '', 0) AS v, typeof(locate('', '', 0)) AS t
+SELECT locate('', '', -1) AS v, typeof(locate('', '', -1)) AS t
+SELECT locate('', '', 3) AS v, typeof(locate('', '', 3)) AS t
+SELECT locate('', '', 6) AS v, typeof(locate('', '', 6)) AS t
+SELECT locate('', '', CAST(NULL AS INT)) AS v, typeof(locate('', '', CAST(NULL AS INT))) AS t
+SELECT locate('😀', '') AS v
+SELECT locate('😀', '', 0) AS v, typeof(locate('😀', '', 0)) AS t
+SELECT locate('😀', '', -1) AS v, typeof(locate('😀', '', -1)) AS t
+SELECT locate('😀', '', 3) AS v, typeof(locate('😀', '', 3)) AS t
+SELECT locate('😀', '', 6) AS v, typeof(locate('😀', '', 6)) AS t
+SELECT locate('😀', '', CAST(NULL AS INT)) AS v, typeof(locate('😀', '', CAST(NULL AS INT))) AS t
+SELECT locate('́', '') AS v
+SELECT locate('́', '', 0) AS v, typeof(locate('́', '', 0)) AS t
+SELECT locate('́', '', -1) AS v, typeof(locate('́', '', -1)) AS t
+SELECT locate('́', '', 3) AS v, typeof(locate('́', '', 3)) AS t
+SELECT locate('́', '', 6) AS v, typeof(locate('́', '', 6)) AS t
+SELECT locate('́', '', CAST(NULL AS INT)) AS v, typeof(locate('́', '', CAST(NULL AS INT))) AS t
+SELECT locate(CAST(NULL AS STRING), '') AS v
+SELECT locate(CAST(NULL AS STRING), '', 0) AS v, typeof(locate(CAST(NULL AS STRING), '', 0)) AS t
+SELECT locate(CAST(NULL AS STRING), '', -1) AS v, typeof(locate(CAST(NULL AS STRING), '', -1)) AS t
+SELECT locate(CAST(NULL AS STRING), '', 3) AS v, typeof(locate(CAST(NULL AS STRING), '', 3)) AS t
+SELECT locate(CAST(NULL AS STRING), '', 6) AS v, typeof(locate(CAST(NULL AS STRING), '', 6)) AS t
+SELECT locate(CAST(NULL AS STRING), '', CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), '', CAST(NULL AS INT))) AS t
+SELECT locate('l', '😀a😀b') AS v
+SELECT locate('l', '😀a😀b', 0) AS v, typeof(locate('l', '😀a😀b', 0)) AS t
+SELECT locate('l', '😀a😀b', -1) AS v, typeof(locate('l', '😀a😀b', -1)) AS t
+SELECT locate('l', '😀a😀b', 3) AS v, typeof(locate('l', '😀a😀b', 3)) AS t
+SELECT locate('l', '😀a😀b', 6) AS v, typeof(locate('l', '😀a😀b', 6)) AS t
+SELECT locate('l', '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate('l', '😀a😀b', CAST(NULL AS INT))) AS t
+SELECT locate('', '😀a😀b') AS v
+SELECT locate('', '😀a😀b', 0) AS v, typeof(locate('', '😀a😀b', 0)) AS t
+SELECT locate('', '😀a😀b', -1) AS v, typeof(locate('', '😀a😀b', -1)) AS t
+SELECT locate('', '😀a😀b', 3) AS v, typeof(locate('', '😀a😀b', 3)) AS t
+SELECT locate('', '😀a😀b', 6) AS v, typeof(locate('', '😀a😀b', 6)) AS t
+SELECT locate('', '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate('', '😀a😀b', CAST(NULL AS INT))) AS t
+SELECT locate('😀', '😀a😀b') AS v
+SELECT locate('😀', '😀a😀b', 0) AS v, typeof(locate('😀', '😀a😀b', 0)) AS t
+SELECT locate('😀', '😀a😀b', -1) AS v, typeof(locate('😀', '😀a😀b', -1)) AS t
+SELECT locate('😀', '😀a😀b', 3) AS v, typeof(locate('😀', '😀a😀b', 3)) AS t
+SELECT locate('😀', '😀a😀b', 6) AS v, typeof(locate('😀', '😀a😀b', 6)) AS t
+SELECT locate('😀', '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate('😀', '😀a😀b', CAST(NULL AS INT))) AS t
+SELECT locate('́', '😀a😀b') AS v
+SELECT locate('́', '😀a😀b', 0) AS v, typeof(locate('́', '😀a😀b', 0)) AS t
+SELECT locate('́', '😀a😀b', -1) AS v, typeof(locate('́', '😀a😀b', -1)) AS t
+SELECT locate('́', '😀a😀b', 3) AS v, typeof(locate('́', '😀a😀b', 3)) AS t
+SELECT locate('́', '😀a😀b', 6) AS v, typeof(locate('́', '😀a😀b', 6)) AS t
+SELECT locate('́', '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate('́', '😀a😀b', CAST(NULL AS INT))) AS t
+SELECT locate(CAST(NULL AS STRING), '😀a😀b') AS v
+SELECT locate(CAST(NULL AS STRING), '😀a😀b', 0) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', 0)) AS t
+SELECT locate(CAST(NULL AS STRING), '😀a😀b', -1) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', -1)) AS t
+SELECT locate(CAST(NULL AS STRING), '😀a😀b', 3) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', 3)) AS t
+SELECT locate(CAST(NULL AS STRING), '😀a😀b', 6) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', 6)) AS t
+SELECT locate(CAST(NULL AS STRING), '😀a😀b', CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), '😀a😀b', CAST(NULL AS INT))) AS t
+SELECT locate('l', 'éx') AS v
+SELECT locate('l', 'éx', 0) AS v, typeof(locate('l', 'éx', 0)) AS t
+SELECT locate('l', 'éx', -1) AS v, typeof(locate('l', 'éx', -1)) AS t
+SELECT locate('l', 'éx', 3) AS v, typeof(locate('l', 'éx', 3)) AS t
+SELECT locate('l', 'éx', 6) AS v, typeof(locate('l', 'éx', 6)) AS t
+SELECT locate('l', 'éx', CAST(NULL AS INT)) AS v, typeof(locate('l', 'éx', CAST(NULL AS INT))) AS t
+SELECT locate('', 'éx') AS v
+SELECT locate('', 'éx', 0) AS v, typeof(locate('', 'éx', 0)) AS t
+SELECT locate('', 'éx', -1) AS v, typeof(locate('', 'éx', -1)) AS t
+SELECT locate('', 'éx', 3) AS v, typeof(locate('', 'éx', 3)) AS t
+SELECT locate('', 'éx', 6) AS v, typeof(locate('', 'éx', 6)) AS t
+SELECT locate('', 'éx', CAST(NULL AS INT)) AS v, typeof(locate('', 'éx', CAST(NULL AS INT))) AS t
+SELECT locate('😀', 'éx') AS v
+SELECT locate('😀', 'éx', 0) AS v, typeof(locate('😀', 'éx', 0)) AS t
+SELECT locate('😀', 'éx', -1) AS v, typeof(locate('😀', 'éx', -1)) AS t
+SELECT locate('😀', 'éx', 3) AS v, typeof(locate('😀', 'éx', 3)) AS t
+SELECT locate('😀', 'éx', 6) AS v, typeof(locate('😀', 'éx', 6)) AS t
+SELECT locate('😀', 'éx', CAST(NULL AS INT)) AS v, typeof(locate('😀', 'éx', CAST(NULL AS INT))) AS t
+SELECT locate('́', 'éx') AS v
+SELECT locate('́', 'éx', 0) AS v, typeof(locate('́', 'éx', 0)) AS t
+SELECT locate('́', 'éx', -1) AS v, typeof(locate('́', 'éx', -1)) AS t
+SELECT locate('́', 'éx', 3) AS v, typeof(locate('́', 'éx', 3)) AS t
+SELECT locate('́', 'éx', 6) AS v, typeof(locate('́', 'éx', 6)) AS t
+SELECT locate('́', 'éx', CAST(NULL AS INT)) AS v, typeof(locate('́', 'éx', CAST(NULL AS INT))) AS t
+SELECT locate(CAST(NULL AS STRING), 'éx') AS v
+SELECT locate(CAST(NULL AS STRING), 'éx', 0) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', 0)) AS t
+SELECT locate(CAST(NULL AS STRING), 'éx', -1) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', -1)) AS t
+SELECT locate(CAST(NULL AS STRING), 'éx', 3) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', 3)) AS t
+SELECT locate(CAST(NULL AS STRING), 'éx', 6) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', 6)) AS t
+SELECT locate(CAST(NULL AS STRING), 'éx', CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), 'éx', CAST(NULL AS INT))) AS t
+SELECT locate('l', CAST(NULL AS STRING)) AS v
+SELECT locate('l', CAST(NULL AS STRING), 0) AS v, typeof(locate('l', CAST(NULL AS STRING), 0)) AS t
+SELECT locate('l', CAST(NULL AS STRING), -1) AS v, typeof(locate('l', CAST(NULL AS STRING), -1)) AS t
+SELECT locate('l', CAST(NULL AS STRING), 3) AS v, typeof(locate('l', CAST(NULL AS STRING), 3)) AS t
+SELECT locate('l', CAST(NULL AS STRING), 6) AS v, typeof(locate('l', CAST(NULL AS STRING), 6)) AS t
+SELECT locate('l', CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate('l', CAST(NULL AS STRING), CAST(NULL AS INT))) AS t
+SELECT locate('', CAST(NULL AS STRING)) AS v
+SELECT locate('', CAST(NULL AS STRING), 0) AS v, typeof(locate('', CAST(NULL AS STRING), 0)) AS t
+SELECT locate('', CAST(NULL AS STRING), -1) AS v, typeof(locate('', CAST(NULL AS STRING), -1)) AS t
+SELECT locate('', CAST(NULL AS STRING), 3) AS v, typeof(locate('', CAST(NULL AS STRING), 3)) AS t
+SELECT locate('', CAST(NULL AS STRING), 6) AS v, typeof(locate('', CAST(NULL AS STRING), 6)) AS t
+SELECT locate('', CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate('', CAST(NULL AS STRING), CAST(NULL AS INT))) AS t
+SELECT locate('😀', CAST(NULL AS STRING)) AS v
+SELECT locate('😀', CAST(NULL AS STRING), 0) AS v, typeof(locate('😀', CAST(NULL AS STRING), 0)) AS t
+SELECT locate('😀', CAST(NULL AS STRING), -1) AS v, typeof(locate('😀', CAST(NULL AS STRING), -1)) AS t
+SELECT locate('😀', CAST(NULL AS STRING), 3) AS v, typeof(locate('😀', CAST(NULL AS STRING), 3)) AS t
+SELECT locate('😀', CAST(NULL AS STRING), 6) AS v, typeof(locate('😀', CAST(NULL AS STRING), 6)) AS t
+SELECT locate('😀', CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate('😀', CAST(NULL AS STRING), CAST(NULL AS INT))) AS t
+SELECT locate('́', CAST(NULL AS STRING)) AS v
+SELECT locate('́', CAST(NULL AS STRING), 0) AS v, typeof(locate('́', CAST(NULL AS STRING), 0)) AS t
+SELECT locate('́', CAST(NULL AS STRING), -1) AS v, typeof(locate('́', CAST(NULL AS STRING), -1)) AS t
+SELECT locate('́', CAST(NULL AS STRING), 3) AS v, typeof(locate('́', CAST(NULL AS STRING), 3)) AS t
+SELECT locate('́', CAST(NULL AS STRING), 6) AS v, typeof(locate('́', CAST(NULL AS STRING), 6)) AS t
+SELECT locate('́', CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate('́', CAST(NULL AS STRING), CAST(NULL AS INT))) AS t
+SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING)) AS v
+SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 0) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 0)) AS t
+SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), -1) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), -1)) AS t
+SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 3) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 3)) AS t
+SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 6) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), 6)) AS t
+SELECT locate(CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(locate(CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS INT))) AS t
+SELECT locate(f, s, p) AS v FROM VALUES ('l', 'héllo', 4), ('', 'héllo', 0), ('😀', '😀a😀', 2), ('l', NULL, 1) AS t(f, s, p)

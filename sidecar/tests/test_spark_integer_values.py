@@ -5,7 +5,7 @@ tools/spark_value_cases/integers.txt, answered by Spark in tests/fixtures/spark_
 from __future__ import annotations
 
 import pytest
-from spark_values import check, load
+from spark_values import check_part, parts
 
 from fabric_desktop.notebook import Kernel
 
@@ -15,8 +15,9 @@ def spark():
     return Kernel().namespace["spark"]
 
 
-def test_whole_number_arithmetic_answers_as_spark_3_5(spark):
-    check(spark, load("integers"), [])
+@pytest.mark.parametrize("cases", parts("integers"))
+def test_whole_number_arithmetic_answers_as_spark_3_5(spark, cases):
+    check_part(spark, cases, [])
 
 
 def test_an_overflow_wraps_in_the_wider_type_and_keeps_its_name(spark):

@@ -102,9 +102,9 @@ def test_guardrails_warn_past_and_near_a_limit_and_estimates_say_about():
                                            rows=200, files=950, bytes=10, row_groups=1240, row_groups_estimated=True))
     out = dl.check(_bim(), stats, dl.limits("F32"))
     groups, files = _by(out, "Row groups")[0], _by(out, "Parquet files")[0]
-    assert groups["severity"] == "warn" and groups["message"].startswith("about 1,240 row groups; F32 allows 1,000")
+    assert groups["severity"] == "warn" and groups["message"].startswith("about 1,240 row groups, but F32 allows 1,000")
     assert "fall back to DirectQuery" in groups["message"] and groups["fix"] == "compact"
-    assert "a few more loads will pass it" in files["message"]
+    assert "a few more loads could pass it" in files["message"]
     assert not _by(out, "Rows")
 
 

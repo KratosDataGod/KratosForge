@@ -40,7 +40,7 @@ def _norm(value: Any) -> Any:
 def _outcome(fn: Callable[[], Any]) -> tuple[Any, ...]:
     try:
         return ("ok", _norm(fn()))
-    except Exception as exc:  # noqa: BLE001  # narrow: the outcome is compared, whatever it is
+    except Exception as exc:  # noqa: BLE001 - the outcome is compared, whatever it is
         return ("raised", type(exc).__name__, str(exc))
 
 

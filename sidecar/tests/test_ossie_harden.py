@@ -195,3 +195,14 @@ def test_evidence_about_a_role_on_another_row_is_withheld():
                          "message": "kept"}]}
     out = semantic_parity.redacted({"objects": [row], "sides": {}})
     assert "EU only" not in json.dumps(out) and out["objects"][0]["evidence"][1]["message"] == "kept"
+
+
+def test_a_line_after_a_nested_block_closes_carries_only_the_blocks_still_open():
+    files = {"definition/model.tmdl": "model Model\n",
+             "definition/roles/R.tmdl": "role R\n\tmodelPermission: read\n\ttablePermission T = [Region] = \"EU\"\n"
+                                        "\t\tafter_permission_line ~ 1\n\trole_level_line ~ 2\n",
+             "definition/tables/T.tmdl": "table T\n\tcolumn Region\n\t\tdataType: string\n\ttable_level_line ~ 3\n"}
+    _, report = tmdl.to_bim(files)
+    blocks = {r["object"].split(" ")[0]: r.get("block") for r in report}
+    assert blocks == {"after_permission_line": "role/tablePermission", "role_level_line": "role",
+                      "table_level_line": "table"}

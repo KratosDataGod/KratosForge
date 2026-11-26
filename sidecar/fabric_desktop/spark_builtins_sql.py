@@ -144,9 +144,12 @@ def _sha2(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | 
     data = "CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) ELSE ENCODE(CAST(fj_arg0 AS VARCHAR)) END"
     bits = args[1]
     if isinstance(bits, exp.Literal) and not bits.is_string:
-        # Spark casts the length to an int first, cutting a fraction: sha2('abc', 256.0) is SHA-256
+        # Spark casts the length to an int first, cutting a fraction: sha2('abc', 256.0) is SHA-256. A value
+        # past ten digits, NaN or infinite is no length sha2 knows (NULL), and is never made into an int, as
+        # 1e30000000 would take that many digits.
         try:
-            n: int | None = int(decimal.Decimal(bits.name))
+            d = decimal.Decimal(bits.name)
+            n: int | None = int(d) if d.is_finite() and d.adjusted() < 10 else None
         except (decimal.InvalidOperation, ValueError):
             n = None
         if n in (0, 256):

@@ -80,3 +80,23 @@ def test_sha2_casts_its_length_to_an_int_first_as_spark_does(spark):
     assert (row.a, row.b, row.c, row.d, row.e, row.f) == (
         hashlib.sha256(b"abc").hexdigest(), hashlib.sha384(b"abc").hexdigest(), hashlib.sha512(b"abc").hexdigest(),
         hashlib.sha224(b"abc").hexdigest(), None, hashlib.sha256(b"abc").hexdigest())
+
+
+@pytest.mark.parametrize("length", ["1e30000000", "1e10", "NaN", "Infinity"])  # a minus sign is a Neg, not a literal
+def test_a_huge_nan_or_infinite_length_literal_is_null_and_never_made_into_an_int(length):
+    # int(Decimal('1e30000000')) would build a 30-million-digit int, stalling the engine before the query runs
+    import time
+
+    from sqlglot import exp
+
+    from fabric_desktop.spark_builtins_sql import _sha2
+    started = time.monotonic()
+    out = _sha2(exp.Anonymous(this="sha2"), [exp.Literal.string("abc"), exp.Literal.number(length)])
+    assert time.monotonic() - started < 1
+    assert out is not None and "NULL" in out.sql("duckdb") and "SHA" not in out.sql("duckdb").upper()
+
+
+def test_sha2_with_a_huge_exponent_length_is_null(spark):
+    row = spark.sql("SELECT sha2('abc', 1e30000000) a, sha2('abc', -1e30000000) b, sha2('abc', 512e0) c").collect()[0]
+    import hashlib
+    assert (row.a, row.b, row.c) == (None, None, hashlib.sha512(b"abc").hexdigest())

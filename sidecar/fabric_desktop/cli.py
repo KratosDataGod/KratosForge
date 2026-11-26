@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+import typing
 import uuid
 from pathlib import Path
 
@@ -135,6 +136,10 @@ def main(argv: list[str] | None = None) -> None:
                                             "file:line:column: severity: path: message; exit 1 if there are errors")
     p.add_argument("folder", help="the folder that holds databricks.yml")
     p.add_argument("--json", action="store_true", help="print the findings as JSON")
+    g = dab_sub.add_parser("pipelines", help="list each pipeline's datasets, flows and reads, from its source "
+                                             "files on this PC (read, never run)")
+    g.add_argument("folder", help="the folder that holds databricks.yml")
+    g.add_argument("--json", action="store_true", help="print them as JSON")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -629,15 +634,18 @@ def _env_drift(args: argparse.Namespace) -> int:
 
 def _databricks_bundle_validate(args: argparse.Namespace) -> int:
     """databricks-bundle validate: the local checks (engines/databricks_bundle_check.py). 0 no errors,
-    1 errors, 2 the folder isn't there."""
+    1 errors, 2 the folder isn't there. databricks-bundle pipelines prints each pipeline's datasets too."""
     from pathlib import Path
 
+    from .engines.databricks_bundle_check import pipelines
     from .engines.databricks_bundle_check import validate as check_bundle
 
     folder = Path(args.folder).resolve()
     if not folder.is_dir():
         print(f"{folder} isn't a folder.")
         return 2
+    if args.databricks_bundle_command == "pipelines":
+        return _databricks_bundle_pipelines(folder, pipelines(folder), args.json)
     findings = check_bundle(folder)
     errors = sum(f.severity == "error" for f in findings)
     if args.json:
@@ -649,6 +657,28 @@ def _databricks_bundle_validate(args: argparse.Namespace) -> int:
         warnings = len(findings) - errors
         print(f"{errors} error{'' if errors == 1 else 's'}, {warnings} warning{'' if warnings == 1 else 's'} "
               "(checked on this PC; not databricks bundle validate)")
+    return 1 if errors else 0
+
+
+def _databricks_bundle_pipelines(folder: object, result: dict[str, typing.Any], as_json: bool) -> int:
+    """0 no errors, 1 errors."""
+    errors = sum(f["severity"] == "error" for f in result["findings"])
+    if as_json:
+        print(json.dumps({"folder": str(folder), **result}, indent=2))
+        return 1 if errors else 0
+    if not result["pipelines"]:
+        print("No pipeline in this bundle has source files on this PC.")
+    for path, graph in result["pipelines"].items():
+        print(path)
+        for d in graph["datasets"]:
+            print(f"  {d['kind']} {d['name']}  ({d['file']}:{d['line']})")
+        for f in graph["flows"]:
+            if not f["default"]:
+                print(f"  flow {f['name']} into {f['target']}  ({f['file']}:{f['line']})")
+        outside = sorted({r["name"] for r in graph["reads"] if not r["defined_here"]})
+        if outside:
+            print(f"  reads from outside this pipeline: {', '.join(outside)}")
+    print(f"{errors} error{'' if errors == 1 else 's'} (databricks-bundle validate lists them)")
     return 1 if errors else 0
 
 

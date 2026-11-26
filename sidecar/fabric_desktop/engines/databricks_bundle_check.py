@@ -75,6 +75,8 @@ from typing import Any, Iterator
 
 import yaml
 
+from . import databricks_pipeline_sources as sources
+
 ERROR, WARNING = "error", "warning"
 
 TOP_LEVEL = frozenset({"artifacts", "bundle", "experimental", "include", "permissions", "presets", "python",
@@ -137,8 +139,23 @@ WORKSPACE_REFS = WORKSPACE | {"current_user"}
 JOB_TYPES = {"max_concurrent_runs": "int", "timeout_seconds": "int", "tasks": "list", "email_notifications": "mapping"}
 TASK_TYPES_OF = {"depends_on": "list", "libraries": "list", "timeout_seconds": "int", "max_retries": "int",
                  "email_notifications": "mapping"}
-PIPELINE_TYPES = {"libraries": "list", "clusters": "list", "notifications": "list", "configuration": "mapping"}
-_TYPE_NAMES = {"int": "an integer", "list": "a list", "mapping": "a mapping"}
+PIPELINE_TYPES = {"libraries": "list", "clusters": "list", "notifications": "list", "configuration": "mapping",
+                  "tags": "mapping", "event_log": "mapping", "environment": "mapping", "continuous": "bool",
+                  "development": "bool", "photon": "bool", "serverless": "bool"}
+_TYPE_NAMES = {"int": "an integer", "list": "a list", "mapping": "a mapping", "bool": "true or false"}
+# /ldp/properties (read 2026-11-26): edition "CORE, PRO, ADVANCED" (default ADVANCED), channel "preview" or
+# "current" (default current), "Do not specify clusters for a serverless pipeline", tags "max 25", target
+# "(legacy)": "Using schema instead of target is preferred", and the cluster attributes it lists as not
+# user-settable. /api/pipelines/v2/create: glob "cannot be used together with notebook or file", whl is
+# deprecated, and ingestion_definition "cannot be used with the 'libraries', 'schema', 'target', or 'catalog'
+# settings". Neither page says whether edition and channel are case sensitive, so any case is accepted.
+PIPELINE_EDITIONS = ("CORE", "PRO", "ADVANCED")
+PIPELINE_CHANNELS = ("CURRENT", "PREVIEW")
+MAX_PIPELINE_TAGS = 25
+PIPELINE_CLUSTER_UNSET = frozenset({
+    "cluster_name", "data_security_mode", "access_mode", "spark_version", "autotermination_minutes",
+    "runtime_engine", "effective_spark_version", "cluster_source", "docker_image", "workload_type"})
+LIBRARY_KINDS = ("notebook", "file", "glob", "whl", "jar", "maven")
 TASK_TYPES = frozenset({
     "ai_function_task", "ai_runtime_task", "alert_task", "clean_rooms_notebook_task", "condition_task",
     "dashboard_task", "dbt_task", "for_each_task", "gen_ai_compute_task", "notebook_task", "pipeline_task",
@@ -218,6 +235,7 @@ class _Checker:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.findings: list[Finding] = []
+        self.graphs: dict[str, dict[str, Any]] = {}  # each pipeline's datasets, flows and reads (pipelines())
         self._abs_root = Path(os.path.abspath(root))
         self._real_root = root.resolve()
 
@@ -527,6 +545,7 @@ class _Checker:
             if value is None or (isinstance(value, str) and "${" in value):
                 continue
             ok = (isinstance(value, int) and not isinstance(value, bool) if kind == "int"
+                  else isinstance(value, bool) if kind == "bool"
                   else isinstance(value, list) if kind == "list" else isinstance(value, dict))
             if not ok:
                 self.add(doc, ERROR, f"{where}.{key}", f"{key} is {_TYPE_NAMES[kind]}, not {_describe(value)}.")
@@ -595,35 +614,134 @@ class _Checker:
 
     def pipeline(self, doc: _Doc, ppath: str, pipeline: dict[str, Any]) -> None:
         self.types(doc, ppath, pipeline, PIPELINE_TYPES)
+        self.pipeline_settings(doc, ppath, pipeline)
         libraries = pipeline.get("libraries")
         if not isinstance(libraries, list):
             return
+        files: list[tuple[Path, str]] = []
+        complete = True  # every source file of the pipeline is on this PC and was found
+        kinds = {k for lib in libraries if isinstance(lib, dict) for k in lib if k in LIBRARY_KINDS}
         for i, lib in enumerate(libraries):
             if not isinstance(lib, dict):
                 continue
+            lpath = f"{ppath}.libraries[{i}]"
+            if "whl" in lib:
+                self.add(doc, WARNING, f"{lpath}.whl", "whl libraries are deprecated for pipelines. Install "
+                                                       "Python packages with the pipeline's environment instead.")
             for kind in ("notebook", "file"):
                 if isinstance(lib.get(kind), dict):
-                    self.local_path(doc, f"{ppath}.libraries[{i}].{kind}.path", lib[kind].get("path"),
-                                    notebook=kind == "notebook")
+                    value = lib[kind].get("path")
+                    if self.local_path(doc, f"{lpath}.{kind}.path", value, notebook=kind == "notebook"):
+                        files.append(self.found_file(doc, value, notebook=kind == "notebook"))
+                    else:
+                        complete = False
+            glob = lib.get("glob")
+            if isinstance(glob, dict):
+                if kinds & {"notebook", "file"}:
+                    self.add(doc, ERROR, f"{lpath}.glob", "glob can't be used together with notebook or file "
+                                                          "libraries in one pipeline. List every source with "
+                                                          "glob, or none.")
+                complete = self.pipeline_glob(doc, f"{lpath}.glob.include", glob.get("include"), files) and complete
+        if files:
+            # a notebook saved as .ipynb (or Scala or R) isn't read here, so the pipeline's datasets aren't all known
+            complete = complete and not any(f.suffix.lower() in (".ipynb", ".scala", ".r") for f, _ in files)
+            found = sources.read(files, MAX_FILE_BYTES)
+            self.graphs[ppath] = found.to_dict()
+            for problem in sources.check(found, complete):
+                self.add(problem.file, problem.severity, f"{ppath}.libraries", problem.message, problem.line)
 
-    def local_path(self, doc: _Doc, path: str, value: Any, notebook: bool = False) -> None:
+    def pipeline_settings(self, doc: _Doc, ppath: str, pipeline: dict[str, Any]) -> None:
+        for key, allowed in (("edition", PIPELINE_EDITIONS), ("channel", PIPELINE_CHANNELS)):
+            value = pipeline.get(key)
+            if isinstance(value, str) and "${" not in value and value.upper() not in allowed:
+                shown = ", ".join(allowed[:-1]) + " or " + allowed[-1]
+                self.add(doc, ERROR, f"{ppath}.{key}", f"{key} is {shown}, not {value!r}.")
+        clusters = pipeline.get("clusters")
+        if pipeline.get("serverless") is True and isinstance(clusters, list) and clusters:
+            self.add(doc, ERROR, f"{ppath}.clusters", "A serverless pipeline takes no clusters. Remove clusters, "
+                                                      "or set serverless: false.")
+        if isinstance(clusters, list):
+            for i, cluster in enumerate(clusters):
+                for key in sorted(PIPELINE_CLUSTER_UNSET & set(cluster) if isinstance(cluster, dict) else ()):
+                    self.add(doc, WARNING, f"{ppath}.clusters[{i}].{key}", f"{key} can't be set for a pipeline's "
+                                                                          "cluster; Databricks sets it.")
+        tags = pipeline.get("tags")
+        if isinstance(tags, dict) and len(tags) > MAX_PIPELINE_TAGS:
+            self.add(doc, ERROR, f"{ppath}.tags", f"A pipeline takes at most {MAX_PIPELINE_TAGS} tags; this one "
+                                                  f"has {len(tags)}.")
+        if "target" in pipeline:
+            both = " Set schema or target, not both." if "schema" in pipeline else ""
+            self.add(doc, WARNING, f"{ppath}.target", f"target is a legacy setting; use schema instead.{both}")
+        if "ingestion_definition" in pipeline:
+            for key in ("libraries", "schema", "target", "catalog"):
+                if key in pipeline:
+                    self.add(doc, ERROR, f"{ppath}.{key}", f"A pipeline with ingestion_definition takes no {key}.")
+
+    def pipeline_glob(self, doc: _Doc, path: str, value: Any, files: list[tuple[Path, str]]) -> bool:
+        """A glob library's include: a file, a notebook, or a folder ending in /**, relative to the YAML file
+        when it's a local path. True when its files were all found here."""
+        if not isinstance(value, str) or not value.strip() or _not_local(value):
+            return False
+        folder = re.sub(r"[\\/]+\*\*$", "", value)
+        if re.search(r"[*?\[]", folder):
+            self.add(doc, ERROR, path, f"{value!r}: a glob include is a file, a notebook, or a folder ending "
+                                       "in /**. Other wildcards aren't read.")
+            return False
+        if folder == value:  # one file or notebook
+            if self.local_path(doc, path, value, notebook=True):
+                files.append(self.found_file(doc, value, notebook=True))
+                return True
+            return False
+        base = doc.path.parent / folder
+        if _leaves_folder(folder) or not self.inside(base):
+            self.add(doc, ERROR, path, f"{value!r} leads outside the bundle folder ({_rel(base, self.root)}, "
+                                       f"relative to {doc.name}). A local path must stay inside the bundle folder.")
+            return False
+        if not base.is_dir():
+            self.add(doc, ERROR, path, f"{value!r} names a folder that doesn't exist: {_rel(base, self.root)}, "
+                                       f"relative to {doc.name}.")
+            return False
+        found, links = _walk_glob(base, "**", MAX_INCLUDE_FILES + 1)
+        if links:
+            self.add(doc, WARNING, path, f"{value!r} goes through {links} link(s), which "
+                                         f"{'isn' if links == 1 else 'aren'}'t followed, so the files behind "
+                                         f"{'it' if links == 1 else 'them'} aren't checked.")
+        if len(found) > MAX_INCLUDE_FILES:
+            self.add(doc, WARNING, path, f"{value!r} holds more than {MAX_INCLUDE_FILES} files; only the first "
+                                         f"{MAX_INCLUDE_FILES} are checked.")
+        if not any(Path(f).suffix.lower() in (".py", ".sql") for f in found):
+            self.add(doc, WARNING, path, f"{value!r} holds no .py or .sql file, so the pipeline has no source here.")
+        files.extend((Path(f), _rel(Path(f), self.root)) for f in found[:MAX_INCLUDE_FILES])
+        return not links and len(found) <= MAX_INCLUDE_FILES
+
+    def found_file(self, doc: _Doc, value: str, notebook: bool) -> tuple[Path, str]:
+        """The file a local path that local_path found names (with its notebook extension, if left out)."""
+        base = doc.path.parent / value
+        tries = NOTEBOOK_EXTENSIONS if notebook else ("",)
+        path = next(c for c in (Path(f"{base}{ext}") for ext in tries) if self.inside(c) and c.is_file())
+        return path, _rel(path, self.root)
+
+    def local_path(self, doc: _Doc, path: str, value: Any, notebook: bool = False) -> bool:
         """A path relative to the YAML file that names it must exist on this PC. Workspace paths (a leading
-        slash), URIs (dbfs:/, s3://), and paths with a ${...} substitution aren't checked."""
+        slash), URIs (dbfs:/, s3://), and paths with a ${...} substitution aren't checked. True when the
+        file was found here."""
         if not isinstance(value, str) or not value.strip():
-            return
+            return False
         if _not_local(value):
-            return
+            return False
         base = doc.path.parent / value
         if not self.inside(base):
             self.add(doc, ERROR, path, f"{value!r} leads outside the bundle folder ({_rel(base, self.root)}, "
                                        f"relative to {doc.name}). A local path must stay inside the bundle folder.")
-            return
+            return False
         tries = NOTEBOOK_EXTENSIONS if notebook else ("",)
         if not any(self.inside(c) and c.is_file() for c in (Path(f"{base}{ext}") for ext in tries)):
             shown = _rel(base, self.root)
             self.add(doc, ERROR, path, f"{value!r} doesn't exist. There's no file at {shown}"
                      + (" (with or without a notebook extension)" if notebook else "")
                      + f", relative to {doc.name}.")
+            return False
+        return True
 
     def references(self, doc: _Doc, variables: set[str], resources: dict[str, set[str]]) -> None:
         for path, text in _strings(doc.data, ""):
@@ -664,19 +782,30 @@ class _Checker:
 def validate(folder: str | os.PathLike[str]) -> list[Finding]:
     """Every problem found in the bundle in ``folder`` (databricks.yml and its includes), on this PC
     only. An empty list means none of these checks found anything."""
+    return _check(folder).findings
+
+
+def pipelines(folder: str | os.PathLike[str]) -> dict[str, Any]:
+    """Each pipeline's datasets, flows and reads, as its local source files define them
+    (databricks_pipeline_sources), keyed by the pipeline's path, with the findings."""
+    checker = _check(folder)
+    return {"pipelines": checker.graphs, "findings": [f.to_dict() for f in checker.findings]}
+
+
+def _check(folder: str | os.PathLike[str]) -> _Checker:
     root = Path(folder)
     checker = _Checker(root)
     main_path = next((root / n for n in ("databricks.yml", "databricks.yaml") if (root / n).is_file()), None)
     if main_path is None:
         checker.add("databricks.yml", ERROR, "", "The folder has no databricks.yml.")
-        return checker.findings
+        return checker
     main = checker.load(main_path)
     if main is None:
-        return checker.findings
+        return checker
     docs = [main, *checker.includes(main)]
     checker.run(docs)
     checker.findings.sort(key=lambda f: (f.file != main.name, f.file, f.line or 0, f.path))
-    return checker.findings
+    return checker
 
 
 # ---------------------------------------------------------------- helpers

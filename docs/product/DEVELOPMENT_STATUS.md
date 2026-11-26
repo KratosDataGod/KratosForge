@@ -3,10 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-25 23:42 UTC, main 9ea9dfde.** Covers the PRs merged from #135 to #3345.
+**Product check of 2026-11-26 11:42 UTC, main 046f9d3e.** Covers the PRs merged from #135 to #3351.
 
 ## Summary
 
+- Morning check, 2026-11-26: 7 PRs merged after 9ea9dfde. 1 was product data, and the other 6 were linked. Ossie
+  work dominated (PB-110). The Direct Lake model builder now writes through the one TMDL writer (OSSIE-007a), and
+  Ossie gained a fixture corpus, a converter-upgrade check, large-model scale tests, stricter writers and speed-ups.
+  The SQL translator matches substring edges and sub-second timestamps across T-SQL, Spark and Snowflake (#3238,
+  PB-120). No item changed state.
 - Evening check, 2026-11-25: 15 PRs merged after b4bc548d. 2 were product data, and the other 13 were linked.
   Direct Lake fallback risk shipped in Preview with one verdict per model, a growth forecast and a SKU what-if
   (#3343, PB-110), and Ossie gained a compatibility matrix and a Snowflake export profile (engine only). Notebooks

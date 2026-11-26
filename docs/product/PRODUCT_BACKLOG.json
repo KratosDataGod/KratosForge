@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-25",
+  "updated": "2026-11-26",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -6445,7 +6445,8 @@
         "Semantic parity levels L1 and L2, Fabric Semantic View files, the publish-steps card and the semantic engineering plan (#3128, OSSIE-005a, 005b, 006a, 006b) on main at ea988e99",
         "Semantic parity L3, SQL side: measures run on controlled datasets (#3152, OSSIE-006c); conversion reports only the converter's own warnings (#3205) on main at 0fdeb4d7",
         "Version compare: what changed between two versions of one model (#3223, OSSIE-002b) on main at a73ebb71",
-        "Direct Lake fallback risk with one verdict for the model, a growth forecast and a SKU what-if (#3343, Preview); compatibility matrix across Power BI, Ossie 0.2, a Semantic View and Snowflake (#3344, OSSIE-015a) and Snowflake export profile (#3341, OSSIE-010a), both engine only; Ossie conversion refuses malformed input with a plain error (#3255) on main at 9ea9dfde"
+        "Direct Lake fallback risk with one verdict for the model, a growth forecast and a SKU what-if (#3343, Preview); compatibility matrix across Power BI, Ossie 0.2, a Semantic View and Snowflake (#3344, OSSIE-015a) and Snowflake export profile (#3341, OSSIE-010a), both engine only; Ossie conversion refuses malformed input with a plain error (#3255) on main at 9ea9dfde",
+        "One TMDL writer: the Direct Lake model builder writes through tmdl.from_bim (#3346, OSSIE-007a); fixture corpus and converter-upgrade check (#3347, OSSIE-012a, 012c); large-model scale tests and a timing baseline (#3349, OSSIE-012b); every writer refuses wrong-typed parts (#3350); YAML and L3 speed-ups (#3351) on main at 046f9d3e"
       ],
       "features": [
         "FEAT-META-19",
@@ -6494,7 +6495,12 @@
         3255,
         3341,
         3343,
-        3344
+        3344,
+        3346,
+        3347,
+        3349,
+        3350,
+        3351
       ],
       "mandatory": "none",
       "computed": {
@@ -7009,6 +7015,7 @@
         3133,
         3163,
         3188,
+        3238,
         3266,
         3285,
         3316,
@@ -7044,7 +7051,8 @@
         "Databricks and Snowflake functions marked Differs fixed, refused by name or kept with a reason (#3266, WR-318/WR-319) on main at a73ebb71",
         "Databricks Asset Bundle check on this PC (#3285, WR-321, Preview); Snowflake result columns in upper case, TIMESTAMP_TZ writes and TYPEOF (#3316); nested Snowflake functions translate in linear size (#3324) on main at 84a36dd6",
         "Unity Catalog volumes on this PC with a Volumes screen (#3323, Preview); Snowflake $1, $2 positional columns and OBJECT_CONSTRUCT (#3331); CASE, coalesce and UNION take the source dialect's result type and T-SQL RANGE with an offset is refused (#3188, WR-255, WR-259) on main at b4bc548d",
-        "T-SQL translator sweep (#3339, WR-274); Volumes Size column colour fix (#3337) on main at 9ea9dfde"
+        "T-SQL translator sweep (#3339, WR-274); Volumes Size column colour fix (#3337) on main at 9ea9dfde",
+        "Substring edges and sub-second timestamps match T-SQL, Spark and Snowflake (#3238) on main at 046f9d3e"
       ],
       "features": [
         "FEAT-EXT-05",

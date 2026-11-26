@@ -681,7 +681,7 @@ async function drawLakehouseAccess(slot) {
 
 function lakehouseAccessBody(a, lh, redraw) {
   const names = Object.fromEntries(a.people.map((p) => [p.id, p.name]));
-  const pathLabel = (p) => (p === "*" ? "Everything" : p.replace(/^\/Tables\//, "").replace(/\//g, ".").replace(/^\/Files/, "Files"));
+  const pathLabel = (p) => (p === "*" ? "Everything" : p.replace(/^\/Tables\//, "").replace(/^\/Files/, "Files").replace(/\//g, "."));
   const who = h("div", {});
   const tableSel = h("select", { "aria-label": "Table" }, h("option", { value: "" }, "Pick a table"), a.tables.map((t) => h("option", { value: t }, pathLabel(t))));
   tableSel.addEventListener("change", async () => {

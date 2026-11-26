@@ -147,7 +147,7 @@ def locked_error(exc: OSError, path: str | os.PathLike[str], doing: str = "saved
     held or read-only file): its text is only the message (no "[WinError 32]" and no path after it), and
     it keeps ``errno`` and ``winerror`` for code that checks them, and the path as ``path``. None for any
     other failure."""
-    return _plain_error(exc, path, explain(exc, path, doing))
+    return plain_error(exc, path, explain(exc, path, doing))
 
 
 def folder_error(exc: OSError, path: str | os.PathLike[str], doing: str = "saved") -> OSError | None:
@@ -159,12 +159,14 @@ def folder_error(exc: OSError, path: str | os.PathLike[str], doing: str = "saved
     if not (isinstance(exc, PermissionError) and getattr(exc, "winerror", None) == _ERROR_ACCESS_DENIED):
         return None
     p = Path(path)
-    return _plain_error(exc, path, (
+    return plain_error(exc, path, (
         f"{p.name} couldn't be {doing} because Windows won't let KratosForge write in {p.parent.name or p.parent}. "
         "If Controlled folder access is on in Windows Security, allow KratosForge there, or use another folder."))
 
 
-def _plain_error(exc: OSError, path: str | os.PathLike[str], plain: str | None) -> OSError | None:
+def plain_error(exc: OSError, path: str | os.PathLike[str], plain: str | None) -> OSError | None:
+    """``plain`` as the error to raise in place of ``exc``: of the same kind, its text only ``plain``,
+    keeping ``errno`` and ``winerror`` and the path as ``path``. None when ``plain`` is None."""
     if plain is None:
         return None
     err = type(exc)(plain)

@@ -49,6 +49,9 @@ class FakeKernel:
     def forget_guest(self, notebook):
         self.forgot.append(notebook)
 
+    def rename_guest(self, old, new):
+        self.forgot.append(("renamed", old, new))
+
 
 def make_sessions(**kw):
     made = []
@@ -292,7 +295,7 @@ def test_rename_moves_sessions_shares_and_the_open_notebook():
     assert s.session("A2", create=False).kernel is a and s.session("A2").notebook == "A2"
     assert "A" not in s._sessions and s.joined() == {"G": "A2"} and s.active == "A2"
     s.rename("G", "G2")
-    assert s.joined() == {"G2": "A2"}
+    assert s.joined() == {"G2": "A2"} and a.forgot == [("renamed", "G", "G2")]  # its cell and variables follow
     r = s.kernel("R")
     s._reaping["R"] = s._sessions.pop("R")
     s.rename("R", "R2")

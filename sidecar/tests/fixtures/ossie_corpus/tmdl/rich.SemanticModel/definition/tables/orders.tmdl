@@ -1,0 +1,38 @@
+table orders
+	lineageTag: t-orders
+	column order_id
+		dataType: int64
+		sourceColumn: order_id
+		isHidden
+		summarizeBy: none
+		lineageTag: c-order-id
+	column customer_id
+		dataType: int64
+		sourceColumn: customer_id
+		isHidden
+		summarizeBy: none
+		lineageTag: c-o-cust
+	column amount
+		dataType: decimal
+		sourceColumn: amount
+		formatString: #,0.00
+		summarizeBy: none
+		lineageTag: c-amount
+	measure 'order rows' = COUNTROWS('orders')
+		lineageTag: m-rows
+	measure 'total amount' = SUM('orders'[amount])
+		formatString: #,0.00
+		lineageTag: m-total
+	measure 'amount per order' = ```
+		DIVIDE(
+		    [total amount],
+		    [order rows]
+		)
+		```
+		lineageTag: m-per
+	partition orders = entity
+		mode: directLake
+		source
+			entityName: orders
+			schemaName: dbo
+			expressionSource: DatabaseQuery

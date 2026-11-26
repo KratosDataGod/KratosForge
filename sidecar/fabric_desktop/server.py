@@ -162,6 +162,11 @@ from .engines_service import METHODS as ENGINE_METHODS  # noqa: E402
 
 METHODS |= ENGINE_METHODS
 
+# Workspaces > Databricks > Volumes on this PC (databricks_volumes_service.py, Preview).
+from .databricks_volumes_service import METHODS as DATABRICKS_VOLUME_METHODS  # noqa: E402
+
+METHODS |= DATABRICKS_VOLUME_METHODS
+
 # OneLake > Access across every workspace: the access cache (access_cache_service.py).
 from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
 

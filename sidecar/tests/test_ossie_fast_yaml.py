@@ -23,6 +23,9 @@ from fabric_desktop import semantic_view as sv
 
 mo.require()
 FAST = mo._C
+# the tests that compare the fast path with the pure one need libyaml; on a PyYAML without it they're skipped,
+# and the pure-only tests below still run
+needs_libyaml = pytest.mark.skipif(FAST is None, reason="this PyYAML has no libyaml, so there's no fast path")
 ENTRIES = oc.manifest()
 TEXT_ENTRIES = [e for e in ENTRIES if e["kind"] in ("ossie", "view")]
 V02 = "version: 0.2.0.dev0\nname: m\n"
@@ -56,17 +59,18 @@ def _both(monkeypatch: pytest.MonkeyPatch, fn: Callable[[], Any]) -> tuple[Any, 
 
 def test_libyaml_is_used_exactly_when_pyyaml_has_it():
     assert (FAST is not None) == bool(getattr(yaml, "__with_libyaml__", False))
-    assert FAST is not None, "this engine's PyYAML has libyaml, so the fast path runs in these tests"
 
 
 # ---- the corpus, both ways
 
+@needs_libyaml
 @pytest.mark.parametrize("e", ENTRIES, ids=[e["path"].rsplit("/", 1)[-1] for e in ENTRIES])
 def test_every_corpus_file_has_the_same_outcomes_with_and_without_libyaml(e, monkeypatch):
     fast, pure = _both(monkeypatch, lambda: oc.outcomes(e))
     assert fast == pure
 
 
+@needs_libyaml
 @pytest.mark.parametrize("e", TEXT_ENTRIES, ids=[e["path"].rsplit("/", 1)[-1] for e in TEXT_ENTRIES])
 def test_every_corpus_text_reads_the_same_and_a_plain_one_reads_on_the_fast_path(e, monkeypatch):
     text = oc.load(e)
@@ -76,6 +80,7 @@ def test_every_corpus_text_reads_the_same_and_a_plain_one_reads_on_the_fast_path
         assert _norm(yaml.load(text, Loader=FAST.no_alias)) == pure[1]  # noqa: S506 - read by libyaml itself
 
 
+@needs_libyaml
 @pytest.mark.parametrize("e", [e for e in ENTRIES if e["kind"] in ("tmsl", "tmdl")],
                          ids=[e["path"].rsplit("/", 1)[-1] for e in ENTRIES if e["kind"] in ("tmsl", "tmdl")])
 def test_every_corpus_export_and_view_is_byte_for_byte_the_same(e, monkeypatch):
@@ -166,9 +171,16 @@ HOSTILE = {
     "complex_string_key": "? |\n  k\n: v\n",
     "null_key": "~: a\nnull: b\n",
     "plain_multiline": "a: x\n  y\n\n  z\n",
+    # an empty scalar with an explicit tag: libyaml reads "", PyYAML null or a refusal (Fourth quality, #3351)
+    "lone_tag_value": "name: !\n",
+    "lone_tag_key": "? !\n: 1\n",
+    "lone_tag_in_flow": "a: [!, 1]\n",
+    "str_tag_empty": "a: !!str\n",
+    "null_tag_empty": "a: !!null\n",
 }
 
 
+@needs_libyaml
 @pytest.mark.parametrize("name", list(HOSTILE))
 def test_hostile_text_reads_or_is_refused_exactly_as_by_the_pure_reader(name, monkeypatch):
     text = HOSTILE[name]
@@ -176,6 +188,7 @@ def test_hostile_text_reads_or_is_refused_exactly_as_by_the_pure_reader(name, mo
     assert fast == pure
 
 
+@needs_libyaml
 @pytest.mark.parametrize("name", ["alias", "billion_laughs", "repeated_key", "repeated_key_flow",
                                   "repeated_number_key", "deep_past_recursion", "too_big"])
 def test_the_safety_refusals_still_refuse_with_libyaml(name):
@@ -183,6 +196,7 @@ def test_the_safety_refusals_still_refuse_with_libyaml(name):
         mo.load_text(HOSTILE[name])
 
 
+@needs_libyaml
 def test_a_deep_file_goes_to_the_pure_reader_and_a_flagged_one_never_reaches_libyaml(monkeypatch):
     calls = []
     real = FAST.no_alias
@@ -203,6 +217,7 @@ def test_a_deep_file_goes_to_the_pure_reader_and_a_flagged_one_never_reaches_lib
     assert mo.load_text(V02) == {"version": "0.2.0.dev0", "name": "m"} and calls == [V02]
 
 
+@needs_libyaml
 def test_random_text_reads_the_same_both_ways(monkeypatch):
     rng = random.Random(7)
     pieces = ["a", "1", "0x1F", ".5", "true", "null", "~", "2024-01-02", ":", ": ", "- ", "\n", "\n  ", "\n- ", "  ",
@@ -241,6 +256,7 @@ def _docs() -> dict[str, Any]:
     }
 
 
+@needs_libyaml
 @pytest.mark.parametrize("name", list(_docs()))
 def test_dumping_is_byte_for_byte_the_same_both_ways(name, monkeypatch):
     doc = _docs()[name]
@@ -253,6 +269,7 @@ def test_dumping_is_byte_for_byte_the_same_both_ways(name, monkeypatch):
     assert fast == pure
 
 
+@needs_libyaml
 def test_random_documents_dump_and_read_back_the_same_both_ways(monkeypatch):
     rng = random.Random(11)
     alphabet = list("ab :#-?[]{},&*!|>'\"%@`\t\n\\ 01.e+~") + ["\n\n", "  ", "\x85", "\u2028", "\u2029", "\ufeff",
@@ -275,6 +292,7 @@ def test_random_documents_dump_and_read_back_the_same_both_ways(monkeypatch):
         assert fast == pure, doc
 
 
+@needs_libyaml
 def test_text_with_tabs_reads_back_the_same_both_ways(monkeypatch):
     """The dumper writes a tab as an escape in double quotes; a literal block holding tabs (as another tool writes
     one) reads the same both ways too."""
@@ -290,6 +308,7 @@ def test_text_with_tabs_reads_back_the_same_both_ways(monkeypatch):
 
 # ---- large models and parity, both ways
 
+@needs_libyaml
 def test_a_large_model_converts_exports_and_compares_the_same_both_ways(monkeypatch):
     bim, text = ol.bim(3, 6, 8), ol.ossie(3, 6, 8)
     fast, pure = _both(monkeypatch, lambda: (

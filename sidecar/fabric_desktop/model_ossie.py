@@ -163,6 +163,8 @@ def _fast_classes(_yaml: Any, refusals: type, ossie_dumper: type) -> Any:
             event = self.peek_event()
             if self.flow and not event.style and "?" in event.value:  # libyaml gives a plain scalar style ""
                 raise _NotSure  # PyYAML ends a plain scalar at "?" inside [ ] or { }; libyaml reads on
+            if event.tag is not None and not event.value:  # an empty scalar with a tag such as a lone "!":
+                raise _NotSure  # libyaml reads it as "", PyYAML as null or refuses it
             return super().compose_scalar_node(anchor)
 
     class _COssieDumper(_yaml.CSafeDumper):

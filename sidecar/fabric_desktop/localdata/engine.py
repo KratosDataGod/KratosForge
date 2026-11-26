@@ -42,7 +42,7 @@ from urllib.parse import unquote
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects, win_paths
+from .. import delta_dml, delta_profile, delta_read, durable, retrying, sql_dialects, win_paths
 from ..awake_timer import AwakeTimer
 from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
 from . import delta, tsql, tsql_errors, tsql_merge
@@ -1533,6 +1533,11 @@ class LocalEngine:
                     raise duckdb.InterruptException("cancelled") from None
                 if isinstance(exc, (ValueError, duckdb.Error, KeyboardInterrupt)):
                     raise
+                # OneDrive or a scanner held one of its files; said only when the log shows this write didn't commit
+                if (held := retrying.held_write_message(f"Writing {name}", exc)) and not (
+                        (folder / "_delta_log").is_dir()
+                        and _committed(folder, -1 if current is None else current.version(), query_id)):
+                    raise ValueError(held) from None
                 raise ValueError(f"Writing {name} failed, and nothing was committed: "
                                  f"{conform.error or _short(exc).split(' Detail: Python exception')[0]}") from None
         except BaseException:
@@ -1631,6 +1636,8 @@ class LocalEngine:
                 except Exception:  # noqa: BLE001 - the conflict is the error to show; the next read registers it
                     _log.warning("Couldn't read %s again after a write-write conflict", name, exc_info=True)
                 raise ValueError(_conflict(name)) from None
+            if not committed and (held := retrying.held_write_message(f"Changing {name}", exc)):
+                raise ValueError(held) from None
             raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "
                              f"{_short(exc).split(' Detail: Python exception')[0]}") from None
         finally:

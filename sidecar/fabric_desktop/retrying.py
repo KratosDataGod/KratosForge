@@ -223,6 +223,38 @@ def windows_file_held(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and ("os error 32)" in text or "os error 33)" in text)
 
 
+# delta-rs (object_store) names the file it couldn't open, create or delete: "Unable to open file <path>: The process ..."
+_HELD_PATH = re.compile(r"Unable to \w+ file (.+?): The process cannot access the file")
+
+
+def held_file_path(exc: BaseException) -> str | None:
+    """The file a windows_file_held error names, as delta-rs wrote it; None when it names none."""
+    m = _HELD_PATH.search(str(exc))
+    return m.group(1) if m else None
+
+
+def held_write_message(what: str, exc: BaseException) -> str | None:
+    """What to say when a write to a Delta table on this PC stopped because a file of the table is held
+    (windows_file_held) and nothing was committed: the file and, where Windows says (file_locks), the
+    program holding it. None for any other failure. The write isn't repeated by itself: its rows came
+    from a query's stream, read once."""
+    if not windows_file_held(exc):
+        return None
+    from pathlib import PureWindowsPath
+
+    from . import file_locks
+    path = held_file_path(exc)
+    found = file_locks.holders(path) if path else []
+    file = PureWindowsPath(path).name if path else ""
+    if found:
+        return (f"{what} stopped because {file}, one of the table's files, is open in {', '.join(found)}. Nothing "
+                "was committed. Close it there, or wait for it to finish, and run it again.")
+    return (f"{what} stopped because another program has one of the table's files open"
+            f"{f' ({file})' if file else ''}, such as OneDrive, a virus scanner or the search indexer. Nothing was "
+            "committed. Wait a moment and run it again; if the project is in a folder OneDrive syncs, pause syncing "
+            "while you work.")
+
+
 def held_file_message(what: str) -> str:
     """What to say when a table's file is still held after ``local_retry`` waited it out (windows_file_held)."""
     return (f"{what} stopped because another program has one of the table's files open, such as a virus scanner, "

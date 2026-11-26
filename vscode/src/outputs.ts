@@ -54,7 +54,7 @@ function cell(value: unknown): string {
   return typeof value === "object" ? json(value) ?? "…" : String(value);
 }
 
-const NOT_A_TABLE: Item = { mime: "text/plain", text: "This table's rows can't be read here. Open the notebook in KratosForge to see it." };
+const NOT_A_TABLE: Item = { mime: "text/plain", text: "This table's rows can't be read here. Open the notebook in KratosForge to see the table." };
 
 function table(out: Record<string, unknown>): Item[] {
   // Columns or rows that aren't lists aren't a table: one line says so instead.

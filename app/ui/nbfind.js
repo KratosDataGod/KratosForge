@@ -277,11 +277,12 @@ function findStep(delta) {
 
 // Changes a cell's text through its editor when it has one, so Ctrl+Z in the cell undoes it.
 function findWrite(cell, edits) {
-  const view = editors.get(cell.id);
+  const view = editors.peek(cell.id);  // one out of the page (notebook.js EAGER_EDITORS) stays out
   if (view && view.state.doc.toString() === cell.source) {
     view.dispatch({ changes: edits.map((e) => ({ from: e.from, to: e.to, insert: e.insert })) });
   } else {
     cell.source = findApply(cell.source, edits);
+    plainTextChanged(cell);  // notebook.js: its plain text, while its editor is out of the page
   }
 }
 

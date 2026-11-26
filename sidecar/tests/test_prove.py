@@ -271,7 +271,9 @@ def run_cell(svc, code, **params):
     raise AssertionError("the cell didn't finish")
 
 
-def wait(svc, pid, seconds=60):
+def wait(svc, pid, seconds=240):
+    """Wait for the proof to end. ``seconds`` only guards against a hang (the per-test limit is 300 s): a proof
+    runs two Python processes, which took 4 s here but 63 s on a busy Windows runner."""
     for _ in range(seconds * 20):
         status = call(svc, "prove_status", id=pid)
         if status["state"] not in prove_service.RUNNING:

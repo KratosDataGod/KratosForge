@@ -6,9 +6,10 @@
 // axe covers dialogs: dbx-volumes.js:dbxVolCreate
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp, axeFindings } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
 const skip = !playwright && "Playwright is not installed";
+const noAxe = skip || (!axeSource && "axe-core is not installed");  // the cases that run axe
 const ROOT = "C:\\Users\\you\\AppData\\Local\\FabricDesktop\\volumes\\main";
 const vol = (schema, name, items, comment = null) => ({ name, catalog: "main", database: schema, owner: "you", storage_location: "",
   volume_type: "MANAGED", comment, path: `/Volumes/main/${schema}/${name}`, folder: `${ROOT}\\${schema}\\${name}`, items, created: 1 });
@@ -149,7 +150,7 @@ test("an empty volume and no volumes at all say how to fill them", { skip }, asy
   assert.deepStrictEqual(calls("databricks_volume_files"), []);
 });
 
-test("New volume: the dialog passes axe and creates the volume, which is then picked", { skip }, async () => {
+test("New volume: the dialog passes axe and creates the volume, which is then picked", { skip: noAxe }, async () => {
   reset();
   await open();
   await page().getByRole("button", { name: "New volume" }).click();

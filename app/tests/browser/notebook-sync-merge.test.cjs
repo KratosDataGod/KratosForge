@@ -6,10 +6,11 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp, axeFindings } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
+const noAxe = skip || (!axeSource && "axe-core is not installed");  // the cases that run axe
 
 const ENGINE = ["list_notebooks", "open_notebook", "save_notebook", "notebook_sync_merge", "notebook_disk_stamp", "notebook_places",
   "compute_check", "kernel_variables", "notebook_versions", "notebook_version"];
@@ -73,7 +74,7 @@ test("a change on each side, in different cells, merges and saves without asking
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("a cell edited on both sides is shown side by side, and Save waits for a pick", { skip }, async () => {
+test("a cell edited on both sides is shown side by side, and Save waits for a pick", { skip: noAxe }, async () => {
   await startClean();
   saveOutside((cells) => { cells[2].source = ["# Clean\ndf = df.dropna().drop_duplicates()"]; });
   await editHere("cells[2].source = '# Clean\\ndf = df.dropna(subset=[\"order_id\"])';");
@@ -97,7 +98,7 @@ test("a cell edited on both sides is shown side by side, and Save waits for a pi
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("a cell deleted in VS Code and edited here, and cells moved on both sides, each get a pick", { skip }, async () => {
+test("a cell deleted in VS Code and edited here, and cells moved on both sides, each get a pick", { skip: noAxe }, async () => {
   await startClean();
   saveOutside((cells) => { cells.splice(4, 1); cells.unshift(cells.splice(1, 1)[0]); });  // deleted Summary chart; Parameters to the top
   await editHere("cells[4].source = '# Summary chart\\nplot(df, x=\"region\")'; cells.splice(2, 0, cells.splice(3, 1)[0]);");

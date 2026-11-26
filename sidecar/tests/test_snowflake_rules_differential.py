@@ -222,6 +222,38 @@ def cases() -> list[tuple[str, str, object]]:
         out.append(("TIMESTAMP_TEXT", f"TO_VARCHAR({q(text)}::TIMESTAMP_NTZ)", want))
         out.append(("TIMESTAMP_TEXT", f"'at ' || {q(text)}::TIMESTAMP_NTZ", "at " + want))
         out.append(("TIME_TEXT", f"CAST({q(t.time().isoformat())}::TIME AS VARCHAR)", f"{t:%H:%M:%S}"))
+    logical = random.Random(SEED + 3)  # WR-277: text to BOOLEAN, and the epoch parts
+    for _ in range(60):
+        # data-types-logical: "Strings converted to TRUE: 'true', 't', 'yes', 'y', 'on', '1'." "Strings converted
+        # to FALSE: 'false', 'f', 'no', 'n', 'off', '0'." "Conversion is case-insensitive." Other text can't be
+        # converted, so TRY_CAST gives NULL.
+        word = logical.choice(["true", "t", "yes", "y", "on", "1", "false", "f", "no", "n", "off", "0", "maybe", "2"])
+        word = "".join(c.upper() if logical.random() < 0.5 else c for c in word)
+        want = True if word.lower() in ("true", "t", "yes", "y", "on", "1") else \
+            False if word.lower() in ("false", "f", "no", "n", "off", "0") else None
+        out.append(("BOOLEAN_TEXT", f"TRY_CAST({q(word)} AS BOOLEAN)", want))
+        out.append(("BOOLEAN_TEXT", f"TRY_CAST(x AS BOOLEAN) FROM (SELECT {q(word)} AS x)", want))
+        if want is not None:
+            out.append(("BOOLEAN_TEXT", f"{q(word)}::BOOLEAN", want))
+            out.append(("BOOLEAN_TEXT", f"IFF(CAST(x AS BOOLEAN), 1, 0) FROM (SELECT {q(word)} AS x)", int(want)))
+        # "Zero (0) is converted to FALSE." "Any non-zero value is converted to TRUE."
+        number = logical.choice([0, 1, -1, 7, 0.5, -2.25])
+        out.append(("BOOLEAN_NUMBER", f"CAST(x AS BOOLEAN) FROM (SELECT {number} AS x)", number != 0))
+    for _ in range(80):
+        # functions-date-time: epoch is a synonym of epoch_second. date_part returns NUMBER, and its example gives
+        # 1712619560 for 2024-04-08 23:39:20.123: the fraction is cut off. Only times after 1970 are drawn, as
+        # the page shows no time before it with a fraction (SFN-074).
+        micros = logical.randint(0, 60 * 365 * 86400 * 10 ** 6)
+        t = dt.datetime(1970, 1, 1) + dt.timedelta(microseconds=micros)
+        stamp = f"{q(t.isoformat(sep=' '))}::TIMESTAMP_NTZ"
+        part, size = logical.choice([("epoch", 10 ** 6), ("epoch_second", 10 ** 6), ("epoch_seconds", 10 ** 6),
+                                     ("epoch_millisecond", 1000), ("epoch_microsecond", 1)])
+        out.append(("EPOCH_PART", f"DATE_PART({part}, {stamp})", micros // size))
+        out.append(("EPOCH_PART", f"EXTRACT({part} FROM x) FROM (SELECT {stamp} AS x)", micros // size))
+        out.append(("EPOCH_PART", f"DATE_PART(epoch_nanosecond, {stamp})", micros * 1000))
+        day = dt.date(1900, 1, 1) + dt.timedelta(days=logical.randint(0, 200 * 365))
+        out.append(("EPOCH_PART", f"EXTRACT(epoch FROM {q(day.isoformat())}::DATE)",
+                    (day - dt.date(1970, 1, 1)).days * 86400))
     return out + _regex_cases(random.Random(SEED + 2))
 
 

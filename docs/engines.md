@@ -112,7 +112,7 @@ function, with common operators and statements, and whether each runs, differs, 
 here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.11.23.
+Rules 2026.11.26.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -150,6 +150,8 @@ Rules 2026.11.23.
 | SFX-072 | Rewritten | CREATE TABLE, CREATE TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object and the schema it is made in (mysch.tab), its columns, a column list (CREATE VIEW v (a, b) AS), a column or alias of CREATE ... AS and CREATE VIEW, an alias column list of VALUES (AS t(c1, c2), SFX-073), a renamed table or column, an added column. A quoted name keeps its case. |
 | SFX-073 | Rewritten | A query's result names a column, or an unquoted alias, in upper case, as Snowflake resolves an unquoted name (SELECT last_name gives LAST_NAME, AS area_of_circle gives AREA_OF_CIRCLE): in each SELECT, in * RENAME and * REPLACE, and in an alias column list (AS v(a, b), WITH c(a) AS). A quoted name keeps its case. A column made by an expression with no alias keeps DuckDB's name (SFD-001). |
 | SFX-074 | Rewritten | INSERT, UPDATE and MERGE check each value they write to a TIMESTAMP_TZ column that a Snowflake cell in this session made (this cell or an earlier one), as SFX-071 checks a cast: text with no offset, or the session zone's own, is stored as Snowflake stores it; text with another offset stops the query (SFN-071). Any other value, and a column whose Snowflake type isn't known here, is SFD-002. INSERT ... SELECT * reads the query's columns by place. |
+| SFX-075 | Rewritten | ::BOOLEAN, CAST, TRY_CAST, TO_BOOLEAN and TRY_TO_BOOLEAN of text read it as Snowflake does, with case ignored: 'true', 't', 'yes', 'y', 'on' and '1' are TRUE, 'false', 'f', 'no', 'n', 'off' and '0' are FALSE, and other text stops the query (NULL with TRY_CAST and TRY_TO_BOOLEAN). A number is FALSE for 0 and TRUE for any other, as before. |
+| SFX-076 | Rewritten | DATE_PART and EXTRACT with epoch_second (or epoch, epoch_seconds), epoch_millisecond, epoch_microsecond and epoch_nanosecond give a whole number, with the fraction of the unit cut off, as Snowflake's DATE_PART example shows. epoch_millisecond, epoch_microsecond and epoch_nanosecond of a DATE stop the query, as Snowflake doesn't support them for a DATE. A time before 1970 with a fraction of the unit is SFN-074. |
 | SFX-086 | Rewritten | $1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, as in Snowflake. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: A column made by an expression keeps DuckDB's name | Snowflake stores and resolves an unquoted name in upper case, and so does this PC (SFX-072, SFX-073). A column made by an expression with no alias (a + 1) gets a name Snowflake writes its own way, and here it keeps DuckDB's. It's raised for CREATE TABLE ... AS and CREATE VIEW, where the name is stored. A query's result shows such a column under DuckDB's name too. |
@@ -199,6 +201,7 @@ Rules 2026.11.23.
 | SFN-071 | Runs only in Snowflake | TIMESTAMP_TZ from text with a UTC offset other than the session zone's (the query stops at that row; also text written to a TIMESTAMP_TZ column, SFX-074), and TO_TIMESTAMP_TZ with TZH or TZM in its format, because DuckDB keeps the instant, not the offset. |
 | SFN-072 | Runs only in Snowflake | TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a fraction or exponent read from a column or a path (the query stops at that row), because Snowflake's answer depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired. |
 | SFN-073 | Runs only in Snowflake | TYPEOF of a timestamp with a time zone from a column or a computed value (the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or CURRENT_TIMESTAMP runs (SFX-009). |
+| SFN-074 | Runs only in Snowflake | DATE_PART and EXTRACT with epoch_second (epoch) or epoch_millisecond of a time before 1970 with a fraction of the unit (the query stops at that row), because Snowflake doesn't document whether the fraction goes toward 0 or down there. A whole number of the unit runs (SFX-076). |
 | SFN-085 | Runs only in Snowflake | $1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position of one named table's column, which DuckDB has no way to write. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 

@@ -1251,7 +1251,7 @@ def test_jarowinkler_similarity_is_refused_by_name():
     t = sf.translate("SELECT jarowinkler_similarity(s, t) FROM ed")
     assert not t.runnable and t.statements[0].notes[0].id == "SFN-070"
     assert "EDITDISTANCE runs here" in t.first_refusal()
-    assert sf.RULES_VERSION == "2026.11.23" and "SFN-070" in sf.docs_table()
+    assert sf.RULES_VERSION >= "2026.11.23" and "SFN-070" in sf.docs_table()
 
 
 @pytest.mark.parametrize("code, want", [

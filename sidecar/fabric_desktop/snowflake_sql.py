@@ -32,7 +32,7 @@ from sqlglot.errors import ParseError, SqlglotError, TokenError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.23"
+RULES_VERSION = "2026.11.26"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -1786,6 +1786,101 @@ def _rewrite_timestamp_parts(statement: exp.Expression) -> None:
                 _put(anonymous, _TIMESTAMP_OF_ANY, [anonymous.expressions[0]])
 
 
+# SFX-075 (2026.11.26): data-types-logical, "Conversion to BOOLEAN": text is TRUE for 'true', 't', 'yes', 'y', 'on'
+# and '1', FALSE for 'false', 'f', 'no', 'n', 'off' and '0', case ignored; other text can't be converted. DuckDB's
+# cast takes all of these but 'on' and 'off', and stops with its own message on any other text.
+_TRUE_TEXT, _FALSE_TEXT = ("true", "t", "yes", "y", "on", "1"), ("false", "f", "no", "n", "off", "0")
+
+
+def _boolean_of_text(text: str, safe: bool) -> str:
+    """DuckDB SQL for Snowflake's BOOLEAN of the VARCHAR ``text`` (SQL that is cheap to repeat): NULL for other
+    text under TRY_CAST, else Snowflake's own error."""
+    def listed(words: tuple[str, ...]) -> str:
+        return ", ".join(f"'{w}'" for w in words)
+    other = "NULL" if safe else f"error('Boolean value ''' || {text} || ''' is not recognized')"
+    return (f"CASE WHEN LOWER({text}) IN ({listed(_TRUE_TEXT)}) THEN TRUE "
+            f"WHEN LOWER({text}) IN ({listed(_FALSE_TEXT)}) THEN FALSE ELSE {other} END")
+
+
+_WRITTEN_BOOLEAN = "kf_sf_boolean"  # a conversion to BOOLEAN the query wrote, which SFX-075 rewrites last
+_WRITTEN_EPOCH = "kf_sf_epoch"      # an epoch part the query wrote (its size in microseconds), for SFX-076
+
+
+def _mark_booleans_and_epochs(statement: exp.Expression) -> None:
+    """SFX-075 and SFX-076, before the rewrites: the conversions to BOOLEAN and the epoch parts the query wrote
+    are marked, and rewritten last, so the TYPEOF and the cast to text in their rewrites stay DuckDB's own."""
+    for node in statement.find_all(exp.Cast, exp.ToBoolean, exp.Extract):
+        if isinstance(node, exp.Extract):
+            part = node.this
+            unit = _EPOCH_PARTS.get(part.name.upper()) if isinstance(part, (exp.Var, exp.Literal)) else None
+            if unit is not None:
+                node.meta[_WRITTEN_EPOCH] = unit
+        elif isinstance(node, exp.ToBoolean) or cast(exp.Cast, node).to.is_type(exp.DataType.Type.BOOLEAN):
+            node.meta[_WRITTEN_BOOLEAN] = True
+
+
+def _rewrite_booleans(statement: exp.Expression) -> None:
+    """SFX-075: ::BOOLEAN, CAST, TRY_CAST, TO_BOOLEAN and TRY_TO_BOOLEAN of text read it as Snowflake does. Text
+    written in the query is read here; any other value is read once, and by its type when the query runs: text by
+    Snowflake's words, anything else (a number: 0 is FALSE, any other is TRUE) as before. A JSON value is left
+    as it is."""
+    for node in reversed(list(statement.find_all(exp.Cast, exp.ToBoolean))):  # the innermost first
+        if not node.meta.get(_WRITTEN_BOOLEAN):
+            continue
+        value, safe = node.this, bool(node.args.get("safe")) or isinstance(node, exp.TryCast)
+        if value is None or isinstance(value, (exp.Null, exp.Boolean)) or _json_valued(value) \
+                or (isinstance(value, exp.Literal) and not value.is_string):
+            continue
+        if isinstance(value, exp.Literal):
+            word = value.name.lower()
+            if word in _TRUE_TEXT or word in _FALSE_TEXT:
+                node.replace(exp.Boolean(this=word in _TRUE_TEXT))
+            else:
+                text = "'" + value.name.replace("'", "''") + "'"
+                _put(node, f"CAST({_boolean_of_text(text, safe)} AS BOOLEAN)", [])
+            continue
+        other = cast(exp.Expression, node.copy())
+        other.set("this", exp.column("kf_bool"))
+        _put(node, "(LIST_TRANSFORM([fj_arg0], kf_bool -> CASE WHEN TYPEOF(kf_bool) = 'VARCHAR' THEN "
+                   f"{_boolean_of_text('CAST(kf_bool AS VARCHAR)', safe)} ELSE fj_arg1 END))[1]", [value, other])
+
+
+# SFX-076 (2026.11.26): functions-date-time, "Supported date and time parts": epoch (also epoch_seconds) is
+# epoch_second; date_part returns NUMBER, and its example gives 1712619560 for 2024-04-08T23:39:20.123-07:00, the
+# whole seconds with the fraction cut off. DuckDB's EXTRACT(epoch) gave a DOUBLE with the fraction, and its
+# epoch_second rounded (1.7 seconds was 2). Each part's size in microseconds; 0 for nanoseconds, read as DuckDB's.
+_EPOCH_PARTS = {"EPOCH": 1000000, "EPOCH_SECOND": 1000000, "EPOCH_SECONDS": 1000000, "EPOCH_MILLISECOND": 1000,
+                "EPOCH_MILLISECONDS": 1000, "EPOCH_MICROSECOND": 1, "EPOCH_MICROSECONDS": 1,
+                "EPOCH_NANOSECOND": 0, "EPOCH_NANOSECONDS": 0}
+_EPOCH_BEFORE_1970 = _refuse(
+    "SFN-074", "An epoch part of a time before 1970 with a fraction", "DATE_PART and EXTRACT with epoch_second "
+    "(epoch) or epoch_millisecond give a whole number, and Snowflake's example cuts the fraction off a time after "
+    "1970. Snowflake doesn't document whether a time before 1970 with a fraction of the unit (1969-12-31 23:59:59.5 "
+    "is -0.5 seconds) goes toward 0 or down, so the query stops at that row. A whole number of the unit before 1970 "
+    "runs.", f"{_DOCS}/functions/date_part")
+
+
+def _rewrite_epoch_parts(statement: exp.Expression) -> None:
+    """SFX-076: DATE_PART and EXTRACT with epoch_second (epoch, epoch_seconds), epoch_millisecond,
+    epoch_microsecond and epoch_nanosecond give a whole number, the value read once: the fraction is cut off a time
+    after 1970, and a time before 1970 with a fraction stops by name (SFN-074). date_part: epoch_millisecond,
+    epoch_microsecond and epoch_nanosecond aren't supported for a DATE, so a DATE stops there as in Snowflake."""
+    for node in reversed(list(statement.find_all(exp.Extract))):  # the innermost first
+        part, unit = node.this, node.meta.get(_WRITTEN_EPOCH)
+        if unit is None or node.expression is None:
+            continue
+        name = part.name.upper().rstrip("S")
+        no_date = (f"error('DATE_PART: {name} isn''t supported for a DATE value in Snowflake (date_part usage "
+                   "notes). Cast the value to TIMESTAMP first.')")
+        if unit == 0:
+            whole = "EPOCH_NS(kf_epoch)"
+        else:
+            whole = ("(LIST_TRANSFORM([EPOCH_US(kf_epoch)], kf_us -> CASE WHEN kf_us < 0 AND kf_us % "
+                     f"{unit} <> 0 THEN {_stop_sql(_EPOCH_BEFORE_1970)} ELSE kf_us // {unit} END))[1]")
+        body = whole if unit == 1000000 else f"CASE WHEN TYPEOF(kf_epoch) = 'DATE' THEN {no_date} ELSE {whole} END"
+        _put(node, f"(LIST_TRANSFORM([fj_arg0], kf_epoch -> {body}))[1]", [node.expression])
+
+
 # TO_TIMESTAMP and TO_TIMESTAMP_NTZ of a value whose type isn't known here (a column), by its type when the query
 # runs: a number is seconds since 1970 with no time zone (fractions to the microsecond, cut off); text holding a
 # whole number is read by its size, as SFX-022 reads one written in the query; anything else (a date, other text)
@@ -3199,6 +3294,15 @@ CATALOG = (
                 "with no offset, or the session zone's own, is stored as Snowflake stores it; text with another "
                 "offset stops the query (SFN-071). Any other value, and a column whose Snowflake type isn't known "
                 "here, is SFD-002. INSERT ... SELECT * reads the query's columns by place.")),
+    ("SFX-075", "Rewritten", ("::BOOLEAN, CAST, TRY_CAST, TO_BOOLEAN and TRY_TO_BOOLEAN of text read it as "
+                "Snowflake does, with case ignored: 'true', 't', 'yes', 'y', 'on' and '1' are TRUE, 'false', 'f', "
+                "'no', 'n', 'off' and '0' are FALSE, and other text stops the query (NULL with TRY_CAST and "
+                "TRY_TO_BOOLEAN). A number is FALSE for 0 and TRUE for any other, as before.")),
+    ("SFX-076", "Rewritten", ("DATE_PART and EXTRACT with epoch_second (or epoch, epoch_seconds), "
+                "epoch_millisecond, epoch_microsecond and epoch_nanosecond give a whole number, with the fraction "
+                "of the unit cut off, as Snowflake's DATE_PART example shows. epoch_millisecond, epoch_microsecond "
+                "and epoch_nanosecond of a DATE stop the query, as Snowflake doesn't support them for a DATE. A "
+                "time before 1970 with a fraction of the unit is SFN-074.")),
     ("SFX-086", "Rewritten", ("$1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM "
                 "VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, "
                 "as in Snowflake.")),
@@ -3291,6 +3395,10 @@ CATALOG = (
                 "(the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps "
                 "one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or "
                 "CURRENT_TIMESTAMP runs (SFX-009).")),
+    ("SFN-074", "Runs only in Snowflake", ("DATE_PART and EXTRACT with epoch_second (epoch) or epoch_millisecond "
+                "of a time before 1970 with a fraction of the unit (the query stops at that row), because Snowflake "
+                "doesn't document whether the fraction goes toward 0 or down there. A whole number of the unit runs "
+                "(SFX-076).")),
     ("SFN-085", "Runs only in Snowflake", ("$1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a "
                 "column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position "
                 "of one named table's column, which DuckDB has no way to write.")),
@@ -3335,6 +3443,7 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
     written = {id(b) for b in brackets}
     try:
         _refuse_nanoseconds(tree)
+        _mark_booleans_and_epochs(tree)
         as_text = list(tree.find_all(*_TEXT_NODES))
         _mark_result_names(tree)
         if _rewrite_zoned_writes(tree, tables or {}) and SFD_TZ not in notes:
@@ -3375,6 +3484,8 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
         _json_of_variant_lists(tree)
         _rewrite_result_names(tree)
         tree = _sort_json_keys(_check_offsets(tree))
+        _rewrite_booleans(tree)
+        _rewrite_epoch_parts(tree)
         _length_once(tree)
         sql = ";\n".join([_duck(b) for b in before] + [_duck(tree)])
     except _Untranslatable as exc:

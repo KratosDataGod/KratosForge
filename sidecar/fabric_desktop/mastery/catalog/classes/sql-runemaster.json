@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-rune", "name": "First Rune", "criteria": "Reach Journeyman in Your first query."},
-  {"id": "no-surprise-rows", "name": "No Surprise Rows", "criteria": "Reach Adept in Joins without surprise row counts."},
-  {"id": "window-opened", "name": "Window Opened", "criteria": "Reach Journeyman in Window functions and in QUALIFY and filtering windows."},
-  {"id": "swift-rune", "name": "Swift Rune", "criteria": "Reach Adept in Measured optimization."},
-  {"id": "runemasters-tablet", "name": "Runemaster's Tablet", "criteria": "Reach Adept in all ten talents of one SQL Runemaster specialization."}
+  {"id": "first-rune", "name": "First Rune", "criteria": "Reach Journeyman in Your first query.", "requires": {"level": 3, "talents": ["foundations.01"]}},
+  {"id": "no-surprise-rows", "name": "No Surprise Rows", "criteria": "Reach Adept in Joins without surprise row counts.", "requires": {"level": 4, "talents": ["foundations.04"]}},
+  {"id": "window-opened", "name": "Window Opened", "criteria": "Reach Journeyman in Window functions and in QUALIFY and filtering windows.", "requires": {"level": 3, "talents": ["analytic.01", "analytic.03"]}},
+  {"id": "swift-rune", "name": "Swift Rune", "criteria": "Reach Adept in Measured optimization.", "requires": {"level": 4, "talents": ["perf.09"]}},
+  {"id": "runemasters-tablet", "name": "Runemaster's Tablet", "criteria": "Reach Adept in all ten talents of one SQL Runemaster specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

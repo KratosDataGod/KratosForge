@@ -9,7 +9,7 @@ below, and listed in docs/sql-compatibility.md."""
 from __future__ import annotations
 
 import pytest
-from spark_values import Refused, check, load
+from spark_values import Refused, check_part, check_still_needed, parts
 
 from fabric_desktop.notebook import Kernel
 
@@ -27,8 +27,13 @@ def spark():
     return Kernel().namespace["spark"]
 
 
-def test_spark_hashing_functions_answer_as_spark_3_5_or_are_refused_by_name(spark):
-    check(spark, load("hashing"), REFUSED)
+@pytest.mark.parametrize("cases", parts("hashing"))
+def test_spark_hashing_functions_answer_as_spark_3_5_or_are_refused_by_name(spark, cases):
+    check_part(spark, cases, REFUSED)
+
+
+def test_each_refusal_of_hashing_is_still_needed_and_listed(spark):
+    check_still_needed(spark, "hashing", REFUSED)
 
 
 def test_the_sha2_function_gives_null_for_a_length_spark_has_no_sha2_for():

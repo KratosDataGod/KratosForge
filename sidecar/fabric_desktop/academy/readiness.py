@@ -4,7 +4,8 @@ Worked out every time it is shown from the profile's included evidence rows (pro
 so excluding a row takes it out here too. Six separate measures per objective, never blended into one
 number:
 
-    knowledge         assessment items answered correctly, of those answered (academy.assessment rows)
+    knowledge         assessment items answered correctly, of those answered (academy.assessment rows); in
+                      points, so a multi-part question's partial credit counts its share (2 places)
     guided            guided exercises passed
     independent       challenge exercises passed with at most one hint, the explanation closed and (a quiz)
                       no checked answer changed before the pass
@@ -69,7 +70,7 @@ def _objectives_for(row: dict[str, Any], cert: dict[str, Any]) -> list[str] | No
 
 
 def _empty() -> dict[str, Any]:
-    return {"knowledge": {"correct": 0, "answered": 0}, "guided": set(), "independent": set(), "troubleshooting": set(),
+    return {"knowledge": {"correct": 0.0, "answered": 0}, "guided": set(), "independent": set(), "troubleshooting": set(),
             "platform_verified": set(), "retention": set(), "classes": set(), "passes": {}}
 
 
@@ -92,7 +93,7 @@ def readiness(profile: dict[str, Any], pack_id: str = "dp-700") -> dict[str, Any
             a = acc[oid]
             if r["type"] == "academy.assessment":
                 per = (detail.get("per_objective") or {}).get(oid) or {}
-                a["knowledge"]["correct"] += int(per.get("correct") or 0)
+                a["knowledge"]["correct"] = round(a["knowledge"]["correct"] + float(per.get("correct") or 0), 2)
                 a["knowledge"]["answered"] += int(per.get("answered") or 0)
                 continue
             eid, cls, mode = str((r.get("ref") or {}).get("id")), detail.get("class"), detail.get("mode")

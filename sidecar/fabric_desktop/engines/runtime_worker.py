@@ -112,9 +112,8 @@ def _start_databricks_connect() -> tuple[dict[str, Any], Callable[[], Any], str]
 
 # Said when a Snowpark cell calls session.sql (engines/snowpark_local.SQL_REFUSED says the same; this file
 # imports nothing from KratosForge).
-SNOWPARK_SQL_REFUSED = ("session.sql is refused here: Snowflake's local testing framework can't run SQL, and whether "
-                        "KratosForge translates it for this engine is still open. Use DataFrame calls, or a Snowflake "
-                        "SQL cell on DuckDB.")
+SNOWPARK_SQL_REFUSED = ("session.sql is refused here, because Snowflake's local testing framework can't run SQL. "
+                        "Use DataFrame calls, or a Snowflake SQL cell on DuckDB.")
 _LOOKUPS = ("socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex", "socket.gethostbyaddr",
             "socket.getnameinfo")
 _SENDS = ("socket.connect", "socket.sendto", "socket.sendmsg")

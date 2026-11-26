@@ -49,6 +49,6 @@ Known differences:
 - **Run Databricks SQL, DuckDB (this PC):** Databricks SQL is rewritten for DuckDB by sqlglot, so warehouse queries can be written and tried on this PC without starting a warehouse. Most queries match; Unity Catalog three-part names need the catalog and schema in the session, and Delta-only commands don't run.
 - **Run Snowflake SQL, DuckDB (this PC):** Snowflake SQL is rewritten for DuckDB by sqlglot with KratosForge's rules; each statement is labelled translated, runs with a known difference, or runs only in Snowflake, and a cell runs only when every statement can. Results are not checked against a Snowflake account.
 - **Run a Python cell, Databricks Connect (remote):** Plain Python runs on this PC, in Databricks Connect's own environment; only spark work goes to the cluster.
-- **Run a Python cell, Snowpark (this PC, simulated):** Snowpark Python, simulated by Snowflake's local testing framework: session is a local testing session with no Snowflake account. Only some functions are implemented, and session.sql is refused.
+- **Run a Python cell, Snowpark (this PC, simulated):** Snowpark Python, simulated by Snowflake's local testing framework, where session is a local testing session with no Snowflake account. Only some functions are implemented, and session.sql is refused.
 - **Run a PySpark cell, Python (this PC):** spark is DuckDB's PySpark-compatible API on this PC, not Apache Spark. Common DataFrame and spark.sql code runs; RDDs, UDF registration and Spark configuration don't.
 <!-- END GENERATED: capabilities -->

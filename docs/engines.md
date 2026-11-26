@@ -237,7 +237,7 @@ These 645 checks answer as Snowflake documents: `IFF`, `NVL`, `NVL2 (NULL)`, `NV
 
 KratosForge can read a Python cell that uses Snowpark and check each Snowpark call against the
 signatures of one pinned Snowpark Python version, **1.58.0**, without running the cell or reaching
-Snowflake. It is an **API compatibility check**: it says whether a call, method or keyword exists in
+Snowflake. It is an **API compatibility check**. It says whether a call, method or keyword exists in
 that version, never what the code does or returns. There's no screen for it in the app yet, so for
 now it is an engine call (`snowpark_api_check`).
 
@@ -249,7 +249,7 @@ now it is an engine call (`snowpark_api_check`).
   **external access** (`external_access_integrations`, `secrets`, `_snowflake`), **stages**
   (`session.file`, `@stage` paths, `copy_into_location`, `copy_into_table`, `add_import`,
   `stage_location`) and **pandas on Snowflake** (`modin`, `snowflake.snowpark.modin`). A flag doesn't
-  make the cell incompatible; it says where the check stops.
+  make the cell incompatible. It marks where the check stops.
 - **What it can't see.** Python doesn't say which object a variable holds, so the check follows
   Snowpark's own return types from `session`, `Session.builder...create()`,
   `get_active_session()`, imports and annotated arguments. A call it can't place is counted, never
@@ -283,27 +283,27 @@ works here may still behave differently on Snowflake.
   always opens with `local_testing` and `disable_local_testing_telemetry` set, and doesn't start if
   Snowpark's telemetry service is still on. Snowflake, Snowpark and proxy variables set on this PC
   are left out of the process.
-- **What's refused.** `session.sql` is refused: the local testing framework can't run SQL, and
-  whether KratosForge translates it here is still open. A call the framework doesn't implement
+- **What's refused.** `session.sql` is refused, because the local testing framework can't run SQL.
+  Whether KratosForge translates it here is still open. A call the framework doesn't implement
   (Snowflake raises `NotImplementedError`) comes back as **Refused**, saying it can't be simulated on
   this PC and that nothing was sent to Snowflake. Snowflake lists what local testing supports in
   [its local testing guide](https://docs.snowflake.com/en/developer-guide/snowpark/python/testing-locally).
-- **Limits:** Python cells only. `session` is the local session, and `get_active_session()` returns it.
+- **Limits.** Python cells only. `session` is the local session, and `get_active_session()` returns it.
   Results show the first rows, taken with `collect()`. `to_pandas` needs pyarrow, which the pinned
   runtime doesn't include. Cancel ends the session's process, so its tables and variables are lost.
-  Anything that opens a network connection fails, including asyncio on Windows: there
+  Anything that opens a network connection fails, including asyncio on Windows, where
   `socket.socketpair()` connects over this PC's loopback address, so it is refused and an asyncio
   event loop can't start in the session. Use the
   [API compatibility check](#snowpark-api-compatibility-check-preview) to see which calls need
   Snowflake's own servers.
 
-### Snowpark runtime packages and licences
+### Snowpark runtime packages and licenses
 
-Every package the Snowpark lock file installs, for Python 3.12 on Windows x64, with the licence its
+Every package the Snowpark lock file installs, for Python 3.12 on Windows x64, with the license its
 package metadata declares (PyPI's, for tzdata). "Needed by" is what pulls it in. The connector and its
 tree come in even though a local session never connects to Snowflake.
 
-| Package | Version | Licence | Needed by |
+| Package | Version | License | Needed by |
 | --- | --- | --- | --- |
 | asn1crypto | 1.5.1 | MIT | snowflake-connector-python |
 | boto3 | 1.44.10 | Apache-2.0 | snowflake-connector-python |

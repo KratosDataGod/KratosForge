@@ -45,15 +45,14 @@ LABEL = "Snowpark (this PC, simulated)"
 # Variables the worker never gets: an account's settings or secrets for the connector, Snowpark's own
 # switches (SNOWPARK_LOCAL_TESTING_INTERNAL_TELEMETRY), and proxies that would give it a route out.
 SCRUBBED = ("SNOWFLAKE_", "SNOWSQL_", "SNOWPARK_", "SF_", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
-SQL_REFUSED = ("session.sql is refused here: Snowflake's local testing framework can't run SQL, and whether "
-               "KratosForge translates it for this engine is still open. Use DataFrame calls, or a Snowflake SQL "
-               "cell on DuckDB.")
+SQL_REFUSED = ("session.sql is refused here, because Snowflake's local testing framework can't run SQL. Use "
+               "DataFrame calls, or a Snowflake SQL cell on DuckDB.")
 
 SNOWPARK_LOCAL = EngineDescriptor(
     id="snowpark-local", label=LABEL, location="local", platform="snowflake", billing="none", adapter=True,
     family="snowpark", preview=True,
     languages={
-        "python": Support("simulated", f"Snowpark Python, {SIMULATED}: session is a local testing session with "
+        "python": Support("simulated", f"Snowpark Python, {SIMULATED}, where session is a local testing session with "
                           "no Snowflake account. Only some functions are implemented, and session.sql is refused.", _T),
     },
     capabilities={
@@ -180,10 +179,10 @@ class SnowparkLocalAdapter:
         installed = self.runtimes.installed(self.line)
         if not installed:
             raise Unsupported(f"Snowpark Python {self.line} with local testing isn't installed yet. Install it for "
-                              "this engine first; KratosForge puts it in a folder of its own.")
+                              "this engine first, and KratosForge puts it in a folder of its own.")
         if ".".join(installed.split(".")[:2]) != self.line:
-            raise Unsupported(f"The installed Snowpark Python is {installed}; this version of KratosForge pins "
-                              f"{self.line}.x. Install it again.")
+            raise Unsupported(f"The installed Snowpark Python is {installed}, but this version of KratosForge pins "
+                              f"{self.line}.x. Install Snowpark Python again.")
         folder = self.runtimes.folder(self.line)
         command = runtimes.worker_command(self._python, folder, KIND)
         return SnowparkLocalSession(config, command, worker_env(), cwd=str(folder), cell_seconds=self.cell_seconds)

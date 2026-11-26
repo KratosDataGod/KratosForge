@@ -7,7 +7,7 @@ and no parity cell changed.
 - **Status.** Chris approved option C first, then option A, and the new dependency for A. Both are
   built, as Preview: the [Snowpark API compatibility check](../engines.md#snowpark-api-compatibility-check-preview)
   and [Snowpark on this PC](../engines.md#snowpark-on-this-pc-preview), whose runtime packages and
-  licences are listed there for Security's review. `session.sql` stays refused.
+  licenses are listed there for Security's review. `session.sql` stays refused.
 
 - **Researched.** 2026-11-21, against Snowpark Python 1.58.0, the latest release on
   [PyPI](https://pypi.org/project/snowflake-snowpark-python/) that day.
@@ -238,7 +238,7 @@ could reach Partial, never Verified, because verified equivalence needs a record
 2. **A new dependency**, for option A only. `snowflake-snowpark-python[localtest]` pinned to one
    version, with `snowflake-connector-python` and its tree (`cryptography`, `pyOpenSSL`, `pyjwt`,
    `boto3`, `botocore`, `pandas`, `requests` and others), all Apache 2.0 at the top level, installed
-   into a locked runtime folder and never into the sidecar. The licences of the transitive packages
+   into a locked runtime folder and never into the sidecar. The licenses of the transitive packages
    are not checked yet.
 3. **Telemetry.** Agreement that the runtime always sets `disable_local_testing_telemetry` and runs
    without a route to Snowflake's telemetry host.

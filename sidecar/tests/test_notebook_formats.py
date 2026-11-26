@@ -170,6 +170,8 @@ def test_dbc_limits(monkeypatch):
 def test_notebook_name_from_file_names():
     assert nbf.notebook_name("a/b:c") == "a-b-c"
     assert nbf.notebook_name("  ...  ") == "Imported notebook"
+    # A dot or space at the end, also one the 120-character cut leaves, is trimmed, not refused.
+    assert nbf.notebook_name("Notes. .") == "Notes" and nbf.notebook_name("n" * 119 + ". x") == "n" * 119
 
 
 @pytest.fixture

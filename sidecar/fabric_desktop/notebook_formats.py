@@ -775,7 +775,8 @@ def parse_dbc(data: bytes) -> list[dict[str, Any]]:
 def notebook_name(name: str) -> str:
     """A notebook name from a file or archive name: characters a file name can't hold become -,
     and an empty result is "Imported notebook"."""
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name).strip().rstrip(".").strip()[:120]
+    # Cut first, then trimmed: a dot or space at the end (also one the cut leaves) is a name Windows can't keep.
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name).strip()[:120].rstrip(". ")
     if not name:
         return "Imported notebook"
     return check_notebook_name(name)

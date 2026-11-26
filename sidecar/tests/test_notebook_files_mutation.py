@@ -101,6 +101,15 @@ def test_a_free_name_is_cut_to_80_characters(shelf):
     assert notebook_files.free_name(shelf, "n" * 100) == "n" * 80
 
 
+@pytest.mark.parametrize("wanted, name", [("Notes. .", "Notes"), ("Notes . . ", "Notes"),
+                                          ("n" * 79 + ". Final", "n" * 79), ("n" * 78 + " .x", "n" * 78)])
+def test_a_free_name_never_ends_with_a_dot_or_a_space_even_once_cut(shelf, wanted, name):
+    """Windows drops a trailing dot or space, so the notebook check refuses one: a file picked to open
+    ("Notes. ..ipynb", or a long title the cut ends on a dot) used to be offered a name it then refused."""
+    assert notebook_files.free_name(shelf, wanted) == name
+    notebook_files.check_notebook_name(name)
+
+
 # Opening a file
 
 

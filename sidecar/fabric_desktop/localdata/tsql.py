@@ -3084,8 +3084,10 @@ def _big_integers(tree: exp.Expression) -> None:
                for up in _ancestors(node)):
             continue
         arg = node.parent if isinstance(node.parent, exp.Neg) else node  # -9223372036854775809 too
-        if isinstance(arg.parent, (exp.Left, exp.Right, exp.Repeat, exp.Substring)) and arg.arg_key != "this":
-            continue  # a bigint count or length, which those functions check against a bigint themselves
+        if arg.arg_key in _NUMBER_ARGS.get(type(arg.parent), ()) or isinstance(arg.parent, exp.Space):
+            # a count, length or start, which _string_edges checks itself: against a bigint (WR-239), and SPACE's
+            # against an int (_repeat)
+            continue
         node.replace(exp.Cast(this=node.copy(), to=exp.DataType.build(f"DECIMAL({len(text.lstrip('0'))}, 0)")))
 
 

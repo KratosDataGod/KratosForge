@@ -66,13 +66,14 @@ def test_to_timestamp_of_a_negated_or_bracketed_number_is_seconds_in_utc():
 
 
 def test_timestamp_from_parts_with_nanoseconds_adds_microseconds():
-    sql = one("SELECT TIMESTAMP_FROM_PARTS(2024, 1, 1, 0, 0, 0, 500)").duckdb_sql
-    assert "INTERVAL (CAST(500 AS BIGINT) // 1000) MICROSECOND" in sql
+    sql = one("SELECT TIMESTAMP_FROM_PARTS(2024, 1, 1, 0, 0, 0, 500000)").duckdb_sql
+    assert "INTERVAL (CAST(500000 AS BIGINT) // 1000) MICROSECOND" in sql
 
 
 def test_merge_from_an_unnamed_subquery_gets_no_duplicate_check():
     st = one("MERGE INTO t USING (SELECT 1 AS id) ON t.id = id WHEN MATCHED THEN UPDATE SET x = 1")
-    assert st.duckdb_sql == "MERGE INTO t USING (SELECT 1 AS id) ON t.id = id WHEN MATCHED THEN UPDATE SET x = 1"
+    # the subquery's alias is ID, as Snowflake resolves an unquoted name (SFX-073)
+    assert st.duckdb_sql == 'MERGE INTO t USING (SELECT 1 AS "ID") ON t.id = id WHEN MATCHED THEN UPDATE SET x = 1'
 
 
 def test_array_size_outside_a_select_is_rewritten_without_a_name():
@@ -83,7 +84,7 @@ def test_array_size_outside_a_select_is_rewritten_without_a_name():
 def test_a_change_event_keeps_another_windows_order_and_a_subquerys_own_star():
     sql = one("SELECT *, (SELECT MAX(z) FROM (SELECT * FROM u)) AS m, "
               "CONDITIONAL_CHANGE_EVENT(SUM(z) OVER (PARTITION BY q)) OVER (ORDER BY y) FROM t").duckdb_sql
-    assert sql.startswith("SELECT * EXCLUDE (__sf_place0, __sf_flag0), (SELECT MAX(z) FROM (SELECT * FROM u)) AS m")
+    assert sql.startswith('SELECT * EXCLUDE (__sf_place0, __sf_flag0), (SELECT MAX(z) FROM (SELECT * FROM u)) AS "M"')
     assert "SUM(z) OVER (PARTITION BY q)" in sql
 
 
@@ -188,7 +189,7 @@ def test_nonzero_number_of_text_that_isnt_a_number():
     ("SELECT TO_CHAR(CURRENT_DATE, 'YYYY Q')", "not_translatable", "SFX-002"),
     ("SELECT {'a': 1, 2}", "translated", "SELECT {'a': 1, '_1': 2}"),
     ("SELECT ARRAY_INSERT(a, p, 1)", "not_translatable", "SFX-000"),
-    ("SELECT $1 FROM t", "translated", "SELECT $1 FROM t"),
+    ("SELECT $1 FROM t", "translated", 'SELECT #1 AS "$1" FROM t'),
     ("SELECT REGEXP_SUBSTR(s, x, 1, 1, 'e')", "translated", "REGEXP_EXTRACT(s, REGEXP_REPLACE(x, '^$', 'a^a', 'g'))"),
     ("SELECT TIMESTAMP_TZ_FROM_PARTS(2024, 1, 1, 0, 0, 0, 0, 'UTC')", "not_translatable", "SFX-000"),
     ("SELECT BITAND_AGG(DISTINCT x) FROM t", "translated", "SELECT BIT_AND(DISTINCT x) FROM t"),

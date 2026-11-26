@@ -99,8 +99,8 @@ class WarehouseMonitoringMixin:
         new warehouses get their views without asking again. Each warehouse is done on its own; one
         that fails is reported and the rest still go ahead."""
         if not app_settings.value("wh_monitoring_views"):
-            raise PermissionError("Your organization doesn't allow building monitoring views from KratosForge "
-                                  "(wh_monitoring_views is off).")
+            raise PermissionError("Your organization doesn't allow building monitoring views from KratosForge. "
+                                  + app_settings.ask_it("wh_monitoring_views"))
         if confirm is not True:
             raise PermissionError("Building monitoring views creates items in Fabric, so it needs your confirm.")
         ws = wm.guid(workspace_id, "workspace")

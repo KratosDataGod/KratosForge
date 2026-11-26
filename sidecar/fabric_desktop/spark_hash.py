@@ -339,8 +339,13 @@ def _sha2_chunk(data: Any, bits: Any) -> Any:
 
 
 def register(con: Any) -> None:
-    """Add __kf_sha2 (sha2 above, a chunk at a time) to DuckDB connection ``con``, as each Spark SQL
-    connection does. A NULL argument gives NULL."""
-    from duckdb.sqltypes import BLOB, INTEGER, VARCHAR
+    """Add __kf_sha2 (sha2 above, a chunk at a time) and __kf_url_decode (databricks_bytes.url_decode, the
+    java.net.URLDecoder Spark's and Databricks' url_decode both use) to DuckDB connection ``con``, as each Spark
+    SQL connection does. A NULL argument gives NULL."""
+    from duckdb.sqltypes import BLOB, BOOLEAN, INTEGER, VARCHAR
+
+    from .databricks_bytes import url_decode
     con.create_function("__kf_sha2", _sha2_chunk, [BLOB, INTEGER], VARCHAR, type="arrow", null_handling="special",
                         side_effects=False)
+    con.create_function("__kf_url_decode", url_decode, [VARCHAR, BOOLEAN], VARCHAR, null_handling="special",
+                        side_effects=False)  # try_url_decode gives NULL for bad input

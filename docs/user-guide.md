@@ -156,6 +156,9 @@ A short list that says whether this PC can do real work yet. Each check only rea
 | **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
 | **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
 | **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
+| **This PC's clock** | Within 5 minutes of the last server that answered over HTTPS. Shown once a server has answered | Turn on **Set time automatically**; see [Troubleshooting](troubleshooting.md#this-pcs-clock-is-wrong) |
+| **Your data folder** | It is on this PC, not a network share, with at least 2 GB free | Free some space, or ask IT; see [Virtual desktops and shared PCs](enterprise-install.md#virtual-desktops-and-shared-pcs) |
+| **Files kept out of OneDrive** | None of the folders KratosForge keeps files in is in OneDrive: the data folder, the metadata project, local data projects, repositories and the SQL page's temp folder | Move each one it names out of OneDrive; see [Files in OneDrive](troubleshooting.md#files-in-onedrive) |
 | **Writing to OneLake** | **Test a write** worked in the last 7 days | Only checked when you ask (below) |
 
 **Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
@@ -270,7 +273,7 @@ In a notebook, select lines of a cell's code (or none, for the whole cell) and c
 
 ## Workspaces
 
-Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app. While preview features are shown, two more follow: **Power BI** (Preview), the reports and dashboards you can open in [Embed Studio](embed-studio.md), and **Databricks** (Preview), folders of notebooks on this PC kept in step with a Databricks workspace folder ([Databricks workspace sync](engines.md#databricks-workspace-sync-preview)).
+Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app. While preview features are shown, two more follow: **Power BI** (Preview), the reports and dashboards you can open in [Embed Studio](embed-studio.md), and **Databricks** (Preview), with two views: **Synced folders**, folders of notebooks on this PC kept in step with a Databricks workspace folder ([Databricks workspace sync](engines.md#databricks-workspace-sync-preview)), and **Volumes on this PC** (Preview), the Unity Catalog volumes that Databricks notebooks and SQL cells on this PC read and write, with their files ([Unity Catalog volumes on this PC](engines.md#unity-catalog-volumes-on-this-pc-preview)).
 
 - **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**. The pin on an item's row pins it to Home (Preview, see [Pinned items](home-notebooks.md#pinned-items-preview)).
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
@@ -411,9 +414,9 @@ A data product's page shows its **endorsement** badge (Certified, Promoted or Ma
 
 A data product's page groups what it offers into **Tables**, **Semantic models** and **Reports**; each model and report has its own endorsement badge. The product's owner or a platform admin chooses **Add a model** or **Add a report**, picks a workspace and then the item: the product records only the item's id, type, workspace id and display name, and nothing in Fabric changes. **Remove** asks first. On **Data mesh > Products**, **Has tables**, **Has models** and **Has reports** find products by what they offer, and a product's badge is its semantic model's endorsement. Details in [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview).
 
-### Direct Lake check
+### Direct Lake fallback risk
 
-**Data mesh > Deploy > Semantic model** has a **Direct Lake check** card (Preview). Pick a model and a capacity, then **Check now**: it lists what would make the model fall back to DirectQuery, or fail, before anyone queries it. That covers tables past the capacity's Direct Lake limits, columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique and fact rows whose key has no match. It reads the model's definition from Fabric and each table's Delta log from OneLake and checks on this PC: it starts no Fabric job, though reading from OneLake uses capacity. Every check and the limits per capacity are in [Direct Lake check](direct-lake-check.md).
+**Data mesh > Deploy > Semantic model** has a **Direct Lake fallback risk** card (Preview). Pick a model and a capacity, then **Check now**: it says whether the model will fall back to DirectQuery, might, or is within the capacity's Direct Lake limits, and which table decides it. Each table shows its rows, Parquet files and row groups against the limits, and opens to show each check, its evidence, the fix and a forecast of when it passes a limit at its current growth. Pick another capacity to judge the same numbers again without reading anything. The card also lists columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique and fact rows whose key has no match. Everything is predicted from metadata on this PC: it reads the model's definition from Fabric and each table's Delta log from OneLake, starts no Fabric job and runs no query, though reading from OneLake uses capacity. Every check, the forecast and the limits per capacity are in [Direct Lake fallback risk](direct-lake-check.md).
 
 ### Data dictionary
 
@@ -690,7 +693,7 @@ A repository's **Fabric workspace** tab shows how a Fabric workspace's own Git c
 
 ## Profile (Preview)
 
-**Profile**, in the account menu (top right), is a private record of work KratosForge verified: notebooks that passed Validate with a clean run. It shows your level and achievements (for fun, not a skill rating), skills as evidence coverage, and a **Professional report** you can save as Markdown for a review. Recording is on from the start and stays on this PC; turn it off in **Profile > Settings**. The whole page is described in [Profile](profile.md).
+**Profile**, in the account menu (top right), is a private record of work KratosForge verified: notebooks that passed Validate with a clean run. It shows your level and achievements (for fun, not a skill rating), skills as evidence coverage, **Skill trees** with a mastery level for each talent of fourteen developer classes, and a **Professional report** you can save as Markdown for a review. Recording is on from the start and stays on this PC; turn it off in **Profile > Settings**. The whole page is described in [Profile](profile.md).
 
 ## Settings
 
@@ -897,6 +900,8 @@ fabric-desktop audit --action meta_promote           # only promotes
 fabric-desktop audit --verify                        # exit code 1 if the chain is broken
 fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
 ```
+
+`--verify` and `--verify-export` report a line that isn't JSON, or that gives a field twice, as not an audit line. A field given twice could show one value to a log store and another to the hash.
 
 Each write also records the newest line and the line count in `audit\head.json`, so `--verify` also reports lines deleted from the end of the trail, which the chain alone can't show. If lines go missing before the next write, `head.json` keeps a note of it, so later lines don't hide the gap. Someone who can edit the folder can edit `head.json` too. Each audited action writes `head.json` to disk (a small extra write and flush next to the line itself). Once you've looked into a reported gap (for example, the files were restored from an older backup on purpose), clear it by deleting `head.json`: the next write starts a new one from the trail as it is, and `--verify` stops reporting the gap.
 

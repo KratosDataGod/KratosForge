@@ -316,6 +316,43 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.3-q11",
+      "type": "multiple",
+      "stem": "At Marlow, which two changes speed up the load into the staging table? Each correct answer presents part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Load the staging table with COPY INTO from the storage account instead of one INSERT per row"
+        },
+        {
+          "id": "b",
+          "text": "Have the store exports combined into fewer files of between 100 MB and 1 GB each"
+        },
+        {
+          "id": "c",
+          "text": "Run the per-row INSERT statements from 600 parallel iterations of the ForEach loop"
+        },
+        {
+          "id": "d",
+          "text": "Drop the staging table's statistics before the load and let them be created again later"
+        },
+        {
+          "id": "e",
+          "text": "Set the load's isolation level to READ UNCOMMITTED so that its inserts take no locks"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "COPY INTO is the recommended way to ingest from Azure Data Lake Storage, and many small INSERT transactions create many small files and slow the load. Files of 100 MB to 1 GB give the best throughput. The warehouse ignores isolation level changes and always uses snapshot isolation.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/guidelines-warehouse-performance",
+      "case": "marlow-sales",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

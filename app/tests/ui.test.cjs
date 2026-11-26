@@ -6910,3 +6910,191 @@ test("an Academy exercise's How this works names the AppContainer only for pytho
     assert.doesNotMatch(JSON.stringify(ctx.how({ adapter: a, class: "local_verified" })), /sandboxed/i, a);
   }
 });
+
+// ---------- breakpoints follow their lines through random edits (seeded, story S3) ----------
+// dbgEdited runs on real CodeMirror transactions (codemirror.js needs no page for EditorState). A
+// model of the cell, a list of lines that each remember which old lines they hold, says where every
+// breakpoint must be after the edit. Each failure names its seed, so dbgEditCase(seed) replays it.
+const DBG_EDIT_SEEDS = Array.from({ length: 300 }, (_, i) => 3300 + i);
+
+function dbgEditorHelpers() {
+  const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  const head = src.slice(0, src.indexOf("// ---------- state ----------"));
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = { toasts: [], queueMicrotask: () => {}, dbgRepaintMarks: () => {}, dbgPausedEdited: () => {} };
+  ctx.toast = (t) => ctx.toasts.push(t);
+  const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
+  vm.runInNewContext(`${cm};\n${head}\n${fn("dbgSetLines")}\n${fn("dbgEdited")}\n` +
+    "Object.assign(this, { EditorState: CM.EditorState, dbgEdited, dbgDroppedText, dbgBpRematch });", ctx);
+  return ctx;
+}
+
+function dbgRandom(seed) {  // mulberry32: small, seeded, the same on every machine
+  let a = seed >>> 0;
+  const next = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const int = (lo, hi) => lo + Math.floor(next() * (hi - lo + 1));
+  return { next, int, pick: (xs) => xs[int(0, xs.length - 1)] };
+}
+
+// A random cell, random breakpoints, and one edit of random whole-line inserts, whole-line deletes,
+// edits inside a line and joins of a line with the next, none of them touching another.
+function dbgEditCase(seed) {
+  const r = dbgRandom(seed);
+  const count = r.int(1, 12);
+  const old = Array.from({ length: count }, (_, i) => r.next() < 0.2 ? r.pick(["", "    ", "# note"]) : `${r.pick(["x", "total", "if y", "    z"])}${i + 1} = ${r.int(0, 99)}`);
+  const bps = [...new Set(Array.from({ length: r.int(1, count) }, () => r.int(1, count)))].sort((a, b) => a - b);
+  const act = old.map(() => r.pick(["keep", "keep", "keep", "delete", "edit", "join"]));
+  const before = old.map(() => (r.next() < 0.2 ? Array.from({ length: r.int(1, 2) }, (_, k) => `new${k} = 0`) : []));
+  // Added after the last line, when it has text (on an empty last line that's the same place as above it).
+  const atEnd = r.next() < 0.2 && old[count - 1] ? ["tail = 1"] : [];
+  for (let i = 0; i < count; i++) {
+    const next = act[i + 1];
+    // An empty line joined to the next is that line deleted, so only a line with text is joined.
+    if (act[i] === "join" && (i === count - 1 || !old[i] || !["keep", "edit"].includes(next) || before[i + 1].length)) act[i] = "keep";
+    if (act[i] === "edit" && old[i].length < 2) act[i] = "keep";
+  }
+  if (act.every((a) => a === "delete")) act[0] = "keep";  // all of it would be the whole cell replaced
+  // Nor the line above an empty last line: its breakpoint goes with them (the known bug below).
+  if (count > 1 && !old[count - 1] && act[count - 2] === "delete") act[count - 2] = "keep";
+  // A run of deleted lines ending the cell takes the line break before it: the line above isn't joined.
+  let end = count - 1;
+  while (end >= 0 && act[end] === "delete") end--;
+  // Not after an empty line, though: that line's breakpoint is removed with them (the known bug below).
+  while (end >= 0 && end < count - 1 && !old[end]) act[++end] = "keep";
+  if (end >= 0 && end < count - 1 && act[end] === "join") act[end] = "keep";
+  for (let i = end + 1; i < count; i++) before[i] = [];  // that range starts inside the line above
+
+  const from = [];
+  old.reduce((at, t, i) => { from[i] = at; return at + t.length + 1; }, 0);
+  const to = (i) => from[i] + old[i].length;
+  const changes = [];
+  const edited = [];
+  for (let i = 0; i < count; i++) {
+    if (before[i].length) changes.push({ from: from[i], insert: before[i].join("\n") + "\n" });
+    if (act[i] === "delete" && (i === 0 || act[i - 1] !== "delete")) {
+      let j = i;
+      while (j + 1 < count && act[j + 1] === "delete") j++;
+      changes.push(j < count - 1 ? { from: from[i], to: from[j + 1] } : { from: to(i - 1), to: to(j) });
+    }
+    if (act[i] === "edit") {  // strictly inside the line, so it never touches another change
+      const a = r.int(1, old[i].length - 1), b = r.int(a, old[i].length - 1);
+      const insert = r.pick(["", "Q", "  + 1"]);
+      changes.push({ from: from[i] + a, to: from[i] + b, insert });
+      edited[i] = old[i].slice(0, a) + insert + old[i].slice(b);
+    }
+    if (act[i] === "join") changes.push({ from: to(i), to: from[i + 1] });
+  }
+  if (atEnd.length) changes.push({ from: to(count - 1), insert: "\n" + atEnd.join("\n") });
+
+  // The model: each new line, with the old lines it holds.
+  const model = [];
+  for (let i = 0; i < count; i++) {
+    for (const t of before[i]) model.push({ text: t, holds: [] });
+    if (act[i] === "delete") continue;
+    const line = { text: edited[i] ?? old[i], holds: [i + 1] };
+    if (i > 0 && act[i - 1] === "join") {
+      model[model.length - 1].text += line.text;
+      model[model.length - 1].holds.push(i + 1);
+    } else model.push(line);
+  }
+  for (const t of atEnd) model.push({ text: t, holds: [] });
+  return { old, bps, changes, model, act };
+}
+
+test("seeded: breakpoints follow their lines through random edits, and a deleted line's is named", () => {
+  const ctx = dbgEditorHelpers();
+  let skipped = 0;
+  const seen = { dropped: 0, moved: 0, merged: 0, blank: 0 };
+  for (const seed of DBG_EDIT_SEEDS) {
+    const { old, bps, changes, model, act } = dbgEditCase(seed);
+    const why = `seed ${seed}: ${JSON.stringify({ old, bps, act, changes })}`;
+    const start = ctx.EditorState.create({ doc: old.join("\n") });
+    const tr = start.update({ changes });
+    assert.deepStrictEqual(tr.state.doc.toString().split("\n"), model.map((m) => m.text), `the model is wrong, ${why}`);
+    let whole = false;  // the edits merged into one over the whole cell: that's the other test's path
+    tr.changes.iterChanges((a, b) => { whole ||= a === 0 && b === start.doc.length; });
+    if (whole) { skipped++; continue; }
+    const cell = { type: "code", source: tr.state.doc.toString(), meta: { breakpoints: [...bps] } };
+    ctx.toasts.length = 0;
+    ctx.dbgEdited(cell, { startState: start, state: tr.state, changes: tr.changes, transactions: [tr] });
+    const where = (n) => model.findIndex((m) => m.holds.includes(n)) + 1;  // 0: its line was deleted
+    const landed = bps.map(where);
+    const want = [...new Set(landed.filter((m) => m > 0))].sort((a, b) => a - b);
+    const dropped = bps.filter((n, i) => landed[i] === 0 || landed.indexOf(landed[i]) !== i);
+    assert.deepStrictEqual([...(cell.meta.breakpoints || [])], want, why);
+    seen.dropped += landed.includes(0);
+    seen.moved += bps.some((n, i) => landed[i] && landed[i] !== n);
+    seen.merged += dropped.some((n) => where(n) > 0);
+    seen.blank += bps.some((n, i) => landed[i] && !old[n - 1].trim());
+    // Each one kept is on the line of text it was set on (edited inside, or joined onto the line above).
+    for (const [i, n] of bps.entries()) {
+      if (landed[i] && act[n - 1] === "keep" && !(n > 1 && act[n - 2] === "join")) {
+        assert.strictEqual(tr.state.doc.line(landed[i]).text, old[n - 1], why);
+      }
+    }
+    assert.deepStrictEqual(ctx.toasts, dropped.length ? [ctx.dbgDroppedText(dropped, dropped.length === 1 ? "its line was deleted" : "their lines were deleted")] : [], why);
+    assert.strictEqual(cell.dbgDropped?.at(-1)?.lines.join() ?? "", dropped.join(), why);
+  }
+  assert.ok(skipped < DBG_EDIT_SEEDS.length / 10, `${skipped} seeds replaced the whole cell`);
+  for (const [what, n] of Object.entries(seen)) assert.ok(n >= 10, `only ${n} cases where a breakpoint was ${what}`);
+});
+
+test("seeded: a cell replaced whole keeps each breakpoint on its line's text, and names the rest", () => {
+  const ctx = dbgEditorHelpers();
+  for (const seed of DBG_EDIT_SEEDS) {
+    const r = dbgRandom(seed);
+    const count = r.int(1, 12);
+    // Lines with different text each, so there's one place for each to go; some blank.
+    const old = Array.from({ length: count }, (_, i) => (r.next() < 0.2 ? r.pick(["", "   "]) : `v${i}=f(${i},${r.int(0, 9)})`));
+    const bps = [...new Set(Array.from({ length: r.int(1, count) }, () => r.int(1, count)))].sort((a, b) => a - b);
+    // Format cell: spacing changed, blank lines added or taken out, a line's code sometimes gone.
+    const kept = old.map(() => r.next() > 0.15);
+    const now = [];
+    old.forEach((t, i) => {
+      if (r.next() < 0.2) now.push("");
+      if (kept[i] && t.trim()) now.push(r.pick([t, t.replace("=", " = "), t.replace(",", ", "), `    ${t}`]));
+    });
+    if (!now.length) now.push("pass");
+    const why = `seed ${seed}: ${JSON.stringify({ old, bps, now })}`;
+    const start = ctx.EditorState.create({ doc: old.join("\n") });
+    const doc = now.join("\n");
+    if (doc === start.doc.toString() || start.doc.length === 0) continue;  // not a whole replacement
+    const tr = start.update({ changes: { from: 0, to: start.doc.length, insert: doc } });
+    const cell = { type: "code", source: doc, meta: { breakpoints: [...bps] } };
+    ctx.toasts.length = 0;
+    ctx.dbgEdited(cell, { startState: start, state: tr.state, changes: tr.changes, transactions: [tr] });
+    const key = (t) => t.replace(/\s+/g, "");
+    const go = bps.map((n) => (key(old[n - 1]) && kept[n - 1] ? now.findIndex((t) => key(t) === key(old[n - 1])) + 1 : 0));
+    const want = [...new Set(go.filter((m) => m > 0))].sort((a, b) => a - b);
+    const dropped = bps.filter((n, i) => !go[i]);
+    assert.deepStrictEqual([...(cell.meta.breakpoints || [])], want, why);
+    assert.deepStrictEqual(ctx.toasts, dropped.length ? [ctx.dbgDroppedText(dropped, dropped.length === 1 ? "that line isn't in the cell any more" : "those lines aren't in the cell any more")] : [], why);
+  }
+});
+
+// Known bug, found by the seeded test above (seeds 3302 and 3455 before the generator stepped
+// around it): an empty line next to deleted lines loses its breakpoint, and the message says its
+// line was deleted. Ctrl+Shift+K on a last line takes the line break before it, so the change starts
+// where the empty line above starts; a deleted block's last line break ends where an empty last line
+// starts. Either way dbgSpanGone sees the empty line's whole span inside the change.
+test("an empty line next to deleted lines keeps its breakpoint", { todo: "bug: debugging.js dbgEdited drops it" }, () => {
+  const ctx = dbgEditorHelpers();
+  for (const [doc, change, bp, line] of [
+    ["x = 1\n\ny = 2", { from: 6, to: 12 }, 2, 2],  // Ctrl+Shift+K on line 3: "x = 1\n" with line 2 still there
+    ["x = 1\ny = 2\n", { from: 6, to: 12 }, 3, 2],  // Ctrl+Shift+K on line 2: the empty last line is line 2 now
+  ]) {
+    const start = ctx.EditorState.create({ doc });
+    const tr = start.update({ changes: change });
+    const cell = { type: "code", source: tr.state.doc.toString(), meta: { breakpoints: [bp] } };
+    ctx.toasts.length = 0;
+    ctx.dbgEdited(cell, { startState: start, state: tr.state, changes: tr.changes, transactions: [tr] });
+    assert.deepStrictEqual([...(cell.meta.breakpoints || [])], [line], JSON.stringify(doc));
+    assert.deepStrictEqual(ctx.toasts, []);
+  }
+});

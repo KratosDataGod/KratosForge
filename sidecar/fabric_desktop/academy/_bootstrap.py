@@ -522,15 +522,40 @@ def _lock_query_builder() -> None:
 
 
 def _lock_duckdb(db: "Any", work: str, guard: "Callable[..., Any]") -> None:
-    """Every DuckDB connection, the module's default one included, reads only the workspace."""
-    settings = ("SET allowed_directories = ['" + work.replace("'", "''") + "']",
+    """Every DuckDB connection, the module's default one included, reads only the workspace and
+    installs or auto-loads no extension.
+
+    DuckDB keeps extensions under HOME, which is inside the workspace here, so its extension folder is
+    moved first to one outside the workspace and allowed_directories that is never created (a random
+    name at the top of the workspace's drive). With autoinstall and autoload off as well, INSTALL and
+    LOAD of any extension fail, and the extensions built into DuckDB (parquet, json) work as before.
+    A connection opened with a config gets the same three extension settings in that config, ahead of
+    the learner's own, so they hold while DuckDB applies the rest of it (a TimeZone setting, say, would
+    otherwise load ICU before the SET statements run)."""
+    def quoted(text: str) -> str:
+        return "'" + text.replace("'", "''") + "'"
+
+    no_extensions = os.path.join(os.path.splitdrive(work)[0] + os.sep, "kf-no-extensions-" + os.urandom(16).hex())
+    at_open = {"extension_directory": no_extensions, "autoinstall_known_extensions": False,
+               "autoload_known_extensions": False}
+    settings = ("SET extension_directory = " + quoted(no_extensions),
+                "SET autoinstall_known_extensions = false", "SET autoload_known_extensions = false",
+                "SET allowed_directories = [" + quoted(work) + "]",
                 "SET enable_external_access = false", "SET memory_limit = '1GB'", "SET lock_configuration = true")
     connect = db.connect
 
     def locked(database: "Any" = ":memory:", *args: "Any", **kwargs: "Any") -> "Any":
         if database not in (":memory:", "", None) and not str(database).startswith(":memory:"):
             guard(lambda d: d, "a DuckDB database")(database)
-        con = connect(database, *args, **kwargs)
+        rest = list(args)
+        given = rest[1] if len(rest) > 1 else kwargs.get("config")   # connect(database, read_only, config)
+        config = dict(at_open)
+        config.update((k, v) for k, v in dict(given or {}).items() if str(k).lower() not in at_open)
+        if len(rest) > 1:
+            rest[1] = config
+        else:
+            kwargs["config"] = config
+        con = connect(database, *rest, **kwargs)
         for s in settings:
             con.execute(s)
         return con

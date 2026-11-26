@@ -43,7 +43,7 @@ resolved parent is `<data>/academy/<pack>`.
 | --- | --- | --- |
 | L1 separate process | `python -I -X utf8 bootstrap.py`, cwd = workspace, stdin closed, CREATE_NO_WINDOW. Environment built from scratch: only PATH, PATHEXT, SYSTEMROOT, WINDIR and locale vars; TEMP/TMP/HOME/USERPROFILE/APPDATA/LOCALAPPDATA point into `.tmp`; no proxy vars, no `FABRIC_*`, no `AZURE_*`. Not the notebook kernel: no `kernel_host`, no token callback, no lakehouse sync, no RPC back to the engine at all; results go out as one JSON line on stdout. | Yes, for credentials held in memory by the engine |
 | L2 limits | Windows: a Job Object with KILL_ON_JOB_CLOSE, ACTIVE_PROCESS_LIMIT = 1 (no child processes at all, so no fork bomb and no `cmd /c`), JOB_MEMORY limit (default 1 GB), per-job user CPU time limit; the engine also enforces a wall-clock limit (default 60 s) and output cap (1 MB). POSIX (CI only): new session, RLIMIT_AS, RLIMIT_CPU, RLIMIT_FSIZE, RLIMIT_NOFILE, wall clock, killpg. | Yes, for resource exhaustion |
-| L3 audit hook | Installed by the bootstrap before learner code: refuses `socket.*`, `subprocess.Popen`, `os.system`, `os.exec*`, `os.spawn*`, `os.posix_spawn`, `os.fork`, `os.startfile`, `ctypes.dlopen`/`ctypes.dlsym`/`ctypes.call_function`, `winreg.*`, `open` for write and `os.remove/rename/mkdir/rmdir/chmod/symlink/link` outside the workspace, and `open` for read outside the workspace and the Python install (`sys.base_prefix`, `sys.prefix`, site-packages), always refusing the `fabric_desktop` package folder and the app's data folder. `duckdb.connect` is wrapped so every connection gets `allowed_directories=[workspace]`, `enable_external_access=false`, a memory limit and `lock_configuration=true` (checked on DuckDB 1.5.6: reading `/etc/passwd` raises PermissionException). Polars `read_*`/`scan_*`/`write_*`/`sink_*` and `deltalake.write_deltalake`/`DeltaTable` are wrapped to refuse URLs and paths outside the workspace. Imports of `fabric_desktop`, `msal` and the sign-in packages are refused. | **No.** Defense in depth: native code (a compiled extension, delta-rs object store, a pre-loaded `_ctypes` handle) is not seen by Python's audit hooks |
+| L3 audit hook | Installed by the bootstrap before learner code: refuses `socket.*`, `subprocess.Popen`, `os.system`, `os.exec*`, `os.spawn*`, `os.posix_spawn`, `os.fork`, `os.startfile`, `ctypes.dlopen`/`ctypes.dlsym`/`ctypes.call_function`, `winreg.*`, `open` for write and `os.remove/rename/mkdir/rmdir/chmod/symlink/link` outside the workspace, and `open` for read outside the workspace and the Python install (`sys.base_prefix`, `sys.prefix`, site-packages), always refusing the `fabric_desktop` package folder and the app's data folder. `duckdb.connect` is wrapped, and the module's default connection set the same way, so every connection gets an `extension_directory` outside the workspace that is never created, `autoinstall_known_extensions=false` and `autoload_known_extensions=false` (also passed in the connection's config, ahead of the learner's own), then `allowed_directories=[workspace]`, `enable_external_access=false`, a memory limit and `lock_configuration=true` (checked on DuckDB 1.5.6: reading `/etc/passwd` raises PermissionException; `INSTALL`, `FORCE INSTALL`, `LOAD` and a URL read fail with an error). Polars `read_*`/`scan_*`/`write_*`/`sink_*` and `deltalake.write_deltalake`/`DeltaTable` are wrapped to refuse URLs and paths outside the workspace. Imports of `fabric_desktop`, `msal` and the sign-in packages are refused. | **No.** Defense in depth: native code (a compiled extension, delta-rs object store, a pre-loaded `_ctypes` handle) is not seen by Python's audit hooks |
 | L4 OS sandbox | Windows AppContainer: the learner process gets no network capability and file access only to folders ACL-granted to its AppContainer SID (the workspace read/write; the bundled Python runtime and site-packages read only). | Yes, for files and network, enforced by the kernel |
 
 ## Security conditions
@@ -134,8 +134,17 @@ How each Security condition is met:
    that is not a network boundary. Polars `read_*`, `scan_*`, `write_*` and `sink_*`;
    `deltalake.write_deltalake` and `DeltaTable`; pyarrow parquet, dataset, csv, feather, orc and
    json readers and writers; remote pyarrow file systems; pandas parquet, feather, orc, csv, json
-   and Excel I/O; and every DuckDB connection (`allowed_directories` = the workspace, external
-   access off, locked) all refuse URLs, `storage_options` and paths outside the workspace. The same
+   and Excel I/O; and every DuckDB connection all refuse URLs, `storage_options` and paths outside
+   the workspace. A DuckDB connection, the module's default one included, gets these settings in
+   this order before its configuration is locked: `extension_directory` set to a folder outside the
+   workspace and `allowed_directories` that is never created (DuckDB's default, under `HOME`, would
+   be inside the workspace), `autoinstall_known_extensions` and `autoload_known_extensions` off, then
+   `allowed_directories` = the workspace, external access off and a memory limit. The three extension
+   settings also go into the config of every `duckdb.connect()`, ahead of the learner's own, so they
+   already hold while DuckDB opens the database. So DuckDB can't install, download or load any
+   extension: `INSTALL` and `FORCE INSTALL` (from any repository) fail with a permission error, and a
+   URL read (`read_csv('http://...')`) fails because `httpfs` isn't loaded and won't be fetched. The
+   extensions built into DuckDB (`parquet`, `json`, `icu`) still read and write the workspace. The same
    functions reached through submodules (`polars.io.csv.functions.read_csv`) are replaced too.
    `pyarrow.OSFile`, `memory_map`, `create_memory_map`, `input_stream` and `output_stream` check
    their path. `pyarrow.fs.LocalFileSystem` is a subclass whose path methods check every path
@@ -168,7 +177,8 @@ Also:
   sits in the engine package, or holds the workspace or the data folder.
 - What learner code can't do, by design, and what to do instead: change a DuckDB setting after
   connecting (the configuration is locked; pass settings to `duckdb.connect(config=...)`); load
-  ICU or another extension (extensions aren't installed or autoloaded, and `HOME` is the workspace);
+  an extension DuckDB doesn't have built in (the extension folder is outside the workspace and never
+  created, and autoinstall and autoload are off);
   read a Delta table with `DeltaTable.to_pyarrow_table()` or `to_pyarrow_dataset()` (they go
   through `PyFileSystem`, which is refused; use `deltalake.QueryBuilder`). `deltalake.QueryBuilder`
   runs one `SELECT` or `WITH ... SELECT` over the Delta tables registered with it: DataFusion's

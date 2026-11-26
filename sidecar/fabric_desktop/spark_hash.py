@@ -320,7 +320,12 @@ def sha2(data: bytes | None, bits: int | None) -> str | None:
 
 
 def register(con: Any) -> None:
-    """Add __kf_sha2 (sha2 above) to DuckDB connection ``con``, as each Spark SQL connection does. A NULL
-    argument gives NULL."""
-    from duckdb.sqltypes import BLOB, INTEGER, VARCHAR
+    """Add __kf_sha2 (sha2 above) and __kf_url_decode (databricks_bytes.url_decode, the java.net.URLDecoder
+    Spark's and Databricks' url_decode both use) to DuckDB connection ``con``, as each Spark SQL connection
+    does. A NULL argument gives NULL."""
+    from duckdb.sqltypes import BLOB, BOOLEAN, INTEGER, VARCHAR
+
+    from .databricks_bytes import url_decode
     con.create_function("__kf_sha2", sha2, [BLOB, INTEGER], VARCHAR, null_handling="special", side_effects=False)
+    con.create_function("__kf_url_decode", url_decode, [VARCHAR, BOOLEAN], VARCHAR, null_handling="special",
+                        side_effects=False)  # try_url_decode gives NULL for bad input

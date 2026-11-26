@@ -267,12 +267,21 @@ def test_leading_blank_lines_of_a_cell_arent_kept_in_py_source_but_are_in_ipynb(
     assert [c["source"] for c in nbf.parse_ipynb(nbf.to_ipynb_text(cells, False))["cells"]] == ["\n\nx = 1", "\n# Title"]
 
 
-def test_a_markdown_line_that_is_a_fabric_marker_without_its_hash_splits_the_cell():
-    # Fabric writes markdown as "# " lines, so this line becomes "# CELL ****...", Fabric's own
-    # marker, and Fabric reads it the same way. Databricks source keeps it.
+def test_a_markdown_line_that_is_a_fabric_marker_without_its_hash_is_refused_not_split():
+    # Fabric writes markdown as "# " lines, so this line would become "# CELL ****...", Fabric's own
+    # marker, and the cell would read back split with that line lost. Databricks source keeps it.
     cells = [{"type": "markdown", "source": "Before\nCELL ********************\nAfter"}]
-    assert _back(nbf.to_fabric_py(cells)) == [("markdown", "Before"), ("code", "# After")]
+    with pytest.raises(ValueError) as err:
+        nbf.to_fabric_py(cells)
+    assert str(err.value) == ("The notebook wasn't exported as Fabric source, because line 'CELL ********************' in "
+                              "cell 1, a markdown cell, would read back as a cell marker and split it. Change that line, "
+                              "or export as .ipynb.")
     assert _back(nbf.to_databricks_py(cells)) == [("markdown", cells[0]["source"])]
+    long = "METADATA ********************" + " " * 100  # shortened to 80 characters
+    with pytest.raises(ValueError, match=r"because line 'METADATA \*{20} {48}\.\.\.' in cell 2, a markdown cell"):
+        nbf.to_fabric_py([{"type": "code", "source": "x"}, {"type": "markdown", "source": long}])
+    with pytest.raises(ValueError, match=r"because line 'MARKDOWN \*{20}\\t\\x0c' in cell 1,"):  # escaped, as repr
+        nbf.to_fabric_py([{"type": "markdown", "source": "MARKDOWN ********************\t\f"}])
 
 
 def test_a_language_line_magic_in_a_code_cell_becomes_that_language_in_databricks():

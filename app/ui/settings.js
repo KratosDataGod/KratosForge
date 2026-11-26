@@ -13,7 +13,7 @@ const SOURCE_TEXT = {
 // so Settings says so plainly and how to go back (unit testing item 4).
 function clientIdNote(source) {
   const lead = "Sign-in isn't using Microsoft's Fabric sign-in. Microsoft shows this app's own name and publisher, and may ask you or an admin to approve it.";
-  if (source === "policy") return `${lead} Your organization set it, so only they can change it.`;
+  if (source === "policy") return `${lead} Your organization set it, so only they can change it. Ask IT to change client_id in Group Policy or the policy file.`;
   if (source === "environment") return `${lead} It comes from the FABRIC_DESKTOP_CLIENT_ID setting on this PC. To go back, remove that variable (setx FABRIC_DESKTOP_CLIENT_ID ""), restart KratosForge and sign in again.`;
   if (source === "user") return `${lead} To go back, clear the ID and sign in again.`;
   if (source === "built_in") return `${lead} It came with this build.`;
@@ -142,12 +142,14 @@ function redactReport(text, level = "support") {
     .replace(/\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
-    .replace(/[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
+    // As the engine's _EMAIL: a name or domain in any script, an apostrophe only between letters, and a run
+    // with no address after it skipped whole. Whitespace is Python's \s (\x85 is one, BOM is not).
+    .replace(/((?:[^\x00-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000@"'<>()\[\]{},;:\\/|=&?!*`^$~]|(?<=[\p{L}\p{N}])'(?=[\p{L}\p{N}]))+@[^\x00-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000@"'<>()\[\]{},;:\\/|=&?!*`^$~._%+#]+(?:\.[^\x00-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000@"'<>()\[\]{},;:\\/|=&?!*`^$~._%+#]+)+)|(?:[^\x00-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000@"'<>()\[\]{},;:\\/|=&?!*`^$~]|(?<=[\p{L}\p{N}])'(?=[\p{L}\p{N}]))+/gu, (m, address) => (address ? "[email]" : m))
     .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
     .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
     .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
     .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+(?:(?: [^\/\s"'<>?#]+)+(?=[\/"'<>?#\r]|$))?/gim, "$1[site]")
-    .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
+    .replace(/(\/personal\/)[^\/\\\t-\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"'<>?#&]+/giu, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]");

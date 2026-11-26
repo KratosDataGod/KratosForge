@@ -139,12 +139,13 @@ def test_engine_download_url_is_a_setting_used_only_for_managed_updates(files, m
     monkeypatch.setenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "someone other than SYSTEM and Administrators can change it")
     assert app_settings.policy_problems() == [
         ("engine_download_url is ignored, so the engine comes from GitHub: someone other than SYSTEM and "
-        "Administrators can change it. Push policy.json as SYSTEM (Intune, Group Policy) or from an elevated "
+        "Administrators can change it. Ask IT to push policy.json as SYSTEM (Intune, Group Policy) or from an elevated "
         "prompt, so only administrators can change it")]
     monkeypatch.delenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED")
     files({"engine_download_url": "https://files.contoso.com/kratosforge"})
     assert app_settings.policy_problems() == [('engine_download_url is used only with "auto_update": false, '
-                                              "so the engine comes from GitHub")]
+                                              "so the engine comes from GitHub. Ask IT to set auto_update to false in "
+                                              "the policy file, or to remove engine_download_url")]
     for bad in ["http://files.contoso.com/kf", "\\\\server\\share", "https://u:p@files.contoso.com/kf",
                 "https://files.contoso.com/kf?sig=x", "https://10.0.0.5/kf", "https://files.contoso.com:/kf",
                 "https://files.contoso.com/%2e%2e", 7]:
@@ -353,7 +354,8 @@ def test_a_file_that_cant_be_read_turns_off_every_gate(files):
 def test_a_wrongly_typed_gate_is_off(files, key):
     files({key: "false"})
     assert app_settings.load()[key] == {"value": False, "source": "policy"}
-    assert f"{key} should be bool, not str, so it takes its most restrictive value" in app_settings.policy_problems()
+    assert (f"{key} should be bool, not str, so it takes its most restrictive value. Ask IT to change {key} in the "
+            "policy file.") in app_settings.policy_problems()
 
 
 def test_every_allow_key_fails_closed():
@@ -368,7 +370,8 @@ def test_engine_folder_is_a_local_path_used_only_for_managed_updates(files):
     assert "engine_folder" not in app_settings.load()  # the shell applies it, not the engine
     files({"engine_folder": "C:\\Program Files\\KratosForge\\engine"})
     assert app_settings.policy_problems() == [('engine_folder is used only with "auto_update": false, so the engine '
-                                               "can't start until that is set")]
+                                               "can't start until that is set. Ask IT to set auto_update to false "
+                                               "in the policy file, or to remove engine_folder")]
     for bad in ["engine", "\\\\server\\share\\engine", "C:/Program Files/engine", "C:\\Program Files\\..\\Users",
                 "C:engine", "", 7]:
         files({"auto_update": False, "engine_folder": bad})

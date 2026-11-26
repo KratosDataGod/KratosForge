@@ -308,14 +308,15 @@ def _queue_v_order(fabric: FabricClient | None, ref: TableRef, version: int,
 
 
 def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
-            work_dir: Path, history_file: Path | None = None,
-            guard: Callable[[str, str, str, str], str | None] | None = None,
+            work_dir: Path, history_file: Path | None = None, *,
+            guard: Callable[[str, str, str, str], str | None],
             capacity_gate: Callable[[str, str], str | None] | None = None) -> RunRecord:
     """Run the job here and write its table. ``guard`` (workspace id, lakehouse, schema, table)
-    says why the target may not be written; then nothing runs or is written. ``capacity_gate`` is checked
-    before a V-Order (see _queue_v_order)."""
+    says why the target may not be written; then nothing runs or is written. It is required, so no caller
+    writes a table unchecked (service.run_job passes meta_service._job_guard, which refuses Test and Prod).
+    ``capacity_gate`` is checked before a V-Order (see _queue_v_order)."""
     t = job.target
-    if guard and (reason := guard(t.workspace_id, t.lakehouse, t.schema, t.table)):
+    if (reason := guard(t.workspace_id, t.lakehouse, t.schema, t.table)):
         raise PermissionError(reason)
     started = time.monotonic()
     data = run_local(job)

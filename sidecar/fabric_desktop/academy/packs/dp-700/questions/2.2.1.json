@@ -321,6 +321,58 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.1-q11",
+      "type": "matching",
+      "stem": "Match each requirement to the Fabric data store that fits it best. Each store may be used once, more than once, or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Warehouse"
+        },
+        {
+          "id": "b",
+          "text": "Eventhouse"
+        },
+        {
+          "id": "c",
+          "text": "Lakehouse"
+        },
+        {
+          "id": "d",
+          "text": "SQL database"
+        }
+      ],
+      "parts": [
+        {
+          "text": "Data engineers process semi-structured and unstructured files with PySpark and Delta Lake"
+        },
+        {
+          "text": "An operational app needs OLTP tables with strongly enforced foreign keys"
+        },
+        {
+          "text": "Analysts explore high-granularity streaming event data interactively with KQL"
+        },
+        {
+          "text": "SQL developers build an enterprise star schema in T-SQL that needs multi-table transactions"
+        },
+        {
+          "text": "Data scientists train machine learning models on big data with notebooks"
+        }
+      ],
+      "answer": [
+        "c",
+        "d",
+        "b",
+        "a",
+        "c"
+      ],
+      "explanation": "The decision guide places big data, machine learning and PySpark work on files in a lakehouse, so both the file processing and the model training belong there. An operational, OLTP database with enforced foreign keys is a SQL database in Fabric. Streaming, high-granularity event data analyzed with KQL fits an eventhouse. A T-SQL star schema with multi-table transactions is the warehouse's use case: full SQL transaction support for enterprise BI.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

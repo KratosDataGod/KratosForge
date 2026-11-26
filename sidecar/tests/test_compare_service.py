@@ -108,6 +108,7 @@ def test_the_comparison_reads_only_what_is_on_this_pc(tmp_path):
     bill.save(tmp_path / "billing", HOST, {"schema": bill.SCHEMA, "read_at": ago(0), "days": 30, "rows": [], "runs": [
         {"job_id": "8841", "job_run_id": "r1", "sku": "JOBS_COMPUTE", "dbu": 1.42, "started": ago(1)}], "run_jobs": ["8841"]})
     sqc.save(tmp_path / "sf", "myorg-acct", {"schema": sqc.SCHEMA, "read_at": ago(0), "days": 30, "assumptions": ["x"],
+                                            "tags": ["kf:daily-sales"],
                                             "queries": [{"query_id": "q", "tag": "kf:daily-sales", "warehouse": "REPORTING_XS",
                                                          "size": "X-Small", "credits_per_hour": 1.0, "seconds": 972,
                                                          "credits": 0.27, "start": ago(1)}]})
@@ -147,3 +148,20 @@ def test_a_damaged_store_starts_empty(tmp_path):
     path.parent.mkdir(parents=True)
     path.write_text('{"schema": "other"}', encoding="utf-8")
     assert CompareStore(path).links("meta:x") == {"databricks": [], "snowflake": []}
+
+
+@pytest.mark.parametrize("body", [
+    {"links": []}, {"links": {"meta:x": "8841"}}, {"links": {"meta:x": {"databricks": "8841"}}},
+    {"links": {"meta:x": {"databricks": ["8841"]}}}, {"links": {"meta:x": {"snowflake": [1]}}},
+    {"scenarios": {}},
+])
+def test_a_wrong_typed_store_is_damaged_and_starts_empty(tmp_path, body):
+    import json
+    from fabric_desktop import compare_store
+    path = tmp_path / "platform-compare" / "links.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"schema": compare_store.SCHEMA} | body), encoding="utf-8")
+    store = CompareStore(path)
+    assert store.links("meta:x") == {"databricks": [], "snowflake": []} and store.scenarios() == []
+    assert store.link("meta:x", "snowflake", "kf:tag")["snowflake"] == ["kf:tag"]
+    assert store.unlink("meta:x", "snowflake", "kf:tag")["snowflake"] == []

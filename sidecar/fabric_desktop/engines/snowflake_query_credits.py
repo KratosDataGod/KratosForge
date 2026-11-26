@@ -21,6 +21,7 @@ never added to Fabric CU or Databricks DBUs, and never turned into money here.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import math
 import re
@@ -161,8 +162,11 @@ def read(adapter: Any, connection: dict[str, Any], warehouse: str, days: int, ta
 
 
 def _file(root: Path, account: str) -> Path:
-    name = "".join(c if c.isalnum() else "_" for c in account)[:120] or "account"
-    return root / f"{name}.json"
+    """One file per account. The prefix keeps Windows device names (CON, NUL) out, and the short hash keeps
+    accounts that read the same once sanitised ("a.b", "a_b") apart."""
+    name = "".join(c if c.isalnum() else "_" for c in account)[:80]
+    digest = hashlib.sha256(account.encode("utf-8")).hexdigest()[:12]
+    return root / f"account-{name}-{digest}.json"
 
 
 def save(root: Path, account: str, result: dict[str, Any]) -> None:

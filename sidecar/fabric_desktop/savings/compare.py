@@ -260,10 +260,16 @@ def _databricks_card(src: dict[str, Any] | None, period: dict[str, Any], start: 
         f"Jobs {names}, linked to this workload by you."
     read = src.get("read") or {}
     ids = {str(j["job_id"]) for j in jobs}
+    read_jobs = {str(j) for j in read.get("run_jobs") or []}
+    unread = sorted(ids - read_jobs, key=lambda j: (len(j), j))
     if not read:
         why = "Databricks billing hasn't been read on this PC yet."
     elif read.get("runs") is None:
         why = "The last billing read has no per-run figures. Read Databricks billing again."
+    elif unread:
+        # A figure for some linked jobs is never shown as the whole workload's.
+        why = (f"The last read didn't include job {unread[0]}. Read Databricks billing again." if len(unread) == 1
+               else f"The last read didn't include jobs {', '.join(unread)}. Read Databricks billing again.")
     else:
         why = ""
     rows = [r for r in read.get("runs") or [] if str(r.get("job_id")) in ids and r.get("job_run_id")
@@ -312,8 +318,14 @@ def _snowflake_card(src: dict[str, Any] | None, pc_runs: list[dict[str, Any]], p
     queries = [q for q in read.get("queries") or [] if q.get("tag") in tags and _in_period(q.get("start"), start, end)]
     warehouses = sorted({str(q.get("warehouse")) for q in queries if q.get("warehouse")})
     matched = f"Queries tagged {', '.join(tags)}" + (f" on warehouse {', '.join(warehouses)}." if warehouses else ".")
+    unread_tags = sorted(set(tags) - {str(t) for t in read.get("tags") or []})
     if not read:
         why = "Snowflake query history hasn't been read on this PC yet."
+    elif unread_tags:
+        # A figure for some linked tags is never shown as the whole workload's.
+        why = (f"The last read didn't include tag {unread_tags[0]}. Read Snowflake query history again."
+               if len(unread_tags) == 1 else
+               f"The last read didn't include tags {', '.join(unread_tags)}. Read Snowflake query history again.")
     elif not queries:
         why = "No query with this tag in the period. Query history can be up to 45 minutes late."
     else:

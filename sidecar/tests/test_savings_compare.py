@@ -40,7 +40,7 @@ def dbx(rows=True, connected=True, jobs=True):
     runs = [{"job_id": "8841", "job_run_id": f"r{i}", "sku": "JOBS_COMPUTE", "dbu": 1.42, "started": day(i + 1)}
             for i in range(3)] if rows else []
     return {"connected": connected, "jobs": [{"job_id": "8841", "name": "daily_sales_rollup"}] if jobs else [],
-            "read": {"read_at": "2026-11-24T08:55:00Z", "runs": runs + [
+            "read": {"read_at": "2026-11-24T08:55:00Z", "run_jobs": ["8841", "9999"], "runs": runs + [
                 {"job_id": "9999", "job_run_id": "x", "sku": "JOBS_COMPUTE", "dbu": 50, "started": day(1)}]}}
 
 
@@ -49,7 +49,7 @@ def snow(connected=True):
           "credits_per_hour": 1.0, "seconds": 972, "credits": 0.27, "bytes_scanned": None, "start": day(i + 1)}
          for i in range(3)]
     return {"connected": connected, "tags": ["kf:daily-sales"],
-            "read": {"read_at": "2026-11-24T09:12:00Z", "queries": q, "assumptions": ["Cloud services credits aren't counted."]}}
+            "read": {"read_at": "2026-11-24T09:12:00Z", "tags": ["kf:daily-sales"], "queries": q, "assumptions": ["Cloud services credits aren't counted."]}}
 
 
 def run(scenario=LIST, **kw):
@@ -206,3 +206,35 @@ def test_method_lines_use_the_times_sign_and_leave_other_words_alone():
     assert cmp.method_text("time on this PC x configured CUs of a Python notebook") == \
         "Time on this PC × configured CUs of a Python notebook"
     assert cmp.method_text("max x-axis value") == "Max x-axis value"
+
+
+def test_a_read_that_missed_a_linked_job_is_unknown_never_part_shown_as_whole():
+    # (A) two jobs linked, the read covered only one: no figure for the workload.
+    d = dbx()
+    d["jobs"].append({"job_id": "8842", "name": "daily_sales_extra"})
+    d["read"]["run_jobs"] = ["8841"]
+    c = card(run(databricks=d), cmp.DATABRICKS)
+    assert c["status"] == cmp.UNKNOWN and c["figure"]["value"] is None
+    assert c["figure"]["reason"] == "The last read didn't include job 8842. Read Databricks billing again."
+    # (B) the read was for another workload's job only: not "billing rows can arrive late".
+    d = dbx()
+    d["read"]["run_jobs"] = ["9999"]
+    c = card(run(databricks=d), cmp.DATABRICKS)
+    assert c["status"] == cmp.UNKNOWN and "didn't include job 8841" in c["figure"]["reason"]
+    assert "hours after" not in c["figure"]["reason"]
+    d["read"].pop("run_jobs")
+    assert "didn't include job 8841" in card(run(databricks=d), cmp.DATABRICKS)["figure"]["reason"]
+
+
+def test_a_read_that_missed_a_linked_tag_is_unknown_never_part_shown_as_whole():
+    # (C) two tags linked, the read covered only one.
+    s = snow()
+    s["tags"].append("kf:daily-extra")
+    c = card(run(snowflake=s), cmp.SNOWFLAKE)
+    assert c["status"] == cmp.UNKNOWN and c["figure"]["value"] is None
+    assert c["figure"]["reason"] == "The last read didn't include tag kf:daily-extra. Read Snowflake query history again."
+    # (D) a tag that was never read: not "up to 45 minutes late".
+    s = snow()
+    s["read"]["tags"] = ["kf:other"]
+    c = card(run(snowflake=s), cmp.SNOWFLAKE)
+    assert "didn't include tag kf:daily-sales" in c["figure"]["reason"] and "45 minutes" not in c["figure"]["reason"]

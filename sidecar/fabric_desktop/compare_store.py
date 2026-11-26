@@ -57,8 +57,16 @@ class CompareStore:
         data = read_json(self.path, None)
         if not isinstance(data, dict) or data.get("schema") != SCHEMA:
             return {"schema": SCHEMA, "links": {}, "scenarios": []}
-        data.setdefault("links", {})
-        data.setdefault("scenarios", [])
+        links, scenarios = data.get("links", {}), data.get("scenarios", [])
+        # A wrong-typed field is a damaged file: start empty, as for a file that can't be read.
+        if not isinstance(links, dict) or not isinstance(scenarios, list) or not all(
+                isinstance(k, str) and isinstance(v, dict)
+                and isinstance(v.get("databricks", []), list) and isinstance(v.get("snowflake", []), list)
+                and all(isinstance(j, dict) for j in v.get("databricks", []))
+                and all(isinstance(t, str) for t in v.get("snowflake", []))
+                for k, v in links.items()):
+            return {"schema": SCHEMA, "links": {}, "scenarios": []}
+        data["links"], data["scenarios"] = links, [x for x in scenarios if isinstance(x, dict)]
         return data
 
     def _write(self, data: dict[str, Any]) -> None:

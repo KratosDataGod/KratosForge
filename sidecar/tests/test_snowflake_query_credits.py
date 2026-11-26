@@ -156,3 +156,9 @@ def test_odd_input_is_refused_before_anything(tmp_path, kw, words):
 def test_only_snowflake_connections(tmp_path):
     with pytest.raises(ValueError, match="isn't a Snowflake connection"):
         Svc(tmp_path, conn={"platform": "databricks"}).snowflake_query_credits("profile:p:db", tags=["kf:x"])
+
+
+def test_account_files_keep_device_names_out_and_similar_accounts_apart(tmp_path):
+    a, b, con = sqc._file(tmp_path, "a.b"), sqc._file(tmp_path, "a_b"), sqc._file(tmp_path, "CON")
+    assert a != b and con.stem.upper() not in {"CON", "PRN", "AUX", "NUL"}
+    assert all(p.name.startswith("account-") and p.parent == tmp_path for p in (a, b, con))

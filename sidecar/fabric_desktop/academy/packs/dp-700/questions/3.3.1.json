@@ -315,6 +315,106 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.1-q11",
+      "type": "hotarea",
+      "stem": "Queries on the lakehouse table dbo.sales filter on OrderDate and CustomerID together, and the table has many small files. In one Spark SQL command, compact the small files, colocate rows with similar values in those two columns, and apply V-Order to the compacted files. Complete the command.",
+      "snippet": "{{1}} dbo.sales {{2}} (OrderDate, CustomerID) {{3}}",
+      "snippet_label": "Spark SQL command",
+      "parts": [
+        {
+          "label": "command",
+          "options": [
+            {
+              "id": "a",
+              "text": "VACUUM"
+            },
+            {
+              "id": "b",
+              "text": "OPTIMIZE"
+            },
+            {
+              "id": "c",
+              "text": "ANALYZE TABLE"
+            }
+          ]
+        },
+        {
+          "label": "clause",
+          "options": [
+            {
+              "id": "a",
+              "text": "PARTITION BY"
+            },
+            {
+              "id": "b",
+              "text": "ORDER BY"
+            },
+            {
+              "id": "c",
+              "text": "ZORDER BY"
+            }
+          ]
+        },
+        {
+          "label": "option",
+          "options": [
+            {
+              "id": "a",
+              "text": "VORDER"
+            },
+            {
+              "id": "b",
+              "text": "FULL"
+            },
+            {
+              "id": "c",
+              "text": "DRY RUN"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "b",
+        "c",
+        "a"
+      ],
+      "explanation": "OPTIMIZE rewrites small files into larger ones. Its ZORDER BY clause colocates rows with similar values, which helps queries that filter on two or more columns together, and the VORDER clause applies V-Order to the files it compacts; Spark runs them as bin compaction, then Z-Order, then V-Order. VACUUM removes unreferenced old files rather than compacting, and OPTIMIZE FULL rewrites most or all of the table, which isn't needed here.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/table-compaction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.3.1-q12",
+      "type": "yesno",
+      "stem": "A team is deciding whether to use V-Order on Delta tables in a workspace created this month. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "V-Order can make writes take longer while making repeated reads faster."
+        },
+        {
+          "text": "New tables in this workspace are written with V-Order unless someone turns it off."
+        },
+        {
+          "text": "A table written with V-Order can't also use Z-Order."
+        },
+        {
+          "text": "Files written with V-Order are still open-source Parquet files."
+        }
+      ],
+      "answer": [
+        "yes",
+        "no",
+        "no",
+        "yes"
+      ],
+      "explanation": "V-Order is a write-time optimization: writes often take around 15% longer, while read-heavy patterns can improve a lot. It is disabled by default in newly created workspaces (spark.sql.parquet.vorder.default is false), so it must be turned on. The files stay open-source Parquet compliant, and Delta features such as Z-Order remain compatible.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

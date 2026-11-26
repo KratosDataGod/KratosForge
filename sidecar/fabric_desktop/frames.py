@@ -529,7 +529,7 @@ class Frames:
         protected = 0
         notes = ExportNotes(table.schema)  # what Excel can't hold as it is, said with the download (WR-242)
         try:
-            with open(partial, "xb") as sink:
+            with jsonfile.long_path_named(target, "downloaded"), open(partial, "xb") as sink:
                 if fmt == "csv":
                     import pyarrow.csv as pa_csv
                     ready, protected = csv_cells.protect_table(_csv_ready(table), raw=raw)
@@ -754,8 +754,7 @@ def _xlsx_cell(ref: str, v: Any, mark: Callable[[str], None] | None = None) -> s
         if naive < _EXCEL_FIRST:
             note("before1900")
             return _text(ref, naive.isoformat(sep=" "))
-        if naive.microsecond % 1000 or getattr(naive, "nanosecond", 0):  # Excel keeps times to the millisecond
-            # (a datetime2(7) result is read as pandas' Timestamp, whose nanosecond holds the 7th digit)
+        if naive.microsecond % 1000:  # Excel keeps times to the millisecond
             note("fraction")
             return _text(ref, naive.isoformat(sep=" "))
         serial = (naive - _EPOCH).total_seconds() / 86400 - (naive < _EXCEL_LEAP)

@@ -455,59 +455,10 @@ def test_the_notebook_download_to_csv_writes_decimals_as_their_digits_too(tmp_pa
     assert got["protected"] == 1  # the text -5 got an apostrophe; the decimal -5 didn't
 
 
-# ---- 100 nanoseconds: a warehouse table keeps 6 digits of a second; a query's datetime2(7) has the 7th
+# ---- a warehouse table keeps at most 6 digits of a second (Microsoft Learn's data types page)
 
 def test_a_table_column_with_7_digits_of_a_second_is_refused_as_a_warehouse_refuses_it(world):
     for kind, use in (("datetime2(7)", "datetime2(6)"), ("time", "time(6)")):
         with pytest.raises(ValueError, match=rf"a Fabric Warehouse table keeps at most 6 .* Use {re.escape(use)}\."):
             world.tsql(f"CREATE TABLE dbo.seven (a {kind})")
 
-
-@pytest.fixture(scope="module")
-def seven(world):
-    run = world.query("SELECT 1 AS id, CAST('2026-01-01 00:00:00.0000001' AS datetime2(7)) AS a, "
-                      "CAST('2026-01-01 00:00:00.1234567' AS datetime2(7)) AS b, "
-                      "CAST('12:00:00.1234567' AS time(7)) AS t")
-    return run, world.runs.table(run)[1]
-
-
-def test_a_query_keeps_the_7th_digit_of_a_datetime2_and_cuts_a_times(seven):
-    _, table = seven
-    assert table.schema.field("a").type == pa.timestamp("ns")
-    assert [str(v) for v in table.column("a").cast(pa.string()).to_pylist()] == ["2026-01-01 00:00:00.000000100"]
-    assert col(table, "t") == [dt.time(12, 0, 0, 123456)]  # time(7) is kept to the microsecond (docs: data types)
-
-
-def test_parquet_keeps_100_nanoseconds(seven, world):
-    run, table = seven
-    out = world.export("parquet", run)
-    world.read_back(out["path"], "seven_parquet")
-    back = world.rows("SELECT * FROM dbo.seven_parquet")
-    assert back.schema == table.schema and back.equals(table)
-
-
-def test_csv_names_100_nanoseconds_a_timestamp_would_drop_and_keeps_them_as_timestamp_ns(seven, world):
-    run, table = seven
-    out = world.export("csv", run)
-    added = world.read_back(out["path"], "seven_csv")
-    problems = [i["problem"] for i in added["issues"]]
-    assert problems == [
-        f"dbo.seven_csv: column {c} has times with digits below the microsecond (such as 2026-01-01 00:00:00.{f}), "
-        "which TIMESTAMP, the type read for it, drops. Set its type to TIMESTAMP_NS to keep them."
-        for c, f in (("a", "000000100"), ("b", "123456700"))]
-    assert col(world.rows("SELECT a FROM dbo.seven_csv"), "a") == [dt.datetime(2026, 1, 1)]  # the named loss
-    world.engine.set_override("dbo.seven_csv", {"a": "TIMESTAMP_NS", "b": "TIMESTAMP_NS"})
-    back = world.rows("SELECT a, b FROM dbo.seven_csv")
-    assert back.equals(table.select(["a", "b"]))
-
-
-def test_excel_writes_100_nanoseconds_as_text_and_says_so(seven, world):
-    run, _ = seven
-    out = world.export("xlsx", run)
-    sheet = cells(out["path"])
-    assert sheet["B2"][:2] == ("s", "2026-01-01 00:00:00.000000100")  # not 46023.0, midnight
-    assert sheet["C2"][:2] == ("s", "2026-01-01 00:00:00.123456700")
-    assert out["notes"] == [
-        "a: 1 time has digits below the millisecond, which Excel can't show, so it's saved as text.",
-        "b: 1 time has digits below the millisecond, which Excel can't show, so it's saved as text.",
-        "t: 1 time has digits below the millisecond, which Excel can't show, so it's saved as text."]

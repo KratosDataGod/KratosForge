@@ -193,24 +193,24 @@ def test_a_refused_request_keeps_snowflakes_code_and_never_the_token():
 # quoting Snowflake accepts, and the parameter's name stays so the statement still reads.
 _SF_SECRET_CASES = [
     ("CREATE STAGE s URL='s3://b/' CREDENTIALS=(AWS_KEY_ID='AKID0001' AWS_SECRET_KEY='wJalr/K7MDENG''x')",  # pragma: allowlist secret
-     ["AKID0001", "wJalr", "K7MDENG"]),
-    ("COPY INTO t FROM @s CREDENTIALS=(AWS_TOKEN='FQoGZXIvYXdz1234')", ["FQoGZXIvYXdz1234"]),
-    ("COPY INTO t FROM 'azure://a.blob.core.windows.net/c' CREDENTIALS=(AZURE_SAS_TOKEN='?sv=2020&sig=zzSIG')",
-     ["sv=2020", "zzSIG"]),
+     ["AKID0001", "wJalr", "K7MDENG"]),  # pragma: allowlist secret
+    ("COPY INTO t FROM @s CREDENTIALS=(AWS_TOKEN='FQoGZXIvYXdz1234')", ["FQoGZXIvYXdz1234"]),  # pragma: allowlist secret
+    ("COPY INTO t FROM 'azure://a.blob.core.windows.net/c' CREDENTIALS=(AZURE_SAS_TOKEN='?sv=2020&sig=zzSIG')",  # pragma: allowlist secret
+     ["sv=2020", "zzSIG"]),  # pragma: allowlist secret
     ("CREATE STAGE s ENCRYPTION=(TYPE='AWS_CSE' MASTER_KEY='eSxX0jzYfIamtnBKOEOwq80Au6NbSgPH5r4BDDwOaO8=')",  # pragma: allowlist secret
-     ["eSxX0jzYfIamtnBKOEOwq80Au6NbSgPH5r4BDDwOaO8"]),
-    ("CREATE SECURITY INTEGRATION i TYPE=API_AUTHENTICATION OAUTH_CLIENT_SECRET = 'clientS3cret'", ["clientS3cret"]),
-    ("CREATE SECRET s TYPE=OAUTH2 OAUTH_REFRESH_TOKEN='refreshTok9' OAUTH_REFRESH_TOKEN_EXPIRY_TIME='2026-12-01'",
-     ["refreshTok9"]),
-    ("ALTER USER u SET PRIVATE_KEY = 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC'", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"]),
+     ["eSxX0jzYfIamtnBKOEOwq80Au6NbSgPH5r4BDDwOaO8"]),  # pragma: allowlist secret
+    ("CREATE SECURITY INTEGRATION i TYPE=API_AUTHENTICATION OAUTH_CLIENT_SECRET = 'clientS3cret'", ["clientS3cret"]),  # pragma: allowlist secret
+    ("CREATE SECRET s TYPE=OAUTH2 OAUTH_REFRESH_TOKEN='refreshTok9' OAUTH_REFRESH_TOKEN_EXPIRY_TIME='2026-12-01'",  # pragma: allowlist secret
+     ["refreshTok9"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PRIVATE_KEY = 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC'", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"]),  # pragma: allowlist secret
     ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING='sk_live_abc123'", ["sk_live_abc123"]),  # pragma: allowlist secret
-    ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING=$$dollar quoted secret$$", ["dollar quoted secret"]),
-    ("CREATE SECRET s TYPE=PASSWORD USERNAME='svc' PASSWORD=\"dq\"\"pass\"", ["dq", "pass\""]),
-    ("ALTER USER bob SET PASSWORD = 'two words' MUST_CHANGE_PASSWORD = TRUE", ["two words"]),
-    ("CREATE USER u PASSWORD=bareWord123 DEFAULT_ROLE=r", ["bareWord123"]),
-    ("CALL make_user(name => 'u', password => 'arrowPass1')", ["arrowPass1"]),
-    ("alter user u set password='lower''case\\'esc'", ["lower", "esc"]),
-    ("CREATE USER u PASSWORD='cut by Snowflake's limit and never clos", ["cut by Snowflake"]),
+    ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING=$$dollar quoted secret$$", ["dollar quoted secret"]),  # pragma: allowlist secret
+    ("CREATE SECRET s TYPE=PASSWORD USERNAME='svc' PASSWORD=\"dq\"\"pass\"", ["dq", "pass\""]),  # pragma: allowlist secret
+    ("ALTER USER bob SET PASSWORD = 'two words' MUST_CHANGE_PASSWORD = TRUE", ["two words"]),  # pragma: allowlist secret
+    ("CREATE USER u PASSWORD=bareWord123 DEFAULT_ROLE=r", ["bareWord123"]),  # pragma: allowlist secret
+    ("CALL make_user(name => 'u', password => 'arrowPass1')", ["arrowPass1"]),  # pragma: allowlist secret
+    ("alter user u set password='lower''case\\'esc'", ["lower", "esc"]),  # pragma: allowlist secret
+    ("CREATE USER u PASSWORD='cut by Snowflake's limit and never clos", ["cut by Snowflake"]),  # pragma: allowlist secret
 ]
 
 
@@ -225,9 +225,9 @@ def test_snowflake_credential_parameters_are_removed_from_query_text_and_errors(
 
 
 def test_what_isnt_a_credential_stays():
-    kept = ["SELECT password_hash, token_count FROM t WHERE token_count = 3",
-            "CREATE USER u RSA_PUBLIC_KEY='MIIBIjANBgkq' DEFAULT_ROLE=analyst",
-            "CREATE SECRET s TYPE=PASSWORD USERNAME='svc'",
-            "CREATE STAGE s STORAGE_INTEGRATION=si ENCRYPTION=(TYPE='AWS_SSE_KMS' KMS_KEY_ID='alias/k')"]
+    kept = ["SELECT password_hash, token_count FROM t WHERE token_count = 3",  # pragma: allowlist secret
+            "CREATE USER u RSA_PUBLIC_KEY='MIIBIjANBgkq' DEFAULT_ROLE=analyst",  # pragma: allowlist secret
+            "CREATE SECRET s TYPE=PASSWORD USERNAME='svc'",  # pragma: allowlist secret
+            "CREATE STAGE s STORAGE_INTEGRATION=si ENCRYPTION=(TYPE='AWS_SSE_KMS' KMS_KEY_ID='alias/k')"]  # pragma: allowlist secret
     for sql in kept:
         assert sh._cut(sql, 2000)[0] == sql

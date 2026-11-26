@@ -40,6 +40,7 @@ from .duckdb_rows import keep_try_cast
 from . import spark_hash, spark_time_zone
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
+from .spark_branch_types import spark_branch_types
 from .spark_text_compare import spark_text_comparisons
 from . import trees
 
@@ -468,6 +469,8 @@ class LakehouseWriter:
         if given is not None and path is not None:  # Spark refuses both too, rather than pick one
             raise ValueError("There's a path option and a path given to save(). Give the path once.")
         path = given if path is None else path
+        if path is not None and (volume := _volume_path(path, write=True)) is not None:
+            path = str(volume)  # the volume's folder on this PC (databricks_volumes)
         fmt = format or self._format
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta" and rel and rel.startswith("Tables/"):
@@ -1050,8 +1053,24 @@ def read_option_refusal(fmt: str, options: list[tuple[str, Any]], has_schema: bo
     return None
 
 
+def _volume_path(path: Any, write: bool = False) -> Any:
+    """The file or folder on this PC that a /Volumes path names (a Unity Catalog volume here, databricks_volumes),
+    or None for any other path. A read of a folder holding a link is refused (what it points at may be outside the
+    volume), and so is a read of a path that isn't there, as Spark's PATH_NOT_FOUND."""
+    from . import databricks_volumes
+    if not databricks_volumes.is_volume_path(path):
+        return None
+    local = databricks_volumes.local_path(str(path))
+    shown = databricks_volumes.parse(str(path)).uc_path()
+    if not write and not local.exists():
+        raise FileNotFoundError(f"[PATH_NOT_FOUND] Path does not exist: {shown}.")
+    if local.is_dir():
+        databricks_volumes.check_tree(local, shown)
+    return local
+
+
 class LakehouseReader:
-    """``spark.read``: tables and files of the attached lakehouse, or files on this PC."""
+    """``spark.read``: tables and files of the attached lakehouse, files on this PC, or a /Volumes path."""
 
     def __init__(self, session: LocalSparkSession):
         self._session = session
@@ -1145,7 +1164,7 @@ class LakehouseReader:
     def _local(self, path: str) -> str | list[str]:
         """A local path for ``path``; a folder is its data files, as Spark reads one: every file below
         it except those (and folders) whose names start with _ or . (_SUCCESS, .crc files)."""
-        local = str(lakehouse.local_path(path))
+        local = str(_volume_path(path) or lakehouse.local_path(path))
         if not os.path.isdir(local):
             return local
         self._root = local
@@ -1185,7 +1204,7 @@ class LakehouseReader:
             if rel and rel.startswith("Tables/"):
                 return self.table(".".join(p for p in rel.split("/")[1:] if p))
             from deltalake import DeltaTable
-            opened = DeltaTable(path)
+            opened = DeltaTable(str(_volume_path(path) or path))
             from . import delta_cdf
             if delta_cdf.asked(self._options):
                 return self._session._from_arrow_dataset(delta_cdf.read(opened, path, self._options,
@@ -1584,7 +1603,8 @@ class LocalSparkSession(SparkSession):
                 query = statement.expression.copy()
                 self._bind(query)
                 data = self.conn.sql(_sql.duckdb_sql(_using_star(spark_complex_types(spark_decimal_types(
-                    spark_text_comparisons(query, self.conn), self.conn), self.conn), self.conn)))
+                    spark_text_comparisons(spark_branch_types(query, self.conn), self.conn), self.conn), self.conn),
+                    self.conn)))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -1615,8 +1635,8 @@ class LocalSparkSession(SparkSession):
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
-        statement = _using_star(spark_complex_types(spark_decimal_types(spark_text_comparisons(statement, self.conn),
-                                                                        self.conn), self.conn), self.conn)
+        statement = _using_star(spark_complex_types(spark_decimal_types(spark_text_comparisons(
+            spark_branch_types(statement, self.conn), self.conn), self.conn), self.conn), self.conn)
         text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)

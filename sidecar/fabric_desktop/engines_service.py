@@ -643,7 +643,8 @@ class EnginesMixin:
             from . import app_settings
             if not app_settings.value("allow_fabric_runs"):
                 lines.append({"outcome": "warning", "text": "Your organization's policy doesn't allow runs in "
-                                                            "Fabric from KratosForge, so the session will be refused."})
+                                                            "Fabric from KratosForge, so the session will be refused. "
+                                                            + app_settings.ask_it("allow_fabric_runs")})
             lines.append({"outcome": "info", "text": "A Spark session uses Fabric capacity from its start until it "
                                                      "closes or times out."})
         else:

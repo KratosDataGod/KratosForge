@@ -79,8 +79,8 @@ def _winreg_read() -> Raw:
 
 UNREADABLE = ("Until they can, each on/off restriction takes its most restrictive value, as it does when the policy "
               "file can't be read, and settings that widen what KratosForge trusts don't apply. Other settings Group "
-              "Policy can manage stay as they are and can only be made stricter here. Sign-in still works. Ask IT if "
-              "this doesn't clear.")
+              "Policy can manage stay as they are and can only be made stricter here. Sign-in still works. If this "
+              "doesn't clear, ask IT to check that this PC can read the Group Policy key.")
 
 
 def read(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], list[str]]:
@@ -119,9 +119,10 @@ def read_all(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], l
         if name in strict:
             restricted.add(name)
             out[name] = strict[name]
-            problems.append(f"Group Policy value {name} {why}, so its most restrictive value applies")
+            problems.append(f"Group Policy value {name} {why}, so its most restrictive value applies. "
+                            f"Ask IT to fix {name} in Group Policy.")
         else:
-            problems.append(f"Group Policy value {name} {why}, so it's ignored")
+            problems.append(f"Group Policy value {name} {why}, so it's ignored. Ask IT to fix {name} in Group Policy.")
 
     for name, (data, kind) in sorted(values.items()):
         st = kinds.get(name)
@@ -129,7 +130,8 @@ def read_all(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], l
             bad(name, "should be a subkey of items")
             continue
         if st is None or st.kind == "list":
-            problems.append(f"Group Policy value {name[:80]!r} isn't a setting KratosForge reads, so it's ignored")
+            problems.append(f"Group Policy value {name[:80]!r} isn't a setting KratosForge reads, so it's ignored. "
+                            "Ask IT to remove it from Group Policy.")
             continue
         if st.kind in ("bool", "int"):
             if kind != REG_DWORD or not isinstance(data, int) or isinstance(data, bool):
@@ -154,16 +156,20 @@ def read_all(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], l
             if name in strict:
                 out[name] = strict[name]
                 problems.append(f"Group Policy key {name} couldn't be read ({items}), so its most restrictive value "
-                                "applies until it can be read")
+                                "applies until it can be read. "
+                                f"Ask IT to check that this PC can read the {name} key in Group Policy.")
             elif name in RESTRICTED:  # no lockout (Chris, 2026-10-18): the file's value or the default applies
                 problems.append(f"Group Policy key {name} couldn't be read ({items}), so the restriction it sets may "
-                                f"not apply. Until the key can be read, {name} comes from the policy file or its default.")
+                                f"not apply. Until the key can be read, {name} comes from the policy file or its default. "
+                                f"Ask IT to check that this PC can read the {name} key in Group Policy.")
             else:
                 problems.append(f"Group Policy key {name} couldn't be read ({items}), so {name} is kept as it is and "
-                                "can't be changed here until the key can be read")
+                                "can't be changed here until the key can be read. "
+                                f"Ask IT to check that this PC can read the {name} key in Group Policy.")
             continue
         if st is None or st.kind != "list" or isinstance(items, OSError):
-            problems.append(f"Group Policy key {name[:80]!r} isn't a list setting KratosForge reads, so it's ignored")
+            problems.append(f"Group Policy key {name[:80]!r} isn't a list setting KratosForge reads, so it's ignored. "
+                            "Ask IT to remove it from Group Policy.")
             continue
         if name in restricted:  # a bad value under the same name already gave it its most restrictive value
             continue
@@ -173,7 +179,7 @@ def read_all(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], l
                 bad(name, "has items that aren't strings")
                 continue
             problems.append(f"Group Policy key {name} has {len(items) - len(kept)} items that aren't strings, so "
-                            "they're left out")
+                            f"they're left out. Ask IT to fix {name} in Group Policy.")
         if not kept:  # a subkey left with no items (Group Policy set to Not Configured) sets nothing
             problems.append(f"Group Policy key {name} has no items, so it sets nothing and the policy file's value applies")
             continue

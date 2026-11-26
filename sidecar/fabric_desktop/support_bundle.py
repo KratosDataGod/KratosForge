@@ -192,7 +192,8 @@ def _has_trace(text: str) -> bool:
 
 def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     """Each file of the bundle by name, already redacted: what create() writes and preview() shows."""
-    files: dict[str, str] = {"about.json": json.dumps(about(data_dir), indent=2)}
+    # Not escaped as \u00eb: redaction reads the text, and an escaped user name in a path was only half taken out.
+    files: dict[str, str] = {"about.json": json.dumps(about(data_dir), indent=2, ensure_ascii=False)}
     logs = {"sidecar.log": data_dir / "sidecar.log"}
     if agent_home:
         logs["agent.log"] = agent_home / "logs" / "agent.log"
@@ -227,7 +228,47 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     # Values dbutils.secrets read are remembered by the kernel process that read them, which redacts its
     # own output and stderr before sidecar.log gets it (kernel_host.py). This engine remembers only
     # what a kernel running inside it read, so here it is a second pass, not the protection.
-    return {name: secret_redaction.redact(for_support(text)) for name, text in files.items()}
+    return {name: secret_redaction.redact(for_support(_plain(text))) for name, text in files.items()}
+
+
+# A value written escaped: JSON's \u00e9 (a pair for one past \uffff; not after an escaped backslash),
+# a bytes repr's \xc3\xa9 and a URL's %C3%A9 or %40 (twice over, as %25C3).
+_ESCAPED = re.compile(r"(?<!\\)((?:\\\\)*)(\\u[dD][89abAB][0-9a-fA-F]{2}\\u[dD][c-fC-F][0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}"
+                      r"|(?:\\x[0-9a-fA-F]{2})+)|(?:%[0-9a-fA-F]{2})+")
+
+
+def _unescaped(m: re.Match[str]) -> str:
+    text, escape = m.group(0), m.group(2)
+    if escape is None or escape[1] == "x":  # bytes: each character comes out plain or escaped as it was
+        data = bytes.fromhex(re.sub(r"%|\\x", "", escape or text)).decode("utf-8", "surrogateescape")
+        plain = (m.group(1) or "") + "".join(_byte_char(c, "%" if escape is None else "\\x") for c in data)
+        return text if plain.lower() == text.lower() else plain  # nothing to show plainly: as it was
+    try:
+        plain = escape.encode("ascii").decode("unicode_escape").encode("utf-16", "surrogatepass").decode("utf-16")
+    except UnicodeError:  # half a pair
+        return text
+    return m.group(1) + plain if plain.isprintable() and not plain.isascii() else text
+
+
+def _byte_char(c: str, escape: str) -> str:
+    """One character of escaped bytes as a bundle shows it. A quote, a character that isn't printable or a
+    byte that isn't UTF-8 stays escaped, so a JSON string doesn't end early; a URL's backslash reads as /,
+    since a lone one starts an escape in JSON. An ASCII byte a bytes repr escaped stays escaped too."""
+    if c == "\\" and escape == "%":
+        return "/"
+    if c.isprintable() and c != '"' and not "\udc80" <= c <= "\udcff" and (escape == "%" or not c.isascii()):
+        return c
+    return "".join(f"{escape}{b:02X}" for b in c.encode("utf-8", "surrogateescape"))
+
+
+def _plain(text: str) -> str:
+    """``text`` with each value written escaped written plainly, so redaction finds it: an email address,
+    a user name or an organization in a URL's query or a JSON log line is taken out like any other."""
+    for _ in range(4):  # a URL inside a URL is escaped twice, and each round undoes one
+        before, text = text, _ESCAPED.sub(_unescaped, text)
+        if text == before:
+            break
+    return text
 
 
 def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dict[str, Any]:

@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "first-forecast", "name": "First Forecast", "criteria": "Reach Journeyman in Capacity and cost."},
-  {"id": "calm-skies", "name": "Calm Skies", "criteria": "Reach Journeyman in Capacity risk checks before maintenance."},
-  {"id": "coin-saved", "name": "Capacity Kept", "criteria": "Reach Adept in Running locally to save capacity."},
-  {"id": "lightning-tamed", "name": "Lightning Tamed", "criteria": "Reach Adept in Measured optimization."},
-  {"id": "stormcallers-horn", "name": "Stormcaller's Horn", "criteria": "Reach Adept in all ten talents of one Capacity Stormcaller specialization."}
+  {"id": "first-forecast", "name": "First Forecast", "criteria": "Reach Journeyman in Capacity and cost.", "requires": {"level": 3, "talents": ["capacity.01"]}},
+  {"id": "calm-skies", "name": "Calm Skies", "criteria": "Reach Journeyman in Capacity risk checks before maintenance.", "requires": {"level": 3, "talents": ["capacity.08"]}},
+  {"id": "coin-saved", "name": "Capacity Kept", "criteria": "Reach Adept in Running locally to save capacity.", "requires": {"level": 4, "talents": ["cost.02"]}},
+  {"id": "lightning-tamed", "name": "Lightning Tamed", "criteria": "Reach Adept in Measured optimization.", "requires": {"level": 4, "talents": ["tune.07"]}},
+  {"id": "stormcallers-horn", "name": "Stormcaller's Horn", "criteria": "Reach Adept in all ten talents of one Capacity Stormcaller specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

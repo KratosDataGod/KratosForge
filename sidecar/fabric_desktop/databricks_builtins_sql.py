@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from sqlglot import exp, parse_one
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, SqlglotError
 
 _WAREHOUSE = "Run the cell on a Databricks SQL warehouse"
 
@@ -516,7 +516,12 @@ def _variant_get(name: str, args: list[exp.Expression]) -> exp.Expression:
     from . import databricks_variant
     _arity(name, args, 3, 3)
     steps = json.dumps(databricks_variant.path(_literal(name, args[1], "path")))
-    kind = exp.DataType.build(_literal(name, args[2], "type"), dialect="databricks")
+    written = _literal(name, args[2], "type")
+    try:
+        kind = exp.DataType.build(written, dialect="databricks")
+    except SqlglotError:  # a ParseError, or a TokenError for an unclosed comment in it
+        raise ValueError(f"{name}() can't read {written!r} as a type, because it isn't a type name Databricks "
+                         "knows. Write one such as INT, STRING, DECIMAL(10,2) or VARIANT.") from None
     if kind.this == exp.DataType.Type.DECIMAL and not kind.expressions:
         kind = exp.DataType.build("DECIMAL(10,0)")  # Databricks' DECIMAL
     target = "variant" if kind.this == exp.DataType.Type.VARIANT else kind.sql(dialect="databricks").lower()
@@ -968,7 +973,9 @@ def table_writes(statements: list[exp.Expression], con: Any) -> list[exp.Express
     value written into a generated column only when it equals the expression, where DuckDB refuses any. Both
     are refused by name. A DROP TABLE (or CREATE OR REPLACE) of a table with an identity column is followed by
     a DROP SEQUENCE of the sequence behind it, so none is left behind."""
-    here_row = con.execute("SELECT current_database(), current_schema()").fetchone()
+    # fetchall, not fetchone: DuckDB 2.0 keeps a result read part way, and the next con.sql on the session
+    # stopped with "Resource In Use" when this cell was refused before anything else ran
+    here_row = con.execute("SELECT current_database(), current_schema()").fetchall()[0]
     here = (str(here_row[0]), str(here_row[1]))
     made: dict[tuple[str, str, str], dict[str, tuple[str, str]] | None] = {}  # None: no such table
 

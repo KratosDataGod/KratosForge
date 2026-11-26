@@ -327,7 +327,7 @@ const ACADEMY_RUN_STATUS = {
   error: "Your script stopped with an error. Its output is below.",
   time_limit: "Your script ran past its time limit and was stopped.",
   memory_limit: "Your script used more memory than the exercise allows and was stopped.",
-  refused: "Your script wasn't run. The app couldn't start it inside its limits.",
+  refused: "Your script wasn't run. The app couldn't start it inside its limits. Run it again, and if it's refused again, restart KratosForge.",
 };
 
 function academyRunResult(r) {

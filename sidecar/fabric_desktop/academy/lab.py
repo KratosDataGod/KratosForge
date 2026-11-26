@@ -332,7 +332,7 @@ def _run_python(root: Path, pack_id: str, exercise_id: str, code: str) -> dict[s
     folder = _started(root, pack_id, exercise_id)
     code = str(code)
     if len(code.encode("utf-8")) > MAX_ANSWER_BYTES:
-        raise ValueError("That script is over 1 MB; an exercise answer is much smaller.")
+        raise ValueError("That script is over 1 MB, and an exercise answer is much smaller. Cut it down and run it again.")
     work = ws.inside(folder, RUN_DIR, must_exist=False)
     if not work.is_dir():
         work = _fresh_dir(folder, RUN_DIR)
@@ -361,7 +361,7 @@ def _run_pyspark(root: Path, pack_id: str, exercise_id: str, code: str) -> dict[
     ex = _lab_exercise(pack_id, exercise_id)
     folder = _started(root, pack_id, exercise_id)
     if len(code.encode("utf-8")) > MAX_ANSWER_BYTES:
-        raise ValueError("That script is over 1 MB; an exercise answer is much smaller.")
+        raise ValueError("That script is over 1 MB, and an exercise answer is much smaller. Cut it down and run it again.")
     work = ws.inside(folder, RUN_DIR, must_exist=False)
     if not work.is_dir():
         work = _pyspark_prepare(folder, pack_id, exercise_id, ex)

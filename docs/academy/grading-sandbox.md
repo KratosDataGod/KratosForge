@@ -144,7 +144,15 @@ How each Security condition is met:
    already hold while DuckDB opens the database. So DuckDB can't install, download or load any
    extension: `INSTALL` and `FORCE INSTALL` (from any repository) fail with a permission error, and a
    URL read (`read_csv('http://...')`) fails because `httpfs` isn't loaded and won't be fetched. The
-   extensions built into DuckDB (`parquet`, `json`, `icu`) still read and write the workspace. The same
+   extensions built into DuckDB (`parquet`, `json`, `icu`) still read and write the workspace.
+   `duckdb.connect`, the native `_duckdb.connect` and any module that imported it by name are one
+   replaced function. DuckDB's own connect is held only by a second audit hook, which opens each
+   connection from plain values (a database in the workspace or `:memory:`, settings of plain types)
+   and hands it back; no module, closure, traceback or frame the learner's code can reach holds it.
+   Importing `duckdb` or `_duckdb` again (after removing it from `sys.modules`, through
+   `importlib.util.module_from_spec`, `ExtensionFileLoader` under any name, or `_imp.create_dynamic`)
+   is refused, since a fresh native module would bring back the original; `importlib.reload` of
+   either keeps the replaced function. The same
    functions reached through submodules (`polars.io.csv.functions.read_csv`) are replaced too.
    `pyarrow.OSFile`, `memory_map`, `create_memory_map`, `input_stream` and `output_stream` check
    their path. `pyarrow.fs.LocalFileSystem` is a subclass whose path methods check every path
@@ -155,8 +163,10 @@ How each Security condition is met:
    module-level functions are refused (fail closed). These
    libraries are imported before the audit hook starts, because some (Polars, pyarrow) load
    native code through ctypes, which the hook then refuses. Learner code that deliberately
-   re-imports a module or reaches its internals can get past the wrappers; that is the accepted
-   limit until ACD-005b.
+   re-imports a module or reaches its internals can get past the other libraries' wrappers (for
+   DuckDB, see above); that is the accepted limit until ACD-005b. These are Python-level guards:
+   the only control here that Python code can't undo is the AppContainer (L4), and Delta and
+   PySpark exercises never run in one (see "Delta exercises" below).
 4. **Wording.** The process holds no tokens and gets none from the app. It runs as the same
    Windows user, so the person's own sign-in cache on disk is theirs to read; only ACD-005b
    changes that.

@@ -114,6 +114,143 @@ def test_learner_duckdb_cannot_fetch_extensions(tmp_path: Path, listener: _Liste
     assert _extension_folders(work) == []
 
 
+_INSTALL = "INSTALL httpfs FROM '{url}/x'"
+# The same request after the learner's code reaches for duckdb another way: the native module, a
+# reload, a fresh import or the native module loaded again by hand.
+_OTHER_ROUTES = [
+    "import duckdb, importlib; importlib.reload(duckdb); duckdb.connect().sql(\"" + _INSTALL + "\")",
+    "import _duckdb, importlib; importlib.reload(_duckdb); _duckdb.connect().sql(\"" + _INSTALL + "\")",
+    "import _duckdb; _duckdb.connect().sql(\"" + _INSTALL + "\")",
+    "from _duckdb import connect; connect().sql(\"" + _INSTALL + "\")",
+    "import _duckdb; _duckdb.__dict__['connect']().sql(\"" + _INSTALL + "\")",
+    "__import__('_duckdb').connect().sql(\"" + _INSTALL + "\")",
+    "import duckdb, _duckdb; duckdb.__dict__['connect'] = _duckdb.__dict__['connect']; duckdb.connect().sql(\"" + _INSTALL + "\")",
+    "import _duckdb; _duckdb.default_connection().sql(\"" + _INSTALL + "\")",
+    ("import sys\nfor k in [k for k in sys.modules if 'duckdb' in k]:\n    del sys.modules[k]\n"
+     "import duckdb\nduckdb.connect().sql(\"" + _INSTALL + "\")"),
+    ("import sys\ndel sys.modules['_duckdb']\nimport _duckdb\n_duckdb.connect().sql(\"" + _INSTALL + "\")"),
+    ("import importlib.util as u\nspec = u.find_spec('_duckdb')\nm = u.module_from_spec(spec)\n"
+     "m.connect().sql(\"" + _INSTALL + "\")"),
+    ("import importlib.machinery as im, importlib.util as u, _duckdb\n"
+     "loader = im.ExtensionFileLoader('mine._duckdb', _duckdb.__file__)\n"
+     "m = u.module_from_spec(u.spec_from_loader('mine._duckdb', loader))\nm.connect().sql(\"" + _INSTALL + "\")"),
+    ("import _imp, importlib.util as u, _duckdb\n"
+     "m = _imp.create_dynamic(u.spec_from_file_location('_duckdb', _duckdb.__file__))\n"
+     "m.connect().sql(\"" + _INSTALL + "\")"),
+]
+
+
+@pytest.mark.parametrize("code", _OTHER_ROUTES)
+def test_learner_duckdb_cannot_fetch_extensions_by_another_route(tmp_path: Path, listener: _Listener, code: str) -> None:
+    """Whichever way learner code reaches DuckDB's connect, the connection it gets is the locked one."""
+    root = tmp_path / "data"
+    work = ws.workspace_dir(root, "dp-700", "E22")
+    work.mkdir(parents=True)
+    (work / "answer.py").write_text(code.format(url=f"http://127.0.0.1:{listener.port}") + "\n", encoding="utf-8")
+    res = sandbox.run(work, "answer.py", root)
+    assert res["status"] == "error", res
+    assert _stopped_by_duckdb(res["stderr"]), res["stderr"]
+    assert listener.connections == 0
+    assert _extension_folders(work) == []
+
+
+_FIND_CONNECT = """
+import sys, types, duckdb
+
+def is_connect(v):
+    return type(v).__name__ == "builtin_function_or_method" and getattr(v, "__name__", "") == "connect"
+
+def walk(start):
+    seen, todo, found = set(), [start], 0
+    while todo:
+        o = todo.pop()
+        if id(o) in seen:
+            continue
+        seen.add(id(o))
+        if is_connect(o):
+            found += 1
+        if isinstance(o, types.FunctionType):
+            todo += [c.cell_contents for c in (o.__closure__ or ()) if c.cell_contents is not None]
+            todo += list(o.__defaults__ or ()) + list((o.__kwdefaults__ or {}).values()) + list(o.__globals__.values())
+        elif isinstance(o, types.ModuleType):
+            todo += list(vars(o).values())
+        elif isinstance(o, dict):
+            todo += list(o.values())
+        elif isinstance(o, (list, tuple, set, frozenset)):
+            todo += list(o)
+    return found
+
+frames = []
+def look(frame, *_):
+    while frame is not None:
+        frames.extend(v for v in list(frame.f_locals.values()) if is_connect(v))
+        frame = frame.f_back
+    return look
+
+sys.setprofile(look)
+try:
+    duckdb.connect(config={"not_a_setting": 1})
+except Exception as exc:
+    tb = exc.__traceback__
+    while tb is not None:
+        look(tb.tb_frame)
+        tb = tb.tb_next
+sys.setprofile(None)
+sys.settrace(look)
+duckdb.connect().close()
+sys.settrace(None)
+print(walk(duckdb.connect), walk(sys.modules), len(frames))
+"""
+
+
+def test_duckdbs_own_connect_isnt_reachable_from_learner_code(tmp_path: Path) -> None:
+    """Not through duckdb.connect's closure, defaults or globals, any loaded module, a traceback, or a
+    profile or trace function's frames."""
+    root = tmp_path / "data"
+    work = ws.workspace_dir(root, "dp-700", "E22")
+    work.mkdir(parents=True)
+    (work / "answer.py").write_text(_FIND_CONNECT, encoding="utf-8")
+    res = sandbox.run(work, "answer.py", root)
+    assert res["status"] == "ok", res["stderr"]
+    assert res["stdout"].split() == ["0", "0", "0"]
+
+
+@pytest.mark.parametrize("code", [
+    "import sys; box = []; sys.audit('academy.duckdb.connect', {outside!r}, False, {{}}, box); raise box[0]",
+    "import sys\nclass K(str): pass\nbox = []\nsys.audit('academy.duckdb.connect', ':memory:', False, {{K('a'): 'b'}}, box)\nraise box[0]",
+    "import duckdb; duckdb.connect({outside!r})",
+])
+def test_a_learner_duckdb_database_stays_in_its_folder(tmp_path: Path, code: str) -> None:
+    root = tmp_path / "data"
+    work = ws.workspace_dir(root, "dp-700", "E22")
+    work.mkdir(parents=True)
+    outside = tmp_path / "elsewhere.db"
+    (work / "answer.py").write_text(code.format(outside=str(outside)) + "\n", encoding="utf-8")
+    res = sandbox.run(work, "answer.py", root)
+    assert res["status"] == "error", res
+    assert res["stderr"].strip().splitlines()[-1].startswith("PermissionError"), res["stderr"]
+    assert not outside.exists()
+
+
+def test_learner_duckdb_still_opens_a_database_file_in_its_folder(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    work = ws.workspace_dir(root, "dp-700", "E22")
+    work.mkdir(parents=True)
+    (work / "answer.py").write_text(
+        "import duckdb, pathlib\n"
+        "con = duckdb.connect('shop.db')\n"
+        "con.execute('CREATE TABLE t AS SELECT 41 AS x')\n"
+        "con.close()\n"
+        "con = duckdb.connect(pathlib.Path('shop.db'), read_only=True)\n"
+        "print(con.sql('SELECT x + 1 FROM t').fetchall()[0][0])\n"
+        "print(duckdb.connect(':memory:', False, {'threads': 2}).sql(\"SELECT current_setting('threads')\").fetchall()[0][0])\n",
+        encoding="utf-8")
+    res = sandbox.run(work, "answer.py", root)
+    assert res["status"] == "ok", res["stderr"]
+    assert res["stdout"].split() == ["42", "2"]
+    assert (work / "shop.db").is_file()
+
+
 _SPARK_CASES = [
     "spark.sql(\"INSTALL httpfs FROM '{url}/x'\")",
     "spark.sql(\"FORCE INSTALL httpfs FROM '{url}/x'\")",

@@ -46,6 +46,8 @@ import statistics
 from typing import Any
 
 from .. import measurement as ms
+from ..calibration import COMPARISON_KEYS as _KEYS
+from ..calibration import comparable
 from ..optimize.shared import record_id
 
 METRIC = "fabric_cu_per_run"
@@ -56,8 +58,6 @@ STATISTIC = "median"
 VERIFIED, VALIDATING, REGRESSED, FAILED = "verified", "validating", "regressed", "failed"
 RESULTS = (VERIFIED, VALIDATING, REGRESSED, FAILED)
 _STRENGTH = {ms.MEASURED: 0, ms.ESTIMATED: 1, ms.UNKNOWN: 2}
-_KEYS = ("workload_key", "definition_version", "input_scope")
-_KEY_WORDS = {"workload_key": "workload", "definition_version": "definition version", "input_scope": "input scope"}
 
 
 def _time(value: Any, what: str) -> dt.datetime:
@@ -107,18 +107,12 @@ def cu_of(m: dict[str, Any] | None, what: str) -> tuple[float | None, str]:
     return ms.convert(float(value), unit, UNIT), str(cls)
 
 
-def comparable(a: dict[str, Any], b: dict[str, Any], *, keys: tuple[str, ...] = _KEYS) -> dict[str, Any]:
-    """Whether two runs or baselines can be compared: the same workload, definition version and input
-    scope (ESI-201). A value that wasn't recorded matches nothing. Returns ``comparable`` and, when
-    they can't be compared, the ``reason``. Time is never one of the keys: two runs at similar times
-    aren't comparable for that alone."""
-    for key in keys:
-        x, y = a.get(key), b.get(key)
-        if x in (None, "") or y in (None, ""):
-            return {"comparable": False, "reason": f"The {_KEY_WORDS[key]} wasn't recorded, so it can't be matched."}
-        if str(x).strip() != str(y).strip():
-            return {"comparable": False, "reason": f"A different {_KEY_WORDS[key]} ({y} instead of {x})."}
-    return {"comparable": True, "reason": ""}
+
+def _same(m: dict[str, Any] | None, rid: str) -> tuple[float | None, str]:
+    """A run's CU in CU hours, rounded to 6 places, and its classification: the same figure read in
+    CU seconds and in CU hours compares equal despite floating point."""
+    value, cls = cu_of(m, f"CU of run {rid}")
+    return (None if value is None else round(value, 6)), cls
 
 
 def _unique(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -131,7 +125,7 @@ def _unique(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             raise ValueError("Every run needs its run_id.")
         seen = out.get(rid)
         if seen is not None:
-            if cu_of(seen.get("cu"), f"CU of run {rid}") != cu_of(r.get("cu"), f"CU of run {rid}"):
+            if _same(seen.get("cu"), rid) != _same(r.get("cu"), rid):
                 raise ValueError(f"Run {rid} appears twice with different CU figures. Keep one.")
             continue
         out[rid] = r

@@ -143,10 +143,10 @@ def _merge(tree: exp.Merge) -> Change:
     source_alias = using.alias or (using.name if isinstance(using, exp.Table) else "")
     if not source_alias:
         raise ValueError("Give the MERGE source an alias: USING (SELECT ...) AS s.")
-    alias_node = using.args.get("alias")
-    if isinstance(alias_node, exp.TableAlias) and alias_node.columns:
-        # USING (VALUES ...) AS s(id, v): the column list names the source's columns, so it stays with the rows
-        source: exp.Expression = exp.select("*").from_(using.copy())
+    named = using.args.get("alias")
+    if isinstance(named, exp.TableAlias) and named.columns:
+        # USING (VALUES ...) AS s(k, w): the alias names the columns, so it stays on the rows it names (WR-253)
+        source = exp.select("*").from_(using.copy())
     else:
         source = using.copy()
         source.set("alias", None)

@@ -51,10 +51,10 @@ Both profiles refuse column mapping by ID, because Fabric's SQL analytics endpoi
 
 ## Each table's own choice (Preview)
 
-In a metadata project, each table can choose the Delta features a run may leave on it when it publishes the table. Choose it in Data mesh > Deploy > Environments and promote, under **Delta table features at publish**. The choice is kept in the table's entity file, so it reaches Test and Prod with the next promote.
+In a metadata project, each table can choose the Delta features a run may leave on it when it publishes the table. Choose it in Data mesh > Deploy > Environments and promote, under **Delta table features at publish**, in each table's **Delta features** list. The choice is kept in the table's entity file, so it reaches Test and Prod with the next promote.
 
-- **Default** (no setting): the modern profile, with deletion vectors and column mapping by name.
-- **Every reader (recommended)** (`delta_features = "every_reader"`): the conservative profile. Every reader in the matrix reads it.
+- **Default: deletion vectors and column mapping (modern)** (no setting): the modern profile, with deletion vectors and column mapping by name.
+- **Every reader: no deletion vectors or column mapping** (`delta_features = "every_reader"`): the conservative profile. Every reader in the matrix reads it.
 - **Allow deletion vectors only** (`delta_features = "deletion_vectors"`): reader version 3 and writer version 7 at most, with deletion vectors and no column mapping.
 - **Allow column mapping by name only** (`delta_features = "column_mapping"`): reader version 3 and writer version 7 at most, with column mapping by name and no deletion vectors.
 

@@ -16,6 +16,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Callable, cast
+from urllib.parse import unquote
 
 import polars as pl
 import pyarrow as pa
@@ -490,9 +491,15 @@ class Store:
                 return {"removed": 0, "note": "another writer committed to the table meanwhile, so the files this "
                                               "write left are left for VACUUM"}
             # With no commit since the write started, no version of the log can name a file that wasn't
-            # there then; the latest version's files are left out anyway, to be sure.
-            named = set(pa.table(current.get_add_actions()).column("path").to_pylist()) if current is not None else set()
-            new = sorted(p for p in self._data_files(lakehouse, schema, table) - before if p not in named)
+            # there then; the latest version's files are left out anyway, to be sure. Each in every spelling
+            # (as the log writes it, and decoded: region=North%2520America is the folder region=North%20America),
+            # compared as the disk does (on Windows, ignoring case), so a second spelling only keeps a file.
+            from ..maintenance import path_key
+            named: set[str] = set()
+            if current is not None:
+                for p in cast(list[str], pa.table(current.get_add_actions()).column("path").to_pylist()):
+                    named |= {path_key(p), path_key(unquote(p))}
+            new = sorted(p for p in self._data_files(lakehouse, schema, table) - before if path_key(p) not in named)
             self._delete_data_files(lakehouse, schema, table, new)
             return {"removed": len(new), "note": f"removed {len(new)} data file{'' if len(new) == 1 else 's'} this write left"}
         except Exception as exc:  # noqa: BLE001 - the write's own error is what the run reports

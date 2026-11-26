@@ -149,7 +149,7 @@ class Fabric:
 def run_job(tmp_path, duck_sql):
     job = jobs.Job("j", "duckdb", tmp_path, jobs.Target("ws1", "LH", "t", "dbo", "append"),
                    sql=f"SELECT 2::BIGINT AS id, {duck_sql} AS v")
-    return publish.run_job(job, Fabric(), lambda: "tok", tmp_path)
+    return publish.run_job(job, Fabric(), lambda: "tok", tmp_path, guard=lambda *_: None)
 
 
 @REFUSED

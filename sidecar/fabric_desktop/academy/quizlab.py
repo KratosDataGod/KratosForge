@@ -181,6 +181,8 @@ def problems(eid: str, grading: Path, ex: dict[str, Any], root: Path) -> list[st
         as_bank = {**q, "id": f"{objective}-q{m.group(1) if m else n}", "version": 1, "status": "draft"}
         out += [f"{eid}: {p.replace(as_bank['id'], str(q.get('id')))}"
                 for p in exam._question_problems(objective, as_bank, {}, hosts, docs)]
+        if q.get("type") in exam.PART_TYPES:
+            out.append(f"{eid}: question {q.get('id')}: a quiz question is {', '.join(exam.CHOICE_TYPES)}")
         if q.get("case") is not None:
             out.append(f"{eid}: question {q.get('id')}: a quiz's scenario is the exercise's own; it takes no case")
     return out

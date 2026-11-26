@@ -134,6 +134,13 @@ def verify(package: Any, where: str = "The policy package") -> dict[str, Any]:
                    if k not in package]
         if missing:
             raise KeyError(", ".join(missing))
+        shapes = {"project": str, "taken_at": str, "platform": dict, "chain": list, "policies": dict,
+                  "assignments": list, "exceptions": list}
+        wrong = [k for k, kind in shapes.items() if not isinstance(package[k], kind)]
+        wrong += [k for k in ("chain", "assignments", "exceptions") if not all(isinstance(x, dict) for x in package[k])]
+        wrong += ["policies"] * (not all(isinstance(x, dict) for x in package["policies"].values()))
+        if wrong:  # what resolve_offline and summary read: the wrong type would fail there, unnamed
+            raise TypeError(f"{', '.join(sorted(set(wrong)))} isn't what a package holds")
     except (KeyError, TypeError, AttributeError) as exc:
         raise PackageError(f"{where} is missing a part ({type(exc).__name__}: {exc}). {retake}") from exc
     return package
@@ -150,7 +157,7 @@ def read(path: Path, where: str = "", expect_sha256: str = "", max_age_days: flo
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise PackageError(f"{where} isn't there.") from exc
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:  # RecursionError: nested too deep
         raise PackageError(f"{where} can't be read ({type(exc).__name__}: {exc}). It isn't used.") from exc
     expect = str(expect_sha256 or "").strip().lower()
     if expect:
@@ -186,13 +193,17 @@ def resolve_offline(package: dict[str, Any], local: list[dict[str, Any]] | None 
                     context: dict[str, Any] | None = None) -> dict[str, Any]:
     """The project's policies in force, from a verified package alone, as resolve_policies gives them.
     ``context`` (environment, layer) filters by each policy's applies_to, as it does there."""
-    snap = {"policies": package["policies"], "assignments": package["assignments"],
-            "versions": {k: {"version": v["version"], "definition": v["definition"], "hash": v["sha256"], "intact": True}
-                         for k, v in package["versions"].items()}}
-    chain = [(c["scope"], c["target"]) for c in package["chain"]]
-    exceptions = [dict(e, note=f"Excepted until {e.get('until')}: {e.get('reason') or 'no reason given'}")
-                  for e in package["exceptions"]]
-    out = resolve(snap, chain, local, context or {}, today, exceptions)
+    try:  # a package whose hashes were recomputed over a part of the wrong shape: refused by name, not a crash
+        snap = {"policies": package["policies"], "assignments": package["assignments"],
+                "versions": {k: {"version": v["version"], "definition": v["definition"], "hash": v["sha256"], "intact": True}
+                             for k, v in package["versions"].items()}}
+        chain = [(c["scope"], c["target"]) for c in package["chain"]]
+        exceptions = [dict(e, note=f"Excepted until {e.get('until')}: {e.get('reason') or 'no reason given'}")
+                      for e in package["exceptions"]]
+        out = resolve(snap, chain, local, context or {}, today, exceptions)
+    except (KeyError, TypeError, AttributeError, ValueError, IndexError) as exc:
+        raise PackageError(f"The policy package has a part the check can't use ({type(exc).__name__}: {exc}). It isn't "
+                           "used. Take a new one: Check now while the platform can be reached.") from exc
     return out | {"project": package["project"]}
 
 

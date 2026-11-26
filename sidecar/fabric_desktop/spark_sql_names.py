@@ -516,7 +516,9 @@ class _Printer:
         to_date's format as %Y, element_at as a subscript, its own default arguments added)."""
         try:
             read = sqlglot.parse_one(f"SELECT {text}", read="spark")
-        except (TokenError, ParseError):  # silent-ok: named from the AST instead (_Unknown)
+        except (TokenError, ParseError, IndexError):  # silent-ok: named from the AST instead (_Unknown)
+            # IndexError: map(k, v, x:y, w) is four arguments in Databricks SQL and three in Spark, where
+            # sqlglot's build_var_map stops on the odd one
             raise _Unknown from None
         remember([read], f"SELECT {text}")
         items = read.expressions if isinstance(read, exp.Select) else []

@@ -135,14 +135,14 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | What you see | What it means | What to do |
 | --- | --- | --- |
 | "Git isn't installed on this PC" | The app uses your own Git and couldn't find it. | Install [Git for Windows](https://git-scm.com/download/win) (it includes Git Credential Manager), then reopen Source control. |
-| "Git couldn't sign in" | Git Credential Manager has no sign-in for that server, or it was cancelled. The app never asks for a password itself. | Run `git fetch` once in a terminal in that folder to sign in, or check **Repository settings > Signing in**. For Azure DevOps, check that your account can read the project. |
-| "You don't have permission" | You're signed in, but that account can't read or push to the repository or branch. | Ask the repository owner for access, or check that Git Credential Manager is using the right account. |
-| "The SSH key was refused" or "The server's SSH key isn't known yet" | Your key isn't loaded in the SSH agent, or this is the first connection to the server. The app doesn't answer SSH prompts. | Run `ssh-add` for your key, then `ssh -T git@github.com` (or your server) once in a terminal and accept the host key. |
+| "Git couldn't sign in" | Git Credential Manager has no sign-in for that server, or it was cancelled. The app never asks for a password itself. | Run `git fetch` once in a terminal in that folder to sign in, or check **Repository settings > Sign-in and Git**. For Azure DevOps, check that your account can read the project. |
+| "Your account can't do that in this repository" | You're signed in, but that account can't read or push to the repository or branch. | Ask the repository owner for access, or check that Git Credential Manager is using the right account. |
+| "The SSH server didn't accept your key" or "This PC doesn't know the SSH server's host key yet" | Your key isn't loaded in the SSH agent, or this is the first connection to the server. The app doesn't answer SSH prompts. | Run `ssh-add` for your key, then `ssh -T git@github.com` (or your server) once in a terminal and accept the host key. Or use the HTTPS address instead. |
 | "The remote has commits you don't have" | Someone pushed first. | **Pull**, then push again. |
-| "Your branch and the remote have both moved on" | A fast-forward pull isn't possible. | **Pull > Merge**, or keep working and merge later. |
-| "This branch is protected" | The server refuses direct pushes to it. | Push to a new branch and **Create pull request**. |
+| "Your branch and the remote both have new commits" | A fast-forward pull isn't possible. | **Pull and merge** (in the menu next to **Pull**), or keep working and merge later. |
+| "That branch is protected on the remote" | The server refuses direct pushes to it. | Push to a new branch and **Create pull request**. |
 | "Git needs your name and email" | No identity is set for commits. | **Repository settings > Your name on commits**. |
-| "Commit blocked: this looks like a secret" | The secret check found a key, token or password in a staged file. | Move the value to Key Vault or a variable library, or **It isn't a secret, commit** if it's a false alarm. See [Secrets are checked](source-control.md#secrets-are-checked-before-every-commit). |
+| "These files look like they hold a secret" when you commit | The secret check found a key, token or password in a staged file. | Move the value to Key Vault or a variable library, or **It isn't a secret, commit** if it's a false alarm. See [Secrets are checked](source-control.md#secrets-are-checked-before-every-commit). |
 | "Another Git operation is still running" | A fetch, pull or push is still going in that repository. | Wait for it, or **Cancel** it in the band at the top of the page. |
 
 ## Your data folder is short of room or on a network share
@@ -153,6 +153,17 @@ When a page or panel couldn't load something, the error shows in place with **Re
 | "There isn't room for the engine in ..." | The engine download was stopped before it started, because the drive has less than about 1.5 GB free. | Free some space and choose **Retry**. |
 | "The engine couldn't be saved: the drive that holds ... is full" or "Windows won't let KratosForge write to ..." | The drive filled up during the download or unpack, or the profile disk is attached read-only. | Free some space, or sign out and in again, then choose **Retry**. |
 | **Ready to work** says your data folder "is on a network share" | `%LOCALAPPDATA%` is redirected to a share. | Ask IT to keep `%LOCALAPPDATA%` on the PC. |
+
+## Files in OneDrive
+
+KratosForge keeps the files it stores or works on out of OneDrive, so OneDrive isn't uploading the same files the app reads, writes and publishes to Fabric, and its sync can't lock them part way through a write.
+
+| You see | Why | What to do |
+| --- | --- | --- |
+| **Ready to work** says folders "are in OneDrive" | A metadata project, a local data project, a repository or the SQL page's temp folder is in a folder OneDrive syncs. Windows can move Documents and Desktop into OneDrive (known folder move). | Move each one to a folder on this PC outside OneDrive, such as `C:\Users\<you>\KratosForge`, then open it from there. |
+| "... is in OneDrive (...), so ... can't be kept there" | A new metadata project, local data project or repository, the SQL page's temp folder, or the support bundle was given a folder in OneDrive. | Pick a folder outside OneDrive. |
+| The metadata project is now in `KratosForge\metadata` | Earlier versions put a new project in `Documents\FabricDesktop\metadata`, which Windows can move into OneDrive. On first use the app copied it to `KratosForge\metadata` in your profile and opens the copy. The original is left as it was. | Check the copy, then delete the original in OneDrive. **Ready to work** lists it until you do. |
+| Exports go to `KratosForge\Exports` | Windows has moved your Downloads folder into OneDrive, so exports are written to `KratosForge\Exports` in your profile instead. | Nothing. Open the file from the path the app shows. |
 
 ## This PC's clock is wrong
 

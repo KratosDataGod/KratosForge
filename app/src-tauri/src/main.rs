@@ -108,10 +108,38 @@ fn engine_mirror_state() -> Result<Option<String>, String> {
     let file = std::env::var_os("ProgramData").map(|dir| PathBuf::from(dir).join("FabricDesktop").join("policy.json"));
     let file_trusted = file.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only);
     let registry_trusted = policy_registry::admin_only(&[]);
-    let found = policy_registry::read();
-    let text = policy_registry::overlay(&file.map(|f| std::fs::read_to_string(f).unwrap_or_default()).unwrap_or_default(), &found);
+    let file_text = file.map(|f| std::fs::read_to_string(f).unwrap_or_default()).unwrap_or_default();
+    mirror_state_from(policy_registry::read_checked(), &file_text, file_trusted, registry_trusted)
+}
+
+/// engine_mirror_state for Group Policy's values (`found`, or why they couldn't be read), the policy
+/// file's text and whether only administrators could have written each: none when Group Policy can't
+/// be read, whatever the file says.
+fn mirror_state_from(found: Result<Vec<(String, policy_registry::Raw)>, String>, file_text: &str,
+                     file_trusted: Result<(), String>, registry_trusted: Result<(), String>) -> Result<Option<String>, String> {
+    let found = found.map_err(gp_unreadable)?;
+    let text = policy_registry::overlay(file_text, &found);
     let trusted = if policy_registry::sets(&found, "engine_download_url") { registry_trusted } else { file_trusted };
     mirror_from(&text, trusted)
+}
+
+/// Why the engine's source is the built-in one when Group Policy can't be read: IT may have set
+/// engine_download_url or engine_folder there to override the policy file, so neither the file's nor a
+/// half-read Group Policy's is used.
+fn gp_unreadable(why: String) -> String {
+    format!("Group Policy couldn't be read ({why}), so only the built-in engine source is used")
+}
+
+/// Why IT's engine_folder isn't used, from Group Policy's read (`read`): Group Policy that can't be read
+/// may have been set to override the policy file's folder, so the engine is kept in this app's own one.
+/// None when it was read. Passed to the engine as FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED, as
+/// engine_download_url's reason is, so Settings > Help and about can say it (app_settings).
+fn engine_folder_ignored_from<T>(read: Result<T, String>) -> Option<String> {
+    read.err().map(|why| format!("Group Policy couldn't be read ({why}), so the engine is kept in this app's own folder"))
+}
+
+fn engine_folder_ignored() -> Option<String> {
+    engine_folder_ignored_from(policy_registry::read_checked())
 }
 
 /// engine_mirror_state's rule for the policy's `text` (the file with Group Policy laid over it), given
@@ -145,7 +173,8 @@ fn policy_engine_url(text: &str) -> Option<String> {
 /// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
 /// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file or Group Policy.
 /// Only those can set it, and only when the account running the app couldn't change them
-/// (policy_registry::trusted_hosts); a missing or unreadable file means none (its last good copy isn't used).
+/// (policy_registry::trusted_hosts); a missing or unreadable file means none (its last good copy isn't used),
+/// and Group Policy that is there but can't be read means none from either source.
 fn fabric_view_sign_in_hosts() -> Vec<String> {
     sign_in_hosts_state().0
 }
@@ -156,11 +185,11 @@ fn sign_in_hosts_state() -> (Vec<String>, String) {
     let file = path.as_deref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
     let file_hosts = policy_sign_in_hosts(&file);
     let file_ok = if file_hosts.is_empty() { Ok(()) } else { path.as_deref().map_or(Err("there is no policy file".into()), policy_trust::admin_only) };
-    let found = policy_registry::read();
+    let (found, unreadable) = policy_registry::read_all();
     let registry = policy_registry::sets(&found, "fabric_view_sign_in_hosts")
         .then(|| policy_sign_in_hosts(&policy_registry::overlay("", &found)));
     let registry_ok = if registry.is_some() { policy_registry::admin_only(&["fabric_view_sign_in_hosts"]) } else { Ok(()) };
-    policy_registry::trusted_hosts(file_hosts, file_ok, registry, registry_ok)
+    policy_registry::trusted_hosts(unreadable, file_hosts, file_ok, registry, registry_ok)
 }
 
 /// The valid entries of `fabric_view_sign_in_hosts`, lower-cased; invalid ones are skipped.
@@ -186,7 +215,30 @@ fn dns_name(host: &str) -> bool {
 
 #[cfg(test)]
 mod policy_tests {
-    use super::{policy_allows_link_scheme, policy_allows_updates, policy_engine_url};
+    use super::{engine_folder_ignored_from, mirror_state_from, policy_allows_link_scheme, policy_allows_updates, policy_engine_url, policy_registry};
+
+    #[test]
+    fn group_policy_that_cant_be_read_leaves_only_the_built_in_engine_source() {
+        let file = r#"{"auto_update": false, "engine_download_url": "https://files.contoso.com/kf/"}"#;
+        // Readable and not configured: the trusted file's folder is used.
+        assert_eq!(mirror_state_from(Ok(Vec::new()), file, Ok(()), Ok(())), Ok(Some("https://files.contoso.com/kf".into())));
+        // Unreadable (access denied, a damaged hive): never the file's folder, and the reason is given.
+        let why = mirror_state_from(Err("Windows error 5 reading HKLM\\Software\\Policies\\KratosBI\\KratosForge".into()),
+                                    file, Ok(()), Ok(())).unwrap_err();
+        assert!(why.starts_with("Group Policy couldn't be read (") && why.contains("Windows error 5")
+                && why.ends_with("so only the built-in engine source is used"), "{why}");
+        // Readable and setting its own folder: Group Policy's, trusted by its key.
+        let gp = vec![("engine_download_url".to_string(), policy_registry::Raw::Text("https://gp.contoso.com/e".into()))];
+        assert_eq!(mirror_state_from(Ok(gp), file, Ok(()), Ok(())), Ok(Some("https://gp.contoso.com/e".into())));
+    }
+
+    #[test]
+    fn group_policy_that_cant_be_read_gives_the_engine_folder_reason() {
+        assert_eq!(engine_folder_ignored_from(Ok(Vec::<(String, policy_registry::Raw)>::new())), None);
+        let why = engine_folder_ignored_from::<()>(Err("Windows error 5 reading HKLM\\Software\\Policies".into())).unwrap();
+        assert!(why.starts_with("Group Policy couldn't be read (Windows error 5") &&
+                why.ends_with("so the engine is kept in this app's own folder"), "{why}");
+    }
 
     #[test]
     fn engine_download_url_is_an_https_folder_or_nothing() {
@@ -253,25 +305,29 @@ mod policy_tests {
     }
 }
 
-/// The release this PC updates from: "stable" or "latest" (the Preview channel). The
-/// organization's policy file (or its last good copy) wins over the Settings page, as in the
-/// sidecar's app_settings.py.
+/// The release this PC updates from: "stable" or "latest" (the Preview channel).
 fn release_tag() -> &'static str {
-    let user = std::fs::read_to_string(data_dir().join("app-settings.json")).unwrap_or_default();
-    channel_tag(&policy_text(), &user)
+    if channel() == "preview" { "latest" } else { "stable" }
 }
 
-/// release_tag's rule: the first of the policy file's and then the person's `"channel"` that is
-/// "preview" or "stable" decides; anything else, or neither, is Stable.
-fn channel_tag(policy: &str, user: &str) -> &'static str {
-    for text in [policy, user] {
-        match setting(text, "channel").as_deref() {
-            Some("preview") => return "latest",
-            Some("stable") => return "stable",
-            _ => {}
-        }
+/// This PC's update channel, "stable" or "preview": the organization's policy file (or its last good
+/// copy) with Group Policy laid over it wins over the Settings page, as in the sidecar's app_settings.py.
+/// updater.py gets it from here (updater, FABRIC_DESKTOP_CHANNEL), since it can't read Group Policy.
+fn channel() -> &'static str {
+    let user = std::fs::read_to_string(data_dir().join("app-settings.json")).unwrap_or_default();
+    channel_name(&policy_text(), &user)
+}
+
+/// channel's rule, the sidecar's (app_settings.load): a policy that sets `"channel"` decides, and one
+/// that isn't "preview" or "stable" is Stable (the default), so updates follow what Settings shows;
+/// with none, the person's "preview" or "stable"; anything else, or neither, is Stable.
+fn channel_name(policy: &str, user: &str) -> &'static str {
+    let known = |value: &str| if value == "preview" { "preview" } else { "stable" };
+    match setting(policy, "channel").as_deref() {
+        Some("") | None => {}
+        Some(value) => return known(value),
     }
-    "stable"
+    setting(user, "channel").as_deref().map_or("stable", known)
 }
 
 /// Where release builds get their engine: Python with the sidecar and every package it
@@ -492,6 +548,10 @@ fn engine_root() -> PathBuf {
 /// otherwise this build's python.exe there or why it can't be used. The policy file's permissions
 /// are checked before it is read, as for engine_download_url.
 fn it_engine() -> Option<Result<PathBuf, String>> {
+    if let Some(why) = engine_folder_ignored() {
+        eprintln!("engine_folder ignored: {why}");
+        return None;
+    }
     let file = PathBuf::from(std::env::var_os("ProgramData")?).join("FabricDesktop").join("policy.json");
     let trusted = policy_trust::admin_only(&file);
     let text = std::fs::read_to_string(&file).ok()?;
@@ -786,6 +846,7 @@ fn updater(args: &[&str]) -> Result<Command, String> {
     // folder can shadow a standard library module.
     let mut cmd = Command::new(python()?);
     cmd.args(["-u", "-c", UPDATER]).args(args).current_dir(data_dir()).stdin(Stdio::null());
+    cmd.env("FABRIC_DESKTOP_CHANNEL", channel()); // with Group Policy's, which updater.py can't read
     cmd.envs(win_proxy::engine_env().iter().cloned()); // the proxy Windows uses, when Python can't read it itself
     hide_window(&mut cmd);
     Ok(cmd)
@@ -958,6 +1019,8 @@ impl Sidecar {
             .env("FABRIC_DESKTOP_APP_EXE", std::env::current_exe().unwrap_or_default())
             // So Settings > Help and about can say why IT's engine folder isn't used (app_settings).
             .env("FABRIC_DESKTOP_ENGINE_URL_IGNORED", engine_mirror_state().err().unwrap_or_default())
+            // And why IT's engine_folder isn't (Group Policy that can't be read).
+            .env("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", engine_folder_ignored().unwrap_or_default())
             // And why the organization's Fabric view sign-in hosts aren't used.
             .env("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", sign_in_hosts_state().1)
             .current_dir(data_dir())
@@ -2960,6 +3023,20 @@ async fn pick_sql_file(window: tauri::Window, start: Option<String>, save_name: 
         .map_err(|_| "The file dialog stopped unexpectedly".to_string())?
 }
 
+/// Volumes on this PC (Preview): the Windows file dialog for any file, to upload into a volume or, with
+/// `save_name`, where to save a volume's file. Returns the path, or None when the person cancels. The
+/// engine checks the path and copies the file.
+#[tauri::command]
+async fn pick_file(window: tauri::Window, start: Option<String>, save_name: Option<String>) -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    let owner = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    #[cfg(not(windows))]
+    let owner = { let _ = &window; 0 };
+    tauri::async_runtime::spawn_blocking(move || std::thread::spawn(move || folder_pick::pick_any(owner, start, save_name)).join())
+        .await.map_err(|e| e.to_string())?
+        .map_err(|_| "The file dialog stopped unexpectedly".to_string())?
+}
+
 /// Opens one of this repository's docs pages in the default browser, such as
 /// "xray-fixes.md#small-files". Only pages under docs/ on GitHub.
 #[tauri::command]
@@ -3171,7 +3248,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(guarded(tauri::generate_handler![
             rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, ssms_find, open_in_ssms, open_in_mssql, take_pending_link, pick_folder, pick_sql_file,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, ssms_find, open_in_ssms, open_in_mssql, take_pending_link, pick_folder, pick_sql_file, pick_file,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ]))
         .run(tauri::generate_context!())
@@ -4306,24 +4383,42 @@ mod sidecar_bridge_tests {
 
 #[cfg(test)]
 mod policy_rule_tests {
-    use super::{channel_tag, mirror_from};
+    use super::{channel_name, mirror_from};
 
     const MIRROR: &str = r#"{"auto_update": false, "engine_download_url": "https://files.contoso.com/kf/"}"#;
 
     #[test]
     fn the_policy_files_channel_wins_over_the_persons() {
-        assert_eq!(channel_tag(r#"{"channel": "stable"}"#, r#"{"channel": "preview"}"#), "stable");
-        assert_eq!(channel_tag(r#"{"channel": "preview"}"#, r#"{"channel": "stable"}"#), "latest");
-        // No policy, or one that doesn't set a known channel: the person's choice.
-        assert_eq!(channel_tag("", r#"{"channel": "preview"}"#), "latest");
-        assert_eq!(channel_tag(r#"{"channel": "nightly"}"#, r#"{"channel": "preview"}"#), "latest");
-        assert_eq!(channel_tag("\u{feff}{\"channel\": \"preview\"}", ""), "latest", "a byte-order mark is skipped");
+        assert_eq!(channel_name(r#"{"channel": "stable"}"#, r#"{"channel": "preview"}"#), "stable");
+        assert_eq!(channel_name(r#"{"channel": "preview"}"#, r#"{"channel": "stable"}"#), "preview");
+        // No policy, or one that doesn't set the channel as text: the person's choice.
+        assert_eq!(channel_name("", r#"{"channel": "preview"}"#), "preview");
+        assert_eq!(channel_name(r#"{"channel": ""}"#, r#"{"channel": "preview"}"#), "preview");
+        assert_eq!(channel_name(r#"{"channel": 1}"#, r#"{"channel": "preview"}"#), "preview");
+        assert_eq!(channel_name("\u{feff}{\"channel\": \"preview\"}", ""), "preview", "a byte-order mark is skipped");
+    }
+
+    #[test]
+    fn a_policy_channel_that_isnt_one_is_stable_as_settings_shows() {
+        // app_settings.load: an unknown policy value is reported and the default applies, not the person's.
+        for policy in [r#"{"channel": "nightly"}"#, r#"{"channel": "Preview"}"#] {
+            assert_eq!(channel_name(policy, r#"{"channel": "preview"}"#), "stable", "{policy}");
+        }
+    }
+
+    #[test]
+    fn group_policys_channel_reaches_the_rule() {
+        use crate::policy_registry::{overlay, Raw};
+        let gp = [("channel".to_string(), Raw::Text("preview".into()))];
+        assert_eq!(channel_name(&overlay(r#"{"channel": "stable"}"#, &gp), ""), "preview");
+        let gp = [("channel".to_string(), Raw::Text("nightly".into()))];
+        assert_eq!(channel_name(&overlay(r#"{"channel": "preview"}"#, &gp), r#"{"channel": "preview"}"#), "stable");
     }
 
     #[test]
     fn stable_is_the_default_for_anything_else() {
-        for (policy, user) in [("", ""), ("not json", "{"), (r#"{"channel": "Preview"}"#, ""), (r#"{"channel": 1}"#, r#"{"channel": null}"#)] {
-            assert_eq!(channel_tag(policy, user), "stable", "{policy:?} {user:?}");
+        for (policy, user) in [("", ""), ("not json", "{"), ("", r#"{"channel": "Preview"}"#), (r#"{"channel": 1}"#, r#"{"channel": null}"#)] {
+            assert_eq!(channel_name(policy, user), "stable", "{policy:?} {user:?}");
         }
     }
 

@@ -156,10 +156,11 @@ def test_a_queued_write_says_why(svc, monkeypatch, exc, state):  # noqa: F811
 def test_a_waiting_item_the_lakehouse_refuses_this_person_or_schema_is_marked(svc, monkeypatch, exc, state):  # noqa: F811
     svc.optimize_create("w1", workspace_name="Platform")
     lakehouse = svc.optimize_status()["active"]["lakehouse_id"]
-    flaky = _offline(monkeypatch, "record_analysis", ConnectionError("down"))
-    svc._xray_share(xray_result(), _token)
-    assert svc.optimize_status()["sync"]["state"] == ob.OFFLINE
-    monkeypatch.undo()
+    # Scoped, not monkeypatch.undo(): that would also undo svc's fakes (and conftest's offline sign-in).
+    with pytest.MonkeyPatch.context() as mp:
+        flaky = _offline(mp, "record_analysis", ConnectionError("down"))
+        svc._xray_share(xray_result(), _token)
+        assert svc.optimize_status()["sync"]["state"] == ob.OFFLINE
     _offline(monkeypatch, "record_analysis", exc)
     assert flaky["down"]
     out = svc.optimize_switch(lakehouse)
@@ -193,9 +194,9 @@ def test_no_lakehouse_no_sync_state(svc):  # noqa: F811
 def test_a_newer_lakehouse_found_while_sending_is_a_conflict(svc, monkeypatch):  # noqa: F811
     svc.optimize_create("w1", workspace_name="Platform")
     lakehouse = svc.optimize_status()["active"]["lakehouse_id"]
-    _offline(monkeypatch, "record_analysis", ConnectionError("down"))
-    svc._xray_share(xray_result(), _token)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:  # scoped: svc's fakes stay
+        _offline(mp, "record_analysis", ConnectionError("down"))
+        svc._xray_share(xray_result(), _token)
     # Another installation upgraded the lakehouse past what this app knows: the real check refuses.
     monkeypatch.setattr(setup, "applied_versions", lambda lake: [schema.latest() + 1])
     out = svc.optimize_switch(lakehouse)

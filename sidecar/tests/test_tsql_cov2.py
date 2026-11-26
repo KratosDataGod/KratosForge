@@ -121,20 +121,25 @@ def test_two_decimal_averages_note_floating_point_once():
     assert len(notes) == 1 and notes[0].startswith("A decimal AVG")
 
 
-def test_a_float_average_and_a_windowed_integer_sum_stay_as_they_are(engine):
+def test_a_float_average_stays_as_it_is_and_a_windowed_integer_sum_stays_an_int(engine):
     assert translate("SELECT AVG(CAST(1 AS FLOAT))")[0] == [
         "SELECT AVG(CAST(1 AS DOUBLE))"
     ]
-    assert translate("SELECT SUM(1) OVER ()")[0] == ["SELECT SUM(1) OVER ()"]
+    # WR-247: T-SQL's SUM of an int is an int, so a total past it is error 8115
+    assert translate("SELECT SUM(1) OVER ()")[0] == [(
+        "SELECT LIST_TRANSFORM([SUM(1) OVER ()], LAMBDA kf_value : CASE WHEN NOT kf_value IS NULL AND "
+        "TRY_CAST(kf_value AS INT) IS NULL THEN CAST(ERROR('Arithmetic overflow error converting expression to data "
+        "type int.') AS INT) ELSE CAST(kf_value AS INT) END)[1]")]
     assert tsql(engine, "SELECT AVG(CAST(id AS FLOAT)) AS a FROM dbo.t")["rows"] == [
         [1.5]
     ]
 
 
 def test_a_decimal_plus_a_windowed_integer_sum_is_a_decimal(engine):
-    assert translate("SELECT 1.5 + SUM(2) OVER ()")[0] == [
-        "SELECT CAST(1.5 + SUM(2) OVER () AS DECIMAL(21, 1))"
-    ]
+    assert translate("SELECT 1.5 + SUM(2) OVER ()")[0] == [(
+        "SELECT CAST(1.5 + LIST_TRANSFORM([SUM(2) OVER ()], LAMBDA kf_value : CASE WHEN NOT kf_value IS NULL AND "
+        "TRY_CAST(kf_value AS INT) IS NULL THEN CAST(ERROR('Arithmetic overflow error converting expression to data "
+        "type int.') AS INT) ELSE CAST(kf_value AS INT) END)[1] AS DECIMAL(21, 1))")]  # WR-247: SUM of an int is an int
 
 
 def test_text_divided_by_text_and_text_modulo_text_are_left_to_duckdb():
@@ -174,9 +179,9 @@ def test_view_metadata_is_refused_by_name():
         translate("CREATE VIEW v WITH VIEW_METADATA AS SELECT 1")
 
 
-def test_text_in_a_subquery_is_compared_as_duckdb_does():
+def test_text_in_a_subquery_is_compared_with_tsqls_padding():  # WR-246: 'a' IN (SELECT 'a ') is true in T-SQL
     out, notes = translate("SELECT 1 WHERE 'a' IN (SELECT 'a ')")
-    assert out == ["SELECT 1 WHERE 'a' IN (SELECT 'a ')"]
+    assert out == ["SELECT 1 WHERE 'a' IN (SELECT 'a')"]
 
 
 def test_a_table_with_a_check_constraint_keeps_it(engine):

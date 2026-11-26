@@ -1,0 +1,24 @@
+version: 0.2.0.dev0
+name: sales_view
+description: A Fabric Semantic View as published from the lakehouse (no fields; DAX on every metric).
+datasets:
+- name: orders
+  source: dbo.orders
+- name: customers
+  source: dbo.customers
+relationships:
+- name: orders_customers
+  from: orders
+  to: customers
+  from_columns: [customer_id]
+  to_columns: [customer_id]
+metrics:
+- name: total amount
+  expression:
+    dialects:
+    - {dialect: DAX, expression: "SUM('orders'[amount])"}
+    - {dialect: ANSI_SQL, expression: SUM(orders.amount)}
+- name: order rows
+  expression:
+    dialects:
+    - {dialect: DAX, expression: "COUNTROWS('orders')"}

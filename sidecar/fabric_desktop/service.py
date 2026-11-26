@@ -81,6 +81,7 @@ from .powerbi_embed_service import PowerBiEmbedMixin
 from .model_dictionary_service import ModelDictionaryMixin
 from .environment_service import EnvironmentMixin
 from .local_writes_service import LocalWritesMixin
+from .databricks_volumes_service import DatabricksVolumesMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
 from .editor_service import EditorMixin
@@ -145,7 +146,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, DatabricksVolumesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -242,13 +243,15 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def support_bundle_preview(self) -> dict[str, Any]:
         from . import support_bundle
         shown = support_bundle.preview(self.root, self._bundle_agent_home())
-        return shown | {"folder": str(known_folders.downloads())}
+        return shown | {"folder": str(known_folders.export_folder())}
 
     def support_bundle_save(self, folder: str = "") -> dict[str, Any]:
         from . import support_bundle
-        target = Path(folder) if folder else known_folders.downloads()
+        target = Path(folder) if folder else known_folders.export_folder()
         if not target.is_absolute():
             raise ValueError("Choose a full folder path, such as C:\\Users\\you\\Downloads.")
+        if (refusal := known_folders.onedrive_refusal(target, "the support bundle")):
+            raise ValueError(refusal)
         try:
             path = support_bundle.create(target, self.root, self._bundle_agent_home())
         except OSError as exc:
@@ -553,7 +556,30 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         from .http_session import clock_offset
         return readiness.checks(user, fabric.list_workspaces if fabric else unreachable if offline else list,
                                 capacities, self.app_settings(),
-                                clock=clock_offset, folder=self.root)
+                                clock=clock_offset, folder=self.root, local_folders=self._local_folders())
+
+    def _local_folders(self) -> dict[str, str]:
+        """The folders the app keeps files in, for the OneDrive row: what each holds, and where."""
+        folders = {"The app's data folder": str(self.root)}
+        settings = self._settings()
+        if settings.get("meta_project"):
+            folders["The metadata project"] = str(settings["meta_project"])
+        if settings.get("meta_project_moved_from"):  # copied out of OneDrive; the original is left to delete
+            folders["The metadata project's old copy, which you can delete"] = str(settings["meta_project_moved_from"])
+        from .app_settings import sql_limits
+        sql_temp = str(sql_limits().get("sql_temp_dir") or "")
+        if sql_temp:
+            folders["The SQL page's temp folder"] = sql_temp
+        try:
+            for p in self.list_local_projects():
+                if p.get("folder"):
+                    folders[f"Local data project {p.get('name')}"] = str(p["folder"])
+        except Exception as exc:  # noqa: BLE001 - the row lists what it can read
+            _log.info("Local data projects not read for the OneDrive row: %s", describe(exc))
+        for r in self._git_saved().get("repos", []):
+            if r.get("path"):
+                folders[f"Repository {Path(r['path']).name}"] = str(r["path"])
+        return folders
 
     def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
         """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""
@@ -985,7 +1011,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         A CSV protects text cells that start like a formula unless ``raw`` (Keep raw values, WR-228)."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
@@ -1082,7 +1108,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         Never replaces a file: a name that is taken gets a number."""
         report = sqlcompat.analyze(query, target)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
@@ -1133,12 +1159,17 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Write a table diagram as a new .svg file in the Downloads folder. Never replaces a file."""
         if not isinstance(svg, str) or not svg.startswith("<svg ") or not svg.rstrip().endswith("</svg>"):
             raise ValueError("That isn't a diagram from the SQL page.")
-        if len(svg.encode("utf-8")) > self.DIAGRAM_SVG_MAX:
+        try:
+            size = len(svg.encode("utf-8"))
+        except UnicodeEncodeError:  # a lone surrogate, which JSON allows and a file can't hold
+            raise ValueError("The diagram wasn't saved, because it holds a character that can't be written "
+                             "to a file. Draw the diagram again on the SQL page.") from None
+        if size > self.DIAGRAM_SVG_MAX:
             raise ValueError("The diagram is too big to save (over 4 MB).")
         problem = self._diagram_problem(svg)
         if problem:
             raise ValueError(f"The diagram has {problem}, so it wasn't saved.")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name, 'Diagram')} {time.strftime('%Y-%m-%d %H%M%S')}"
         for n in range(1, 1000):
@@ -1320,7 +1351,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
         """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
         # folder (HD-038, finding EN-11), and an existing file is never replaced.
@@ -1336,10 +1367,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 break
             else:
                 raise ValueError("Couldn't find a free file name in Downloads for the export.")
-            header, protected = csv_cells.protect_header(result.schema or pa.schema([]))
+            # Binary goes out as hex and lists as JSON text, as the SQL page's export writes them (WR-221):
+            # Arrow wrote binary as its raw bytes, past the protection below.
+            header, protected = csv_cells.protect_header(sql_exec.csv_ready_schema(result.schema or pa.schema([])))
             with sink, pa_csv.CSVWriter(sink, header) as out:
                 for batch in result:
-                    batch, n = csv_cells.protect_batch(batch)  # WR-228: no cell runs as a formula when opened
+                    batch, n = csv_cells.protect_batch(sql_exec.csv_ready_batch(batch))  # WR-228
                     out.write_batch(batch)
                     rows, protected = rows + batch.num_rows, protected + n
         return {"path": str(path), "rows": rows, "protected": protected,
@@ -1383,6 +1416,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
+        self._remember_base(name, nb["disk_stamp"], nb["cells"])
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"], **self._checks(name)),
@@ -1468,12 +1502,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         ``disk_stamp`` (from open_notebook or the last save): when another program, such as VS Code,
         changed the file since, nothing is saved and ``changed_on_disk`` comes back. Both the file's
         version and these cells are kept under Versions first, so whichever the person picks, or
-        if they pick neither, nothing is lost. ``outside_copy`` is where a file that isn't a
+        if they pick neither, nothing is lost. When the cells both sides started from are known,
+        ``merge`` holds both sides merged by cell and any named conflicts (notebook_sync.merge_cells);
+        notebook_sync_merge saves it. ``outside_copy`` is where a file that isn't a
         notebook any more (Git conflict markers) was copied."""
         out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace, disk_stamp)
         if out.get("changed_on_disk"):
             copy = self._keep_both_sides(name, cells, lakehouse_ref, compute, workspace, bool(out.get("unreadable")))
-            return out | ({"outside_copy": copy} if copy else {})
+            merge = None if out.get("unreadable") else self._sync_preview(name, cells, disk_stamp)
+            return out | ({"outside_copy": copy} if copy else {}) | ({"merge": merge} if merge else {})
+        self._remember_base(name, out.get("disk_stamp"), cells, out.get("cell_ids"))
         self._keep_version(name)
         return out | {"check": compute_check(cells, lakehouse_ref, **self._checks(name))}
 
@@ -1506,6 +1544,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             ("environment", lambda: self.environments.rename_notebook(name, new_name)),
             ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
             ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
+            ("merge bases", lambda: self._sync_bases.forget(name)),  # the next open records one under the new name
             ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
             ("pin", lambda: self._rename_item_pin("notebook", name, new_name)),
         ]

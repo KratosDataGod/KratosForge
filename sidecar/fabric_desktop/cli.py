@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | databricks-bundle validate ... | parity-check ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -80,10 +80,12 @@ def main(argv: list[str] | None = None) -> None:
                       "create items and use capacity")
     live.add_argument("--check", action="append", default=[], metavar="ID",
                       choices=["delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox",
-                               "lease.onelake", "delta.merge_profile"],
+                               "lease.onelake", "delta.merge_profile", "model.bpa"],
                       help="also run this opt-in check (repeat for more)")
     live.add_argument("--run-in-fabric", action="store_true",
                       help="also run the published test notebook in Fabric; spends Spark capacity")
+    live.add_argument("--bpa-model", default="", metavar="NAME",
+                      help="model.bpa: the semantic model to check (needed when the workspace has more than one)")
     dbx = sub.add_parser("live-test-databricks", help="check sign-in, Unity Catalog, a SQL warehouse and Databricks "
                          "Connect against a test warehouse and cluster")
     dbx.add_argument("--profile", help="the Databricks CLI profile to sign in with (in ~/.databrickscfg)")
@@ -127,6 +129,12 @@ def main(argv: list[str] | None = None) -> None:
     disc.add_argument("--host", help="or the workspace URL, signing in with the Databricks CLI (databricks auth login)")
     disc.add_argument("--no-catalogs", action="store_true", help="leave out the Unity Catalog catalogs")
     disc.add_argument("--json", action="store_true", help="print the result as JSON")
+    dab = sub.add_parser("databricks-bundle", help="Databricks Asset Bundles on this PC (no CLI, network or workspace)")
+    dab_sub = dab.add_subparsers(dest="databricks_bundle_command", required=True)
+    p = dab_sub.add_parser("validate", help="check databricks.yml and its includes, one line per finding as "
+                                            "file:line:column: severity: path: message; exit 1 if there are errors")
+    p.add_argument("folder", help="the folder that holds databricks.yml")
+    p.add_argument("--json", action="store_true", help="print the findings as JSON")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -146,6 +154,12 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("mcp", help="serve the Model Context Protocol on stdin/stdout, for an external AI tool to start")
     p.add_argument("--client", default="", help="the client id Settings > Integrations gave this tool")
     sub.add_parser("capabilities", help="print every capability external tools can use, with schemas, as JSON")
+    p = sub.add_parser("parity-check", help="run the cross-platform verification cases on this PC (local evidence only; "
+                                            "no network)")
+    p.add_argument("--case", help="one case id (default: every case)")
+    p.add_argument("--dialect", help="one dialect: spark, databricks, snowflake, tsql or duckdb")
+    p.add_argument("--out", help="a folder to write the run records to as JSON (default: write nothing)")
+    p.add_argument("--json", action="store_true", help="print the records as JSON")
     integ = sub.add_parser("integrations", help="external AI tools: the local HTTP API")
     integ_sub = integ.add_subparsers(dest="integrations_command", required=True)
     p = integ_sub.add_parser("serve", help="run the local HTTP API on 127.0.0.1 (the app starts this when it's switched on)")
@@ -276,6 +290,8 @@ def main(argv: list[str] | None = None) -> None:
         from .integrations.registry import default_registry
         print(json.dumps({"capabilities": [c.describe() for c in default_registry().all()]}, indent=2))
         return
+    if args.command == "parity-check":
+        raise SystemExit(_parity_check(args))
     if args.command == "integrations":
         from .integrations.http_server import serve as serve_http
         raise SystemExit(serve_http(args.port, args.parent_pid))
@@ -306,6 +322,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_env_drift(args))
     if args.command == "databricks-discover":
         raise SystemExit(_databricks_discover(args))
+    if args.command == "databricks-bundle":
+        raise SystemExit(_databricks_bundle_validate(args))
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
     if args.command == "live-test-databricks":
@@ -444,11 +462,56 @@ def _backup(args: argparse.Namespace) -> int:
         for item in result["cleaned"]:
             print(f"  {item['path']}: {item['removed']} left out")
         return 0
+    if not args.yes:  # only shows what it would do: nothing changes
+        try:
+            print(backup.describe(backup.restore(Path(args.backup), data_dir(), home)), end="")
+        except backup.BackupError as exc:
+            print(exc)
+            return 1
+        return 0
+    return _restore_audited(Path(args.backup), data_dir(), home)
+
+
+def _restore_audited(zip_path: Path, folder: Path, home: Path | None) -> int:
+    """restore --yes replaces this PC's data, so it always fails closed: a "started" line naming the backup
+    file is written to this PC's audit log (the app's, Service.audit) before any file changes, and nothing
+    is restored when it can't be; then how the restore ended, with how many audit entries the backup held that
+    weren't restored (restore leaves the audit trails as they are). The person is this PC's account, marked
+    (cli), as for the CLI's other audited commands."""
+    import time
+
+    from . import audit, backup
+
+    log = audit.AuditLog(folder / "audit")
+    who = f"{log.os_user or 'unknown'} (cli)"
+    call = {"backup": str(zip_path), "agent_home": str(home) if home else ""}
+    began = time.monotonic()
     try:
-        print(backup.describe(backup.restore(Path(args.backup), data_dir(), home, apply=args.yes)), end="")
+        log.record("backup_restore", "started", 0.0, call, who=who)
+    except Exception as exc:  # noqa: BLE001 - any failure to write refuses the restore
+        print("error: " + audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}"))
+        return 2
+
+    def note(outcome: str, error: str = "", reason: str = "", **more: int) -> None:
+        """How the restore ended: never changes what it did, as for the app's own calls."""
+        try:
+            log.record("backup_restore", outcome, time.monotonic() - began, dict(call, **more), who=who,
+                       error=error, reason=reason)
+        except Exception as exc:  # noqa: BLE001 - stderr says the line is missing
+            print(f"audit: could not record backup_restore: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    try:
+        result = backup.restore(zip_path, folder, home, apply=True)
     except backup.BackupError as exc:
+        note("error", error=str(exc), reason="refused")
         print(exc)
         return 1
+    except BaseException as exc:
+        note("error", error=f"{type(exc).__name__}: {exc}", reason="failed")
+        raise
+    left = result.get("audit_entries_not_restored", 0)
+    note("ok", **({"audit_entries_not_restored": left} if left else {}))
+    print(backup.describe(result), end="")
     return 0
 
 
@@ -536,12 +599,57 @@ def _smoke_test(args: argparse.Namespace) -> int:
     return 1 if result["outcome"] == "failed" else 0
 
 
+def _parity_check(args: argparse.Namespace) -> int:
+    """Runs the parity cases on this PC. Exit 2 for a case file or argument that isn't valid, else 0: a
+    difference is a finding the records report, not a failure of the run."""
+    from . import parity_harness
+    try:
+        records = parity_harness.run(case_id=args.case, dialect=args.dialect)
+    except parity_harness.CaseError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    if args.out:
+        print(f"Records written to {parity_harness.write(records, Path(args.out))}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(records, indent=2))
+        return 0
+    for r in records:
+        print(f"{r['case']:<20} {r['engine']['dialect']:<11} {r['outcome']}")
+    print("Evidence level: local. These runs can't mark a platform Verified.")
+    return 0
+
+
 def _env_drift(args: argparse.Namespace) -> int:
     """0 no drift, 1 drift, 2 the item couldn't be read."""
     from . import fabric_environment
     result = Service().environment_fabric_drift(args.workspace, args.environment, args.notebook)
     print(json.dumps(result, indent=2) if args.json else fabric_environment.summary(result))
     return 2 if result["status"] != "read" else 1 if result["drifted"] else 0
+
+
+def _databricks_bundle_validate(args: argparse.Namespace) -> int:
+    """databricks-bundle validate: the local checks (engines/databricks_bundle_check.py). 0 no errors,
+    1 errors, 2 the folder isn't there."""
+    from pathlib import Path
+
+    from .engines.databricks_bundle_check import validate as check_bundle
+
+    folder = Path(args.folder).resolve()
+    if not folder.is_dir():
+        print(f"{folder} isn't a folder.")
+        return 2
+    findings = check_bundle(folder)
+    errors = sum(f.severity == "error" for f in findings)
+    if args.json:
+        print(json.dumps({"folder": str(folder), "findings": [f.to_dict() for f in findings]}, indent=2))
+    else:
+        for f in findings:
+            where = folder / f.file
+            print(f"{where}:{f.line or 1}:{f.column or 1}: {f.severity}: {f.path or '(file)'}: {f.message}")
+        warnings = len(findings) - errors
+        print(f"{errors} error{'' if errors == 1 else 's'}, {warnings} warning{'' if warnings == 1 else 's'} "
+              "(checked on this PC; not databricks bundle validate)")
+    return 1 if errors else 0
 
 
 def _databricks_discover(args: argparse.Namespace) -> int:
@@ -580,7 +688,7 @@ def _live_test(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("The live test will:")
         for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
-                                      extra=extra, run_in_fabric=args.run_in_fabric).plan():
+                                      extra=extra, run_in_fabric=args.run_in_fabric, bpa_model=args.bpa_model).plan():
             print(f"  - {step}")
         print("Dry run: nothing was signed in to, created or written.")
         return 0
@@ -598,7 +706,7 @@ def _live_test(args: argparse.Namespace) -> int:
         return 1 if result["left_behind"] else 0
     test = livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, Path(args.out),
                              protected_ids=livetest.policy_workspace_ids(), extra=extra,
-                             run_in_fabric=args.run_in_fabric)
+                             run_in_fabric=args.run_in_fabric, bpa_model=args.bpa_model)
     print("The live test will:")
     for step in test.plan():
         print(f"  - {step}")
@@ -971,12 +1079,46 @@ def _print_fabric_differences(found: list[dict]) -> None:
 
 
 def _pipeline_run(args: argparse.Namespace) -> int:
-    from pathlib import Path
+    """A local pipeline run in this process. Its audit lines are the app's for pipeline_run_start
+    (server.handle): a "started" line first when the call fails closed (--allow-uncontained), and the
+    run refused when that line can't be written; then how the start ended, then pipeline_run_finished.
+    The person is this PC's account, marked (cli), as for the agent's own commands."""
+    import time
 
+    from . import audit
     from .orchestration import load
     from .orchestration.definition import DefinitionError
     from .orchestration.runner import PipelineRun, RunRefused
 
+    params = dict(item.partition("=")[::2] for item in args.param)
+    call = {"path": args.path, "parameters": params, "mocks": args.mocks,
+            "children": dict(item.partition("=")[::2] for item in args.child),
+            "max_parallel": args.max_parallel, "wait_scale": args.wait_scale, "timeout_seconds": args.timeout,
+            "notebooks": dict(item.partition("=")[::2] for item in args.notebook),
+            "allow_uncontained": args.allow_uncontained, "keep_outputs": args.keep_outputs,
+            "read_lakehouses": args.read_lakehouse, "workspace_id": args.workspace,
+            "sql_projects": dict(item.partition("=")[::2] for item in args.sql_project)}
+    svc = Service()
+    log = getattr(svc, "audit", None)
+    who = f"{getattr(log, 'os_user', '') or 'unknown'} (cli)"
+    began = time.monotonic()
+
+    def note(action: str, outcome: str, details: dict, error: str = "", reason: str = "") -> None:
+        """A line after the work has started or ended: never stops it, as for the app's own calls."""
+        try:
+            if log is not None:
+                log.record(action, outcome, time.monotonic() - began, details, who=who, error=error, reason=reason)
+        except Exception as exc:  # noqa: BLE001 - stderr says the line is missing
+            print(f"audit: could not record {action}: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    if audit.fails_closed("pipeline_run_start", call):
+        try:
+            if log is None:
+                raise RuntimeError("no audit log")
+            log.record("pipeline_run_start", "started", 0.0, call, who=who)
+        except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+            print("error: " + audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}"))
+            return 2
     try:
         imp = load(args.path)
         children = {}
@@ -985,46 +1127,61 @@ def _pipeline_run(args: argparse.Namespace) -> int:
             children[key] = load(path)
         mocks = json.loads(Path(args.mocks).read_text(encoding="utf-8")) if args.mocks else None
     except (DefinitionError, OSError, ValueError) as exc:
+        note("pipeline_run_start", "error", call, error=str(exc))
         print(f"error: {exc}")
         return 2
-    params = dict(item.partition("=")[::2] for item in args.param)
     run_id, notebooks, data = str(uuid.uuid4()), None, None
-    if args.notebook or args.read_lakehouse or args.sql_project:
-        svc = Service()
     if args.notebook:
         from .pipeline_notebooks import LocalNotebooks
-        notebooks = LocalNotebooks(svc, run_id, dict(item.partition("=")[::2] for item in args.notebook),
-                                   args.allow_uncontained, args.keep_outputs)
+        notebooks = LocalNotebooks(svc, run_id, call["notebooks"], args.allow_uncontained, args.keep_outputs)
     if args.read_lakehouse or args.sql_project:
         from .pipeline_data import LocalData
         data = LocalData(svc, run_id, notebooks, args.workspace, lakehouse_reads=args.read_lakehouse,
-                         sql_projects=dict(item.partition("=")[::2] for item in args.sql_project))
+                         sql_projects=call["sql_projects"])
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
                       wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
                       data=data)
     if not args.json:
         from .orchestration.gotchas import check as fabric_differences
         _print_fabric_differences(fabric_differences(imp))
+    started = False
     try:
         problems = run.check()
+        if problems:
+            raise RunRefused(problems)
         acts = imp.pipeline.all_activities()
-        if not problems and ((notebooks is not None and notebooks.lakehouses(acts))
-                             or (data is not None and data.lakehouses(acts))):
+        if (notebooks is not None and notebooks.lakehouses(acts)) or (data is not None and data.lakehouses(acts)):
             svc.auth.storage_token()  # sign in before anything runs
+        note("pipeline_run_start", "ok", call)
+        started = True
         run.run()
     except RunRefused as exc:
+        if not started:
+            outcome, why = audit.outcome({"ok": False, "problems": exc.problems})
+            note("pipeline_run_start", outcome, call, reason=why)
         for p in exc.problems:
             print(f"refused: {p['code']}" + (f" [{p['activity']}]" if p.get("activity") else "") + f": {p['message']}")
         return 2
     except KeyboardInterrupt:
         run.cancel()
+        if not started:
+            note("pipeline_run_start", "error", call, reason="cancelled")
         if notebooks is not None:
             notebooks.stop()
         print("cancelled")
         return 1
+    except Exception as exc:
+        if not started:
+            note("pipeline_run_start", "error", call, error=f"{type(exc).__name__}: {exc}")
+        raise
     finally:
         if notebooks is not None:
             notebooks.finish()
+        if started:  # how the run ended, as the app's background run records it
+            reason = "cancelled" if run.cancelled and run.state != "failed" else (
+                {"succeeded": "", "cancelled": "cancelled"}.get(run.state, "failed"))
+            note("pipeline_run_finished", "error" if reason else "ok",
+                 {"run_id": run.id, "pipeline": run.pipeline.name, "state": run.state}, reason=reason)
     record = run.to_json()
     if args.json:
         print(json.dumps(record, indent=2, default=str))

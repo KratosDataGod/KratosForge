@@ -109,11 +109,37 @@ def test_polars_eager_read_then_filter():
     assert ids(['big = pl.read_csv("Files/sales.csv").filter(pl.col("region") == "EU")',
                 'big = pl.read_parquet("t.parquet").select("a", "b").filter(pl.col("a") > 1)']) == ["NB015", "NB015"]
     assert ids(['eu = pl.scan_csv("Files/sales.csv").filter(pl.col("region") == "EU").collect()',
-                'df = pl.read_csv("small.csv")', 'eu = df.filter(pl.col("r") == "EU")',
                 'x = spark.read.schema(s).csv("a").filter("a > 1")']) == []  # and a lazy collect() isn't NB003
     assert ids(['eu = pl.read_csv("a.csv").lazy().filter(pl.col("r") == "EU").collect()']) == []
     assert ids(['lf = pl.scan_parquet("Files/s.parquet").filter(pl.col("r") == "EU")\neu = lf.collect()']) == []
     assert ids(['sdf = spark.read.table("t")\nrows = sdf.collect()']) == ["NB003"]
+
+
+def test_polars_eager_read_kept_in_a_name_then_only_filtered():
+    assert ids(['df = pl.read_csv("Files/sales.csv")\neu = df.filter(pl.col("region") == "EU")']) == ["NB015"]
+    assert ids([('df = pl.read_parquet("t.parquet").select("a")\n'
+                 'eu = df.filter(pl.col("a") > 1)\nus = df.filter(pl.col("a") < 0)')]) == ["NB015"]  # one finding
+    assert ids(['df = pl.read_csv("a.csv")\nprint(len(df))\neu = df.filter(pl.col("r") == "EU")']) == []  # used whole
+    assert ids(['df = pl.read_csv("a.csv")\ndf = df.filter(pl.col("r") == "EU")']) == []  # assigned twice
+    assert ids(['df = pl.read_csv("a.csv")\nsave(df)']) == []
+    assert ids(['df = pl.scan_csv("a.csv")\neu = df.filter(pl.col("r") == "EU").collect()']) == []  # lazy
+    assert ids(['df = pd.read_csv("a.csv")\neu = df.filter(items=["a"])']) == []  # pandas
+    # across cells: reported where it's filtered, unless another cell uses the whole frame
+    assert ids(['df = pl.read_csv("small.csv")', 'eu = df.filter(pl.col("r") == "EU")']) == ["NB015"]
+    assert [f["cell"] for f in np_.check(['df = pl.read_csv("a.csv")', 'x = 1',
+                                           'eu = df.filter(pl.col("r") == "EU")'])["findings"]] == [3]
+    assert ids(['df = pl.read_csv("a.csv")\neu = df.filter(pl.col("r") == "EU")', 'print(df.shape)']) == []
+    assert ids(['df = pl.read_csv("a.csv")', 'df = df.with_columns(x=1)', 'df.filter(pl.col("x") > 0)']) == []
+    # read whole by SQL, or bound again by a loop, a with block or an argument: not reported
+    f = 'df = pl.read_csv("a.csv")'
+    eu = 'eu = df.filter(pl.col("r") == "EU")'
+    assert ids([f, eu, '%%sql\nSELECT count(*) FROM df']) == []
+    assert ids([f, eu, 'n = duckdb.sql("SELECT count(*) FROM df").fetchone()']) == []
+    assert ids([f, eu, 'for df in parts:\n    pass']) == []
+    assert ids([f, eu, 'with open("x") as df:\n    pass']) == []
+    assert ids([f, eu, 'def show(df):\n    return df']) == []
+    assert ids([f, eu, 'def only_eu(df):\n    return df.filter(pl.col("r") == "EU")']) == []  # its own df
+    assert ids([f, eu, 'x = "dfx"']) == ["NB015"]  # a word in a string must be the whole name
 
 
 def test_print_logging_only_in_a_scheduled_notebook():

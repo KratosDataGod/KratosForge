@@ -140,6 +140,8 @@ def _result_rows(data: Any, seen: int) -> list[list[Any]]:
         raise DatabricksError("The warehouse sent the result as download links instead of rows, which this engine "
                               "doesn't read, so none of it was kept. Add a LIMIT so the result fits inline (25 MB).")
     rows = data.get("data_array") or []
+    if not isinstance(rows, list):
+        raise DatabricksError("The warehouse sent a result chunk this engine can't read, so none of it was kept.")
     count, offset = data.get("row_count"), data.get("row_offset")
     if isinstance(count, int) and not isinstance(count, bool) and count != len(rows):
         raise DatabricksError(f"The warehouse said a result chunk holds {count:,} rows but sent {len(rows):,}, so "
@@ -150,14 +152,14 @@ def _result_rows(data: Any, seen: int) -> list[list[Any]]:
     return rows
 
 
-def split_statements(code: str) -> list[str]:
+def split_statements(code: str, dialect: str = "databricks") -> list[str]:
     """``code``'s statements as written, split on top-level semicolons (sqlglot's tokenizer, so a
     semicolon in a string or comment doesn't split). Unreadable SQL is sent whole: the warehouse decides.
     A part that is only comments is left out: sending it would wake a stopped warehouse for nothing."""
     import sqlglot
     from sqlglot.tokens import TokenType
     try:
-        tokens = sqlglot.tokenize(code, read="databricks")
+        tokens = sqlglot.tokenize(code, read=dialect)
     except Exception:  # noqa: BLE001 - the warehouse reports what's wrong with SQL sqlglot can't read
         return [code.strip()] if code.strip() else []
     parts, start, has_sql = [], 0, False
@@ -180,6 +182,22 @@ _TYPES = {"BYTE": pa.int64(), "SHORT": pa.int64(), "INT": pa.int64(), "LONG": pa
 def _one_value_per_column(rows: list[list[Any]], width: int) -> None:
     if any(not isinstance(r, list) or len(r) != width for r in rows):
         raise DatabricksError("The warehouse sent a result that doesn't have one value per column.")
+    if any(v is not None and not isinstance(v, str) for r in rows for v in r):  # JSON_ARRAY sends text or null
+        raise DatabricksError("None of the result was kept because the warehouse sent a value that isn't text. "
+                              "Run the cell again.")
+
+
+def _check_manifest(reply: dict[str, Any]) -> None:
+    """A finished statement's manifest is an object whose columns are objects and whose row count is a
+    whole number, or none is given: anything else raises DatabricksError, never a guessed table."""
+    manifest = reply.get("manifest") or {}
+    schema = manifest.get("schema") or {} if isinstance(manifest, dict) else None
+    columns = schema.get("columns") or [] if isinstance(schema, dict) else None
+    total = manifest.get("total_row_count") if isinstance(manifest, dict) else None
+    if not isinstance(columns, list) or not all(isinstance(c, dict) for c in columns) or \
+            (total is not None and (isinstance(total, bool) or not isinstance(total, int) or total < 0)):
+        raise DatabricksError("None of the result was kept because the warehouse described it in a way this engine "
+                              "can't read. Run the cell again.")
 
 
 def to_table(manifest: dict[str, Any], rows: list[list[Any]]) -> pa.Table:
@@ -232,7 +250,7 @@ def whole_table(manifest: dict[str, Any], rows: list[list[Any]]) -> tuple[pa.Tab
                 arr = values.cast(pa.decimal128(int(col["type_precision"]), int(col["type_scale"])))
             else:
                 arr = values.cast(_WHOLE_TYPES.get(kind, pa.string()))
-        except (pa.ArrowInvalid, pa.ArrowNotImplementedError, KeyError, TypeError, ValueError):
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError, KeyError, TypeError, ValueError, OverflowError):
             arr = values   # a value that doesn't read as its type stays text
         if arr.type == pa.string() and kind != "STRING":
             as_text.append(f"{names[i]} ({str(col.get('type_text') or kind).lower()})")
@@ -498,7 +516,8 @@ class DatabricksSqlSession:
                 reply["status"] = {}   # an unreadable status is polled again until the time limit
         state = reply["status"]["state"]
         if state == "FAILED":
-            err = reply["status"].get("error") or {}
+            err = reply["status"].get("error")
+            err = err if isinstance(err, dict) else {}
             raise DatabricksError(redact.one_line(err.get("message") or "The statement failed on the warehouse.", 1000))
         if state != "SUCCEEDED":
             if self._cancelled:
@@ -508,6 +527,7 @@ class DatabricksSqlSession:
                                       "again.")
             raise DatabricksError("The statement was cancelled on the warehouse, not from here (in Databricks, or by "
                                   "the warehouse itself). Run the cell again.")
+        _check_manifest(reply)
         return reply
 
     def _abandon(self, problem: str) -> str:

@@ -25,7 +25,7 @@ fabric-desktop agent enqueue ─┼─> durable queue (SQLite) ─> worker ─> 
 - **Fabric pipelines can ask for runs.** With `[pipeline]` turned on, a pipeline writes a run request to the environment's `LH_Meta` and waits for the agent's answer next to it. See [Run from a Fabric pipeline](#run-from-a-fabric-pipeline).
 - **Shortcut health on a schedule (Preview).** With `[shortcut_health]` turned on, the agent checks the environments' shortcuts and posts each new break to Teams once. It only reads. See [Shortcut health](#shortcut-health).
 - **Guard rails.** The agent runs only the environments listed in `agent.environments`, writes only to the workspaces in `agent.workspaces` when you set it, and never creates lakehouses: an environment is set up by promoting to it from the app.
-- **Logs.** One JSON object per line on stdout (journald, `docker logs`) and in `<home>/logs/agent.log` (20 MB, 10 files kept). Every line has the worker and host; job lines add `job_id`, `env`, `attempt` and `source`. Every `run_log` row the agent writes has `worker`, `host`, `attempt` and `job_id`.
+- **Logs.** One JSON object per line on stdout (journald, `docker logs`) and in `<home>/logs/agent.log` (20 MB a file, with 10 older files kept). Every line has the worker and host; job lines add `job_id`, `env`, `attempt` and `source`. Every `run_log` row the agent writes has `worker`, `host`, `attempt` and `job_id`.
 
 ## Before you start
 
@@ -417,7 +417,7 @@ shared = true
 - **Same times on every agent.** An every-N-minutes shared schedule runs on multiples of its interval, counted in UTC (every hour on the hour, for example), so every agent computes the same due times. Daily and weekly times are each machine's local time, so agents sharing them must use the same time zone.
 - **No late runs.** A slot's request has a deadline: its next slot, at most 6 hours on. An agent that comes up after that doesn't create it. An unclaimed request past its deadline is `expired`. With `claim = "when_free"`, if every agent stays busy until the deadline, that due time expires without running. That is by design, not a lost run: the next due time runs as normal.
 - **Requirements.** A shared schedule needs `[pipeline] enabled = true` for its environment, its id is at most 40 characters, and an every-N-minutes shared schedule uses whole minutes, at least 1. With `pipeline.entities`, it must name entities the allowlist takes. A shared backfill needs `pipeline.allow_backfill`.
-- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, unless the others have `take_over = true` (below). Monitor > KratosForge > Operations > Agents doesn't warn about a schedule that agents share this way. A late or expired shared due time doesn't open an incident yet.
+- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, unless the others have `take_over = true` (below). Monitor > KratosForge > Operations > Agents tags a shared schedule **Shared** and doesn't warn about it. It doesn't check that every agent's copy of it matches. A late or expired shared due time doesn't open an incident yet.
 
 ### Taking over from a lost agent (Preview)
 

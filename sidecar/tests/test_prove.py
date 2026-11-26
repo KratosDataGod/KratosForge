@@ -322,7 +322,7 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert out["fabric"]["job_seconds"] == 90 and out["fabric"]["run_seconds"] is not None
     card = out["scorecard"]
     assert card["cost"]["fabric"]["kind"] == "estimated" and card["cost"]["fabric"]["assumptions"]
-    # FinOps classification: the same measurements Monitor > Cost uses.
+    # FinOps classification: the same measurements Optimize > Cost and savings uses.
     fm, pm = card["cost"]["fabric"]["measurement"], card["cost"]["pc"]["measurement"]
     assert card["cost"]["fabric"]["classification"] == fm["classification"] == "estimated"
     assert fm["value"] == card["cost"]["fabric"]["cu_seconds"] and fm["run_id"] == out["fabric"]["job_id"]

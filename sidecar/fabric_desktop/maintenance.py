@@ -87,20 +87,25 @@ def vorder_files(uri: str, options: dict[str, str] | None = None, limit: int = F
     fs = DeltaStorageHandler(table.table_uri, options)
     v_ordered = 0
     for path in newest[:limit]:
-        with fs.open_input_file(path) as f:
+        # The log's path is percent-encoded once over the file's name (region=North%2520America for the folder
+        # region=North%20America), and the store opens a name as it is: decoded, as a reader of the log does.
+        with fs.open_input_file(unquote(path)) as f:
             meta = pq.read_metadata(f).metadata or {}
         v_ordered += meta.get(VORDER_KEY, b"").strip().lower() == b"true"
     return {"files": len(paths), "checked": min(len(paths), limit), "v_ordered": v_ordered}
 
 
-def health(uri: str, options: dict[str, str] | None = None, local: bool = False) -> dict[str, Any]:
+def health(uri: str, options: dict[str, str] | None = None, local: bool = False,
+           table: DeltaTable | None = None) -> dict[str, Any]:
     """File, size and history numbers for one Delta table, plus what maintenance would help.
 
-    V-Order only matters to Fabric readers, so it isn't advised for a table on this PC."""
-    try:
-        table = DeltaTable(uri, storage_options=options)
-    except TableNotFoundError:
-        return {"exists": False, "advice": [], "status": "missing"}
+    V-Order only matters to Fabric readers, so it isn't advised for a table on this PC. ``table``,
+    when given, is that table already loaded, so its log isn't read a second time."""
+    if table is None:
+        try:
+            table = DeltaTable(uri, storage_options=options)
+        except TableNotFoundError:
+            return {"exists": False, "advice": [], "status": "missing"}
     actions = table.get_add_actions(flatten=True)
     sizes = cast(list[int], actions.column("size_bytes").to_pylist()) if actions.num_rows else []
     files, total = len(sizes), sum(sizes)
@@ -267,8 +272,8 @@ def vacuum_preview(uri: str, days: int, options: dict[str, str] | None = None,
     keep, _oldest = skewed_versions(table, retention_hours(days))
     paths = table.vacuum(retention_hours=retention_hours(days), dry_run=True, enforce_retention_duration=False,
                          **vacuum_keep(keep))
-    root = uri.rstrip("/") + "/"
-    return [p[len(root):] if p.startswith(root) else p for p in paths]
+    # Named as compact_local names what its VACUUM removed, so the two lists agree however delta-rs gives them.
+    return [relative_to_table(uri, p) for p in paths]
 
 
 def set_retention(uri: str, days: int, options: dict[str, str] | None = None, allow_shorter: bool = False) -> bool:
@@ -301,16 +306,23 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     # One that still loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
     metrics = retrying.local_commit(lambda: DeltaTable(uri).optimize.compact(), "this table's next version")
     table = DeltaTable(uri)
-    present = {Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)}
+    present = table_files(uri)
     keep, _oldest = skewed_versions(table, retention_hours(days))
     # VACUUM commits too (its start and end), so it can lose the same race; deleting again what is already
-    # gone is a no-op, so it is safe to repeat on the table's latest version.
-    listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
-        retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
-        "this table's next version")
+    # gone is a no-op, so it is safe to repeat on the table's latest version. A file it deletes may also be
+    # open for a moment in a virus scanner or the indexer (os error 32 or 33 on Windows); that is waited out
+    # the same way, and a file still held after that gets a plain message rather than delta-rs's.
+    try:
+        listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
+            retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
+            "this table's next version", when=lambda e: retrying.windows_file_held(e) or retrying.windows_log_race(e))
+    except OSError as exc:
+        if not retrying.windows_file_held(exc):
+            raise
+        raise OSError(retrying.held_file_message("Compact")) from exc
     # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
     listed = [relative_to_table(uri, p) for p in listed]
-    removed = [p for p in listed if p in present and not (Path(uri) / p).exists()]
+    removed = [p for p in listed if path_key(p) in present and not (Path(uri) / p).exists()]
     # A data file no commit names (a write stopped before its commit) goes once it's as old as the
     # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
     unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
@@ -442,16 +454,20 @@ def leftovers(uri: str, table: DeltaTable | None = None) -> list[str]:
 def _named_anywhere(uri: str, table: DeltaTable | None) -> set[str]:
     """Every file path any version of the table still on disk names: the current version's files, the
     files commits removed (VACUUM's), and each add and remove in every commit file in _delta_log, so a
-    file only an older version reads (time travel) counts as named too."""
+    file only an older version reads (time travel) counts as named too. Each in every spelling (as
+    written, and decoded), as path_key compares them, as _unnamed counts them: a second spelling can only
+    leave a file out of the report, never put one in."""
     named: set[str] = set()
     if table is not None:
-        named |= {unquote(p) for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist())}
+        for p in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
+            named |= {p, unquote(p)}
+        # VACUUM lists a file by its name on disk (relative_to_table); decoding that name names another file.
         root = uri.rstrip("/") + "/"
-        named |= {unquote(p[len(root):] if p.startswith(root) else p)
-                  for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False)}
+        for p in table.vacuum(retention_hours=0, dry_run=True, enforce_retention_duration=False):
+            named |= {relative_to_table(uri, p), unquote(p[len(root):] if p.startswith(root) else p)}
     log = Path(uri) / "_delta_log"
     if not log.is_dir():
-        return named
+        return {path_key(p) for p in named}
     with os.scandir(log) as it:
         commits = [e.path for e in it if _COMMIT.fullmatch(e.name) and not _is_link(e)]
     for path in commits:
@@ -462,8 +478,8 @@ def _named_anywhere(uri: str, table: DeltaTable | None) -> set[str]:
                 action = json.loads(line)
                 for kind in ("add", "remove"):
                     if isinstance(action.get(kind), dict) and action[kind].get("path"):
-                        named.add(unquote(str(action[kind]["path"])))
-    return named
+                        named |= {str(action[kind]["path"]), unquote(str(action[kind]["path"]))}
+    return {path_key(p) for p in named}
 
 
 def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
@@ -510,7 +526,7 @@ def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
     out = []
     for e in _data_folder_files(uri):
         rel = Path(e.path).relative_to(uri).as_posix()
-        if (_DATA_FILE.fullmatch(e.name) or _STAGED_DATA.fullmatch(e.name)) and rel not in named \
+        if (_DATA_FILE.fullmatch(e.name) or _STAGED_DATA.fullmatch(e.name)) and path_key(rel) not in named \
                 and _written_since(e, since):
             out.append(rel)
     log = Path(uri) / "_delta_log"

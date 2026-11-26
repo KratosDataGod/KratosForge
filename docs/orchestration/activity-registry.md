@@ -42,11 +42,11 @@ The [example report](examples/orders-daily-compatibility.json) is for the `order
 | | |
 | --- | --- |
 | Overall | `unsupported` (the unknown `ContosoPagerNotify` activity) |
-| By classification | 11 local, 6 static, 1 unsupported |
-| Runs on this PC | No: six activities need mocks and one is unknown |
-| Needs Fabric capacity | 7: the activities that can't run on this PC yet. Fabric meters every activity run, so running the whole pipeline in Fabric meters all 18 |
+| By classification | 15 local, 2 static, 1 unsupported |
+| Runs on this PC | No: two activities need mocks and one is unknown |
+| Needs Fabric capacity | 3: the activities that can't run on this PC yet. Fabric meters every activity run, so running the whole pipeline in Fabric meters all 18 |
 | Fabric only | None |
-| Planned to run on this PC | 6 more, in a later, unscheduled stage |
+| Planned to run on this PC | 2 more, in a later, unscheduled stage |
 | Properties it can't use | `enableStaging` on the Copy activity, `sessionTag` on the Notebook, two unknown properties on the unknown activity |
 
 ## Where Fabric differs
@@ -269,7 +269,7 @@ fabric-desktop pipeline activities Copy                               # one entr
 
 From your own AI tool, through MCP or the local API ([connect your AI tool](../ai/README.md)): `fabric_desktop_check_pipeline_compatibility` takes a definition as text (up to 1 MB), and `fabric_desktop_get_activity_registry` takes an optional activity type. Both need only the read metadata permission. In the engine they are `pipeline_compatibility` and `pipeline_activity_registry`.
 
-There is no page in the app for this yet.
+In the app, the **Pipelines** page (Preview) shows the report on its **Compatibility** tab.
 
 ## For contributors
 

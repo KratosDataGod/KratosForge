@@ -137,6 +137,21 @@ def mean_(a: pd.Series) -> float:
     assert "grouped-aggregate pandas_udf" in str(out["outputs"]) and "runs in Fabric" in str(out["outputs"])
 
 
+def test_a_pandas_udf_returning_text_for_a_number_type_stops_as_in_spark(kernel):
+    # Spark converts with pa.Array.from_pandas and stops on what Arrow won't convert; it doesn't null it
+    out = kernel.run(SETUP + """
+import pandas as pd
+@F.pandas_udf("long")
+def text(a: pd.Series) -> pd.Series:
+    return a.astype(str)
+df.select(text("id")).collect()
+""")
+    assert out["status"] == "error"
+    said = " ".join(str(o.get("evalue") or o.get("text") or "") for o in out["outputs"])
+    assert "returned values that aren't bigint" in said
+    assert 'as it does in Fabric ("Exception thrown when converting pandas.Series (object) to Arrow Array (int64)")' in said
+
+
 def test_a_pandas_udf_returning_the_wrong_length_is_refused(kernel):
     out = kernel.run(SETUP + """
 import pandas as pd
@@ -221,3 +236,20 @@ def plus_one(batches):
     out = kernel.run("from pyspark.sql.functions import pandas_udf, PandasUDFType\n"
                      "@pandas_udf('id long', PandasUDFType.GROUPED_MAP)\ndef g(pdf): return pdf")
     assert out["status"] == "error" and "applyInPandas" in str(out["outputs"])
+
+
+def test_a_pandas_udf_returning_a_nullable_series_keeps_its_nulls(kernel):
+    # Int64 and Float64 Series convert themselves (__arrow_array__) and Arrow refuses a null mask beside
+    # them, so Spark gives none; such a Series must not stop the cell
+    out = run(kernel, """
+import pandas as pd
+from pyspark.sql import functions as F
+df = spark.createDataFrame([(1,), (None,), (3,)], "i long")
+@F.pandas_udf("long")
+def plus_one(s: pd.Series) -> pd.Series:
+    return s.astype("Int64") + 1
+@F.pandas_udf("double")
+def half(s: pd.Series) -> pd.Series:
+    return s.astype("Float64") / 2
+[tuple(r) for r in df.select(plus_one("i"), half("i")).collect()]""")
+    assert out == "[(2, 0.5), (None, None), (4, 1.5)]"

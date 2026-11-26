@@ -31,6 +31,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol
 
+from ..awake_timer import AwakeTimer, awake_monotonic
 from ..redact import describe
 from .activities import default_registry
 from .adapters import ActivityFailed, child_key, notebook_key, timespan
@@ -322,8 +323,7 @@ class PipelineRun:
         self.state, self.started, self._t0 = "running", _now(), time.monotonic()
         timer = None
         if self.timeout_seconds:
-            timer = threading.Timer(self.timeout_seconds, self._time_up)
-            timer.daemon = True
+            timer = AwakeTimer(self.timeout_seconds, self._time_up)  # awake time only, as the SQL page's limit
             timer.start()
         self._changed()
         try:
@@ -378,7 +378,7 @@ class PipelineRun:
     def _run_list(self, acts: list[Activity], scope: Scope, label: str, parent: str | None,
                   until: float | None = None) -> str:
         """Run one list of sibling activities; returns succeeded, failed or cancelled. ``until`` is an
-        enclosing Until's deadline (time.monotonic()): at it, what's running is cancelled and what
+        enclosing Until's deadline (awake_monotonic()): at it, what's running is cancelled and what
         hasn't started doesn't start (#1316)."""
         names = {a.name for a in acts}
         status: dict[str, str] = {}
@@ -462,7 +462,7 @@ class PipelineRun:
         try:
             for attempt in range(retries + 1):
                 rec["attempts"] = attempt + 1
-                deadline = None if limit is None else time.monotonic() + limit
+                deadline = None if limit is None else awake_monotonic() + limit
                 if until is not None:  # an enclosing Until's timeout stops this activity too
                     deadline = until if deadline is None else min(deadline, until)
                 ctx = _Context(self, a, scope, rec, deadline, until)
@@ -584,7 +584,7 @@ _CHILD_TYPES = ("ExecutePipeline", "InvokePipeline")
 
 def _past(until: float | None) -> bool:
     """Whether an enclosing Until's deadline has passed."""
-    return until is not None and time.monotonic() >= until
+    return until is not None and awake_monotonic() >= until
 
 
 def _run_mock(mock: Mapping[str, Any], ctx: "_Context") -> Any:
@@ -612,14 +612,14 @@ class _Context:
         return self.run.wait_scale
 
     def clock(self) -> float:
-        return time.monotonic()
+        return awake_monotonic()  # deadlines: time the PC was asleep doesn't use them up
 
     def wait(self, seconds: float) -> None:
-        end = time.monotonic() + max(0.0, seconds) * self.run.wait_scale
+        end = awake_monotonic() + max(0.0, seconds) * self.run.wait_scale
         timed_out = self.deadline is not None and self.deadline < end
         end = min(end, self.deadline) if self.deadline is not None else end
         while True:
-            left = end - time.monotonic()
+            left = end - awake_monotonic()
             if self.run.cancelled or _past(self.until):
                 raise _Cancelled()
             if left <= 0:
@@ -743,10 +743,10 @@ class _Context:
             if self.run.cancelled:
                 child.cancel()
                 return
-            if self.deadline is not None and time.monotonic() >= self.deadline:
+            if self.deadline is not None and awake_monotonic() >= self.deadline:
                 child.cancel("cancelled" if _past(self.until) else "timed_out")
                 return
-            left = 0.2 if self.deadline is None else self.deadline - time.monotonic()
+            left = 0.2 if self.deadline is None else self.deadline - awake_monotonic()
             done.wait(min(0.2, max(0.0, left)))
 
     def _start_child(self, child: PipelineRun, key: str) -> dict[str, Any]:
@@ -806,7 +806,7 @@ class _Context:
         while not done.wait(0.2):
             if self.run.cancelled or _past(self.until):
                 raise _Cancelled()
-            if self.deadline is not None and time.monotonic() >= self.deadline:
+            if self.deadline is not None and awake_monotonic() >= self.deadline:
                 raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
         if "exc" in box:
             raise box["exc"]

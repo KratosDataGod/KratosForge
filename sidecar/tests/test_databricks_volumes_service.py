@@ -401,6 +401,20 @@ def test_a_link_and_a_file_through_it_are_both_removed_in_either_order(svc, here
     assert (folder / "real" / "y.csv").exists()
 
 
+@pytest.mark.parametrize(("order", "kept"), [(("real", "alias/x.csv"), "real"), (("alias/x.csv", "real"), "real"),
+                                             (("real/x.csv", "alias/x.csv"), "real/x.csv")])
+def test_a_path_through_a_link_to_a_picked_folder_or_file_is_removed_once(svc, here, order, kept):
+    # alias/x.csv is the file real/x.csv, so it goes with the folder (or the file) picked beside it
+    folder = here / "sales" / "landing"
+    (folder / "real").mkdir()
+    (folder / "real" / "x.csv").write_text("x", encoding="utf-8")
+    (folder / "keep").mkdir()
+    _link(folder / "alias", folder / "real")
+    out = svc.databricks_volume_delete([f"{V}/{p}" for p in order], confirm=True)
+    assert out["deleted"] == [f"{V}/{kept}"]
+    assert not (folder / "real" / "x.csv").exists() and (folder / "keep").is_dir()
+
+
 def test_a_link_reached_through_another_picked_link_is_removed_first(svc, here):
     folder = here / "sales" / "landing"
     (folder / "real").mkdir()

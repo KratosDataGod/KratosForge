@@ -183,13 +183,20 @@ class DatabricksVolumesMixin:
                 raise FileNotFoundError(f"{where.uc_path()} doesn't exist in the volume {where.full_name}.")
             if target.is_dir() and not dv._is_link(target):
                 dv.check_tree(target, where.uc_path())
-        # the same path twice, or a path inside a folder also picked, is removed once, with the folder
-        folders = [t for _, t in found if t.is_dir() and not dv._is_link(t)]
+        # the same path twice, or a path inside a folder also picked, is removed once, with the folder. Paths
+        # are compared by where they really are (alias/x.csv, with alias a link to a picked folder D, is in D);
+        # a link itself is its own path, never what it points at
+        def real(target: Path) -> str:
+            if dv._is_link(target):
+                return os.path.normcase(os.path.join(os.path.realpath(target.parent), target.name))
+            return os.path.normcase(os.path.realpath(target))
+
+        folders = [real(t) for _, t in found if t.is_dir() and not dv._is_link(t)]
         seen: set[str] = set()
         once = []
         for where, target in found:
-            key = os.path.normcase(str(target))
-            if key in seen or any(dv._inside(str(f), str(target)) and os.path.normcase(str(f)) != key for f in folders):
+            key = real(target)
+            if key in seen or any(dv._inside(f, key) and f != key for f in folders):
                 continue
             seen.add(key)
             once.append((where, target))

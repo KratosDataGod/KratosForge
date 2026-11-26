@@ -161,6 +161,8 @@ def _converted(value: exp.Expr, have: Kind, want: Kind) -> exp.Expr:
     if want[0] == "decimal":
         # A value past the decimal (bounded at 38 digits) is NULL with ANSI off, as Spark's cast gives it.
         return exp.TryCast(this=value, to=exp.DataType.build(f"DECIMAL({want[1]}, {want[2]})"))
+    if want[0] in ("int", "float", "timestamp"):  # an inner set operation's column, cast as DuckDB widens it
+        return exp.cast(value, exp.DataType.build(_spark_name(want)))
     return exp.cast(value, exp.DataType.build("DOUBLE"))
 
 
@@ -271,13 +273,16 @@ def _leaves(query: exp.Expr) -> list[exp.Select]:
     return [query] if isinstance(query, exp.Select) else []
 
 
-def _set_types(node: exp.SetOperation, copies: dict[int, exp.Expr]) -> None:
+def _set_types(node: exp.SetOperation, copies: dict[int, exp.Expr], nested: bool = False) -> None:
     """Spark's widened type for each column of a UNION, INTERSECT or EXCEPT (WidenSetOperationTypes): each
     side's column is cast to it, as Spark casts it, before the two sides meet. Innermost first (``sets`` is
-    in walk order, outer first, so the inner ones are typed by the time ``_columns`` reads them)."""
+    in walk order, outer first, so the inner ones are typed by the time ``_columns`` reads them).
+    ``nested``: ``node`` is a side of another set operation, whose casts go into each SELECT of it as if
+    every one had ``node``'s widened type. So a value DuckDB would widen by itself (an int among doubles, a
+    date among timestamps) is cast here too: 1 among doubles is 1.0 before a later cast writes it as text."""
     for inner in [n for n in (node.left, node.right) if isinstance(n, _SETS)]:
         if inner.meta.get(_KEY) is None:
-            _set_types(inner, copies)
+            _set_types(inner, copies, nested=True)
     left, right = _columns(node.left, copies), _columns(node.right, copies)
     if left is None or right is None or len(left) != len(right):
         return
@@ -292,7 +297,8 @@ def _set_types(node: exp.SetOperation, copies: dict[int, exp.Expr]) -> None:
             raise _refuse(f"{word}'s column {i + 1}", [a, b])
         widened.append(want)
         for side, have in ((node.left, a), (node.right, b)):
-            if _needs(have, want):
+            if _needs(have, want) or (nested and have != want and have[0] != "null"
+                                      and want[0] in ("int", "double", "float", "timestamp")):
                 for select in _leaves(side):
                     _cast_column(select, i, have, want)
     node.meta[_KEY] = widened

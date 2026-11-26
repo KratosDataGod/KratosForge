@@ -77,7 +77,7 @@ def inspect(bim: dict[str, Any]) -> dict[str, Any]:
         return {"read": True, "error": "The definition has no model."}
     try:
         return _inspect(bim, model)
-    except (AttributeError, TypeError, KeyError, ValueError):
+    except Exception:  # noqa: BLE001 - junk (nested too deep, the wrong types) is not evaluated, never a crash or a pass
         return {"read": True, "error": "The definition isn't shaped like a model.bim, so it couldn't be inspected."}
 
 
@@ -109,6 +109,6 @@ def _inspect(bim: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
             "bidirectional": both[:MAX_NAMES], "bidirectional_count": len(both),
             "roles": len(model.get("roles") or []), "row_filter_roles": sorted(roles)[:MAX_NAMES],
             "row_filter_tables": sorted(filtered)[:MAX_NAMES],
-            "direct_lake_tables": len(dl), "direct_lake_behavior": model_directlake.fallback_behavior(bim),
-            "direct_lake_sources": kinds, "rules": dict(sorted(rules.items())),
+            "direct_lake_tables": len(dl), "direct_lake_behavior": _cut(model_directlake.fallback_behavior(bim)),
+            "direct_lake_sources": [_cut(k) for k in kinds][:MAX_NAMES], "rules": dict(sorted(rules.items())),
             "types_unknown": sorted(untyped)[:MAX_NAMES], "columns_unknown": sorted(unseen)[:MAX_NAMES]}

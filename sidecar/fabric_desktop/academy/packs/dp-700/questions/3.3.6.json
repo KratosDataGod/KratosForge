@@ -321,6 +321,38 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.6-q11",
+      "type": "single",
+      "stem": "At Marlow, how do you use data clustering to speed up the report queries on FactSales?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Create a new table with CREATE TABLE AS SELECT and WITH (CLUSTER BY (StoreRegion)), so rows are clustered by region"
+        },
+        {
+          "id": "b",
+          "text": "Create a new table with CREATE TABLE AS SELECT and WITH (CLUSTER BY (SaleDate)), and point the reports at it"
+        },
+        {
+          "id": "c",
+          "text": "Run ALTER TABLE on FactSales to add CLUSTER BY (SaleDate), which reorganizes the existing table in place"
+        },
+        {
+          "id": "d",
+          "text": "Create a new table with CREATE TABLE AS SELECT and WITH (CLUSTER BY (SaleId)), clustering on the key"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Data clustering (preview) is defined when a table is created and can't be added to an existing table, so CTAS builds a clustered copy. SaleDate is used in range filters and has many distinct values. IDENTITY columns can't be used with CLUSTER BY, and a low-cardinality column such as a region gives little file skipping.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-clustering",
+      "case": "marlow-sales",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

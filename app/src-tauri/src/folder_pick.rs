@@ -83,6 +83,19 @@ pub fn pick(_owner: isize, _start: Option<String>) -> Result<Option<String>, Str
 /// rules as `pick`. Call it on a thread of its own, as `pick`.
 #[cfg(windows)]
 pub fn pick_sql(owner: isize, start: Option<String>, save_name: Option<String>) -> Result<Option<String>, String> {
+    file_dialog(owner, start, save_name, true)
+}
+
+/// Volumes on this PC (Preview): the same dialog for any file, to upload one into a volume or (with
+/// `save_name`) to save a volume's file. The engine checks the path (outside OneDrive and the volumes'
+/// folder) before it reads or writes anything.
+#[cfg(windows)]
+pub fn pick_any(owner: isize, start: Option<String>, save_name: Option<String>) -> Result<Option<String>, String> {
+    file_dialog(owner, start, save_name, false)
+}
+
+#[cfg(windows)]
+fn file_dialog(owner: isize, start: Option<String>, save_name: Option<String>, sql: bool) -> Result<Option<String>, String> {
     use std::path::Path;
     use windows::core::{w, Interface, HSTRING};
     use windows::Win32::Foundation::{ERROR_CANCELLED, HWND};
@@ -116,14 +129,16 @@ pub fn pick_sql(owner: isize, start: Option<String>, save_name: Option<String>) 
         let options = dialog.GetOptions().map_err(failed)?;
         let which = if save_name.is_some() { FOS_OVERWRITEPROMPT } else { FOS_FILEMUSTEXIST };
         dialog.SetOptions(options | which | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR).map_err(failed)?;
-        let types = [COMDLG_FILTERSPEC { pszName: w!("SQL files (*.sql)"), pszSpec: w!("*.sql") }];
-        dialog.SetFileTypes(&types).map_err(failed)?;
-        dialog.SetDefaultExtension(w!("sql")).map_err(failed)?;
+        if sql {
+            let types = [COMDLG_FILTERSPEC { pszName: w!("SQL files (*.sql)"), pszSpec: w!("*.sql") }];
+            dialog.SetFileTypes(&types).map_err(failed)?;
+            dialog.SetDefaultExtension(w!("sql")).map_err(failed)?;
+        }
         if let Some(name) = save_name.as_deref().filter(|n| !n.is_empty()) {
             dialog.SetFileName(&HSTRING::from(name)).map_err(failed)?;
         }
         let local = |s: &str| GetDriveTypeW(&HSTRING::from(format!("{}:\\", &s[..1]))) != DRIVE_REMOTE;
-        let folder = start.map(|s| if s.to_ascii_lowercase().ends_with(".sql") {
+        let folder = start.map(|s| if (sql && s.to_ascii_lowercase().ends_with(".sql")) || (!sql && Path::new(&s).is_file()) {
             Path::new(&s).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
         } else { s });
         if let Some(dir) = start_folder(folder, local, |s| Path::new(s).is_dir()) {
@@ -145,6 +160,12 @@ pub fn pick_sql(owner: isize, start: Option<String>, save_name: Option<String>) 
 /// Off Windows the page has no file to open, so this only answers a stray call.
 #[cfg(not(windows))]
 pub fn pick_sql(_owner: isize, _start: Option<String>, _save_name: Option<String>) -> Result<Option<String>, String> {
+    Err("The file dialog is only on Windows".into())
+}
+
+/// Off Windows the page has no file to pick, so this only answers a stray call.
+#[cfg(not(windows))]
+pub fn pick_any(_owner: isize, _start: Option<String>, _save_name: Option<String>) -> Result<Option<String>, String> {
     Err("The file dialog is only on Windows".into())
 }
 

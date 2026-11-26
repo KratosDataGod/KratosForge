@@ -17,7 +17,15 @@ one row each), so there is always exactly one **head**: the latest version.
   conflict on its next read.
 - **The lifecycle graph.** ``TRANSITIONS`` holds every allowed move, the states of section 4.4 plus
   two this story adds: ``reversed`` (the change never counted, scenario 10) and ``retired`` (the
-  workload is gone, scenario 11). A move outside the graph is refused with ``TransitionRefused`` and
+  workload is gone, scenario 11). Two states sound alike and mean different things:
+
+  - ``reverted`` (**rolled back**): the change was really in place and was undone with its rollback
+    information. Runs before the rollback really used less and keep their accruals. Its time is
+    ``rolled_back_at``.
+  - ``reversed`` (**netted out**): the change never really counted (it never deployed, or went to the
+    wrong item). Its accruals are netted to zero by reversal events. Its time is ``netted_out_at``.
+
+  A move outside the graph is refused with ``TransitionRefused`` and
   a reason. Moves to dismissed, accepted risk, superseded, reverted, reversed and retired need a
   reason. Moving to applied needs the optimized reference and rollback information. That graph is
   for new changes only: reading stored rows (``history``) also accepts every move
@@ -55,10 +63,15 @@ Free text (reasons, rollback notes) goes through ``shared._clean`` (credential-s
 then has email addresses masked, since a person's identity isn't collected; it must be one line of at
 most 500 characters, so a pasted block of code is refused rather than stored.
 
+Times are never stored twice. ``times`` derives them from the history, from the state of each version
+and that version's own ``at``: ``implemented_at`` (applied), ``rolled_back_at`` (reverted),
+``netted_out_at`` (reversed) and ``retired_at`` (retired), each the ``at`` of the latest version that
+moved to that state, or None when none did.
+
 What a writer needs that ``fdopt_recommendations`` doesn't have yet (additive nullable columns, to
 be co-signed with Lakehouse optimize; this module changes no schema): ``previous_state`` (S),
-``implemented_at`` (S), ``reverted_at`` (S), ``reversed_at`` (S), ``retired_at`` (S), ``rule_id`` (S)
-and ``rule_version`` (S). These travel in each row beside the existing columns (``NO_COLUMN``). The
+``rule_id`` (S) and ``rule_version`` (S). These travel in each row beside the existing columns
+(``NO_COLUMN``). The
 responsible device is the existing provenance column ``installation_id``; the writer adds
 ``created_at``, ``app_version`` and ``schema_version``. The reversal's ledger events need the
 ``fdopt_savings`` columns ESI-404 already lists (layer, cu_hours, result figure and classification,
@@ -124,8 +137,9 @@ READ_TRANSITIONS: dict[str, frozenset[str]] = {
     s: TRANSITIONS[s] | frozenset(STORED_TRANSITIONS.get(s, set())) for s in TRANSITIONS}
 NEEDS_REASON = frozenset({DISMISSED, ACCEPTED_RISK, SUPERSEDED, REVERTED, REVERSED, RETIRED})
 # Columns each version row carries that fdopt_recommendations v2 has no column for yet.
-NO_COLUMN = ("previous_state", "implemented_at", "reverted_at", "reversed_at", "retired_at", "rule_id",
-             "rule_version")
+NO_COLUMN = ("previous_state", "rule_id", "rule_version")
+# The times ``times`` derives from the history: the state that sets each one.
+TIME_OF = {"implemented_at": APPLIED, "rolled_back_at": REVERTED, "netted_out_at": REVERSED, "retired_at": RETIRED}
 # The responsible device: provenance's installation_id. Never a user.
 DEVICE = "installation_id"
 ROW_COLUMNS = RECORD_COLUMNS + (DEVICE,) + NO_COLUMN
@@ -312,8 +326,7 @@ def create(proposal: dict[str, Any], *, installation_id: str) -> dict[str, Any]:
     row = {k: rec.get(k) for k in RECORD_COLUMNS}
     row.update({"original_ref": _ref(rec.get("original_ref"), "original reference"),
                 "reason": _text(rec.get("reason"), "reason"), DEVICE: _device(installation_id),
-                "previous_state": None, "implemented_at": None, "reverted_at": None, "reversed_at": None,
-                "retired_at": None, "rule_id": proposal.get("rule_id"), "rule_version": proposal.get("rule_version")})
+                "previous_state": None, "rule_id": proposal.get("rule_id"), "rule_version": proposal.get("rule_version")})
     _time(row["at"], "proposal time")
     return {"record": row, "links": [dict(x) for x in proposal.get("links") or []], "written": False}
 
@@ -376,8 +389,8 @@ def transition(rows: list[dict[str, Any]], change: dict[str, Any]) -> dict[str, 
     Raises ``VersionConflict`` when ``based_on_version`` isn't the head's version (nothing is merged)
     and ``TransitionRefused`` for a move the graph doesn't allow. Returns ``record`` (the new version
     row), ``previous`` (the head it was based on), ``new`` (False when this very change was already
-    recorded: a retry adds nothing), ``rollback`` (the plan to carry out, when reverting) and
-    ``written`` (False)."""
+    recorded: a retry adds nothing), ``times`` (``times`` of the history up to that row),
+    ``rollback`` (the plan to carry out, when reverting) and ``written`` (False)."""
     if not isinstance(change, dict):
         raise ValueError("A change is a dict with based_on_version, state, at, installation_id and reason.")
     _keys(change, "change")
@@ -397,12 +410,13 @@ def transition(rows: list[dict[str, Any]], change: dict[str, Any]) -> dict[str, 
         retry = _build(chain[based_on - 1], change, state, device)
         if isinstance(retry, dict) and _same(retry, chain[based_on]):
             return {"record": chain[based_on], "previous": chain[based_on - 1], "new": False,
+                    "times": _times(chain[:based_on + 1]),
                     "rollback": _plan(chain[based_on]) if state == REVERTED else None, "written": False}
         raise VersionConflict(based_on, current, chain[based_on:])
     row = _build(current, change, state, device)
     if isinstance(row, str):
         raise TransitionRefused(row)
-    return {"record": row, "previous": current, "new": True,
+    return {"record": row, "previous": current, "new": True, "times": _times(chain + [row]),
             "rollback": _plan(row) if state == REVERTED else None, "written": False}
 
 
@@ -438,12 +452,23 @@ def _build(current: dict[str, Any], change: dict[str, Any], state: Any, device: 
     row = {k: current.get(k) for k in ROW_COLUMNS}
     row.update({"record_id": version_record_id(oid, version), "state": state, "reason": reason, "at": stamp,
                 "version": version, "optimized_ref": optimized, "rollback": rollback, DEVICE: device,
-                "previous_state": was,
-                "implemented_at": stamp if state == APPLIED else current.get("implemented_at"),
-                "reverted_at": stamp if state == REVERTED else current.get("reverted_at"),
-                "reversed_at": stamp if state == REVERSED else current.get("reversed_at"),
-                "retired_at": stamp if state == RETIRED else current.get("retired_at")})
+                "previous_state": was})
     return row
+
+
+def _times(chain: list[dict[str, Any]]) -> dict[str, str | None]:
+    out: dict[str, str | None] = dict.fromkeys(TIME_OF)
+    for row in chain:  # oldest first, so the latest version that set a time wins
+        for name, state in TIME_OF.items():
+            if row.get("state") == state:
+                out[name] = row.get("at")
+    return out
+
+
+def times(rows: list[dict[str, Any]]) -> dict[str, str | None]:
+    """When the change was implemented, rolled back, netted out and retired, from the history: each
+    the ``at`` of the latest version that moved to that state, or None when none did."""
+    return _times(history(rows))
 
 
 def _plan(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -527,7 +552,8 @@ def reverse(rows: list[dict[str, Any]], *, based_on_version: int, at: str, reaso
             needs.append({"execution_id": eid, "reason": (
                 f"Run {eid}'s later layers started from what optimization {oid} left, so they may change; attribute "
                 "it again without it and write the difference as corrections.")})
-    return {"record": row, "previous": moved["previous"], "new": moved["new"], "events": events,
+    return {"record": row, "previous": moved["previous"], "new": moved["new"], "times": moved["times"],
+            "events": events,
             "needs_reattribution": needs, "written": False}
 
 
@@ -541,14 +567,15 @@ def retire(rows: list[dict[str, Any]], *, based_on_version: int, at: str, reason
 
 def accrues(rows: list[dict[str, Any]], run_at: Any) -> bool:
     """Whether a run at ``run_at`` may accrue to this optimization: it was implemented at or before
-    the run, wasn't reverted or retired at or before it, and was never reversed."""
-    h = head(rows)
+    the run, wasn't rolled back or retired at or before it, and was never netted out (reversed)."""
+    chain = history(rows)
+    when = _times(chain)
     t = _time(run_at, "run time")
-    implemented = ms.parse_time(h.get("implemented_at"))
-    if implemented is None or implemented > t or h["state"] == REVERSED:
+    implemented = ms.parse_time(when["implemented_at"])
+    if implemented is None or implemented > t or chain[-1]["state"] == REVERSED:
         return False
-    for key in ("reverted_at", "retired_at"):
-        end = ms.parse_time(h.get(key))
+    for key in ("rolled_back_at", "retired_at"):
+        end = ms.parse_time(when[key])
         if end is not None and end <= t:
             return False
     return True
@@ -558,14 +585,16 @@ def for_attribution(rows: list[dict[str, Any]], *, after: dict[str, Any] | None,
                     action: str | None = None) -> dict[str, Any]:
     """The record as ``attribution.attribute`` takes an optimization. ``after``: the measured or
     estimated CU per run with it in place (None when not known yet). The end of its effect is the
-    revert or the retirement, whichever came first. A reversed one is given as reverted with no
-    time, which attribution leaves out of every run: it never counted."""
-    h = head(rows)
-    ends = [t for t in (ms.parse_time(h.get("reverted_at")), ms.parse_time(h.get("retired_at"))) if t is not None]
+    rollback or the retirement, whichever came first; attribution's input names that ``reverted_at``.
+    A netted-out (reversed) one is given as reverted with no time, which attribution leaves out of
+    every run: it never counted."""
+    chain = history(rows)
+    h, when = chain[-1], _times(chain)
+    ends = [t for t in (ms.parse_time(when["rolled_back_at"]), ms.parse_time(when["retired_at"])) if t is not None]
     state, end = h["state"], (min(ends).isoformat() if ends else None)
     if state == REVERSED:
         state, end = REVERTED, None
-    return {"optimization_id": h["optimization_id"], "implemented_at": h.get("implemented_at"), "action": action,
+    return {"optimization_id": h["optimization_id"], "implemented_at": when["implemented_at"], "action": action,
             "state": state, "reverted_at": end, "after": after}
 
 
@@ -575,4 +604,4 @@ def project(rows: list[dict[str, Any]], results: list[dict[str, Any]], *, worklo
     if "retired_at" in kwargs:
         raise ValueError("The retirement comes from the record, not from the caller.")
     return rc.project(results, workload_key=workload_key, baseline_version=baseline_version, now=now,
-                      retired_at=head(rows).get("retired_at"), **kwargs)
+                      retired_at=times(rows)["retired_at"], **kwargs)

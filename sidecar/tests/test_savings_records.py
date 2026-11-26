@@ -173,7 +173,7 @@ def test_each_change_is_a_new_version_row_and_the_old_rows_are_untouched():
 def test_applying_records_the_optimized_reference_and_the_rollback_plan():
     rows = walk(rd.ACCEPTED, rd.APPLIED)
     h = rd.head(rows)
-    assert h["optimized_ref"] == "def:sha256:bbb222" and h["implemented_at"] == h["at"]
+    assert h["optimized_ref"] == "def:sha256:bbb222" and rd.times(rows)["implemented_at"] == h["at"]
     plan = rd.rollback_plan(rows)
     assert plan is not None
     assert plan["restore_ref"] == "def:sha256:aaa111" and plan["from_ref"] == "def:sha256:bbb222"
@@ -189,7 +189,7 @@ def test_reverting_returns_what_to_restore_and_from_which_reference():
     out = rd.transition(rows, change(rows, rd.REVERTED, reason="Row counts differ after the change"))
     plan = out["rollback"]
     assert plan["restore_ref"] == "def:sha256:aaa111" and plan["from_ref"] == "def:sha256:bbb222"
-    assert plan["reason"] == "Row counts differ after the change" and out["record"]["reverted_at"] == out["record"]["at"]
+    assert plan["reason"] == "Row counts differ after the change" and out["times"]["rolled_back_at"] == out["record"]["at"]
 
 
 def test_an_unknown_original_reference_stays_unknown_in_the_rollback_plan():
@@ -376,7 +376,7 @@ def test_scenario_10_reversal_moves_to_reversed_and_nets_the_accruals_to_zero_th
                      installation_id=PC_B, ledger_events=ledger, reattributed=redo)
     rec = out["record"]
     assert rec["state"] == rd.REVERSED and rec["reason"] == "It was never deployed" and rec["version"] == 6
-    assert rec["reversed_at"] == rec["at"] and rec["installation_id"] == PC_B and out["written"] is False
+    assert out["times"]["netted_out_at"] == rec["at"] and rec["installation_id"] == PC_B and out["written"] is False
     full = ledger + out["events"]
     assert chain_sum(full, oid) == 0
     assert {e["event_type"] for e in out["events"] if e["layer"] == oid} == {co.REVERSAL}
@@ -460,7 +460,7 @@ def test_scenario_11_retirement_stops_accruals_and_the_recurring_projection():
     out = rd.retire(rows, based_on_version=5, at="2026-11-20T00:00:00Z", reason="The notebook was deleted",
                     installation_id=PC_A)
     rows = rows + [out["record"]]
-    assert out["record"]["state"] == rd.RETIRED and out["record"]["retired_at"] == out["record"]["at"]
+    assert out["record"]["state"] == rd.RETIRED and out["times"]["retired_at"] == out["record"]["at"]
     stopped = rd.project(rows, results, workload_key="nb:sales", baseline_version="b1", now=now)
     assert stopped["state"] == "stopped" and stopped["projection"]["value"] is None
     assert "retired" in stopped["reason"]
@@ -622,3 +622,42 @@ def test_any_sequence_of_valid_updates_gives_increasing_versions_and_a_single_he
             heads = [r for r in hist if r["version"] == max(versions)]
             assert len(heads) == 1 and rd.head(shuffled) == rows[-1], msg
             assert len({r["record_id"] for r in rows}) == len(rows), msg
+
+
+# ---------- times come from the history, never stored twice
+
+def test_a_derived_time_always_equals_the_at_of_the_event_that_set_it():
+    assert not [c for c in rd.ROW_COLUMNS if c.endswith("_at")]  # only each event's own "at"
+    assert set(rd.TIME_OF) == {"implemented_at", "rolled_back_at", "netted_out_at", "retired_at"}
+    for seed in (3, 5, 2026):
+        rng = random.Random(seed)
+        for case in range(15):
+            rows = start()
+            for _ in range(rng.randint(0, 10)):
+                nxt = sorted(rd.TRANSITIONS[rd.head(rows)["state"]])
+                if not nxt:
+                    break
+                rows = step(rows, rng.choice(nxt), at_=rng.choice([None, "2026-10-01T00:00:00Z"]))
+            for k in range(1, len(rows) + 1):
+                got = rd.times(rows[:k])
+                for name, state in rd.TIME_OF.items():
+                    setters = [r for r in rows[:k] if r["state"] == state]
+                    want = setters[-1]["at"] if setters else None
+                    assert got[name] == want, f"seed {seed} case {case} v{k} {name}"
+            if len(rows) > 1:  # a retry of the last change reports the same times
+                again = rd.transition(rows, change(rows[:-1], rows[-1]["state"], at_=rows[-1]["at"],
+                                                   reason=rows[-1]["reason"]))
+                assert again["new"] is False and again["times"] == rd.times(rows)
+
+
+def test_outputs_say_rolled_back_and_netted_out_never_reverted_at_or_reversed_at():
+    rows, _ = _verified()
+    rolled = step(rows, rd.REVERTED, reason="Outputs changed")
+    netted = rd.reverse(rows, based_on_version=5, at="2026-11-20T00:00:00Z", reason="Never deployed",
+                        installation_id=PC_A, ledger_events=[])
+    for out in (rd.times(rolled), netted["times"], netted["record"], rolled[-1]):
+        assert "reverted_at" not in out and "reversed_at" not in out
+    assert rd.times(rolled)["rolled_back_at"] == rolled[-1]["at"] and rd.times(rolled)["netted_out_at"] is None
+    assert netted["times"]["netted_out_at"] == netted["record"]["at"] and netted["times"]["rolled_back_at"] is None
+    for name in ("rolled_back_at", "netted_out_at", "``reverted``", "``reversed``"):
+        assert name in (rd.__doc__ or ""), name

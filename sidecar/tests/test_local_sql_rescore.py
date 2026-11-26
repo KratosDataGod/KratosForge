@@ -68,4 +68,6 @@ def test_a_column_never_shows_another_columns_values(duck):
 
 def test_two_array_columns_named_alike_but_for_case_show_as_json(duck):
     result = duck.execute(CellRequest(TWO_ARRAYS, "sql", dialect="snowflake", result_rows=10))
-    assert result.status == "ok" and result.table.to_pylist() == [{"a": "[1,2]", "A": "[3]"}]
+    # both unquoted names are A in Snowflake (SFX-073); each column keeps its own value
+    assert result.status == "ok" and result.table.column_names == ["A", "A"]
+    assert [c.to_pylist() for c in result.table.columns] == [["[1,2]"], ["[3]"]]

@@ -246,7 +246,7 @@ class Mailbox:
         if runs_file is not None:
             loaded = jsonfile.read_json(runs_file, {})
             self._runs = {env: {run: dict(e) for run, e in runs.items()  # a hand-edited entry without a time is dropped
-                                if isinstance(e, dict) and isinstance(e.get("at"), (int, float)) and not isinstance(e["at"], bool)}
+                                if isinstance(e, dict) and _finite_time(e.get("at"))}
                           for env, runs in loaded.items() if isinstance(runs, dict)} if isinstance(loaded, dict) else {}
         self._lost_seen: dict[tuple[str, str], bool] = {}  # per poll: each owner's record is read once
         self.entities, self.allow_backfill = list(entities or []), allow_backfill
@@ -274,7 +274,7 @@ class Mailbox:
             return None, None
         try:
             body = json.loads(stored.data)
-        except ValueError:
+        except (ValueError, RecursionError):  # torn, not JSON, or nested too deep: not a status this agent can use
             return None, stored
         return (body if isinstance(body, dict) else None), stored
 
@@ -305,20 +305,28 @@ class Mailbox:
             rid = name[:-5]
             if not _ID.fullmatch(rid):
                 continue  # can't name a status file after it; the docs say what ids may contain
-            with self._lock:
-                status, stored = self._read(env, f"status/{rid}.json")
-                if stored is None:
-                    if self.claim == "when_free" and not self.agent.has_free_worker():
-                        continue  # another agent with room takes it; this one looks again next poll
-                    self._claim(env, rid)
-                elif status and status.get("state") in FINAL:
-                    self._expire_files(env, rid, status, stored)
-                elif status and status.get("agent") == self.agent.config.name:
-                    self._sync(env, rid, status, stored)
-                elif status:
-                    self._handed_over(rid, status)
-                    if self.take_over:
-                        self._take_over(env, rid, status, stored)
+            try:
+                with self._lock:
+                    self._poll_one(env, rid)
+            except (ValueError, TypeError, AttributeError, KeyError, RecursionError, OverflowError) as exc:
+                # One damaged status (a hand edit, another build) doesn't hold up the requests after it.
+                self.log.warning("couldn't handle a pipeline request; the others go on",
+                                 extra=fields(env=env, request_id=rid, error=f"{type(exc).__name__}: {exc}"))
+
+    def _poll_one(self, env: str, rid: str) -> None:
+        status, stored = self._read(env, f"status/{rid}.json")
+        if stored is None:
+            if self.claim == "when_free" and not self.agent.has_free_worker():
+                return  # another agent with room takes it; this one looks again next poll
+            self._claim(env, rid)
+        elif status and status.get("state") in FINAL:
+            self._expire_files(env, rid, status, stored)
+        elif status and status.get("agent") == self.agent.config.name:
+            self._sync(env, rid, status, stored)
+        elif status:
+            self._handed_over(rid, status)
+            if self.take_over:
+                self._take_over(env, rid, status, stored)
 
     def job_changed(self, job: dict[str, Any]) -> None:
         """Called by the agent when a pipeline job starts or ends, so the status doesn't wait for the next poll."""
@@ -430,6 +438,9 @@ class Mailbox:
             raw = json.loads(data)
         except ValueError as exc:
             return {}, f"the request isn't JSON: {exc}"
+        except RecursionError:
+            return {}, ("the request can't be read because it is nested too deeply; "
+                        "write it as one flat JSON object, as the contract shows")
         if not isinstance(raw, dict):
             return {}, "the request is a JSON object"
         problems = []
@@ -638,7 +649,7 @@ class Mailbox:
                 fresh_for = max(0.0, stale_after - _epoch(str(record["heartbeat_at"])))  # a record out of order never shortens the grace
                 return _age(stored, self.clock()) > fresh_for + TAKEOVER_GRACE
             return self.clock() > stale_after + TAKEOVER_GRACE
-        except (ValueError, KeyError, TypeError, AttributeError):
+        except (ValueError, KeyError, TypeError, AttributeError, RecursionError, OverflowError):
             return False
 
     def _take_over(self, env: str, rid: str, status: dict[str, Any], stored: Stored) -> None:
@@ -697,6 +708,11 @@ def control_backend_for(store: Any, meta_lakehouse_id: str | None, token: Callab
     if isinstance(store, LocalStore):
         return LocalControl(Path(store.root) / "_control")
     raise TypeError(f"no control files for {type(store).__name__}")
+
+
+def _finite_time(at: Any) -> bool:
+    """Whether ``at`` is a time in epoch seconds this agent can count with (not a bool, NaN or infinite)."""
+    return isinstance(at, (int, float)) and not isinstance(at, bool) and abs(at) < 1e12
 
 
 def _age(stored: Stored, now: float) -> float:

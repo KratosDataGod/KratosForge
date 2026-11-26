@@ -339,9 +339,13 @@ class Leases:
     def _expires(self, stored: Stored) -> tuple[float, str]:
         try:
             body = json.loads(stored.data)
-            return float(body["expires"]), str(body.get("owner", "?"))
-        except (ValueError, KeyError, TypeError):
-            # Empty while its writer is between create and flush: treat it as fresh.
+            expires = float(body["expires"])
+            if not math.isfinite(expires):
+                raise ValueError("not a time")  # NaN or infinite would hold the table for good
+            return expires, str(body.get("owner", "?"))
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError):
+            # Empty while its writer is between create and flush: treat it as fresh. A damaged body
+            # (too deep, a number too big to count with) runs out the same way.
             return stored.modified + self.ttl, "?"
 
     def try_acquire(self, key: str, now: float | None = None) -> str | None:
@@ -364,7 +368,12 @@ class Leases:
         its holder gave it: PCs' clocks differ, so the expiry one PC wrote can't be compared with
         another's clock (EA-025). Elsewhere (a folder on this PC: one clock) the body's expiry."""
         if stored.store_now is None:
-            return self._expires(stored)[0] < self.clock()
+            now, expires = self.clock(), self._expires(stored)[0]
+            if expires > now + self._length(stored) + 1:
+                # No holder writes an expiry further ahead than its length: a damaged body (a year far
+                # off) runs out as an empty one does, so it can't hold the table for good.
+                expires = stored.modified + self.ttl
+            return expires < now
         # Both times are whole seconds (HTTP dates), so a second more before taking it over.
         return stored.store_now - stored.modified > self._length(stored) + 1
 
@@ -377,7 +386,7 @@ class Leases:
                 length = float(body["ttl"])
             else:
                 length = float(body["expires"]) - dt.datetime.fromisoformat(body["acquired_at"]).timestamp()
-        except (ValueError, KeyError, TypeError, OverflowError):
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError):
             return self.ttl
         # A damaged or hostile body (NaN, infinite, zero or less) can't make a lease last forever or
         # end at once: this writer's own length stands in.
@@ -395,7 +404,7 @@ class Leases:
         owner = self._expires(stored)[1]
         try:
             host = json.loads(stored.data).get("host")
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError, RecursionError):
             host = None
         return f"{owner} on {host}" if host else owner
 

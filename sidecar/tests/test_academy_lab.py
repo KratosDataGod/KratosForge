@@ -11,6 +11,7 @@ import pytest
 
 from fabric_desktop import audit, progress, server
 from fabric_desktop.academy import appcontainer, exercises, lab
+from fabric_desktop.academy.errors import LabError
 from fabric_desktop.academy_service import METHODS, AcademyMixin
 
 PACK = "dp-700"
@@ -342,3 +343,145 @@ def test_removing_the_sandbox_grants_answers_removed_and_failed(svc, monkeypatch
     monkeypatch.undo()
     if sys.platform != "win32":
         assert svc.academy_sandbox_remove_grants() == {"removed": 0, "failed": []}
+
+
+# --- the offline audit (2026-11-26): what the learner sees when a lab answer or the pack goes wrong -------
+
+
+@pytest.mark.parametrize(("sql", "said"), [
+    ("SELEC 1 FROM", "Parser Error"),
+    ("SELECT * FROM no_such_table", "Catalog Error"),
+    ("SELECT * FROM read_csv('https://x.invalid/a.csv')", "Permission Error"),
+], ids=["syntax", "unknown-table", "blocked-url"])
+def test_run_says_duckdbs_own_reason_for_a_sql_mistake(svc, sql, said):   # D4
+    svc.academy_start(PACK, "E21")
+    with pytest.raises(LabError) as got:
+        svc.academy_run(PACK, "E21", sql)
+    assert str(got.value).startswith(f"Your SQL didn't run: {said}")
+    assert "Fabric" not in str(got.value)
+
+
+@pytest.mark.parametrize("sql", ["", "   \n", "-- just a note\n", "/* nothing */"])
+def test_an_empty_answer_asks_for_a_query_in_run_and_check(svc, sql):   # D5
+    svc.academy_start(PACK, "E21")
+    with pytest.raises(LabError, match="^Write a query first"):
+        svc.academy_run(PACK, "E21", sql)
+    got = svc.academy_validate(PACK, "E21", sql)
+    assert got["passed"] is False and got["results"]
+    assert all(r["detail"] == lab.NO_QUERY and "message" not in r for r in got["results"]), got["results"]
+    assert lab.state(svc.root, PACK, "E21")["last"]["passed"] is False   # the result was saved
+
+
+def test_an_empty_answer_fails_a_learn_check_in_words():   # D5: learn/checks.py, shared with Learn labs
+    from fabric_desktop.learn import checks
+    con = duckdb.connect(":memory:")
+    try:
+        r = checks.result_matches(con, "-- nothing yet\n", reference="SELECT 1 AS x")
+    finally:
+        con.close()
+    assert r == {"kind": "result_matches", "passed": False, "detail": checks.NO_QUERY}
+
+
+def test_an_answer_that_didnt_run_shows_the_engines_reason_not_the_fail_sentence(svc, monkeypatch):   # D6
+    ex = exercises.get(PACK, "E21")
+    ex["validation"] = [{**c, "fail": "Your result doesn't match yet."} for c in ex["validation"]]
+    monkeypatch.setattr(exercises, "get", lambda *a, **k: ex)
+    svc.academy_start(PACK, "E21")
+    got = svc.academy_validate(PACK, "E21", "SELEC 1")
+    for r in got["results"]:
+        assert r["ungraded"] and "message" not in r and "Parser Error" in r["detail"], r
+    wrong = svc.academy_validate(PACK, "E21", "SELECT 1 AS x")   # it runs and is wrong: the sentence stays
+    assert any(r.get("message") == "Your result doesn't match yet." for r in wrong["results"]), wrong["results"]
+
+
+def test_a_start_that_fails_partway_can_be_started_again(svc, tmp_path, monkeypatch):   # D7
+    real = exercises.learner_files
+    monkeypatch.setattr(exercises, "learner_files", lambda *a, **k: {
+        **real(*a, **k), "setup": real(*a, **k)["setup"] + "\nSELECT error('the setup broke');"})
+    with pytest.raises(LabError, match="couldn't be made on this PC"):
+        svc.academy_start(PACK, "E21")
+    folder = lab.workspace(tmp_path, PACK, "E21")
+    assert not (folder / lab.DB_FILE).exists() and not (folder / lab.STATE_FILE).exists()
+    monkeypatch.setattr(exercises, "learner_files", real)
+    assert svc.academy_start(PACK, "E21")["started"]
+    assert svc.academy_validate(PACK, "E21", _solution("E21"))["passed"]
+
+
+def test_a_half_built_database_from_an_earlier_start_is_replaced(svc, tmp_path):   # D7: a crash during Start
+    folder = lab.workspace(tmp_path, PACK, "E21")
+    folder.mkdir(parents=True)
+    con = duckdb.connect(str(folder / lab.DB_FILE))
+    con.execute(exercises.learner_files(PACK, "E21")["setup"].split(";")[0])   # one table of the setup, then "closed"
+    con.close()
+    assert svc.academy_start(PACK, "E21")["started"]
+    assert svc.academy_validate(PACK, "E21", _solution("E21"))["passed"]
+
+
+def test_start_doesnt_need_the_grading_files_and_check_says_they_are_damaged(svc, tmp_path, monkeypatch):   # D12
+    monkeypatch.setattr(exercises, "_grading", lambda *a: tmp_path / "no-grading")
+    assert svc.academy_start(PACK, "E21")["started"]
+    with pytest.raises(LabError) as got:
+        svc.academy_validate(PACK, "E21", "SELECT 1")
+    assert str(got.value) == "This exercise's files are damaged on this PC. Reinstall or update KratosForge to repair them."
+    assert "grading" not in str(got.value) and str(tmp_path) not in str(got.value)
+
+
+def test_a_missing_starter_says_the_files_are_damaged(svc, monkeypatch):   # D12
+    def gone(*a, **k):
+        raise FileNotFoundError(2, "No such file or directory", "/somewhere/grading/E21/starter.sql")
+    monkeypatch.setattr(exercises, "file_text", gone)
+    with pytest.raises(LabError, match="^This exercise's files are damaged on this PC"):
+        svc.academy_start(PACK, "E21")
+
+
+@pytest.mark.parametrize("eid", exercises.ids(PACK))
+def test_every_exercise_starts_in_the_app(svc, eid):   # D10: pyspark_lab and pipeline_lab too
+    ex = exercises.get(PACK, eid)
+    if ex["adapter"] not in lab.LAB_ADAPTERS:
+        pytest.skip(f"{ex['adapter']} has no workspace on this PC by design")
+    st = svc.academy_start(PACK, eid)
+    assert st["started"], st
+    assert svc.academy_exercise(PACK, eid)["workspace"]["started"]
+
+
+def test_only_platform_adapters_have_no_workspace():   # D10
+    local = set(exercises.ADAPTERS) - {p["adapter"] for p in exercises.registry.PLATFORMS.values()}
+    assert local <= set(lab.LAB_ADAPTERS)
+
+
+def test_a_pipeline_exercise_runs_and_checks_in_the_app(svc):   # D10
+    eid = "E19"
+    svc.academy_start(PACK, eid)
+    solution = (exercises.registry.ROOT / PACK / "grading" / eid / "solution.json").read_text(encoding="utf-8")
+    got = svc.academy_run(PACK, eid, solution)
+    assert got["columns"] == ["activity", "type", "status", "output"] and got["rows"][-1][:3] == ["(pipeline)", "", "Succeeded"]
+    assert svc.academy_validate(PACK, eid, solution)["passed"]
+    bad = svc.academy_validate(PACK, eid, "{ nope")
+    assert not bad["passed"] and all(r["ungraded"] and "isn't valid JSON" in r["detail"] for r in bad["results"])
+    with pytest.raises(LabError, match="isn't valid JSON"):
+        svc.academy_run(PACK, eid, "{ nope")
+
+
+def test_a_pyspark_exercise_runs_and_checks_in_the_app(svc, tmp_path):   # D10
+    eid = "E26"
+    svc.academy_start(PACK, eid)
+    solution = (exercises.registry.ROOT / PACK / "grading" / eid / "solution.py").read_text(encoding="utf-8")
+    run = svc.academy_run(PACK, eid, "print(spark.range(3).count())\nraise ValueError('boom')\n")
+    assert run["status"] == "error" and "3" in run["stdout"] and "ValueError: boom" in run["stderr"], run
+    assert str(tmp_path) not in run["stderr"]
+    got = svc.academy_validate(PACK, eid, solution)
+    assert got["passed"], got["results"]
+    wrong = svc.academy_validate(PACK, eid, "raise ValueError('boom')\n")
+    assert not wrong["passed"] and all(r["ungraded"] and "ValueError: boom" in r["detail"] for r in wrong["results"])
+
+
+def test_check_details_name_paths_from_the_workspace_and_home(tmp_path, monkeypatch):   # D14
+    monkeypatch.setattr(lab.Path, "home", classmethod(lambda cls: tmp_path / "me"))
+    folder = tmp_path / "me" / "data" / "academy" / "dp-700" / "E22"
+    text = f'Cannot open "{folder}/check/out.parquet" or "{tmp_path}/me/.duckdb/extensions/x"'
+    assert lab._tidy(text, folder) == 'Cannot open "check/out.parquet" or "~/.duckdb/extensions/x"'
+    trace = ('Traceback (most recent call last):\n  File "/opt/kf/fabric_desktop/academy/_bootstrap.py", line 552, in <module>\n'
+             '  File "/opt/kf/fabric_desktop/academy/_bootstrap.py", line 128, in _main\n    exec(code)\n'
+             f'  File "{folder}/run/load.py", line 1, in <module>\n    raise RuntimeError("x")\nRuntimeError: x\n')
+    assert lab._tidy(trace, folder / "run") == ('Traceback (most recent call last):\n  File "load.py", line 1, in <module>\n'
+                                               '    raise RuntimeError("x")\nRuntimeError: x\n')

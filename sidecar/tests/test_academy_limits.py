@@ -9,6 +9,7 @@ git_lab steps in test_academy_gitlab. This file covers the rest: grading of the 
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,18 @@ def test_grading_a_runaway_sql_answer_is_stopped_and_fails(tmp_path: Path, quick
     got = lab.validate(tmp_path, pack, ex, RUNAWAY)
     assert not all(r["passed"] for r in got["results"])
     assert any("Stopped after 1 seconds" in str(r.get("detail", "")) for r in got["results"]), got["results"]
+
+
+@pytest.mark.parametrize(("pack", "ex"), SQL_EXERCISES)
+def test_a_runaway_sql_answer_costs_one_time_limit_not_one_per_check(tmp_path: Path, quick: None, pack: str,
+                                                                    ex: str) -> None:   # D8
+    lab.start(tmp_path, pack, ex)
+    began = time.perf_counter()
+    got = lab.validate(tmp_path, pack, ex, RUNAWAY)
+    assert time.perf_counter() - began < 2.5, "each check waited out the time limit again"
+    stopped = [n for n, r in enumerate(got["results"]) if "Stopped after 1 seconds" in str(r.get("detail", ""))]
+    assert stopped and stopped == list(range(stopped[0], len(got["results"]))), got["results"]
+    assert all(got["results"][n]["ungraded"] and "message" not in got["results"][n] for n in stopped)   # D6
 
 
 @pytest.mark.parametrize(("pack", "ex"), SQL_EXERCISES)

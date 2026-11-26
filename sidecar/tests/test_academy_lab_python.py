@@ -139,3 +139,31 @@ def test_an_oversized_script_is_refused(svc):
     svc.academy_start(PACK, EID)
     with pytest.raises(ValueError, match="over 1 MB"):
         svc.academy_run(PACK, EID, "x = 1\n" * 300_000)
+
+
+# --- the offline audit (2026-11-26) ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("status", "said"), [("time_limit", "ran past its time limit"),
+                                              ("memory_limit", "used more memory than the exercise allows")])
+def test_check_shows_a_limit_not_the_exercises_fail_sentence(svc, monkeypatch, status, said):   # D6
+    packs = exercises.get.keywords["root"]
+    path = packs / PACK / "exercises" / EID / "exercise.json"
+    ex = json.loads(path.read_text(encoding="utf-8"))
+    ex["validation"][0]["fail"] = "Your script stopped with an error. Read its output."
+    path.write_text(json.dumps(ex), encoding="utf-8")
+    svc.academy_start(PACK, EID)
+    monkeypatch.setattr(sandbox, "run", lambda *a, **k: {"status": status, "exit_code": -9, "stdout": "", "stderr": "",
+                                                         "seconds": 1.0, "limits": {}, "runs_as": sandbox.RUNS_AS})
+    got = svc.academy_validate(PACK, EID, "while True:\n    pass\n")
+    assert not got["passed"]
+    assert [(r["kind"], r["ungraded"]) for r in got["results"]] == [("notebook_ran", True)]
+    assert said in got["results"][0]["detail"] and "message" not in got["results"][0]
+
+
+def test_run_output_names_files_in_the_workspace_and_none_of_the_learner_process(svc):   # D14
+    svc.academy_start(PACK, EID)
+    got = svc.academy_run(PACK, EID, "raise RuntimeError('boom from the learner')\n")
+    assert got["status"] == "error" and "RuntimeError: boom from the learner" in got["stderr"], got
+    assert 'File "answer.py", line 1' in got["stderr"]
+    assert "_bootstrap.py" not in got["stderr"] and str(svc.root) not in got["stderr"]

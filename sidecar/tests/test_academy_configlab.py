@@ -265,3 +265,17 @@ def test_true_is_never_one():
     rule = {"path": "flags", "where": {"enabled": True}, "count": 1}
     assert not v.config_matches({"flags": [{"enabled": 1}]}, [rule])["passed"]
     assert v.config_matches({"flags": [{"enabled": True}, {"enabled": 0}]}, [rule])["passed"]
+
+
+# --- the offline audit (2026-11-26) ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["", "{ nope", "[" * 100_000])
+def test_a_document_that_cant_be_read_names_its_own_file_in_run_and_check(tmp_path, text):   # D6, D14
+    lab.start(tmp_path, "dp-700", "C3")   # a settings exercise whose document is release.json
+    with pytest.raises(ValueError, match="^release.json "):
+        lab.run(tmp_path, "dp-700", "C3", text)
+    got = lab.validate(tmp_path, "dp-700", "C3", text)
+    assert not got["passed"]
+    for r in got["results"]:   # the reason it couldn't be checked, never each check's fail sentence
+        assert r["ungraded"] and r["detail"].startswith("release.json ") and "message" not in r, r

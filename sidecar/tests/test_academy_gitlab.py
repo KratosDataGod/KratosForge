@@ -490,3 +490,16 @@ def test_windows_job_holds_the_process_limit_and_refuses_breakaway(tmp_path):
     out = gitlab.sandbox.contained([sys.executable, "-I", "-c", code], tmp_path, _plain_env(), timeout=60,
                                    memory_limit=gitlab.MEMORY_LIMIT, cpu_limit=30, processes=1)
     assert b"no breakaway" in out["stdout"] and b"no child" in out["stdout"]
+
+
+# --- the offline audit (2026-11-26) ----------------------------------------------------------------------
+
+
+def test_without_git_a_correct_session_says_so_instead_of_failing_the_checks(tmp_path, monkeypatch):   # D6
+    lab.start(tmp_path, "dp-700", "E07")
+    solution = (registry.ROOT / "dp-700" / "grading" / "E07" / "solution.git").read_text(encoding="utf-8")
+    monkeypatch.setattr(gitlab, "trusted_cli", lambda name: None)
+    got = lab.validate(tmp_path, "dp-700", "E07", solution)
+    assert not got["passed"]
+    for r in got["results"]:
+        assert r["ungraded"] and r["detail"].startswith("Git isn't installed on this PC.") and "message" not in r, r

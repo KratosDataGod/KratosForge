@@ -39,9 +39,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +54,8 @@ from .. import jsonfile
 from ..git import ops as git_ops
 from ..learn import checks
 from ..learn import labs as learn_labs
-from . import configlab, dbsql_lab, exercises, gitlab, pylab, quizlab, registry, sandbox, sqlprojlab
+from . import configlab, dbsql_lab, exercises, gitlab, pipelab, pylab, pyspark_lab, quizlab, registry, sandbox, sqlprojlab
+from .errors import LabError, damaged
 from . import workspace as ws
 from .. import trees
 
@@ -63,11 +67,14 @@ STATE_FILE = "state.json"
 RUN_DIR = "run"        # python_lab: where Run runs the script
 CHECK_DIR = "check"    # python_lab: made fresh for every Check
 # Adapters with a workspace on this PC (lab.start and the rest).
+PYSPARK = "pyspark_lab"
 LAB_ADAPTERS = (*exercises.SQL_ADAPTERS, *pylab.ADAPTERS, configlab.ADAPTER, quizlab.ADAPTER, gitlab.ADAPTER,
-                sqlprojlab.ADAPTER)
-# Adapters whose answer is the exercise's own starter file (a script, a settings document, a Git session or a
-# database project's change set), not answer.sql.
-STARTER_ADAPTERS = (*pylab.ADAPTERS, configlab.ADAPTER, gitlab.ADAPTER, sqlprojlab.ADAPTER)
+                sqlprojlab.ADAPTER, PYSPARK, pipelab.ADAPTER)
+# Adapters whose answer is the exercise's own starter file (a script, a settings document, a Git session, a
+# database project's change set, PySpark code or a pipeline definition), not answer.sql.
+STARTER_ADAPTERS = (*pylab.ADAPTERS, configlab.ADAPTER, gitlab.ADAPTER, sqlprojlab.ADAPTER, PYSPARK, pipelab.ADAPTER)
+# What Run and Check say when a SQL answer holds no statement (empty, or comments only).
+NO_QUERY = checks.NO_QUERY
 
 
 MAX_ANSWER_BYTES = 1024 * 1024
@@ -161,29 +168,73 @@ def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
         return state(root, pack_id, exercise_id)
     folder.mkdir(parents=True, exist_ok=True)
     if ex["adapter"] in pylab.ADAPTERS:
-        starter = exercises.file_text(pack_id, exercise_id, ex["starter"])
+        with _pack_read(pack_id, exercise_id):
+            starter = exercises.file_text(pack_id, exercise_id, ex["starter"])
         if not _exists(folder, ex["starter"]):
             _write(folder, ex["starter"], starter)
-        pylab.prepare(_fresh_dir(folder, RUN_DIR), _exercise_folder(pack_id, exercise_id), ex, starter)
+        with _pack_read(pack_id, exercise_id):
+            pylab.prepare(_fresh_dir(folder, RUN_DIR), _exercise_folder(pack_id, exercise_id), ex, starter)
     elif ex["adapter"] == quizlab.ADAPTER:
         if not _exists(folder, quizlab.ANSWER_FILE):
             _write(folder, quizlab.ANSWER_FILE, "{}")
-    elif ex["adapter"] in (configlab.ADAPTER, gitlab.ADAPTER, sqlprojlab.ADAPTER):
+    elif ex["adapter"] in (configlab.ADAPTER, gitlab.ADAPTER, sqlprojlab.ADAPTER, pipelab.ADAPTER):
         if not _exists(folder, ex["starter"]):
-            _write(folder, ex["starter"], exercises.file_text(pack_id, exercise_id, ex["starter"]))
+            with _pack_read(pack_id, exercise_id):
+                starter = exercises.file_text(pack_id, exercise_id, ex["starter"])
+            _write(folder, ex["starter"], starter)
+    elif ex["adapter"] == PYSPARK:
+        with _pack_read(pack_id, exercise_id):
+            starter = exercises.file_text(pack_id, exercise_id, ex["starter"]) if ex.get("starter") else ""
+        if not _exists(folder, ex["starter"]):
+            _write(folder, ex["starter"], starter)
+        _pyspark_prepare(folder, pack_id, exercise_id, ex)
     else:
-        ref = exercises.reference(pack_id, exercise_id)
-        con = duckdb.connect(_db_path(folder, must_exist=False))
-        try:
-            if ref["setup"]:
-                con.execute(ref["setup"])
-        finally:
-            con.close()
+        with _pack_read(pack_id, exercise_id):   # never the grading files: Start needs only the data and the starter
+            ref = exercises.learner_files(pack_id, exercise_id)
+        _build_db(folder, ref["setup"])
         if not _exists(folder, ANSWER_FILE):
             _write(folder, ANSWER_FILE, ref["starter"])
     _write_state(folder, {"pack": pack_id, "exercise": exercise_id, "version": ex["version"],
                                               "hints_used": 0, "explanation_seen": False, "last": None})
     return state(root, pack_id, exercise_id)
+
+
+@contextmanager
+def _pack_read(pack_id: str, exercise_id: str) -> Iterator[None]:
+    """Reading the exercise's own files from the pack: one that's missing or unreadable on this PC is said
+    plainly (errors.DAMAGED), with the path and the reason in the log, never shown to the learner."""
+    try:
+        yield
+    except (OSError, UnicodeDecodeError) as exc:
+        raise damaged(f"{pack_id}/{exercise_id}", exc) from exc
+
+
+def _build_db(folder: Path, setup: str | None) -> None:
+    """lab.duckdb from the exercise's setup. What an earlier Start left (it failed partway, or the app closed
+    during it) is removed first, and a setup that fails removes what it made, so the next Start begins clean."""
+    db = Path(_db_path(folder, must_exist=False))
+    wal = db.with_name(db.name + ".wal")
+
+    def clear() -> None:
+        for f in (db, wal):
+            if os.path.lexists(f):
+                f.unlink()
+
+    clear()
+    try:
+        con = duckdb.connect(str(db))
+        try:
+            if setup:
+                con.execute(setup)
+        finally:
+            con.close()
+    except duckdb.Error as exc:
+        clear()
+        raise LabError("This exercise's data couldn't be made on this PC, so it didn't start. Start it again, and if it "
+                       f"keeps failing, update KratosForge. The engine said: {exc}") from exc
+    except BaseException:
+        clear()
+        raise
 
 
 def state(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
@@ -223,12 +274,18 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
         raise ValueError("That answer is over 1 MB, so it wasn't run; an exercise answer is much smaller.")
     if adapter in pylab.ADAPTERS:
         return _run_python(root, pack_id, exercise_id, sql)
+    if adapter == PYSPARK:
+        return _run_pyspark(root, pack_id, exercise_id, sql)
+    if adapter == pipelab.ADAPTER:
+        return _run_pipeline(root, pack_id, exercise_id, sql, limit)
     if adapter == quizlab.ADAPTER:
         raise ValueError("A quiz has nothing to run; answer the questions and check your work.")
     if adapter == configlab.ADAPTER:   # nothing runs: the settings the checks will read, as rows
+        ex = _lab_exercise(pack_id, exercise_id)
         _started(root, pack_id, exercise_id)
         began = time.perf_counter()
-        return {**configlab.outline(str(sql), min(max(1, int(limit)), 1000)), "ms": round((time.perf_counter() - began) * 1000)}
+        return {**configlab.outline(str(sql), min(max(1, int(limit)), 1000), str(ex.get("starter") or "settings.json")),
+                "ms": round((time.perf_counter() - began) * 1000)}
     if adapter == gitlab.ADAPTER:   # the session replayed in a fresh repository in run/, removed afterwards
         return _run_git(root, pack_id, exercise_id, str(sql), limit)
     if adapter == sqlprojlab.ADAPTER:   # the project after the change set, built in memory; nothing on disk
@@ -240,6 +297,8 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
     ex = _duckdb_exercise(pack_id, exercise_id)
     folder = _started(root, pack_id, exercise_id)
     limit = min(max(1, int(limit)), 1000)
+    if checks.no_statement(sql):
+        raise LabError(NO_QUERY)
     translated = ex["adapter"] == "dbsql_lab"
     if translated:
         sql = dbsql_lab.translate(sql)
@@ -252,10 +311,14 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
             with learn_labs._time_limit(con):
                 try:
                     cur = con.execute(sql)
+                    if cur is None:   # DuckDB runs nothing for text with no statement in it
+                        raise LabError(NO_QUERY)
                     cols = [d[0] for d in cur.description or []]
                     rows = cur.fetchmany(limit + 1) if cols else []
                 except duckdb.InterruptException as exc:
                     raise ValueError(learn_labs._stopped()) from exc
+                except duckdb.Error as exc:   # the learner's SQL: DuckDB's own words, as Check says them
+                    raise LabError(f"Your SQL didn't run: {exc}") from exc
         finally:
             con.rollback()
     finally:
@@ -277,9 +340,67 @@ def _run_python(root: Path, pack_id: str, exercise_id: str, code: str) -> dict[s
     else:
         jsonfile.write_text(ws.inside(work, ex["starter"], must_exist=False), code)   # refused if it's a link
     got = sandbox.run(work, ex["starter"], Path(root), appcontainer_ok=pylab.appcontainer_ok(ex))
-    return {"status": got["status"], "exit_code": got["exit_code"], "stdout": got["stdout"][-20_000:],
-            "stderr": got["stderr"][-20_000:], "seconds": got["seconds"], "runs_as": got["runs_as"],
+    return {"status": got["status"], "exit_code": got["exit_code"], "stdout": _tidy(got["stdout"][-20_000:], work),
+            "stderr": _tidy(got["stderr"][-20_000:], work), "seconds": got["seconds"], "runs_as": got["runs_as"],
             "ms": round(got["seconds"] * 1000)}
+
+
+def _pyspark_prepare(folder: Path, pack_id: str, exercise_id: str, ex: dict[str, Any]) -> Path:
+    """``run/`` made fresh: the exercise's Delta tables, notebooks and data files, where Run runs the answer."""
+    with _pack_read(pack_id, exercise_id):
+        setup = exercises.file_text(pack_id, exercise_id, ex["setup"])
+        files = pyspark_lab.assets(ex, _exercise_folder(pack_id, exercise_id))
+    work = _fresh_dir(folder, RUN_DIR)
+    pyspark_lab.prepare(work, setup, files)
+    return work
+
+
+def _run_pyspark(root: Path, pack_id: str, exercise_id: str, code: str) -> dict[str, Any]:
+    """PySpark code run in the learner process in ``run/`` (pyspark_lab.run_learner): what it wrote there
+    stays until Reset, as for a Python exercise."""
+    ex = _lab_exercise(pack_id, exercise_id)
+    folder = _started(root, pack_id, exercise_id)
+    if len(code.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That script is over 1 MB; an exercise answer is much smaller.")
+    work = ws.inside(folder, RUN_DIR, must_exist=False)
+    if not work.is_dir():
+        work = _pyspark_prepare(folder, pack_id, exercise_id, ex)
+    began = time.perf_counter()
+    got = pyspark_lab.run_learner(work, code, data_root=Path(root))
+    seconds = time.perf_counter() - began
+    return {"status": got["status"], "exit_code": got["exit_code"], "stdout": _tidy(got["stdout"][-20_000:], work),
+            "stderr": _tidy(got["stderr"][-20_000:], work), "seconds": round(seconds, 2), "ms": round(seconds * 1000)}
+
+
+def _pipeline_children(pack_id: str, exercise_id: str, ex: dict[str, Any]) -> dict[str, str]:
+    folder = _exercise_folder(pack_id, exercise_id)
+    with _pack_read(pack_id, exercise_id):
+        return {k: (folder / name).read_text(encoding="utf-8") for k, name in (ex.get("children") or {}).items()}
+
+
+def _run_pipeline(root: Path, pack_id: str, exercise_id: str, text: str, limit: int) -> dict[str, Any]:
+    """The learner's pipeline run once on the local runner with the exercise's parameters and stand-ins, as
+    rows: each activity's status and output, then the run's. Nothing is graded and nothing is kept."""
+    ex = _lab_exercise(pack_id, exercise_id)
+    _started(root, pack_id, exercise_id)
+    children = _pipeline_children(pack_id, exercise_id, ex)
+    began = time.perf_counter()
+    with tempfile.TemporaryDirectory(prefix="kf-academy-pipeline-") as tmp:
+        jsonfile.write_text(Path(tmp) / ex["starter"], text)
+        got = pipelab.run_pipeline(Path(tmp), ex["starter"], parameters=ex.get("parameters"), mocks=ex.get("mocks"),
+                                   children=children)
+    if not got["ok"]:
+        raise LabError(got["detail"])
+    run_ = got["run"]
+    rows: list[list[Any]] = [[a.get("name"), a.get("type"), a.get("status") or a.get("state"),
+                              json.dumps(a.get("output") if a.get("output") is not None else a.get("error"),
+                                         ensure_ascii=False, default=str)[:200]]
+                             for a in run_.get("activities") or []]
+    rows.append(["(pipeline)", "", run_.get("state"), json.dumps(run_.get("return_value"), ensure_ascii=False, default=str)[:200]
+                 if run_.get("return_value") is not None else ""])
+    limit = min(max(1, int(limit)), 1000)
+    return {"columns": ["activity", "type", "status", "output"], "rows": rows[:limit], "more": len(rows) > limit,
+            "ms": round((time.perf_counter() - began) * 1000)}
 
 
 def _run_git(root: Path, pack_id: str, exercise_id: str, text: str, limit: int) -> dict[str, Any]:
@@ -323,12 +444,22 @@ def _with_messages(ex: dict[str, Any], results: list[dict[str, Any]]) -> list[di
     checks_ = ex["validation"]
     paired = len(results) == len(checks_) and all(r["kind"] == c["kind"] for r, c in zip(results, checks_, strict=False))
     by_kind = {c["kind"]: c for c in checks_}
-    out = []
-    for n, r in enumerate(results):
-        c = checks_[n] if paired else by_kind.get(r["kind"], {})
-        message = c.get("pass") if r["passed"] else c.get("fail")
-        out.append({**r, "message": message} if message else r)
-    return out
+    return [_message(checks_[n] if paired else by_kind.get(r["kind"], {}), r) for n, r in enumerate(results)]
+
+
+# A check whose answer didn't run (or ran past a limit) found nothing about the answer itself: the engine's
+# reason is what the learner needs, so it's marked ``ungraded`` and keeps its detail instead of the exercise's
+# fail sentence, which is written for an answer that ran and was wrong.
+_DIDNT_RUN = ("Your SQL didn't run", "Your query didn't run", "Your SQL wasn't run", NO_QUERY)
+
+
+def _message(c: dict[str, Any], r: dict[str, Any]) -> dict[str, Any]:
+    """``r`` with check ``c``'s own ``pass`` or ``fail`` sentence, when the exercise gives one; an ungraded
+    result keeps the engine's reason."""
+    if not r["passed"] and str(r.get("detail") or "").startswith(_DIDNT_RUN):
+        r = {**r, "ungraded": True}
+    message = c.get("pass") if r["passed"] else None if r.get("ungraded") else c.get("fail")
+    return {**r, "message": message} if message else r
 
 
 def _db_path(folder: Path, must_exist: bool = True) -> str:
@@ -368,18 +499,73 @@ def _fresh(setup: str | None) -> duckdb.DuckDBPyConnection:
 def _check_duckdb(ex: dict[str, Any], ref: dict[str, Any], answer: str) -> list[dict[str, Any]]:
     """Every check of a duckdb_lab exercise on ``answer``, in a fresh copy of the setup."""
     solution = ref["solution"]
-    results = []
+    results: list[dict[str, Any]] = []
+    stopped: dict[str, Any] | None = None
     con = _fresh(ref["setup"])
     try:
         for c in ex["validation"]:
+            if stopped is not None:   # the same answer would only hit the time limit again: one wait, not one per check
+                results.append({"kind": c["kind"], **stopped})
+                continue
             with learn_labs._time_limit(con) as stop:
                 r = exercises.run_check(con, c, answer, solution)
-            r = {**r, "passed": False, "detail": learn_labs._stopped()} if stop.fired else r
-            message = c.get("pass") if r["passed"] else c.get("fail")
-            results.append({**r, "message": message} if message else r)
+            if stop.fired:
+                stopped = {"passed": False, "detail": learn_labs._stopped(), "ungraded": True}
+                r = {**r, **stopped}
+            results.append(_message(c, r))
     finally:
         con.close()
     return results
+
+
+def _no_query(ex: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every check of a SQL exercise whose answer holds no statement: nothing to grade."""
+    return [{"kind": c["kind"], "passed": False, "detail": NO_QUERY, "ungraded": True} for c in ex["validation"]]
+
+
+def _check_pyspark(root: Path, pack_id: str, exercise_id: str, ex: dict[str, Any], answer: str) -> list[dict[str, Any]]:
+    """Every check of a PySpark exercise: the answer, and the reference for the expected rows, each run in the
+    learner process on fresh copies of the exercise's tables (pyspark_lab.grade), outside the workspace."""
+    with _pack_read(pack_id, exercise_id):
+        ref = pyspark_lab.reference(pack_id, exercise_id)
+    data_root = Path(root)
+    got = pyspark_lab.grade(ex, ref["setup"], ref["hidden"], answer, ref["solution"],
+                            lambda work, code: pyspark_lab.run_learner(work, code, data_root=data_root), ref["assets"])
+    return _with_messages(ex, got["results"])
+
+
+def _check_pipeline(pack_id: str, exercise_id: str, ex: dict[str, Any], answer: str) -> list[dict[str, Any]]:
+    """Every check of a pipeline exercise on the answer, written as the starter in a folder of its own."""
+    _pipeline_children(pack_id, exercise_id, ex)   # an unreadable child pipeline is said plainly
+    with tempfile.TemporaryDirectory(prefix="kf-academy-pipeline-") as tmp:
+        jsonfile.write_text(Path(tmp) / ex["starter"], answer)
+        with _pack_read(pack_id, exercise_id):
+            got = pipelab.grade(Path(tmp), ex, _exercise_folder(pack_id, exercise_id))
+    return _with_messages(ex, got["results"])
+
+
+def _tidy(text: str, *folders: Path) -> str:
+    """Text for the learner's screen: each of ``folders`` (the workspace) dropped from paths, so they read
+    relative to it, the home folder written as ~, and no frames of the learner process's own
+    _bootstrap.py in a traceback."""
+    text = re.sub(r'^ *File "[^"\n]*_bootstrap\.py", line \d+, in [^\n]*\n(?: {4,}(?! *File ")[^\n]*\n)*', "", str(text),
+                  flags=re.MULTILINE)
+    forms: list[str] = []
+    for folder in folders:
+        forms += [f"{f}{sep}" for f in (str(folder), str(Path(folder).resolve())) for sep in ("/", "\\")]
+    try:
+        home = str(Path.home())
+    except (RuntimeError, KeyError, OSError):
+        home = ""
+    for form in sorted(dict.fromkeys(forms), key=len, reverse=True):
+        text = text.replace(form, "")
+    if len(home) > 3:   # never a bare drive or /
+        text = re.sub(re.escape(home) + r"(?=[\\/'\"\s:)]|$)", "~", text, flags=re.IGNORECASE)
+    return text
+
+
+def _tidy_results(results: list[dict[str, Any]], folder: Path) -> list[dict[str, Any]]:
+    return [{**r, **{k: _tidy(r[k], folder) for k in ("detail", "message") if isinstance(r.get(k), str)}} for r in results]
 
 
 def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:
@@ -393,8 +579,14 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
         answer = _read_text(folder, _answer_file(ex))
     elif len(answer.encode("utf-8")) > MAX_ANSWER_BYTES:
         raise ValueError("That answer is over 1 MB; an exercise answer is much smaller.")
-    if ex["adapter"] in pylab.ADAPTERS:
+    if ex["adapter"] in exercises.SQL_ADAPTERS and checks.no_statement(answer):
+        results = _no_query(ex)
+    elif ex["adapter"] in pylab.ADAPTERS:
         results = _check_python(root, pack_id, exercise_id, ex, answer)
+    elif ex["adapter"] == PYSPARK:
+        results = _check_pyspark(root, pack_id, exercise_id, ex, answer)
+    elif ex["adapter"] == pipelab.ADAPTER:
+        results = _check_pipeline(pack_id, exercise_id, ex, answer)
     elif ex["adapter"] == configlab.ADAPTER:
         results = _with_messages(ex, configlab.grade(answer, ex)["results"])
     elif ex["adapter"] == gitlab.ADAPTER:   # replayed in a fresh repository of its own, outside the workspace
@@ -406,11 +598,16 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
         questions = quizlab.load(_grading_folder(pack_id, exercise_id))
         results = _with_messages(ex, quizlab.grade(answer, ex, questions)["results"])
     elif ex["adapter"] == "dbsql_lab":
-        results = dbsql_lab.check_all(ex, dbsql_lab.reference(pack_id, exercise_id), answer,
+        with _pack_read(pack_id, exercise_id):
+            ref = dbsql_lab.reference(pack_id, exercise_id)
+        results = dbsql_lab.check_all(ex, ref, answer,
                                       connect_to=lambda setup: dbsql_lab.connect(setup, learn_labs.MEMORY_LIMIT),
                                       limit=learn_labs._time_limit, stopped=learn_labs._stopped())
     else:
-        results = _check_duckdb(ex, exercises.reference(pack_id, exercise_id), answer)
+        with _pack_read(pack_id, exercise_id):
+            ref = exercises.reference(pack_id, exercise_id)
+        results = _check_duckdb(ex, ref, answer)
+    results = _tidy_results(results, folder)
     st = _state(folder)
     passed = all(r["passed"] for r in results)
     if ex["adapter"] == quizlab.ADAPTER:   # answers changed after a failed check: the pass isn't independent

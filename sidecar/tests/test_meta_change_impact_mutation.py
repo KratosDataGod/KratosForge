@@ -58,7 +58,7 @@ def test_an_unknown_entity_is_named_in_the_refusal(proj):
 
 
 def test_a_consumer_is_this_table_or_another_table(proj):
-    res = impact(proj, "silver.orders", "amount", "drop")  # net_amount, made here, reads it; gold copies that on
+    res = impact(proj, "silver.orders", "customer_id", "drop")  # its own check names it; gold matches on it
     assert item(res, "table", "silver.orders")["detail"] == "this table"
     assert item(res, "table", "gold.fact_sales")["detail"] == "table"
     res = impact(proj, "silver.customers", "customer_id", "drop")

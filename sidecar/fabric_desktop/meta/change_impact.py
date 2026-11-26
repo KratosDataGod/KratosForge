@@ -23,7 +23,7 @@ from typing import Any
 from .. import semantic
 from ..redact import describe
 from . import lineage
-from .project import Project, impact as entity_impact
+from .project import Entity, Project, impact as entity_impact, source_columns, sql_expr
 
 _log = logging.getLogger(__name__)
 
@@ -36,7 +36,13 @@ _DIRECT = {
     "derived": ("its expression for {own} uses {col}", "its expression for {own} uses {col}; check it works with the new type"),
     "lookup": ("matches {own} on {col}", "matches {own} on {col}; the two sides of the match must keep the same type"),
     "key": ("uses {col} as the business key for {own}", "uses {col} as the business key for {own}; key tables keep the old type"),
+    # A [[lookup]] reads the dimension's column named like its ``on`` to match rows, and takes its surrogate key.
+    "lookup_key": ("its [[lookup]] of {src} matches rows on {col}",
+                   "its [[lookup]] of {src} matches rows on {col}; the two sides of the match must keep the same type"),
+    "lookup_sk": ("takes {own} from {src}.{col}", "takes {own} from {src}.{col}; check it works with the new type"),
 }
+# Columns a date table's [model] date_column may have.
+_DATE_TYPES = ("date", "datetime")
 
 
 def _module_file(root: Path, ref: str) -> Path | None:
@@ -75,11 +81,63 @@ def _own_config_refs(e: Any, column: str) -> list[str]:
     for part in ("tracked", "type1"):
         if column in (scd.get(part) or []):
             out.append(f"[scd] {part} lists {column}")
-    if any(isinstance(c, dict) and c.get("column") == column for c in s.get("clean", [])):
+    if any(isinstance(c, dict) and (c.get("column") == column or _dedupe_order(c) == column)
+           for c in s.get("clean", [])):
         out.append(f"a [[clean]] step names {column}")
     if any(isinstance(c, dict) and c.get("column") == column for c in s.get("check", [])):
         out.append(f"a [[check]] names {column}")
+    out += [f"a [[check]] expression ({name}) uses {column}" for name in _check_exprs_using(s, column)]
+    if (s.get("load") or {}).get("batch_by") == column:
+        out.append(f"{column} is the [load] batch_by column")
+    if _date_column(s) == column:
+        out.append(f"{column} is the [model] date_column")
+    catalog = s.get("catalog")
+    if isinstance(catalog, dict) and isinstance(catalog.get("columns"), dict) and column in catalog["columns"]:
+        out.append(f"the [catalog] describes {column}")
     return out
+
+
+def _dedupe_order(rule: dict[str, Any]) -> str | None:
+    """The column a ``dedupe_keep = "newest:<column>"`` clean step sorts by."""
+    keep = rule.get("dedupe_keep")
+    return (keep.partition(":")[2] or None) if isinstance(keep, str) else None
+
+
+def _date_column(spec: dict[str, Any]) -> str | None:
+    model = spec.get("model")
+    return (model.get("date_column") or None) if isinstance(model, dict) else None
+
+
+def _check_exprs_using(spec: dict[str, Any], column: str) -> list[str]:
+    """The names of the entity's [[check]] expressions that read ``column``."""
+    return [str(c.get("name") or "?") for c in spec.get("check", [])
+            if isinstance(c, dict) and "expr" in c and column in (lineage._expr_columns(c["expr"]) or [])]
+
+
+def _named(e: Entity, own: str, expr: Any, written: dict[str, Any]) -> list[tuple[str, str]]:
+    """The columns an expression lineage can't read (COLUMNS('^a.*$') next to b) still names outright, as
+    (entity, column): one the entity makes itself, or one it reads from its source."""
+    try:
+        roots = sql_expr(expr).meta.root_names()
+    except Exception:  # noqa: BLE001 - doesn't parse: names nothing, and the save gate refuses it anyway
+        return []
+    renames = {v: k for k, v in (e.spec.get("source", {}).get("rename") or {}).items()}
+    out: list[tuple[str, str]] = []
+    for c in dict.fromkeys(roots):
+        out += [(e.name, c)] if c != own and c in written else [(up, renames.get(c, c)) for up in e.sources()]
+    return out
+
+
+def _still_read_from(project: Project, e: Entity, column: str) -> str | None:
+    """Where the entity still finds ``column`` once its contract drops it: the save gate checks its
+    expressions, lookups, key columns and clean steps against what the source gives, and an entity
+    source gives every column it writes, whatever this contract says. None when only the contract had it."""
+    contract = dict(e.spec.get("contract") or {})
+    contract["columns"] = {k: v for k, v in (contract.get("columns") or {}).items() if k != column}
+    without = Entity(e.name, {**e.spec, "contract": contract}, e.path)
+    if column not in source_columns(project, without):
+        return None
+    return ", ".join(e.sources()) or "its source"
 
 
 class _Items:
@@ -107,6 +165,10 @@ class _Items:
         return sorted(self.by.values(), key=lambda i: (-_RANK[i["severity"]], order[i["kind"]], i["name"]))
 
 
+def _same_type(a: Any, b: Any) -> bool:
+    return str(a).strip().lower() == str(b).strip().lower()
+
+
 def column_impact(project: Project, name: str, column: str, change: str, new_name: str | None = None,
                   new_type: str | None = None) -> dict[str, Any]:
     """Every consumer in the project that ``change`` to ``name.column`` breaks, or that should be checked."""
@@ -122,55 +184,101 @@ def column_impact(project: Project, name: str, column: str, change: str, new_nam
             "retype": f"changed to {new_type}" if new_type else "given a new type"}[change]
     items = _Items()
     e = project.entities[name]
+    # A rename to the name it has, or a new type that is the one it has, changes nothing.
+    same = (change == "rename" and new_name == column) or (
+        change == "retype" and new_type is not None and column in e.columns and _same_type(new_type, e.columns[column]))
+    if same:
+        return _answer(project, e, column, change, new_name, new_type, _Items(),
+                       project.layer_names()[-1] if project.layers else None)
+    names = sorted(project.entities)  # the same answer whatever order the files were read in
 
     # Every column of every entity, by the columns it reads.
+    every = {other: lineage.entity_columns(project, other) for other in names}
     reads: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
-    for other in project.entities:
-        for col, rec in lineage.entity_columns(project, other).items():
+    for other in names:
+        lookups = {lk["as"]: lk for lk in project.entities[other].spec.get("lookup", [])
+                   if isinstance(lk, dict) and isinstance(lk.get("as"), str)}
+        for col, rec in every[other].items():
             for i in rec["inputs"]:
                 if "entity" in i:
-                    reads.setdefault((i["entity"], i["column"]), []).append((other, col, rec["how"]))
+                    how = rec["how"]
+                    lk = lookups.get(col) if how == "lookup" else None
+                    if lk and i["entity"] == lk.get("dim") and i["column"] == project.entities[i["entity"]].surrogate_key:
+                        how = "lookup_sk"
+                    reads.setdefault((i["entity"], i["column"]), []).append((other, col, how))
+            if rec["how"] == "derived" and rec["label"] == "unknown":
+                for at in _named(project.entities[other], col, rec.get("expr"), every[other]):
+                    reads.setdefault(at, []).append((other, col, "derived"))
+        # A lookup reads the dimension's column named like its ``on``, to match rows on.
+        for col, lk in lookups.items():
+            if col in every[other] and lk.get("dim") in project.entities and isinstance(lk.get("on"), str):
+                reads.setdefault((lk["dim"], lk["on"]), []).append((other, col, "lookup_key"))
 
     def label(ent: str) -> str:
         return "this table" if ent == name else "table"
 
+    def full(ent: str, col: str) -> str:
+        return col if (ent, col) == (name, column) else f"{ent}.{col}"
+
     # 1. What reads the column directly. ``carried`` are the columns the change reaches as it is: a drop
     # takes plain copies with it, and a new type carries on through them.
     direct: list[tuple[str, str]] = []
+    follow: list[tuple[str, str]] = []
     carried: set[tuple[str, str]] = set()
+    still = _still_read_from(project, e, column) if change == "drop" else None
     for ent, col, how in reads.get((name, column), []):
         if (ent, col) == (name, column):
             continue
         gone_why, type_why = _DIRECT.get(how, ("reads {col}", "reads {col}"))
         args = {"col": column, "own": col, "src": name}
+        chain = [f"{name}.{column}", f"{ent}.{col}"]
+        if ent == name and still and how in ("derived", "lookup", "key"):
+            # The table's own expression, lookup or key still finds the column in its source: it keeps working.
+            items.add("table", ent, "check", gone_why.format(**args) + f"; {name} still reads {column} from {still} "
+                      "once it's dropped from the contract, so check that's what you want",
+                      entity=ent, detail=label(ent), chain=chain)
+            continue
         if gone:
             items.add("table", ent, "breaks", gone_why.format(**args) + f"; once it's {verb}, building {ent} fails",
-                      entity=ent, detail=label(ent), chain=[f"{name}.{column}", f"{ent}.{col}"])
+                      entity=ent, detail=label(ent), chain=chain)
         else:
-            items.add("table", ent, "check", type_why.format(**args), entity=ent, detail=label(ent),
-                      chain=[f"{name}.{column}", f"{ent}.{col}"])
+            items.add("table", ent, "check", type_why.format(**args), entity=ent, detail=label(ent), chain=chain)
         direct.append((ent, col))
+        if gone or how in ("source", "derived"):  # a key or a lookup makes a surrogate key, whatever the type
+            follow.append((ent, col))
         if how == "source" and change != "rename":
             carried.add((ent, col))
 
     # 2. Checks in other entities that look the column up (exists_in).
-    for other, oe in project.entities.items():
-        for c in oe.spec.get("check", []):
-            if isinstance(c, dict) and c.get("exists_in") == f"{name}.{column}":
-                items.add("table", other, "breaks" if gone else "check",
-                          f"its [[check]] on {c.get('column', '?')} looks values up in {name}.{column}"
-                          + ("; the save gate refuses it" if gone else "; both sides must keep the same type"),
-                          entity=other, detail=label(other))
+    def exists_in(target: tuple[str, str]) -> list[tuple[str, dict[str, Any]]]:
+        return [(other, c) for other in names for c in project.entities[other].spec.get("check", [])
+                if isinstance(c, dict) and c.get("exists_in") == f"{target[0]}.{target[1]}"]
 
-    # 3. The entity's own file, when the column goes.
+    for other, c in exists_in((name, column)):
+        items.add("table", other, "breaks" if gone else "check",
+                  f"its [[check]] on {c.get('column', '?')} looks values up in {name}.{column}"
+                  + ("; the save gate refuses it" if gone else "; both sides must keep the same type"),
+                  entity=other, detail=label(other))
+
+    # 3. The entity's own file.
     if gone:
         for why in _own_config_refs(e, column):
             items.add("table", name, "breaks", why + "; the save gate refuses the change until you update it",
                       entity=name, detail="this table")
+    if change == "rename" and new_name and (new_name in cols or new_name in e.derived or new_name in e.hook_adds):
+        items.add("table", name, "breaks", f"{name} already has a column {new_name}, so the two would clash",
+                  entity=name, detail="this table")
+    if change == "retype":
+        if new_type is not None and _date_column(e.spec) == column and str(new_type).strip().lower() not in _DATE_TYPES:
+            items.add("table", name, "breaks", f"{column} is the [model] date_column, which must be a date or datetime",
+                      entity=name, detail="this table")
+        for check in _check_exprs_using(e.spec, column):
+            items.add("table", name, "check", f"a [[check]] expression ({check}) uses {column}; check it works "
+                      "with the new type", entity=name, detail="this table")
 
     # 4. Further on: columns built from the ones above.
     seen = {(name, column), *direct}
-    todo = [(ent, col, [f"{name}.{column}", f"{ent}.{col}"]) for ent, col in direct]
+    todo = [(ent, col, [f"{name}.{column}", f"{ent}.{col}"]) for ent, col in follow]
     while todo:
         src_ent, src_col, path = todo.pop(0)
         for ent, col, how in reads.get((src_ent, src_col), []):
@@ -184,26 +292,72 @@ def column_impact(project: Project, name: str, column: str, change: str, new_nam
             elif how == "source":
                 items.add("table", ent, "check", f"{col} carries the new type on from {src_ent}.{src_col}",
                           entity=ent, detail=label(ent), chain=chain)
+            elif (src_ent, src_col) in carried:
+                # An expression, a lookup or a key that reads a copy with the new type: checked, not followed.
+                type_why = _DIRECT.get(how, ("", "reads {col}"))[1]
+                items.add("table", ent, "check", type_why.format(col=src_col, own=col, src=src_ent),
+                          entity=ent, detail=label(ent), chain=chain)
+                continue
             else:
                 continue
             if change == "retype" or (change == "drop" and how == "source" and (src_ent, src_col) in carried):
                 carried.add((ent, col))
             todo.append((ent, col, chain))
 
+    # What the change reaches further on: every column built from it when it goes, the ones that take
+    # its type when it gets a new one.
+    reached = sorted((seen if gone else carried) - {(name, column)})
+    for target in reached:
+        for other, c in exists_in(target):
+            items.add("table", other, "check",
+                      f"its [[check]] on {c.get('column', '?')} looks values up in {target[0]}.{target[1]}"
+                      + (f", which is built from {name}.{column}" if gone else "; both sides must keep the same type"),
+                      entity=other, detail=label(other))
+
+    # Expressions that can't be read for their columns (COLUMNS('^a.*$'), or one that doesn't parse) may use
+    # any column of what they read: never left out as safe.
+    noted: set[tuple[str, str]] = set()
+    for ent, col in [(name, column), *reached]:
+        named = {(o, c) for o, c, _ in reads.get((ent, col), [])}
+        for other in names:
+            if other != ent and ent not in project.entities[other].sources():
+                continue
+            for own, rec in every[other].items():
+                if rec["how"] == "derived" and rec["label"] == "unknown" and (other, own) != (ent, col) \
+                        and (other, own) not in named and (other, own) not in noted:
+                    noted.add((other, own))
+                    items.add("table", other, "check", f"its expression for {own} couldn't be read, so whether it "
+                              f"uses {full(ent, col)} isn't known", entity=other, detail=label(other))
+
     # 5. Python: code that reads the table (or the table's own hooks) can't be read for columns, so it's
-    # flagged when it names the column, and otherwise when it reads the table at all.
-    for other, oe in project.entities.items():
+    # flagged when it names the column, and otherwise when it reads the table at all. Code further on is
+    # flagged when it names a column built from this one.
+    later: dict[str, list[str]] = {}
+    for ent, col in reached:
+        later.setdefault(ent, []).append(col)
+    for other in names:
+        oe = project.entities[other]
         own = other == name
         reads_table = own or name in oe.reads() or any(n == other for n, _ in direct)
-        if not reads_table:
+        if not reads_table and other not in later:
             continue
         for kind, ref, _ in oe.python_refs():
             if not isinstance(ref, str):
                 continue
             file = _module_file(project.root, ref)
-            hit = _mentions(file, column) if file else None
             where = f"{kind} of {other}"
             detail = f"your Python, {where}"
+            if not reads_table:
+                found = {c: _mentions(file, c) for c in later[other]} if file else {"": None}
+                names_it = [c for c, hit in found.items() if hit]
+                if names_it:
+                    items.add("python", ref, "check", f"names {names_it[0]} ({where}), which is built from "
+                              f"{name}.{column}; check it still works", entity=other, detail=detail)
+                elif None in found.values():
+                    items.add("python", ref, "check", f"{where}: the code couldn't be read from transforms/, "
+                              "so whether it uses the column isn't known", entity=other, detail=detail)
+                continue
+            hit = _mentions(file, column) if file else None
             if hit:
                 items.add("python", ref, "breaks" if gone else "check",
                           f"names {column} ({where}); it can't find it once it's {verb}" if gone
@@ -246,8 +400,14 @@ def column_impact(project: Project, name: str, column: str, change: str, new_nam
                            "retype": f"visuals and totals on {t.name}[{col}] may change"}[change],
                           detail="semantic model")
 
+    return _answer(project, e, column, change, new_name, new_type, items, layer)
+
+
+def _answer(project: Project, e: Entity, column: str, change: str, new_name: str | None, new_type: str | None,
+            items: _Items, layer: str | None) -> dict[str, Any]:
+    name = e.name
     listed = items.names("table")
-    table_only = [n for n in entity_impact(project, name) if n not in listed and name in project.entities[n].reads()]
+    table_only = sorted(n for n in entity_impact(project, name) if n not in listed and name in project.entities[n].reads())
     out = items.list()
     return {
         "entity": name, "column": column, "change": change, "new_name": new_name, "new_type": new_type,

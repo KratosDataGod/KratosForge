@@ -605,3 +605,38 @@ test("names and values with HTML in a pause show as text", { skip }, async () =>
   assert.strictEqual(await p.evaluate(() => window.__pwned), undefined);
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("a pause that comes before the step's answer is said once, and the answer doesn't say it again", { skip }, async () => {
+  const p = page();
+  await p.evaluate(() => {
+    loadIntoState({ name: "Late answer", cells: [{ type: "code", cell_id: "l1", source: "a = 1\nb = 2", meta: {} }] });
+    go("notebook");
+  });
+  const out = await p.evaluate(() => {
+    const said = [];
+    const was = announce;
+    announce = (text) => said.push(text);
+    const cell = state.notebook.cells[0];
+    const pause = (line) => ({ status: "running", paused: { line, reason: "step", stack: [], variables: [], watches: [], evals: [] } });
+    cell.status = "running";
+    dbgSnapshot(cell, pause(1));
+    // A step is on its way (dbgCommand), and the engine leaves the pause and reaches the next one
+    // before its answer comes back.
+    cell.dbgSent = "waiting";
+    cell.dbgGap = false;
+    dbgSnapshot(cell, { status: "running", paused: null });
+    dbgSnapshot(cell, pause(2));
+    const sentAtPause = cell.dbgSent;
+    // The answer, as dbgCommand takes it: only a command still waiting becomes "sent".
+    if (cell.dbgSent === "waiting") cell.dbgSent = "sent";
+    dbgSnapshot(cell, pause(2));  // the next poll, the same pause
+    announce = was;
+    dbgSnapshot(cell, null);
+    cell.status = null;
+    updateResults(cell);
+    return { said, sentAtPause };
+  });
+  assert.strictEqual(out.sentAtPause, null);
+  assert.deepStrictEqual(out.said, ["Cell 1 paused at line 1", "Cell 1 paused at line 2"]);
+  assert.deepStrictEqual(app.errors, []);
+});

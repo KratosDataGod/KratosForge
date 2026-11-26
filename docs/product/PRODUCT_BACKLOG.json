@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-23",
+  "updated": "2026-11-26",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -4222,7 +4222,8 @@
         "Docs say what a connected AI tool can read and what stays on this PC (#2976); registry-wide MCP tool guard tests and a generated tools page (#3006) on main at ad1ac4cf",
         "MCP server multi-client isolation and framing fuzz (#3057); every tool's limits tested and a tighter audit execution id (#3071) on main at 1719d5db",
         "The AI docs' examples run as tests, and the audit execution id's shape is checked everywhere (#3087) on main at 75bf5b39",
-        "MCP server: hostile arguments, output leaks, an audit line for every call and request-parser fuzz, with fixes (#3175) on main at 0fdeb4d7"
+        "MCP server: hostile arguments, output leaks, an audit line for every call and request-parser fuzz, with fixes (#3175) on main at 0fdeb4d7",
+        "The local API takes the caller's address from the socket only (#3342) on main at 9ea9dfde"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -4268,7 +4269,8 @@
         3057,
         3071,
         3087,
-        3175
+        3175,
+        3342
       ],
       "external_dependencies": [
         "Overlaps HD-006 run-notebook approval shows and binds the code (P0); HD-014 workspace limits on every capability (Codebase audit and hardening backlog, PB-101)"
@@ -4440,7 +4442,8 @@
         "The local table list doesn't wait for a running query (#3045) on main at 1719d5db",
         "The next statement reads another writer's commit to a project Delta table (#3075, WR-243); change data feed reads answer as Databricks documents (#3076, WR-317) on main at 75bf5b39",
         "Each table chooses its Delta features at publish, with a typed confirm when a reader can't read them (#3122) on main at ea988e99",
-        "Change data feed caps version digits before reading them (#3164, WR-317 follow-ups) on main at 0fdeb4d7"
+        "Change data feed caps version digits before reading them (#3164, WR-317 follow-ups) on main at 0fdeb4d7",
+        "Delta file paths compared and opened by every spelling across cleanup, preview, V-Order and readStream (#3230) on main at a73ebb71"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4587,7 +4590,8 @@
         3075,
         3076,
         3122,
-        3164
+        3164,
+        3230
       ]
     },
     {
@@ -4657,7 +4661,11 @@
         "Mutation batches 171 to 196 (#3084, #3108, #3099); line and branch coverage for 31 engine modules (#3117, #3123); test stability fixes (#3115, #3116, #3124, #3130, #3134) on main at bdb6f251",
         "Property tests: savings and the optimizer never invent a saving (#3097); mutation batches 162, 191 to 210 (#3097, #3102, #3136); coverage for 13 modules (#3154); accessibility report wording (#3143); timing-free test fixes (#3002, #3138, #3147, #3148, #3149) on main at ea988e99",
         "Mutation batches 97 to 100, 177 to 187 and 251 to 260 (#3160, #3167, #3186, #3187); engines/ and policy packages at 100% coverage (#3178); test stability fixes (#3157, #3170, #3204); url crate update (#3200) on main at 0fdeb4d7",
-        "Mutation batches 231 to 250 and 310 to 319 (#3189, #3209); WCAG 2.2 target size and text spacing checks (#3197); reader fuzzing (#3176); browser test fix (#3206); cookie crate update (#3208) on main at 293fb38d"
+        "Mutation batches 231 to 250 and 310 to 319 (#3189, #3209); WCAG 2.2 target size and text spacing checks (#3197); reader fuzzing (#3176); browser test fix (#3206); cookie crate update (#3208) on main at 293fb38d",
+        "Browser tests for 77 pages and panels with 10 UI fixes (#3236); WCAG 2.2.1 and 1.4.13 fixes (#3254, #3231); mutation batches 213 to 340 (#3211, #3249) and a per-batch log (#3270); coverage to 100% for several modules (#3246, #3265); CI time limits (#3252, #3272); test stability (#3213, #3261) on main at a73ebb71",
+        "Mutation batches 263 to 279, 320 to 324, 350 to 361, 368 to 374 and 406 to 411 (#3251, #3258, #3260); a dead test worker stops the run instead of hanging (#3313); MERGE checks pass on DuckDB 2.0.1 (#3318) on main at 84a36dd6",
+        "Test stability: exam answer draw (#3326), worker-crash order (#3330), Home batch toast (#3332), computing-cell write wait (#3333); no test reaches the network (#3311) on main at b4bc548d",
+        "Spark differential and value checks split so no test nears the time limit (#3340, #3345); learner-package probes end cleanly on Windows (#3334) on main at 9ea9dfde"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5270,7 +5278,32 @@
         3204,
         3206,
         3208,
-        3209
+        3209,
+        3211,
+        3213,
+        3231,
+        3236,
+        3246,
+        3249,
+        3251,
+        3252,
+        3254,
+        3258,
+        3260,
+        3261,
+        3265,
+        3270,
+        3272,
+        3311,
+        3313,
+        3318,
+        3326,
+        3330,
+        3332,
+        3333,
+        3334,
+        3340,
+        3345
       ],
       "issues": [
         910,
@@ -5440,7 +5473,11 @@
         "Spark SQL math edges (#3120, WR-116), instr, locate and concat_ws (#3132); pandas_udf numbers keep their rows beside a null (#3118) on main at bdb6f251",
         "Spark SQL date and time functions (#3151), int shifts, rank casts and TIMESTAMP literals (#3150) answer as Spark 3.5 does; debugger stop, restart and process-death tests (#3161) on main at ea988e99",
         "Notebook Cancel releases a partly read result (#3185); the debugger steps through awaits (#3196) and variables hide secrets inside lists and objects (#3195); NB015 and DM002 best-practice fixes (#3003) on main at 0fdeb4d7",
-        "Regular expressions answer as Spark, Snowflake and T-SQL do or stop by name (#3181, WR-257); NULL concatenations and nested shifts (#3220); a finished cell never reports a pause (#3216) on main at 293fb38d"
+        "Regular expressions answer as Spark, Snowflake and T-SQL do or stop by name (#3181, WR-257); NULL concatenations and nested shifts (#3220); a finished cell never reports a pause (#3216) on main at 293fb38d",
+        "Notebook debugger hardening rounds 6 to 7 (#3233, #3243, #3273); Spark joins on column names put the keys first (#3262) on main at a73ebb71",
+        "A crashed kernel leaves no process behind (#3314, WR-130); an .ipynb edit keeps key order (#3320, WR-132); df.show() matches Spark 3.5 (#3315, WR-133); pandas_udf type checks as in Spark (#3190) on main at 84a36dd6",
+        "Markdown toolbar and preview for Markdown cells (#3329, N23, Preview) on main at b4bc548d",
+        "Notebook Present mode, slides from headings or marked cells (#3338, N49, Preview); a 2,000-cell notebook opens, scrolls and saves within a measured budget (#3328, WR-134) on main at 9ea9dfde"
       ],
       "features": [
         "FEAT-NB-04",
@@ -5695,10 +5732,21 @@
         3161,
         3181,
         3185,
+        3190,
         3195,
         3196,
         3216,
-        3220
+        3220,
+        3233,
+        3243,
+        3262,
+        3273,
+        3314,
+        3315,
+        3320,
+        3328,
+        3329,
+        3338
       ]
     },
     {
@@ -5793,6 +5841,8 @@
         "Data health (owned by Workload management): an engine for freshness, volume and schema from the Delta log (#2912), Monitor > Data health watches tables (#2919), and an alert can open an incident (#2968) on main at 7be2906d",
         "Data health saves survive crashes and other processes (#2979); a hanging check shows as not finished (#3000); incidents keep an opening or a told-downstream note when a write fails partway (#3009) on main at ad1ac4cf",
         "An incident opening reaches Teams even if a later step fails, with end-to-end tests from Data health to Teams (#3049) on main at 1719d5db",
+        "A time with no zone no longer breaks the incident board; watch and SLA error paths tested (#3244) on main at a73ebb71",
+        "A time with no zone is UTC everywhere in incidents; desk, history and evaluate error paths tested (#3259) on main at b4bc548d",
         "Stage 4 reports screen built (Preview): Monitor > KratosForge > Operations > Incidents > Reports, beside Board, shows incidents_measures for one environment over 7, 30 or 90 days (summary, one row per priority, No target, Nothing to measure and None judged yet, never 0), from the UX mockup Chris approved on 2026-11-24 with ticket integration left out. Stage 5, opening tickets in ServiceNow or Jira Service Management, still waits on Chris's go and a Security read"
       ],
       "features": [
@@ -5847,7 +5897,9 @@
         2979,
         3000,
         3009,
-        3049
+        3049,
+        3244,
+        3259
       ]
     },
     {
@@ -5874,7 +5926,9 @@
         "Local T-SQL: SQL Server error numbers and severity (#2996, WR-234), a fuzzed splitter (#3067, WR-236), long leading-zero literals (#3081) on main at 75bf5b39",
         "T-SQL transactions: a failed change keeps nothing, on a warehouse and on this PC (#3135, WR-245); UPPER keeps ß, table PRIMARY KEY, CONVERT of a TIME with a style (#3058) on main at bdb6f251",
         "Local T-SQL MERGE edge cases follow Fabric Warehouse or are refused by name (#3145, WR-244) on main at ea988e99",
-        "Local T-SQL pads and collates as Latin1_General_100_BIN2_UTF8 in more places, or says why not (#3179, WR-246) on main at 0fdeb4d7"
+        "Local T-SQL pads and collates as Latin1_General_100_BIN2_UTF8 in more places, or says why not (#3179, WR-246) on main at 0fdeb4d7",
+        "Local T-SQL overflow and conversion errors in SQL Server's numbers and words (#3248, WR-247); MERGE column placement as a Warehouse does (#3274, WR-253, WR-257) on main at a73ebb71",
+        "A refused statement of a T-SQL script is named by its place (#3184, WR-238); a DuckDB query parameter can come first in the select list (#3242) on main at 84a36dd6"
       ],
       "features": [
         "FEAT-FAB-11",
@@ -6021,7 +6075,11 @@
         3081,
         3135,
         3145,
-        3179
+        3179,
+        3184,
+        3242,
+        3248,
+        3274
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -6298,7 +6356,8 @@
         "#650 merged: the app never saves over a file another program changed",
         "An installable .vsix on every Preview release (Phase 2d, #1707) on main at 5f8144f7",
         "VS Code: a cell over 1 MB says so before anything is sent, a dropped check is asked again, and the editor channel bounds a refused request's body (#2402, #2404, #2412, #2421) on main at 17e7ea06",
-        "Every pairing and handshake failure names a next step; a cell setting changed in VS Code isn't overwritten (#2923) on main at 7be2906d"
+        "Every pairing and handshake failure names a next step; a cell setting changed in VS Code isn't overwritten (#2923) on main at 7be2906d",
+        "A notebook changed in VS Code and here merges by cell (#3306, Preview); the extension's inputs from the app are fuzzed and checked (#3322) on main at 84a36dd6"
       ],
       "features": [
         "FEAT-EXT-01",
@@ -6359,7 +6418,9 @@
         2422,
         2481,
         2531,
-        2923
+        2923,
+        3306,
+        3322
       ],
       "mandatory": "none",
       "computed": {
@@ -6383,7 +6444,10 @@
         "TMDL cultures round-trip, and Ossie to TMDL keeps culture files it can't read (#3077) on main at 75bf5b39",
         "Ossie keeps what the file doesn't set, with a conversion fidelity report, schema validation and version profiles (#3107, OSSIE-004a, 003a, 003b) on main at bdb6f251",
         "Semantic parity levels L1 and L2, Fabric Semantic View files, the publish-steps card and the semantic engineering plan (#3128, OSSIE-005a, 005b, 006a, 006b) on main at ea988e99",
-        "Semantic parity L3, SQL side: measures run on controlled datasets (#3152, OSSIE-006c); conversion reports only the converter's own warnings (#3205) on main at 0fdeb4d7"
+        "Semantic parity L3, SQL side: measures run on controlled datasets (#3152, OSSIE-006c); conversion reports only the converter's own warnings (#3205) on main at 0fdeb4d7",
+        "Version compare: what changed between two versions of one model (#3223, OSSIE-002b) on main at a73ebb71",
+        "Direct Lake fallback risk with one verdict for the model, a growth forecast and a SKU what-if (#3343, Preview); compatibility matrix across Power BI, Ossie 0.2, a Semantic View and Snowflake (#3344, OSSIE-015a) and Snowflake export profile (#3341, OSSIE-010a), both engine only; Ossie conversion refuses malformed input with a plain error (#3255) on main at 9ea9dfde",
+        "One TMDL writer: the Direct Lake model builder writes through tmdl.from_bim (#3346, OSSIE-007a); fixture corpus and converter-upgrade check (#3347, OSSIE-012a, 012c); large-model scale tests and a timing baseline (#3349, OSSIE-012b); every writer refuses wrong-typed parts (#3350); YAML and L3 speed-ups (#3351) on main at 046f9d3e"
       ],
       "features": [
         "FEAT-META-19",
@@ -6427,7 +6491,17 @@
         3128,
         3152,
         3166,
-        3205
+        3205,
+        3223,
+        3255,
+        3341,
+        3343,
+        3344,
+        3346,
+        3347,
+        3349,
+        3350,
+        3351
       ],
       "mandatory": "none",
       "computed": {
@@ -6557,7 +6631,8 @@
         "PR #560 merged; not yet run live",
         "The semantic model check notebook saves its error for the app when it fails (#1818) on main at 03d2b53a",
         "The live test runs the semantic model best practices check once as model.bpa (#2913), built after the product owner's typed go of 2026-11-13; he typed 'yes, run it' for the live run on 2026-11-20 21:42Z, and it waits on his Allow on his PC on main at 0fdeb4d7",
-        "Semantic model Best practices check card, from the approved mockup (#3210, Preview) on main at 293fb38d"
+        "Semantic model Best practices check card, from the approved mockup (#3210, Preview) on main at 293fb38d",
+        "Review follow-ups to #3003 and #2913: DM002 CONVERT and the live test's model.bpa (#3218) on main at a73ebb71"
       ],
       "features": [
         "FEAT-GOV-09",
@@ -6576,7 +6651,8 @@
         560,
         1818,
         2913,
-        3210
+        3210,
+        3218
       ],
       "depends_on": [
         "PB-112"
@@ -6938,7 +7014,17 @@
         3065,
         3106,
         3133,
-        3163
+        3163,
+        3188,
+        3238,
+        3266,
+        3285,
+        3316,
+        3323,
+        3324,
+        3331,
+        3337,
+        3339
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -6962,7 +7048,12 @@
         "Databricks SQL statements (#3018) and notebook magics (#3047, WR-311) answer as documented or are refused by name; Snowflake ARRAY and VARIANT show as JSON (#3048, WR-312) on main at 1719d5db",
         "Snowflake SQL statements answer as documented or are refused by name (#3065, WR-313); dbutils answers as the Databricks reference documents and notebook output redacts secret values (#3106, WR-315) on main at 75bf5b39",
         "Snowflake TO_TIMESTAMP_NTZ and TO_TIMESTAMP of a column answer by the value's type (#3133) on main at bdb6f251",
-        "Unity Catalog names in Databricks SQL cells on this PC: three-part names, USE CATALOG/SCHEMA and current_schema() (#3163, WR-316) on main at 293fb38d"
+        "Unity Catalog names in Databricks SQL cells on this PC: three-part names, USE CATALOG/SCHEMA and current_schema() (#3163, WR-316) on main at 293fb38d",
+        "Databricks and Snowflake functions marked Differs fixed, refused by name or kept with a reason (#3266, WR-318/WR-319) on main at a73ebb71",
+        "Databricks Asset Bundle check on this PC (#3285, WR-321, Preview); Snowflake result columns in upper case, TIMESTAMP_TZ writes and TYPEOF (#3316); nested Snowflake functions translate in linear size (#3324) on main at 84a36dd6",
+        "Unity Catalog volumes on this PC with a Volumes screen (#3323, Preview); Snowflake $1, $2 positional columns and OBJECT_CONSTRUCT (#3331); CASE, coalesce and UNION take the source dialect's result type and T-SQL RANGE with an offset is refused (#3188, WR-255, WR-259) on main at b4bc548d",
+        "T-SQL translator sweep (#3339, WR-274); Volumes Size column colour fix (#3337) on main at 9ea9dfde",
+        "Substring edges and sub-second timestamps match T-SQL, Spark and Snowflake (#3238) on main at 046f9d3e"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -7199,7 +7290,10 @@
         "Promote, rollback and restore wait for the Prod workspace's typed name (#3114, WR-250), also for a workspace another project named Prod (#3129, WR-251); Save as table in Prod asks for the name (#3111, WR-249); every setting classed loosening or restricting, and bad policy fails closed (#3125); notices not resent after a 5xx that may have arrived (#3126); VACUUM and OPTIMIZE clock-skew and commit-race hardening (#3093, #3127) on main at bdb6f251",
         "Rollback and restore typed-name dialogs say why they ask (#3144, WR-252); settings load when a removed policy file's saved copy is briefly held (#3139) on main at ea988e99",
         "Every cell write path waits for a Prod workspace's name (#3168, WR-131), also from threads and control handlers (#3005); Group Policy values fail closed and the shell uses only the built-in engine source when policy can't be read (#3177, #3153); audit checks survive moved and rotated files (#3158); local files stay out of OneDrive (#3191); maintenance and Compact hardening (#3173, #3203); privacy inventory test (#3159); a CU hours threshold of 0 turns the risk warning off (#3202) on main at 0fdeb4d7",
-        "The secret scan reads a file too deep for YAML line by line instead of crashing (#3174) on main at 293fb38d"
+        "The secret scan reads a file too deep for YAML line by line instead of crashing (#3174) on main at 293fb38d",
+        "Every Prod, approve, confirm and typed-name action proven to fail closed (#3224, WR-410); delete-my-data removes every inventoried store (#3267, WR-412); link and pairing fuzz (#3268, WR-413); junk replies from Fabric, OneLake, Databricks and Snowflake refused by name (#3241); Windows hardening (#3240); the audit trail says when the event log couldn't record its end (#3225) on main at a73ebb71",
+        "Governance errors name the setting and what IT can do (#3319, WR-414); command-line pipeline runs use the audited, fail-closed call (#3321, WR-416); stricter checks for backups, samples, CSV export and redaction (#3312); SQL text fuzz (#3247) and reader fuzz round 3 (#3232) on main at 84a36dd6",
+        "Command-line restore is audited and restore leaves the audit trails as they are (#3325, WR-418) on main at b4bc548d"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -7470,7 +7564,19 @@
         3177,
         3191,
         3202,
-        3203
+        3203,
+        3224,
+        3225,
+        3232,
+        3240,
+        3241,
+        3247,
+        3267,
+        3268,
+        3312,
+        3319,
+        3321,
+        3325
       ],
       "issues": [],
       "computed": {
@@ -7745,7 +7851,12 @@
         3052,
         3053,
         3180,
-        3183
+        3183,
+        3237,
+        3239,
+        3256,
+        3302,
+        3335
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -7768,7 +7879,10 @@
         "Implementation review docs/product/reviews/PB-128-academy.md: Accepted with Documented Limitations for the DP-700 track (Chris chose 'Accept DP-700, split Databricks' on the decision card, 2026-11-09 11:53 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpWJvTSwjZgg8u8nKCFkg9vR); limitations: objective 3.2.5 (eventstream errors) has gap G-02 until E54 can be written; objectives that need Fabric complete only with Fabric runs. The Databricks Data Engineer Associate track moves to PB-135",
         "Exercise E68, a notebook MERGE with two source rows for one key (#3024) on main at ad1ac4cf",
         "Exercises E65, E66 (#3019) and E67 (#3053); 26 planted wrong answers closed 7 grading holes (#3052) on main at 1719d5db",
-        "Exercises E69 to E72 (#3180) and hands-on practice for five knowledge-only objectives, E73 to E76 (#3183) on main at 0fdeb4d7"
+        "Exercises E69 to E72 (#3180) and hands-on practice for five knowledge-only objectives, E73 to E76 (#3183) on main at 0fdeb4d7",
+        "Practice exams with matching, hot area, yes/no and code completion questions and partial credit (#3239); five case studies with 28 questions (#3237); second exercises for eight objectives, E77 to E84 (#3256) on main at a73ebb71",
+        "How this works for an open exercise, behind the title bar's info button (#3302) on main at 84a36dd6",
+        "The PySpark learner process ends cleanly on Windows (#3335) on main at 9ea9dfde"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -8091,7 +8205,9 @@
       "prs": [
         2206,
         2934,
-        2955
+        2955,
+        3229,
+        3277
       ],
       "problem": "The profile turns verified evidence into XP, a level, ranks and achievements, but it doesn't say which data engineering skills someone has shown, to what depth, or what to learn next. So it can't back a competency conversation with a manager.",
       "capability": "Developer classes (for example Lakehouse Warden, an enterprise data engineer) with specializations as talent trees. Each talent has a mastery level from Initiate to Grandmaster, worked out from the evidence the app already verifies. There's an interactive, accessible talent tree in a Profile tab, and a professional competency report. Character level stays separate from mastery, and nothing claims to be a certification.",
@@ -8101,7 +8217,8 @@
         "Scores set by the owner (Build developer class and mastery system) on 2026-11-09: developer value 3 (shows each engineer which data engineering skills their own verified work proves and what to learn next, but it isn't part of building or running Fabric work), CU reduction 1 (it reads evidence already on this PC and starts no Fabric job), enterprise value 3 (a professional competency report backed by verified evidence for manager conversations, not a rollout condition), differentiation 4 (talent trees and mastery levels tied to locally verified exercises, labs and checks; no other Fabric developer tool has this), strategic alignment 3 (builds on Academy, Learn and the Living Experience work, beside the core build loop), complexity 5 (the engine and the first class, Lakehouse Warden, are built and tested in #2206; the other 13 class catalogs are drafted but not yet in a pull request, and the talent tree UI, evidence ledger states, the report and art all remain), risk 3 (anti-farming rules, keeping levels distinct from certifications, and art originality)",
         "Owner's notes (2026-11-07): Phase 1 is S to M and engine-only. The main risks are the art source (decision pending with the product owner) and reviewer verification for Grandmaster (an architecture call later). It depends on progress.py, ranks.py, Academy and Learn content and the effects API. The owner asked for P2",
         "Class catalog, talent graph checks and evidence-based mastery levels, engine only (#2206) on main at ad1ac4cf",
-        "The other 13 developer class catalogs, engine only (#2934); Profile > Skill trees shows the classes as forged talent trees (#2955, Preview), as the product owner asked on 2026-11-17 on main at 0fdeb4d7"
+        "The other 13 developer class catalogs, engine only (#2934); Profile > Skill trees shows the classes as forged talent trees (#2955, Preview), as the product owner asked on 2026-11-17 on main at 0fdeb4d7",
+        "Class achievements earned from a rule and 61 more skills hooked to existing content (#3229, engine only); class achievement cards above the skill trees (#3277, Preview) on main at 84a36dd6"
       ],
       "features": [
         "FEAT-DEV-01",
@@ -8263,7 +8380,9 @@
         "fdopt_ schema version 2 for savings intelligence (#2962, ESI-101) and the savings attribution waterfall, engine only (#2969, ESI-303) on main at 7be2906d",
         "Sync states for results waiting on this PC (#2977, ESI-105), period figures and the recurring monthly benefit (#2986, ESI-304), versioned pricing scenarios and capacity value (#2998, ESI-401), engine only on main at ad1ac4cf",
         "Overhead per run, corrections and reconciliation, and the reporting schema (#3083, ESI-202, ESI-404, ESI-501; engine and docs only) on main at 75bf5b39",
-        "Versioned baselines and before-and-after validation, collector feasibility note (#3155, ESI-302, ESI-109; engine and docs only) on main at 0fdeb4d7"
+        "Versioned baselines and before-and-after validation, collector feasibility note (#3155, ESI-302, ESI-109; engine and docs only) on main at 0fdeb4d7",
+        "Comparison rules, accrual events, realized savings, assessment links, what to optimize next and security notes (#3212, ESI-201, 203, 403, 601, 603, 107; engine and docs only) on main at a73ebb71",
+        "Capacity planner inputs and savings report CSVs (#3317, ESI-602, ESI-507; engine only) on main at 84a36dd6"
       ],
       "features": [
         "FEAT-ADM-11"
@@ -8300,7 +8419,9 @@
         2986,
         2998,
         3083,
-        3155
+        3155,
+        3212,
+        3317
       ],
       "computed": {
         "benefit": 4.5,
@@ -8322,7 +8443,9 @@
         "Excellence scorecard on Optimize > Assessment (#2990, FEA-109, Preview); notebook and pipeline controls (#3013, FEA-301, FEA-302) on main at 1719d5db",
         "Capacity and FinOps controls from imported Capacity Metrics exports (#3085, FEA-202); semantic model controls (#3066, FEA-304); the Excellence screen names every evidence kind (#3105) on main at 75bf5b39",
         "Pipeline retry, timeout and failure-path controls (#3162, FEA-302) and DevOps controls from the workspace's Git connection (#3165, FEA-305) on main at 0fdeb4d7",
-        "Performance controls from lakehouse table layout (#3222, FEA-204) on main at 293fb38d"
+        "Performance controls from lakehouse table layout (#3222, FEA-204) on main at 293fb38d",
+        "Accepted risk and exceptions (#3264, FEA-404); malformed evidence never passes and odd inputs never crash (#3227) on main at a73ebb71",
+        "A failed critical control caps the rating below Exemplary (#3305), as Chris chose on 2026-11-24; Warehouse and SQL analytics endpoint controls (#3275, FEA-303) on main at 84a36dd6"
       ],
       "features": [
         "FEAT-ADM-11"
@@ -8359,7 +8482,11 @@
         3105,
         3162,
         3165,
-        3222
+        3222,
+        3227,
+        3264,
+        3275,
+        3305
       ],
       "computed": {
         "benefit": 4.3,

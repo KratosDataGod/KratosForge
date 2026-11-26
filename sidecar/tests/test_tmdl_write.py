@@ -275,7 +275,9 @@ def test_what_a_culture_cant_carry_is_named():
                                                                {"translatedCaption": "no name"}]},
                                            "other": {"x": 1}}},
         {"translations": {}}, "not an object"]}}
-    _, report = tmdl.from_bim(bim)
+    with pytest.raises(ValueError, match=r"\$\.model\.cultures\[2\] is text where it should be an object"):
+        tmdl.from_bim(bim)  # export's shape check, before the writer
+    _, report = tmdl._from_bim(bim)  # the writer itself names each part it can't carry
     assert {r["object"] for r in report} == {
         "culture 'fr-FR' translations model table 'T' translatedCaption",
         "culture 'fr-FR' translations model table 'T' measure 'M' kpi",

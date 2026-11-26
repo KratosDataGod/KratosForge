@@ -4,7 +4,9 @@ Databricks notebooks run here unchanged where the same thing exists locally:
 
 - ``fs``: over ``notebookutils.fs``, the attached lakehouse and this PC, answering as Databricks does:
   ``ls`` lists Databricks' FileInfo, ``head`` notes a truncation, ``rm`` of nothing is False.
-  ``dbfs:/`` and ``/Volumes/`` are Databricks storage and raise an error that says so.
+  ``/Volumes/<catalog>/<schema>/<volume>/...`` (and ``dbfs:/Volumes/...``) is a Unity Catalog volume on this
+  PC (databricks_volumes, Preview), listed with its /Volumes path; the rest of ``dbfs:/`` is Databricks storage
+  and raises an error that says so.
 - ``notebook``: run another notebook from this PC's notebooks folder, exit with a value.
 - ``widgets``: text, dropdown, combobox and multiselect. Values come from the arguments a run
   passes, then the value set in the app, then the default.
@@ -52,6 +54,10 @@ def _local_path(path: str) -> str:
     absolute path (``/mnt/raw``, ``/tmp/x``, ``/FileStore/...``) is DBFS, so it is refused rather than
     read as this PC's disk: a local path says ``file:``."""
     p = str(path)
+    from . import databricks_volumes
+    if databricks_volumes.is_volume_path(p):
+        databricks_volumes.parse(p)  # a volume on this PC; refused here when the path can't name a file in one
+        return p
     if p.lower().startswith(_DATABRICKS_STORAGE):
         raise ValueError(f"{path} is Databricks storage, which this PC can't reach. Use the attached lakehouse "
                          f"(Files/... or /lakehouse/default/Files/...) or a file: path on this PC.")
@@ -97,11 +103,42 @@ def _file_info(e: Any) -> FileInfo:
     return FileInfo(path.rstrip("/") + "/", e.name.rstrip("/") + "/", 0, e.modificationTime)
 
 
+def volume_arg(path: Any, whole: bool = False, change: bool = False) -> Any:
+    """A /Volumes path as the ``file:`` path of its folder on this PC, which notebookutils.fs reads; any other path
+    as it is. ``whole``: the call takes all of a folder (a recursive copy, a move, a recursive remove), so a folder
+    holding a link is refused. ``change``: the call removes or moves it, so the volume's own folder is refused."""
+    from . import databricks_volumes
+    if not databricks_volumes.is_volume_path(path):
+        return path
+    where = databricks_volumes.parse(str(path))
+    if change and not where.parts:
+        raise ValueError(f"{path} is the volume {where.full_name} itself, which a file call doesn't remove or move. "
+                         f"Use DROP VOLUME {where.full_name} in a SQL cell, or work on the files in it.")
+    local = databricks_volumes.local_path(str(path))
+    if whole and local.is_dir():
+        databricks_volumes.check_tree(local, where.uc_path())
+    return "file:" + str(local)
+
+
+def volume_info(e: Any) -> FileInfo:
+    """_file_info of a notebookutils entry, with the dbfs:/Volumes/... path Databricks' Python dbutils.fs.ls gives
+    for a file in a volume (never its folder on this PC)."""
+    info = _file_info(e)
+    from . import databricks_volumes
+    local = e.path[len("file:"):] if e.path.startswith("file:") else None
+    shown = databricks_volumes.uc_path(local) if local else None
+    if shown is None:
+        return info
+    return info._replace(path=shown + "/" if info.isDir() else shown)
+
+
 def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:
     def wrap(fn: Callable[..., Any], paths: int = 1) -> Callable[..., Any]:
         def call(*args: Any, **kwargs: Any) -> Any:
             for a in [*args[:paths], *(v for k, v in kwargs.items() if k in _PATH_ARGS)]:
                 _local_path(a)
+            args = (*(volume_arg(a) for a in args[:paths]), *args[paths:])
+            kwargs = {k: volume_arg(v) if k in _PATH_ARGS else v for k, v in kwargs.items()}
             return fn(*args, **kwargs)
         call.__name__ = fn.__name__
         return call
@@ -121,34 +158,38 @@ def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:
         return dest
 
     def ls(dir: str) -> list[FileInfo]:  # noqa: A002 - Databricks' name
-        return [_file_info(e) for e in nbu_fs.ls(_local_path(dir))]
+        return [volume_info(e) for e in nbu_fs.ls(volume_arg(_local_path(dir)))]
 
     def head(file: str, maxBytes: int = 65536) -> str:  # noqa: N803
-        text: str = nbu_fs.head(_local_path(file), maxBytes)
+        file = volume_arg(_local_path(file))
+        text: str = nbu_fs.head(file, maxBytes)
         listed = nbu_fs.ls(file) if maxBytes > 0 else []
         if len(listed) == 1 and not listed[0].isDir and listed[0].size > maxBytes:
             print(f"[Truncated to first {maxBytes} bytes]")  # Databricks' note; the text is the value
         return text
 
     def put(file: str, contents: str, overwrite: bool = False) -> bool:
-        done: bool = nbu_fs.put(_local_path(file), contents, overwrite)
+        done: bool = nbu_fs.put(volume_arg(_local_path(file)), contents, overwrite)
         print(f"Wrote {len(str(contents).encode('utf-8'))} bytes.")
         return done
 
     def cp(from_: str, to: str, recurse: bool = False) -> bool:
         _local_path(from_)
         _local_path(to)
+        from_, to = volume_arg(from_, whole=recurse), volume_arg(to)
         return bool(nbu_fs.cp(from_, into(from_, to), recurse))
 
     def mv(from_: str, to: str, recurse: bool = False) -> bool:  # noqa: ARG001 - a folder moves whole
         _local_path(from_)
         _local_path(to)
+        from_, to = volume_arg(from_, whole=True, change=True), volume_arg(to)
         return bool(nbu_fs.mv(from_, into(from_, to)))
 
     def rm(dir: str, recurse: bool = False) -> bool:  # noqa: A002 - Databricks' name
         """True once it is gone; False when nothing was there, as in Databricks. Without recurse a
         folder goes only when it is empty."""
         _local_path(dir)
+        given, dir = dir, volume_arg(dir, whole=recurse, change=True)  # noqa: A001
         if not nbu_fs.exists(dir):
             return False
         try:
@@ -160,7 +201,7 @@ def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:
             try:
                 os.rmdir(local)  # only while it is empty: never what a recursive remove would take
             except OSError:
-                raise IsADirectoryError(f"{dir} is a folder that isn't empty. Pass recurse=True to remove it.") from None
+                raise IsADirectoryError(f"{given} is a folder that isn't empty. Pass recurse=True to remove it.") from None
             return True
 
     def mount(*_a: Any, **_kw: Any) -> None:
@@ -438,7 +479,7 @@ def build(host: Host, notebookutils: types.ModuleType) -> types.SimpleNamespace:
         secrets=_make_secrets(nbu.credentials.getSecret, nbu.credentials.getToken),
         jobs=types.SimpleNamespace(taskValues=_make_task_values(host)),
         library=types.SimpleNamespace(restartPython=restartPython, install=unsupported(
-            "Installing libraries runs in Databricks. On this PC the engine's packages are fixed.")),
+            "Installing libraries runs in Databricks. On this PC, install packages with %pip install in a cell.")),
         data=types.SimpleNamespace(summarize=summarize),
         credentials=types.SimpleNamespace(assumeRole=unsupported(aws), showCurrentRole=unsupported(aws),
                                           showRoles=unsupported(aws)),

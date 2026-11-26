@@ -1078,7 +1078,7 @@ function renderCreate() {
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
-      preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
+      preview("wizard", tile("notebook", "Notebook from a template", "Templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
       preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog))),
@@ -1575,7 +1575,8 @@ function workspacesTabs(active) {
   const tabs = [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]];
   if (previewShown()) tabs.push(["powerbi", "Power BI"]);
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
-    // Databricks (dbx-sync.js) is Preview: folders on this PC synced with a Databricks workspace.
+    // Databricks (dbx-sync.js) is Preview: folders on this PC synced with a Databricks workspace, and (dbx-volumes.js)
+    // the Unity Catalog volumes on this PC. Both views light the Databricks tab.
     (previewShown() ? [...tabs, ["databricks_sync", "Databricks"]] : tabs).map(([view, label]) =>
       h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
         onclick: () => go(view) }, label, view === "databricks_sync" || view === "powerbi" ? previewTag() : null)));
@@ -3080,7 +3081,7 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync", "powerbi", "embedstudio"] },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync", "databricks_volumes", "powerbi", "embedstudio"] },
   views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery,
     databricks_sync: () => renderDatabricksSync() },
 });

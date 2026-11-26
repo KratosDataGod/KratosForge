@@ -1563,7 +1563,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync", "powerbi", "embedstudio"\]/);  // Databricks sync and Power BI are Workspaces tabs too
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync", "databricks_volumes", "powerbi", "embedstudio"\]/);  // Databricks (sync, volumes) and Power BI are Workspaces tabs too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -6181,7 +6181,7 @@ test("the Direct Lake check is a Preview card that only reads, with fixes that o
   assert.match(card, /reading from OneLake uses capacity/, "capacity wording (QA-008)");
   assert.match(card, /goMeta\("health"\)/, "compacting happens in Table health");
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
-  assert.match(features, /directLakeCheck: "Direct Lake check"/);
+  assert.match(features, /directLakeCheck: "Direct Lake fallback risk"/);
 });
 
 test("the data dictionary is a Preview card whose import saves only from its preview", () => {
@@ -6311,7 +6311,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
     runSeveral: ["Run several notebooks"], modelBpa: ["Semantic model best practices"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
-    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], nbPresent: ["Present mode"], mdToolbar: ["Formatting Markdown cells"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
@@ -6340,7 +6340,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
     semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],
-    kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"],
+    kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"], ucVolumes: ["Unity Catalog volumes on this PC"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

@@ -221,6 +221,17 @@ class FakeAuth:
         raise AttributeError(name)
 
 
+class NoTables:
+    """The lakehouses' table reads (excellence_service.OneLakeTables): every Tables folder is empty.
+    Without it the assessment listed OneLake for real with the fake token, and waited on the network."""
+
+    def __init__(self, token: str):
+        self.token = token
+
+    def list(self, workspace_id, lakehouse_id, directory):
+        return []
+
+
 @pytest.fixture
 def make(tmp_path, monkeypatch):
     def build(token: str | None = "silent-token", warehouses: int = 2, fail: set[str] | None = None):
@@ -228,6 +239,7 @@ def make(tmp_path, monkeypatch):
         SilentFabric.made, SilentFabric.fail = [], fail or set()
         monkeypatch.setattr(Service, "fabric", property(lambda self: fake))
         monkeypatch.setattr(estate_service, "FabricClient", SilentFabric)
+        monkeypatch.setattr(excellence_service, "OneLakeTables", NoTables)
         auth = FakeAuth(token)
         monkeypatch.setattr(Service, "auth", property(lambda self: auth))
         s = Service(root=tmp_path / "app")

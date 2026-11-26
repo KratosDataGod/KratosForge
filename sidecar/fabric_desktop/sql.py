@@ -9,6 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
+import decimal
 import functools
 import itertools
 import logging
@@ -194,6 +195,7 @@ def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expr
     (_spark_timestampdiff)."""
     statement = spark_branch_types.mark(spark_builtins_sql.mark(statement))
     _no_reserved_names(statement)  # on the SQL as written, before any rewrite adds its own kf_ names
+    _no_out_of_range_doubles(statement)
     statement = spark_builtins_sql.check_nested_concat_ws(statement)
     if databricks:
         _mark_divisions(statement)
@@ -556,6 +558,25 @@ _MAP_LAMBDAS = {"ZIP_WITH": (3, ("kf_p.a", "kf_p.b"), _ZIP_WITH),
 # Calls whose rewrite wraps their arguments in kf_ lambdas (see _no_reserved_names).
 _KF_TEMPLATED = ({name for name, template in _ANON_TEMPLATES.items() if "kf_" in template} | set(_MAP_LAMBDAS)
                  | {"FORALL"})
+
+
+# Spark's limits for a double literal (BigDecimal(Double.MinValue) and MaxValue, as its parser writes them)
+_DOUBLE_MAX = decimal.Decimal("1.7976931348623157E+308")
+
+
+def _no_out_of_range_doubles(statement: exp.Expression) -> None:
+    """A number written with an exponent (1e309) is a double in Spark 3.5, and its parser refuses one past a
+    double's range with [INVALID_NUMERIC_LITERAL_RANGE], where DuckDB reads it as infinity. Its digits are
+    compared as a Decimal, which never expands 1e30000000 into that many digits."""
+    for literal in statement.find_all(exp.Literal):
+        text = str(literal.this)
+        if literal.is_string or not re.fullmatch(r"(\d+\.?\d*|\.\d+)[eE][+-]?\d+", text):
+            continue
+        if decimal.Decimal(text) > _DOUBLE_MAX:
+            shown = f"-{text}" if isinstance(literal.parent, exp.Neg) else text
+            raise ValueError(f"[INVALID_NUMERIC_LITERAL_RANGE] Numeric literal {shown} is outside the valid range "
+                             "for double with minimum value of -1.7976931348623157E+308 and maximum value of "
+                             "1.7976931348623157E+308. Please adjust the value accordingly.")
 
 
 def _no_reserved_names(statement: exp.Expression) -> None:

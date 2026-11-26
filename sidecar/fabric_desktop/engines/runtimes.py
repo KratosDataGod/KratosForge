@@ -114,7 +114,8 @@ class LockedRuntimes:
         """Download the packages for ``line``, hash-checked. Takes minutes."""
         from .. import app_settings, net_trust, redact
         if app_settings.value(self.allow_key) is False:
-            raise PermissionError(f"Your organization doesn't allow installing {self.label} from KratosForge.")
+            raise PermissionError(f"Your organization doesn't allow installing {self.label} from KratosForge. "
+                                  f"{app_settings.ask_it(self.allow_key)}")
         command = self.install_command(line, str(app_settings.value(self.index_key) or ""))
         folder = self.folder(line)
         folder.mkdir(parents=True, exist_ok=True)

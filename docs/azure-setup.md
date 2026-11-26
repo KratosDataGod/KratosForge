@@ -146,7 +146,7 @@ A key that is misspelled is ignored. An invalid file or key fails closed for any
 
 With no policy file at all, nothing is restricted. **Settings > Help and about** lists every problem in the file and what KratosForge did about it. Check there after you push a new file.
 
-`fabric_view_sign_in_hosts` is also read by the app itself, not the engine: an unreadable file, a value that isn't a list, or an entry that isn't a host name adds no sign-in host. The last copy of the file isn't used for it.
+`fabric_view_sign_in_hosts` is also read by the app itself, not the engine: an unreadable file, a value that isn't a list, or an entry that isn't a host name adds no sign-in host. The last copy of the file isn't used for it. A Group Policy key that is there but can't be read also adds no sign-in host, whatever the file says.
 
 `auto_update` and `channel` are also read by the app's updater, which follows the same last copy while the file can't be read. With no copy, or for a wrongly typed `auto_update`, it treats them as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview). The updater also reads `auto_update` from Group Policy, but it reads `channel` only from the file. A `channel` set only by Group Policy shows as locked in Settings, but updates still follow the person's own choice, or Stable. Set `channel` in the policy file.
 

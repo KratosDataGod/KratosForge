@@ -1,0 +1,1262 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT substr('hello', 0, 2) AS v",
+   "value": [
+    [
+     "he"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello' FROM 0 FOR 2) AS v",
+   "value": [
+    [
+     "he"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(s, p, n) AS v FROM VALUES ('hello', 0, 2) AS t(s, p, n)",
+   "value": [
+    [
+     "he"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(12345, 0, 2) AS v, typeof(substring(12345, 0, 2)) AS t",
+   "value": [
+    [
+     "12",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(substring(X'0102030405', 0, 2)) AS v, typeof(substring(X'0102030405', 0, 2)) AS t",
+   "value": [
+    [
+     "0102",
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substr('hello', -3, 2) AS v",
+   "value": [
+    [
+     "ll"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello' FROM -3 FOR 2) AS v",
+   "value": [
+    [
+     "ll"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(s, p, n) AS v FROM VALUES ('hello', -3, 2) AS t(s, p, n)",
+   "value": [
+    [
+     "ll"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(12345, -3, 2) AS v, typeof(substring(12345, -3, 2)) AS t",
+   "value": [
+    [
+     "34",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(substring(X'0102030405', -3, 2)) AS v, typeof(substring(X'0102030405', -3, 2)) AS t",
+   "value": [
+    [
+     "0304",
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substr('hello', -1, 5) AS v",
+   "value": [
+    [
+     "o"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello' FROM -1 FOR 5) AS v",
+   "value": [
+    [
+     "o"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(s, p, n) AS v FROM VALUES ('hello', -1, 5) AS t(s, p, n)",
+   "value": [
+    [
+     "o"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(12345, -1, 5) AS v, typeof(substring(12345, -1, 5)) AS t",
+   "value": [
+    [
+     "5",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(substring(X'0102030405', -1, 5)) AS v, typeof(substring(X'0102030405', -1, 5)) AS t",
+   "value": [
+    [
+     "05",
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substr('hello', 2, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello' FROM 2 FOR -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(s, p, n) AS v FROM VALUES ('hello', 2, -1) AS t(s, p, n)",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(12345, 2, -1) AS v, typeof(substring(12345, 2, -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(substring(X'0102030405', 2, -1)) AS v, typeof(substring(X'0102030405', 2, -1)) AS t",
+   "value": [
+    [
+     "",
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substr('hello', -7, 3) AS v",
+   "value": [
+    [
+     "h"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello' FROM -7 FOR 3) AS v",
+   "value": [
+    [
+     "h"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(s, p, n) AS v FROM VALUES ('hello', -7, 3) AS t(s, p, n)",
+   "value": [
+    [
+     "h"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(12345, -7, 3) AS v, typeof(substring(12345, -7, 3)) AS t",
+   "value": [
+    [
+     "1",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(substring(X'0102030405', -7, 3)) AS v, typeof(substring(X'0102030405', -7, 3)) AS t",
+   "value": [
+    [
+     "01",
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello' FROM -2) AS v",
+   "value": [
+    [
+     "lo"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(s, p) AS v FROM VALUES ('héllo', -2), ('héllo', 0), (NULL, 1), ('x', NULL) AS t(s, p)",
+   "value": [
+    [
+     "héllo"
+    ],
+    [
+     "lo"
+    ],
+    [
+     null
+    ],
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('hello', 0) AS v, typeof(left('hello', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('hello', 0) AS v, typeof(right('hello', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('hello', 2) AS v, typeof(left('hello', 2)) AS t",
+   "value": [
+    [
+     "he",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('hello', 2) AS v, typeof(right('hello', 2)) AS t",
+   "value": [
+    [
+     "lo",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('hello', -1) AS v, typeof(left('hello', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('hello', -1) AS v, typeof(right('hello', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('hello', 6) AS v, typeof(left('hello', 6)) AS t",
+   "value": [
+    [
+     "hello",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('hello', 6) AS v, typeof(right('hello', 6)) AS t",
+   "value": [
+    [
+     "hello",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('hello', CAST(NULL AS INT)) AS v, typeof(left('hello', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('hello', CAST(NULL AS INT)) AS v, typeof(right('hello', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('hello', -2147483648) AS v, typeof(left('hello', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('hello', -2147483648) AS v, typeof(right('hello', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('', 0) AS v, typeof(left('', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('', 0) AS v, typeof(right('', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('', 2) AS v, typeof(left('', 2)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('', 2) AS v, typeof(right('', 2)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('', -1) AS v, typeof(left('', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('', -1) AS v, typeof(right('', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('', 6) AS v, typeof(left('', 6)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('', 6) AS v, typeof(right('', 6)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('', CAST(NULL AS INT)) AS v, typeof(left('', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('', CAST(NULL AS INT)) AS v, typeof(right('', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('', -2147483648) AS v, typeof(left('', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('', -2147483648) AS v, typeof(right('', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('😀a😀b', 0) AS v, typeof(left('😀a😀b', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('😀a😀b', 0) AS v, typeof(right('😀a😀b', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('😀a😀b', 2) AS v, typeof(left('😀a😀b', 2)) AS t",
+   "value": [
+    [
+     "😀a",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('😀a😀b', 2) AS v, typeof(right('😀a😀b', 2)) AS t",
+   "value": [
+    [
+     "😀b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('😀a😀b', -1) AS v, typeof(left('😀a😀b', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('😀a😀b', -1) AS v, typeof(right('😀a😀b', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('😀a😀b', 6) AS v, typeof(left('😀a😀b', 6)) AS t",
+   "value": [
+    [
+     "😀a😀b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('😀a😀b', 6) AS v, typeof(right('😀a😀b', 6)) AS t",
+   "value": [
+    [
+     "😀a😀b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('😀a😀b', CAST(NULL AS INT)) AS v, typeof(left('😀a😀b', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('😀a😀b', CAST(NULL AS INT)) AS v, typeof(right('😀a😀b', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('😀a😀b', -2147483648) AS v, typeof(left('😀a😀b', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('😀a😀b', -2147483648) AS v, typeof(right('😀a😀b', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('éx', 0) AS v, typeof(left('éx', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('éx', 0) AS v, typeof(right('éx', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('éx', 2) AS v, typeof(left('éx', 2)) AS t",
+   "value": [
+    [
+     "é",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('éx', 2) AS v, typeof(right('éx', 2)) AS t",
+   "value": [
+    [
+     "́x",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('éx', -1) AS v, typeof(left('éx', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('éx', -1) AS v, typeof(right('éx', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('éx', 6) AS v, typeof(left('éx', 6)) AS t",
+   "value": [
+    [
+     "éx",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('éx', 6) AS v, typeof(right('éx', 6)) AS t",
+   "value": [
+    [
+     "éx",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('éx', CAST(NULL AS INT)) AS v, typeof(left('éx', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('éx', CAST(NULL AS INT)) AS v, typeof(right('éx', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left('éx', -2147483648) AS v, typeof(left('éx', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right('éx', -2147483648) AS v, typeof(right('éx', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left(CAST(NULL AS STRING), 0) AS v, typeof(left(CAST(NULL AS STRING), 0)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right(CAST(NULL AS STRING), 0) AS v, typeof(right(CAST(NULL AS STRING), 0)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left(CAST(NULL AS STRING), 2) AS v, typeof(left(CAST(NULL AS STRING), 2)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right(CAST(NULL AS STRING), 2) AS v, typeof(right(CAST(NULL AS STRING), 2)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left(CAST(NULL AS STRING), -1) AS v, typeof(left(CAST(NULL AS STRING), -1)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right(CAST(NULL AS STRING), -1) AS v, typeof(right(CAST(NULL AS STRING), -1)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left(CAST(NULL AS STRING), 6) AS v, typeof(left(CAST(NULL AS STRING), 6)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right(CAST(NULL AS STRING), 6) AS v, typeof(right(CAST(NULL AS STRING), 6)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left(CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(left(CAST(NULL AS STRING), CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right(CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(right(CAST(NULL AS STRING), CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left(CAST(NULL AS STRING), -2147483648) AS v, typeof(left(CAST(NULL AS STRING), -2147483648)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT right(CAST(NULL AS STRING), -2147483648) AS v, typeof(right(CAST(NULL AS STRING), -2147483648)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left(s, n) AS a, right(s, n) AS b FROM VALUES ('héllo', -1), ('héllo', 2), ('héllo', 0), (NULL, 1) AS t(s, n)",
+   "value": [
+    [
+     "",
+     ""
+    ],
+    [
+     "",
+     ""
+    ],
+    [
+     "hé",
+     "lo"
+    ],
+    [
+     null,
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT left(12345, 2) AS a, right(12345, 2) AS b, typeof(left(12345, 2)) AS t",
+   "value": [
+    [
+     "12",
+     "45",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT hex(left(X'010203', 2)) AS a, hex(right(X'010203', 2)) AS b, typeof(left(X'010203', 2)) AS t",
+   "value": [
+    [
+     "0102",
+     "0203",
+     "binary"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('hello', 'l') AS v, typeof(instr('hello', 'l')) AS t",
+   "value": [
+    [
+     3,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('l' IN 'hello') AS v",
+   "value": [
+    [
+     3
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('hello', '') AS v, typeof(instr('hello', '')) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('' IN 'hello') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('hello', '😀') AS v, typeof(instr('hello', '😀')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('😀' IN 'hello') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('hello', '́') AS v, typeof(instr('hello', '́')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('́' IN 'hello') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('hello', CAST(NULL AS STRING)) AS v, typeof(instr('hello', CAST(NULL AS STRING))) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position(CAST(NULL AS STRING) IN 'hello') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('', 'l') AS v, typeof(instr('', 'l')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('l' IN '') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('', '') AS v, typeof(instr('', '')) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('' IN '') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('', '😀') AS v, typeof(instr('', '😀')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('😀' IN '') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('', '́') AS v, typeof(instr('', '́')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('́' IN '') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('', CAST(NULL AS STRING)) AS v, typeof(instr('', CAST(NULL AS STRING))) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position(CAST(NULL AS STRING) IN '') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('😀a😀b', 'l') AS v, typeof(instr('😀a😀b', 'l')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('l' IN '😀a😀b') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('😀a😀b', '') AS v, typeof(instr('😀a😀b', '')) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('' IN '😀a😀b') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('😀a😀b', '😀') AS v, typeof(instr('😀a😀b', '😀')) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('😀' IN '😀a😀b') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('😀a😀b', '́') AS v, typeof(instr('😀a😀b', '́')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('́' IN '😀a😀b') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('😀a😀b', CAST(NULL AS STRING)) AS v, typeof(instr('😀a😀b', CAST(NULL AS STRING))) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position(CAST(NULL AS STRING) IN '😀a😀b') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('éx', 'l') AS v, typeof(instr('éx', 'l')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('l' IN 'éx') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('éx', '') AS v, typeof(instr('éx', '')) AS t",
+   "value": [
+    [
+     1,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('' IN 'éx') AS v",
+   "value": [
+    [
+     1
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('éx', '😀') AS v, typeof(instr('éx', '😀')) AS t",
+   "value": [
+    [
+     0,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('😀' IN 'éx') AS v",
+   "value": [
+    [
+     0
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('éx', '́') AS v, typeof(instr('éx', '́')) AS t",
+   "value": [
+    [
+     2,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('́' IN 'éx') AS v",
+   "value": [
+    [
+     2
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr('éx', CAST(NULL AS STRING)) AS v, typeof(instr('éx', CAST(NULL AS STRING))) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position(CAST(NULL AS STRING) IN 'éx') AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr(CAST(NULL AS STRING), 'l') AS v, typeof(instr(CAST(NULL AS STRING), 'l')) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('l' IN CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr(CAST(NULL AS STRING), '') AS v, typeof(instr(CAST(NULL AS STRING), '')) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('' IN CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr(CAST(NULL AS STRING), '😀') AS v, typeof(instr(CAST(NULL AS STRING), '😀')) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('😀' IN CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr(CAST(NULL AS STRING), '́') AS v, typeof(instr(CAST(NULL AS STRING), '́')) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position('́' IN CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr(CAST(NULL AS STRING), CAST(NULL AS STRING)) AS v, typeof(instr(CAST(NULL AS STRING), CAST(NULL AS STRING))) AS t",
+   "value": [
+    [
+     null,
+     "int"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT position(CAST(NULL AS STRING) IN CAST(NULL AS STRING)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT instr(s, f) AS v FROM VALUES ('héllo', 'l'), ('😀a😀', 'a'), ('', '') AS t(s, f)",
+   "value": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ]
+   ]
+  }
+ ]
+}

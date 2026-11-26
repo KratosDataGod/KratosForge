@@ -44,7 +44,7 @@ import functools
 import logging
 import math
 import re
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Iterator
 from typing import Any, cast
 
 import sqlglot
@@ -54,7 +54,7 @@ from sqlglot.errors import SqlglotError
 from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
-from ..sql import KfDuckDB
+from ..sql import KfDuckDB, duckdb_sql
 from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
@@ -163,72 +163,127 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
         raise ValueError(_TOO_DEEP) from None
 
 
+class InScript(ValueError):
+    """WR-238: a refusal of statement ``index`` (from 0) of a script of ``count``, which is translated whole before
+    any of it runs. ``str()`` is the refusal on its own; the engine adds which statement it was."""
+
+    def __init__(self, message: str, index: int, count: int, kind: str) -> None:
+        super().__init__(message)
+        self.index, self.count, self.kind = index, count, kind
+
+
+def _statement_kind(tree: exp.Expression) -> str:
+    try:
+        return (tree.sql(dialect="tsql").split(None, 1) or ["?"])[0].upper().rstrip("(;")
+    except Exception:  # noqa: BLE001 - only names the statement in a message
+        return type(tree).__name__.upper()
+
+
 def _translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None,
                known: Container[str] | None) -> tuple[list[str], list[str]]:
     texts: list[str] = []
     notes: list[str] = []
     skipped = False
     schema = _schema(columns or {})
-    for batch in split_batches(sql):
-        for tree in _parse(batch):
-            if isinstance(tree, exp.Semicolon):  # WR-236: only a comment after the last ``;``, not a statement
-                continue
-            if _harmless_setting(tree):
-                skipped = True
-                continue
-            tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
-            _refuse(tree)
-            tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
-            notes += _collations(tree)
-            _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
-            _national_text(tree)
-            notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
-            notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
-            tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
-            _temp_tables(tree)
-            notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
-            _joined_changes(tree)
-            tree = _views(tree, columns)
-            notes += _names(tree, columns)
-            notes += _as_of(tree)
-            _table_columns(tree)
-            for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
-                parts.replace(_timefromparts(parts))
-            tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
-            notes += _converts(tree)
-            _regexps(tree)
-            notes += _types(tree, schema)
-            _percentiles(tree)
-            notes += _likes(tree)
-            _patindex(tree)
-            notes += _json(tree)
-            tsql_tables.rewrite(tree)  # WR-227: before _gaps, which reads TOP ... WITH TIES
-            _functions(tree)
-            _gaps(tree)
-            _string_edges(tree)
-            _char_codes(tree)
-            _sharp_s(tree)
-            _key_columns(tree)
-            tsql_types.expand_datetimes(tree)
-            if known is not None:
-                _unknown_functions(tree, known)
-            tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
-            if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
-                                                   for a in tree.args.get("actions") or []) > 1:
-                raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
-                                 "mapped yet. Add each column in an ALTER TABLE of its own.")
-            try:
-                text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
-            except SqlglotError as exc:
-                raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
-            if len(text) > 50 * len(batch) + 200_000:  # a backstop: each rewrite reads its arguments once
-                raise ValueError(_TOO_DEEP)
-            if text.strip():
-                texts.append(text)
+    # every statement is read before any is translated, so a refusal can say which of how many it was
+    parsed = [(batch, tree) for batch in split_batches(sql) for tree in _parse(batch)
+              if not isinstance(tree, exp.Semicolon)]  # WR-236: only a comment after the last ``;``
+    count = sum(not _harmless_setting(tree) for _, tree in parsed)
+    index = -1
+    for batch, tree in parsed:
+        if _harmless_setting(tree):
+            skipped = True
+            continue
+        index += 1
+        try:
+            text, more = _one(batch, tree, columns, known, schema)
+        except ValueError as exc:
+            if count < 2:
+                raise
+            raise InScript(str(exc), index, count, _statement_kind(tree)) from None
+        notes += more
+        if text.strip():
+            texts.append(text)
     if not texts:
         raise ValueError("There's nothing to run: SET NOCOUNT, ANSI_NULLS and the other session options change "
                          "nothing on the local engine, so they're skipped." if skipped else "The query is empty.")
     return texts, list(dict.fromkeys(notes))
+
+
+_DATENAME_WORDS = {"MONTH", "MM", "M", "WEEKDAY", "DW", "W"}
+
+
+def _datename(args: list[exp.Expression]) -> exp.Expression:
+    """``DATENAME(part, d)``: the month's and the weekday's names, and every other part as DATEPART's number written
+    as text (functions/datename-transact-sql: ``DATENAME(day, ...)`` is ``'2'``, ``DATENAME(millisecond, ...)``
+    ``'123'``). sqlglot read the other parts as strftime patterns, so ``DATENAME(hour, d)`` was the month's short
+    name and ``DATENAME(millisecond, d)`` six digits (WR-258)."""
+    part, value = seq_get(args, 0), seq_get(args, 1)
+    if len(args) != 2 or part is None or value is None or part.name.upper() in _DATENAME_WORDS:
+        return TSQL.Parser.FUNCTIONS["DATENAME"](args)
+    name = part.name.upper()
+    if name not in _DATEPARTS:  # only a known date part's name is written into the DATEPART below, never other text
+        raise ValueError(f"DATENAME: '{part.name[:40]}' isn't a date part T-SQL knows, so nothing ran on this PC "
+                         "(T-SQL stops on it too). Write a part such as year, month, day, hour or minute.")
+    number = sqlglot.parse_one(f"DATEPART({name}, kf_datename)", read=KfTSQL)
+    for spot in list(number.find_all(exp.Column)):
+        if spot.name == "kf_datename":
+            spot.replace(value)
+    return exp.Cast(this=number, to=exp.DataType.build("VARCHAR"))
+def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None,
+         known: Container[str] | None, schema: Any) -> tuple[str, list[str]]:
+    """One statement of ``batch`` as DuckDB SQL, and its notes."""
+    notes: list[str] = []
+    tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
+    _refuse(tree)
+    tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
+    notes += _collations(tree)
+    _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
+    _national_text(tree)
+    notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
+    notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
+    tsql_format.parses(tree)  # WR-229: before the types are read, so a PARSE is its number type
+    _temp_tables(tree)
+    notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
+    _joined_changes(tree)
+    tree = _views(tree, columns)
+    notes += _names(tree, columns)
+    notes += _as_of(tree)
+    _table_columns(tree)
+    for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
+        parts.replace(_timefromparts(parts))
+    tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
+    _number_dates(tree)  # before CONVERT's rewrite and _big_integers, while the date arguments are as written
+    notes += _converts(tree)
+    _big_integers(tree)
+    _regexps(tree)
+    notes += _types(tree, schema)
+    _percentiles(tree)
+    notes += _likes(tree)
+    _patindex(tree)
+    notes += _json(tree)
+    tsql_tables.rewrite(tree)  # WR-227: before _gaps, which reads TOP ... WITH TIES
+    _functions(tree)
+    _gaps(tree)
+    _string_edges(tree)
+    _char_codes(tree)
+    _sharp_s(tree)
+    _key_columns(tree)
+    tsql_types.expand_datetimes(tree)
+    if known is not None:
+        _unknown_functions(tree, known)
+    tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
+    if isinstance(tree, exp.Alter) and sum(isinstance(a, exp.ColumnDef)
+                                           for a in tree.args.get("actions") or []) > 1:
+        raise ValueError(_NOT_YET + "ALTER TABLE ... ADD of more than one column in one statement isn't "
+                         "mapped yet. Add each column in an ALTER TABLE of its own.")
+    try:
+        text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
+    except SqlglotError as exc:
+        raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
+    if len(text) > 50 * len(batch) + 200_000:  # a backstop: each rewrite reads its arguments once
+        raise ValueError(_TOO_DEEP)
+    return text, notes
 
 
 class KfTSQL(TSQL):
@@ -250,7 +305,7 @@ class KfTSQL(TSQL):
         # PARSE and TRY_PARSE take "x AS type USING culture", which sqlglot can't read (WR-229).
         FUNCTION_PARSERS = {**TSQL.Parser.FUNCTION_PARSERS, "PARSE": tsql_format.parser(False),
                             "TRY_PARSE": tsql_format.parser(True)}
-        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build,
+        FUNCTIONS = {**TSQL.Parser.FUNCTIONS, "FORMAT": tsql_format.build, "DATENAME": _datename,
                      "SQUARE": lambda args: exp.Pow(this=exp.Cast(this=seq_get(args, 0), to=exp.DataType.build("DOUBLE")),
                                                     expression=exp.Literal.number(2)),
                      "JSON_VALUE": lambda args: exp.JSONExtractScalar(this=seq_get(args, 0), expression=seq_get(args, 1),
@@ -1056,11 +1111,13 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Sub, exp.Mul, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
-             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup)
+             tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
+             exp.Case, exp.If)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
+    sized_ints = _sized_ints(tree)
     grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation, *_COLLATED))
-    if not here and not compared and not grouped:
+    if not here and not compared and not grouped and not sized_ints:
         return []
     sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
     typed = tree.copy()
@@ -1079,7 +1136,15 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "integers, cuts a decimal cast to an integer toward zero, ignores trailing spaces when it compares "
                 "text, and writes a float in CONCAT with at most 6 significant digits).")]
     collated = _in_order(tree, _COLLATED)
-    notes = _padded(compared, _in_order(typed, _COMPARISONS)) + _grouped_text(typed)
+    notes = _padded(compared, _in_order(typed, _COMPARISONS)) + _grouped_text(typed, tree, schema)
+    typed_ints = _sized_ints(typed)
+    if len(typed_ints) == len(sized_ints):
+        # Before the rest: each keeps its node in the tree, so a rewrite around it that copies it copies this too.
+        for node, info in reversed(list(zip(sized_ints, typed_ints, strict=True))):
+            if isinstance(node, exp.Neg):
+                _negated(node, _int_kind(info.this))
+            elif isinstance(node, exp.Sum):
+                _sum_keeps_type(node, info)
     # A copy _collated makes of a value isn't in ``here``, so the passes below (+ on text becoming ||, say) miss
     # it: it is made again from the rewritten value once they have run.
     later: list[Callable[[], None]] = []
@@ -1108,6 +1173,11 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             _cast_in_place(whole, 38, max(number[1], 6))
             if _FLOAT_NOTE not in notes:
                 notes.append(_FLOAT_NOTE)
+            done.add(id(node))
+        elif (isinstance(node, exp.Coalesce) and not node.args.get("is_null")
+              or isinstance(node, exp.Case | exp.If) and not isinstance(node.parent, exp.Case)):
+            # Before the arithmetic around it copies it: COALESCE(s, i) + 1 took the text and int as they were.
+            _values_by_precedence(_branch_values(node), _branch_values(info))
             done.add(id(node))
     for node, info in pairs:
         if id(node) in done:
@@ -1140,6 +1210,11 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         elif isinstance(node, exp.Coalesce):
             if node.args.get("is_null"):
                 _isnull_first_type(node, info)
+            else:
+                _values_by_precedence(_branch_values(node), _branch_values(info))
+        elif isinstance(node, exp.Case | exp.If):
+            if not isinstance(node.parent, exp.Case):  # a CASE's WHEN ... THEN is an If too
+                _values_by_precedence(_branch_values(node), _branch_values(info))
         elif isinstance(node, exp.Pow):
             notes += _power(node, info.this.type)
         elif isinstance(node, (exp.Ceil, exp.Floor, exp.Degrees, exp.Radians)):
@@ -1172,14 +1247,126 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                     and not node.meta.get("kf_digits"):  # NULL, and PARSE's checked digits, convert the same
                 notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
-            source = _numeric_style(node, info) or info.this.type
+            written = None if isinstance(node.this, exp.TimeToStr) else node.meta.get("kf_written")  # not styled
+            source = _numeric_style(node, info) or written or info.this.type
             if (unchecked := node.meta.pop("tsql_unchecked_style", None)) is not None:
                 notes.append(_unchecked_style(unchecked))
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
+    _set_operation_types(tree, typed)
     for again in later:
         again()
     return notes
+
+
+def _branch_values(node: exp.Expression) -> list[exp.Expression]:
+    """The values a CASE, IIF or COALESCE can give, in order."""
+    if isinstance(node, exp.Case):
+        values = [i.args["true"] for i in node.args.get("ifs") or []]
+        return values + ([node.args["default"]] if node.args.get("default") is not None else [])
+    if isinstance(node, exp.If):
+        return [node.args["true"]] + ([node.args["false"]] if node.args.get("false") is not None else [])
+    return [node.this, *node.expressions]
+
+
+_WIDER_INTS = (exp.DataType.Type.BIGINT, exp.DataType.Type.INT, exp.DataType.Type.SMALLINT, exp.DataType.Type.TINYINT,
+               exp.DataType.Type.UTINYINT)
+_TIMES = {exp.DataType.Type.DATE, exp.DataType.Type.DATETIME2, exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIME}
+
+
+def _precedence_target(kinds: list[exp.DataType | None]) -> exp.DataType | None:
+    """The type T-SQL converts text to when it meets values of ``kinds`` in a CASE, IIF, COALESCE or set operation
+    (data-types/data-type-precedence-transact-sql: "the data type with the lower precedence is first converted to
+    the data type with the higher precedence", and text ranks below every number, bit and date): the widest
+    integer, bit, or a date or time type that all the other values share. None when no text meets one of those, or
+    a type can't be told; decimals and floats are left as DuckDB converts them."""
+    if any(k is None or k.this == exp.DataType.Type.UNKNOWN for k in kinds):
+        return None
+    known = [k for k in kinds if k is not None and k.this != exp.DataType.Type.NULL]
+    others = [k for k in known if not _is(k, _TEXT)]
+    if not others or len(others) == len(known):
+        return None
+    if all(_is(k, _INTEGERS | _BITS) for k in others):
+        ints = [k for k in others if not _is(k, _BITS)]
+        if not ints:
+            return exp.DataType.build("BOOLEAN")
+        return min(ints, key=lambda k: _WIDER_INTS.index(k.this) if k.this in _WIDER_INTS else 0).copy()
+    if all(_is(k, _TIMES) and k.this == others[0].this for k in others):
+        return others[0].copy()
+    return None
+
+
+def _text_converted(value: exp.Expression, to: exp.DataType) -> None:
+    """``value`` (text, in the tree) converted to ``to`` as T-SQL converts it: text for an integer has to be a
+    whole number ('2.5' is an error, where DuckDB rounded it to 3, and '' is 0)."""
+    cast = exp.Cast(this=exp.Null(), to=to.copy())
+    value.replace(cast)
+    cast.set("this", value)
+    if to.this in _INTEGERS - _BITS:
+        _whole_text(cast, to)
+
+
+def _values_by_precedence(values: list[exp.Expression], typed: list[exp.Expression]) -> None:
+    """A CASE's, IIF's or COALESCE's text values converted to the type that ranks highest among its values
+    (expressions/case-transact-sql: "Returns the highest precedence type from the set of types in
+    result_expressions"; COALESCE and IIF the same). DuckDB rounded '2.5' to 3, and stopped on a text column."""
+    if len(values) != len(typed):
+        return
+    kinds = [exp.DataType.build("NULL") if isinstance(t, exp.Null) else t.type for t in typed]
+    to = _precedence_target(kinds)
+    if to is None:
+        return
+    for value, kind in zip(values, kinds, strict=True):
+        if _is(kind, _TEXT):
+            _text_converted(value, to)
+
+
+def _set_leaves(query: exp.Expr) -> list[exp.Select] | None:
+    if isinstance(query, exp.Subquery):
+        return _set_leaves(query.this)
+    if isinstance(query, exp.SetOperation):
+        left, right = _set_leaves(query.left), _set_leaves(query.right)
+        return None if left is None or right is None else left + right
+    return [query] if isinstance(query, exp.Select) else None
+
+
+def _set_operation_types(tree: exp.Expression, typed: exp.Expression) -> None:
+    """A UNION's, INTERSECT's or EXCEPT's text column converted to the type that ranks highest among its
+    columns (queries/set-operators-union-transact-sql: "When data types differ, the resulting data type is
+    determined based on the rules for data type precedence"): ``SELECT 1 UNION SELECT '2'`` is an int column, so
+    ' 1' and 1 are one row and '2.5' is an error. DuckDB made such a column text."""
+    here, there = _in_order(tree, (exp.SetOperation,)), _in_order(typed, (exp.SetOperation,))
+    if len(here) != len(there):
+        return
+    for node, info in zip(here, there, strict=True):
+        if isinstance(node.parent, exp.SetOperation) or isinstance(node.parent, exp.Subquery) and isinstance(
+                node.parent.parent, exp.SetOperation):
+            continue  # an inner one: the outermost set operation types all of its columns
+        leaves, typed_leaves = _set_leaves(node), _set_leaves(info)
+        if not leaves or not typed_leaves or len(leaves) != len(typed_leaves):
+            continue
+        widths = {len(leaf.expressions) for leaf in leaves + typed_leaves}
+        if len(widths) != 1 or any(p.is_star for leaf in leaves for p in leaf.expressions):
+            continue
+        for i in range(widths.pop()):
+            kinds = [leaf.expressions[i].type for leaf in typed_leaves]
+            to = _precedence_target(kinds)
+            if to is None:
+                continue
+            for n, (leaf, kind) in enumerate(zip(leaves, kinds, strict=True)):
+                if not _is(kind, _TEXT):
+                    continue
+                projection = leaf.expressions[i]
+                if isinstance(projection, exp.Alias):
+                    _text_converted(projection.this, to)
+                elif isinstance(projection, exp.Column):
+                    named = projection.replace(exp.alias_(projection.copy(), projection.name))
+                    _text_converted(named.this, to)
+                elif n:  # only the first SELECT names the columns
+                    _text_converted(projection, to)
+                else:  # an unnamed first column: converted, under the name DuckDB gave it as written
+                    named = projection.replace(exp.alias_(projection.copy(), duckdb_sql(projection), quoted=True))
+                    _text_converted(named.this, to)
 
 
 _BY_ZERO = "Divide by zero error encountered."
@@ -1201,6 +1388,74 @@ def _by_zero(node: exp.Expression, op: str) -> None:
 _OVERFLOW = "Arithmetic overflow error converting expression to data type {kind}."
 _TSQL_INT_NAMES = {exp.DataType.Type.UTINYINT: "tinyint", exp.DataType.Type.TINYINT: "tinyint",
                    exp.DataType.Type.SMALLINT: "smallint", exp.DataType.Type.INT: "int", exp.DataType.Type.BIGINT: "bigint"}
+
+
+_SUMMED_AS_INT = {exp.DataType.Type.UTINYINT, exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT,
+                  exp.DataType.Type.INT}
+
+
+_INT_RANK = [exp.DataType.Type.UTINYINT, exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT,
+             exp.DataType.Type.BIGINT]
+
+
+def _int_kind(typed: exp.Expression) -> exp.DataType | None:
+    """``typed``'s type, where an integer divided by (or modulo) an integer has the wider one's type, as in T-SQL;
+    sqlglot types ``i / 2`` of an int as a BIGINT or a float."""
+    while isinstance(typed, exp.Paren):
+        typed = typed.this
+    if isinstance(typed, (exp.Div, exp.Mod)):
+        a, b = _int_kind(typed.this), _int_kind(typed.expression)
+        if a is not None and b is not None and a.this in _INT_RANK and b.this in _INT_RANK:
+            return max(a, b, key=lambda k: _INT_RANK.index(k.this))
+    return typed.type
+
+
+def _sized_ints(tree: exp.Expression) -> list[exp.Expression]:
+    """The SUMs and negations whose integer result keeps its size in T-SQL (WR-247), outside ORDER BY (qualifying
+    turns ``ORDER BY SUM(v)`` into the select's alias, and the order is the same either way) and PIVOT (whose
+    aggregate DuckDB takes only as a plain call)."""
+    return [n for n in _in_order(tree, (exp.Sum, exp.Neg))
+            if not (isinstance(n, exp.Neg) and isinstance(n.this, exp.Literal))  # -5 can't overflow
+            and not any(isinstance(up, (exp.Order, exp.Pivot)) for up in _ancestors(n))]
+
+
+def _sum_keeps_type(node: exp.Sum, info: exp.Expression) -> None:
+    """WR-247: ``SUM`` of an int, smallint or tinyint is an int in T-SQL, and of a bigint a bigint, so a total past
+    it stops with error 8115; DuckDB's total is a HUGEINT, which gave 4294967294 where a warehouse stops."""
+    kind = _int_kind(info.this)
+    if not _is(kind, _SUMMED_AS_INT | {exp.DataType.Type.BIGINT}):
+        return
+    assert kind is not None
+    to, name = ("BIGINT", "bigint") if kind.this == exp.DataType.Type.BIGINT else ("INT", "int")
+    whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+    _checked(whole, f"CASE WHEN kf_value IS NOT NULL AND TRY_CAST(kf_value AS {to}) IS NULL "
+                    f"THEN CAST(error('{_OVERFLOW.format(kind=name)}') AS {to}) ELSE CAST(kf_value AS {to}) END")
+
+
+def _checked(node: exp.Expression, case: str) -> None:
+    """``node`` replaced by the DuckDB SQL ``case`` on its value, ``kf_value``, which is worked out once, as
+    LIST_TRANSFORM([node], kf_value -> case)[1]. The node itself stays in the tree, so later rewrites still find it."""
+    v = exp.to_identifier("kf_value")
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[exp.column("kf_holder")]),
+                     exp.Lambda(this=sqlglot.parse_one(case, read="duckdb"), expressions=[v]))
+    at = exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1)  # DuckDB lists count from 1
+    node.replace(at)
+    next(c for c in at.find_all(exp.Column) if c.name == "kf_holder").replace(node)
+
+
+_NEGATED_IN = {exp.DataType.Type.INT: ("INT", "BIGINT", "int"), exp.DataType.Type.BIGINT: ("BIGINT", "HUGEINT", "bigint")}
+
+
+def _negated(node: exp.Neg, kind: exp.DataType | None) -> None:
+    """WR-247: ``-x`` of an int's (or a bigint's) smallest value is error 8115 in T-SQL. DuckDB says "Overflow in
+    negation of numeric value!", without the type, and DuckDB 2.0 works ``-(-2147483647 - 1)`` out as a BIGINT,
+    2147483648. So it is negated a size wider and checked on the way back."""
+    if kind is None or kind.this not in _NEGATED_IN:
+        return
+    to, wider, name = _NEGATED_IN[kind.this]
+    node.set("this", exp.Cast(this=node.this, to=exp.DataType.build(wider)))
+    _checked(node, f"CASE WHEN kf_value IS NOT NULL AND TRY_CAST(kf_value AS {to}) IS NULL "
+                   f"THEN CAST(error('{_OVERFLOW.format(kind=name)}') AS {to}) ELSE CAST(kf_value AS {to}) END")
 
 
 def _round_keeps_type(node: exp.Round, info: exp.Expression) -> None:
@@ -1247,7 +1502,12 @@ def _isnull_first_type(node: exp.Coalesce, info: exp.Expression) -> None:
     other, other_type = node.expressions[0], info.expressions[0].type
     if kind.this in _SIZED and kind.expressions:
         size = kind.expressions[0].this
-        if isinstance(size, exp.Literal) and not size.is_string:
+        if isinstance(size, exp.Literal) and not size.is_string and _is(other_type, _NUMBERS):
+            # A number too long for the text isn't cut ('12' for 12345): it converts as CAST(12345 AS VARCHAR(2)).
+            sized = exp.Cast(this=other, to=kind.copy())
+            node.set("expressions", [sized])
+            _sized_text(sized, other_type)
+        elif isinstance(size, exp.Literal) and not size.is_string:
             node.set("expressions", [exp.func("LEFT", exp.cast(other, "VARCHAR"), exp.Literal.number(int(size.name)))])
     elif kind.this in _INTEGERS - {exp.DataType.Type.BIT, exp.DataType.Type.BOOLEAN} and not _is(other_type, _INTEGERS):
         cut = exp.Cast(this=other, to=kind.copy())
@@ -1371,6 +1631,9 @@ def _decimal_math(node: exp.Expression, left: tuple[int, int], right: tuple[int,
         _fill_in(node, f"CAST(CAST((__a) AS DOUBLE) {op} CAST((__b) AS DOUBLE) AS {kind})")
         return True
     if kept <= scale or _volatile(node):
+        if op == "*" and precision > 18:
+            # DuckDB multiplies two decimals of up to 18 digits in 18 (WR-247): 4294967296 * 4294967296 overflowed
+            node.set("this", exp.Cast(this=node.this, to=exp.DataType.build(f"DECIMAL(38, {left[1]})")))
         _cast_in_place(node, precision, scale)
         return False
     # T-SQL cut the scale to make room for whole digits. DuckDB keeps the scale, so a big value overflows there and
@@ -1485,8 +1748,12 @@ def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
     written_decimal = _written_decimal(node.this)
     if _is(base, _INTEGERS - {exp.DataType.Type.BIT}) and not written_decimal:
         assert base is not None
-        big = base.this == exp.DataType.Type.BIGINT  # tinyint and smallint give an int, as T-SQL's POWER does
-        node.replace(exp.Cast(this=exp.Trunc(this=node.copy()), to=exp.DataType.build("BIGINT" if big else "INT")))
+        if base.this == exp.DataType.Type.BIGINT:
+            node.replace(exp.Cast(this=exp.Trunc(this=node.copy()), to=exp.DataType.build("BIGINT")))
+        else:  # tinyint and smallint give an int, as T-SQL's POWER does, and one too big is its error 232 (WR-247)
+            _checked(node, "CASE WHEN ISFINITE(kf_value) AND TRY_CAST(TRUNC(kf_value) AS INT) IS NULL THEN CAST(error("
+                           "'Arithmetic overflow error for type int, value = ' || PRINTF('%f', kf_value) || '.') AS INT) "
+                           "ELSE CAST(TRUNC(kf_value) AS INT) END")
     elif written_decimal or _is(base, {exp.DataType.Type.DECIMAL, exp.DataType.Type.MONEY,
                                         exp.DataType.Type.SMALLMONEY}):
         raise ValueError(_NOT_YET + "POWER of a decimal keeps the decimal's scale in T-SQL, which isn't mapped "
@@ -1544,16 +1811,30 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
     v = exp.to_identifier("kf_text")
     whole = exp.func("REGEXP_FULL_MATCH", v.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
     blank = exp.EQ(this=exp.func("TRIM", v.copy()), expression=exp.Literal.string(""))
-    message = exp.Literal.string(f"Conversion failed when converting the text to data type {to.sql(dialect='tsql')}.")
-    other = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", message)
+    # WR-247: SQL Server's error 245, with the value; it names N'' text nvarchar and other text varchar
+    text = "nvarchar" if any(n.meta.get(_NATIONAL) for n in node.this.walk()) else "varchar"
+    name = _TSQL_INT_NAMES.get(to.this, to.sql(dialect="tsql").lower())
+    said = exp.func("CONCAT", exp.Literal.string(f"Conversion failed when converting the {text} value '"), _echoed(v),
+                    exp.Literal.string(f"' to data type {name}."))
+    other = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", said)
     cast = node.copy()
     cast.set("this", v.copy())
+    if not isinstance(node, exp.TryCast) and to.this == exp.DataType.Type.INT:
+        # a whole number too big for an int is error 248 (SQL Server's words for the other sizes vary)
+        too_big = exp.func("CONCAT", exp.Literal.string(f"The conversion of the {text} value '"), _echoed(v),
+                           exp.Literal.string("' overflowed an int column."))
+        safe = exp.TryCast(this=v.copy(), to=to.copy())
+        cast = exp.Case(ifs=[exp.If(this=exp.Is(this=safe, expression=exp.Null()),
+                                    true=exp.Cast(this=exp.func("ERROR", too_big), to=to.copy()))], default=cast)
     case = exp.Case(ifs=[exp.If(this=whole, true=cast),
                          exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
                          exp.If(this=exp.Is(this=v.copy(), expression=exp.Null()),
                                 true=exp.Cast(this=exp.Null(), to=to.copy()))],
                     default=other)
-    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[node.this]), exp.Lambda(this=case, expressions=[v]))
+    # Read as VARCHAR: sqlglot may take a value for text that DuckDB types otherwise (COALESCE('7', 2) is an
+    # INTEGER there), and REGEXP_FULL_MATCH of an integer stopped with DuckDB's binder error.
+    as_text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"))
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[as_text]), exp.Lambda(this=case, expressions=[v]))
     node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 
@@ -1578,7 +1859,7 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
         return None
     kind = info.this.this.type
     if not _is(kind, _NUMBERS):
-        _date_style(node.this, kind, style)
+        _date_style(node.this, node.meta.get("kf_written") or kind, style)
         if style not in CHECKED_DATE_STYLES:
             node.meta["tsql_unchecked_style"] = style
         return None
@@ -1597,22 +1878,52 @@ def _date_style(text: exp.TimeToStr, kind: exp.DataType | None, style: str) -> N
     if _is(kind, {exp.DataType.Type.TIME}):
         text.set("this", exp.Add(this=exp.cast(exp.Literal.string("1900-01-01"), "DATE"), expression=text.this))
     fmt = text.args.get("format")
+    if isinstance(fmt, exp.Literal) and fmt.name == _STYLE_0:
+        text.replace(_style_0_text(text.this))
+        return
     if not isinstance(fmt, exp.Literal) or not fmt.name.startswith("%Y-%m-%d"):
         return
     if _is(kind, {exp.DataType.Type.DATE}):
         text.set("format", exp.Literal.string("%Y-%m-%d"))
         return
+    written: exp.Expr = text
     if (_is(kind, {exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}) or tsql_types.is_rounded(text.this)) \
             and fmt.name.endswith(".%f"):
         fmt = exp.Literal.string(fmt.name[:-len(".%f")] + ".%g")  # datetime is written to the millisecond (WR-223)
         text.set("format", fmt)
+    elif fmt.name.endswith(".%f") and (digits := _fraction_digits(kind)) is not None:
+        # Styles 121 and 126 write a datetime2(n) or time(n) with its n digits, as CAST does (121 is its default
+        # style), zeros too (WR-258).
+        written = _fraction_text(text.this, fmt.name[:-len(".%f")], digits)
     if style == "126" and fmt.name.endswith((".%f", ".%g")):
-        whole = text.copy()
-        whole.set("format", exp.Literal.string(fmt.name[:-len(".%f")]))  # .%g is as long
-        # DuckDB's MICROSECOND counts the seconds too: the fraction is what's left of a whole second.
-        fraction = exp.Mod(this=exp.func("MICROSECOND", text.this.copy()), expression=exp.Literal.number(1_000_000))
-        zero = exp.EQ(this=exp.paren(fraction, copy=False), expression=exp.Literal.number(0))
-        text.replace(exp.Case(ifs=[exp.If(this=zero, true=whole)], default=text.copy()))
+        # A fraction that is all zeros is left off, with its point; the value is read once.
+        written = exp.func("REGEXP_REPLACE", written.copy(), exp.Literal.string(r"\.0*$"), exp.Literal.string(""))
+    if written is not text:
+        text.replace(written)
+
+
+# sqlglot's pattern for CONVERT style 0 and 100, and CAST's for a datetime: mon dd yyyy hh:miAM.
+_STYLE_0 = "%b %d %Y %-I:%M%p"
+
+
+def _style_0_text(value: exp.Expression) -> exp.Expr:
+    """T-SQL's style 0 (and 100), its default for datetime and smalldatetime: the day and the hour take two places,
+    a space in front of one digit (``Jan  2 2024  3:04AM``), where sqlglot's pattern wrote ``Jan 02 2024 3:04AM``
+    (WR-258). The value is read once."""
+    def build(v: exp.Expression) -> exp.Expression:
+        stamp: exp.Expression = exp.Cast(this=v, to=exp.DataType.build("TIMESTAMP"))
+
+        def part(fmt: str) -> exp.Expression:
+            return exp.Anonymous(this="STRFTIME", expressions=[stamp.copy(), exp.Literal.string(fmt)])
+
+        def padded(fmt: str) -> exp.Expr:
+            return exp.func("LPAD", part(fmt), exp.Literal.number(2), exp.Literal.string(" "))
+        pieces: list[exp.Expr] = [part("%b "), padded("%-d"), part(" %Y "), padded("%-I"), part(":%M%p")]
+        out: exp.Expression = exp.DPipe(this=pieces[0], expression=pieces[1], safe=False)
+        for piece in pieces[2:]:
+            out = exp.DPipe(this=out, expression=piece, safe=False)
+        return out
+    return _once([value], build)
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
@@ -1638,6 +1949,8 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
         text = _bit_text(node.this)
     if source is not None and (digits := _fraction_digits(source)) is not None:
         text = _time_text(node.this, source, digits)
+    elif _is(source, {exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}) or tsql_types.is_rounded(node.this):
+        text = _style_0_text(node.this)  # CAST's style for a datetime is 0, mon dd yyyy hh:miAM (WR-258)
     if _is(source, _NUMBERS):
         # A float in T-SQL's style; a number written with a point (1.50) is a decimal there, and keeps its digits.
         shown = _float_text(node.this) if _is(source, _FLOATS) and not _written_decimal(node.this) else text
@@ -1652,10 +1965,12 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
 
 
 def _fraction_digits(source: exp.DataType | None) -> int | None:
-    """A datetime2(n) or time(n) with its n written: T-SQL shows n digits of a second as text, zeros too."""
-    if not (isinstance(source, exp.DataType) and source.this in (exp.DataType.Type.DATETIME2, exp.DataType.Type.TIME)
-            and source.expressions):
+    """A datetime2(n) or time(n): T-SQL shows n digits of a second as text, zeros too; with no n written it is 7
+    (WR-258: datetime2 and time are datetime2(7) and time(7), and CAST(x AS VARCHAR) writes 7 digits)."""
+    if not (isinstance(source, exp.DataType) and source.this in (exp.DataType.Type.DATETIME2, exp.DataType.Type.TIME)):
         return None
+    if not source.expressions:
+        return 7
     size = source.expressions[0].this
     return int(size.name) if isinstance(size, exp.Literal) and not size.is_string and size.name.isdigit() else None
 
@@ -1668,12 +1983,23 @@ def _time_text(value: exp.Expression, source: exp.DataType, digits: int) -> exp.
     if source.this == exp.DataType.Type.TIME:
         stamp = exp.Add(this=exp.cast(exp.Literal.string("1970-01-01"), "DATE"), expression=stamp)
         shape = "%H:%M:%S"
-    whole = exp.Anonymous(this="STRFTIME", expressions=[stamp.copy(), exp.Literal.string(shape)])
+    return _fraction_text(stamp, shape, digits)
+
+
+def _fraction_text(stamp: exp.Expression, shape: str, digits: int) -> exp.Expr:
+    """``stamp`` written with ``shape`` and n digits of a second, zeros too; the value is read once. It is made a
+    TIMESTAMP first: DuckDB's STRFTIME of a TIMESTAMP_S or TIMESTAMP_MS goes through nanoseconds, which stop before
+    1678."""
+    stamp = exp.Cast(this=stamp, to=exp.DataType.build("TIMESTAMP"))
     if digits <= 0:
-        return whole
-    part = exp.func("LEFT", exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string("%f")]),
-                    exp.Literal.number(min(digits, 6)))
-    return exp.DPipe(this=exp.DPipe(this=whole, expression=exp.Literal.string(".")), expression=part)
+        return exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string(shape)])
+    text = exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string(shape + ".%f")])
+    if digits == 7:
+        # The 7th digit is 0 here: text with another 7th digit is refused before it gets here (tsql_types).
+        return exp.DPipe(this=text, expression=exp.Literal.string("0"), safe=False)
+    if digits >= 6:
+        return text
+    return exp.func("REGEXP_REPLACE", text, exp.Literal.string(f"[0-9]{{{6 - digits}}}$"), exp.Literal.string(""))
 
 
 # The date styles whose values are checked against T-SQL's (WR-208); 0 is the default, as a CAST.
@@ -1684,6 +2010,48 @@ def _unchecked_style(style: str) -> str:
     return (f"CONVERT style {style} runs as a translation that hasn't been checked against T-SQL's answers; "
             f"styles {', '.join(CHECKED_DATE_STYLES[1:-1])} and {CHECKED_DATE_STYLES[-1]} have been. "
             "Compare its values in Fabric if they matter.")
+
+
+# T-SQL's datetime runs from 1753-01-01 to 9999-12-31: as days from 1900-01-01, these.
+_DATETIME_DAYS = (-53690, 2958463)
+# The T-SQL functions whose date argument sqlglot keeps in this slot, each as T-SQL names it.
+_DATE_SLOTS: dict[type, tuple[str, str]] = {
+    exp.Year: ("YEAR", "this"), exp.Month: ("MONTH", "this"), exp.Day: ("DAY", "this"),
+    exp.LastDay: ("EOMONTH", "this"), exp.TimeToStr: ("DATENAME", "this"), exp.Extract: ("DATEPART", "expression"),
+    exp.DateAdd: ("DATEADD", "this"), exp.TimestampTrunc: ("DATETRUNC", "this"),
+}
+
+
+def _number_dates(tree: exp.Expression) -> None:
+    """A whole number where a date function takes a date is that many days after 1900-01-01, a datetime, as
+    T-SQL converts it: ``YEAR(5)`` is 1900 and ``DATEADD(day, DATEDIFF(day, 0, d), 0)`` is d's date. DuckDB
+    won't cast a number to a date. A number with a fraction (part of a day, rounded as a datetime) is refused
+    by name, and one past a datetime's range is T-SQL's overflow error."""
+    def slots(node: exp.Expression) -> list[tuple[str, exp.Expression, str]]:
+        if isinstance(node, exp.DateDiff):
+            return [("DATEDIFF", node, "this"), ("DATEDIFF", node, "expression")]
+        named = _DATE_SLOTS.get(type(node))
+        return [(named[0], node, named[1])] if named else []
+    for node in list(tree.find_all(*_DATE_SLOTS, exp.DateDiff)):
+        for name, holder, key in slots(node):
+            arg = holder.args.get(key)
+            if isinstance(arg, (exp.TsOrDsToDate, exp.TimeStrToTime)) or (
+                    isinstance(arg, exp.Cast) and arg.to.is_type(*exp.DataType.TEMPORAL_TYPES)):
+                holder, key, arg = arg, "this", arg.this  # sqlglot's own date cast around the argument
+            if arg is None or _number(arg) is None:
+                continue
+            literal = arg.this if isinstance(arg, exp.Neg) else arg
+            assert isinstance(literal, exp.Literal)
+            if not literal.name.isdigit():
+                raise ValueError(f"{_NOT_YET}{name} of a number with a fraction of a day ({arg.sql('tsql')}), which "
+                                 "T-SQL reads as a datetime after 1900-01-01, isn't carried yet. Write the date "
+                                 "and time instead.")
+            days = -_digits(literal.name, "int") if isinstance(arg, exp.Neg) else _digits(literal.name, "int")
+            if not _DATETIME_DAYS[0] <= days <= _DATETIME_DAYS[1]:
+                raise ValueError(f"{_NOT_YET}Arithmetic overflow error converting expression to data type datetime. "
+                                 "T-SQL gives the same error.")
+            holder.set(key, sqlglot.parse_one(f"CAST('1900-01-01' AS TIMESTAMP) + INTERVAL ({days}) DAY",
+                                              read="duckdb"))
 
 
 def _converts(tree: exp.Expression) -> list[str]:
@@ -1700,10 +2068,14 @@ def _converts(tree: exp.Expression) -> list[str]:
             # To a datetime or datetime2 sqlglot writes the bare STRPTIME; wrap it as for a date, so
             # TRY_CONVERT's NULL and the ISO styles' optional parts apply there too (WR-208).
             new = exp.Cast(this=new, to=node.this.copy())
+        written = tsql_types.written_type(node.expression)
         if isinstance(new, (exp.Cast, exp.TryCast)):
             # Keep CONVERT's own type, length included (the DuckDB text drops it), and TRY_CONVERT's NULL.
             kind = exp.TryCast if node.args.get("safe") else exp.Cast
             new = kind(this=new.this, to=node.this.copy())
+            if written is not None:
+                # The value's type as written: the DuckDB text made a datetime2(3) or a datetime a TIMESTAMP.
+                new.meta["kf_written"] = written
             if isinstance(new.this, exp.StrToTime):
                 fmt = new.this.args.get("format")
                 if isinstance(fmt, exp.Literal) and fmt.name.startswith("%Y-%m-%d"):
@@ -1713,6 +2085,9 @@ def _converts(tree: exp.Expression) -> list[str]:
                 elif kind is exp.TryCast:
                     new.this.set("safe", True)  # TRY_CONVERT gives NULL for a date that doesn't exist, not an error
             style = node.args.get("style")
+            if style is not None and not (isinstance(style, exp.Literal) and not style.is_string):
+                raise ValueError(f"{_NOT_YET}CONVERT's style has to be a number written in the query. A style "
+                                 f"from {style.sql('tsql')} isn't carried yet. Write the style as a number, such as 101.")
             if isinstance(new.this, exp.StrToTime) and isinstance(style, exp.Literal) \
                     and style.name not in CHECKED_DATE_STYLES:
                 notes.append(_unchecked_style(style.name))  # text read as a date; a date written as text: _types
@@ -1912,7 +2287,9 @@ def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str
             elif any(_is(v.type, _TEXT) for v in sides) and any(_unknown(v.type) for v in sides):
                 unsure = True
             continue
-        if isinstance(node.expression, (exp.Any, exp.All)) and isinstance(node.expression.this, exp.Subquery):
+        if isinstance(node.expression, (exp.Any, exp.All)) and isinstance(node.expression.this, exp.Query):
+            if not isinstance(node.expression.this, exp.Subquery):  # sqlglot reads ALL (SELECT ...) as a bare Select
+                node.expression.set("this", exp.Subquery(this=node.expression.this))
             unsure |= _padded_subquery(node, node.expression, "this", info.this, info.expression.this)
             continue
         a, b = info.this.type, info.expression.type
@@ -1934,11 +2311,13 @@ _GROUPED_NOTE = ("T-SQL counts text that differs only in trailing spaces ('a' an
                  "group on RTRIM(...) to get T-SQL's groups.")
 
 
-def _grouped_text(typed: exp.Expression) -> list[str]:
+def _grouped_text(typed: exp.Expression, tree: exp.Expression | None = None, schema: Any = None) -> list[str]:
     """T-SQL's padding also makes ``'a'`` and ``'a  '`` one group, one distinct value and one row of a
     ``UNION``; here they are two. That isn't rewritten (T-SQL shows either one), so a query that groups
     text says so (WR-210). Text already trimmed with RTRIM, and a literal without trailing spaces, can't
-    differ."""
+    differ. The typed copy keeps its stars (it lines up with the tree node for node), so a star in a grouped
+    list (``SELECT DISTINCT *``, a UNION of ``SELECT *``) is read again from a copy of ``tree`` with its stars
+    expanded."""
     def risky(node: exp.Expression) -> bool:
         if isinstance(node, exp.Alias):
             node = node.this
@@ -1957,7 +2336,21 @@ def _grouped_text(typed: exp.Expression) -> list[str]:
             sets.append(node.parent.selects)  # SELECT DISTINCT: its columns
         else:
             sets.append(node.expressions)
-    return [_GROUPED_NOTE] if any(risky(e) for exprs in sets for e in exprs) else []
+    if any(risky(e) for exprs in sets for e in exprs):
+        return [_GROUPED_NOTE]
+    starred = any(isinstance(e, exp.Star) or (isinstance(e, exp.Column) and isinstance(e.this, exp.Star))
+                  for exprs in sets for e in exprs)
+    if not starred or tree is None:
+        return []
+    from sqlglot.optimizer.annotate_types import annotate_types
+    from sqlglot.optimizer.qualify import qualify
+    try:
+        expanded = annotate_types(qualify(tree.copy(), schema=schema, dialect="duckdb", db="dbo",
+                                          validate_qualify_columns=False, quote_identifiers=False, identify=False),
+                                  schema=schema, dialect="duckdb")
+    except SqlglotError:
+        return []
+    return _grouped_text(expanded)
 
 
 def _like_padded(node: exp.Like) -> None:
@@ -2707,6 +3100,15 @@ def _refused_by_name(tree: exp.Expression) -> None:
         raise ValueError(_NOT_YET + "GET_BIT isn't mapped yet. Use & with a power of 2, such as x & 4.")
     if any(a.name.upper() == "SET_BIT" for a in tree.find_all(exp.Anonymous)):
         raise ValueError(_NOT_YET + "SET_BIT isn't mapped yet. Use | with a power of 2, such as x | 4.")
+    for spec in tree.find_all(exp.WindowSpec):
+        # queries/select-over-clause-transact-sql: "<unsigned value specification> PRECEDING ... This specification
+        # isn't allowed for RANGE." (and FOLLOWING the same). A warehouse stops on it; DuckDB would run it.
+        if str(spec.args.get("kind") or "").upper() == "RANGE" and any(
+                end is not None and not (isinstance(end, str) and end.upper() in ("UNBOUNDED", "CURRENT ROW"))
+                for end in (spec.args.get("start"), spec.args.get("end"))):
+            raise ValueError("A window frame of RANGE with a number of rows before or after can't run, so nothing ran. "
+                             "T-SQL takes RANGE only with UNBOUNDED PRECEDING, UNBOUNDED FOLLOWING and CURRENT ROW, and "
+                             "a Fabric Warehouse stops on it. Use ROWS BETWEEN n PRECEDING AND CURRENT ROW to count rows.")
 
 
 def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
@@ -2732,7 +3134,40 @@ def _national_text(tree: exp.Expression) -> None:
         parent = node.parent
         if isinstance(parent, exp.Anonymous) and parent.name.upper() == "DATALENGTH":
             continue
-        node.replace(exp.Literal.string(node.name))
+        text = exp.Literal.string(node.name)
+        text.meta[_NATIONAL] = True  # for the type error 245 names (WR-247)
+        node.replace(text)
+
+
+_NATIONAL = "kf_national"
+
+
+def _big_integers(tree: exp.Expression) -> None:
+    """WR-247: a whole number too big for an int is a decimal(its digits, 0) in T-SQL, not a bigint, so
+    ``9223372036854775807 + 1`` is 9223372036854775808 and ``ABS(-2147483648)`` 2147483648, where DuckDB overflowed a
+    BIGINT (or, from DuckDB 2.0, read -2147483648 as an INT). A row count (TOP, OFFSET, FETCH), a type's size and
+    GENERATE_SERIES's bounds, which pick the series' type themselves (tsql_tables), stay as written."""
+    for node in list(tree.find_all(exp.Literal)):
+        text = node.name
+        # the length first: int() refuses more than 4,300 digits, which DuckDB answers as too big
+        digits = text.lstrip("0")
+        if node.is_string or not text.isdigit() or len(digits) > 38 or len(digits) < 10 or int(digits) < 2 ** 31:
+            continue
+        if any(isinstance(up, (exp.Limit, exp.Offset, exp.Fetch, exp.DataType, exp.DataTypeParam, exp.ColumnDef,
+                                exp.GenerateSeries))
+               for up in _ancestors(node)):
+            continue
+        arg = node.parent if isinstance(node.parent, exp.Neg) else node  # -9223372036854775809 too
+        if isinstance(arg.parent, (exp.Left, exp.Right, exp.Repeat, exp.Substring)) and arg.arg_key != "this":
+            continue  # a bigint count or length, which those functions check against a bigint themselves
+        node.replace(exp.Cast(this=node.copy(), to=exp.DataType.build(f"DECIMAL({len(text.lstrip('0'))}, 0)")))
+
+
+def _ancestors(node: exp.Expression) -> Iterator[exp.Expr]:
+    up = node.parent
+    while up is not None:
+        yield up
+        up = up.parent
 
 
 def _datalength(value: exp.Expression) -> exp.Expr:
@@ -2906,7 +3341,9 @@ def _left_right(node: exp.Left | exp.Right) -> None:
         # T-SQL makes the length an integer first, toward zero: LEFT(s, -0.5) is ''. It takes a bigint, so a
         # literal past one, or past a float (400 nines), is T-SQL's overflow error, not Python's.
         # A whole literal is read exactly (a float would round 9223372036854775807 up past a bigint).
+        # So is a negated one: -9223372036854775809 as a float rounds to -2**63, inside a bigint.
         exact = _digits(length.name, "bigint") if _whole(length, 0) else \
+            -_digits(length.this.name, "bigint") if isinstance(length, exp.Neg) and _whole(length.this, 0) else \
             int(value) if math.isfinite(value) else _INFINITE
         whole = _in_range(exact, "bigint")
         if whole < 0:
@@ -2921,8 +3358,11 @@ def _left_right(node: exp.Left | exp.Right) -> None:
         whole = _whole_count(n)
         longest = exp.func("LEAST", whole.copy(), exp.Literal.number(_LONGEST))
         call = type(node)(this=text, expression=longest)
-        negative = exp.LT(this=whole, expression=exp.Literal.number(0))
-        return exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))], default=call)
+        negative = exp.LT(this=whole.copy(), expression=exp.Literal.number(0))
+        # LEAST skips a NULL, which would keep the whole text; a NULL length gives NULL in T-SQL.
+        unknown = exp.Is(this=whole, expression=exp.null())
+        return exp.Case(ifs=[exp.If(this=unknown, true=exp.null()),
+                             exp.If(this=negative, true=exp.func("ERROR", exp.Literal.string(message)))], default=call)
     node.replace(_once([node.this, length], build))
 
 
@@ -2943,9 +3383,21 @@ def _translate_lists(node: exp.Translate) -> None:
     node.replace(_once([node.this, source, target], build))
 
 
+def _bigint_literal(node: exp.Expression | None) -> None:
+    """T-SQL's overflow error for a whole literal, or a negated one, that a bigint can't hold: a bigint count,
+    start or length past one, which DuckDB would read as a HUGEINT or a decimal and answer in its own words."""
+    if isinstance(node, exp.Neg) and _whole(node.this, 0):
+        _in_range(-_digits(node.this.name, "bigint"), "bigint")
+    elif _whole(node, 0):
+        assert node is not None
+        _in_range(_digits(node.name, "bigint"), "bigint")
+
+
 def _substring(node: exp.Substring) -> None:
     """``SUBSTRING`` at a start below 1 or with a negative length (see _string_edges)."""
     start, length = node.args.get("start"), node.args.get("length")
+    _bigint_literal(start)
+    _bigint_literal(length)
     if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
         return
 
@@ -3017,6 +3469,8 @@ def _repeat(node: exp.Repeat | exp.Space) -> None:
     # functions/space-transact-sql). A negative count is NULL for both, as SQL Server answers it.
     width = "bigint" if replicate else "int"
     value = _number(count)
+    if isinstance(count, exp.Neg) and _whole(count.this, 0):
+        _in_range(-_digits(count.this.name, width), width)  # exactly: a float rounds -2**63 - 1 into a bigint
     if not _whole(count, 0) and value is not None and math.isfinite(value) and int(value) >= 0:
         count = exp.Literal.number(_in_range(int(value), width))  # 1.7 is 1 and -0.5 is 0: toward zero, as T-SQL
         node.set(key, count)
@@ -3108,7 +3562,7 @@ def _int_of(value: exp.Expression, size: str = "int") -> exp.Expression:
     if size == "int":
         message: exp.Expression = exp.DPipe(
             this=exp.DPipe(this=exp.Literal.string("Conversion failed when converting the varchar value '"),
-                           expression=text.copy()),
+                           expression=_echoed(text)),
             expression=exp.Literal.string("' to data type int."))
     else:
         message = exp.Literal.string(_not_whole("", size))
@@ -3120,6 +3574,15 @@ def _int_of(value: exp.Expression, size: str = "int") -> exp.Expression:
     is_text = exp.EQ(this=exp.func("TYPEOF", value.copy()), expression=exp.Literal.string("VARCHAR"))
     cut = exp.cast(exp.Trunc(this=exp.cast(text.copy(), "DOUBLE")), "BIGINT")
     return exp.Case(ifs=[exp.If(this=is_text, true=strict)], default=cut)
+
+
+_ECHOED = 1000  # SQL Server cuts an error message at 2,047 characters; a long cell is cut well before that
+
+
+def _echoed(value: exp.Expression) -> exp.Expression:
+    """The value an error message shows, cut to its first ``_ECHOED`` characters so a huge cell can't flood
+    the error panel (WR-247 review)."""
+    return exp.Left(this=value.copy(), expression=exp.Literal.number(_ECHOED))
 
 
 def _not_whole(text: str, size: str) -> str:

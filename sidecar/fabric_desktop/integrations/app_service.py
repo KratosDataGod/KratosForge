@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .. import jsonfile
+from .. import app_settings, jsonfile
 from ..winexe import system32
 from . import policy
 from .config import TOOLS, launcher_path, snippets, write_launcher
@@ -46,7 +46,8 @@ def _check_permissions(values: list[str], field: str) -> list[str]:
         raise ValueError(f"{', '.join(not_offered)} can't be given to external tools in this release.")
     blocked = [v for v in values if v not in rules["max_permissions"]]
     if blocked:
-        raise PermissionError(f"Your organization doesn't allow external tools {', '.join(blocked)}.")
+        raise PermissionError(f"Your organization doesn't allow external tools {', '.join(blocked)}. "
+                              + app_settings.ask_it("integrations_max_permissions"))
     return values
 
 
@@ -149,7 +150,8 @@ class IntegrationsMixin:
     def integrations_set_http(self, enabled: bool, port: int | None = None) -> dict[str, Any]:
         """The person's switch for the local API (off by default)."""
         if enabled and not self._http_state()["allowed"]:
-            raise PermissionError("Your organization doesn't allow the local API on this PC.")
+            key = "integrations" if policy.current()["enabled"] is False else "integrations_http"
+            raise PermissionError("Your organization doesn't allow the local API on this PC. " + app_settings.ask_it(key))
         if port is not None:
             if not isinstance(port, int) or not 1024 <= port <= 65535:
                 raise ValueError("port is a number from 1024 to 65535")
@@ -189,7 +191,8 @@ class IntegrationsMixin:
 
     def integrations_set_enabled(self, enabled: bool) -> dict[str, Any]:
         if enabled and policy.current()["enabled"] is False:
-            raise PermissionError("Your organization has turned off external AI tools on this PC.")
+            raise PermissionError("Your organization has turned off external AI tools on this PC. "
+                                  + app_settings.ask_it("integrations"))
         self.integration_store.set_setting("enabled", bool(enabled))
         self.integrations_sync_http()
         return self.integrations_status()

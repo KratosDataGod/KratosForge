@@ -193,7 +193,7 @@ def test_power_follows_the_bases_column_type(engine):
     assert row == [0, 1048576, 205891132094649, 0.5]  # a smallint base gives an int, as in T-SQL
     with pytest.raises(Exception, match="on the local engine.*POWER of a decimal"):
         engine.execute("SELECT POWER(d, 2) FROM dbo.bases", dialect="tsql")
-    with pytest.raises(Exception, match="INT32|out of range"):  # T-SQL: arithmetic overflow
+    with pytest.raises(Exception, match="Msg 232, Level 16: Arithmetic overflow error for type int"):  # WR-247
         engine.execute("SELECT POWER(i, 40) FROM dbo.bases", dialect="tsql")
 
 

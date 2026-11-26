@@ -1,0 +1,115 @@
+version: 0.2.0.dev0
+name: corpus_tmsl_rich
+description: Roles, a hierarchy, a calculation group, a perspective and a culture.
+datasets:
+- name: orders
+  source: dbo.orders
+  fields:
+  - name: order_id
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: order_id
+    datatype: Integer
+    custom_extensions:
+    - vendor_name: POWER_BI
+      data: '{"_v": 2, "isHidden": true, "lineageTag": "c-order-id", "summarizeBy": "none"}'
+  - name: customer_id
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: customer_id
+    datatype: Integer
+    custom_extensions:
+    - vendor_name: POWER_BI
+      data: '{"_v": 2, "isHidden": true, "lineageTag": "c-o-cust", "summarizeBy": "none"}'
+  - name: amount
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: amount
+    datatype: Decimal
+    custom_extensions:
+    - vendor_name: POWER_BI
+      data: '{"_v": 2, "formatString": "#,0.00", "lineageTag": "c-amount", "summarizeBy": "none"}'
+  custom_extensions:
+  - vendor_name: POWER_BI
+    data: '{"_v": 2, "lineageTag": "t-orders", "partitions": [{"mode": "directLake", "name": "orders", "source": {"entityName": "orders", "expressionSource": "DatabaseQuery", "schemaName": "dbo", "type": "entity"}}]}'
+- name: customers
+  source: dbo.customers
+  primary_key:
+  - customer_id
+  fields:
+  - name: customer_id
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: customer_id
+    datatype: Integer
+    custom_extensions:
+    - vendor_name: POWER_BI
+      data: '{"_v": 2, "lineageTag": "c-cust-id", "summarizeBy": "none"}'
+  - name: country
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: country
+    datatype: String
+    custom_extensions:
+    - vendor_name: POWER_BI
+      data: '{"_v": 2, "lineageTag": "c-country"}'
+  - name: city
+    expression:
+      dialects:
+      - dialect: ANSI_SQL
+        expression: city
+    datatype: String
+    custom_extensions:
+    - vendor_name: POWER_BI
+      data: '{"_v": 2, "lineageTag": "c-city"}'
+  custom_extensions:
+  - vendor_name: POWER_BI
+    data: '{"_v": 2, "hierarchies": [{"levels": [{"column": "country", "lineageTag": "l-country", "name": "country", "ordinal": 0}, {"column": "city", "lineageTag": "l-city", "name": "city", "ordinal": 1}], "lineageTag": "h-geo", "name": "Geography"}], "lineageTag": "t-customers", "partitions": [{"mode": "directLake", "name": "customers", "source": {"entityName": "customers", "expressionSource": "DatabaseQuery", "schemaName": "dbo", "type": "entity"}}]}'
+relationships:
+- name: orders_customer_id_to_customers_customer_id
+  from: orders
+  to: customers
+  from_columns:
+  - customer_id
+  to_columns:
+  - customer_id
+  custom_extensions:
+  - vendor_name: POWER_BI
+    data: '{"_v": 2, "name": "r-orders-customers"}'
+metrics:
+- name: order rows
+  expression:
+    dialects:
+    - dialect: DAX
+      expression: COUNTROWS('orders')
+  custom_extensions:
+  - vendor_name: POWER_BI
+    data: '{"_v": 2, "lineageTag": "m-rows", "table": "orders"}'
+- name: total amount
+  expression:
+    dialects:
+    - dialect: DAX
+      expression: SUM('orders'[amount])
+  custom_extensions:
+  - vendor_name: POWER_BI
+    data: '{"_v": 2, "formatString": "#,0.00", "lineageTag": "m-total", "table": "orders"}'
+- name: amount per order
+  expression:
+    dialects:
+    - dialect: DAX
+      expression: |-
+        DIVIDE(
+            [total amount],
+            [order rows]
+        )
+  custom_extensions:
+  - vendor_name: POWER_BI
+    data: '{"_v": 2, "lineageTag": "m-per", "table": "orders"}'
+custom_extensions:
+- vendor_name: POWER_BI
+  data: '{"_v": 2, "culture": "en-US", "cultures": [{"name": "de-DE", "translations": {"model": {"name": "Model", "tables": [{"name": "orders", "translatedCaption": "Bestellungen"}]}}}], "document": {"compatibilityLevel": 1604}, "excludedTables": [{"calculationGroup": {"calculationItems": [{"expression": "SELECTEDMEASURE()", "name": "current", "ordinal": 0}, {"expression": "SELECTEDMEASURE() * 2", "formatStringDefinition": {"expression": "\"#,0\""}, "name": "doubled", "ordinal": 1}], "precedence": 1}, "columns": [{"dataType": "string", "lineageTag": "c-period", "name": "period", "sourceColumn": "Name", "summarizeBy": "none"}, {"dataType": "int64", "isHidden": true, "lineageTag": "c-ordinal", "name": "Ordinal", "sourceColumn": "Ordinal", "summarizeBy": "sum"}], "lineageTag": "t-ti", "name": "time intelligence", "partitions": [{"mode": "import", "name": "time intelligence", "source": {"type": "calculationGroup"}}]}], "expressions": [{"expression": "let\n    database = Sql.Database(\"corpus\", \"lh\")\nin\n    database", "kind": "m", "name": "DatabaseQuery"}], "perspectives": [{"name": "Sales view", "tables": [{"measures": [{"name": "total amount"}], "name": "orders"}]}], "roles": [{"modelPermission": "read", "name": "EU readers", "tablePermissions": [{"filterExpression": "[country] = \"DE\"", "name": "customers"}]}]}'

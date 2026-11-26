@@ -7,6 +7,7 @@ import copy
 import datetime as dt
 import json
 import shutil
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -296,7 +297,16 @@ def _wrong(bank, it):
     q = bank["questions"][it["q"]]
     if q["type"] == "order":
         return list(reversed(q["answer"]))
+    if q["type"] in exam.PART_TYPES:       # every part wrong
+        return _all_parts_wrong(q, it)
     return [next(o for o in it["options"] if o not in q["answer"])]
+
+
+def _all_parts_wrong(q, it):
+    key = q["answer"]
+    if q["type"] == "code":                # another gap's token in each gap: all wrong, none used twice
+        return key[1:] + key[:1]
+    return [next(o for o in allowed if o != k) for allowed, k in zip(it["parts"], key, strict=True)]
 
 
 def test_answers_and_flags(bank):
@@ -469,3 +479,253 @@ def test_databricks_drill_scores_by_two_level_objective():
     assert s["items"] and all(it["objective"] == "7.2" for it in s["items"])
     exam.finish(s, bank, now=at(1))
     assert s["result"]["by_domain"][0]["domain"] == "7" and s["result"]["notice"] == bank["notice"]
+
+
+# ---------------------------------------------------------------- multi-part questions (matching, hot area,
+# yes or no, code completion): schema, partial credit, keys kept from the screen
+
+def _multi_bank():
+    """A small bank with one question of each multi-part type, in objectives 2.2.1 (matching, yes or no)
+    and 2.2.9 (hot area, code completion)."""
+    src = "https://learn.microsoft.com/en-us/fabric/"
+    base = {"explanation": "Because the documentation says so, for every part of it.", "source": src,
+            "version": 1, "status": "live", "reviewed": "2026-11-20"}
+    qs = [
+        {"id": "2.2.1-q1", "type": "matching", "stem": "Match each requirement to a store.",
+         "options": [{"id": "a", "text": "Warehouse"}, {"id": "b", "text": "Lakehouse"}, {"id": "c", "text": "Eventhouse"}],
+         "parts": [{"text": "T-SQL star schema"}, {"text": "PySpark files"}, {"text": "KQL events"}, {"text": "ML on big data"}],
+         "answer": ["a", "b", "c", "b"]},
+        {"id": "2.2.1-q2", "type": "yesno", "stem": "Yes or no?",
+         "parts": [{"text": "One"}, {"text": "Two"}, {"text": "Three"}], "answer": ["yes", "no", "yes"]},
+        {"id": "2.2.9-q1", "type": "hotarea", "stem": "Complete the settings.", "snippet_label": "Copy activity General settings",
+         "snippet": "Timeout {{1}}\nRetry {{2}}",
+         "parts": [{"label": "Timeout", "options": [{"id": "a", "text": "45"}, {"id": "b", "text": "0.00:45:00"}]},
+                   {"label": "Retry", "options": [{"id": "a", "text": "1"}, {"id": "b", "text": "3"}, {"id": "c", "text": "4"}]}],
+         "answer": ["b", "b"]},
+        {"id": "2.2.9-q2", "type": "code", "language": "pyspark", "stem": "Complete the code.",
+         "snippet": "df.{{1}}.{{2}}(\"t\")",
+         "options": [{"id": "a", "text": "writeStream"}, {"id": "b", "text": "toTable"}, {"id": "c", "text": "readStream"}],
+         "answer": ["a", "b"]},
+    ]
+    return {"pack": "dp-700", "cases": {}, "notice": exam.NOTICE,
+            "questions": {q["id"]: {**base, **q, "objective": q["id"].split("-")[0]} for q in qs}}
+
+
+def test_the_bundled_bank_has_two_of_each_multi_part_type_with_a_learn_source(bank):
+    for t in exam.PART_TYPES:
+        qs = [q for q in bank["questions"].values() if q["type"] == t]
+        assert len(qs) == 2, t
+        for q in qs:
+            assert q["source"].startswith("https://learn.microsoft.com/") and len(q["explanation"]) > 40, q["id"]
+    langs = {q["language"] for q in bank["questions"].values() if q["type"] == "code"}
+    assert langs == {"pyspark", "tsql"}
+
+
+def test_multi_part_questions_pass_the_checks():
+    for q in _multi_bank()["questions"].values():
+        assert exam._question_problems(q["objective"], q, {}) == [], q["id"]
+
+
+def _bad(qid, **change):
+    return {**_multi_bank()["questions"][qid], **change}
+
+
+@pytest.mark.parametrize(("q", "expect"), [
+    # matching
+    (_bad("2.2.1-q1", answer=["a", "b", "c"]), "answer has one entry for each part"),
+    (_bad("2.2.1-q1", answer=["a", "a", "a", "a"]), "uses at least two different items"),
+    (_bad("2.2.1-q1", answer=["a", "b", "c", "z"]), "names items that aren't there"),
+    (_bad("2.2.1-q1", parts=[{"text": "Only one"}], answer=["a"]), "2 to 8 items and 2 to 6 requirements"),
+    (_bad("2.2.1-q1", parts=[{"text": "<b>x</b>"}, {"text": "y"}, {"text": "z"}, {"text": "w"}]), "raw HTML"),
+    (_bad("2.2.1-q1", also_accept=[["b", "a", "c", "b"]]), "also_accept is for ordering questions"),
+    # hot area
+    (_bad("2.2.9-q1", snippet="Timeout {{1}}"), "2 to 6 blanks and a part for each"),
+    (_bad("2.2.9-q1", snippet="Timeout {{2}}\nRetry {{1}}"), "each once and in order"),
+    (_bad("2.2.9-q1", answer=["b", "z"]), "blank 2's answer isn't one of its choices"),
+    (_bad("2.2.9-q1", snippet_label=""), "snippet_label is empty"),
+    (_bad("2.2.9-q1", options=[{"id": "a", "text": "x"}]), "choices are in each part"),
+    (_bad("2.2.9-q1", parts=[{"label": "Timeout", "options": [{"id": "a", "text": "45"}]},
+                             {"label": "Retry", "options": [{"id": "b", "text": "3"}, {"id": "c", "text": "4"}]}]),
+     "blank 1 has 2 to 6 choices"),
+    # yes or no
+    (_bad("2.2.1-q2", answer=["yes", "maybe", "no"]), "answer is yes or no"),
+    (_bad("2.2.1-q2", parts=[{"text": "Only"}], answer=["yes"]), "2 to 5 statements"),
+    (_bad("2.2.1-q2", options=[{"id": "a", "text": "Yes"}]), "has no options"),
+    # code completion
+    (_bad("2.2.9-q2", answer=["a", "a"]), "a different token for each gap"),
+    (_bad("2.2.9-q2", options=[{"id": "a", "text": "writeStream"}, {"id": "b", "text": "toTable"}]), "more tokens than gaps"),
+    (_bad("2.2.9-q2", language="scala"), "language is one of pyspark, tsql"),
+    (_bad("2.2.9-q2", snippet="df.write"), "gaps are written"),
+    (_bad("2.2.9-q2", parts=[{"text": "x"}, {"text": "y"}]), "gaps in its snippet, not parts"),
+])
+def test_problems_catch_broken_multi_part_questions(q, expect):
+    found = exam._question_problems(q["objective"], q, {})
+    assert any(expect in p for p in found), found
+
+
+def test_a_broken_multi_part_question_in_a_pack_file_is_a_problem(tmp_path):
+    packs = _pack_copy(tmp_path)
+
+    def broken(doc):
+        q = next(q for q in doc["questions"] if q["type"] == "code")
+        q["answer"] = q["answer"][:1]
+    _edit(packs, "2.2.9", broken)
+    assert any("2.2.9-q11" in p and "token for each gap" in p for p in exam.problems("dp-700", packs=packs))
+
+
+def test_quizzes_take_only_the_choice_types(tmp_path):
+    from fabric_desktop.academy import quizlab
+    grading = tmp_path / "packs" / "dp-700" / "grading" / "quiz-x"
+    grading.mkdir(parents=True)
+    q = {**_multi_bank()["questions"]["2.2.1-q2"], "id": "q1"}
+    for k in ("objective", "version", "status", "reviewed"):
+        q.pop(k)
+    (grading / quizlab.QUIZ_FILE).write_text(json.dumps({"questions": [q]}), encoding="utf-8")
+    found = quizlab.problems("quiz-x", grading, {"objectives": ["2.2.1"]}, tmp_path / "packs")
+    assert any("a quiz question is single, multiple, order" in p for p in found), found
+
+
+@pytest.mark.parametrize(("qid", "full", "partial", "parts_right", "zero"), [
+    ("2.2.1-q1", ["a", "b", "c", "b"], ["a", "b", "c", "a"], 3, ["c", "a", "a", "a"]),
+    ("2.2.1-q2", ["yes", "no", "yes"], ["yes", "yes", "yes"], 2, ["no", "yes", "no"]),
+    ("2.2.9-q1", ["b", "b"], ["b", "c"], 1, ["a", "a"]),
+    ("2.2.9-q2", ["a", "b"], ["a", "c"], 1, ["b", "a"]),
+])
+def test_multi_part_questions_earn_full_partial_and_zero_credit(qid, full, partial, parts_right, zero):
+    q = _multi_bank()["questions"][qid]
+    n = len(q["answer"])
+    assert exam._score(q, full) == (n, n) and exam._correct(q, full)
+    assert exam._score(q, partial) == (parts_right, n) and not exam._correct(q, partial)
+    assert exam._score(q, zero) == (0, n)
+    assert exam._score(q, None) == (0, n)
+    blank = list(full)
+    blank[0] = ""
+    assert exam._score(q, blank) == (0, n), "a question with an empty part isn't answered and earns nothing"
+
+
+def _multi_session(bank, **kw):
+    return exam.resume(exam.build(bank, cert_version="v", seed=3, now=T0, **kw), T0)
+
+
+def test_view_never_carries_a_multi_part_key():
+    bank = _multi_bank()
+    s = _multi_session(bank)
+    v = exam.view(s, bank)
+    text = json.dumps(v)
+    assert '"explanation"' not in text and '"source"' not in text and '"key"' not in text
+    by = {it["q"]: it for it in v["items"]}
+    for qid, q in bank["questions"].items():
+        it = by[qid]
+        assert it["answer"] is None and it["answered"] is False
+        assert "answer" not in json.dumps(it["parts"]) and len(it["parts"]) == len(q["answer"])
+    assert [p["text"] for p in by["2.2.1-q1"]["parts"]] == ["T-SQL star schema", "PySpark files", "KQL events", "ML on big data"]
+    assert sorted(o["id"] for o in by["2.2.1-q1"]["parts"][0]["options"]) == ["a", "b", "c"]
+    assert [[o["text"] for o in p["options"]] for p in by["2.2.1-q2"]["parts"]] == [["Yes", "No"]] * 3
+    assert by["2.2.9-q1"]["snippet"] == "Timeout {{1}}\nRetry {{2}}" and by["2.2.9-q1"]["parts"][1]["label"] == "Retry"
+    assert by["2.2.9-q1"]["snippet_label"] == "Copy activity General settings"
+    assert by["2.2.9-q2"]["snippet_label"] == "PySpark code" and by["2.2.9-q2"]["options"]
+    # The same holds for the bundled questions: nothing in the view says which choice is right.
+    real = exam.load_bank("dp-700")
+    ids = [q for q, x in real["questions"].items() if x["type"] in exam.PART_TYPES]
+    s = exam.build(real, cert_version="v", objectives=sorted({real["questions"][q]["objective"] for q in ids}), seed=1, now=T0)
+    v = exam.view(s, real)
+    assert '"key"' not in json.dumps(v) and '"explanation"' not in json.dumps(v)
+    for it in v["items"]:
+        if it["type"] in exam.PART_TYPES:
+            assert set(it) >= {"parts", "answered"} and all(set(p) == {"n", "text", "label", "options"} for p in it["parts"])
+
+
+def test_a_hot_area_shuffles_each_blanks_choices_per_session_and_the_screen_follows():
+    """Position must not give a hot area answer away to someone who retakes: each blank's choices are
+    shuffled per session, like matching items and code tokens, and the screen shows that order."""
+    bank = _multi_bank()
+    orders = set()
+    for seed in range(40):
+        s = exam.resume(exam.build(bank, cert_version="v", seed=seed, now=T0), T0)
+        it = next(i for i in s["items"] if i["q"] == "2.2.9-q1")
+        assert [sorted(p) for p in it["parts"]] == [["a", "b"], ["a", "b", "c"]]
+        shown = next(i for i in exam.view(s, bank)["items"] if i["q"] == "2.2.9-q1")
+        assert [[o["id"] for o in p["options"]] for p in shown["parts"]] == it["parts"]
+        orders.add(tuple(tuple(p) for p in it["parts"]))
+    assert len(orders) > 1
+    # A session saved before the shuffle, in the bank's order, still shows and scores the same way.
+    s = _multi_session(bank)
+    it = next(i for i in s["items"] if i["q"] == "2.2.9-q1")
+    it["parts"] = [["a", "b"], ["a", "b", "c"]]
+    shown = next(i for i in exam.view(s, bank)["items"] if i["q"] == "2.2.9-q1")
+    assert [[o["text"] for o in p["options"]] for p in shown["parts"]] == [["45", "0.00:45:00"], ["1", "3", "4"]]
+
+
+def test_multi_part_answers_keep_empty_parts_and_count_as_answered_only_when_full():
+    bank = _multi_bank()
+    s = _multi_session(bank)
+    exam.answer(s, "2.2.1-q1", ["a", "", "", ""], now=at(1))
+    v = exam.view(s, bank)
+    item = next(it for it in v["items"] if it["q"] == "2.2.1-q1")
+    assert item["answer"] == ["a", "", "", ""] and item["answered"] is False and v["answered"] == 0
+    exam.answer(s, "2.2.1-q1", ["a", "b", "c", "b"], now=at(2))
+    assert exam.view(s, bank)["answered"] == 1
+    exam.answer(s, "2.2.1-q1", ["", "", "", ""], now=at(3))      # every part emptied clears the answer
+    assert "2.2.1-q1" not in s["answers"]
+    for bad in (["a", "b"], ["a", "b", "c", "z"], ["yes", "no", "yes", "no"]):
+        with pytest.raises(exam.ExamError, match="option the question doesn't have"):
+            exam.answer(s, "2.2.1-q1", bad, now=at(4))
+    with pytest.raises(exam.ExamError, match="option the question doesn't have"):
+        exam.answer(s, "2.2.1-q2", ["yes", "a", "no"], now=at(4))
+    with pytest.raises(exam.ExamError, match="one gap at most"):
+        exam.answer(s, "2.2.9-q2", ["a", "a"], now=at(4))
+    exam.answer(s, "2.2.1-q1", ["a", "a", "a", "a"], now=at(5))  # a matching item may be used more than once
+
+
+def test_partial_credit_totals_objectives_history_and_evidence_are_fractional():
+    bank = _multi_bank()
+    s = _multi_session(bank, minutes=30)
+    exam.answer(s, "2.2.1-q1", ["a", "b", "c", "a"], now=at(1))   # 3 of 4: 0.75
+    exam.answer(s, "2.2.1-q2", ["yes", "no", "yes"], now=at(2))   # all: 1
+    exam.answer(s, "2.2.9-q1", ["b", "c"], now=at(3))             # 1 of 2: 0.5
+    exam.answer(s, "2.2.9-q2", ["a", ""], now=at(4))              # not fully answered: 0
+    exam.finish(s, bank, now=at(5))
+    res = s["result"]
+    assert res["correct"] == 2.25 and res["total"] == 4 and res["percent"] == 56
+    by = {t["objective"]: t for t in res["by_objective"]}
+    assert by["2.2.1"] == {"objective": "2.2.1", "correct": 1.75, "total": 2, "percent": 88}
+    assert by["2.2.9"] == {"objective": "2.2.9", "correct": 0.5, "total": 2, "percent": 25}
+    assert res["by_domain"] == [{"domain": "2", "correct": 2.25, "total": 4, "percent": 56}]
+    rows = {r["q"]: r for r in res["items"]}
+    assert (rows["2.2.1-q1"]["parts_right"], rows["2.2.1-q1"]["parts"], rows["2.2.1-q1"]["points"]) == (3, 4, 0.75)
+    assert rows["2.2.1-q2"]["correct"] is True and rows["2.2.1-q1"]["correct"] is False
+    assert rows["2.2.9-q2"]["answered"] is False and rows["2.2.9-q2"]["points"] == 0
+    # A question only partly right is one to ask again, as a wrong one is.
+    assert exam.history([s]) == {"2.2.1-q1": "wrong", "2.2.1-q2": "right", "2.2.9-q1": "wrong", "2.2.9-q2": "wrong"}
+    row = exam.evidence_row(s)
+    assert row["objectives"] == {"2.2.1": {"correct": 1.75, "total": 2}, "2.2.9": {"correct": 0.5, "total": 2}}
+    assert "answer" not in json.dumps(row)
+    review = {r["q"]: r for r in exam.review(s, bank)}
+    m = review["2.2.1-q1"]
+    assert (m["points"], m["parts_right"], m["part_count"], m["correct"]) == (0.75, 3, 4, False)
+    assert m["key"] == ["a", "b", "c", "b"] and m["answer"] == ["a", "b", "c", "a"] and m["parts"][3]["text"] == "ML on big data"
+    assert m["explanation"] and m["source"].startswith("https://learn.microsoft.com/")
+    assert review["2.2.9-q2"]["answered"] is False and review["2.2.9-q2"]["points"] == 0
+
+
+def test_thirds_add_up_exactly_and_round_only_when_shown():
+    q = {"type": "yesno", "parts": [{"text": "x"}] * 3, "answer": ["yes", "yes", "yes"]}
+    rows = [{"objective": "1.1.1", "parts_right": 1, "parts": 3, "correct": False} for _ in range(3)]
+    assert exam._tally(rows, "objective")[0]["correct"] == 1        # 1/3 three times is exactly 1
+    assert exam._num(Fraction(2, 3)) == 0.67 and exam._num(Fraction(4, 2)) == 2
+    assert exam._points({"correct": True}) == 1 and exam._points({"correct": False}) == 0   # results before partial credit
+    assert exam._score(q, ["yes", "no", "no"]) == (1, 3)
+
+
+def test_a_drill_checks_a_multi_part_answer_only_when_every_part_is_filled():
+    bank = _multi_bank()
+    s = _multi_session(bank, kind="drill")
+    exam.answer(s, "2.2.9-q1", ["b", ""], now=at(1))
+    with pytest.raises(exam.ExamError, match="every part"):
+        exam.check(s, bank, "2.2.9-q1", now=at(2))
+    exam.answer(s, "2.2.9-q1", ["b", "a"], now=at(3))
+    out = exam.check(s, bank, "2.2.9-q1", now=at(4))
+    assert (out["correct"], out["parts_right"], out["part_count"], out["points"]) == (False, 1, 2, 0.5)
+    assert out["key"] == ["b", "b"]
+    with pytest.raises(exam.ExamError, match="already checked"):
+        exam.answer(s, "2.2.9-q1", ["b", "b"], now=at(5))

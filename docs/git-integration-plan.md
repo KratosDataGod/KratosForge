@@ -1,6 +1,6 @@
 # Git integration plan
 
-KratosForge becomes a Git-native place to build Fabric solutions: build locally, version with Git, validate before deployment, run and consume in Fabric. This page is the assessment that came first and the plan the four phases follow. Phase 1 (Git foundation) is built; the rest is planned.
+KratosForge becomes a Git-native place to build Fabric solutions: build locally, version with Git, validate before deployment, run and consume in Fabric. This page is the assessment that came first and the plan the four phases follow. Phase 1 (Git foundation) is built. Most of Phase 2 (Fabric Git awareness) is built too, see [Phase 2 progress](#phase-2-progress). The rest is planned.
 
 ## What exists today
 

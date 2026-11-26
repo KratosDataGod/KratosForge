@@ -861,6 +861,94 @@ def test_randstr_and_uniform_keep_what_databricks_documents_without_a_seed():
     assert databricks_coverage.run("SELECT getdate() = current_timestamp()", con) == [[True]]
 
 
+def test_randstr_and_uniform_draw_again_on_every_row_and_in_every_query():
+    con = databricks_coverage.connect()
+    # each row gets its own string (Databricks' reference shows three different ones), and so does the next query
+    first = databricks_coverage.run("SELECT count(DISTINCT s) FROM (SELECT randstr(10) AS s FROM range(50))", con)
+    assert first == [[50]]
+    again = [databricks_coverage.run("SELECT randstr(16)", con)[0][0] for _ in range(2)]
+    assert again[0] != again[1]
+    assert databricks_coverage.run("SELECT randstr(0)", con) == [[""]]
+    # Spark's min + (max - min) * rand() cut toward zero: 10 to 19, every one of them, and never 20
+    assert databricks_coverage.run("SELECT min(u), max(u), count(DISTINCT u) FROM (SELECT uniform(10, 20) AS u "
+                                   "FROM range(2000))", con) == [[10, 19, 10]]
+    # and toward zero for negative bounds too: -20 + 10 * rand() is -19.x to -10.x, so -19 to -10
+    assert databricks_coverage.run("SELECT min(u), max(u) FROM (SELECT uniform(-20, -10) AS u FROM range(2000))",
+                                   con) == [[-19, -10]]
+
+
+@pytest.mark.parametrize(("code", "kind"), [
+    ("uniform(10, 20)", "INTEGER"), ("uniform(10L, 20)", "BIGINT"), ("uniform(10, 20L)", "BIGINT"),
+    ("uniform(1.5, 2.5)", "DECIMAL(2,1)"), ("uniform(1, 2.5)", "DECIMAL(2,1)"), ("uniform(1.5, 2.5e0)", "DOUBLE"),
+    ("uniform(1.5D, 2)", "DOUBLE"), ("uniform(1, 2.25)", "DECIMAL(3,2)"),
+])
+def test_uniform_gives_the_type_spark_gives_its_bounds(code, kind):
+    con = databricks_coverage.connect()
+    from fabric_desktop import sql
+    from fabric_desktop.engines.local_sql import _databricks
+    assert con.sql(sql.duckdb_sql(_databricks(f"SELECT {code}")[-1])).types[0] == kind
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT randstr(10, 0)", "SELECT uniform(10, 20, 0)", "SELECT uniform(1.5, 2.5, 42) FROM range(3)",
+])
+def test_randstr_and_uniform_with_a_seed_are_refused_by_name(code):
+    with pytest.raises(ValueError, match=r"\(\) can't run on this PC the way it runs in Databricks.*with a seed.*"
+                                         r"leave out the seed"):
+        databricks_coverage.run(code, databricks_coverage.connect())
+
+
+def test_uniform_with_bounds_that_arent_numbers_is_refused_by_name():
+    with pytest.raises(ValueError, match="uniform\\(\\) can't run.*write the bounds as numbers"):
+        databricks_coverage.run("SELECT uniform(a, 2) FROM VALUES (1) AS t(a)", databricks_coverage.connect())
+
+
+def test_a_randstr_longer_than_this_pc_builds_is_refused_by_name():
+    with pytest.raises(ValueError, match=r"randstr\(\) can't run.*up to 1,000,000 characters.*shorter string"):
+        databricks_coverage.run("SELECT randstr(1000000001)", databricks_coverage.connect())
+    assert len(databricks_coverage.run("SELECT randstr(1000000)", databricks_coverage.connect())[0][0]) == 1_000_000
+
+
+@pytest.mark.parametrize("code", ["SELECT randstr(" + "9" * 5000 + ")", "SELECT uniform(1, " + "9" * 5000 + ")"])
+def test_a_number_of_thousands_of_digits_gets_the_plain_refusal(code):
+    with pytest.raises(ValueError, match=r"\(\) can't run on this PC the way it runs in Databricks"):
+        databricks_coverage.run(code, databricks_coverage.connect())
+
+
+def test_current_time_is_a_time_cut_to_its_precision_in_the_session_zone():
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    con = databricks_coverage.connect()
+    con.execute("SET TimeZone = 'Asia/Kolkata'")
+    before = dt.datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None, microsecond=0)
+    rows = databricks_coverage.run("SELECT current_time(0), current_time(3), current_time(), localtime(1), "
+                                   "localtime()", con)
+    after = dt.datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    zero, three, six, one, local = rows[0]
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d", zero)
+    # a zero fraction is written with no digits
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d{3}000)?", three)
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d{6})?", six) and local == six
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d00000)?", one)
+    assert three.startswith(zero) and one.startswith(zero) and six.startswith(zero)
+    # the session's time of day (Kolkata, UTC+05:30), not UTC's
+    seconds = dt.time.fromisoformat(zero.removeprefix("time:"))
+    if before.date() == after.date():  # not across midnight
+        assert before.time() <= seconds <= after.time()
+    for bad in ("current_time(7)", "current_time(-1)", "localtime(2 + 1)"):
+        with pytest.raises(ValueError, match="takes a precision from 0 to 6"):
+            databricks_coverage.run(f"SELECT {bad}", con)
+
+
+def test_current_database_is_current_schema_as_in_databricks():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT current_database(), current_schema()", con) == [["default", "default"]]  # the schema main shows as default (WR-316)
+    con.execute("CREATE SCHEMA sales")
+    con.execute("USE sales")
+    assert databricks_coverage.run("SELECT current_database() = current_schema(), current_database()",
+                                   con) == [[True, "sales"]]
+
+
 @pytest.mark.parametrize("code", [
     "SELECT aes_encrypt('Spark SQL', '0000111122223333', 'ECB', 'PKCS')",
     "SELECT java_method('java.util.UUID', 'randomUUID')",

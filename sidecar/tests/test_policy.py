@@ -50,7 +50,8 @@ def test_service_shows_problems(policy):
         def policy_record(self):
             return None
     assert Service.app_settings(NoRecord())["policy_problems"] == [  # type: ignore[arg-type]
-        "show_preview should be bool, not str, so it takes its most restrictive value"]
+        ("show_preview should be bool, not str, so it takes its most restrictive value. Ask IT to change show_preview "
+         "in the policy file.")]
 
 
 def test_users_cannot_set_it_keys(policy):

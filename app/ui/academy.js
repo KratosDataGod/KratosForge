@@ -277,7 +277,7 @@ async function renderAcademyExercise(eid) {
   const save = () => rpc("academy_save", { pack_id: pack, exercise_id: eid, text: editor.value })
     .then(() => { saved.textContent = `Saved on this PC ${timeText(new Date())}`; })
     .catch(() => { saved.textContent = "Not saved yet"; });
-  const out = h("div", { class: "learn-result" }, learnResult(academyPage.run));
+  const out = h("div", { class: "learn-result" }, academyRunResult(academyPage.run));
   editor.addEventListener("input", () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 1500);
@@ -293,7 +293,7 @@ async function renderAcademyExercise(eid) {
     try { academyPage.run = await rpc("academy_run", { pack_id: pack, exercise_id: eid, sql: boxChosenText(editor) }); }
     catch (err) { academyPage.run = { error: friendlyError(err).text }; }
     finally { academyPage.busy = false; }
-    if (out.isConnected) fill(out, learnResult(academyPage.run));
+    if (out.isConnected) fill(out, academyRunResult(academyPage.run));
   };
   const checkIt = async () => {
     if (academyPage.busy) return;
@@ -318,6 +318,27 @@ async function renderAcademyExercise(eid) {
     h("span", { class: "spacer" }), saved),
   editor, h("p", { class: "muted-text small" }, "F5 or Ctrl+Enter runs (just the selected text, when you select some). Changes are undone after each run, so the exercise's data stays as it was."), out);
   academyPanel(aside, ex, ws);
+}
+
+// What Run gave: rows for SQL and the other table-shaped results (learnResult), or for a script (Python,
+// Delta, PySpark) its status in words and what it printed. A script's result has no columns.
+const ACADEMY_RUN_STATUS = {
+  ok: "Your script ran to the end.",
+  error: "Your script stopped with an error. Its output is below.",
+  time_limit: "Your script ran past its time limit and was stopped.",
+  memory_limit: "Your script used more memory than the exercise allows and was stopped.",
+  refused: "Your script wasn't run. The app couldn't start it inside its limits.",
+};
+
+function academyRunResult(r) {
+  if (!r || r.error || Array.isArray(r.columns)) return learnResult(r);
+  const said = ACADEMY_RUN_STATUS[r.status] || "Your script finished.";
+  const ms = typeof r.ms === "number" ? ` It took ${(r.ms / 1000).toFixed(1)} s on this PC.` : "";
+  const block = (label, text) => text ? h("div", {}, h("div", { class: "learn-eyebrow" }, label), h("pre", { class: "academy-output", tabindex: "0", "aria-label": label }, text)) : null;
+  return h("div", {},
+    h("p", { class: r.status === "ok" ? "muted-text" : "learn-error", role: r.status === "ok" ? "status" : "alert" }, `${said}${ms}`),
+    block("Output", r.stdout), block("Errors", r.stderr),
+    !r.stdout && !r.stderr ? h("p", { class: "muted-text small" }, "It printed nothing.") : null);
 }
 
 // The exercise's How this works panel (board 5 of the Academy mockup): opens from the title bar's ⓘ, or

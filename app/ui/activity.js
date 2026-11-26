@@ -135,13 +135,17 @@ function friendlyError(err) {
   if (/^SignInCancelled: /.test(raw)) return { text: "", details: "", cancelled: true };  // closed the sign-in window: not a failure
   if (!raw) return { text: "Something went wrong and no reason was given. Try again; if it keeps happening, report a problem.", details: "" };
   for (const [re, text] of engine) if (re.test(raw)) return { text, details: raw };
+  // An Academy lab's own words for the learner (academy/errors.py), such as DuckDB's message for SQL that
+  // didn't run: shown as they are, before Fabric's patterns ("does not exist" is a local table here).
+  const lab = /^LabError: ([\s\S]*)$/.exec(raw);
+  if (lab) return { text: lab[1], details: "" };
   const local = localError(raw);
   if (local) return local;
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
   // PlatformError is the platform refusing in words a person can act on (central/core.py), like "Only platform admins can ...".
   // NotInInventory is a LookupError (workload_service.py) whose name ends in neither Error nor Exception.
-  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|PlatformError|NotSetUp|NoMetadataProject|KernelGone|FileNotFoundError|GateError|GitError|Conflict|NotInInventory): ([\s\S]*)$/.exec(raw);
+  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|PlatformError|NotSetUp|NoMetadataProject|KernelGone|FileNotFoundError|GateError|GitError|Conflict|NotInInventory|Refused): ([\s\S]*)$/.exec(raw);
   if (m) return { text: m[2].replace(/^'(.*)'$/, "$1"), details: m[1] === "GateError" || m[1] === "GitError" ? "" : raw };
   if (/^[A-Z][A-Za-z]*(Error|Exception): /.test(raw)) {
     return { text: "Something went wrong inside the app. The details below help with a bug report.", details: raw };

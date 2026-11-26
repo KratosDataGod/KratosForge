@@ -6910,3 +6910,44 @@ test("an Academy exercise's How this works names the AppContainer only for pytho
     assert.doesNotMatch(JSON.stringify(ctx.how({ adapter: a, class: "local_verified" })), /sandboxed/i, a);
   }
 });
+
+// Offline audit 2026-11-26 (D4, D14): an Academy lab's own message (LabError, academy/errors.py) is shown
+// as it is, never as a bug report or a Fabric message, and a refusal loses its class name.
+test("an Academy lab's error is shown in its own words, with no Fabric wording", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
+  const cases = [
+    "LabError: Your SQL didn't run: Catalog Error: Table with name no_such_table does not exist!\nDid you mean \"pg_tables\"?",
+    "LabError: Your SQL didn't run: Parser Error: syntax error at or near \"SELEC\"",
+    "LabError: Your SQL didn't run: Permission Error: Cannot access file \"https://x\" - file system operations are disabled by configuration",
+    "LabError: Write a query first. There's no SQL here to run yet.",
+    "LabError: This exercise's files are damaged on this PC. Reinstall or update KratosForge to repair them.",
+  ];
+  for (const raw of cases) {
+    const f = ctx.friendlyError(raw);
+    assert.strictEqual(f.text, raw.slice("LabError: ".length), raw);
+    assert.doesNotMatch(f.text, /Fabric|inside the app/, raw);
+  }
+  assert.strictEqual(ctx.friendlyError("Refused: Line 1: git fetch isn't part of this lab.").text, "Line 1: git fetch isn't part of this lab.");
+});
+
+// Offline audit 2026-11-26 (D11): a Python, Delta or PySpark Run has a status and output, no columns. It is
+// drawn as its status in words and what it printed; SQL rows still go through learnResult.
+test("an Academy Run of a script shows its status and output, and SQL rows still show as a table", () => {
+  const src = fs.readFileSync(path.join(ui, "academy.js"), "utf8");
+  const code = src.match(/const ACADEMY_RUN_STATUS = [\s\S]*?\n};\n/)[0] + src.match(/function academyRunResult\(r\) \{[\s\S]*?\n\}\n/)[0];
+  const h = (tag, attrs, ...kids) => ({ tag, attrs: attrs || {}, kids: kids.flat().filter((k) => k !== null && k !== undefined && k !== false) });
+  const text = (n) => (n && typeof n === "object" ? n.kids.map(text).join(" ") : String(n ?? ""));
+  const ctx = { h, learnResult: (r) => (r ? h("p", {}, r.error || `table of ${r.columns.length}`) : null) };
+  vm.runInNewContext(`${code}; this.show = academyRunResult;`, ctx);
+  const failed = ctx.show({ status: "error", exit_code: 1, stdout: "hi\n", stderr: "Traceback\nValueError: boom\n", ms: 1500 });
+  assert.match(text(failed), /Your script stopped with an error\. Its output is below\. It took 1\.5 s on this PC\./);
+  assert.match(text(failed), /hi/);
+  assert.match(text(failed), /ValueError: boom/);
+  assert.strictEqual(failed.kids[0].attrs.role, "alert");
+  assert.match(text(ctx.show({ status: "time_limit", stdout: "", stderr: "", ms: 60000 })), /ran past its time limit.*It printed nothing\./);
+  assert.strictEqual(text(ctx.show({ columns: ["a", "b"], rows: [], ms: 3 })), "table of 2");
+  assert.strictEqual(text(ctx.show({ error: "Write a query first." })), "Write a query first.");
+  assert.strictEqual(ctx.show(null), null);
+});

@@ -15,7 +15,7 @@ from fabric_desktop import measurement as ms
 from fabric_desktop.excellence import controls as ct
 from fabric_desktop.excellence import findings as fx
 from fabric_desktop.opportunities import model as om
-from fabric_desktop.optimize import schema
+from fabric_desktop.optimize import schema, shared
 from fabric_desktop.savings import attribution as at
 from fabric_desktop.savings import corrections as co
 from fabric_desktop.savings import links as lk
@@ -269,6 +269,37 @@ def test_a_stored_history_that_breaks_the_graph_is_refused():
         rd.history(rows[:-1] + [forged])
     with pytest.raises(ValueError, match="without gaps"):
         rd.history([rows[0], rows[2]])
+
+
+def _old_row(rows: list[dict], state: str) -> dict:
+    """A version row as an earlier writer, following shared.TRANSITIONS, could have stored it."""
+    h = rows[-1]
+    v = h["version"] + 1
+    return dict(h, record_id=rd.version_record_id(h["optimization_id"], v), version=v, state=state,
+                previous_state=h["state"], at=when(v), reason="")
+
+
+def test_an_old_applied_to_verified_history_reads_fine_and_has_a_head():
+    rows = walk(rd.ACCEPTED, rd.APPLIED)
+    old = rows + [_old_row(rows, rd.VERIFIED)]
+    assert rd.VERIFIED in shared.TRANSITIONS[shared.APPLIED]
+    assert rd.history(old) == old and rd.head(old)["state"] == rd.VERIFIED and rd.head(old)["version"] == 4
+    # Every move shared.TRANSITIONS allows stays readable, applied to open included.
+    reopened = rows + [_old_row(rows, rd.OPEN)]
+    assert rd.head(reopened)["state"] == rd.OPEN
+    for source, targets in shared.TRANSITIONS.items():
+        if source is not None:
+            assert targets <= rd.READ_TRANSITIONS[source], source
+    # New changes on top of an old history follow the new graph.
+    assert rd.transition(old, change(old, rd.MONITORING))["record"]["version"] == 5
+
+
+def test_a_new_applied_to_verified_change_is_refused():
+    rows = walk(rd.ACCEPTED, rd.APPLIED)
+    with pytest.raises(rd.TransitionRefused, match="applied"):
+        rd.transition(rows, change(rows, rd.VERIFIED))
+    with pytest.raises(rd.TransitionRefused):
+        rd.transition(rows, change(rows, rd.OPEN))
 
 
 # ---------- scenario 9: concurrent updates

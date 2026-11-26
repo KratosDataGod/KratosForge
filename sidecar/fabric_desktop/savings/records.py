@@ -19,7 +19,10 @@ one row each), so there is always exactly one **head**: the latest version.
   two this story adds: ``reversed`` (the change never counted, scenario 10) and ``retired`` (the
   workload is gone, scenario 11). A move outside the graph is refused with ``TransitionRefused`` and
   a reason. Moves to dismissed, accepted risk, superseded, reverted, reversed and retired need a
-  reason. Moving to applied needs the optimized reference and rollback information.
+  reason. Moving to applied needs the optimized reference and rollback information. That graph is
+  for new changes only: reading stored rows (``history``) also accepts every move
+  ``shared.TRANSITIONS`` allows, such as applied to open or applied to verified, so a row that was
+  valid when it was written is never refused.
 - **References, never code.** The original and optimized references are definition fingerprints
   (letters, digits, ``.``, ``_``, ``:`` and ``-``, as ``links`` checks them). Code text, or a field
   named like code (``code``, ``definition``, ``content`` ...), is refused wherever it is passed.
@@ -75,6 +78,7 @@ from typing import Any
 
 from .. import measurement as ms
 from .. import redact
+from ..optimize.shared import TRANSITIONS as STORED_TRANSITIONS
 from ..optimize.shared import _clean, record_id, timestamp
 from .attribution import UNATTRIBUTED
 from . import corrections as co
@@ -112,6 +116,12 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     SUPERSEDED: frozenset(),
     REVERSED: frozenset(),
 }
+# What ``history`` accepts when reading: the graph above together with ``shared.TRANSITIONS``, the
+# moves Optimize's own writer allows (applied to open or to verified, for example). A row that was
+# valid when it was written is never refused on reading; only ``transition`` enforces the stricter
+# graph, for new changes.
+READ_TRANSITIONS: dict[str, frozenset[str]] = {
+    s: TRANSITIONS[s] | frozenset(STORED_TRANSITIONS.get(s, set())) for s in TRANSITIONS}
 NEEDS_REASON = frozenset({DISMISSED, ACCEPTED_RISK, SUPERSEDED, REVERTED, REVERSED, RETIRED})
 # Columns each version row carries that fdopt_recommendations v2 has no column for yet.
 NO_COLUMN = ("previous_state", "implemented_at", "reverted_at", "reversed_at", "retired_at", "rule_id",
@@ -312,8 +322,9 @@ def history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One optimization's version rows, oldest first, or ValueError when they aren't one line.
 
     The same row twice (a retry, a second PC) counts once. Two different rows at one version, a
-    missing version, a row whose move the graph doesn't allow, or rows of two optimizations are
-    refused: the history must have one head."""
+    missing version, a row whose move neither the graph nor ``shared.TRANSITIONS`` allows (so rows
+    Optimize's own writer made stay readable), or rows of two optimizations are refused: the history
+    must have one head."""
     if not isinstance(rows, list) or not rows:
         raise ValueError("A record's history is a non-empty list of its version rows.")
     by_version: dict[int, dict[str, Any]] = {}
@@ -339,7 +350,7 @@ def history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if out[0].get("state") not in (PROPOSED, OPEN):
         raise ValueError(f"Optimization {next(iter(oids))} starts as {out[0].get('state')!r}, not proposed or open.")
     for before, after in zip(out, out[1:], strict=False):
-        if after.get("state") not in TRANSITIONS.get(str(before.get("state")), frozenset()):
+        if after.get("state") not in READ_TRANSITIONS.get(str(before.get("state")), frozenset()):
             raise ValueError(f"Optimization {after.get('optimization_id')} moved from {before.get('state')} to "
                              f"{after.get('state')} at version {after['version']}, which the lifecycle doesn't allow.")
         if after.get("record_id") != version_record_id(str(after.get("optimization_id")), after["version"]):

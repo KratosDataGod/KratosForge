@@ -218,6 +218,11 @@ def _table(t: ModelTable, expression: str, about: dict[str, str] | None = None) 
     return table
 
 
+def _m_text(value: str) -> str:
+    """``value`` inside a Power Query M text literal: a double quote is written twice, so the text can't end early."""
+    return value.replace('"', '""')
+
+
 def model_bim(tables: list[ModelTable], rels: list[Relationship], sql_server: str, sql_endpoint_id: str,
               descriptions: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
     """The Direct Lake model as a TMSL ``model.bim`` document, which ``build`` writes as TMDL with
@@ -227,7 +232,7 @@ def model_bim(tables: list[ModelTable], rels: list[Relationship], sql_server: st
     model: dict[str, Any] = {
         "culture": "en-US", "defaultPowerBIDataSourceVersion": "powerBI_V3", "sourceQueryCulture": "en-US",
         "expressions": [{"name": expression, "kind": "m",
-                         "expression": f'let\n    database = Sql.Database("{sql_server}", "{sql_endpoint_id}")\n'
+                         "expression": f'let\n    database = Sql.Database("{_m_text(sql_server)}", "{_m_text(sql_endpoint_id)}")\n'
                                        "in\n    database",
                          "lineageTag": tag("expression", sql_endpoint_id)}]}
     if tables:  # an empty list would read back as no list at all

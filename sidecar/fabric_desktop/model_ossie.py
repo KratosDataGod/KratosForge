@@ -424,6 +424,8 @@ _SHAPE_LEADS = {
     "ossie": "The Ossie file couldn't be converted, because part of it isn't the shape Ossie gives it",
     "export": "This model couldn't be converted to Ossie, because part of it isn't the shape a semantic model's part has",
     "update": "The model couldn't be updated, because part of it isn't the shape a semantic model's part has",
+    "tmdl": "This model couldn't be written as TMDL, because part of it isn't the shape a semantic model's part has",
+    "compare": "This model couldn't be compared, because part of it isn't the shape a semantic model's part has",
 }
 
 
@@ -457,7 +459,7 @@ def _empty(value: Any) -> bool:
     return value is None or (isinstance(value, (str, list, dict)) and not value)
 
 
-def _refuse_shape(doc: Any, shape: Shape, kind: Literal["ossie", "export", "update"]) -> None:
+def _refuse_shape(doc: Any, shape: Shape, kind: Literal["ossie", "export", "update", "tmdl", "compare"]) -> None:
     """Refuse ``doc`` (ValueError naming the path, never a value) when a key ``shape`` names has a value of
     another type, such as text where a list of datasets goes or a list where an object goes. One pass, without
     recursion: only as deep as ``shape`` goes, so a deeply nested value is never walked."""

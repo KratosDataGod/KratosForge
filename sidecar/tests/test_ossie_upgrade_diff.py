@@ -108,6 +108,36 @@ def test_compare_marks_better_worse_and_changed():
         ("to_tmsl fidelity table 'a'", "fully_preserved", "better"), ("to_tmsl fidelity table 'b'", "(gone)", "worse")]
 
 
+
+def _compare_tool():
+    spec = importlib.util.spec_from_file_location("ossie_upgrade_diff_compare_rules", TOOL)
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+@pytest.mark.parametrize("expect, before, after, change, why", [
+    ("ok", "refused", "ok", "better", "the manifest expects ok"),
+    ("ok", "ok", "refused", "worse", "the manifest expects ok"),
+    (None, "ok", "refused", "worse", ""),
+    (None, "refused", "ok", "better", ""),
+    (None, "Unverified", "Invalid", "changed", ""),
+], ids=["exp-better", "exp-worse", "rank-worse", "rank-better", "rank-same"])
+def test_compare_judges_an_outcome_by_the_manifest_first_then_by_rank(expect, before, after, change, why):
+    tool = _compare_tool()
+    entries = [{"path": "f", "expect": {"validate": expect} if expect else {}}]
+    rows = tool.compare(entries, {"f": {"validate": (before, {})}}, {"f": {"validate": (after, {})}})
+    assert [(r["change"], r["why"]) for r in rows] == [(change, why)]
+
+
+def test_compare_counts_an_object_the_candidate_drops_as_worse_whatever_its_class_was():
+    tool = _compare_tool()
+    entries = [{"path": "f", "expect": {}}]
+    for cls in ("fully_preserved", "unsupported", "something_new"):
+        base = {"f": {"to_tmsl": ("ok", {"fidelity": {"table 'a'": cls}})}}
+        cand = {"f": {"to_tmsl": ("ok", {"fidelity": {}})}}
+        assert [(r["after"], r["change"]) for r in tool.compare(entries, base, cand)] == [("(gone)", "worse")], cls
+
 @pytest.mark.parametrize("source, says", [
     ("def broken(:\n", "doesn't import: SyntaxError"),
     ("raise ImportError('no such converter')\n", "doesn't import: ImportError: no such converter"),

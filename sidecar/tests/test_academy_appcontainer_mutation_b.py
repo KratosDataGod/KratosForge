@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import ntpath
 import os
+import re
 import types
 from pathlib import Path
 
@@ -168,8 +169,9 @@ def test_a_second_grant_is_skipped_while_its_record_is_there(granting):
     granting.calls.clear()
     ac.grant_runtime(None, "S-1", None, granting.data)
     assert granting.calls == []
-    (granting.data / "academy" / ac.GRANTS_FILE).unlink()
-    ac.grant_runtime(None, "S-1", None, granting.data)
+    # A data folder with no record yet. (Not an unlink of the record: on Windows a scanner holding the
+    # just-written file can leave it pending delete, so that exists() still says True.)
+    ac.grant_runtime(None, "S-1", None, granting.data.parent / "data2")
     assert len(granting.calls) == 2
 
 
@@ -302,7 +304,7 @@ def sealed_folders(monkeypatch, tmp_path):
 
 def test_a_folder_every_appcontainer_can_read_is_refused(monkeypatch, sealed_folders):
     monkeypatch.setattr(ac, "app_package_aces", lambda p: [("x", "A", "")] if p == sealed_folders else [])
-    with pytest.raises(OSError, match=f"Every AppContainer can read {sealed_folders}, where"):
+    with pytest.raises(OSError, match=f"Every AppContainer can read {re.escape(str(sealed_folders))}, where"):
         ac.check_sealed_folders_closed(sealed_folders)
 
 

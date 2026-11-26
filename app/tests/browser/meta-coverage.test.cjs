@@ -706,6 +706,24 @@ test("Table health on this PC compacts instead and has no V-Order or after-run o
   await toastSays(/Compacted 2 tables/);
 });
 
+test("Table health counts a table whose Delta log is damaged and shows its row as an error", { skip }, async () => {
+  const msg = "This table couldn't be read, because its Delta log is damaged or needs a feature this app can't read. Write the table again with a run, or fix its _delta_log folder.";
+  db.health.tables = [{ ...db.health.tables[0], exists: false, status: "unreadable", message: msg }, db.health.tables[1]];
+  await openTab("health", "test");
+  const rows = page().locator(".meta-body table.list tbody tr");
+  await rows.first().waitFor();
+  const head = await page().locator(".meta-body .card.pad").first().textContent();
+  assert.match(head, /1 table couldn't be read\. Its row below says why and how to fix it\./);
+  assert.doesNotMatch(head, /good shape/);
+  assert.strictEqual(await rows.first().locator("td.error-text").textContent(), msg);
+  assert.strictEqual(await rows.nth(1).locator("td.error-text").count(), 0);
+
+  db.health.tables = [db.health.tables[0], { ...db.health.tables[0], entity: "bronze.customers" }];
+  await page().locator(".meta-body .card.pad").first().getByRole("button", { name: "Refresh" }).click();
+  await page().getByText("2 tables couldn't be read. Their rows below say why and how to fix them.").waitFor();
+  assert.deepStrictEqual(app.errors, []);
+});
+
 // ---------- approved exceptions ----------
 
 test("an exception about to end shows on every tab and in the bell; Review lists them all", { skip }, async () => {

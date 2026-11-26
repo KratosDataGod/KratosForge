@@ -44,6 +44,7 @@ import datetime as dt
 import os
 import re
 import tomllib
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any
@@ -103,7 +104,8 @@ _SECRET_NAMES = {"pwd", "privatekey", "privatekeyraw", "pat"}
 
 
 def _secret_name(key: Any) -> bool:
-    return redact.secret_key(key) or str(key).lower().replace("-", "").replace("_", "") in _SECRET_NAMES
+    key = unicodedata.normalize("NFKC", str(key))  # fullwidth "ｓｅｃｒｅｔ" is "secret"
+    return redact.secret_key(key) or key.lower().replace("-", "").replace("_", "") in _SECRET_NAMES
 
 
 # A profile is a few levels deep; anything far deeper is refused before it is walked or copied.

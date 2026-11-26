@@ -60,8 +60,8 @@ report stay.
 | The Guardian | A Learn exercise that plants data quality problems passes: your query finds every one | 100 |
 
 Each Learn achievement needs a published lesson or lab with that kind of check. Today LAB-02 has a
-speed check, LM-02 and LM-05 have table shape and integrity checks, and LAB-01 plants data quality
-problems.
+speed check and LAB-01 plants data quality problems. Eleven lessons and labs have a table shape or
+integrity check, among them LM-02, LM-05 and LAB-03.
 
 When Validate, Prove, Side by side or a Learn check earns you an achievement, a short message names it (turn that off with **Settings >
 Achievement notifications**). Each achievement is announced once, even if you open the same result
@@ -132,6 +132,12 @@ example Lakehouse Warden for an enterprise data engineer. A class has three spec
 specialization is a talent tree of ten talents. Pick a class at the top right and a specialization
 on its tabs. Pick a talent to see its level, what the next level needs, the evidence that counts for
 it, and the lessons that teach it. The tab is hidden while Developer progression is off.
+
+Each class has five class achievements, shown above its trees. An earned one shows the day your
+evidence first met it, or just "Earned" when that evidence has no date. One you're working toward
+shows how many of the talents it counts are at the level it needs. One that no lesson, exercise or
+check can verify yet says so. Like levels, they're worked out from your evidence each time, so one
+is never earned twice and is still there after a restart.
 
 Each talent has a mastery level: Not started, Initiate, Apprentice, Journeyman, Adept, Expert, Master
 or Grandmaster. Levels come only from work KratosForge verified on this PC, and they're worked out

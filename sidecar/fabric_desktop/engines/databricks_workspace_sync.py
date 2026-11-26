@@ -157,6 +157,9 @@ def _not_in_git_folder(client: Client, remote: str) -> bool:
             if "RESOURCE_DOES_NOT_EXIST" in str(exc) or "404" in str(exc):
                 continue
             raise
+        if not isinstance(reply, dict):
+            raise SyncError("Nothing was changed because Databricks answered in a shape this app can't read, so "
+                            "whether that folder is a Git folder isn't known. Try again.")
         exists = exists or depth == len(parts)
         if reply.get("object_type") == "REPO":
             raise SyncError("That folder is a Git folder or inside one: it changes through Git, so it's read only here.")
@@ -173,8 +176,14 @@ def remote_files(client: Client, remote: str) -> tuple[dict[str, dict[str, Any]]
         if not isinstance(obj, dict) or obj.get("object_type") not in ("NOTEBOOK", "FILE"):
             continue
         name = PurePosixPath(str(obj.get("path") or "")).name
+        when = obj.get("modified_at") or 0
+        if isinstance(when, str) and when.isascii() and when.isdigit() and len(when) <= 20:
+            when = int(when)
+        if isinstance(when, bool) or not isinstance(when, int):
+            raise SyncError(f"The folder wasn't compared because Databricks listed {_text(name) or 'a file'} with a "
+                            "change time this app can't read. Nothing was changed. Try again.")
         if name:
-            out[name] = {"type": obj["object_type"], "modified_at": int(obj.get("modified_at") or 0)}
+            out[name] = {"type": obj["object_type"], "modified_at": when}
     return out, True
 
 
@@ -256,11 +265,12 @@ def _loss_notes(path: Path) -> list[dict[str, Any]]:
 def _content(path: Path) -> tuple[str, str]:
     """(base64 source, language) to import: a .ipynb becomes Databricks Python source."""
     language = SUFFIXES[path.suffix.lower()]
-    if path.suffix.lower() == ".ipynb":
-        cells = nbf.parse_ipynb(path.read_text(encoding="utf-8"))["cells"]
-        text = nbf.to_databricks_py(cells)
-    else:
-        text = path.read_text(encoding="utf-8")
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise ValueError(f"{path.name} wasn't pushed, because it isn't UTF-8 text. Save it as UTF-8, then push "
+                         "again.") from None
+    text = nbf.to_databricks_py(nbf.parse_ipynb(raw)["cells"]) if path.suffix.lower() == ".ipynb" else raw
     return base64.b64encode(text.encode("utf-8")).decode("ascii"), language
 
 
@@ -338,11 +348,18 @@ def pull(client: Client, pair: dict[str, Any], files: list[str]) -> dict[str, An
             skipped.append({"file": name, "why": "Only a .py or .sql file changed in Databricks and not here is pulled."})
             continue
         reply = client.get("/api/2.0/workspace/export", {"path": f"{remote}/{row['remote']}", "format": "SOURCE"})
-        encoded = str(reply.get("content") or "")
+        encoded = reply.get("content") if isinstance(reply, dict) else None
+        if not isinstance(encoded, str):
+            skipped.append({"file": name, "why": "It wasn't pulled because Databricks sent no content for it. Pull it again."})
+            continue
         if len(encoded) > MAX_BYTES * 4 // 3 + 4:
             skipped.append({"file": name, "why": "It's over 10 MB in Databricks, so it isn't pulled."})
             continue
-        data = b64.decode_exact(encoded)
+        try:
+            data = b64.decode_exact(encoded)
+        except ValueError:
+            skipped.append({"file": name, "why": "It wasn't pulled because Databricks sent its content cut short or garbled. Pull it again."})
+            continue
         path = root / name
         if path.is_symlink() or path.resolve().parent != root:
             skipped.append({"file": name, "why": "Not a file in this folder."})

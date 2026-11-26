@@ -203,6 +203,7 @@ function incReportsPanel() {
 async function loadIncidentReport(box, approve = false) {
   if (!incReport.env) incReport.env = incPage.env || "prod";
   const { env, days } = incReport;
+  const seq = incReport.seq = (incReport.seq || 0) + 1;  // only the newest pick may draw, whether it answers or fails
   const again = (changes = {}, ok = false) => { Object.assign(incReport, changes); loadIncidentReport(box, ok); };
   const envPick = h("select", { "aria-label": "Environment", onchange: (ev) => again({ env: ev.target.value }) },
     Object.keys(ENV_LABEL).map((e) => h("option", { value: e, selected: e === env }, envName(e))));
@@ -216,11 +217,11 @@ async function loadIncidentReport(box, approve = false) {
     [out, policy] = await Promise.all([rpc("incidents_measures", { env, days, approve }),
       rpc("incident_sla_policy", {}).catch(() => null)]);
   } catch (err) {
-    if (!box.isConnected) return;
+    if (!box.isConnected || incReport.seq !== seq) return;  // a newer pick is on its way
     box.replaceChildren(head, h("p", { class: "reason monitor-empty" }, `Couldn't read the report: ${friendlyError(err).text}`));
     return;
   }
-  if (!box.isConnected || incReport.env !== env || incReport.days !== days) return;  // a newer pick is on its way
+  if (!box.isConnected || incReport.seq !== seq) return;  // a newer pick is on its way
   box.replaceChildren(head, ...incReportBody(out, policy, () => again({}, true)));
 }
 

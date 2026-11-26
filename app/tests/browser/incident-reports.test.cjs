@@ -56,6 +56,7 @@ const TARGETS = { P1: { acknowledge_minutes: 15, resolve_minutes: 240 }, P2: { a
 
 let reports = {};  // "env:days" -> what incidents_measures returns; anything else has no incidents
 let fail = null;  // the engine's error for the next reads
+let slow = {};  // "env:days" -> { ms, error }: that read answers late, and fails with error when given
 let tables = true;  // false: the incident tables need setting up, until a call approves it
 const SETUP = "The central lakehouse needs the Incident management tables (fdinc_incident_event, fdinc_incident_snapshot). Confirm to continue.";
 
@@ -66,7 +67,12 @@ const mocks = {
   incidents_board: ({ env }) => ({ env, incidents: [], user: "chris@contoso.com", observation: { state: "live", label: "Live", detail: "" },
     agents: { readable: true, agents: [] }, counts: { open: 0, mine: 0, unassigned: 0, at_risk: 0, breached: 0 } }),
   incident_sla_policy: () => ({ targets: TARGETS, source: "default", problems: [], priorities: [] }),
-  incidents_measures: ({ env, days, approve }) => {
+  incidents_measures: async ({ env, days, approve }) => {
+    const late = slow[`${env}:${days}`];
+    if (late) {
+      await new Promise((r) => setTimeout(r, late.ms));
+      if (late.error) throw new Error(late.error);
+    }
     if (fail) throw new Error(fail);
     if (!tables && !approve) return { state: "needs_confirm", message: SETUP };
     tables = true;
@@ -85,6 +91,7 @@ beforeEach(async () => {
   if (skip) return;
   reports = { "prod:30": PROD_30 };
   fail = null;
+  slow = {};
   tables = true;
   await page().setViewportSize({ width: 1440, height: SHOTS ? 1180 : 940 });
   await page().evaluate(() => { closeDialog(); go("home"); });
@@ -252,6 +259,41 @@ test("an engine error says the report couldn't be read, and the pickers stay to 
   await page().getByRole("group", { name: "Window" }).getByRole("button", { name: "30 days" }).click();
   await drawn(from);
   assert.strictEqual((await tiles())[0], "Opened 42 in the last 30 days");
+});
+
+test("a slow read for an older pick, failing or not, never replaces the newer pick's report", { skip }, async () => {
+  reports["dev:30"] = measured("dev", 30, [prio("P2", 1, 1, 0, spread(1, 5, 5), spread(1, 60, 60), clock(1, 0, 0), clock(1, 0, 0))]);
+  for (const error of ["TimeoutError: The central lakehouse didn't answer in time.", null]) {
+    await openReport();
+    slow = { "dev:30": { ms: 1500, error } };
+    const from = measures().length;
+    await page().locator(".inc-report-head select").selectOption("dev");
+    for (const end = Date.now() + 5000; measures().length <= from; await new Promise((r) => setTimeout(r, 25))) {
+      if (Date.now() > end) assert.fail("Dev was never read");
+    }
+    await page().locator(".inc-report-head select").selectOption("prod");
+    await drawn(from + 1);
+    assert.strictEqual((await tiles())[0], "Opened 42 in the last 30 days");
+    await new Promise((r) => setTimeout(r, 1800));  // Dev's late answer has come back by now
+    assert.strictEqual((await tiles())[0], "Opened 42 in the last 30 days", `Dev's late ${error ? "failure" : "report"} drew over Prod's`);
+    assert.strictEqual(await page().locator(".page.monitor .inc-report .reason").count(), 0);
+    assert.strictEqual(await page().locator(".inc-report-head select").inputValue(), "prod");
+  }
+});
+
+test("a copy that failed, and a read that hit the 5,000 limit, are said above the report", { skip }, async () => {
+  reports["prod:30"] = { ...PROD_30, capped: true,
+    copy: PROD_30.copy.map((c) => (c.env === "prod" ? { ...c, state: "failed", detail: "the lakehouse refused the write" } : c)) };
+  await openReport();
+  const notes = (await text("p.small")).map((t) => t.trim());
+  assert.ok(notes.includes("Prod's newest changes couldn't be copied (the lakehouse refused the write), so the report may not count them."), notes.join(" | "));
+  assert.ok(notes.includes("Only the newest 5,000 incidents were read."), notes.join(" | "));
+  assert.strictEqual((await tiles())[0], "Opened 42 in the last 30 days");
+});
+
+test("durations read in minutes, hours and days, without a zero part", { skip }, async () => {
+  const shown = await page().evaluate(() => [0, 59, 60, 75, 89, 90, 1439, 1440, 1500, 2880].map((m) => incDuration(m)));
+  assert.deepStrictEqual(shown, ["0 min", "59 min", "1 h", "1 h 15 min", "1 h 29 min", "1 h 30 min", "23 h 59 min", "1 d", "1 d 1 h", "2 d"]);
 });
 
 test("when the incident tables need setting up, it asks first and approves only on Create and read", { skip }, async () => {

@@ -17,7 +17,7 @@ import requests
 
 from . import http_session, redact
 from .paging import Pages
-from .retrying import send_with_retry
+from .retrying import retry_call, send_with_retry
 
 _log = logging.getLogger(__name__)
 
@@ -277,6 +277,31 @@ class FileTooBig(ValueError):
 PROBE_ATTEMPTS = 3
 
 
+# How many times an upload step on its new file (create, write, commit) is sent when the connection
+# drops (Wi-Fi, a VPN reconnecting, a proxy reset): each names the same new file, at the same position,
+# so sending it again changes nothing more. Waits of 2, 4 and 8 s, for a line that comes back.
+UPLOAD_STEP_ATTEMPTS = 4
+UPLOAD_STEP_WAIT = 2.0
+
+
+def _dropped(exc: BaseException) -> bool:
+    return isinstance(exc, (requests.ConnectionError, requests.Timeout))
+
+
+class UploadDropped(requests.ConnectionError):
+    """A file upload stopped by a dropped connection, in words that say what happened to the file."""
+
+
+def _upload_dropped(path: str, step: str) -> UploadDropped:
+    if step == "replace":
+        return UploadDropped(f"Uploading {path} to OneLake: the connection dropped just as the new file was being put "
+                             f"in place, so {path} may have its old content or its new one. Upload it again once "
+                             "you're connected: that replaces it once, and never makes a second copy.")
+    return UploadDropped(f"Uploading {path} to OneLake stopped because the connection dropped (Wi-Fi, a VPN or a "
+                         f"proxy), even after trying again. {path} wasn't changed: it still has its old content, or "
+                         "isn't there if it's new. Upload it again once you're connected.")
+
+
 class FileStore:
     """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API.
 
@@ -405,25 +430,32 @@ class FileStore:
                  ("PATCH", url, {"action": "append", "position": "0"}, data, {}, "write"),
                  ("PATCH", url, {"action": "flush", "position": str(len(data))}, None, {}, "commit"),
                  ("PUT", item_url(workspace_id, lakehouse_id, target), {}, None, rename, "replace")]
-        done = 0
+        done, step = 0, "create"
         try:
             for method, at, params, body, extra, step in steps:
                 if body is not None and not body:
                     continue  # an empty file needs no append
                 # Throttling (429) is waited out: OneLake did nothing. Anything else is sent once, since
                 # the step may have happened; a failed append is never flushed, so no half file is seen.
-                resp = send_with_retry(lambda: self._http.request(method, at, params=params, data=body,  # noqa: B023 - called before the loop moves on
-                                                                  headers={**self._headers(), **extra}, timeout=300),  # noqa: B023
-                                       method, sleep=self._sleep, safe=False)
+                # A dropped connection on the new file is sent again (UPLOAD_STEP_ATTEMPTS); the rename isn't.
+                resp = retry_call(
+                    lambda: send_with_retry(lambda: self._http.request(method, at, params=params, data=body,  # noqa: B023 - called before the loop moves on
+                                                                       headers={**self._headers(), **extra}, timeout=300),  # noqa: B023
+                                            method, sleep=self._sleep, safe=False),  # noqa: B023
+                    retry_on=_dropped if step != "replace" else lambda exc: False, attempts=UPLOAD_STEP_ATTEMPTS,
+                    wait=lambda n: UPLOAD_STEP_WAIT * 2 ** (n - 1), sleep=self._sleep)
                 if resp.status_code >= 400:
                     raise _onelake_error(resp, f"{step} {path}")
                 done += 1
-        except Exception:
+        except Exception as failed:
             if done:  # the new file was created: remove it, so only the old file is left
                 try:
                     self.delete(workspace_id, lakehouse_id, temp, recursive=False)
                 except Exception as exc:  # noqa: BLE001 - the upload's own error is the one to report
                     _log.warning("Couldn't remove %s after a failed upload: %s", temp, redact.describe(exc))
+            if _dropped(failed):  # requests' words name a URL and a pool; say what happened to the file
+                _log.warning("Upload of %s dropped at its %s step: %s", path, step, redact.describe(failed))
+                raise _upload_dropped(path, step) from failed
             raise
 
     def mkdir(self, workspace_id: str, lakehouse_id: str, path: str) -> None:

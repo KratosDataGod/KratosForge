@@ -194,3 +194,54 @@ def test_a_metadata_run_whose_commit_connection_dropped_says_to_check_history(tm
     assert res.message.startswith("The connection to OneLake dropped while the commit to bronze.events was being")
     assert "may or may not have gone in" in res.message and "history" in res.message
     assert any(st.name == "error" and "Error performing PUT" in st.detail for st in res.steps)
+
+
+class DroppingADLS(FakeADLS):
+    """FakeADLS whose appends drop the connection ``drops`` times (Wi-Fi gone, a VPN reconnecting)."""
+
+    def __init__(self, drops: int):
+        super().__init__()
+        self.drops, self.appends = drops, 0
+
+    def request(self, method, url, params=None, data=None, headers=None, timeout=None):
+        if (params or {}).get("action") == "append":
+            self.appends += 1
+            if self.drops:
+                self.drops -= 1
+                raise requests.ConnectionError("('Connection aborted.', ConnectionResetError(10054, 'An existing "
+                                               "connection was forcibly closed by the remote host'))")
+        return super().request(method, url, params=params, data=data, headers=headers, timeout=timeout)
+
+
+def test_a_file_upload_whose_connection_drops_for_a_moment_is_finished():
+    """The new file beside the target is written again at the same position: nothing twice, and the upload
+    goes through once the line is back, with growing waits."""
+    fake, slept = DroppingADLS(drops=2), []
+    fs = onelake.FileStore(lambda: "tok", session=fake, sleep=slept.append)
+    fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
+    assert list(fake.files.values()) == [b'{"v": 2}'] and all(k.endswith("Files/config.json") for k in fake.files)
+    assert fake.appends == 3 and slept == [2.0, 4.0]
+
+
+def test_a_file_upload_whose_connection_stays_down_keeps_the_old_file_and_says_so_plainly():
+    fake = DroppingADLS(drops=0)
+    fs = onelake.FileStore(lambda: "tok", session=fake, sleep=lambda s: None)
+    fs.upload(WS, LH, "Files/config.json", b'{"v": 1}')
+    fake.drops = 99
+    with pytest.raises(onelake.UploadDropped) as err:
+        fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
+    assert str(err.value) == (
+        "Uploading Files/config.json to OneLake stopped because the connection dropped (Wi-Fi, a VPN or a proxy), "
+        "even after trying again. Files/config.json wasn't changed: it still has its old content, or isn't there "
+        "if it's new. Upload it again once you're connected.")
+    assert isinstance(err.value, requests.ConnectionError)  # callers that catch requests' errors still do
+    assert fake.appends == 1 + onelake.UPLOAD_STEP_ATTEMPTS
+    assert list(fake.files.values()) == [b'{"v": 1}']  # the old file, and no upload left beside it
+
+
+def test_a_file_upload_whose_rename_reply_was_lost_says_the_file_may_be_either():
+    fake = FakeADLS()
+    fs = onelake.FileStore(lambda: "tok", session=fake, sleep=lambda s: None)
+    fake.lose_rename = True
+    with pytest.raises(onelake.UploadDropped, match="may have its old content or its new one. Upload it again"):
+        fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')

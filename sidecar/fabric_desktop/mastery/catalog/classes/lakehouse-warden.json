@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "three-tiers-raised", "name": "Three Tiers Raised", "criteria": "Reach Journeyman in Lakehouses and the medallion layers, in Raw landing and Bronze tables, and in Gold star schema for reporting."},
-  {"id": "the-tide-holds", "name": "The Tide Holds", "criteria": "Reach Adept in Idempotent loads and in Incremental loads with a watermark."},
-  {"id": "clean-ledger", "name": "Clean Ledger", "criteria": "Reach Journeyman in every Steadfast Loader talent up to tier 3."},
-  {"id": "lean-lake", "name": "Lean Lake", "criteria": "Reach Adept in Small files and compaction and in Partitioning and file pruning, with a measured speed-up."},
-  {"id": "warden-of-the-lake", "name": "Warden of the Lake", "criteria": "Reach Adept in all ten talents of one Lakehouse Warden specialization."}
+  {"id": "three-tiers-raised", "name": "Three Tiers Raised", "criteria": "Reach Journeyman in Lakehouses and the medallion layers, in Raw landing and Bronze tables, and in Gold star schema for reporting.", "requires": {"level": 3, "talents": ["medallion.01", "medallion.04", "medallion.09"]}},
+  {"id": "the-tide-holds", "name": "The Tide Holds", "criteria": "Reach Adept in Idempotent loads and in Incremental loads with a watermark.", "requires": {"level": 4, "talents": ["reliability.04", "delta.04"]}},
+  {"id": "clean-ledger", "name": "Clean Ledger", "criteria": "Reach Journeyman in every Steadfast Loader talent up to tier 3.", "requires": {"level": 3, "specialization": "reliability", "max_tier": 3}},
+  {"id": "lean-lake", "name": "Lean Lake", "criteria": "Reach Adept in Small files and compaction and in Partitioning and file pruning, with a measured speed-up.", "requires": {"level": 4, "talents": ["delta.05", "delta.06"], "measured": true}},
+  {"id": "warden-of-the-lake", "name": "Warden of the Lake", "criteria": "Reach Adept in all ten talents of one Lakehouse Warden specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

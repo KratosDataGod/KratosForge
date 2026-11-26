@@ -71,7 +71,7 @@ test("Export as SVG writes a new file in Downloads that matches the drawing", { 
   const dialog = page().getByRole("dialog", { name: "Diagram: SalesWH" });
   await dialog.getByText("2 from keys", { exact: false }).waitFor();
   await dialog.getByRole("button", { name: "Export as SVG" }).click();
-  const toast = await page().getByText(/Saved to .*\.svg/).textContent();
+  const toast = await page().locator("#toast").filter({ hasText: /Saved to .*\.svg/ }).textContent();
   const saved = fs.readFileSync(toast.match(/Saved to (.*\.svg)/)[1], "utf8");
   assert.ok(saved.startsWith("<svg ") && saved.includes("fact_sales") && saved.includes('stroke-dasharray="5 4"'));
   await page().keyboard.press("Escape");

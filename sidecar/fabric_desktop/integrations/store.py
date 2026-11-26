@@ -74,7 +74,6 @@ def new_id(prefix: str) -> str:
 class IntegrationStore:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
         # A file SQLite can't read is moved aside and the store starts empty: integrations are off,
         # and connected tools and approvals are gone, so every tool asks to connect again. That is

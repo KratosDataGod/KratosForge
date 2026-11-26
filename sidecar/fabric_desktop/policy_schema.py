@@ -68,8 +68,8 @@ _TEXT: dict[str, tuple[str, str]] = {
     "platform": ("fabric", "The organization's Platform workspaces, so every PC joins the same platform."),
     "incident_sla": ("fabric", "Minutes to acknowledge and resolve an incident, per priority."),
     "local_retention_days": ("fabric", "Days unused before local copies of lakehouse data are deleted; 0 keeps them."),
-    "audit_retention_days": ("fabric", "Days the audit trails on this PC are kept; 0 keeps them, otherwise a whole number of at least 30. Trusted only from an admin-only source."),
-    "receipt_retention_days": ("fabric", "Days run receipts are kept; 0 keeps them, otherwise a whole number of at least 30. Trusted only from an admin-only source."),
+    "audit_retention_days": ("fabric", "Days the audit trails on this PC are kept: at least 30. They are kept when it isn't set (or is 0 in the policy file). Trusted only from an admin-only source."),
+    "receipt_retention_days": ("fabric", "Days run receipts are kept: at least 30. They are kept when it isn't set (or is 0 in the policy file). Trusted only from an admin-only source."),
     "onelake_writes": ("fabric", "local_first stages a notebook's table writes on the PC and uploads them in the background; direct writes each one to OneLake before the next line runs."),
     "onelake_compression": ("fabric", "The Parquet codec for tables written to OneLake: zstd or snappy."),
     "onelake_skip_unchanged": ("fabric", "Whether an overwrite whose rows match what the app last wrote uploads nothing."),
@@ -104,12 +104,12 @@ _TEXT: dict[str, tuple[str, str]] = {
     "appstudio_hosts": ("appstudio", "Exact host names an Azure OpenAI or OpenAI-compatible connection may use."),
     "appstudio_sample_rows": ("appstudio", "False stops any connection sending sample rows."),
     "fabric_full_screen": ("appearance", "Whether the Fabric portal tab fills the window."),
-    "forge_animations": ("appearance", "The first motion switch: false means motion level 0 unless motion_level is set."),
-    "motion_level": ("appearance", "Visual intensity: 0 Off, 1 Minimal, 2 Refined, 3 Expressive."),
-    "motion_wolf": ("appearance", "Whether the wolf effects show at motion levels 2 and 3."),
-    "motion_sparks": ("appearance", "Whether spark effects show at motion levels 2 and 3."),
-    "motion_achievements": ("appearance", "Whether achievement celebrations show at motion levels 2 and 3."),
-    "motion_ambient": ("appearance", "Whether ambient effects show at motion levels 2 and 3."),
+    "forge_animations": ("appearance", "The first motion switch: false means Professional (motion level 0) unless motion_level is set."),
+    "motion_level": ("appearance", "Visual intensity: 0 Professional, 1 Subtle (the default), 2 Heroic, 3 Legendary."),
+    "motion_wolf": ("appearance", "Whether the wolf effects show at Heroic and Legendary (motion levels 2 and 3)."),
+    "motion_sparks": ("appearance", "Whether spark effects show at Heroic and Legendary (motion levels 2 and 3)."),
+    "motion_achievements": ("appearance", "Whether achievement celebrations show at Subtle and above (motion levels 1 to 3)."),
+    "motion_ambient": ("appearance", "Whether ambient effects show at Heroic and Legendary (motion levels 2 and 3)."),
     "motion_follow_system": ("appearance", "Whether Windows' reduced-motion setting turns decorative motion off."),
     "ui_explanations": ("appearance", "Whether each page's explanation shows beside it or opens on request."),
     "ui_preview_marks": ("appearance", "How Preview features are marked: tags or dots."),
@@ -120,7 +120,7 @@ _TEXT: dict[str, tuple[str, str]] = {
     "learn_mode_sql": ("appearance", "The guidance level for SQL findings only; same follows learn_mode."),
     "learn_mode_notebooks": ("appearance", "The guidance level for notebook findings only; same follows learn_mode."),
     "editor_word_wrap": ("notebooks", "Which code editors wrap long lines: off, notebooks, sql or both."),
-    "editor_font_size": ("notebooks", "The code font size in notebook cells and SQL editors, 10 to 24; 0 keeps each editor's own."),
+    "editor_font_size": ("notebooks", "The code font size in notebook cells and SQL editors, 10 to 24. Each editor keeps its own size when it isn't set (or is 0 in the policy file)."),
     "editor_keys": ("notebooks", "Editing keys in cells and SQL editors: default, or vim (Preview)."),
     "editor_key_overrides": ("notebooks", "A map of editor command to its key, for the commands Settings > Editor lists."),
     "engine_folder": ("signin", "A folder only administrators can change that holds IT's engine, with auto_update false (Preview). Read by the app itself, only from an admin-only policy.json."),
@@ -135,8 +135,14 @@ _KINDS = {"integrations": "bool", "integrations_http": "bool", "integrations_edi
 # Keys whose value holds objects, not strings, and keys the shell reads only from policy.json: a
 # template can't set them, so they stay in the policy file.
 _JSON = {"platform", "incident_sla", "editor_key_overrides", "engine_folder"}
-# Upper limits for numbers app_settings only bounds below (a template needs one).
-_HIGH = {"editor_font_size": 24, "local_retention_days": 3650, "audit_retention_days": 3650, "receipt_retention_days": 3650}
+# A template's box takes one range, with no gap, so it holds the range app_settings accepts besides 0 for
+# these, and the text says 0 comes from leaving it unset (_RANGES). Numbers app_settings only bounds below
+# go up to the largest a DWORD holds, which is all Group Policy can write (_HIGH).
+DWORD_MAX = 0xFFFFFFFF
+_RANGES = {"editor_font_size": s.EDITOR_FONT_SIZES,
+           "audit_retention_days": (s.RETENTION_MIN_DAYS, DWORD_MAX),
+           "receipt_retention_days": (s.RETENTION_MIN_DAYS, DWORD_MAX)}
+_HIGH = {"local_retention_days": DWORD_MAX}
 
 
 def _kind(key: str) -> tuple[str, dict[str, Any]]:
@@ -160,6 +166,9 @@ def _kind(key: str) -> tuple[str, dict[str, Any]]:
         return "int", {"low": low, "high": high}
     if key == "motion_level":
         return "int", {"low": s.MOTION_LEVELS[0], "high": s.MOTION_LEVELS[1]}
+    if key in _RANGES:
+        low, high = _RANGES[key]
+        return "int", {"low": low, "high": high}
     return "int", {"low": 0, "high": int(s.LIMITS.get(key, _HIGH.get(key, 0)))}
 
 

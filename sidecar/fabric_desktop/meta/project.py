@@ -24,7 +24,7 @@ import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -615,7 +615,23 @@ def check_python(ref: str) -> str | None:
     return None
 
 
+def renamed(columns: Iterable[str], rename: Any) -> list[str]:
+    """The names ``[source] rename`` leaves, as a run applies it to the rows it reads: each column the
+    rename names takes its new name, all at once (so two can swap), and a name the rows don't have is
+    skipped. Two columns that end up with one name are a clash the run fails on (see rename_problems)."""
+    mapping = {k: v for k, v in rename.items() if isinstance(v, str)} if isinstance(rename, dict) else {}
+    return [mapping.get(c, c) for c in columns]
+
+
+def entity_output(up: Entity) -> list[str]:
+    """The columns another entity reads from ``up``'s table (its system columns aside), sorted."""
+    return sorted(set(up.columns) | set(up.derived) | set(up.hook_adds) | up.mode_columns())
+
+
 def source_columns(project: Project, e: Entity) -> set[str]:
+    """The columns the entity's rows have once read: for an entity source, by the names its
+    ``[source] rename`` gives them. A file, table or link source's columns aren't known before a run,
+    so its contract (or [source] columns) stands for them."""
     src = e.spec.get("source", {})
     if "files" in src or "landing" in src or "table" in src:
         return set(src.get("columns", e.columns))
@@ -625,9 +641,34 @@ def source_columns(project: Project, e: Entity) -> set[str]:
     cols: set[str] = set()
     for s in e.sources():
         if s in project.entities:
-            up = project.entities[s]
-            cols |= set(up.columns) | set(up.derived) | set(up.hook_adds) | up.mode_columns() | set(SYSTEM_COLUMNS)
+            cols |= set(renamed(entity_output(project.entities[s]), src.get("rename"))) | set(SYSTEM_COLUMNS)
     return cols
+
+
+def rename_problems(project: Project, e: Entity) -> list[str]:
+    """``[source] rename`` on an entity source, checked against the columns that entity writes: a name it
+    doesn't have renames nothing, and two columns renamed onto one name make the run fail."""
+    src = e.spec.get("source", {})
+    rename = src.get("rename")
+    if not rename or not isinstance(rename, dict) or not all(isinstance(v, str) for v in rename.values()):
+        return []  # nothing to check, or the shape is refused on its own
+    ups = e.sources()
+    if not isinstance(src.get("entity"), str) or not ups or ups[0] not in project.entities:
+        return []  # a list, or an entity the project doesn't have: refused on its own
+    up = project.entities[ups[0]]
+    have = entity_output(up)
+    errors = [f"{e.name}: source rename {k}: {up.name} has no column {k}, so nothing is renamed; use a column "
+              f"{up.name} writes, or take {k} out of [source] rename" for k in rename if k not in have]
+    after = renamed(have, rename)
+    for name in sorted({c for c in after if after.count(c) > 1}):
+        moved = sorted(k for k, v in rename.items() if v == name and k in have and k != name)
+        if name in have and name not in rename:
+            errors.append(f"{e.name}: source rename gives two columns the name {name} ({', '.join(moved)}, and "
+                          f"{name} itself), and a table can't hold both; rename {name} too, or pick another new name")
+        else:
+            errors.append(f"{e.name}: source rename gives two columns the name {name} ({' and '.join(moved)}), "
+                          "and a table can't hold both; rename one of them to another name")
+    return errors
 
 
 def _batch_by_problems(e: Entity) -> list[str]:
@@ -695,6 +736,47 @@ def _late_and_delete_problems(e: Entity) -> list[str]:
                           "take them out of the contract")
     return errors
 
+
+
+def _watermark_problems(e: Entity, available: set[str], wm_renamed: bool) -> list[str]:
+    """[load] watermark on an incremental load of a Delta source. A run filters the source on it and saves
+    its highest value from the rows it writes; a name either step can't find makes every run quietly
+    read all the rows again."""
+    load, src = e.spec.get("load", {}), e.spec.get("source", {})
+    wm = load.get("watermark") if isinstance(load, dict) else None
+    if e.mode != "incremental" or wm is None or not any(k in src for k in ("table", "link", "entity")):
+        return []
+    if not isinstance(wm, str) or not wm:
+        return [f'{e.name}: load watermark names one column, like watermark = "modified_at"']
+    if wm_renamed and wm not in e.columns:
+        return []  # the source's name for it: that message says which name to use
+    if wm not in e.columns:
+        return [(f"{e.name}: load watermark {wm} is not a contract column, so no run saves it and every run "
+                 "reads all the rows again; name a contract column the source gives, like a modified date")]
+    if wm not in available:
+        return [(f"{e.name}: load watermark {wm} is not a column the source gives ({e.name} makes it), so a run "
+                 "can't pick out the new rows and reads them all again; name a contract column the source "
+                 "gives, like a modified date")]
+    return []
+
+
+def _scd_list_problems(e: Entity, output: set[str]) -> list[str]:
+    """[scd] tracked and type1: lists of columns the dimension writes. A run compares rows on them, and
+    fails on a tracked column it can't find (or skips a Type 1 one, so it never updates)."""
+    scd = e.spec.get("scd", {})
+    if e.mode not in ("scd1", "scd2") or not isinstance(scd, dict):
+        return []
+    errors = []
+    for part, example in (("tracked", '["segment", "city"]'), ("type1", '["email", "name"]')):
+        cols = scd.get(part)
+        if cols is None:
+            continue
+        if not isinstance(cols, list) or not all(isinstance(c, str) for c in cols):
+            errors.append(f"{e.name}: [scd] {part} takes a list of contract columns, like {part} = {example}")
+            continue
+        errors += [f"{e.name}: [scd] {part} lists {c}, which is not a column {e.name} writes; add it to "
+                   f"[contract.columns] or take it out of {part}" for c in dict.fromkeys(cols) if c not in output]
+    return errors
 
 
 def entity_name_problem(name: str) -> str | None:
@@ -785,7 +867,7 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
         if e.mode == "incremental" and not s.get("load", {}).get("watermark") and "entity" in s.get("source", {}):
             errors.append(f"{e.name}: incremental loads need a watermark column")
         wm, renames = s.get("load", {}).get("watermark"), s.get("source", {}).get("rename") or {}
-        if isinstance(renames, dict) and wm in renames and wm not in e.columns:
+        if isinstance(renames, dict) and isinstance(wm, str) and wm in renames and wm not in e.columns:
             errors.append(f"{e.name}: the watermark is a contract column: the source renames {wm} to "
                           f"{renames[wm]}, so use watermark = \"{renames[wm]}\"")
         if e.mode in ("scd1", "scd2"):
@@ -821,6 +903,7 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
         rename = s.get("source", {}).get("rename", {})
         if not isinstance(rename, dict) or not all(isinstance(v, str) for v in rename.values()):
             errors.append(f'{e.name}: source rename maps a source column to a contract column, like {{ cust_id = "customer_id" }}')
+        errors += rename_problems(project, e)
         if not isinstance(s.get("contract", {}).get("overwrite_schema", False), bool):
             errors.append(f"{e.name}: contract overwrite_schema is true or false")
 
@@ -871,6 +954,9 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
             for c in sorted(missing):
                 errors.append(f"{e.name}: contract column {c} is not in the source and nothing derives it")
         output = set(e.columns) | produced | set(e.hook_adds) | e.mode_columns()
+        wm_renamed = isinstance(renames, dict) and isinstance(wm, str) and wm in renames
+        errors += _watermark_problems(e, available, wm_renamed)
+        errors += _scd_list_problems(e, output)
         for c in s.get("check", []):
             if "expr" in c:
                 errors += [f"{e.name}: check {c.get('name', '')}: {m}" for m in check_expr(c["expr"], output)]

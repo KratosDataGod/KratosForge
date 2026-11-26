@@ -119,7 +119,7 @@ def _named(e: Entity, own: str, expr: Any, written: dict[str, Any]) -> list[tupl
     (entity, column): one the entity makes itself, or one it reads from its source."""
     try:
         roots = sql_expr(expr).meta.root_names()
-    except Exception:  # noqa: BLE001 - doesn't parse: names nothing, and the save gate refuses it anyway
+    except Exception:  # noqa: BLE001  # silent-ok: doesn't parse: names nothing, and the save gate refuses it
         return []
     renames = {v: k for k, v in (e.spec.get("source", {}).get("rename") or {}).items()}
     out: list[tuple[str, str]] = []

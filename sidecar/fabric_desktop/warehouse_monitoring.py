@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 import requests
 
+from .fabric_api import definition_parts
 from .redact import one_line
 from .retrying import TRANSIENT_STATUS, send_with_retry
 
@@ -172,12 +173,12 @@ def read_queryset(definition: dict[str, Any] | None) -> dict[str, Any]:
     """The ``queryset`` object of an existing queryset's getDefinition result. A result with no
     RealTimeQueryset.json part, or one whose body holds no queryset object, is refused with
     ``UNREADABLE`` rather than read as empty, because the update would then drop the user's own tabs
-    (WR-263). A new queryset starts empty in queryset_definition, without calling this."""
-    inner = (definition or {}).get("definition") or definition or {}
-    for part in inner.get("parts") or [] if isinstance(inner, dict) else []:
-        if isinstance(part, dict) and part.get("path") == "RealTimeQueryset.json":
+    (WR-263). A part that isn't whole base64 raises (FabricError BadDefinitionPart), so the queryset is
+    left as it is. A new queryset starts empty in queryset_definition, without calling this."""
+    for path, data in definition_parts(definition if isinstance(definition, dict) else {}).items():
+        if path == "RealTimeQueryset.json":
             try:
-                body = json.loads(base64.b64decode(part.get("payload") or ""))
+                body = json.loads(data)
             except (ValueError, RecursionError) as exc:
                 raise ValueError(f"The queryset's definition couldn't be read, so it was left as it is: {exc}") from None
             q = body.get("queryset") if isinstance(body, dict) else None

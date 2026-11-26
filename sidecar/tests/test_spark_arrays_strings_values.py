@@ -10,7 +10,7 @@ below, and listed in docs/sql-compatibility.md."""
 from __future__ import annotations
 
 import pytest
-from spark_values import Refused, check, load
+from spark_values import Refused, check_part, check_still_needed, parts
 
 from fabric_desktop.notebook import Kernel
 
@@ -29,8 +29,13 @@ def spark():
     return Kernel().namespace["spark"]
 
 
-def test_spark_array_and_string_functions_answer_as_spark_3_5_or_are_refused_by_name(spark):
-    check(spark, load("arrays_strings"), REFUSED)
+@pytest.mark.parametrize("cases", parts("arrays_strings"))
+def test_spark_array_and_string_functions_answer_as_spark_3_5_or_are_refused_by_name(spark, cases):
+    check_part(spark, cases, REFUSED)
+
+
+def test_each_refusal_of_arrays_strings_is_still_needed_and_listed(spark):
+    check_still_needed(spark, "arrays_strings", REFUSED)
 
 
 def _one(spark, sql: str) -> object:

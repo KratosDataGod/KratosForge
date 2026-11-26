@@ -92,7 +92,7 @@ def run(line: str, engine_call: Callable[..., Any] | None, read_file: Callable[[
         raise ValueError("%pip runs install, list, freeze and show on this PC.")
     wanted = specs(rest, read_file)
     if engine_call is None:
-        print("Note: %pip install needs Run notebooks in their own process (Settings > Preview features), so "
+        print("Note: %pip install needs Run notebooks in their own process (Settings > Advanced > Notebooks), so "
               "packages go to the notebook's own environment, not the app's. This line was skipped.")
         return
     job = engine_call("install_packages", wanted)

@@ -21,7 +21,7 @@ Tick **Allow changes** at the top of the Warehouse page to let **Run** change th
 
 1. **Run** first asks the engine what the script does. Nothing is sent to Fabric for this. A script that only reads runs as before.
 2. A script that changes the warehouse shows a confirm: the workspace, the warehouse, its environment, and each statement that changes something, such as *Statement 1: UPDATE dbo.DimCustomer changes the warehouse*.
-3. In **Prod**, or in a workspace whose environment isn't known, you type the warehouse's name before **Run in Prod** is enabled. The engine checks that name against Fabric's, so a change never reaches a warehouse you didn't name. Dev and Test need only the confirm.
+3. In **Prod**, or in a workspace whose environment isn't known, you type the warehouse's name before **Run in Prod** (**Run the change** when the environment isn't known) is enabled. The engine checks that name against Fabric's, so a change never reaches a warehouse you didn't name. Dev and Test need only the confirm.
 
    Here a workspace's environment comes only from your metadata project (**Data mesh > Environments and promote**), never from its name: a workspace that isn't Dev, Test or Prod there is treated like Prod, even one named `Sales Test`, so it asks for the name and deploys only what's in Git.
 4. The script runs in one transaction, in batches split at `GO` lines. If a statement fails, or you press **Stop**, nothing is kept. **Messages** and the **History** tab show how many rows changed and that it was committed, and the explorer lists the objects again.
@@ -273,7 +273,7 @@ Above the result, three views on every SQL page (lakehouse, local project and wa
 - **Profile** (lakehouse page, Preview): **Profile the query** runs it again under DuckDB's profiler and shows each step's rows, time and share of the time, the slowest step marked, with the total time, rows read and peak memory: the same view as a notebook result's Query profile. It reads the tables again, which uses capacity. One query that only reads.
 - **Chart**: a quick bar, stacked bar, line, area, pie, scatter or histogram of the result, with X axis, values, aggregate (sum, average, count, max, min) and series. It reads the rows already on this PC from the run's snapshot, up to the first 50,000, so nothing runs again and no capacity is used. It draws the first 60 X axis values (the note says how many more there are) and up to 7 series (the rest as Other).
 
-A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.
+With Preview features shown, **Run** on a script of several statements gives each statement its own result tab, here as on the other SQL pages. See [Several statements in one run](sql-execution.md#several-statements-in-one-run-preview). **Ctrl+Shift+Enter** runs only the statement at the cursor, with one result.
 
 The page stays tagged Preview until the app's own sign-in has run a query on a tenant: the [tenant run](#tested-on-a-tenant) used another sign-in. Settings can hide preview features.
 

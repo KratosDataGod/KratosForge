@@ -306,8 +306,10 @@ def test_two_warehouses_share_a_queryset_without_clashing():
 
 
 def test_a_definition_it_cant_read_is_left_alone():
-    with pytest.raises(ValueError, match="left as it is"):
+    with pytest.raises(FabricError, match="wasn't whole base64, so nothing was saved"):
         wm.queryset_definition(WH, URI, "db", {"parts": [{"path": "RealTimeQueryset.json", "payload": "!!not base64"}]})
+    with pytest.raises(ValueError, match="left as it is"):
+        wm.queryset_definition(WH, URI, "db", {"parts": [{"path": "RealTimeQueryset.json", "payload": "bm90IGpzb24="}]})
 
 
 @pytest.mark.parametrize("name, expected", [("WH_Gold", "WH_Gold_monitoring"), ("Sales DW (EU)", "Sales_DW__EU__monitoring"),

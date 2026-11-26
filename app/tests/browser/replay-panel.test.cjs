@@ -337,7 +337,7 @@ test("engine refusals show a plain sentence, not the raw text", { skip }, async 
   assert.strictEqual(await banner().getByRole("button", { name: "Replay to cell 2" }).isDisabled(), false, "not left busy");
   // Saving
   await openFailed();
-  fail.replay_bundle_save = "PermissionError: Your organization doesn't allow data samples in replay bundles.";
+  fail.replay_bundle_save = "PermissionError: Your organization doesn't allow data samples in replay bundles. Ask IT to change allow_replay_samples in the policy file.";
   await page().locator("[data-cell] .replay-offer").getByRole("button", { name: "Save replay bundle" }).click();
   await dialog("Save a replay bundle").getByRole("button", { name: "Save bundle" }).click();
   const t2 = toast(/Could not save the replay bundle/);

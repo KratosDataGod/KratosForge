@@ -15,8 +15,6 @@ CLAIMS: list[Claim] = [
           query="SELECT CASE WHEN 'Ann  ' = 'Ann' THEN 'true' ELSE 'false' END"),
     Claim("local-data.md", "''", "local-tsql", query="SELECT CAST('' AS INT)",
           note="both mentions: '' as an integer, in a cast and in + with a number"),
-    Claim("local-data.md", "CAST(a_datetime AS VARCHAR)", "local-tsql",
-          query="SELECT CAST(CAST('2024-03-05 13:04:00' AS DATETIME2(0)) AS VARCHAR(30))"),
     # notebooks.md: a notebook's spark.sql on this PC
     Claim("notebooks.md", "to_date('2026-03-02', 'yyyy-MM-dd HH:mm:ss')", "notebook"),
     Claim("notebooks.md", "decimal(10,2) / decimal(10,2)", "notebook", typeof=True,
@@ -36,6 +34,8 @@ ILLUSTRATIVE: dict[tuple[str, str], str] = {
     ("local-data.md", "SELECT * FROM sales TIMESTAMP AS OF '2026-10-01 14:00'"): "needs a version committed by that time",
     ("local-data.md", "SELECT * FROM sales AT (TIMESTAMP => '2026-10-01 14:00')"): "needs a version committed by that time",
     ("notebooks.md", "SELECT * FROM dbo.sales VERSION AS OF 3"): "reads the attached Fabric lakehouse's table",
+    ("engines.md", "SELECT * FROM read_files('/Volumes/main/default/v/x.csv', format => 'csv')"):
+        "needs a volume and a file in it; tests/test_databricks_volumes.py runs the same read",
     ("notebooks.md", "SELECT * FROM table_changes('dbo.orders', 1, 3)"): "reads the change feed of the attached lakehouse's table",
     ("notebooks.md", "SELECT * FROM sales"): "the SQL page against a Fabric lakehouse's sales table",
 }

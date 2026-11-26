@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "cornerstone", "name": "Cornerstone", "criteria": "Reach Journeyman in Warehouse or lakehouse: where T-SQL writes."},
-  {"id": "history-kept", "name": "History Kept", "criteria": "Reach Adept in Type 2 slowly changing dimensions."},
-  {"id": "sealed-doors", "name": "Sealed Doors", "criteria": "Reach Journeyman in Row-level security and in Column and object security."},
-  {"id": "raised-from-plans", "name": "Raised From Plans", "criteria": "Reach Journeyman in Capstone: a warehouse built from a project."},
-  {"id": "architects-hall", "name": "Architect's Hall", "criteria": "Reach Adept in all ten talents of one Warehouse Architect specialization."}
+  {"id": "cornerstone", "name": "Cornerstone", "criteria": "Reach Journeyman in Warehouse or lakehouse: where T-SQL writes.", "requires": {"level": 3, "talents": ["tsql.01"]}},
+  {"id": "history-kept", "name": "History Kept", "criteria": "Reach Adept in Type 2 slowly changing dimensions.", "requires": {"level": 4, "talents": ["schema.03"]}},
+  {"id": "sealed-doors", "name": "Sealed Doors", "criteria": "Reach Journeyman in Row-level security and in Column and object security.", "requires": {"level": 3, "talents": ["load.08", "load.09"]}},
+  {"id": "raised-from-plans", "name": "Raised From Plans", "criteria": "Reach Journeyman in Capstone: a warehouse built from a project.", "requires": {"level": 3, "talents": ["tsql.10"]}},
+  {"id": "architects-hall", "name": "Architect's Hall", "criteria": "Reach Adept in all ten talents of one Warehouse Architect specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

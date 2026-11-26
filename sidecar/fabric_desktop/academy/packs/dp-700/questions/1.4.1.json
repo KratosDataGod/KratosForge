@@ -321,6 +321,58 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.1-q11",
+      "type": "matching",
+      "stem": "Match each requirement to the Fabric tool that fits it best. Each tool may be used once, more than once, or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Notebook (Spark)"
+        },
+        {
+          "id": "b",
+          "text": "Copy job"
+        },
+        {
+          "id": "c",
+          "text": "Eventstream"
+        },
+        {
+          "id": "d",
+          "text": "Pipeline copy activity"
+        },
+        {
+          "id": "e",
+          "text": "Dataflow Gen2"
+        }
+      ],
+      "parts": [
+        {
+          "text": "Copy large raw files from on-premises and cloud sources into a bronze lakehouse on a schedule, with minimal code"
+        },
+        {
+          "text": "A business analyst who knows Power Query cleans and reshapes data from several line-of-business sources"
+        },
+        {
+          "text": "Read structured, semi-structured and unstructured review data from OneLake and write Delta tables with open-source Python libraries"
+        },
+        {
+          "text": "Bring business-application events into Fabric in real time, without writing code"
+        }
+      ],
+      "answer": [
+        "d",
+        "e",
+        "a",
+        "c"
+      ],
+      "explanation": "A pipeline copy activity is the no-code choice for scheduled raw copies of large volumes into a bronze layer. Dataflow Gen2 is built on Power Query, which suits an analyst who already knows it. Spark in a notebook handles every kind of data and can use native Spark and open-source libraries. An eventstream takes event data in real time with no code. A copy job is for wizard-driven, often incremental, copies such as CDC tables, which none of these requirements needs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

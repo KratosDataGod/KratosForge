@@ -10,7 +10,7 @@ Everything is read only, with your own sign-in. Nothing changes a capacity, and 
 | --- | --- |
 | Capacity name, SKU, region and state | Fabric's capacity list (`GET /capacities`), for capacities you can see |
 | Capacity id, region and assignment progress | The workspace (`GET /workspaces/{id}`), when Fabric sends them |
-| Read | When it was read. Readings are kept for an hour; older ones are marked **Stale** until you press **Refresh** |
+| Read | When it was read. A reading from the last hour is reused. An older one is read again. If that read fails, the last good reading stays, marked **Stale**, until a read works or you press **Refresh** |
 
 Only fields Fabric actually returned are shown. An SKU the app doesn't know has no CU size, rather than a guessed one.
 

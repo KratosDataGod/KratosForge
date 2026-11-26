@@ -60,6 +60,9 @@ CLAIMS: list[Claim] = [
     _nb("CAST(1 AS DECIMAL(10,2)) / 3", want="0.333333"),
     # Dates and times on this PC
     _nb("add_months(DATE'2019-02-28', 1)"),
+    _nb("CAST(1.23456789 AS TIMESTAMP)", query="SELECT CAST(CAST(1.23456789 AS TIMESTAMP) AS STRING)"),
+    _nb("unix_millis(TIMESTAMP'1969-12-31 23:59:59.9995')"),
+    _nb("unix_timestamp(TIMESTAMP'1969-12-31 23:59:59.9995')"),
     # Aggregates on this PC: the grand-total row of a ROLLUP over a NULL in the data
     _nb("grouping(a)", query="SELECT grouping(a) AS g FROM VALUES (CAST(NULL AS INT), 1) AS t(a, b) "
                              "GROUP BY a, b WITH ROLLUP ORDER BY g DESC LIMIT 1"),
@@ -76,6 +79,9 @@ CLAIMS: list[Claim] = [
         note="the page escapes | for its table, and writes the array as ['', 'b', '', 'b']"),
     Claim("sql-compatibility.md", "REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm')", "local-tsql",
           query="SELECT CASE WHEN REGEXP_LIKE('a' + CHAR(10) + 'b', '^b$', 'm') THEN 1 ELSE 0 END = 1"),
+    # CASE, coalesce and UNION result types (WR-259)
+    _nb("coalesce(1.0D, 'x')"),
+    _nb("coalesce(1L, 2.5)", typeof=True),
     _nb("chr(321)"),
     # Differential tests: fixed cases
     _nb("'24-02-29'", query="SELECT to_date('24-02-29')"),
@@ -90,6 +96,9 @@ CLAIMS: list[Claim] = [
     _ts("DATEDIFF(week, Saturday, Sunday)", query="SELECT DATEDIFF(week, '2024-03-02', '2024-03-03')"),
     _ts("EOMONTH('2024-01-31', 1)"),
     _ts("datetime2(6)", query="SELECT CAST(CAST('2024-02-29 13:04:05' AS datetime2(6)) AS varchar(30))"),
+    _ts("CAST('03:04:05.126' AS TIME(2))", query="SELECT CAST(CAST('03:04:05.126' AS TIME(2)) AS VARCHAR(30))"),
+    _ts("DATENAME(hour, ...)", query="SELECT DATENAME(hour, CAST('2024-01-02 03:04:05.123' AS DATETIME2))"),
+    _ts("DATENAME(millisecond, ...)", query="SELECT DATENAME(millisecond, CAST('2024-01-02 03:04:05.123' AS DATETIME2))"),
     # Local T-SQL formatting
     _ts("FORMAT(1234.5, 'N')"),
     _ts("FORMAT(255, 'X4')"),
@@ -97,9 +106,11 @@ CLAIMS: list[Claim] = [
     _ts("FORMAT(1234.5, 'C')"),
     _ts("PARSE('1.234,5' AS DECIMAL(10, 2) USING 'de-DE')"),
     _ts("STR(1234.5)"),
+    _ts("YEAR(5)"),
     # Local T-SQL text
     _ts("'a' = 'a  '"),
     _ts("'a' = 'A'"),
+    _ts("'a ' = ALL (SELECT 'a')"),
     _ts("'abc' LIKE 'abc '"),
     _ts("LEN('ab  ')"),
     _ts("DATALENGTH('ab  ')"),
@@ -139,6 +150,11 @@ CLAIMS: list[Claim] = [
     _ts("1.50", query="SELECT JSON_VALUE('{\"a\": 1.50}', '$.a')", note="JSON_VALUE's number"),
     _ts("1.50", query="SELECT JSON_ARRAY(1.50)", want="[1.5]", note="JSON_ARRAY's decimal"),
     _ts("1e2", query="SELECT JSON_VALUE('{\"a\": 1e2}', '$.a')"),
+    _ts("9223372036854775807 + 1"),  # WR-247: a whole number past an int is a decimal of its digits
+    _ts("ABS(-2147483648)"),
+    _ts("CONCAT('a', NULL)"),
+    _ts("CONCAT(NULL, NULL)"),
+    _ts("CONCAT_WS('-', 'a', NULL, 'b')"),
     _ts("'a ' BETWEEN 'a' AND 'a'", query="SELECT CASE WHEN 'a ' BETWEEN 'a' AND 'a' THEN 1 ELSE 0 END = 1"),
     _ts("'a '", query="SELECT CASE WHEN 'a ' IN (SELECT 'a') THEN 1 ELSE 0 END", want="1",
         note="WR-246: IN (SELECT ...) ignores trailing spaces"),
@@ -149,11 +165,15 @@ CLAIMS: list[Claim] = [
 # (page, expression) -> why it isn't run here
 ILLUSTRATIVE: dict[tuple[str, str], str] = {
     (P, "SELECT *"): "a fragment: a view made with SELECT *, not a statement",
+    (P, "SELECT 2147483647 + 1"): "an error example: it stops with Msg 8115 (test_tsql_arithmetic_errors)",
     (P, "regexp_replace('aaa', 'a*', 'X')"): "Spark's answer; this PC refuses that pattern by name (WR-257)",
 }
 
 # Inline `SELECT ...` statements run as written (see Statement)
 STATEMENTS: list[Statement] = [
+    Statement(P, "SELECT 1L UNION ALL SELECT 1.5 UNION ALL SELECT 'x'", "notebook",
+              note="WR-259: one string column, '1.0', '1.5', 'x'"),
+    Statement(P, "SELECT 1 EXCEPT SELECT ' 1'", "local-tsql", note="WR-259: empty, ' 1' is the int 1"),
     Statement(P, "SELECT * FROM t", "local-tsql", setup=("CREATE TABLE dbo.t (a INT)",),
               note="a name without a schema reads dbo.t"),
 ]

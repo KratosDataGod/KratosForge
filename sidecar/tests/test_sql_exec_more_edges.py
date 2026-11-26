@@ -42,10 +42,10 @@ def test_closing_the_app_ends_running_workers_even_when_one_wont_die_or_wait(tmp
     m = _manager(tmp_path)
     stubborn = Proc(kill_error=OSError("access denied"), wait_error=subprocess.TimeoutExpired("worker", 10))
     plain = Proc()
-    m._runs = {"a": types.SimpleNamespace(state="running", stop_reason="", target="lakehouse", proc=stubborn),
-               "b": types.SimpleNamespace(state="cancelling", stop_reason="timeout", target="warehouse", proc=plain),
-               "c": types.SimpleNamespace(state="running", stop_reason="", target="lakehouse", proc=None),
-               "d": types.SimpleNamespace(state="completed", stop_reason="", target="lakehouse", proc=Proc())}
+    m._runs = {"a": types.SimpleNamespace(state="running", stop_reason="", target="lakehouse", proc=stubborn, reader=None),
+               "b": types.SimpleNamespace(state="cancelling", stop_reason="timeout", target="warehouse", proc=plain, reader=None),
+               "c": types.SimpleNamespace(state="running", stop_reason="", target="lakehouse", proc=None, reader=None),
+               "d": types.SimpleNamespace(state="completed", stop_reason="", target="lakehouse", proc=Proc(), reader=None)}
     cancel = threading.Event()
     m._exports = {"e": types.SimpleNamespace(cancel=cancel)}
     m.shutdown()

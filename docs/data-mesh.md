@@ -17,7 +17,7 @@ KratosForge lets many teams build on one platform without stepping on each other
 | Links | | Link to products open to them; request access to others |
 | Catalog text | Shared glossary terms | Describe their tables and columns |
 
-All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Project > Products and links** (a project's own products and links) and **Data mesh > Products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
+All of it happens on the **Platform** page (the central team), **Data mesh > Requests** (requests from everyone), **Data mesh > Project > Products and links** (a project's own products and links) and **Data mesh > Products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
 
 ## Home: the mesh for who you are (Preview)
 
@@ -33,7 +33,7 @@ Home only reads: the catalog (products, requests, follows, access reviews, domai
 
 ## Products (Preview)
 
-**Data mesh > Products** is every team's published data products, for producers and readers alike, and works with no project open. It was **OneLake > Data products**; that tab and every link now open it here. Open a product for its page: endorsement and business terms, its checklist, who has access (with access reviews for its owner), Follow, and Ask for a change. For a product of the project open on this PC, **Edit definition** opens **Project > Products and links**, where its definition file is edited. See [Data products](user-guide.md#data-products-preview).
+**Data mesh > Products** is every team's published data products, for producers and readers alike, and works with no project open. It was **OneLake > Data products**; that tab and every link now open it here. Open a product for its page: endorsement, its checklist, who has access (with access reviews for its owner), Follow, and Ask for a change. For a product of the project open on this PC, **Edit definition** opens **Project > Products and links**, where its definition file is edited. See [Data products](user-guide.md#data-products-preview).
 
 ## Requests (Preview)
 

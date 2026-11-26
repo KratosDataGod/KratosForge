@@ -56,7 +56,8 @@ def test_an_error_in_the_last_statement_as_its_rows_are_read_has_its_number_too(
 
 def test_a_duplicate_cte_name_after_another_statement_has_its_number_too(engine):
     text = error(engine, "SELECT 1; WITH a AS (SELECT 1 AS x), A AS (SELECT 2 AS x) SELECT x FROM a")
-    assert text.startswith("Msg 239, Level 16: Duplicate common table expression name 'A'"), text
+    assert text.startswith("Statement 2 of 2 (WITH) was refused: Msg 239, Level 16: Duplicate common table expression "
+                           "name 'A'"), text  # WR-238 names the statement
 
 
 @pytest.mark.parametrize("sql", [

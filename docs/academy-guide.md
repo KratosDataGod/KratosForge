@@ -13,9 +13,9 @@ starts a Fabric job and never publishes anything to Fabric.
 | Tab | What it shows |
 | --- | --- |
 | Home | Your next exercise, each exam domain's progress, where Learn's lessons and your rank went, and what's recommended next |
-| Path | Every objective of the study guide, word for word, by domain: the best evidence you have, its status and its exercises. **Show only what's left** hides the objectives you've proved |
+| Path | Every objective of the study guide, word for word, by domain: the best evidence you have, its status and its exercises. **Certification** picks DP-700 or the Databricks Certified Data Engineer Associate, whose exercises are still drafts. **Show only what's left** hides the objectives you've proved |
 | Practice | The published exercises, and Learn's lessons and labs with your progress kept |
-| Assessments | Diagnostics and practice exams, when the Assessment Center arrives |
+| Assessments | A practice exam, a domain diagnostic and objective drills, from KratosForge's own questions ([Assessments](academy/assessments.md)) |
 | Readiness | Six separate measures for each objective: knowledge, guided, independent, troubleshooting, verified on the platform, and retention |
 | Portfolio | The exercises you've passed and what each counts for, with a link to your rank, achievements and profile picture in Profile |
 
@@ -48,6 +48,9 @@ generated data and your answer, which is saved as you type and kept after a rest
 - **…** has **Compare with the expected result** and **Reset the exercise**, which asks first because it
   throws your answer away. Reset keeps the hints you used, the explanation you opened and the quiz answers you
   changed, so a pass after Reset still isn't independent, until the exercise gets a new version.
+
+The **ⓘ** in the title bar opens **How this works** for the exercise: what Run and Check my work do
+for this kind of exercise, what its label means, what your answer can reach and what's recorded.
 
 The panel beside the editor has **Task** (the scenario, requirements, how it's checked and the
 lesson), **Hints** and **Check** (each check's result, what it proves and doesn't, the explanation once

@@ -155,3 +155,39 @@ and it never raises a status. This table is generated from `PLANS` in the same m
 | Snowflake | Streams, tasks and dynamic tables | E Orchestration and transformation | P2 | Not built yet | SF-008 | unassigned |
 | Snowflake | Query history, profiling and credits | G Monitoring, cost and optimization | P1 | Not built yet | SF-005, SF-006 | Platform parity |
 <!-- END GENERATED: parity-plan -->
+
+## Checking cases on this PC
+
+A parity case is a small table, one statement per SQL dialect, and the answer each platform's own
+documentation gives for it. The cases live in `sidecar/fabric_desktop/parity_cases.json`. Run them
+with
+
+```
+fabric-desktop parity-check
+fabric-desktop parity-check --case decimal_division --dialect snowflake --out runs
+```
+
+Each statement runs on this PC through the engines KratosForge already has. DuckDB runs DuckDB SQL,
+and the Spark, Databricks and Snowflake SQL translations that cells use. T-SQL goes through the local
+data engine's T-SQL translation. Nothing connects to a platform, and nothing leaves this PC.
+
+Each case and dialect gets one outcome.
+
+| Outcome | Means |
+| --- | --- |
+| match | This PC gave the documented answer, with the same column names, types and rows. |
+| unconfirmed | This PC agrees with the case, but the platform's documentation doesn't state that answer. It is never counted as a match. |
+| differs | The schema or the values aren't the documented ones. The record lists each difference with both values. |
+| refused | The local engine refused the statement and said why. |
+| error | The statement failed on this PC. |
+
+Results are compared with the rules of [comparing two engines](engines.md#comparing-two-engines-answers-engine-only-no-screen-yet) (`verify.py`). Numbers are compared exactly, and
+timestamps to the microsecond. A case may name a normalization from a fixed list (`row_order`, `column_name_case`,
+`integer_width`, `decimal_scale_display`). Nothing else is ever smoothed over, so a decimal with the
+wrong scale or a NULL where a value belongs is reported as differs.
+
+With `--out`, the run records are written to that folder as JSON. Each one carries the platform
+(`local`), the engine, the DuckDB, sqlglot and Python versions, the case, the date in UTC, where it
+ran (`this_pc`), the expected and actual answers, the outcome and its evidence level. A run on this
+PC is local evidence. It can't mark an area Verified. Only a matching run on the platform itself can,
+once live runs are part of the harness.

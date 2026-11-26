@@ -23,6 +23,7 @@ import json
 import re
 import time
 import zipfile
+import zlib
 from itertools import pairwise
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -221,28 +222,65 @@ def write(path: Path, bundle: dict[str, Any], samples: dict[str, Any] | None = N
 
 def read(path: Path) -> dict[str, Any]:
     """bundle.json from a bundle file, checked to be one."""
-    try:
-        with zipfile.ZipFile(path) as z:
-            info = z.getinfo("bundle.json")
-            if info.file_size > MAX_BUNDLE_JSON:  # checked before reading: a small zip can unpack to gigabytes
-                raise ValueError(f"{path.name} is too large to be a replay bundle.")
-            bundle = json.loads(z.read(info))
-            members = {i.filename: i.file_size for i in z.infolist()}
-    except (zipfile.BadZipFile, KeyError) as exc:
-        raise ValueError(f"{path.name} isn't a replay bundle.") from exc
-    except ValueError as exc:
-        if "too large" in str(exc):
-            raise
-        raise ValueError(f"{path.name} isn't a replay bundle.") from exc
+    with open(path, "rb") as f:  # a missing or locked file is the OSError it is; anything after is the zip's
+        try:
+            with zipfile.ZipFile(f) as z:
+                info = z.getinfo("bundle.json")
+                if info.file_size > MAX_BUNDLE_JSON:  # checked before reading: a zip's entries can be far larger once unpacked
+                    raise ValueError(f"{path.name} is too large to be a replay bundle.")
+                bundle = json.loads(z.read(info))
+                members = {i.filename: i.file_size for i in z.infolist()}
+        # A damaged or foreign zip: a bad CRC or header, broken deflate data, a compression method or zip
+        # version Python can't read, an encrypted member, JSON nested too deep to read.
+        except (zipfile.BadZipFile, KeyError, OSError, EOFError, zlib.error, NotImplementedError, RuntimeError) as exc:
+            raise ValueError(f"{path.name} isn't a replay bundle.") from exc
+        except ValueError as exc:
+            if "too large" in str(exc):
+                raise
+            raise ValueError(f"{path.name} isn't a replay bundle.") from exc
     if not isinstance(bundle, dict) or bundle.get("format") != FORMAT:
         raise ValueError(f"{path.name} isn't a replay bundle.")
-    if int(bundle.get("version", 0)) > VERSION:
+    version = bundle.get("version", 0)
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise ValueError(f"{path.name} isn't a replay bundle.")
+    if version > VERSION:
         raise ValueError(f"{path.name} was saved by a newer KratosForge. Update the app to open it.")
     try:
         _check_names(bundle, members)
     except (TypeError, KeyError, AttributeError, ValueError) as exc:
         raise ValueError(f"{path.name} isn't a replay bundle: {exc}") from exc
+    _check_shape(path.name, bundle)
     return bundle
+
+
+def _check_shape(file: str, bundle: dict[str, Any]) -> None:
+    """Each part a replay reads (notebook_cells, tables_to_pin, outcome, input_differences) is there
+    and of the kind build writes, so a hand-edited bundle is refused here, not part way through a replay."""
+    why = _shape_problem(bundle)
+    if why:
+        raise ValueError(f"{file} can't be opened as a replay bundle, because {why}. Save the bundle again "
+                         "from the notebook whose cell failed.")
+
+
+def _shape_problem(bundle: dict[str, Any]) -> str | None:
+    cells, failed, inputs = bundle.get("cells"), bundle.get("failed_cell"), bundle.get("inputs")
+    if not isinstance(cells, list) or not all(isinstance(c, dict) and c.get("type") in ("code", "markdown")
+                                              and isinstance(c.get("source"), str) for c in cells):
+        return "its cells aren't a list of code and markdown cells"
+    if not isinstance(failed, int) or isinstance(failed, bool) or failed < 1:
+        return "its failed cell isn't a cell number"
+    if not isinstance(inputs, dict) or not all(
+            isinstance(inputs.get(k), list) and all(isinstance(row, dict) and isinstance(row.get(name), str)
+                                                    for row in inputs[k])
+            for k, name in (("tables", "table"), ("files", "path"))):
+        return "its inputs aren't lists of tables and files"
+    for key in ("lakehouse", "error", "environment"):
+        if not isinstance(bundle.get(key) or {}, dict):
+            return f"its {key} isn't a set of named values"
+    samples = bundle.get("samples") or []
+    if not isinstance(samples, list) or not all(isinstance(s, dict) and isinstance(s.get("table"), str) for s in samples):
+        return "its samples aren't a list of tables"
+    return None
 
 
 def _check_table(table: Any) -> None:
@@ -264,6 +302,37 @@ def _check_names(bundle: dict[str, Any], members: dict[str, int]) -> None:
             raise ValueError(f"the sample file {s['file']!r} isn't in the bundle's samples folder")
         if members[s["file"]] > MAX_SAMPLE_FILE:
             raise ValueError(f"the sample file {s['file']} is too large")
+
+
+SAMPLE_BATCH = 16  # rows read at a time, so a sample too large is stopped a few rows past the limit
+
+
+def read_sample(z: zipfile.ZipFile, file: str, table: str) -> Any:
+    """A sample's rows as a pyarrow table. A small Parquet file can be far larger once read,
+    and write never saves more than SAMPLE_ROWS rows, so a sample is refused when its footer says it holds
+    more, and again while it is read: the footer is the file's own word, and a short string repeated in
+    every row (dictionary encoded) unpacks to far more than the footer counts."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    too_big = ValueError(f"The bundle's sample of {table} wasn't read, because it holds more than a sample "
+                         f"this app saves. For {table}, pick Use the latest version instead.")
+    try:
+        with z.open(file) as f:
+            sample = pq.ParquetFile(f)
+            meta = sample.metadata
+            unpacked = sum(meta.row_group(i).total_byte_size for i in range(meta.num_row_groups))
+            if meta.num_rows > SAMPLE_ROWS or unpacked > MAX_SAMPLE_FILE:
+                raise too_big
+            batches, rows, size = [], 0, 0
+            for batch in sample.iter_batches(batch_size=SAMPLE_BATCH, use_threads=False):
+                rows, size = rows + batch.num_rows, size + batch.nbytes
+                if rows > SAMPLE_ROWS or size > MAX_SAMPLE_FILE:
+                    raise too_big
+                batches.append(batch)
+            return pa.Table.from_batches(batches, schema=sample.schema_arrow)
+    except (OSError, EOFError, zipfile.BadZipFile, zlib.error, UnicodeDecodeError, pa.ArrowException) as exc:
+        raise ValueError(f"The bundle's sample of {table} can't be read, because it isn't a Parquet file this app "
+                         f"saved, or it's damaged. For {table}, pick Use the latest version instead.") from exc
 
 
 def sample_tables(bundle: dict[str, Any]) -> list[dict[str, Any]]:

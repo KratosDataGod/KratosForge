@@ -293,6 +293,8 @@ LOCAL_REMOVALS = {
     "academy_sandbox_remove_grants": "narrows the exercise sandbox's access on this PC; the next exercise grants it again",
     "appstudio_connection_delete": "a saved model connection on this PC",
     "databricks_sync_pair_remove": "a saved sync pair on this PC; neither side is touched",
+    "databricks_volume_delete": "files in a volume on this PC, never in Databricks; confirm is a go-ahead (GUARD_PARAMS)",
+    "databricks_volume_drop": "a volume's folder on this PC, never in Databricks; confirm is a go-ahead (GUARD_PARAMS)",
     "delete_pc_schedule": "a schedule on this PC",
     "engine_connection_remove": "a saved connection in this PC's profile",
     "environment_delete": "a Python environment on this PC",

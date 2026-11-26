@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, cast
 
 from . import cpu_cap, lakehouse, notebook
+from .awake_timer import awake_monotonic
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
@@ -220,6 +221,15 @@ class ProcessKernel:
         with self.as_guest(None):
             return self._request("forget_guest", spawn=False, notebook=notebook)
 
+    def rename_guest(self, old: str, new: str) -> dict[str, Any]:
+        """A guest was renamed: its variables and its cell (running or paused) go with it."""
+        if self._owner == old:
+            self._owner, self._owner_name = new, new
+        if self._proc is None or self._proc.poll() is not None:
+            return {"renamed": False}
+        with self.as_guest(None):
+            return self._request("rename_guest", spawn=False, old=old, new=new)
+
     # ---- the process
 
     def _ensure(self) -> subprocess.Popen[str]:
@@ -271,6 +281,11 @@ class ProcessKernel:
             if slot is not None:
                 slot.update({k: v for k, v in message.items() if k in ("result", "error")})
                 slot["done"].set()
+        tree = self._tree
+        if tree is not None and tree.proc is proc:
+            # A kernel that died on its own (a crash, killed from outside) leaves no process behind. Before the
+            # wait, so the dead kernel still holds its pid and the group id can't have been reused.
+            tree.reap()
         code = proc.wait()
         self._close_pipes(proc)
         if proc is self._proc:
@@ -324,7 +339,8 @@ class ProcessKernel:
                                 "set in Settings, counting the processes its cells started. Its process was ended, "
                                 "so variables were cleared.")
                 return
-            started, now = self._started_at, time.monotonic()
+            # Awake time only: a cell going when the PC slept isn't stopped on waking for time it didn't run.
+            started, now = self._started_at, awake_monotonic()
             if not (self._running and started is not None and self.time_limit):
                 continue
             if self._interrupted_at is None and now - started > self.time_limit:
@@ -478,7 +494,7 @@ class ProcessKernel:
         self._running = True
         self._last = {"status": "running", "execution_count": self.count + 1, "version": 0, "seconds": 0, "outputs": []}
         if time_limit:
-            self._started_at = time.monotonic()
+            self._started_at = awake_monotonic()
         try:
             snap = self._request("start", code=code, notebook_name=self.notebook_name,
                                  widget_values=dict(self.widget_values), resources_dir=self.resources_dir, onelake_writes=self.onelake_writes,
@@ -711,6 +727,7 @@ class _Tree:
     def __init__(self, proc: subprocess.Popen[str]):
         self.proc = proc
         self.job = _job_for(proc) if sys.platform == "win32" else None
+        self._job_lock = threading.Lock()  # release runs from the reader, Stop and the next start: once only
 
     def pids(self) -> list[int]:
         """The kernel process and the live processes below it: the Job Object's list on Windows, parent
@@ -723,11 +740,22 @@ class _Tree:
 
     def release(self) -> None:
         """On Windows, close the job, which ends anything still in it."""
-        if self.job:
+        with self._job_lock:  # taken out first: a handle closed twice could be a new kernel's job by then
+            job, self.job = self.job, None
+        if job:
             kernel32 = _kernel32()
-            kernel32.TerminateJobObject(self.job, 1)
-            kernel32.CloseHandle(self.job)
-            self.job = None
+            kernel32.TerminateJobObject(job, 1)
+            kernel32.CloseHandle(job)
+
+    def reap(self) -> None:
+        """After the kernel process ended: end what its cells started that is still running. On Windows the job
+        holds them; elsewhere they stay in the kernel's process group (the parent links went with the kernel)."""
+        if sys.platform == "win32":
+            self.release()
+            return
+        import signal
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(self.proc.pid, signal.SIGKILL)
 
     def kill(self) -> None:
         if sys.platform == "win32":

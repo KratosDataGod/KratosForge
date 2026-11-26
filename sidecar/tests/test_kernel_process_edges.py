@@ -301,6 +301,34 @@ def test_on_windows_the_tree_is_the_job_and_ending_it_closes_the_job(monkeypatch
     assert len(dll.calls) == 2  # closed once
 
 
+def test_the_job_is_closed_once_when_two_threads_release_it_together(monkeypatch):
+    """The reader reaps a crashed kernel while Stop or the next start releases the same tree: closing the handle
+    twice could close a new kernel's job that got the same handle value, which ends that kernel."""
+    import threading
+    _platform(monkeypatch, "win32")
+    dll = FakeDLL()
+    inside = threading.Event()
+    go = threading.Event()
+    real = dll.TerminateJobObject
+
+    def slow_terminate(job, code):
+        inside.set()
+        go.wait(5)
+        return real(job, code)
+
+    monkeypatch.setattr(dll, "TerminateJobObject", slow_terminate)
+    monkeypatch.setattr(kernel_proc, "_kernel32", lambda: dll)
+    monkeypatch.setattr(kernel_proc, "_job_for", lambda proc: 7)
+    tree = kernel_proc._Tree(_Proc())  # type: ignore[arg-type]
+    first = threading.Thread(target=tree.reap)
+    first.start()
+    assert inside.wait(5)
+    tree.release()  # while the first is still closing it
+    go.set()
+    first.join(5)
+    assert [name for name, _ in dll.calls] == ["TerminateJobObject", "CloseHandle"]
+
+
 def test_without_a_job_or_on_another_os_the_tree_is_the_kernel_process(monkeypatch):
     _platform(monkeypatch, "win32")
     monkeypatch.setattr(kernel_proc, "_job_for", lambda proc: None)

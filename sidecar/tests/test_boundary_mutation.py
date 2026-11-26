@@ -160,9 +160,11 @@ def _format(engine, value: str, pattern: str):
 
 def test_format_takes_exactly_38_decimal_places_and_seven_fractions_of_a_second(engine):
     assert _format(engine, "CAST(0.5 AS DECIMAL(10, 1))", "N38") == "0.5" + "0" * 37
-    day = "CAST('2024-03-05 14:07:09.1234567' AS DATETIME2)"
-    seven = _format(engine, day, "fffffff")  # the local engine keeps microseconds, so the seventh digit is 0
-    assert len(seven) == 7 and seven.startswith("123456")
+    # The local engine keeps microseconds, so the seventh digit is 0; text with a 7th digit that isn't 0 is
+    # refused by name (test_tsql_rules_differential's DATETIME2_N cases).
+    day = "CAST('2024-03-05 14:07:09.1234560' AS DATETIME2)"
+    seven = _format(engine, day, "fffffff")
+    assert seven == "1234560"
 
 
 def test_format_yy_is_the_two_digit_year(engine):

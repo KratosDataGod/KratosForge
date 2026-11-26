@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
-import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,6 +23,7 @@ from typing import Any
 import duckdb
 
 from .. import jsonfile
+from ..awake_timer import AwakeTimer
 from . import checks, content, datasets
 from .. import trees
 
@@ -66,8 +66,7 @@ def _time_limit(con: duckdb.DuckDBPyConnection) -> Iterator[_Limit]:
         limit.fired = True
         con.interrupt()
 
-    timer = threading.Timer(TIME_LIMIT, stop)
-    timer.daemon = True
+    timer = AwakeTimer(TIME_LIMIT, stop)  # awake time only, as the SQL page's limit
     timer.start()
     try:
         yield limit

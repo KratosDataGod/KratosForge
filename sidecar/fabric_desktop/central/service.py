@@ -162,7 +162,8 @@ class PlatformMixin:
 
     def _check_can_share(self) -> dict[str, Any]:
         if self._platform_source() == "policy":
-            raise PermissionError("Your organization sets the platform, so keys can't be moved from this PC")
+            raise PermissionError("Your organization sets the platform, so keys can't be moved from this PC. "
+                                  "Ask IT to change platform in the policy file.")
         cfg = self._keys_config()
         if not cfg.get("functions_id") and any(c.get("functions_id") for c in self._platform_config().values()):
             # Fabric can't reach a database on this PC, so keys already in Fabric never move here.
@@ -267,7 +268,8 @@ class PlatformMixin:
 
     def _save_platform(self, env: str, cfg: dict[str, Any]) -> None:
         if self._platform_source() == "policy":
-            raise PermissionError("Your organization sets the platform, so it can't be changed here")
+            raise PermissionError("Your organization sets the platform, so it can't be changed here. "
+                                  "Ask IT to change platform in the policy file.")
         mine = dict(self._settings().get("platform", {}))  # type: ignore[attr-defined]
         if cfg:
             mine[env] = cfg
@@ -696,8 +698,8 @@ class PlatformMixin:
         where they are: nothing is copied or deleted. Platform admins only."""
         self._require_platform_admin("set up the landing workspace")
         if self._platform_source() == "policy" and not self._central_landing():
-            raise PermissionError("Your organization sets the platform, so the landing workspace is added to its policy "
-                                  "(platform.landing), not here")
+            raise PermissionError("Your organization sets the platform, so the landing workspace is added to its policy, "
+                                  "not here. Ask IT to add it to platform.landing in the policy file.")
         out = setup_mod.landing_setup(self.fabric, workspace_name, capacity_id, self._landing_config())  # type: ignore[attr-defined]
         cfg = out["config"]
         if cfg.get("lakehouse_id"):

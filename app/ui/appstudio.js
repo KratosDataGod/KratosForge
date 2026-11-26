@@ -65,7 +65,7 @@ function appStudioCreateCard(home) {
     const got = await attempt(() => rpc("appstudio_create", { name: chosen, template, target: target.value }), "Could not create the app");
     if (got) { Object.assign(appStudio, { project: got.project, opened: got, tab: "preview", page: null, selection: {} }); go("appStudio"); }
   };
-  name.addEventListener("keydown", (e) => { if (e.key === "Enter") create(); });
+  name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
   return h("section", { class: "card pad as-create" }, h("h2", {}, "Create an app"),
     h("div", { class: "row as-create-fields" }, h("label", { class: "field" }, "Name", name),
       h("label", { class: "field" }, "Where it will run", target)),
@@ -142,9 +142,9 @@ async function renderAppStudioWorkspace() {
       : h("span", { class: "as-chip warn" }, icon("warning", 14), `${got.problems.length} problem${got.problems.length === 1 ? "" : "s"}`),
     h("span", { class: "as-chip" }, "Not published"));
   const more = btn("More", "chevronDown", (e) => showMenu(e.currentTarget, [
-    { label: "Save As…", run: () => appStudioSaveAs(false) },
-    { label: "Clone…", run: () => appStudioSaveAs(true) },
-    { label: "Export to Downloads", run: appStudioExport },
+    { label: "Save As…", action: () => appStudioSaveAs(false) },
+    { label: "Clone…", action: () => appStudioSaveAs(true) },
+    { label: "Export to Downloads", action: appStudioExport },
   ]), "tool outline", { "aria-label": "More project actions" });
   const head = h("div", { class: "page-head" }, h("div", {},
     h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); appStudioLeave(); } }, "App Studio"),
@@ -586,7 +586,7 @@ function appStudioTitled(text) {
     names[p.id] = p.title;
     for (const c of p.components || []) names[c.id] = c.title || AS_TYPES[c.type] || c.id;
   }
-  return String(text).replace(/\b(?:c|pg)_\d+\b/g, (id) => (names[id] ? `"${names[id]}"` : id));
+  return String(text).replace(/\b(?:c|pg)_\w+\b/g, (id) => (names[id] ? `"${names[id]}"` : id));
 }
 
 function appStudioChangeView(ch) {

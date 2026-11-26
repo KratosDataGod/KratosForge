@@ -255,10 +255,10 @@ test("the section has no serious axe findings", { skip: noAxe }, async () => {
 });
 
 test("hidden when preview features are hidden", { skip }, async () => {
-  await page().evaluate(() => { state.settings.show_preview = { value: false }; optimizePage.tab = "cost"; go("optimize"); });
+  await page().evaluate(() => { state.settings = state.settings || {}; state.settings.show_preview = { value: false }; optimizePage.tab = "cost"; go("optimize"); });
   await page().locator("#view .optimize-body").waitFor();
   assert.strictEqual(await page().locator("#view .xcmp").count(), 0);
-  await page().evaluate(() => { state.settings.show_preview = { value: true }; });
+  await page().evaluate(() => { state.settings = state.settings || {}; state.settings.show_preview = { value: true }; });
 });
 
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

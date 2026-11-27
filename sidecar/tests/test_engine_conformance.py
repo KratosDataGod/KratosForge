@@ -15,9 +15,11 @@ import test_databricks_sql as dbsql_t
 import test_dbconnect as dbc_t
 import test_fabric_spark as fs_t
 import test_snowflake_sql_engine as sf_t
+import test_snowpark_local as spl_t
 from engine_conformance import CHECKS, Harness
 from fabric_desktop import app_settings, connprofiles
 from fabric_desktop.engines import dbconnect as dbc
+from fabric_desktop.engines import snowpark_local as spl
 from fabric_desktop.engines import registry
 from fabric_desktop.engines.capabilities import EngineDescriptor, Support
 from fabric_desktop.engines.contract import CellRequest, CellResult, SessionClosed, SessionConfig, Unsupported
@@ -139,6 +141,22 @@ def snowflake_sql(tmp_path, monkeypatch):
         open_failing=lambda _a: sf_t.adapter(failing).open_session(sf_t.CONFIG, sf_t.ok()),
         open_unauthorized=lambda a: a.open_session(sf_t.CONFIG), contacted=lambda: len(fake.calls),
         secrets=(sf_t.TOKEN, _JWT))
+def snowpark_local(tmp_path, monkeypatch):
+    runtimes = spl.Runtimes(tmp_path)
+    spl_t._install_fake(runtimes)
+
+    def leave(s):
+        assert s.execute(CellRequest("kudp_probe = 1")).status == "ok"
+
+    def sees(s):
+        return s.execute(CellRequest("'kudp_probe' in globals()")).outputs[-1]["text"] == "True"
+
+    return Harness(
+        "snowpark-local", lambda: spl.SnowparkLocalAdapter(runtimes, cell_seconds=60),
+        lambda a: a.open_session(SessionConfig("nb")),
+        ok_cell=CellRequest("print('hi')\nsession.create_dataframe([[1, 'a']], schema=['id', 'name'])"),
+        error_cell=CellRequest("1/0"), refused_cells=(sql("SELECT 1"), CellRequest("spark.range(1)", "pyspark")),
+        leave_state=leave, sees_state=sees)
 
 
 def _runtimes(tmp_path):
@@ -157,6 +175,7 @@ HARNESSES = {
     "local-python": python, "local-duckdb": duckdb, "local-sqlite": sqlite, "local-polars": polars,
     "databricks-sql": databricks_sql, "databricks-connect": databricks_connect, "fabric-spark": fabric_spark,
     "snowflake-sql": snowflake_sql,
+    "snowpark-local": snowpark_local,
 }
 
 

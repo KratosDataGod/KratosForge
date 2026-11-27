@@ -557,7 +557,7 @@ business_key = "order_id"
 | top level | `name`, `owner`, `description` | The entity's name (`layer.table`), who owns it, and what it is |
 | | `delta_features`, `delta_readers`, `delta_accepted` | The Delta table features a run may leave on the table when it publishes it, the readers they're checked against, and the readers you allowed with a typed confirm (Preview; [Each table's own choice](delta-reader-matrix.md#each-tables-own-choice-preview)) |
 | `[source]` | `files` | A file pattern under the layer's lakehouse `Files` |
-| | `entity` | Another entity it reads |
+| | `entity` | One other entity it reads, by name (to combine tables, see [Where custom logic goes](#where-custom-logic-goes)) |
 | | `table` | An existing Delta table, by OneLake URI (adopted tables) |
 | | `rename` | Source column names mapped to the contract's names |
 | | `new_files_only` | `false` makes an incremental or dimension load read every file each run ([Loads from files](#loads-from-files-read-only-new-files)) |
@@ -583,8 +583,8 @@ business_key = "order_id"
 | `[[lookup]]` | `dim`, `on`, `as`, `at` | A dimension's surrogate key as of the fact's date |
 | `[scd]` | `surrogate_key`, `tracked`, `type1` | Dimension settings |
 | `[model]` | `date_column` | Makes the dimension the semantic model's date table (see [section 10](#10-semantic-model-preview)) |
-| `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point |
-| `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform |
+| `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point. `reads` is a list of the entity names it may read, like `reads = ["silver.customers"]` |
+| `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform. `reads` is a list of the entity names it may read |
 | `[params]` | any | Values your code reads from `ctx.params` |
 | `[freshness]` | `within_hours`, `by`, `envs` | When a successful run is due |
 | `[objectives]` | `criticality`, `success_rate`, `runs`, `envs` | How often runs must succeed (Preview) |

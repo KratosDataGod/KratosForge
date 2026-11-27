@@ -1449,6 +1449,8 @@ body.pop-out .page.monitor { padding: 12px; }
 .segs { display: inline-flex; border: 1px solid var(--border-input); border-radius: var(--r-sm); overflow: hidden; }
 .seg { min-height: 26px; padding: 0 12px; border: 0; border-right: 1px solid var(--border-input); background: var(--surface); color: var(--text-2); font-size: 12px; cursor: pointer; }
 .seg:last-child { border-right: 0; }
+/* A segmented group drawn before its choices are known (Shortcuts' Show while it reads) shows nothing, not an empty pointer box. */
+div.seg:empty { display: none; }
 .seg.on { background: var(--accent); color: var(--on-accent); }
 .seg.seg-add { color: var(--accent); }
 .out-bar .segs { flex-wrap: wrap; }

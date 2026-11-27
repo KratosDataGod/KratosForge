@@ -303,11 +303,16 @@ def _from_fidelity(row: dict[str, Any], src: _Source, fid: dict[str, Any], basis
 
 
 def _flagged(fid: dict[str, Any]) -> dict[str, str]:
+    """A fidelity report's fate for each role and calculation group by name. On Import (a TMSL destination)
+    Preserved through extensions means the source file kept it only in its POWER_BI extension and it reached the
+    Power BI model, so for that target it is kept."""
+    into_power_bi = (fid.get("destination") or {}).get("format") == "TMSL"
     out = {}
     for kind in ("roles", "calculation_groups"):
         for f in (fid.get("flagged") or {}).get(kind) or []:
             if isinstance(f, dict) and f.get("class") in _CLASS_FATE:
-                out[str(f["object"])] = _CLASS_FATE[f["class"]]
+                kept = into_power_bi and f["class"] == "preserved_through_extensions"
+                out[str(f["object"])] = KEPT if kept else _CLASS_FATE[f["class"]]
     return out
 
 

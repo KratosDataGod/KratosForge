@@ -416,7 +416,7 @@ def test_the_command_line_compiles_no_bytecode_only_in_an_appcontainer(lab, monk
     assert "appcontainer" not in json.loads(plain[-1])
     box = types.SimpleNamespace(work=work, bootstrap=work / "boot.py", share=lambda job: ("shared", job))
     boxed = _argv(monkeypatch, work, root, box)
-    assert boxed[:5] == [sys.executable, "-I", "-X", "utf8", "-B"] and str(work / "boot.py") in boxed[-2]
+    assert boxed[:5] == [sys.executable, "-I", "-X", "utf8", "-B"] and repr(str(work / "boot.py")) in boxed[-2]
     cfg = json.loads(boxed[-1])
     assert cfg["appcontainer"] is True and cfg["job_handle"][0] == "shared"
 

@@ -192,3 +192,4 @@ def test_an_empty_folder_read_with_a_schema_is_no_rows_and_without_one_an_error(
     assert "".join(o.get("text", "") for o in out["outputs"]).strip() == want
     out = k.run(f"spark.read.format({fmt!r}).load({str(tmp_path)!r})")
     assert out["status"] == "error" and "UNABLE_TO_INFER_SCHEMA" in str(out["outputs"])
+    assert "_NoDataFiles" not in str(out["outputs"])  # the error is a ValueError, not this module's own type

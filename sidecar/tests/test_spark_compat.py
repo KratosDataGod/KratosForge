@@ -229,6 +229,19 @@ def test_a_ddl_schema_takes_sql_reserved_words_as_column_names(live):
     assert live.createDataFrame([], "from int, where string").columns == ["from", "where"]
 
 
+def test_a_pandas_value_of_the_wrong_type_is_named_by_its_own_column(live):
+    # Only a frame column whose name the cast can't take (a keyword, or one that needs quotes) is renamed for
+    # it, so DuckDB's error names the column as the frame does.
+    import pandas as pd
+    pdf = pd.DataFrame({"amount": ["x"], "order": [1], "Mixed Case": [2]})
+    with pytest.raises(Exception) as caught:  # DuckDB 1.5 casts and names the column; DuckDB 2.0 checks the value first
+        rows(live.createDataFrame(pdf, "amount int, order int, n int"))
+    assert "_fd_col" not in str(caught.value).splitlines()[0]  # its message; the SQL quoted below it may show one
+    assert rows(live.createDataFrame(pdf, "a string, b int, c int")) == [("x", 1, 2)]
+    clash = pd.DataFrame({"_fd_col1": [1], "_fd_col0": ["s"]})  # this module's own names are renamed too
+    assert rows(live.createDataFrame(clash, "p long, q string")) == [(1, "s")]
+
+
 def test_python_ints_are_bigint_as_spark_infers_them(live):
     df = live.createDataFrame([(1, [2, 3], "x")], ["n", "xs", "s"])
     assert df.dtypes == [("n", "bigint"), ("xs", "array<bigint>"), ("s", "string")]

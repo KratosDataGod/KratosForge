@@ -1185,7 +1185,7 @@ class LakehouseReader:
         Without a schema there is nothing to infer, so the error stands."""
         schema = getattr(self, "_schema", None)
         if schema is None:
-            raise exc
+            raise ValueError(str(exc)) from None  # the error, not this module's private type for it
         return self._session.createDataFrame([], schema)
 
     def _hive(self, files: str | list[str]) -> dict[str, Any]:
@@ -1768,7 +1768,13 @@ class LocalSparkSession(SparkSession):
         where Spark takes any name. The frame's columns are given plain positional names for that cast;
         the schema's names come back after it, quoted."""
         if types and names and len(data.columns) == len(names):
-            data = data.set_axis([f"_fd_col{i}" for i in range(len(data.columns))], axis=1)
+            # Only a name the cast can't take as written is replaced, so an error (a value that isn't the
+            # schema's type, read when the frame is) names every other column as the schema does.
+            plain = re.compile(r"[a-z_][a-z0-9_]*")
+            reserved = _duckdb_keywords(self.conn)
+            data = data.set_axis([n if isinstance(n, str) and plain.fullmatch(n) and n not in reserved
+                                  and not n.startswith("_fd_col") else f"_fd_col{i}"
+                                  for i, n in enumerate(data.columns)], axis=1)
         return super()._createDataFrameFromPandas(data, types, names)
 
     def _ints_as_long(self, df: DataFrame) -> DataFrame:
@@ -1965,6 +1971,18 @@ def _ddl_type(text: str) -> Any:
 
 _NOT_NULL = re.compile(r"\s+NOT\s+NULL\s*$", re.I)
 _COMMENT = re.compile(r"\s+COMMENT\s+(?:'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")\s*$", re.I | re.S)
+
+
+def _duckdb_keywords(conn: Any) -> frozenset[str]:
+    """DuckDB's keywords, in lower case: a name among them must be quoted, which DuckDB 1.x's pandas cast
+    doesn't do. Read once per process."""
+    global _KEYWORDS
+    if _KEYWORDS is None:
+        _KEYWORDS = frozenset(r[0].lower() for r in conn.execute("SELECT keyword_name FROM duckdb_keywords()").fetchall())
+    return _KEYWORDS
+
+
+_KEYWORDS: frozenset[str] | None = None
 
 
 class _NoDataFiles(ValueError):

@@ -8,6 +8,7 @@ words, and the Windows link count read through an open handle, which runs here w
 from __future__ import annotations
 
 import os
+import re
 import stat
 from pathlib import Path
 from types import SimpleNamespace
@@ -124,7 +125,9 @@ def test_a_missing_workspace_says_to_start_again(tmp_path):
 
 def test_a_path_through_a_file_cant_be_read(work):
     (work / "f.txt").write_text("x", encoding="utf-8")
-    with pytest.raises(ws.Refused, match="f.txt/x can't be read: "):
+    # Windows reports a path through a file as not found; POSIX says it's not a folder.
+    msg = "f.txt/x isn't there." if os.name == "nt" else "f.txt/x can't be read: "
+    with pytest.raises(ws.Refused, match=re.escape(msg)):
         ws.inside(work, "f.txt/x")
 
 

@@ -3604,6 +3604,14 @@ tr.fg-conflict { background: var(--danger-soft); }
 .assess-meta { color: var(--muted); font-size: 12px; }
 .assess-timing { border: 0; padding: 0; margin: 0; display: flex; gap: 12px; font-size: 13px; }
 .assess-timing legend { font-size: 12px; color: var(--muted); padding: 0; margin-bottom: 4px; }
+.assess-diag { display: flex; flex-direction: column; gap: 12px; }
+.assess-diag p { margin: 0; color: var(--text-2); font-size: 13px; }
+.assess-diag-choices { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.assess-diag-choices legend { font-weight: 600; padding: 0; margin-bottom: 6px; }
+.assess-diag-choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); cursor: pointer; }
+.assess-diag-choice:has(input:checked) { border-color: var(--accent-border); background: var(--accent-soft); }
+.assess-diag-choice > span { display: flex; flex-direction: column; gap: 2px; }
+.assess-diag-note { background: var(--surface-2); border-radius: var(--r-sm); padding: 8px 12px; }
 .assess-pick { display: flex; flex-direction: column; gap: 6px; }
 .assess-pick .tool { justify-content: flex-start; text-align: left; }
 .assess-domain { border: 0; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 4px; }

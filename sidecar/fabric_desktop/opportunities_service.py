@@ -34,7 +34,7 @@ MAX_SECONDS = 240.0  # wall time for those reads; what's left unread is reported
 KEPT = 5  # assessments kept in memory on this PC to share; an older one is assessed again
 _kept_lock = threading.Lock()
 MIN_DAYS, MAX_DAYS = 1, 90
-METHODS = {"optimization_assess", "optimization_share"}
+METHODS = {"optimization_assess", "optimization_share", "optimization_share_preview"}
 
 
 class _Budget:
@@ -126,13 +126,35 @@ class OpportunitiesMixin:
         Without ``approve`` it writes nothing and raises with what it would add and ``confirm``; it writes
         only with ``approve`` and that ``confirm`` (Optimize's ask, optimize_service._optimize_share_analysis).
         A demonstration fixture is never shared, and has no share_id."""
+        return self._optimize_share_analysis(share.analysis_rows(self._kept(share_id)),  # type: ignore[attr-defined]
+                                             "this assessment", approve=approve, confirm=confirm)
+
+    def optimization_share_preview(self, share_id: str) -> dict[str, Any]:
+        """What sharing this assessment would add (findings, recommendations, items, workspaces), the
+        engine's own sentence saying so (``text``, without the ask's "Confirm to continue") and the
+        ``confirm`` that shares exactly those rows.
+        Writes nothing: it is optimization_share's ask, returned instead of raised, for the Share dialog.
+        With no findings there is nothing to share, and no ``confirm``."""
+        rows = share.analysis_rows(self._kept(share_id))
+        active = self.optimize_registry.active() or {}  # type: ignore[attr-defined]
+        where = {"lakehouse": active.get("lakehouse_name") or "", "connected": bool(self.central_lakehouse()),  # type: ignore[attr-defined]
+                 "access": active.get("access") or ""}
+        try:
+            out = self._optimize_share_analysis(rows, "this assessment")  # type: ignore[attr-defined]
+        except PermissionError as ask:
+            would = getattr(ask, "would", None)
+            if would is None:
+                raise
+            return dict(would) | where | {"text": str(getattr(ask, "what", "") or ask)}
+        return out | where | {"text": ""}
+
+    def _kept(self, share_id: str) -> dict[str, Any]:
         with _kept_lock:
             result = self._kept_assessments().get(str(share_id or ""))
         if result is None:
             raise ValueError("That assessment isn't kept on this PC any more (KratosForge restarted, or "
                              f"{KEPT} newer ones were made). Assess again, then share it.")
-        return self._optimize_share_analysis(share.analysis_rows(result), "this assessment",  # type: ignore[attr-defined]
-                                             approve=approve, confirm=confirm)
+        return result
 
     def _kept_assessments(self) -> dict[str, dict[str, Any]]:
         kept: dict[str, dict[str, Any]] = self.__dict__.setdefault("_opportunity_assessments", {})

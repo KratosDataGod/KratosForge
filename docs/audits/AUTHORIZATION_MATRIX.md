@@ -429,7 +429,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `notebook_validate_start` | `sidecar/fabric_desktop/validate_service.py:113` | Fabric or OneLake | Fabric's own rights; PermissionError |
 | `notebook_version_delete` | `sidecar/fabric_desktop/notebook_versions_service.py:165` | this PC | the signed-in Windows user's own files |
 | `notebook_version_restore` | `sidecar/fabric_desktop/notebook_versions_service.py:153` | this PC | the signed-in Windows user's own files |
-| `optimization_share` | `sidecar/fabric_desktop/opportunities_service.py:123` | this PC | confirm or approve argument |
+| `optimization_share` | `sidecar/fabric_desktop/opportunities_service.py:123` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `optimize_connect` | `sidecar/fabric_desktop/optimize_service.py:139` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `optimize_create` | `sidecar/fabric_desktop/optimize_service.py:123` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `optimize_disconnect` | `sidecar/fabric_desktop/optimize_service.py:170` | this PC | the signed-in Windows user's own files |

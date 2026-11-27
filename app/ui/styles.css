@@ -4377,6 +4377,38 @@ html[data-motion="on"] .tree-ach.earned .tree-ach-badge { filter: drop-shadow(0 
 @media (max-width: 1100px) { .tree-body { grid-template-columns: 1fr; } .tree-detail { border-left: 0; border-top: 1px solid var(--tree-node); } }
 @media (max-width: 760px) { .tree-head { grid-template-columns: 1fr; } .tree-node { width: 96px; } .tree-node-name { font-size: 11px; } }
 
+/* S34 Compare data (sqlcompare.js): A and B, the key and tolerances, the verdict, tiles and A beside B. */
+.sql-compare { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; }
+.sql-compare-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.sql-compare-pick { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); }
+.sql-compare-label { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.sql-compare-query { font-family: var(--mono, Consolas, monospace); font-size: 12.5px; resize: vertical; min-height: 48px; }
+.sql-compare-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sql-compare-add { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sql-compare-within { width: 80px; }
+.sql-compare-results { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.sql-compare-verdict { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 8px 10px; border-radius: var(--r-sm); background: var(--warn-soft); color: var(--warn-ink); font-size: 13px; }
+.sql-compare-verdict.same { background: var(--ok-soft); color: var(--text); }
+.sql-compare-verdict b { font-size: 15px; }
+.sql-compare-notes { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
+.sql-compare-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.sql-compare-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.sql-compare-tile:disabled { cursor: default; opacity: 1; }
+.sql-compare-tile.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.sql-compare-tile b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.sql-compare-tile span { font-size: 12px; color: var(--muted); }
+.sql-compare-table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--r-sm); max-height: 40vh; }
+.sql-compare-table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.sql-compare-table th, .sql-compare-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; white-space: nowrap; }
+.sql-compare-table th { background: var(--surface-2, var(--surface)); font-weight: 600; position: sticky; top: 0; }
+.sql-compare-table .grp { border-left: 1px solid var(--border); }
+.sql-compare-table th.grp[colspan] { text-align: center; }
+.sql-compare-table td.chg { background: var(--warn-soft); color: var(--warn-ink); font-weight: 600; }
+.sql-compare-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sql-compare-foot > span { flex: 1; min-width: 200px; }
+.sql-compare-error, .sql-compare-stopped { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--danger-soft); color: var(--danger, var(--text)); font-size: 13px; }
+.sql-compare select, .sql-compare input, .sql-compare textarea { min-height: 28px; padding: 2px 8px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); color: var(--text); font-size: 13px; min-width: 0; max-width: 100%; }
+.sql-explorer-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 /* A notebook changed in VS Code and here: each difference picked (vscode.js nbSyncMerge) */
 .sync-chooser { display: flex; flex-direction: column; gap: 12px; }
 .sync-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; padding: 10px 14px; border-radius: 6px; background: var(--warn-soft); }
@@ -4402,3 +4434,17 @@ html[data-motion="on"] .tree-ach.earned .tree-ach-badge { filter: drop-shadow(0 
   .sync-sides { grid-template-columns: minmax(0, 1fr); }
   .sync-side + .sync-side { border-left: 0; border-top: 1px solid var(--border-soft); }
 }
+/* OE-004 Share on the Opportunities header (optimize-assess.js assessShare). */
+.assess-share-acts { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; }
+.assess-share-line:empty { display: none; }
+.assess-share-state { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+.assess-share-state.ok { background: var(--ok-soft); color: var(--ok-ink); }
+.assess-share-state.wait { background: var(--info-soft); color: var(--info); }
+.assess-share-state.warn { background: var(--warn-soft); color: var(--warn-ink); }
+.assess-share-state .tool { color: var(--text); }
+.assess-share-dialog { display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
+.assess-share-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin: 0; }
+.assess-share-facts div { border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 10px; }
+.assess-share-facts dt { font-size: 12px; color: var(--muted); }
+.assess-share-facts dd { margin: 0; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.assess-share-would { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 6px; padding: 10px 12px; margin: 0; }

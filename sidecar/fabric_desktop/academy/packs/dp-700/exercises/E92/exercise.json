@@ -1,0 +1,160 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E92",
+  "title": "Optimize a pipeline: partitioned copy, copy parallelism, throughput and no waits",
+  "objectives": [
+    "3.3.2"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Speed up a one-time load and cut its cost: split a large copy with a dynamic range, cap its parallel copies at the source's limit, remove waits that do nothing, and spend less throughput on the small tables.",
+  "scenario": "A one-time backfill copies 1.5 billion orders from Azure SQL Database into the lakehouse, then 40 small reference tables. A test run copied orders in one session and took over two hours, and the team also burned capacity on tables that take minutes. The database team allows 16 sessions at most.",
+  "engine_label": "A model of a pipeline's Copy and ForEach settings, checked on this PC",
+  "verifies": [
+    "Your settings split the orders copy by order_id into 16 parallel copies with known bounds, drop the waits, and run the small tables after it in parallel batches at the lowest named throughput, as the SQL copy performance and Copy activity pages describe them, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That the pipeline runs or gets faster. Nothing runs here, and no time is measured.",
+    "How many parallel copies or how much throughput the service really uses. The copy output shows those after a real run.",
+    "The rest of a real pipeline definition. This cut-down model uses the settings' names from the Copy activity's tabs, not its JSON."
+  ],
+  "expected": {
+    "description": "Copy orders: Dynamic range on order_id from 1 to 1500000000, degree of copy parallelism 16, throughput Maximum, no dependencies. Both Wait activities removed. Copy small tables: depends on Copy orders On completion, parallel, batch count 2 to 16, inner copy at Standard."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The orders copy still reads the table in one piece, or splits it badly.",
+      "pass": "The orders copy is split into ranges of order_id.",
+      "rules": [
+        {
+          "path": "properties.activities.Copy orders.source.partition_option",
+          "equals": "Dynamic range",
+          "why": "With no partition option the copy reads the table in one query. Physical partitions need a partitioned table, and this one isn't."
+        },
+        {
+          "path": "properties.activities.Copy orders.source.partition_column",
+          "equals": "order_id",
+          "why": "Pick a primary key or another column with an even spread. A clustered index on it helps a lot. order_date is skewed."
+        },
+        {
+          "path": "properties.activities.Copy orders.source.partition_lower_bound",
+          "equals": 1,
+          "why": "Without bounds the service runs extra queries on the source to find them. Set them beforehand for a one-time historical load."
+        },
+        {
+          "path": "properties.activities.Copy orders.source.partition_upper_bound",
+          "equals": 1500000000
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The orders copy's parallel copies or throughput don't fit the need.",
+      "pass": "The orders copy runs 16 parallel copies at maximum throughput.",
+      "rules": [
+        {
+          "path": "properties.activities.Copy orders.settings.degree_of_copy_parallelism",
+          "equals": 16,
+          "why": "Degree of copy parallelism sets the most parallel copies, and each one is a session on the source. Auto can open far more than 16."
+        },
+        {
+          "path": "properties.activities.Copy orders.settings.intelligent_throughput_optimization",
+          "one_of": [
+            "Maximum",
+            256
+          ],
+          "why": "Orders must stay as fast as it can be. Maximum lets the service pick the highest useful throughput."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The pipeline still waits for nothing.",
+      "pass": "The waits are gone and orders starts at once.",
+      "rules": [
+        {
+          "path": "properties.activities.Wait for source",
+          "absent": true,
+          "why": "A Wait activity only pauses the run. Nothing else uses the source, so the wait adds 10 minutes and protects nothing."
+        },
+        {
+          "path": "properties.activities.Rest the source",
+          "absent": true,
+          "why": "The session cap already protects the source. A rest between copies only adds time."
+        },
+        {
+          "path": "properties.activities.Copy orders.depends_on",
+          "count": 0
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The small tables don't load the way the need says.",
+      "pass": "The small tables load after orders, in parallel, within the session limit, at the lowest named throughput.",
+      "rules": [
+        {
+          "path": "properties.activities.Copy small tables.depends_on",
+          "count": 1
+        },
+        {
+          "path": "properties.activities.Copy small tables.depends_on",
+          "count": 1,
+          "where": {
+            "activity": "Copy orders",
+            "condition": "On completion"
+          },
+          "why": "On completion runs after orders succeeds or fails. On success would skip the small tables on a bad night. No dependency would run them beside orders and pass the session limit."
+        },
+        {
+          "path": "properties.activities.Copy small tables.sequential",
+          "equals": false,
+          "why": "The tables don't depend on each other, so the loop can run them side by side."
+        },
+        {
+          "path": "properties.activities.Copy small tables.batch_count",
+          "min": 2,
+          "max": 16,
+          "why": "Batch count caps how many iterations run at once. Each one opens a session, and the default of 20 is over the limit."
+        },
+        {
+          "path": "properties.activities.Copy small tables.activities.Copy one table.settings.intelligent_throughput_optimization",
+          "equals": "Standard",
+          "why": "Throughput sets how much compute the copy may use. Lowering it costs less capacity, and these tables are already fast."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Is dbo.orders partitioned? Which partition option works without that?",
+    "Which column spreads the rows evenly, order_id or order_date?",
+    "What does each parallel copy open on the source, and how many may you open?",
+    "What do the two Wait activities protect now?",
+    "Which condition runs the small tables after orders whether it succeeds or fails?",
+    "Which named throughput setting is the lowest?"
+  ],
+  "explanation": "With no partition option, the copy reads 1.5 billion rows in one session. Dynamic range splits the read into range queries on a partition column, one per parallel copy. Physical partitions need a partitioned table, and dbo.orders isn't one. The column should spread the rows evenly, like the clustered primary key order_id. order_date is skewed, so some ranges would be far larger than others. Known bounds save the service the extra queries it runs to find them. Degree of copy parallelism caps the parallel copies, and each one is a session on the source. Auto can open many more than 16, so set 16. The two Wait activities only pause the run, so they go. The small tables follow orders On completion. That keeps them off the source while orders runs, and they still load if orders fails. In parallel with a batch count of 16 or less, they stay inside the session limit. Lower throughput costs less capacity. In Learn's test, halving it took 34% longer but used 45.5% fewer capacity units. That's a good trade for tables that already finish in minutes.",
+  "remediation": [
+    "https://learn.microsoft.com/fabric/data-factory/copy-performance-sql-databases",
+    "https://learn.microsoft.com/fabric/data-factory/copy-data-activity",
+    "https://learn.microsoft.com/fabric/data-factory/foreach-activity",
+    "https://learn.microsoft.com/fabric/data-factory/pipeline-canvas-experience"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23. copy-performance-sql-databases: partition option None by default, with Physical partitions of table and Dynamic Range. Dynamic range makes one query per used parallel copy. Choose a primary key or a column with good distribution, and a clustered index helps. Without bounds the system runs extra queries, so set them beforehand for one-time historical loads. Physical partitions need a partitioned source table. Degree of copy parallelism is Auto by default, sets the maximum parallel copies, and each parallel copy is a session on the source (Auto opened 251 in their test). ITO Standard 64, Balanced 128, Maximum 256, custom 4 to 256. Halving ITO took 34% longer and used 45.5% fewer CUs. ForEach batch count maximum 50. copy-data-activity: the Settings tab has Intelligent throughput optimization (Auto, Standard, Balanced, Maximum) and Degree of copy parallelism. pipeline-canvas-experience names On success, On failure, On completion and On skip.",
+    "The ForEach default batch count of 20 comes from E60's check of the Data Factory ForEach page. It isn't on the Fabric pages fetched for this exercise.",
+    "'Each small-table copy opens one session' is a given of the scenario, not a Learn fact. Learn's tests show one used parallel copy for partition option None with Auto parallelism.",
+    "No timings are claimed for this pipeline. Learn's numbers come from Microsoft's own tests and aren't benchmarks."
+  ]
+}

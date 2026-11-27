@@ -101,8 +101,12 @@ _MARKS = {
     "organization policy": r"_platform_source\(\) == \"policy\"|app_settings\.value\(\"allow_|policy_locked|source\"\] == \"policy\"",
     "risk check": r"risk\.BLOCKED|_risk_ack_write|risk_id",
     "promote gates": r"_duties_gate|governance_promote_gate|promote_checks",
-    "PermissionError": r"raise PermissionError",
+    "PermissionError": r"raise PermissionError|= PermissionError\(",
 }
+# Helpers that write somewhere, under a check, deeper than the scan goes: their callers' rows say where
+# it lands and what guards it. _optimize_write: the central Optimize lakehouse (optimize/shared.py), which
+# the organization's policy can turn off (central_lakehouse).
+WRITES_THROUGH = {"_optimize_write": ({"fabric"}, {"organization policy"})}
 _OTHER = r"databricks|snowflake|\.push\(|bundles\.deploy|remote_url"
 _RUNS = r"Engine\(|_run_here|run_pipeline|self\.kernel|kernel\.|executor\.|subprocess|Popen"
 _FABRIC = r"self\.fabric\b|_scoped\(|FabricClient\(|fabric_jobs|FileStore\(|_fabric_admin|OneLakeStore|storage_token|self\._store\("
@@ -132,6 +136,8 @@ def _scan(name: str, depth: int = 0, seen: dict[str, int] | None = None) -> tupl
         return set(), set(), set()
     ops, marks = set(_OPS.findall(src)), {k for k, p in _MARKS.items() if re.search(p, src)}
     reach = {k for k, p in (("fabric", _FABRIC), ("other", _OTHER), ("runs", _RUNS)) if re.search(p, src)}
+    if name in WRITES_THROUGH:
+        reach, marks = reach | WRITES_THROUGH[name][0], marks | WRITES_THROUGH[name][1]
     for callee in sorted(set(re.findall(r"self\.(_?[a-z][a-z0-9_]*)\(", src))):
         o, m, r = _scan(callee, depth + 1, seen)
         ops, marks, reach = ops | o, marks | m, reach | r

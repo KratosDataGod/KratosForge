@@ -19,7 +19,7 @@ PARAMS = "# PARAMETERS CELL ********************"
 def work(tmp_path):
     (tmp_path / "notebooks").mkdir()
     (tmp_path / "Files" / "landing").mkdir(parents=True)
-    (tmp_path / "Files" / "landing" / "day1.csv").write_text("id\n1\n", encoding="utf-8")
+    (tmp_path / "Files" / "landing" / "day1.csv").write_bytes(b"id\n1\n")
     return tmp_path
 
 

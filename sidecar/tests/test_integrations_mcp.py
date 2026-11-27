@@ -4,13 +4,14 @@ memory on both protocol eras, and as the real `fabric-desktop mcp` process over 
 import json
 import os
 import sys
-from pathlib import Path
 import time
+from pathlib import Path
 
 import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 
+import fabric_desktop
 from fabric_desktop.integrations.capabilities import register_core
 from fabric_desktop.integrations.mcp_server import MAX_RESULT_BYTES, build_server
 from fabric_desktop.integrations.registry import Capability, Registry, schema
@@ -18,7 +19,7 @@ from fabric_desktop.service import Service
 
 # The engine's own folder, for a child process. Not all of sys.path: other tests add project folders
 # to it, and on Windows a variable longer than 32,767 characters stops the child starting.
-ENGINE = str(Path(__file__).resolve().parents[1])
+ENGINE = str(Path(fabric_desktop.__file__).resolve().parent.parent)
 
 MODES = ["legacy", "auto"]  # handshake era (2025-11-25) and 2026-07-28
 

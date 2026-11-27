@@ -4,13 +4,14 @@ policy, the built-in sample, and connected MCP clients being told their lists ch
 import json
 import os
 import sys
-from pathlib import Path
 from dataclasses import replace
+from pathlib import Path
 
 import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 
+import fabric_desktop
 from fabric_desktop.integrations import extensions
 from fabric_desktop.integrations.audit import IntegrationAudit
 from fabric_desktop.integrations.capabilities import register_core
@@ -24,7 +25,7 @@ from fabric_desktop.service import Service
 
 # The engine's own folder, for a child process. Not all of sys.path: other tests add project folders
 # to it, and on Windows a variable longer than 32,767 characters stops the child starting.
-ENGINE = str(Path(__file__).resolve().parents[1])
+ENGINE = str(Path(fabric_desktop.__file__).resolve().parent.parent)
 
 OUTLINE = "notebook_outline_get"
 

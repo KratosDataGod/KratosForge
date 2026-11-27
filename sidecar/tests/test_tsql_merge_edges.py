@@ -190,6 +190,8 @@ REFUSED = [
     ("WHEN MATCHED THEN UPDATE SET s.v = 'x';", "SET s.v names a column of s, but a MERGE's UPDATE sets only"),
     ("WHEN NOT MATCHED THEN INSERT (id, id) VALUES (s.id, s.id);", "The column id is named more than once"),
     ("WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;", "A Fabric Warehouse's MERGE doesn't take INSERT DEFAULT VALUES"),
+    ("WHEN NOT MATCHED THEN INSERT;", "A MERGE's INSERT needs VALUES (...) in T-SQL"),
+    ("WHEN NOT MATCHED THEN INSERT (id, v);", "A MERGE's INSERT needs VALUES (...) in T-SQL"),
     ("WHEN MATCHED THEN UPDATE SET v = s.v", "A MERGE must end with a semicolon (;) in T-SQL"),
     ("WHEN MATCHED THEN DELETE\nSELECT 1;", "A MERGE must end with a semicolon (;) in T-SQL"),
 ]

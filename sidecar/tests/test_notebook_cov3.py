@@ -60,7 +60,10 @@ def test_a_made_id_that_repeats_one_already_given_is_made_again():
 def test_cell_settings_the_file_had_on_are_taken_from_the_app():
     before = {"editable": False, "deletable": True, "jupyter": {"source_hidden": True}, "other": 1}
     merged = nb_mod._merge_cell_metadata({}, before)
-    assert merged == {"deletable": True, "other": 1}
+    # editable false without frozen is another tool's setting (WR-136) and stays
+    assert merged == {"editable": False, "deletable": True, "other": 1}
+    frozen = {"editable": False, "deletable": False, "run_control": {"frozen": True}, "other": 1}
+    assert nb_mod._merge_cell_metadata({}, frozen) == {"other": 1}  # unfrozen in the app: all three go
 
 
 def code_cell(source, cid):

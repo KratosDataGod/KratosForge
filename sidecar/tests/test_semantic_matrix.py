@@ -348,7 +348,7 @@ def test_redacted_hides_filter_text_and_withholds_text_on_dropped_roles():
     assert FILTER not in _text(out)
     assert all(r["parity"]["report"]["redacted"] for r in out["targets"][1:])
     view = _row(out, "fabric-semantic-view")
-    assert view["roles"][0]["withheld"] is True and "sha256" in view["roles"][0]["why"]
+    assert view["roles"][0]["withheld"] is True and "fingerprint" in view["roles"][0]["why"]
     assert all(d.get("withheld") for d in view["dropped"]["objects"] if d["kind"] == "role")
     assert _row(out, "ossie-0.2")["roles"][0]["why"] == _row(m, "ossie-0.2")["roles"][0]["why"]  # not dropped: kept
 

@@ -212,7 +212,9 @@ class ProjectStore:
             raise KeyError(f"No local data project {pid!r}.")
         path = Path(folder) / "project.json"
         try:  # OSError (a folder that's gone or can't be opened) is raised as it is
-            return _project(json.loads(path.read_text(encoding="utf-8")), folder)
+            # jsonfile.read_text: on Windows a read just as save() swaps in the new file is refused for a
+            # moment (PermissionError); that is waited out, so a reader gets the old file or the new one.
+            return _project(json.loads(jsonfile.read_text(path)), folder)
         except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exc:
             # A torn write, a hand edit or another program's file: named, so the list skips it and logs why,
             # and the file is left as it is for the person to fix (nothing here writes it back).

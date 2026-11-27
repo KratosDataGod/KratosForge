@@ -82,6 +82,7 @@ ACTIONS: dict[str, str] = {
     "tenant_settings_read": "approve",
     # Confirmations.
     "databricks_billing": "confirmed",
+    "snowflake_query_credits": "confirmed",
     "databricks_sync_push": "confirm_deletes",
     "databricks_volume_delete": "confirm",
     "databricks_volume_download": "overwrite",

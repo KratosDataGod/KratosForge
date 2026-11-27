@@ -41,6 +41,8 @@ NO_UI_CALLER: dict[str, str] = {
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # SF-002: the Check button in Settings > Connections waits on its mockup.
     "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
+    # SF-007: the Snowpark API compatibility check of a cell (Preview); no screen is part of SF-007.
+    "snowpark_api_check": "SF-007 engine call; the Snowpark API compatibility check has no screen yet (docs/engines.md)",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_share": "adds a model's best practices findings to Optimize > Opportunities; its button waits on a mockup",
     # Local data projects.
@@ -68,7 +70,6 @@ NO_UI_CALLER: dict[str, str] = {
     # Engine features whose screens come later.
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
-    "incidents_measures": _INCIDENTS,
     "platform_notify": _NOTIFY,
     "optimize_share_local_runs": _LOCAL_RUNS,
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
@@ -141,7 +142,6 @@ def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
 # is listed here: with the parameter its destructive step needs, or with why it has none.
 NO_SCREEN_GATE: dict[str, str] = {
     "incidents_history_sync": "approve",       # sets up the central incident tables only when approved
-    "incidents_measures": "approve",           # copies through incidents_history_sync first
     "local_change_delta": "confirm",           # UPDATE or DELETE without WHERE
     "local_drop_delta": "confirm",             # without it, only says what would be deleted
     "local_query": "confirm",                  # DROP, TRUNCATE, CREATE OR REPLACE, INSERT OVERWRITE

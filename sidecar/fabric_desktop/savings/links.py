@@ -43,7 +43,7 @@ keeps it open. Validating, Regressed and Failed always leave the source open. Ea
 plain one-sentence reason.
 
 Not here: version-aware updates, conflicts and the responsible device are ``records`` (ESI-301); the
-writer of those rows is not built, and the responsible user waits on decision D3. This module adds no
+writer of those rows is not built, and the responsible person is ``records``' (tid, oid) pair (D3). This module adds no
 user identity and changes no state; it only builds rows and events that ESI-301 can write later. Provenance columns other than
 ``record_id`` (installation, app version, schema version, created at) are left to that writer.
 

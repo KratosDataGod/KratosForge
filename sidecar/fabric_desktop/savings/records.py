@@ -39,10 +39,21 @@ one row each), so there is always exactly one **head**: the latest version.
   reference it replaces (the optimized one), the artifacts, workspaces or capacities to restore, and
   a note. ``restorable`` is False when the reference to restore isn't known: it stays None, never a
   guess. Reverting returns this plan.
-- **Who: the device only.** The responsible party is the installation (``installation_id``, the
-  random id of ``optimize/installation.py``). There is no user field, not even an empty one: who the
-  person is waits on decision D3, so a user, email, UPN, object id or tenant id passed in any input is
-  refused, and no output carries one.
+- **Who: the device, and the signed-in person's ids (D3).** Every version names the installation
+  (``installation_id``, the random id of ``optimize/installation.py``). Decision D3 (decided
+  2026-11-27, with Security QC's conditions) adds ``responsible``: None, or the pair ``{"tid",
+  "oid"}`` (tenant id and Entra object id) of the person who made that change. Its only source is
+  the change's ``responsible`` argument (``create``, ``transition``, ``reverse``, ``retire``),
+  which callers fill from ``identity.current()``, the app's own Fabric sign-in token; it is never
+  carried over from the version before. Every write and every stored row read back (``history``)
+  goes through ``identity.check``: both ids canonical lowercase GUIDs, an object id never without
+  its tenant id, nothing with ``@`` or shaped like an email or UPN. Rows are compared on the pair,
+  never on the object id alone. The ids are **pseudonymous labels, not proof and not authority**:
+  the token's signature isn't checked and ``fdopt_`` rows are editable, so they are never used for
+  an access decision and never shown as proof of who did something (proof is the audit trail).
+  While contributor recognition is off they stay out of exports, logs and support bundles. Any
+  other field about a person (user, email, UPN, name, principal, a bare tid or oid ...) is still
+  refused anywhere in any input, and no output carries one.
 - **Reversal (scenario 10).** A change that never really counted (it never deployed, it was applied
   to the wrong item) moves to ``reversed`` with its reason and time, and the ledger events that net
   its earlier accruals to zero come from ``corrections``: ``corrections.correct`` against a new
@@ -73,7 +84,9 @@ be co-signed with Lakehouse optimize; this module changes no schema): ``previous
 ``rule_id`` (S) and ``rule_version`` (S). These travel in each row beside the existing columns
 (``NO_COLUMN``). The
 responsible device is the existing provenance column ``installation_id``; the writer adds
-``created_at``, ``app_version`` and ``schema_version``. The reversal's ledger events need the
+``created_at``, ``app_version`` and ``schema_version``. The responsible person is written as two
+nullable columns, ``responsible_tid`` and ``responsible_oid`` (``WRITER_RESPONSIBLE``, both set or
+both null); ``history`` reads a stored row in that form too. The reversal's ledger events need the
 ``fdopt_savings`` columns ESI-404 already lists (layer, cu_hours, result figure and classification,
 layer removed, reason).
 
@@ -95,6 +108,7 @@ from ..optimize.shared import TRANSITIONS as STORED_TRANSITIONS
 from ..optimize.shared import _clean, record_id, timestamp
 from .attribution import UNATTRIBUTED
 from . import corrections as co
+from . import identity as idn
 from . import recurring as rc
 from .links import FIRST_VERSION, PROPOSED, RECORD_COLUMNS, optimization_id
 
@@ -140,18 +154,25 @@ NEEDS_REASON = frozenset({DISMISSED, ACCEPTED_RISK, SUPERSEDED, REVERTED, REVERS
 NO_COLUMN = ("previous_state", "rule_id", "rule_version")
 # The times ``times`` derives from the history: the state that sets each one.
 TIME_OF = {"implemented_at": APPLIED, "rolled_back_at": REVERTED, "netted_out_at": REVERSED, "retired_at": RETIRED}
-# The responsible device: provenance's installation_id. Never a user.
+# The responsible device: provenance's installation_id.
 DEVICE = "installation_id"
-ROW_COLUMNS = RECORD_COLUMNS + (DEVICE,) + NO_COLUMN
-CHANGE_KEYS = frozenset({"based_on_version", "state", "at", DEVICE, "reason", "optimized_ref", "rollback"})
+# The responsible person (D3): None or identity.check's {"tid", "oid"} pair, from identity.current() only.
+RESPONSIBLE = "responsible"
+# The two nullable columns a writer stores the pair in, and history reads back.
+WRITER_RESPONSIBLE = ("responsible_tid", "responsible_oid")
+ROW_COLUMNS = RECORD_COLUMNS + (DEVICE, RESPONSIBLE) + NO_COLUMN
+CHANGE_KEYS = frozenset({"based_on_version", "state", "at", DEVICE, RESPONSIBLE, "reason", "optimized_ref",
+                         "rollback"})
 ROLLBACK_METHODS = ("redeploy_definition", "restore_setting", "manual")
 ROLLBACK_KEYS = frozenset({"method", "restore_ref", "targets", "note"})
 MAX_TEXT = 500
-# A person's identity waits on decision D3: none of these is accepted or emitted.
+# Fields about a person. None of these is accepted or emitted: the only identity a record holds is
+# the ``responsible`` pair, after identity.check (D3).
 IDENTITY_KEYS = frozenset({"user", "user_id", "userid", "username", "user_name", "email", "mail", "upn", "oid",
                            "object_id", "tid", "tenant_id", "display_name", "principal", "principal_name",
-                           "changed_by", "owner"})
-_IDENTITY_PARTS = ("user", "email", "upn", "oid", "tenant", "principal")
+                           "changed_by", "owner", "name", "given_name", "family_name", "unique_name",
+                           "preferred_username", "ipaddr", "created_by", "modified_by", "author"})
+_IDENTITY_PARTS = ("user", "email", "upn", "oid", "tenant", "principal", RESPONSIBLE)
 # Fields that would hold code text rather than a fingerprint of it.
 CODE_KEYS = frozenset({"code", "code_text", "source_code", "definition", "definition_text", "content",
                        "notebook", "notebook_content", "sql", "script", "text", "body", "diff", "patch"})
@@ -188,15 +209,19 @@ class VersionConflict(ValueError):
 
 # ---------- checks
 
-def _keys(value: Any, where: str) -> None:
-    """Refuse identity and code fields anywhere in ``value`` (nested dicts and lists included)."""
+def _keys(value: Any, where: str, allow: frozenset[str] = frozenset()) -> None:
+    """Refuse identity and code fields anywhere in ``value`` (nested dicts and lists included).
+    ``allow``: top-level keys that hold the responsible pair; their values go through
+    ``identity.check`` instead, and nowhere else may hold one."""
     if isinstance(value, Mapping):
         for k, v in value.items():
             name = str(k).lower()
+            if k in allow:
+                continue
             if name in IDENTITY_KEYS or any(p in name for p in _IDENTITY_PARTS):
-                raise ValueError(f"The {where} has a field {k!r} about a person. Optimization records name the "
-                                 "responsible device only; who the person is waits on decision D3 and isn't "
-                                 "collected.")
+                raise ValueError(f"The {where} has a field {k!r} about a person. Records name a person only by "
+                                 "the responsible pair (tenant id and object id from the sign-in token, decision "
+                                 "D3); a user, email, UPN or name isn't collected.")
             if name in CODE_KEYS:
                 raise ValueError(f"The {where} has a field {k!r} that would hold code. Records hold definition "
                                  "fingerprints, never code text.")
@@ -204,6 +229,22 @@ def _keys(value: Any, where: str) -> None:
     elif isinstance(value, (list, tuple)):
         for v in value:
             _keys(v, where)
+
+
+def _stored(row: dict[str, Any]) -> dict[str, Any]:
+    """A stored row with its responsible person checked, as ``responsible`` (the pair or None),
+    whether it was read with that field or with the writer's two columns."""
+    flat = {k[len("responsible_"):]: row[k] for k in WRITER_RESPONSIBLE if row.get(k) is not None}
+    pair = idn.check(flat or None)
+    if RESPONSIBLE in row:
+        given = idn.check(row[RESPONSIBLE])
+        if any(k in row for k in WRITER_RESPONSIBLE) and not idn.same(given, pair):
+            raise ValueError(f"Optimization {row.get('optimization_id')} version {row.get('version')} names two "
+                             "different responsible people; a person must choose one.")
+        pair = given
+    out = {k: v for k, v in row.items() if k not in WRITER_RESPONSIBLE}
+    out[RESPONSIBLE] = pair
+    return out
 
 
 def _ref(value: Any, what: str) -> str | None:
@@ -289,7 +330,10 @@ def _rollback(value: Any, original_ref: str | None, optimized_ref: str | None) -
 
 
 def _same(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    return {k: a.get(k) for k in ROW_COLUMNS} == {k: b.get(k) for k in ROW_COLUMNS}
+    """The same row: every column, and the responsible person compared as its (tid, oid) pair."""
+    rest = [k for k in ROW_COLUMNS if k != RESPONSIBLE]
+    return ({k: a.get(k) for k in rest} == {k: b.get(k) for k in rest}
+            and idn.same(a.get(RESPONSIBLE), b.get(RESPONSIBLE)))
 
 
 # ---------- building and reading
@@ -302,8 +346,11 @@ def version_record_id(oid: str, version: int) -> str:
     return record_id("optimization-version", oid, version)
 
 
-def create(proposal: dict[str, Any], *, installation_id: str) -> dict[str, Any]:
-    """Version 1 of a record from a ``links`` proposal, with the responsible device.
+def create(proposal: dict[str, Any], *, installation_id: str, responsible: Any = None) -> dict[str, Any]:
+    """Version 1 of a record from a ``links`` proposal, with the responsible device and person.
+
+    ``responsible``: None, or ``identity.current()``'s {"tid", "oid"} pair (checked with
+    ``identity.check``); the proposal itself never carries one.
 
     Returns ``record`` (the version row), ``links`` (the optimization_link rows, unchanged) and
     ``written`` (False)."""
@@ -326,6 +373,7 @@ def create(proposal: dict[str, Any], *, installation_id: str) -> dict[str, Any]:
     row = {k: rec.get(k) for k in RECORD_COLUMNS}
     row.update({"original_ref": _ref(rec.get("original_ref"), "original reference"),
                 "reason": _text(rec.get("reason"), "reason"), DEVICE: _device(installation_id),
+                RESPONSIBLE: idn.check(responsible),
                 "previous_state": None, "rule_id": proposal.get("rule_id"), "rule_version": proposal.get("rule_version")})
     _time(row["at"], "proposal time")
     return {"record": row, "links": [dict(x) for x in proposal.get("links") or []], "written": False}
@@ -345,7 +393,8 @@ def history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for r in rows:
         if not isinstance(r, dict):
             raise ValueError("A version row must be a row (a dict).")
-        _keys(r, "stored record")
+        _keys(r, "stored record", frozenset({RESPONSIBLE, *WRITER_RESPONSIBLE}))
+        r = _stored(r)
         oids.add(r.get("optimization_id"))
         v = _version(r.get("version"), "record version")
         seen = by_version.get(v)
@@ -382,7 +431,8 @@ def transition(rows: list[dict[str, Any]], change: dict[str, Any]) -> dict[str, 
 
     ``rows``: the record's version rows as read. ``change``: ``based_on_version`` (the version the
     change was made against), ``state`` (where it moves), ``at`` (when, ISO 8601 with time zone),
-    ``installation_id`` (the responsible device), ``reason`` (plain words; needed for dismissed,
+    ``installation_id`` (the responsible device), ``responsible`` (optional: None or
+    ``identity.current()``'s {"tid", "oid"} pair, for this change only), ``reason`` (plain words; needed for dismissed,
     accepted risk, superseded, reverted, reversed and retired), and for ``applied`` only
     ``optimized_ref`` (a definition fingerprint) and ``rollback`` (method, restore_ref, targets, note).
 
@@ -393,7 +443,7 @@ def transition(rows: list[dict[str, Any]], change: dict[str, Any]) -> dict[str, 
     ``rollback`` (the plan to carry out, when reverting) and ``written`` (False)."""
     if not isinstance(change, dict):
         raise ValueError("A change is a dict with based_on_version, state, at, installation_id and reason.")
-    _keys(change, "change")
+    _keys(change, "change", frozenset({RESPONSIBLE}))
     extra = sorted(set(change) - CHANGE_KEYS)
     if extra:
         raise ValueError(f"A change has {', '.join(map(str, extra))}, which a record doesn't hold. It takes "
@@ -406,21 +456,23 @@ def transition(rows: list[dict[str, Any]], change: dict[str, Any]) -> dict[str, 
                          f"{current['version']}.")
     state = change.get("state")
     device = _device(change.get(DEVICE))
+    responsible = idn.check(change.get(RESPONSIBLE))
     if based_on < current["version"]:
-        retry = _build(chain[based_on - 1], change, state, device)
+        retry = _build(chain[based_on - 1], change, state, device, responsible)
         if isinstance(retry, dict) and _same(retry, chain[based_on]):
             return {"record": chain[based_on], "previous": chain[based_on - 1], "new": False,
                     "times": _times(chain[:based_on + 1]),
                     "rollback": _plan(chain[based_on]) if state == REVERTED else None, "written": False}
         raise VersionConflict(based_on, current, chain[based_on:])
-    row = _build(current, change, state, device)
+    row = _build(current, change, state, device, responsible)
     if isinstance(row, str):
         raise TransitionRefused(row)
     return {"record": row, "previous": current, "new": True, "times": _times(chain + [row]),
             "rollback": _plan(row) if state == REVERTED else None, "written": False}
 
 
-def _build(current: dict[str, Any], change: dict[str, Any], state: Any, device: str) -> dict[str, Any] | str:
+def _build(current: dict[str, Any], change: dict[str, Any], state: Any, device: str,
+           responsible: dict[str, str] | None) -> dict[str, Any] | str:
     """The row ``change`` makes on top of ``current``, or the reason it is refused."""
     was = current["state"]
     oid = current["optimization_id"]
@@ -452,7 +504,7 @@ def _build(current: dict[str, Any], change: dict[str, Any], state: Any, device: 
     row = {k: current.get(k) for k in ROW_COLUMNS}
     row.update({"record_id": version_record_id(oid, version), "state": state, "reason": reason, "at": stamp,
                 "version": version, "optimized_ref": optimized, "rollback": rollback, DEVICE: device,
-                "previous_state": was})
+                RESPONSIBLE: responsible, "previous_state": was})
     return row
 
 
@@ -492,7 +544,8 @@ def _layer_order(e: dict[str, Any]) -> int:
 
 
 def reverse(rows: list[dict[str, Any]], *, based_on_version: int, at: str, reason: str, installation_id: str,
-            ledger_events: list[dict[str, Any]], reattributed: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+            ledger_events: list[dict[str, Any]], reattributed: list[dict[str, Any]] | None = None,
+            responsible: Any = None) -> dict[str, Any]:
     """Reverse an optimization that never really counted (scenario 10): the record moves to
     ``reversed`` with ``reason`` and ``at``, and the ledger events that net its accruals to zero.
 
@@ -507,7 +560,7 @@ def reverse(rows: list[dict[str, Any]], *, based_on_version: int, at: str, reaso
     ``needs_reattribution`` (runs whose other layers depend on this one, or whose share of it was
     never split, with the reason) and ``written`` (False). Raises like ``transition``."""
     moved = transition(rows, {"based_on_version": based_on_version, "state": REVERSED, "at": at,
-                              "reason": reason, DEVICE: installation_id})
+                              "reason": reason, DEVICE: installation_id, RESPONSIBLE: responsible})
     row = moved["record"]
     oid = str(row["optimization_id"])
     why = f"Optimization {oid} was reversed: {row['reason']}"
@@ -558,11 +611,11 @@ def reverse(rows: list[dict[str, Any]], *, based_on_version: int, at: str, reaso
 
 
 def retire(rows: list[dict[str, Any]], *, based_on_version: int, at: str, reason: str,
-           installation_id: str) -> dict[str, Any]:
+           installation_id: str, responsible: Any = None) -> dict[str, Any]:
     """The workload is retired (scenario 11): the record moves to ``retired`` with ``reason`` and
     ``at``. From then on it accrues nothing and its workload's recurring benefit isn't projected."""
     return transition(rows, {"based_on_version": based_on_version, "state": RETIRED, "at": at, "reason": reason,
-                             DEVICE: installation_id})
+                             DEVICE: installation_id, RESPONSIBLE: responsible})
 
 
 def accrues(rows: list[dict[str, Any]], run_at: Any) -> bool:

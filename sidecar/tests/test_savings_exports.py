@@ -2,7 +2,7 @@
 
 Classifications never mix in one cell, Unknown is an empty cell labelled Unknown (never 0), a price
 is a Scenario and never savings, realized savings come only from realized.realize, developer
-contribution is per device until D3 and D5, readiness recommends nothing, and every text cell that
+contribution is per device and no D3 id reaches a report while recognition is off, readiness recommends nothing, and every text cell that
 starts like a formula is protected."""
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import random
+import re
 
 import pytest
 
@@ -140,6 +141,28 @@ def test_every_figure_column_has_its_classification_next_to_it():
 def test_no_report_has_user_columns():
     for report in all_reports(ledger()).values():
         assert not any(w in c.lower() for c in report["columns"] for w in ("user", "person", "developer", "email"))
+
+
+def test_a_responsible_pair_in_the_input_never_reaches_a_report():
+    """D3 ids stay out of every report while contributor recognition is off, in either form a row
+    may carry them (records' pair, or the writer's two columns)."""
+    tid, oid = "72f988bf-86f1-41af-91ab-2d7cd011db47", "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
+    pair = {"responsible": {"tid": tid, "oid": oid}, "responsible_tid": tid, "responsible_oid": oid}
+    vals = [{"validation_id": "va-1", "optimization_id": "o1", "result": "verified", "reason": "ok",
+             "at": "2026-11-10T00:00:00Z"}]
+
+    def every(events: list, validations: list) -> dict[str, str]:
+        reports = all_reports(events)
+        reports["estimated_vs_verified"] = ex.estimated_vs_verified(events, validations=validations)
+        reports["capacity_readiness"] = ex.capacity_readiness(events, validations=validations)
+        return {name: ex.to_csv(r) for name, r in reports.items()}
+
+    with_ids = every([e | pair for e in ledger()], [v | pair for v in vals])
+    for name, text in with_ids.items():
+        assert tid not in text and oid not in text, name
+        header = text.split("\r\n", 1)[0].lower()
+        assert not re.search(r"\b(tid|oid|tenant|object id|responsible)\b", header), name
+    assert with_ids == every(ledger(), vals)  # the pair changes nothing at all
 
 
 # ---------- classifications never mix

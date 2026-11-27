@@ -1,5 +1,6 @@
 """ESI-301: optimization records. Version-aware lifecycle updates (scenario 9), reversal (10) and
-retirement (11); fingerprints never code; the responsible device and never a user (D3)."""
+retirement (11); fingerprints never code; the responsible device, and the person only as the
+(tid, oid) pair of decision D3, never a user name, email or UPN."""
 
 from __future__ import annotations
 
@@ -115,7 +116,7 @@ def chain_sum(events: list[dict], layer: str) -> float:
 
 # ---------- the record
 
-def test_version_one_is_the_links_proposal_with_the_device_and_no_user():
+def test_version_one_is_the_links_proposal_with_the_device_and_no_person_unless_given():
     p = proposal()
     made = rd.create(p, installation_id=PC_A)
     rec = made["record"]
@@ -123,13 +124,16 @@ def test_version_one_is_the_links_proposal_with_the_device_and_no_user():
     assert rec["installation_id"] == PC_A and rec["original_ref"] == "def:sha256:aaa111"
     assert rec["rollback"] is None and rec["optimized_ref"] is None and rec["impact"] is None
     assert rec["rule_id"] == "FEA-PERF-001" and rec["rule_version"] == "1.0.0"
+    assert rec["responsible"] is None
     assert made["links"] == p["links"] and made["written"] is False
     assert set(rec) == set(rd.ROW_COLUMNS)
 
 
 def test_row_columns_are_the_v2_recommendation_columns_plus_the_listed_additions():
     v2 = set(schema.expected(2)[schema.table("recommendations")])
-    assert set(rd.ROW_COLUMNS) - v2 == set(rd.NO_COLUMN)
+    assert set(rd.ROW_COLUMNS) - v2 == set(rd.NO_COLUMN) | {rd.RESPONSIBLE}
+    for name in rd.WRITER_RESPONSIBLE:  # the writer's two nullable columns for the pair
+        assert name in (rd.__doc__ or ""), name
     assert v2 - set(rd.ROW_COLUMNS) == {"created_at", "app_version", "schema_version"}
     for name in rd.NO_COLUMN:
         assert name in (rd.__doc__ or ""), name
@@ -538,9 +542,19 @@ def test_reasons_and_notes_go_through_the_repos_redaction():
     assert "ann@contoso.com" not in reason and "[email]" in reason and "abc123" not in reason
 
 
-# ---------- the device, never a user (D3)
+# ---------- the device, and the person only as the (tid, oid) pair (D3)
 
-IDENTITY = ("user", "user_id", "email", "upn", "oid", "tenant_id", "userPrincipalName", "Email", "owner_oid")
+IDENTITY = ("user", "user_id", "email", "upn", "oid", "tid", "tenant_id", "userPrincipalName", "Email", "owner_oid",
+            "name", "unique_name", "preferred_username", "principal", "responsible_name")
+TID = "72f988bf-86f1-41af-91ab-2d7cd011db47"
+OID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
+WHO = {"tid": TID, "oid": OID}
+OTHER_TENANT = "11111111-2222-3333-4444-555555555555"
+# Values that look like a person, or aren't a canonical pair: refused wherever a responsible is passed.
+NOT_A_PAIR = ["ann@contoso.com", {"tid": TID, "oid": "ann@contoso.com"}, {"tid": "ann@contoso.com", "oid": OID},
+              {"tid": TID, "oid": OID, "upn": "ann@contoso.com"}, {"tid": TID, "oid": OID.upper()},
+              {"tid": TID, "oid": "not-a-guid"}, {"oid": OID}, {"tid": TID}, {"tid": TID, "oid": OID, "x": 1},
+              "CONTOSO\\ann", OID, ("tid", "oid")]
 
 
 def _keys_of(value: Any) -> set[str]:
@@ -556,7 +570,7 @@ def _keys_of(value: Any) -> set[str]:
 
 
 @pytest.mark.parametrize("key", IDENTITY)
-def test_no_user_email_upn_or_oid_is_accepted(key):
+def test_no_user_email_upn_name_or_bare_id_is_accepted(key):
     rows = walk(rd.ACCEPTED)
     with pytest.raises(ValueError, match="D3"):
         rd.transition(rows, change(rows, rd.APPLIED, **{key: "ann@contoso.com"}))
@@ -570,20 +584,135 @@ def test_no_user_email_upn_or_oid_is_accepted(key):
         rd.history(rows[:-1] + [dict(rows[-1], **{key: "x"})])
 
 
-def test_no_user_email_upn_or_oid_is_emitted():
+def test_the_pair_is_nowhere_but_the_responsible_field():
+    """A responsible pair inside a rollback, a proposal or ledger events is refused: the change's
+    ``responsible`` argument is its only source."""
+    rows = walk(rd.ACCEPTED)
+    with pytest.raises(ValueError, match="D3"):
+        rd.transition(rows, change(rows, rd.APPLIED, rollback=dict(ROLLBACK, responsible=WHO)))
+    p = proposal()
+    p["responsible"] = WHO
+    with pytest.raises(ValueError, match="D3"):
+        rd.create(p, installation_id=PC_A)
+    p = proposal()
+    p["record"]["responsible"] = WHO
+    with pytest.raises(ValueError, match="D3"):
+        rd.create(p, installation_id=PC_A)
+    vrows, _ = _verified()
+    with pytest.raises(ValueError, match="D3"):
+        rd.reverse(vrows, based_on_version=5, at="2026-11-20T00:00:00Z", reason="Never deployed",
+                   installation_id=PC_A, ledger_events=[{"execution_id": "e1", "responsible": WHO}])
+
+
+def test_the_responsible_pair_is_recorded_per_version_and_never_carried_over():
+    rows = [rd.create(proposal(), installation_id=PC_A, responsible=WHO)["record"]]
+    assert rows[0]["responsible"] == WHO and rows[0]["responsible"] is not WHO
+    rows = step(rows, rd.ACCEPTED)  # no responsible given: nobody, not the person before
+    assert rows[-1]["responsible"] is None
+    other = {"tid": TID, "oid": str(uuid.UUID(int=9))}
+    rows = step(rows, rd.APPLIED, responsible=other)
+    assert rows[-1]["responsible"] == other
+    assert [r["responsible"] for r in rd.history(rows)] == [WHO, None, other]
+    retired = rd.retire(rows, based_on_version=3, at="2026-11-20T00:00:00Z", reason="Gone", installation_id=PC_A,
+                        responsible=WHO)
+    assert retired["record"]["responsible"] == WHO
+    vrows, _ = _verified()
+    rev = rd.reverse(vrows, based_on_version=5, at="2026-11-20T00:00:00Z", reason="Never deployed",
+                     installation_id=PC_A, ledger_events=[], responsible=WHO)
+    assert rev["record"]["responsible"] == WHO
+
+
+@pytest.mark.parametrize("bad", NOT_A_PAIR, ids=repr)
+def test_an_email_upn_or_anything_but_a_canonical_pair_is_refused_on_every_write(bad):
+    with pytest.raises(ValueError) as made:
+        rd.create(proposal(), installation_id=PC_A, responsible=bad)
+    rows = walk(rd.ACCEPTED)
+    with pytest.raises(ValueError) as moved:
+        rd.transition(rows, change(rows, rd.APPLIED, responsible=bad))
+    with pytest.raises(ValueError):
+        rd.retire(rows, based_on_version=2, at="2026-11-20T00:00:00Z", reason="Gone", installation_id=PC_A,
+                  responsible=bad)
+    for err in (made.value, moved.value):
+        assert "ann" not in str(err) and OID.upper() not in str(err)  # the value is never repeated
+
+
+@pytest.mark.parametrize("bad", NOT_A_PAIR, ids=repr)
+def test_an_email_upn_or_anything_but_a_canonical_pair_is_refused_when_read_back(bad):
+    """history is the import path: a stored or synced row is checked like a new one."""
+    rows = walk(rd.ACCEPTED)
+    with pytest.raises(ValueError) as read:
+        rd.history(rows[:-1] + [dict(rows[-1], responsible=bad)])
+    assert "ann" not in str(read.value)
+
+
+def test_history_reads_the_writers_two_columns_and_refuses_an_object_id_without_its_tenant():
+    rows = [rd.create(proposal(), installation_id=PC_A, responsible=WHO)["record"]]
+    rows = step(rows, rd.ACCEPTED, responsible=WHO)
+    flat = [{k: v for k, v in r.items() if k != "responsible"} | {"responsible_tid": TID, "responsible_oid": OID}
+            for r in rows]
+    assert rd.history(flat) == rd.history(rows)
+    nobody = [{k: v for k, v in r.items() if k != "responsible"} | {"responsible_tid": None, "responsible_oid": None}
+              for r in walk(rd.ACCEPTED)]
+    assert [r["responsible"] for r in rd.history(nobody)] == [None, None]
+    with pytest.raises(ValueError, match="without its tenant id"):
+        rd.history(flat[:-1] + [dict(flat[-1], responsible_tid=None)])
+    with pytest.raises(ValueError, match="exactly tid and oid"):
+        rd.history(flat[:-1] + [dict(flat[-1], responsible_oid=None)])
+    with pytest.raises(ValueError, match="email"):
+        rd.history(flat[:-1] + [dict(flat[-1], responsible_oid="ann@contoso.com")])
+    with pytest.raises(ValueError, match="two different"):
+        rd.history(flat[:-1] + [dict(flat[-1], responsible={"tid": OTHER_TENANT, "oid": OID})])
+    with pytest.raises(ValueError, match="without its tenant id"):
+        rd.transition(rows, change(rows, rd.APPLIED, responsible={"oid": OID}))
+
+
+def test_rows_are_compared_on_the_pair_never_the_object_id_alone():
+    """The same object id in another tenant is another person: a retry by them is a conflict."""
+    rows = walk(rd.ACCEPTED)
+    c = change(rows, rd.APPLIED, responsible=WHO)
+    rows = rows + [rd.transition(rows, c)["record"]]
+    rows = step(rows, rd.VALIDATING)
+    again = rd.transition(rows, c)
+    assert again["new"] is False and again["record"]["responsible"] == WHO
+    with pytest.raises(rd.VersionConflict):
+        rd.transition(rows, c | {"responsible": {"tid": OTHER_TENANT, "oid": OID}})
+    with pytest.raises(ValueError, match="two different rows"):
+        rd.history(rows + [dict(rows[2], responsible={"tid": OTHER_TENANT, "oid": OID})])
+    assert rd.history(rows + [dict(rows[2])]) == rd.history(rows)
+
+
+def test_no_identity_but_the_responsible_pair_is_emitted():
     rows, _ = _verified()
     opt = rd.for_attribution(rows, after=measured(6))
     ledger = at.attribute(run(), measured(10), [opt], local_avoided=estimated(9))["layers"]
-    rev = rd.reverse(rows, based_on_version=5, at="2026-11-20T00:00:00Z", reason="Never deployed",
-                     installation_id=PC_A, ledger_events=ledger)
+    rev = rd.reverse(rows, based_on_version=5, at="2026-11-20T00:00:00Z", reason="Never deployed by ann@contoso.com",
+                     installation_id=PC_A, ledger_events=ledger, responsible=WHO)
     retired = rd.retire(walk(rd.ACCEPTED), based_on_version=2, at="2026-11-20T00:00:00Z", reason="Gone",
-                        installation_id=PC_A)
-    emitted = [rd.create(proposal(), installation_id=PC_A), rev, retired, rd.rollback_plan(rows), opt, rows,
-               list(rd.ROW_COLUMNS)]
-    keys = set().union(*(_keys_of(x) for x in emitted)) | set(rd.ROW_COLUMNS)
-    pattern = re.compile(r".*(user|email|upn|oid|tenant|principal).*", re.IGNORECASE)
-    assert not [k for k in keys if pattern.fullmatch(k)]
-    assert "installation_id" in keys  # the device is there
+                        installation_id=PC_A, responsible=WHO)
+    emitted = [rd.create(proposal(), installation_id=PC_A, responsible=WHO), rev, retired, rd.rollback_plan(rows),
+               opt, rows, list(rd.ROW_COLUMNS)]
+    pattern = re.compile(r".*(user|email|upn|oid|tid|tenant|principal|name).*", re.IGNORECASE)
+    pairs: list[Any] = []
+
+    def walk_out(value: Any, parent: str = "") -> None:
+        if isinstance(value, dict):
+            for k, v in value.items():
+                if k == "responsible":
+                    pairs.append(v)
+                    continue
+                assert not pattern.fullmatch(str(k)), k
+                walk_out(v, str(k))
+        elif isinstance(value, list):
+            for v in value:
+                walk_out(v, parent)
+
+    for x in emitted:
+        walk_out(x)
+    assert pairs and all(p is None or p == WHO for p in pairs)
+    assert "ann@contoso.com" not in json.dumps(emitted, default=str)
+    assert "installation_id" in _keys_of(emitted)  # the device is there
+    # the pair never reaches the ledger events or attribution's input
+    assert "responsible" not in _keys_of(rev["events"]) | _keys_of(opt)
 
 
 # ---------- property: any sequence of valid updates has strictly increasing versions and one head

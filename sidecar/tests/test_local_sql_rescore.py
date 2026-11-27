@@ -40,8 +40,11 @@ def test_spark_sql_writes_to_json_as_spark_and_databricks_sql_as_duckdb(duck):
     query = "SELECT to_json(named_struct('t', TIMESTAMP '2026-01-02 03:04:05')) AS j"
     spark = duck._sql(query, "spark")
     databricks = duck._sql(query, "databricks")
-    assert "LIST_TRANSFORM" in spark and "LIST_TRANSFORM" not in databricks
+    # Spark SQL writes the JSON itself (its kf_ helpers); Databricks SQL is DuckDB's TO_JSON. A timestamp's
+    # daylight-saving handling can add a LIST_TRANSFORM to either, depending on the zone, so that isn't the mark
+    assert "kf_a" in spark and "kf_a" not in databricks and databricks.startswith("SELECT CAST(TO_JSON(")
     with duckdb.connect() as con:
+        con.execute("SET TimeZone = 'UTC'")  # Spark writes the session zone's offset; UTC is Z
         assert con.sql(spark).fetchall() == [('{"t":"2026-01-02T03:04:05.000Z"}',)]
 
 

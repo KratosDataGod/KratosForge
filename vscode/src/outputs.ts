@@ -54,10 +54,12 @@ function cell(value: unknown): string {
   return typeof value === "object" ? json(value) ?? "…" : String(value);
 }
 
+const NOT_A_TABLE: Item = { mime: "text/plain", text: "This table's rows can't be read here. Open the notebook in KratosForge to see the table." };
+
 function table(out: Record<string, unknown>): Item[] {
-  // Columns or rows that aren't lists aren't a table: the output shows a line instead (convert).
+  // Columns or rows that aren't lists aren't a table: one line says so instead.
   if ((out.columns !== undefined && !Array.isArray(out.columns)) || (out.rows !== undefined && !Array.isArray(out.rows))) {
-    throw new TypeError("not a table");
+    return [NOT_A_TABLE];
   }
   const columns = (Array.isArray(out.columns) ? out.columns : []).map(cell);
   const rows = (Array.isArray(out.rows) ? out.rows : []).map((r) => (Array.isArray(r) ? r : [r]));

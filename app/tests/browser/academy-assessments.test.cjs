@@ -114,8 +114,10 @@ test("Answers and why mark answers in words and link the source page", { skip },
   await page().locator(".assess-headline .tool", { hasText: "See answers and why" }).click();
   await page().locator(".assess-why").waitFor();
   assert.match(await page().locator(".assess-switch [aria-pressed=true]").textContent(), /Wrong or not answered/);
-  // Single and multiple mark the right option; ordering the right order; multi-part questions each part.
-  assert.match(await page().locator(".assess-qpanel").textContent(), /Correct (answer|order) ✓|✓ Correct: |correct: |\d of \d+ \w+ right/);
+  // Single and multiple mark the right option; ordering the right order; multi-part questions each part. A Yes/No
+  // question left unanswered has no score line, only its table of statements with yours and the correct one.
+  assert.match(await page().locator(".assess-qpanel").textContent(),
+    /Correct (answer|order) ✓|✓ Correct: |correct: |\d of \d+ \w+ right|Statement\s*Yours\s*Correct/);
   await page().locator(".assess-why a").click();
   const opened = await page().evaluate(() => window.__fdShellCalls.filter((c) => c.cmd === "open_link").map((c) => c.args.url));
   assert.ok(opened.length === 1 && opened[0].startsWith("https://learn.microsoft.com/"), opened.join());

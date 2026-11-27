@@ -6960,13 +6960,9 @@ function dbgEditCase(seed) {
     if (act[i] === "edit" && old[i].length < 2) act[i] = "keep";
   }
   if (act.every((a) => a === "delete")) act[0] = "keep";  // all of it would be the whole cell replaced
-  // Nor the line above an empty last line: its breakpoint goes with them (the known bug below).
-  if (count > 1 && !old[count - 1] && act[count - 2] === "delete") act[count - 2] = "keep";
   // A run of deleted lines ending the cell takes the line break before it: the line above isn't joined.
   let end = count - 1;
   while (end >= 0 && act[end] === "delete") end--;
-  // Not after an empty line, though: that line's breakpoint is removed with them (the known bug below).
-  while (end >= 0 && end < count - 1 && !old[end]) act[++end] = "keep";
   if (end >= 0 && end < count - 1 && act[end] === "join") act[end] = "keep";
   for (let i = end + 1; i < count; i++) before[i] = [];  // that range starts inside the line above
 
@@ -7078,12 +7074,10 @@ test("seeded: a cell replaced whole keeps each breakpoint on its line's text, an
   }
 });
 
-// Known bug, found by the seeded test above (seeds 3302 and 3455 before the generator stepped
-// around it): an empty line next to deleted lines loses its breakpoint, and the message says its
-// line was deleted. Ctrl+Shift+K on a last line takes the line break before it, so the change starts
-// where the empty line above starts; a deleted block's last line break ends where an empty last line
-// starts. Either way dbgSpanGone sees the empty line's whole span inside the change.
-test("an empty line next to deleted lines keeps its breakpoint", { todo: "bug: debugging.js dbgEdited drops it" }, () => {
+// Found by the seeded test above (seeds 3302 and 3455): Ctrl+Shift+K on a last line takes the line
+// break before it, so the change starts where an empty line above starts; a deleted block's last line
+// break ends where an empty last line starts. Neither deletes the empty line.
+test("an empty line next to deleted lines keeps its breakpoint", () => {
   const ctx = dbgEditorHelpers();
   for (const [doc, change, bp, line] of [
     ["x = 1\n\ny = 2", { from: 6, to: 12 }, 2, 2],  // Ctrl+Shift+K on line 3: "x = 1\n" with line 2 still there

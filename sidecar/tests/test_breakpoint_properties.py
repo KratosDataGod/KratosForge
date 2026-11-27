@@ -9,7 +9,8 @@ needs a package beyond the test suite's.
    list to check_breakpoints is a ValueError and nothing else.
 2. Save and load: the breakpoints of random cells come back from .ipynb and Fabric source (as
    breakpoints_meta normalises them), on the same line of text; Databricks source names them as
-   dropped. A cell starting with blank lines in Fabric source is a known bug (xfail, at the end).
+   dropped. A cell's leading blank
+   lines don't read back from Fabric source; its breakpoints stay on the same code.
 3. Placement: in random cell code (assignments, if/else, for, def, blank lines, comments), a
    breakpoint on a line with code is placed on that line, one on a line without code on the next
    line that has some, and one with no code after it is unplaced (Debugger.add). A few cells then
@@ -436,21 +437,30 @@ def test_databricks_source_names_every_cell_whose_breakpoints_it_drops(seed):
     assert not any(_bps(c) for c in back), f"seed {seed}"
 
 
-# A cell's leading blank lines aren't kept in .py source (test_notebook_formats_roundtrip), but its
-# breakpoint numbers are written unchanged, so after the round trip each one is that many lines
-# further down. Seed 3300 is the first in SEEDS where it happens: its third cell, "   \ntotal = 0\n
-# v1 = total % 3\n...", has a breakpoint on line 2 ("total = 0") that comes back on "v1 = total % 3".
-# Smallest: {"type": "code", "source": "\n\nx = 1\ny = 2\nz = 3", "meta": {"breakpoints": [3]}} comes back
-# as "x = 1\ny = 2\nz = 3" with breakpoints [3], on "z = 3" instead of "x = 1".
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="bug: Fabric source drops a cell's leading blank lines without moving its breakpoints")
+# A cell's leading blank lines aren't kept in .py source (test_notebook_formats_roundtrip), so its
+# breakpoints are written as lines of the code that reads back. Before that, seed 3300's third cell
+# ("   \ntotal = 0\nv1 = total % 3\n...") came back with its breakpoint on "v1 = total % 3".
 def test_fabric_source_keeps_breakpoints_on_their_lines_when_a_cell_starts_with_blank_lines():
     for seed in SEEDS:
         cells = notebook(seed, leading_blanks=True)
         back = nbf.parse_source(nbf.export_text("fabric_py", "N", cells), "notebook-content.py")["cells"]
-        _check_round_trip(seed, cells, back, markdown_keeps=False)
+        assert len(back) == len(cells), _fail(seed, cells, back)
+        for c, b in zip(cells, back, strict=True):
+            if c["type"] == "markdown":
+                assert not _bps(b), _fail(seed, cells, back)
+                continue
+            # Each breakpoint pauses on the same code: the first line with code at or after it.
+            was = [_code_from(c["source"], n) for n in breakpoints_meta((c.get("meta") or {}).get("breakpoints"))]
+            now = [_code_from(b["source"], n) for n in _bps(b)]
+            assert sorted(set(now), key=str) == sorted(set(was), key=str), f"{was!r} -> {now!r}\n{_fail(seed, cells, back)}"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="bug: Fabric source drops a cell's leading blank lines without moving its breakpoints")
+def _code_from(source: str, n: int) -> str | None:
+    """The first line with code at or after line ``n``, or None past the end."""
+    lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return next((ln.strip() for ln in lines[n - 1:] if ln.strip() and not ln.strip().startswith("#")), None)
+
+
 def test_fabric_source_smallest_case_of_a_breakpoint_moved_by_leading_blank_lines():
     cells = [{"type": "code", "source": "\n\nx = 1\ny = 2\nz = 3", "meta": {"breakpoints": [3]}}]
     back = nbf.parse_source(nbf.export_text("fabric_py", "N", cells), "notebook-content.py")["cells"]

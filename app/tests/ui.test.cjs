@@ -1563,7 +1563,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync", "powerbi", "embedstudio"\]/);  // Databricks sync and Power BI are Workspaces tabs too
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync", "databricks_volumes", "powerbi", "embedstudio"\]/);  // Databricks (sync, volumes) and Power BI are Workspaces tabs too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -6181,7 +6181,7 @@ test("the Direct Lake check is a Preview card that only reads, with fixes that o
   assert.match(card, /reading from OneLake uses capacity/, "capacity wording (QA-008)");
   assert.match(card, /goMeta\("health"\)/, "compacting happens in Table health");
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
-  assert.match(features, /directLakeCheck: "Direct Lake check"/);
+  assert.match(features, /directLakeCheck: "Direct Lake fallback risk"/);
 });
 
 test("the data dictionary is a Preview card whose import saves only from its preview", () => {
@@ -6311,7 +6311,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
     runSeveral: ["Run several notebooks"], modelBpa: ["Semantic model best practices"], itemPins: ["Pinned items"], skins: ["Choosing a skin", "Notebook commands", "Look", "Color mode"],
-    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbConsole: ["Scratch console"], nbReport: ["Notebook as a read-only report"], nbPresent: ["Present mode"], mdToolbar: ["Formatting Markdown cells"], sqlDiagram: ["Table diagram"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping", "Debug a notebook"], replay: ["Failure replay bundles"],
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
@@ -6336,11 +6336,12 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Snowflake SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
-      "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection"],
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection",
+      "Snowflake objects and query history"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
     semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],
-    kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"],
+    kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"], ucVolumes: ["Unity Catalog volumes on this PC"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -6355,6 +6356,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
     "Keep the engine in a folder only administrators can write": ["docs/enterprise-install.md", /a setting in the policy file, not a screen/],
     "Notebook templates for Silver and Gold": ["docs/notebook-templates.md", /There is no page in the app to pick a template/],
+    "Check a bundle on this PC": ["docs/engines.md", /a command, with no screen in the app yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
@@ -6888,4 +6890,25 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
     "pipeline_run_start is called from Pipelines and the Motion sample only");
   // The access cache's writes are drawn only from the Access tab.
   assert.deepStrictEqual(files.filter((f) => f !== "access-cache.js" && /renderAccessAll\(/.test(text[f])), ["estate.js"], "only the Access tab draws the access cache");
+});
+
+// Academy board 5: an exercise's How this works. Only python_lab names the AppContainer; delta_lab and
+// pyspark_lab run in the learner process only (docs/academy/grading-sandbox.md), and SQL never says sandboxed.
+test("an Academy exercise's How this works names the AppContainer only for python_lab", () => {
+  const src = fs.readFileSync(path.join(ui, "academy.js"), "utf8");
+  const consts = ["ACADEMY_CLASS", "ACADEMY_SQL_ADAPTERS", "ACADEMY_PY_ADAPTERS", "ACADEMY_CLASS_MEANS"]
+    .map((n) => src.match(new RegExp(`const ${n} = [\\s\\S]*?;\\n`))[0]).join("");
+  const fn = src.match(/function academyExerciseHow\(ex\) \{[\s\S]*?\n\}\n/)[0];
+  const ctx = { howItWorks: (id, parts) => ({ id, ...parts }) };
+  vm.runInNewContext(`${consts}${fn}; this.how = academyExerciseHow;`, ctx);
+  const reach = (adapter) => Object.fromEntries(ctx.how({ adapter, class: "local_verified" }).more)["What your answer can reach"];
+  assert.match(reach("python_lab"), /AppContainer/);
+  for (const a of ["delta_lab", "pyspark_lab"]) {
+    assert.match(reach(a), /runs as you on this PC, without your sign-in, with time and memory limits/, a);
+    assert.doesNotMatch(reach(a), /AppContainer/, a);
+  }
+  assert.match(reach("duckdb_lab"), /no file or network access/);
+  for (const a of ["python_lab", "delta_lab", "pyspark_lab", "duckdb_lab", "config_model"]) {
+    assert.doesNotMatch(JSON.stringify(ctx.how({ adapter: a, class: "local_verified" })), /sandboxed/i, a);
+  }
 });

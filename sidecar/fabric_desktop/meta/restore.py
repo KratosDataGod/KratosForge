@@ -12,7 +12,7 @@ from typing import Any
 
 from deltalake import CommitProperties, DeltaTable
 
-from .. import delta_profile
+from .. import delta_profile, maintenance
 
 _MAINTENANCE = ("OPTIMIZE", "VACUUM START", "VACUUM END", "SET TBLPROPERTIES")
 _KEEPS_FILES = ("VACUUM", "SET TBLPROPERTIES")
@@ -93,7 +93,8 @@ def restore(uri: str, options: dict[str, str] | None, version: int, metadata: di
     if int(version) >= before:
         raise ValueError(f"Version {version} isn't earlier than the current version ({before}).")
     metrics = table.restore(int(version), ignore_missing_files=False,
-                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None,
+                            post_commithook_properties=maintenance.KEEP_LOG)
     after = DeltaTable(uri, storage_options=options)
     delta_profile.note_after_write(after)
     return {"from_version": before, "to_version": int(version), "new_version": after.version(),

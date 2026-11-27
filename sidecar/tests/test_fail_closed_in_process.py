@@ -11,12 +11,18 @@ the scan below finds those calls in their modules, so a new one fails here until
   line that can't be written refuses it.
 - The agent's own Prod job is in test_failclosed_paths; it calls no listed action.
 - The CLI schedules a pipeline on this PC, which never names Prod, so that call never fails closed.
+- The CLI restores a backup over this PC's data itself (no RPC method does): CLI_ACTIONS names it, and the
+  scan finds the "started" line it records under that name (test_cli_restore_audit tests it).
+- The CLI runs a pipeline on this PC itself, with the same audit lines as the app's pipeline_run_start:
+  with --allow-uncontained it writes the "started" line first and doesn't run when it can't. The scan
+  also finds an action the CLI records by name (fails_closed("..."), .record("...")).
 """
 
 from __future__ import annotations
 
 import functools
 import inspect
+import json
 import re
 import threading
 import time
@@ -53,6 +59,12 @@ IN_PROCESS: dict[tuple[str, str], str] = {
     ("integrations/services.py", "prove_delete_outputs"):
         "fabric_desktop_delete_proof_outputs is destructive and asks for approval every time, so Registry "
         "writes its started line first (WRITE_ONELAKE isn't offered to tools yet)",
+    ("cli.py", "backup_restore"):
+        "restore --yes: it replaces this PC's data, so the CLI writes its started line first, always, and "
+        "changes nothing when that line can't be written (test_cli_restore_audit)",
+    ("cli.py", "pipeline_run_start"):
+        "pipeline run: the CLI runs it in-process and writes pipeline_run_start's lines itself, the started "
+        "line first when audit.fails_closed says so (--allow-uncontained); the run is refused without it",
     ("cli.py", "add_pc_schedule"):
         "pipeline schedule: the target is a pipeline folder on this PC, which never names Prod, so the call "
         "never fails closed (a Prod PC schedule's run does: test_failclosed_paths)",
@@ -64,7 +76,14 @@ CAPABILITY_CALLS = {
     "prove_delete_outputs": ("fabric_desktop_delete_proof_outputs", {"id": "p-1"}),
 }
 
-_CALL = re.compile(r"""(?:\.|getattr\(\s*\w+\s*,\s*["'])(%s)\b""" % "|".join(sorted(ACTIONS, key=len, reverse=True)))
+_NAMES = "|".join(sorted(ACTIONS, key=len, reverse=True))
+_CALL = re.compile(r"""(?:\.|getattr\(\s*\w+\s*,\s*["'])(%s)\b""" % _NAMES)
+# Actions an in-process caller runs itself that are no RPC method, so they aren't in ACTIONS: each always
+# fails closed, and the scan finds the line its caller records under its name.
+CLI_ACTIONS = {"backup_restore"}  # fabric-desktop restore --yes: replaces this PC's data with a backup's
+# An action a caller runs itself and records under the action's own name.
+_RECORDED = re.compile(r"""(?:fails_closed|\.record)\(\s*["'](%s)["']"""
+                       % "|".join(sorted(set(ACTIONS) | CLI_ACTIONS, key=len, reverse=True)))
 
 
 def _found() -> set[tuple[str, str]]:
@@ -73,7 +92,7 @@ def _found() -> set[tuple[str, str]]:
     for module in CALLERS:
         for line in (ENGINE / module).read_text(encoding="utf-8").splitlines():
             if not line.lstrip().startswith("#"):
-                out |= {(module, m.group(1)) for m in _CALL.finditer(line)}
+                out |= {(module, m.group(1)) for pattern in (_CALL, _RECORDED) for m in pattern.finditer(line)}
     return out
 
 
@@ -84,6 +103,13 @@ def test_every_in_process_call_of_a_fail_closed_action_is_listed():
         "unrecorded, and test it here")
     assert sorted(set(IN_PROCESS) - found) == [], "listed in IN_PROCESS but no longer called there"
     assert all(len(why) >= 40 for why in IN_PROCESS.values())
+
+
+def test_the_clis_own_actions_are_no_rpc_method():
+    """An action in CLI_ACTIONS has no RPC method of that name, whose own fail-closed check would cover it."""
+    from fabric_desktop import server
+
+    assert not set(CLI_ACTIONS) & (set(server.METHODS) | set(ACTIONS))
 
 
 def test_the_transports_reach_the_engine_only_through_the_registry():
@@ -246,3 +272,120 @@ def test_the_clis_pipeline_schedule_never_names_prod(tmp_path, monkeypatch):
     [params] = calls
     assert not set(params["target"]) & set(audit._PROD_PARAMS)
     assert not audit.fails_closed("add_pc_schedule", params)
+
+
+def _wait_pipeline(path: Path) -> Path:
+    path.write_text(json.dumps({"name": "p", "properties": {"activities": [
+        {"name": "Pause", "type": "Wait", "dependsOn": [], "typeProperties": {"waitTimeInSeconds": 1}}]}}),
+        encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def cli_run(tmp_path, monkeypatch):
+    """`fabric-desktop pipeline run` with this PC's data folder in tmp_path (conftest); notes when the run
+    itself starts, with the audit lines written by then."""
+    from fabric_desktop.orchestration import runner
+    from fabric_desktop.service import data_dir
+
+    assert data_dir().is_relative_to(tmp_path)
+    log = audit.AuditLog(data_dir() / "audit")
+    ran: list[list[tuple[str, str]]] = []
+    real = runner.PipelineRun.run
+
+    def run(self):
+        if self.depth == 0:
+            ran.append(lines())
+        return real(self)
+
+    def lines() -> list[tuple[str, str]]:
+        return [(e["action"], e["outcome"]) for e in log.entries()] if log.folder.exists() else []
+    monkeypatch.setattr(runner.PipelineRun, "run", run)
+    path = _wait_pipeline(tmp_path / "p.json")
+
+    def go(*flags: str) -> int:
+        with pytest.raises(SystemExit) as done:
+            cli.main(["pipeline", "run", str(path), "--wait-scale", "0", "--json", *flags])
+        return done.value.code
+    go.ran, go.lines, go.log = ran, lines, log  # type: ignore[attr-defined]
+    return go
+
+
+def test_the_clis_uncontained_pipeline_run_writes_its_started_line_before_it_runs(cli_run):
+    assert cli_run("--allow-uncontained") == 0
+    assert cli_run.ran == [[("pipeline_run_start", "started"), ("pipeline_run_start", "ok")]]
+    assert cli_run.lines() == [("pipeline_run_start", "started"), ("pipeline_run_start", "ok"),
+                               ("pipeline_run_finished", "ok")]
+    entries = list(cli_run.log.entries())
+    assert all(e["who"].endswith(" (cli)") for e in entries)
+    assert entries[0]["target"]["allow_uncontained"] is True
+    assert cli_run.log.verify()["ok"]
+
+
+def test_the_clis_uncontained_pipeline_run_doesnt_run_when_its_started_line_cant_be_written(
+        cli_run, monkeypatch, capsys):
+    def full(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(audit_chain, "write", full)
+    assert cli_run("--allow-uncontained") == 2
+    assert cli_run.ran == []
+    out = capsys.readouterr().out
+    assert "The audit log couldn't be written, so this didn't run" in out
+    assert "disk full" in out
+    assert cli_run.lines() == []
+
+
+def test_the_clis_pipeline_run_without_the_flag_is_audited_as_the_apps_is(cli_run, monkeypatch, capsys):
+    """Without --allow-uncontained the app's call isn't fail-closed: it gets its lines, but runs when they
+    can't be written."""
+    assert not audit.fails_closed("pipeline_run_start", {"allow_uncontained": False})
+    assert cli_run() == 0
+    assert cli_run.ran == [[("pipeline_run_start", "ok")]]
+    assert cli_run.lines() == [("pipeline_run_start", "ok"), ("pipeline_run_finished", "ok")]
+
+    def full(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(audit_chain, "write", full)
+    assert cli_run() == 0
+    assert len(cli_run.ran) == 2
+    assert "audit: could not record pipeline_run_start" in capsys.readouterr().err
+
+
+def test_the_clis_refused_pipeline_run_records_why(cli_run, tmp_path):
+    """A run its checks refuse ends as the app's refused start does: an error line with its reason."""
+    assert cli_run("--allow-uncontained", "--param", "nope=1") == 2
+    assert cli_run.ran == []
+    [started, ended] = list(cli_run.log.entries())
+    assert (started["outcome"], ended["action"], ended["outcome"]) == ("started", "pipeline_run_start", "error")
+    assert ended["reason"] in audit.REASONS
+
+
+def test_a_cli_pipeline_run_in_the_tests_writes_only_under_tmp_path(tmp_path, monkeypatch, capsys):
+    """conftest points the data folder at tmp_path in a module that runs `pipeline run`, so the audit lines
+    of a test's run never reach the audit trail of whoever runs the tests."""
+    from fabric_desktop.service import data_dir
+
+    sentinel = tmp_path / "home-sentinel"
+    sentinel.mkdir()
+    monkeypatch.setenv("HOME", str(sentinel))
+    monkeypatch.setenv("USERPROFILE", str(sentinel))
+    assert data_dir().is_relative_to(tmp_path)
+    mocks = tmp_path / "mocks.json"
+    mocks.write_text(json.dumps({"Pause": {"status": "Succeeded"}}), encoding="utf-8")
+    with pytest.raises(SystemExit) as done:
+        cli.main(["pipeline", "run", str(_wait_pipeline(tmp_path / "p.json")), "--mocks", str(mocks),
+                  "--wait-scale", "0", "--json"])
+    assert done.value.code == 0, capsys.readouterr().out
+    written = audit.AuditLog(data_dir() / "audit")
+    assert [e["action"] for e in written.entries()] == ["pipeline_run_start", "pipeline_run_finished"]
+    assert list(sentinel.iterdir()) == []
+
+
+def test_every_test_module_that_runs_cli_pipelines_gets_a_tmp_data_folder():
+    from conftest import runs_cli_pipelines
+
+    tests = Path(__file__).parent
+    found = {p.name for p in tests.glob("test_*.py") if runs_cli_pipelines(p)}
+    assert {"test_cli_cov2.py", "test_cli_tenant_commands.py", "test_fail_closed_in_process.py",
+            "test_pipeline_data.py", "test_pipeline_gotchas.py", "test_pipeline_notebooks.py",
+            "test_pipeline_runs.py", "test_pipeline_script.py"} <= found

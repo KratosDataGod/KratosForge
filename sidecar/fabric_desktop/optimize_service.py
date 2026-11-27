@@ -80,8 +80,8 @@ class OptimizeMixin:
 
     def _optimize_allowed(self) -> None:
         if not app_settings.value("allow_optimize_lakehouse"):
-            raise PermissionError("Your organization has turned off shared optimization lakehouses "
-                                  "(allow_optimize_lakehouse in its policy file).")
+            raise PermissionError("Your organization has turned off shared optimization lakehouses. "
+                                  + app_settings.ask_it("allow_optimize_lakehouse"))
 
     def _optimize_lake(self, workspace_id: str, lakehouse_id: str, schemas: bool | None = None,
                        token: Callable[[], str] | None = None) -> Any:

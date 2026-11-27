@@ -184,13 +184,19 @@ def test_fs_subcommands_map_to_dbutils_fs(tmp_path):
 
 
 @pytest.mark.parametrize("line, command", [("ls dbfs:/databricks-datasets", "ls"),
-                                           ("ls /Volumes/main/default/my-volume/", "ls"),
                                            ("head /FileStore/tables/a.csv", "head"),
                                            ("cp file:/tmp/a.csv dbfs:/tmp/a.csv", "cp")])
 def test_fs_on_databricks_storage_is_refused_naming_the_command(line, command):
-    """dbfs:/ and /Volumes/ don't exist on this PC, and a bare absolute path is DBFS in Databricks."""
+    """dbfs:/ outside /Volumes doesn't exist on this PC, and a bare absolute path is DBFS in Databricks."""
     text = _error(Kernel().run(f"%fs {line}"))
     assert text.startswith(f"%fs {command}: ") and "file:" in text and "Files/" in text
+
+
+def test_fs_on_a_volume_this_pc_lacks_names_the_volume(tmp_path, monkeypatch):
+    """/Volumes/ is a Unity Catalog volume on this PC (databricks_volumes); one that isn't here says so."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    text = _error(Kernel().run("%fs ls /Volumes/main/default/my-volume/"))
+    assert text.startswith("%fs ls: The volume main.default.my-volume cannot be found")
 
 
 @pytest.mark.parametrize("command", ["mount", "unmount", "updateMount"])

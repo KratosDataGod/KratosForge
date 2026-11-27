@@ -44,7 +44,7 @@ def test_v_order_is_queued_once_after_the_write_commits_and_vacuums_nothing(lake
     fabric = Fabric()
     fabric.version = lambda: DeltaTable(str(lake / "dbo" / "orders")).version()
     history = tmp_path / "history.jsonl"
-    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, history_file=history, capacity_gate=OPEN)
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, history_file=history, capacity_gate=OPEN, guard=lambda *_: None)
     assert fabric.maintenance == [{"workspace_id": "ws1", "lakehouse_id": "lh1", "table": "orders", "schema": "dbo",
                                    "v_order": True, "vacuum_retention": None}]
     assert fabric.version_when_queued == record.delta_version == 0  # queued after the commit, not before
@@ -54,14 +54,14 @@ def test_v_order_is_queued_once_after_the_write_commits_and_vacuums_nothing(lake
 
 def test_without_v_order_no_fabric_job_is_queued(lake, tmp_path):  # noqa: F811
     fabric = Fabric()
-    record = publish.run_job(_job(tmp_path, False), fabric, lambda: "tok", tmp_path)
+    record = publish.run_job(_job(tmp_path, False), fabric, lambda: "tok", tmp_path, guard=lambda *_: None)
     assert fabric.maintenance == [] and record.v_order_job is None and record.v_order_error is None
 
 
 def test_a_v_order_that_cant_be_queued_is_reported_and_the_written_rows_stay(lake, tmp_path):  # noqa: F811
     fabric = Fabric(fail=RuntimeError("Capacity is paused"))
     fabric.version = lambda: DeltaTable(str(lake / "dbo" / "orders")).version()
-    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN)
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN, guard=lambda *_: None)
     assert record.v_order_job is None
     assert record.v_order_error == ("Wrote dbo.orders (Delta version 0), but Fabric didn't start V-Order for it "
                                     "(RuntimeError: Capacity is paused). The rows are in the table. To V-Order it, "
@@ -98,7 +98,7 @@ def test_a_failed_write_queues_no_v_order(lake, tmp_path, monkeypatch):  # noqa:
     monkeypatch.setattr(publish, "write_deltalake", broken)
     fabric = Fabric()
     with pytest.raises(RuntimeError, match="disk full"):
-        publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN)
+        publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN, guard=lambda *_: None)
     assert fabric.maintenance == []
 
 
@@ -114,7 +114,7 @@ def test_a_write_sent_again_with_a_fresh_token_queues_v_order_once(lake, tmp_pat
     monkeypatch.setattr(publish, "publish", expires_once)
     fabric = Fabric()
     fabric.version = lambda: DeltaTable(str(lake / "dbo" / "orders")).version()
-    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN)
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN, guard=lambda *_: None)
     assert len(tries) == 2 and len(fabric.maintenance) == 1
     assert fabric.version_when_queued == record.delta_version == 0 and record.v_order_job == "job-42"
 
@@ -122,7 +122,7 @@ def test_a_write_sent_again_with_a_fresh_token_queues_v_order_once(lake, tmp_pat
 def test_v_order_names_the_target_table_and_schema_as_written(lake, tmp_path):  # noqa: F811
     fabric = Fabric()
     record = publish.run_job(_job(tmp_path, True, table="Sales Orders", schema="sales", mode="append"), fabric,
-                             lambda: "tok", tmp_path, capacity_gate=OPEN)
+                             lambda: "tok", tmp_path, capacity_gate=OPEN, guard=lambda *_: None)
     assert [(m["table"], m["schema"]) for m in fabric.maintenance] == [("Sales Orders", "sales")]
     assert record.v_order_job == "job-42"
     assert DeltaTable(str(lake / "sales" / "Sales Orders")).version() == record.delta_version
@@ -133,14 +133,14 @@ def test_a_table_in_a_lakehouse_without_schemas_is_named_without_one(tmp_path, m
     monkeypatch.setattr(publish, "resolve_target", lambda j, f: TableRef("ws1", "lh1", "dbo", "orders", flat=True))
     fabric = Fabric(fail=RuntimeError("Capacity is paused"))
     fabric.version = lambda: 4
-    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN)
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=OPEN, guard=lambda *_: None)
     assert fabric.maintenance[0]["schema"] is None
     assert record.v_order_error.startswith("Wrote orders (Delta version 4), but Fabric didn't start V-Order")
 
 
 def test_a_run_with_no_fabric_connection_says_v_order_didnt_run(lake, tmp_path, monkeypatch):  # noqa: F811
     monkeypatch.setattr(publish, "resolve_target", lambda j, f: TableRef("ws1", "lh1", "dbo", "orders"))
-    record = publish.run_job(_job(tmp_path, True), None, lambda: "tok", tmp_path, capacity_gate=OPEN)
+    record = publish.run_job(_job(tmp_path, True), None, lambda: "tok", tmp_path, capacity_gate=OPEN, guard=lambda *_: None)
     assert record.delta_version == 0 and record.v_order_job is None
     assert record.v_order_error == ("Wrote dbo.orders (Delta version 0), but it wasn't V-Ordered, because only Fabric "
                                     "V-Orders a table and this run had no Fabric connection. To V-Order it, run table "
@@ -155,7 +155,7 @@ def test_a_failed_v_order_is_kept_in_the_history_and_older_runs_still_read(lake,
            "finished_at": "2026-01-01T00:00:00Z"}  # written before v_order existed
     service.history_file.write_text(json.dumps(old) + "\n", encoding="utf-8")
     publish.run_job(_job(tmp_path, True), Fabric(fail=RuntimeError("Capacity is paused")), lambda: "tok", tmp_path,
-                    history_file=service.history_file, capacity_gate=OPEN)
+                    history_file=service.history_file, capacity_gate=OPEN, guard=lambda *_: None)
     newest, older = service.history()
     assert newest["v_order_job"] is None and "Capacity is paused" in newest["v_order_error"]
     assert publish.RunRecord(**newest) and publish.RunRecord(**older).v_order_error is None
@@ -178,7 +178,7 @@ def test_a_blocked_capacity_stops_v_order_and_the_written_rows_stay(lake, tmp_pa
     fabric, asked = Fabric(), []
     blocked = "the capacity check is Blocked (Capacity paused)"
     record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path,
-                             capacity_gate=lambda ws, table: asked.append((ws, table)) or blocked)
+                             capacity_gate=lambda ws, table: asked.append((ws, table)) or blocked, guard=lambda *_: None)
     assert asked == [("ws1", "dbo.orders")] and fabric.maintenance == []
     assert record.delta_version == 0 and record.v_order_job is None
     assert record.v_order_error == ("Wrote dbo.orders (Delta version 0), but it wasn't V-Ordered, because the capacity "
@@ -189,7 +189,7 @@ def test_a_blocked_capacity_stops_v_order_and_the_written_rows_stay(lake, tmp_pa
 
 def test_without_a_capacity_check_v_order_doesnt_start(lake, tmp_path):  # noqa: F811
     fabric = Fabric()
-    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path)
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, guard=lambda *_: None)
     assert fabric.maintenance == [] and record.v_order_job is None and record.delta_version == 0
     assert "couldn't check the capacity first" in record.v_order_error
 
@@ -198,7 +198,7 @@ def test_a_capacity_check_that_fails_doesnt_start_v_order(lake, tmp_path):  # no
     def broken(ws, table):
         raise OSError("risk store unreadable")
     fabric = Fabric()
-    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=broken)
+    record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path, capacity_gate=broken, guard=lambda *_: None)
     assert fabric.maintenance == [] and "because the capacity check failed (" in record.v_order_error
 
 
@@ -244,7 +244,7 @@ def test_a_warning_from_the_real_capacity_check_stops_v_order_end_to_end(lake, t
     monkeypatch.setattr(risk, "check_capacity", lambda *a: {"outcome": risk.WARNING, "title": "Throttling likely"})
     fabric = Fabric()
     record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path,
-                             capacity_gate=service._job_v_order_refusal)
+                             capacity_gate=service._job_v_order_refusal, guard=lambda *_: None)
     assert fabric.maintenance == [] and record.delta_version == 0
     assert "has a warning (Throttling likely), and a job run can't accept one" in record.v_order_error
 
@@ -259,6 +259,6 @@ def test_a_capacity_never_read_stops_v_order_through_the_real_check(lake, tmp_pa
     assert found is not None and found["outcome"] == risk.UNKNOWN
     fabric = Fabric()
     record = publish.run_job(_job(tmp_path, True), fabric, lambda: "tok", tmp_path,
-                             capacity_gate=service._job_v_order_refusal)
+                             capacity_gate=service._job_v_order_refusal, guard=lambda *_: None)
     assert fabric.maintenance == [] and record.delta_version == 0
     assert "the capacity of its workspace isn't known" in record.v_order_error

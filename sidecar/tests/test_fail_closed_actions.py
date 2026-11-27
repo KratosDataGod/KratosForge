@@ -83,6 +83,10 @@ ACTIONS: dict[str, str] = {
     # Confirmations.
     "databricks_billing": "confirmed",
     "databricks_sync_push": "confirm_deletes",
+    "databricks_volume_delete": "confirm",
+    "databricks_volume_download": "overwrite",
+    "databricks_volume_drop": "confirm",
+    "databricks_volume_upload": "overwrite",
     "engine_select": "confirmed",
     "fabric_git_link": "confirm env",
     "git_abort_merge": "confirm",

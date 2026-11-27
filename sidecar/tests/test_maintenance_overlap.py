@@ -262,6 +262,55 @@ def test_while_a_compaction_holds_the_table_a_failed_runs_cleanup_removes_nothin
     assert left.exists()
 
 
+def test_the_meta_tables_own_compaction_skips_its_round_while_another_process_holds_the_lock(tmp_path):
+    # Without the lock here, the meta compaction could commit files a failed meta write's cleanup was removing.
+    from fabric_desktop.meta.store import META_COMPACT_EVERY, META_LAKEHOUSE
+    store = LocalStore(tmp_path, "dev")
+    for i in range(3):
+        store.write(META_LAKEHOUSE, "meta", "runs", pl.DataFrame({"id": [i]}), mode="append")
+    uri = store.uri(META_LAKEHOUSE, "meta", "runs")
+    before = DeltaTable(uri).version()
+    with held_elsewhere(uri, tmp_path):
+        store._tidy_meta("runs", META_COMPACT_EVERY)
+        assert DeltaTable(uri).version() == before  # skipped, nothing committed
+    store._tidy_meta("runs", META_COMPACT_EVERY)
+    assert DeltaTable(uri).version() > before  # and compacts once the lock is free
+    assert sorted(pl.from_arrow(DeltaTable(uri).to_pyarrow_table())["id"].to_list()) == [0, 1, 2]
+
+
+def test_every_spelling_of_one_table_folder_shares_one_lock(tmp_path, monkeypatch):
+    table = tmp_path / "events"
+    table.mkdir()
+    link = tmp_path / "linked"
+    try:
+        link.symlink_to(table, target_is_directory=True)
+    except OSError:  # Windows without the symlink privilege
+        link = None
+    monkeypatch.chdir(tmp_path)
+    spellings = [str(table) + "/", str(table) + "//", "./events", str(tmp_path / "x" / ".." / "events"),
+                 table.as_uri()] + ([str(link)] if link else [])
+    with held_elsewhere(str(table), tmp_path):
+        for spelling in spellings:
+            with pytest.raises(LeaseBusy, match="being optimized"):
+                with maintenance.compaction_lock(spelling, wait=0):
+                    pass
+    with maintenance.compaction_lock(table.as_uri(), wait=0):  # free again, whichever spelling
+        pass
+
+
+def test_a_holder_taking_the_lock_again_goes_straight_in(tmp_path):
+    uri = str(tmp_path / "events")
+    with maintenance.compaction_lock(uri, wait=0):
+        with maintenance.compaction_lock(uri + "/", wait=0):  # compact_local under the Maintain page's lease
+            pass
+        with maintenance.compaction_lock(uri, wait=0):  # and again after the inner one let go
+            pass
+    with held_elsewhere(uri, tmp_path):  # the outer one let go too
+        with pytest.raises(LeaseBusy):
+            with maintenance.compaction_lock(uri, wait=0):
+                pass
+
+
 def test_a_restore_in_another_process_while_compact_cleans_leftovers_leaves_the_table_whole(tmp_path, monkeypatch):
     """Versions 0 and 1 are past the 7 days kept, and a checkpoint has dropped their removals, so their files are
     leftovers no commit names: Compact's cleanup deletes them. A RESTORE to version 1 (allowed while its files are

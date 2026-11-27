@@ -475,7 +475,10 @@ _THREAD_LOCKS_GUARD = threading.Lock()
 def _lock_key(uri: str) -> str:
     """One name for a table however its address is written: a folder on this PC resolved as the disk compares it,
     a OneLake address as given (its ids are GUIDs, so case doesn't matter)."""
-    if "://" in uri:
+    if uri.lower().startswith("file://"):  # the same folder as its plain path, so both share one lock
+        from urllib.request import url2pathname
+        uri = url2pathname(uri[len("file://"):].removeprefix("localhost"))
+    elif "://" in uri:
         return uri.rstrip("/").lower()
     return os.path.normcase(os.path.realpath(uri)).rstrip("/\\")
 

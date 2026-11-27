@@ -481,6 +481,19 @@
         <text id="dbconnect_index_url" valueName="dbconnect_index_url" required="true" maxLength="2048" />
       </elements>
     </policy>
+    <policy name="allow_snowpark_install" class="Machine" displayName="$(string.allow_snowpark_install)" explainText="$(string.allow_snowpark_install_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="allow_snowpark_install">
+      <parentCategory ref="cat_packages" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="snowpark_index_url" class="Machine" displayName="$(string.snowpark_index_url)" explainText="$(string.snowpark_index_url_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.snowpark_index_url)">
+      <parentCategory ref="cat_packages" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <elements>
+        <text id="snowpark_index_url" valueName="snowpark_index_url" required="true" maxLength="2048" />
+      </elements>
+    </policy>
     <policy name="integrations" class="Machine" displayName="$(string.integrations)" explainText="$(string.integrations_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="integrations">
       <parentCategory ref="cat_integrations" />
       <supportedOn ref="SUPPORTED_KratosForge" />

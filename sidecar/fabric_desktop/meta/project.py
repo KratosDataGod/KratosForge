@@ -368,6 +368,12 @@ class Project:
             except tomllib.TOMLDecodeError as exc:
                 self.load_errors.append(f"{p.name}: not valid TOML ({exc})")
                 continue
+            except UnicodeDecodeError:
+                self.load_errors.append(f"{p.name}: not UTF-8 text")
+                continue
+            except OSError as exc:  # a folder named like an entity file, one that can't be opened
+                self.load_errors.append(f"{p.name}: can't be read ({exc.strerror or type(exc).__name__})")
+                continue
             name = spec.get("name") or p.stem
             if p.stem != name:
                 self.load_errors.append(f"{p.name}: file name must match its name ({one_line(name, 80)})")
@@ -377,6 +383,9 @@ class Project:
             if exc_file.exists() else []
         env_file = self.root / "environments.toml"
         self.environments = tomllib.loads(env_file.read_text(encoding="utf-8")) if env_file.exists() else {}
+        for env in ENVIRONMENTS:  # edited by hand (dev = "x"): said here, not an AttributeError wherever it is read
+            if not isinstance(self.environments.get(env, {}), dict):
+                raise ValueError(f"environments.toml: [{env}] isn't a table of settings")
         self.key_tables, self.key_errors = keys_mod.load_key_tables(self.root)
         self.source_systems, more = keys_mod.load_source_systems(self.root)
         self.key_errors += more

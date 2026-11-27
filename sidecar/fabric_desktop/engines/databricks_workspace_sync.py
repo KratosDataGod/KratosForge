@@ -265,11 +265,12 @@ def _loss_notes(path: Path) -> list[dict[str, Any]]:
 def _content(path: Path) -> tuple[str, str]:
     """(base64 source, language) to import: a .ipynb becomes Databricks Python source."""
     language = SUFFIXES[path.suffix.lower()]
-    if path.suffix.lower() == ".ipynb":
-        cells = nbf.parse_ipynb(path.read_text(encoding="utf-8"))["cells"]
-        text = nbf.to_databricks_py(cells)
-    else:
-        text = path.read_text(encoding="utf-8")
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise ValueError(f"{path.name} wasn't pushed, because it isn't UTF-8 text. Save it as UTF-8, then push "
+                         "again.") from None
+    text = nbf.to_databricks_py(nbf.parse_ipynb(raw)["cells"]) if path.suffix.lower() == ".ipynb" else raw
     return base64.b64encode(text.encode("utf-8")).decode("ascii"), language
 
 

@@ -1,8 +1,12 @@
 """Shared test setup."""
 
+import errno
 import faulthandler
+import ipaddress
 import json
 import os
+import re
+import socket
 import sys
 import threading
 import time
@@ -68,6 +72,24 @@ def duckdb_default_connection_left_clean():
 
 
 @pytest.fixture(autouse=True)
+def spark_session_time_zone_left_utc():
+    """After each test, the process's local Spark session (spark_local.session(), which every Kernel in this
+    process shares) is back on UTC, its default. A test that set spark.sql.session.timeZone and didn't unset
+    it changed every later test's timestamps in that worker, whichever test file came next (main 7b43ff88's
+    Windows run: Europe/Paris, left set, moved from_utc_timestamp by an hour in test_spark_compat_edges)."""
+    yield
+    spark_local = sys.modules.get("fabric_desktop.spark_local")
+    live = getattr(spark_local, "_session", None)
+    if live is None:
+        return
+    try:
+        if "spark.sql.session.timeZone" in live.conf._set:
+            live.conf.unset("spark.sql.session.timeZone")
+    except Exception:  # noqa: BLE001  # silent-ok: a session a test closed or faked is replaced by the next one
+        spark_local._session = None
+
+
+@pytest.fixture(autouse=True)
 def no_interactive_sign_in(monkeypatch):
     """Sign-in needs no setup now, so a test that reaches it would open a browser and wait.
     Make it fail at once instead, as it does for someone who closes the sign-in window."""
@@ -84,6 +106,38 @@ def no_remembered_secrets():
     secret_redaction.forget_all()
     yield
     secret_redaction.forget_all()
+
+
+# A test module that runs `fabric-desktop pipeline run` through the command line: ["pipeline", "run", ...],
+# on one line or split over several.
+CLI_PIPELINE_RUN = re.compile(r"""["']pipeline["']\s*,\s*["']run["']""")
+_cli_pipeline_modules: dict[str, bool] = {}
+
+
+def runs_cli_pipelines(path) -> bool:
+    """Whether the test module at ``path`` runs a pipeline through the command line."""
+    key = str(path)
+    if key not in _cli_pipeline_modules:
+        try:
+            text = open(key, encoding="utf-8").read()
+        except OSError:
+            text = ""
+        _cli_pipeline_modules[key] = bool(CLI_PIPELINE_RUN.search(text))
+    return _cli_pipeline_modules[key]
+
+
+@pytest.fixture(autouse=True)
+def cli_pipeline_runs_keep_their_data_in_tmp(request):
+    """A command-line pipeline run writes its audit lines to this PC's data folder (cli._pipeline_run), so
+    in a module that runs one, the data folder is in the test's tmp_path, never the real one of whoever
+    runs the tests. A module's own fixture can still point it at another folder in tmp_path."""
+    if not runs_cli_pipelines(request.node.path):
+        return
+    tmp_path = request.getfixturevalue("tmp_path")
+    monkeypatch = request.getfixturevalue("monkeypatch")
+    folder = tmp_path / "cli-data"
+    monkeypatch.setenv("LOCALAPPDATA", str(folder))
+    monkeypatch.setattr("fabric_desktop.service.data_dir", lambda: folder / "FabricDesktop")
 
 
 class _NoSignInService:
@@ -119,6 +173,133 @@ class _Reply:
 
     def raise_for_status(self):
         pass
+
+
+# Tests don't reach the network from the test process. In this process, a TCP connect, a datagram send or a
+# host name lookup that would leave this PC (anything but loopback, this PC's own address or a local socket
+# file) is refused and remembered, and the test that made it fails, naming the address. Refused rather than
+# only recorded, so code that retries or swallows errors can't make the call anyway; remembered, so a test
+# whose code catches the error still fails. Not covered: child processes a test starts, native code that opens
+# its own sockets (Rust object_store, DuckDB httpfs), and Windows asyncio's Proactor connects (ConnectEx).
+# A test that imports this file again (from tests import conftest) runs this code twice: the guard is put in
+# once, and every copy shares its list, so no_network checks the list the guard writes to.
+_installed = getattr(socket.socket.connect, "kf_outbound", None)
+_outbound: list[str] = _installed if _installed is not None else []
+# this PC's own addresses, learned from UDP route lookups: a connect to one of them doesn't leave the PC
+_own: set[str] = socket.socket.connect.kf_own if _installed is not None else set()  # type: ignore[attr-defined]
+_real_connect = socket.socket.connect
+_real_connect_ex = socket.socket.connect_ex
+_real_send = socket.socket.send
+_real_sendto = socket.socket.sendto
+_real_sendmsg = getattr(socket.socket, "sendmsg", None)  # Windows has no sendmsg
+_real_getaddrinfo = socket.getaddrinfo
+_INET = (socket.AF_INET, socket.AF_INET6)
+
+
+def _host_is_local(host) -> bool:
+    if host is None:
+        return True  # no host: a passive (bind) lookup, or the loopback default
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    host = str(host).split("%")[0]
+    if host in ("", "localhost") or host in _own:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False  # a host name other than localhost
+
+
+def _is_local(sock: socket.socket, address) -> bool:
+    if sock.family not in _INET or not isinstance(address, tuple):
+        return True  # a local socket file (AF_UNIX), or a family that never leaves this PC
+    if sock.type == socket.SOCK_DGRAM:
+        return True  # a UDP connect sends nothing: it only picks a route (finding this PC's address)
+    return _host_is_local(address[0])
+
+
+def _refuse_outbound(address, what: str = "a connect to") -> OSError:
+    _outbound.append(repr(address))
+    return ConnectionRefusedError(f"tests don't reach the network: refused {what} {address!r}")
+
+
+def _guarded_connect(self, address):
+    if not _is_local(self, address):
+        raise _refuse_outbound(address)
+    done = _real_connect(self, address)
+    if self.type == socket.SOCK_DGRAM and self.family in _INET:
+        _own.add(str(self.getsockname()[0]))
+    return done
+
+
+def _guarded_connect_ex(self, address):
+    if not _is_local(self, address):
+        _refuse_outbound(address)
+        return errno.ECONNREFUSED
+    return _real_connect_ex(self, address)
+
+
+def _check_datagram(sock: socket.socket, address) -> None:
+    """A datagram leaves the PC when it is sent, so a send to a peer off this PC is refused. ``address`` is
+    the sendto/sendmsg target, or None for the peer a connect picked."""
+    if sock.family not in _INET or sock.type != socket.SOCK_DGRAM:
+        return
+    if address is None:
+        try:
+            address = sock.getpeername()
+        except OSError:
+            return  # not connected: the real send fails on its own
+    if isinstance(address, tuple) and not _host_is_local(address[0]):
+        raise _refuse_outbound(address, "a datagram to")
+
+
+def _guarded_send(self, data, *args):
+    _check_datagram(self, None)
+    return _real_send(self, data, *args)
+
+
+def _guarded_sendto(self, data, *args):
+    _check_datagram(self, args[-1] if args else None)
+    return _real_sendto(self, data, *args)
+
+
+def _guarded_sendmsg(self, buffers, *args):
+    _check_datagram(self, args[2] if len(args) > 2 else None)
+    return _real_sendmsg(self, buffers, *args)  # type: ignore[misc]
+
+
+def _guarded_getaddrinfo(host, *args, **kwargs):
+    name = host.decode("ascii", "replace") if isinstance(host, bytes) else str(host or "")
+    if name.lower().rstrip(".").endswith(".invalid"):
+        # .invalid never resolves anywhere (RFC 6761), so tests use it for "a name that doesn't resolve":
+        # answered here, the same way a resolver would, without a query leaving this PC
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+    if not _host_is_local(host) and host != socket.gethostname():
+        _outbound.append(repr(host))
+        raise socket.gaierror(socket.EAI_NONAME, f"tests don't reach the network: refused a lookup of {host!r}")
+    return _real_getaddrinfo(host, *args, **kwargs)
+
+
+if _installed is None:
+    _guarded_connect.kf_outbound = _outbound  # type: ignore[attr-defined]
+    _guarded_connect.kf_own = _own  # type: ignore[attr-defined]
+    socket.socket.connect = _guarded_connect  # type: ignore[method-assign]
+    socket.socket.connect_ex = _guarded_connect_ex  # type: ignore[method-assign]
+    socket.socket.send = _guarded_send  # type: ignore[method-assign]
+    socket.socket.sendto = _guarded_sendto  # type: ignore[method-assign]
+    if _real_sendmsg is not None:
+        socket.socket.sendmsg = _guarded_sendmsg  # type: ignore[method-assign]
+    socket.getaddrinfo = _guarded_getaddrinfo
+
+
+@pytest.fixture(autouse=True)
+def no_network():
+    _outbound.clear()
+    yield
+    if _outbound:
+        tried = sorted(set(_outbound))
+        _outbound.clear()
+        pytest.fail(f"this test tried to reach the network: {', '.join(tried)}", pytrace=False)
 
 
 @pytest.fixture(autouse=True)
@@ -212,8 +393,10 @@ def runtime_grants_on_record_once_per_worker(request, monkeypatch, tmp_path_fact
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.
-# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, starts
-# another worker and the run still fails, with the stacks in the log.
+# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, and CI's
+# --max-worker-restart 0 then stops the run, which fails with the stacks in the log. (Without it,
+# xdist 3.8's loadfile scheduler starts a replacement worker that never gets work or a stop, and
+# the run waits for the job's time limit.)
 TEST_TIME_LIMIT = float(os.environ.get("FD_TEST_TIME_LIMIT", "300"))
 
 

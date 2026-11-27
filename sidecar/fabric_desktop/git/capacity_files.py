@@ -48,8 +48,11 @@ def read(root: str | Path) -> dict[str, Any]:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {"capacities": [], "problems": []}
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+    except (OSError, ValueError) as exc:  # not UTF-8, not TOML, or an integer longer than int() reads
         return {"capacities": [], "problems": [f"{FILE} can't be read: {one_line(exc)}"]}
+    except RecursionError:
+        return {"capacities": [], "problems": [(f"{FILE} wasn't read, because it's nested too deeply. "
+                                                "Move its deepest settings up a level, then compare again.")]}
     sections = data.get("capacities") or {}
     if not isinstance(sections, dict):
         return {"capacities": [], "problems": [f"{FILE}: capacities must be a table of [capacities.<name>] sections."]}
@@ -75,7 +78,12 @@ def read(root: str | Path) -> dict[str, Any]:
                     cap[f] = v
                 else:
                     problems.append(f"{FILE}: capacities.{name}.{f} must be text.")
-        for w in sec.get("workspaces") or []:
+        listed = sec.get("workspaces") or []
+        if not isinstance(listed, list):  # a string or a table would read as one workspace per letter or key
+            problems.append(f"The workspaces under capacities.{name} in {FILE} weren't read, because they aren't "
+                            "a list. Fix the file, then compare again.")
+            listed = []
+        for w in listed:
             if isinstance(w, str):  # a bare id is fine too
                 wid, wname = w.strip(), ""
             elif isinstance(w, dict):

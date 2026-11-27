@@ -161,10 +161,34 @@ def _load(text: str) -> Any:
     if _depth(text) > _DEEPEST:
         raise _beyond(f"it nests arrays and objects more than {_DEEPEST} levels deep")
     try:
-        return json.loads(text, parse_int=_number, parse_float=_number, parse_constant=_constant,
-                          object_pairs_hook=_pairs)
+        value = json.loads(text, parse_int=_number, parse_float=_number, parse_constant=_constant,
+                           object_pairs_hook=_pairs)
     except (_Bad, json.JSONDecodeError, InvalidOperation, OverflowError, RecursionError) as exc:
         raise _Bad from exc
+    if "\\u" in text and _lone_surrogate(value):
+        raise _beyond("a string in it holds half of a UTF-16 pair (\\ud800 to \\udfff) on its own, which this PC "
+                      "can't keep in text and Databricks may keep another way")
+    return value
+
+
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _lone_surrogate(value: Any) -> bool:
+    """Whether a key or string in ``value`` (json.loads') holds a surrogate: JSON's \\ud83d\\ude00 is one
+    character there, so only one that stands alone is left."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            if _SURROGATE.search(item):
+                return True
+        elif isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, dict):
+            stack.extend(item)
+            stack.extend(item.values())
+    return False
 
 
 def parse_json(text: str | None, safe: bool) -> str | None:

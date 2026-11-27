@@ -249,13 +249,24 @@ class Entity:
         return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()[:8]
 
     def sources(self) -> list[str]:
-        return as_list(self.spec.get("source", {}).get("entity"))
+        # Names only: an odd value saved by hand (a nested list, a table) is a save-gate error, not a crash.
+        return [s for s in as_list(self.spec.get("source", {}).get("entity")) if isinstance(s, str)]
+
+    def code_reads(self) -> list[str]:
+        """The entities ``[hooks] reads`` and ``[step] reads`` let custom code read. Names only: an odd value
+        saved by hand (a nested list, a table, a number) is a save-gate error, not a crash, and a bare string
+        is read as one name rather than split into its characters."""
+        out: list[str] = []
+        for section in ("hooks", "step"):
+            part = self.spec.get(section, {})
+            reads = part.get("reads") if isinstance(part, dict) else None
+            out += [r for r in as_list(reads) if isinstance(r, str) and r]
+        return out
 
     def reads(self) -> list[str]:
         """Every entity this one reads, from any part of its config."""
         out = list(self.sources())
-        out += self.spec.get("hooks", {}).get("reads", [])
-        out += self.spec.get("step", {}).get("reads", [])
+        out += self.code_reads()
         for chk in self.spec.get("check", []):
             if "exists_in" in chk:
                 out.append(chk["exists_in"].rsplit(".", 1)[0])
@@ -761,6 +772,16 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
         for k in e.keys:
             if k not in e.columns:
                 errors.append(f"{e.name}: key {k} is not a contract column")
+        if "entity" in s.get("source", {}):
+            try:
+                keys_mod.source_entity(e)
+            except ValueError as exc:
+                errors.append(str(exc))
+        for section in ("hooks", "step"):
+            part = s.get(section, {})
+            reads = part.get("reads", []) if isinstance(part, dict) else []
+            if not isinstance(reads, list) or not all(isinstance(r, str) and r for r in reads):
+                errors.append(f'{e.name}: [{section}] reads takes a list of entity names, like reads = ["silver.customers"]')
         if e.mode == "incremental" and not s.get("load", {}).get("watermark") and "entity" in s.get("source", {}):
             errors.append(f"{e.name}: incremental loads need a watermark column")
         wm, renames = s.get("load", {}).get("watermark"), s.get("source", {}).get("rename") or {}
@@ -905,56 +926,65 @@ def _graph(project: Project) -> dict[str, list[str]]:
 
 
 def find_cycle(project: Project) -> list[str] | None:
+    # Depth first with an explicit stack, not recursion: a chain of thousands of entities is fine.
     graph = _graph(project)
     state: dict[str, int] = {}
-    stack: list[str] = []
-
-    def visit(n: str) -> list[str] | None:
-        state[n] = 1
-        stack.append(n)
-        for m in graph[n]:
-            if state.get(m) == 1:
-                return stack[stack.index(m):] + [m]
-            if m not in state and (c := visit(m)):
-                return c
-        stack.pop()
-        state[n] = 2
-        return None
-
-    for n in sorted(graph):
-        if n not in state and (c := visit(n)):
-            return c
+    for root in sorted(graph):
+        if root in state:
+            continue
+        state[root] = 1
+        stack, todo = [root], [iter(graph[root])]
+        while todo:
+            for m in todo[-1]:
+                if state.get(m) == 1:
+                    return stack[stack.index(m):] + [m]
+                if m not in state:
+                    state[m] = 1
+                    stack.append(m)
+                    todo.append(iter(graph[m]))
+                    break
+            else:
+                state[stack.pop()] = 2
+                todo.pop()
     return None
 
 
 def run_order(project: Project) -> list[str]:
+    # Upstream first: each entity after everything it reads (an explicit stack, as in find_cycle).
     graph = _graph(project)
     out: list[str] = []
     seen: set[str] = set()
-
-    def visit(n: str) -> None:
-        if n in seen:
-            return
-        seen.add(n)
-        for m in graph[n]:
-            visit(m)
-        out.append(n)
-
-    for n in sorted(graph, key=lambda n: (project._layer_pos(project.entities[n]), n)):
-        visit(n)
+    for root in sorted(graph, key=lambda n: (project._layer_pos(project.entities[n]), n)):
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, iter(graph[root]))]
+        while stack:
+            n, todo = stack[-1]
+            for m in todo:
+                if m not in seen:
+                    seen.add(m)
+                    stack.append((m, iter(graph[m])))
+                    break
+            else:
+                stack.pop()
+                out.append(n)
     return out
 
 
 def impact(project: Project, entity: str) -> list[str]:
     """Everything downstream of an entity, nearest first."""
+    reads = {n: set(e.reads()) for n, e in project.entities.items()}  # once, not again at every step of a long chain
     out: list[str] = []
+    found: set[str] = set()
     frontier = [entity]
     while frontier:
         nxt = []
         for f in frontier:
-            for n, e in project.entities.items():
-                if f in e.reads() and n not in out and n != entity:
+            for n in project.entities:
+                if f in reads[n] and n not in found and n != entity:
                     out.append(n)
+                    found.add(n)
                     nxt.append(n)
         frontier = nxt
     return out

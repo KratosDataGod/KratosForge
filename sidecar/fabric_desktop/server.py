@@ -315,6 +315,9 @@ QUICK = frozenset({
     "wizard_preview", "wizard_templates",
     "engine_state", "engine_poll_cell", "engine_cancel",
 })
+# Quick, but on a lane of their own: an Evaluate waits up to debugger.EVAL_SECONDS for its answer,
+# and Stop (interrupt_cell) and the cell's output (poll_cell) must not wait behind it.
+DEBUG = frozenset({"debug_cell"})
 
 
 def handle(service: Service, line: str) -> dict:
@@ -444,7 +447,7 @@ def _reply_text(reply: dict[str, Any]) -> str:
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:
-    """Hands each request to its lane (QUICK, or everything else in order). Replies can come back
+    """Hands each request to its lane (DEBUG, the rest of QUICK, or everything else in order). Replies can come back
     in a different order from the requests: each carries its request's id, which the shell matches."""
     service = service or Service()
     write = threading.Lock()  # one whole reply line at a time
@@ -459,14 +462,15 @@ def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO
             stdout.write(text + "\n")
             stdout.flush()
 
-    lanes: dict[str, queue.Queue] = {"quick": queue.Queue(), "ordered": queue.Queue()}
+    lanes: dict[str, queue.Queue] = {"quick": queue.Queue(), "debug": queue.Queue(), "ordered": queue.Queue()}
     workers = [threading.Thread(target=_lane, args=(q, answer), daemon=True, name=f"rpc-{name}")
                for name, q in lanes.items()]
     for worker in workers:
         worker.start()
     for line in stdin:
         if line.strip():
-            lanes["quick" if _method(line) in QUICK else "ordered"].put(line)
+            method = _method(line)
+            lanes["debug" if method in DEBUG else "quick" if method in QUICK else "ordered"].put(line)
     for q in lanes.values():
         q.put(None)  # finish what was asked, then stop
     for worker in workers:
@@ -559,8 +563,13 @@ def main() -> None:
     _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
-    rpc_in = _rpc_stdin(sys.stdin)
-    sys.stdin = open(devnull, encoding="utf-8")  # noqa: SIM115 - a cell's pdb or sys.stdin.read gets nothing, never the app's requests
+    # The same for requests: a private handle on fd 0, then fd 0 is the null device, so a cell's pdb,
+    # sys.stdin, sys.__stdin__ or os.read(0) gets nothing, never the app's requests (as kernel_host does).
+    rpc_in = _rpc_stdin(os.fdopen(os.dup(sys.stdin.fileno()), "r", encoding="utf-8"))
+    null = os.open(devnull, os.O_RDONLY)
+    os.dup2(null, sys.stdin.fileno())
+    os.close(null)
+    sys.stdin = open(devnull, encoding="utf-8")  # noqa: SIM115 - kept open for the engine's life
     _log_to_stderr()
     from . import data_format
     try:

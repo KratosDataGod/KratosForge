@@ -395,11 +395,12 @@ function achievementRing(fraction) {
 function classAchievements(c) {
   const list = c.achievements || [];
   const card = (a, i) => {
-    const state = a.earned ? "earned" : a.available ? "progress" : "unavailable";
+    // "going", not "progress": the app's .progress is a 6px progress bar that clips what it holds.
+    const state = a.earned ? "earned" : a.available ? "going" : "unavailable";
     const day = a.earned_on ? `${ACHIEVEMENT_MONTHS[Number(a.earned_on.slice(5, 7)) - 1]} ${Number(a.earned_on.slice(8, 10))}` : "";
     const status = a.earned ? (day ? `Earned ${day}` : "Earned")
       : !a.available ? `Not yet available. ${a.unavailable_reason}` : a.of ? `${a.met} of ${a.of}` : "Not started";
-    const ring = h("div", { class: "tree-ach-badge", ...(state === "progress" && a.of
+    const ring = h("div", { class: "tree-ach-badge", ...(state === "going" && a.of
       ? { role: "progressbar", "aria-valuenow": String(a.met), "aria-valuemin": "0", "aria-valuemax": String(a.of), "aria-label": `${a.name} progress` }
       : {}) }, achievementRing(a.earned ? 1 : a.available && a.of ? a.met / a.of : 0),
       h("span", { class: "tree-ach-glyph", "aria-hidden": "true" }, svgIcon(TREE_GLYPHS[i % TREE_GLYPHS.length], 22)));

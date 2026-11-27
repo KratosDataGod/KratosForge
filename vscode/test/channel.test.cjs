@@ -140,7 +140,7 @@ test("a program that took the port gets neither the hello nor a token", async ()
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   fs.writeFileSync(path.join(fake, "editor-port"), `${server.address().port} the-real-hello`);
   const ch = new Channel(fake);
-  ch.token = "kfp_secret";
+  ch.token = "kfp_SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS";
   await assert.rejects(ch.ask("C:\\repos", "t"), (err) => err.code === "not_kratosforge");
   await assert.rejects(ch.status(), (err) => err.code === "not_kratosforge");
   server.close();
@@ -172,7 +172,7 @@ test("a proof isn't remembered: a program that takes the port later gets no toke
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   fs.writeFileSync(path.join(fake, "editor-port"), `${server.address().port} ${hello}`);
   const ch = new Channel(fake);
-  ch.token = "kfp_secret";
+  ch.token = "kfp_SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS";
   await ch.status(); // proven against "the app"
   impostor = true; // same port, same file
   await assert.rejects(ch.status(), (err) => err.code === "not_kratosforge");
@@ -207,7 +207,7 @@ test("an app that speaks a newer channel API gets no token, and the window says 
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   fs.writeFileSync(path.join(fake, "editor-port"), `${server.address().port} ${hello}`);
   const ch = new Channel(fake);
-  ch.token = "kfp_secret";
+  ch.token = "kfp_SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS";
   try {
     await assert.rejects(ch.status(), (err) => err.code === "app_too_new" && /extension/.test(err.message));
     answer = "too_old";
@@ -242,7 +242,7 @@ async function fakeApp(handle) {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   fs.writeFileSync(path.join(dir, "editor-port"), `${server.address().port} ${hello}`);
   const ch = new Channel(dir);
-  ch.token = "kfp_t";
+  ch.token = "kfp_SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS";
   return { ch, close: () => new Promise((r) => server.close(r)) };
 }
 

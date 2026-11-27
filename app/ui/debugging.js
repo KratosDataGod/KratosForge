@@ -152,6 +152,7 @@ function dbgCleanPause(p) {
     watches: items(p.watches, 100).map(value),
     evals: items(p.evals, 100).map(value),
   };
+  if (whole(p.seq) != null) out.seq = p.seq;  // which pause this is, in the run (dbgSnapshot)
   if (whole(p.variables_total) != null) out.variables_total = p.variables_total;
   const skipped = Array.isArray(p.skipped) ? p.skipped.filter((n) => typeof n === "string").slice(0, 20).map((n) => n.slice(0, 200)) : [];
   if (skipped.length) out.skipped = skipped;
@@ -529,9 +530,11 @@ function dbgStartArgs(cell, debug) {
 }
 
 // Called by runCell with each snapshot: shows or clears the paused line and panel.
-// cell.dbgSent is a command on its way: "waiting" for its answer, then "sent" until the pause it led
-// to comes (the engine has left the old pause by the time it answers). dbgGap: a snapshot with no
-// pause came meanwhile, so the next pause is a new one even before the answer.
+// cell.dbgSent is a command on its way, from the pause numbered cell.dbgFrom (the engine's seq). It
+// ends at the first snapshot with another pause: debug_cell and poll_cell run on separate engine
+// lanes, so that pause can come before the command's answer, or a poll answered just before the
+// command took effect can still show the pause it left. Without a seq (an older engine), "waiting"
+// for the answer, then "sent" until the next pause; dbgGap: a snapshot with no pause came meanwhile.
 function dbgSnapshot(cell, snap) {
   const was = cell.paused?.line;
   const now = snap?.status === "running" ? dbgCleanPause(snap.paused) : null;
@@ -539,7 +542,8 @@ function dbgSnapshot(cell, snap) {
   let fresh = !!now && (!cell.paused || was !== now.line);
   if (snap?.status !== "running") cell.dbgSent = null;
   else if (!now) cell.dbgGap = !!cell.dbgSent;
-  else if (cell.dbgSent === "sent" || (cell.dbgSent && cell.dbgGap)) {
+  else if (cell.dbgSent && (now.seq != null && cell.dbgFrom != null ? now.seq !== cell.dbgFrom
+    : cell.dbgSent === "sent" || cell.dbgGap)) {
     cell.dbgSent = null;
     fresh = true;
   }
@@ -604,8 +608,15 @@ async function dbgCommand(action, expression) {
   if (state.notebook.dbgRun && action !== "eval") state.notebook.dbgRun.mode = action;
   cell.dbgSent = "waiting";
   cell.dbgGap = false;
+  const from = cell.dbgFrom = cell.paused.seq ?? null;
+  const n = cell.dbgCommands = (cell.dbgCommands || 0) + 1;
   const res = await attempt(() => rpc("debug_cell", { action, notebook: state.notebook.name, ...(expression != null ? { expression } : {}) }), "Could not reach the debugger");
-  if (cell.dbgSent === "waiting") cell.dbgSent = res && action !== "eval" && cell.status === "running" ? "sent" : null;
+  // Only this command's own wait: a snapshot may already have shown the pause it led to, and a key
+  // pressed there may have sent the next one.
+  if (cell.dbgSent === "waiting" && cell.dbgCommands === n) {
+    const moved = from != null && cell.paused && cell.paused.seq !== from;
+    cell.dbgSent = res && action !== "eval" && cell.status === "running" && !moved ? "sent" : null;
+  }
   return res;
 }
 

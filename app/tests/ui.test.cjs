@@ -3180,12 +3180,12 @@ test("a garbled or oversized pause from the engine is cleaned to what the panel 
     assert.strictEqual(dbgCleanPause(bad), null, JSON.stringify(bad));
   }
   // A good pause reads as sent.
-  const good = { line: 3, reason: "breakpoint", stack: [{ function: "(cell)", line: 5 }, { function: "f", line: 3 }],
+  const good = { seq: 4, line: 3, reason: "breakpoint", stack: [{ function: "(cell)", line: 5 }, { function: "f", line: 3 }],
     variables: [{ name: "n", type: "int", size: "", value: "2" }], watches: [{ expr: "n", value: "2", type: "int", size: "" }],
     evals: [{ expr: "m", error: "NameError: m" }], variables_total: 250, skipped: ["json.dumps"] };
   assert.deepStrictEqual(plain(dbgCleanPause(good)), {
     line: 3, reason: "breakpoint", stack: good.stack, variables: good.variables, watches: good.watches,
-    evals: [{ expr: "m", value: "", type: "", size: "", error: "NameError: m" }], variables_total: 250, skipped: ["json.dumps"] });
+    evals: [{ expr: "m", value: "", type: "", size: "", error: "NameError: m" }], seq: 4, variables_total: 250, skipped: ["json.dumps"] });
   // Wrong types: lists that aren't lists, rows that aren't objects, values that are objects.
   const odd = plain(dbgCleanPause({ line: 2, reason: { x: 1 }, stack: "(cell) line 2", variables: [null, 3, "x", [1], { name: { a: 1 }, value: 5 }],
     watches: {}, evals: "e", variables_total: "9", skipped: [1, null, "ok"] }));
@@ -3199,6 +3199,84 @@ test("a garbled or oversized pause from the engine is cleaned to what the panel 
   assert.strictEqual(big.skipped.length, 20);
   const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   assert.match(dbg, /const now = snap\?\.status === "running" \? dbgCleanPause\(snap\.paused\) : null;/);
+});
+
+// dbgSnapshot and dbgCommand, with the engine's answers given by the test in the order it picks.
+function dbgCommandMachine(src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8")) {
+  const fn = (name) => {
+    const at = src.search(new RegExp(`^(async )?function ${name}\\(`, "m"));
+    return src.slice(at, src.indexOf("\n}\n", at) + 3);
+  };
+  const ctx = { sent: [], shown: [], replies: [] };
+  vm.runInNewContext(`${["dbgCleanPause", "dbgSnapshot", "dbgCommand", "dbgPausedCell"].map(fn).join("\n")}
+    const DBG_MAX_ROWS = 500;
+    const state = { notebook: { name: "nb", cells: [], dbgRun: null } };
+    function dbgRepaintMarks() {}
+    function dbgPauseShown(cell) { shown.push(cell.paused.line); }
+    const attempt = (f) => f().catch(() => null);
+    function rpc(method, params) { sent.push(params.action); return new Promise((resolve) => replies.push(resolve)); }
+    Object.assign(this, { dbgSnapshot, dbgCommand, state });`, ctx);
+  const cell = { status: "running", paused: null };
+  ctx.state.notebook.cells.push(cell);
+  const pause = (line, seq) => ({ status: "running", paused: { line, ...(seq != null ? { seq } : {}) } });
+  const answer = async (value) => { ctx.replies.shift()(value); await new Promise((r) => setImmediate(r)); };
+  return { ...ctx, cell, pause, answer, snap: (s) => ctx.dbgSnapshot(cell, s) };
+}
+
+test("a debugger command's answer coming after the pause it led to leaves the keys working (debug_cell on its own lane)", async () => {
+  // As traced in debugger.test.cjs: poll_cell, on the quick lane, answered with the next pause
+  // before debug_cell, on the debug lane, answered "resumed".
+  let m = dbgCommandMachine();
+  m.snap(m.pause(3, 3));
+  m.dbgCommand("next");
+  m.snap(m.pause(4, 4));  // the pause it led to, first
+  await m.answer({ resumed: "next" });
+  assert.strictEqual(m.cell.dbgSent, null);
+  m.dbgCommand("eval", "a + c");  // the next key is sent, not dropped
+  assert.deepStrictEqual(m.sent, ["next", "eval"]);
+  m.snap(m.pause(4, 4));  // polls go on: the same pause isn't said again
+  assert.deepStrictEqual(m.shown, [3, 4]);
+
+  // A poll answered before the step took effect, read after its answer: still the pause it left,
+  // so a key pressed again is still held back, until the new pause comes.
+  m = dbgCommandMachine();
+  m.snap(m.pause(1, 1));
+  m.dbgCommand("next");
+  await m.answer({ resumed: "next" });
+  m.snap(m.pause(1, 1));
+  assert.strictEqual(await m.dbgCommand("next"), null);
+  m.snap(m.pause(2, 2));
+  assert.strictEqual(m.cell.dbgSent, null);
+  assert.deepStrictEqual(m.sent, ["next"]);
+  assert.deepStrictEqual(m.shown, [1, 2]);
+
+  // An earlier step's late answer doesn't take over the command sent after it.
+  m = dbgCommandMachine();
+  m.snap(m.pause(1, 1));
+  m.dbgCommand("next");
+  m.snap(m.pause(2, 2));
+  m.dbgCommand("eval", "x");
+  await m.answer({ resumed: "next" });
+  assert.strictEqual(m.cell.dbgSent, "waiting");
+  await m.answer({ pending: true });
+  assert.strictEqual(m.cell.dbgSent, null);
+
+  // The same line paused again (a loop) is a new pause by its seq, with no gap seen.
+  m = dbgCommandMachine();
+  m.snap(m.pause(2, 1));
+  m.dbgCommand("continue");
+  await m.answer({ resumed: "continue" });
+  m.snap(m.pause(2, 2));
+  assert.strictEqual(m.cell.dbgSent, null);
+  assert.deepStrictEqual(m.shown, [2, 2]);
+
+  // An engine without seq: as before, the answer, then the next pause.
+  m = dbgCommandMachine();
+  m.snap(m.pause(1));
+  m.dbgCommand("next");
+  await m.answer({ resumed: "next" });
+  m.snap(m.pause(1));
+  assert.strictEqual(m.cell.dbgSent, null);
 });
 
 test("a pause in a cell edited mid-run is marked on its code, never on another line", () => {

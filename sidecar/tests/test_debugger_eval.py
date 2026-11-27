@@ -118,6 +118,22 @@ def test_an_expression_asked_behind_a_hanging_one_answers_pending_at_once(kernel
     alive(kernel)
 
 
+def test_each_pause_has_its_own_seq_and_an_expression_keeps_it(kernel):
+    # debug_cell and poll_cell are on separate engine lanes, so a poll can show the pause a step led
+    # to before the step's answer, or the pause it left after: the app tells them apart by seq, also
+    # when a loop pauses on the same line again.
+    kernel.start("for i in range(2):\n    j = i", breakpoints=[2])
+    first = wait(kernel)["paused"]
+    assert first["line"] == 2 and first["seq"] == 1
+    assert kernel.debug("eval", "i")["value"] == "0"
+    assert wait(kernel)["paused"]["seq"] == 1
+    kernel.debug("continue")
+    again = wait(kernel)["paused"]
+    assert again["line"] == 2 and again["seq"] == 2
+    continue_finishes(kernel)
+    alive(kernel)
+
+
 def test_stop_during_a_hanging_expression_before_it_answers(kernel):
     kernel.start(CODE, breakpoints=[5])
     assert wait(kernel)["paused"]["line"] == 5

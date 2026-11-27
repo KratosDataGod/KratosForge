@@ -83,6 +83,7 @@ class Debugger:
         self.on_change = on_change  # the run's paused state changed (a dict while paused, None after)
         self.commands: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.paused: dict[str, Any] | None = None
+        self.pauses = 0  # pauses so far: each one's "seq", so the app tells a new pause from the one a command left
         self.resumed = threading.Event()  # set when the cell's thread leaves a pause
         self.skip: set[str] = set()  # names not shown as variables (the kernel's own)
         self.skipped: list[str] = []  # functions Step into didn't enter since the last pause
@@ -241,7 +242,8 @@ class Debugger:
 
     def _pause(self, frame: types.FrameType, reason: str) -> None:
         variables, total = self._variables(frame)
-        self.paused = {"line": frame.f_lineno, "reason": reason, "stack": self._stack(frame),
+        self.pauses += 1
+        self.paused = {"seq": self.pauses, "line": frame.f_lineno, "reason": reason, "stack": self._stack(frame),
                        "variables": variables,
                        "watches": [self._evaluate(frame, w) for w in self.watches], "evals": []}
         if total > len(variables):

@@ -256,7 +256,14 @@ AREAS: tuple[Area, ...] = (
                       note="The engine lists databases, schemas, tables and views, and a table's or view's columns, "
                            "with SHOW as the connection's role and without a warehouse, a capped page at a time "
                            "(Preview). No screen shows them yet. Against fakes, no live run yet.")),
-    _skinned("snowflake", "snowpark", "Snowpark", local=MISSING),
+    _skinned("snowflake", "snowpark", "Snowpark",
+       local=Cell("partial", ("test_snowpark_api.py", "test_snowpark_local.py"),
+                  note="Compatibility checks only (Preview). The Snowpark engine on this PC executes cells simulated by "
+                       "Snowflake's local testing framework (Snowpark Python 1.58, its own runtime folder, no network, "
+                       "telemetry off); session.sql and calls the framework doesn't implement are refused. The API "
+                       "compatibility check reads a cell's Snowpark calls, methods and keywords against 1.58.0's signatures "
+                       "and flags Cortex, external access, stages and pandas on Snowflake. Tested against a fake of "
+                       "Snowpark; no result has been compared with Snowflake. Not a Snowflake runtime.")),
     _skinned("snowflake", "loading", "Stages and data loading"),
     _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
     _skinned("snowflake", "history", "Query history, profiling and credits",
@@ -297,7 +304,7 @@ PLANS: dict[tuple[str, str], Plan] = {
     ("snowflake", "connect"): _p("A", "P0", "cloud", "SF-001", "SF-002", "PAR-003", owner="Platform parity"),
     ("snowflake", "worksheets"): _p("B", "P0", "hybrid", "SF-003", "PAR-002", owner="Platform parity"),
     ("snowflake", "objects"): _p("D", "P1", "cloud", "SF-004", owner="Platform parity"),
-    ("snowflake", "snowpark"): _p("C", "P2", "none", "SF-007"),
+    ("snowflake", "snowpark"): _p("C", "P2", "simulated", "SF-007"),
     ("snowflake", "loading"): _p("D", "P2", "none", "SF-009"),
     ("snowflake", "tasks"): _p("E", "P2", "none", "SF-008"),
     ("snowflake", "history"): _p("G", "P1", "cloud", "SF-005", "SF-006", owner="Platform parity"),

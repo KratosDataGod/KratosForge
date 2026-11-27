@@ -842,7 +842,7 @@ class LocalStore(Store):
             return
         uri = self.uri(META_LAKEHOUSE, "meta", table)
         try:
-            with self.compaction_lease(META_LAKEHOUSE, "meta", table, wait=0):
+            with self.compaction_lease(META_LAKEHOUSE, "meta", table, wait=0), maintenance.compaction_lock(uri, wait=0):
                 kept = maintenance.kept_days(DeltaTable(uri).metadata().configuration)
                 maintenance.keep_log(uri, maintenance.retention_hours(max(kept or 0, maintenance.MIN_RETENTION_DAYS)))
                 dt_ = DeltaTable(uri)
@@ -852,6 +852,18 @@ class LocalStore(Store):
             _log.debug("The %s table is being compacted by another writer; skipped this round", table)
         except Exception as exc:  # noqa: BLE001 - only slower reads until the next round
             _log.warning("Couldn't compact the %s table: %s", table, describe(exc))
+
+    def _remove_unwritten(self, lakehouse: str, schema: str, table: str, before: set[str],
+                          read_version: int | None) -> dict[str, Any]:
+        """Under the table's compaction lock: a compaction (the Maintain page's Optimize, a notebook's OPTIMIZE)
+        doesn't take the table's write lease, and the files it has written but not yet committed, or committed
+        after the version was checked here, look just like this write's. While one runs, nothing is removed."""
+        try:
+            with maintenance.compaction_lock(self.uri(lakehouse, schema, table), wait=0):
+                return super()._remove_unwritten(lakehouse, schema, table, before, read_version)
+        except LeaseBusy:
+            return {"removed": 0, "note": "the table was being compacted meanwhile, so the files this write left are "
+                                          "left for VACUUM"}
 
     def compaction_lease(self, lakehouse: str, schema: str, table: str, wait: float) -> Any:
         """Held around every compaction of a table on this PC (the meta tables now and then, Optimize

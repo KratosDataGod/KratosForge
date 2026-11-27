@@ -164,3 +164,11 @@ def test_every_ai_tools_and_app_studio_restriction_has_a_most_restrictive_value(
     restrictions = {*app_settings.INTEGRATION_KEYS, *app_settings.APPSTUDIO_KEYS, *integrations_policy.KEYS,
                     *appstudio_policy.KEYS}
     assert set(registry_policy._safest()) == restrictions  # noqa: SLF001
+
+
+def test_a_readable_subkey_does_not_undo_a_bad_value_under_the_same_name(policy, gp):  # noqa: F811
+    # Found by seed 11: a strict list key set both as a junk value and as a subkey of valid items.
+    gp({"appstudio_providers": (b"\x01\x00\x00\x00", 11)}, {"appstudio_providers": ["true", "1"]})
+    out, problems, _ = registry_policy.read_all()
+    assert out["appstudio_providers"] == STRICT["appstudio_providers"]
+    assert any(p.startswith("Group Policy value appstudio_providers ") and "most restrictive" in p for p in problems)

@@ -17,6 +17,8 @@ import os
 import secrets
 from pathlib import Path
 
+from . import jsonfile
+
 _log = logging.getLogger(__name__)
 KEY_BYTES = 32
 
@@ -37,7 +39,8 @@ def _read(path: Path) -> bytes | None:
 def _create(path: Path) -> bytes:
     """Write a new key only if none exists, whole or not at all: the key goes to a temporary file that is then
     linked to ``path``, which fails if ``path`` exists, so two processes starting together keep one key and no
-    process ever sees a half-written one. An empty file (left by an older build that stopped between making
+    process ever sees a half-written one (it needs hard links, which NTFS has; on a volume without them every run
+    uses a key of its own, with a warning). An empty file (left by an older build that stopped between making
     the file and writing it) is replaced; any other file that isn't a key is left for someone to look at."""
     path.parent.mkdir(parents=True, exist_ok=True)
     key = secrets.token_bytes(KEY_BYTES)
@@ -54,7 +57,7 @@ def _create(path: Path) -> bytes:
                 if found is None:
                     raise ValueError("the fingerprint key file is not a key") from None
                 return found
-            os.replace(tmp, path)  # an empty file is a key that was never written
+            jsonfile.replace(tmp, path)  # an empty file is a key that was never written
     finally:
         tmp.unlink(missing_ok=True)
     found = _read(path)  # another process may have repaired an empty file at the same time: use what's kept

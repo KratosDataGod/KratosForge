@@ -118,7 +118,10 @@ def test_date_format_names_the_utc_zone_and_stops_by_name_for_another_zone():
     assert one(spark, "SELECT date_format(TIMESTAMP'2024-05-17 13:05:02', 'yyyy-MM-dd HH:mm zzz')") == (
         "2024-05-17 13:05 UTC",)
     spark.conf.set("spark.sql.session.timeZone", "Europe/Paris")
-    with pytest.raises(Exception, match="can't use 'z' in a pattern, so nothing ran"):
-        spark.sql("SELECT date_format(TIMESTAMP'2024-05-17 13:05:02', 'z')").collect()
-    with pytest.raises(ValueError, match="can't use 'zzzz' in a pattern"):
-        spark.sql("SELECT date_format(TIMESTAMP'2024-05-17 13:05:02', 'zzzz')").collect()
+    try:
+        with pytest.raises(Exception, match="can't use 'z' in a pattern, so nothing ran"):
+            spark.sql("SELECT date_format(TIMESTAMP'2024-05-17 13:05:02', 'z')").collect()
+        with pytest.raises(ValueError, match="can't use 'zzzz' in a pattern"):
+            spark.sql("SELECT date_format(TIMESTAMP'2024-05-17 13:05:02', 'zzzz')").collect()
+    finally:
+        spark.conf.unset("spark.sql.session.timeZone")  # the session is the process's: later tests expect UTC

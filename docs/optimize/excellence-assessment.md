@@ -52,7 +52,7 @@ workspace holds, sorted by name:
 | --- | --- |
 | Inspected | Every item of that type was checked by at least one control. The row names the controls and the kinds of evidence they used. |
 | Not inspected | Controls cover the type, but at least one item couldn't be checked. The row gives the reasons in plain words (the read failed, only the first items were read, the evidence is missing, no control applies) and how many items each one holds. |
-| Unsupported | No control covers that kind of item yet, for example a Warehouse, SQL analytics endpoint, Dataflow or Copy job today. It never counts as passing. |
+| Unsupported | No control covers that kind of item yet, for example a Dataflow, Copy job or Eventstream today. It never counts as passing. |
 
 Each row counts the items in each state, so a type with 3 of 5 notebooks checked shows as not
 inspected with those numbers. A kind of item KratosForge has never seen is listed as unsupported.

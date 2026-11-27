@@ -21,7 +21,7 @@ WS = {"id": WSID, "displayName": "Sales", "description": "Sales reporting"}
 REF = ({"title": "Fabric items", "url": "https://learn.microsoft.com/fabric/fundamentals/microsoft-fabric-overview"},)
 TEMPLATE = {"why": "w", "solution": "s", "steps": ["a"], "benefit": "b", "effort": "low", "risk": "low",
             "validation": "v", "rollback": "r"}
-NEW_TYPES = ["CopyJob", "Dataflow", "SQLEndpoint", "Warehouse"]
+NEW_TYPES = ["CopyJob", "Dataflow", "Eventstream", "KQLDatabase"]
 
 
 def item(i: str, kind: str, name: str | None = None) -> dict:
@@ -38,20 +38,20 @@ def by_type(snap: dict) -> dict:
     return {t["item_type"]: t for t in snap["type_coverage"]["types"]}
 
 
-def warehouse_control(fn=None) -> ct.Control:
-    """A control from another branch (FEA-303), here only by naming the type it covers."""
+def kql_control(fn=None) -> ct.Control:
+    """A stand-in control for a type the catalog doesn't cover yet, known only by the type it covers."""
     def check(ctx: ct.Context) -> dict:
-        r = ctx.one("item.warehouse")
+        r = ctx.one("item.kqldatabase")
         return ct.failed([r["id"]], "bad") if r["payload"].get("bad") else ct.passed([r["id"]], "ok")
-    return ct.Control(id="FEA-PERF-901", version="1.0.0", dimension="performance", title="Warehouse check",
+    return ct.Control(id="FEA-PERF-901", version="1.0.0", dimension="performance", title="KQL database check",
                       severity="medium", requirement="kratosforge_recommendation", scope="item",
-                      item_types=("Warehouse",), evidence_kinds=("item.warehouse",), evaluate=fn or check,
+                      item_types=("KQLDatabase",), evidence_kinds=("item.kqldatabase",), evaluate=fn or check,
                       remediation=TEMPLATE, references=REF)
 
 
-def warehouse_rec(i: str, confidence: str = "verified_configuration", payload: dict | None = None) -> dict:
-    subj = ev.subject("item", i, i, workspace_id=WSID, item_type="Warehouse")
-    return ev.record("item.warehouse", subj, source="test", confidence=confidence, collected_at=AT,
+def kql_rec(i: str, confidence: str = "verified_configuration", payload: dict | None = None) -> dict:
+    subj = ev.subject("item", i, i, workspace_id=WSID, item_type="KQLDatabase")
+    return ev.record("item.kqldatabase", subj, source="test", confidence=confidence, collected_at=AT,
                      payload=payload if payload is not None else {"bad": False})
 
 
@@ -59,7 +59,7 @@ def warehouse_rec(i: str, confidence: str = "verified_configuration", payload: d
 
 
 def test_every_type_the_workspace_holds_is_listed_with_counts_and_state():
-    items = [item(f"w{i}", "Warehouse") for i in range(2)] + [item("s", "SQLEndpoint"), item("d", "Dataflow"),
+    items = [item(f"w{i}", "KQLDatabase") for i in range(2)] + [item("s", "Eventstream"), item("d", "Dataflow"),
                                                                item("c", "CopyJob")]
     snap = run(items)
     got = by_type(snap)
@@ -68,7 +68,7 @@ def test_every_type_the_workspace_holds_is_listed_with_counts_and_state():
         row = got[t]
         assert row["state"] == "unsupported" and row["reason"] == cv.UNSUPPORTED
         assert row["inspected"] == 0 and row["not_inspected"] == 0 and row["controls"] == []
-    assert got["Warehouse"]["items"] == got["Warehouse"]["unsupported"] == 2
+    assert got["KQLDatabase"]["items"] == got["KQLDatabase"]["unsupported"] == 2
     assert snap["type_coverage"]["totals"] == {"types": 4, "items": 5, "inspected": 0, "not_inspected": 0,
                                                "unsupported": 5}
     assert snap["type_coverage"]["note"] is None and snap["type_coverage"]["unlisted_workspaces"] == []
@@ -76,21 +76,21 @@ def test_every_type_the_workspace_holds_is_listed_with_counts_and_state():
 
 def test_a_control_naming_a_type_is_enough_to_cover_it():
     reg = catalog.registry()
-    reg.register(warehouse_control())
-    snap = run([item("w1", "Warehouse"), item("w2", "Warehouse"), item("s", "SQLEndpoint")], reg,
-               extra=[warehouse_rec("w1"), warehouse_rec("w2", payload={"bad": True})])
-    w = by_type(snap)["Warehouse"]
+    reg.register(kql_control())
+    snap = run([item("w1", "KQLDatabase"), item("w2", "KQLDatabase"), item("s", "Eventstream")], reg,
+               extra=[kql_rec("w1"), kql_rec("w2", payload={"bad": True})])
+    w = by_type(snap)["KQLDatabase"]
     assert w["state"] == "inspected" and w["inspected"] == 2
-    assert w["controls"] == w["decided_by"] == ["FEA-PERF-901"] and w["evidence_kinds"] == ["item.warehouse"]
-    assert by_type(snap)["SQLEndpoint"]["state"] == "unsupported"
+    assert w["controls"] == w["decided_by"] == ["FEA-PERF-901"] and w["evidence_kinds"] == ["item.kqldatabase"]
+    assert by_type(snap)["Eventstream"]["state"] == "unsupported"
     rows = {r["item"]["id"]: r for r in snap["item_coverage"]}
     assert rows["w2"]["state"] == "inspected" and rows["w2"]["controls"] == ["FEA-PERF-901"]
-    assert rows["w2"]["evidence_kinds"] == ["item.warehouse"]
+    assert rows["w2"]["evidence_kinds"] == ["item.kqldatabase"]
 
 
 def test_the_catalogs_own_types_are_covered_by_their_declared_controls():
     covers = cv.covering(catalog.registry())
-    for t in ("Notebook", "DataPipeline", "Lakehouse", "SemanticModel"):
+    for t in ("Notebook", "DataPipeline", "Lakehouse", "SemanticModel", "Warehouse", "SQLEndpoint"):
         assert covers[t] and covers[t] == sorted(covers[t])
     assert not set(NEW_TYPES) & set(covers)
 
@@ -153,11 +153,11 @@ def test_a_failed_listing_is_reported_not_left_out():
 
 def test_a_failed_item_read_gives_its_plain_reason_and_the_type_is_not_inspected():
     reg = catalog.registry()
-    reg.register(warehouse_control())
-    snap = run([item("w1", "Warehouse"), item("w2", "Warehouse")], reg,
-               extra=[warehouse_rec("w1"), warehouse_rec("w2", "insufficient",
+    reg.register(kql_control())
+    snap = run([item("w1", "KQLDatabase"), item("w2", "KQLDatabase")], reg,
+               extra=[kql_rec("w1"), kql_rec("w2", "insufficient",
                                                          {"read": False, "problem": "Couldn't be read (403)."})])
-    w = by_type(snap)["Warehouse"]
+    w = by_type(snap)["KQLDatabase"]
     assert w["state"] == "not_inspected" and (w["inspected"], w["not_inspected"]) == (1, 1)
     assert w["reasons"][0]["items"] == 1 and w["reasons"][0]["reason"].startswith("Couldn't be read (403).")
     row = {r["item"]["id"]: r for r in snap["item_coverage"]}["w2"]
@@ -166,25 +166,25 @@ def test_a_failed_item_read_gives_its_plain_reason_and_the_type_is_not_inspected
 
 def test_a_covered_item_with_no_evidence_says_what_is_missing():
     reg = catalog.registry()
-    reg.register(warehouse_control())
-    snap = run([item("w1", "Warehouse")], reg)
-    w = by_type(snap)["Warehouse"]
-    assert w["state"] == "not_inspected" and "item.warehouse" in w["reasons"][0]["reason"]
+    reg.register(kql_control())
+    snap = run([item("w1", "KQLDatabase")], reg)
+    w = by_type(snap)["KQLDatabase"]
+    assert w["state"] == "not_inspected" and "item.kqldatabase" in w["reasons"][0]["reason"]
 
 
 def test_a_broken_control_is_not_inspected_never_inspected():
     reg = catalog.registry()
-    reg.register(warehouse_control(fn=lambda ctx: 1 / 0))
-    snap = run([item("w1", "Warehouse")], reg, extra=[warehouse_rec("w1")])
-    w = by_type(snap)["Warehouse"]
+    reg.register(kql_control(fn=lambda ctx: 1 / 0))
+    snap = run([item("w1", "KQLDatabase")], reg, extra=[kql_rec("w1")])
+    w = by_type(snap)["KQLDatabase"]
     assert w["state"] == "not_inspected" and "ZeroDivisionError" in w["reasons"][0]["reason"]
 
 
 def test_a_control_that_applies_to_no_item_is_not_inspected():
     reg = catalog.registry()
-    reg.register(dataclasses.replace(warehouse_control(), applies=lambda ctx: False))
-    snap = run([item("w1", "Warehouse")], reg, extra=[warehouse_rec("w1")])
-    w = by_type(snap)["Warehouse"]
+    reg.register(dataclasses.replace(kql_control(), applies=lambda ctx: False))
+    snap = run([item("w1", "KQLDatabase")], reg, extra=[kql_rec("w1")])
+    w = by_type(snap)["KQLDatabase"]
     assert w["state"] == "not_inspected" and w["reasons"][0]["reason"].startswith("No control applies to it.")
 
 
@@ -196,11 +196,11 @@ def test_names_are_cut_and_lists_are_capped():
     inv = [r for r in snap["evidence"] if r["kind"] == "workspace.inventory"][0]
     assert all(len(i["name"]) <= cv.MAX_TEXT for i in inv["payload"]["items"])
     reg = catalog.registry()
-    reg.register(warehouse_control())
+    reg.register(kql_control())
     n = cv.MAX_REASONS + 5
-    extra = [warehouse_rec(f"w{i}", "insufficient", {"problem": f"reason {i:02} " + "x" * 500}) for i in range(n)]
-    snap = run([item(f"w{i}", "Warehouse") for i in range(n)], reg, extra=extra)
-    w = by_type(snap)["Warehouse"]
+    extra = [kql_rec(f"w{i}", "insufficient", {"problem": f"reason {i:02} " + "x" * 500}) for i in range(n)]
+    snap = run([item(f"w{i}", "KQLDatabase") for i in range(n)], reg, extra=extra)
+    w = by_type(snap)["KQLDatabase"]
     assert len(w["reasons"]) == cv.MAX_REASONS and w["more_reasons"] == 5
     assert all(len(r["reason"]) <= cv.MAX_TEXT for r in w["reasons"])
 
@@ -213,7 +213,7 @@ def test_many_unlisted_workspaces_are_capped():
 
 
 def test_the_summary_is_deterministic_and_sorted():
-    kinds = ["Warehouse", "Notebook", "copyjob", "CopyJob", "Dataflow", "SQLEndpoint", "Report", "Lakehouse"]
+    kinds = ["KQLDatabase", "Notebook", "copyjob", "CopyJob", "Dataflow", "Eventstream", "Report", "Lakehouse"]
     items = [item(f"i{n:02}", kinds[n % len(kinds)]) for n in range(24)]
     first = run(items)
     shuffled = list(items)
@@ -240,7 +240,7 @@ class CapFabric:
         return {"id": ws, "displayName": "Sales"}
 
     def list_items(self, ws):
-        return [item(f"nb{i}", "Notebook") for i in range(self.notebooks)] + [item("wh", "Warehouse"),
+        return [item(f"nb{i}", "Notebook") for i in range(self.notebooks)] + [item("wh", "KQLDatabase"),
                                                                               item("cj", "CopyJob")]
 
     def get_item_definition(self, ws, it, fmt=None):
@@ -266,11 +266,11 @@ def test_past_the_read_cap_every_item_is_still_reported(tmp_path, monkeypatch):
     r = Service(root=tmp_path / "app").excellence_assess(workspace_id=WSID)
     assert sum(1 for c in fake.calls if c[0] == "get_item_definition") == 2
     got = by_type(r)
-    assert sorted(got) == ["CopyJob", "Notebook", "Warehouse"]
+    assert sorted(got) == ["CopyJob", "KQLDatabase", "Notebook"]
     nb = got["Notebook"]
     assert nb["items"] == 3 and nb["inspected"] == 2 and nb["not_inspected"] == 1 and nb["state"] == "not_inspected"
     assert "only the first 2" in nb["reasons"][0]["reason"]
-    assert got["Warehouse"]["state"] == got["CopyJob"]["state"] == "unsupported"
+    assert got["KQLDatabase"]["state"] == got["CopyJob"]["state"] == "unsupported"
     assert r["type_coverage"]["note"] is None
 
 

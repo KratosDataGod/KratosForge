@@ -444,6 +444,29 @@ def test_breakpoint_in_a_cell_without_the_debugger_carries_on_with_a_note(kernel
     untraced(kernel)
 
 
+def test_breakpoint_in_a_capture_cell_carries_on_with_a_note(kernel):
+    # %%capture runs the cell under a run of its own, which looked like a watch's: breakpoint() went to pdb.
+    kernel.start("%%capture c\nx = 1\nbreakpoint()\nprint(x + 1)")
+    snap = finished(kernel)
+    assert snap["status"] == "ok" and "Pdb" not in text(snap), snap
+    kernel.start("print(c.stdout)")
+    shown = text(finished(kernel))
+    assert "breakpoint() pauses only when the cell runs with the debugger" in shown and "2\n" in shown
+    untraced(kernel)
+
+
+def test_breakpoint_in_a_capture_cell_pauses_there_under_the_debugger(kernel):
+    kernel.start("%%capture c\nx = 1\nbreakpoint()\ny = x + 1\nprint(y)", breakpoints=[5])
+    p = paused(kernel)
+    assert p["line"] == 3 and p["reason"] == "breakpoint", p
+    kernel.debug("continue")
+    assert paused(kernel)["line"] == 5
+    kernel.debug("continue")
+    snap = finished(kernel)
+    assert snap["status"] == "ok" and "Pdb" not in text(snap)
+    untraced(kernel)
+
+
 def test_pdb_in_a_kernel_process_ends_the_cell_instead_of_waiting_for_input(kernel):
     if isinstance(kernel, Kernel):
         pytest.skip("pytest's own stdin stands in for the engine's here; the engine's own is checked below")

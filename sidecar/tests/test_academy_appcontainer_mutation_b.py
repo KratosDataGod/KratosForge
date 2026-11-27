@@ -145,7 +145,7 @@ def granting(monkeypatch, tmp_path):
     # On Windows, conftest wraps grant_runtime to seed each data folder with this worker's grants record.
     # These tests are about the record itself, so they call the function it wraps.
     f = ac.grant_runtime
-    wrapped = dict(zip(f.__code__.co_freevars, (c.cell_contents for c in f.__closure__ or ())))
+    wrapped = dict(zip(f.__code__.co_freevars, (c.cell_contents for c in f.__closure__ or ()), strict=False))
     monkeypatch.setattr(ac, "grant_runtime", wrapped.get("real", f))
     monkeypatch.setattr(ac, "_granted", {})
     monkeypatch.setattr(ac, "runtime_paths", lambda: [(a, False), (b, True)])

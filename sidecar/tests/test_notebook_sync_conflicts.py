@@ -345,6 +345,20 @@ def test_sync_bases_keep_a_few_per_notebook_and_skip_what_isnt_a_base(tmp_path):
     assert SyncBases(tmp_path / "missing").find("nb", "stamp0005aaaa") is None
 
 
+def test_sync_bases_prune_the_oldest_even_when_the_clock_does_not_move(tmp_path, monkeypatch):
+    import fabric_desktop.notebook_sync as sync_mod
+
+    monkeypatch.setattr(sync_mod.time, "time_ns", lambda: 1_700_000_000_000_000_000)  # every write ties
+    bases = SyncBases(tmp_path)
+    for i in range(6):
+        bases.remember("nb", f"stamp{i:04d}aaaa", [cell("a", str(i))])
+    assert sorted(p.stem for p in bases._folder("nb").glob("*.json")) == [f"stamp{i:04d}aaaa" for i in range(2, 6)]
+    bases.remember("nb", "stamp0002aaaa", [cell("a", "2")])  # opened again: newest, so it stays
+    bases.remember("nb", "stamp0006aaaa", [cell("a", "6")])
+    assert bases.find("nb", "stamp0002aaaa") == [cell("a", "2")]
+    assert bases.find("nb", "stamp0003aaaa") is None
+
+
 def test_the_atomic_write_used_by_saves_is_the_shared_one():
     assert notebook_mod.jsonfile is jsonfile  # the interruption test above patches the one saves use
 

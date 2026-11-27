@@ -3,6 +3,7 @@ silently. Changes on one side merge by cell; a cell changed on both, deleted on 
 on the other, or cells moved on both, come back as named conflicts with both versions, and the
 person's choice is what gets saved (notebook_sync, save_notebook, notebook_sync_merge)."""
 import json
+import os
 import shutil
 
 import pytest
@@ -345,10 +346,14 @@ def test_sync_bases_keep_a_few_per_notebook_and_skip_what_isnt_a_base(tmp_path):
     assert SyncBases(tmp_path / "missing").find("nb", "stamp0005aaaa") is None
 
 
-def test_sync_bases_prune_the_oldest_even_when_the_clock_does_not_move(tmp_path, monkeypatch):
+@pytest.mark.parametrize("tick", [1, 100, 2_000_000_000], ids=["ns", "ntfs", "fat"])
+def test_sync_bases_prune_the_oldest_even_when_the_clock_does_not_move(tmp_path, monkeypatch, tick):
     import fabric_desktop.notebook_sync as sync_mod
 
-    monkeypatch.setattr(sync_mod.time, "time_ns", lambda: 1_700_000_000_000_000_000)  # every write ties
+    monkeypatch.setattr(sync_mod, "_now", lambda: 1_700_000_000_000_000_000)  # every write ties
+    utime = sync_mod._utime
+    # The file system keeps times to its tick, as NTFS (100 ns) and FAT (2 s) do.
+    monkeypatch.setattr(sync_mod, "_utime", lambda path, ns: utime(path, ns=tuple(t // tick * tick for t in ns)))
     bases = SyncBases(tmp_path)
     for i in range(6):
         bases.remember("nb", f"stamp{i:04d}aaaa", [cell("a", str(i))])
@@ -357,6 +362,25 @@ def test_sync_bases_prune_the_oldest_even_when_the_clock_does_not_move(tmp_path,
     bases.remember("nb", "stamp0006aaaa", [cell("a", "6")])
     assert bases.find("nb", "stamp0002aaaa") == [cell("a", "2")]
     assert bases.find("nb", "stamp0003aaaa") is None
+
+
+def test_a_base_dated_past_what_the_file_system_holds_doesnt_stop_a_write(tmp_path, monkeypatch):
+    import fabric_desktop.notebook_sync as sync_mod
+
+    utime = sync_mod._utime
+    limit = 1_800_000_000_000_000_000
+
+    def bounded(path, ns):  # as Windows refuses a time past what it can store
+        if max(ns) > limit:
+            raise OverflowError("timestamp out of range")
+        return utime(path, ns=ns)
+    monkeypatch.setattr(sync_mod, "_utime", bounded)
+    bases = SyncBases(tmp_path)
+    bases.remember("nb", "stamp0000aaaa", [cell("a", "0")])
+    far = next(bases._folder("nb").glob("*.json"))
+    os.utime(far, ns=(limit, limit))  # set by hand, at the edge
+    bases.remember("nb", "stamp0001aaaa", [cell("a", "1")])
+    assert bases.find("nb", "stamp0001aaaa") == [cell("a", "1")]
 
 
 def test_the_atomic_write_used_by_saves_is_the_shared_one():

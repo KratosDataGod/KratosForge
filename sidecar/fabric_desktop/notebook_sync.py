@@ -188,13 +188,31 @@ def merge_cells(base: list[dict[str, Any]], mine: list[dict[str, Any]], theirs: 
     return {"cells": cells, "conflicts": conflicts, "resolved": not conflicts}
 
 
+_now = time.time_ns  # a test freezes it
+_utime = os.utime  # and keeps times to a file system's tick
+
+
 def _make_newest(folder: Path, path: Path) -> None:
     """Gives path a file time later than every other base in folder. Pruning keeps the newest few by
     file time, and two quick writes can share one (coarse clocks, Windows), so the order is made strict.
-    The stamp can't order them: it is a content hash."""
-    others = [p.stat().st_mtime_ns for p in folder.glob("*.json") if p != path]
-    t = max([time.time_ns(), *(m + 1 for m in others)])
-    os.utime(path, ns=(t, t))
+    The stamp can't order them: it is a content hash. The file system keeps times to its own tick (100 ns
+    on NTFS, 2 s on FAT), so the step grows until the time read back is later than every other one."""
+    latest = max((p.stat().st_mtime_ns for p in folder.glob("*.json") if p != path), default=None)
+    now = _now()
+    try:
+        if latest is None or now > latest:
+            _utime(path, ns=(now, now))
+            if latest is None or path.stat().st_mtime_ns > latest:
+                return
+        step = 100
+        while step <= 4_000_000_000:  # past FAT's 2 s tick
+            t = max(now, latest + step)
+            _utime(path, ns=(t, t))
+            if path.stat().st_mtime_ns > latest:
+                return
+            step *= 2
+    except (OSError, OverflowError):  # a base set far in the future, past what the file system holds
+        _utime(path, ns=(now, now))
 
 
 class SyncBases:

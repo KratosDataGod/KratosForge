@@ -122,7 +122,9 @@ const THEN_AGAIN = " Once that's sorted out, run the cell again.";
 export function refusal(status: number, code: string | undefined, message: string | undefined, pairing = false,
   hello = false): ChannelError {
   // Only words and a name the app could have sent: anything else reads as no message and no code.
-  const said = typeof message === "string" && message.length <= 4000 ? message.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim() : "";
+  // A long message is cut, not dropped, so its start (which says what went wrong) still shows.
+  const folded = typeof message === "string" ? message.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim() : "";
+  const said = folded.length > MAX_MESSAGE ? folded.slice(0, MAX_MESSAGE).trimEnd() + "…" : folded;
   if (typeof code !== "string" || !/^[a-z_]{1,40}$/.test(code)) code = undefined;
   switch (code) {
     case "not_paired": return new ChannelError(status, "not_paired", NOT_PAIRED);
@@ -141,6 +143,8 @@ export function refusal(status: number, code: string | undefined, message: strin
     default: return new ChannelError(status, code || "failed", said ? said + OUT_OF_STEP : unexpected(`status ${status}`));
   }
 }
+
+const MAX_MESSAGE = 4000;
 
 export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
 // Only the engine's accept-time refusal is "busy" (editor_channel.py), so a retried call never ran.
@@ -263,6 +267,9 @@ export class Channel {
   }
 
   private async once(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {
+    // A kept token that isn't one the app issues (garbled where it was stored) is never sent: the
+    // window reads as unpaired, so it's forgotten and the window pairs again.
+    if (!hello && this.token && !TOKEN.test(this.token)) throw new ChannelError(0, "not_paired", NOT_PAIRED);
     const where = readPortFile(this.dir);
     if (!where) throw new ChannelError(0, "not_listening", NOT_LISTENING);
     await this.prove(where);

@@ -1193,9 +1193,9 @@ review moves it to Accepted; a merge alone does neither.
 
 **Save a support bundle from Settings** · P2 (score 2.3) · S · confidence High · In progress
 
-- **Problem:** The support bundle is CLI only, so most users and help desks can't produce one.
+- **Problem:** The support bundle was CLI only, so most users and help desks couldn't produce one.
 - **Proposed capability:** Settings > Help > Save support bundle with a contents preview, as FD-138 asks.
-- **Current-state evidence:** support_bundle.py has no RPC or UI; Smoke: CLI wrote about.json and CONTENTS.txt; Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup; Save support bundle shows what the zip holds and saves it to a chosen folder (#1679); the bundle records the policy file's SHA-256 and last change (#1870) on main at a7631920; Support bundles: proven to carry no secrets, a private key cut by the log tail is dropped (#2433), subscription keys and embed tokens hidden and UTF-16 logs read (#2457) on main at 47416473; Support-text redaction reads long text once (#3027) on main at ad1ac4cf; PEM blocks on Cookie-style lines are redacted (#3182) on main at 293fb38d
+- **Current-state evidence:** Smoke: CLI wrote about.json and CONTENTS.txt; Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup; Save support bundle shows what the zip holds and saves it to a chosen folder (#1679); the bundle records the policy file's SHA-256 and last change (#1870) on main at a7631920; Support bundles: proven to carry no secrets, a private key cut by the log tail is dropped (#2433), subscription keys and embed tokens hidden and UTF-16 logs read (#2457) on main at 47416473; Support-text redaction reads long text once (#3027) on main at ad1ac4cf; PEM blocks on Cookie-style lines are redacted (#3182) on main at 293fb38d
 - **Inventory features:** [FEAT-SHL-11](FEATURE_INVENTORY.md#feat-shl-11)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-138)

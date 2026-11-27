@@ -28,6 +28,10 @@ is added beside the SQL (Unverified: the two aren't compared, as in the fidelity
 can't translate is flagged before any file is written: Unsupported with the converter's reason, left out of the
 files and listed in ``excluded``. A relationship that isn't single-column is Unsupported and excluded too.
 
+An Ossie source gets the converter's shape check first: a part of the wrong type (text where the fields go, a
+number for a name) is refused by path, as conversion refuses it, rather than left out. A view with no dataset
+left (each one excluded) is never Valid: its validation fails with ``semantic-view/no-datasets``.
+
 ``split="single"`` writes one file. ``split="schema_metrics"`` writes ``schema.yaml`` (description, datasets
 and relationships) and ``metrics.yaml`` (the metrics), each with ``version`` and ``name``, flat in the view folder.
 Both files are the parts named in "Separate schema from metrics" on semantic-views-create
@@ -149,16 +153,16 @@ def _read(source: Any, view: str) -> tuple[dict[str, Any], str, dict[str, Any] |
         else:
             source = mo.parse(source)
     if not isinstance(source, Mapping):
-        raise TypeError("A semantic view is made from a model.bim, a TMDL folder's files or an Ossie document")
+        raise ValueError("A semantic view is made from a model.bim, a TMDL folder's files or an Ossie document")
     source = dict(source)
     if isinstance(source.get("model"), dict) and not isinstance(source.get("version"), str):
         out = mo.export(source, translate_dax=True)
-        return mo.yaml.safe_load(out["yaml"]), "tmsl", out["fidelity"]
+        return mo.load_own(out["yaml"]), "tmsl", out["fidelity"]
     if source and all(isinstance(k, str) and isinstance(v, str) for k, v in source.items()) \
             and any(k.endswith(".tmdl") for k in source):
         bim, read_report = tmdl.to_bim(source, view)
         out = mo.export(bim, translate_dax=True, read_report=read_report)
-        return mo.yaml.safe_load(out["yaml"]), "tmdl", out["fidelity"]
+        return mo.load_own(out["yaml"]), "tmdl", out["fidelity"]
     if "version" not in source:
         raise ValueError("This isn't a semantic model KratosForge can make a view from. Give a model.bim with a "
                          "model object, a TMDL folder's .tmdl files, or an Ossie document with a version.")
@@ -167,6 +171,8 @@ def _read(source: Any, view: str) -> tuple[dict[str, Any], str, dict[str, Any] |
         raise ValueError(refusal)
     if not source.get("name") or not isinstance(source.get("datasets"), list) or not source["datasets"]:
         raise ValueError("An Ossie model needs a name and at least one dataset")
+    mo.refuse_depth(source)  # as conversion and the schema check refuse it
+    mo._refuse_shape(source, mo._OSSIE_SHAPE, "ossie")  # a part of the wrong type, by path, as conversion does
     return copy.deepcopy(source), "ossie", None
 
 
@@ -491,6 +497,13 @@ def semantic_view(source: Any, *, view_name: str, split: str = "single") -> dict
         raise RuntimeError(f"The view came to {len(files)} files, but Fabric takes at most "
                            f"{op.FABRIC_MAX_FILES}, so nothing was written.")
     validation = op.validate_files(files, "fabric-semantic-view")
+    if not datasets:  # Fabric would infer other datasets, or none: a view of nothing the source had is never Valid
+        validation["diagnostics"].append({
+            "path": "$.datasets", "rule": "semantic-view/no-datasets", "value": "0",
+            "message": "has no datasets left: each of the source's datasets was excluded (see excluded)",
+            "fix": "Fix or replace the excluded datasets (a query source needs a table or view instead), then "
+                   "make the view again."})
+        validation["valid"], validation["status"] = False, "Invalid"
     by_class: dict[str, list[str]] = {c: [] for c in mo.CLASSES}
     for row in rows.rows:
         by_class[row["class"]].append(row["object"])
@@ -519,21 +532,30 @@ _BREAKS = ("\x85", "\u2028", "\u2029", "\r")
 
 
 @functools.lru_cache(maxsize=1)
-def _dumper() -> Any:
+def _dumper() -> tuple[Any, Any]:
     """The vendored converter's YAML dumper (multi-line text as a literal block, its NEL fix in
-    ``semantic_model_to_ossie._represent_str``) extended to every YAML line break, not only U+0085."""
+    ``semantic_model_to_ossie._represent_str``) extended to every YAML line break, not only U+0085: the pure-Python
+    one, and the same on libyaml (None without it) for ``mo.dump_yaml``."""
     from ._vendor.ossie_microsoft.semantic_model_to_ossie import _OssieDumper, _represent_str
-
-    class _ViewDumper(_OssieDumper):
-        pass
 
     def represent(dumper: Any, data: str) -> Any:
         if any(c in data for c in _BREAKS):
             return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
         return _represent_str(dumper, data)
 
+    class _ViewDumper(_OssieDumper):
+        pass
+
     _ViewDumper.add_representer(str, represent)
-    return _ViewDumper
+    mo.require()
+    if not getattr(mo.yaml, "__with_libyaml__", False):
+        return _ViewDumper, None
+
+    class _CViewDumper(mo.yaml.CSafeDumper):
+        pass
+
+    _CViewDumper.yaml_representers = dict(_ViewDumper.yaml_representers)
+    return _ViewDumper, _CViewDumper
 
 
 def _summary(files: dict[str, str]) -> list[dict[str, Any]]:
@@ -542,7 +564,7 @@ def _summary(files: dict[str, str]) -> list[dict[str, Any]]:
     (have DAX)."""
     out = []
     for path in sorted(files):
-        doc = mo.yaml.safe_load(files[path]) or {}
+        doc = mo.load_own(files[path]) or {}
         metrics = [m for m in doc.get("metrics") or [] if isinstance(m, dict)]
         out.append({"path": path, "bytes": len(files[path].encode("utf-8")),
                     "datasets": len(doc.get("datasets") or []), "relationships": len(doc.get("relationships") or []),
@@ -555,9 +577,9 @@ def _summary(files: dict[str, str]) -> list[dict[str, Any]]:
 
 def _dump(doc: dict[str, Any]) -> str:
     """One view file's YAML, refused (ValueError) unless it reads back as exactly ``doc``."""
-    text: str = mo.yaml.dump(doc, Dumper=_dumper(), sort_keys=False, default_flow_style=False, allow_unicode=True,
-                             width=float("inf"))
-    if any(c in text for c in _BREAKS[:3]) or mo.yaml.safe_load(text) != doc:
+    text = mo.dump_yaml(doc, _dumper(), sort_keys=False, default_flow_style=False, allow_unicode=True,
+                        width=float("inf"))
+    if any(c in text for c in _BREAKS[:3]) or mo.load_own(text) != doc:
         raise ValueError(f"The view file for {mo._q(doc.get('name'))} wouldn't read back as written, so it wasn't "
                          "made. Check names and expressions for unusual line-break characters.")
     return text

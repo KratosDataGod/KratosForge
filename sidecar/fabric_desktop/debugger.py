@@ -92,6 +92,7 @@ class Debugger:
         self._from: tuple[types.FrameType, int] | None = None  # where the last step or next started
         self._scopes: dict[types.FrameType, dict[str, Any]] = {}  # a cell or class body's own namespace
         self.stopping = False  # Stop was asked for: its interrupt ends an expression instead of being its answer
+        self._last_eval: threading.Event | None = None  # set when the last eval asked for has its answer
 
     # ---- set up by the kernel, on the cell's thread
 
@@ -304,8 +305,11 @@ class Debugger:
                 raise ValueError(f"An expression to evaluate is at most {MAX_EXPRESSION} characters.")
             compile(expression, "<debug>", "eval")  # a syntax error is the caller's to see now
             slot: dict[str, Any] = {"done": threading.Event()}
+            earlier, self._last_eval = self._last_eval, slot["done"]
             self.commands.put(("eval", (expression, slot)))
-            if not slot["done"].wait(EVAL_SECONDS):
+            # Behind one still running: pending at once, so evals queued on the engine's debug lane
+            # never add up past the shell's time limit (QUICK_SECONDS in watchdog.rs).
+            if (earlier is not None and not earlier.is_set()) or not slot["done"].wait(EVAL_SECONDS):
                 return {"pending": True}
             return slot["result"]
         if action not in ACTIONS:

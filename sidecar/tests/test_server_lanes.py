@@ -7,6 +7,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from fabric_desktop import server
 
 
@@ -177,3 +179,95 @@ def test_a_save_that_stays_refused_reports_it_and_leaves_no_temp_file(tmp_path, 
     with pytest.raises(PermissionError):
         store.save("nb", [{"type": "code", "source": "1"}], None)
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+class _Lines:
+    """The shell's side of the pipes: requests sent one at a time, replies read by id as they come."""
+
+    def __init__(self) -> None:
+        import queue
+        self.sent: queue.Queue = queue.Queue()
+        self.replies: dict[int, dict] = {}
+        self.arrived = threading.Condition()
+
+    def __iter__(self):
+        while (line := self.sent.get()) is not None:
+            yield line
+
+    def write(self, text: str) -> None:
+        for line in text.splitlines():
+            reply = json.loads(line)
+            with self.arrived:
+                self.replies[reply["id"]] = reply
+                self.arrived.notify_all()
+
+    def flush(self) -> None:
+        pass
+
+    def send(self, rid: int, method: str, **params) -> None:
+        self.sent.put(json.dumps({"id": rid, "method": method, "params": params}) + "\n")
+
+    def reply(self, rid: int, timeout: float) -> dict:
+        with self.arrived:
+            assert self.arrived.wait_for(lambda: rid in self.replies, timeout), f"no reply to {rid} in {timeout} s"
+            return self.replies[rid]
+
+
+class _KernelEngine:
+    """Stands in for Service's kernel calls, on a real kernel."""
+
+    def __init__(self, kernel) -> None:
+        self.kernel = kernel
+
+    def start_cell(self, code, breakpoints=None):
+        return self.kernel.start(code, breakpoints=breakpoints)
+
+    def poll_cell(self, version=-1, wait=0.0):
+        return self.kernel.poll(version, wait)
+
+    def interrupt_cell(self):
+        return self.kernel.interrupt()
+
+    def debug_cell(self, action, expression=None):
+        return self.kernel.debug(action, expression)
+
+
+@pytest.mark.parametrize("kind", ["engine", "process"])
+def test_stop_reaches_a_cell_while_an_expression_it_evaluates_hangs(kind):
+    # debug_cell eval waits up to debugger.EVAL_SECONDS for its answer: Stop and the cell's
+    # output must not wait behind it.
+    from fabric_desktop import debugger
+    from fabric_desktop.kernel_proc import ProcessKernel
+    from fabric_desktop.notebook import Kernel
+    kernel = Kernel() if kind == "engine" else ProcessKernel()
+    pipe = _Lines()
+    engine = threading.Thread(target=server.serve, args=(_KernelEngine(kernel), pipe, pipe), daemon=True)
+    engine.start()
+    try:
+        pipe.send(1, "start_cell", code="a = 1\nb = 2", breakpoints=[2])
+        assert "result" in pipe.reply(1, 30), pipe.replies[1]
+        deadline, rid = time.monotonic() + 30, 100
+        pipe.send(rid, "poll_cell", wait=0.3)
+        while not (snap := pipe.reply(rid, 30)["result"]).get("paused"):
+            assert snap["status"] == "running" and time.monotonic() < deadline, snap
+            rid += 1
+            pipe.send(rid, "poll_cell", wait=0.3)
+        pipe.send(2, "debug_cell", action="eval", expression="sum(1 for _ in iter(int, 1))")
+        time.sleep(0.3)  # the eval is waiting for its answer
+        sent = time.monotonic()
+        pipe.send(3, "poll_cell")
+        pipe.send(4, "interrupt_cell")
+        assert "result" in pipe.reply(3, 2), pipe.replies[3]
+        assert pipe.reply(4, 2)["result"]["interrupted"] is True
+        assert time.monotonic() - sent < 2
+        deadline = time.monotonic() + 15
+        while (snap := kernel.poll(-1, 0.3))["status"] == "running":
+            assert time.monotonic() < deadline, "the cell still ran after Stop"
+        assert snap["status"] == "cancelled" and not snap.get("paused"), snap
+        assert pipe.reply(2, debugger.EVAL_SECONDS + 5)["result"] == {"pending": True}
+    finally:
+        pipe.sent.put(None)
+        engine.join(debugger.EVAL_SECONDS + 10)
+        if kind == "process":
+            kernel.close()
+    assert not engine.is_alive()

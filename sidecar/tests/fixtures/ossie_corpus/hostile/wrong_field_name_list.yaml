@@ -1,0 +1,8 @@
+version: 0.2.0.dev0
+name: wrong_field_name_list
+datasets:
+- name: orders
+  source: dbo.orders
+  fields:
+  - name: [order_id, amount]
+    expression: {dialects: [{dialect: ANSI_SQL, expression: order_id}]}

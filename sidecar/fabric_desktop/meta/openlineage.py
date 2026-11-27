@@ -95,7 +95,10 @@ def _store_dataset(name: str) -> tuple[str, str] | None:
         scheme, host, path = u.scheme.lower(), (u.hostname or ""), u.path.strip("/")
         if scheme == "https" and host == _ONELAKE_HOST and "/" in path and not u.port:
             ws, path = path.split("/", 1)
-            return f"abfss://{_workspace(ws)}@{_ONELAKE_HOST}", path.strip("/")
+            try:  # built by onelake, which checks the id; one that would change the address's shape is no store
+                return workspace_root(_workspace(ws)), path.strip("/")
+            except ValueError:
+                return None
         if scheme not in _STORE_SCHEMES or not host or not path:
             return None
         port = f":{u.port}" if u.port is not None else ""

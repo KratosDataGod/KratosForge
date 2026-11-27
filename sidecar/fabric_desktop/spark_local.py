@@ -1182,7 +1182,8 @@ class LakehouseReader:
 
     def _empty(self, exc: "_NoDataFiles") -> DataFrame:
         """A folder with no data files read with a schema: no rows, with the schema's columns, as in Spark.
-        Without a schema there is nothing to infer, so the error stands."""
+        Without a schema there is nothing to infer, so the error stands. Only a single path reads this way:
+        a read of several paths where one is an empty folder still raises."""
         schema = getattr(self, "_schema", None)
         if schema is None:
             raise ValueError(str(exc)) from None  # the error, not this module's private type for it

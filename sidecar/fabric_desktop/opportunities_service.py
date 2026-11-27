@@ -183,7 +183,7 @@ class OpportunitiesMixin:
             jobs = dict(pool.map(history, wanted))
         past = [it for it in items if it.get("type") in inventory.ANALYZED][MAX_ITEMS:]
         for it in past:  # not read: say why, rather than a bare "wasn't read"
-            definitions[it["id"]] = {"error": f"Not read: only the first {MAX_ITEMS} notebooks and pipelines are "
+            definitions[it["id"]] = {"error": f"Not read, because only the first {MAX_ITEMS} notebooks and pipelines are "
                                               "read in one assessment."}
         left = len(past)
         return {"workspace": workspace, "items": items, "definitions": definitions, "jobs": jobs,

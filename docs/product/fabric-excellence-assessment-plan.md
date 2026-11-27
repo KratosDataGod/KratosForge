@@ -325,7 +325,7 @@ coverage and Critical Risk flag built from evidence the app already reads.
   bidirectional filters, high-cardinality columns, RLS presence. Full BPA (VertiPaq) only as an
   explicit action with a typed "yes, run it".
 - **FEA-305 DevOps**: **Built** in part (#3165): Git connection and changes on either side (FEA-DEVOPS-003 to FEA-DEVOPS-005); deployment pipeline stages and drift aren't checked yet. Git connection, uncommitted changes, deployment pipeline stages and drift.
-- **FEA-306 Coverage per item type**: **Built** in the engine (`type_coverage`); not shown on screen yet. Every Fabric item type the workspace holds gets inspected,
+- **FEA-306 Coverage per item type**: **Built** in the engine (`type_coverage`), but not shown on screen yet. Every Fabric item type the workspace holds gets inspected,
   not inspected (why) or unsupported in the result and on screen.
 - **FEA-308 / FEA-309** artifact drill-in mockup and build.
 

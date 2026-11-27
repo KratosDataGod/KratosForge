@@ -185,7 +185,7 @@ def test_a_control_that_applies_to_no_item_is_not_inspected():
     reg.register(dataclasses.replace(kql_control(), applies=lambda ctx: False))
     snap = run([item("w1", "KQLDatabase")], reg, extra=[kql_rec("w1")])
     w = by_type(snap)["KQLDatabase"]
-    assert w["state"] == "not_inspected" and w["reasons"][0]["reason"].startswith("No control applies to it.")
+    assert w["state"] == "not_inspected" and w["reasons"][0]["reason"].startswith("No control applies to this item.")
 
 
 def test_names_are_cut_and_lists_are_capped():

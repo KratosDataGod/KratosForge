@@ -35,7 +35,8 @@ MAX_TEXT = 256  # characters kept of an item name, item type or reason
 MAX_REASONS = 10  # distinct reasons kept per type; ``more_reasons`` counts the rest
 MAX_LIST = 50  # controls, evidence kinds and unlisted workspaces kept per list
 UNSUPPORTED = "No control covers this kind of item yet."
-NOT_LISTED = "The workspace's items couldn't be listed, so no item type in it can be reported."
+NOT_LISTED = ("The workspace's items couldn't be listed, so its item types can't be reported. "
+              "Run the assessment again to list them.")
 
 
 def cut(value: Any) -> str:
@@ -92,7 +93,7 @@ def items(inv: list[dict[str, Any]], outcomes: list[dict[str, Any]], registry: c
             reasons += [cut(o["text"]) for o in mine if o["outcome"] in ("not_evaluated", "error") and o["text"]]
             if not reasons:
                 skipped = [cut(o["text"]) for o in mine if o["outcome"] == "not_applicable" and o["text"]]
-                reasons = ["No control applies to it." + (" " + skipped[0] if skipped else "")] if mine else []
+                reasons = ["No control applies to this item." + (" " + skipped[0] if skipped else "")] if mine else []
             row.update(state="not_inspected", controls=covers[it["item_type"]][:MAX_LIST],
                        reason=cut(" ".join(dict.fromkeys(reasons)) or "No control could decide."))
         out.append(row)

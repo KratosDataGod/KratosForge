@@ -611,13 +611,25 @@ path in `error` and in that side's `sides[...]["error"]`. And a fourth: the Sema
 left a wrong-typed part of an Ossie file out under `excluded` and the view could still be Valid. It
 now refuses that file by path, and a view whose datasets were all excluded is never Valid.
 
-The manifest also records what the corpus shows that may be worth changing, without changing it:
+Two more, recorded first and then fixed (rolefid; the manifest says so):
 
-- A Semantic View converted to TMDL loses its relationships: a view has no fields, so the converter
-  finds no column for either end. Each one is reported as lost.
-- On Import, a role that travels in the Power BI section comes back Fully preserved, with no security
-  warning, although only Power BI could read it in the file. On Export the same role is Preserved
-  through extensions, with a security warning.
+- **Roles on Import.** A role, or a calculation group, that the Ossie file keeps only in its Power BI
+  section used to come back Fully preserved on Import, with no security warning, although only Power BI
+  could read it in the file. Import now classes it Preserved through extensions, as Export does. The
+  role gets the same security warning Export gives ("This security role is only in the POWER_BI
+  extension: a tool other than Power BI that reads the file won't apply it"), and the remediation says
+  that it reached the model but a tool that reads the file won't apply it. A role that comes through
+  changed is still Partially converted, and a lost one Unsupported. The compatibility matrix reads the
+  class by direction: for the Power BI model target the role is kept, since the model applies it; for
+  the Ossie file it is extension only. Other objects restored from the Power BI section (perspectives,
+  cultures, expressions, plain tables) are still Fully preserved on Import.
+- **A Semantic View's relationships.** A view lists no fields, so the converter found no column for
+  either end of a relationship and dropped it. Now, when a dataset lists no fields, each end column a
+  one-column relationship names is declared on its table as a lakehouse source column of the same name,
+  with no data type, and the relationship is kept. Nothing is guessed: each declared column has a report
+  row (kind kept) saying its data type wasn't known and should be set to match the lakehouse table before
+  deploying, and the relationship's fidelity row has the same note. A dataset that lists fields but not
+  the column still loses the relationship, as before, and so does a composite relationship.
 
 ### Large models
 

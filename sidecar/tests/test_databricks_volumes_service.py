@@ -386,7 +386,6 @@ def test_delete_refuses_a_folder_holding_a_link_and_a_path_through_one(svc, here
     assert (outside / "secret.txt").exists() and (folder / "day" / "out").exists()
 
 
-
 @pytest.mark.parametrize("order", [("alias", "alias/x.csv"), ("alias/x.csv", "alias")])
 def test_a_link_and_a_file_through_it_are_both_removed_in_either_order(svc, here, order):
     # the link is removed, not the folder it points at; the file picked through it is removed too

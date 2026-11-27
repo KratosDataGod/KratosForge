@@ -229,8 +229,8 @@ function nbPresentStrip(on) {
 // While presenting, every key is Present's: the window's other key handlers (Back on Alt+Left, the
 // notebook's command keys, the debugger's F5, F10 and F11, find, the command bar, ?) see none of them,
 // so nothing behind the slides runs or opens. Tab stays inside. Copying the slide's text (Ctrl+C, and
-// Ctrl+A to select it) keeps the browser's own behaviour; any other key with Ctrl, Alt or an F key
-// is stopped (F5 would reload the window).
+// Ctrl+A to select it) and zoom (Ctrl+=, Ctrl+-, Ctrl+0) keep the browser's own behaviour; any other
+// key with Ctrl, Alt or an F key is stopped (F5 would reload the window).
 function nbPresentKey(e) {
   if (!nbPresent.root) return;
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
@@ -245,8 +245,10 @@ function nbPresentKey(e) {
   else if (e.key === "F5" && e.ctrlKey && e.shiftKey) { /* already presenting */ }
   else handled = false;
   if (!handled) {
-    const copy = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[ac]$/i.test(e.key);
-    if (!copy && (e.ctrlKey || e.metaKey || e.altKey || /^F\d{1,2}$/.test(e.key))) e.preventDefault();
+    // Copying the slide's text, and WebView2's own zoom (Ctrl+=, Ctrl+-, Ctrl+0; features.js "Window"), keep
+    // the browser's behaviour.
+    const own = (e.ctrlKey || e.metaKey) && !e.altKey && (/^[ac]$/i.test(e.key) && !e.shiftKey || /^[=+\-0]$/.test(e.key));
+    if (!own && (e.ctrlKey || e.metaKey || e.altKey || /^F\d{1,2}$/.test(e.key))) e.preventDefault();
     e.stopImmediatePropagation();
     return;
   }

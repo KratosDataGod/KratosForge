@@ -115,6 +115,13 @@ test("while presenting, with the debugger paused, no listed key reaches the note
     assert.strictEqual(await present().count(), 1, `${key} closed Present`);
     tried.push(key);
   }
+  // Copy and zoom keep the browser's own behaviour; everything else with Ctrl is stopped.
+  const prevented = await page().evaluate(() => ["c", "a", "=", "-", "0", "+", "p", "k"].map((key) => {
+    const e = new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(e);
+    return [key, e.defaultPrevented];
+  }));
+  assert.deepStrictEqual(Object.fromEntries(prevented), { c: false, a: false, "=": false, "-": false, 0: false, "+": false, p: true, k: true });
   assert.ok(tried.includes("F10") && tried.includes("F5") && tried.includes("Ctrl+K") && tried.includes("Shift+Enter") && tried.includes("?"), tried.join(", "));
   await page().keyboard.press("Escape");
 });

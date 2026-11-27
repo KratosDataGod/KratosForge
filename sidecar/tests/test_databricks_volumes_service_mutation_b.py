@@ -100,9 +100,6 @@ def test_an_upload_from_a_link_copies_the_file_it_points_at(svc, here, tmp_path)
     assert not os.path.islink(target) and target.read_bytes() == b"id\n1\n"
 
 
-@pytest.mark.xfail(strict=True, raises=FileNotFoundError,
-                   reason="bug: picking a link to a folder and then a file through it removes the link, then fails "
-                          "with FileNotFoundError on the file, so the delete stops part way with a raw error")
 def test_a_link_picked_before_a_file_through_it_is_deleted_without_an_error(svc, here):
     folder = here / "sales" / "landing"
     (folder / "real").mkdir()

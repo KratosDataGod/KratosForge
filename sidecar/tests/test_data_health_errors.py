@@ -354,19 +354,20 @@ def test_a_list_with_odd_but_iterable_fields_still_lists_and_saves(
     )
     app.root.mkdir(parents=True)
     (app.root / "data_health.json").write_text(json.dumps(state), encoding="utf-8")
-    for t in app.meta_data_health_list("dev")["tables"]:
+    out = app.meta_data_health_list("dev")
+    # A watched field that isn't a list, or a quiet field that isn't a map, is set aside;
+    # an empty one is just empty.
+    shaped = isinstance(state.get("watched") or [], list) and isinstance(
+        state.get("quiet") or {}, dict
+    )
+    assert ("reset" in out) is not shaped
+    for t in out["tables"]:
         # A snooze whose end isn't a time doesn't hide the alert.
         assert "quiet" not in t["alerts"][0]
     app.meta_data_health_watch(ENTITY, "dev")
     assert [t["entity"] for t in app.meta_data_health_list("dev")["tables"]] == [ENTITY]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=(TypeError, AttributeError),
-    reason="a saved list whose watched or quiet field has the wrong type raises "
-    "TypeError or AttributeError on every call, and isn't set aside like a damaged file",
-)
 @pytest.mark.parametrize(
     "state",
     [
@@ -489,12 +490,6 @@ def test_a_damaged_list_whose_fresh_start_cant_be_saved_is_refused_not_shown_emp
     assert len(list(app.root.glob("data_health.json.corrupt-*"))) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KeyError,
-    reason="the damaged file is moved aside before the fresh list is saved; when that "
-    "save fails, the next read finds no file and lists nothing with no note that it started again",
-)
 def test_a_damaged_list_whose_fresh_start_cant_be_saved_still_says_so_once_the_disk_has_room(
     app, monkeypatch
 ):
@@ -510,15 +505,11 @@ def test_a_damaged_list_whose_fresh_start_cant_be_saved_still_says_so_once_the_d
         app.meta_data_health_list("dev")
     monkeypatch.setattr(jsonfile, "write_json", real)
     out = app.meta_data_health_list("dev")
-    assert out["reset"]["copy"].startswith("data_health.json.corrupt-")
+    assert "reset" in out and out["reset"]["copy"].startswith(
+        "data_health.json.corrupt-"
+    )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=OSError,
-    reason="the list only reads, but when forgetting an old acknowledgement can't be "
-    "saved it raises and the checks it already ran, alerts included, aren't shown",
-)
 def test_a_list_whose_tidy_up_cant_be_saved_still_shows_its_checks(app, monkeypatch):
     monkeypatch.setattr(
         app,

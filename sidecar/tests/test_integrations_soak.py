@@ -282,6 +282,7 @@ def rest_client(port, token, calls, offset, failures):
     closes (Connection: close), and now and then a hang-up mid-response, a hang-up while its call
     runs, and a body that never all arrives."""
     conn = None
+    used = time.monotonic()
     try:
         for i in range(offset, offset + calls):
             kind = kind_of(i)
@@ -291,9 +292,16 @@ def rest_client(port, token, calls, offset, failures):
                 status, _, out = once.request(method, path, token, body, close=True)
                 once.close()
             else:
+                if conn is not None and time.monotonic() - used >= local_api.IDLE_SECONDS - 0.5:
+                    # The side trips below can take longer than the server keeps an idle connection
+                    # (on a busy Windows runner, a big result read through a small window): the server
+                    # has closed it by design, so start a new one, as any HTTP client would.
+                    conn.close()
+                    conn = None
                 if conn is None:
                     conn = Http(port)
                 status, _, out = conn.request(method, path, token, body)
+                used = time.monotonic()
             if status != want:
                 failures.append((kind, status, out[:300]))
             if i % 40 == 11:
@@ -622,7 +630,10 @@ def test_thousands_of_audited_calls_keep_the_store_usable_and_the_chain_whole(ap
     rest_counts: list = []
 
     def rest():
-        rest_counts.append(rest_phase(api, 250, 0))
+        try:
+            rest_counts.append(rest_phase(api, 250, 0))
+        except BaseException as exc:  # noqa: BLE001 - reported by the test below
+            rest_counts.append(exc)
 
     proc = Stdio(env["tmp"], env["client"]["id"])
     try:
@@ -636,6 +647,7 @@ def test_thousands_of_audited_calls_keep_the_store_usable_and_the_chain_whole(ap
         proc.close()
     err = capsys.readouterr().err + proc.err_text()
     assert "could not record" not in err and "locked" not in err and "Traceback" not in err, err[-3000:]
+    assert len(rest_counts) == 1 and isinstance(rest_counts[0], int), rest_counts  # the REST side's own failure
 
     # Calls that reach Registry.invoke each have a line: every REST call (hang-ups mid-response
     # included; a hang-up while the call runs is recorded as cancelled) and stdio's tools/call and

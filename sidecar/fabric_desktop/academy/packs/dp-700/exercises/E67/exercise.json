@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E67",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Reload one day of a Delta table with replaceWhere",
   "objectives": [
     "2.1.1"

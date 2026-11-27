@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E19",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Parameterised pipeline: ForEach over tables with dynamic expressions",
   "objectives": [
     "1.4.3"

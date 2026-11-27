@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E33",
   "version": 2,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Spark SQL: clean, cast and join raw orders in SQL",
   "objectives": [
     "2.2.6"

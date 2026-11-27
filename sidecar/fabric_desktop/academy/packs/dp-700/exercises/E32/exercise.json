@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E32",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "PySpark: clean, cast and join raw orders",
   "objectives": [
     "2.2.6"

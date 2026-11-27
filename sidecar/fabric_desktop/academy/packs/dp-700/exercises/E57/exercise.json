@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E57",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Broken: an incremental load that misses late rows",
   "objectives": [
     "2.1.1",

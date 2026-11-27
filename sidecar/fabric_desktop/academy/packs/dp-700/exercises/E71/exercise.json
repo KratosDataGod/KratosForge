@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E71",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Dynamic data masking: work out what each person's SELECT returns",
   "objectives": [
     "1.3.4"

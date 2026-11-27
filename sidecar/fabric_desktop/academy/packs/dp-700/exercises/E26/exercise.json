@@ -1,7 +1,8 @@
 {
   "schema": "kratosforge/academy-exercise@1",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "class": "local_verified",
   "adapter": "pyspark_lab",
   "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",

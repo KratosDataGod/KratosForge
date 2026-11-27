@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E44",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Monitoring hub: find the failed ingestion and the run that got slower",
   "objectives": [
     "3.1.1",

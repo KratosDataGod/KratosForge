@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E65",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Broken: a nightly T-SQL load stops on a bad value, a zero amount and an order sent twice",
   "objectives": [
     "3.2.6"

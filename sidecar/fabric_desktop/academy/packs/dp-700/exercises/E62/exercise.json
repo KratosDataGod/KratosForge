@@ -1,7 +1,8 @@
 {
   "schema": "kratosforge/academy-exercise@1",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "class": "knowledge_only",
   "adapter": "quiz",
   "lesson": "lesson.md",

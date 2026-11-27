@@ -156,7 +156,7 @@ def test_the_estimate_is_labelled_and_suggests_what_is_next(cert):
     assert out["label"] == "KratosForge readiness estimate" and "isn't Microsoft's score" in out["note"]
     assert [d["objectives"] for d in out["domains"]] == [16, 17, 16]
     assert [d["need_platform"] for d in out["domains"]] == [14, 9, 13]
-    assert {n["exercise"] for n in out["next"]} == {"E21", "E36", "E37"}
+    assert {n["exercise"] for n in out["next"]} == {"E01", "E02", "E03"}
     profile = progress.empty()
-    progress.add(profile, _row("E37", cert))
-    assert "E37" not in {n["exercise"] for n in readiness.readiness(profile, PACK)["next"]}
+    progress.add(profile, _row("E01", cert))
+    assert "E01" not in {n["exercise"] for n in readiness.readiness(profile, PACK)["next"]}

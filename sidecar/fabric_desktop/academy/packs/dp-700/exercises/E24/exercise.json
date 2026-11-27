@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E24",
   "version": 2,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Type 2 history: close the old row, add the new one",
   "objectives": [
     "2.1.2"

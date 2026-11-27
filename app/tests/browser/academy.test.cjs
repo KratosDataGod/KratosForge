@@ -51,7 +51,7 @@ test("Academy takes Learn's spot in the rail, with six tabs and the next step fi
   assert.match(text, /objectives proved/);
   assert.doesNotMatch(text, /\bshown\b/);
   assert.match(text, /never read or write OneLake/);
-  assert.match(await page().locator(".academy-next").textContent(), /LOCAL VERIFIED/);
+  assert.match(await page().locator(".academy-next").textContent(), /LOCAL VERIFIED|SIMULATED|KNOWLEDGE ONLY/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "academy-home.png") });
 });
 

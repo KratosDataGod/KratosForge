@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E45",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Semantic model refresh: read the history, spot a Direct Lake fallback",
   "objectives": [
     "3.1.3"

@@ -102,10 +102,12 @@ def test_get_refuses_an_exercise_that_isnt_there(eid):
         exercises.get(PACK, eid)
 
 
-def test_exercises_lists_drafts_unless_asked_not_to():
-    every = exercises.exercises(PACK)
-    assert any(ex["status"] == "draft" for ex in every)
-    assert all(ex["status"] == "live" for ex in exercises.exercises(PACK, include_drafts=False))
+def test_exercises_lists_drafts_unless_asked_not_to(root):
+    _edit(root, "E01", {"status": "draft"})
+    every = exercises.exercises(PACK, root)
+    assert any(ex["id"] == "E01" and ex["status"] == "draft" for ex in every)
+    live = exercises.exercises(PACK, root, include_drafts=False)
+    assert all(ex["status"] == "live" for ex in live) and "E01" not in {ex["id"] for ex in live}
 
 
 def test_a_learn_lab_exercise_takes_the_labs_starter():

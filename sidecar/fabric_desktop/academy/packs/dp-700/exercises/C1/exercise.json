@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "C1",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Capstone: retail lakehouse from landing to a Gold star",
   "objectives": [
     "1.4.3",

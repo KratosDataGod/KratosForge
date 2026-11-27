@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E06",
   "version": 1,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Put a workspace under Git: commit on a branch and resolve a conflict in a pipeline definition",
   "objectives": [
     "1.2.1"

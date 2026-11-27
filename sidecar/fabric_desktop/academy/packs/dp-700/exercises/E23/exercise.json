@@ -2,7 +2,8 @@
   "schema": "kratosforge/academy-exercise@1",
   "id": "E23",
   "version": 2,
-  "status": "draft",
+  "status": "live",
+  "reviewed": "2026-11-27",
   "title": "Prepare a customer dimension: surrogate keys and an Unknown member",
   "objectives": [
     "2.1.2"

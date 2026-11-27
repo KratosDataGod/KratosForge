@@ -599,5 +599,5 @@ def test_the_earned_day_is_the_day_on_this_pcs_clock(monkeypatch):
         late = lab_pass("LM-00", "2026-09-02T02:30:00+00:00")       # 21:30 on Sep 1 in Chicago
         assert levels.earned_on(profile(late), cat["classes"]["test-class"], cat) == {"a0": "2026-09-01"}
     finally:
-        monkeypatch.delenv("TZ")
+        monkeypatch.undo()          # back to the process's own TZ (set or not), then apply it
         time.tzset()

@@ -55,6 +55,23 @@ A side program is a separate thread's work that Chris approved under one workstr
 | Three-platform parity | Databricks and Snowflake | Three-platform parity | 2 | review: SF-005 Snowflake object listing and query history ([#3298](https://github.com/KratosDataGod/KratosForge/issues/3298)) (PR #3215)<br>review: PAR-002 More parity cases, including cases that expect an error ([#3299](https://github.com/KratosDataGod/KratosForge/issues/3299)) (PR #3245)<br>ready: PAR-003 Unified connection check across the three platforms ([#3300](https://github.com/KratosDataGod/KratosForge/issues/3300))<br>ready: SF-009 Snowflake stages and data loading ([#3301](https://github.com/KratosDataGod/KratosForge/issues/3301)) |
 <!-- END GENERATED: side-programs -->
 
+### Story ids
+
+WR story ids come from a ledger, [story-ids.json](story-ids.json), so two lanes never give two stories the same id. Each lane owns blocks of ids and takes its next id from them; a smaller block inside a larger one belongs to its own lane.
+
+| Lane | Workstream | Ids |
+| --- | --- | --- |
+| Local engine | Local Execution | WR-100 to WR-199, apart from Notebook parity's block; next WR-147 (WR-146 is the decimal branch), and WR-123 to WR-129 stay free |
+| Notebook parity | Developer Experience | WR-130 to WR-139; next WR-138 (WR-135 to WR-137 are used by #3368) |
+| Warehouse | Microsoft Fabric | WR-200 to WR-269 (used up) and WR-700 to WR-749; next WR-708 |
+| SQL translator | Microsoft Fabric | WR-270 to WR-299 |
+| Dbx parity | Databricks and Snowflake | WR-300 to WR-399; next WR-322 |
+| Governance | Enterprise Services | WR-400 to WR-499; next WR-419 |
+| DevEx | Developer Experience | WR-500 to WR-599; next WR-508 (WR-507 is the extension channel fuzz story) |
+| Platform | Platform Engineering | WR-600 to WR-699; next WR-618 |
+
+`queues.py check` fails when a WR id in [workstreams.json](workstreams.json) is in no block, when a queued story's id is outside the blocks of its workstream's lanes, or when one id names two stories (two `new_stories` entries, or a slot or side-program title that starts with an id another story already has). Each error names the id and both places. Past collisions keep their ids and are recorded under `exceptions` with a note: WR-250 to WR-259 (Warehouse and the SQL translator) and WR-410 (the capacity hard stop and Governance's audit story). A lane's `next`, where set, must be in its own blocks. A new lane, or a lane that runs out of ids, gets a block in the ledger before its first story.
+
 ## One backlog
 
 - **Stories live in GitHub Issues**, labelled `story`, a priority (`P0` to `P4`), a workstream (`ws:local-exec`, `ws:fabric`, `ws:dbx-snow`, `ws:enterprise`, `ws:devex`, `ws:platform`), a pillar and a status (`status:active`, `status:ready`, `status:blocked`, `status:review`). `queues.py body <story>` writes the issue body: workstream, platform, business value, requirements, acceptance criteria, dependencies, priority, agent, tests required and definition of done.

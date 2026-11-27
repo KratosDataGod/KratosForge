@@ -2663,10 +2663,9 @@
       "id": "PB-062",
       "title": "Save a support bundle from Settings",
       "category": "Developer Experience and Productivity",
-      "problem": "The support bundle is CLI only, so most users and help desks can't produce one.",
+      "problem": "The support bundle was CLI only, so most users and help desks couldn't produce one.",
       "capability": "Settings > Help > Save support bundle with a contents preview, as FD-138 asks.",
       "evidence": [
-        "support_bundle.py has no RPC or UI",
         "Smoke: CLI wrote about.json and CONTENTS.txt",
         "Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup",
         "Save support bundle shows what the zip holds and saves it to a chosen folder (#1679); the bundle records the policy file's SHA-256 and last change (#1870) on main at a7631920",
@@ -5842,7 +5841,8 @@
         "Data health saves survive crashes and other processes (#2979); a hanging check shows as not finished (#3000); incidents keep an opening or a told-downstream note when a write fails partway (#3009) on main at ad1ac4cf",
         "An incident opening reaches Teams even if a later step fails, with end-to-end tests from Data health to Teams (#3049) on main at 1719d5db",
         "A time with no zone no longer breaks the incident board; watch and SLA error paths tested (#3244) on main at a73ebb71",
-        "A time with no zone is UTC everywhere in incidents; desk, history and evaluate error paths tested (#3259) on main at b4bc548d"
+        "A time with no zone is UTC everywhere in incidents; desk, history and evaluate error paths tested (#3259) on main at b4bc548d",
+        "Stage 4 reports screen built (Preview): Monitor > KratosForge > Operations > Incidents > Reports, beside Board, shows incidents_measures for one environment over 7, 30 or 90 days (summary, one row per priority, No target, Nothing to measure and None judged yet, never 0), from the UX mockup Chris approved on 2026-11-24 with ticket integration left out. Stage 5, opening tickets in ServiceNow or Jira Service Management, still waits on Chris's go and a Security read"
       ],
       "features": [
         "FEAT-OPS-02"

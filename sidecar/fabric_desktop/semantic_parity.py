@@ -54,7 +54,6 @@ from __future__ import annotations
 import collections
 import copy
 import functools
-import hashlib
 import json
 import math
 import re
@@ -736,10 +735,10 @@ def _pair(a: dict[str, Any] | None, b: dict[str, Any] | None, left: _Side, right
 
 
 def _fingerprint(text: str) -> str:
-    """Text as its length and a short hash: enough to see that two filters differ, without the filter. A short
-    filter's hash can be guessed by trying values, so this keeps text out of logs, not out of reach."""
-    digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:12]
-    return f"{len(text)} characters, sha256 {digest}"
+    """Text as its length and a keyed fingerprint (``keyed_fingerprint``): enough to see that two filters differ,
+    without the filter, and a guessed filter can't be confirmed away from this PC."""
+    from .keyed_fingerprint import fingerprint
+    return fingerprint(text)
 
 
 def _role_changes_redacted(before: dict[str, Any], after: dict[str, Any]) -> list[str]:

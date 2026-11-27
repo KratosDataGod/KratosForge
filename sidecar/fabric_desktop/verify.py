@@ -334,7 +334,7 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
 def _export(con: Any, sql: str, export: Any) -> None:
     """Hand ``export`` an Arrow reader of ``sql``'s rows, a batch at a time (never the whole diff in memory)."""
     from .duckdb_rows import arrow_reader
-    export(arrow_reader(con.execute(sql), 65_536))
+    export(arrow_reader(con.sql(sql), 65_536))  # a relation: DuckDB 2 warns on Arrow from a DB-API result
 
 
 def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int, status: str | None = None,

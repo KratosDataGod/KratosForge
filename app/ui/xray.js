@@ -72,7 +72,7 @@ function drawXray(box, res) {
     } }, xrayPage.folded ? "Show details" : "Hide details");
   const head = (extra) => h("div", { class: "xray-head" },
     h("div", { class: "grow" }, preview("xray", h("h2", {}, "Estate X-ray ")),
-      h("div", { class: "muted-text small" }, "Every lakehouse you can reach, read once: what slows it down, what is broken, who has access, and what it costs. ",
+      h("div", { class: "muted-text small" }, "Reads every lakehouse you can reach, once, and shows what slows each one down, what's broken, who has access and what it costs. ",
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); openXrayDoc(null); } }, "How each fix works"))),
     extra);
   if (!state.user) {

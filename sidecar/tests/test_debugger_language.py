@@ -460,7 +460,8 @@ ENGINE_STDIN = textwrap.dedent("""
     def serve(service, stdin, stdout):
         first = stdin.readline()
         with open(report, "w", encoding="utf-8") as f:
-            f.write(repr((sys.stdin.read(), first)))
+            import os
+            f.write(repr((sys.stdin.read(), sys.__stdin__.read(), os.read(0, 100), first)))
     server.serve = serve
     server.Service = lambda: type("S", (), {"policy_record": lambda self: None})()
     server._start_integration_http = lambda service: None
@@ -477,7 +478,8 @@ def test_the_engine_keeps_its_request_stream_from_cells(tmp_path):
     done = subprocess.run([sys.executable, "-c", ENGINE_STDIN, str(report)], input='{"id": 1}\n{"id": 2}\n',
                           capture_output=True, text=True, env=env, timeout=120, check=False)
     assert done.returncode == 0, done.stderr[-2000:]
-    assert report.read_text(encoding="utf-8") == repr(("", '{"id": 1}\n'))
+    # fd 0 and sys.__stdin__ too: native code or os.read in a cell can't take the app's requests either
+    assert report.read_text(encoding="utf-8") == repr(("", "", b"", '{"id": 1}\n'))
 
 
 # ---------- exec, eval, del ----------

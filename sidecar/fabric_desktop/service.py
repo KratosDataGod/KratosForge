@@ -81,6 +81,7 @@ from .powerbi_embed_service import PowerBiEmbedMixin
 from .model_dictionary_service import ModelDictionaryMixin
 from .environment_service import EnvironmentMixin
 from .local_writes_service import LocalWritesMixin
+from .databricks_volumes_service import DatabricksVolumesMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
 from .editor_service import EditorMixin
@@ -145,7 +146,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, DatabricksVolumesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -1158,7 +1159,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Write a table diagram as a new .svg file in the Downloads folder. Never replaces a file."""
         if not isinstance(svg, str) or not svg.startswith("<svg ") or not svg.rstrip().endswith("</svg>"):
             raise ValueError("That isn't a diagram from the SQL page.")
-        if len(svg.encode("utf-8")) > self.DIAGRAM_SVG_MAX:
+        try:
+            size = len(svg.encode("utf-8"))
+        except UnicodeEncodeError:  # a lone surrogate, which JSON allows and a file can't hold
+            raise ValueError("The diagram wasn't saved, because it holds a character that can't be written "
+                             "to a file. Draw the diagram again on the SQL page.") from None
+        if size > self.DIAGRAM_SVG_MAX:
             raise ValueError("The diagram is too big to save (over 4 MB).")
         problem = self._diagram_problem(svg)
         if problem:
@@ -1379,10 +1385,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 break
             else:
                 raise ValueError("Couldn't find a free file name in Downloads for the export.")
-            header, protected = csv_cells.protect_header(result.schema or pa.schema([]))
+            # Binary goes out as hex and lists as JSON text, as the SQL page's export writes them (WR-221):
+            # Arrow wrote binary as its raw bytes, past the protection below.
+            header, protected = csv_cells.protect_header(sql_exec.csv_ready_schema(result.schema or pa.schema([])))
             with sink, pa_csv.CSVWriter(sink, header) as out:
                 for batch in result:
-                    batch, n = csv_cells.protect_batch(batch)  # WR-228: no cell runs as a formula when opened
+                    batch, n = csv_cells.protect_batch(sql_exec.csv_ready_batch(batch))  # WR-228
                     out.write_batch(batch)
                     rows, protected = rows + batch.num_rows, protected + n
         return {"path": str(path), "rows": rows, "protected": protected,
@@ -1426,6 +1434,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
+        self._remember_base(name, nb["disk_stamp"], nb["cells"])
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"], **self._checks(name)),
@@ -1511,12 +1520,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         ``disk_stamp`` (from open_notebook or the last save): when another program, such as VS Code,
         changed the file since, nothing is saved and ``changed_on_disk`` comes back. Both the file's
         version and these cells are kept under Versions first, so whichever the person picks, or
-        if they pick neither, nothing is lost. ``outside_copy`` is where a file that isn't a
+        if they pick neither, nothing is lost. When the cells both sides started from are known,
+        ``merge`` holds both sides merged by cell and any named conflicts (notebook_sync.merge_cells);
+        notebook_sync_merge saves it. ``outside_copy`` is where a file that isn't a
         notebook any more (Git conflict markers) was copied."""
         out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace, disk_stamp)
         if out.get("changed_on_disk"):
             copy = self._keep_both_sides(name, cells, lakehouse_ref, compute, workspace, bool(out.get("unreadable")))
-            return out | ({"outside_copy": copy} if copy else {})
+            merge = None if out.get("unreadable") else self._sync_preview(name, cells, disk_stamp)
+            return out | ({"outside_copy": copy} if copy else {}) | ({"merge": merge} if merge else {})
+        self._remember_base(name, out.get("disk_stamp"), cells, out.get("cell_ids"))
         self._keep_version(name)
         return out | {"check": compute_check(cells, lakehouse_ref, **self._checks(name))}
 
@@ -1549,6 +1562,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             ("environment", lambda: self.environments.rename_notebook(name, new_name)),
             ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
             ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
+            ("merge bases", lambda: self._sync_bases.forget(name)),  # the next open records one under the new name
             ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
             ("pin", lambda: self._rename_item_pin("notebook", name, new_name)),
         ]

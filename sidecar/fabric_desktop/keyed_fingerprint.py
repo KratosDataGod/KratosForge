@@ -35,19 +35,30 @@ def _read(path: Path) -> bytes | None:
 
 
 def _create(path: Path) -> bytes:
-    """Write a new key only if none exists (O_EXCL), so two processes starting together keep one key."""
+    """Write a new key only if none exists, whole or not at all: the key goes to a temporary file that is then
+    linked to ``path``, which fails if ``path`` exists, so two processes starting together keep one key and no
+    process ever sees a half-written one. An empty file (left by an older build that stopped between making
+    the file and writing it) is replaced; any other file that isn't a key is left for someone to look at."""
     path.parent.mkdir(parents=True, exist_ok=True)
     key = secrets.token_bytes(KEY_BYTES)
+    tmp = path.with_name(f"{path.name}.{secrets.token_hex(8)}.new")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
-    except FileExistsError:
-        found = _read(path)
-        if found is None:
-            raise ValueError("the fingerprint key file is not a key") from None
-        return found
-    with os.fdopen(fd, "wb") as f:
-        f.write(key)
-    return key
+        with os.fdopen(fd, "wb") as f:
+            f.write(key)
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            if path.stat().st_size != 0:
+                found = _read(path)
+                if found is None:
+                    raise ValueError("the fingerprint key file is not a key") from None
+                return found
+            os.replace(tmp, path)  # an empty file is a key that was never written
+    finally:
+        tmp.unlink(missing_ok=True)
+    found = _read(path)  # another process may have repaired an empty file at the same time: use what's kept
+    return found if found is not None else key
 
 
 @functools.lru_cache(maxsize=4)

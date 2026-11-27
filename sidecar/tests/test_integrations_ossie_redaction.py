@@ -218,3 +218,27 @@ def test_a_damaged_key_file_is_not_used_as_a_key(tmp_path, monkeypatch):
     monkeypatch.setattr(keyed_fingerprint, "key_path", lambda: path)
     assert len(keyed_fingerprint.digest(UPN)) == 12
     assert path.read_bytes() == b"short"  # left for someone to look at, never overwritten
+
+
+def test_an_empty_key_file_is_replaced_with_a_key(tmp_path, monkeypatch):
+    path = tmp_path / "fingerprint.key"
+    path.write_bytes(b"")
+    monkeypatch.setattr(keyed_fingerprint, "key_path", lambda: path)
+    a = keyed_fingerprint.digest(UPN)
+    assert len(path.read_bytes()) == keyed_fingerprint.KEY_BYTES
+    keyed_fingerprint._key_for.cache_clear()
+    assert keyed_fingerprint.digest(UPN) == a  # the repaired key is the one kept
+    assert [p.name for p in tmp_path.iterdir()] == ["fingerprint.key"]  # no temporary file left
+
+
+def test_a_key_made_by_another_process_first_is_the_one_used(tmp_path, monkeypatch):
+    path = tmp_path / "fingerprint.key"
+    theirs = b"t" * keyed_fingerprint.KEY_BYTES
+    real_link = keyed_fingerprint.os.link
+
+    def link_after_them(src, dst):
+        path.write_bytes(theirs)  # the other process links its key in between our check and our link
+        return real_link(src, dst)
+    monkeypatch.setattr(keyed_fingerprint.os, "link", link_after_them)
+    assert keyed_fingerprint._create(path) == theirs and path.read_bytes() == theirs
+    assert [p.name for p in tmp_path.iterdir()] == ["fingerprint.key"]

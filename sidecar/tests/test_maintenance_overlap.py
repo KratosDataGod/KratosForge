@@ -294,7 +294,7 @@ def test_while_another_process_compacts_a_notebook_restore_waits_then_changes_no
         lakehouse.maintain_table("dbo.events", "restore", version=0)
     assert str(caught.value) == (
         "dbo.events is being optimized, vacuumed or restored by another process on this PC (the Maintain page's "
-        "Optimize, a notebook or a scheduled run), so nothing was changed. Run it again once that has finished.")
+        "Optimize, a notebook or a scheduled run), so nothing was changed. Try again once the other run has finished.")
     assert whole(uri) == list(range(3 * BATCH)) and DeltaTable(uri).version() == 2
     assert lakehouse.maintain_table("dbo.events", "restore", version=0).delta_version == 3  # once it has finished
 

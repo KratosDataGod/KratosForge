@@ -499,7 +499,7 @@ def compaction_lock(uri: str, name: str = "This table", wait: float | None = Non
         yield
         return
     busy = (f"{name} is being optimized, vacuumed or restored by another process on this PC (the Maintain page's "
-            "Optimize, a notebook or a scheduled run), so nothing was changed. Run it again once that has finished.")
+            "Optimize, a notebook or a scheduled run), so nothing was changed. Try again once the other run has finished.")
     with _THREAD_LOCKS_GUARD:
         local = _THREAD_LOCKS.setdefault(key, threading.Lock())
     deadline = monotonic() + max(wait, 0.0)  # not time.monotonic: tests stand a clock in for the time module

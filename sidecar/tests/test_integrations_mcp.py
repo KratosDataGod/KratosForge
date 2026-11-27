@@ -4,6 +4,7 @@ memory on both protocol eras, and as the real `fabric-desktop mcp` process over 
 import json
 import os
 import sys
+from pathlib import Path
 import time
 
 import anyio
@@ -14,6 +15,10 @@ from fabric_desktop.integrations.capabilities import register_core
 from fabric_desktop.integrations.mcp_server import MAX_RESULT_BYTES, build_server
 from fabric_desktop.integrations.registry import Capability, Registry, schema
 from fabric_desktop.service import Service
+
+# The engine's own folder, for a child process. Not all of sys.path: other tests add project folders
+# to it, and on Windows a variable longer than 32,767 characters stops the child starting.
+ENGINE = str(Path(__file__).resolve().parents[1])
 
 MODES = ["legacy", "auto"]  # handshake era (2025-11-25) and 2026-07-28
 
@@ -173,7 +178,7 @@ def test_the_real_stdio_process_speaks_mcp(tmp_path):
     store.set_setting("enabled", True)
     client, _ = store.add_client("Test tool", grants=["READ_METADATA"])
     env = dict(os.environ, LOCALAPPDATA=str(tmp_path), HOME=str(tmp_path), ProgramData=str(tmp_path),
-               PYTHONPATH=os.pathsep.join(sys.path))
+               PYTHONPATH=ENGINE)
 
     def params(client_id):
         return StdioServerParameters(command=sys.executable, args=["-m", "fabric_desktop.cli", "mcp", "--client", client_id],

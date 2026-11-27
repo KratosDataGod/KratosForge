@@ -299,6 +299,9 @@ TYPES.update({"notebook_package_folder": str, "allow_pypi_packages": bool})
 # hash-pinned lock files, and the package index to fetch them from (empty: the default index).
 DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
 TYPES.update({"allow_dbconnect_install": bool, "dbconnect_index_url": str})
+# Snowpark on this PC (engines/snowpark_local.py): the same for Snowpark Python with local testing.
+DEFAULTS.update({"allow_snowpark_install": True, "snowpark_index_url": ""})
+TYPES.update({"allow_snowpark_install": bool, "snowpark_index_url": str})
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
@@ -316,7 +319,8 @@ POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
 # they are ignored and reported; that source's restrictions still apply, with a warning.
 # audit_retention_days and receipt_retention_days: 0 keeps them, otherwise at least this many days.
 RETENTION_MIN_DAYS = 30
-LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "notebook_package_folder", "client_id",
+LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "snowpark_index_url", "notebook_package_folder",
+             "client_id",
              "telemetry_connection_string", "appstudio_hosts", "integrations_http", "support_url",
              "audit_retention_days", "receipt_retention_days")
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
@@ -326,7 +330,7 @@ NO_TENANT = "00000000-0000-0000-0000-000000000000"
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
                               "telemetry": False, "sql_warehouse_writes": False,
                               "wh_monitoring_views": False,
-                              "allow_dbconnect_install": False,
+                              "allow_dbconnect_install": False, "allow_snowpark_install": False,
                               "platform_presence": False,
                               "allow_replay_samples": False, "allow_optimize_lakehouse": False,
                               "allow_notebook_packages": False, "allow_pypi_packages": False,

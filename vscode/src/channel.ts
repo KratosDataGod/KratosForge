@@ -62,9 +62,13 @@ function shaped<T>(value: unknown, ok: (v: any) => boolean): T {
 const text = (v: unknown, max = 512): boolean => typeof v === "string" && v.length > 0 && v.length <= max;
 const count = (v: unknown): boolean => v === undefined || v === null || (Number.isSafeInteger(v) && (v as number) >= 0);
 
+// What a cell can be (notebook.py, kernel_proc.py). Any other status would end the run as if it were
+// "ok", so it reads as a reply this window can't read.
+const STATUSES = ["running", "paused", "ok", "error", "cancelled", "idle"];
+
 /** A cell's snapshot: a status, and outputs that are each an object (outputs.ts reads each one). */
 function snapshot(value: unknown): Snapshot {
-  const snap = shaped<Snapshot>(value, (v) => text(v.status, 40)
+  const snap = shaped<Snapshot>(value, (v) => STATUSES.includes(v.status)
     && (v.outputs === undefined || v.outputs === null || (Array.isArray(v.outputs)
       && v.outputs.every((o: unknown) => !!o && typeof o === "object" && !Array.isArray(o))))
     && count(v.version) && count(v.execution_count)
@@ -92,6 +96,8 @@ export function unreachable(code: string): string {
 const POLL_RETRIES = 3;
 // A poll that got no answer at all is asked again only once, so a hung app fails the cell in about two minutes.
 const POLL_TIMEOUT_RETRIES = 1;
+// A poll answered faster than this with nothing new didn't wait for the cell (see run).
+const QUICK_POLL = 250;
 export const NOT_PAIRED = "This window's pairing with KratosForge has ended. It ran out, was ended in KratosForge, or "
   + "KratosForge restarted. Run the cell again to pair this window.";
 export const HELLO_CHANGED = "KratosForge restarted while this window was asking to pair. Run the cell again to ask again.";
@@ -375,7 +381,12 @@ export class Channel {
     progress(snap);
     let version = snap.version ?? -1;
     while (snap.status === "running" || snap.status === "paused") {
+      const asked = Date.now();
       const next = await this.pollAgain(file, version);
+      // The app holds a poll until the cell changes. One that comes straight back unchanged (an app that
+      // doesn't wait) is asked again only after a pause, so this window never polls in a tight loop.
+      const same = (next.version ?? version) === version && next.status === snap.status;
+      if (same && Date.now() - asked < QUICK_POLL) await new Promise((r) => setTimeout(r, this.pollPause));
       // The session this cell ran in is gone (no session, or a new one counting from the start):
       // the app restarted. Its last output isn't the cell's result, so say so rather than end "ok".
       if (next.status === "idle" || (next.version ?? version) < version) throw new ChannelError(0, "restarted", RESTARTED);

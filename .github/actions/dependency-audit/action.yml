@@ -9,14 +9,14 @@ runs:
   using: composite
   steps:
     # constraints.txt is the engine's packages as tests run them; engine-requirements.txt is the set
-    # the release engine ships; dbconnect_locks are what "Install Databricks Connect" puts on a PC.
-    - name: Python packages (constraints, engine and Databricks Connect locks)
+    # the release engine ships; dbconnect_locks are what "Install Databricks Connect" puts on a PC, snowpark_locks what the Snowpark engine's install does.
+    - name: Python packages (constraints, engine, Databricks Connect and Snowpark locks)
       shell: bash
       run: |
         python -m pip install --quiet --only-binary=:all: --require-hashes -r .github/requirements/pip-audit.txt
         ignore="$(python .github/scripts/audit_exceptions.py pip)"
         failed=0
-        for lock in sidecar/constraints.txt sidecar/engine-requirements.txt sidecar/fabric_desktop/engines/dbconnect_locks/*.txt; do
+        for lock in sidecar/constraints.txt sidecar/engine-requirements.txt sidecar/fabric_desktop/engines/dbconnect_locks/*.txt sidecar/fabric_desktop/engines/snowpark_locks/*.txt; do
           echo "== $lock"
           status=0
           pip-audit -r "$lock" --no-deps --disable-pip --progress-spinner off $ignore \

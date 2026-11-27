@@ -1,6 +1,6 @@
 # Mutation testing, batch 381: central/requests_service.py (every mutant)
 
-One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is the first mutation run of this module. It has two boundary mutants (lines 338 and 423).
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is lane A's first mutation run of this module. It has two boundary mutants (lines 338 and 423).
 - Requests that make something in Fabric or the platform (`central/requests_service.py`): a new workspace, workspace access, a domain and a policy exception, made as the approver before the platform approves; what a declined or withdrawn request leaves in Fabric (`left_in_fabric`); the marker an approval writes into descriptions; and `call_or_repair` for an older UDF_Platform.
 
 It has 269 mutants, and this run ran all 269 of 269, uncapped.
@@ -30,3 +30,5 @@ No bugs were found.
 ### Left
 
 - Mutant 268 (boundary, line 423): `_rank(have) >= _rank(role)` in place of `>` when deciding to keep a higher role. The ranks are the positions in `WORKSPACE_ROLES`, so they are equal only when the roles are, and `have == role` has already returned "same" two lines up. Equivalent.
+
+Lane B scored the same module at the same time, in batch 400 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 400's page each report their own run. Neither is a re-score of the other.

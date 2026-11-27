@@ -31,3 +31,5 @@ No bugs were found.
 | Module | Line | Mutant | Why it is left |
 | --- | --- | --- | --- |
 | `mastery/catalog.py` | 254 | `lru_cache(maxsize=4)` to 5 | Equivalent: the cache size changes only how many loaded catalogs are kept, never what `load` returns. |
+
+**Main changed after this run (2026-11-27):** #3229 (class achievements earned from a rule) changed `mastery/catalog.py` after the run. The score above is for the module at the run's `main`, as named on this page, and it was not run again on the new module. When main was merged into the PR, the tests were updated to match: the test file's small catalog now gives each specialization a capstone talent and each achievement a `requires`, which #3229's checks ask for.

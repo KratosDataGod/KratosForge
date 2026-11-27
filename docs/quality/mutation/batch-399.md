@@ -1,6 +1,6 @@
 # Mutation testing, batch 399
 
-One module, and the first mutation run of it: no earlier batch scored it. Every mutant was run, not a sample of 150 (`--cap 100000 --seed 7 --kinds all`), so the score counts the boundary mutants together with the earlier kinds. The table shows both parts.
+One module, scored for the first time in mutation lane A. Every mutant was run, not a sample of 150 (`--cap 100000 --seed 7 --kinds all`), so the score counts the boundary mutants together with the earlier kinds. The table shows both parts.
 - The academy's Databricks SQL exercises: the learner's SQL translated to DuckDB by the engine's own Databricks path, then checked, including the tables an answer leaves after one run and after two (`academy/dbsql_lab.py`).
 
 The run and the "after" run were both at `main` 9c7201ae4 (2026-11-24), with `sidecar/tools/mutate.py` as it is since #2902. The module has 87 mutants, and the run ran all 87 of 87 (uncapped). Test files were given as paths relative to `sidecar/`, and each was checked to exist before the run. The set is test_academy_dbsql_lab and test_academy_limits, about 30 seconds together on the loaded machine; they are the only test files that use the module. Every check runs on an in-memory DuckDB in this process.
@@ -31,3 +31,5 @@ No bugs were found.
 ### Left
 
 None.
+
+Lane B scored the same module at the same time, in batch 421 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 421's page each report their own run. Neither is a re-score of the other.

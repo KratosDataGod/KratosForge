@@ -15,7 +15,7 @@ def yaml(i=0):
 
 
 @pytest.mark.parametrize("doc, message, parts, rule", [
-    ([1], "This isn't an Ossie semantic model: it should be one object with version, name and datasets", (), "type"),
+    ([1], "This isn't an Ossie semantic model, which is one object with version, name and datasets", (), "type"),
     ({"version": "0.2.0.dev0", "semantic_model": []},
      ("This file uses the older Ossie layout with a semantic_model list. Ossie 0.2.0.dev0 puts one model's name and "
       "datasets at the top of the file."), ("semantic_model",), "profile"),
@@ -63,9 +63,9 @@ def test_more_than_200_problems_are_counted_in_one_more_line():
 
 
 def test_a_file_that_isnt_text_or_bytes_is_refused_by_name():
-    with pytest.raises(TypeError) as caught:
+    with pytest.raises(ValueError) as caught:
         op.validate_files({"a.yaml": 5})
-    assert str(caught.value) == "a.yaml should be text or bytes"
+    assert str(caught.value) == "The file 'a.yaml' should be text or bytes, not a number"
 
 
 @pytest.mark.parametrize("count, listed", [(5, "x0.yml, x1.yml, x2.yml, x3.yml, x4.yml"),

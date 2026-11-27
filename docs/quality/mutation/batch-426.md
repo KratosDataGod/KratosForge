@@ -46,3 +46,5 @@ No bugs were found.
 | `semantic_view.py` | 124 | "needs a letter or digit" refusal removed | Equivalent: a name that reaches it doesn't start or end with a space or a dot, so `name.strip(". ")` is never empty there. |
 | `semantic_view.py` | 521 | `lru_cache(maxsize=1)` to `maxsize=0` | Equivalent: with no cache the dumper class is made again on each call, and it dumps the same text. |
 | `semantic_view.py` | 560 | `_BREAKS[:3]` to `_BREAKS[:4]` (also refuse a raw `\r`) | Equivalent: every string holding `\r` is written in double quotes, where it is the escape `\r`, so the text never holds a raw one. |
+
+**Main changed after this run (2026-11-27):** #3255 and #3350 (wrong-typed parts refused) changed `semantic_view.py` after the run. The score above is for the module at the run's `main`, as named on this page, and it was not run again on the new module. When main was merged into the PR, the tests were updated to match: a nameless field is now an empty object rather than text, the nameless-relationship test uses objects, and a new test checks that a relationship that isn't an object is refused by its path.

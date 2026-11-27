@@ -172,7 +172,7 @@ def test_an_empty_extension_list_names_no_vendor():
 
 def test_a_field_with_no_name_is_reported_by_position_with_no_key():
     doc = _doc()
-    doc["datasets"][0]["fields"].append("junk")
+    doc["datasets"][0]["fields"].append({})
     row = _row(sv.semantic_view(doc, view_name="V")["report"], "dataset 'fact_sales' field #4")
     assert row["key"] is None and row["path"] == "$.datasets[0].fields[3]"
     assert row["reason"] == ("left out of the view: Dataset fields are omitted with warnings. Fabric reads the "
@@ -193,15 +193,22 @@ def test_a_query_source_metric_is_excluded():
     assert row["excluded"] is True and row["rule"] == "semantic-view/query-source"
 
 
-def test_relationships_that_cant_be_written_are_named_by_position_or_as_unnamed():
+def test_relationships_that_cant_be_written_are_named_as_unnamed_then_by_position():
     doc = _doc()
-    doc["relationships"] = ["junk", {"name": "", "from": "fact_sales", "to": "dim_channel",
-                                     "from_columns": ["a", "b"], "to_columns": "c"}]
+    doc["relationships"] = [{}, {"name": "", "from": "fact_sales", "to": "dim_channel", "from_columns": ["a", "b"]}]
     report = sv.semantic_view(doc, view_name="V")["report"]
-    assert _row(report, "relationship #1")["excluded"] is True
-    assert _row(report, "relationship #1")["path"] == "$.relationships[0]"
-    row = _row(report, "relationship '<unnamed>'")
-    assert row["excluded"] and row["reason"].startswith("excluded: it joins 2 column(s) to ?, and Fabric")
+    first, second = _row(report, "relationship '<unnamed>'"), _row(report, "relationship '<unnamed>' #2")
+    assert first["excluded"] and first["path"] == "$.relationships[0]"
+    assert first["reason"].startswith("excluded: it joins ? column(s) to ?, and Fabric")
+    assert second["excluded"] and second["path"] == "$.relationships[1]"
+    assert second["reason"].startswith("excluded: it joins 2 column(s) to ?, and Fabric")
+
+
+def test_a_relationship_that_isnt_an_object_is_refused_by_path():
+    doc = _doc()
+    doc["relationships"] = ["junk"]
+    with pytest.raises(ValueError, match=r"\$\.relationships\[0\] is text where it should be an object"):
+        sv.semantic_view(doc, view_name="V")
 
 
 def test_translations_give_the_converters_own_reason_and_only_translated_metrics():

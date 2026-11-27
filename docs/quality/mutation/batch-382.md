@@ -1,6 +1,6 @@
 # Mutation testing, batch 382: spark_coverage.py (every mutant)
 
-One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is the first mutation run of this module. It has one boundary mutant (`value > 0` for an infinite float, line 82).
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is lane A's first mutation run of this module. It has one boundary mutant (`value > 0` for an infinite float, line 82).
 - The Spark function coverage list (`spark_coverage.py`): how a collected value is made comparable (`canonical`, `rows_value`), how an example's status is decided (`check`: runs, differs, refused, fails, not checked), the list itself (`coverage`) and the page it writes (`markdown`, docs/spark-functions.md).
 
 It has 85 mutants, and this run ran all 85 of 85, uncapped.
@@ -15,7 +15,7 @@ The set is test_spark_coverage, test_spark_unchecked_functions, and test_spark_i
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `spark_coverage.py` | test_spark_coverage (3 deselected), test_spark_unchecked_functions, test_spark_integer_values, test_spark_functions_values, test_spark_date_values, test_spark_math_values, test_spark_json_values (1 deselected each); after: + test_spark_coverage_mutation | 85 of 85 (84 + 1), uncapped | 37 / 48 | **43.5%** | 37 / 84 (44.0%) → 83 / 84 (98.8%) | 0 / 1 → 0 / 1 | 83 / 2 | **97.6%** | 2 equivalent |
 
-The 48 survivors were re-run with the new file added (`--only`): 46 are now killed, 2 are left. The new tests in `tests/test_spark_coverage_mutation.py`, which read no file outside `sidecar/`, check:
+The 48 survivors were re-run with the new file added (`--only`): 46 are now killed, 2 are left. The new tests in `tests/test_spark_coverage_mutation_a.py`, which read no file outside `sidecar/`, check:
 - each kind of value `canonical` turns into plain JSON: None, booleans, text and whole numbers as they are; NaN and both infinities; floats to 12 significant digits; decimals by their digits; timestamps in UTC; dates, times, intervals; bytes, bytearrays and memoryviews as hex; maps sorted; rows as structs, a struct inside a struct staying a struct; lists and tuples; anything else by its type name;
 - `rows_value` sorts rows, and sorts the lists inside for an order-free function (`collect_set`);
 - a refusal is this PC's own message, never a DuckDB error;
@@ -29,3 +29,5 @@ No bugs were found.
 ### Left
 
 - Mutant 77 (line 82): `value > 1` in place of `value > 0`, and mutant 84 (boundary, same line): `value >= 0`. The line is reached only for an infinite float, which is above 1 or below 0. Equivalent.
+
+Lane B scored the same module at the same time, in batch 365 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 365's page each report their own run. Neither is a re-score of the other.

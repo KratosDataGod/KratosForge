@@ -1,6 +1,6 @@
 # Mutation testing, batch 432: academy/lab.py (every mutant)
 
-One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is the first mutation run of this module. It has six boundary mutants.
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is lane A's first mutation run of this module. It has six boundary mutants.
 - The Academy exercise workspace on this PC (`academy/lab.py`): start, state, save, run, validate, hints, the explanation and reset for SQL, Databricks SQL, Python and Delta, settings, quiz, Git and database-project exercises, every file through the checked workspace paths, and the help a pass had kept across a reset.
 
 It has 223 mutants, and this run ran all 223 of 223, uncapped.
@@ -29,3 +29,5 @@ No bugs were found.
 
 - Mutant 189: `hint` keeps `max(int(st.get("hints_used") or 1), level)` instead of `or 0`. `level` is never below 1 by then, so the maximum is the same. Equivalent.
 - Mutant 215: `_with_messages` zips the results with the checks with `strict=True` instead of `False`. The zip runs only after their lengths were found equal, so it never raises. Equivalent.
+
+Lane B scored the same module at the same time, in batch 418 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 418's page each report their own run. Neither is a re-score of the other.

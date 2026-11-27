@@ -47,3 +47,5 @@ No bugs were found.
 | `ossie_profiles.py` | 443 | `index < len(origins)` to `<=` | Equivalent: a merged problem's index comes from the merged list, which is as long as its origins, so the index is always below it. |
 | `ossie_profiles.py` | 519 | `merge_notes[-1]` to `merge_notes[0]` | Equivalent: the list has exactly one note when it is read. |
 | `ossie_profiles.py` | 543 | `stopped or more` to `stopped and more` | Equivalent: when either is set, the merged result has a "more" line at `$`, which lands in the set's own problems, so the set is invalid either way. |
+
+**Main changed after this run (2026-11-27):** #3255 and #3350 (wrong-typed parts refused) changed `ossie_profiles.py` after the run. The score above is for the module at the run's `main`, as named on this page, and it was not run again on the new module. When main was merged into the PR, the tests were updated to match: two expected messages were updated to the new wording.

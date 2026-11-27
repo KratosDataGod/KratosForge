@@ -1,6 +1,6 @@
 # Mutation testing, batch 428: academy/notebookutils_lab.py (every mutant)
 
-One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is the first mutation run of this module. It has one boundary mutant.
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is lane A's first mutation run of this module. It has one boundary mutant.
 - The `notebookutils` (and `mssparkutils`) an Academy PySpark exercise gets (`academy/notebookutils_lab.py`): splitting a Fabric `.py` notebook into cells, `notebook.run`, `exit`, `runMultiple` and `validateDAG` on the exercise's own notebooks, `fs` under the exercise's `Files/`, `runtime.context`, and what needs Fabric saying so.
 
 It has 143 mutants, and this run ran all 143 of 143, uncapped.
@@ -26,3 +26,5 @@ No bugs were found.
 ### Left
 
 - Mutants 60 and 124: `run`'s default `timeout_seconds` 91 instead of 90, and `runMultiple` passing 1 instead of 0. `run` doesn't read its timeout: the exercise's own time limit is the limit. Equivalent.
+
+Lane B scored the same module at the same time, in batch 420 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 420's page each report their own run. Neither is a re-score of the other.

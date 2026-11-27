@@ -1,6 +1,6 @@
 # Mutation testing, batch 429: academy/sqlprojlab.py (every mutant)
 
-One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is the first mutation run of this module. It has six boundary mutants.
+One module, run uncapped: every mutant, not a sample (`--cap 100000 --seed 7 --kinds all`). This is lane A's first mutation run of this module. It has six boundary mutants.
 - The `sqlproj_lab` adapter of the Academy (`academy/sqlprojlab.py`): a learner's change set over a warehouse database project, read as text, each file checked for one object in Fabric's Git layout, built in an in-memory DuckDB with no file or network access, and graded by `project_builds`, `objects_present`, `deploy_safe` and `result_matches`.
 
 It has 226 mutants, and this run ran all 226 of 226, uncapped.
@@ -28,3 +28,5 @@ No bugs were found.
 ### Left
 
 - Mutant 168: `_rows` fetches `MAX_ROWS + 0` rows instead of `MAX_ROWS + 1`. The rows are cut to `MAX_ROWS` straight after, and nothing reads the extra one, so the result is the same. Equivalent.
+
+Lane B scored the same module at the same time, in batch 424 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 424's page each report their own run. Neither is a re-score of the other.

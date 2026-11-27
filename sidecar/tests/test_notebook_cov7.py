@@ -4,6 +4,7 @@ runs cells in an in-process Kernel, or calls the module's helpers directly."""
 import io
 import json
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -551,8 +552,10 @@ def test_rename_puts_resources_back_when_the_notebook_cant_move(tmp_path, monkey
 # ---- more of the kernel
 
 
-def _wait_paused(k):
-    for _ in range(200):
+def _wait_paused(k, timeout=30):
+    # By the clock, not by poll count: a poll can return at once, and a busy Windows runner is slow to pause.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         snap = k.poll(wait=0.05)
         if snap.get("paused"):
             return snap
@@ -568,7 +571,7 @@ def test_a_breakpoint_pauses_in_a_function_and_the_last_expression_still_shows()
         assert paused["variables"] == [{"name": "a", "type": "int", "size": "", "value": "1", "memory": 28, "expandable": False}]
         assert k.debug("continue") == {"resumed": "continue"}
     finally:
-        k._current.done.wait(10)
+        k._current.done.wait(30)
     assert k.poll()["outputs"] == [{"type": "text", "text": "2"}]
 
 

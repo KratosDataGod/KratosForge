@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "pipeline-forgemaster",
+ "version": 1,
+ "title": "Pipeline Forgemaster",
+ "professional": "Data Integration Engineer",
+ "fantasy": "Master of the channels. The Forgemaster joins source to lake with pipelines that run on time, retry with care and never load twice.",
+ "competency": "Builds and operates data integration: pipelines and orchestration, ingestion from many sources, incremental and change data capture loads, retries and error handling.",
+ "platforms": ["Microsoft Fabric", "Azure Data Factory", "Databricks", "Snowflake"],
+ "technologies": ["Data Factory", "Dataflow Gen2", "Copy activity", "Spark", "SQL"],
+ "emblem": "Two linked chain rings over an anvil, a running wolf traced along the chain.",
+ "specializations": [
+  {"id": "flow", "title": "Flow Smith", "professional": "Pipelines and orchestration", "competency": "orchestration",
+   "nodes": [
+    {"id": "flow.01", "skill": "pipeline-or-notebook-choosing-the-tool", "tier": 1, "requires": []},
+    {"id": "flow.02", "skill": "activities-and-dependencies", "tier": 2, "requires": ["flow.01"]},
+    {"id": "flow.03", "skill": "parameters-and-dynamic-content", "tier": 2, "requires": ["flow.01"]},
+    {"id": "flow.04", "skill": "schedules-and-event-triggers", "tier": 3, "requires": ["flow.02"]},
+    {"id": "flow.05", "skill": "foreach-over-many-tables", "tier": 3, "requires": ["flow.03"]},
+    {"id": "flow.06", "skill": "notebook-orchestration", "tier": 4, "requires": ["flow.04"]},
+    {"id": "flow.07", "skill": "retry-and-failure-handling", "tier": 4, "requires": ["flow.04", "flow.05"]},
+    {"id": "flow.08", "skill": "parallel-runs-without-collisions", "tier": 5, "requires": ["flow.06"]},
+    {"id": "flow.09", "skill": "run-history-and-alerts", "tier": 5, "requires": ["flow.07"]},
+    {"id": "flow.10", "skill": "capstone-an-orchestration-that-heals-itself", "tier": 6, "requires": ["flow.08", "flow.09"], "capstone": true}
+   ]},
+  {"id": "copy", "title": "Copy Artisan", "professional": "Ingestion and connectors", "competency": "ingestion",
+   "nodes": [
+    {"id": "copy.01", "skill": "raw-landing-and-bronze-tables", "tier": 1, "requires": []},
+    {"id": "copy.02", "skill": "copy-activity-design", "tier": 2, "requires": ["copy.01"]},
+    {"id": "copy.03", "skill": "file-formats-csv-json-parquet", "tier": 2, "requires": ["copy.01"]},
+    {"id": "copy.04", "skill": "semi-structured-data", "tier": 3, "requires": ["copy.02"]},
+    {"id": "copy.05", "skill": "shortcuts-instead-of-copies", "tier": 3, "requires": ["copy.03"]},
+    {"id": "copy.06", "skill": "mirroring", "tier": 4, "requires": ["copy.04"]},
+    {"id": "copy.07", "skill": "dataflow-gen2", "tier": 4, "requires": ["copy.04", "copy.05"]},
+    {"id": "copy.08", "skill": "connections-and-gateways", "tier": 5, "requires": ["copy.06"]},
+    {"id": "copy.09", "skill": "fault-tolerance-and-bad-rows", "tier": 5, "requires": ["copy.07"]},
+    {"id": "copy.10", "skill": "capstone-a-source-onboarded-end-to-end", "tier": 6, "requires": ["copy.08", "copy.09"], "capstone": true}
+   ]},
+  {"id": "cdc", "title": "Tidebinder", "professional": "Incremental and change data capture loads", "competency": "data-loading",
+   "nodes": [
+    {"id": "cdc.01", "skill": "full-or-incremental", "tier": 1, "requires": []},
+    {"id": "cdc.02", "skill": "incremental-loads-with-a-watermark", "tier": 2, "requires": ["cdc.01"]},
+    {"id": "cdc.03", "skill": "merge-upserts", "tier": 2, "requires": ["cdc.01"]},
+    {"id": "cdc.04", "skill": "idempotent-loads", "tier": 3, "requires": ["cdc.02"]},
+    {"id": "cdc.05", "skill": "deduplicating-retried-loads", "tier": 3, "requires": ["cdc.03"]},
+    {"id": "cdc.06", "skill": "deletes-in-the-source", "tier": 4, "requires": ["cdc.04"]},
+    {"id": "cdc.07", "skill": "late-arriving-data", "tier": 4, "requires": ["cdc.04", "cdc.05"]},
+    {"id": "cdc.08", "skill": "change-data-feed", "tier": 5, "requires": ["cdc.06"]},
+    {"id": "cdc.09", "skill": "backfills-and-reprocessing-windows", "tier": 5, "requires": ["cdc.07"]},
+    {"id": "cdc.10", "skill": "capstone-a-load-that-misses-nothing", "tier": 6, "requires": ["cdc.08", "cdc.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-channel-cut", "name": "First Channel Cut", "criteria": "Reach Journeyman in Activities and dependencies.", "requires": {"level": 3, "talents": ["flow.02"]}},
+  {"id": "nothing-lost", "name": "Nothing Lost", "criteria": "Reach Adept in Incremental loads with a watermark.", "requires": {"level": 4, "talents": ["cdc.02"]}},
+  {"id": "tide-turned-back", "name": "Tide Turned Back", "criteria": "Reach Adept in Idempotent loads and in Deduplicating retried loads.", "requires": {"level": 4, "talents": ["cdc.04", "cdc.05"]}},
+  {"id": "self-healing-line", "name": "Self-Healing Line", "criteria": "Reach Journeyman in Retry and failure handling.", "requires": {"level": 3, "talents": ["flow.07"]}},
+  {"id": "forgemasters-seal", "name": "Forgemaster's Seal", "criteria": "Reach Adept in all ten talents of one Pipeline Forgemaster specialization.", "requires": {"level": 4, "any_specialization": true}}
+ ]
+}

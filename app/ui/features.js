@@ -64,7 +64,8 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
   semanticView: "Semantic View files and publish steps",
-  directLakeCheck: "Direct Lake check",
+  directLakeCheck: "Direct Lake fallback risk",
+  modelBpa: "Semantic model best practices check",
   dataDictionary: "Data dictionary",
   tests: "Tests",
   xray: "Estate X-ray",
@@ -107,6 +108,8 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   nbConsole: "Scratch console in notebooks",
   nbReport: "Notebook as a report",
+  nbPresent: "Notebook Present mode",
+  mdToolbar: "Markdown toolbar and preview",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
   forgeActivity: "Forge Activity view in Monitor",
@@ -125,6 +128,7 @@ const PREVIEW_FEATURES = {
   updateBanner: "New build banner",
   engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  syncChooser: "Merge a notebook changed in VS Code and here, cell by cell",
   runSeveral: "Run several notebooks from Home",
   itemPins: "Items pinned to Home",
   learn: "Learn",
@@ -132,6 +136,7 @@ const PREVIEW_FEATURES = {
   appStudio: "App Studio",
   embedStudio: "Embed Studio (Power BI)",
   kfEnvironment: "KratosForge Environment",
+  ucVolumes: "Unity Catalog volumes on this PC",
 };
 
 function previewShown() {
@@ -317,8 +322,11 @@ function initAppearance() {
     if (e.key === "Escape" && howView.open && !document.querySelector(".overlay, #menu")) setHowDrawer(false);
   });
   let queued = false;
-  new MutationObserver(() => {
-    if (queued) return;
+  new MutationObserver((records) => {
+    // A code editor's own changes (typing, a notebook cell's editor coming and going as it scrolls,
+    // notebook.js) never add or remove a page's explanation: each sync searches the whole page, which in
+    // a long notebook took ~10 ms a frame while scrolling (WR-134).
+    if (queued || records.every((r) => r.target.closest?.(".cells .editor, .cm-editor"))) return;
     queued = true;
     requestAnimationFrame(() => { queued = false; syncHowToggle(); });
   }).observe(document.getElementById("view"), { childList: true, subtree: true });
@@ -348,7 +356,7 @@ function registerShortcuts(group, list) {
 // The keys that work everywhere in the window (app.js handles each through isShortcut).
 registerShortcuts("Anywhere", [
   { id: "palette", keys: ["Ctrl+K"], match: ["k"], mod: true,
-    label: "Open the command bar: find a page, action, notebook, workspace or entity" },
+    label: "Open the command bar: find a page, action, notebook, workspace or entity. While you edit a Markdown cell with its toolbar, Ctrl+K adds a link instead" },
   { id: "shortcuts", keys: ["?"], match: ["?"], label: "Show this list (when you aren't typing in a box)" },
   { id: "close", keys: ["Esc"], match: ["Escape"],
     label: "Close the command bar, a menu, a dialog or the activity tray, then go back to where you were" },

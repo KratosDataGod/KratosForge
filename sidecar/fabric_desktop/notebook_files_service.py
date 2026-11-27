@@ -142,6 +142,10 @@ class NotebookFilesMixin:
                 self.set_pc_schedule_enabled(sid, True)  # type: ignore[attr-defined]
             raise
         self.sessions.forget(name)  # type: ignore[attr-defined]  # its kernel, if it had one of its own
+        try:  # its merge bases: no copies of its cells outlive it in Recently deleted
+            self._sync_bases.forget(name)  # type: ignore[attr-defined]
+        except OSError as exc:
+            _log.warning("Couldn't drop the merge bases of %r: %s", name, describe(exc))
         return deleted
 
     def notebook_deleted(self) -> list[dict[str, Any]]:

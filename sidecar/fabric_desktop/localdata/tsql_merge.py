@@ -15,6 +15,14 @@ From Microsoft's MERGE (Transact-SQL) page, whose second syntax block is the one
 - A column is set once in a clause (SQL Server's error 264); a Delta table took the last value.
 - Fabric's MERGE inserts with ``INSERT [(columns)] VALUES (...)`` only: no ``DEFAULT VALUES``, which sqlglot read
   as a column called DEFAULT.
+- A column named without ``t.`` or ``s.`` in a WHEN clause is placed by the table's and the source's columns
+  (WR-253). One both have is SQL Server's error 209, "Ambiguous column name 'x'.", in any WHEN clause. One only the
+  table has can't be read in WHEN NOT MATCHED [BY TARGET], and one only the source has can't be read in WHEN NOT
+  MATCHED BY SOURCE. A Delta table read the missing row's column as NULL, and DuckDB stopped with its binder's words.
+  The source's columns are a known table's, a CTE's or a subquery's (``SELECT *`` and ``x.*`` read from the
+  relations they name), or the alias's column list. A source whose columns are known only when it runs (a
+  temporary table, a table the script makes, a table-valued function) is placed by :func:`place` too, in engine.py,
+  by the columns it has then, before anything is written (WR-257).
 
 ``SET t.v = ...``, with the table's alias, runs as ``SET v = ...``: T-SQL allows it, and DuckDB's parser didn't.
 Which clause takes a row (the first whose condition holds) and the check that a table row is changed by one source
@@ -22,6 +30,8 @@ row at most (SQL Server's error 8672) are in engine.py, for a database table and
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from sqlglot import exp
 from sqlglot.tokens import Token, TokenType
@@ -94,6 +104,10 @@ def check(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | 
     for when in by_target:
         _reads_only(when, mine, "WHEN NOT MATCHED [BY TARGET]", "the source's columns",
                     "a source row the table doesn't have, so there is no table row to read")
+    table = _columns_of(target, columns)
+    source = _source_columns(tree, using, columns) if using is not None else None
+    if table is not None and source is not None:
+        place([(_match(w), _reads(w)) for w in whens], table, source)
 
 
 def _action(when: exp.When) -> str:
@@ -151,15 +165,17 @@ def _columns_of(target: exp.Table, columns: dict[str, dict[str, dict[str, str]]]
 
 
 def _insert(then: exp.Insert, table: list[str] | None) -> None:
+    # sqlglot gives a MERGE's INSERT with no VALUES the expression False, not None
+    given = then.expression if isinstance(then.expression, exp.Expression) else None
     columns = then.this.expressions if isinstance(then.this, exp.Tuple) else []
     if len(columns) == 1 and isinstance(columns[0], exp.Column) and not columns[0].this.quoted \
-            and columns[0].name.upper() == "DEFAULT" and then.expression is None:
+            and columns[0].name.upper() == "DEFAULT" and given is None:
         raise ValueError("A Fabric Warehouse's MERGE doesn't take INSERT DEFAULT VALUES. Its WHEN NOT MATCHED "
                          "inserts with INSERT (columns) VALUES (...). Give the values, or NULL where a column has "
                          "none.")
-    if then.expression is None and not isinstance(then.this, exp.Star):
+    if given is None and not isinstance(then.this, exp.Star):
         raise ValueError("A MERGE's INSERT needs VALUES (...) in T-SQL, so write INSERT (columns) VALUES (...).")
-    values = then.expression.expressions if isinstance(then.expression, exp.Tuple) else []
+    values = given.expressions if isinstance(given, exp.Tuple) else []
     if not columns and table is not None and values and len(values) != len(table):
         raise ValueError(f"INSERT VALUES without a column list gives a value for each column of the table in "
                          f"order, and it has {len(table)} ({', '.join(table)}), but VALUES gives {len(values)}. "
@@ -180,3 +196,140 @@ def _reads_only(when: exp.When, others: set[str], kind: str, allowed: str, why: 
             raise ValueError(f"{kind} reads only {allowed} in T-SQL, because it acts on {why}. This one reads "
                              f"{column.sql(dialect='tsql')}, and a Fabric Warehouse refuses it. Take that out of "
                              "the clause, or move the logic to a WHEN MATCHED clause.")
+
+
+# WR-253: an unqualified column in a WHEN clause, placed by the table's and the source's columns.
+_ONLY = {
+    "not_matched": ("WHEN NOT MATCHED [BY TARGET]", "the source's columns", "the table",
+                    "a source row the table doesn't have, so there is no table row to read"),
+    "not_matched_by_source": ("WHEN NOT MATCHED BY SOURCE", "the table's columns", "the source",
+                              "a row the source doesn't have, so there is no source row to read"),
+}
+
+
+def place(whens: list[tuple[str, list[exp.Expression]]], table: list[str], source: list[str]) -> None:
+    """Refuses a column named without ``t.`` or ``s.`` in a WHEN clause that both the table and the source have
+    (SQL Server's error 209), or that only the side a clause has no row of has. ``whens`` is each clause's kind
+    (matched, not_matched or not_matched_by_source) with the expressions it reads; ``table`` and ``source`` are
+    their columns. A column neither has is left to the engine, which says Invalid column name."""
+    mine, theirs = {c.lower() for c in table}, {c.lower() for c in source}
+    for match, reads in whens:
+        for node in reads:
+            for column in _unqualified(node):
+                name = column.name.lower()
+                if name in mine and name in theirs:
+                    raise ValueError(f"Ambiguous column name '{column.name}'.")
+                only = _ONLY.get(match)
+                if only is None:
+                    continue
+                kind, allowed, side, why = only
+                wrong = mine if match == "not_matched" else theirs
+                right = theirs if match == "not_matched" else mine
+                if name in wrong and name not in right:
+                    raise ValueError(f"{kind} reads only {allowed} in T-SQL, because it acts on {why}. This one "
+                                     f"reads {column.name}, which only {side} has, and a Fabric Warehouse refuses "
+                                     "it. Take that out of the clause, or move the logic to a WHEN MATCHED clause.")
+
+
+def clauses(change: Any) -> list[tuple[str, list[exp.Expression]]]:
+    """Each WHEN clause of a ``delta_dml.Change`` MERGE, as :func:`place` takes them."""
+    out: list[tuple[str, list[exp.Expression]]] = []
+    for when in change.whens:
+        reads = [when.condition] if when.condition is not None else []
+        out.append((when.match, reads + [value for _, value in when.sets] + list(when.values)))
+    return out
+
+
+def _match(when: exp.When) -> str:
+    if when.args.get("matched"):
+        return "matched"
+    return "not_matched_by_source" if when.args.get("source") else "not_matched"
+
+
+def _reads(when: exp.When) -> list[exp.Expression]:
+    """What a WHEN clause reads: its condition, the values it sets and the values it inserts, not the names of
+    the table's columns it sets or inserts into."""
+    reads = [when.args["condition"]] if when.args.get("condition") is not None else []
+    then = when.args.get("then")
+    if isinstance(then, exp.Update):
+        reads += [a.expression for a in then.expressions if isinstance(a, exp.EQ)]
+    elif isinstance(then, exp.Insert) and isinstance(then.expression, exp.Tuple):
+        reads += list(then.expression.expressions)
+    return reads
+
+
+def _unqualified(node: exp.Expression) -> list[exp.Column]:
+    """The columns in ``node`` named without a table, outside any subquery (whose own FROM places them)."""
+    found = []
+    for column in node.find_all(exp.Column):
+        if column.table or isinstance(column.this, exp.Star):
+            continue
+        parent = column.parent
+        while parent is not None and parent is not node and not isinstance(parent, (exp.Select, exp.Subquery)):
+            parent = parent.parent
+        if parent is None or parent is node:
+            found.append(column)
+    return found
+
+
+def _ctes(node: exp.Expression) -> dict[str, exp.CTE]:
+    with_ = node.args.get("with_") or node.args.get("with")
+    return {cte.alias.lower(): cte for cte in (with_.expressions if isinstance(with_, exp.With) else [])}
+
+
+def _source_columns(tree: exp.Merge, using: exp.Expression,
+                    columns: dict[str, dict[str, dict[str, str]]] | None) -> list[str] | None:
+    """The MERGE source's columns, or None when they aren't known before it runs (a temporary table, a table the
+    script makes, a function)."""
+    return _relation(using, _ctes(tree), columns)
+
+
+def _relation(node: exp.Expression, ctes: dict[str, exp.CTE],
+              columns: dict[str, dict[str, dict[str, str]]] | None) -> list[str] | None:
+    alias = node.args.get("alias")
+    listed = alias.columns if isinstance(alias, exp.TableAlias) else []
+    if listed:
+        return [c.name for c in listed]
+    if isinstance(node, exp.Table):
+        if not isinstance(node.this, exp.Identifier) or node.this.args.get("temporary"):
+            return None
+        if not node.db and node.name.lower() in ctes:
+            cte = ctes[node.name.lower()]
+            inner = {k: v for k, v in ctes.items() if k != node.name.lower()}  # a CTE doesn't read itself here
+            return _relation(cte, inner, columns)
+        return _columns_of(node, columns)
+    if isinstance(node, (exp.Subquery, exp.CTE)):
+        return _query(node.this, ctes, columns)
+    return None
+
+
+def _query(node: exp.Expression, ctes: dict[str, exp.CTE],
+           columns: dict[str, dict[str, dict[str, str]]] | None) -> list[str] | None:
+    if isinstance(node, exp.SetOperation):
+        return _query(node.this, ctes, columns)
+    if isinstance(node, exp.Subquery):
+        return _query(node.this, ctes, columns)
+    if not isinstance(node, exp.Select):
+        return None
+    ctes = {**ctes, **_ctes(node)}
+    from_ = node.args.get("from_") or node.args.get("from")
+    relations = ([from_.this] if isinstance(from_, exp.From) else []) + [j.this for j in node.args.get("joins") or []]
+    out: list[str] = []
+    for projection in node.expressions:
+        if isinstance(projection, exp.Star):
+            for relation in relations:
+                found = _relation(relation, ctes, columns)
+                if found is None:
+                    return None
+                out += found
+        elif isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star):
+            named = [r for r in relations if (r.alias or r.name).lower() == projection.table.lower()]
+            found = _relation(named[0], ctes, columns) if len(named) == 1 else None
+            if found is None:
+                return None
+            out += found
+        elif isinstance(projection, (exp.Alias, exp.Column)):
+            out.append(projection.alias_or_name)
+        else:
+            return None
+    return out

@@ -87,6 +87,8 @@ def _try(sql: str, setup: bool = False) -> tuple[str, str]:
             con.execute(_TABLES)
         con.execute(translation.duckdb_sql).fetchall()
     except duckdb.Error as exc:
+        if snowflake_sql.stopped_by_name(exc):  # a refusal only the run can tell (SFN-071, SFN-072)
+            return "refused", _first_line(exc).split("Error: ", 1)[-1]
         return "fails", _first_line(exc)
     finally:
         con.close()
@@ -131,16 +133,15 @@ def check(function: dict[str, Any], cases: dict[str, list[Any]]) -> tuple[str, s
 # Why each function still Not checked has no value check here (WR-307): its value varies, its page has no
 # example this PC can run as written, or the example needs something this PC doesn't have yet.
 _CLOCK = "its value is the clock's, so there's no documented value to compare"
-_SESSION = "its value describes the Snowflake session or account, which this PC doesn't have"
-_TRADES = "its page's only example reads a trades table the page doesn't create"
-_MIXED = "its page's examples put values of different types in one array, which a DuckDB list can't hold"
+_SESSION = ("its value names the session's user, role, database or schema: Snowflake's examples show their own "
+            "account's, and here it is this PC's DuckDB session's")
+_TRADES = ("its page's only example reads a trades table whose rows the page doesn't give; the CUME_DIST and "
+           "PERCENT_RANK pages' outputs can't both come from one such table")
 NOT_CHECKED: dict[str, str] = {
-    "ARRAY_CONSTRUCT_COMPACT": _MIXED, "ARRAY_INSERT": _MIXED, "ARRAY_PREPEND": _MIXED,
     "CUME_DIST": _TRADES, "NTILE": _TRADES, "PERCENT_RANK": _TRADES,
     "CURRENT_DATE": _CLOCK, "CURRENT_TIME": _CLOCK, "LOCALTIME": _CLOCK,
-    "CURRENT_VERSION": _SESSION, "CURRENT_ROLE": _SESSION, "CURRENT_USER": _SESSION, "CURRENT_DATABASE": _SESSION,
-    "CURRENT_SCHEMA": _SESSION, "CURRENT_SCHEMAS": _SESSION,
-    "RANDOM": "its values are random; RANDOM with a seed is refused",
+    "CURRENT_ROLE": _SESSION, "CURRENT_USER": _SESSION, "CURRENT_DATABASE": _SESSION, "CURRENT_SCHEMA": _SESSION,
+    "RANDOM": "its values are random; RANDOM with a seed is refused (SFN-076)",
 }
 
 

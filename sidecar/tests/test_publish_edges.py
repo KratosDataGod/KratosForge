@@ -162,3 +162,10 @@ def test_a_job_whose_token_expired_twice_fails(tmp_path, monkeypatch):
     with pytest.raises(P.WriteTokenExpired):
         P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
     assert len(tries) == 2
+
+
+def test_a_job_cannot_run_without_a_guard(tmp_path, monkeypatch):
+    # every caller says what the target may not be (service.run_job: Test and Prod); none can leave it out
+    monkeypatch.setattr(P, "run_local", lambda j: pytest.fail("the job ran"))
+    with pytest.raises(TypeError, match="guard"):
+        P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work")  # type: ignore[call-arg]

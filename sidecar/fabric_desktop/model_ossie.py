@@ -19,12 +19,12 @@ import json
 import re
 import threading
 import warnings
-from typing import Any
+from typing import Any, Literal
 
 import sqlglot
 from sqlglot import exp
 
-from . import sql_dialects
+from . import sql_dialects, tmdl
 
 # PyYAML is needed only here and in the vendored converter. Both load on first use, not at engine start (they add
 # about 25 ms to every start, and service.py imports this module on every start). Without PyYAML (an engine installed
@@ -44,7 +44,7 @@ _LOAD_LOCK = threading.Lock()
 def _load() -> None:
     """Import PyYAML and the converter once, setting MISSING to "" or to the package that is missing."""
     global yaml, OSSIE_VERSION, ConversionError, convert_ossie_to_semantic_model, convert_semantic_model_to_ossie
-    global _NoAliasLoader, MISSING
+    global _NoAliasLoader, MISSING, _C
     with _LOAD_LOCK:
         if "MISSING" in globals():
             return
@@ -61,21 +61,179 @@ def _load() -> None:
             MISSING = {"yaml": "PyYAML"}.get((exc.name or "").partition(".")[0], exc.name or "") or str(exc)
             return
 
-        class _NoAlias(_yaml.SafeLoader):
-            """YAML without anchors and aliases (``*name``). Ossie files don't need them, and nested aliases let a
-            few hundred bytes expand into a model of gigabytes once it is written out as JSON."""
+        class _Refusals:
+            """Anchors and aliases (``*name``) refused: Ossie files don't need them, and nested aliases let a few
+            hundred bytes expand into a model of gigabytes once it is written out as JSON. A key given twice in one
+            object refused too."""
 
             def compose_node(self, parent: Any, index: Any) -> Any:
-                if self.check_event(_yaml.AliasEvent):
-                    event = self.peek_event()
+                if self.check_event(_yaml.AliasEvent):  # type: ignore[attr-defined]
+                    event = self.peek_event()  # type: ignore[attr-defined]
                     raise ValueError(f"This file repeats parts of itself with YAML aliases (line {event.start_mark.line + 1}); "
                                      "write them out in full")
-                return super().compose_node(parent, index)
+                return super().compose_node(parent, index)  # type: ignore[misc]
+
+            def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+                """A key given twice in one object is refused: YAML's keys are unique, and the later one would
+                silently replace the earlier (a second ``datasets:`` dropping the first)."""
+                seen: set[Any] = set()
+                for key_node, _ in node.value:
+                    if not isinstance(key_node, _yaml.ScalarNode) or key_node.tag == "tag:yaml.org,2002:merge":
+                        continue
+                    key = self.construct_object(key_node)  # type: ignore[attr-defined]
+                    if key in seen:
+                        raise ValueError(f"This file gives {str(key)[:80]!r} twice in one object (line "
+                                         f"{key_node.start_mark.line + 1}). Keep one.")
+                    seen.add(key)
+                return super().construct_mapping(node, deep)  # type: ignore[misc]
+
+        class _NoAlias(_Refusals, _yaml.SafeLoader):
+            """PyYAML's pure-Python SafeLoader with the refusals: the reference every fast read is held to."""
+
+        from ._vendor.ossie_microsoft import semantic_model_to_ossie as _s2o
 
         yaml, OSSIE_VERSION, ConversionError = _yaml, _version, _error
         convert_ossie_to_semantic_model, convert_semantic_model_to_ossie = _to_model, _to_ossie
         _NoAliasLoader = _NoAlias
+        _VENDORED.update(to_model=_to_model, to_ossie=_to_ossie, build=_s2o.build_ossie_document,
+                         ossie_dumper=_s2o._OssieDumper)
+        _C = _fast_classes(_yaml, _Refusals, _s2o._OssieDumper)
         MISSING = ""  # last: its presence means the names above are set
+
+
+class _NotSure(Exception):
+    """The libyaml read can't be trusted to match the pure-Python one here; the pure one reads it instead."""
+
+
+# Reading and writing YAML with libyaml (PyYAML's C extension) when the engine has it: several times faster
+# than PyYAML's pure-Python code, which took about two thirds of Export with its round trip. The two disagree
+# on some text, so libyaml is used only where it gives exactly what the pure code gives:
+# - Untrusted text (load_text) is scanned and parsed by libyaml, but composed and built by the same Python
+#   code as before (so aliases, repeated keys and nesting are refused in the same place). A text with a tab,
+#   a byte order mark after the start, or a block scalar header followed by "#" goes to the pure reader, as
+#   does a plain scalar holding "?" inside [ ] or { } (libyaml reads it, PyYAML refuses it). Whatever libyaml
+#   refuses, or nests past _FAST_DEPTH, is read again by the pure reader, so every refusal has its words.
+# - Writing: a document of plain values (objects, lists, text, numbers, true/false, null) with no carriage
+#   return, lone surrogate or character past U+FFFF in its text, and keys of 1 to _FAST_KEY_BYTES bytes, is
+#   written by libyaml; its output is the same, byte for byte. libyaml ends a document holding a "|+" block
+#   with "..." where PyYAML may not, so such a document is written again by the pure code.
+# - Text this module wrote itself is read back with libyaml's SafeLoader, the pure one when libyaml refuses.
+# tests/test_ossie_fast_yaml.py runs the fixture corpus and hostile input through both.
+_FAST_DEPTH = 2 * tmdl.MAX_DEPTH
+_FAST_KEY_BYTES = 100
+_FAST_UNSAFE_TEXT = re.compile(r"\t|[|>][-+0-9]*#")
+_FAST_UNSAFE_CHARS = re.compile("[\r\ud800-\udfff\U00010000-\U0010ffff]")
+_PLAIN = (int, float, bool, type(None))
+_VENDORED: dict[str, Any] = {}  # the vendored converter's functions, so a stand-in (the upgrade diff's) is noticed
+_C: Any = None  # libyaml's classes (see _fast_classes), or None to use only the pure-Python ones
+
+
+def _fast_classes(_yaml: Any, refusals: type, ossie_dumper: type) -> Any:
+    """libyaml's loader and dumpers, or None when PyYAML was built without it."""
+    if not getattr(_yaml, "__with_libyaml__", False):
+        return None
+    from types import SimpleNamespace
+
+    from yaml.composer import Composer
+    from yaml.constructor import SafeConstructor
+    from yaml.resolver import Resolver
+
+    class _CNoAlias(refusals, Composer, _yaml.cyaml.CParser, SafeConstructor, Resolver):
+        """libyaml's scanner and parser under the pure-Python composer and constructor, with the refusals."""
+
+        def __init__(self, stream: str) -> None:
+            _yaml.cyaml.CParser.__init__(self, stream)
+            Composer.__init__(self)
+            SafeConstructor.__init__(self)
+            Resolver.__init__(self)
+            self.depth = self.flow = 0
+
+        def compose_node(self, parent: Any, index: Any) -> Any:
+            event = self.peek_event()
+            flow = int(isinstance(event, _yaml.CollectionStartEvent) and bool(event.flow_style))
+            self.depth, self.flow = self.depth + 1, self.flow + flow
+            try:
+                if self.depth > _FAST_DEPTH:
+                    raise _NotSure
+                return super().compose_node(parent, index)
+            finally:
+                self.depth, self.flow = self.depth - 1, self.flow - flow
+
+        def compose_scalar_node(self, anchor: Any) -> Any:
+            event = self.peek_event()
+            if self.flow and not event.style and "?" in event.value:  # libyaml gives a plain scalar style ""
+                raise _NotSure  # PyYAML ends a plain scalar at "?" inside [ ] or { }; libyaml reads on
+            if event.tag is not None and not event.value:  # an empty scalar with a tag such as a lone "!":
+                raise _NotSure  # libyaml reads it as "", PyYAML as null or refuses it
+            return super().compose_scalar_node(anchor)
+
+    class _COssieDumper(_yaml.CSafeDumper):
+        """The converter's dumper (its str representer) on libyaml's emitter."""
+
+    _COssieDumper.yaml_representers = dict(ossie_dumper.yaml_representers)  # type: ignore[attr-defined]
+    return SimpleNamespace(no_alias=_CNoAlias, safe_loader=_yaml.CSafeLoader, safe_dumper=_yaml.CSafeDumper,
+                           ossie_dumper=_COssieDumper)
+
+
+def _fast_writable(doc: Any) -> bool:
+    """Whether libyaml writes ``doc`` exactly as the pure code does: plain values, text without a carriage return,
+    lone surrogate or character past U+FFFF, and keys of 1 to _FAST_KEY_BYTES bytes (libyaml and PyYAML measure
+    a key differently when deciding whether it needs a "?")."""
+    stack = [doc]
+    while stack:
+        value = stack.pop()
+        kind = type(value)
+        if kind is dict:
+            for key, item in value.items():
+                if type(key) is not str or not key or len(key) > _FAST_KEY_BYTES or _FAST_UNSAFE_CHARS.search(key) \
+                        or len(key.encode("utf-8")) > _FAST_KEY_BYTES:
+                    return False
+                stack.append(item)
+        elif kind is list:
+            stack.extend(value)
+        elif kind is str:
+            if _FAST_UNSAFE_CHARS.search(value):
+                return False
+        elif kind not in _PLAIN:
+            return False
+    return True
+
+
+def dump_yaml(doc: Any, dumpers: tuple[Any, Any] | None = None, **options: Any) -> str:
+    """``doc`` as YAML, as ``yaml.dump(doc, Dumper=dumpers[0], **options)`` writes it, byte for byte, with
+    libyaml (``dumpers[1]``) when it writes the same. ``dumpers`` defaults to the converter's dumper and the
+    converter's options (keys in order, block style, unicode as it is, no line folding)."""
+    if dumpers is None:
+        dumpers = (_VENDORED["ossie_dumper"], _C.ossie_dumper if _C is not None else None)
+        options = {"sort_keys": False, "default_flow_style": False, "allow_unicode": True, "width": float("inf")}
+    pure, fast = dumpers
+    if _C is not None and fast is not None and _fast_writable(doc):
+        text: str = yaml.dump(doc, Dumper=fast, **({**options, "width": -1} if options.get("width") == float("inf")
+                                                   else options))
+        if not text.endswith("\n...\n"):
+            return text
+    out: str = yaml.dump(doc, Dumper=pure, **options)
+    return out
+
+
+def load_own(text: str) -> Any:
+    """YAML this module (or the converter) wrote, as plain values: libyaml's SafeLoader, the pure one when libyaml
+    refuses it. Never for a file someone gives: that is ``load_text``."""
+    if _C is not None:
+        try:
+            return yaml.load(text, Loader=_C.safe_loader)  # noqa: S506 - a SafeLoader
+        except yaml.YAMLError:  # narrow: libyaml refused it; the pure reader decides, with its own words
+            pass
+    return yaml.safe_load(text)
+
+
+def _to_ossie(semantic_model: Any, translate_dax: bool = False) -> str:
+    """``convert_semantic_model_to_ossie``: the vendored one's document written by ``dump_yaml``, or the stand-in
+    the upgrade diff put there."""
+    if convert_semantic_model_to_ossie is not _VENDORED["to_ossie"] or not isinstance(semantic_model, dict):
+        out: str = convert_semantic_model_to_ossie(semantic_model, translate_dax=translate_dax)
+        return out
+    return dump_yaml(_VENDORED["build"](semantic_model, translate_dax=translate_dax))
 
 
 def __getattr__(name: str) -> Any:
@@ -103,8 +261,14 @@ _OSSIE_ANNOTATIONS = frozenset({"OssieAIContext", "OssieExpressionDialect", PLAC
 _TABLE_ALWAYS_KEPT = ("hierarchies", "calculationGroup", "refreshPolicy")  # kept even over a Power BI section
 # warnings.catch_warnings swaps process-wide state, so conversions run one at a time.
 _LOCK = threading.Lock()
+# The file name every converter warning carries (ossie_microsoft._common.warn): only those are the report.
+CONVERTER_WARNINGS = "ossie_microsoft"
 # A large real model is a few MB of YAML; this keeps a mistaken pick (a data file) from filling memory.
 MAX_CHARS = 20_000_000
+# Levels of nesting a document may have, as the schema check (ossie_validate) allows: deeper is refused before the
+# converter recurses into it.
+MAX_DEPTH = tmdl.MAX_DEPTH
+NOT_A_MODEL = "This isn't an Ossie semantic model, which is one object with version, name and datasets"
 
 
 def unavailable() -> str:
@@ -132,6 +296,10 @@ def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, st
         result = fn(*args, **kwargs)
     report = []
     for w in caught:
+        if w.filename != CONVERTER_WARNINGS:  # not the converter's: a warning Python raised meanwhile, such as
+            # a ResourceWarning for another thread's socket the garbage collector closed. Passed on, not reported.
+            warnings.showwarning(w.message, w.category, w.filename, w.lineno, w.file, w.line)
+            continue
         text = str(w.message)
         scope, _, message = text[1:].partition("] ") if text.startswith("[") else ("model", "", text)
         report.append({"object": scope, "message": message or text,
@@ -141,12 +309,17 @@ def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, st
 
 def load_text(text: str) -> Any:
     """Untrusted YAML or JSON text as plain values: at most MAX_CHARS, a SafeLoader that also refuses aliases,
-    and no nesting deeper than Python's recursion limit. Refuses with a plain reason (ValueError or TypeError)."""
+    and no nesting deeper than Python's recursion limit. Refuses with a plain reason (ValueError)."""
     require()
     if not isinstance(text, str):
-        raise TypeError("An Ossie file is text (YAML or JSON)")
+        raise ValueError("An Ossie file is text (YAML or JSON)")
     if len(text) > MAX_CHARS:
         raise ValueError(f"This file is {len(text) // 1_000_000} MB; an Ossie model is at most {MAX_CHARS // 1_000_000} MB")
+    if _C is not None and not _FAST_UNSAFE_TEXT.search(text) and text.find("\ufeff", 1) < 0:
+        try:
+            return yaml.load(text, Loader=_C.no_alias)  # noqa: S506 - a SafeLoader that also refuses aliases
+        except (yaml.YAMLError, ValueError, RecursionError, _NotSure):  # narrow: refused, or libyaml isn't sure:
+            pass  # the pure reader below decides, so a refusal has the same words either way
     try:
         return yaml.load(text, Loader=_NoAliasLoader)  # noqa: S506 - a SafeLoader that also refuses aliases
     except yaml.YAMLError as exc:
@@ -164,8 +337,7 @@ def parse(text: str) -> dict[str, Any]:
     from . import ossie_profiles
 
     doc = load_text(text)
-    if not isinstance(doc, dict):
-        raise TypeError("This isn't an Ossie semantic model: it should be one object with version, name and datasets")
+    _refuse_root(doc)
     profile = ossie_profiles.detect_profile(doc)  # UnknownProfile, a ValueError naming the version
     if ossie_profiles.PROFILES[profile]["root"] == "flat" and (
             not doc.get("name") or not isinstance(doc.get("datasets"), list) or not doc["datasets"]):
@@ -176,6 +348,8 @@ def parse(text: str) -> dict[str, Any]:
 def model_name(doc: dict[str, Any]) -> str:
     """The model's name: at the top of a flat file, or in Snowflake's 0.1.1 wrapper ``semantic_model[0].name``
     (a list) or ``semantic_model.name`` (one object). "" when there is none."""
+    if not isinstance(doc, dict):
+        return ""
     wrapper = doc.get("semantic_model")
     inner = wrapper[0] if isinstance(wrapper, list) and wrapper else wrapper
     name = doc.get("name") if "name" in doc else inner.get("name") if isinstance(inner, dict) else None
@@ -203,11 +377,23 @@ def export(bim: dict[str, Any], translate_dax: bool = True, read_report: list[di
     ``translate_dax`` also writes single-column aggregate measures (SUM, AVERAGE, MIN, MAX, COUNTA,
     DISTINCTCOUNTNOBLANK) as portable SQL, keeping the DAX beside it. ``read_report`` (what the TMDL reader left
     out) leads the report. ``validate`` also runs the round trip (``round_trip_check``): its rows are
-    ``round_trip`` and its result is the fidelity report's validation."""
+    ``round_trip`` and its result is the fidelity report's validation. A part of the wrong type is refused by
+    path before conversion (``_refuse_shape``)."""
     require()
-    text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
+    _refuse_shape(bim, _BIM_SHAPE, "export")
+    if tmdl.too_deep(bim):
+        raise ValueError("This model couldn't be converted to Ossie, because part of it is nested too deeply to read "
+                         f"(more than {MAX_DEPTH} levels). Flatten that part (often an annotation value), then try again.")
+    try:
+        text, report = _convert(_to_ossie, bim, translate_dax=translate_dax)
+    except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a number for tables)
+        raise ValueError("This model couldn't be converted to Ossie, because part of it isn't the shape a semantic model's "
+                         f"part has ({exc}). Fix that part, then try again.") from exc
+    except RecursionError:  # the converter recurses (and json-encodes) each part; Windows' C stack ends it soonest
+        raise ValueError("This model couldn't be converted to Ossie, because part of it is nested too deeply to read. "
+                         "Flatten that part (often an annotation value), then try again.") from None
     report = list(read_report or []) + report
-    doc = yaml.safe_load(text)
+    doc = load_own(text)
     datasets = doc.get("datasets") or []
     metrics = list(doc.get("metrics") or []) + [m for d in datasets for m in d.get("metrics") or []]
     portable = sum(1 for m in metrics if any(d.get("dialect") != "DAX"
@@ -261,7 +447,15 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
                     except sqlglot.errors.SqlglotError:  # ParseError or TokenError (e.g. an unclosed quote)
                         pass  # left as written: the converter reports SQL it can't translate
             stash = next((e for e in m.get("custom_extensions") or [] if e.get("vendor_name") == "POWER_BI"), None)
-            data = json.loads(stash["data"]) if stash else {"_v": 2}
+            raw = stash.get("data") if stash else None
+            try:  # refused as the converter refuses a model-level metric's data
+                data = json.loads(raw) if raw is not None else {"_v": 2}
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"The Ossie file couldn't be converted, because the POWER_BI custom_extensions data "
+                                 f"in {scope} isn't valid JSON ({exc}). Fix it, then try again.") from None
+            if not isinstance(data, dict):
+                raise ValueError(f"The Ossie file couldn't be converted, because the POWER_BI custom_extensions data "
+                                 f"in {scope} isn't a JSON object. Fix it, then try again.")
             data.setdefault("table", d["name"])
             m["custom_extensions"] = [e for e in m.get("custom_extensions") or [] if e is not stash] + \
                 [{"vendor_name": "POWER_BI", "data": json.dumps(data, sort_keys=True)}]
@@ -272,27 +466,214 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
     return doc
 
 
+VIEW_COLUMN = ("declared from the relationship as a lakehouse source column with no data type, because the "
+               "dataset lists no fields (a Semantic View has none); its data type wasn't known")
+
+
+def view_columns(doc: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """The relationship end columns a dataset that lists no fields (as a Fabric Semantic View's don't) never
+    declares: (dataset, column, relationship), each column once. Only a one-column-to-one-column relationship
+    between datasets of the file counts, and never a column the dataset's POWER_BI section already keeps."""
+    datasets = {d["name"]: d for d in _named_items(doc.get("datasets"))}
+    out: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for r in _dicts(doc.get("relationships")):
+        froms, tos = r.get("from_columns"), r.get("to_columns")
+        if not (isinstance(froms, list) and isinstance(tos, list) and len(froms) == len(tos) == 1):
+            continue
+        for table, column in ((r.get("from"), froms[0]), (r.get("to"), tos[0])):
+            if not isinstance(table, str) or not isinstance(column, str) or not column or (table, column) in seen:
+                continue
+            d = datasets.get(table)
+            if d is None or d.get("fields") or column in _names(_stash_data(d).get("excludedColumns")):
+                continue
+            seen.add((table, column))
+            out.append((table, column, str(r.get("name") or "<unnamed>")))
+    return out
+
+
+def _declare_view_columns(doc: dict[str, Any], report: list[dict[str, str]]) -> dict[str, Any]:
+    """``doc`` with each column ``view_columns`` names declared as a field of its dataset with no data type, so
+    the converter keeps the relationship (it skips one whose columns aren't in the model). The column reads its
+    lakehouse column of the same name; its data type is left unspecified, never guessed, and a report row says so."""
+    found = view_columns(doc)
+    if not found:
+        return doc
+    doc = copy.deepcopy(doc)
+    datasets = {d["name"]: d for d in _named_items(doc.get("datasets"))}
+    for table, column, rel in found:
+        datasets[table]["fields"] = [*(datasets[table].get("fields") or []), {"name": column}]
+        report.append({"object": f"relationship {_q(rel)}", "kind": "kept",
+                       "message": f"column {_q(table)}[{_short(column)}] {VIEW_COLUMN}. Set it to match the "
+                                  "lakehouse table before deploying"})
+    return doc
+
+
+def _refuse_root(doc: Any) -> None:
+    """Refuse (ValueError) a document that isn't one object: a list, text, a number, or nothing (an empty file)."""
+    if not isinstance(doc, dict):
+        raise ValueError(NOT_A_MODEL)
+
+
+def refuse_depth(doc: Any) -> None:
+    """Refuse (ValueError) an Ossie document nested more than ``MAX_DEPTH`` levels deep, as the schema check does,
+    before a converter recurses into it."""
+    if tmdl.too_deep(doc):
+        raise ValueError(f"The Ossie file couldn't be converted, because it is nested too deeply (more than {MAX_DEPTH} "
+                         "levels). Take out the extra nesting, then try again.")
+
+
 def _parsed(text: str | dict[str, Any]) -> dict[str, Any]:
-    """``text`` parsed, or as it is when the caller already has it from ``parse`` (so a file is read once)."""
-    return text if isinstance(text, dict) else parse(text)
+    """``text`` parsed, or as it is when the caller already has it from ``parse`` (so a file is read once); a
+    document that isn't one object is refused (ValueError) either way."""
+    if isinstance(text, str):
+        return parse(text)
+    _refuse_root(text)
+    return text
 
 
 def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """An Ossie document (its text, or what ``parse`` made of it) as a parsed ``model.bim``, and the report.
-    ``source`` is the lakehouse new Direct Lake tables read: ``{"workspaceId": ..., "itemId": ...}``."""
+    ``source`` is the lakehouse new Direct Lake tables read: ``{"workspaceId": ..., "itemId": ...}``. A part of
+    the wrong type is refused by path before conversion (``_refuse_shape``), and so is a document that isn't one
+    object or nests more than ``MAX_DEPTH`` levels deep."""
     lifted: list[dict[str, str]] = []
     parsed = _parsed(text)
     refusal = not_convertible(parsed)
     if refusal:  # never fed to the 0.2 converter as if it were 0.2
         raise ValueError(refusal)
-    doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
+    _refuse_shape(parsed, _OSSIE_SHAPE, "ossie")
+    refuse_depth(parsed)  # after the shape check, which names a wrong type by path however deep it nests
     try:
-        bim, report = _convert(convert_ossie_to_semantic_model, yaml.safe_dump(doc, sort_keys=False), source=source)
+        doc = _declare_view_columns(_lift_dataset_metrics(parsed, lifted), lifted)  # on copies: the caller's
+        # document is unchanged
+        text = dump_yaml(doc, (yaml.SafeDumper, _C.safe_dumper if _C is not None else None), sort_keys=False)
+        # The vendored converter reads the text with PyYAML's pure SafeLoader; it takes what that gives, read here.
+        given = load_own(text) if convert_ossie_to_semantic_model is _VENDORED["to_model"] else text
+        bim, report = _convert(convert_ossie_to_semantic_model, given, source=source)
     except ConversionError as exc:
         raise ValueError(f"The Ossie file couldn't be converted: {exc}") from exc
+    except (TypeError, KeyError, IndexError, AttributeError) as exc:  # a part of the wrong type (a list for a name)
+        raise ValueError(_wrong_shape(parsed)) from exc
     # The caller always passes the lakehouse when it has one; without it the ids are placeholders it reports itself.
     report = lifted + [r for r in report if "placeholder ids" not in r["message"]]
     return bim, report
+
+
+def _wrong_shape(doc: dict[str, Any]) -> str:
+    """Why a document the converter tripped on can't be converted: the schema check's first finding, by path."""
+    from . import ossie_validate
+
+    found = ossie_validate.validate(doc)["diagnostics"]
+    where = f": {found[0]['path']} {found[0]['message']}" if found else ""
+    return (f"The Ossie file couldn't be converted, because part of it isn't the shape Ossie {OSSIE_VERSION} gives it{where}. "
+            "Fix that part, then try again.")
+
+
+# ---- shape checks: the types of the keys the conversion reads, checked once before it runs
+# A shape maps a key to what its value must be: a type (or a tuple of types), a dict (an object of that shape) or a
+# one-item list (a list whose items are each that). A key that is absent, null or empty ("", [] or {}) isn't checked:
+# the converter reads it as missing. Keys not named here aren't read, so they aren't checked.
+Shape = dict[str, Any]
+_TEXT = (str, list)  # TMSL keeps multi-line text as a string or as a list of lines
+_EXTENSIONS: list[Shape] = [{"vendor_name": str}]  # data: read and refused by name where it is used
+_EXPRESSION: Shape = {"dialects": [{"dialect": str, "expression": str}]}
+_METRIC: Shape = {"name": str, "description": str, "datatype": str, "expression": _EXPRESSION,
+                  "custom_extensions": _EXTENSIONS}
+_OSSIE_SHAPE: Shape = {
+    "name": str, "description": str, "custom_extensions": _EXTENSIONS, "metrics": [_METRIC],
+    "datasets": [{"name": str, "description": str, "source": str, "primary_key": [str], "unique_keys": [[str]],
+                  "custom_extensions": _EXTENSIONS, "metrics": [_METRIC],
+                  "fields": [{"name": str, "description": str, "datatype": str, "expression": _EXPRESSION,
+                              "dimension": dict, "custom_extensions": _EXTENSIONS}]}],
+    "relationships": [{"name": str, "from": str, "to": str, "from_columns": [str], "to_columns": [str],
+                       "custom_extensions": _EXTENSIONS}],
+}
+_ANNOTATIONS: list[Shape] = [{"name": str, "value": _TEXT}]
+_NAMED: list[Shape] = [{"name": str}]
+_BIM_SHAPE: Shape = {
+    "name": str, "description": _TEXT, "compatibilityLevel": int,
+    "model": {
+        "description": _TEXT, "annotations": _ANNOTATIONS, "roles": _NAMED, "perspectives": _NAMED,
+        "cultures": _NAMED, "expressions": [{"name": str, "kind": str, "expression": _TEXT}],
+        "relationships": [{"name": str, "fromTable": str, "fromColumn": str, "toTable": str, "toColumn": str,
+                           "fromCardinality": str, "toCardinality": str}],
+        "tables": [{
+            "name": str, "description": _TEXT, "annotations": _ANNOTATIONS, "hierarchies": _NAMED,
+            "calculationGroup": dict,
+            "columns": [{"name": str, "type": str, "dataType": str, "sourceColumn": str, "expression": _TEXT,
+                         "description": _TEXT, "formatString": str, "dataCategory": str, "annotations": _ANNOTATIONS}],
+            "measures": [{"name": str, "expression": _TEXT, "description": _TEXT, "dataType": str,
+                          "formatString": str, "annotations": _ANNOTATIONS}],
+            "partitions": [{"name": str, "mode": str,
+                            "source": {"type": str, "query": _TEXT, "expression": _TEXT, "entityName": str,
+                                       "schemaName": str, "expressionSource": str}}],
+        }],
+    },
+}
+_WORDS = {str: "text", int: "a whole number", float: "a number", bool: "true or false", list: "a list",
+          dict: "an object", type(None): "empty"}
+
+
+# How a refusal starts, by what was refused; the first two as the converter's own refusals start.
+_SHAPE_LEADS = {
+    "ossie": "The Ossie file couldn't be converted, because part of it isn't the shape Ossie gives it",
+    "export": "This model couldn't be converted to Ossie, because part of it isn't the shape a semantic model's part has",
+    "update": "The model couldn't be updated, because part of it isn't the shape a semantic model's part has",
+    "tmdl": "This model couldn't be written as TMDL, because part of it isn't the shape a semantic model's part has",
+    "compare": "This model couldn't be compared, because part of it isn't the shape a semantic model's part has",
+}
+
+
+def _what(value: Any) -> str:
+    """What a value is, in words, never the value itself."""
+    if isinstance(value, bool):
+        return "true or false"
+    if isinstance(value, (int, float)):
+        return "a number"
+    return _WORDS.get(type(value), "a " + type(value).__name__)
+
+
+def _wanted(spec: Any) -> str:
+    if isinstance(spec, dict):
+        return "an object"
+    if isinstance(spec, list):
+        return "a list"
+    return " or ".join(_WORDS.get(t, t.__name__) for t in (spec if isinstance(spec, tuple) else (spec,)))
+
+
+def _fits(value: Any, spec: Any) -> bool:
+    if isinstance(spec, dict):
+        return isinstance(value, dict)
+    if isinstance(spec, list):
+        return isinstance(value, list)
+    return isinstance(value, spec) and not (isinstance(value, bool) and bool not in
+                                            (spec if isinstance(spec, tuple) else (spec,)))
+
+
+def _empty(value: Any) -> bool:
+    return value is None or (isinstance(value, (str, list, dict)) and not value)
+
+
+def _refuse_shape(doc: Any, shape: Shape, kind: Literal["ossie", "export", "update", "tmdl", "compare"]) -> None:
+    """Refuse ``doc`` (ValueError naming the path, never a value) when a key ``shape`` names has a value of
+    another type, such as text where a list of datasets goes or a list where an object goes. One pass, without
+    recursion: only as deep as ``shape`` goes, so a deeply nested value is never walked."""
+    todo: collections.deque[tuple[Any, Any, str]] = collections.deque([(doc, shape, "$")])
+    while todo:
+        value, spec, path = todo.popleft()
+        if not _fits(value, spec):
+            hint = " (a name that is a number goes in quotes)" if isinstance(value, (int, float)) and \
+                not isinstance(value, bool) and _fits("", spec) else ""
+            raise ValueError(f"{_SHAPE_LEADS[kind]}. {path} is {_what(value)} where it should be {_wanted(spec)}{hint}. "
+                             "Fix that part, then try again.")
+        if isinstance(spec, dict):
+            todo.extend((value[key], want, f"{path}.{key}")
+                        for key, want in spec.items() if not _empty(value.get(key)))
+        elif isinstance(spec, list):
+            for i, item in enumerate(value):
+                name = item.get("name") if isinstance(item, dict) else None
+                todo.append((item, spec[0], f"{path}[{_q(name) if isinstance(name, str) else i}]"))
 
 
 def _has_stash(obj: Any) -> bool:
@@ -323,6 +704,7 @@ def stashed(text: str | dict[str, Any]) -> set[str]:
     one of the model section's excluded tables), and otherwise the first dataset is its home. ``text`` may be
     what ``parse`` made of the file; it is only read."""
     doc = _parsed(text)
+    _refuse_shape(doc, _OSSIE_SHAPE, "ossie")
     datasets = [d for d in doc.get("datasets") or [] if isinstance(d, dict) and d.get("name")]
     if not datasets:
         return set()
@@ -563,6 +945,8 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
     (``_FROM_SOURCE``). A carried property naming an object the merged model doesn't have, or DAX naming one
     the merge took out, is taken back out (``_check_references``). Each property not carried is named in
     ``report``, so nothing is dropped silently."""
+    _refuse_shape(current, _BIM_SHAPE, "update")
+    _refuse_shape(incoming, _BIM_SHAPE, "update")
     remove_set = set(remove or [])
     stashed = stashed or set()
     report = report if report is not None else []
@@ -653,6 +1037,9 @@ def merge(current: dict[str, Any], incoming: dict[str, Any], remove: list[str] |
 def plan(current: dict[str, Any] | None, final: dict[str, Any]) -> list[dict[str, str]]:
     """What writing ``final`` changes in ``current`` (None: a new model), one row per object:
     ``change`` is add, change, remove or needs_dax (a BLANK() placeholder someone has to write in DAX)."""
+    if current is not None:
+        _refuse_shape(current, _BIM_SHAPE, "update")
+    _refuse_shape(final, _BIM_SHAPE, "update")
     rows: list[dict[str, str]] = []
     cur = _by_name(((current or {}).get("model") or {}).get("tables"))
     new = _by_name((final.get("model") or {}).get("tables"))
@@ -1149,6 +1536,10 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
     # The extension's set-aside relationships come back verbatim; matched first, so one never also counts as
     # a converted relationship.
     set_aside = [(r, claim(by_canon.get(_canon(r))) is not None) for r in _dicts(stash.get("excludedRelationships"))]
+    declared: dict[str, list[str]] = {}  # relationship name -> the end columns _declare_view_columns added for it
+    for table, column, rel in view_columns(doc):
+        if member(table, "columns", column) is not None:
+            declared.setdefault(rel, []).append(f"its end column {_q(table)}[{_short(column)}] was {VIEW_COLUMN}")
     for r in _dicts(doc.get("relationships")):
         data, label = _stash_data(r), r.get("name") or "<unnamed>"
         ends = (r.get("from"), (r.get("from_columns") or [None])[0], r.get("to"), (r.get("to_columns") or [None])[0])
@@ -1161,7 +1552,7 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
             for pair in (ends, (ends[2], ends[3], ends[0], ends[1])):
                 hit = hit or claim(by_ends.get(_canon(pair)))
         objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if hit else "unsupported",
-                 _ossie_drops(r) if hit else [],
+                 _ossie_drops(r) if hit else [], declared.pop(str(label), []) if hit else [],
                  key=("relationship", ends_key(r.get("from"), r.get("from_columns"), r.get("to"), r.get("to_columns"))))
     for key, kind in _STASHED_OBJECTS:
         have: dict[str, dict[str, Any]] = {}
@@ -1169,14 +1560,18 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
             have.setdefault(i["name"], i)
         for item in _named_items(stash.get(key)):
             restored_item = have.get(item["name"])
-            objs.add(kind, f"{kind} {_q(item['name'])}", "fully_preserved" if restored_item is not None else "unsupported",
+            # A role the file keeps only in its POWER_BI section reached the model, but only Power BI could read it
+            # there: Preserved through extensions, as Export classes the same role, with its security warning.
+            restored_class = "preserved_through_extensions" if kind == "role" else "fully_preserved"
+            objs.add(kind, f"{kind} {_q(item['name'])}", restored_class if restored_item is not None else "unsupported",
                      _role_changes(item, restored_item) if restored_item is not None and kind == "role" else [],
                      notes=[RESTORED], aliases=(f"{kind} {_short(item['name'])!r}",), key=(kind, item["name"]))
     for t in _named_items(stash.get("excludedTables")):
         tid = f"table {_q(t['name'])}"
         out_table = tables.get(t["name"])
         group = bool(t.get("calculationGroup"))
-        objs.add("calculation_group" if group else "table", tid, "fully_preserved" if out_table else "unsupported",
+        restored_class = "preserved_through_extensions" if group else "fully_preserved"  # only Power BI reads it there
+        objs.add("calculation_group" if group else "table", tid, restored_class if out_table else "unsupported",
                  _calc_changes(t, out_table) if out_table is not None and group else [],
                  notes=[RESTORED], key=("table", t["name"]))
         for key, kind in (("columns", "column"), ("measures", "measure"), ("hierarchies", "hierarchy")):
@@ -1228,6 +1623,13 @@ def _dialect_entries(m: dict[str, Any]) -> list[dict[str, Any]]:
 def _remediation(obj: dict[str, Any], to_ossie: bool) -> str:
     """What to do about an object that didn't come through fully preserved, in one line."""
     cls, kind = obj["class"], obj["kind"]
+    if cls == "preserved_through_extensions" and not to_ossie:  # Import: it reached the model from the extension
+        if kind == "role":
+            return ("In the Ossie file this role is kept for Power BI only, in the POWER_BI extension: it reached the "
+                    "model, but a tool that reads the file won't apply this row-level security. Define the same "
+                    "security in that tool before sharing data through it.")
+        return ("In the Ossie file this is kept for Power BI only, in the POWER_BI extension: it reached the model, "
+                f"but another tool that reads the file won't see this {kind.replace('_', ' ')}.")
     if cls == "preserved_through_extensions":
         if kind == "role":
             return ("Kept for Power BI only, in the POWER_BI extension: a tool that reads this file won't apply this "
@@ -1271,6 +1673,8 @@ def fidelity(source: dict[str, Any], destination: dict[str, Any], rows: list[dic
     Security roles and calculation groups are flagged, and a role that doesn't come through is a security warning
     at the top of ``warnings``."""
     objs = _Objects()
+    if not isinstance(source, dict) or not isinstance(destination, dict):
+        raise ValueError("fidelity compares a model.bim with the Ossie document converted from it, or the other way round")
     if isinstance(source.get("model"), dict) and isinstance(destination.get("datasets"), list):
         to_ossie = True
         _tmsl_to_ossie(source, destination, objs)
@@ -1391,7 +1795,8 @@ def round_trip_check(bim: dict[str, Any]) -> dict[str, Any]:
                 "reason": "model too large for round-trip check", "rows": []}
     try:
         rows = round_trip(bim)
-    except _SHAPE_ERRORS as exc:  # narrow: what the converter refuses or trips on, kept in the result and shown
+    except (*_SHAPE_ERRORS, RecursionError) as exc:  # narrow: what the converter refuses or trips on (or nesting too
+        # deep to compare), kept in the result and shown
         return {"check": "round_trip", "ran": False, "passed": None, "error": f"{type(exc).__name__}: {exc}",
                 "reason": "the round trip couldn't run", "rows": []}
     return {"check": "round_trip", "ran": True, "passed": not rows, "error": "", "reason": "", "rows": rows}

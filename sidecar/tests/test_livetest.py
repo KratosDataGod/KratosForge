@@ -71,8 +71,10 @@ class Files:
     def list(self, ws, lh, folder):
         return [{"name": p.rsplit("/", 1)[-1]} for (l, p) in self.data if l == lh and p.startswith(folder + "/")]
 
-    def read_bytes(self, ws, lh, path):
-        return self.data.get((lh, path))
+    def read_bytes(self, ws, lh, path, length=None):
+        self.lengths = getattr(self, "lengths", []) + [length]
+        data = self.data.get((lh, path))
+        return data[:length] if data is not None and length else data
 
     def delete(self, ws, lh, folder):
         for key in [k for k in self.data if k[0] == lh and k[1].startswith(folder)]:
@@ -702,3 +704,137 @@ def test_the_local_stand_in_sends_an_append_again_after_the_windows_staged_commi
     calls.clear()
     with pytest.raises(OSError):  # an overwrite isn't sent again
         write_local(tmp_path, ref, None, "overwrite")
+
+
+class BpaFabric(ItemFabric):
+    """ItemFabric with semantic models, whose check job saves what ``saves`` returns as the result file."""
+
+    def __init__(self, files, models=({"id": "m1", "displayName": "SM_Gold"},), saves=None, **kw):
+        super().__init__(**kw)
+        self.files, self.models, self.saves = files, list(models), saves
+
+    def list_semantic_models(self, ws):
+        self.calls.append(("list_semantic_models", ws))
+        return self.models
+
+    def run_item_job(self, ws, item_id, job_type, execution_data=None):
+        self.calls.append(("run_item_job", item_id, job_type))
+        params = (execution_data or {}).get("parameters", {})
+        if "dataset" not in params:  # notebook.run's notebook, which --run-in-fabric also runs
+            return "job-nb"
+        self.run_params = params
+        record = self.saves(params) if self.saves else None
+        if record is not None:
+            lh, request = params["lakehouse"]["value"], params["request_id"]["value"]
+            self.files.data[(lh, f"Files/_fabric_desktop/results/{request}.json")] = json.dumps(record).encode()
+        return "job-bpa"
+
+
+_ROW = {"Category": "Performance", "Rule Name": "Model should have a date table", "Severity": "⚠️",
+        "Object Type": "Model", "Object Name": "Model", "Description": "d", "URL": ""}
+
+
+def bpa_run(tmp_path, fabric, files, run_in_fabric=True, **kw):
+    return extra_harness(tmp_path, fabric, extra=("model.bpa",), files=files, run_in_fabric=run_in_fabric, **kw).run()
+
+
+def test_model_bpa_checks_the_model_reads_the_findings_back_and_deletes_the_notebook(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"request_id": p["request_id"]["value"], "version": "0.17.1",
+                                               "tables": True, "rows": [_ROW]})
+    result = bpa_run(tmp_path, fabric, files)
+    check = by_id(result)["model.bpa"]
+    assert check["status"] == "passed", check
+    assert "SM_Gold: 1 findings (0 errors, 1 warnings, 0 info), semantic-link-labs 0.17.1" in check["detail"]
+    assert fabric.run_params["dataset"]["value"] == "m1"
+    assert fabric.run_params["lakehouse"]["value"].startswith("lh-")  # the run's own lakehouse, deleted after
+    saved = json.loads((tmp_path / "out" / "run1" / "model_bpa.json").read_text(encoding="utf-8"))
+    assert saved["result"]["counts"] == {"Error": 0, "Warning": 1, "Info": 0}
+    assert fabric.items == {} and ("create_item", "Notebook", "fdlt_run1_bpa") in fabric.calls
+    assert not any(c[0] == "save_semantic_model" for c in fabric.calls)  # never creates or changes a model
+
+
+def test_model_bpa_reports_the_error_the_notebook_saved(tmp_path):
+    files = Files()
+    err = {"type": "ValueError", "message": f"XMLA read-only Bearer {TOKEN}", "traceback": "Traceback ...", "pip": "ok"}
+    fabric = BpaFabric(files, saves=lambda p: {"error": err}, job_status="Failed")
+    result = bpa_run(tmp_path, fabric, files)
+    check = by_id(result)["model.bpa"]
+    assert check["status"] == "failed" and "The check failed in Fabric: ValueError: XMLA read-only" in check["detail"]
+    saved = (tmp_path / "out" / "run1" / "model_bpa.json").read_text(encoding="utf-8")
+    assert TOKEN not in saved and TOKEN not in json.dumps(result)
+    assert json.loads(saved)["error"]["traceback"] == "Traceback ..."
+    assert fabric.items == {}
+
+
+def test_model_bpa_refuses_a_results_file_past_the_cap(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"rows": [], "pad": "x" * (8 * 1024 * 1024)})
+    check = by_id(bpa_run(tmp_path, fabric, files))["model.bpa"]
+    assert check["status"] == "failed" and "larger than 8 MB" in check["detail"]
+    assert fabric.items == {}
+
+
+def test_model_bpa_asks_for_at_most_the_cap(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"rows": [_ROW]})
+    bpa_run(tmp_path, fabric, files)
+    assert files.lengths[-1] == 8 * 1024 * 1024 + 1  # a Range read: a larger file isn't downloaded
+
+
+def test_model_bpa_a_run_that_saved_findings_but_failed_isnt_passed(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"rows": [_ROW]}, job_status="Failed")
+    check = by_id(bpa_run(tmp_path, fabric, files))["model.bpa"]
+    assert check["status"] == "failed" and "ended Failed after saving its findings" in check["detail"]
+    assert fabric.items == {}
+
+
+def test_model_bpa_a_check_that_never_finishes_is_cancelled(tmp_path):
+    ticks = iter(range(0, 10**6, 600))
+    files = Files()
+    fabric = BpaFabric(files, saves=lambda p: {"rows": [_ROW]}, job_status="InProgress")
+    check = by_id(bpa_run(tmp_path, fabric, files, clock=lambda: next(ticks)))["model.bpa"]
+    assert check["status"] == "failed" and "cancelled it" in check["detail"]
+    assert ("cancel_job", "job-bpa") in fabric.calls
+    assert fabric.items == {}
+
+
+def test_model_bpa_with_no_result_file_says_the_job_saved_nothing(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, job_status="Failed")
+    check = by_id(bpa_run(tmp_path, fabric, files))["model.bpa"]
+    assert check["status"] == "failed" and "ended Failed and saved no findings" in check["detail"]
+    assert "Spark said no" in check["detail"]
+
+
+@pytest.mark.parametrize("models,name,message", [
+    ([], "", "has no semantic model"),
+    ([{"id": "a", "displayName": "A"}, {"id": "b", "displayName": "B"}], "", "name the one to check with --bpa-model"),
+    ([{"id": "a", "displayName": "A"}], "Z", "No semantic model named 'Z'"),
+])
+def test_model_bpa_never_guesses_or_creates_a_model(tmp_path, models, name, message):
+    files = Files()
+    fabric = BpaFabric(files, models=models)
+    check = by_id(bpa_run(tmp_path, fabric, files, bpa_model=name))["model.bpa"]
+    assert check["status"] == "failed" and message in check["detail"]
+    assert ("create_item", "Notebook", "fdlt_run1_bpa") not in fabric.calls  # --run-in-fabric also runs notebook.run
+    assert not hasattr(fabric, "run_params")
+
+
+def test_model_bpa_picks_the_named_model(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files, models=[{"id": "a", "displayName": "A"}, {"id": "b", "displayName": "B"}],
+                       saves=lambda p: {"version": "0.17.1", "tables": True, "rows": []})
+    check = by_id(bpa_run(tmp_path, fabric, files, bpa_model="B"))["model.bpa"]
+    assert check["status"] == "passed" and fabric.run_params["dataset"]["value"] == "b"
+
+
+def test_model_bpa_needs_run_in_fabric(tmp_path):
+    files = Files()
+    fabric = BpaFabric(files)
+    test = extra_harness(tmp_path, fabric, extra=("model.bpa",), files=files)
+    assert any("model.bpa: skipped; add --run-in-fabric" in line for line in test.plan())
+    check = by_id(test.run())["model.bpa"]
+    assert check["status"] == "skipped" and "--run-in-fabric" in check["detail"]
+    assert not any(c[0] in ("list_semantic_models", "run_item_job") for c in fabric.calls)

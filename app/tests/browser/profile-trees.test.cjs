@@ -156,3 +156,80 @@ test("class achievements sit above the tree: earned with its day, progress as ta
   if (SHOTS) await row.screenshot({ path: path.join(SHOTS, "profile-class-achievements.png") });
   data.mastery.class.achievements = real;
 });
+
+test("the tree zooms, pans and fits from the toolbar, the keyboard, Ctrl + wheel and a drag", { skip }, async () => {
+  const page = app.page;
+  await page.evaluate(() => { profilePage.trees.view = null; });
+  await openTrees();
+  const bar = page.getByRole("toolbar", { name: "Zoom" });
+  const pct = bar.locator(".tree-zoom-pct");
+  const scale = () => page.evaluate(() => new DOMMatrix(document.querySelector(".tree-world").style.transform).a);
+  const shift = () => page.evaluate(() => { const m = new DOMMatrix(document.querySelector(".tree-world").style.transform); return [m.e, m.f]; });
+  // Opens at Fit: the whole tree, Fit disabled, no overview box.
+  assert.strictEqual(await pct.textContent(), "Fit");
+  assert.ok(await bar.getByRole("button", { name: "Fit" }).isDisabled());
+  assert.ok(!(await page.locator(".tree-zoom-overview").isVisible()));
+  // + steps 25%; the live region says the zoom; the overview box shows while zoomed in.
+  await bar.getByRole("button", { name: "Zoom in" }).click();
+  assert.strictEqual(await pct.textContent(), "125%");
+  await page.waitForFunction(() => document.getElementById("announce").textContent === "Zoom 125%");
+  assert.strictEqual(await scale(), 1.25);
+  assert.ok(await page.locator(".tree-zoom-overview").isVisible());
+  assert.ok(await bar.getByRole("button", { name: "Fit" }).isEnabled());
+  for (let i = 0; i < 5; i++) await bar.getByRole("button", { name: "Zoom in" }).click({ force: true });
+  assert.strictEqual(await scale(), 2, "200% at most");
+  assert.ok(await bar.getByRole("button", { name: "Zoom in" }).isDisabled());
+  await bar.getByRole("button", { name: "Fit" }).click();
+  assert.strictEqual(await scale(), 1);
+  assert.deepStrictEqual(await shift(), [0, 0]);
+  // Keys while a talent has focus: + zooms around it (it stays put), - zooms out to 50% at least, 0 fits.
+  const node = page.locator(".tree-node").nth(4);
+  await node.focus();
+  const settled = () => page.waitForFunction(() => !document.querySelector(".tree-world").getAnimations().length);
+  await settled();
+  const before = await node.boundingBox();
+  await page.keyboard.press("+");
+  await page.keyboard.press("+");
+  assert.strictEqual(await scale(), 1.5);
+  await settled();
+  const after = await node.boundingBox();
+  assert.ok(Math.abs(after.x + after.width / 2 - (before.x + before.width / 2)) < 2, "the focused talent stays put");
+  for (let i = 0; i < 6; i++) await page.keyboard.press("-");
+  assert.strictEqual(await scale(), 0.5, "50% at least");
+  await page.keyboard.press("0");
+  assert.strictEqual(await pct.textContent(), "Fit");
+  await page.waitForFunction(() => document.getElementById("announce").textContent === "Fit to view");
+  // Ctrl + wheel zooms around the pointer; a plain wheel is left to the page.
+  let box = await page.locator(".tree-view").boundingBox();
+  await page.mouse.move(box.x + box.width / 3, box.y + box.height / 3);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -200);
+  await page.keyboard.up("Control");
+  await page.waitForFunction(() => new DOMMatrix(document.querySelector(".tree-world").style.transform).a > 1);
+  const s = await scale();
+  await page.mouse.wheel(0, 100);
+  assert.strictEqual(await scale(), s, "a plain wheel doesn't zoom");
+  // Dragging the background pans (the plain wheel scrolled the page, so the frame has moved).
+  await page.locator(".tree-view").scrollIntoViewIfNeeded();
+  box = await page.locator(".tree-view").boundingBox();
+  const [x0, y0] = await shift();
+  await page.mouse.move(box.x + 20, box.y + box.height - 30);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 80, box.y + box.height - 70, { steps: 4 });
+  await page.mouse.up();
+  const [x1, y1] = await shift();
+  assert.ok(Math.abs(x1 - x0 - 60) < 1 && Math.abs(y1 - y0 + 40) < 1, `panned by ${x1 - x0}, ${y1 - y0}`);
+  // With reduced motion the view jumps: no easing runs.
+  await page.evaluate(() => { document.documentElement.dataset.motion = "off"; });
+  await page.locator(".tree-node").first().focus();
+  await page.keyboard.press("+");
+  assert.deepStrictEqual(await page.evaluate(() => [document.documentElement.dataset.motion,
+    parseFloat(getComputedStyle(document.querySelector(".tree-world")).transitionDuration) < 0.001]), ["off", true]);
+  if (SHOTS) await page.locator(".tree-body").screenshot({ path: path.join(SHOTS, "profile-tree-zoomed.png") });
+  await page.evaluate(() => { document.documentElement.dataset.motion = "on"; });
+  // Another specialization starts at Fit again; the detail panel never zooms.
+  await page.getByRole("tab", { name: /Delta Smith/ }).click();
+  assert.strictEqual(await page.locator(".tree-zoom-pct").textContent(), "Fit");
+  assert.strictEqual(await page.evaluate(() => getComputedStyle(document.querySelector(".tree-detail")).transform), "none");
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page, ".tree-body"), []);
+});

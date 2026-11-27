@@ -4248,6 +4248,23 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .tree-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; margin-top: -16px; border-radius: 0 0 10px 10px; overflow: hidden;
   background: radial-gradient(ellipse at 50% 100%, var(--tree-glow), transparent 55%), radial-gradient(ellipse at 50% 0%, var(--tree-node), var(--tree-deep) 70%); }
 .tree-canvas { position: relative; height: 768px; margin: 40px 24px 56px; }
+.tree-view { position: relative; min-width: 0; overflow: clip; touch-action: pan-y; }
+.tree-view.zoomed { cursor: grab; }
+.tree-view.panning { cursor: grabbing; user-select: none; }
+.tree-world { position: relative; transform-origin: 0 0; }
+html[data-motion="on"] .tree-world.easing { transition: transform .15s ease; }
+.tree-zoom { position: absolute; top: 10px; right: 10px; z-index: 3; display: flex; gap: 4px; align-items: center; padding: 3px;
+  border: 1px solid var(--tree-line); border-radius: 6px; background: var(--tree-ink); }
+.tree-zoom-btn { min-width: 30px; height: 28px; padding: 0 8px; border: 1px solid var(--tree-line); border-radius: 4px; font: inherit; font-size: 13px;
+  color: var(--tree-text); background: var(--tree-node); cursor: pointer; }
+.tree-zoom-btn:disabled { opacity: .45; cursor: default; }
+.tree-zoom-btn:focus-visible { outline: 3px solid var(--tree-ember-hi); outline-offset: 2px; }
+.tree-zoom-pct { min-width: 48px; text-align: center; font-size: 12px; color: var(--tree-muted); }
+.tree-zoom-hint { position: absolute; left: 12px; bottom: 10px; z-index: 3; font-size: 12px; color: var(--tree-muted); pointer-events: none; }
+.tree-zoom-overview { position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 120px; height: 80px; border: 1px solid var(--tree-line);
+  border-radius: 4px; background: var(--tree-ink); pointer-events: none; }
+.tree-zoom-overview[hidden] { display: none; }
+.tree-zoom-overview i { position: absolute; border: 1.5px solid var(--tree-ember-hi); border-radius: 2px; }
 .tree-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .tree-line { fill: none; stroke: var(--tree-line); stroke-width: 2; stroke-dasharray: 6 6; vector-effect: non-scaling-stroke; }
 .tree-line.lit { stroke: var(--tree-ember); stroke-width: 4; stroke-dasharray: none; }

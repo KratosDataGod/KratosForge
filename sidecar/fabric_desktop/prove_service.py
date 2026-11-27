@@ -554,7 +554,23 @@ class ProveMixin:
             lines = jsonfile.read_text(self._proofs_file).splitlines()
         except OSError:
             return []
-        return [json.loads(line) for line in lines if line.strip()]
+        except ValueError:  # not UTF-8 (a disk error, another program): kept aside, as side_by_side.jsonl is
+            try:
+                jsonfile.set_aside(self._proofs_file)
+            except OSError as exc:  # in use: the next read tries again
+                _log.warning("%s isn't UTF-8 text and couldn't be set aside: %s", self._proofs_file.name, exc)
+            return []
+        rows = []
+        for line in filter(str.strip, lines):
+            try:
+                row = json.loads(line)
+            except (ValueError, RecursionError):  # a line cut off by a power cut: the others still read
+                row = None
+            if isinstance(row, dict) and isinstance(row.get("id"), str):
+                rows.append(row)
+            else:
+                _log.warning("A line of %s isn't a saved proof and is skipped.", self._proofs_file.name)
+        return rows
 
     def _proof_save(self, record: dict[str, Any]) -> None:
         # A proof's own thread saves as it ends while a request (Delete outputs) may save too: one at a
@@ -680,7 +696,7 @@ class ProveMixin:
             live["pc"].pop("cells", None)
             saved[r["id"]] = live
         rows = [r for r in saved.values() if not name or r.get("name") == name]
-        return sorted(rows, key=lambda r: r.get("started_at") or "", reverse=True)[:limit]
+        return sorted(rows, key=lambda r: str(r.get("started_at") or ""), reverse=True)[:limit]
 
     def prove_cancel(self, id: str) -> dict[str, Any]:  # noqa: A002
         record = self._proof_state().get(id)

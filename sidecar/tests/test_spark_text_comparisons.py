@@ -43,6 +43,23 @@ SPARK = [
     ("'5' BETWEEN 1 AND 10", True),
     ("'1.5' BETWEEN 1 AND 1", True),
     ("1 <=> ''", False),
+    ("'abc' <=> 1", False),
+    ("1 <=> 'abc'", False),
+    ("'1' <=> 1", True),
+    ("1 <=> '1'", True),
+    ("'1.5' <=> 1", True),
+    ("'1' <=> 1L", True),
+    ("2L <=> 'abc'", False),
+    ("'1.5' <=> 1.5D", True),
+    ("1.5D <=> 'x'", False),
+    ("'1.50' <=> 1.5", True),
+    ("1.5 <=> 'abc'", False),
+    ("CAST(NULL AS STRING) <=> 1", False),
+    ("1 <=> CAST(NULL AS STRING)", False),
+    ("CAST(NULL AS STRING) <=> CAST(NULL AS INT)", True),
+    ("CAST(NULL AS BIGINT) <=> CAST(NULL AS STRING)", True),
+    ("'abc' <=> CAST(NULL AS INT)", True),
+    ("CAST(NULL AS DOUBLE) <=> 'abc'", True),
     ("'9223372036854775808' = 1", None),
     ("'1.55' = 1.6", False),
     ("'1.55' = 1.5", False),
@@ -153,4 +170,43 @@ def test_a_nested_simple_case_casts_its_operand_once():
 
 def test_a_column_named_like_the_rewrites_lambda_is_left_as_it_was(spark):
     spark.createDataFrame([("1", 1)], "kf_text_cmp string, i int").createOrReplaceTempView("kf_c254_lambda")
-    assert spark.sql("SELECT kf_text_cmp = i FROM kf_c254_lambda").collect()[0][0] is True
+    try:
+        assert spark.sql("SELECT kf_text_cmp = i FROM kf_c254_lambda").collect()[0][0] is True
+    finally:  # while it is a view, no statement on the connection is rewritten
+        spark.catalog.dropTempView("kf_c254_lambda")
+
+
+_NULL_SAFE = [(0, "1", 1, 1, 1.0, "1.00"), (1, "abc", 1, 1, 1.0, "1.00"), (2, None, None, None, None, None),
+              (3, None, 1, 1, 1.0, "1.00"), (4, "abc", None, None, None, None), (5, "1.5", 1, 2, 1.5, "1.50")]
+
+
+@pytest.mark.parametrize(("number", "expected"), [
+    ("i", [True, False, True, False, True, True]),
+    ("l", [True, False, True, False, True, False]),
+    ("d", [True, False, True, False, True, True]),
+    ("m", [True, False, True, False, True, True]),
+])
+def test_eq_null_safe_of_text_and_a_number_gives_sparks_answer(spark, number, expected):
+    # Spark casts the text to the number's type as = does ('abc' and '' are NULL; text and a decimal compare as
+    # doubles), then <=>: NULL <=> NULL is true, NULL <=> 1 false. DuckDB stopped on 'abc'.
+    from pyspark.sql import functions as F  # noqa: N812 - PySpark's own name for it
+
+    frame = spark.createDataFrame(_NULL_SAFE, "id int, t string, i int, l bigint, d double, m string").withColumn(
+        "m", F.col("m").cast("decimal(10,2)"))
+    frame.createOrReplaceTempView("kf_c254_ns")
+    for left, right in ((frame.t, frame[number]), (frame[number], frame.t), (F.col("t"), F.col(number)),
+                        (F.col(number), F.col("t"))):
+        rows = frame.select("id", left.eqNullSafe(right).alias("v")).orderBy("id").collect()
+        assert [r.v for r in rows] == expected
+        assert sorted(r.id for r in frame.filter(left.eqNullSafe(right)).collect()) == [
+            i for i, e in enumerate(expected) if e]
+    for query in (f"SELECT t <=> {number} AS v FROM kf_c254_ns ORDER BY id",
+                  f"SELECT {number} <=> t AS v FROM kf_c254_ns ORDER BY id"):
+        assert [r.v for r in spark.sql(query).collect()] == expected
+
+
+def test_eq_null_safe_of_text_and_a_literal_number_keeps_sparks_name(spark):
+    frame = spark.createDataFrame([("1",), ("abc",), (None,)], "t string")
+    rows = frame.select(frame.t.eqNullSafe(1), frame["t"].eqNullSafe(1.5)).collect()
+    assert [tuple(r) for r in rows] == [(True, False), (False, False), (False, False)]
+    assert frame.select(frame.t.eqNullSafe(1)).columns == ["(t <=> 1)"]

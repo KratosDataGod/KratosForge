@@ -612,6 +612,10 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 **Numbers, priorities and SLAs**: how priorities are set, the default SLA targets, and how IT sets its own, are in [Incidents and your service desk](incidents.md).
 
+#### SLA reports (Preview)
+
+**Reports**, beside **Board** on the view row, is the SLA report: pick the environment and the last 7, 30 or 90 days. The summary shows how many incidents opened, were resolved and are still open, and the share that met the acknowledge and resolve SLAs. Below it is one row per priority with time to acknowledge and time to resolve (median and 90th percentile) and SLAs met, missed and breached. Nothing is estimated: an incident without the times a measure needs is left out of it, so counts can differ between columns, and a priority with no target says **No target**. It needs the central lakehouse (**Settings > Optimize lakehouses**) and copies new incident changes there before it measures. The first time, it asks before setting up the incident tables. Details in [SLA reports](incidents.md#sla-reports-preview).
+
 ### Agents (Preview)
 
 An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > KratosForge > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.

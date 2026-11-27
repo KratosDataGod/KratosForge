@@ -126,6 +126,17 @@ def runs_cli_pipelines(path) -> bool:
     return _cli_pipeline_modules[key]
 
 
+@pytest.fixture(scope="session", autouse=True)
+def fingerprint_key_in_tmp(tmp_path_factory):
+    """Keyed fingerprints (keyed_fingerprint) make their key on first use in this PC's data folder; under the
+    tests it lives in a tmp folder, never the real data folder of whoever runs them."""
+    from fabric_desktop import keyed_fingerprint
+    path = tmp_path_factory.mktemp("fingerprint-key") / "fingerprint.key"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(keyed_fingerprint, "key_path", lambda: path)
+        yield path
+
+
 @pytest.fixture(autouse=True)
 def cli_pipeline_runs_keep_their_data_in_tmp(request):
     """A command-line pipeline run writes its audit lines to this PC's data folder (cli._pipeline_run), so

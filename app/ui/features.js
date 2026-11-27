@@ -84,6 +84,7 @@ const PREVIEW_FEATURES = {
   sourceControl: "Source control",
   workloads: "Workloads",
   incidents: "Incidents",
+  incidentReports: "Incident SLA report",
   agents: "Agents",
   queue: "Queue",
   runAs: "Run as",

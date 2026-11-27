@@ -97,9 +97,14 @@ class SideBySideMixin:
         rows, torn = [], False
         for line in filter(str.strip, lines):
             try:
-                rows.append(json.loads(line))
-            except ValueError:
+                row = json.loads(line)
+            except (ValueError, RecursionError):
                 torn = True
+                continue
+            if isinstance(row, dict) and isinstance(row.get("id"), str):
+                rows.append(row)
+            else:  # JSON, but not a comparison (a hand edit, another program): left out, the file as it is
+                _log.warning("A line of %s isn't a side-by-side run and is skipped.", self.side_by_side_file.name)
         if torn:
             self._sbs_repair(rows)
         return rows
@@ -246,7 +251,7 @@ class SideBySideMixin:
             live["local"].pop("cells", None)
             saved[r["id"]] = live
         rows = [r for r in saved.values() if not name or r.get("name") == name]
-        return sorted(rows, key=lambda r: r.get("started_at") or "", reverse=True)[:limit]
+        return sorted(rows, key=lambda r: str(r.get("started_at") or ""), reverse=True)[:limit]
 
     def side_by_side_cancel(self, id: str) -> dict[str, Any]:
         record = self._sbs_state().get(id)

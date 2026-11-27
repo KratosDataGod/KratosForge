@@ -156,6 +156,15 @@ def test_a_credential_split_at_snowflakes_cut_never_shifts_into_the_shown_text()
     assert "AKIA" not in shown["text"] and "eyJ" not in shown["text"] and shown["text_cut"] is True
 
 
+def test_a_credential_split_at_the_cut_of_an_error_message_is_never_shown():
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIx" + "Q" * 150 + "In0.abcdefghijklmnopqrstuvwxyz123456 "  # pragma: allowlist secret
+    error = (jwt * 60)[:sh._FETCH - 15] + "AKIAIOSFODNN7EX"  # pragma: allowlist secret
+    assert len(error) == sh._FETCH
+    fake = FakeSnowflake([[query("q-1", status="FAILED_WITH_ERROR", ERROR_MESSAGE=error)]])
+    shown = history(fake)["queries"][0]["error"]
+    assert "AKIA" not in shown
+
+
 def test_the_reading_query_is_left_out_and_later_partitions_are_read_up_to_the_limit():
     fake = FakeSnowflake([[query("01b2-0001"), query("q-1")], [query("q-2"), query("q-3")], [query("q-4")]])
     out = history(fake, limit=2)
@@ -204,13 +213,38 @@ _SF_SECRET_CASES = [
      ["refreshTok9"]),  # pragma: allowlist secret
     ("ALTER USER u SET PRIVATE_KEY = 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC'", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"]),  # pragma: allowlist secret
     ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING='sk_live_abc123'", ["sk_live_abc123"]),  # pragma: allowlist secret
-    ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING=$$dollar quoted secret$$", ["dollar quoted secret"]),  # pragma: allowlist secret
+    ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING=$$dollar quoted secret$$", ["dollar", "quoted", "secret$"]),  # pragma: allowlist secret
     ("CREATE SECRET s TYPE=PASSWORD USERNAME='svc' PASSWORD=\"dq\"\"pass\"", ["dq", "pass\""]),  # pragma: allowlist secret
     ("ALTER USER bob SET PASSWORD = 'two words' MUST_CHANGE_PASSWORD = TRUE", ["two words"]),  # pragma: allowlist secret
     ("CREATE USER u PASSWORD=bareWord123 DEFAULT_ROLE=r", ["bareWord123"]),  # pragma: allowlist secret
     ("CALL make_user(name => 'u', password => 'arrowPass1')", ["arrowPass1"]),  # pragma: allowlist secret
     ("alter user u set password='lower''case\\'esc'", ["lower", "esc"]),  # pragma: allowlist secret
     ("CREATE USER u PASSWORD='cut by Snowflake's limit and never clos", ["cut by Snowflake"]),  # pragma: allowlist secret
+    ("CREATE USER u RSA_PUBLIC_KEY='MIIB' PASSPHRASE='phrase7'", ["phrase7"]),  # pragma: allowlist secret
+    ("CREATE SECRET s TYPE=PASSWORD USERNAME='svc' PASSWORD=\"cut off double quote", ["cut off", "double quote"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD /* new */ = 'cmtBefore1'", ["cmtBefore1"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = /* new */ 'cmtAfter2'", ["cmtAfter2"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = -- new\n 'lineCmt3'", ["lineCmt3"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = ( 'paren4' )", ["paren4"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = 'pre5' || 'concat5'", ["pre5", "concat5"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = IDENTIFIER('ident6')", ["ident6"]),  # pragma: allowlist secret
+    ("SET pw = 'sessVar7'", ["sessVar7"]),  # pragma: allowlist secret
+    ("BEGIN\n  LET password := 'letVar8';\nEND", ["letVar8"]),  # pragma: allowlist secret
+    ("SELECT 1; SET db_api_token = 'tokVar9'", ["tokVar9"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = 'multi\nline10'", ["multi", "line10"]),  # pragma: allowlist secret
+    ("CREATE EXTERNAL FUNCTION f() API_KEY = 'apiKey11'", ["apiKey11"]),  # pragma: allowlist secret
+    ("CREATE SECURITY INTEGRATION i TYPE=EXTERNAL_OAUTH EXTERNAL_OAUTH_CLIENT_SECRET='extSecret12'", ["extSecret12"]),  # pragma: allowlist secret
+    ("ALTER SESSION SET RSA_PRIVATE_KEY_PASSPHRASE = 'rsaPass13'", ["rsaPass13"]),  # pragma: allowlist secret
+    ("SET (a, pw) = ('first14', 'multiSet14')", ["first14", "multiSet14"]),  # pragma: allowlist secret
+    ("SET (row_count, \"db_api_token\") = (5, 'quotedList15')", ["quotedList15"]),  # pragma: allowlist secret
+    ("SET pw = CONCAT('Hun', 'call16')", ["Hun", "call16"]),  # pragma: allowlist secret
+    ("CREATE USER u PASSWORD = CONCAT('a)b', /* ) */ UPPER('nested17')) DEFAULT_ROLE=r", ["nested17", "a)b"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = db.s.make_pw('schemaCall18')", ["schemaCall18"]),  # pragma: allowlist secret
+    ("CREATE USER u \"PASSWORD\" = 'quotedName19'", ["quotedName19"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = 'Hun' 'adjacent20'", ["Hun", "adjacent20"]),  # pragma: allowlist secret
+    ("SET pw = CONCAT('open21', 'cut off by the fetch limit", ["open21", "cut off"]),  # pragma: allowlist secret
+    ("SET (a, /* c */ pw) = ('x', 'listComment22')", ["listComment22"]),  # pragma: allowlist secret
+    ("SET (a, -- c\n pw) = ('x', 'listComment23')", ["listComment23"]),  # pragma: allowlist secret
 ]
 
 
@@ -228,6 +262,32 @@ def test_what_isnt_a_credential_stays():
     kept = ["SELECT password_hash, token_count FROM t WHERE token_count = 3",  # pragma: allowlist secret
             "CREATE USER u RSA_PUBLIC_KEY='MIIBIjANBgkq' DEFAULT_ROLE=analyst",  # pragma: allowlist secret
             "CREATE SECRET s TYPE=PASSWORD USERNAME='svc'",  # pragma: allowlist secret
-            "CREATE STAGE s STORAGE_INTEGRATION=si ENCRYPTION=(TYPE='AWS_SSE_KMS' KMS_KEY_ID='alias/k')"]  # pragma: allowlist secret
+            "CREATE STAGE s STORAGE_INTEGRATION=si ENCRYPTION=(TYPE='AWS_SSE_KMS' KMS_KEY_ID='alias/k')",
+            "ALTER USER u SET MUST_CHANGE_PASSWORD = TRUE",
+            "ALTER USER u\nSET MUST_CHANGE_PASSWORD = TRUE",
+            "SET row_count = 5",
+            "LET keyword_list := 'a,b'",
+            "ALTER USER u SET RSA_PUBLIC_KEY = 'MIIBIjAN'",
+            "ALTER ACCOUNT SET PASSWORD_POLICY = db.s.strict_policy",  # pragma: allowlist secret
+            "SET (row_count, label) = (5, 'east')",
+            "SET (a, b) = (UPPER('x'), 'y')"]
     for sql in kept:
         assert sh._cut(sql, 2000)[0] == sql
+
+
+def test_only_the_credential_value_goes_and_what_follows_it_stays():
+    sql = "CREATE USER u PASSWORD = CONCAT('a', 'b') DEFAULT_ROLE = analyst COMMENT = 'kept'"  # pragma: allowlist secret
+    assert sh._cut(sql, 2000)[0] == "CREATE USER u PASSWORD = '[removed]' DEFAULT_ROLE = analyst COMMENT = 'kept'"
+    sql = "SET (a, pw) = ('x', 'y'); SELECT 'shown'"  # pragma: allowlist secret
+    assert sh._cut(sql, 2000)[0] == "SET (a, pw) = '[removed]'; SELECT 'shown'"
+
+
+@pytest.mark.parametrize("head", ["PASSWORD ", "SET ", "SET pw ", "SET (a, pw", "x = CONCAT('a' "])
+@pytest.mark.parametrize("run", ["/* */", "-- x\n", "/* */\n"])
+def test_a_long_run_of_comments_is_read_quickly(head, run):
+    import time
+    text = head + run * 2000
+    started = time.perf_counter()
+    sh._cut(text, 2000)
+    sh._row({"query_text": text, "error_message": text}, 2000)
+    assert time.perf_counter() - started < 1.0

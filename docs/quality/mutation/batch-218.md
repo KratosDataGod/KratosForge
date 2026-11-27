@@ -11,7 +11,7 @@ Every file that uses the module was timed. The set below runs in about 25 second
 
 Before the "after" run, the new tests were run in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They passed both ways. The new tests pass with DuckDB 1.5.6 and 2.0.0.
 
-One mutant timed out in the full run, and it counts as killed there: swapping `or` for `and` in `_arrow` (line 190), so a relation is read with `.arrow()`. The machine was under load from the other lanes. In the "after" run it was killed by a failing test in 15 seconds, so it is a real kill either way.
+One mutant timed out in the full run, and it counts as killed there: swapping `or` for `and` in `_arrow` (line 190), so a relation is read with `.arrow()`. The machine was under load from the other lanes. In the "after" run it was killed by a failing test in 15 seconds, so it is a real kill either way. **Rechecked on 2026-11-24:** applied again, alone, to `sidecar/` as it was at the batch's commit, with the first run's set and a 1,500-second limit, it failed `test_a_delta_stream_takes_only_new_commits_each_run` in 14 seconds. The numbers don't change.
 
 ## Results
 

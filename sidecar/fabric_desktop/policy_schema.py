@@ -83,6 +83,8 @@ _TEXT: dict[str, tuple[str, str]] = {
     "allow_pypi_packages": ("packages", "False stops notebook environments reaching PyPI for a package the folder doesn't have."),
     "allow_dbconnect_install": ("packages", "False stops the app installing the Databricks Connect client."),
     "dbconnect_index_url": ("packages", "The package index the Databricks Connect client is fetched from, for networks that mirror PyPI."),
+    "allow_snowpark_install": ("packages", "False stops the app installing Snowpark Python with local testing for the Snowpark engine on this PC."),
+    "snowpark_index_url": ("packages", "The package index Snowpark Python with local testing is fetched from, for networks that mirror PyPI."),
     "sql_page_rows": ("sql", "Rows on each page of a SQL result."),
     "sql_time_limit_minutes": ("sql", "Minutes a SQL query may run before it's stopped; 0 for no limit."),
     "sql_memory_limit_percent": ("sql", "Share of the PC's memory one SQL query may use."),

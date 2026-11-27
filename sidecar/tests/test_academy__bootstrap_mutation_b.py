@@ -791,7 +791,9 @@ def native(b, tmp_path, monkeypatch):
         raise ImportError(name)
 
     modules = dict(mods, **{"polars.io.csv.functions": pl_sub, "pyarrow._fs": pa_fs_inner, "pyarrow.lib": pa_lib,
-                            "polarsx": _mod("polarsx", read_csv=pl.read_csv), "pandas.gone": None})
+                            "polarsx": _mod("polarsx", read_csv=pl.read_csv), "pandas.gone": None,
+                            "pyarrowx": _mod("pyarrowx", LocalFileSystem=LocalFileSystem),
+                            "fsspec.like": _mod("fsspec.like", FileSystem=FileSystem)})
     monkeypatch.setattr(importlib, "import_module", import_module)
     monkeypatch.delitem(sys.modules, "deltalake.query", raising=False)
     b["sys"] = SimpleNamespace(modules=modules)
@@ -924,6 +926,8 @@ def test_pyarrows_file_system_from_uri_is_checked_and_its_local_one_too(native):
     assert not hasattr(n.fs, "resolve_s3_region")
     assert n.pa_fs_inner.LocalFileSystem is n.fs.LocalFileSystem and n.pa_fs_inner.FileSystem is not n.originals.FileSystem
     assert n.pa_fs_inner.FileSystem.from_uri("local-z")[1] == "local-z" and n.pa_fs_inner.other == 1
+    assert n.modules["pyarrowx"].LocalFileSystem is n.originals.LocalFileSystem   # not pyarrow's: left alone
+    assert n.modules["fsspec.like"].FileSystem is n.originals.FileSystem
 
 
 def test_pyarrows_own_file_openers_are_checked_where_pyarrow_lib_holds_them(native):

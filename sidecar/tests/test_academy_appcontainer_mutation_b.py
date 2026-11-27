@@ -142,6 +142,11 @@ def granting(monkeypatch, tmp_path):
     a.mkdir()
     b.write_text("x", encoding="utf-8")
     calls = []
+    # On Windows, conftest wraps grant_runtime to seed each data folder with this worker's grants record.
+    # These tests are about the record itself, so they call the function it wraps.
+    f = ac.grant_runtime
+    wrapped = dict(zip(f.__code__.co_freevars, (c.cell_contents for c in f.__closure__ or ())))
+    monkeypatch.setattr(ac, "grant_runtime", wrapped.get("real", f))
     monkeypatch.setattr(ac, "_granted", {})
     monkeypatch.setattr(ac, "runtime_paths", lambda: [(a, False), (b, True)])
     monkeypatch.setattr(ac, "check_grants_keep_out", lambda paths, root: None)
@@ -169,9 +174,8 @@ def test_a_second_grant_is_skipped_while_its_record_is_there(granting):
     granting.calls.clear()
     ac.grant_runtime(None, "S-1", None, granting.data)
     assert granting.calls == []
-    # A data folder with no record yet. (Not an unlink of the record: on Windows a scanner holding the
-    # just-written file can leave it pending delete, so that exists() still says True.)
-    ac.grant_runtime(None, "S-1", None, granting.data.parent / "data2")
+    (granting.data / "academy" / ac.GRANTS_FILE).unlink()
+    ac.grant_runtime(None, "S-1", None, granting.data)
     assert len(granting.calls) == 2
 
 

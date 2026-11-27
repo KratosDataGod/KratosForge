@@ -1,0 +1,298 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "pipeline.json",
+  "reset": "Reset puts the original pipeline.json back.",
+  "id": "E88",
+  "title": "A four-stage deployment pipeline: workspaces, rules per item type and pairing",
+  "objectives": [
+    "1.2.3"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [
+    "E09"
+  ],
+  "objective_text": "Create a four-stage deployment pipeline, assign a workspace that can go in each stage, add the rules each item type supports, and predict how rules, pairing and deploys behave.",
+  "scenario": "The Claims team adds a UAT stage between Test and Production. The first draft has three stages, two workspaces that can't be assigned, and rules that either can't exist or change the kind of source. Omar also expects to deploy to UAT.",
+  "engine_label": "A model of a deployment pipeline's settings, checked on this PC",
+  "verifies": [
+    "Your stages, workspace assignments, deployment rules, rule types per item and expectations follow the deployment pipeline pages on stages, assigning workspaces, rules, pairing and what a deploy copies, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That a pipeline is created or deploys anything in Fabric. Nothing runs here.",
+    "Whether stages can be added or renamed after the pipeline is created. The get started page says both that they can't and that they can, so it isn't graded.",
+    "Rules for semantic models, paginated reports and Dataflow Gen1. Deploying these Power BI items is in preview.",
+    "Deploying backwards, deploying only some items, and the new deployment pipeline interface, which is in preview."
+  ],
+  "expected": {
+    "description": "Stages Development, Test, UAT, Production. Workspaces Claims-Dev, Claims-Test, Claims-UAT, Claims-Prod. Nora assigns Claims-Prod. Priya creates six rules: default lakehouse for Score claims and data source for Claims mirror in Test, UAT and Production. Notebook takes only default lakehouse, mirrored database only data source, lakehouse none. Rules apply on the next deploy and are lost on unassign. A notebook added later isn't paired, a rename doesn't unpair, Omar can't deploy to UAT, and only the notebook definition is copied."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The stages or the workspaces aren't ones this pipeline can use.",
+      "pass": "Four stages, each with a workspace that can be assigned, assigned by someone who may.",
+      "rules": [
+        {
+          "path": "stages",
+          "count": 4,
+          "why": "A pipeline has 2 to 10 stages, and the team needs four."
+        },
+        {
+          "path": "stages.0",
+          "equals": "Development"
+        },
+        {
+          "path": "stages.1",
+          "equals": "Test"
+        },
+        {
+          "path": "stages.2",
+          "equals": "UAT"
+        },
+        {
+          "path": "stages.3",
+          "equals": "Production"
+        },
+        {
+          "path": "assignments.Development",
+          "equals": "Claims-Dev"
+        },
+        {
+          "path": "assignments.Test",
+          "equals": "Claims-Test"
+        },
+        {
+          "path": "assignments.UAT",
+          "equals": "Claims-UAT",
+          "why": "A workspace can't be assigned if it's already in another deployment pipeline."
+        },
+        {
+          "path": "assignments.Production",
+          "equals": "Claims-Prod",
+          "why": "A workspace must be on a Fabric capacity to be assigned."
+        },
+        {
+          "path": "who_assigns_claims_prod",
+          "equals": "Nora",
+          "why": "To assign a workspace you must be an admin of that workspace."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A deployment rule is missing, can't exist or is made by the wrong person.",
+      "pass": "Each later stage points the notebook and the mirror at its own lakehouse and database.",
+      "rules": [
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "Test",
+            "item": "Score claims",
+            "rule": "default lakehouse",
+            "value": "ClaimsLH_Test"
+          },
+          "why": "A notebook takes only a default lakehouse rule."
+        },
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "Test",
+            "item": "Claims mirror",
+            "rule": "data source",
+            "value": "sql-claims-test"
+          },
+          "why": "A mirrored database takes only a data source rule, and a data source rule only changes a source to one of the same type."
+        },
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "UAT",
+            "item": "Score claims",
+            "rule": "default lakehouse",
+            "value": "ClaimsLH_UAT"
+          },
+          "why": "A notebook takes only a default lakehouse rule."
+        },
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "UAT",
+            "item": "Claims mirror",
+            "rule": "data source",
+            "value": "sql-claims-uat"
+          },
+          "why": "A mirrored database takes only a data source rule, and a data source rule only changes a source to one of the same type."
+        },
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "Production",
+            "item": "Score claims",
+            "rule": "default lakehouse",
+            "value": "ClaimsLH_Prod"
+          },
+          "why": "A notebook takes only a default lakehouse rule."
+        },
+        {
+          "path": "rules",
+          "count": 1,
+          "where": {
+            "stage": "Production",
+            "item": "Claims mirror",
+            "rule": "data source",
+            "value": "sql-claims-prod"
+          },
+          "why": "A mirrored database takes only a data source rule, and a data source rule only changes a source to one of the same type."
+        },
+        {
+          "path": "rules",
+          "count": 0,
+          "where": {
+            "stage": "Development"
+          },
+          "why": "Deployment rules can't be created in the development stage."
+        },
+        {
+          "path": "rules",
+          "count": 0,
+          "where": {
+            "item": "ClaimsLH_Dev"
+          },
+          "why": "Lakehouses take no deployment rules. The notebook's default lakehouse rule points at each stage's lakehouse."
+        },
+        {
+          "path": "rules",
+          "count": 6
+        },
+        {
+          "path": "who_creates_the_rules",
+          "equals": "the item's owner",
+          "why": "To create a deployment rule, you must be the owner of the item."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "You expect an item type to take a rule it doesn't, or the other way round.",
+      "pass": "You know which rule types each item type takes.",
+      "rules": [
+        {
+          "path": "rule_support.Notebook.data source",
+          "equals": false,
+          "why": "The rules page lists the rule types for each item type. A notebook takes only a default lakehouse rule."
+        },
+        {
+          "path": "rule_support.Notebook.parameter",
+          "equals": false
+        },
+        {
+          "path": "rule_support.Notebook.default lakehouse",
+          "equals": true
+        },
+        {
+          "path": "rule_support.Mirrored database.data source",
+          "equals": true,
+          "why": "A mirrored database takes only data source rules."
+        },
+        {
+          "path": "rule_support.Mirrored database.parameter",
+          "equals": false
+        },
+        {
+          "path": "rule_support.Mirrored database.default lakehouse",
+          "equals": false
+        },
+        {
+          "path": "rule_support.Lakehouse.data source",
+          "equals": false,
+          "why": "Lakehouses aren't in the list of items that take deployment rules."
+        },
+        {
+          "path": "rule_support.Lakehouse.parameter",
+          "equals": false
+        },
+        {
+          "path": "rule_support.Lakehouse.default lakehouse",
+          "equals": false
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "Rules, pairing or a deploy don't behave the way you expect.",
+      "pass": "You know when rules apply, how items pair, who can deploy and what a deploy copies.",
+      "rules": [
+        {
+          "path": "expectations.rules_take_effect",
+          "equals": "the next time you deploy to that stage",
+          "why": "Deployment rules only take effect the next time you deploy to that stage."
+        },
+        {
+          "path": "expectations.test_rules_after_unassigning_and_reassigning_claims_test",
+          "equals": "lost and set up again",
+          "why": "When you unassign a workspace, you lose the stage's deployment history and configured rules."
+        },
+        {
+          "path": "expectations.a_score_claims_notebook_added_to_claims_test_later_is_paired",
+          "equals": false,
+          "why": "Adding a new item to a workspace that's already in a pipeline doesn't pair it with an item of the same name in the next stage."
+        },
+        {
+          "path": "expectations.renaming_a_paired_item_unpairs_it",
+          "equals": false,
+          "why": "Once items are paired, renaming them doesn't unpair them."
+        },
+        {
+          "path": "expectations.omar_can_deploy_test_to_uat",
+          "equals": false,
+          "why": "To deploy you must be a pipeline admin and at least a contributor in both the source and the target workspace."
+        },
+        {
+          "path": "expectations.deploy_copies_the_notebook_definition",
+          "equals": true
+        },
+        {
+          "path": "expectations.deploy_copies_lakehouse_table_data",
+          "equals": false,
+          "why": "Data isn't copied. Only metadata is copied."
+        },
+        {
+          "path": "expectations.deploy_copies_workspace_settings",
+          "equals": false,
+          "why": "Workspace settings aren't copied. Each stage has its own workspace."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which workspaces can't be assigned to a stage, and who may assign one?",
+    "Which item types take a default lakehouse rule, and which take a data source rule?",
+    "Can a data source rule move a mirror from Azure SQL Database to another kind of source?",
+    "When does a new rule change anything in its stage?",
+    "Does a notebook created in Test after the workspace was assigned pair with the one in Development?"
+  ],
+  "explanation": "A deployment pipeline has 2 to 10 stages, set when it's created. Each stage gets one workspace, assigned by an admin of that workspace. The workspace must be on a Fabric capacity and can't already be in another pipeline. Rules live on the later stages, never Development, and only the item's owner creates them. A notebook takes only a default lakehouse rule. A mirrored database takes only data source rules, and a data source rule keeps the same kind of source. Lakehouses take no rules. Rules apply on the next deploy and are lost when a workspace is unassigned. Items pair by name and type when a workspace is assigned or an item is deployed, so a notebook added later doesn't pair, and a rename doesn't unpair. Deploying needs a pipeline admin who's at least a contributor in both workspaces. A deploy copies definitions, not data or workspace settings.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/create-rules",
+    "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/assign-pipeline",
+    "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/understand-the-deployment-process",
+    "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23. intro-to-deployment-pipelines (last updated 2026-09-29): 2 to 10 stages, default Development, Test and Production. Lakehouse, Notebook and Mirrored database are supported items with no preview mark, while semantic models, reports, paginated reports and Power BI dataflows are marked preview. create-rules (last updated 2026-09-01): the rule table lists Dataflow gen1 (data source, parameter), Semantic model (data source, parameter), Paginated report (data source), Mirrored database (data source) and Notebook (default lakehouse), and no lakehouse. Data source rules only work between sources of the same type. You must own the item to create a rule. No rules in the development stage. Rules take effect on the next deploy to that stage. assign-pipeline (last updated 2026-11-02): you must be an admin of the workspace, the workspace isn't assigned to another pipeline and is on a Fabric capacity. Pairing is by name, type and folder when a workspace is assigned or an item deployed. A new item added later isn't paired automatically. Renaming doesn't unpair. Unassigning loses the stage's deployment history and configured rules. understand-the-deployment-process (last updated 2026-09-24): data, permissions and workspace settings aren't copied. To deploy you must be a pipeline admin and a contributor, member or admin of both workspaces.",
+    "Not graded: whether stages can be added or renamed after creation (get-started-with-deployment-pipelines, last updated 2025-12-15, contradicts itself), the Dataflow gen1, semantic model and paginated report rows of the rule table (those Power BI items deploy in preview), and folders and deployment plans (preview)."
+  ]
+}

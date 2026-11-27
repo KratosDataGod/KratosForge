@@ -1,0 +1,59 @@
+{
+  "_about": "A model of one domain and its subdomain. Set who does each task, who the domain admins are, who may assign workspaces, which groups get Logistics as their default domain and which capacity to assign. Then say where each workspace ends up, as Logistics, Finance or no domain.",
+  "people": {
+    "Dana": "Business owner of Logistics. The Fabric admin team asked them to own the domain.",
+    "Eli": "Runs the fleet team. Wants to manage the Fleet subdomain.",
+    "Marco": "In the Logistics workspace admins group. A Member, not an Admin, of the Depot-Reports workspace.",
+    "Logistics staff": "A security group with everyone in the Logistics department.",
+    "Logistics workspace admins": "A security group of the people who run Logistics workspaces."
+  },
+  "workspaces": {
+    "Fleet-Ops": "Its admin is in Logistics staff. It's already in the Finance domain. It's on the FIN-F32 capacity.",
+    "Route-Plans": "Its admin is in Logistics staff. It has no domain. It's on the FIN-F32 capacity.",
+    "Next-Month": "A workspace someone in Logistics staff will create next month, on the FIN-F32 capacity.",
+    "Partner-Share": "Its admin isn't in Logistics staff. It will move onto the LOG-F64 capacity next month.",
+    "Dana's My workspace": "Dana's personal My workspace. It's on the LOG-F64 capacity."
+  },
+  "needs": [
+    "A Logistics domain owned by Dana, with Fleet as its subdomain.",
+    "The Fabric admin team is busy this month. Dana wants to create the Fleet subdomain without them.",
+    "Eli manages Fleet too.",
+    "Only the Logistics workspace admins group may assign workspaces to Logistics.",
+    "Workspaces that Logistics staff run go to Logistics, now and when they create new ones.",
+    "Every workspace on the LOG-F64 capacity goes to Logistics today."
+  ],
+  "who_creates_the_logistics_domain": "Fabric admin",
+  "dana_can_create_the_fleet_subdomain": true,
+  "who_makes_eli_a_domain_admin": "Fabric admin",
+  "domains": {
+    "Logistics": {
+      "admins": [
+        "Dana",
+        "Eli"
+      ],
+      "contributors": {
+        "who": "specific users or groups",
+        "list": [
+          "Logistics workspace admins"
+        ]
+      },
+      "default_domain_for": [
+        "Logistics staff"
+      ],
+      "assign_by_capacity": [
+        "LOG-F64"
+      ],
+      "subdomains": {
+        "Fleet": {}
+      }
+    }
+  },
+  "outcomes": {
+    "Fleet-Ops": "Finance",
+    "Route-Plans": "Logistics",
+    "Next-Month": "no domain",
+    "Partner-Share": "no domain",
+    "Dana's My workspace": "no domain",
+    "marco_can_assign_depot_reports": false
+  }
+}

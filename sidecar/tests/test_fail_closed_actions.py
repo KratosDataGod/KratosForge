@@ -112,6 +112,7 @@ ACTIONS: dict[str, str] = {
     "git_commit": "allow_secrets",
     "meta_optimize": "env risk_ids",
     "model_bpa_check": "env risk_id",
+    "model_bpa_share": "env approve confirm",
     "notebook_validate_start": "allow_uncontained",
     "pipeline_run_start": "allow_uncontained",
     "risk_acknowledge": "env risk_id",

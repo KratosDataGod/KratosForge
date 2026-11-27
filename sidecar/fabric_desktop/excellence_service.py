@@ -12,6 +12,10 @@ the evidence keeps the rules that matched and where, never the code. Semantic mo
 read as TMSL with the getDefinition call the Semantic model tab already makes (at most
 ``MAX_MODELS``) and inspected the same way (excellence.inspect_models): names and counts, never DAX,
 M or the definition text.
+Each warehouse's properties are read with ``GET .../warehouses/{id}``, the read the SQL page makes to
+find a warehouse's connection (at most ``MAX_WAREHOUSE_READS``), and only with a token the app
+already holds: an assessment never asks to sign in for it, and without one the warehouse controls
+are not evaluated. A SQL analytics endpoint's status comes from the lakehouse read above.
 Each lakehouse's tables are read as the Estate X-ray reads them (the folders under Tables and each
 Delta table's log, never a data file; at most ``MAX_TABLE_READS``), through OneLake with a silent
 storage sign-in only: the assessment never prompts, so without one no table is read.
@@ -36,9 +40,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from . import delta_profile, maintenance, xray
-from .auth import GIT_STATUS_SCOPES, STORAGE_SCOPES
+from .auth import FABRIC_SCOPES, GIT_STATUS_SCOPES, STORAGE_SCOPES
 from .excellence import (adapters, assess, catalog, catalog_architecture, catalog_capacity, catalog_devops,
-                         catalog_performance, exceptions as excs, inspect_items, inspect_models, profiles)
+                         catalog_performance, catalog_warehouse, exceptions as excs, inspect_items, inspect_models,
+                         profiles)
 from .excellence import evidence as ev
 from .onelake import FileStore, TableRef, read_storage_options
 from .opportunities_service import MAX_DAYS, MIN_DAYS, _guid
@@ -51,6 +56,7 @@ MAX_TABLE_LISTINGS = 300  # OneLake folder listings per assessment; a lakehouse 
 MAX_TABLE_READS = 100  # Delta logs read per assessment; the lakehouses with tables past it aren't passed
 TABLE_READ_WORKERS = 4
 MAX_MODELS = 30  # semantic model definitions read per assessment; the rest are not evaluated
+MAX_WAREHOUSE_READS = 50  # warehouse properties read per assessment; the rest are not evaluated
 # The demonstration fixture's semantic model ("Sales"), as a parsed model.bim. Made up.
 FIXTURE_MODEL: dict[str, Any] = {"model": {
     "directLakeBehavior": "Automatic",
@@ -91,8 +97,25 @@ FIXTURE_ROLES = [
 ]
 # The demonstration fixture's lakehouses (LH_Bronze, LH_Silver), as GET .../lakehouses/{id} would give them.
 FIXTURE_LAKEHOUSES: dict[str, dict[str, Any] | None] = {
-    "f1f1f1f1-0000-4000-8000-000000000301": {"displayName": "LH_Bronze", "properties": {"defaultSchema": "dbo"}},
-    "f1f1f1f1-0000-4000-8000-000000000302": {"displayName": "LH_Silver", "properties": {}},
+    "f1f1f1f1-0000-4000-8000-000000000301": {"displayName": "LH_Bronze", "properties": {
+        "defaultSchema": "dbo", "sqlEndpointProperties": {"id": "f1f1f1f1-0000-4000-8000-000000000311",
+                                                          "provisioningStatus": "Success"}}},
+    "f1f1f1f1-0000-4000-8000-000000000302": {"displayName": "LH_Silver", "properties": {
+        "sqlEndpointProperties": {"id": "f1f1f1f1-0000-4000-8000-000000000312", "provisioningStatus": "Success"}}},
+}
+# The demonstration fixture's warehouses and its lakehouses' SQL analytics endpoints, as the item list
+# and GET .../warehouses/{id} would give them. Made up; the two warehouses' collations differ on purpose.
+FIXTURE_SQL_ITEMS = [
+    {"id": "f1f1f1f1-0000-4000-8000-000000000311", "type": "SQLEndpoint", "displayName": "LH_Bronze"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000312", "type": "SQLEndpoint", "displayName": "LH_Silver"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000501", "type": "Warehouse", "displayName": "WH_Gold"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000502", "type": "Warehouse", "displayName": "WH_Finance"},
+]
+FIXTURE_WAREHOUSES: dict[str, dict[str, Any] | None] = {
+    "f1f1f1f1-0000-4000-8000-000000000501": {"displayName": "WH_Gold", "properties": {
+        "collationType": "Latin1_General_100_BIN2_UTF8"}},
+    "f1f1f1f1-0000-4000-8000-000000000502": {"displayName": "WH_Finance", "properties": {
+        "collationType": "Latin1_General_100_CI_AS_KS_WS_SC_UTF8"}},
 }
 # The demonstration fixture's Git connection and status, made up: as Get Connection and Get Status
 # would give them for a workspace on a GitHub branch with one uncommitted and one incoming change.
@@ -223,6 +246,40 @@ def _lakehouses(fabric: Any, wid: str, items: list[dict[str, Any]] | None,
     if left > 0:
         notes.append(f"{left} past the first {MAX_LAKEHOUSE_READS} weren't read.")
     reads.append({"read": "lakehouse properties", "ok": not notes, "problem": " ".join(notes) or None})
+    return got
+
+
+def _warehouses(client_for: Callable[[], Any], wid: str, items: list[dict[str, Any]] | None,
+                reads: list[dict[str, Any]]) -> dict[str, dict[str, Any] | None]:
+    """Each warehouse's properties, read one by one with the client ``client_for()`` gives: one holding
+    a token the app already had, or ``None`` when there is none, and then nothing is read. It is asked
+    for only when the workspace has a warehouse. A warehouse that couldn't be read, or is past
+    MAX_WAREHOUSE_READS, has no answer, so its controls are not evaluated."""
+    found = [i for i in items or [] if i.get("type") == "Warehouse"]
+    if not found:
+        return {}
+    client = client_for()
+    if client is None:
+        reads.append({"read": "warehouse properties", "ok": False,
+                      "problem": "Not read: it needs a sign-in the app can use without asking, and there isn't one "
+                                 "now, so the warehouse controls aren't evaluated. Sign in again and assess again."})
+        return {}
+    got: dict[str, dict[str, Any] | None] = {}
+    problems: list[str] = []
+    for wh in found[:MAX_WAREHOUSE_READS]:
+        try:
+            got[str(wh["id"])] = client.get_warehouse(wid, _guid(wh.get("id"), "warehouse"))
+        except Exception as exc:  # noqa: BLE001 - that warehouse's controls are then not evaluated
+            problems.append(f"{wh.get('displayName') or wh.get('id')} ({describe(exc)})")
+    left = len(found) - MAX_WAREHOUSE_READS
+    notes = []
+    if problems:
+        notes.append(f"{len(problems)} of {len(found)} couldn't be read: " + "; ".join(problems[:3])
+                     + (f" and {len(problems) - 3} more" if len(problems) > 3 else "") + ".")
+    if left > 0:
+        notes.append(f"{left} past the first {MAX_WAREHOUSE_READS} weren't read.")
+    reads.append({"read": "warehouse properties", "ok": not notes, "problem": " ".join(notes) or None,
+                  "count": min(len(found), MAX_WAREHOUSE_READS)})
     return got
 
 
@@ -458,6 +515,8 @@ class ExcellenceMixin:
             git_conn: dict[str, Any] | None = FIXTURE_GIT_CONNECTION
             git_status: dict[str, Any] | None = FIXTURE_GIT_STATUS
             models, _ = _models(opt, lambda _item: FIXTURE_MODEL)
+            items: list[dict[str, Any]] | None = (_items(opt) or []) + FIXTURE_SQL_ITEMS
+            warehouses = dict(FIXTURE_WAREHOUSES)
         else:
             wid = _guid(workspace_id, "workspace")
             fabric = self.fabric  # type: ignore[attr-defined]
@@ -496,8 +555,12 @@ class ExcellenceMixin:
             except Exception as exc:  # noqa: BLE001 - the capacity controls are then not evaluated
                 capacities = None
                 reads.append({"read": "capacities", "ok": False, "problem": f"Couldn't be read ({describe(exc)})."})
-            lakehouses = _lakehouses(fabric, wid, _items(opt), reads)
-            tables = self._table_layout(wid, _items(opt), reads)
+            items = _items(opt)
+            lakehouses = _lakehouses(fabric, wid, items, reads)
+            # never self.fabric, which may ask to sign in: only a token the app already holds
+            warehouses = _warehouses(lambda: self._silent_client(FABRIC_SCOPES),  # type: ignore[attr-defined]
+                                     wid, items, reads)
+            tables = self._table_layout(wid, items, reads)
             git_conn, git_status = _git(fabric, self._git_status_client, wid, reads)
             try:
                 imports = self._usage.all()  # type: ignore[attr-defined]
@@ -507,7 +570,6 @@ class ExcellenceMixin:
                               "problem": f"The imports on this PC couldn't be read ({describe(exc)})."})
         cap = ws.get("capacityId")
         cap_id = cap.lower() if isinstance(cap, str) and ev.ok_id(cap) else ""
-        items = _items(opt)
         records = (_built(reads, "workspace settings and items",
                           lambda: adapters.workspace(ws, items, collected_at=at, info_read=info_read))
                    + _built(reads, "role assignments", lambda: adapters.roles(ws, assignments, collected_at=at))
@@ -519,6 +581,8 @@ class ExcellenceMixin:
                    + _built(reads, "lakehouse tables", lambda: catalog_performance.table_layout(
                        str(ws["id"]), [i for i in items or [] if isinstance(i, dict) and i.get("type") == "Lakehouse"],
                        tables, collected_at=at))
+                   + _built(reads, "warehouse and SQL analytics endpoint properties",
+                            lambda: catalog_warehouse.evidence(ws, items, lakehouses, warehouses, collected_at=at))
                    + _built(reads, "semantic model definitions", lambda: adapters.models(models, collected_at=at))
                    + _built(reads, "Git connection and status",
                             lambda: catalog_devops.evidence(ws, git_conn, git_status, collected_at=at)))

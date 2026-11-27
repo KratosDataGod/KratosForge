@@ -104,6 +104,20 @@ def test_a_hanging_expression_answers_pending_and_stop_ends_the_cell(kernel, han
     alive(kernel)
 
 
+def test_an_expression_asked_behind_a_hanging_one_answers_pending_at_once(kernel):
+    # The engine's debug lane takes evals one at a time: each one waiting EVAL_SECONDS would add up
+    # past the shell's time limit, which ends the engine.
+    kernel.start(CODE, breakpoints=[5])
+    assert wait(kernel)["paused"]["line"] == 5
+    assert kernel.debug("eval", "sum(1 for _ in iter(int, 1))") == {"pending": True}
+    started = time.monotonic()
+    assert kernel.debug("eval", "len(items)") == {"pending": True}
+    assert time.monotonic() - started < 2
+    assert kernel.interrupt()["interrupted"] is True
+    assert ended_in_time(kernel)["status"] == "cancelled"
+    alive(kernel)
+
+
 def test_stop_during_a_hanging_expression_before_it_answers(kernel):
     kernel.start(CODE, breakpoints=[5])
     assert wait(kernel)["paused"]["line"] == 5

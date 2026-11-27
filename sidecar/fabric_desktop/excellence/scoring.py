@@ -16,7 +16,9 @@ A rating comes from the score only at the profile's rated coverage (default 80%)
 provisional and rated coverage it is ``provisional``; below, ``insufficient_evidence`` with no rating.
 A score of 100 needs coverage of 100% and no failed control: a gap shows as 99 and a failure that
 would round to 100 as 99.9. ``critical_risk`` is set by any
-failed critical control, whatever the score.
+failed critical control, whatever the score, and it caps the rating below Exemplary: the overall
+rating, and the rating of each dimension a failed critical control is in, is at most Well
+architected and says ``"capped": "critical_risk"``. The score itself is never changed.
 
 Ratings are KratosForge product ratings, not Microsoft certifications.
 """
@@ -35,11 +37,17 @@ RATINGS = ((90, "exemplary", "Exemplary"), (80, "well_architected", "Well archit
 APPLICABLE = ("pass", "fail", "not_evaluated", "error")
 
 
-def rating(score: float | None) -> dict[str, str] | None:
+CAP = 1  # with a critical risk, the best rating is RATINGS[CAP] (Well architected)
+
+
+def rating(score: float | None, critical: bool = False) -> dict[str, str] | None:
+    """The rating for ``score``; with ``critical`` (a failed critical control) never above Well architected."""
     if score is None:
         return None
-    for floor, rid, label in RATINGS:
+    for i, (floor, rid, label) in enumerate(RATINGS):
         if score >= floor:
+            if critical and i < CAP:
+                return {"id": RATINGS[CAP][1], "label": RATINGS[CAP][2], "capped": "critical_risk"}
             return {"id": rid, "label": label}
     return None  # pragma: no cover - the last floor is 0
 
@@ -107,26 +115,28 @@ def _status(score: float | None, coverage: float, p: Profile) -> str:
     return "rated" if coverage >= p.rated_coverage else "provisional"
 
 
-def _block(applicable: float, evaluated: float, passed: float, p: Profile) -> dict[str, Any]:
+def _block(applicable: float, evaluated: float, passed: float, p: Profile, critical: bool = False) -> dict[str, Any]:
     coverage = evaluated / applicable if applicable else 0.0
     score = 100 * passed / evaluated if evaluated else None
     assured = 100 * passed / applicable if applicable else 0.0
     sc, shown_assured, cov = _shown(score, assured, coverage)
     st = _status(sc, coverage, p)
     return {"score": sc, "assured": shown_assured if applicable else None, "coverage": cov, "status": st,
-            "rating": rating(score) if st != "insufficient_evidence" else None}
+            "rating": rating(score, critical) if st != "insufficient_evidence" else None}
 
 
 def score(outcomes: list[dict[str, Any]], profile: Profile) -> dict[str, Any]:
     """Dimension and overall scores for ``outcomes`` (controls.evaluate results)."""
     rows = control_rows(outcomes, profile)
+    critical = sorted({o["control_id"] for o in outcomes if o["outcome"] == "fail" and o["severity"] == "critical"})
+    critical_dims = {r["dimension"] for r in rows if r["control_id"] in critical}
     dims: dict[str, dict[str, Any]] = {}
     for d, label in DIMENSIONS.items():
         mine = [r for r in rows if r["dimension"] == d]
         app = sum(r["applicable_w"] for r in mine)
         ev_ = sum(r["evaluated_w"] for r in mine)
         ps = sum(r["passed_w"] for r in mine)
-        block = _block(app, ev_, ps, profile) if app else {"score": None, "assured": None, "coverage": None,
+        block = _block(app, ev_, ps, profile, d in critical_dims) if app else {"score": None, "assured": None, "coverage": None,
                                                            "status": "not_applicable", "rating": None}
         dims[d] = {"dimension": d, "label": label, "weight": profile.weights[d], **block,
                    "controls": _counts(mine), "_app": app, "_ev": ev_, "_ps": ps}
@@ -144,14 +154,13 @@ def score(outcomes: list[dict[str, Any]], profile: Profile) -> dict[str, Any]:
         sc, shown_assured, shown_cov = _shown(raw, assured, cov)
         st = _status(sc, cov, profile)
         overall = {"score": sc, "assured": shown_assured, "coverage": shown_cov,
-                   "status": st, "rating": rating(raw) if st != "insufficient_evidence" else None}
+                   "status": st, "rating": rating(raw, bool(critical)) if st != "insufficient_evidence" else None}
     for x in dims.values():
         x["normalized_weight"] = _round(100 * profile.weights[x["dimension"]] / total_w) if x["dimension"] in live else 0.0
         for k in ("_app", "_ev", "_ps"):
             x.pop(k)
     evaluated_w = sum(r["evaluated_w"] for r in rows)
     strong_w = sum(r["strong_w"] for r in rows)
-    critical = sorted({o["control_id"] for o in outcomes if o["outcome"] == "fail" and o["severity"] == "critical"})
     return {"overall": overall, "dimensions": dims, "controls": rows, "counts": _counts(rows),
             "critical_risk": bool(critical), "critical_controls": critical,
             "confidence": _confidence(strong_w, evaluated_w, overall["coverage"], profile),

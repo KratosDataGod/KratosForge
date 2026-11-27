@@ -1,0 +1,36 @@
+# Mutation testing, batch 411
+
+One module not scored before, run with `--kinds all`:
+- Granting the exercise sandbox read and execute on the Python install, one allow entry per path through the Windows security API, after checking whether the path already holds exactly that grant (`academy/acl.py`).
+
+The run was at `main` ea988e99 (2026-11-23), with `sidecar/tools/mutate.py` and the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The per-mutant timeout was raised from 120 to 600 seconds by a wrapper that sets `mutate.TIMEOUT`, with the tool unchanged, because three runs shared the machine; no mutant's run timed out. Each pytest session got a fresh temporary folder, so a mutant can't leave one that breaks later runs. Each test set was run with `-x`. Test files were given as paths relative to `sidecar/`, and they first passed once on the unmutated copy. None of them reads `docs/`, `examples/` or `app/`, so nothing was left out. The module has 78 mutants, so all were run. `main` hasn't changed this module since.
+
+test_academy_acl skips itself off Windows, so on this Linux machine no test reached the module and every mutant survived. The new tests stand in for advapi32 and kernel32 with the real ctypes structures, so they run on every OS. The "after" figure is a full rerun.
+
+Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `academy/acl.py` | test_academy_acl (+ test_academy_acl_mutation_b) | 78 of 78 (78 + 0) | 0 / 78 | **0%** | 0/78 → 75/78 | none | 75 / 3 | **96.2%** | 3 Windows only |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **academy/acl.py**:
+  - The access, inheritance and mode constants have the values Windows defines.
+  - The API is built once and then reused.
+  - Paths get the long form, for drive paths and for UNC shares, and a failure names the call and its error.
+  - A path counts as granted only with an explicit allow entry for the capability's SID, with read and execute and exactly the inheritance flags this module sets. A deny entry, an inherited one, other flags, missing bits or another SID don't count. A wider entry does. A NULL DACL doesn't.
+  - When reading the permissions fails at any step, the error says so and the security descriptor is freed. A SID that won't convert is an error.
+  - The grant sends one allow entry with read and execute to the SID and sets the DACL, protected only when asked. When a change fails, what was allocated is freed, and a failed read stops the grant.
+  - → `test_academy_acl_mutation_b.py`, with a stand-in for advapi32 and kernel32; no real permission is read or changed.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `academy/acl.py` | 67, 68 | `use_last_error=True` to `False` when loading advapi32 and kernel32 | Not equivalent, but Windows only: the line loads `ctypes.WinDLL`, which doesn't exist on Linux. test_academy_acl, which runs only on Windows, is where it can be reached. |
+| `academy/acl.py` | 89 | `return api` dropped at the end of `_api` | Not equivalent, but Windows only, as above. |

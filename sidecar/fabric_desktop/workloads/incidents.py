@@ -82,10 +82,12 @@ def _iso(t: float) -> str:
 
 
 def _epoch(text: str | None) -> float:
+    """Seconds since the epoch for a stored time (0 when unreadable); a time with no zone is UTC, as sla reads it."""
     try:
-        return dt.datetime.fromisoformat(str(text).replace("Z", "+00:00")).timestamp()
+        t = dt.datetime.fromisoformat(str(text).replace("Z", "+00:00"))
     except ValueError:
         return 0.0
+    return (t.replace(tzinfo=dt.UTC) if t.tzinfo is None else t).timestamp()
 
 
 def signal_key(kind: str, workload: str | None, env: str) -> str:

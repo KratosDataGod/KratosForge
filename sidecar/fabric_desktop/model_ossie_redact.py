@@ -2,8 +2,8 @@
 
 A role's filter expressions and members say who may see which rows. The app's own Semantic model tab shows them
 in full; a tool outside KratosForge (``fabric_desktop_export_semantic_model_ossie``,
-``fabric_desktop_preview_ossie_import``) gets each filter and each member's name and id as a length and short
-hash instead (``semantic_parity._fingerprint``), so it can still see that a role restricts a table, and that two
+``fabric_desktop_preview_ossie_import``) gets each filter and each member's name and id as a length and
+keyed fingerprint instead (``keyed_fingerprint``), so it can still see that a role restricts a table, and that two
 filters differ, without reading how or who. Role names, model permissions and which tables have a filter stay.
 """
 

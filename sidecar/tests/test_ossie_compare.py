@@ -215,7 +215,7 @@ def test_a_role_filter_change_is_flagged_and_never_leaks_in_the_redacted_report(
     for secret in ("TOPSECRET", "DE", "alice", "bob", "contoso"):
         assert secret not in text, secret
     assert safe["redacted"] is True and "role 'EU only'" in text
-    assert any("sha256" in c["detail"] for c in _row(safe, "role 'EU only'")["changes"])
+    assert any("fingerprint" in c["detail"] for c in _row(safe, "role 'EU only'")["changes"])
     assert all("detail_redacted" not in c for o in safe["objects"] for c in o["changes"])
     assert report == oc.compare_versions(old, new)  # redacted() left the report as it was
 
@@ -225,7 +225,7 @@ def test_redacted_fingerprints_expression_forms():
     _table(new, "fact_sales")["measures"][1]["expression"] = "SUM('fact_sales'[customer_sk])"
     change = _row(oc.redacted(oc.compare_versions(_bim(), new)),
                   "table 'fact_sales' measure 'fact_sales total amount'")["changes"][0]
-    assert all("sha256" in v for v in change["forms"].values())
+    assert all("fingerprint" in v for v in change["forms"].values())
 
 
 # ---- bad input, refused versions

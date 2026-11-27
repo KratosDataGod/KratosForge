@@ -1,16 +1,17 @@
 """The AI tools' Export and Import preview withhold security role filters and members (model_ossie_redact).
 
 A READ_METADATA client (an AI agent through the local API or MCP) gets each role's filter expressions and each
-member's name and id as a length and hash, in the fidelity report and in the YAML; the app's own Semantic model
+member's name and id as a length and keyed fingerprint, in the fidelity report and in the YAML; the app's own Semantic model
 tab (the meta_model_ossie_* methods) still shows them in full."""
 
+import hashlib
 import json
 import logging
 
 import pytest
 import yaml
 
-from fabric_desktop import model_ossie, model_ossie_redact, ossie_validate
+from fabric_desktop import keyed_fingerprint, model_ossie, model_ossie_redact, ossie_validate
 from fabric_desktop.integrations.capabilities import register_core
 from fabric_desktop.integrations.core import CallContext, Caller
 from fabric_desktop.integrations.registry import ReadOnlyAuthorizer, Registry
@@ -168,3 +169,52 @@ def test_the_tools_call_the_withheld_methods():
     _invoke(svc, EXPORT, {"env": "prod", "name": "SM_Gold"})
     _invoke(svc, PREVIEW, {"env": "test", "text": "name: m"})
     assert svc.calls == [("export", "prod", "SM_Gold", True), ("preview", "test", "name: m", "", "update", [])]
+
+
+def test_a_guessed_member_or_filter_cant_be_confirmed_by_hashing_it(secured):
+    """A tool with a list of the org's UPNs, or a directory listing, can't confirm who is in a role: the
+    fingerprint is keyed, so a plain sha256 of the right guess appears nowhere in the result."""
+    exported = json.dumps(_invoke(secured, EXPORT, {"env": "test", "name": "SM_Gold"}), ensure_ascii=False)
+    sent = model_ossie.export(_secured())["yaml"]
+    previewed = json.dumps(_invoke(secured, PREVIEW, {"env": "test", "text": sent, "name": "SM_Gold"}),
+                           ensure_ascii=False)
+    for text in (exported, previewed):
+        for value in (UPN, MEMBER_ID, FILTER):
+            plain = hashlib.sha256(value.encode()).hexdigest()
+            assert plain[:12] not in text and plain not in text
+    assert keyed_fingerprint.digest(UPN) in exported
+
+
+def test_the_key_is_made_once_and_kept(tmp_path, monkeypatch):
+    path = tmp_path / "keys" / "fingerprint.key"
+    monkeypatch.setattr(keyed_fingerprint, "key_path", lambda: path)
+    first = keyed_fingerprint.fingerprint(UPN)
+    assert len(path.read_bytes()) == keyed_fingerprint.KEY_BYTES
+    keyed_fingerprint._key_for.cache_clear()
+    assert keyed_fingerprint.fingerprint(UPN) == first  # read back, not made again
+    assert first == f"{len(UPN)} characters, fingerprint {keyed_fingerprint.digest(UPN)}"
+
+
+def test_another_key_gives_another_fingerprint(tmp_path, monkeypatch):
+    monkeypatch.setattr(keyed_fingerprint, "key_path", lambda: tmp_path / "a.key")
+    a = keyed_fingerprint.digest(UPN)
+    monkeypatch.setattr(keyed_fingerprint, "key_path", lambda: tmp_path / "b.key")
+    assert keyed_fingerprint.digest(UPN) != a
+
+
+def test_a_folder_that_cant_hold_the_key_uses_a_key_for_this_run(tmp_path, monkeypatch, caplog):
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("x")
+    monkeypatch.setattr(keyed_fingerprint, "key_path", lambda: blocker / "fingerprint.key")
+    with caplog.at_level(logging.WARNING, logger="fabric_desktop.keyed_fingerprint"):
+        a = keyed_fingerprint.digest(UPN)
+    assert keyed_fingerprint.digest(UPN) == a and a != hashlib.sha256(UPN.encode()).hexdigest()[:12]
+    assert "this run only" in caplog.text
+
+
+def test_a_damaged_key_file_is_not_used_as_a_key(tmp_path, monkeypatch):
+    path = tmp_path / "fingerprint.key"
+    path.write_bytes(b"short")
+    monkeypatch.setattr(keyed_fingerprint, "key_path", lambda: path)
+    assert len(keyed_fingerprint.digest(UPN)) == 12
+    assert path.read_bytes() == b"short"  # left for someone to look at, never overwritten

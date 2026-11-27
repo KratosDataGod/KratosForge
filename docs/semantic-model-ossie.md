@@ -186,7 +186,7 @@ with their defaults (unused at L1). A Different results summary can hide Unsuppo
 
 The report can name role members and quote row-level security filters. Anything that shows it
 outside the local pane (a log, a support bundle, a CI artifact, GitHub text) must use
-`semantic_parity.redacted(report)`, which gives counts of members and a length and hash of each
+`semantic_parity.redacted(report)`, which gives counts of members and a length and keyed fingerprint of each
 filter instead. A TMDL line the reader can't read is reported by its first 80 characters, so
 `redacted()` also withholds such a warning when it names a role, comes from a `roles/` file, or sits
 inside a role block in any file. The reader takes a role declared in `model.tmdl` or
@@ -581,7 +581,7 @@ can't resolve the columns a view metric's SQL names, and a measure the view keep
 view row's notes count these measures, and they aren't listed as dropped.
 
 `semantic_matrix.redacted(matrix)` gives a copy that's safe outside the local pane. Each parity report goes
-through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and hash instead.
+through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and keyed fingerprint instead.
 
 ## Fixture corpus
 
@@ -801,7 +801,7 @@ expressions, sourceColumn and summarizeBy. Bad input never raises: `status` is "
 can't understand is left out of the comparison, so the summary and `notes` count it and each
 side's `warnings` name it.
 The report can quote a role's filter and name its members. Anything shown outside the local pane
-must use `ossie_compare.redacted(report)`, which gives a length and hash of each filter, counts of
+must use `ossie_compare.redacted(report)`, which gives a length and keyed fingerprint of each filter, counts of
 members and permissions, and no expression or format text.
 
 ## How this works
@@ -876,10 +876,15 @@ reaches only environments in them. Importing writes the model, so it stays on th
 see the preview and confirm.
 
 Export and the import preview withhold security roles from an AI tool: each role filter expression and
-each member's name and id comes back as its length and a short hash, in the YAML and in the fidelity
-report, because they say who may see which rows and an agent has no need to read them. Role names, model
+each member's name and id comes back as its length and a keyed fingerprint, in the YAML and in the
+fidelity report, because they say who may see which rows and an agent has no need to read them. Role names, model
 permissions and which tables have a filter are kept, the result's `note` says what was withheld, and
 this tab still shows them in full.
+
+A keyed fingerprint is a short HMAC-SHA256 under a random key kept in this PC's data folder and never
+returned. Two fingerprints match when their text does, so a tool can still see that two filters are the
+same, but it can't confirm a guessed name or filter by hashing it. The redacted reports from
+`semantic_parity.redacted` and `ossie_compare.redacted` use the same fingerprints.
 
 ## Engine methods
 

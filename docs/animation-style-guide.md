@@ -13,15 +13,15 @@ speed, heat and calm, drawn in KratosBI navy and forge orange.
 ## The four tiers
 
 Effects are grouped by how much of the screen they take and how rarely they may play. A tier is about
-scale. It is separate from the person's intensity level (Off, Minimal, Refined, Expressive), which
+scale. It is separate from the person's intensity level (Professional, Subtle, Heroic, Legendary), which
 decides whether a tier plays at all.
 
 | Tier | What it is for | Footprint | Length | How often | Lowest level |
 | --- | --- | --- | --- | --- | --- |
-| **Ember** | A state that is true right now: running, waiting, connected | Inside one control; at most 8 px of moving mark | Loops while the state lasts; one cycle 1.2 to 1.8 s | Any number on screen, at most 3 animating | Refined (2) |
-| **Spark** | Feedback that one thing you did has finished | Beside one status label; at most 24 px | 0.3 to 0.5 s, once | Many per minute, with a minimum gap per kind | Refined (2) |
-| **Forge** | A hero moment: work that took a while, or mattered, is done | One region (a status bar, a card, a dialog header); at most 160 by 48 px | 0.6 to 1.2 s, once | A few per session, gap of 1.5 s or more | Refined (2), with more character at Expressive (3) |
-| **Titan** | A milestone worth stopping for: first deploy to Prod, a level reached, a release shipped | The whole window, and past its edges onto the desktop (see [Past the window](#past-the-window)) | 1.5 to 2.5 s, skippable at any moment | At most once per milestone, never twice in 10 minutes | Expressive (3), and only when the person has turned on celebrations |
+| **Ember** | A state that is true right now: running, waiting, connected | Inside one control; at most 8 px of moving mark | Loops while the state lasts; one cycle 1.2 to 1.8 s | Any number on screen, at most 3 animating | Heroic (2) |
+| **Spark** | Feedback that one thing you did has finished | Beside one status label; at most 24 px | 0.3 to 0.5 s, once | Many per minute, with a minimum gap per kind | Heroic (2) |
+| **Forge** | A hero moment: work that took a while, or mattered, is done | One region (a status bar, a card, a dialog header); at most 160 by 48 px | 0.6 to 1.2 s, once | A few per session, gap of 1.5 s or more | Heroic (2), with more character at Legendary (3) |
+| **Titan** | A milestone worth stopping for: first deploy to Prod, a level reached, a release shipped | The whole window, and past its edges onto the desktop (see [Past the window](#past-the-window)) | 1.5 to 2.5 s, skippable at any moment | At most once per milestone, never twice in 10 minutes | Legendary (3), and only when the person has turned on celebrations |
 
 ### Ember: the forge is lit
 
@@ -52,7 +52,7 @@ Spark is the reply to an action. It is quick enough that you see it in the corne
 Forge is a small story with a beginning and an end: something drops, strikes, runs or rises.
 
 - **Motifs:** the anvil strike, the wolf running a lane and leaving embers, the wolf arriving at the
-  end of its track, a badge revealed with a ring. At Expressive, comic-book touches: a halftone
+  end of its track, a badge revealed with a ring. At Legendary, comic-book touches: a halftone
   burst, an offset ink outline, two or three speed lines behind the wolf.
 - **Motion:** a short anticipation, a heavy landing, then a release. Strikes use
   `cubic-bezier(.3,1.4,.5,1)` for weight; runs use `cubic-bezier(.4,0,.2,1)`.
@@ -81,7 +81,7 @@ one with the strictest rules.
       never moves.
     - The milestone text is in the app before the Titan starts, so skipping loses nothing.
     - Only while **Achievement celebrations** is on (the default; policy key
-      `motion_achievements`), and only at Expressive.
+      `motion_achievements`), and only at Legendary.
     - It is the one exception to "no effect covers content" in [Motion and effects](forge-animations.md),
       and that page must say so when the first Titan ships.
 
@@ -194,17 +194,17 @@ family.
 
 | Level | Ember | Spark | Forge | Titan |
 | --- | --- | --- | --- | --- |
-| **0 Off** | none | none | none | none |
-| **1 Minimal** | none (static state colour only) | none | none | none |
-| **2 Refined** | yes | yes | yes, plain | none |
-| **3 Expressive** | yes | yes, one extra spark | yes, with halftone, offset outline and speed lines | yes, if celebrations are on |
+| **0 Professional** | none | none | none | none |
+| **1 Subtle** | none (static state colour only) | none | the Achievement Reveal only | none |
+| **2 Heroic** | yes | yes | yes, plain | none |
+| **3 Legendary** | yes | yes, one extra spark | yes, with halftone, offset outline and speed lines | yes, if celebrations are on |
 
 When the app is under load the engine already drops one level for 30 s, so a Titan never plays on a
-busy machine and Forge loses its Expressive extras.
+busy machine and Forge loses its Legendary extras.
 
 ## Reduced motion and fallbacks
 
-Every effect has a still version, because Off and Windows' reduced-motion setting must lose nothing
+Every effect has a still version, because Professional and Windows' reduced-motion setting must lose nothing
 but movement.
 
 | Tier | Still version |
@@ -242,7 +242,7 @@ implementation guide, sets the measured performance budget for each tier.
 - Keep the outcome readable from the first frame.
 - Reuse a motif before inventing a new one. A new effect is a new event mapped to an existing kind
   where possible.
-- Check it at Off, Minimal, Refined and Expressive, and with Windows' animation effects off.
+- Check it at Professional, Subtle, Heroic and Legendary, and with Windows' animation effects off.
 
 **Don't**
 

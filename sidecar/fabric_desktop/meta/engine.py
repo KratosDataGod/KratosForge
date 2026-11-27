@@ -321,6 +321,7 @@ class Engine:
         # Each table's own Delta features choice (delta_features), checked by every write to it.
         if project is not None and store is not None:  # some callers only want its helpers
             store.delta_policies = project.delta_policies()
+            store.history_days = {l.lakehouse: l.retention_days for l in project.layers}
         # Incremental and replayed rows go into the table with a Delta MERGE (or an append), which
         # rewrites only the files they touch. False always reads the whole table and overwrites it,
         # as before 0.20; kept for comparison (examples/benchmark/large_tables.py).

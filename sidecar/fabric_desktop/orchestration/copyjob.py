@@ -14,10 +14,10 @@ gateways (plan section 6). This only reads the text; nothing runs.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 from typing import Any
+
+from .. import b64
 
 CONTENT = "copyjob-content.json"
 ONELAKE = {"Lakehouse"}  # connection types a run on this PC can reach
@@ -88,8 +88,9 @@ def describe(result: dict[str, Any]) -> dict[str, Any]:
     for part in _list(_dict(_dict(result).get("definition")).get("parts")):
         if isinstance(part, dict) and part.get("path") == CONTENT:
             try:
-                text = base64.b64decode(part.get("payload") or "").decode("utf-8")
-            except (binascii.Error, UnicodeDecodeError, ValueError, TypeError):
+                payload = part.get("payload")
+                text = b64.decode_exact(payload).decode("utf-8") if isinstance(payload, str) else ""
+            except ValueError:
                 text = ""
     problems = []
     try:

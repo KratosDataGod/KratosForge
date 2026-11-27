@@ -171,7 +171,7 @@ def detect_profile(doc: Any) -> str:
     UnknownProfile naming its version. ``fabric-semantic-view`` is never detected: it is the same version as
     ``ossie-0.2`` and is chosen by the caller."""
     if not isinstance(doc, dict):
-        raise UnknownProfile("This isn't an Ossie semantic model: it should be one object with version, name and "
+        raise UnknownProfile("This isn't an Ossie semantic model, which is one object with version, name and "
                              "datasets", (), "type")
     raw = doc.get("version")
     version = raw if isinstance(raw, str) else None
@@ -335,11 +335,13 @@ def check(doc: dict[str, Any], profile: str) -> dict[str, Any]:
 # ---- a set of files (Fabric's limits apply to a view's folder, not to one file)
 
 def _size(name: str, value: Any) -> int:
+    """A file's size in bytes; a value that is neither text nor bytes is refused naming the file, never the value."""
     if isinstance(value, bytes):
         return len(value)
     if isinstance(value, str):
         return len(value.encode("utf-8"))
-    raise TypeError(f"{name} should be text or bytes")
+    raise ValueError(f"The file {model_ossie._q(name)} should be text or bytes, "
+                     f"not {model_ossie._what(value)}")
 
 
 _LISTS = ("datasets", "relationships", "metrics")  # what publishing merges from every file

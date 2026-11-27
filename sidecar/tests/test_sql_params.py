@@ -99,6 +99,36 @@ def test_a_duckdb_query_with_a_backslash_in_a_string_still_finds_its_parameter(r
     assert runs.page(status["id"])["rows"] == [["C:\\", 7]]
 
 
+@pytest.mark.parametrize("query, expected", [
+    ("SELECT {{a}} AS x", [[5]]),
+    ("SELECT {{a}} + 1", [[6]]),
+    ("SELECT :a AS x", [[5]]),
+    ("SELECT\n  {{a}}::bigint * 2 AS x", [[10]]),
+    ("SELECT {{a}},{{b}}", [[5, "t"]]),
+    ("SELECT [{{a}},{{a}}] AS l", [["[5, 5]"]]),
+    ("SELECT {{b}}||{{b}} AS s, $$x$$ AS q", [["tt", "x"]]),
+    ("SELECT count(*) AS n FROM sales WHERE id < {{a}}", [[3]]),
+])
+def test_a_duckdb_parameter_reads_anywhere_even_first_in_the_select_list(runs, lake, query, expected):
+    # DuckDB reads SELECT :a as the prefix alias "a: expr", so the parameter is written $a for DuckDB.
+    status = wait(runs, runs.start(query, lake, dialect="duckdb", params=[
+        {"name": "a", "type": "number", "value": "5"}, {"name": "b", "type": "text", "value": "t"}])["id"])
+    assert status["state"] == "completed", status["error"]
+    assert runs.page(status["id"])["rows"] == expected
+
+
+def test_duckdb_parameters_are_written_with_a_dollar_and_a_space():
+    assert sql_params.as_colons("SELECT {{a}},:b", backslash=False, dollar=True) == "SELECT $a ,$b "
+    assert sql_params.as_colons("SELECT '{{a}}'", backslash=False, dollar=True) == "SELECT '{{a}}'"
+
+
+def test_a_duckdb_script_binds_a_parameter_first_in_each_statement(runs, lake):
+    status = wait(runs, runs.start("", lake, dialect="duckdb", statements=["SELECT {{a}} AS a", "SELECT :a + 1 AS b"],
+                                   params=[{"name": "a", "type": "number", "value": "1"}])["id"])
+    assert status["state"] == "completed", status["error"]
+    assert runs.page(status["id"], part=1)["rows"] == [[1]] and runs.page(status["id"], part=2)["rows"] == [[2]]
+
+
 def test_a_value_is_never_sql(runs, lake):
     status = wait(runs, runs.start("SELECT count(*) AS n FROM sales WHERE region = :region", lake,
                                    params=[{"name": "region", "type": "text", "value": "x' OR '1'='1"}])["id"])

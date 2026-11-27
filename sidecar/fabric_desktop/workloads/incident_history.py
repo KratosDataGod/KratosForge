@@ -49,10 +49,9 @@ KEEP_SENT = 50_000  # record ids this PC remembers having copied, so a quiet cop
 
 
 def _ts(value: Any) -> str | None:
-    try:
-        return timestamp(str(value).replace("Z", "+00:00")) if value else None
-    except ValueError:
-        return None
+    """A stored time as the history keeps it (UTC), or None when unreadable; a time with no zone is UTC (_when)."""
+    t = _when(value)
+    return timestamp(t) if t is not None else None
 
 
 def _as_of(inc: dict[str, Any]) -> str | None:

@@ -424,6 +424,18 @@ def test_adopt_without_a_fabric_platform_stays_lakehouse_only(svc, monkeypatch):
     assert preview["operational_prod"] is False
 
 
+def test_adopt_refuses_when_the_keys_link_changed_since_the_preview(svc, monkeypatch):
+    _central(svc)
+    prod = {"workspace_id": PLATFORM_WS, "functions_id": FUNCTIONS}
+    _platform(monkeypatch, prod, {"workspace_id": KEYS_WS, "functions_id": FUNCTIONS, "shared": True})
+    preview = svc.cp_adopt_preview("Ours")
+    assert preview["manifest"]["deployments"]["keys"] == {"workspace_id": KEYS_WS}
+    _platform(monkeypatch, prod, {"workspace_id": PLATFORM_WS, "functions_id": FUNCTIONS, "shared": True})  # Keys repointed meanwhile
+    with pytest.raises(PermissionError, match="changed since"):
+        svc.cp_adopt(preview["token"], confirmed=True)
+    assert st.local_store(svc.lakes / WS / CENTRAL).read() is None
+
+
 def test_adopt_refuses_when_the_platform_changed_since_the_preview(svc, monkeypatch):
     _central(svc)
     _platform(monkeypatch, {"workspace_id": PLATFORM_WS, "functions_id": FUNCTIONS})

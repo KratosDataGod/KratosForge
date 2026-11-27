@@ -141,6 +141,21 @@ def test_a_lakehouse_whose_manifest_is_gone_or_damaged_is_not_inventoried(svc, m
     assert damaged["status"] == "Connection failed" and "damaged" in damaged["detail"] and damaged["inventory"] is None
 
 
+def test_a_lakehouse_whose_manifest_names_another_environment_is_not_inventoried(svc, monkeypatch):  # noqa: F811
+    _environment(svc)
+
+    class Other:
+        manifest = {"environment_id": "kfenv_" + "0" * 32}
+
+    class Store:
+        def read(self):
+            return Other()
+
+    monkeypatch.setattr(Service, "_cp_store", lambda self, ws, lh: Store())
+    got = svc.cp_inventory()
+    assert got["status"] == "Connection failed" and "isn't in its lakehouse" in got["detail"] and got["inventory"] is None
+
+
 def test_an_unreadable_manifest_gives_a_status_not_an_exception(svc, monkeypatch):  # noqa: F811
     _environment(svc)
 

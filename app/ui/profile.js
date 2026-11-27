@@ -509,7 +509,7 @@ function treeZoom(spec, canvas) {
     out.disabled = v.s <= TREE_ZOOM.min;
     inn.disabled = v.s >= TREE_ZOOM.max;
     fitBtn.disabled = fitNow;
-    hint.textContent = v.s > 1 ? "Drag to pan \u00b7 0 fits" : "Ctrl + wheel or + and \u2212 to zoom";
+    hint.textContent = v.s > 1 ? "Drag to pan \u00b7 0 to fit" : "Ctrl + wheel or + and \u2212 to zoom";
     mini.hidden = v.s <= 1;
     view.classList.toggle("zoomed", !fitNow);
     if (v.s > 1) {

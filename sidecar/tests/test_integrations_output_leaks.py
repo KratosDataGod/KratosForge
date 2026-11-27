@@ -502,3 +502,24 @@ def test_a_home_folder_path_inside_other_text_still_hides_whose():
     """A path the folder cut doesn't reach, joined to other text, still loses the user name."""
     err = error_from(RuntimeError("bad file=C:\\Users\\chris\\x.csv"))
     assert "chris" not in err.message, err.message
+
+
+@pytest.mark.parametrize("text", [
+    "Permission denied: C:\\Users\\chris",  # the home folder itself: its last part is the name
+    "can't read C:\\Users\\Chris Wagner\\Documents\\x.json now",  # a space in the name, unquoted
+    "Permission denied: C:\\Users\\Chris Wagner",
+    "cannot read /home/chris",
+    "cannot read /Users/chris/",
+    "can't read 'C:\\Users\\Chris Wagner\\Documents\\Q3 payroll.xlsx'",  # quoted, with spaces
+    "cannot read /home/chris/Documents/x.json",
+])
+def test_a_home_folder_path_never_leaves_the_user_name_after_the_cut(text):
+    err = error_from(RuntimeError(text))
+    assert "chris" not in err.message.lower() and "wagner" not in err.message.lower(), err.message
+    assert "Documents" not in err.message, err.message  # the folders after the masked name are cut too
+
+
+@pytest.mark.parametrize("filename", ["C:\\Users\\chris", "/home/chris", "/home/chris/", "C:\\Users\\Chris Wagner"])
+def test_a_file_error_on_the_home_folder_itself_names_no_user(filename):
+    err = error_from(PermissionError(13, "Permission denied", filename))
+    assert err.message == "Permission denied: '[user]'", err.message

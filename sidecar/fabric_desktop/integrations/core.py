@@ -110,7 +110,8 @@ def _redact(value: Any, blank: bool) -> Any:
 def _short_os_message(exc: OSError) -> str:
     """An OSError's text with only the last part of each path it names: "[Errno 2] No such file or
     directory: 'C:\\Users\\ann\\AppData\\...\\x.ipynb'" names where the person's data folder is."""
-    names = [ntpath.basename(os.fsdecode(f)) for f in (exc.filename, exc.filename2) if isinstance(f, (str, bytes, os.PathLike))]
+    # The user name is masked before the cut: a path that is the home folder would otherwise be cut to it.
+    names = [ntpath.basename(user_paths(os.fsdecode(f)).rstrip('\\/')) for f in (exc.filename, exc.filename2) if isinstance(f, (str, bytes, os.PathLike))]
     return f"{exc.strerror or type(exc).__name__}: {' -> '.join(repr(n) for n in names)}"
 
 
@@ -135,6 +136,14 @@ def _is_folder(path: Any) -> bool:
         return isinstance(path, (str, bytes, os.PathLike)) and os.path.isdir(path)
     except (OSError, ValueError):
         return False
+
+
+_MASK = "\ue000"  # a stand-in for "[user]" that the path patterns read as part of a path
+
+
+def _masked_then_cut(text: str) -> str:
+    """plain_message of ``text`` with the user name in a home folder path masked first."""
+    return plain_message(user_paths(text).replace("[user]", _MASK)).replace(_MASK, "[user]")
 
 
 def plain_message(text: str) -> str:
@@ -163,7 +172,9 @@ def error_from(exc: BaseException) -> IntegrationError:
         # the next line from the patterns; its own text is what the person should read anyway.
         message = exc.args[0] if isinstance(exc, KeyError) and len(exc.args) == 1 and isinstance(exc.args[0], str) else str(exc)
     # A path the cut below misses (inside other text) still mustn't say whose home folder it is.
-    message = user_paths(redact_secrets(plain_message(message or type(exc).__name__) or type(exc).__name__))
+    # The user name is masked before paths are cut to their last part, and again after: cut first, a
+    # path that is the home folder would leave the bare name, and one with a space in it its tail.
+    message = user_paths(redact_secrets(_masked_then_cut(message or type(exc).__name__) or type(exc).__name__))
     name = type(exc).__name__
     if any(c.__name__ == "DeltaError" for c in type(exc).__mro__):  # deltalake's, whose module is "_internal"
         # A Delta log that can't be read: a commit missing or cut off, a checkpoint that isn't there.

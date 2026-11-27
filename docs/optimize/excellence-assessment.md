@@ -186,6 +186,8 @@ assessment never asks you to sign in for them. Without a OneLake sign-in on this
 It also uses the Capacity Metrics exports already imported on this PC (Optimize > Cost and savings).
 That is a local read, not a Fabric call. A read that fails is listed in `reads` and leaves its
 controls not evaluated.
+The [API capability matrix](excellence-api-matrix.md) lists each of these reads with the scopes and
+workspace role it needs, its paging and throttling, and the controls that depend on it.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls

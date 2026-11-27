@@ -29,10 +29,6 @@ def test_base64_breaks_a_long_line_after_76_characters_as_spark_3_5_does():
     assert len(first) == 76 and first + rest == "YWFh" * 20
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Bug: sha2 with a bit length written as a decimal, sha2('abc', 256.0), is NULL here; Spark casts the "
-    "length to an int (sha2 takes an int, and a decimal casts to one implicitly) and gives the SHA-256. "
-    "_sha2 reads a number literal's digits itself and takes 256.0 for a length it doesn't know."))
 def test_sha2_with_a_decimal_bit_length_hashes_as_spark_does():
     assert one("SELECT sha2('abc', 256.0)") == hashlib.sha256(b"abc").hexdigest()
 

@@ -86,6 +86,28 @@ query (Fabric can page tables out under pressure), and changes Microsoft makes t
 after this app's table of them was last reviewed. Without a OneLake sign-in on this PC, no table
 is read and each says **Not checked**, with the next step.
 
+### From the command line
+
+`fabric-desktop directlake-check` makes the same prediction on this PC, with no network, OneLake
+or Fabric. Give it the model and a local copy of each table's Delta folder:
+
+```
+fabric-desktop directlake-check --model Sales.SemanticModel --table FactSales=D:\copies\fact_sales --table DimCustomer=D:\copies\dim_customer --sku F64
+```
+
+- `--model` is a TMDL folder (with `definition/`) or a `model.bim` file.
+- `--table NAME=PATH` names a model table, or the entity its Direct Lake partition reads, and
+  its Delta folder. Repeat it for each table. A table with no `--table` is **Not checked**, and
+  the model is then never **Within limits**.
+- `--sku` is the capacity (default F64; P1 to P5 and FT1 read as their F SKU), and
+  `--horizon-days` how far the forecast looks (default 90). `--json` prints the whole prediction.
+
+It prints the verdict first, the deciding table, a line for each table with its status, forecast
+and fix, the smallest capacity that fits today and at the horizon, then what it can't see. Only
+paths on this PC are read, so a URI (`abfss://`, `https://`) or a network share is refused. The exit
+code is 0 for **Within limits**, 1 for **Will fall back** (or **Will fail**) and **Might fall
+back**, and 2 for **Not checked** or input it can't use.
+
 ## Other checks
 
 The card also lists what would make the model's queries or refresh fail, under **Other checks**.

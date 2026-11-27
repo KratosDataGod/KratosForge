@@ -229,8 +229,10 @@ def _python(text: str, file: str, found: Sources) -> None:
         return
     marks = (len(found.datasets), len(found.flows), len(found.reads))
     _python_nodes(tree, file, found)
-    for items, mark in zip((found.datasets, found.flows, found.reads), marks, strict=True):
-        items[mark:] = sorted(items[mark:], key=lambda item: item.line)  # ast.walk goes breadth first
+    # ast.walk goes breadth first; each list is put back in line order
+    found.datasets[marks[0]:] = sorted(found.datasets[marks[0]:], key=lambda d: d.line)
+    found.flows[marks[1]:] = sorted(found.flows[marks[1]:], key=lambda f: f.line)
+    found.reads[marks[2]:] = sorted(found.reads[marks[2]:], key=lambda r: r.line)
 
 
 def _python_nodes(tree: ast.AST, file: str, found: Sources) -> None:

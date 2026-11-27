@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-26 23:42 UTC, main 7b43ff88.** Covers the PRs merged from #135 to #3362.
+**Product check of 2026-11-27 11:42 UTC, main 3b422564.** Covers the PRs merged from #135 to #3395.
 
 ## Summary
 
+- Morning check, 2026-11-27: 32 PRs merged after 7b43ff88. 1 was the mobile companion docs, and the other 31 were
+  linked. On this PC only one OPTIMIZE, VACUUM or RESTORE of a table runs at a time, so overlapping compactions no
+  longer double rows, and time travel survives Delta log cleanup (PB-099). Snowflake gained object listing, query
+  history and a simulated Snowpark on this PC, all in Preview (SF-004, 005 and 007, PB-140). The accessibility audit
+  now checks every tab of every rail page (PB-063). One debugger hardening change (#3357) was reverted by #3395 after
+  intermittent browser test failures on main. No item changed state.
 - Evening check, 2026-11-26: 8 PRs merged after 046f9d3e. 1 was product data, and the other 7 were linked. Cell code
   can no longer read the app's request stream (hardening round 9, PB-103). A T-SQL MERGE INSERT with no VALUES is
   refused (PB-106). Three-platform parity gained 21 cases, including expected errors (PAR-002, PB-140). The support

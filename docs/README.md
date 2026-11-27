@@ -225,6 +225,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
+| Incident SLA report | Monitor > KratosForge > Operations > Incidents > Reports: opened, resolved and still open, time to acknowledge and resolve, and SLAs met per priority ([incidents.md](incidents.md#sla-reports-preview)) |
 | Incidents | Monitor > KratosForge > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk, Who's affected; [incidents.md](incidents.md)) |
 | Agents | Monitor > KratosForge > Operations > Agents |
 | Queue | Monitor > KratosForge > Operations > Queue |

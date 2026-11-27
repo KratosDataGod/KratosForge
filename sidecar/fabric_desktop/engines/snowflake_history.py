@@ -90,7 +90,10 @@ _SF_SECRET_PARAMS = ("AWS_KEY_ID", "AWS_SECRET_KEY", "AWS_TOKEN", "AZURE_SAS_TOK
                      "SECRET_STRING", "PASSWORD", "PASSPHRASE", "PRIVATE_KEY_PASSPHRASE", "TOKEN",
                      "PWD", "PRIVATE_KEY_FILE_PWD", "RSA_PRIVATE_KEY_PASSPHRASE", "CLIENT_SECRET", "API_KEY",
                      "ACCESS_TOKEN", "REFRESH_TOKEN", "SAS_TOKEN")
-_GAP = r"(?:\s|/\*.*?(?:\*/|$)|--[^\n]*(?:\n|$))*"  # spaces, line breaks and comments
+_COMMENT = r"/\*.*?(?:\*/|$)|--[^\n]*(?:\n|$)"
+# Spaces, line breaks and comments. Atomic and possessive: a comment can't stretch past its own */ to a
+# later one, nor a gap give back what it took, so a run of comments with nothing after it stays linear.
+_GAP = r"(?>\s|" + _COMMENT + r")*+"
 _LIT = r"(?:'(?:[^'\\]|\\.|'')*(?:'|$)|\"(?:[^\"]|\"\")*(?:\"|$)|\$\$.*?(?:\$\$|$))"
 _OPERATOR = r"(" + _GAP + r"(?:=>?|:=)" + _GAP + r")"
 _SF_SECRET = re.compile(
@@ -105,14 +108,22 @@ _CREDENTIAL_NAME = (r"(?!MUST_CHANGE_PASSWORD\b|RSA_PUBLIC_KEY|[A-Z0-9_$]*_POLIC
 _SF_VARIABLE = re.compile(r"(?<![A-Z0-9_$])((?:SET|LET)\s+" + _CREDENTIAL_NAME + r")(?![A-Z0-9_$])"
                           + _OPERATOR, re.IGNORECASE | re.DOTALL)
 # SET (a, b) = (x, y) sets several at once: when any of the names holds a credential, every value goes.
-_SF_VARIABLES = re.compile(r"(?<![A-Z0-9_$])(SET" + _GAP + r"\(([A-Z0-9_$,\s\"]*)\))(" + _GAP + r"=" + _GAP + r")",
+_SF_VARIABLES = re.compile(r"(?<![A-Z0-9_$])(SET" + _GAP + r"\(((?>[A-Z0-9_$,\s\"]+|" + _COMMENT + r")*+)\))("
+                           + _GAP + r"=" + _GAP + r")",
                            re.IGNORECASE | re.DOTALL)
 _ONE_NAME = re.compile(_CREDENTIAL_NAME, re.IGNORECASE)
+_COMMENT_AT = re.compile(_COMMENT, re.DOTALL)
 _GAP_AT = re.compile(_GAP, re.DOTALL)
 _LIT_AT = re.compile(_LIT, re.DOTALL)
 _JOIN_AT = re.compile(_GAP + r"\|\|" + _GAP, re.DOTALL)
 _CALL_AT = re.compile(r"[A-Z_$][A-Z0-9_$.]*" + _GAP + r"\(", re.IGNORECASE | re.DOTALL)  # IDENTIFIER(, CONCAT(
 _BARE_AT = re.compile(r"[^\s,();|'\"]+")
+
+
+def _past_gap(text: str, at: int) -> int:
+    """Where the spaces, line breaks and comments at ``at`` end (``at`` when there are none)."""
+    gap = _GAP_AT.match(text, at)
+    return gap.end() if gap else at
 
 
 def _closed(text: str, at: int) -> int:
@@ -123,7 +134,7 @@ def _closed(text: str, at: int) -> int:
         if quoted and quoted.end() > at:
             at = quoted.end()
         elif text.startswith(("/*", "--"), at):
-            at = _GAP_AT.match(text, at).end()
+            at = _past_gap(text, at)
         else:
             depth += {"(": 1, ")": -1}.get(text[at], 0)
             at += 1
@@ -158,7 +169,7 @@ def _value_end(text: str, at: int) -> int:
         if joined and (more := _item(text, joined.end())):
             end, literal = more
             continue
-        after = _GAP_AT.match(text, end).end()
+        after = _past_gap(text, end)
         quoted = _LIT_AT.match(text, after) if literal else None
         if quoted and quoted.end() > after:
             end = quoted.end()
@@ -173,7 +184,7 @@ def _sf_secrets(text: str) -> str:
         while found := pattern.search(text, at):
             at = found.end()
             if pattern is _SF_VARIABLES and not any(
-                    _ONE_NAME.fullmatch(name.strip().strip('"')) for name in found.group(2).split(",")):
+                    _ONE_NAME.fullmatch(name.strip().strip('"')) for name in _COMMENT_AT.sub(" ", found.group(2)).split(",")):
                 continue
             end = _value_end(text, at)
             if end > at:

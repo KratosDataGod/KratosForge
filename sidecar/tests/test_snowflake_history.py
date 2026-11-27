@@ -243,6 +243,8 @@ _SF_SECRET_CASES = [
     ("CREATE USER u \"PASSWORD\" = 'quotedName19'", ["quotedName19"]),  # pragma: allowlist secret
     ("ALTER USER u SET PASSWORD = 'Hun' 'adjacent20'", ["Hun", "adjacent20"]),  # pragma: allowlist secret
     ("SET pw = CONCAT('open21', 'cut off by the fetch limit", ["open21", "cut off"]),  # pragma: allowlist secret
+    ("SET (a, /* c */ pw) = ('x', 'listComment22')", ["listComment22"]),  # pragma: allowlist secret
+    ("SET (a, -- c\n pw) = ('x', 'listComment23')", ["listComment23"]),  # pragma: allowlist secret
 ]
 
 
@@ -278,3 +280,14 @@ def test_only_the_credential_value_goes_and_what_follows_it_stays():
     assert sh._cut(sql, 2000)[0] == "CREATE USER u PASSWORD = '[removed]' DEFAULT_ROLE = analyst COMMENT = 'kept'"
     sql = "SET (a, pw) = ('x', 'y'); SELECT 'shown'"  # pragma: allowlist secret
     assert sh._cut(sql, 2000)[0] == "SET (a, pw) = '[removed]'; SELECT 'shown'"
+
+
+@pytest.mark.parametrize("head", ["PASSWORD ", "SET ", "SET pw ", "SET (a, pw", "x = CONCAT('a' "])
+@pytest.mark.parametrize("run", ["/* */", "-- x\n", "/* */\n"])
+def test_a_long_run_of_comments_is_read_quickly(head, run):
+    import time
+    text = head + run * 2000
+    started = time.perf_counter()
+    sh._cut(text, 2000)
+    sh._row({"query_text": text, "error_message": text}, 2000)
+    assert time.perf_counter() - started < 1.0

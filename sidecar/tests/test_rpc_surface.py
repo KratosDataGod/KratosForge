@@ -41,6 +41,8 @@ NO_UI_CALLER: dict[str, str] = {
     "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
     # SF-002: the Check button in Settings > Connections waits on its mockup.
     "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
+    # SF-007: the Snowpark API compatibility check of a cell (Preview); no screen is part of SF-007.
+    "snowpark_api_check": "SF-007 engine call; the Snowpark API compatibility check has no screen yet (docs/engines.md)",
     # Best practices check (semantic-link-labs in Fabric).
     # Local data projects.
     "list_local_tables": _LOCAL,

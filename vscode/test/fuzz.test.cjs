@@ -200,3 +200,38 @@ test("an image output only ever reaches VS Code as an image", () => {
     assert.ok(convert({ type: "image", mime, data }).items.every((i) => i.mime === "text/plain" || IMAGE.has(i.mime)), mime);
   }
 });
+
+test("a kept token that isn't one the app issues is never sent: the window reads as unpaired", async () => {
+  const seen = [];
+  const before = reply;
+  reply = () => ({ status: 200, body: JSON.stringify({ ok: true, result: {} }) });
+  const listener = (req) => { if (!req.url.startsWith("/v1/hello")) seen.push(req.headers.authorization); };
+  server.on("request", listener);
+  try {
+    for (const token of ["kfp_short", "kfp_" + "a".repeat(43) + "\r\nX-Injected: 1", "kfp_" + "é".repeat(43), "x".repeat(600), " kfp_" + "a".repeat(43)]) {
+      const channel = new Channel(dir);
+      channel.token = token;
+      await assert.rejects(channel.status(), (err) => err instanceof ChannelError && err.code === "not_paired", JSON.stringify(token));
+    }
+    const ok = new Channel(dir);
+    ok.token = "kfp_" + "a".repeat(43);
+    await ok.status();
+  } finally {
+    server.off("request", listener);
+    reply = before;
+  }
+  assert.deepStrictEqual(seen, ["Bearer kfp_" + "a".repeat(43)], "only the well-formed token was sent");
+});
+
+test("a long message from the app is cut, not dropped, and a list that isn't a table says so", () => {
+  const { refusal } = require("../out/channel.js");
+  const long = "The notebook couldn't be saved because " + "x".repeat(10_000);
+  const err = refusal(409, "refused", long);
+  assert.ok(err.message.startsWith("The notebook couldn't be saved because"), err.message.slice(0, 80));
+  assert.ok(err.message.length < 4200, String(err.message.length));
+  for (const out of [{ type: "table", columns: "a", rows: [] }, { type: "table", columns: ["a"], rows: 5 }]) {
+    const [item, ...rest] = convert(out).items;
+    assert.deepStrictEqual([item.mime, rest.length], ["text/plain", 0]);
+    assert.match(item.text, /table's rows can't be read here/);
+  }
+});

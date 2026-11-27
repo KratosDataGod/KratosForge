@@ -1,6 +1,6 @@
 # Mutation testing, batch 393
 
-One module, run uncapped: every mutant, not a sample. This is the first mutation run of this module.
+One module, run uncapped: every mutant, not a sample. This is lane A's first mutation run of this module.
 - Academy exercise workspaces: reading what a learner made as untrusted input, with paths kept inside, links refused and files size-capped (`academy/workspace.py`, ACD-004).
 
 The run was at `main` e49cddbeb (2026-11-24), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 136 of 136 mutants ran (129 point + 7 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own, removed when the session ended (a small plugin, not committed). Nothing here runs the exercise sandbox: the module only reads files.
@@ -29,3 +29,5 @@ No bugs were found.
 ### Survivor judged equivalent
 
 - `getattr(st, "st_reparse_tag", 1)` (line 46): the default is used only where stat results carry no reparse tag (off Windows), and `1 & 0x20000000` is 0, as `0 & 0x20000000` is.
+
+Lane B scored the same module at the same time, in batch 413 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 413's page each report their own run. Neither is a re-score of the other.

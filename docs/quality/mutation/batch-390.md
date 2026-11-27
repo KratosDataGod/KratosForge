@@ -1,6 +1,6 @@
 # Mutation testing, batch 390
 
-One module, run uncapped: every mutant, not a sample. This is the first mutation run of this module.
+One module, run uncapped: every mutant, not a sample. This is lane A's first mutation run of this module.
 - The Academy certification registry: each pack's published objectives, read and checked (`academy/registry.py`, ACD-001).
 
 The run was at `main` 293fb38da (2026-11-24), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 177 of 177 mutants ran (170 point + 7 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own, removed when the session ended (a small plugin, not committed).
@@ -24,3 +24,5 @@ No bugs were found.
   - Weight ranges: 1 and 100 are allowed, 0 and 101 aren't, and a range needs both ends. One planned question is enough.
   - An effective date needs no note. Capstone ids and another platform's check are problems. A certification file named with a folder is a problem.
   - → `test_academy_registry_mutation.py`.
+
+Lane B scored the same module at the same time, in batch 405 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 405's page each report their own run. Neither is a re-score of the other.

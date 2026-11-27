@@ -97,7 +97,7 @@ def test_fallback_applicability_is_unknown_when_the_model_wasnt_read():
 def test_fallback_wording_and_detail_per_behavior():
     got = cm._fallback(ctx(direct_lake_tables=1, direct_lake_behavior="DirectQueryOnly"))
     assert got["outcome"] == "fail"
-    assert got["text"] == "Its 1 Direct Lake table are set to DirectQuery only, so no query uses Direct Lake."
+    assert got["text"] == "Its one Direct Lake table is set to DirectQuery only, so no query uses Direct Lake."
     assert got["detail"] == {"behavior": "DirectQueryOnly", "tables": 1}
     got = cm._fallback(ctx(direct_lake_tables=2, direct_lake_behavior="Automatic"))
     assert got["text"] == ("Its 2 Direct Lake tables can fall back to DirectQuery without telling anyone (Direct "
@@ -112,7 +112,7 @@ def test_fallback_wording_and_detail_per_behavior():
 
 def test_fallback_passes_on_direct_lake_only_and_on_onelake():
     got = cm._fallback(ctx(direct_lake_tables=1, direct_lake_behavior="directLakeOnly"))
-    assert got["outcome"] == "pass" and got["text"].startswith("Its 1 Direct Lake table are set to Direct Lake only")
+    assert got["outcome"] == "pass" and got["text"].startswith("Its one Direct Lake table is set to Direct Lake only")
     got = cm._fallback(ctx(direct_lake_tables=3, direct_lake_behavior="Automatic", direct_lake_sources=["onelake"]))
     assert got == {"outcome": "pass", "evidence_ids": [RID], "text": "Its 3 Direct Lake tables read through "
                    "OneLake, which doesn't fall back to DirectQuery."}

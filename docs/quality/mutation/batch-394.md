@@ -1,6 +1,6 @@
 # Mutation testing, batch 394
 
-One module, run uncapped: every mutant, not a sample. This is the first mutation run of this module.
+One module, run uncapped: every mutant, not a sample. This is lane A's first mutation run of this module.
 - Academy quiz exercises: questions about a scenario, shown without their answers and scored with the exam engine's rule, never saying which answered question is wrong (`academy/quizlab.py`, ACD-013).
 
 The run was at `main` a73ebb71a (2026-11-24), with `sidecar/tools/mutate.py` as it is since #2902, and `--cap 100000 --seed 7 --kinds all`, so all 96 of 96 mutants ran (91 point + 5 boundary). Test files were given as paths relative to `sidecar/`, and the tests first passed once on the unmutated copy. Each pytest session got a new temporary folder of its own, removed when the session ended (a small plugin, not committed). Nothing here runs the exercise sandbox: a quiz runs no code.
@@ -24,3 +24,5 @@ No bugs were found.
   - `load` gives no questions for a document that is a list, or whose questions aren't a list.
   - Problems: a quiz.json that isn't JSON can't be read (and is the one problem), a question that isn't an object is numbered from 1, and an exercise naming no objective is checked as objective 1.1.
   - → `test_academy_quizlab_mutation.py`.
+
+Lane B scored the same module at the same time, in batch 414 (#3359). The two runs used different tests and neither saw the other's, so this page and batch 414's page each report their own run. Neither is a re-score of the other.

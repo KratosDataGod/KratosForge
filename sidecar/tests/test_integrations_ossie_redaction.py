@@ -242,3 +242,19 @@ def test_a_key_made_by_another_process_first_is_the_one_used(tmp_path, monkeypat
     monkeypatch.setattr(keyed_fingerprint.os, "link", link_after_them)
     assert keyed_fingerprint._create(path) == theirs and path.read_bytes() == theirs
     assert [p.name for p in tmp_path.iterdir()] == ["fingerprint.key"]
+
+
+def test_a_filter_or_member_quoted_outside_a_role_row_is_still_withheld():
+    """The backstop: a measure's row, a converter warning or any other key of the result that quotes a role's
+    filter or member (as written, as repr or JSON write it) is replaced, though no role check put it there."""
+    bim = _secured()
+    out = model_ossie.export(bim, translate_dax=True, validate=True)
+    out["fidelity"]["objects"].append({"object": "measure 'Total'", "kind": "measure", "changes": [
+        f"its description quotes {UPN}"], "evidence": [{"check": "text", "detail": repr(FILTER)}]})
+    out["fidelity"].setdefault("warnings", []).append({"object": "measure 'Total'", "message": json.dumps(MEMBER_ID)})
+    out["path"] = f"models/{UPN}.ossie.yaml"
+    result = model_ossie_redact.export_result(out, bim)
+    assert _leaks(result) == []
+    measure = next(o for o in result["fidelity"]["objects"] if o["object"] == "measure 'Total'")
+    assert measure["changes"] == [f"its description quotes <withheld: {_fingerprint(UPN)}>"]
+    assert "<withheld: " in result["path"] and "<withheld: " in result["fidelity"]["warnings"][-1]["message"]

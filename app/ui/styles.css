@@ -3705,6 +3705,43 @@ tr.fg-conflict { background: var(--danger-soft); }
 .dbx-cost .row.wrap { flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .dbx-cost .table-wrap { overflow-x: auto; }
 
+/* Optimize > Cost and savings: Compare platforms for one workload (platform-compare.js, Preview) */
+.xcmp { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.xcmp-head { display: flex; gap: 12px; align-items: flex-start; }
+.xcmp-head h2 { margin: 0; }
+.xcmp-sub { margin: 4px 0 0; }
+.xcmp-controls { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+.xcmp-controls .field select { min-width: 220px; }
+.xcmp-scen { gap: 8px; align-items: center; }
+.xcmp-scen .mono { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.xcmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.xcmp .plat { min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.xcmp .plat > div { padding: 10px 12px; }
+.xcmp .plat .pbody { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.xcmp .plat .ph { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border-soft); }
+.xcmp .plat .ph b { font-size: 14px; }
+.xcmp .plat .unit { margin-left: auto; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; line-height: 18px; }
+.xcmp .plat .matched { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.xcmp .plat .fig .k, .xcmp .plat .fig .alt { font-size: 12px; color: var(--muted); }
+.xcmp .plat .fig .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.xcmp .plat .fig .v.unknown { font-size: 18px; }
+.xcmp .plat dl { margin: 0; display: grid; grid-template-columns: 74px 1fr; gap: 4px 8px; font-size: 12px; align-content: start; }
+.xcmp .plat dt { color: var(--muted); }
+.xcmp .plat dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.xcmp .plat .money { border-top: 1px solid var(--border-soft); background: var(--surface-2); border-radius: 0 0 var(--r-md) var(--r-md); font-size: 12px; }
+.xcmp .plat .money .k { color: var(--muted); }
+.xcmp .plat .money .v { font-size: 15px; font-weight: 600; }
+.xcmp .plat.off { background: var(--surface-2); }
+.xcmp .why.notknown { font-size: 12px; color: var(--text-2); line-height: 1.45; padding: 8px 10px; border-radius: var(--r-md); background: var(--hover); }
+.xcmp .notconn { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--text-2); line-height: 1.45; }
+.xcmp-link { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.xcmp .plat .matched .xcmp-unlink { padding: 0 2px; min-height: 0; font-size: 12px; vertical-align: baseline; }
+.xcmp-link input { min-height: 28px; padding: 0 6px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); min-width: 0; flex: 1 1 120px; }
+.xcmp-read p { margin: 4px 0 0; }
+.xcmp-line { display: flex; gap: 10px; align-items: baseline; padding: 10px 12px; border-radius: var(--r-md); background: var(--hover); font-size: 13px; }
+.xcmp-line.scenario { background: var(--accent-soft); color: var(--accent-dark); }
+.xcmp-prices { display: flex; flex-direction: column; gap: 8px; }
+
 /* Workspaces > Databricks sync (dbx-sync.js, Preview) */
 .dbx-sync-cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
 .dbx-pairs { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }

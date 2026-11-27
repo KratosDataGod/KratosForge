@@ -774,6 +774,24 @@ Run **Validate** in Source control > Bundles, which runs the CLI, before you dep
 - **Kept on this PC.** The last read is kept per workspace, so the section shows it again without
   reading.
 
+## Compare platforms for one workload (Preview)
+
+Below the cost panel, **Compare platforms** shows what one workload costs per run on this PC, on
+Fabric, on Databricks and on Snowflake, side by side.
+
+- **You say what counts as the same workload.** A Databricks job counts when you link it to the
+  workload. A Snowflake query counts when it carries a query tag that names the workload. Nothing is
+  matched by name or guessed.
+- **It asks first.** The Databricks per-run DBUs (from `system.billing.usage`, by
+  `usage_metadata.job_run_id`) and the Snowflake credits (from `ACCOUNT_USAGE.QUERY_HISTORY`) each run
+  one query on a warehouse, so each asks before it runs and follows the connection's execution
+  policy. Refresh never reads them; it shows the last read kept on this PC.
+- **Measured, estimated and unknown stay apart.** Databricks DBUs are billed, so they are measured.
+  Snowflake credits are estimated from execution time and warehouse size, and the card lists the
+  assumptions. A figure that wasn't recorded shows as not known, never as zero.
+- **Money only under a pricing scenario.** One scenario version holds the Fabric CU hour rate, the
+  per-DBU rates by SKU and the per-credit rate. Without one, the cards show native units only.
+
 ## Databricks Connect (Preview)
 
 PySpark cells can run their `spark` work on a Databricks cluster through Databricks Connect, while

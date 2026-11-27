@@ -526,7 +526,31 @@ for them in the app yet, so for now they are engine calls only.
   [Snowflake SQL warehouse](#snowflake-sql-warehouse-preview), or your profile's policy.
 - **Not confirmed yet.** Both follow Snowflake's documentation and are tested against a fake of the SQL
   API, not a live account. Whether `LIMIT ... FROM` includes the named row isn't documented, so a row
-  with that exact name is never shown twice either way. Query profiles and credits come later.
+  with that exact name is never shown twice either way. Query profiles come later.
+
+### Snowflake warehouse credits (Preview)
+
+An engine call (`engines/snowflake_credits.py`) reads the credits each warehouse used per day from
+`SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY`. There's no screen for it in the app yet.
+
+- **What you get.** One row per warehouse per UTC day, newest first, with credits used and their
+  compute and cloud services split, and totals. It covers 1 to 31 days, today included (7 unless asked),
+  and up to 5,000 rows (500 unless asked). A cut list says so, and its totals cover the rows shown.
+- **Credits only.** Figures stay Snowflake credits. They are never turned into money, never added to
+  DBUs or Fabric capacity units, and never called savings. They are credits used before Snowflake's
+  daily cloud services adjustment, so they may be more than the credits billed.
+- **Up to 3 hours behind.** Snowflake documents up to 3 hours of latency for the view, and up to 6 hours
+  for its cloud services credits, so the latest hours may be missing or low. Every result says so.
+- **It uses credits.** Reading the view is a query, so it runs on the connection's warehouse, which
+  resumes if it is suspended. It needs the same confirmation, for that account and warehouse, as the
+  [Snowflake SQL warehouse](#snowflake-sql-warehouse-preview), or your profile's policy. Before you
+  confirm, it can show what it would run, without sending anything.
+- **Who can read it.** Your role needs IMPORTED PRIVILEGES on the `SNOWFLAKE` database, or the
+  `SNOWFLAKE.USAGE_VIEWER` database role. Without either, the read is refused, naming your role and
+  those two grants for a Snowflake admin.
+- **Not confirmed yet.** Tested against a fake of the SQL API, not a live account. The error codes for a
+  role that can't read `ACCOUNT_USAGE` come from Snowflake's usual "does not exist or not authorized"
+  and "insufficient privileges" errors, not from a live run.
 
 ## Unity Catalog volumes on this PC (Preview)
 

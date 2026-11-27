@@ -2894,8 +2894,12 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
     keep = dict(before)
     if isinstance(keep.get("tags"), list) and any(isinstance(t, str) for t in keep["tags"]):
         del keep["tags"]
+    # editable and deletable false are the app's own only as part of frozen (run_control.frozen, which
+    # _cell_metadata writes with them); on their own they are another tool's (JupyterLab's "protect
+    # from deletion") and stay.
+    frozen = isinstance(keep.get("run_control"), dict) and on(keep["run_control"].get("frozen"))
     for k in ("editable", "deletable"):
-        if keep.get(k) is False:
+        if frozen and keep.get(k) is False:
             del keep[k]
     if keep.get(_HEADING_COLLAPSED) is True:
         del keep[_HEADING_COLLAPSED]

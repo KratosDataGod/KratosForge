@@ -42,7 +42,7 @@ from urllib.parse import unquote
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
+from .. import delta_dml, delta_profile, delta_read, durable, maintenance, sql_dialects
 from ..awake_timer import AwakeTimer
 from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
 from . import delta, tsql, tsql_errors, tsql_merge
@@ -1519,6 +1519,7 @@ class LocalEngine:
                     folder.mkdir(parents=True, exist_ok=True)
                     options: dict[str, Any] = {
                         "partition_by": partitions or None, "schema_mode": schema_mode,
+                        "post_commithook_properties": maintenance.WRITE_HOOKS,
                         "commit_properties": CommitProperties(custom_metadata={
                             "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id})}
                     if current is not None and w.mode == "overwrite":
@@ -1551,6 +1552,7 @@ class LocalEngine:
         # On disk before the write returns, as LocalStore's commits are: a power cut can't take the
         # data of a commit already made (durable.py).
         durable.sync_commits(str(folder), 0 if current is None else current.version() + 1, after.version())
+        maintenance.after_write(str(folder), None if current is None else current.version(), after)
         delta_profile.check_table(after, committed=True)
         out["version"] = after.version()
         entry = self._register_own(con, schema, w.table, folder)
@@ -1609,7 +1611,8 @@ class LocalEngine:
                     out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props, one_match_checked=True))
                     out["version"] = DeltaTable(str(copy)).version()  # what a real run would commit
                 return out
-            out.update(delta_dml.apply(c, current, source, names, props, one_match_checked=True))
+            out.update(delta_dml.apply(c, current, source, names, props, one_match_checked=True,
+                                       post_commithook_properties=maintenance.WRITE_HOOKS))
         except BaseException as exc:
             if state["cancelled"] or state["timed_out"]:
                 raise duckdb.InterruptException("cancelled") from None
@@ -1641,6 +1644,7 @@ class LocalEngine:
         after = DeltaTable(str(folder))
         if after.version() > before:
             durable.sync_commits(str(folder), before + 1, after.version())  # on disk before it returns
+            maintenance.after_write(str(folder), before, after)
         delta_profile.check_table(after, committed=True)
         out["version"] = after.version()
         registered = self._register_own(con, entry["schema"], entry["table"], folder)

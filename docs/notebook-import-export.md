@@ -23,7 +23,7 @@ The file is saved (except a PDF, which goes where you pick in the print dialog) 
 
 ## Import Fabric and Databricks notebooks
 
-Select **Import from Fabric or Databricks** under **Start something** on **Home**, or search for "Import Fabric or Databricks" in the command bar, and pick a file.
+Select **Import** on the **Bring your notebooks** tile of **Getting started** on **Home**, or search for "Import Fabric or Databricks" in the command bar, and pick a file.
 
 | File | How it's read |
 | --- | --- |

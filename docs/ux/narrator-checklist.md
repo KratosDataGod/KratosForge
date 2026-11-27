@@ -33,7 +33,7 @@ On each row: Tab to the page in the rail, press Enter, then turn on scan mode an
 
 | # | Rail button | Expect from H (first heading) | Also check | Result |
 |---|---|---|---|---|
-| 2.1 | Home | "Welcome back, *your name*, heading level 1" | Tab reaches "New notebook" in "Start something" | |
+| 2.1 | Home | "Welcome back, *your name*, heading level 1" | Tab reaches "Sign in" or "Refresh" in the status strip, then "New notebook" | |
 | 2.2 | Create | "Create, heading level 1" | Each tile reads its name and its one-line description, for example "Notebook Explore, transform and write Delta tables with Python" | |
 | 2.3 | Workspaces | "Workspaces, heading level 1" | The tabs read as "Your workspaces, tab, selected, 1 of 4". In the table, a row's buttons read "Show items", "Pin to the top" and "Add to favorites" | |
 | 2.4 | OneLake | "OneLake catalog, heading level 2". This page has no level 1 heading, so note whether that confuses you | The tabs "Catalog", "Shortcuts" and "Access", and the search box "Search the catalog". While loading, "Loading items from all workspaces" is read once without moving focus | |

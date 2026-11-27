@@ -843,8 +843,7 @@ function startingHome() {
     h("div", { class: "home-two" },
       h("section", { class: "card pad" }, h("h2", {}, "Running now"), quiet()),
       h("section", { class: "card pad" }, h("h2", {}, "Coming up"), quiet())),
-    h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
-      later("New notebook", "notebook"), later("New lakehouse", "lakehouse"), later("OneLake catalog", "onelake")),
+    h("div", { class: "row wrap home-actions" }, later("New notebook", "notebook")),
     h("section", { class: "card pad" }, h("h2", {}, "Recent notebooks"), quiet("Loading notebooks...")));
 }
 
@@ -869,39 +868,39 @@ async function renderHome() {
   const yours = yourWorkloadsCard();
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
-  const stamp = h("span", { class: "muted-text small" }, "Updated just now");
   // Continue opens the notebook changed last; it appears once the list is read and there is one.
   const resume = h("span", { class: "home-continue" });
   // Living Experience (home-hero.js, Preview): the welcome and the primary actions (Continue, New
-  // notebook) sit in the hero's text-safe left side; Start something keeps the rest.
+  // notebook) sit in the hero's text-safe left side; without the hero they sit under the welcome.
+  // Import, OneLake catalog and New lakehouse are in Getting started (#3356 follow-up, Home simplicity mockup).
   // Only while Home has header art (its pool in art/experience/heroes.js); with no Home pool, Home is the flat page.
   const living = typeof homeHero === "function" && homeLivingOn() && !!heroArtPick("home");
   const newNb = btn("New notebook", "notebook", newNotebook, living ? "tool hero-outline" : "tool outline");
-  const start = h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"), living ? null : resume, living ? null : newNb,
-    btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
-    btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
-    btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline"));
+  const start = living ? null : h("div", { class: "row wrap home-actions" }, resume, newNb);
   const recent = foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
-  const ready = readinessCard();
+  const stamp = h("span", { class: "muted-text small" }, "Updated just now");
+  const tail = [stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")];
+  // One status strip under the hero: sign-in, the Ready to work checks, Updated, Refresh and Learn more.
+  const ready = readinessCard({ tail });
+  const strip = ready || h("div", { class: "row wrap home-strip" }, h("span", { class: "grow" }), ...tail);
   const started = gettingStarted();
   // The hero band and the progression panel beside the page.
   const welcome = name ? `Welcome back, ${name}` : "Welcome to KratosForge";
   const hero = living ? homeHero({ welcome, actions: [resume, newNb] }) : null;
   const main = h("div", { class: "home-main" },
-    h("div", { class: "row home-head" },
-      hero ? h("span", { class: "grow" }) : h("h1", { class: "grow" }, welcome),
-      living ? homeShowPanelLink() : null,
-      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
+    hero ? null : h("div", { class: "row home-head" }, h("h1", { class: "grow" }, welcome)),
+    strip,
+    living ? h("div", { class: "row home-panel-link" }, h("span", { class: "grow" }), homeShowPanelLink()) : null,
     summary,
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
-    // start something; then readiness, problems and what is running.
+    // start a new one; Getting started leads until a notebook is made, then folds below the list.
     start,
-    started.el,
+    started.first ? started.el : null,
     homePinnedCard(),
     recent,
-    ready,
-    ready ? null : signInCallout(),  // the readiness card asks to sign in; only one place asks
+    started.first ? null : started.el,
+    ready ? null : signInCallout(),  // the status strip asks to sign in; only one place asks
     attention,
     h("div", { class: "home-attention", id: "home-fresh" }),
     yours,
@@ -936,7 +935,7 @@ async function renderHome() {
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
     const recentList = shown.length ? homeRecentList(shown) : null;
-    // With Preview off, Home keeps its one plain line (Start something already has New notebook).
+    // With Preview off, Home keeps its one plain line (New notebook is already above it).
     list.replaceWith(recentList ? recentList.el : notebooks && !notebooks.length && !state.query && previewShown()
       ? livingEmpty({ spot: "forge", fallbackIcon: "notebook", title: "The forge is cold", plainTitle: "No notebooks yet",
         text: "Create your first notebook and run it on this PC. Nothing goes to Fabric until you publish.",

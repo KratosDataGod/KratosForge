@@ -107,28 +107,28 @@ Click your initial at the top right:
 3. **Create a notebook** from **Create**. Cells run on this PC, not on your Fabric capacity.
 4. **Set up a metadata project** (Data mesh in the left rail) when you want KratosForge to build and run your medallion layers for you.
 
-Home shows **Getting started with KratosForge** under **Start something**: one small tile for each main starting point (run a notebook on this PC, bring your notebooks from Fabric or Databricks, explore OneLake, build medallion tables, spend less Fabric capacity, set up the platform), each with a button that opens it. A tile gets a tick once you've tried it. Click the heading to fold the panel to one line; Home remembers that, and the heading opens it again.
+Home shows **Getting started with KratosForge** near the top: one small tile for each main starting point (run a notebook on this PC, bring your notebooks from Fabric or Databricks, explore OneLake, build medallion tables, spend less Fabric capacity, set up the platform), each with a button that opens it. **Build medallion tables** also has **New lakehouse**. A tile gets a tick once you've tried it. Until this PC has a notebook, the panel is open above **Recent notebooks**. After that, it starts folded to one line below them, and the heading opens it again. Click the heading to fold or open it yourself; Home remembers that. With Preview features on, the panel also links to the lessons in **Academy**.
 
 ## Home
 
 Home answers "what happened since I was last here".
 
-**Living Experience on Home (Preview).** With Preview features on and an **Experience mode** other than **Professional**, Home starts with a hero band: the welcome, with **Continue** and **New notebook**, on the sky of the Kratos and wolf art at left. In a window under 640 px tall the band is one strip with the welcome and its buttons, without the art. In a Windows contrast theme the art is hidden. **Start something** keeps the rest of its buttons. Beside the sections is a **Your progress** panel showing your rank, level, XP to the next level, the checks for the next rank, your latest achievement with its evidence, and your measured Forge stats. Capacity shows **Not measured**. The panel's hide button puts it away, and the link at the top of Home shows it again. With **Profile > Settings > Developer progression** off, the panel isn't shown. In Professional mode, or with Preview features off, Home is the plain page described below.
+**Living Experience on Home (Preview).** With Preview features on and an **Experience mode** other than **Professional**, Home starts with a hero band: the welcome, with **Continue** and **New notebook**, on the sky of the Kratos and wolf art at left. In a window under 640 px tall the band is one strip with the welcome and its buttons, without the art. In a Windows contrast theme the art is hidden. Beside the sections is a **Your progress** panel showing your rank, level, XP to the next level, the checks for the next rank, your latest achievement with its evidence, and your measured Forge stats. Capacity shows **Not measured**. The panel's hide button puts it away, and the link at the top of Home shows it again. With **Profile > Settings > Developer progression** off, the panel isn't shown. In Professional mode, or with Preview features off, Home is the plain page described below.
 
 **Page headers (Preview).** With the same settings, Create, Workspaces, Platform, Data mesh, Optimize, Monitor, Academy, Source control, Settings and Profile start with the same kind of band: the page's title and main buttons on the left, beside a picture from that page's own set. A page keeps the same picture all day. In a window narrower than 960 px, or in a Windows contrast theme, the picture is hidden and the band is only as tall as its title and buttons. Monitor shows no header above the **Forge view** band or the docked Fabric hub, and Profile shows none on **Ranks**, which has its own banner.
 
-Home shows as soon as the app opens. While KratosForge checks its components and looks for a newer build, Home reads "Starting the local engine..." with placeholders, and the **Start something** buttons wait. When the check is done, each section fills in. If the check takes more than a moment, or something needs updating or fixing, the **Checking components** window opens on top.
+Home shows as soon as the app opens. While KratosForge checks its components and looks for a newer build, Home reads "Starting the local engine..." with placeholders, and **New notebook** waits. When the check is done, each section fills in. If the check takes more than a moment, or something needs updating or fixing, the **Checking components** window opens on top.
 
 From the top:
 
 | Section | What it shows |
 | --- | --- |
+| **Status strip** | One line with the sign-in state and a mark for each [Ready to work](#ready-to-work) check, then **Updated**, **Refresh** and **Learn more**. Signed out, it has the one **Sign in** button on Home. **Show checks** opens the full list, which opens by itself while a check needs attention or is worth a look. |
 | **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. Signed out, it says to sign in so KratosForge can check Fabric. |
-| **Start something** | **Continue** (the notebook you changed last), New notebook, Import from Fabric or Databricks, New lakehouse, OneLake catalog. |
-| **Getting started with KratosForge** | Six starting points, each with a button that opens it, and a tick once tried. Click the heading to fold it to one line; Home remembers that. See [Get started](#get-started). |
+| **Continue** and **New notebook** | **Continue** opens the notebook you changed last. With the Living Experience hero, both sit in the hero instead. |
+| **Getting started with KratosForge** | Six starting points, each with a button that opens it, and a tick once tried. Below **Recent notebooks** once this PC has a notebook. See [Get started](#get-started). |
 | **Pinned** (Preview) | Notebooks and Fabric items you pinned, with **Open**, and **Run** on a notebook. Shows once something is pinned. See [Pinned items](home-notebooks.md#pinned-items-preview). |
 | **Recent notebooks** | Your last eight notebooks, with each one's workspace, lakehouse, where it runs and how it last ran. Click to open. Tick several and press **Run** to run them at once (Preview). The section folds with its arrow. See [home-notebooks.md](home-notebooks.md). |
-| **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. While it shows, it's the one place Home asks you to sign in. See [Ready to work](#ready-to-work). |
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Your workloads** (Preview) | What you own, by health, with the ones that need attention and how many workloads have no owner. See [Workloads](#workloads-preview). |
 | **Running now** | What this app is running, here or in Fabric. |
@@ -147,7 +147,7 @@ On **All notebooks**, **New folder** makes a folder, and a notebook's **⋯** me
 
 ### Ready to work
 
-A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window. The **How this works** panel under the list (folded to its title until you open it) says what it reads, the one thing it can write and where results are kept.
+A short list that says whether this PC can do real work yet. On Home it sits in the status strip as one line with a mark for each check. **Show checks** opens the list, and it opens by itself while a check needs attention or is worth a look. Each check only reads, and none opens a sign-in window. The **How this works** panel under the list (folded to its title until you open it) says what it reads, the one thing it can write and where results are kept.
 
 | Check | Ready when | If not |
 | --- | --- | --- |
@@ -241,7 +241,7 @@ In a notebook, the explorer's **Resources** tab lists the notebook's **Built-in 
 
 ## Fabric and Databricks notebook formats (Preview)
 
-**Import from Fabric or Databricks** under **Start something** on Home reads Fabric or Databricks source (`.py`, `.sql`, `.scala`), a Databricks archive (`.dbc`), a percent-format script (`# %%`) or a `.ipynb`, shows each notebook it would create, and creates them as new notebooks in the app's notebooks folder. A notebook that already has the name is never replaced; the new one gets the next free name, such as `Sales (2)`, and the picked file is only read. In a notebook, **Export** (Home tab > Share) saves it as `.ipynb` (with or without the outputs on screen), Fabric source, Databricks source or a web page, as a new file in your Downloads folder; a file already there is never replaced. Nothing is sent to Fabric. See [Fabric and Databricks notebook formats](notebook-import-export.md).
+**Import** on the **Bring your notebooks** tile of **Getting started** on Home, or "Import Fabric or Databricks" in the command bar, reads Fabric or Databricks source (`.py`, `.sql`, `.scala`), a Databricks archive (`.dbc`), a percent-format script (`# %%`) or a `.ipynb`, shows each notebook it would create, and creates them as new notebooks in the app's notebooks folder. A notebook that already has the name is never replaced; the new one gets the next free name, such as `Sales (2)`, and the picked file is only read. In a notebook, **Export** (Home tab > Share) saves it as `.ipynb` (with or without the outputs on screen), Fabric source, Databricks source or a web page, as a new file in your Downloads folder; a file already there is never replaced. Nothing is sent to Fabric. See [Fabric and Databricks notebook formats](notebook-import-export.md).
 
 ### Notebook as a read-only report (Preview)
 

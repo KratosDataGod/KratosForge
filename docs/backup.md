@@ -28,6 +28,7 @@ For a [headless agent](agent.md), add `--agent-home <its FABRIC_DESKTOP_HOME>` t
 | --- | --- |
 | Your sign-in (`msal_cache.bin`, the embedded Fabric pages' sign-in) | Tokens must not be copied. You sign in again after a restore |
 | The running app's link token (`link-port`) | It's made new each time the app starts, and an old one would stop links reaching the running app |
+| This PC's own keys (`keys\`) | They stay on this PC. A restore makes new ones, so the short fingerprints the app gives AI tools for role filters and members change after it |
 | The VS Code pairing file (`editor-port`) | It holds this run's port and a random value, made new each time the app starts listening for VS Code |
 | A Teams alerts webhook address, and the addresses platform notices are sent to | Anyone with one can post there. Set them again in **Settings > Notifications** |
 | Anything that looks like a password, key or token inside a file | Replaced with `[removed]`. The backup command names each file this happened to; if a notebook was one of them, check it after a restore |

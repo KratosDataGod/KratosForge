@@ -1,4 +1,4 @@
-"""sql_policy.py (mutation batch 501): a statement on the local target that removes a table or every row is
+"""sql_policy.py (mutation batch 520): a statement on the local target that removes a table or every row is
 refused unless the run says it was confirmed; leaving ``confirmed`` out means it wasn't."""
 
 from __future__ import annotations

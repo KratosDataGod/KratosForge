@@ -1,4 +1,4 @@
-"""secret_redaction's helpers for values kept elsewhere (mutation batch 501): redact_values and mask_cut try
+"""secret_redaction's helpers for values kept elsewhere (mutation batch 520): redact_values and mask_cut try
 the longest value first, so a value that holds another is replaced whole, and mask_cut acts only on a cut
 that falls inside a value. They take the values as an argument, so nothing is remembered here."""
 

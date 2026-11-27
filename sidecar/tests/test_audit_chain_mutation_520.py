@@ -1,4 +1,4 @@
-"""audit_chain.py (mutation batch 501): what verify() says of a line whose time is earlier than the line
+"""audit_chain.py (mutation batch 520): what verify() says of a line whose time is earlier than the line
 before it (the PC's clock was set back), from five minutes on, and in minutes, hours or days. The event log
 is the in-memory stand-in conftest sets, so nothing is written to this PC's. Also: exports that keep an
 earlier one, a line a power cut left unfinished, a prune of several months, and the trail against the event

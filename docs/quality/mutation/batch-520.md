@@ -1,4 +1,4 @@
-# Mutation testing, batch 501
+# Mutation testing, batch 520
 
 Four modules, run with `--kinds all`:
 - Whether the policy file and Group Policy's key can be trusted with settings that widen what KratosForge trusts: owned by SYSTEM or Administrators, and no one else granted a right to change them (`policy_trust.py`). Not scored before.
@@ -16,10 +16,10 @@ Before the "after" run, the new tests passed in a copy of `sidecar/` on their ow
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `policy_trust.py` | test_policy_trust, test_policy_trust_windows_paths (+ test_policy_trust_mutation_501) | 92 of 92 (91 + 1) | 85 / 7 | **92.4%** | 84/91 → 87/91 | 1/1 → 1/1 | 88 / 4 | **95.7%** | 4 equivalent |
-| `audit_chain.py` | test_audit_chain, test_audit_chain_cov3, test_audit_tamper, test_audit_fuzz, test_audit_export, test_audit_moves, test_audit_anchor, test_audit_anchor_failures, test_retention_edges (+ test_audit_chain_mutation_501) | 150 of 415 (142 + 8) | 123 / 27 (1 timeout) | **82.0%** | 118/142 → 138/142 | 5/8 → 7/8 | 145 / 5 | **96.7%** | 5 equivalent |
-| `sql_policy.py` | test_tsql_contract, test_warehouse_queries, test_sql_exec (+ test_sql_policy_mutation_501) | 133 of 133 (133 + 0) | 112 / 21 | **84.2%** | 112/133 → 129/133 | none | 129 / 4 | **97.0%** | 4 equivalent |
-| `secret_redaction.py` | test_secret_leaks, test_secret_redaction, test_kernel_host_coverage, test_secret_redaction_mutation, test_variables_secrets (+ test_secret_redaction_mutation_501) | 93 of 93 (88 + 5) | 81 / 12 | **87.1%** | 78/88 → 82/88 | 3/5 → 3/5 | 85 / 8 | **91.4%** | 8 equivalent |
+| `policy_trust.py` | test_policy_trust, test_policy_trust_windows_paths (+ test_policy_trust_mutation_520) | 92 of 92 (91 + 1) | 85 / 7 | **92.4%** | 84/91 → 87/91 | 1/1 → 1/1 | 88 / 4 | **95.7%** | 4 equivalent |
+| `audit_chain.py` | test_audit_chain, test_audit_chain_cov3, test_audit_tamper, test_audit_fuzz, test_audit_export, test_audit_moves, test_audit_anchor, test_audit_anchor_failures, test_retention_edges (+ test_audit_chain_mutation_520) | 150 of 415 (142 + 8) | 123 / 27 (1 timeout) | **82.0%** | 118/142 → 138/142 | 5/8 → 7/8 | 145 / 5 | **96.7%** | 5 equivalent |
+| `sql_policy.py` | test_tsql_contract, test_warehouse_queries, test_sql_exec (+ test_sql_policy_mutation_520) | 133 of 133 (133 + 0) | 112 / 21 | **84.2%** | 112/133 → 129/133 | none | 129 / 4 | **97.0%** | 4 equivalent |
+| `secret_redaction.py` | test_secret_leaks, test_secret_redaction, test_kernel_host_coverage, test_secret_redaction_mutation, test_variables_secrets (+ test_secret_redaction_mutation_520) | 93 of 93 (88 + 5) | 81 / 12 | **87.1%** | 78/88 → 82/88 | 3/5 → 3/5 | 85 / 8 | **91.4%** | 8 equivalent |
 
 secret_redaction stays under 95%: its last eight survivors are equivalent (below), so 91.4% is as high as its sample can go.
 
@@ -31,7 +31,7 @@ No bugs were found.
   - The registry rights have the values Windows defines (`KEY_SET_VALUE` 0x2, `KEY_CREATE_SUB_KEY` 0x4) and `INHERIT_ONLY` is 0x8.
   - Users reading Group Policy's key and its parent (`KEY_READ`) is trusted; setting values or adding subkeys isn't.
   - An entry that children inherit (object or container inherit, no propagate) still applies to the path itself; only an inherit-only entry leaves the path itself out.
-  - → `test_policy_trust_mutation_501.py`.
+  - → `test_policy_trust_mutation_520.py`.
 - **audit_chain.py**:
   - A line whose time is earlier than the line before it is noted only past five minutes (300 s isn't noted, 302 s is), and how far back is said in minutes up to 119, in hours from 120 minutes to 47 hours, and in days from 48 hours; one minute is "1 minute". A later line is judged against the latest time before it, not the earlier one just noted.
   - An export refuses to write over an earlier export or its manifest, either one alone, unless told to replace it, and makes the folders it goes in.
@@ -39,18 +39,18 @@ No bugs were found.
   - A file a power cut left without its last newline, even one byte long, is kept as it is and the next line starts on its own; the line `head.json` names is still there, so nothing is recorded as lost. The same holds when every line is gone and the same line is written again at the same place.
   - A prune of several months starts the trail after the last line of the newest month deleted, and a head that counted fewer lines than a prune deletes counts none left, not a negative number.
   - Against the event log after a prune: a record of the trail's start that matches `base` is no problem, one of another start is reported, and a trail that ends before the record counts its pruned lines in "the trail has".
-  - → `test_audit_chain_mutation_501.py`, with the event log in memory (conftest's `event_log`); nothing is written to this PC's.
+  - → `test_audit_chain_mutation_520.py`, with the event log in memory (conftest's `event_log`); nothing is written to this PC's.
 - **sql_policy.py**:
   - On the local target, DROP, TRUNCATE and DELETE without WHERE are refused when `confirmed` is left out, and run with it; an INSERT needs no confirming. A verdict can't be changed once made.
   - Each local change names its table and what it removes (DROP VIEW says VIEW), and on the lakehouse a refusal names the table, or the kind of CREATE, or the command.
   - USE and RESET change only the run's session, in DuckDB and Spark SQL.
   - On the local target only SET, RESET, PRAGMA, LOAD and INSTALL are called settings: VACUUM isn't run, for its own reason.
   - A table in a schema (`main.sales`) and a quoted table name (`"sales"`) are the project's own; a quoted path (`'data/x.csv'`) and Spark's `parquet.`...`` read a file.
-  - → `test_sql_policy_mutation_501.py`.
+  - → `test_sql_policy_mutation_520.py`.
 - **secret_redaction.py**:
   - `redact_values` and `mask_cut` try the longest value first, whatever order the values come in, so a value that holds another, or a cut inside a long value that a shorter value also starts in, is replaced whole.
   - `mask_cut` acts only on a cut inside a value: a whole value before the "..." is `redact_values`' job, which the preview does first.
-  - → `test_secret_redaction_mutation_501.py`.
+  - → `test_secret_redaction_mutation_520.py`.
 
 ### Left
 

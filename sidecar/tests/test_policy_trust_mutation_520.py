@@ -1,4 +1,4 @@
-"""policy_trust.py (mutation batch 501): reading Group Policy's key is no right to change it, and an
+"""policy_trust.py (mutation batch 520): reading Group Policy's key is no right to change it, and an
 entry that applies to the path itself and is also inherited still counts."""
 
 from __future__ import annotations

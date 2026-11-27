@@ -201,6 +201,21 @@ def test_a_role_that_cant_read_account_usage_is_refused_with_the_grant_it_needs(
     assert len(fake.submitted()) == 1   # refused once, never retried with another role or a grant
 
 
+@pytest.mark.parametrize("code, message", [
+    ("002003", "Object 'DEV_WH' does not exist or not authorized."),
+    ("002003", "Warehouse 'SNOWFLAKE_WH' does not exist or not authorized."),
+    ("002003", "Database 'SNOWFLAKE_SAMPLE_DATA' does not exist or not authorized."),
+    ("003001", "Insufficient privileges to operate on warehouse 'SNOWFLAKE_WH'"),
+])
+def test_a_refusal_about_something_other_than_account_usage_stays_as_it_was(code, message):
+    # A missing or unauthorised warehouse isn't fixed by ACCOUNT_USAGE grants, so it isn't sent that way,
+    # even when its name contains SNOWFLAKE.
+    with pytest.raises(sr.SnowflakeError) as err:
+        credits(FakeSnowflake(fail=(code, message)))
+    assert not isinstance(err.value, sc.AccountUsageDenied)
+    assert err.value.code == code and "IMPORTED PRIVILEGES" not in str(err.value)
+
+
 def test_the_default_role_is_named_as_such_when_the_connection_sets_none():
     with pytest.raises(sc.AccountUsageDenied, match="^Your default role can't read.*to your default role"):
         credits(FakeSnowflake(fail=("002003", DENIED)), conn=CONN | {"role": ""})

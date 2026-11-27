@@ -35,6 +35,7 @@ and the grant is never attempted or guessed beyond those two.
 
 from __future__ import annotations
 
+import re
 import time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
@@ -60,7 +61,9 @@ STATEMENT_SECONDS = 120
 _PLACES = 6
 # Snowflake's codes for "does not exist or not authorized" and "insufficient privileges".
 _DENIED_CODES = ("002003", "003001")
-_DENIED_NAMES = ("snowflake", "account_usage", "warehouse_metering_history")
+# What a refusal must name to be about ACCOUNT_USAGE: the schema (the view is always named with it), or the SNOWFLAKE database itself
+# as a whole quoted name (what a role without IMPORTED PRIVILEGES is told). SNOWFLAKE_WH and the like don't.
+_DENIED_NAME = re.compile(r"account_usage|['\"]snowflake['\"]")
 
 _DAY = "CONVERT_TIMEZONE('UTC', start_time)::DATE"
 _SQL = (f"SELECT TO_VARCHAR({_DAY}, 'YYYY-MM-DD') AS usage_day, warehouse_name, "
@@ -143,7 +146,7 @@ def _denied(exc: SnowflakeError, role: str) -> SnowflakeError:
     """``exc`` as AccountUsageDenied when it says the role can't read ACCOUNT_USAGE, else as it was."""
     text = str(exc).lower()
     refused = exc.code in _DENIED_CODES or "not authorized" in text or "insufficient privileges" in text
-    if not refused or not any(n in text for n in _DENIED_NAMES):
+    if not refused or not _DENIED_NAME.search(text):
         return exc
     who = f"Role {_text(role, 120)}" if role else "Your default role"
     target = f"role {_text(role, 120)}" if role else "your default role"

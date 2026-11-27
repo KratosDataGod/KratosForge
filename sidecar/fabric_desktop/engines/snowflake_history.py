@@ -80,8 +80,9 @@ _TAIL = 256  # longer than any credential redact.secrets looks for
 # USER, CREATE STORAGE or SECURITY INTEGRATION, and the connector options a script may set. redact.secrets
 # doesn't know them by name, and a person's query history holds exactly these statements. The value goes,
 # whether quoted with '...' (doubled or backslash-escaped quotes inside), "...", $$...$$, or bare, after
-# =, => or :=, with comments or line breaks around the operator; a value in brackets, IDENTIFIER(...) or
-# joined with || loses every literal; a quote cut off by Snowflake's own limit runs to the end. A name with
+# =, => or :=, with comments or line breaks around the operator; a value in brackets, IDENTIFIER(...), any
+# other call (CONCAT(...)) or joined with || goes whole; a quote cut off by Snowflake's own limit runs to
+# the end. The name may be in double quotes. A name with
 # words before it counts too (EXTERNAL_OAUTH_CLIENT_SECRET, RSA_PRIVATE_KEY_PASSPHRASE), except
 # MUST_CHANGE_PASSWORD, which is true or false. A public key, a role or an ARN isn't a secret, so they stay.
 _SF_SECRET_PARAMS = ("AWS_KEY_ID", "AWS_SECRET_KEY", "AWS_TOKEN", "AZURE_SAS_TOKEN", "MASTER_KEY",
@@ -91,25 +92,93 @@ _SF_SECRET_PARAMS = ("AWS_KEY_ID", "AWS_SECRET_KEY", "AWS_TOKEN", "AZURE_SAS_TOK
                      "ACCESS_TOKEN", "REFRESH_TOKEN", "SAS_TOKEN")
 _GAP = r"(?:\s|/\*.*?(?:\*/|$)|--[^\n]*(?:\n|$))*"  # spaces, line breaks and comments
 _LIT = r"(?:'(?:[^'\\]|\\.|'')*(?:'|$)|\"(?:[^\"]|\"\")*(?:\"|$)|\$\$.*?(?:\$\$|$))"
-_VALUE = (r"(?:(?:\(|IDENTIFIER\s*\()" + _GAP + r")*(?:" + _LIT + r"(?:" + _GAP + r"\|\|" + _GAP + r"(?:" + _LIT
-          + r"|[^\s,();|]+))*|[^\s,();|'\"]+)")
+_OPERATOR = r"(" + _GAP + r"(?:=>?|:=)" + _GAP + r")"
 _SF_SECRET = re.compile(
     r"(?<![A-Z0-9_$])((?!MUST_CHANGE_PASSWORD\b)(?:[A-Z0-9$]+_)*(?:"
-    + "|".join(sorted(_SF_SECRET_PARAMS, key=len, reverse=True)) + r"))(?![A-Z0-9_$])(" + _GAP
-    + r"(?:=>?|:=)" + _GAP + r")" + _VALUE, re.IGNORECASE | re.DOTALL)
+    + "|".join(sorted(_SF_SECRET_PARAMS, key=len, reverse=True)) + r")\"?)(?![A-Z0-9_$])" + _OPERATOR,
+    re.IGNORECASE | re.DOTALL)
 # A session or scripting variable, or a SET parameter, one of whose underscore-separated words says it holds
 # a credential: SET pw = '...', LET db_api_token := '...'. MUST_CHANGE_PASSWORD (true or false), a public
 # key and a policy's name (PASSWORD_POLICY) aren't secrets; a word that only contains one (keyword_list) isn't one.
-_SF_VARIABLE = re.compile(
-    r"(?<![A-Z0-9_$])((?:SET|LET)\s+(?!MUST_CHANGE_PASSWORD\b|RSA_PUBLIC_KEY|[A-Z0-9_$]*_POLICY\b)(?:[A-Z0-9$]+_)*"
-    r"(?:PW|PWD|PASS|PASSWORD|PASSPHRASE|SECRET|TOKEN|KEY|APIKEY)(?:_[A-Z0-9$]+)*)(?![A-Z0-9_$])(" + _GAP
-    + r"(?:=|:=)" + _GAP + r")" + _VALUE, re.IGNORECASE | re.DOTALL)
+_CREDENTIAL_NAME = (r"(?!MUST_CHANGE_PASSWORD\b|RSA_PUBLIC_KEY|[A-Z0-9_$]*_POLICY\b)(?:[A-Z0-9$]+_)*"
+                    r"(?:PW|PWD|PASS|PASSWORD|PASSPHRASE|SECRET|TOKEN|KEY|APIKEY)(?:_[A-Z0-9$]+)*")
+_SF_VARIABLE = re.compile(r"(?<![A-Z0-9_$])((?:SET|LET)\s+" + _CREDENTIAL_NAME + r")(?![A-Z0-9_$])"
+                          + _OPERATOR, re.IGNORECASE | re.DOTALL)
+# SET (a, b) = (x, y) sets several at once: when any of the names holds a credential, every value goes.
+_SF_VARIABLES = re.compile(r"(?<![A-Z0-9_$])(SET" + _GAP + r"\(([A-Z0-9_$,\s\"]*)\))(" + _GAP + r"=" + _GAP + r")",
+                           re.IGNORECASE | re.DOTALL)
+_ONE_NAME = re.compile(_CREDENTIAL_NAME, re.IGNORECASE)
+_GAP_AT = re.compile(_GAP, re.DOTALL)
+_LIT_AT = re.compile(_LIT, re.DOTALL)
+_JOIN_AT = re.compile(_GAP + r"\|\|" + _GAP, re.DOTALL)
+_CALL_AT = re.compile(r"[A-Z_$][A-Z0-9_$.]*" + _GAP + r"\(", re.IGNORECASE | re.DOTALL)  # IDENTIFIER(, CONCAT(
+_BARE_AT = re.compile(r"[^\s,();|'\"]+")
+
+
+def _closed(text: str, at: int) -> int:
+    """Where the bracket opened just before ``at`` closes, skipping literals and comments, or the end."""
+    depth = 1
+    while at < len(text):
+        quoted = _LIT_AT.match(text, at)
+        if quoted and quoted.end() > at:
+            at = quoted.end()
+        elif text.startswith(("/*", "--"), at):
+            at = _GAP_AT.match(text, at).end()
+        else:
+            depth += {"(": 1, ")": -1}.get(text[at], 0)
+            at += 1
+            if depth == 0:
+                return at
+    return at
+
+
+def _item(text: str, at: int) -> tuple[int, bool] | None:
+    """The end of one value at ``at`` (a literal, a bracket, a call, or a bare word) and whether it's a literal."""
+    quoted = _LIT_AT.match(text, at)
+    if quoted and quoted.end() > at:
+        return quoted.end(), True
+    if text.startswith("(", at):
+        return _closed(text, at + 1), False
+    call = _CALL_AT.match(text, at)
+    if call:
+        return _closed(text, call.end()), False
+    bare = _BARE_AT.match(text, at)
+    return (bare.end(), False) if bare else None
+
+
+def _value_end(text: str, at: int) -> int:
+    """The end of the value that starts at ``at``: items joined with ||, and a literal written right after a
+    literal ('a' 'b'). ``at`` itself when there's none."""
+    first = _item(text, at)
+    if first is None:
+        return at
+    end, literal = first
+    while True:
+        joined = _JOIN_AT.match(text, end)
+        if joined and (more := _item(text, joined.end())):
+            end, literal = more
+            continue
+        after = _GAP_AT.match(text, end).end()
+        quoted = _LIT_AT.match(text, after) if literal else None
+        if quoted and quoted.end() > after:
+            end = quoted.end()
+            continue
+        return end
 
 
 def _sf_secrets(text: str) -> str:
     """``text`` with the value of each Snowflake credential parameter or variable replaced by [removed]."""
-    for pattern in (_SF_VARIABLE, _SF_SECRET):
-        text = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)}'[removed]'", text)
+    for pattern in (_SF_VARIABLES, _SF_VARIABLE, _SF_SECRET):
+        at = 0
+        while found := pattern.search(text, at):
+            at = found.end()
+            if pattern is _SF_VARIABLES and not any(
+                    _ONE_NAME.fullmatch(name.strip().strip('"')) for name in found.group(2).split(",")):
+                continue
+            end = _value_end(text, at)
+            if end > at:
+                text = f"{text[:at]}'[removed]'{text[end:]}"
+                at += len("'[removed]'")
     return text
 
 
@@ -132,7 +201,7 @@ def _cut(text: Any, chars: int) -> tuple[str, bool]:
 
 def _row(r: dict[str, Any], chars: int) -> dict[str, Any]:
     text, cut = _cut(r.get("query_text"), chars)
-    error = (redact.one_line(_sf_secrets(_untailed(r["error_message"])[:_FETCH]), _ERROR_MAX)
+    error = (redact.one_line(_sf_secrets(_untailed(r["error_message"])), _ERROR_MAX)
              if r.get("error_message") else "")
     ms = _int(r.get("total_elapsed_time"))
     return {"query_id": _text(r.get("query_id"), 64), "status": _text(r.get("execution_status"), 40).lower(),

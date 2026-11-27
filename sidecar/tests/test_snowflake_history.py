@@ -213,7 +213,7 @@ _SF_SECRET_CASES = [
      ["refreshTok9"]),  # pragma: allowlist secret
     ("ALTER USER u SET PRIVATE_KEY = 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC'", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"]),  # pragma: allowlist secret
     ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING='sk_live_abc123'", ["sk_live_abc123"]),  # pragma: allowlist secret
-    ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING=$$dollar quoted secret$$", ["dollar", "quoted", "secret$"]),  # pragma: allowlist secret  # pragma: allowlist secret
+    ("CREATE SECRET s TYPE=GENERIC_STRING SECRET_STRING=$$dollar quoted secret$$", ["dollar", "quoted", "secret$"]),  # pragma: allowlist secret
     ("CREATE SECRET s TYPE=PASSWORD USERNAME='svc' PASSWORD=\"dq\"\"pass\"", ["dq", "pass\""]),  # pragma: allowlist secret
     ("ALTER USER bob SET PASSWORD = 'two words' MUST_CHANGE_PASSWORD = TRUE", ["two words"]),  # pragma: allowlist secret
     ("CREATE USER u PASSWORD=bareWord123 DEFAULT_ROLE=r", ["bareWord123"]),  # pragma: allowlist secret
@@ -235,6 +235,14 @@ _SF_SECRET_CASES = [
     ("CREATE EXTERNAL FUNCTION f() API_KEY = 'apiKey11'", ["apiKey11"]),  # pragma: allowlist secret
     ("CREATE SECURITY INTEGRATION i TYPE=EXTERNAL_OAUTH EXTERNAL_OAUTH_CLIENT_SECRET='extSecret12'", ["extSecret12"]),  # pragma: allowlist secret
     ("ALTER SESSION SET RSA_PRIVATE_KEY_PASSPHRASE = 'rsaPass13'", ["rsaPass13"]),  # pragma: allowlist secret
+    ("SET (a, pw) = ('first14', 'multiSet14')", ["first14", "multiSet14"]),  # pragma: allowlist secret
+    ("SET (row_count, \"db_api_token\") = (5, 'quotedList15')", ["quotedList15"]),  # pragma: allowlist secret
+    ("SET pw = CONCAT('Hun', 'call16')", ["Hun", "call16"]),  # pragma: allowlist secret
+    ("CREATE USER u PASSWORD = CONCAT('a)b', /* ) */ UPPER('nested17')) DEFAULT_ROLE=r", ["nested17", "a)b"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = db.s.make_pw('schemaCall18')", ["schemaCall18"]),  # pragma: allowlist secret
+    ("CREATE USER u \"PASSWORD\" = 'quotedName19'", ["quotedName19"]),  # pragma: allowlist secret
+    ("ALTER USER u SET PASSWORD = 'Hun' 'adjacent20'", ["Hun", "adjacent20"]),  # pragma: allowlist secret
+    ("SET pw = CONCAT('open21', 'cut off by the fetch limit", ["open21", "cut off"]),  # pragma: allowlist secret
 ]
 
 
@@ -258,6 +266,15 @@ def test_what_isnt_a_credential_stays():
             "SET row_count = 5",
             "LET keyword_list := 'a,b'",
             "ALTER USER u SET RSA_PUBLIC_KEY = 'MIIBIjAN'",
-            "ALTER ACCOUNT SET PASSWORD_POLICY = db.s.strict_policy"]  # pragma: allowlist secret
+            "ALTER ACCOUNT SET PASSWORD_POLICY = db.s.strict_policy",  # pragma: allowlist secret
+            "SET (row_count, label) = (5, 'east')",
+            "SET (a, b) = (UPPER('x'), 'y')"]
     for sql in kept:
         assert sh._cut(sql, 2000)[0] == sql
+
+
+def test_only_the_credential_value_goes_and_what_follows_it_stays():
+    sql = "CREATE USER u PASSWORD = CONCAT('a', 'b') DEFAULT_ROLE = analyst COMMENT = 'kept'"  # pragma: allowlist secret
+    assert sh._cut(sql, 2000)[0] == "CREATE USER u PASSWORD = '[removed]' DEFAULT_ROLE = analyst COMMENT = 'kept'"
+    sql = "SET (a, pw) = ('x', 'y'); SELECT 'shown'"  # pragma: allowlist secret
+    assert sh._cut(sql, 2000)[0] == "SET (a, pw) = '[removed]'; SELECT 'shown'"

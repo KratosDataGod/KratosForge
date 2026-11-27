@@ -235,3 +235,39 @@ test("a long message from the app is cut, not dropped, and a list that isn't a t
     assert.match(item.text, /table's rows can't be read here/);
   }
 });
+
+test("a cell status the app never sends reads as a reply this window can't read, not as ok", async () => {
+  const before = reply;
+  try {
+    for (const status of ["done", "OK", "succeeded", "", "running "]) {
+      reply = () => ({ status: 200, body: JSON.stringify({ ok: true, result: { status, version: 1, outputs: [] } }) });
+      const channel = new Channel(dir);
+      channel.token = "kfp_" + "a".repeat(43);
+      await assert.rejects(channel.run("C:\\n\\x.ipynb", "x = 1", () => {}), (err) => err instanceof ChannelError && err.code === "bad_reply", status);
+    }
+  } finally {
+    reply = before;
+  }
+});
+
+test("an app that answers a poll at once with nothing new isn't polled in a tight loop", async () => {
+  const before = reply;
+  let polls = 0;
+  const started = Date.now();
+  reply = () => {
+    polls++;
+    const status = polls > 6 ? "ok" : "running";
+    return { status: 200, body: JSON.stringify({ ok: true, result: { status, version: 1, outputs: [] } }) };
+  };
+  try {
+    const channel = new Channel(dir);
+    channel.token = "kfp_" + "a".repeat(43);
+    channel.pollPause = 100;
+    const last = await channel.run("C:\\n\\x.ipynb", "x = 1", () => {});
+    assert.strictEqual(last.status, "ok");
+  } finally {
+    reply = before;
+  }
+  assert.strictEqual(polls, 7);
+  assert.ok(Date.now() - started >= 5 * 100, `${Date.now() - started} ms for 5 unchanged polls`);
+});

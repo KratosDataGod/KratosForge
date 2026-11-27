@@ -126,7 +126,7 @@ def _fallback(ctx: ct.Context) -> dict[str, Any]:
     n = int(p.get("direct_lake_tables") or 0)
     behavior = str(p.get("direct_lake_behavior") or "automatic")
     sources = list(p.get("direct_lake_sources") or [])
-    tables = f"{n} Direct Lake {_s(n, 'table', 'tables')}"
+    tables = "one Direct Lake table" if n == 1 else f"{n} Direct Lake tables"
     if sources == ["onelake"]:
         return ct.passed([rid], f"Its {tables} {_s(n, 'reads', 'read')} through OneLake, which doesn't fall back to DirectQuery.")
     if behavior.lower() == "directlakeonly":

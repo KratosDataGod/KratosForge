@@ -309,7 +309,7 @@ def test_one_direct_lake_table_reads_in_the_singular(behavior, verb):
     for b in (one, two):
         b["model"]["directLakeBehavior"] = behavior
     snap = run([("one", one), ("two", two)])
-    assert f"Its 1 Direct Lake table {verb}" in outcome_of(snap, "FEA-SM-003", "one")["text"]
+    assert f"Its one Direct Lake table {verb}" in outcome_of(snap, "FEA-SM-003", "one")["text"]
     assert f"Its 2 Direct Lake tables {verb.replace('is ', 'are ', 1)}" in outcome_of(snap, "FEA-SM-003", "two")["text"]
 
 

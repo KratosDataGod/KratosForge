@@ -534,7 +534,7 @@ test("a paused cell isn't deleted, moves while paused, and deleting its notebook
   const kept = await p.evaluate(() => { window.__gone = state.notebook; return true; });
   assert.ok(kept);
   const deleted = p.evaluate(() => nbDelete("Gone"));
-  await p.locator(".dialog").getByText("A cell in it is paused in the debugger. Deleting the notebook stops that cell.").waitFor();
+  await p.locator(".dialog").getByText("A cell in this notebook is paused in the debugger. Deleting the notebook stops that cell.").waitFor();
   await p.locator(".dialog button", { hasText: "Delete" }).click();
   assert.strictEqual(await deleted, true);
   await p.waitForFunction(() => window.__gone.cells.every((c) => c.status !== "running") && window.__gone.kernelStatus !== "busy", null, { timeout: 30000 });

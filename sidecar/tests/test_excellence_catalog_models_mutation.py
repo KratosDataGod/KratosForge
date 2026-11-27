@@ -93,5 +93,5 @@ def test_a_rule_hit_without_a_count_is_zero_found():
 
 def test_direct_query_only_is_named_as_such():
     r = cm._fallback(ctx(**model(direct_lake_tables=1, direct_lake_behavior="DirectQueryOnly")))
-    assert r["text"] == "Its 1 Direct Lake table are set to DirectQuery only, so no query uses Direct Lake."
+    assert r["text"] == "Its 1 Direct Lake table is set to DirectQuery only, so no query uses Direct Lake."
     assert r["detail"] == {"behavior": "DirectQueryOnly", "tables": 1}

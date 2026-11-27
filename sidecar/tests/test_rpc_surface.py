@@ -26,7 +26,6 @@ _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, Q
 _INCIDENTS = "incident history: the engine is released, its screen is stage 4 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
-_BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
@@ -45,9 +44,6 @@ NO_UI_CALLER: dict[str, str] = {
     # SF-002: the Check button in Settings > Connections waits on its mockup.
     "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
-    "model_bpa_status": _BPA,
-    "model_bpa_risk": _BPA,
-    "model_bpa_check": _BPA,
     # Local data projects.
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
@@ -166,8 +162,6 @@ NOT_DESTRUCTIVE: dict[str, str] = {
     "local_remove_source": "drops the views over a folder; the files are never touched",
     "local_set_types": "changes how a file's columns are read; the file is untouched",
     "local_transform_run": "steps get local_query's checks with no confirm, so a destructive step is refused",
-    "model_bpa_check": ("reads a semantic model in Fabric; the risk check runs first, a blocked one stops it "
-                        "and a warning needs the risk_id the person acknowledged"),
     "platform_notify": "posts notices only to routes an admin saved, once per dedupe key; changes no data",
 }
 

@@ -91,6 +91,7 @@ notebook_formats_import_check notebook_print_page notebook_report_open notebook_
 profile_get profile_report profile_avatar profile_mastery
 notebook_comments_list
 engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan snowflake_check
+databricks_volumes databricks_volume_describe databricks_volume_files
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
 learn_fixes learn_fix_compare learn_fix_checked learn_patterns learn_team_notes
 academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness academy_sandbox_status
@@ -150,7 +151,10 @@ FAIL_CLOSED = frozenset({"meta_promote", "meta_rollback", "meta_restore", "xray_
                          # (academy_sandbox_remove_grants isn't: it takes the exercise sandbox's read
                          # permission off this PC's Python, which only narrows access, and the next exercise
                          # grants it again.)
-                         "platform_revoke", "platform_remove_admin", "integrations_revoke_client"})
+                         "platform_revoke", "platform_remove_admin", "integrations_revoke_client",
+                         # an access review's confirmation that projects still need a product's data: it
+                         # keeps their access, and takes no go-ahead parameter to be read (WR-410)
+                         "platform_confirm_access"})
 # Parameter names, matched exactly. test_audit lists every audited method's parameters that look like
 # one of these and fails on a name in neither set, so a new one is reviewed rather than missed.
 GUARD_PARAMS = frozenset({

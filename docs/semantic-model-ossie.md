@@ -111,8 +111,8 @@ reading the Ossie file back gives the same model or names what differs.
 ## Fidelity report
 
 Export (from Fabric or from a folder), Import's preview and Ossie file to TMDL each return a
-`fidelity` report beside the `report` rows (OSSIE-004a, engine only; the card shows it in
-OSSIE-004b). It lists every object the conversion reads once: the model, tables or datasets,
+`fidelity` report beside the `report` rows (OSSIE-004a, engine only). The card doesn't show it
+yet; that is OSSIE-004b. It lists every object the conversion reads once: the model, tables or datasets,
 columns or fields, measures or metrics, hierarchies, calculation groups, relationships, roles,
 perspectives, cultures and shared expressions, including those that travel in a file's Power BI
 section. Each object is in one class:
@@ -187,7 +187,11 @@ with their defaults (unused at L1). A Different results summary can hide Unsuppo
 The report can name role members and quote row-level security filters. Anything that shows it
 outside the local pane (a log, a support bundle, a CI artifact, GitHub text) must use
 `semantic_parity.redacted(report)`, which gives counts of members and a length and hash of each
-filter instead.
+filter instead. A TMDL line the reader can't read is reported by its first 80 characters, so
+`redacted()` also withholds such a warning when it names a role, comes from a `roles/` file, or sits
+inside a role block in any file. The reader takes a role declared in `model.tmdl` or
+`database.tmdl` too, and marks each such line with the blocks it is inside (`block`, such as
+`role/tablePermission`).
 
 ### Expression parity (L2)
 
@@ -261,6 +265,33 @@ time of day, time zones) is not run, with the reason. Neither is SUM or AVERAGE 
 Boolean, date or time column, because DuckDB sums a Boolean, where DAX and T-SQL refuse it. `semantic_parity_l3.redacted()` also replaces
 each built query with a length and a hash.
 
+## Parts of the wrong type
+
+Before a conversion runs, export, import, Ossie to TMDL, writing TMDL from a model, the update
+merge and structural parity (L1 and L2, on a `model.bim` or TMDL side) check the types of the parts
+they read: in an Ossie file the name, datasets, fields, metrics, expressions and
+relationships, and in a `model.bim` the tables, columns, measures, partitions, relationships,
+roles and expressions. A part of the wrong type, such as text where the datasets go, a list where
+a name goes or a number where an object goes, is refused with a plain message that gives where
+it is as a path such as `$.datasets['sales'].fields[2].name`. The message names objects by name,
+cut short past 1,024 characters, and never shows the value. A name that is a number is told to go
+in quotes.
+
+A part that is missing, null or empty is read as missing, as before. An item of a list that isn't
+an object (a field written as plain text, say) is now refused by path, where the converter used
+to leave it out without saying so. The check goes only as deep as the parts it knows, so a deeply
+nested value elsewhere costs nothing.
+
+A file that isn't one object at all (a list, a number, plain text or an empty file) is refused the
+same way, with "This isn't an Ossie semantic model, which is one object with version, name and
+datasets", by every entry point: reading, conversion, Ossie to TMDL, the Semantic View and structural
+parity. The TMDL reader refuses files that aren't path -> text.
+
+Conversion also keeps the schema check's depth limit: an Ossie file, or a `model.bim`, nested more
+than 64 levels deep is refused with a plain message that names the limit, before the converter
+reads it. That applies to Import, Export, the round-trip check, Ossie file to TMDL, writing TMDL from
+a model and the Semantic View's reading of an Ossie file. A real model nests about ten levels.
+
 ## Schema validation
 
 Import's preview also checks the Ossie file against the official Apache Ossie JSON Schema for the
@@ -288,8 +319,9 @@ when the file goes to other tools.
   then the first ones in the file. A file of 2,000 datasets with 50 bad fields each is checked in
   about a second.
 - The file is read with the same limits as Import: at most 20 million characters, no YAML
-  aliases (`*name`), and no deeper nesting than a model needs. The schema can't refer to anything
-  outside the copies it ships with.
+  aliases (`*name`), no key given twice in one object, and no deeper nesting than a model needs.
+  A repeated key is refused with its name and line, because YAML would keep only the last one.
+  The schema can't refer to anything outside the copies it ships with.
 - `valid` is true only when a schema checked the file and found nothing. Rules beyond the schema,
   such as what Fabric or Snowflake accept, are the version profiles below.
 - Regular expressions in a schema (`pattern`, `patternProperties`) would be matched with Python's
@@ -333,7 +365,8 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   but the value isn't used. The view folder name is used as the view and semantic model name." A
   file that can't be read is left out of the merged check, and `merged.notes` names it. A view
   whose files declare no datasets is valid, with a warning that Fabric infers the datasets.
-  `validate` checks one whole document.
+  `validate` checks one whole document. A file given as something other than text or bytes is
+  refused with a plain message that names the file, cut short past 1,024 characters.
 - Snowflake rules: version `0.1.1` and the `semantic_model` wrapper. A field or metric with no
   `SNOWFLAKE` or `ANSI_SQL` expression gets a warning, because Snowflake skips it. That rule is
   labelled derived: Snowflake documents the behaviour but not where fields sit in 0.1.1. A correct
@@ -343,6 +376,40 @@ reads a file by its profile (OSSIE-003b, engine only; `sidecar/fabric_desktop/os
   schema, documented or derived) and, in `derived`, any part of it that KratosForge reads in. The
   result gives the `profile`, a `status` (Valid, Invalid, Unverified or Not checked), `warnings`,
   `notes` and the `rules` that ran. It still only informs.
+
+### Snowflake export profile (engine only)
+
+`ossie_snowflake.to_snowflake(doc_or_text, translate_ossie_sql=True)` (OSSIE-010a) turns an Ossie
+0.2.0.dev0 document into Snowflake's Ossie 0.1.1 file. It returns `yaml` and a `report`. The file
+has `version: 0.1.1` and a `semantic_model` list that holds the model, the same layout as the
+output of `SYSTEM$READ_OSSIE_YAML_FROM_SEMANTIC_VIEW`. No YAML aliases are written. Input that
+isn't a 0.2.0.dev0 model is refused with a plain ValueError, and the input is never changed.
+Nothing calls Snowflake.
+
+Each report row has a fidelity class and its label, the path in the output, a message and a
+remediation.
+
+- The whole file is one Unverified row, because no 0.1.1 schema is pinned and Snowflake hasn't
+  read the file. The report's `validation` reads the output back through the `snowflake-ossie`
+  profile. A correct export reads back with no errors.
+- Extension `data` that isn't text is written as JSON text (Preserved through extensions). An
+  extension with no `vendor_name` or no `data`, or a `custom_extensions` that isn't a list, is
+  Unsupported and left out.
+- A field or metric with no `SNOWFLAKE` or `ANSI_SQL` expression is Unsupported and listed in
+  `skipped_by_snowflake`, because Snowflake skips it without a message. It stays in the file, so
+  other tools still read it. A metric with only DAX always gets this row.
+- An `OSSIE_SQL_2026` expression is translated to Snowflake SQL by sqlglot on this PC and added as
+  a `SNOWFLAKE` entry beside the original (Unverified: Snowflake hasn't run it). It is translated
+  only when it is one expression (no statement, query or `;`), calls no function sqlglot doesn't
+  know and sqlglot can write all of it as Snowflake SQL. Otherwise the row is Unsupported with a
+  short reason, such as "calls FOO_BAR, which sqlglot doesn't know". Reasons never quote the
+  expression. With `translate_ossie_sql=False` nothing is translated.
+- `datatype`, `ai_context`, other dialect entries such as DAX, metrics inside datasets and vendor
+  names are left as they are.
+
+Open questions for the live `verify_only` run (OSSIE-010b): which `vendor_name` and `dialect`
+values Snowflake accepts, whether it accepts `datatype` on fields, whether metrics may sit inside
+datasets, and whether `semantic_model` may also be one object instead of a list.
 
 ## Semantic View files (Preview)
 
@@ -388,7 +455,12 @@ What's written:
   the two expressions aren't compared. Its other dialects stay in the file: Fabric recognizes them
   but publishes only DAX.
 - The files are checked with `validate_files` and the `fabric-semantic-view` profile (see
-  Version profiles). The result is in the report, and it informs only.
+  Version profiles). The result is in the report, and it informs only. A view with no dataset left,
+  because each of the source's datasets was excluded, is never Valid: its check fails with
+  `semantic-view/no-datasets`, since Fabric would infer other datasets, or none.
+- An Ossie file gets the converter's check of part types first (see Parts of the wrong type). A
+  part of the wrong type, such as text where a dataset's fields go or a number for a name, is
+  refused with the same message and path as Import, not left out.
 - Writing previews first. The preview lists the files, any `.yaml` file in the folder that would
   be removed (Fabric merges every `.yaml` file in a view's folder, so an old file would join the
   view) and a token. A write needs `confirmed` and that token, so it writes exactly what the
@@ -460,11 +532,277 @@ the project's folder, refuses a link or junction there, and reads nothing past 2
 16 MB of YAML. **Open folder** uses `meta_model_semantic_view_reveal`, which opens only that view's
 existing folder in File Explorer and is written to the audit log, as the other Open folder buttons are.
 
+## Compatibility matrix (engine only)
+
+`semantic_matrix.compatibility(definition, kind=None)` (OSSIE-015a; `sidecar/fabric_desktop/semantic_matrix.py`)
+checks one definition against every target KratosForge writes, on this PC. The definition is a `model.bim`, a TMDL
+folder's files or an Ossie file, as structural parity reads them. Nothing is written, and nothing calls Fabric or
+Snowflake. There's no engine method or screen yet.
+
+It returns `definition` (its kind and label), `targets` (one row per target), `columns`, `summary`, `security`
+(the source's role and calculation group names), `not_checked` (L3 and L4) and `ceiling`. The four targets are:
+
+| Target | How it's made |
+| --- | --- |
+| `power-bi-model` | Import's converter (`to_tmsl`) |
+| `ossie-0.2` | Export (`model_ossie.export`) |
+| `fabric-semantic-view` | The Semantic View emitter |
+| `snowflake-ossie` | The Snowflake export profile, run on the Ossie 0.2 export |
+
+Each row has:
+
+- `status`: **converted**, **source** (the definition is already this kind), **refused** (the converter or emitter
+  refuses it by a rule), **failed** (it tripped), or **not available** (Snowflake when the Ossie export isn't
+  there).
+- `result`, in the plan's words. The best is **Structurally compatible but behavior unverified**. No row ever says
+  Verified equivalent or Equivalent within tolerance, because nothing is run or timed. A converted row's result is
+  its L2 parity summary, the worst object result.
+- `fidelity`: the counts with their basis, which is the converter's fidelity report, the Semantic View report or
+  the Snowflake report. When a fidelity report can't be built, the counts are derived from the parity rows and say
+  so.
+- `dropped`: the source objects the target leaves out, by the source's names. At most 50 are listed, with the
+  total. A view report names a column "dataset ... field" and parity names it "table ... column". They're matched
+  by structural key, so each object is listed once. `extension_only` lists, the same way, what the target carries
+  only in the Power BI section.
+- `parity`: the full `parity_l2` report of the source against the target, with its summary and counts.
+- `roles` and `calculation_groups`: every role and calculation group of the source, named in every row with what
+  the target does to it: **kept**, **extension only**, **changed**, **dropped** or **unverified**.
+  `roles_dropped` and `calculation_groups_dropped` name the dropped ones, and `warnings` lists security warnings
+  first. Ossie 0.2 keeps roles and calculation groups only in the Power BI section, so that row has an "extension
+  only" security warning. Snowflake keeps that section in the file but doesn't apply it, so its row says the same.
+  A view has no place for them, so they're dropped there.
+
+A definition that can't be read is **Test failed** on every row, with the reason. An Ossie 0.3.0.dev0 file is
+**Unsupported** on every row, because the converter reads 0.2.0.dev0 only. A Snowflake 0.1.1 file is its own
+row, and the others are Unsupported.
+
+Known limit: a Semantic View has no dataset fields, because Fabric reads the columns from the lakehouse. So L2
+can't resolve the columns a view metric's SQL names, and a measure the view keeps can show Unsupported at L2. The
+view row's notes count these measures, and they aren't listed as dropped.
+
+`semantic_matrix.redacted(matrix)` gives a copy that's safe outside the local pane. Each parity report goes
+through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and hash instead.
+
+## Fixture corpus
+
+`sidecar/tests/fixtures/ossie_corpus/` holds small synthetic files that every converter and reader
+runs over (OSSIE-012a, tests only): Ossie 0.2.0.dev0 models of growing richness (one written as JSON,
+one with a Power BI section), two `model.bim` files, two TMDL folders, a Fabric Semantic View, a
+0.3.0.dev0 file, a Snowflake 0.1.1 file and a version no profile knows, and damaged or hostile files:
+parts of the wrong type, a root that isn't an object, an empty file, text that isn't YAML, aliases, a
+repeated key, values nested 300 levels deep, 2,000-character names and names in several scripts.
+Nesting stays at a few hundred levels, well under what the repository's secret scan can read.
+
+`manifest.json` gives each file's kind, what it is, and the outcome expected from each entry point:
+`to_tmsl` or `export`, `validate`, the round trip, Ossie or TMSL to TMDL, the Semantic View emitter and
+L1 parity. A refusal is a plain ValueError with the words the manifest names; wrong-typed parts are
+never a TypeError, AttributeError or KeyError. `tests/ossie_corpus.py` loads the corpus and sums each
+outcome up in a word, and `tests/test_ossie_corpus.py` checks every file against the manifest.
+
+Two things the corpus first showed were fixed first, and the manifest says so: a root that isn't an object
+is now a ValueError rather than a TypeError, and conversion keeps the schema check's 64-level depth
+limit (see Parts of the wrong type). L1 still reads a `model.bim` side nested past it.
+
+Hardening fixed a third: writing TMDL from a model and L1 used to skip a wrong-typed `model.bim` part
+with a report row, or read it as it was, where Export refuses it. Both now run Export's check. The
+TMDL writer refuses with the same path ("This model couldn't be written as TMDL, because part of
+it isn't the shape a semantic model's part has: ..."), and L1 is Test failed, with the side and the
+path in `error` and in that side's `sides[...]["error"]`. And a fourth: the Semantic View emitter
+left a wrong-typed part of an Ossie file out under `excluded` and the view could still be Valid. It
+now refuses that file by path, and a view whose datasets were all excluded is never Valid.
+
+Two more, recorded first and then fixed (rolefid; the manifest says so):
+
+- **Roles on Import.** A role, or a calculation group, that the Ossie file keeps only in its Power BI
+  section used to come back Fully preserved on Import, with no security warning, although only Power BI
+  could read it in the file. Import now classes it Preserved through extensions, as Export does. The
+  role gets the same security warning Export gives ("This security role is only in the POWER_BI
+  extension: a tool other than Power BI that reads the file won't apply it"), and the remediation says
+  that it reached the model but a tool that reads the file won't apply it. A role that comes through
+  changed is still Partially converted, and a lost one Unsupported. The compatibility matrix reads the
+  class by direction: for the Power BI model target the role is kept, since the model applies it; for
+  the Ossie file it is extension only. Other objects restored from the Power BI section (perspectives,
+  cultures, expressions, plain tables) are still Fully preserved on Import.
+- **A Semantic View's relationships.** A view lists no fields, so the converter found no column for
+  either end of a relationship and dropped it. Now, when a dataset lists no fields, each end column a
+  one-column relationship names is declared on its table as a lakehouse source column of the same name,
+  with no data type, and the relationship is kept. Nothing is guessed: each declared column has a report
+  row (kind kept) saying its data type wasn't known and should be set to match the lakehouse table before
+  deploying, and the relationship's fidelity row has the same note. A dataset that lists fields but not
+  the column still loses the relationship, as before, and so does a composite relationship.
+
+### Large models
+
+`tests/ossie_large.py` generates a model of N tables with M columns and K measures each, chained by
+relationships, with one security role and one calculation group, as a `model.bim` and as an Ossie
+0.2.0.dev0 file that describe the same model (OSSIE-012b, tests and tools only). The choices come from a
+fixed seed, so each size gives the same model on every run. The measures cycle through the parts of the L2
+subset, and every eighth one is a CALCULATE outside it. In the Ossie file the role and the calculation group
+travel in the Power BI section, as an export writes them.
+
+`tests/test_ossie_large.py` runs the fidelity report (Ossie to TMSL, and Export with its round-trip check),
+L1 and L2 on a small model and on one four times as big by tables, by columns or by measures. It counts the
+work rather than timing it: the objects added to and found in the fidelity report, the lookups behind them,
+L1's pairs, L2's expression reads, the converter runs, and every Python and C function call made. Each count
+may grow at most 1.25 times as fast as the kind of object that grew the most, and each add or find in the
+fidelity report may cost at most three lookups, so a step that compares each object with every other fails.
+The models are small to keep the file to a few seconds, so a quadratic step that costs little per pair can
+still hide in the total call count; the timing tool shows it on big models. L3 is checked to run no more
+measures than its cap.
+
+`tools/ossie_large_timing.py` times each stage for given sizes and prints JSON: seconds per stage, object
+counts, each stage's result, and the Python, DuckDB, sqlglot and PyYAML versions. It never goes online.
+
+    cd sidecar
+    python tools/ossie_large_timing.py --size 10x50x20 --size 40x50x20
+
+The scenario 18 baseline below was measured on 2026-11-23 on this project's Linux build container
+(x86_64, CPython 3.13.18, DuckDB 1.5.6, sqlglot 30.23.0, PyYAML 6.0.3 with libyaml), not on Windows. A
+Windows PC or runner will be slower. Times are seconds, one run each; sizes are tables x columns x measures
+per table. Each cell is before → after the two speed-ups below (YAML on libyaml, and L3 reusing L2's
+sides), both measured the same day on the same container; the "before" numbers were taken again rather
+than copied from the first baseline, which they match to within about 10 percent.
+
+| Size | Columns | Measures | Ossie to TMSL | Export | Export with round trip | L1 | L2 | L3 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10x50x20 | 500 | 200 | 0.44 → 0.08 | 0.43 → 0.10 | 1.58 → 0.29 | 0.76 → 0.18 | 0.76 → 0.24 | 2.41 → 1.49 |
+| 20x50x20 | 1,000 | 400 | 0.84 → 0.23 | 0.92 → 0.22 | 3.19 → 0.83 | 1.41 → 0.38 | 1.40 → 0.48 | 3.82 → 1.75 |
+| 40x50x20 | 2,000 | 800 | 1.71 → 0.45 | 1.72 → 0.49 | 6.42 → 1.81 | 2.92 → 0.93 | 3.17 → 1.07 | 7.36 → 2.25 |
+| 80x50x20 | 4,000 | 1,600 | 3.40 → 1.07 | 3.82 → 1.07 | 13.04 → 4.40 | 5.82 → 2.41 | 6.73 → 2.89 | 14.41 → 4.38 |
+| 20x200x20 | 4,000 | 400 | 2.12 → 0.61 | 2.46 → 0.65 | 8.90 → 2.43 | 4.03 → 1.38 | 4.18 → 1.58 | 9.84 → 2.97 |
+| 20x50x80 | 1,000 | 1,600 | 1.77 → 0.65 | 1.85 → 0.50 | 6.49 → 1.69 | 3.32 → 0.96 | 3.58 → 1.39 | 7.79 → 2.75 |
+
+Every stage still grows about linearly. Reading and writing YAML with libyaml makes conversion, Export and
+the round trip 3 to 5 times as fast, and L1 and L2 2.3 to 4 times. L3 builds its queries from the sides
+L2 read instead of reading and converting both again, so it costs about L2 plus DuckDB's run of at most
+200 measures a side: 1.6 to 3.3 times as fast. The fidelity report of an Ossie import adds at most
+0.04 s. The round trip passed at every size, and every stage's result (fidelity status, round trip, and
+the L1, L2 and L3 summaries and counts) was the same before and after. The report L3 gives is the same
+as when it read both sides again (`tests/test_semantic_parity_l3_reuse.py`).
+
+### YAML on libyaml
+
+When the engine's PyYAML has libyaml (its C extension), Ossie YAML is read and written with it, several
+times faster than PyYAML's pure-Python code. The two don't agree on every text, so libyaml is used only
+where it gives exactly what the pure code gives, and the pure code decides everything else:
+
+- A file someone gives (`load_text`) is scanned and parsed by libyaml, but composed and built by the same
+  Python code as before, so aliases, a key given twice, nesting and the 20 MB limit are refused as before.
+  A text with a tab, a byte order mark after its start, or a block scalar header followed straight by `#`
+  is read by the pure code, and so is a plain scalar holding `?` inside `[ ]` or `{ }` (libyaml reads
+  it, PyYAML refuses it), and anything nested more than 128 levels. Whatever libyaml refuses is read
+  again by the pure code, so a refusal has the same words either way.
+- Writing (Export, the Semantic View files, the copy `to_tmsl` hands the converter) uses libyaml for a
+  document of plain values whose text has no carriage return, lone surrogate or character past U+FFFF,
+  and whose keys are 1 to 100 bytes. Its output is the same byte for byte. libyaml ends a document that
+  holds a `|+` block with `...` where PyYAML may not, so such a document is written by the pure code.
+- YAML the engine wrote itself is read back with libyaml's SafeLoader.
+
+Without libyaml the pure code runs alone, as before. `tests/test_ossie_fast_yaml.py` runs the fixture
+corpus, hostile text (aliases, repeated keys, deep nesting, huge names, tabs, odd line breaks, unicode)
+and random text and documents both ways and checks the results, refusals and bytes are the same. Before
+the change, 900,000 random texts were read both ways with no difference.
+
+### Semantic CI lane (proposed)
+
+The main `sidecar` job already runs these tests with the rest of the suite. Release management owns
+`.github/workflows/ci.yml`, so this lane is a proposal for them to adopt, not a change to it. It names the
+semantic tests so a failure points at them, and keeps the timing as an informational artifact that never
+fails the build:
+
+```yaml
+  semantic:
+    # Ossie and semantic parity (OSSIE-012b): the fixture corpus, large generated models, L1 to L3.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/requirements/test-linux.txt
+      - run: |
+          python -m pip install --only-binary=:all: --require-hashes -r ../.github/requirements/test-linux.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+        working-directory: sidecar
+      - run: >-
+          python -m pytest -q tests/test_ossie_corpus.py tests/test_ossie_upgrade_diff.py
+          tests/test_ossie_large.py tests/test_semantic_parity.py tests/test_semantic_parity_l3.py
+          tests/test_model_ossie.py
+        working-directory: sidecar
+      - name: Time large models (informational)
+        continue-on-error: true
+        run: python tools/ossie_large_timing.py --size 10x50x20 --size 40x50x20 > "$RUNNER_TEMP/ossie-large-timing.json"
+        working-directory: sidecar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: ossie-large-timing
+          path: ${{ runner.temp }}/ossie-large-timing.json
+          if-no-files-found: ignore
+```
+
+The timing step takes about 12 seconds on this container (40 before the speed-ups). Its numbers are for
+watching a trend, not a gate: runners vary too much for a time limit, which is why the tests count work
+instead.
+
+## Converter upgrade check
+
+Before the vendored converter is updated, `sidecar/tools/ossie_upgrade_diff.py` runs the fixture
+corpus through the converter KratosForge ships and through a candidate, and lists what changed
+(OSSIE-012c, a developer tool run by hand; the engine never uses it and it never goes online):
+
+    cd sidecar
+    python tools/ossie_upgrade_diff.py path/to/ossie_microsoft
+
+The candidate is a package folder or a single module with the converter's two functions,
+`convert_ossie_to_semantic_model` and `convert_semantic_model_to_ossie`. Loading it runs its code,
+so point it only at code you would run. For the candidate's run it stands in for the vendored
+package in `sys.modules` and in the conversion module, and both are put back afterwards, also when
+the run fails.
+
+Each line names a file, the entry point or object, the outcome or fidelity class before and after,
+and whether that is worse, better or changed. Worse means a refusal or error where the file
+converted, a lower fidelity class, an object that is gone, or an outcome the manifest expects that
+no longer happens, so a hostile file the candidate accepts counts as worse. `--only hostile/` limits
+the run to some files and `--json` prints the rows. The exit code is 0 when nothing got worse, 1
+when something did, and 2 when the candidate can't be used because it doesn't import or lacks a
+function.
+
 ## Keeping Git in step
 
 After an import, **Save TMDL to Git** reads the model back from Fabric as TMDL and writes it
 to `semantic/<model>.SemanticModel/` in the Power BI project layout, next to the Ossie file.
 Files Fabric no longer returns are removed from that folder.
+
+### Compare two versions
+
+`ossie_compare.compare_versions(old, new)` says what changed between two versions of the same
+model (OSSIE-002b, engine only: no engine method and no screen yet). Each version can be an Ossie
+0.2.0.dev0 file, a `model.bim` (TMSL) or a TMDL folder's files, read as structural parity reads
+them, so a model and its own Ossie export are the same version. Ossie 0.3.0.dev0 and Snowflake's
+0.1.1 files are refused with the reason, because the converter reads 0.2.0.dev0 only.
+
+For tables, columns, measures, relationships, roles, calculation groups, hierarchies and
+perspectives the report lists each object added, removed or changed, and counts the unchanged
+ones by kind. A change says what changed: the data type, the expression, the format string, the
+description, a relationship's ends or flags, a role's permissions or a calculation item. A
+measure's expression is compared through the L2 canonical form when both versions are inside its
+subset, so a rewrite that computes the same thing ("expression text") is told apart from one that
+doesn't ("expression"). A SQL translation added beside unchanged DAX isn't a change. Roles and
+calculation groups that changed are also listed under `look_at`, so they are checked first.
+
+The model's own name and the order of columns aren't compared, and the report says so under
+`not_checked`, with the other properties left out: partitions and data sources, shared
+expressions, sourceColumn and summarizeBy. Bad input never raises: `status` is "failed" or
+"refused", `error` says why, and the summary says the versions weren't compared. A line the reader
+can't understand is left out of the comparison, so the summary and `notes` count it and each
+side's `warnings` name it.
+The report can quote a role's filter and name its members. Anything shown outside the local pane
+must use `ossie_compare.redacted(report)`, which gives a length and hash of each filter, counts of
+members and permissions, and no expression or format text.
 
 ## How this works
 
@@ -505,6 +843,28 @@ Files Fabric no longer returns are removed from that folder.
   for the file name only. TMDL to Ossie and back keeps every object the reader reads. Roles,
   perspectives, translations, hierarchies and calculation groups travel in the Ossie file's Power BI section,
   where other tools don't see them.
+
+### One TMDL writer (OSSIE-007a)
+
+The Direct Lake model that **Build model** makes (`sidecar/fabric_desktop/semantic.py`) is built as
+TMSL (`semantic.model_bim`) and written by the same writer as everything else, `tmdl.from_bim`.
+The writer reads its output back, and if anything would come back different the build stops with
+the object named, so a model that differs from the plan is never sent. The model is the same as the
+one the old hand-written TMDL described; `test_semantic_one_writer.py` reads both with the TMDL
+reader and compares them.
+
+What changes:
+
+- The first update of an existing model sends text that differs from the last build in whitespace,
+  name quoting and a fence around the connection's M expression. The model is the same, and Fabric
+  keeps its own layout, so nothing shows in Fabric or in Git.
+- Table file names are cleaned like other written models: `sales/eu` is in `sales_eu.tmdl`, `CON`
+  in `_CON.tmdl`. Tables are matched by lineage tag, not file name, so names reports use are kept.
+- Finding the existing model's table names reads each table file on its own with the TMDL reader.
+  The 20 MB limit applies to one table's file; a file past it stops the build rather than guess a name.
+- A column called `true` or `false` is written as `sourceColumn: "true"`, so it reads back as its
+  name. The old text read back as a yes/no value in this app's reader; Fabric reads the property as text.
+- A table or column name with a line break is refused, where it was written as broken TMDL before.
 
 ## From an AI tool
 

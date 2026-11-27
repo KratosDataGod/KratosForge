@@ -296,7 +296,7 @@ def test_policy_inspection_keeps_capped_names_and_counts_never_the_settings():
     assert got["calls_out"] == 61 and got["no_retry_count"] == got["no_timeout_count"] == 61
     assert len(got["no_retry"]) == len(got["no_timeout"]) == inspect_items.MAX_NAMES
     assert all(isinstance(n, str) and len(n) <= 256 for n in got["no_retry"] + got["no_timeout"])
-    assert "A" * 256 in got["no_retry"] and long not in got["no_retry"]
+    assert "A" * 255 + "…" in got["no_retry"] and long not in got["no_retry"]  # cut by evidence.text, marked
     text = json.dumps(got)
     assert "7.00:00:00" not in text and "secureInput" not in text and "retryInterval" not in text
     snap = run([pipeline("p", acts)])

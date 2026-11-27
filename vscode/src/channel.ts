@@ -34,9 +34,43 @@ export function readPortFile(dir: string): { port: number; hello: string } | nul
   } catch {
     return null;
   }
-  const [port, hello] = text.trim().split(/\s+/);
+  if (text.length > 1024) return null;
+  const [port, hello, ...rest] = text.trim().split(/[ \t\r\n]+/);
   const n = Number(port);
-  return Number.isInteger(n) && n > 0 && n < 65536 && hello ? { port: n, hello } : null;
+  // The app writes "<port> <hello>", with hello from secrets.token_urlsafe: anything else isn't its
+  // file, and a hello that isn't one is never sent as a header.
+  return /^[0-9]{1,5}$/.test(port) && n > 0 && n < 65536 && HELLO.test(hello || "") && !rest.length ? { port: n, hello } : null;
+}
+
+const HELLO = /^[A-Za-z0-9_-]{1,256}$/;
+// A pairing token as the app issues it (editor_pairing.py: "kfp_" and secrets.token_urlsafe(32)).
+const TOKEN = /^[A-Za-z0-9_-]{16,512}$/;
+const KEEPS = ["session", "8h", "7d"];
+
+/** ``value`` when ``ok`` says it's shaped as the caller reads it; otherwise the call fails as a reply
+ * this extension can't read, before anything acts on it. */
+function shaped<T>(value: unknown, ok: (v: any) => boolean): T {
+  let fine = false;
+  try {
+    fine = !!value && typeof value === "object" && !Array.isArray(value) && ok(value);
+  } catch {
+    fine = false;
+  }
+  if (!fine) throw new ChannelError(0, "bad_reply", BAD_REPLY);
+  return value as T;
+}
+const text = (v: unknown, max = 512): boolean => typeof v === "string" && v.length > 0 && v.length <= max;
+const count = (v: unknown): boolean => v === undefined || v === null || (Number.isSafeInteger(v) && (v as number) >= 0);
+
+/** A cell's snapshot: a status, and outputs that are each an object (outputs.ts reads each one). */
+function snapshot(value: unknown): Snapshot {
+  const snap = shaped<Snapshot>(value, (v) => text(v.status, 40)
+    && (v.outputs === undefined || v.outputs === null || (Array.isArray(v.outputs)
+      && v.outputs.every((o: unknown) => !!o && typeof o === "object" && !Array.isArray(o))))
+    && count(v.version) && count(v.execution_count)
+    && (v.seconds === undefined || v.seconds === null || (Number.isFinite(v.seconds) && v.seconds >= 0)));
+  for (const k of ["outputs", "version", "execution_count", "seconds"] as const) if (snap[k] === null) delete snap[k];
+  return snap;
 }
 
 export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run notebooks is off in its Settings > Integrations. "
@@ -87,7 +121,11 @@ const THEN_AGAIN = " Once that's sorted out, run the cell again.";
  * to pair), they're kept; elsewhere the window says it in its own words. */
 export function refusal(status: number, code: string | undefined, message: string | undefined, pairing = false,
   hello = false): ChannelError {
-  const said = message || "";
+  // Only words and a name the app could have sent: anything else reads as no message and no code.
+  // A long message is cut, not dropped, so its start (which says what went wrong) still shows.
+  const folded = typeof message === "string" ? message.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim() : "";
+  const said = folded.length > MAX_MESSAGE ? folded.slice(0, MAX_MESSAGE).trimEnd() + "…" : folded;
+  if (typeof code !== "string" || !/^[a-z_]{1,40}$/.test(code)) code = undefined;
   switch (code) {
     case "not_paired": return new ChannelError(status, "not_paired", NOT_PAIRED);
     // Only a call that sends the hello (asking to pair) is checked against it; anywhere else it means
@@ -105,6 +143,8 @@ export function refusal(status: number, code: string | undefined, message: strin
     default: return new ChannelError(status, code || "failed", said ? said + OUT_OF_STEP : unexpected(`status ${status}`));
   }
 }
+
+const MAX_MESSAGE = 4000;
 
 export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
 // Only the engine's accept-time refusal is "busy" (editor_channel.py), so a retried call never ran.
@@ -227,6 +267,9 @@ export class Channel {
   }
 
   private async once(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {
+    // A kept token that isn't one the app issues (garbled where it was stored) is never sent: the
+    // window reads as unpaired, so it's forgotten and the window pairs again.
+    if (!hello && this.token && !TOKEN.test(this.token)) throw new ChannelError(0, "not_paired", NOT_PAIRED);
     const where = readPortFile(this.dir);
     if (!where) throw new ChannelError(0, "not_listening", NOT_LISTENING);
     await this.prove(where);
@@ -246,12 +289,19 @@ export class Channel {
   }
 
   /** Asks to pair; the app shows the request with ``code``, which this window shows too. */
-  ask(window: string, client: string): Promise<{ id: string; code: string; expires_in: number }> {
-    return this.request("POST", "/v1/pair", { window, client }, true) as Promise<{ id: string; code: string; expires_in: number }>;
+  async ask(window: string, client: string): Promise<{ id: string; code: string; expires_in: number }> {
+    return shaped(await this.request("POST", "/v1/pair", { window, client }, true),
+      (v) => text(v.id, 200) && text(v.code, 64) && Number.isFinite(v.expires_in) && v.expires_in > 0 && v.expires_in <= 86_400);
   }
 
-  collect(id: string): Promise<{ state: string; token?: string; keep?: string }> {
-    return this.request("GET", `/v1/pair/${encodeURIComponent(id)}`, undefined, true) as Promise<{ state: string; token?: string; keep?: string }>;
+  async collect(id: string): Promise<{ state: string; token?: string; keep?: string }> {
+    const got = shaped<{ state: string; token?: string | null; keep?: string | null }>(
+      await this.request("GET", `/v1/pair/${encodeURIComponent(id)}`, undefined, true),
+      (v) => text(v.state, 40) && (v.token === undefined || v.token === null || TOKEN.test(v.token))
+        && (v.keep === undefined || v.keep === null || KEEPS.includes(v.keep)));
+    if (got.token === null) delete got.token;
+    if (got.keep === null) delete got.keep;
+    return got as { state: string; token?: string; keep?: string };
   }
 
   /** Waits for the person to answer in the app. Resolves with the token and how long it's kept. */
@@ -273,26 +323,26 @@ export class Channel {
     throw cancelled() ? new ChannelError(408, "cancelled", PAIR_CANCELLED) : new ChannelError(408, "expired", PAIR_UNANSWERED);
   }
 
-  status(): Promise<{ app: string; version: string; pairing: Record<string, unknown> }> {
-    return this.request("GET", "/v1/status") as Promise<{ app: string; version: string; pairing: Record<string, unknown> }>;
+  async status(): Promise<{ app: string; version: string; pairing: Record<string, unknown> }> {
+    return shaped(await this.request("GET", "/v1/status"), () => true);
   }
 
   unpair(): Promise<unknown> {
     return this.request("DELETE", "/v1/pair");
   }
 
-  notebook(file: string): Promise<{ name: string }> {
-    return this.request("POST", "/v1/notebook", { path: file }) as Promise<{ name: string }>;
+  async notebook(file: string): Promise<{ name: string }> {
+    return shaped(await this.request("POST", "/v1/notebook", { path: file }), (v) => text(v.name, 4096));
   }
 
-  start(file: string, code: string): Promise<Snapshot> {
+  async start(file: string, code: string): Promise<Snapshot> {
     const size = Buffer.byteLength(JSON.stringify({ path: file, code }));
-    if (size > MAX_REQUEST) return Promise.reject(new ChannelError(0, "cell_too_large", cellTooLarge(size)));
-    return this.request("POST", "/v1/run", { path: file, code }) as Promise<Snapshot>;
+    if (size > MAX_REQUEST) throw new ChannelError(0, "cell_too_large", cellTooLarge(size));
+    return snapshot(await this.request("POST", "/v1/run", { path: file, code }));
   }
 
-  poll(file: string, version = -1, wait = 20): Promise<Snapshot> {
-    return this.request("GET", `/v1/run?path=${encodeURIComponent(file)}&version=${version}&wait=${wait}`) as Promise<Snapshot>;
+  async poll(file: string, version = -1, wait = 20): Promise<Snapshot> {
+    return snapshot(await this.request("GET", `/v1/run?path=${encodeURIComponent(file)}&version=${version}&wait=${wait}`));
   }
 
   interrupt(file: string): Promise<unknown> {

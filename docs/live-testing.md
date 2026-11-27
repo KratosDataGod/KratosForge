@@ -49,7 +49,7 @@ A check that depends on an earlier one that failed is marked Skipped, with the r
 
 ## Opt-in checks
 
-These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run`, or name one or more with `--check <id>`:
+These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run` and `model.bpa`, or name one or more with `--check <id>`:
 
 ```powershell
 fabric-desktop live-test --workspace <workspace id> --all --dry-run              # lists them, with what each writes
@@ -107,7 +107,7 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 
 ## The tenant smoke test
 
-The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
+The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check that `--all` runs as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
 
 ## Fakes follow what live runs refused
 

@@ -251,11 +251,19 @@ AREAS: tuple[Area, ...] = (
        local=Cell("partial", ("test_snowflake_sql.py", "test_snowflake_sql_parity.py", "test_snowflake_coverage.py"),
                   note="Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. "
                        "docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.")),
-    _skinned("snowflake", "objects", "Databases, schemas and object browser"),
+    _skinned("snowflake", "objects", "Databases, schemas and object browser",
+       cloud_api=Cell("partial", ("test_snowflake_objects.py",),
+                      note="The engine lists databases, schemas, tables and views, and a table's or view's columns, "
+                           "with SHOW as the connection's role and without a warehouse, a capped page at a time "
+                           "(Preview). No screen shows them yet. Against fakes, no live run yet.")),
     _skinned("snowflake", "snowpark", "Snowpark", local=MISSING),
     _skinned("snowflake", "loading", "Stages and data loading"),
     _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
-    _skinned("snowflake", "history", "Query history, profiling and credits"),
+    _skinned("snowflake", "history", "Query history, profiling and credits",
+       cloud_api=Cell("partial", ("test_snowflake_history.py",),
+                      note="The engine reads your own recent queries (QUERY_HISTORY_BY_USER) with their status, run "
+                           "time, warehouse and rows, after a confirm, because it runs on a warehouse (Preview). No "
+                           "screen, query profile or credits yet (SF-006). Against fakes, no live run yet.")),
 )
 
 
@@ -288,11 +296,11 @@ PLANS: dict[tuple[str, str], Plan] = {
     ("databricks", "cost"): _p("G", "P1", "cloud", "DBX-006", owner="Optimization engine"),
     ("snowflake", "connect"): _p("A", "P0", "cloud", "SF-001", "SF-002", "PAR-003", owner="Platform parity"),
     ("snowflake", "worksheets"): _p("B", "P0", "hybrid", "SF-003", "PAR-002", owner="Platform parity"),
-    ("snowflake", "objects"): _p("D", "P1", "none", "SF-004", owner="Platform parity"),
+    ("snowflake", "objects"): _p("D", "P1", "cloud", "SF-004", owner="Platform parity"),
     ("snowflake", "snowpark"): _p("C", "P2", "none", "SF-007"),
     ("snowflake", "loading"): _p("D", "P2", "none", "SF-009"),
     ("snowflake", "tasks"): _p("E", "P2", "none", "SF-008"),
-    ("snowflake", "history"): _p("G", "P1", "none", "SF-005", "SF-006", owner="Platform parity"),
+    ("snowflake", "history"): _p("G", "P1", "cloud", "SF-005", "SF-006", owner="Platform parity"),
 }
 
 

@@ -34,7 +34,8 @@ from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped, local_commit, log_commit_dropped, lost_commit
+from .retrying import (data_upload_dropped, held_file_message, local_commit, log_commit_dropped, lost_commit,
+                       windows_file_held, windows_log_race)
 
 _log = logging.getLogger(__name__)
 
@@ -775,7 +776,7 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     table the change took outside the profile is only noted in the log, since the rows are committed."""
     from deltalake import CommitProperties, write_deltalake
 
-    from . import delta_dml, delta_profile
+    from . import delta_dml, delta_profile, maintenance
     lh = _current()
     ref = table_ref(change.name)
     reason = write_refusal(lh.name, ref.schema, ref.table)
@@ -810,8 +811,10 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     before = table.version()
     names = source.schema.names if source is not None else None
     out = delta_dml.apply(change, table, source, names,
-                          CommitProperties(custom_metadata={"fabric_desktop.operation": change.kind}))
+                          CommitProperties(custom_metadata={"fabric_desktop.operation": change.kind}),
+                          post_commithook_properties=maintenance.WRITE_HOOKS)
     after = DeltaTable(uri, storage_options=opts)
+    maintenance.after_write(uri, before, after, opts)  # the log cleanup its checkpoint left
     delta_profile.note_after_write(after)
     result = ChangeResult(name_, change.kind, after.version(), out["rows_inserted"], out["rows_updated"],
                           out["rows_deleted"])
@@ -912,6 +915,10 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
             missing = [c for c in zorder if c not in t.schema().to_arrow().names]
             if missing:
                 raise ValueError(f"ZORDER BY names columns {name_} hasn't got: {', '.join(missing)}. Nothing was changed.")
+        kept = maintenance.kept_days(t.metadata().configuration)
+        if maintenance.keep_log(ref.uri, maintenance.retention_hours(max(kept or 0, maintenance.MIN_RETENTION_DAYS)),
+                                opts):
+            t.update_incremental()
         metrics = local_commit(once, f"{name_}'s next version")
         note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
     elif operation == "vacuum":
@@ -922,6 +929,8 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
                              f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
                              "Fabric's Spark refuses it too. Nothing was changed.")
         hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
+        if not dry_run and maintenance.keep_log(ref.uri, hours, opts):  # VACUUM's commits can clean the log
+            t.update_incremental()
         keep, _oldest = maintenance.skewed_versions(t, int(hours))  # a clock out of step deletes nothing still read
         tries = [0]
 
@@ -935,7 +944,15 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
                             commit_properties=commit, **maintenance.vacuum_keep(keep))
         local = "://" not in ref.uri  # a table on this PC: what VACUUM actually deleted can be checked
         present = maintenance.table_files(ref.uri) if local else None
-        files = local_commit(vacuum, f"{name_}'s next version")
+        # A file VACUUM deletes may also be open for a moment in a virus scanner or the indexer (os error 32 or 33
+        # on Windows); what it already deleted no version kept reads, so it runs again. Still held, a plain message.
+        try:
+            files = local_commit(vacuum, f"{name_}'s next version",
+                                 when=lambda e: windows_file_held(e) or windows_log_race(e))
+        except OSError as exc:
+            if not windows_file_held(exc):
+                raise
+            raise OSError(held_file_message(f"VACUUM of {name_}")) from exc
         deleted = len(files)
         if present is not None:
             # delta-rs lists a removed file already gone (until a checkpoint drops it), and lists it relative to
@@ -956,7 +973,7 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
         else:
             raise ValueError("RESTORE needs TO VERSION AS OF n or TO TIMESTAMP AS OF '...'.")
         try:
-            metrics = t.restore(target, commit_properties=commit)
+            metrics = t.restore(target, commit_properties=commit, post_commithook_properties=maintenance.KEEP_LOG)
         except OSError as exc:  # not repeated: a writer's commit meanwhile would be undone by a second RESTORE
             if (conflict := lost_commit(exc, f"{name_}'s next version")) is not None:
                 raise conflict from exc

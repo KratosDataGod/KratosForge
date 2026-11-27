@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from fabric_desktop import sql
 from fabric_desktop.duckdb_rows import duckdb_major
 
@@ -125,6 +127,14 @@ def check(cases: list[dict]) -> set[str]:
 
 def part(index: int, parts: int) -> list[dict]:
     return load()[index::parts]
+
+
+def chunks(index: int, parts: int, size: int = 50) -> list:
+    """``part(index, parts)`` as pytest params of ``size`` cases each. One test of a whole half ran over the
+    per-test time limit on a busy Windows runner, so each chunk is a test of its own."""
+    cases = part(index, parts)
+    return [pytest.param(cases[i:i + size], id=f"half{index + 1}-{i + 1}-{min(i + size, len(cases))}")
+            for i in range(0, len(cases), size)]
 
 
 def stale() -> list[str]:

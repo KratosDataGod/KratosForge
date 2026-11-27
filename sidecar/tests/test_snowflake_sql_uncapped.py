@@ -134,7 +134,6 @@ def test_date_arithmetic_says_a_date_may_come_back_as_a_timestamp_unless_the_val
     ("CREATE STAGE s", "SFN-011"), ("CREATE SEQUENCE s", "SFN-011"),
     ("ALTER TABLE a SWAP WITH b", "SFN-029"),
     ("select snowflake.cortex.complete('m', 'x')", "SFN-012"),
-    ("select array_construct(1, cast('a' as varchar))", "SFN-025"),
 ])
 def test_what_runs_only_in_snowflake_is_refused_by_its_rule(code, rule):
     t = sf.translate(code)
@@ -229,10 +228,11 @@ def _titles(code):
     return [(n.id, n.title) for s in sf.translate(code).statements for n in s.notes]
 
 
-def test_a_mixed_array_refusal_names_the_function_written():
-    assert _titles("select array_construct(1, 'a')") == [("SFN-025", "ARRAY_CONSTRUCT: text and numbers in one array")]
-    assert _titles("select [1, 'a']") == [("SFN-025", "ARRAY_CONSTRUCT: text and numbers in one array")]
-    assert _titles("select array_append([1], 'a')") == [("SFN-025", "ARRAY_APPEND: text and numbers in one array")]
+@pytest.mark.parametrize("code", ["select array_construct(1, 'a')", "select [1, 'a']",
+                                  "select array_append([1], 'a')", "select array_construct(1, cast('a' as varchar))"])
+def test_a_mixed_array_runs_as_a_list_of_variants(code):
+    # SFX-075 (SFN-025 retired): text and numbers in one array keep their own types, as in Snowflake
+    assert _titles(code) == [] and _run(code) == [([1, "a"],)]
 
 
 def test_to_char_with_a_number_as_its_format_is_a_computed_format():
@@ -351,7 +351,8 @@ def test_to_date_of_epoch_text_at_each_units_first_value():
 
 def test_an_identity_start_below_bigints_range_is_refused():
     assert _notes("create table t (a int identity(-9223372036854775809, 1))") == ["SFX-000"]
-    assert _notes("create table t (a int identity(-9223372036854775808, 1))") == ["SFD-001"]
+    # the smallest BIGINT runs; the name A is stored in upper case as in Snowflake (SFX-072), so no SFD-001
+    assert _notes("create table t (a int identity(-9223372036854775808, 1))") == []
 
 
 def test_a_multi_table_insert_refusal_names_all_or_first():

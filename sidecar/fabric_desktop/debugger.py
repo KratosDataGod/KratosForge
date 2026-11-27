@@ -27,6 +27,7 @@ import inspect
 import queue
 import sys
 import threading
+import time
 import types
 from typing import Any, Callable
 
@@ -43,6 +44,9 @@ MAX_SKIPPED = 5  # names of stepped-over functions reported with a pause
 EVAL_SECONDS = 10.0
 MAX_EVALS = 20  # evaluations a pause keeps, the latest ones
 MAX_EXPRESSION = 2000  # characters in an expression to evaluate (the panel's box takes 500)
+# Describing a frame's variables runs their own code (repr, len): past this, the rest are listed by
+# name and type only, so a frame full of slow values still pauses quickly.
+DESCRIBE_SECONDS = 3.0
 
 
 def check_breakpoints(lines: Any) -> list[int]:
@@ -83,14 +87,22 @@ class Debugger:
         self.skip: set[str] = set()  # names not shown as variables (the kernel's own)
         self.skipped: list[str] = []  # functions Step into didn't enter since the last pause
         self._raising: types.FrameType | None = None  # the frame an exception is leaving, if any
+        self._tail: types.CodeType | None = None  # the cell's last expression (add)
+        self._top_line: int | None = None  # the line the cell's own frame last ran
         self._from: tuple[types.FrameType, int] | None = None  # where the last step or next started
         self._scopes: dict[types.FrameType, dict[str, Any]] = {}  # a cell or class body's own namespace
         self.stopping = False  # Stop was asked for: its interrupt ends an expression instead of being its answer
+        self._last_eval: threading.Event | None = None  # set when the last eval asked for has its answer
 
     # ---- set up by the kernel, on the cell's thread
 
-    def add(self, code: types.CodeType) -> None:
-        """Trace ``code`` and every function, class body and comprehension compiled with it."""
+    def add(self, code: types.CodeType, tail: bool = False) -> None:
+        """Trace ``code`` and every function, class body and comprehension compiled with it.
+        ``tail``: the cell's last expression, compiled apart from the rest so its value shows. When it
+        shares a line with the statement before it (``y = 2; y``), that line already ran its line
+        event, so it isn't a second place to stop: Continue from it never stops on it again."""
+        if tail:
+            self._tail, self._top_line = code, None
         todo = [code]
         while todo:
             c = todo.pop()
@@ -134,6 +146,11 @@ class Debugger:
             self._raising = frame  # unwinding: its return event isn't a step's place to stop
         elif event == "line":
             self._raising = None  # caught, and running on
+            if frame.f_code is self._tail:
+                if frame.f_lineno == self._top_line:
+                    return self._line  # the line the cell's body ended on, already run (add)
+            elif frame.f_code.co_name == "<module>":
+                self._top_line = frame.f_lineno
         elif event == "return":
             self._scopes.pop(frame, None)
             if self._from is not None and self._from[0] is frame:
@@ -196,7 +213,10 @@ class Debugger:
                 continue
             shown.append((name, value))
         shown.sort(key=lambda nv: nv[0].lower())
-        return [self._row(name, value) for name, value in shown[:MAX_LOCALS]], len(shown)
+        deadline = time.monotonic() + DESCRIBE_SECONDS
+        rows = [self._row(name, value) if time.monotonic() < deadline else _unread(name, value)
+                for name, value in shown[:MAX_LOCALS]]
+        return rows, len(shown)
 
     def _evaluate(self, frame: types.FrameType, expr: str) -> dict[str, Any]:
         try:
@@ -285,8 +305,11 @@ class Debugger:
                 raise ValueError(f"An expression to evaluate is at most {MAX_EXPRESSION} characters.")
             compile(expression, "<debug>", "eval")  # a syntax error is the caller's to see now
             slot: dict[str, Any] = {"done": threading.Event()}
+            earlier, self._last_eval = self._last_eval, slot["done"]
             self.commands.put(("eval", (expression, slot)))
-            if not slot["done"].wait(EVAL_SECONDS):
+            # Behind one still running: pending at once, so evals queued on the engine's debug lane
+            # never add up past the shell's time limit (QUICK_SECONDS in watchdog.rs).
+            if (earlier is not None and not earlier.is_set()) or not slot["done"].wait(EVAL_SECONDS):
                 return {"pending": True}
             return slot["result"]
         if action not in ACTIONS:
@@ -303,6 +326,11 @@ class Debugger:
             return False
         self.commands.put(("stop", None))
         return True
+
+
+def _unread(name: str, value: Any) -> dict[str, Any]:
+    """A variable left unread because describing the ones before it took DESCRIBE_SECONDS."""
+    return {"name": name, "type": type(value).__name__, "size": "", "value": "?", "memory": None, "expandable": False}
 
 
 def _suspends(frame: types.FrameType) -> bool:

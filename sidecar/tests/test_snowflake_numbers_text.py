@@ -6,6 +6,7 @@ for, cited beside it. Each test runs the translation through DuckDB, as a Snowfl
 
 from __future__ import annotations
 
+import concurrent.futures
 from decimal import Decimal
 
 import duckdb
@@ -277,3 +278,18 @@ def test_the_new_rules_are_listed():
     assert sf.RULES_VERSION == "2026.11.24"
     assert all(f"| {rule} |" in table for rule in ("SFX-032", "SFX-033", "SFX-034", "SFX-035", "SFX-036",
                                                      "SFN-035", "SFN-036", "SFN-037"))
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT 1::NUMBER(38,0) / 2::NUMBER(38,99999999)",  # a scale past any NUMBER
+    "SELECT 1::NUMBER(38,0) / 2::NUMBER(38,5000)",
+    "SELECT 1::NUMBER(38,0) / 2::NUMBER(99999999999999999999,2)",
+    "SELECT 1 / 1" + "0" * 5000,  # a literal past 38 digits
+    "SELECT " + "9" * 5000 + " * 2",
+    "SELECT " + " * ".join(["99999999999999999999"] * 400),
+])
+def test_a_number_past_snowflakes_sizes_is_not_worked_out_and_comes_back_quickly(sql):
+    # data-types-numeric: precision is 1 to 38 and scale 0 to the precision. Sizes outside that aren't rewritten,
+    # so no power of ten is built from them and the translation returns at once.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(sf.translate, sql).result(timeout=20)

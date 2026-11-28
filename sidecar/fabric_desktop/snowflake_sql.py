@@ -2787,6 +2787,8 @@ def _fixed(node: exp.Expr | None) -> tuple[int, int] | None:
             return None
         whole, _, fraction = node.name.partition(".")
         lead = len(whole.lstrip("0"))
+        if lead + len(fraction) > 38:  # past any NUMBER: left to DuckDB, not rewritten
+            return None
         return max(lead + len(fraction), 1), len(fraction)
     if isinstance(node, (exp.Paren, exp.Neg)):
         return _fixed(node.this)
@@ -2796,9 +2798,14 @@ def _fixed(node: exp.Expr | None) -> tuple[int, int] | None:
         if node.to.this != exp.DataType.Type.DECIMAL:
             return None
         params = [p.this for p in node.to.expressions]
-        if not all(isinstance(p, exp.Literal) and p.name.isdigit() for p in params):
+        if len(params) > 2 or not all(isinstance(p, exp.Literal) and p.name.isdigit() and len(p.name) <= 3
+                                      for p in params):
             return None
         sizes = [int(p.name) for p in params] + [38, 0][len(params):]
+        # data-types-numeric: precision 1 to 38, scale 0 to the precision. Anything else isn't a NUMBER
+        # Snowflake would make, so nothing is rewritten (and no power of ten is built from it).
+        if not (1 <= sizes[0] <= 38 and 0 <= sizes[1] <= sizes[0]):
+            return None
         return sizes[0], sizes[1]
     if not isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
         return None
@@ -2841,7 +2848,7 @@ def _divided(node: exp.Div, scale: int, precision: int, s1: int, s2: int) -> exp
 def _literal_whole(node: exp.Expr) -> int | None:
     """The value of arithmetic written with whole numbers only, or None."""
     if isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit():
-        return int(node.name)
+        return int(node.name) if len(node.name.lstrip("0")) <= 38 else None
     if isinstance(node, exp.Paren):
         return _literal_whole(node.this)
     if isinstance(node, exp.Neg):
@@ -2851,8 +2858,9 @@ def _literal_whole(node: exp.Expr) -> int | None:
         left, right = _literal_whole(node.this), _literal_whole(node.expression)
         if left is None or right is None:
             return None
-        return left + right if isinstance(node, exp.Add) else left - right if isinstance(node, exp.Sub) \
+        value = left + right if isinstance(node, exp.Add) else left - right if isinstance(node, exp.Sub) \
             else left * right
+        return value if abs(value) < 10 ** 38 else None  # past NUMBER(38, 0): no longer worked out here
     return None
 
 

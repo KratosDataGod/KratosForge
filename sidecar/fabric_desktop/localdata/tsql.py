@@ -247,12 +247,14 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     _temp_tables(tree)
     notes += tsql_types.check(tree)  # WR-223: types as a warehouse has them, before any rewrite
     _joined_changes(tree)
+    _set_columns(tree)
     tree = _views(tree, columns)
     notes += _names(tree, columns)
     notes += _as_of(tree)
     _table_columns(tree)
     for parts in list(tree.find_all(exp.TimeFromParts)):  # before CONVERT's rewrite reads it again
         parts.replace(_timefromparts(parts))
+    _literal_dates(tree)  # WR-729: before the datetimes are rounded, so DATEADD's datetime is
     tsql_types.round_datetimes(tree)  # before CONVERT's rewrite, which drops the type
     _null_dates(tree)  # WR-270: before CONVERT's rewrite and the casts' sizes, which hide a NULL
     _number_dates(tree)  # before CONVERT's rewrite and _big_integers, while the date arguments are as written
@@ -272,6 +274,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     _sharp_s(tree)
     _key_columns(tree)
     tsql_types.expand_datetimes(tree)
+    _written_dates(tree)  # WR-728: after every pass that makes text a date
     if known is not None:
         _unknown_functions(tree, known)
     tsql_types.delta_times(tree, columns)  # last, so the passes above read the columns' own types
@@ -331,6 +334,19 @@ def _refuse_output(batch: str) -> None:
     if any(t.token_type == TokenType.RETURNING and t.text.upper() == "OUTPUT" for t in tokens):
         raise ValueError(_NOT_YET + "OUTPUT isn't mapped yet: run the INSERT, UPDATE, DELETE or MERGE, then SELECT "
                          "the rows it changed.")
+
+
+def _set_columns(tree: exp.Expression) -> None:
+    """WR-726: the column an UPDATE's SET, or a MERGE's UPDATE SET, writes is named without its table, as DuckDB
+    takes it. T-SQL lets it be named with one (``SET t.v = ...``), always the table being changed, and DuckDB
+    stopped with "Qualified column names in UPDATE .. SET not supported"."""
+    changes = [tree] if isinstance(tree, exp.Update) else [w.args.get("then") for w in tree.find_all(exp.When)]
+    for change in changes:
+        if not isinstance(change, exp.Update):
+            continue
+        for eq in change.expressions:
+            if isinstance(eq, exp.EQ) and isinstance(eq.this, exp.Column) and eq.this.table:
+                eq.set("this", exp.column(eq.this.this.copy()))
 
 
 def _joined_changes(tree: exp.Expression) -> None:
@@ -1153,7 +1169,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
              exp.Extract, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
-             exp.Case, exp.If, *_WHOLE_ARGUMENTS, exp.Anonymous, exp.Sign, *_TEXT_ARGUMENTS)
+             exp.Case, exp.If, *_WHOLE_ARGUMENTS, exp.Anonymous, exp.Sign, *_TEXT_ARGUMENTS,
+             exp.TimeStrToTime, exp.TsOrDsToDate)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
@@ -1282,14 +1299,23 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             tsql_format.rewrite(node, info.this.type)
         elif isinstance(node, (exp.Concat, exp.ConcatWs)):
             notes += _floats_joined(node, info)
+        elif isinstance(node, (exp.TimeStrToTime, exp.TsOrDsToDate)):
+            # WR-728: DATEDIFF's and EOMONTH's text, read in SQL Server's forms
+            if _is(info.this.type, _TEXT) and not (isinstance(node.this, exp.Literal) and node.this.is_string) \
+                    and not isinstance(node.this, exp.Null):
+                node.set("this", _once([node.this], _date_text_of))
         elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc, exp.Extract)):
+            if isinstance(node, exp.TimestampTrunc):
+                _trunc_scale(node, info.this.type)
             key = "expression" if isinstance(node, exp.Extract) else "this"
             value = node.args.get(key)
             if _is(info.args[key].type if info.args.get(key) is not None else None, _TEXT) \
                     and isinstance(value, exp.Expression) and not (isinstance(value, exp.Literal) and value.is_string):
                 # WR-270: T-SQL reads a text column as a datetime here (data-type-conversion-database-engine);
                 # DuckDB had no overload for text, so even a NULL one stopped with a binder error.
-                node.set(key, exp.cast(value, "TIMESTAMP"))
+                node.set(key, exp.cast(_once([value], _date_text_of), "TIMESTAMP"))  # WR-728: in SQL Server's forms
+            elif not isinstance(node, exp.Extract) and _is(info.this.type, {exp.DataType.Type.TIME}):
+                _stays_a_time(node)
             elif not isinstance(node, exp.Extract) and _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
                 _date_add_in_range(node, "date")
@@ -1326,6 +1352,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             if (unchecked := node.meta.pop("tsql_unchecked_style", None)) is not None:
                 notes.append(_unchecked_style(unchecked))
             _empty_text(node, info.this.type)
+            _date_text(node, info.this.type)
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
     _set_operation_types(tree, typed)
@@ -2112,6 +2139,178 @@ def _empty_text(node: exp.Expression, source: exp.DataType | None) -> None:
     holder = exp.Case(ifs=[exp.If(this=empty, true=stop)], default=exp.Null())
     node.replace(holder)
     holder.set("default", node)
+
+
+_DATES = {exp.DataType.Type.DATE, exp.DataType.Type.TIMESTAMP, exp.DataType.Type.DATETIME2,
+          exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}
+_MONTHS = {name: i for i, names in enumerate([
+    ("january", "jan"), ("february", "feb"), ("march", "mar"), ("april", "apr"), ("may",), ("june", "jun"),
+    ("july", "jul"), ("august", "aug"), ("september", "sep"), ("october", "oct"), ("november", "nov"),
+    ("december", "dec")], 1) for name in names}
+_MON = "(?P<mon>" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + ")"
+_TIME_PART = r"(?P<time>(?:\s+|(?<=\d)T)\d.*)?"
+_UNSEPARATED = re.compile(r"(?P<y>\d{4}|\d{2})(?P<m>\d{2})(?P<d>\d{2})" + _TIME_PART)
+_MDY = re.compile(r"(?P<m>\d{1,2})(?P<sep>[/-])(?P<d>\d{1,2})(?P=sep)(?P<y>\d{4}|\d{2})" + _TIME_PART)
+# Learn's alphabetical formats (data-types/date-transact-sql), four-digit years: the day is 1 when it's left out
+_ALPHABETIC = [re.compile(p + _TIME_PART, re.IGNORECASE) for p in (
+    r"(?:(?P<d>\d{1,2})\s*)?" + _MON + r",?\s*(?P<y>\d{4})",         # [dd] mon[,] yyyy
+    _MON + r"\s*(?:(?P<d>\d{1,2})\s*)?,?\s*(?P<y>\d{4})",             # mon [dd][,] yyyy
+    _MON + r"\s+(?P<y>\d{4})(?:\s+(?P<d>\d{1,2}))?",                  # mon yyyy [dd]
+    r"(?P<y>\d{4})\s*" + _MON + r"(?:\s*(?P<d>\d{1,2}))?",            # yyyy mon [dd]
+    r"(?P<y>\d{4})\s+(?P<d>\d{1,2})\s*" + _MON,                       # yyyy [dd] mon
+    r"(?:(?P<d>\d{1,2})\s*)?(?P<y>\d{4})\s*" + _MON)]                 # [dd] yyyy mon
+# A month's name, or a time with AM or PM: text that a date may be, read here only when it's written in the query
+_WORDS = "(?i)\\b(?:" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + ")\\b|\\d\\s*[ap]m\\b"
+# m.d.y: Learn lists periods for the other orders but not for mdy, so it isn't read here
+_DOTTED = re.compile(r"\s*\d{1,2}\.\d{1,2}\.\d{2,4}(?:\s.*)?")
+_CLOCK = re.compile(r"\s*(?P<h>\d{1,2})(?::(?P<mi>\d{2})(?::(?P<s>\d{2})(?P<f>\.\d+)?)?)?\s*(?P<ap>[AP]M)?\s*",
+                    re.IGNORECASE)
+_DATE_TEXT_NOT_YET = ("This T-SQL can't be run on the local engine: {what} isn't mapped yet. SQL Server reads it by its language and DATEFORMAT "
+                      "settings, which the local engine doesn't follow for it. {stopped} Write the date as "
+                      "'yyyy-mm-dd' or 'yyyymmdd'.")
+
+
+def _literal_dates(tree: exp.Expression) -> None:
+    """WR-729: text written as DATEADD's date is a datetime, and DATEADD gives a datetime (functions/
+    dateadd-transact-sql: "If the value for date is a string literal date, DATEADD returns a datetime value"), and
+    DATETRUNC's is a datetime2(7) (functions/datetrunc-transact-sql). sqlglot made DATEADD's a date, so
+    DATEADD(hour, 1, '2024-01-01 10:00') lost its time and was 01:00. DATEADD "raises an error if the string literal
+    seconds scale exceeds three decimal place positions (.nnn) or if the string literal contains the time zone
+    offset part"; the reference doesn't give its words, so that's refused by name."""
+    for node in list(tree.find_all(exp.DateAdd, exp.TimestampTrunc)):
+        value = node.this
+        if not (isinstance(value, exp.Literal) and value.is_string):
+            continue
+        if isinstance(node, exp.DateAdd):
+            if re.search(r":\d{2}[.,]\d{4}|[+-]\d{2}:\d{2}\s*$|Z\s*$", value.name):
+                raise ValueError(_NOT_YET + f"DATEADD of '{value.name}' isn't mapped yet. T-SQL stops when text "
+                                 "written as DATEADD's date has more than three digits of a second or a time zone "
+                                 "offset, and its reference doesn't give the words. Nothing ran.")
+            node.set("this", exp.cast(value.copy(), exp.DataType.build("DATETIME", dialect="tsql")))
+        else:
+            node.set("this", exp.cast(value.copy(), "DATETIME2"))
+
+
+def _written_dates(tree: exp.Expression) -> None:
+    """WR-728: text written in the query and made a date by any pass (DATEPART, DATEDIFF and EOMONTH read their
+    text as a date) is read in the forms SQL Server reads, as a CAST's is (_date_text)."""
+    for node in list(tree.find_all(exp.Cast)):
+        if isinstance(node.this, exp.Literal) and node.this.is_string and node.to.this in _DATES:
+            _date_text(node, exp.DataType.build("VARCHAR"))
+    for read in list(tree.find_all(exp.TimeStrToTime, exp.TsOrDsToDate)):  # DATEDIFF's and EOMONTH's text
+        value = read.this
+        if isinstance(value, exp.Literal) and value.is_string:
+            held = exp.Cast(this=value.copy(), to=exp.DataType.build("TIMESTAMP"))
+            _date_text(held, exp.DataType.build("VARCHAR"))
+            read.set("this", held.this)
+
+
+def _year(text: str) -> int:
+    """A two-digit year by the default two digit year cutoff, 2049: 49 is 2049 and 50 is 1950."""
+    year = int(text)
+    return year if len(text) == 4 else (2000 + year if year <= 49 else 1900 + year)
+
+
+def _clock(text: str | None) -> str | None:
+    """The time after a date, with AM or PM made a 24-hour clock; None when it isn't a time this reads."""
+    if not text:
+        return ""
+    found = _CLOCK.fullmatch(text.removeprefix("T"))
+    if found is None or (found["mi"] is None and found["ap"] is None):
+        return None
+    hour = int(found["h"])
+    if found["ap"]:
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if found["ap"].upper() == "PM" else 0)
+    return f" {hour:02d}:{found['mi'] or '00'}:{found['s'] or '00'}{found['f'] or ''}"
+
+
+def date_text(text: str) -> str | None:
+    """WR-727, WR-728: written text in one of the forms SQL Server reads under us_english (MDY), as ISO text the
+    local engine reads: 'yyyymmdd', 'yymmdd' and 'yyyy' (unseparated, always ymd), 'm/d/yyyy' and 'm-d-yyyy',
+    and Learn's alphabetical forms ('Jan 2 2024', '2 Jan 2024'), with a time after them, AM or PM included.
+    None for other text, which is read as it was ('yyyy-mm-dd', with its time)."""
+    bare = text.strip()
+    if re.fullmatch(r"\d{4}", bare):
+        return f"{bare}-01-01"
+    for pattern in (_UNSEPARATED, _MDY, *_ALPHABETIC):
+        found = pattern.fullmatch(bare)
+        if found is None or (clock := _clock(found["time"])) is None:
+            continue
+        if "mon" in found.groupdict():
+            day, month, year = found["d"] or "1", _MONTHS[found["mon"].lower()], found["y"]
+        else:
+            day, month, year = found["d"], int(found["m"]), str(_year(found["y"])).zfill(4)
+        return f"{year}-{month:02d}-{int(day):02d}{clock}"
+    return None
+
+
+def _date_text(node: exp.Expression, source: exp.DataType | None) -> None:
+    """WR-727, WR-728: CAST of text to date, datetime2, datetime or smalldatetime reads the forms SQL Server reads
+    under us_english (data-types/date-transact-sql, "Supported string literal formats for date"). DuckDB read
+    only ISO text: '20240102' and '01/02/2024' stopped with 241, TRY_CAST gave NULL, and '24-01-02' was the year
+    24 (SQL Server reads m-d-y, where 24 isn't a month). Written text is read here, before anything runs; a text
+    value is read as each row is, and one with a month name or AM/PM stops by name."""
+    to = node.args.get("to")
+    if not isinstance(to, exp.DataType) or to.this not in _DATES or not _is(source, _TEXT):
+        return
+    value = node.this
+    if isinstance(value, exp.Literal) and value.is_string:
+        if (iso := date_text(value.name)) is not None:
+            node.set("this", exp.Literal.string(iso))
+        elif re.search(_WORDS, value.name) or _DOTTED.fullmatch(value.name):
+            raise ValueError(_DATE_TEXT_NOT_YET.format(what=f"Reading '{value.name}' as a date",
+                                                        stopped="Nothing ran."))
+        return
+    if not isinstance(value, exp.Expression) or isinstance(value, exp.Null):
+        return
+    node.set("this", _once([value], _date_text_of))
+
+
+def _date_text_of(t: exp.Expression) -> exp.Expression:
+    """``date_text`` for a text value, in DuckDB SQL."""
+    def full(pattern: str) -> exp.Expression:
+        return exp.Anonymous(this="REGEXP_FULL_MATCH", expressions=[t.copy(), exp.Literal.string(pattern)])
+
+    def part(pattern: str, group: int) -> exp.Expression:
+        return exp.RegexpExtract(this=t.copy(), expression=exp.Literal.string(pattern),
+                                 group=exp.Literal.number(group))
+
+    def year(pattern: str, group: int) -> exp.Expression:
+        y = part(pattern, group)
+        two = exp.cast(y.copy(), "INT")
+        century = exp.Case(ifs=[exp.If(this=exp.LTE(this=two, expression=exp.Literal.number(49)),
+                                       true=exp.Literal.string("20"))], default=exp.Literal.string("19"))
+        return exp.Case(ifs=[exp.If(this=exp.EQ(this=exp.Length(this=y), expression=exp.Literal.number(2)),
+                                    true=exp.DPipe(this=century, expression=y.copy(), safe=True))], default=y.copy())
+
+    def iso(pattern: str, y: int, m: int, d: int, rest: int) -> exp.Expression:
+        def two(group: int) -> exp.Expression:
+            return exp.Anonymous(this="LPAD", expressions=[part(pattern, group), exp.Literal.number(2),
+                                                           exp.Literal.string("0")])
+        pieces: list[exp.Expression] = [year(pattern, y), exp.Literal.string("-"), two(m), exp.Literal.string("-"),
+                                        two(d), part(pattern, rest)]
+        out: exp.Expression = pieces[0]
+        for piece in pieces[1:]:
+            out = exp.DPipe(this=out, expression=piece, safe=True)
+        return out
+
+    rest = r"((?:\s+|T)\d[^A-Za-z]*)?\s*"  # a time with AM or PM stops below
+    unseparated = r"\s*(\d{4}|\d{2})(\d{2})(\d{2})" + rest
+    slashed = r"\s*(\d{1,2})/(\d{1,2})/(\d{4}|\d{2})" + rest
+    dashed = r"\s*(\d{1,2})-(\d{1,2})-(\d{4}|\d{2})" + rest
+    year_only = r"\s*(\d{4})\s*"
+    words = exp.or_(exp.func("REGEXP_MATCHES", t.copy(), exp.Literal.string(_WORDS)), full(_DOTTED.pattern))
+    stop = exp.func("ERROR", exp.Literal.string(_DATE_TEXT_NOT_YET.format(
+        what="Reading text with a month name or AM/PM, or written as m.d.y, as a date", stopped="The statement stopped at that value.")))
+    return exp.Case(ifs=[
+        exp.If(this=full(year_only), true=exp.DPipe(this=part(year_only, 1), expression=exp.Literal.string("-01-01"),
+                                                    safe=True)),
+        exp.If(this=full(unseparated), true=iso(unseparated, 1, 2, 3, 4)),
+        exp.If(this=full(slashed), true=iso(slashed, 3, 1, 2, 4)),
+        exp.If(this=full(dashed), true=iso(dashed, 3, 1, 2, 4)),
+        exp.If(this=words, true=stop)], default=t.copy())
 
 
 def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:
@@ -3172,7 +3371,9 @@ def _timefromparts(node: exp.TimeFromParts) -> exp.Expression:
                           default=micros)
     seconds = exp.Add(this=exp.Cast(this=node.args["sec"].copy(), to=exp.DataType.build("DOUBLE")),
                       expression=exp.Div(this=exp.paren(micros), expression=exp.Literal.number(1000000.0)))
-    return exp.Anonymous(this="MAKE_TIME", expressions=[node.args["hour"].copy(), node.args["min"].copy(), exp.paren(seconds)])
+    made = exp.Anonymous(this="MAKE_TIME", expressions=[node.args["hour"].copy(), node.args["min"].copy(), exp.paren(seconds)])
+    # WR-730: a time(precision), so its text has that many digits: TIMEFROMPARTS(14, 23, 44, 50, 2) is 14:23:44.50
+    return exp.Cast(this=made, to=exp.DataType.build(f"TIME({places})", dialect="tsql"))
 
 
 def _whole_literal(node: exp.Expression, what: str, low: int, high: int) -> int:
@@ -4200,6 +4401,52 @@ def _no_bit_arithmetic(node: exp.Expression, info: exp.Expression) -> None:
     if _is(info.this.type, _BITS) or _is(info.expression.type, _BITS):
         raise ValueError(_NOT_YET + f"{op} with a bit value isn't mapped yet, because T-SQL's reference leaves bit "
                          "out of arithmetic. Nothing ran. CAST the bit to INT first.")
+
+
+_SCALES = {exp.DataType.Type.SMALLDATETIME: 0, exp.DataType.Type.DATETIME: 3, exp.DataType.Type.DATETIME2: 7,
+           exp.DataType.Type.TIMESTAMP: 7, exp.DataType.Type.TIME: 7}
+
+
+def _trunc_scale(node: exp.TimestampTrunc, kind: exp.DataType | None) -> None:
+    """WR-730: DATETRUNC to a millisecond or microsecond of a value with fewer digits of a second is an error in
+    T-SQL ("The datepart requires a higher fractional time scale precision than the data type supports",
+    functions/datetrunc-transact-sql), where DuckDB gave the value. The page doesn't give its words, so it's
+    refused by name."""
+    unit = node.args.get("unit")
+    if unit is None:
+        return
+    needed = {"MILLISECOND": 3, "MICROSECOND": 6}.get(_DATEPARTS.get(unit.name.upper(), ""))
+    if needed is None or kind is None or kind.this not in _SCALES:
+        return
+    scale = _SCALES[kind.this]
+    if kind.this in {exp.DataType.Type.DATETIME2, exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIME} \
+            and kind.expressions and isinstance(kind.expressions[0].this, exp.Literal):
+        scale = int(kind.expressions[0].this.name)
+    if scale < needed:
+        raise ValueError(_NOT_YET + f"DATETRUNC to a {unit.name.lower()} of a value with {scale} digits of a second "
+                         "isn't mapped yet. T-SQL stops there, and its reference doesn't give the words. Nothing ran.")
+
+
+def _stays_a_time(node: exp.Expression) -> None:
+    """WR-730: ``DATETRUNC`` of a time to an hour, minute, second, millisecond or microsecond is a time, as in T-SQL
+    (functions/datetrunc-transact-sql), where DuckDB had no DATE_TRUNC for a time and stopped. A date part there is
+    T-SQL's error 9810, in the words that page shows. ``DATEADD`` of a date part to a time is refused by name:
+    DuckDB gave the time unchanged, and T-SQL's reference doesn't say what it gives."""
+    unit = node.args.get("unit")
+    name = unit.name.upper() if unit is not None else "DAY"
+    part = _DATEPARTS.get(name)
+    if isinstance(node, exp.DateAdd):
+        if part not in _TIME_PARTS:
+            raise ValueError(_NOT_YET + f"DATEADD of {name.lower()} to a time isn't mapped yet, because T-SQL's "
+                             "reference doesn't say what it gives. Nothing ran. Add the time to a datetime2 instead.")
+        return
+    if part not in _TIME_PARTS:
+        raise ValueError(f"The datepart {name.lower()} is not supported by date function datetrunc for data type time.")
+    day = exp.cast(exp.Literal.string("1900-01-01"), "DATE")
+    node.set("this", exp.Add(this=day, expression=node.this))
+    wrapper = exp.Cast(to=exp.DataType.build("TIME"))
+    node.replace(wrapper)
+    wrapper.set("this", node)
 
 
 def _stays_a_date(node: exp.Expression) -> None:

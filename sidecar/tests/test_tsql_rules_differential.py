@@ -371,7 +371,12 @@ def _null_cases(r: random.Random, q) -> list[tuple[str, str, object]]:
         if column:  # a column of the NULL's type
             typed = null if null != "NULL" else _NULLS[kinds[at]][0]
             call = f"(SELECT {call} FROM (VALUES ({typed})) AS t(c))"
-        out.append(("NULL " + family, call, None))
+        want = None
+        if family == "DATEADD" and parts["tpart"] == "microsecond" and "tpart" in template and \
+                values[1] == "'2024-01-02 03:04:05'":
+            # Text written as DATEADD's date is a datetime, which takes no microsecond (dateadd-transact-sql), WR-729
+            want = "error: The datepart microsecond is not supported by date function dateadd for data type datetime."
+        out.append(("NULL " + family, call, want))
     for _ in range(40):
         a, b = r.choice(_NULLS["int"] + ["NULL"]), r.choice(["2", "-7"])
         out.append(("ISNULL", f"ISNULL({a}, {b})", int(b)))

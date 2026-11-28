@@ -132,6 +132,18 @@ CLAIMS: list[Claim] = [
     _ts("DATALENGTH(CAST('é' AS CHAR(3)))"),
     _ts("ASCII('æ')"),
     _ts("UNICODE('æ')"),
+    # WR-727 to WR-730: text read as a date, DATEADD of text, DATEPART's weeks, DATETRUNC, TIMEFROMPARTS
+    _ts("DATEADD(hour, 1, '2024-01-01 10:00')"),
+    _ts("CAST('20240102' AS DATE)"),
+    _ts("CAST('01/02/2024' AS DATE)"),
+    _ts("CAST('1/2/50' AS DATE)"),
+    _ts("CAST('2024' AS DATE)"),
+    _ts("CAST('Jan 2 2024' AS DATE)"),
+    _ts("DATEPART(week, '2007-04-21')"),
+    _ts("DATEPART(weekday, '2007-04-21')"),
+    _ts("DATEPART(iso_week, '2021-01-03')"),
+    _ts("DATETRUNC(week, CAST('2021-12-08' AS DATE))"),
+    _ts("CAST(TIMEFROMPARTS(14, 23, 44, 50, 2) AS VARCHAR(20))"),
     # Local T-SQL tables: CREATE TABLE AS SELECT / SELECT INTO keep the select's types
     _ts("1", **_column_type("SELECT 1 AS v", "t_int")),
     # Local T-SQL decimals

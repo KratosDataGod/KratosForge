@@ -27,6 +27,7 @@ the type to use instead. Locally:
 from __future__ import annotations
 
 import re
+from typing import Callable
 
 import sqlglot
 from sqlglot import exp
@@ -368,25 +369,37 @@ def delta_times(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str
     """WR-723: a CHAR(n) column is read padded with spaces to n bytes, as a warehouse stores it.
 
     A table's UTC timestamp columns read as ``datetime2``: the UTC clock time without a zone, as a warehouse's
-    SQL analytics endpoint reads a Delta TIMESTAMP. Only where a query reads a table (FROM and JOIN), so a
-    statement's target is left as it is."""
-    if not columns or isinstance(tree, (exp.Update, exp.Delete, exp.Merge)):
+    SQL analytics endpoint reads a Delta TIMESTAMP. Only where a query reads a table (FROM and JOIN, and the
+    other tables of an UPDATE, DELETE or MERGE), so a statement's target is left as it is. WR-725: the target's
+    own CHAR(n) columns are padded where the statement reads them (SET's values, WHERE, ON, a MERGE's values),
+    and not where it names them to write (SET's columns, an INSERT's column list)."""
+    if not columns:
         return
     known = {s.lower(): {t.lower(): cols for t, cols in tables.items()} for s, tables in columns.items()}
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
     qualified = {(c.args["db"].name.lower(), c.table.lower()) for c in tree.find_all(exp.Column) if c.args.get("db")}
-    for table in list(tree.find_all(exp.Table)):
-        if not isinstance(table.parent, (exp.From, exp.Join)) or not isinstance(table.this, exp.Identifier):
-            continue
+    changed = isinstance(tree, (exp.Update, exp.Delete, exp.Merge))
+    target = tree.this if changed and isinstance(tree.this, exp.Table) else None
+
+    def kinds_of(table: exp.Table) -> dict[str, str]:
         name, schema = table.name.lower(), (table.db or "dbo").lower()
         if table.catalog or name.startswith("#") or (not table.db and name in ctes) or (schema, name) in qualified:
+            return {}
+        return known.get(schema, {}).get(name, {})
+
+    from fabric_desktop.localdata.tsql import padded  # tsql imports this module
+    for table in list(tree.find_all(exp.Table)):
+        if table is target or not isinstance(table.this, exp.Identifier):
             continue
-        kinds = known.get(schema, {}).get(name, {})
+        read = isinstance(table.parent, (exp.From, exp.Join)) or (
+            changed and table.parent is tree and table.arg_key == "using")
+        if not read:
+            continue
+        kinds = kinds_of(table)
         aware = [c for c, kind in kinds.items() if kind.upper() == _AWARE]
         chars = [(c, int(found[1])) for c, kind in kinds.items() if (found := _CHAR.fullmatch(kind.upper()))]
         if not aware and not chars:
             continue
-        from fabric_desktop.localdata.tsql import padded  # tsql imports this module
         star = exp.Star(replace=[exp.alias_(exp.cast(exp.column(c, quoted=True), "TIMESTAMP"), c, quoted=True)
                                  for c in aware] + [exp.alias_(padded(exp.column(c, quoted=True), n), c, quoted=True)
                                                     for c, n in chars])
@@ -396,6 +409,37 @@ def delta_times(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str
         query = exp.select(star).from_(inner)
         table.replace(exp.Subquery(this=query, alias=alias.copy() if alias else
                                    exp.TableAlias(this=exp.to_identifier(table.name, quoted=True))))
+    if target is not None:
+        _pad_target(tree, target, kinds_of(target), padded)
+
+
+def _pad_target(tree: exp.Expression, target: exp.Table, kinds: dict[str, str],
+                padded: Callable[[exp.Expression, int], exp.Expression]) -> None:
+    """WR-725: the CHAR(n) columns of an UPDATE's, DELETE's or MERGE's own table, padded where they're read."""
+    chars = {c.lower(): int(found[1]) for c, kind in kinds.items() if (found := _CHAR.fullmatch(kind.upper()))}
+    if not chars:
+        return
+    names = {target.alias_or_name.lower(), target.name.lower()}
+    written: set[int] = set()
+    for change in [tree, *(w.args.get("then") for w in tree.find_all(exp.When))]:
+        if isinstance(change, exp.Update):
+            written |= {id(eq.this) for eq in change.expressions if isinstance(eq, exp.EQ)}
+        elif isinstance(change, exp.Insert) and isinstance(change.this, exp.Tuple):
+            written |= {id(c) for c in change.this.expressions}
+    for column in list(tree.find_all(exp.Column)):
+        n = chars.get(column.name.lower())
+        if n is None or id(column) in written or column.args.get("db"):
+            continue
+        if column.table:
+            if column.table.lower() not in names:
+                continue
+        elif column.find_ancestor(exp.Select) is not None:
+            continue  # a column of a subquery's own table
+        else:
+            insert = column.find_ancestor(exp.Insert)
+            if insert is not None and isinstance(tree, exp.Merge):
+                continue  # a MERGE's INSERT VALUES reads the source's columns
+        column.replace(padded(column.copy(), n))
 
 
 def is_rounded(value: exp.Expression) -> bool:

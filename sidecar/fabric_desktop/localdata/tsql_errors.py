@@ -69,6 +69,8 @@ _NUMBERS = [
     (re.compile(r"^Cannot construct data type date, some of the arguments have values which are not valid\.$"), 289),
     (re.compile(r"^Adding a value to a '(?:date|datetime2)' column caused an overflow\.$"), 517),
     (re.compile(r"^Invalid length parameter passed to the (?:LEFT|RIGHT) function\.$"), 536),
+    # WR-730: functions/datetrunc-transact-sql shows it for a date part of a time
+    (re.compile(r"^The datepart \w+ is not supported by date function datetrunc for data type time\.$"), 9810),
     (re.compile(r"^The conversion of a varchar data type to a (?:small)?datetime data type resulted in an "
                 r"out-of-range value\.$"), 242),
 ]

@@ -2753,12 +2753,12 @@ _JSONISH = (exp.JSONExtract, exp.JSONExtractScalar, exp.Bracket, exp.ParseJSON)
 
 _INT_RANGE = _refuse(
     "SFN-036", "A whole number too big for the type DuckDB casts to",
-    "In Snowflake INT, BIGINT, SMALLINT and TINYINT all hold 38 digits; DuckDB's hold 8 to 64 bits, so the query "
+    "In Snowflake, INT, BIGINT, SMALLINT and TINYINT all hold 38 digits, but DuckDB's hold 8 to 64 bits, so the query "
     "stopped at a value that doesn't fit and nothing after it ran. Cast to NUMBER (or NUMBER(38, 0)) instead.",
     _NUMERIC_DOCS)
 _FORMAT_OVERFLOW = _refuse(
     "SFN-037", "A number with more digits than its format",
-    "Snowflake prints a number that has more digits before the point than the format has places as #. The query "
+    "When a number has more digits before the point than the format has places, Snowflake prints it as #. The query "
     "stopped at that value and nothing after it ran. Give the format more 9s or 0s.", f"{_DOCS}/sql-format-models")
 
 
@@ -2961,7 +2961,7 @@ def _rewrite_float_text(statement: exp.Expression) -> None:
 def _model_refusal(model: str, why: str) -> _Untranslatable:
     return _Untranslatable(_refuse(
         "SFX-003", "This number format", f"The number format '{model}' {why}, so nothing ran. TO_CHAR and TO_VARCHAR "
-        "with 9, 0, '.', 'D', ',', 'G', '$', 'S', 'MI' and 'FM' run here; write the number with those, or with "
+        "with 9, 0, '.', 'D', ',', 'G', '$', 'S', 'MI' and 'FM' run here. Write the number with those, or with "
         "TO_VARCHAR(n) and no format.", f"{_DOCS}/sql-format-models"))
 
 
@@ -3713,7 +3713,7 @@ CATALOG = (
     ("SFN-035", "Runs only in Snowflake", ("TO_NUMBER, TO_DECIMAL, TO_NUMERIC and their TRY_ forms with a format: "
                 "Snowflake's rules for reading text by a format aren't rewritten.")),
     ("SFN-036", "Runs only in Snowflake", ("A cast to INT, BIGINT, SMALLINT or TINYINT of a value outside DuckDB's type "
-                "(the query stops at that row): Snowflake's hold 38 digits. Cast to NUMBER instead.")),
+                "(the query stops at that row). Snowflake's hold 38 digits, so cast to NUMBER instead.")),
     ("SFN-037", "Runs only in Snowflake", ("TO_CHAR of a number with more whole digits than its format has places (the "
                 "query stops at that row), which Snowflake prints as #.")),
     ("SFN-070", "Runs only in Snowflake", ("JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and "

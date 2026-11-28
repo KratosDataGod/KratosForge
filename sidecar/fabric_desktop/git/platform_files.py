@@ -24,6 +24,7 @@ from ..central.policy import BUILTIN_TEMPLATES, clean_definition
 from .cli import GitError
 from ..redact import one_line
 from .scopes import _replace_in
+from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names (NUL, CON, COM1 and the rest)
 
 # Each kind of object: its folder (or single file), in the order a deploy would apply them.
 FOLDERS = {"domains": "domains", "landing_zones": "landing_zones", "sources": "sources", "key_tables": "key_tables",
@@ -81,12 +82,15 @@ def domain_record(d: dict[str, Any]) -> dict[str, Any]:
 
 
 def source_record(s: dict[str, Any]) -> dict[str, Any]:
-    raw: Any = s.get("source_id")  # None too: int() raises TypeError, handled below
-    sid: int | str
-    try:
-        sid = int(raw)
-    except (TypeError, ValueError):
-        sid = _s(raw)  # kept as written, so the diff shows it and a deploy refuses it
+    raw: Any = s.get("source_id")
+    sid: int | str = _s(raw)  # anything but a whole number is kept as written: the diff shows it, a deploy refuses it
+    whole = not isinstance(raw, (bool, float, str)) or (isinstance(raw, float) and raw.is_integer()) or (
+        isinstance(raw, str) and raw.strip().isascii() and raw.strip().isdigit())  # not true, 1.5, inf or "1_0"
+    if whole:
+        try:
+            sid = int(raw)
+        except (TypeError, ValueError):  # None, a list, more digits than int() reads
+            pass
     active = s.get("active", True)
     rec = {"source_id": sid, "code": _s(s.get("code")) or _s(s.get("name")).upper(), "title": _s(s.get("title")),
            "description": _s(s.get("description")), "owner": _s(s.get("owner")),
@@ -281,7 +285,7 @@ def to_files(defs: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]
     refused = []
     for kind, folder in FOLDERS.items():
         for ident, rec in sorted((defs[kind] or {}).items()):
-            if not _FILE_NAME.fullmatch(ident) or ".." in ident:
+            if not _FILE_NAME.fullmatch(ident) or ".." in ident or ident.split(".")[0].upper() in _DEVICE_NAMES:
                 refused.append({"kind": kind, "id": ident, "why": "its name can't be a file name"})
                 continue
             files[f"{folder}/{ident}.toml"] = dumps(rec, _HEADER)
@@ -299,7 +303,7 @@ def _load(path: Path, problems: list[str], rel: str) -> dict[str, Any] | None:
         problems.append(f"{one_line(rel, 200)} is a link, so it isn't read.")
         return None
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
+        return _parse(path.read_text(encoding="utf-8"), problems, rel)
     except (OSError, ValueError, UnicodeDecodeError) as e:
         problems.append(f"{one_line(rel, 200)} can't be read: {one_line(e)}")
         return None
@@ -310,7 +314,9 @@ def _parse(text: str, problems: list[str], rel: str) -> dict[str, Any] | None:
         return tomllib.loads(text)
     except ValueError as e:
         problems.append(f"{one_line(rel, 200)} can't be read: {one_line(e)}")
-        return None
+    except RecursionError:
+        problems.append(f"{one_line(rel, 200)} wasn't read, because it's nested too deeply. Move its deepest settings up a level, then compare again.")
+    return None
 
 
 def is_platform_file(rel: str) -> bool:
@@ -395,6 +401,9 @@ def read_repo(root: str | Path, committed: tuple[dict[str, str], list[str]] | No
                 out[kind][ident] = make(data)
             except PlatformError as e:
                 problems.append(f"{rel}: {e}")
+            except (TypeError, ValueError, AttributeError):  # a list where a table goes, and the like
+                problems.append(f"{rel} wasn't read, because a field in it holds the wrong kind of value. "
+                                "Check it against docs/source-control.md, then compare again.")
     for kind, name in FILES.items():
         if name not in texts:
             continue
@@ -402,9 +411,18 @@ def read_repo(root: str | Path, committed: tuple[dict[str, str], list[str]] | No
         if data is None:
             continue
         if kind == "admins":
-            out[kind] = _people(data.get("admins") or [])
+            admins = data.get("admins") or []
+            if isinstance(admins, str) or (isinstance(admins, list) and all(isinstance(a, str) for a in admins)):
+                out[kind] = _people(admins)
+            else:
+                problems.append(f"{name} wasn't read, because its admins value isn't a list of names. Fix the file, then compare again.")
         elif kind == "glossary":
-            out[kind] = {r["term"]: r for r in (term_record(t) for t in data.get("term") or [] if isinstance(t, dict))}
+            terms = data.get("term") or []
+            if not isinstance(terms, list) or not all(isinstance(t, dict) for t in terms):
+                problems.append(f"{name} wasn't read, because a term in it isn't a [[term]] table. Fix the file, "
+                                "then compare again.")
+                continue
+            out[kind] = {r["term"]: r for r in (term_record(t) for t in terms)}
         else:
             out[kind] = _sorted(data)
     out["problems"] = problems

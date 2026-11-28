@@ -303,7 +303,7 @@ def spark_text_comparison_columns(expressions: list[str], columns: list[tuple[st
     (name, DuckDB type), with its comparisons of text with a number as Spark makes them, or None when that
     changes nothing (or its types can't be worked out), as (DuckDB SQL, its ``AS`` name or None)."""
     unchanged: list[tuple[str, str | None] | None] = [None] * len(expressions)
-    if not expressions or not any(k in e.upper() for e in expressions for k in ("=", "<", ">", " IN ", "BETWEEN", "CASE")):
+    if not expressions or not any(k in e.upper() for e in expressions for k in ("=", "<", ">", " IN ", "BETWEEN", "CASE", " DISTINCT FROM ")):
         return unchanged
     from sqlglot import parse_one
 
@@ -312,6 +312,12 @@ def spark_text_comparison_columns(expressions: list[str], columns: list[tuple[st
         statement = parse_one(f"SELECT {', '.join(expressions)} FROM {_FRAME}", read="duckdb")
         if not isinstance(statement, exp.Select) or len(statement.expressions) != len(expressions):
             return unchanged
+        # A column taken from the frame (df.t, df["t"]) is named with the frame's relation: the frame takes that
+        # name so the column is typed, as F.col("t") is. Columns of two relations (after a join) are left untyped,
+        # and so is a struct's field (s.a), whose qualifier is one of the frame's columns.
+        tables = {c.table for c in statement.find_all(exp.Column) if c.table}
+        if len(tables) == 1 and not {t.lower() for t in tables} & {name.lower() for name, _ in columns}:
+            statement.set("from_", exp.From(this=exp.alias_(exp.to_table(_FRAME), tables.pop(), table=True, quoted=True)))
         before = [duckdb_sql(p) for p in statement.expressions]
         frame: dict[str, str] = {}
         for name, kind in columns:

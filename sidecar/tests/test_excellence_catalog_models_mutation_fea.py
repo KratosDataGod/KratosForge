@@ -78,7 +78,7 @@ def test_direct_query_only_and_automatic_both_fail_with_their_own_reason():
     assert got["detail"] == {"behavior": "DirectQueryOnly", "tables": 3}
     got = cm._fallback(ctx({**READ, "direct_lake_tables": 1, "direct_lake_behavior": "Automatic",
                              "direct_lake_sources": ["sql"]}))
-    assert got["outcome"] == "fail" and got["text"].startswith("Its 1 Direct Lake table can fall back to DirectQuery")
+    assert got["outcome"] == "fail" and got["text"].startswith("Its one Direct Lake table can fall back to DirectQuery")
     got = cm._fallback(ctx({**READ, "direct_lake_tables": 2, "direct_lake_behavior": "DirectLakeOnly"}))
     assert got["outcome"] == "pass" and got["text"].startswith("Its 2 Direct Lake tables are set to Direct Lake only")
 

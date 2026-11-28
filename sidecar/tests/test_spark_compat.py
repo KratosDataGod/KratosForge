@@ -214,6 +214,21 @@ def test_create_dataframe_reads_a_ddl_schema_string(live):
         live.createDataFrame([(1,)], "s geometry")
 
 
+def test_a_ddl_schema_takes_sql_reserved_words_as_column_names(live):
+    # Spark's DDL parser takes left, order, select... as column names; the SQL DuckDB runs quotes them.
+    import pandas as pd
+    df = live.createDataFrame(pd.DataFrame({"left": [1, 2]}), "left long")
+    assert df.dtypes == [("left", "bigint")] and rows(df) == [(1,), (2,)]
+    pdf = pd.DataFrame({"order": ["a"], "select": [3], "group": [{"table": 1, "from": "x"}]})
+    df = live.createDataFrame(pdf, "order string, `select` int, group struct<table: int, from: string>")
+    assert df.dtypes == [("order", "string"), ("select", "int"), ("group", "struct<table:int,from:string>")]
+    assert rows(df.select("order", "select", "group.table", "group.from")) == [("a", 3, 1, "x")]
+    by_position = live.createDataFrame(pd.DataFrame({"x": [1], "y": ["r"]}), "right long, table string")
+    assert by_position.columns == ["right", "table"] and rows(by_position) == [(1, "r")]
+    assert rows(live.createDataFrame([(1, "a")], "left long, order string")) == [(1, "a")]
+    assert live.createDataFrame([], "from int, where string").columns == ["from", "where"]
+
+
 def test_python_ints_are_bigint_as_spark_infers_them(live):
     df = live.createDataFrame([(1, [2, 3], "x")], ["n", "xs", "s"])
     assert df.dtypes == [("n", "bigint"), ("xs", "array<bigint>"), ("s", "string")]

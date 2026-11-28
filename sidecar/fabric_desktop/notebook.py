@@ -2894,8 +2894,12 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
     keep = dict(before)
     if isinstance(keep.get("tags"), list) and any(isinstance(t, str) for t in keep["tags"]):
         del keep["tags"]
+    # editable and deletable false are the app's own only as part of frozen (run_control.frozen, which
+    # _cell_metadata writes with them); on their own they are another tool's (JupyterLab's "protect
+    # from deletion") and stay.
+    frozen = isinstance(keep.get("run_control"), dict) and on(keep["run_control"].get("frozen"))
     for k in ("editable", "deletable"):
-        if keep.get(k) is False:
+        if frozen and keep.get(k) is False:
             del keep[k]
     if keep.get(_HEADING_COLLAPSED) is True:
         del keep[_HEADING_COLLAPSED]
@@ -3132,7 +3136,8 @@ def other_cell_type_note(cell_type: Any) -> str:
 def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
     cells = []
     for c in nb.get("cells", []):
-        source = c.get("source", "")
+        source = c.get("source")
+        source = "" if source is None else source
         cell = {"type": "markdown" if c.get("cell_type") == "markdown" else "code",
                 "source": "".join(source) if isinstance(source, list) else source}
         if isinstance(c.get("id"), str):
@@ -3192,6 +3197,20 @@ def _write_atomic(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def _loaded_notebook(nb: Any) -> dict[str, Any]:
+    """from_ipynb of a parsed .ipynb, refused (TypeError) when the file is JSON but not a notebook the
+    rest of the app can read: every cell's source is text, the lakehouse and workspace are objects."""
+    if not isinstance(nb, dict):
+        raise TypeError(f"it holds {type(nb).__name__}, not one JSON object")
+    loaded = from_ipynb(nb)
+    if not all(isinstance(c["source"], str) for c in loaded["cells"]):
+        raise TypeError("a cell's source isn't text")
+    for key in ("lakehouse", "workspace"):
+        if loaded[key] is not None and not isinstance(loaded[key], dict):
+            raise TypeError(f"its {key} isn't an object")
+    return loaded
+
+
 def disk_stamp(nb: dict[str, Any]) -> str:
     """A short hash of a saved notebook's cells (type, source, and the cell settings the app reads,
     such as a parameters tag), so a save can tell whether the file was changed since the app read it,
@@ -3224,17 +3243,23 @@ class NotebookStore:
         return [{"name": name, "modified": p.stat().st_mtime} for name, p in files]
 
     def load(self, name: str) -> dict[str, Any]:
+        damaged = (f"{self.path(name).name} is damaged or isn't a notebook any more, so it can't be opened. The "
+                   "file has been left as it is. Fix it in a text editor, or put back an earlier copy.")
         try:
             nb = json.loads(self.path(name).read_text(encoding="utf-8"))
-        except ValueError as exc:  # cut off by a power cut, NUL bytes, or Git conflict markers: left as it is
-            raise ValueError(f"{self.path(name).name} is damaged or isn't a notebook any more, so it can't be "
-                             "opened. The file has been left as it is. Fix it in a text editor, or put back an "
-                             "earlier copy.") from exc
+        except (ValueError, RecursionError) as exc:  # cut off by a power cut, NUL bytes, Git conflict markers
+            raise ValueError(damaged) from exc
         problem = ipynb_cell_problem(nb["cells"]) if isinstance(nb, dict) and isinstance(nb.get("cells"), list) else None
         if problem:
             raise ValueError(f"{self.path(name).name} can't be opened, because {problem}. The file has been left as it "
                              "is. Fix that cell in a text editor or Jupyter, then open it again.")
-        return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
+        try:
+            loaded = _loaded_notebook(nb)
+            stamp = disk_stamp(nb)
+        except (ValueError, TypeError, AttributeError, RecursionError) as exc:
+            # JSON that isn't a notebook (a list, a lakehouse that is text): left as it is
+            raise ValueError(damaged) from exc
+        return {"name": name, **loaded, "disk_stamp": stamp}
 
     def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
              compute: str | None = None, workspace: dict[str, Any] | None = None,

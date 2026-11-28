@@ -44,6 +44,7 @@ REMOVED: dict[str, tuple[str, ...]] = {
     "`notebook-sync\\<hash>\\*.json`": ("notebook-sync/0123abcd/stamp0001.json",),
     "`history.jsonl`, `schedule_runs.jsonl`, `fabric_runs.jsonl`, `side_by_side.jsonl`, `proofs.jsonl`, `validations.json`": (
         "history.jsonl", "schedule_runs.jsonl", "fabric_runs.jsonl", "side_by_side.jsonl", "proofs.jsonl", "validations.json"),
+    "`model_deployments.jsonl`": ("model_deployments.jsonl",),
     "`receipts\\`": ("receipts/proof-1.json",),
     "`risk_acknowledgements.jsonl`": ("risk_acknowledgements.jsonl",),
     "`workloads.sqlite`": ("workloads.sqlite",),
@@ -184,6 +185,9 @@ def test_the_other_seeded_stores_are_where_the_engine_writes_them():
     from fabric_desktop import retention, risk_service, service
     assert set(retention.CACHE_FOLDERS) | {retention.PREVIEWS} == {"files", "staging", "onelake-cache", "replays", "preview-files"}
     assert risk_service._ACKS == "risk_acknowledgements.jsonl"
+    from fabric_desktop import model_ossie_deployments
+    assert model_ossie_deployments.FILE == "model_deployments.jsonl"
+    assert "Path(self.root)" in _source("model_ossie_service.py")
     assert 'self.root / "platform" / "keys.sqlite"' in _source("central/service.py")
     assert 'self.root / "platform" / f"platform-{env}.sqlite"' in _source("central/service.py")
     assert 'ReceiptStore(self.root / "receipts")' in _source("prove_service.py")

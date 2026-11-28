@@ -69,6 +69,25 @@ division of those. Anything else (CASE, window functions, filtered aggregates) i
 Ossie has no place for a composite key in Power BI, a many-to-many relationship, or a time
 zone on a date and time column, so those are listed as not converted.
 
+### Deployment record (engine only)
+
+Each confirmed import is recorded on this PC, in `model_deployments.jsonl` in the app's data
+folder (OSSIE-015b). A line saying `started` is written before the model is written in Fabric,
+and a second line with the same id says `ok` or `failed` once Fabric answers. An import that
+failed or stopped half way still leaves its `started` line. If the first line can't be written,
+nothing is imported. The file only grows by whole lines and keeps the newest 2,000.
+
+A record holds when (UTC), who (the signed-in account, as the audit trail records it), the
+environment, workspace and model names, the mode, the file's Ossie version and profile, the
+change counts, the fidelity report as counts only, how many measures need DAX, and the outcome.
+A failed import has the error's class and a short message. The record never holds a role
+filter, a member, an expression or the file's text: any of those the file or the model has is
+replaced in the error message, as the AI tools' preview replaces them.
+
+The preview is the dry run: it, and an import not confirmed, write no record. The engine reads
+the records back with `ossie_deployments(env, name=None, limit=50)`, newest first; a damaged
+line is skipped. It isn't an RPC method yet, and the screen for it needs a mockup.
+
 ## Ossie file to TMDL (Preview)
 
 **Ossie file to TMDL...** writes a model's TMDL into the project straight from an Ossie file,

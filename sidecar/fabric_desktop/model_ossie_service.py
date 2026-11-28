@@ -17,7 +17,7 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from . import model_ossie, model_ossie_redact, ossie_validate, tmdl
+from . import model_ossie, model_ossie_deployments, model_ossie_redact, ossie_validate, tmdl
 from .fabric_api import definition_text
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
@@ -414,7 +414,7 @@ class ModelOssieMixin:
                                   report) if mode == "update" else incoming
         final["name"] = name
         return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report, "doc": doc,
-                "incoming": incoming,
+                "incoming": incoming, "current": current,
                 "fidelity": model_ossie.safe_fidelity(doc, incoming, report,
                                                       model_ossie.round_trip_check(incoming)),
                 "changes": model_ossie.plan(current, final),
@@ -456,7 +456,11 @@ class ModelOssieMixin:
                                 remove: list[str] | None = None, layer: str | None = None,
                                 confirmed: bool = False) -> dict[str, Any]:
         """Write the Ossie document into the model. Without ``confirmed`` the answer is ``{"confirm": {...}}``
-        and nothing is written, so the user sees what changes first. No refresh runs."""
+        and nothing is written, so the user sees what changes first. No refresh runs.
+
+        A confirmed import is recorded on this PC (``model_ossie_deployments``): a ``started`` line before the
+        model is written, then ``ok`` or ``failed``. When the first line can't be written nothing is imported;
+        when the last can't, the answer's ``record_warning`` says so. ``ossie_deployments`` reads them back."""
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
         if "refused" in p:
             raise ValueError(p["refused"])
@@ -467,14 +471,50 @@ class ModelOssieMixin:
             return {"confirm": {"name": p["name"], "mode": mode, "workspace_name": p["cfg"].get("workspace_name", ""),
                                 "counts": counts}}
         ws = p["cfg"]["workspace_id"]
-        model = self.fabric.save_semantic_model(  # type: ignore[attr-defined]
-            ws, p["name"], model_ossie.bim_parts(p["final"]), "Imported from an Apache Ossie file by KratosForge",
-            replace=mode != "new")
+        needs_dax = [r["object"] for r in p["changes"] if r["change"] == "needs_dax"]
+        folder = Path(self.root)  # type: ignore[attr-defined]
+        try:
+            record_id = model_ossie_deployments.started(
+                folder, env=env, workspace=p["cfg"].get("workspace_name", ""), name=p["name"], mode=mode,
+                doc=p["doc"], who=self._ossie_who(), counts=counts, fidelity=p["fidelity"], needs_dax=len(needs_dax))
+        except OSError as exc:  # narrow: the record's file; with no record of it, nothing is imported
+            raise RuntimeError(f"{model_ossie._short(p['name'])} wasn't imported, because its deployment record "
+                               f"couldn't be written ({type(exc).__name__}). Nothing in Fabric was changed. "
+                               "Check the app's data folder has space, then try again.") from exc
+        try:
+            model = self.fabric.save_semantic_model(  # type: ignore[attr-defined]
+                ws, p["name"], model_ossie.bim_parts(p["final"]), "Imported from an Apache Ossie file by KratosForge",
+                replace=mode != "new")
+        except BaseException as exc:  # noqa: BLE001 - recorded as failed whatever it is, then raised as it was
+            try:
+                model_ossie_deployments.finished(
+                    folder, record_id, "failed", type(exc).__name__,
+                    model_ossie_deployments.message(exc, p["doc"], p["incoming"], p["final"], p.get("current")))
+            except OSError:  # narrow: the started line stays as evidence; the import's own error is what matters
+                pass
+            raise
+        warning = ""
+        try:
+            model_ossie_deployments.finished(folder, record_id, "ok", created=bool(model.get("created", False)))
+        except OSError as exc:  # narrow: the model is written; the record still says started
+            warning = (f"The model was imported, but its deployment record couldn't be completed "
+                       f"({type(exc).__name__}), so it still says started.")
         model_id = model.get("id") or (self._ossie_model(ws, p["name"]) or {}).get("id", "")
-        return {"name": p["name"], "id": model_id, "created": model.get("created", False), "mode": mode,
-                "counts": counts, "changes": p["changes"], "report": p["report"],
-                "needs_dax": [r["object"] for r in p["changes"] if r["change"] == "needs_dax"],
-                "url": self._model_url(ws, model_id) if model_id else ""}  # type: ignore[attr-defined]
+        out = {"name": p["name"], "id": model_id, "created": model.get("created", False), "mode": mode,
+               "counts": counts, "changes": p["changes"], "report": p["report"], "needs_dax": needs_dax,
+               "deployment_id": record_id,
+               "url": self._model_url(ws, model_id) if model_id else ""}  # type: ignore[attr-defined]
+        return out | ({"record_warning": warning} if warning else {})
+
+    def _ossie_who(self) -> str:
+        """The signed-in account as the audit trail records it; "" when no one is signed in. Never signs in."""
+        auth = getattr(self, "_auth", None)
+        return (auth.signed_in_user() or "") if auth is not None else ""
+
+    def ossie_deployments(self, env: str = "test", name: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """The Import from Ossie deployments recorded on this PC for ``env`` (and model ``name``), newest first.
+        Engine only: not an RPC method."""
+        return model_ossie_deployments.deployments(Path(self.root), env, name, limit)  # type: ignore[attr-defined]
 
     def meta_model_tmdl_save(self, env: str = "test", name: str = "") -> dict[str, Any]:
         """Save the model's TMDL, as Fabric has it, under semantic/<name>.SemanticModel/ in the project's

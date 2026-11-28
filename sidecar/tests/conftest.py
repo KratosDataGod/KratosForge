@@ -72,6 +72,24 @@ def duckdb_default_connection_left_clean():
 
 
 @pytest.fixture(autouse=True)
+def spark_session_time_zone_left_utc():
+    """After each test, the process's local Spark session (spark_local.session(), which every Kernel in this
+    process shares) is back on UTC, its default. A test that set spark.sql.session.timeZone and didn't unset
+    it changed every later test's timestamps in that worker, whichever test file came next (main 7b43ff88's
+    Windows run: Europe/Paris, left set, moved from_utc_timestamp by an hour in test_spark_compat_edges)."""
+    yield
+    spark_local = sys.modules.get("fabric_desktop.spark_local")
+    live = getattr(spark_local, "_session", None)
+    if live is None:
+        return
+    try:
+        if "spark.sql.session.timeZone" in live.conf._set:
+            live.conf.unset("spark.sql.session.timeZone")
+    except Exception:  # noqa: BLE001  # silent-ok: a session a test closed or faked is replaced by the next one
+        spark_local._session = None
+
+
+@pytest.fixture(autouse=True)
 def no_interactive_sign_in(monkeypatch):
     """Sign-in needs no setup now, so a test that reaches it would open a browser and wait.
     Make it fail at once instead, as it does for someone who closes the sign-in window."""
@@ -106,6 +124,17 @@ def runs_cli_pipelines(path) -> bool:
             text = ""
         _cli_pipeline_modules[key] = bool(CLI_PIPELINE_RUN.search(text))
     return _cli_pipeline_modules[key]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def fingerprint_key_in_tmp(tmp_path_factory):
+    """Keyed fingerprints (keyed_fingerprint) make their key on first use in this PC's data folder; under the
+    tests it lives in a tmp folder, never the real data folder of whoever runs them."""
+    from fabric_desktop import keyed_fingerprint
+    path = tmp_path_factory.mktemp("fingerprint-key") / "fingerprint.key"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(keyed_fingerprint, "key_path", lambda: path)
+        yield path
 
 
 @pytest.fixture(autouse=True)

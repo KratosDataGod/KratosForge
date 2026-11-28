@@ -831,7 +831,7 @@ class ExamStore:
             except ValueError:
                 continue
             res = s.get("result") or {}
-            out.append({"id": s.get("id"), "pack": s.get("pack"), "kind": s.get("kind"), "status": s.get("status"),
+            out.append({"id": s.get("id"), "pack": s.get("pack"), "kind": s.get("kind"), "domain": s.get("domain"), "status": s.get("status"),
                         "created_at": s.get("created_at"), "finished_at": s.get("finished_at"),
                         "total": len(s.get("items") or []), "percent": res.get("percent"), "label": RESULT_LABEL})
         return sorted(out, key=lambda s: str(s.get("created_at")), reverse=True)

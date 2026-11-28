@@ -1203,6 +1203,7 @@ class Kernel:
                 raise KeyboardInterrupt
             writes = self._write_queue()
             try:
+                tracer = sys.gettrace()  # put back after the cell: a coverage or profiling tool's, say
                 if run.debugger is not None:
                     sys.settrace(run.debugger.trace)
                 try:
@@ -1211,7 +1212,7 @@ class Kernel:
                         run.add({"type": "text", "text": _DEBUG_LOST})
                 finally:
                     if run.debugger is not None:
-                        sys.settrace(None)
+                        sys.settrace(tracer)
                 self._flush_figures(run)
             except NotebookExit as done:
                 status = "ok"

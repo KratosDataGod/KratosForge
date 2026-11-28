@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from pathlib import Path
 
@@ -465,6 +466,26 @@ def test_breakpoint_in_a_capture_cell_pauses_there_under_the_debugger(kernel):
     snap = finished(kernel)
     assert snap["status"] == "ok" and "Pdb" not in text(snap)
     untraced(kernel)
+
+
+def test_a_debugged_cell_puts_back_the_trace_hook_its_thread_had(kernel):
+    # A coverage or profiling tool's hook, set for new threads, is the cell thread's again after a
+    # debugged cell (a watch after the cell sees it), not None.
+    if not isinstance(kernel, Kernel):
+        pytest.skip("the hook is set in this process; the process kernel's cell threads are its own")
+
+    def tool(frame, event, arg):
+        return None
+
+    threading.settrace(tool)
+    try:
+        kernel.start("x = 1\ny = 2", breakpoints=[2], watches=["__import__('sys').gettrace().__name__"])
+        assert paused(kernel)["line"] == 2
+        kernel.debug("continue")
+        snap = finished(kernel)
+    finally:
+        threading.settrace(None)  # type: ignore[arg-type]
+    assert snap["watches"][0]["value"] == "'tool'", snap["watches"]
 
 
 def test_pdb_in_a_kernel_process_ends_the_cell_instead_of_waiting_for_input(kernel):

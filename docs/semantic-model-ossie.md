@@ -583,6 +583,31 @@ view row's notes count these measures, and they aren't listed as dropped.
 `semantic_matrix.redacted(matrix)` gives a copy that's safe outside the local pane. Each parity report goes
 through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and keyed fingerprint instead.
 
+## Metric registry (engine only)
+
+`metric_registry.metrics(definitions)` (OSSIE-008a; `sidecar/fabric_desktop/metric_registry.py`) lists every
+measure or metric of several definitions, each given as source label -> definition. A definition is a `model.bim`,
+a TMDL folder's files or an Ossie file in any profile, as structural parity reads them. For now this is engine
+only: nothing is written to the platform catalog, and there's no engine method or screen yet. The catalog record
+comes in a later slice.
+
+Each row has the source label, table, name, a normalized expression key, the expression's length and keyed
+fingerprint, the format string, whether there's a description, and the dialects. The key is the expression's L2
+form, so `SUM('orders'[amount])` in DAX and `SUM(orders.amount)` in SQL share one key. When L2 can't read an
+expression, for example one with CALCULATE, the key comes from the text with case and spacing folded, and the
+row's `basis` says **text only**.
+
+`metric_registry.conflicts(rows)` groups the rows by name, trimmed and ignoring case. Two rows agree when their
+keys match or their folded texts match, so the same text is never a conflict just because L2 could read it in one
+model and not the other. Agreement carries over: if A matches B by text and B matches C by L2, all three agree. A
+name with more than one group of agreeing sources is one conflict. It lists the sources and which of them agree, with L2's change lines as evidence,
+or "expressions differ (text only)". The same name with the same key isn't a conflict. Different names with the
+same key are listed apart as possible duplicates, labelled inferred.
+
+A row is governed only when the caller passes its (source, table, name) in `governed`. Every other row is local,
+and nothing is inferred governed. No row or report holds expression text, row-level security filter text or role
+members: an expression is its length and keyed fingerprint, and other text is cut to 80 characters.
+
 ## Fixture corpus
 
 `sidecar/tests/fixtures/ossie_corpus/` holds small synthetic files that every converter and reader

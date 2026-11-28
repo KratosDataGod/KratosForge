@@ -377,3 +377,9 @@ def test_export_names_the_reports():
     assert parse(ex.export("workspace", ledger()))[0][0] == "Workspace"
     with pytest.raises(ValueError, match="no 'leaderboard' report"):
         ex.export("leaderboard", [])
+
+
+@pytest.mark.parametrize("run", [{"execution_id": "e1"}, {"execution_id": "e1", "value": 5}, "e1"])
+def test_a_capacity_value_run_without_a_priced_value_is_refused_in_plain_words(run):
+    with pytest.raises(ValueError, match="priced value"):
+        ex.executive_summary([], capacity_value={"runs": [run], "scenario": "List price"})

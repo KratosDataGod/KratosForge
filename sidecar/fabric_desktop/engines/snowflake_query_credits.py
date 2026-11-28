@@ -44,6 +44,8 @@ CREDITS_PER_HOUR = {"X-SMALL": 1, "SMALL": 2, "MEDIUM": 4, "LARGE": 8, "X-LARGE"
 ASSUMPTIONS = [
     ("A standard warehouse uses the credits per hour Snowflake publishes for its size (X-Small 1, Small 2, "
      "Medium 4, and so on)."),
+    ("Those rates are for Gen1 standard warehouses. A Gen2 standard warehouse also reports STANDARD but bills at "
+     "a higher rate, so on one this figure may be low."),
     ("Each time the warehouse resumes, at least 60 seconds is billed. That minimum isn't added here, so a run "
      "that resumed the warehouse may have used more."),
     "Nothing else ran on the warehouse at the same time. If it did, this figure is too high.",

@@ -430,9 +430,14 @@ def test_unread_only_because_of_the_assessments_limits_doesnt_say_check_your_acc
     assert [n["limit"] for n in r["coverage"]["not_read"]] == ["cap", "budget"]
     na = r["next_action"]
     assert na["kind"] == "read_limit" and "check your access" not in na["label"] and "isn't about your access" in na["label"]
-    assert "assess fewer workspaces" in na["label"] and "more notebooks and pipelines than one assessment reads" in na["label"]
+    assert na["label"] == ("No opportunity found in what was read. Some definitions weren't read, because a workspace has "
+                           "more notebooks and pipelines than one assessment reads, and the read budget ran out. Assess "
+                           "fewer workspaces at a time to read more of them. This isn't about your access. The coverage "
+                           "list names the ones that weren't read.")
     only_cap = _run([("a", "Notebook", "a", cap, None)])["next_action"]["label"]
-    assert "assess fewer workspaces" not in only_cap and "more notebooks and pipelines" in only_cap
+    assert only_cap == ("No opportunity found in what was read. Some definitions weren't read, because a workspace has "
+                        "more notebooks and pipelines than one assessment reads. This isn't about your access. The "
+                        "coverage list names the ones that weren't read.")
 
 
 def test_a_real_failure_beside_a_limit_still_asks_about_access_for_that_one():

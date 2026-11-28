@@ -99,12 +99,12 @@ def _next_action(ranked: list[dict[str, Any]], coverage: dict[str, Any]) -> dict
                 "items": failed}
     if coverage["not_read"]:  # every unread one was left out by the assessment's own limits, not your access
         limits = {n["limit"] for n in coverage["not_read"]}
-        why = [text for key, text in (
-            ("budget", "the read budget ran out, so assess fewer workspaces at a time to read more of them"),
-            ("cap", "a workspace has more notebooks and pipelines than one assessment reads")) if key in limits]
+        why = ", and ".join(text for key, text in (
+            ("cap", "a workspace has more notebooks and pipelines than one assessment reads"),
+            ("budget", "the read budget ran out. Assess fewer workspaces at a time to read more of them")) if key in limits)
         return {"kind": "read_limit", "items": coverage["not_read"],
-                "label": (f"No opportunity found in what was read, but some definitions weren't read because "
-                          f"{' and '.join(why)}. This isn't about your access. The coverage list names them.")}
+                "label": (f"No opportunity found in what was read. Some definitions weren't read, because {why}. "
+                          "This isn't about your access. The coverage list names the ones that weren't read.")}
     return {"kind": "none", "label": "No opportunity found in what these analyzers check. That isn't proof there "
                                      "is none: the coverage list says what was read."}
 

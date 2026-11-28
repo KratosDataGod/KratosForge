@@ -22,6 +22,10 @@ Nothing, in most tenants. These are the things that can stop it:
 | Conditional Access blocks Microsoft's developer tools (Azure CLI, Fabric CLI) for some users | Sign-in is refused with AADSTS53003 | Allow the **Fabric CLI** app for KratosForge's users, or use [your own app registration](#using-your-own-app-registration) |
 | Your organization doesn't allow apps it hasn't registered | Policy, not a technical block | Use [your own app registration](#using-your-own-app-registration) |
 
+### Continuous access evaluation (Preview)
+
+While Preview features are on (`show_preview`, on unless your policy turns it off), KratosForge's sign-in tells Microsoft Entra that it supports [continuous access evaluation](https://learn.microsoft.com/entra/identity/conditional-access/concept-continuous-access-evaluation). Fabric and the other Microsoft APIs it calls can then end a sign-in before its token expires, for example when an account is disabled, its sessions are revoked, or it moves to a location Conditional Access blocks. KratosForge then asks Entra for a new token with what the API asked for. If Entra wants the person to sign in again, the app opens the sign-in window, and a scheduled run or AI tool says that a person must sign in. Entra may issue longer-lived tokens to an app that supports it, since they can be ended this way. Nothing changes for IT: the policies are the same. Turning Preview features off turns it off.
+
 ### What each feature uses
 
 With Microsoft's sign-in, KratosForge asks each Microsoft API for its default access (`/.default`), which Microsoft sets for the Fabric CLI app. The table says which API each feature calls. A feature that needs something Microsoft's app doesn't cover says so, and still works with your own app registration.

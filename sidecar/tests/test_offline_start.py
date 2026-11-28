@@ -156,7 +156,7 @@ def test_a_network_that_drops_the_traffic_doesnt_hold_up_local_work(monkeypatch,
     answer = threading.Event()
 
     class Waiting:
-        def __init__(self, client_id, interactive=True):
+        def __init__(self, client_id, interactive=True, continuous_access=False):
             self.client_id = client_id
             answer.wait(30)
 

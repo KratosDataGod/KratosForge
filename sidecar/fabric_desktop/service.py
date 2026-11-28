@@ -23,6 +23,7 @@ from .audit import AuditLog
 from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
+from .claims import Refresh
 from .fabric_api import FabricClient
 from . import app_settings, csv_cells, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_compare, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
 from .learn import evidence
@@ -155,7 +156,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         self._auth: Authenticator | None = None
         self._auth_lock = threading.Lock()
         self._auth_failed: tuple[BaseException, str, float] | None = None  # see auth
-        self._auth_building: tuple[str, Future] | None = None
+        self._auth_building: tuple[str, Future, bool] | None = None  # app ID, its setup, continuous access
         self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
                                        max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
                                        idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0),
@@ -170,11 +171,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     @property
     def auth(self) -> Authenticator:
         # The app ID can change on the Settings page; a new one needs a new sign-in.
-        client_id = self._client_id or app_settings.value("client_id")
+        settings = app_settings.load()  # one read of the policy and settings files for both
+        client_id = self._client_id or settings["client_id"]["value"]
+        cae = bool(settings["show_preview"]["value"])
         # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
         # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
         with self._auth_lock:
-            if self._auth is not None and getattr(self._auth, "client_id", client_id) == client_id:
+            # Continuous Access Evaluation is a Preview feature (claims.py): it follows show_preview, and
+            # turning it on or off builds the sign-in again, since MSAL takes it when it starts.
+            if (self._auth is not None and getattr(self._auth, "client_id", client_id) == client_id
+                    and getattr(self._auth, "continuous_access", cae) == cae):
                 return self._auth
             # Offline, a build fails or waits out its timeout. The calls queued behind it (a page's
             # loads) get the same answer at once for a while, instead of a wait each.
@@ -182,8 +188,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             if failed and failed[1] == client_id and time.monotonic() < failed[2]:
                 raise failed[0].with_traceback(None)
             building = self._auth_building
-            if building is None or building[0] != client_id:
-                building = self._auth_building = (client_id, Future())
+            if building is None or building[0] != client_id or building[2] != cae:
+                building = self._auth_building = (client_id, Future(), cae)
                 threading.Thread(target=self._build_auth, args=building, daemon=True, name="sign-in-setup").start()
         try:
             # A network that drops the traffic can take minutes to give up. The app waits a little,
@@ -193,9 +199,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             raise requests.exceptions.ConnectTimeout(
                 f"Microsoft's sign-in ({AUTH_HOST}) didn't answer within {AUTH_WAIT_SECONDS} seconds") from None
 
-    def _build_auth(self, client_id: str, done: Future) -> None:
+    def _build_auth(self, client_id: str, done: Future, continuous_access: bool = False) -> None:
         try:
-            made = Authenticator(client_id, interactive=not self.headless)
+            made = Authenticator(client_id, interactive=not self.headless, continuous_access=continuous_access)
         except Exception as exc:  # noqa: BLE001 - handed to every caller waiting for it
             with self._auth_lock:
                 if net_trust.explain(exc):
@@ -287,7 +293,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def _refreshed(self, scopes: list[str]) -> Any:
         """How to get a new token after a 401, when the signed-in identity can; None to ask again."""
         refreshed = getattr(self.auth, "refreshed_token", None)
-        return (lambda: refreshed(scopes)) if callable(refreshed) else None
+        return Refresh(refreshed, scopes) if callable(refreshed) else None
 
     @property
     def history_file(self) -> Path:

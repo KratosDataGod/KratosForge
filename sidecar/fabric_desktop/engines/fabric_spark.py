@@ -32,7 +32,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable
 
-from .. import redact
+from .. import claims, redact
 from ..retrying import send_remote
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
@@ -139,10 +139,11 @@ class LivyClient:
         self.base = (f"{API}/workspaces/{_checked(workspace_id, _GUID, 'workspace')}/lakehouses/"
                      f"{_checked(lakehouse_id, _GUID, 'lakehouse')}/{LIVY}/sessions")
 
-    def _fresh_token(self) -> str:
-        """A new token, or "" when none can be had without the person: the 401 then says to sign in again."""
+    def _fresh_token(self, response: Any = None) -> str:
+        """A new token, or "" when none can be had without the person: the 401 then says to sign in again.
+        Asked for with the 401 ``response``'s claims challenge, when it sent one (claims.py)."""
         try:
-            return (self._refresh or (lambda: ""))() or ""
+            return claims.renew(self._refresh or (lambda: ""), response) or ""
         except Exception:  # noqa: BLE001  # silent-ok: the caller reports the original 401 and says to sign in again
             return ""
 
@@ -161,7 +162,7 @@ class LivyClient:
         try:
             resp, tries = send_remote(send, repeatable, self._sleep, stop)
             if resp.status_code == 401 and self._refresh is not None:
-                fresh = self._fresh_token()
+                fresh = self._fresh_token(resp)
                 if fresh and fresh != token:  # once, and only with a token that is actually new
                     headers["Authorization"] = f"Bearer {fresh}"
                     resp, more = send_remote(send, repeatable, self._sleep, stop)

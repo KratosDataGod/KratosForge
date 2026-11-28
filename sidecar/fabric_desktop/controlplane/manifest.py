@@ -366,3 +366,45 @@ def summary(manifest: dict[str, Any]) -> dict[str, Any]:
             "has_operational_store": bool(o), "operational_name": o.get("display_name", ""),
             "families": dict((manifest.get("schema") or {}).get("families") or {}),
             "updated_at": manifest.get("updated_at", "")}
+
+
+# ---- connection files (export configuration, CP-010)
+CONNECTION_FORMAT = "kratosforge-environment-connection"
+CONNECTION_VERSION = 1
+_CONNECTION_KEYS = ("format", "version", "environment_id", "name", "provider", "workspace_id", "workspace_name",
+                    "lakehouse_id", "lakehouse_name")
+
+
+def connection(entry: dict[str, Any]) -> dict[str, Any]:
+    """A connection file for one environment, from this PC's cached summary: where its manifest is and
+    the labels to show, so another PC can connect. Ids and labels only: no owner, token, email or secret."""
+    return {"format": CONNECTION_FORMAT, "version": CONNECTION_VERSION,
+            **{k: entry.get(k, "") for k in _CONNECTION_KEYS[2:]}}
+
+
+def check_connection(obj: Any) -> dict[str, Any]:
+    """A connection file someone gives this PC, checked before anything reads it: the format this app
+    writes, only its keys, and real ids. It says where to look; the manifest found there decides."""
+    if not isinstance(obj, dict):
+        raise ManifestError("This isn't a KratosForge Environment connection file.")
+    if obj.get("format") != CONNECTION_FORMAT:
+        raise ManifestError("This isn't a KratosForge Environment connection file.")
+    if obj.get("version") != CONNECTION_VERSION or isinstance(obj.get("version"), bool):
+        raise ManifestError("This connection file is from another version of KratosForge. Ask for a new one.")
+    extra = sorted(str(k) for k in obj if k not in _CONNECTION_KEYS)
+    if extra:
+        raise ManifestError(f"This connection file has fields KratosForge doesn't write: {', '.join(extra)[:120]}")
+    env_id = obj.get("environment_id")
+    if not isinstance(env_id, str) or not _ENV_ID.fullmatch(env_id):
+        raise ManifestError("environment_id must be 'kfenv_' and 32 lowercase hex characters")
+    provider = obj.get("provider")
+    if provider not in PROVIDERS:
+        raise ManifestError(f"provider must be one of {', '.join(PROVIDERS)}")
+    _ref(provider, obj.get("workspace_id"), "workspace_id")
+    _ref(provider, obj.get("lakehouse_id"), "lakehouse_id")
+    for k in ("name", "workspace_name", "lakehouse_name"):
+        _text(obj.get(k, ""), k, required=False)
+    out = {k: obj.get(k, "") for k in _CONNECTION_KEYS}
+    if provider == "fabric":
+        out["workspace_id"], out["lakehouse_id"] = out["workspace_id"].lower(), out["lakehouse_id"].lower()
+    return out

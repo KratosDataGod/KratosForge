@@ -116,6 +116,7 @@ Priority: P0 blocks the Fabric foundation, P1 completes it, P2 follows. "Evidenc
 - **Tests:** browser test, accessibility check.
 - **Owner:** UX thread (mockup), this thread (build).
 - **Built:** `app/ui/kf-environment.js` (Settings > Environment), with `cp_upgrade_plan` and `cp_upgrade` for Upgrade under the same token, confirm and typed-name rules as Create; browser test `app/tests/browser/settings-environment.test.cjs`. Export configuration and repair are not in the approved mockup and wait on their own.
+- **Built (engine):** export configuration: `cp_export` (reads only) gives a connection file for an environment this PC knows, with ids and labels only; `cp_connect_file` connects another PC with it, and connects nothing unless the manifest it points to says it lives there and names the file's environment. Their buttons wait on a mockup.
 
 ### CP-011 Environment cost beside savings (P1) **Built** (engine only, #3137)
 - **Problem:** environment operating cost isn't shown or separated from savings (gap G6).

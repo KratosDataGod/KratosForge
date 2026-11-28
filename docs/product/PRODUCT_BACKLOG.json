@@ -7292,7 +7292,8 @@
         "The secret scan reads a file too deep for YAML line by line instead of crashing (#3174) on main at 293fb38d",
         "Every Prod, approve, confirm and typed-name action proven to fail closed (#3224, WR-410); delete-my-data removes every inventoried store (#3267, WR-412); link and pairing fuzz (#3268, WR-413); junk replies from Fabric, OneLake, Databricks and Snowflake refused by name (#3241); Windows hardening (#3240); the audit trail says when the event log couldn't record its end (#3225) on main at a73ebb71",
         "Governance errors name the setting and what IT can do (#3319, WR-414); command-line pipeline runs use the audited, fail-closed call (#3321, WR-416); stricter checks for backups, samples, CSV export and redaction (#3312); SQL text fuzz (#3247) and reader fuzz round 3 (#3232) on main at 84a36dd6",
-        "Command-line restore is audited and restore leaves the audit trails as they are (#3325, WR-418) on main at b4bc548d"
+        "Command-line restore is audited and restore leaves the audit trails as they are (#3325, WR-418) on main at b4bc548d",
+        "Policy and trust edge tests for Group Policy reads, Windows paths, certificate facts and integration approvals (#3363, WR-417), and for policy trust and central policy (#3383, WR-419); like WR-414, WR-416 and WR-418, they close no EA row; remediation progress re-checked row by row: EA-028 multi-file changes through one transaction helper (#1839, #1872), EA-030 Narrator checklist written (#1930) with the pass still to do on a Windows PC, EA-024 merged (#1596) but not yet checked on Windows, EA-009 still blocked on the maintainer (signing identity check, live harness run) on main at be5ef815"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -7389,6 +7390,7 @@
         1887,
         1892,
         1908,
+        1930,
         1956,
         1958,
         1993,
@@ -7575,7 +7577,9 @@
         3312,
         3319,
         3321,
-        3325
+        3325,
+        3363,
+        3383
       ],
       "issues": [],
       "computed": {

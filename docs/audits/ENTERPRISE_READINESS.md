@@ -171,7 +171,7 @@ Since the baseline:
 - EA-022: saves are flushed to disk before they are swapped in (#1590, #1592, #1593).
 - EA-023: a damaged job queue file no longer stops the agent (#1580).
 
-The update rollback after a failed engine start (EA-024) is still a draft that needs a Windows check.
+The update rollback after a failed engine start (EA-024) is merged (#1596), but hasn't been checked on Windows yet (**UNVERIFIED**).
 
 ### Architecture (10%)
 

@@ -25,19 +25,19 @@ Two things hold the score down:
 | Unsigned builds (EA-009) | App Control and EDR block or flag the app, and updates are only as trustworthy as GitHub | The maintainer finishes the identity check |
 | No live tenant evidence (EA-009) | Every Fabric integration, and every fix above, is proven only against fakes and local Delta tables | One harness run on the non-production test workspace, with the maintainer's go |
 | MSI untried in a managed tenant | IT can't yet rely on Intune or Configuration Manager installs | An Intune or Configuration Manager test install once builds are signed |
-| Update rollback after a failed engine start (EA-024) | A build that opens but whose engine never starts can't go back to the previous build | A Windows check of the draft fix |
+| Update rollback after a failed engine start (EA-024) | A build that opens but whose engine never starts can't go back to the previous build | A Windows check of the merged fix (#1596) |
 | Copied plumbing (EA-028) | Fixes to atomic writes, retries and redaction must be made in several places | Keep moving callers to the shared helpers |
 
 ## Completed so far
 
 - Baseline checks run and recorded. There are seven audit documents and a backlog of 30 findings, one of them withdrawn. Each finding has evidence, an owner and a priority.
-- 24 findings are fixed and merged (see the Progress table in the [remediation backlog](REMEDIATION_BACKLOG.md)). EA-027 and EA-028 are under way. EA-009 waits on the maintainer, EA-024 waits on a Windows check, and EA-030 needs a Windows PC.
+- 26 findings are fixed and merged, EA-016 in part (see the Progress table in the [remediation backlog](REMEDIATION_BACKLOG.md)). EA-028 is under way. EA-009 waits on the maintainer, EA-024 waits on a Windows check, and EA-030 needs a Windows PC.
 
 ## Next actions
 
 1. The maintainer's steps: signing, then the live harness run. They are the gate to any category reaching 4.
 2. A Windows check of the update rollback (EA-024), and the Narrator pass (EA-030).
-3. Keep closing EA-027 (lint rules) and EA-028 (shared plumbing).
+3. Keep closing EA-028 (shared plumbing).
 4. Publish the privacy statement and support terms.
 
 The scorecard is re-scored at the start of each audit cycle. A score rises only with new evidence: a merged fix with its test, or a recorded live run.

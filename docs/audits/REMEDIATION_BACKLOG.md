@@ -174,7 +174,7 @@ Four further P3 security hardening items are tracked privately and have been rou
 
 ## Progress
 
-Checked row by row against `main` at `5ec9d05` on 2026-11-12: each PR below is on `main`. Earlier check: 2026-11-05 at `1ca71e3`, where the audit's 17 repro tests for EA-001, EA-003 to EA-007 and EA-012 to EA-017 all pass on this commit.
+Checked row by row against `main` at `be5ef81` on 2026-11-28: each PR below is on `main`. Earlier checks: 2026-11-12 at `5ec9d05`, and 2026-11-05 at `1ca71e3`, where the audit's 17 repro tests for EA-001, EA-003 to EA-007 and EA-012 to EA-017 all pass on this commit.
 
 | Id | State | PR |
 | --- | --- | --- |
@@ -200,13 +200,15 @@ Checked row by row against `main` at `5ec9d05` on 2026-11-12: each PR below is o
 | EA-021 | Merged | #1581, #1584, #1589 |
 | EA-022 | Merged | #1590, #1592, #1593 |
 | EA-023 | Merged | #1580 |
-| EA-024 | Merged | #1596 |
+| EA-024 | Merged; not yet checked on Windows (an updated build whose engine never answers should go back to the previous build). Needs a Windows PC | #1596 |
 | EA-025 | Merged | #1613, #1614, #1615 |
 | EA-026 | Withdrawn: already covered by `test_server_lanes.py` | |
 | EA-027 | Merged: bugbear (B) and blind-except (BLE) are on, each reviewed broad handler marked with its reason | #1597, #2341 |
-| EA-028 | Under way: callers move one at a time | Atomic writes: #1602, #1630, #1883, #1885, #1893, #1909. Redaction: #1606, #1627, #1956. Retry loops through `retrying.py`, with an inventory test: #2330, #2342. Damaged SQLite stores set aside or refused, through one shared `sqlitefile.open_store`: #1580, #1689, #1698, #1710, #1733 |
+| EA-028 | Under way: callers move one at a time | Atomic writes: #1602, #1630, #1883, #1885, #1893, #1909. Redaction: #1606, #1627, #1956. Retry loops through `retrying.py`, with an inventory test: #2330, #2342. Damaged SQLite stores set aside or refused, through one shared `sqlitefile.open_store`: #1580, #1689, #1698, #1710, #1733. Multi-file changes through one shared transaction helper: #1839, #1872 |
 | EA-029 | Merged | #1608 |
-| EA-030 | Parked: needs a Windows PC. A keyboard-only browser pass is merged (#1690); Narrator is still to do | |
+| EA-030 | Parked: needs a Windows PC. A keyboard-only browser pass is merged (#1690), and the [Narrator checklist](../ux/narrator-checklist.md) for the pass is written (#1930); the Narrator pass itself is still to do | |
+
+The enterprise-hardening stories merged since the last check (#3319, #3321, #3325, #3363, #3383) close no row here: they cover governance messages, audit lines for command-line runs and restores, and policy and trust edge tests.
 
 The scorecard is now 64; see the trend table in [Enterprise readiness](ENTERPRISE_READINESS.md).
 

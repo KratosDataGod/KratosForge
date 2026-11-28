@@ -268,11 +268,12 @@ def oracle(source: str) -> tuple[list[int], int]:
         return trace
 
     ns: dict[str, Any] = {}
+    before = sys.gettrace()  # coverage's tracer, in a coverage run: put back, not turned off
     sys.settrace(trace)
     try:
         exec(code, ns)  # noqa: S102 - generated test code
     finally:
-        sys.settrace(None)
+        sys.settrace(before)
     return events, ns["total"]
 
 

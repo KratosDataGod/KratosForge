@@ -43,6 +43,23 @@ A pass or a fail must cite the evidence it rests on. A control can't pass someth
 at: missing evidence always gives **not evaluated**. Every item in a workspace is reported as
 inspected, not inspected (with the reason) or unsupported (no control covers that kind of item yet).
 
+### Coverage per item type
+
+The result also sums this up per kind of item (`type_coverage`), one row per item type the
+workspace holds, sorted by name:
+
+| State | When |
+| --- | --- |
+| Inspected | Every item of that type was checked by at least one control. The row names the controls and the kinds of evidence they used. |
+| Not inspected | Controls cover the type, but at least one item couldn't be checked. The row gives the reasons in plain words (the read failed, only the first items were read, the evidence is missing, no control applies) and how many items each one holds. |
+| Unsupported | No control covers that kind of item yet, for example a Dataflow, Copy job or Eventstream today. It never counts as passing. |
+
+Each row counts the items in each state, so a type with 3 of 5 notebooks checked shows as not
+inspected with those numbers. A kind of item KratosForge has never seen is listed as unsupported.
+When the workspace's items couldn't be listed at all, the result says so instead of showing an
+empty list. Names are cut at 256 characters and lists are capped. When the read limit is reached,
+the items past it are still listed, as not inspected, with the limit as the reason.
+
 ## How scores are worked out
 
 Each control has one weight, from its severity:

@@ -110,10 +110,10 @@ def read_kind(root: str | Path) -> str | None:
     """The kind the repository at ``root`` says it is, or None when it has no (readable) marker."""
     try:
         data = tomllib.loads((Path(root) / MARKER).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):  # RecursionError: nested too deeply to read
         return None
     kind = data.get("kind")
-    return kind if kind in KINDS else None
+    return kind if isinstance(kind, str) and kind in KINDS else None  # a table or list as the kind too
 
 
 def guess_kind(root: str | Path) -> str | None:
@@ -194,6 +194,9 @@ def read_locations(root: str | Path) -> dict[str, Any]:
         return {"envs": envs, "problem": None, "exists": False}
     except (OSError, ValueError) as e:
         return {"envs": envs, "problem": f"{LOCATIONS} can't be read: {e}", "exists": True}
+    except RecursionError:
+        return {"envs": envs, "problem": f"{LOCATIONS} wasn't read, because it's nested too deeply. Move its deepest "
+                "settings up a level, then try again.", "exists": True}
     for env in ENVS:
         raw = data.get(env)
         if not isinstance(raw, dict):

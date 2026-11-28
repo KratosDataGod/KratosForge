@@ -23,12 +23,12 @@ four original exam questions (ACD-013).
 | Id | Objective | Exercises | Best local | Fabric | Lessons |
 | --- | --- | --- | --- | --- | --- |
 | 1.1.1 | Configure Spark workspace settings | E01, E02 | SIM | Yes | |
-| 1.1.2 | Configure domain workspace settings | E03 | SIM | Yes | |
-| 1.1.3 | Configure OneLake workspace settings | E04 | SIM | Yes | LM-07 |
-| 1.1.4 | Configure data workflow workspace settings | E05 | KO | Yes | |
+| 1.1.2 | Configure domain workspace settings | E03, E85 | SIM | Yes | |
+| 1.1.3 | Configure OneLake workspace settings | E04, E86 | SIM | Yes | LM-07 |
+| 1.1.4 | Configure data workflow workspace settings | E05, E87 | SIM | Yes | |
 | 1.2.1 | Configure version control | E06, E07, C3 | LV | Yes | |
 | 1.2.2 | Implement database projects | E08, E77 | LV | Yes | LM-23 |
-| 1.2.3 | Create and configure deployment pipelines | E09, C3 | SIM | Yes | |
+| 1.2.3 | Create and configure deployment pipelines | E09, E88, C3 | SIM | Yes | |
 | 1.3.1 | Implement workspace-level access controls | E10, E81, C3 | SIM | Yes | |
 | 1.3.2 | Implement item-level access controls | E11, E82, C3 | SIM | Yes | LM-24 |
 | 1.3.3 | Implement row-level, column-level, object-level, and file-level access controls | E12, E13, E14, C3 | LV (row filter logic only) | Yes | LM-24 |
@@ -50,7 +50,7 @@ four original exam questions (ACD-013).
 | 2.2.2 | Choose between dataflows, notebooks, and T-SQL for data transformation | E17, E28 | KO | No | |
 | 2.2.3 | Create and manage shortcuts to data | E29, E84 | SIM | Yes | LM-24 |
 | 2.2.4 | Implement mirroring | E30 | KO | Yes | |
-| 2.2.5 | Ingest data by using pipelines | E31 | SIM | Yes | |
+| 2.2.5 | Ingest data by using pipelines | E31, E89 | LV | Yes | |
 | 2.2.6 | Transform data by using PySpark, SQL, and KQL | E32, E33, E34, E69, C1 | LV (PySpark API, SQL); KO (KQL) | Yes (KQL) | LM-08, LM-19 |
 | 2.2.7 | Denormalize data | E35, E78, C1 | LV | No | LAB-07 |
 | 2.2.8 | Group and aggregate data | E36, E70, C1 | LV | No | LM-04 |
@@ -67,8 +67,8 @@ four original exam questions (ACD-013).
 | --- | --- | --- | --- | --- | --- |
 | 3.1.1 | Monitor data ingestion | E44, E72 | SIM | Yes | |
 | 3.1.2 | Monitor data transformation | E44, E47 | SIM | Yes | |
-| 3.1.3 | Monitor semantic model refresh | E45 | SIM | Yes | LM-09 |
-| 3.1.4 | Configure alerts | E46 | SIM | Yes | |
+| 3.1.3 | Monitor semantic model refresh | E45, E90 | SIM | Yes | LM-09 |
+| 3.1.4 | Configure alerts | E46, E91 | SIM | Yes | |
 | 3.2.1 | Identify and resolve pipeline errors | E48, E49, E58 | LV (local runner) | No | |
 | 3.2.2 | Identify and resolve dataflow errors | E50 | SIM | Yes | |
 | 3.2.3 | Identify and resolve notebook errors | E51, E52, E68 | LV | No | |
@@ -76,7 +76,7 @@ four original exam questions (ACD-013).
 | 3.2.5 | Identify and resolve eventstream errors | E54 | SIM | Yes | |
 | 3.2.6 | Identify and resolve T-SQL errors | E55, E65 | LV | Yes | LAB-09 |
 | 3.3.1 | Optimize a lakehouse table | E56, E80 | LV (OPTIMIZE, Z-order, VACUUM); KO (V-Order) | Yes | LM-25 |
-| 3.3.2 | Optimize a pipeline | E60 | SIM | Yes | |
+| 3.3.2 | Optimize a pipeline | E60, E92 | SIM | Yes | |
 | 3.3.3 | Optimize a data warehouse | E61, E66 | LV | Yes | |
 | 3.3.4 | Optimize eventstreams and eventhouses | E62 | KO | Yes | |
 | 3.3.5 | Optimize Spark performance | E52, E63 | LV (file layout and pruning on Delta); KO (Spark settings) | Yes | LM-27 |
@@ -87,9 +87,9 @@ four original exam questions (ACD-013).
 | | Objectives |
 | --- | --- |
 | Covered by at least one exercise | 49 of 49 |
-| Best local class LOCAL VERIFIED (all or part) | 18 |
-| Best local class SIMULATED | 20 |
-| KNOWLEDGE ONLY on this PC | 11 |
+| Best local class LOCAL VERIFIED (all or part) | 21 |
+| Best local class SIMULATED | 24 |
+| KNOWLEDGE ONLY on this PC | 4 |
 | Stay incomplete until FABRIC VERIFIED | 36 |
 
 ## Coverage gap records
@@ -107,7 +107,7 @@ on the objective.
 | G-04 Workspace, tenant and domain settings, roles and endorsement | 1.1.1–1.1.4, 1.3.1, 1.3.2, 1.3.6 | Settings and permissions live in Fabric; some need admin roles | SIMULATED settings models locally, read-only checks in the learner's own workspace |
 | G-05 Sensitivity labels | 1.3.5 | Needs sensitivity labels published in the tenant | FABRIC VERIFIED only where the learner's tenant has labels; otherwise KO |
 | G-06 Mirroring | 2.2.4 | Needs a source database and capacity | KO locally; Fabric exercise with a free-tier source is a cost decision for Chris |
-| G-07 Data workflows (Apache Airflow jobs) | 1.1.4 | No local Airflow job runtime in KratosForge | KO; Fabric exercise later |
+| G-07 Data workflows (Apache Airflow jobs) | 1.1.4 | No local Airflow job runtime in KratosForge | SIMULATED runtime settings model locally (E87); Fabric exercise later |
 | G-08 Spark engine and continuous streaming | 1.1.1, 2.1.3, 2.3.3, 3.3.5 | The local PySpark API is DuckDB: no executors, shuffles or AQE; streams run only as availableNow here | File layout lessons locally; Spark tuning verified in Fabric |
 | G-09 Monitoring hub, alerts, refresh | 3.1.1–3.1.4 | Service telemetry | Recorded run histories (SIMULATED), live read-only checks later |
 | G-10 Item behavior only the service shows | 1.2.1, 1.2.3, 1.4.2, 2.2.3, 2.2.5, 3.3.1, 3.3.2 | Workspace Git sync, deployment, triggers, shortcuts, copy throughput and V-Order happen in Fabric; locally the learner works with the files and the logic | Fabric exercises (ACD-014) |

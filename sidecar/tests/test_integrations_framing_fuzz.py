@@ -19,15 +19,21 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 import uvicorn
 
+import fabric_desktop
 from fabric_desktop.integrations import http_server
 from fabric_desktop.integrations.http_server import build_app, server_config
 from fabric_desktop.integrations.store import IntegrationStore
 
 from test_integrations_conformance import env  # noqa: F401 - a fixture
+
+# The engine's own folder, for a child process. Not all of sys.path: other tests add project folders
+# to it, and on Windows a variable longer than 32,767 characters stops the child starting.
+ENGINE = str(Path(fabric_desktop.__file__).resolve().parent.parent)
 
 READ_SECONDS = 20  # generous: a first answer waits for the process to import everything
 INIT = {"jsonrpc": "2.0", "method": "initialize", "params": {
@@ -46,7 +52,7 @@ class Stdio:
 
     def __init__(self, tmp, client_id):
         process_env = dict(os.environ, LOCALAPPDATA=str(tmp), HOME=str(tmp), ProgramData=str(tmp / "programdata"),
-                           PYTHONPATH=os.pathsep.join(sys.path))
+                           PYTHONPATH=ENGINE)
         self.proc = subprocess.Popen([sys.executable, "-m", "fabric_desktop.cli", "mcp", "--client", client_id],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=process_env)
         self.lines: queue.Queue = queue.Queue()

@@ -1,0 +1,56 @@
+{
+  "_about": "A model of the Apache Airflow runtime settings in two workspaces. settings_location is the section of the workspace settings, or the admin portal, where the default runtime is set. For each workspace choose the default pool, and describe a custom pool if one is needed (name, compute_node_size Small or Large, enable_autoscale, extra_nodes). Then set how the team's own package is added and record what you expect.",
+  "needs": [
+    "In Ops-Dev, two engineers try out DAGs a few times a week. Nobody should pay for the environment while it sits idle.",
+    "In Ops-Prod, complex production DAGs run around the clock and must start without waiting. Month-end brings a spike of runs, and the team doesn't want to pay for extra nodes the rest of the month.",
+    "In both workspaces, the jobs import contoso_hooks, a wheel file the team builds. The jobs aren't connected to Git, so the wheel is uploaded with the job's files.",
+    "A newer Apache Airflow version will come out next year. The team wants to know how they'll move to it."
+  ],
+  "settings_location": "Data Factory > Apache Airflow Runtime",
+  "workspaces": {
+    "Ops-Dev": {
+      "default_pool": "starter pool",
+      "custom_pool": null
+    },
+    "Ops-Prod": {
+      "default_pool": "custom pool",
+      "custom_pool": {
+        "name": "ProdPool",
+        "compute_node_size": "Large",
+        "enable_autoscale": true,
+        "extra_nodes": null
+      }
+    }
+  },
+  "private_package": {
+    "file": "contoso_hooks-1.2.0-py3-none-any.whl",
+    "upload_folder": "plugins/libs",
+    "airflow_requirement": "/opt/airflow/plugins/libs/contoso_hooks-1.2.0-py3-none-any.whl",
+    "restart_the_job_after_adding_it": false
+  },
+  "airflow_upgrade": "create a new job with the new version",
+  "expectations": {
+    "starter_pool_shuts_down_after_idle_minutes": 20,
+    "custom_pool_shuts_down_on_its_own_when_idle": false,
+    "workers_added_by_each_extra_node": 3
+  },
+  "options": {
+    "settings_location": [
+      "Data Factory > Apache Airflow Runtime",
+      "Data Engineering/Science > Spark",
+      "Admin portal > Tenant settings"
+    ],
+    "default_pool": [
+      "starter pool",
+      "custom pool"
+    ],
+    "upload_folder": [
+      "dags",
+      "plugins/libs"
+    ],
+    "airflow_upgrade": [
+      "change the version in the job's settings",
+      "create a new job with the new version"
+    ]
+  }
+}

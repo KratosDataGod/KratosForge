@@ -120,7 +120,8 @@ variables the stopped cell left.
   nothing stays paused, and the next run starts a fresh process.
 - **No time limit while debugging.** Time spent paused counts as running, so the cell time limit is
   off for a cell under the debugger. The memory limit still applies.
-- **Evaluate waits up to 10 seconds** for an answer, then shows it when it finishes. An expression typed while another is still running doesn't wait, and its answer shows when its turn comes. **Stop** doesn't wait behind Evaluate, and it ends an expression that never finishes. A watch that never finishes holds up the pause the same way,
+- **Evaluate waits up to 10 seconds** for an answer, then shows it when it finishes. **Stop** ends
+  an expression that never finishes. A watch that never finishes holds up the pause the same way,
   and **Stop** ends it too. Stop lands between Python steps, so an expression waiting in a single long
   call, such as `time.sleep(30)`, ends when that call returns.
 - **Comprehensions run as one step.** **Step over** and **Step into** on a line with a list, dict or

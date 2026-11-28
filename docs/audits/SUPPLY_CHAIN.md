@@ -156,7 +156,7 @@ The CI `audit` job checks every lock file that ships, on every pull request, and
 
 | Lock file | Tool | Fails on |
 | --- | --- | --- |
-| `sidecar/constraints.txt`, `sidecar/engine-requirements.txt`, `sidecar/fabric_desktop/engines/dbconnect_locks/*.txt` | `pip-audit` | Any advisory |
+| `sidecar/constraints.txt`, `sidecar/engine-requirements.txt`, `sidecar/fabric_desktop/engines/dbconnect_locks/*.txt`, `sidecar/fabric_desktop/engines/snowpark_locks/*.txt` | `pip-audit` | Any advisory |
 | `app/ui/vendor/*/package-lock.json`, `vscode/package-lock.json` (build tools too) | `npm audit` | High or critical; moderate and low are warnings |
 | `app/src-tauri/Cargo.lock` | `cargo audit` | Any advisory |
 

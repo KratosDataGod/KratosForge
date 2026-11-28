@@ -220,3 +220,29 @@ def test_an_unclosed_backtick_is_one_token_to_the_end():
     from fabric_desktop import metric_registry
     tokens = metric_registry._TOKEN.findall("SUM(x) + `" + "a [ ' " * 20_000)
     assert len(tokens) <= 8 and tokens[-1].startswith("`")
+
+
+def _avg_model(measures):
+    return {"model": {"tables": [{"name": "orders", "columns": [{"name": "amount", "dataType": "double"}],
+                                  "measures": measures}]}}
+
+
+def test_divides_alternate_result_is_never_shown():
+    """The L2 form keeps DIVIDE's alternate result, a literal from the expression: rows and evidence show it as a
+    keyed fingerprint, never the value."""
+    from fabric_desktop import metric_registry
+    rows = metric_registry.metrics({
+        side: _avg_model([{"name": "avg", "expression": f"DIVIDE(SUM('orders'[amount]), COUNTROWS('orders'), {alt})"}])
+        for side, alt in (("a", 98765), ("b", 12345))})
+    text = json.dumps({"rows": metric_registry.public(rows), "conflicts": metric_registry.conflicts(rows)})
+    assert "98765" not in text and "12345" not in text
+    assert all("alternate" in r["l2_form"] for r in metric_registry.public(rows))
+
+
+@pytest.mark.parametrize("missing", [{"name": "avg"}, {"name": "avg", "expression": ""}], ids=["absent", "empty"])
+def test_evidence_names_the_side_with_no_expression(missing):
+    from fabric_desktop import metric_registry
+    rows = metric_registry.metrics({"a": _avg_model([{"name": "avg", "expression": "SUM('orders'[amount])"}]),
+                                    "b": _avg_model([missing])})
+    (conflict,) = metric_registry.conflicts(rows)["conflicts"]
+    assert conflict["evidence"][0]["changes"] == ["b (orders) has no expression; a (orders) has one"]

@@ -126,7 +126,7 @@ def _row(label: str, side: sp._Side, entry: dict[str, Any], raw: dict[str, Any],
         basis, normal, reason = NO_EXPRESSION, "", _cut(p["reason"])
     return {"source": label, "kind": side.kind, "table": table, "name": name,
             "key": _key(basis, p["dialect"] if basis == TEXT_ONLY else None, normal), "basis": basis,
-            "l2_form": None if p["form"] is None else _cut(sp._form_text(p["form"])),
+            "l2_form": None if p["form"] is None else _cut(sp._form_text(_alternate_withheld(p["form"]))),
             "l2_reason": reason, "dialect": p["dialect"],
             "expression_chars": 0 if text is None else len(text),
             "expression_fingerprint": None if text is None else keyed_fingerprint.fingerprint(text),
@@ -165,8 +165,19 @@ def _where(row: dict[str, Any]) -> str:
     return _cut(row["source"] if row["table"] is None else f"{row['source']} ({row['table']})")
 
 
+def _alternate_withheld(form: tuple[Any, ...]) -> tuple[Any, ...]:
+    """``form`` with DIVIDE's alternate result (a literal from the expression) as a keyed fingerprint, so the
+    shown form names functions, tables and columns only, as the change lines do."""
+    if form and form[0] == "div" and isinstance(form[3], str) and form[3].startswith("ALT:"):
+        return (*form[:3], "ALT:" + keyed_fingerprint.digest(form[3]), *form[4:])
+    return form
+
+
 def _evidence(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
     """How b's expression differs from a's: L2's change lines with sources for sides, else text only."""
+    for x, y in ((a, b), (b, a)):
+        if not x["expression_chars"] and y["expression_chars"]:
+            return [f"{_where(x)} has no expression; {_where(y)} has one"]
     if a["_form"] is None or b["_form"] is None:
         return [TEXT_DIFFERS]
     lines = sp._form_changes(a["_form"], b["_form"])

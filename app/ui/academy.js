@@ -250,7 +250,7 @@ function academyReadiness({ pack, ready }) {
   const nextTile = h("div", { class: "card pad academy-tile academy-tile-next" }, h("span", { class: "muted-text small" }, "Next exercise"),
     next ? [h("a", { href: "#", onclick: (e) => { e.preventDefault(); academyOpen(next.id); } }, `${next.id} ${next.title}`),
       h("span", { class: "muted-text small" }, `${next.objective} · ${academyMeta(next)}`)]
-      : h("span", { class: "muted-text" }, "Every published exercise is passed."));
+      : h("span", { class: "muted-text" }, "You've passed every published exercise."));
   const cell = (o, key) => {
     if (key === "knowledge") {
       const k = o.measures.knowledge;
@@ -292,8 +292,9 @@ function academyReadiness({ pack, ready }) {
     items.length ? h("ul", { class: "academy-list" }, items.map((x) => h("li", {}, h("b", {}, x.id), ` ${x.text}: ${x.why}`))) : h("p", { class: "muted-text" }, empty));
   const todo = dash.todo;
   const todoBits = ready.domains.filter((x) => todo.by_domain[x.id]).map((x) => `${todo.by_domain[x.id]} in domain ${x.id}`);
+  const todoList = todoBits.length > 1 ? `${todoBits.slice(0, -1).join(", ")} and ${todoBits[todoBits.length - 1]}` : todoBits.join("");
   const left = h("section", { class: "card pad academy-r-list", "aria-labelledby": "academy-r-todo" }, h("h2", { id: "academy-r-todo" }, "Still to do"),
-    h("p", {}, todo.objectives ? `${todo.objectives} objective${todo.objectives === 1 ? "" : "s"} not started${todoBits.length ? `: ${todoBits.join(", ")}` : ""}.${todo.need_platform ? ` ${todo.need_platform} of them need your own ${plat} workspace to be verified.` : ""}` : "Every objective is started."),
+    h("p", {}, todo.objectives ? `${todo.objectives} objective${todo.objectives === 1 ? "" : "s"} not started${todoList ? ` (${todoList})` : ""}.${todo.need_platform ? ` ${todo.need_platform} of them ${todo.need_platform === 1 ? "needs" : "need"} your own ${plat} workspace to be verified.` : ""}` : "Every objective is started."),
     h("div", { class: "row wrap" }, btn("See them on the path", null, () => { academyPage.tab = "path"; academyPage.left = true; render(); }, "tool link"),
       typeof assess !== "undefined" ? btn("Take a diagnostic", null, () => { if (assess.mode !== "exam") Object.assign(assess, { mode: "home", pick: "diagnostic", fromHome: false }); academyPage.tab = "assessments"; render(); }, "tool link") : null));
   return [h("div", { role: "note", class: "academy-note" }, `${ready.note} Results stay tied to the study guide of ${ready.version}.`,

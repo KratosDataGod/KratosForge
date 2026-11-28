@@ -183,6 +183,8 @@ test("Readiness is a dashboard: totals, each domain's measures, the chosen domai
   assert.match(await page().locator("#academy-r-2").textContent(), /2 .* by objective/);
   assert.match(await page().locator(".academy-r-lists").textContent(), /Strengths[\s\S]*2\.2\.9/);
   assert.match(await page().locator(".academy-body").textContent(), /isn't Microsoft's score/);
+  assert.match(await page().locator(".academy-r-list", { hasText: "Still to do" }).textContent(),
+    /\d+ objectives not started \(\d+ in domain 1, \d+ in domain 2 and \d+ in domain 3\)\. \d+ of them needs? your own Fabric workspace to be verified\./);
   await page().locator(".page.academy .head-actions .tool", { hasText: "Export report" }).click();
   await page().waitForFunction(() => /Saved to/.test(document.getElementById("toast")?.textContent || ""));
   assert.ok(app.calls.some((c) => c.method === "academy_readiness_export" && c.params.pack_id === "dp-700"));

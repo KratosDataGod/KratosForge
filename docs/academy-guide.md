@@ -71,7 +71,7 @@ and the next exercise you run adds it back. How the sandbox works is in
 On the Readiness dashboard, Knowledge counts as met for an objective once at least 2 of its questions are
 answered with 75% of the points right. The other measures each need an exercise passed that way, and
 verified on the platform counts only the objectives that need it. Strengths are proved objectives, then
-those meeting the most measures; weaknesses are objectives with under half of their question points right,
+those meeting the most measures. Weaknesses are objectives with under half of their question points right,
 then started objectives with no exercise passed.
 
 Readiness is KratosForge's own estimate from the evidence on this PC. It isn't Microsoft's score and it

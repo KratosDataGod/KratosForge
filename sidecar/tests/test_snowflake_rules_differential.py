@@ -58,6 +58,17 @@ def _round(x: Decimal, places: int, mode: str) -> Decimal:
     return x.quantize(step, rounding=mode) if places >= 0 else (x / step).quantize(Decimal(1), rounding=mode) * step
 
 
+def _months_between(a: dt.datetime, b: dt.datetime) -> Decimal:
+    # months_between: the fraction uses "the day and time parts of the input values", each month 31 days long; it is
+    # zero "If the days of the month are the same" or both are the last day of a month.
+    months = (a.year * 12 + a.month) - (b.year * 12 + b.month)
+    last = lambda d: d.day == calendar.monthrange(d.year, d.month)[1]  # noqa: E731
+    if a.day == b.day or (last(a) and last(b)):
+        return Decimal(months)
+    seconds = lambda d: d.hour * 3600 + d.minute * 60 + d.second  # noqa: E731
+    return Decimal(months) + Decimal((a.day - b.day) * 86400 + seconds(a) - seconds(b)) / Decimal(2678400)
+
+
 def _boundaries(unit: str, a: dt.date, b: dt.date) -> int:
     # datediff counts boundaries; for week, WEEK_START 0 is "Calculated using weeks starting on Monday."
     monday = lambda d: d - dt.timedelta(days=d.weekday())  # noqa: E731
@@ -222,6 +233,30 @@ def cases() -> list[tuple[str, str, object]]:
         out.append(("TIMESTAMP_TEXT", f"TO_VARCHAR({q(text)}::TIMESTAMP_NTZ)", want))
         out.append(("TIMESTAMP_TEXT", f"'at ' || {q(text)}::TIMESTAMP_NTZ", "at " + want))
         out.append(("TIME_TEXT", f"CAST({q(t.time().isoformat())}::TIME AS VARCHAR)", f"{t:%H:%M:%S}"))
+    edges = random.Random(SEED + 3)  # WR-279: whole-number casts, MONTHS_BETWEEN, HALF_TO_EVEN, LISTAGG
+    for _ in range(60):
+        # data-types-numeric: INT and its synonyms are "Synonymous with NUMBER ... NUMBER(38, 0)", so a FLOAT cast to
+        # INT rounds as a cast to NUMBER does, half away from zero
+        half = Decimal(edges.randint(-4000, 4000)) / 2
+        out.append(("WHOLE_CAST", f"{half}::FLOAT::{edges.choice(['INT', 'INTEGER', 'BIGINT', 'SMALLINT'])}",
+                    half.quantize(Decimal(1), rounding=ROUND_HALF_UP)))
+        big = edges.randint(2**31, 2**62)
+        out.append(("WHOLE_CAST", f"TRY_CAST('{big}' AS INT)", Decimal(big)))
+        a = dt.datetime(2019, 1, 1) + dt.timedelta(seconds=edges.randint(0, 3 * 365 * 86400))
+        b = dt.datetime(2019, 1, 1) + dt.timedelta(seconds=edges.randint(0, 3 * 365 * 86400))
+        if edges.random() < 0.2:
+            b = b.replace(day=min(a.day, calendar.monthrange(b.year, b.month)[1]))
+        out.append(("MONTHS_BETWEEN", f"MONTHS_BETWEEN('{a}'::TIMESTAMP, '{b}'::TIMESTAMP)", _months_between(a, b)))
+        out.append(("MONTHS_BETWEEN", f"MONTHS_BETWEEN('{a.date()}'::DATE, '{b.date()}'::DATE)",
+                    _months_between(dt.datetime.combine(a.date(), dt.time()), dt.datetime.combine(b.date(), dt.time()))))
+        # round: 'HALF_TO_EVEN' on values exactly half way at the scale
+        places = edges.randint(0, 4)
+        tie = (Decimal(edges.randint(-99999, 99999)) + Decimal("0.5")).scaleb(-places)
+        out.append(("ROUND_HALF_TO_EVEN", f"ROUND({tie}, {places}, 'HALF_TO_EVEN')", _round(tie, places, ROUND_HALF_EVEN)))
+        # listagg: "If no delimiter is specified, an empty string is used as the delimiter."
+        words = [edges.choice(["a", "bc", None, "d"]) for _ in range(edges.randint(0, 4))]
+        rows = " UNION ALL ".join(f"SELECT {i} AS i, {q(w)} AS w" for i, w in enumerate(words)) or "SELECT 0 AS i, 'x' AS w WHERE FALSE"
+        out.append(("LISTAGG", f"LISTAGG(w) WITHIN GROUP (ORDER BY i) FROM ({rows})", "".join(w for w in words if w)))
     return out + _regex_cases(random.Random(SEED + 2))
 
 

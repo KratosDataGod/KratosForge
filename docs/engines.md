@@ -112,7 +112,7 @@ function, with common operators and statements, and whether each runs, differs, 
 here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.11.23.
+Rules 2026.11.28.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -152,6 +152,10 @@ Rules 2026.11.23.
 | SFX-074 | Rewritten | INSERT, UPDATE and MERGE check each value they write to a TIMESTAMP_TZ column that a Snowflake cell in this session made (this cell or an earlier one), as SFX-071 checks a cast: text with no offset, or the session zone's own, is stored as Snowflake stores it; text with another offset stops the query (SFN-071). Any other value, and a column whose Snowflake type isn't known here, is SFD-002. INSERT ... SELECT * reads the query's columns by place. |
 | SFX-075 | Rewritten | An array written with both text and numbers in it (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, and ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one) is a list of VARIANT values, as an ARRAY column is (SFX-024), so each element keeps its own type. SFN-025, which refused it, is retired. |
 | SFX-076 | Rewritten | CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all. |
+| SFX-080 | Rewritten | INT, INTEGER, BIGINT, SMALLINT, TINYINT and BYTEINT are Snowflake's NUMBER(38, 0): a cast to one rounds as a cast to NUMBER does, half away from zero (2.5::FLOAT::INT and PARSE_JSON('2.5')::INT are 3, where DuckDB rounded a DOUBLE half to even), and a column or cast of one is a 64-bit BIGINT, so 3000000000::INT and an INT column hold 3000000000. Past 64 bits it stops (SFN-080). |
+| SFX-081 | Rewritten | MONTHS_BETWEEN counts the time of day in the fraction of a month, as Snowflake does (a month is 31 days): it was worked out from the dates alone. |
+| SFX-082 | Rewritten | ROUND(x, scale, 'HALF_TO_EVEN') of a NUMBER rounds a value exactly half way to the even neighbour in decimal arithmetic, on both DuckDB versions (DuckDB 1.x went through DOUBLE). A FLOAT with a rounding mode stops, as Snowflake doesn't take one (SFN-081). |
+| SFX-083 | Rewritten | ARRAY_CAT with a NULL argument is NULL, also when the first is written with ARRAY_CONSTRUCT. ARRAY_AGG of no rows, or of only NULLs, is an empty array. LISTAGG with no delimiter joins with an empty string (DuckDB's default is a comma), and of no rows or only NULLs is an empty string. |
 | SFX-086 | Rewritten | $1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, as in Snowflake. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: A column made by an expression keeps DuckDB's name | Snowflake stores and resolves an unquoted name in upper case, and so does this PC (SFX-072, SFX-073). A column made by an expression with no alias (a + 1) gets a name Snowflake writes its own way, and here it keeps DuckDB's. It's raised for CREATE TABLE ... AS and CREATE VIEW, where the name is stored. A query's result shows such a column under DuckDB's name too. |
@@ -203,6 +207,11 @@ Rules 2026.11.23.
 | SFN-074 | Runs only in Snowflake | CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own version would come back in its place. |
 | SFN-075 | Runs only in Snowflake | CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text of database.schema names; DuckDB's is a list of its own search path. |
 | SFN-076 | Runs only in Snowflake | RANDOM with a seed: Snowflake's series for a seed comes from its own generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs. |
+| SFN-080 | Runs only in Snowflake | A whole number past 64 bits cast to INT or one of its synonyms (the query stops at that row): Snowflake's NUMBER(38, 0) holds 38 digits; cast to NUMBER(38, 0) instead. |
+| SFN-081 | Runs only in Snowflake | ROUND with a rounding mode other than 'HALF_AWAY_FROM_ZERO' or 'HALF_TO_EVEN' as written there, or given by a column; 'HALF_TO_EVEN' with a scale that isn't a whole number written in the query; and a FLOAT with a rounding mode, which Snowflake doesn't take (the query stops at that row). |
+| SFN-082 | Runs only in Snowflake | REGR_SLOPE where VAR_POP(x) is 0 (the query stops at that row): Snowflake's page doesn't say what it gives, and DuckDB gives NaN. |
+| SFN-083 | Runs only in Snowflake | LN or LOG of 0 or a negative number, LOG to base 1, and SQRT of a negative number (the query stops at that row): Snowflake's pages don't say what they give, and the two DuckDB versions give an error or -inf and NaN. |
+| SFN-084 | Runs only in Snowflake | MOD or % by zero (the query stops at that row): Snowflake's page doesn't say what it gives, and the two DuckDB versions give NULL or an error. |
 | SFN-085 | Runs only in Snowflake | $1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position of one named table's column, which DuckDB has no way to write. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 

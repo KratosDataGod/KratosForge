@@ -32,7 +32,7 @@ from sqlglot.errors import ParseError, SqlglotError, TokenError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.23"
+RULES_VERSION = "2026.11.28"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -1207,6 +1207,183 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
                 if epoch is None and name != "TRY_TO_DATE":
                     continue  # past the dates DuckDB holds: left to stop loudly
                 call.replace(_date_literal(epoch))
+
+
+# ---------------------------------------------------------------- WR-279: whole numbers, NULLs and domains
+
+# SFX-080 to SFX-083 and SFN-080 to SFN-084 (2026.11.28).
+_WHOLE_TYPES = (exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT, exp.DataType.Type.INT)
+_WHOLE_CAST = "kf_sf_whole_cast"    # a cast to INT, INTEGER, BIGINT, SMALLINT, TINYINT or BYTEINT the query wrote
+_EDGE = "kf_sf_wr279_edge"          # a call the query wrote, which _rewrite_user_edges rewrites
+_EDGE_NODES = (exp.MonthsBetween, exp.Round, exp.ArrayConcat, exp.ArrayAgg, exp.GroupConcat, exp.RegrSlope,
+               exp.Ln, exp.Log, exp.Sqrt, exp.Mod)
+_BIGINT_MIN, _BIGINT_MAX = -2**63, 2**63 - 1
+
+_PAST_BIGINT = _refuse(
+    "SFN-080", "A whole number past 64 bits", "Snowflake's INT, INTEGER, BIGINT, SMALLINT, TINYINT and BYTEINT "
+    "are all NUMBER(38, 0) and hold up to 38 digits. Here they are 64-bit whole numbers, so a value past "
+    "-9223372036854775808 to 9223372036854775807 stops the query. Cast to NUMBER(38, 0) to keep such a value.",
+    f"{_DOCS}/data-types-numeric")
+_ROUND_MODE = _refuse(
+    "SFN-081", "ROUND with this rounding mode", "Snowflake's ROUND takes 'HALF_AWAY_FROM_ZERO' or 'HALF_TO_EVEN', "
+    "and only for a NUMBER. A mode written any other way, or given by a column, and 'HALF_TO_EVEN' with a scale "
+    "that isn't a whole number written in the query, aren't rewritten; a FLOAT with a rounding mode stops, as "
+    "Snowflake doesn't take one.", f"{_DOCS}/functions/round")
+_FLAT_SLOPE = _refuse(
+    "SFN-082", "REGR_SLOPE when x doesn't vary", "Snowflake's page gives REGR_SLOPE as COVAR_POP(x, y) / "
+    "VAR_POP(x) and doesn't say what it gives when VAR_POP(x) is 0 (one pair, or every x the same); DuckDB "
+    "gives NaN, so the query stops there. IFF(REGR_SXX(y, x) = 0, NULL, REGR_SLOPE(y, x)) gives NULL for it, "
+    "as REGR_R2 and REGR_INTERCEPT do.", f"{_DOCS}/functions/regr_slope")
+_OUT_OF_DOMAIN = _refuse(
+    "SFN-083", "LN, LOG or SQRT outside its domain", "Snowflake's pages don't say what LN or LOG of 0 or a "
+    "negative number, LOG to base 1, or SQRT of a negative number give, and the two DuckDB versions this PC "
+    "runs give an error or -inf and NaN, so the query stops there.", f"{_DOCS}/functions/ln")
+_MOD_ZERO = _refuse(
+    "SFN-084", "MOD or % by zero", "Snowflake's MOD page doesn't say what a zero divisor gives, and the two DuckDB "
+    "versions this PC runs give NULL or an error, so the query stops there. Use IFF(b = 0, NULL, MOD(a, b)) "
+    "for NULL.", f"{_DOCS}/functions/mod")
+
+
+def _whole_literal(node: exp.Expression) -> bool:
+    """A whole number written in the query that a 64-bit cast holds as it is."""
+    negative = isinstance(node, exp.Neg)
+    value = node.this if negative else node
+    if not (isinstance(value, exp.Literal) and not value.is_string and value.name.isdigit()):
+        return False
+    return _BIGINT_MIN <= (-1 if negative else 1) * int(value.name) <= _BIGINT_MAX
+
+
+def _mark_user_edges(statement: exp.Expression) -> None:
+    """Before the rewrites: the calls and casts the query wrote, which _rewrite_user_edges rewrites after
+    them (a call another rule writes, such as HAVERSINE's SQRT, isn't one). SFX-080: INT, INTEGER, SMALLINT,
+    TINYINT and BYTEINT, which Snowflake keeps as NUMBER(38, 0), are 64-bit (BIGINT) everywhere, so a table's
+    INT column holds 3000000000 as Snowflake's does."""
+    for node in statement.find_all(*_EDGE_NODES):
+        node.meta[_EDGE] = True
+    for cast_ in statement.find_all(exp.Cast):
+        if cast_.to.this in (*_WHOLE_TYPES, exp.DataType.Type.BIGINT) and not cast_.to.expressions:
+            cast_.meta[_WHOLE_CAST] = True
+    for kind in list(statement.find_all(exp.DataType)):
+        if kind.this in _WHOLE_TYPES and not kind.expressions:
+            kind.set("this", exp.DataType.Type.BIGINT)
+
+
+def _stop(note: Note) -> str:
+    return _stop_sql(note)
+
+
+def _whole_cast(node: exp.Cast) -> None:
+    """SFX-080: a cast to INT and its synonyms is a cast to NUMBER(38, 0) (data-types-numeric: "Synonymous with
+    NUMBER, except that precision and scale can't be specified"), so 2.5::FLOAT::INT and PARSE_JSON('2.5')::INT
+    are 3, as ::NUMBER is; DuckDB's cast of a DOUBLE to a whole number rounded half to even (2). The value is
+    then a BIGINT, and one past 64 bits stops by name (SFN-080), where TRY_CAST gave NULL."""
+    value = node.this
+    if _whole_literal(value):
+        return
+    read = "TRY_CAST" if isinstance(node, exp.TryCast) else "CAST"
+    _put(node, f"list_extract(list_transform([{read}(fj_arg0 AS DECIMAL(38, 0))], __sf_n -> CASE WHEN __sf_n IS NULL "
+               f"OR __sf_n BETWEEN {_BIGINT_MIN} AND {_BIGINT_MAX} THEN CAST(__sf_n AS BIGINT) "
+               f"ELSE {_stop(_PAST_BIGINT)} END), 1)", [value])
+
+
+# months_between: "the fractional portion is calculated using the day and time parts of the input values", with
+# each month 31 days long; zero when the days of the month are the same or both are the last day of a month.
+_MONTHS_BETWEEN = (
+    "list_extract(list_transform([[CAST(fj_arg0 AS TIMESTAMP), CAST(fj_arg1 AS TIMESTAMP)]], __sf_m -> "
+    "CAST((year(__sf_m[1]) * 12 + month(__sf_m[1])) - (year(__sf_m[2]) * 12 + month(__sf_m[2])) + CASE "
+    "WHEN day(__sf_m[1]) = day(__sf_m[2]) OR (CAST(__sf_m[1] AS DATE) = last_day(__sf_m[1]) "
+    "AND CAST(__sf_m[2] AS DATE) = last_day(__sf_m[2])) THEN 0 "
+    "ELSE ((day(__sf_m[1]) - day(__sf_m[2])) * 86400 + (epoch(__sf_m[1]) - epoch(date_trunc('day', __sf_m[1]))) "
+    "- (epoch(__sf_m[2]) - epoch(date_trunc('day', __sf_m[2])))) / 2678400.0 END AS DOUBLE)), 1)")
+
+
+def _round_mode(node: exp.Round) -> None:
+    """SFX-082: ROUND(x, scale, 'HALF_TO_EVEN') of a NUMBER rounds a value exactly half way to the even
+    neighbour, in decimal arithmetic: DuckDB 1.x's ROUND_EVEN went through DOUBLE, so ROUND(1.005, 2,
+    'HALF_TO_EVEN') was 1.01. A FLOAT with a rounding mode stops, as Snowflake doesn't take one (SFN-081)."""
+    from .sql import _bround
+    mode = node.args.get("truncate")
+    if mode is None:
+        return
+    if not (isinstance(mode, exp.Literal) and mode.is_string and mode.name in ("HALF_AWAY_FROM_ZERO", "HALF_TO_EVEN")):
+        raise _Untranslatable(_ROUND_MODE)
+    scale = node.args.get("decimals")
+    if mode.name == "HALF_AWAY_FROM_ZERO":
+        body = "ROUND(__sf_r)" if scale is None else "ROUND(__sf_r, fj_arg1)"
+    else:
+        places = 0 if scale is None else scale
+        sign, digits = (-1, places.this) if isinstance(places, exp.Neg) else (1, places)
+        if isinstance(digits, exp.Expression):
+            if not (isinstance(digits, exp.Literal) and not digits.is_string and digits.name.isdigit()):
+                raise _Untranslatable(_ROUND_MODE)
+            k = sign * int(digits.name)
+        else:
+            k = 0
+        body = _bround(max(-38, min(38, k))).replace("{0}", "__sf_r")
+    _put(node, "list_extract(list_transform([fj_arg0], __sf_r -> CASE WHEN TYPEOF(__sf_r) IN ('FLOAT', 'DOUBLE') "
+               f"THEN {_stop(_ROUND_MODE)} ELSE {body} END), 1)",
+         [node.this] + ([] if scale is None else [scale]))
+
+
+def _outer(node: exp.Expression) -> exp.Expression:
+    """The aggregate with its WITHIN GROUP and OVER, which a wrapper goes around."""
+    while isinstance(node.parent, (exp.WithinGroup, exp.Window)) and node.parent.this is node:
+        node = node.parent
+    return node
+
+
+def _guard(node: exp.Expression, test: str, note: Note) -> None:
+    """``node`` worked out once, stopping by ``note`` where ``test`` (of __sf_g) holds."""
+    _put(node, f"list_extract(list_transform([fj_arg0], __sf_g -> CASE WHEN {test} THEN {_stop(note)} "
+               "ELSE __sf_g END), 1)", [node])
+
+
+def _rewrite_user_edges(statement: exp.Expression) -> None:
+    """SFX-080 to SFX-083, SFN-080 to SFN-084, after the other rewrites, on what the query wrote. Each argument is
+    read once."""
+    for cast_ in reversed(list(statement.find_all(exp.Cast))):
+        if cast_.meta.get(_WHOLE_CAST):
+            _whole_cast(cast_)
+    for node in reversed(list(statement.find_all(*_EDGE_NODES))):
+        if not node.meta.get(_EDGE):
+            continue
+        if isinstance(node, exp.MonthsBetween):  # SFX-081
+            _put(node, _MONTHS_BETWEEN, [node.this, node.expression])
+        elif isinstance(node, exp.Round):
+            _round_mode(node)
+        elif isinstance(node, exp.ArrayConcat) and len(node.expressions) == 1 \
+                and not (isinstance(node.this, exp.Array) and isinstance(node.expressions[0], exp.Array)):
+            # SFX-083: array_cat: "If either argument is NULL, the function returns NULL"; sqlglot left out the
+            # check when the first argument is written as an array (ARRAY_CAT(ARRAY_CONSTRUCT(1), NULL) was [1])
+            _put(node, "list_extract(list_transform([ROW(fj_arg0, fj_arg1)], __sf_c -> CASE WHEN "
+                       "struct_extract(__sf_c, 1) IS NULL OR struct_extract(__sf_c, 2) IS NULL THEN NULL ELSE "
+                       "LIST_CONCAT(struct_extract(__sf_c, 1), struct_extract(__sf_c, 2)) END), 1)",
+                 [node.this, node.expressions[0]])
+        elif isinstance(node, exp.ArrayAgg):
+            # SFX-083: array_agg: "If the input is empty, the function returns an empty array"; NULLs are omitted
+            outer = _outer(node)
+            _put(outer, "COALESCE(fj_arg0, [])", [outer])
+        elif isinstance(node, exp.GroupConcat):
+            # SFX-083: listagg: "If no delimiter is specified, an empty string is used" (DuckDB's is ','), and
+            # "If the input is empty, an empty string is returned", as when every value is NULL
+            if node.args.get("separator") is None:
+                node.set("separator", exp.Literal.string(""))
+            outer = _outer(node)
+            _put(outer, "COALESCE(fj_arg0, '')", [outer])
+        elif isinstance(node, exp.RegrSlope):
+            _guard(_outer(node), "isnan(__sf_g)", _FLAT_SLOPE)
+        elif isinstance(node, (exp.Ln, exp.Sqrt)):
+            test = "__sf_g < 0" if isinstance(node, exp.Sqrt) else "__sf_g <= 0"
+            _put(node.this, f"list_extract(list_transform([fj_arg0], __sf_g -> CASE WHEN {test} THEN "
+                            f"{_stop(_OUT_OF_DOMAIN)} ELSE __sf_g END), 1)", [node.this])
+        elif isinstance(node, exp.Log) and node.expression is not None:
+            _put(node, "list_extract(list_transform([ROW(fj_arg0, fj_arg1)], __sf_l -> CASE WHEN "
+                       "struct_extract(__sf_l, 1) <= 0 OR struct_extract(__sf_l, 1) = 1 OR struct_extract(__sf_l, 2) "
+                       f"<= 0 THEN {_stop(_OUT_OF_DOMAIN)} ELSE LOG(struct_extract(__sf_l, 1), "
+                       "struct_extract(__sf_l, 2)) END), 1)", [node.this, node.expression])
+        elif isinstance(node, exp.Mod) and not _nonzero_number(node.expression):
+            _put(node.expression, f"list_extract(list_transform([fj_arg0], __sf_g -> CASE WHEN __sf_g = 0 THEN "
+                                  f"{_stop(_MOD_ZERO)} ELSE __sf_g END), 1)", [node.expression])
 
 
 def _variant_arrays(statement: exp.Expression) -> None:
@@ -3258,6 +3435,20 @@ CATALOG = (
                 "SFN-025, which refused it, is retired.")),
     ("SFX-076", "Rewritten", ("CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time "
                 "cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all.")),
+    ("SFX-080", "Rewritten", ("INT, INTEGER, BIGINT, SMALLINT, TINYINT and BYTEINT are Snowflake's NUMBER(38, 0): a "
+                "cast to one rounds as a cast to NUMBER does, half away from zero (2.5::FLOAT::INT and "
+                "PARSE_JSON('2.5')::INT are 3, where DuckDB rounded a DOUBLE half to even), and a column or cast of one "
+                "is a 64-bit BIGINT, so 3000000000::INT and an INT column hold 3000000000. Past 64 bits it stops "
+                "(SFN-080).")),
+    ("SFX-081", "Rewritten", ("MONTHS_BETWEEN counts the time of day in the fraction of a month, as Snowflake does "
+                "(a month is 31 days): it was worked out from the dates alone.")),
+    ("SFX-082", "Rewritten", ("ROUND(x, scale, 'HALF_TO_EVEN') of a NUMBER rounds a value exactly half way to the even "
+                "neighbour in decimal arithmetic, on both DuckDB versions (DuckDB 1.x went through DOUBLE). A FLOAT "
+                "with a rounding mode stops, as Snowflake doesn't take one (SFN-081).")),
+    ("SFX-083", "Rewritten", ("ARRAY_CAT with a NULL argument is NULL, also when the first is written with "
+                "ARRAY_CONSTRUCT. ARRAY_AGG of no rows, or of only NULLs, is an empty array. LISTAGG with no delimiter "
+                "joins with an empty string (DuckDB's default is a comma), and of no rows or only NULLs is an empty "
+                "string.")),
     ("SFX-086", "Rewritten", ("$1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM "
                 "VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, "
                 "as in Snowflake.")),
@@ -3354,6 +3545,19 @@ CATALOG = (
                 "of database.schema names; DuckDB's is a list of its own search path.")),
     ("SFN-076", "Runs only in Snowflake", ("RANDOM with a seed: Snowflake's series for a seed comes from its own "
                 "generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs.")),
+    ("SFN-080", "Runs only in Snowflake", ("A whole number past 64 bits cast to INT or one of its synonyms (the "
+                "query stops at that row): Snowflake's NUMBER(38, 0) holds 38 digits; cast to NUMBER(38, 0) instead.")),
+    ("SFN-081", "Runs only in Snowflake", ("ROUND with a rounding mode other than 'HALF_AWAY_FROM_ZERO' or "
+                "'HALF_TO_EVEN' as written there, or given by a column; 'HALF_TO_EVEN' with a scale that isn't a "
+                "whole number written in the query; and a FLOAT with a rounding mode, which Snowflake doesn't take "
+                "(the query stops at that row).")),
+    ("SFN-082", "Runs only in Snowflake", ("REGR_SLOPE where VAR_POP(x) is 0 (the query stops at that row): "
+                "Snowflake's page doesn't say what it gives, and DuckDB gives NaN.")),
+    ("SFN-083", "Runs only in Snowflake", ("LN or LOG of 0 or a negative number, LOG to base 1, and SQRT of a "
+                "negative number (the query stops at that row): Snowflake's pages don't say what they give, and "
+                "the two DuckDB versions give an error or -inf and NaN.")),
+    ("SFN-084", "Runs only in Snowflake", ("MOD or % by zero (the query stops at that row): Snowflake's page "
+                "doesn't say what it gives, and the two DuckDB versions give NULL or an error.")),
     ("SFN-085", "Runs only in Snowflake", ("$1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a "
                 "column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position "
                 "of one named table's column, which DuckDB has no way to write.")),
@@ -3400,6 +3604,7 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
         _refuse_nanoseconds(tree)
         as_text = list(tree.find_all(*_TEXT_NODES))
         _mark_result_names(tree)
+        _mark_user_edges(tree)
         if _rewrite_zoned_writes(tree, tables or {}) and SFD_TZ not in notes:
             notes.append(SFD_TZ)
         _mark_offsets_and_json(tree)
@@ -3436,6 +3641,7 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
         _rewrite_division(tree)
         _rewrite_time_text(tree, as_text)
         _json_of_variant_lists(tree)
+        _rewrite_user_edges(tree)
         _rewrite_result_names(tree)
         tree = _sort_json_keys(_check_offsets(tree))
         _length_once(tree)

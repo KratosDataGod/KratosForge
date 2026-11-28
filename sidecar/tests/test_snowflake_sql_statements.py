@@ -83,7 +83,7 @@ def test_keys_are_not_enforced_but_a_primary_key_is_not_null():
                       "CONSTRAINT pk PRIMARY KEY (a, d), UNIQUE (b), FOREIGN KEY (c) REFERENCES p (x), "
                       "CHECK (a > 0))").duckdb_sql
     # the names stored in upper case, as Snowflake stores unquoted ones (SFX-072)
-    assert sql == 'CREATE TABLE "T" ("A" INT NOT NULL, "B" INT, "C" INT, "D" INT NOT NULL, CHECK (a > 0))'
+    assert sql == 'CREATE TABLE "T" ("A" BIGINT NOT NULL, "B" BIGINT, "C" BIGINT, "D" BIGINT NOT NULL, CHECK (a > 0))'
     assert _rows("CREATE TABLE t (a INT PRIMARY KEY, b VARCHAR UNIQUE); INSERT INTO t VALUES (1, 'x'), (1, 'x'); "
                  "SELECT count(*) FROM t") == [(2,)]
     with pytest.raises(duckdb.ConstraintException):
@@ -95,7 +95,8 @@ def test_keys_are_not_enforced_but_a_primary_key_is_not_null():
 def test_transient_and_cluster_by_are_dropped():
     # https://docs.snowflake.com/en/sql-reference/sql/create-table (TRANSIENT: lower data protection; CLUSTER BY:
     # a clustering key)
-    assert s.translate("CREATE TRANSIENT TABLE t (a INT) CLUSTER BY (a)").duckdb_sql == 'CREATE TABLE "T" ("A" INT)'
+    # SFX-080: an INT column is Snowflake's NUMBER(38, 0), held here as BIGINT
+    assert s.translate("CREATE TRANSIENT TABLE t (a INT) CLUSTER BY (a)").duckdb_sql == 'CREATE TABLE "T" ("A" BIGINT)'
 
 
 @pytest.mark.parametrize(("column", "start", "step"), [

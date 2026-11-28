@@ -24,7 +24,7 @@
     "Copying data or reading the watermark table. The Lookup, Copy and Stored procedure activities are stand-ins with fixed results, so no data moves and no connection is tested.",
     "The parameters of the Stored procedure activity. The runner doesn't evaluate a stand-in's settings, so the saved watermark is checked through the pipeline's return value.",
     "That the Copy activity starts after Build query. The Copy stand-in returns the same result whenever it starts.",
-    "Running in a Fabric workspace, its schedule, or the speed of the copy."
+    "Running in a Fabric workspace, its schedule or the speed of the copy."
   ],
   "datasets": [],
   "parameters": {

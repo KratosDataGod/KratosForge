@@ -322,7 +322,9 @@ function nbRenamedHere(name, newName) {
 async function nbDelete(name) {
   const check = await attempt(() => rpc("notebook_delete_check", { name }), "Couldn't check the notebook");
   if (!check) return false;
+  const paused = !!openNotebooks.get(name)?.cells.some((c) => c.paused);  // debugging.js
   const facts = [
+    paused ? "A cell in this notebook is paused in the debugger. Deleting the notebook stops that cell." : null,
     check.fabric_item ? `Its Fabric item in ${check.fabric_item.workspace_name || "its workspace"} isn't deleted. Delete it in Fabric if you want it gone too.` : null,
     check.schedules.length ? `It has ${check.schedules.length} schedule${check.schedules.length > 1 ? "s" : ""} on this PC (${check.schedules.map((s) => s.text).filter(Boolean).join("; ") || "on this PC"}). ${check.schedules.length > 1 ? "They are" : "It is"} turned off, not deleted, so Restore brings ${check.schedules.length > 1 ? "them" : "it"} back.` : null,
     check.place ? `It's removed from the ${check.place.label} repository's folder, which shows as a change to commit there.` : null,
@@ -332,6 +334,8 @@ async function nbDelete(name) {
   if (!(await confirmDialog(`Delete ${name}?`, h("span", { style: "white-space:pre-line" }, text), "Delete", { danger: true }))) return false;
   const open = state.notebook?.name === name ? state.notebook : null;
   if (open?.dirty && !(await saveNotebook())) return false;  // what goes to Recently deleted is the latest
+  // A paused cell would wait forever, and its notebook be polled forever, with nothing left to continue it.
+  if (paused) await rpc("interrupt_cell", { notebook: name }).catch(() => null);
   const out = await attempt(() => rpc("notebook_delete", { name }), "Couldn't delete the notebook");
   if (!out) return false;
   openNotebooks.delete(name);

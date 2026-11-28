@@ -34,7 +34,7 @@ const MSG = {
   conflict: "Some tables named fdopt_ here aren't Optimize's, so Optimize won't write to this lakehouse. Pick another lakehouse, or create a new one.",
 };
 const WRITE_OK = "You can read and write this lakehouse.";
-const POLICY_OFF = "PermissionError: Your organization has turned off shared optimization lakehouses (allow_optimize_lakehouse in its policy file).";
+const POLICY_OFF = "PermissionError: Your organization has turned off shared optimization lakehouses. Ask IT to change allow_optimize_lakehouse in the policy file.";
 
 // optimize/setup.py inspect(): the answer for a lakehouse in a given state.
 function inspection(state, adds = []) {
@@ -394,7 +394,7 @@ test("Check sends that connection to optimize_connect without initialize, and sa
     params: { workspace_id: "w2", lakehouse_id: "lh-sales2", workspace_name: "Sales", lakehouse_name: "Sales_Optimization" } }]);
   fail.optimize_connect = POLICY_OFF;
   await lakeLine(section, "Sales_Optimization").locator("button", { hasText: "Check" }).click();
-  assert.match(await toastSays(/^Could not check the lakehouse/), /^Could not check the lakehouse: Your organization has turned off shared optimization lakehouses \(allow_optimize_lakehouse in its policy file\)\./);
+  assert.match(await toastSays(/^Could not check the lakehouse/), /^Could not check the lakehouse: Your organization has turned off shared optimization lakehouses\. Ask IT to change allow_optimize_lakehouse in the policy file\./);
 });
 
 test("New installation ID asks first: Cancel sends nothing, OK sends it and shows the new id", { skip }, async () => {

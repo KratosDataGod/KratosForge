@@ -51,7 +51,7 @@ engine, which hasn't run against a Snowflake account yet.
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
 | Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | Partial (up to 25 MB) | DBUs | Preview, tested against fakes |
 | Snowflake SQL warehouse (remote) | Your Snowflake warehouse | SQL | Snowflake SQL native, read-only statements only | Native | Partial (EXPLAIN USING TEXT) | No | Partial (every partition) | Snowflake credits | Preview, tested against fakes |
-| Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
+| Snowpark (this PC, simulated) | This PC, its own process, no network | Python (Snowpark) simulated by Snowflake's local testing framework | (session.sql refused) | Partial (ends the process) | No | No | No | Nothing | Preview, tested against a fake of Snowpark |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 
 Engines on this PC bill nothing themselves. **Reading or writing OneLake from this PC still uses
@@ -112,11 +112,11 @@ function, with common operators and statements, and whether each runs, differs, 
 here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.11.20.
+Rules 2026.11.23.
 
 | Id | What | Applies to |
 | --- | --- | --- |
-| SFX-001 | Rewritten | LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each, with Snowflake's columns: KEY is NULL for an array element and INDEX for an object field, PATH is written as Snowflake writes it (b, b[0], c.d), THIS is the value flattened, OUTER gives one row of NULLs for a value with nothing to flatten, and PATH => takes plain names and [n]. A scalar has nothing to flatten (no row, or the OUTER row). A key that isn't a plain name is written in PATH as it is, since Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; SFD-005 is retired. |
+| SFX-001 | Rewritten | LATERAL FLATTEN and TABLE(FLATTEN(...)) become DuckDB's json_each, with Snowflake's columns: KEY is NULL for an array element and INDEX for an object field, PATH is written as Snowflake writes it (b, b[0], c.d), THIS is the value flattened, OUTER gives one row of NULLs for a value with nothing to flatten, and PATH => takes plain names and [n]. A scalar has nothing to flatten (no row, or the OUTER row). A key that isn't a plain name is written in PATH as it is, since Snowflake's docs don't show how it writes one. SEQ, RECURSIVE and MODE aren't rewritten; SFD-005 is retired. The columns are named KEY, PATH, INDEX, VALUE and THIS (SFX-073). |
 | SFX-002 | Rewritten | TO_VARCHAR and TO_CHAR with a date or time format written in the query become strftime. Elements with no equivalent (quarter, week) aren't rewritten. |
 | SFX-003 | Runs only in Snowflake | TO_VARCHAR and TO_CHAR with a number format. |
 | SFX-004 | Rewritten | OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten. |
@@ -124,7 +124,7 @@ Rules 2026.11.20.
 | SFX-006 | Rewritten | SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that case. |
 | SFX-007 | Rewritten | RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's sum, null when x is null or the sum is 0. An ORDER BY in its window is dropped, as it doesn't change the result. x is worked out twice, which matters only when it isn't deterministic (RANDOM(), for example). |
 | SFX-008 | Rewritten | HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius 6,371 km. |
-| SFX-009 | Rewritten | TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT for JSON; INTEGER, DECIMAL or DOUBLE for a JSON number by how PARSE_JSON reads it (an exponent makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; SQL NULL for SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. Where the name can't be known, SFD-007 applies. The argument is worked out more than once, which matters only when it isn't deterministic. |
+| SFX-009 | Rewritten | TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT for JSON; INTEGER, DECIMAL or DOUBLE for a JSON number by how PARSE_JSON reads it (an exponent makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; TIMESTAMP_TZ and TIMESTAMP_LTZ for TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ (and TRY_), a cast to either, and CURRENT_TIMESTAMP (LTZ); SQL NULL for SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. A JSON number with a fraction whose writing isn't known stops the query (SFN-072), and so does another timestamp with a time zone (SFN-073). A type with no Snowflake name is SFD-007. The argument is worked out more than once, which matters only when it isn't deterministic. |
 | SFX-010 | Rewritten | a / b stops with Snowflake's "Division by zero" error when b is 0, where DuckDB gives infinity or NULL. DIV0 and DIV0NULL still give 0. A divisor that isn't a column or a number is worked out twice, which matters only when it isn't deterministic. |
 | SFX-011 | Rewritten | IS_<type> and AS_<type> (INTEGER, DECIMAL, NUMBER, DOUBLE, REAL, BOOLEAN, CHAR, VARCHAR, ARRAY, OBJECT, BINARY, DATE, DATE_VALUE, TIME, TIMESTAMP_NTZ) test and read the type a VARIANT holds, as Snowflake names it: a PARSE_JSON value by its JSON type, a TO_VARIANT value by the type it was made from. AS_<type> gives NULL for any other type. A JSON integer too big for 64 bits is DOUBLE here. |
 | SFX-012 | Rewritten | A JSON value cast to text (v:a::string, v['a']::string, TO_VARCHAR(v:a), PARSE_JSON(...)::varchar, GET(o, 'key')::varchar, STRIP_NULL_VALUE(...)::varchar) gives a string without its JSON quotes, and JSON null gives SQL NULL, as in Snowflake: DuckDB's cast keeps the quotes and writes 'null'. A table's column whose type the statement doesn't show is cast as written. |
@@ -144,20 +144,26 @@ Rules 2026.11.20.
 | SFX-026 | Rewritten | REGEXP_SUBSTR is NULL when nothing matches. CEIL and FLOOR with a written scale stay exact for a NUMBER. EDITDISTANCE with a negative maximum is 0. NEXT_DAY and PREVIOUS_DAY read the first two letters of the day, after any leading spaces. CONTAINS with NULL is NULL. TIME_SLICE counts slices from 1970-01-01 (weeks from Monday 1969-12-29). TO_DATE and a cast to DATE of a string written in the query read MM/DD/YYYY and DD-MON-YYYY, and TO_DATE of a string holding a whole number reads it as epoch seconds, milliseconds, microseconds or nanoseconds by its size. |
 | SFX-027 | Rewritten | CREATE TABLE makes a table as Snowflake does: PRIMARY KEY, UNIQUE and FOREIGN KEY aren't enforced, so they are dropped, and a PRIMARY KEY column keeps NOT NULL, which the constraint implies. AUTOINCREMENT and IDENTITY columns take their DEFAULT from a sequence that starts and steps as written (1 and 1 unless given); Snowflake's values are unique but not always one after another, so these are among those it could give. The sequence stays in the session when the table is replaced or dropped. TRANSIENT and CLUSTER BY are dropped, as they don't change what a query reads. In MERGE, UPDATE SET target.column = ... names the target's column. START TRANSACTION is BEGIN. |
 | SFX-028 | Rewritten | The regular expression parameters m (^ and $ match at each line) and s (. matches a line break) are read as Snowflake reads them, also together ('sm'), in REGEXP_LIKE, RLIKE, REGEXP_REPLACE, REGEXP_SUBSTR and REGEXP_SUBSTR_ALL. The c parameter is taken in REGEXP_COUNT and REGEXP_INSTR too. An empty pattern matches nothing, except in REGEXP_LIKE and its aliases, where it matches only an empty subject. |
+| SFX-029 | Rewritten | A timestamp or time cast to text (::VARCHAR, CAST, TRY_CAST, and TO_VARCHAR or TO_CHAR with no format), or joined with || or CONCAT, is written in Snowflake's default output formats: TIMESTAMP_NTZ as YYYY-MM-DD HH24:MI:SS.FF3, TIMESTAMP_LTZ and TIMESTAMP_TZ with the session time zone's offset as TZHTZM after it, and TIME as HH24:MI:SS. |
+| SFX-070 | Rewritten | TO_JSON writes an object's keys in sorted order at every level, as Snowflake keeps an OBJECT's keys, and writes an object a VARIANT column holds as JSON (DuckDB 1.x's TO_JSON wrote it as quoted text). SFD-014 is retired. |
+| SFX-071 | Rewritten | TO_TIMESTAMP_TZ and TRY_TO_TIMESTAMP_TZ of a column run as a cast to TIMESTAMP_TZ. A cast to TIMESTAMP_TZ (and TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ) of text with no offset, or with the session zone's own offset at that time, gives Snowflake's value; text with another offset stops the query (SFN-071). |
+| SFX-072 | Rewritten | CREATE TABLE, CREATE TEMPORARY TABLE, CREATE VIEW, CREATE SCHEMA and ALTER TABLE store an unquoted name in upper case, as Snowflake does (MyCol becomes MYCOL): the object and the schema it is made in (mysch.tab), its columns, a column list (CREATE VIEW v (a, b) AS), a column or alias of CREATE ... AS and CREATE VIEW, an alias column list of VALUES (AS t(c1, c2), SFX-073), a renamed table or column, an added column. A quoted name keeps its case. |
+| SFX-073 | Rewritten | A query's result names a column, or an unquoted alias, in upper case, as Snowflake resolves an unquoted name (SELECT last_name gives LAST_NAME, AS area_of_circle gives AREA_OF_CIRCLE): in each SELECT, in * RENAME and * REPLACE, and in an alias column list (AS v(a, b), WITH c(a) AS). A quoted name keeps its case. A column made by an expression with no alias keeps DuckDB's name (SFD-001). |
+| SFX-074 | Rewritten | INSERT, UPDATE and MERGE check each value they write to a TIMESTAMP_TZ column that a Snowflake cell in this session made (this cell or an earlier one), as SFX-071 checks a cast: text with no offset, or the session zone's own, is stored as Snowflake stores it; text with another offset stops the query (SFN-071). Any other value, and a column whose Snowflake type isn't known here, is SFD-002. INSERT ... SELECT * reads the query's columns by place. |
+| SFX-075 | Rewritten | An array written with both text and numbers in it (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, and ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one) is a list of VARIANT values, as an ARRAY column is (SFX-024), so each element keeps its own type. SFN-025, which refused it, is retired. |
+| SFX-076 | Rewritten | CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all. |
+| SFX-086 | Rewritten | $1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, as in Snowflake. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
-| SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
-| SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. |
+| SFD-001 | Runs, with a difference: A column made by an expression keeps DuckDB's name | Snowflake stores and resolves an unquoted name in upper case, and so does this PC (SFX-072, SFX-073). A column made by an expression with no alias (a + 1) gets a name Snowflake writes its own way, and here it keeps DuckDB's. It's raised for CREATE TABLE ... AS and CREATE VIEW, where the name is stored. A query's result shows such a column under DuckDB's name too. |
+| SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. Raised for a TIMESTAMP_TZ column, a TIMESTAMP_TZ made from a number, and an INSERT, UPDATE or MERGE that writes a value other than text to a TIMESTAMP_TZ column (or to a timestamp column with a time zone that no Snowflake cell in this session made). TO_TIMESTAMP_TZ, TRY_TO_TIMESTAMP_TZ, a cast to TIMESTAMP_TZ and text written to a TIMESTAMP_TZ column check the offset instead (SFX-071, SFX-074, SFN-071). |
 | SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. |
 | SFD-004 | Runs, with a difference: Local time zone is this PC's | TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter. |
 | SFD-006 | Runs, with a difference: Date arithmetic on a DATE returns a TIMESTAMP | DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC, of a value whose type isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. Raised when the value may be a DATE (a column's type isn't known here); a value that is plainly a DATE (a cast, TO_DATE, CURRENT_DATE) is cast back to DATE instead, and a TIMESTAMP cast or function raises nothing. |
-| SFD-007 | Runs, with a difference: TYPEOF can't always name Snowflake's type | TYPEOF gives Snowflake's type names here (SFX-009), with two exceptions. A JSON number with a fraction or an exponent that isn't read from PARSE_JSON of text written in the query (a column, or a path into one such as v:a) comes back as 'DECIMAL or DOUBLE': Snowflake tells them apart by how the number was written (1.912e2 is DOUBLE, 191.2 is DECIMAL) and DuckDB doesn't keep that. A type with no single Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't known here: a column, a path or a computed value. |
-| SFD-008 | Runs, with a difference: A JSON fraction counts as a decimal | Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE; DuckDB's JSON reads both as DOUBLE. So IS_DECIMAL, AS_DECIMAL and AS_NUMBER take any JSON number with a fraction or exponent as a decimal: for 1.912e2 they give TRUE and a number here, where Snowflake gives FALSE and NULL. A VARIANT made with TO_VARIANT keeps its type and is exact. |
+| SFD-007 | Runs, with a difference: TYPEOF can't always name Snowflake's type | TYPEOF gives Snowflake's type names here (SFX-009). A JSON number with a fraction or an exponent that isn't read from PARSE_JSON of text written in the query stops the query (SFN-072), and so does a timestamp with a time zone whose Snowflake type isn't known (SFN-073). A type with no Snowflake name keeps DuckDB's name (INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't known here: a column, a path or a computed value. |
 | SFD-009 | Runs, with a difference: [i] on a value whose type isn't known | [i] is 0-based in Snowflake. Here [i] on a table's column whose type the statement doesn't show is taken for an ARRAY: a literal index such as [0] is moved to DuckDB's 1-based lists, and an integer column or expression as the index isn't. On a JSON (VARIANT) column [0] then reads the second element, and v['a']::string keeps the JSON quotes ('"Pine"', not 'Pine'). |
 | SFD-010 | Runs, with a difference: Approximate answers use DuckDB's estimators | APPROX_COUNT_DISTINCT, HLL and DATASKETCHES_HLL run as DuckDB's approx_count_distinct, and APPROX_PERCENTILE as approx_quantile. Snowflake uses its own estimators, so an estimate can be a little different: APPROX_PERCENTILE(c1, 0.5) over 0 to 10 is 5.5 in Snowflake and 5.0 here, and DATASKETCHES_HLL gives 2.000000005 there where 2.0 is given here. DuckDB's distinct estimate can be off even for a few values: 11 distinct values can count as 12. |
 | SFD-011 | Runs, with a difference: INTERPOLATE_LINEAR gives a DOUBLE | Snowflake's INTERPOLATE_LINEAR returns the input's type; here the filled value is a DOUBLE, because the input's type isn't known when the SQL is rewritten. Snowflake's docs don't say how it rounds a filled value for a whole-number column, so no rounding is done here. |
-| SFD-012 | Runs, with a difference: JAROWINKLER_SIMILARITY scores can differ | JAROWINKLER_SIMILARITY runs as DuckDB's jaro_winkler_similarity on upper-cased text, times 100. Snowflake's reference doesn't say how its score is worked out, and its examples don't all match it: 'Gute nacht' and 'Ich weis nicht' score 56 there and 57 here, 'święta' and 'swieta' 77 there and 72 here; 'Snowflake' and 'Oracle' (61) and two empty strings (0) match. |
 | SFD-013 | Runs, with a difference: SKEW and STDDEV_POP can differ from the seventh digit | SKEW and STDDEV_POP give the exact sample skewness and population standard deviation here. Snowflake's reference shows values that differ from about the seventh significant digit: STDDEV_POP of 6, 10 and 14 is 3.265986375 there and 3.265986324 (the square root of 32/3) here; SKEW of 1, 2, 2, 2, 2 is -2.236069766 there and -2.236067977 here. No Snowflake account was used, so which digits Snowflake returns today isn't known. |
-| SFD-014 | Runs, with a difference: TO_JSON keeps an object's keys in their order | Snowflake keeps an OBJECT's keys sorted, so TO_JSON(PARSE_JSON('{"b":1,"a":2}')) is {"a":2,"b":1} there. Here the keys stay in the order they were written. |
 | SFN-001 | Runs only in Snowflake | Streams. |
 | SFN-002 | Runs only in Snowflake | Tasks. |
 | SFN-003 | Runs only in Snowflake | Dynamic tables (their SELECT can be tried on its own). |
@@ -182,13 +188,22 @@ Rules 2026.11.20.
 | SFN-022 | Runs only in Snowflake | ALTER SESSION, other than SET TIMEZONE: other session parameters and UNSET change how Snowflake itself reads or prints values. |
 | SFN-023 | Runs only in Snowflake | IDENTIFIER($name) where the same cell doesn't set the variable to a string first: its value isn't known here. |
 | SFN-024 | Runs only in Snowflake | PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values. |
-| SFN-025 | Runs only in Snowflake | An array written with both text and numbers in it (ARRAY_CONSTRUCT, ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type. |
 | SFN-026 | Runs only in Snowflake | INSERT ALL and INSERT FIRST: DuckDB has no multi-table INSERT, and separate INSERTs wouldn't be one statement. |
 | SFN-027 | Runs only in Snowflake | CREATE TABLE ... LIKE: Snowflake copies the other table's defaults and constraints, which the rewrite can't see. |
 | SFN-028 | Runs only in Snowflake | TRUNCATE TABLE IF EXISTS: DuckDB's TRUNCATE has no IF EXISTS. |
 | SFN-029 | Runs only in Snowflake | ALTER TABLE with more than one column, and ALTER TABLE ... SWAP WITH: DuckDB's ALTER TABLE changes one column at a time and has no SWAP. |
 | SFN-030 | Runs only in Snowflake | CREATE, ALTER or DROP after BEGIN in the same cell: Snowflake commits the open transaction first, and DuckDB doesn't. |
 | SFN-031 | Runs only in Snowflake | A regular expression written with a non-greedy quantifier ('*?', '+?', '??') or a backreference ('\1') in the pattern, which Snowflake doesn't support, or with a lookahead or lookbehind, which RE2 can't read. |
+| SFN-032 | Runs only in Snowflake | A UNION, INTERSECT or MINUS with text written in one SELECT and a number in another in the same column: Snowflake converts the text to a number (and stops on text that isn't one), and DuckDB makes the column text. |
+| SFN-033 | Runs only in Snowflake | Nanoseconds: text with a nonzero digit of a second past the sixth cast to a timestamp or time, DATEADD, TIMEADD or TIMESTAMPADD by NANOSECOND, a nanosecond part of TIMESTAMP_FROM_PARTS or TIME_FROM_PARTS, and TO_TIMESTAMP with scale 7 to 9, unless the nanoseconds are written as whole microseconds. Snowflake keeps nanoseconds; DuckDB keeps microseconds. |
+| SFN-070 | Runs only in Snowflake | JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired. |
+| SFN-071 | Runs only in Snowflake | TIMESTAMP_TZ from text with a UTC offset other than the session zone's (the query stops at that row; also text written to a TIMESTAMP_TZ column, SFX-074), and TO_TIMESTAMP_TZ with TZH or TZM in its format, because DuckDB keeps the instant, not the offset. |
+| SFN-072 | Runs only in Snowflake | TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of a JSON number with a fraction or exponent read from a column or a path (the query stops at that row), because Snowflake's answer depends on how the number was written, which DuckDB doesn't keep. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. SFD-008 is retired. |
+| SFN-073 | Runs only in Snowflake | TYPEOF of a timestamp with a time zone from a column or a computed value (the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or CURRENT_TIMESTAMP runs (SFX-009). |
+| SFN-074 | Runs only in Snowflake | CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own version would come back in its place. |
+| SFN-075 | Runs only in Snowflake | CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text of database.schema names; DuckDB's is a list of its own search path. |
+| SFN-076 | Runs only in Snowflake | RANDOM with a seed: Snowflake's series for a seed comes from its own generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs. |
+| SFN-085 | Runs only in Snowflake | $1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position of one named table's column, which DuckDB has no way to write. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
 
 ### Snowflake functions checked value by value
@@ -198,18 +213,17 @@ with the value Snowflake's SQL reference documents for it. A function that answe
 always labelled as a difference when it runs, never as translated.
 
 <!-- Generated from snowflake_sql_parity.table_markdown(); a test keeps this table equal to the code. -->
-Of 640 checks on commonly used Snowflake functions, against the values Snowflake's SQL reference documents (no Snowflake account was used), these don't answer the same way on this PC.
+Of 666 checks on commonly used Snowflake functions, against the values Snowflake's SQL reference documents (no Snowflake account was used), these don't answer the same way on this PC.
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |
-| `IS_DECIMAL (vartab)` | Semi-structured | Different result | SFD-008: 1.912e2 from PARSE_JSON counts as a decimal here, so row 6 is TRUE too. |
-| `TYPEOF (stored value with an exponent)` | Semi-structured | Different result | A JSON number with a fraction or exponent read from a column or a stored value is 'DECIMAL or DOUBLE' here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
+| `IS_DECIMAL (vartab)` | Semi-structured | Runs only in Snowflake | Refused by SFN-072 when the query reaches row 5: how 123.12 and 1.912e2 were written isn't kept in a stored VARIANT here. IS_DECIMAL(PARSE_JSON('1.912e2')) is FALSE, as in Snowflake. |
+| `TYPEOF (stored value with an exponent)` | Semi-structured | Runs only in Snowflake | Refused by SFN-072 when the query reaches the value: DuckDB doesn't keep how a stored JSON number was written. TYPEOF of PARSE_JSON, or of a path into PARSE_JSON of text in the query, is exact. |
 | `DATASKETCHES_HLL (docs example)` | Aggregate | Different result | SFD-010: DuckDB's estimate is 4.0, where Snowflake's sketch gives 4.00000003. |
 | `APPROX_PERCENTILE (docs example, 0.1)` | Aggregate | Different result | SFD-010: DuckDB's approx_quantile gives 1.0. |
 | `APPROX_PERCENTILE (docs example, 0.5)` | Aggregate | Different result | SFD-010: DuckDB's approx_quantile gives 5.0. |
 | `APPROX_PERCENTILE (docs example, 0.999)` | Aggregate | Different result | SFD-010: DuckDB's approx_quantile gives 10.0, the largest value; Snowflake's estimate goes past it. |
-| `JAROWINKLER_SIMILARITY (phrase)` | String | Different result | Snowflake's reference shows 56; DuckDB's Jaro-Winkler gives 57 (SFD-012). |
-| `JAROWINKLER_SIMILARITY (accents)` | String | Different result | Snowflake's reference shows 77; DuckDB's Jaro-Winkler gives 72 (SFD-012). |
+| `JAROWINKLER_SIMILARITY` | String | Runs only in Snowflake | Refused by SFN-070: Snowflake doesn't document its score, and DuckDB's gives 57 for this pair from Snowflake's example, 94 for 'Ich weiß nicht' and 'Ich weiss nicht' (97), and 72 for 'święta' and 'swieta' (77). EDITDISTANCE runs here. |
 | `SKEW` | Aggregate | Different result | Snowflake's reference shows 0.05240788515; the exact sample skewness is 0.05240784322 (SFD-013). |
 | `SKEW (k)` | Aggregate | Different result | Snowflake's reference shows -2.236069766; the exact sample skewness is -2.236067977 (SFD-013). |
 | `STDDEV_POP` | Aggregate | Different result | Snowflake's reference shows 3.265986375; the square root of 32/3 is 3.265986324 (SFD-013). |
@@ -218,9 +232,118 @@ Of 640 checks on commonly used Snowflake functions, against the values Snowflake
 | `DDL INSIDE BEGIN` | Statements | Runs only in Snowflake | Refused by SFN-030. Put COMMIT before the CREATE. |
 | `TRUNCATE TABLE IF EXISTS` | Statements | Runs only in Snowflake | Refused by SFN-028. Leave out IF EXISTS. |
 | `ALTER TABLE DROP COLUMN A, B` | Statements | Runs only in Snowflake | Refused by SFN-029. Write one ALTER TABLE for each column. |
-| `TO_JSON` | Semi-structured | Different result | Snowflake sorts an object's keys; here they keep their order (SFD-014). |
+| `INSERT (TIMESTAMP_TZ column, text with an offset)` | Statements | Runs only in Snowflake | Refused by SFN-013: DuckDB can't keep the +00:00 Snowflake keeps with the value (SFX-074). Text with another offset and no space stops the query (SFN-071). |
+| `INSERT (TIMESTAMP_TZ column, another session zone)` | Statements | Different result | SFD-002: in Snowflake the value keeps -08:00. Here it's an instant, shown in the session's new zone (19). In the zone it was written in, it reads as in Snowflake. |
 
-These 623 checks answer as Snowflake documents: `IFF`, `NVL`, `NVL2 (NULL)`, `NVL2 (value)`, `IFNULL`, `NULLIF`, `ZEROIFNULL`, `NULLIFZERO`, `DIV0`, `DIV0NULL`, `DECODE`, `DECODE (NULL matches NULL)`, `EQUAL_NULL`, `COALESCE`, `GREATEST`, `GREATEST (any NULL)`, `LEAST (any NULL)`, `CONCAT (any NULL)`, `|| (NULL)`, `CONCAT_WS (any NULL)`, `SPLIT_PART`, `SPLIT_PART (negative part)`, `SPLIT_PART (part 0)`, `SPLIT`, `STRTOK`, `REGEXP_SUBSTR`, `REGEXP_COUNT`, `REGEXP_REPLACE (every match)`, `REGEXP_LIKE (whole string)`, `RLIKE (whole string)`, `LEFT`, `RIGHT`, `LENGTH`, `LEN`, `UPPER`, `INITCAP`, `TRIM`, `LTRIM (characters)`, `LPAD`, `REPLACE`, `REVERSE`, `REPEAT`, `SPACE`, `INSERT`, `CONTAINS`, `STARTSWITH`, `ENDSWITH`, `POSITION`, `CHARINDEX`, `SUBSTR`, `TRANSLATE`, `ASCII`, `CHR`, `EDITDISTANCE`, `SOUNDEX`, `SOUNDEX (same code for similar names)`, `SOUNDEX (adjacent same codes)`, `SOUNDEX (first letter's code)`, `SOUNDEX (H between same codes)`, `SOUNDEX (padded with zeros)`, `TIME`, `TIME (fraction)`, `TIMESTAMPADD (years)`, `TIMESTAMPADD (hours on a date)`, `TIMESTAMPADD (month end)`, `TIMESTAMPADD (hours on a time)`, `SOUNDEX_P123 (docs example)`, `SOUNDEX_P123 (same first two codes)`, `OCTET_LENGTH`, `OCTET_LENGTH (two-byte letter)`, `OCTET_LENGTH (binary)`, `TRY_BASE64_DECODE_STRING`, `TRY_BASE64_DECODE_STRING (garbage)`, `TRY_BASE64_DECODE_BINARY`, `TRY_HEX_DECODE_STRING`, `TRY_HEX_DECODE_STRING (garbage)`, `TRY_HEX_DECODE_BINARY`, `MD5_NUMBER_LOWER64`, `MD5_NUMBER_UPPER64`, `WIDTH_BUCKET (docs example)`, `WIDTH_BUCKET (below min)`, `WIDTH_BUCKET (at max)`, `WIDTH_BUCKET (NULL)`, `MD5`, `SHA2 (256 by default)`, `ABS`, `CEIL`, `FLOOR`, `ROUND (half away from zero)`, `ROUND (negative half)`, `TRUNC`, `MOD (negative dividend)`, `% (modulo)`, `SQUARE`, `SQRT`, `POWER`, `SIGN`, `BITAND`, `/ (by zero)`, `/ (by a zero column)`, `TO_NUMBER (scale 0)`, `TRY_TO_NUMBER`, `TRY_CAST`, `TO_VARCHAR`, `TO_BOOLEAN`, `TO_DATE`, `TO_DATE (format)`, `TO_TIME`, `DATE_FROM_PARTS`, `DATE_TRUNC (DATE)`, `DATEADD (DATE, month end)`, `ADD_MONTHS (month end)`, `LAST_DAY`, `DATEDIFF (day)`, `DATEDIFF (month boundary)`, `TIMESTAMPDIFF (hour)`, `TIMEADD`, `TIME_SLICE`, `DAYOFWEEK (Sunday is 0)`, `YEAR`, `HOUR`, `DATE_PART`, `MONTHNAME`, `DAYNAME`, `PARSE_JSON path`, `PARSE_JSON path (cast to a string)`, `PARSE_JSON path (a number cast to a string)`, `TO_VARCHAR (a JSON string)`, `PARSE_JSON path (brackets cast to a string)`, `TO_VARCHAR (a JSON null)`, `PARSE_JSON path ([1] on a stored array)`, `ARRAY_CONSTRUCT ([i] with an index column)`, `ARRAY_SIZE`, `ARRAY_CONTAINS`, `ARRAY_TO_STRING`, `ARRAY_SLICE`, `ARRAY_CAT`, `OBJECT_KEYS`, `OBJECT_CONSTRUCT (constant)`, `OBJECT_DELETE`, `OBJECT_DELETE (nested path)`, `OBJECT_PICK`, `OBJECT_PICK (array of keys)`, `OBJECT_INSERT (docs example)`, `OBJECT_INSERT (update)`, `OBJECT_INSERT (existing key)`, `OBJECT_AGG (docs example)`, `TO_OBJECT`, `TO_OBJECT (JSON null)`, `ARRAYS_TO_OBJECT`, `ARRAYS_TO_OBJECT (NULL key)`, `ARRAYS_TO_OBJECT (NULL value)`, `ARRAY_EXCEPT`, `ARRAY_EXCEPT (copies)`, `ARRAY_EXCEPT (NULLs)`, `ARRAY_EXCEPT (NULL argument)`, `ARRAY_INTERSECTION`, `ARRAY_INTERSECTION (NULLs)`, `ARRAY_INTERSECTION (objects in another order)`, `FILTER`, `FILTER (objects)`, `TRANSFORM`, `TRANSFORM (objects)`, `MAP_CAT`, `MAP_CAT (the second map wins)`, `IS_NULL_VALUE`, `IS_NULL_VALUE (vartab)`, `IS_BOOLEAN (vartab)`, `IS_INTEGER (vartab)`, `IS_DOUBLE (vartab)`, `IS_REAL (vartab)`, `IS_VARCHAR (vartab)`, `IS_CHAR (vartab)`, `IS_ARRAY (vartab)`, `IS_OBJECT (vartab)`, `IS_DECIMAL`, `IS_DECIMAL (a DOUBLE)`, `IS_DECIMAL (an integer)`, `IS_INTEGER (a DECIMAL)`, `IS_INTEGER (a DOUBLE)`, `IS_DOUBLE (a BOOLEAN)`, `IS_DOUBLE (a DECIMAL)`, `IS_REAL`, `IS_DATE`, `IS_DATE_VALUE`, `IS_TIME`, `IS_TIMESTAMP_NTZ`, `IS_BINARY`, `AS_REAL (vartab)`, `AS_DOUBLE`, `AS_ARRAY`, `AS_BOOLEAN`, `AS_CHAR`, `AS_VARCHAR`, `AS_VARCHAR (not a string)`, `AS_DECIMAL`, `AS_NUMBER`, `AS_DECIMAL (a DOUBLE)`, `AS_INTEGER`, `AS_INTEGER (a DECIMAL)`, `AS_OBJECT`, `AS_OBJECT (an array)`, `AS_INTEGER (of an AS_OBJECT path)`, `IS_INTEGER (of AS_INTEGER)`, `AS_DATE`, `AS_TIME`, `AS_TIMESTAMP_NTZ`, `AS_BINARY`, `TYPEOF`, `TYPEOF (JSON null)`, `TYPEOF (SQL NULL)`, `TYPEOF (BOOLEAN)`, `TYPEOF (INTEGER)`, `TYPEOF (DECIMAL)`, `TYPEOF (DOUBLE)`, `TYPEOF (VARCHAR)`, `TYPEOF (ARRAY)`, `TYPEOF (OBJECT)`, `TYPEOF (VARCHAR cast to VARIANT)`, `TYPEOF (TIMESTAMP cast to VARIANT)`, `TYPEOF (path to an exponent)`, `TYPEOF (path to a fraction)`, `LISTAGG`, `ARRAY_AGG`, `COUNT_IF`, `MEDIAN`, `BOOLOR_AGG`, `ANY_VALUE`, `GROUPING (grouping sets, docs example)`, `GROUPING (rollup, docs example)`, `GROUPING_ID (docs example)`, `APPROX_COUNT_DISTINCT`, `HLL`, `HLL (DISTINCT has no effect)`, `BITMAP_BUCKET_NUMBER`, `BITMAP_BUCKET_NUMBER (last of bucket 1)`, `BITMAP_BUCKET_NUMBER (first of bucket 2)`, `BITMAP_BIT_POSITION`, `BITMAP_BIT_POSITION (last of bucket 1)`, `BITMAP_BIT_POSITION (first of bucket 2)`, `STDDEV_SAMP`, `RATIO_TO_REPORT`, `RATIO_TO_REPORT (docs example)`, `RATIO_TO_REPORT (null value)`, `RATIO_TO_REPORT (sum is 0)`, `RATIO_TO_REPORT (by partition)`, `HAVERSINE`, `HAVERSINE (docs example)`, `LATERAL FLATTEN (docs example)`, `LATERAL FLATTEN (PATH, docs example)`, `LATERAL FLATTEN (empty array, docs example)`, `LATERAL FLATTEN (OUTER, docs example)`, `LATERAL FLATTEN (nested, docs example)`, `CONDITIONAL_CHANGE_EVENT (docs example)`, `CONDITIONAL_CHANGE_EVENT (of a condition)`, `CONDITIONAL_CHANGE_EVENT (power changes)`, `CONDITIONAL_TRUE_EVENT (docs example)`, `CONDITIONAL_TRUE_EVENT (of a condition)`, `CONDITIONAL_TRUE_EVENT (of LAG)`, `INTERPOLATE_FFILL (docs example)`, `INTERPOLATE_BFILL (docs example)`, `INTERPOLATE_LINEAR (between two values)`, `BIT_LENGTH`, `BIT_LENGTH (two-byte character)`, `RPAD`, `RPAD (cut to length)`, `RPAD (two-character pad)`, `RTRIM`, `RTRIM (spaces)`, `RTRIM (characters)`, `RTRIMMED_LENGTH`, `STRTOK_TO_ARRAY`, `STRTOK_TO_ARRAY (two delimiters)`, `UNICODE`, `UNICODE (snowflake)`, `UNICODE (first character)`, `UNICODE (empty)`, `JAROWINKLER_SIMILARITY`, `JAROWINKLER_SIMILARITY (empty)`, `LOWER`, `LOWER (accents)`, `LOWER (Cyrillic)`, `SUBSTRING`, `SUBSTRING (to the end)`, `BASE64_ENCODE`, `BASE64_ENCODE (HELLO)`, `BASE64_DECODE_STRING`, `HEX_ENCODE`, `HEX_ENCODE (lower case)`, `HEX_DECODE_STRING`, `HEX_DECODE_STRING (lower case)`, `TIME_FROM_PARTS`, `TIME_FROM_PARTS (seconds over 59)`, `TIMESTAMP_FROM_PARTS`, `TIMESTAMP_NTZ_FROM_PARTS`, `EXTRACT`, `QUARTER`, `MONTH`, `DAY`, `DAYOFMONTH`, `DAYOFYEAR`, `WEEK`, `WEEKISO`, `WEEKOFYEAR`, `YEAROFWEEK`, `YEAROFWEEKISO`, `DAYOFWEEKISO`, `MINUTE`, `SECOND`, `MONTHS_BETWEEN`, `MONTHS_BETWEEN (month ends)`, `MONTHS_BETWEEN (backwards)`, `TIMEDIFF`, `TIMEDIFF (months)`, `DATE`, `DATE (format)`, `DATE (month first)`, `TO_TIMESTAMP (milliseconds)`, `TO_TIMESTAMP (seconds as text)`, `TO_TIMESTAMP_NTZ`, `TO_TIMESTAMP_NTZ (seconds)`, `BOOLAND`, `BOOLAND (zero and NULL)`, `BOOLAND (NULL)`, `BOOLAND (rounded to zero)`, `BOOLNOT`, `BOOLNOT (non-zero)`, `BOOLNOT (rounded to zero)`, `BOOLOR`, `BOOLOR (non-zero and NULL)`, `BOOLOR (NULL)`, `BOOLOR (rounded to zero)`, `BOOLXOR`, `BOOLXOR (both true)`, `BOOLXOR (NULL)`, `BOOLXOR (rounded to zero)`, `GREATEST_IGNORE_NULLS`, `GREATEST_IGNORE_NULLS (float)`, `LEAST_IGNORE_NULLS`, `LEAST_IGNORE_NULLS (float)`, `MAX_BY`, `MAX_BY (top 3)`, `MIN_BY`, `MIN_BY (bottom 3)`, `MODE`, `MODE (NULL)`, `PERCENTILE_CONT`, `PERCENTILE_CONT (four values)`, `PERCENTILE_DISC`, `PERCENTILE_DISC (five values)`, `BITAND_AGG`, `BITAND_AGG (decimals)`, `BITOR_AGG`, `BITOR_AGG (decimals)`, `BITXOR_AGG`, `BITXOR_AGG (decimals)`, `BOOLAND_AGG`, `BOOLAND_AGG (all true)`, `BOOLXOR_AGG`, `BOOLXOR_AGG (two true)`, `KURTOSIS`, `KURTOSIS (k)`, `REGR_AVGX`, `REGR_SLOPE`, `REGR_INTERCEPT`, `REGR_R2`, `CORR`, `COVAR_POP`, `COVAR_SAMP`, `VAR_POP`, `VAR_POP (one value)`, `VAR_SAMP`, `VAR_SAMP (one value)`, `STDDEV`, `AVG`, `AVG (decimals)`, `BITNOT`, `BITNOT (large)`, `BITOR`, `BITXOR`, `BITSHIFTLEFT`, `BITSHIFTRIGHT`, `GETBIT`, `GETBIT (zero bit)`, `GETBIT (high bit)`, `MD5_HEX`, `SHA1`, `SHA1_HEX`, `SHA2_HEX`, `CBRT`, `CBRT (negative)`, `FACTORIAL`, `FACTORIAL (0)`, `FACTORIAL (10)`, `LOG`, `LOG (fraction)`, `LOG (base 10)`, `LN`, `LN (1)`, `COT`, `ATAN2`, `DEGREES`, `DEGREES (1)`, `TRY_TO_BOOLEAN`, `TRY_TO_BOOLEAN (not valid)`, `TO_DECIMAL`, `TO_DECIMAL (scale)`, `TO_NUMERIC`, `TO_NUMERIC (scale)`, `TRY_TO_DATE`, `TRY_TO_DATE (not a date)`, `TRY_TO_DATE (format)`, `TRY_TO_DATE (other format)`, `TO_DOUBLE`, `TO_DOUBLE (decimal)`, `CHAR`, `CHAR (snowflake)`, `COUNT`, `COUNT (star)`, `COUNT (distinct)`, `MIN`, `MAX`, `SUM`, `VARIANCE`, `REGR_COUNT`, `REGR_AVGY`, `REGR_SXX`, `REGR_SXY`, `REGR_SYY`, `EXP`, `EXP (of LN)`, `POW`, `POW (fraction)`, `POW (negative)`, `ACOS`, `ACOS (1)`, `ASIN`, `ATAN`, `SIN`, `SIN (90 degrees)`, `COS`, `COS (0)`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `RADIANS`, `RADIANS (720)`, `PI`, `TRUNCATE`, `TRUNCATE (scale)`, `TRUNCATE (negative scale)`, `RANK`, `DENSE_RANK`, `LAG`, `LAG (default)`, `NTH_VALUE`, `MD5_BINARY`, `SHA1_BINARY`, `SHA2_BINARY`, `HEX_DECODE_BINARY`, `TO_BINARY`, `ARRAY_MAX`, `ARRAY_MIN`, `ARRAY_REMOVE`, `MAP_SIZE`, `MAP_CONTAINS_KEY`, `MAP_DELETE`, `VARIANCE_SAMP`, `VARIANCE_SAMP (one row)`, `VARIANCE_POP`, `VARIANCE_POP (one row)`, `FIRST_VALUE (IGNORE NULLS)`, `FIRST_VALUE (RESPECT NULLS)`, `LAST_VALUE`, `LEAD`, `LEAD (IGNORE NULLS)`, `ROW_NUMBER`, `REGR_VALX`, `REGR_VALX (NULL y)`, `REGR_VALY`, `REGR_VALY (NULL x)`, `BETWEEN (decimal)`, `BETWEEN (text)`, `CASE`, `CASE (no ELSE)`, `LIKE`, `LIKE (NOT LIKE '')`, `LIKE (ESCAPE)`, `ILIKE`, `ILIKE (ESCAPE)`, `LIKE ANY`, `LIKE ALL`, `ILIKE ANY`, `REGEXP`, `REGEXP (whole string)`, `IS DISTINCT FROM`, `:: (to a decimal)`, `CAST`, `CAST (number to integer)`, `QUALIFY`, `PIVOT`, `PIVOT (a missing cell)`, `UNPIVOT`, `UNPIVOT (row count)`, `UNPIVOT (INCLUDE NULLS)`, `GENERATOR`, `SEQ4`, `UNIFORM`, `WITH (RECURSIVE)`, `UNION ALL (BY NAME)`, `MERGE`, `MERGE (values)`, `UPDATE`, `UPDATE FROM`, `DELETE`, `DELETE USING`, `TRUNCATE TABLE`, `MERGE (UPDATE SET target.column)`, `MERGE (NOT MATCHED, source duplicates)`, `MERGE (NOT MATCHED AND)`, `CREATE TABLE AS (column list)`, `CREATE TRANSIENT TABLE`, `AUTOINCREMENT`, `PRIMARY KEY (not enforced)`, `START TRANSACTION`, `BEGIN (COMMIT)`, `ALTER TABLE RENAME (column and table)`, `ARRAY_APPEND`, `ARRAY_APPEND (ARRAY column)`, `ARRAY_APPEND (element types)`, `ARRAY_COMPACT`, `ARRAY_DISTINCT`, `ARRAY_DISTINCT (NULL)`, `ARRAY_FLATTEN`, `ARRAY_FLATTEN (a NULL element)`, `ARRAY_FLATTEN (a NULL inside)`, `ARRAY_GENERATE_RANGE`, `ARRAY_GENERATE_RANGE (step)`, `ARRAY_GENERATE_RANGE (negative step)`, `ARRAY_POSITION`, `ARRAY_POSITION (first)`, `ARRAY_POSITION (missing)`, `ARRAY_REMOVE_AT`, `ARRAY_REMOVE_AT (from the end)`, `ARRAY_REMOVE_AT (past the end)`, `ARRAY_REVERSE`, `ARRAY_SORT`, `ARRAY_SORT (descending)`, `ARRAY_SORT (NULLs first)`, `UUID_STRING (named)`, `PARSE_JSON`, `TO_ARRAY`, `OBJECT_CONSTRUCT_KEEP_NULL`, `GET`, `GET_PATH`, `STRIP_NULL_VALUE`, `STRIP_NULL_VALUE (a value)`, `BASE64_DECODE_BINARY`, `REGEXP_INSTR`, `REGEXP_INSTR (start)`, `REGEXP_INSTR (occurrence)`, `REGEXP_INSTR (after the match)`, `REGEXP_INSTR (no such occurrence)`, `REGEXP_INSTR (word boundary)`, `REGEXP_INSTR (POSIX class)`, `REGEXP_SUBSTR_ALL`, `REGEXP_SUBSTR_ALL (start)`, `REGEXP_SUBSTR_ALL (occurrence)`, `REGEXP_SUBSTR_ALL (i)`, `REGEXP_SUBSTR_ALL (group)`, `REGEXP_SUBSTR (group)`, `REGEXP_SUBSTR_ALL (no match)`, `REGEXP_EXTRACT_ALL`, `TIMESTAMP_LTZ_FROM_PARTS`, `TIMESTAMP_TZ_FROM_PARTS`, `CONVERT_TIMEZONE`, `CONVERT_TIMEZONE (to UTC)`, `TO_CHAR`, `TRY_TO_BINARY`, `TRY_TO_DECIMAL`, `TRY_TO_DECIMAL (scale)`, `TRY_TO_DECIMAL (out of range)`, `TRY_TO_DECIMAL (not a number)`, `TRY_TO_NUMERIC`, `TRY_TO_DOUBLE`, `TRY_TO_DOUBLE (not a number)`, `TRY_TO_TIME`, `TRY_TO_TIME (not a time)`, `TRY_TO_TIMESTAMP`, `TRY_TO_TIMESTAMP (not a timestamp)`, `TO_TIMESTAMP (milliseconds in a string)`, `TO_TIMESTAMP (nanoseconds in a string)`, `TO_TIMESTAMP (scale)`, `ARRAYS_OVERLAP`, `ARRAYS_OVERLAP (none)`, `ARRAYS_OVERLAP (NULLs match)`, `ARRAYS_ZIP`, `ARRAYS_ZIP (NULL)`, `MAP_KEYS`, `MAP_PICK`, `MAP_ENTRIES`, `MAP_ENTRIES (NULL)`, `NEXT_DAY`, `PREVIOUS_DAY`, `INSERT INTO`, `INSERT INTO (SELECT)`, `TO_VARIANT`, `CHECK_JSON`, `TRY_PARSE_JSON`, `TRY_TO_TIMESTAMP_NTZ`, `TRY_TO_TIMESTAMP_NTZ (not a timestamp)`, `JSON_EXTRACT_PATH_TEXT`, `JSON_EXTRACT_PATH_TEXT (two levels)`, `JSON_EXTRACT_PATH_TEXT (array index)`, `ARRAY_UNIQUE_AGG`, `SAMPLE (ROW 0)`, `SAMPLE (TABLESAMPLE 100)`, `DROP TABLE`, `DROP TABLE (IF EXISTS)`.
+These 649 checks answer as Snowflake documents: `IFF`, `NVL`, `NVL2 (NULL)`, `NVL2 (value)`, `IFNULL`, `NULLIF`, `ZEROIFNULL`, `NULLIFZERO`, `DIV0`, `DIV0NULL`, `DECODE`, `DECODE (NULL matches NULL)`, `EQUAL_NULL`, `COALESCE`, `GREATEST`, `GREATEST (any NULL)`, `LEAST (any NULL)`, `CONCAT (any NULL)`, `|| (NULL)`, `CONCAT_WS (any NULL)`, `SPLIT_PART`, `SPLIT_PART (negative part)`, `SPLIT_PART (part 0)`, `SPLIT`, `STRTOK`, `REGEXP_SUBSTR`, `REGEXP_COUNT`, `REGEXP_REPLACE (every match)`, `REGEXP_LIKE (whole string)`, `RLIKE (whole string)`, `LEFT`, `RIGHT`, `LENGTH`, `LEN`, `UPPER`, `INITCAP`, `TRIM`, `LTRIM (characters)`, `LPAD`, `REPLACE`, `REVERSE`, `REPEAT`, `SPACE`, `INSERT`, `CONTAINS`, `STARTSWITH`, `ENDSWITH`, `POSITION`, `CHARINDEX`, `SUBSTR`, `TRANSLATE`, `ASCII`, `CHR`, `EDITDISTANCE`, `SOUNDEX`, `SOUNDEX (same code for similar names)`, `SOUNDEX (adjacent same codes)`, `SOUNDEX (first letter's code)`, `SOUNDEX (H between same codes)`, `SOUNDEX (padded with zeros)`, `TIME`, `TIME (fraction)`, `TIMESTAMPADD (years)`, `TIMESTAMPADD (hours on a date)`, `TIMESTAMPADD (month end)`, `TIMESTAMPADD (hours on a time)`, `SOUNDEX_P123 (docs example)`, `SOUNDEX_P123 (same first two codes)`, `OCTET_LENGTH`, `OCTET_LENGTH (two-byte letter)`, `OCTET_LENGTH (binary)`, `TRY_BASE64_DECODE_STRING`, `TRY_BASE64_DECODE_STRING (garbage)`, `TRY_BASE64_DECODE_BINARY`, `TRY_HEX_DECODE_STRING`, `TRY_HEX_DECODE_STRING (garbage)`, `TRY_HEX_DECODE_BINARY`, `MD5_NUMBER_LOWER64`, `MD5_NUMBER_UPPER64`, `WIDTH_BUCKET (docs example)`, `WIDTH_BUCKET (below min)`, `WIDTH_BUCKET (at max)`, `WIDTH_BUCKET (NULL)`, `MD5`, `SHA2 (256 by default)`, `ABS`, `CEIL`, `FLOOR`, `ROUND (half away from zero)`, `ROUND (negative half)`, `TRUNC`, `MOD (negative dividend)`, `% (modulo)`, `SQUARE`, `SQRT`, `POWER`, `SIGN`, `BITAND`, `/ (by zero)`, `/ (by a zero column)`, `TO_NUMBER (scale 0)`, `TRY_TO_NUMBER`, `TRY_CAST`, `TO_VARCHAR`, `TO_BOOLEAN`, `TO_DATE`, `TO_DATE (format)`, `TO_TIME`, `DATE_FROM_PARTS`, `DATE_TRUNC (DATE)`, `DATEADD (DATE, month end)`, `ADD_MONTHS (month end)`, `LAST_DAY`, `DATEDIFF (day)`, `DATEDIFF (month boundary)`, `TIMESTAMPDIFF (hour)`, `TIMEADD`, `TIME_SLICE`, `DAYOFWEEK (Sunday is 0)`, `YEAR`, `HOUR`, `DATE_PART`, `MONTHNAME`, `DAYNAME`, `PARSE_JSON path`, `PARSE_JSON path (cast to a string)`, `PARSE_JSON path (a number cast to a string)`, `TO_VARCHAR (a JSON string)`, `PARSE_JSON path (brackets cast to a string)`, `TO_VARCHAR (a JSON null)`, `PARSE_JSON path ([1] on a stored array)`, `ARRAY_CONSTRUCT ([i] with an index column)`, `ARRAY_SIZE`, `ARRAY_CONTAINS`, `ARRAY_TO_STRING`, `ARRAY_SLICE`, `ARRAY_CAT`, `OBJECT_KEYS`, `OBJECT_CONSTRUCT (constant)`, `OBJECT_DELETE`, `OBJECT_DELETE (nested path)`, `OBJECT_PICK`, `OBJECT_PICK (array of keys)`, `OBJECT_INSERT (docs example)`, `OBJECT_INSERT (update)`, `OBJECT_INSERT (existing key)`, `OBJECT_AGG (docs example)`, `TO_OBJECT`, `TO_OBJECT (JSON null)`, `ARRAYS_TO_OBJECT`, `ARRAYS_TO_OBJECT (NULL key)`, `ARRAYS_TO_OBJECT (NULL value)`, `ARRAY_EXCEPT`, `ARRAY_EXCEPT (copies)`, `ARRAY_EXCEPT (NULLs)`, `ARRAY_EXCEPT (NULL argument)`, `ARRAY_INTERSECTION`, `ARRAY_INTERSECTION (NULLs)`, `ARRAY_INTERSECTION (objects in another order)`, `FILTER`, `FILTER (objects)`, `TRANSFORM`, `TRANSFORM (objects)`, `MAP_CAT`, `MAP_CAT (the second map wins)`, `IS_NULL_VALUE`, `IS_NULL_VALUE (vartab)`, `IS_BOOLEAN (vartab)`, `IS_INTEGER (vartab)`, `IS_DOUBLE (vartab)`, `IS_REAL (vartab)`, `IS_VARCHAR (vartab)`, `IS_CHAR (vartab)`, `IS_ARRAY (vartab)`, `IS_OBJECT (vartab)`, `IS_DECIMAL (PARSE_JSON with an exponent)`, `IS_DECIMAL (PARSE_JSON with a fraction)`, `IS_DECIMAL`, `IS_DECIMAL (a DOUBLE)`, `IS_DECIMAL (an integer)`, `IS_INTEGER (a DECIMAL)`, `IS_INTEGER (a DOUBLE)`, `IS_DOUBLE (a BOOLEAN)`, `IS_DOUBLE (a DECIMAL)`, `IS_REAL`, `IS_DATE`, `IS_DATE_VALUE`, `IS_TIME`, `IS_TIMESTAMP_NTZ`, `IS_BINARY`, `AS_REAL (vartab)`, `AS_DOUBLE`, `AS_ARRAY`, `AS_BOOLEAN`, `AS_CHAR`, `AS_VARCHAR`, `AS_VARCHAR (not a string)`, `AS_DECIMAL`, `AS_NUMBER`, `AS_DECIMAL (a DOUBLE)`, `AS_INTEGER`, `AS_INTEGER (a DECIMAL)`, `AS_OBJECT`, `AS_OBJECT (an array)`, `AS_INTEGER (of an AS_OBJECT path)`, `IS_INTEGER (of AS_INTEGER)`, `AS_DATE`, `AS_TIME`, `AS_TIMESTAMP_NTZ`, `AS_BINARY`, `TYPEOF`, `TYPEOF (JSON null)`, `TYPEOF (SQL NULL)`, `TYPEOF (BOOLEAN)`, `TYPEOF (INTEGER)`, `TYPEOF (DECIMAL)`, `TYPEOF (DOUBLE)`, `TYPEOF (VARCHAR)`, `TYPEOF (ARRAY)`, `TYPEOF (OBJECT)`, `TYPEOF (VARCHAR cast to VARIANT)`, `TYPEOF (TIMESTAMP cast to VARIANT)`, `TYPEOF (path to an exponent)`, `TYPEOF (path to a fraction)`, `TYPEOF (TIMESTAMP_TZ)`, `TYPEOF (TIMESTAMP_LTZ)`, `TYPEOF (TIMESTAMP_NTZ)`, `TYPEOF (DATE)`, `LISTAGG`, `ARRAY_AGG`, `COUNT_IF`, `MEDIAN`, `BOOLOR_AGG`, `ANY_VALUE`, `GROUPING (grouping sets, docs example)`, `GROUPING (rollup, docs example)`, `GROUPING_ID (docs example)`, `APPROX_COUNT_DISTINCT`, `HLL`, `HLL (DISTINCT has no effect)`, `BITMAP_BUCKET_NUMBER`, `BITMAP_BUCKET_NUMBER (last of bucket 1)`, `BITMAP_BUCKET_NUMBER (first of bucket 2)`, `BITMAP_BIT_POSITION`, `BITMAP_BIT_POSITION (last of bucket 1)`, `BITMAP_BIT_POSITION (first of bucket 2)`, `STDDEV_SAMP`, `RATIO_TO_REPORT`, `RATIO_TO_REPORT (docs example)`, `RATIO_TO_REPORT (null value)`, `RATIO_TO_REPORT (sum is 0)`, `RATIO_TO_REPORT (by partition)`, `HAVERSINE`, `HAVERSINE (docs example)`, `LATERAL FLATTEN (docs example)`, `LATERAL FLATTEN (PATH, docs example)`, `LATERAL FLATTEN (empty array, docs example)`, `LATERAL FLATTEN (OUTER, docs example)`, `LATERAL FLATTEN (nested, docs example)`, `CONDITIONAL_CHANGE_EVENT (docs example)`, `CONDITIONAL_CHANGE_EVENT (of a condition)`, `CONDITIONAL_CHANGE_EVENT (power changes)`, `CONDITIONAL_TRUE_EVENT (docs example)`, `CONDITIONAL_TRUE_EVENT (of a condition)`, `CONDITIONAL_TRUE_EVENT (of LAG)`, `INTERPOLATE_FFILL (docs example)`, `INTERPOLATE_BFILL (docs example)`, `INTERPOLATE_LINEAR (between two values)`, `BIT_LENGTH`, `BIT_LENGTH (two-byte character)`, `RPAD`, `RPAD (cut to length)`, `RPAD (two-character pad)`, `RTRIM`, `RTRIM (spaces)`, `RTRIM (characters)`, `RTRIMMED_LENGTH`, `STRTOK_TO_ARRAY`, `STRTOK_TO_ARRAY (two delimiters)`, `UNICODE`, `UNICODE (snowflake)`, `UNICODE (first character)`, `UNICODE (empty)`, `LOWER`, `LOWER (accents)`, `LOWER (Cyrillic)`, `SUBSTRING`, `SUBSTRING (to the end)`, `BASE64_ENCODE`, `BASE64_ENCODE (HELLO)`, `BASE64_DECODE_STRING`, `HEX_ENCODE`, `HEX_ENCODE (lower case)`, `HEX_DECODE_STRING`, `HEX_DECODE_STRING (lower case)`, `TIME_FROM_PARTS`, `TIME_FROM_PARTS (seconds over 59)`, `TIMESTAMP_FROM_PARTS`, `TIMESTAMP_NTZ_FROM_PARTS`, `EXTRACT`, `QUARTER`, `MONTH`, `DAY`, `DAYOFMONTH`, `DAYOFYEAR`, `WEEK`, `WEEKISO`, `WEEKOFYEAR`, `YEAROFWEEK`, `YEAROFWEEKISO`, `DAYOFWEEKISO`, `MINUTE`, `SECOND`, `MONTHS_BETWEEN`, `MONTHS_BETWEEN (month ends)`, `MONTHS_BETWEEN (backwards)`, `TIMEDIFF`, `TIMEDIFF (months)`, `DATE`, `DATE (format)`, `DATE (month first)`, `TO_TIMESTAMP (milliseconds)`, `TO_TIMESTAMP (seconds as text)`, `TO_TIMESTAMP_NTZ`, `TO_TIMESTAMP_NTZ (seconds)`, `BOOLAND`, `BOOLAND (zero and NULL)`, `BOOLAND (NULL)`, `BOOLAND (rounded to zero)`, `BOOLNOT`, `BOOLNOT (non-zero)`, `BOOLNOT (rounded to zero)`, `BOOLOR`, `BOOLOR (non-zero and NULL)`, `BOOLOR (NULL)`, `BOOLOR (rounded to zero)`, `BOOLXOR`, `BOOLXOR (both true)`, `BOOLXOR (NULL)`, `BOOLXOR (rounded to zero)`, `GREATEST_IGNORE_NULLS`, `GREATEST_IGNORE_NULLS (float)`, `LEAST_IGNORE_NULLS`, `LEAST_IGNORE_NULLS (float)`, `MAX_BY`, `MAX_BY (top 3)`, `MIN_BY`, `MIN_BY (bottom 3)`, `MODE`, `MODE (NULL)`, `PERCENTILE_CONT`, `PERCENTILE_CONT (four values)`, `PERCENTILE_DISC`, `PERCENTILE_DISC (five values)`, `BITAND_AGG`, `BITAND_AGG (decimals)`, `BITOR_AGG`, `BITOR_AGG (decimals)`, `BITXOR_AGG`, `BITXOR_AGG (decimals)`, `BOOLAND_AGG`, `BOOLAND_AGG (all true)`, `BOOLXOR_AGG`, `BOOLXOR_AGG (two true)`, `KURTOSIS`, `KURTOSIS (k)`, `REGR_AVGX`, `REGR_SLOPE`, `REGR_INTERCEPT`, `REGR_R2`, `CORR`, `COVAR_POP`, `COVAR_SAMP`, `VAR_POP`, `VAR_POP (one value)`, `VAR_SAMP`, `VAR_SAMP (one value)`, `STDDEV`, `AVG`, `AVG (decimals)`, `BITNOT`, `BITNOT (large)`, `BITOR`, `BITXOR`, `BITSHIFTLEFT`, `BITSHIFTRIGHT`, `GETBIT`, `GETBIT (zero bit)`, `GETBIT (high bit)`, `MD5_HEX`, `SHA1`, `SHA1_HEX`, `SHA2_HEX`, `CBRT`, `CBRT (negative)`, `FACTORIAL`, `FACTORIAL (0)`, `FACTORIAL (10)`, `LOG`, `LOG (fraction)`, `LOG (base 10)`, `LN`, `LN (1)`, `COT`, `ATAN2`, `DEGREES`, `DEGREES (1)`, `TRY_TO_BOOLEAN`, `TRY_TO_BOOLEAN (not valid)`, `TO_DECIMAL`, `TO_DECIMAL (scale)`, `TO_NUMERIC`, `TO_NUMERIC (scale)`, `TRY_TO_DATE`, `TRY_TO_DATE (not a date)`, `TRY_TO_DATE (format)`, `TRY_TO_DATE (other format)`, `TO_DOUBLE`, `TO_DOUBLE (decimal)`, `CHAR`, `CHAR (snowflake)`, `COUNT`, `COUNT (star)`, `COUNT (distinct)`, `MIN`, `MAX`, `SUM`, `VARIANCE`, `REGR_COUNT`, `REGR_AVGY`, `REGR_SXX`, `REGR_SXY`, `REGR_SYY`, `EXP`, `EXP (of LN)`, `POW`, `POW (fraction)`, `POW (negative)`, `ACOS`, `ACOS (1)`, `ASIN`, `ATAN`, `SIN`, `SIN (90 degrees)`, `COS`, `COS (0)`, `TAN`, `SINH`, `COSH`, `TANH`, `ASINH`, `ACOSH`, `ATANH`, `RADIANS`, `RADIANS (720)`, `PI`, `TRUNCATE`, `TRUNCATE (scale)`, `TRUNCATE (negative scale)`, `RANK`, `DENSE_RANK`, `LAG`, `LAG (default)`, `NTH_VALUE`, `MD5_BINARY`, `SHA1_BINARY`, `SHA2_BINARY`, `HEX_DECODE_BINARY`, `TO_BINARY`, `ARRAY_MAX`, `ARRAY_MIN`, `ARRAY_REMOVE`, `MAP_SIZE`, `MAP_CONTAINS_KEY`, `MAP_DELETE`, `VARIANCE_SAMP`, `VARIANCE_SAMP (one row)`, `VARIANCE_POP`, `VARIANCE_POP (one row)`, `FIRST_VALUE (IGNORE NULLS)`, `FIRST_VALUE (RESPECT NULLS)`, `LAST_VALUE`, `LEAD`, `LEAD (IGNORE NULLS)`, `ROW_NUMBER`, `REGR_VALX`, `REGR_VALX (NULL y)`, `REGR_VALY`, `REGR_VALY (NULL x)`, `BETWEEN (decimal)`, `BETWEEN (text)`, `CASE`, `CASE (no ELSE)`, `LIKE`, `LIKE (NOT LIKE '')`, `LIKE (ESCAPE)`, `ILIKE`, `ILIKE (ESCAPE)`, `LIKE ANY`, `LIKE ALL`, `ILIKE ANY`, `REGEXP`, `REGEXP (whole string)`, `IS DISTINCT FROM`, `:: (to a decimal)`, `CAST`, `CAST (number to integer)`, `QUALIFY`, `PIVOT`, `PIVOT (a missing cell)`, `UNPIVOT`, `UNPIVOT (row count)`, `UNPIVOT (INCLUDE NULLS)`, `GENERATOR`, `SEQ4`, `UNIFORM`, `WITH (RECURSIVE)`, `VALUES ($1, $2)`, `VALUES ($1 summed)`, `UNION ALL (BY NAME)`, `MERGE`, `MERGE (values)`, `UPDATE`, `UPDATE FROM`, `DELETE`, `DELETE USING`, `TRUNCATE TABLE`, `MERGE (UPDATE SET target.column)`, `MERGE (NOT MATCHED, source duplicates)`, `MERGE (NOT MATCHED AND)`, `CREATE TABLE (stored names)`, `CREATE TEMPORARY TABLE (stored names)`, `CREATE VIEW (stored names)`, `CREATE SCHEMA (stored name)`, `ALTER TABLE ADD COLUMN (stored name)`, `ALTER TABLE RENAME (stored name)`, `CREATE TABLE AS (column list)`, `CREATE TRANSIENT TABLE`, `AUTOINCREMENT`, `PRIMARY KEY (not enforced)`, `START TRANSACTION`, `BEGIN (COMMIT)`, `ALTER TABLE RENAME (column and table)`, `ARRAY_APPEND`, `ARRAY_APPEND (ARRAY column)`, `ARRAY_APPEND (element types)`, `ARRAY_COMPACT`, `ARRAY_INSERT (docs example)`, `ARRAY_INSERT (negative position, docs example)`, `ARRAY_PREPEND (docs example)`, `ARRAY_CONSTRUCT_COMPACT (docs example)`, `ARRAY_DISTINCT`, `ARRAY_DISTINCT (NULL)`, `ARRAY_FLATTEN`, `ARRAY_FLATTEN (a NULL element)`, `ARRAY_FLATTEN (a NULL inside)`, `ARRAY_GENERATE_RANGE`, `ARRAY_GENERATE_RANGE (step)`, `ARRAY_GENERATE_RANGE (negative step)`, `ARRAY_POSITION`, `ARRAY_POSITION (first)`, `ARRAY_POSITION (missing)`, `ARRAY_REMOVE_AT`, `ARRAY_REMOVE_AT (from the end)`, `ARRAY_REMOVE_AT (past the end)`, `ARRAY_REVERSE`, `ARRAY_SORT`, `ARRAY_SORT (descending)`, `ARRAY_SORT (NULLs first)`, `UUID_STRING (named)`, `TO_JSON`, `PARSE_JSON`, `TO_ARRAY`, `OBJECT_CONSTRUCT_KEEP_NULL`, `GET`, `GET_PATH`, `STRIP_NULL_VALUE`, `STRIP_NULL_VALUE (a value)`, `BASE64_DECODE_BINARY`, `REGEXP_INSTR`, `REGEXP_INSTR (start)`, `REGEXP_INSTR (occurrence)`, `REGEXP_INSTR (after the match)`, `REGEXP_INSTR (no such occurrence)`, `REGEXP_INSTR (word boundary)`, `REGEXP_INSTR (POSIX class)`, `REGEXP_SUBSTR_ALL`, `REGEXP_SUBSTR_ALL (start)`, `REGEXP_SUBSTR_ALL (occurrence)`, `REGEXP_SUBSTR_ALL (i)`, `REGEXP_SUBSTR_ALL (group)`, `REGEXP_SUBSTR (group)`, `REGEXP_SUBSTR_ALL (no match)`, `REGEXP_EXTRACT_ALL`, `TIMESTAMP_LTZ_FROM_PARTS`, `TIMESTAMP_TZ_FROM_PARTS`, `CONVERT_TIMEZONE`, `CONVERT_TIMEZONE (to UTC)`, `TO_CHAR`, `TRY_TO_BINARY`, `TRY_TO_DECIMAL`, `TRY_TO_DECIMAL (scale)`, `TRY_TO_DECIMAL (out of range)`, `TRY_TO_DECIMAL (not a number)`, `TRY_TO_NUMERIC`, `TRY_TO_DOUBLE`, `TRY_TO_DOUBLE (not a number)`, `TRY_TO_TIME`, `TRY_TO_TIME (not a time)`, `INSERT (TIMESTAMP_LTZ column)`, `INSERT (TIMESTAMP_LTZ column, another session zone)`, `INSERT (TIMESTAMP_TZ column)`, `TO_TIMESTAMP_TZ`, `TO_TIMESTAMP_TZ (its instant)`, `TO_TIMESTAMP_TZ (format)`, `TO_TIMESTAMP_TZ (day first)`, `TRY_TO_TIMESTAMP_TZ`, `TRY_TO_TIMESTAMP_TZ (not a timestamp)`, `TRY_TO_TIMESTAMP`, `TRY_TO_TIMESTAMP (not a timestamp)`, `TO_TIMESTAMP (milliseconds in a string)`, `TO_TIMESTAMP (nanoseconds in a string)`, `TO_TIMESTAMP (scale)`, `ARRAYS_OVERLAP`, `ARRAYS_OVERLAP (none)`, `ARRAYS_OVERLAP (NULLs match)`, `ARRAYS_ZIP`, `ARRAYS_ZIP (NULL)`, `MAP_KEYS`, `MAP_PICK`, `MAP_ENTRIES`, `MAP_ENTRIES (NULL)`, `NEXT_DAY`, `PREVIOUS_DAY`, `INSERT INTO`, `INSERT INTO (SELECT)`, `TO_VARIANT`, `CHECK_JSON`, `TRY_PARSE_JSON`, `TRY_TO_TIMESTAMP_NTZ`, `TRY_TO_TIMESTAMP_NTZ (not a timestamp)`, `JSON_EXTRACT_PATH_TEXT`, `JSON_EXTRACT_PATH_TEXT (two levels)`, `JSON_EXTRACT_PATH_TEXT (array index)`, `ARRAY_UNIQUE_AGG`, `SAMPLE (ROW 0)`, `SAMPLE (TABLESAMPLE 100)`, `DROP TABLE`, `DROP TABLE (IF EXISTS)`.
+
+## Snowpark API compatibility check (Preview)
+
+KratosForge can read a Python cell that uses Snowpark and check each Snowpark call against the
+signatures of one pinned Snowpark Python version, **1.58.0**, without running the cell or reaching
+Snowflake. It is an **API compatibility check**. It says whether a call, method or keyword exists in
+that version, never what the code does or returns. There's no screen for it in the app yet, so for
+now it is an engine call (`snowpark_api_check`).
+
+- **What it reports.** A method or attribute a Snowpark class doesn't have (`df.selec`), a function a
+  Snowpark module doesn't have (`F.no_such_fn`, or importing it), a keyword the method doesn't take,
+  and more positional arguments than it takes. Each finding gives the line, the column and the version.
+- **What it flags.** Calls that need Snowflake's own servers, so nothing on this PC can check them
+  further: **Cortex AI** (`ai_*` and `snowflake_cortex_*` functions, `df.ai`, `snowflake.cortex`),
+  **external access** (`external_access_integrations`, `secrets`, `_snowflake`), **stages**
+  (`session.file`, `@stage` paths, `copy_into_location`, `copy_into_table`, `add_import`,
+  `stage_location`) and **pandas on Snowflake** (`modin`, `snowflake.snowpark.modin`). A flag doesn't
+  make the cell incompatible. It marks where the check stops.
+- **What it can't see.** Python doesn't say which object a variable holds, so the check follows
+  Snowpark's own return types from `session`, `Session.builder...create()`,
+  `get_active_session()`, imports and annotated arguments. A call it can't place is counted, never
+  guessed at. `session` is taken to be a Snowpark session, as in a Snowflake notebook, until the cell
+  gives the name to something else. `%` and `!` lines are skipped, and a `%%` cell isn't checked.
+- **Where the signatures come from.** `sidecar/fabric_desktop/snowpark_api.json` ships with the app.
+  It is written by hand with `sidecar/tools/capture_snowpark_api.py`, from the Snowpark wheel installed
+  in a scratch environment of its own, never the app's: Snowpark isn't a dependency of KratosForge for
+  this check.
+
+## Snowpark on this PC (Preview)
+
+Python cells that use Snowpark can run in Snowflake's own local testing framework, with no Snowflake
+account. Everything a cell does is **simulated by Snowflake's local testing framework**: tables live in
+the session's memory, nothing is billed, and no result has been compared with Snowflake. A cell that
+works here may still behave differently on Snowflake.
+
+- **Its own environment.** Snowpark brings the Snowflake connector and a large tree of its own, so it
+  never loads inside KratosForge. KratosForge installs `snowflake-snowpark-python[localtest]` 1.58
+  into a folder of its own, `runtimes\snowpark-1.58`, and runs each session as a separate process
+  there. Opening a session never installs anything.
+- **Pinned packages only.** A lock file in the app names every package, its exact version and its hash
+  (`sidecar/fabric_desktop/engines/snowpark_locks/1.58.txt`, listed below). pip installs only those
+  files, as prebuilt wheels, and refuses any whose hash differs. Your organization can point the
+  download at its own package mirror (`snowpark_index_url`) or turn installs off
+  (`allow_snowpark_install`) in the [policy file](azure-setup.md).
+- **No network, telemetry off.** Before Snowpark loads, the session's process refuses every name
+  lookup and every network connection, to this PC's own addresses too, so no Python code in the
+  session's process, a cell's or a library's, can reach Snowflake or anywhere else. A program a cell
+  starts as a child process (with `subprocess` or `os.system`) isn't covered by this. The session
+  always opens with `local_testing` and `disable_local_testing_telemetry` set, and doesn't start if
+  Snowpark's telemetry service is still on. Snowflake, Snowpark and proxy variables set on this PC
+  are left out of the process.
+- **What's refused.** `session.sql` is refused, because the local testing framework can't run SQL.
+  Whether KratosForge translates it here is still open. A call the framework doesn't implement
+  (Snowflake raises `NotImplementedError`) comes back as **Refused**, saying it can't be simulated on
+  this PC and that nothing was sent to Snowflake. Snowflake lists what local testing supports in
+  [its local testing guide](https://docs.snowflake.com/en/developer-guide/snowpark/python/testing-locally).
+- **Limits.** Python cells only. `session` is the local session, and `get_active_session()` returns it.
+  Results show the first rows, taken with `collect()`. `to_pandas` needs pyarrow, which the pinned
+  runtime doesn't include. Cancel ends the session's process, so its tables and variables are lost.
+  Anything that opens a network connection fails, including asyncio on Windows, where
+  `socket.socketpair()` connects over this PC's loopback address, so it is refused and an asyncio
+  event loop can't start in the session. Use the
+  [API compatibility check](#snowpark-api-compatibility-check-preview) to see which calls need
+  Snowflake's own servers.
+
+### Snowpark runtime packages and licenses
+
+Every package the Snowpark lock file installs, for Python 3.12 on Windows x64, with the license its
+package metadata declares (PyPI's, for tzdata). "Needed by" is what pulls it in. The connector and its
+tree come in even though a local session never connects to Snowflake.
+
+| Package | Version | License | Needed by |
+| --- | --- | --- | --- |
+| asn1crypto | 1.5.1 | MIT | snowflake-connector-python |
+| boto3 | 1.44.10 | Apache-2.0 | snowflake-connector-python |
+| botocore | 1.44.10 | Apache-2.0 | boto3, s3transfer, snowflake-connector-python |
+| certifi | 2026.11.20 | MPL-2.0 | requests, snowflake-connector-python |
+| cffi | 2.1.1 | MIT-0 | cryptography |
+| charset-normalizer | 3.5.3 | MIT | requests, snowflake-connector-python |
+| cloudpickle | 3.1.2 | BSD-3-Clause | snowflake-snowpark-python |
+| cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause | pyopenssl, snowflake-connector-python |
+| filelock | 4.3.1 | MIT | snowflake-connector-python |
+| idna | 3.20 | BSD-3-Clause | requests, snowflake-connector-python |
+| jmespath | 1.1.0 | MIT | boto3, botocore |
+| numpy | 2.5.5 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | pandas |
+| packaging | 26.4 | Apache-2.0 OR BSD-2-Clause | snowflake-connector-python, wheel |
+| pandas | 3.1.1 | BSD-3-Clause | snowflake-snowpark-python |
+| platformdirs | 4.14.8 | MIT | snowflake-connector-python |
+| protobuf | 6.33.6 | BSD-3-Clause | snowflake-snowpark-python |
+| pycparser | 3.12 | BSD-3-Clause | cffi |
+| pyjwt | 2.15.1 | MIT | snowflake-connector-python |
+| pyopenssl | 26.4.0 | Apache-2.0 | snowflake-connector-python |
+| python-dateutil | 2.9.0.post0 | Apache-2.0 OR BSD-3-Clause | botocore, pandas, snowflake-snowpark-python |
+| pytz | 2026.6 | MIT | snowflake-connector-python |
+| pyyaml | 6.0.4 | MIT | snowflake-snowpark-python |
+| requests | 2.34.2 | Apache-2.0 | snowflake-connector-python, snowflake-snowpark-python |
+| s3transfer | 0.19.3 | Apache-2.0 | boto3 |
+| setuptools | 84.2.1 | MIT | snowflake-snowpark-python |
+| six | 1.17.0 | MIT | python-dateutil |
+| snowflake-connector-python | 4.8.1 | Apache-2.0 | snowflake-snowpark-python |
+| snowflake-snowpark-python | 1.58.0 | Apache-2.0 | (top level) |
+| sortedcontainers | 2.4.0 | Apache-2.0 | snowflake-connector-python |
+| tomlkit | 0.15.3 | MIT | snowflake-connector-python |
+| typing-extensions | 4.16.0 | PSF-2.0 | pyopenssl, snowflake-connector-python, snowflake-snowpark-python |
+| tzdata | 2026.6 | Apache-2.0 | pandas, tzlocal |
+| tzlocal | 5.4.5 | MIT | snowflake-snowpark-python |
+| urllib3 | 2.8.0 | MIT | botocore, requests |
+| wheel | 0.48.0 | MIT | snowflake-snowpark-python |
 
 ## Databricks SQL warehouse (Preview)
 
@@ -241,9 +364,11 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   on the warehouse with no further confirm, as in a Databricks notebook. The confirm is for starting
   the session, not for each statement.
 - **Try it on this PC first.** The DuckDB engine runs Databricks SQL translated by sqlglot, so you can
-  write and test a warehouse query against local tables without starting the warehouse. Unity
-  Catalog three-part names need that catalog and schema in the local session, and Delta-only
-  commands don't run there.
+  write and test a warehouse query against local tables without starting the warehouse. The local
+  session is the catalog `main` (`workspace`, `hive_metastore` and `spark_catalog` name it too) with
+  the schema `default`, so `main.default.orders`, `USE CATALOG main`, `USE SCHEMA sales` and
+  `current_schema()` answer as on Databricks. A name in any other Unity Catalog catalog is refused by
+  name, and Delta-only commands don't run there.
 - **Busy or briefly unavailable:** checking on a statement, and cancelling one, is tried up to four
   times through throttling (HTTP 429), gateway errors (502, 503, 504) and a dropped connection,
   waiting as Databricks' `Retry-After` says (at most 30 seconds in all). A statement is sent again
@@ -376,6 +501,114 @@ lists Snowflake connections.
   a fake of it, not a live account. How TIME and TIMESTAMP_TZ values look on the wire, and that
   EXPLAIN runs without a warehouse, come from the documentation and haven't been checked live.
 
+### Snowflake objects and query history (Preview)
+
+Two engine calls read a Snowflake connection's objects and your own recent queries. There's no screen
+for them in the app yet, so for now they are engine calls only.
+
+- **Objects** (`engines/snowflake_objects.py`) lists databases, schemas, tables and views, and the
+  columns of a table or view you pick, with `SHOW` commands as the connection's role. They never send
+  a warehouse, so none resumes and no warehouse credits are used. Each list is a page of up to 1,000
+  rows (200 unless asked), and the next page starts after the last name shown, with `SHOW`'s
+  `LIMIT ... FROM`. A prefix filter uses `STARTS WITH`, which is case sensitive. A name you type is
+  matched as Snowflake lists it, ignoring case when only one object matches. A name your role can't see
+  says so and what to ask for, for example USAGE on the database. Snowflake returns at most 10,000
+  columns of a table, and they are paged on this PC.
+- **Query history** (`engines/snowflake_history.py`) reads your own queries from
+  `INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER`, which needs no grant on `ACCOUNT_USAGE`. It covers 1 hour
+  to just under 7 days (24 hours unless asked) and up to 1,000 queries (100 unless asked), newest first,
+  with each query's id, status, run time, warehouse and rows. Query text is cut to 500 characters unless
+  asked (2,000 at most), after anything that looks like a password or token is removed. Queries still
+  running are included. The query that reads the history is left out.
+- **Query history uses credits.** It's a query, so it runs on the connection's warehouse and needs a
+  database for its `INFORMATION_SCHEMA`. A suspended warehouse resumes, and a running one uses credits
+  until its own auto-suspend. So it needs the same confirmation, for that account and warehouse, as the
+  [Snowflake SQL warehouse](#snowflake-sql-warehouse-preview), or your profile's policy.
+- **Not confirmed yet.** Both follow Snowflake's documentation and are tested against a fake of the SQL
+  API, not a live account. Whether `LIMIT ... FROM` includes the named row isn't documented, so a row
+  with that exact name is never shown twice either way. Query profiles come later.
+
+### Snowflake warehouse credits (Preview)
+
+An engine call (`engines/snowflake_credits.py`) reads the credits each warehouse used per day from
+`SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY`. There's no screen for it in the app yet.
+
+- **What you get.** One row per warehouse per UTC day, newest first, with credits used and their
+  compute and cloud services split, and totals. It covers 1 to 31 days, today included (7 unless asked),
+  and up to 5,000 rows (500 unless asked). A cut list says so, and its totals cover the rows shown.
+- **Credits only.** Figures stay Snowflake credits. They are never turned into money, never added to
+  DBUs or Fabric capacity units, and never called savings. They are credits used before Snowflake's
+  daily cloud services adjustment, so they may be more than the credits billed.
+- **Up to 3 hours behind.** Snowflake documents up to 3 hours of latency for the view, and up to 6 hours
+  for its cloud services credits, so the latest hours may be missing or low. Every result says so.
+- **It uses credits.** Reading the view is a query, so it runs on the connection's warehouse, which
+  resumes if it is suspended. It needs the same confirmation, for that account and warehouse, as the
+  [Snowflake SQL warehouse](#snowflake-sql-warehouse-preview), or your profile's policy. Before you
+  confirm, it can show what it would run, without sending anything.
+- **Who can read it.** Your role needs IMPORTED PRIVILEGES on the `SNOWFLAKE` database, or the
+  `SNOWFLAKE.USAGE_VIEWER` database role. Without either, the read is refused, naming your role and
+  those two grants for a Snowflake admin.
+- **Not confirmed yet.** Tested against a fake of the SQL API, not a live account. The error codes for a
+  role that can't read `ACCOUNT_USAGE` come from Snowflake's usual "does not exist or not authorized"
+  and "insufficient privileges" errors, not from a live run.
+
+## Unity Catalog volumes on this PC (Preview)
+
+Databricks notebooks and Databricks SQL cells that run on this PC can use managed Unity Catalog volumes. A
+volume is a folder on this PC, in the app's data folder:
+`%LOCALAPPDATA%\FabricDesktop\volumes\main\<schema>\<volume>`. Nothing in it is uploaded to
+Databricks, and nothing here reaches cloud storage. They are made and used from code, and shown on
+**Workspaces > Databricks > Volumes on this PC**. The design and its sources are in
+[databricks-volumes-local.md](product/databricks-volumes-local.md).
+
+- **The screen:** Workspaces > Databricks has two views, **Synced folders** and **Volumes on this PC**
+  (Preview; Settings can hide it with the other preview features). The list on the left shows each volume
+  under its schema with how many items its folder holds. A volume shows its `/Volumes` path and its folder on
+  this PC, with **Copy path** and **Show on this PC**, and the files in the folder you are in, folders first.
+  **New volume** makes one (a schema, a name and an optional comment, as `CREATE VOLUME` does); the **...**
+  menu beside a volume renames it, sets or removes its comment, or drops it. **Upload** copies a file you pick
+  on this PC into the folder you are in, and asks before replacing a file of that name. **New folder** makes
+  a folder there. **Download** copies the ticked files to a file (one) or a folder (several) you pick on this
+  PC; it never saves into OneDrive or into the app's own data folder. **Delete** removes the ticked files and
+  folders, and **Drop volume** removes a volume with everything in it; both ask first, in red, because
+  nothing on this PC keeps a copy. A folder lists its first 2,000 entries; `LIST` in a SQL cell reads the
+  rest. Every path the screen sends gets the same checks as a path in code (below).
+
+- **Paths** are written as on Databricks: `/Volumes/<catalog>/<schema>/<volume>/<path>` or
+  `dbfs:/Volumes/...`. The catalog is the session's, `main` (`workspace`, `hive_metastore` and
+  `spark_catalog` name it too); any other catalog is refused by name, and so is the schema `main`, as for
+  tables. Names are kept in lowercase, as Unity Catalog keeps them.
+- **SQL cells (Databricks SQL on DuckDB):** `CREATE VOLUME [IF NOT EXISTS] [catalog.][schema.]volume
+  [COMMENT '...']`, `DROP VOLUME [IF EXISTS]`, `SHOW VOLUMES [IN|FROM schema] [[LIKE] 'pattern']` (columns
+  `database`, `volumeName`), `DESCRIBE VOLUME` (columns `name`, `catalog`, `database`, `owner`,
+  `storageLocation`, `volumeType`, `comment`), `ALTER VOLUME ... RENAME TO`, `COMMENT ON VOLUME` and
+  `LIST '/Volumes/...' [LIMIT n]` (columns `path`, `name`, `size`, `modification_time`). A volume that is
+  already there stops CREATE with `VOLUME_ALREADY_EXISTS`; a schema that isn't there stops it with
+  `SCHEMA_NOT_FOUND`. Each statement runs in its place in the cell.
+- **Reading files in SQL:** `SELECT * FROM read_files('/Volumes/main/default/v/x.csv', format => 'csv')`
+  reads csv, json and parquet files, or every data file below a folder. It takes `format`, `header` and
+  `sep` (csv), `inferColumnTypes` (csv), `multiLine` (json) and `schemaEvolutionMode`; any other option is
+  refused by name. As on Databricks, a CSV file's first line is its header and a `_rescued_data` column is
+  added unless `schemaEvolutionMode => 'none'`. Here that column is always NULL: a value that doesn't fit
+  stops the read instead of being rescued. Integer columns are read as `bigint`, where Databricks may infer
+  `int`. `csv.`/Volumes/...`` (and `json.`, `parquet.`) reads as Spark's reader does by default. A cell
+  reads its files when it starts.
+- **Notebooks:** `dbutils.fs` and `%fs` (`ls`, `head`, `put`, `cp`, `mv`, `rm`, `mkdirs`) work on a volume,
+  and `ls` gives each entry's `dbfs:/Volumes/...` path, as Databricks' Python `dbutils.fs.ls` does, never
+  its folder on this PC. The volume's own folder can't be removed or moved with them: use `DROP VOLUME`.
+  `spark.read...load('/Volumes/...')` and `df.write...save('/Volumes/...')` read and write files in a
+  volume as they do any folder on this PC. Python's own `open()` and `os` calls don't map `/Volumes` paths
+  yet.
+- **Refused by name:** external volumes (`CREATE EXTERNAL VOLUME`, `LOCATION`), `ALTER VOLUME ... OWNER TO`,
+  `SET TAGS` and `UNSET TAGS`, `UNDROP VOLUME`, `LIST ... WITH (CREDENTIAL ...)`, `LIST` or `read_files` of
+  any other URL, and `PUT INTO`, `GET` and `REMOVE` (Databricks runs those only through its SQL connectors).
+- **DROP VOLUME removes the files at once.** Databricks keeps a dropped managed volume's files for 7 days so
+  `UNDROP` can bring them back; this PC keeps no copy.
+- **Nothing leaves the volume's folder.** A path that holds `..`, `.`, a backslash, a colon (a drive or a
+  stream), a name Windows changes (a final dot or space, a device name such as `NUL`) is refused before
+  anything is read, and so is a path whose real location, links and junctions followed, is outside the
+  volume. A folder that holds a link isn't copied, moved, removed or read whole.
+
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
@@ -485,6 +718,68 @@ the CLI signs in and KratosForge never handles a token. Install the Databricks C
 - **Deploying runs nothing.** No job or pipeline starts; their next scheduled run bills as usual.
 - Deploys are recorded in the audit log.
 
+### Check a bundle on this PC (Preview)
+
+This is a command, with no screen in the app yet.
+
+`fabric-desktop databricks-bundle validate <folder>` checks `databricks.yml` and the files its
+`include:` globs name without the Databricks CLI, a sign-in, a workspace or the network. Each finding
+names the field by its path, with the file and line:
+
+```text
+> fabric-desktop databricks-bundle validate C:\repos\sales-etl
+C:\repos\sales-etl\resources\nightly.yml:14:1: error: resources.jobs.nightly.tasks[2].notebook_task.notebook_path: '../src/load.py' doesn't exist. There's no file at src/load.py (with or without a notebook extension), relative to resources/nightly.yml.
+1 error, 0 warnings (checked on this PC; not databricks bundle validate)
+```
+
+It exits 1 when there are errors, and `--json` prints every finding (severity, path, message, file,
+line, column). It checks:
+
+- YAML anchors and aliases (`&name`, `*name`) are refused, as are a file over 5 MB and nesting deeper than
+  200 levels, and such a file isn't read further.
+- YAML that can't be read, with its line and column, and a key given twice in one mapping (both lines
+  are named, because YAML would quietly keep the second).
+- `bundle.name` is set.
+- Unknown keys at the top level and under `bundle`, `targets.<name>`, `variables.<name>`, a job, a job
+  task, a pipeline, an alert, an app, a catalog, an experiment, a model and a SQL warehouse, and unknown
+  resource types. These are **warnings**, because Databricks adds fields, and a newer one isn't wrong. The other
+  resource types' own fields aren't checked yet, because their field lists couldn't all be read
+  from the documentation.
+- Field types: a job's `max_concurrent_runs` and `timeout_seconds` are integers, `tasks` is a list and
+  `email_notifications` a mapping; a task's `depends_on` and `libraries` are lists, `timeout_seconds` and
+  `max_retries` integers and `email_notifications` a mapping; a pipeline's `libraries`, `clusters` and
+  `notifications` are lists and `configuration` a mapping. A `${...}` value isn't type-checked.
+- Each job task has a `task_key`, no two tasks in a job share one, each task has exactly one task type
+  (a target's task that overrides a task with the same `task_key` may leave the type out), and every
+  `depends_on` names a task in the job.
+- `${var.<name>}` names a variable declared under `variables`, a target only sets declared variables,
+  a variable's `type` is `complex` or left out, and a complex variable's default isn't a single value.
+- `${resources.<type>.<name>...}` names a resource the bundle defines (at the top level or in a target).
+- `${bundle.<field>}` and `${workspace.<field>}` name a documented field, such as `bundle.name`,
+  `bundle.target`, `workspace.file_path` or `workspace.current_user.userName`. `${bundle.environment}` is a
+  warning, because the documentation says to use `${bundle.target}`.
+- A target's `mode` is `development` or `production`, `default` is true or false, and at most one
+  target is the default.
+- Every `include` glob matches a file and stays inside the bundle folder. Globs are relative to
+  `databricks.yml`.
+- `sync.include` and `sync.exclude` are lists of strings, and a relative `artifacts.<name>.path` is a
+  folder inside the bundle folder, relative to the YAML file that names it.
+- A relative `notebook_path`, `python_file`, `sql_task` file path or pipeline `notebook` or `file`
+  library path names a file inside the bundle folder, relative to the YAML file that names it (a notebook may
+  leave out its extension). Workspace paths (`/Workspace/...`), paths with a `${...}` substitution, and paths
+  into a Git source (`source: GIT` or the job's `git_source`) aren't looked for.
+
+The checks are written from Databricks' configuration reference
+([bundle settings](https://docs.databricks.com/aws/en/dev-tools/bundles/settings),
+[configuration reference](https://docs.databricks.com/aws/en/dev-tools/bundles/reference),
+[task types](https://docs.databricks.com/aws/en/dev-tools/bundles/job-task-types),
+[variables](https://docs.databricks.com/aws/en/dev-tools/bundles/variables),
+[resources](https://docs.databricks.com/aws/en/dev-tools/bundles/resources)) and the REST API create
+pages for jobs, pipelines, experiments, models and SQL warehouses. The CLI's own JSON schema isn't used,
+because it's under the Databricks License, which allows use only with the Databricks Services. So
+this isn't `databricks bundle validate`. It doesn't merge targets, resolve variables or know fields added after it was written, and its messages are its own.
+Run **Validate** in Source control > Bundles, which runs the CLI, before you deploy.
+
 ## Databricks DBUs in Optimize > Cost (Preview)
 
 **Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,
@@ -502,6 +797,24 @@ the CLI signs in and KratosForge never handles a token. Install the Databricks C
   turned into money.
 - **Kept on this PC.** The last read is kept per workspace, so the section shows it again without
   reading.
+
+## Compare platforms for one workload (Preview)
+
+Below the cost panel, **Compare platforms** shows what one workload costs per run on this PC, on
+Fabric, on Databricks and on Snowflake, side by side.
+
+- **You say what counts as the same workload.** A Databricks job counts when you link it to the
+  workload. A Snowflake query counts when it carries a query tag that names the workload. Nothing is
+  matched by name or guessed.
+- **It asks first.** The Databricks per-run DBUs (from `system.billing.usage`, by
+  `usage_metadata.job_run_id`) and the Snowflake credits (from `ACCOUNT_USAGE.QUERY_HISTORY`) each run
+  one query on a warehouse, so each asks before it runs and follows the connection's execution
+  policy. Refresh never reads them; it shows the last read kept on this PC.
+- **Measured, estimated and unknown stay apart.** Databricks DBUs are billed, so they are measured.
+  Snowflake credits are estimated from execution time and warehouse size, and the card lists the
+  assumptions. A figure that wasn't recorded shows as not known, never as zero.
+- **Money only under a pricing scenario.** One scenario version holds the Fabric CU hour rate, the
+  per-DBU rates by SKU and the per-credit rate. Without one, the cards show native units only.
 
 ## Databricks Connect (Preview)
 
@@ -604,9 +917,10 @@ hidden, Runs on works as before.
 - **Connection.** For a Databricks engine, **Connection** picks the saved profile connection or
   Databricks CLI profile to use. Only the host and warehouse or cluster id reach the screen; tokens
   stay with the sidecar. The connection's default catalog and schema show beside it, as a label.
-- **Engine menu.** Python (this PC) first, then the other engines on this PC (DuckDB, SQLite,
-  Polars), then **Remote**: Run in Fabric (the whole notebook as a Fabric job, as before), Fabric
-  Spark, Databricks SQL warehouse and Databricks Connect, each marked Preview. Engines that are
+- **Engine menu.** Python (this PC) first, then **Same as** the environment, then the other engines
+  on this PC (DuckDB, SQLite, Polars), then **Remote**: **Fabric job** (the whole notebook run in
+  Fabric, as Run in Fabric did before), Fabric Spark, Databricks SQL warehouse and Databricks
+  Connect, each marked Preview. Engines that are
   planned but not built are listed under **More** as information only; they can't be chosen.
   Hover ⓘ for what each engine runs and how it differs from the platform.
 - **Remote confirm.** Choosing a remote engine opens a confirm that names the engine, the
@@ -750,10 +1064,10 @@ adapter has one.
 
 - Settings > Connections adds CLI-based connections only: service principals and the other sign-in
   methods are set in the profile file for now, and the profile in use isn't switched from Settings yet.
-- Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
+- Snowflake: Snowflake SQL and Snowpark Connect are listed so the plan is visible, but neither runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
-  will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's
-  local testing framework, which can't run `session.sql` and implements only some functions.
+  will ask first, as every remote engine does. Snowpark on this PC runs cells simulated by Snowflake's
+  local testing framework (Preview, above).
 - Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
   through the Statement Execution API, tested against fakes only. Workspace discovery and Databricks
   Connect stay Preview until tested against a live workspace.

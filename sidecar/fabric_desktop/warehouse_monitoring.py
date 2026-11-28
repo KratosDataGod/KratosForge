@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 import requests
 
+from .fabric_api import definition_parts
 from .redact import one_line
 from .retrying import TRANSIENT_STATUS, send_with_retry
 
@@ -165,11 +166,12 @@ def queryset_definition(item_id: str, cluster_uri: str, database: str, existing:
 
 
 def read_queryset(definition: dict[str, Any]) -> dict[str, Any]:
-    """The ``queryset`` object of a getDefinition result; an empty one when it holds none."""
-    for part in (definition.get("definition") or definition).get("parts") or []:
-        if part.get("path") == "RealTimeQueryset.json":
+    """The ``queryset`` object of a getDefinition result; an empty one when it holds none. A part that
+    isn't whole base64 raises (FabricError BadDefinitionPart), so the queryset is left as it is."""
+    for path, data in definition_parts(definition).items():
+        if path == "RealTimeQueryset.json":
             try:
-                body = json.loads(base64.b64decode(part.get("payload") or ""))
+                body = json.loads(data)
             except (ValueError, RecursionError) as exc:
                 raise ValueError(f"The queryset's definition couldn't be read, so it was left as it is: {exc}") from None
             q = body.get("queryset") if isinstance(body, dict) else None

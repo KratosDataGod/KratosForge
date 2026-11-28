@@ -22,6 +22,7 @@ KratosForge has no service of its own. Nothing on this page leaves the PC unless
 | `msal_cache.bin`, `fabric-view-signin.bin`, `fabric-view\`, `%LOCALAPPDATA%\com.kratosbi.fabricdesktop` | Sign-in name, Entra object and tenant ids, tokens, and the browser profiles' cookies | Staying signed in | Until sign-out | Sign out. Uninstall always removes them |
 | `profile\<hash>\profile.json`, `avatar.png` | Display name, role and technologies the person entered; recorded accomplishments (notebook and check names); goals; report summary; a picture (re-encoded, so photo metadata such as location is dropped) | Profile page | Until deleted | **Profile > Delete my profile data** |
 | Notebooks (`notebooks\*.ipynb`) | Code, outputs (which can show table rows), and comments. Each comment stores the author's sign-in name and Entra object id, and they travel with the notebook into Git | The person's own work | Until deleted | Delete the notebook. Copies in Git are the repository's to remove |
+| `notebook-sync\<hash>\*.json` | The cells of a notebook as it was last opened or saved here (code, Markdown and cell settings; no outputs) | Merging a notebook changed in VS Code and here, cell by cell | The last 4 per notebook; dropped when the notebook is renamed or deleted | Delete the folder |
 | `history.jsonl`, `schedule_runs.jsonl`, `fabric_runs.jsonl`, `side_by_side.jsonl`, `proofs.jsonl`, `validations.json` | Notebook, table and workspace names, and error text with secrets removed. **UNVERIFIED:** error text comes from Fabric and libraries, so it can echo values it was given | Run history | Capped (newest rows) | Delete the files |
 | `receipts\` | Each proof's receipt names the signed-in account and tenant | A record of a run others can check | Kept until deleted, or `receipt_retention_days` if IT sets it | Delete the folder |
 | `risk_acknowledgements.jsonl` | Signed-in account and the person's note (up to 500 characters) | A record that someone saw a risk check's warnings and went ahead | Kept until deleted | Delete the file |
@@ -36,6 +37,7 @@ KratosForge has no service of its own. Nothing on this page leaves the PC unless
 | Windows Application event log, source KratosForge (Windows only) | No personal data: a fingerprint of the audit folder's path, the trail's newest hash and its line count | A record of where the audit trail ends that the trail's folder can't rewrite | The event log's own size and retention | An administrator can clear the Application log |
 | `settings.json` | Teams and flow addresses (sealed with Windows DPAPI), the mail server's host, sender and user name | Sending alerts and notices | Until changed | **Settings** |
 | Windows Credential Manager `KratosForge/mail-server` | The mail server password | Sending email notices | Until removed | **Settings**, or uninstall |
+| `keys\fingerprint.key` | No personal data: 32 random bytes | Keying the short fingerprints the app gives AI tools in place of role filters and members, so a guessed name or filter can't be confirmed away from this PC | Until deleted. Never in a backup. A restore or a deleted file makes a new one | Delete the file |
 | `restore-safety\<time>` | Copies of whatever a restore replaced (any of the above) | Undoing a restore by hand | Newest 5 restores | Delete the folder |
 | `files\`, `staging\`, `onelake-cache\`, `replays\`, `preview-files\` | Copies of lakehouse data, so whatever personal data your tables hold. Replay bundles can hold a sample of rows | Speed, and running a failed notebook again | `local_retention_days` (default 30); previews 1 hour; staged writes 1 day | `fabric-desktop clean-local` or **Settings > Advanced > OneLake writes** |
 | `sql-runs\` | Query results (table data) | Paging and export on the SQL page | `sql_result_retention_hours` (default 24) | Closing the app, with 0 hours |
@@ -62,7 +64,13 @@ KratosForge has no service of its own. Nothing on this page leaves the PC unless
 ## Requests from a person
 
 - **See it:** the files above are JSON, JSONL or SQLite on the person's own PC. `fabric-desktop audit` prints the audit trail ([Audit trail](user-guide.md#audit-trail)).
-- **Delete it:** **Profile > Delete my profile data** for the profile. Everything else on the PC: close the app and run `uninstall-kratosforge.ps1 -RemoveData` ([Uninstall](install.md#uninstall)). It keeps the audit trails unless you also pass `-RemoveAuditTrail`, so decide first whether your organization has to keep them. There's no single "remove my data" button in the app yet.
+- **Delete it:** **Profile > Delete my profile data** for the profile. Everything else on the PC: close the app and run `uninstall-kratosforge.ps1 -RemoveData` ([Uninstall](install.md#uninstall)). It keeps the audit trails unless you also pass `-RemoveAuditTrail`, so decide first whether your organization has to keep them. It removes only what is on this PC for that Windows account. It leaves:
+  - A headless agent's folder (`%ProgramData%\FabricDesktop\agent` or a server, with its queue, alerts and logs). IT deletes it with the agent stopped.
+  - Each environment's incident list, which is shared with the team in OneLake or the project folder.
+  - The Windows event log, which only an administrator can clear.
+  - Copies in Git.
+
+  There's no single "remove my data" button in the app yet. A test (`test_delete_my_data_stores.py`) checks that every store above is either removed or named here.
 - **Correct it:** Profile details and settings can be edited in the app. Audit lines are hash-chained, so they can't be edited without `fabric-desktop audit --verify` showing it.
 - **Data in Fabric, Git or your platform** is outside the PC: use those systems' own processes.
 

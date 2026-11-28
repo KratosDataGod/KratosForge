@@ -1,10 +1,10 @@
-# Refresh history: failures in a row, a schedule turned off, and slow refreshes
+# Refresh history: failures in a row, a schedule turned off and slow refreshes
 
-Five semantic models refresh on a schedule every night. Some reports show old numbers, two owners say their schedule has gone, and the Stock owner says one framing took much longer than usual. Stock is a Direct Lake model and the other four are Import models. You have the refresh history for the last eight nights. Find which models are stale, which schedules the service has turned off, and which refreshes were slow for their own model.
+Five semantic models refresh on a schedule every night. Some reports show old numbers, two owners say their schedule has gone, and the Stock owner says one framing took much longer than usual. Stock is a Direct Lake model and the other four are Import models. You have the refresh history for the last eight nights. Find which models are stale, which schedules the service has turned off and which refreshes were slow for their own model.
 
 ## What you'll do
 
-From eight nights of refresh history, report each semantic model's latest status, the time its data is from, its failures in a row, whether the service has turned its schedule off, and its slow refreshes.
+From eight nights of refresh history, report each semantic model's latest status, the time its data is from, its failures in a row, whether the service has turned its schedule off and its slow refreshes.
 
 ## How it runs here
 

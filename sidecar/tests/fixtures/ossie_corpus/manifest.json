@@ -1,0 +1,528 @@
+{
+ "about": "OSSIE-012a fixture corpus: what each file is and what each entry point does with it. Synthetic data only. tests/ossie_corpus.py reads it; tests/test_ossie_corpus.py checks it; tools/ossie_upgrade_diff.py compares two converters over it. findings are recorded; those fixed since say so.",
+ "files": [
+  {
+   "path": "ossie/v02_01_minimal.yaml",
+   "kind": "ossie",
+   "what": "Ossie 0.2: one dataset, one field (richness 1).",
+   "expect": {
+    "to_tmsl": "ok",
+    "validate": "Valid",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   }
+  },
+  {
+   "path": "ossie/v02_02_star.yaml",
+   "kind": "ossie",
+   "what": "Ossie 0.2: two datasets, a relationship and a model metric in SQL (richness 2).",
+   "expect": {
+    "to_tmsl": "ok",
+    "validate": "Valid",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   }
+  },
+  {
+   "path": "ossie/v02_03_rich.yaml",
+   "kind": "ossie",
+   "what": "Ossie 0.2: dataset metrics, AI context, unique keys, a time dimension and several dialects (richness 3).",
+   "expect": {
+    "to_tmsl": "ok",
+    "validate": "Valid",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   }
+  },
+  {
+   "path": "ossie/v02_04_powerbi.yaml",
+   "kind": "ossie",
+   "what": "Ossie 0.2 exported from tmsl/02_rich.bim: a POWER_BI section with a role, hierarchy, calculation group, perspective and culture (richness 4).",
+   "expect": {
+    "to_tmsl": "ok",
+    "validate": "Valid",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "findings": [
+    "Fixed in rolefid: a role (and a calculation group) that the file keeps only in its POWER_BI extension used to come back Fully preserved on Import with no security warning; Ossie to TMSL now classes it Preserved through extensions, and the role carries the security warning Export gives."
+   ]
+  },
+  {
+   "path": "ossie/v02_05_minimal.json",
+   "kind": "ossie",
+   "what": "The minimal model written as JSON.",
+   "expect": {
+    "to_tmsl": "ok",
+    "validate": "Valid",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   }
+  },
+  {
+   "path": "view/sales_view.yaml",
+   "kind": "view",
+   "what": "A Fabric Semantic View: datasets without fields, a relationship, DAX on every metric.",
+   "expect": {
+    "to_tmsl": "ok",
+    "validate": "Valid",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "findings": [
+    "Fixed in rolefid: a Semantic View converted to TMDL used to drop its relationships, as a view has no fields; each end column is now declared as a lakehouse source column with no data type, and a report row says its data type wasn't known."
+   ]
+  },
+  {
+   "path": "tmsl/01_minimal.bim",
+   "kind": "tmsl",
+   "what": "TMSL: one Direct Lake table with a measure.",
+   "expect": {
+    "export": "ok",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   }
+  },
+  {
+   "path": "tmsl/02_rich.bim",
+   "kind": "tmsl",
+   "what": "TMSL: a role, a hierarchy, a calculation group, a perspective, a culture and a multi-line measure.",
+   "expect": {
+    "export": "ok",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "notes": [
+    "Every Power BI-only object exports Preserved through extensions and the round trip is the same."
+   ]
+  },
+  {
+   "path": "tmdl/rich.SemanticModel",
+   "kind": "tmdl",
+   "what": "TMDL folder of tmsl/02_rich.bim.",
+   "expect": {
+    "export": "ok",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   }
+  },
+  {
+   "path": "tmdl/unknown_lines.SemanticModel",
+   "kind": "tmdl",
+   "what": "TMDL folder with an object kind KratosForge can't read (calendar).",
+   "expect": {
+    "export": "ok",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "notes": [
+    "The calendar is reported by the TMDL reader as not understood and left out; nothing raises."
+   ]
+  },
+  {
+   "path": "versions/v03_star.yaml",
+   "kind": "ossie",
+   "what": "Ossie 0.3.0.dev0: read and checked, never converted.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Valid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "says": "(profile ossie-0.3)",
+   "notes": [
+    "L1 reads a 0.3 file as written."
+   ]
+  },
+  {
+   "path": "versions/snowflake_011.yaml",
+   "kind": "ossie",
+   "what": "Snowflake's 0.1.1 semantic_model wrapper: read and checked (Unverified), never converted.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Unverified",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "says": "(profile snowflake-ossie)"
+  },
+  {
+   "path": "versions/unknown_version.yaml",
+   "kind": "ossie",
+   "what": "A version no profile knows (0.9.0): refused by name everywhere.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Not checked",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "Ossie version 0.9.0, which KratosForge doesn't know"
+  },
+  {
+   "path": "hostile/wrong_datasets_text.yaml",
+   "kind": "ossie",
+   "what": "Wrong type: text where the datasets go.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Invalid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "needs a name and at least one dataset",
+   "notes": [
+    "parse refuses it before the shape check (needs at least one dataset)."
+   ]
+  },
+  {
+   "path": "hostile/wrong_field_name_list.yaml",
+   "kind": "ossie",
+   "what": "Wrong type: a list where a field's name goes.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Invalid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "$.datasets['orders'].fields[0].name is a list where it should be text",
+   "findings": [
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
+   ]
+  },
+  {
+   "path": "hostile/wrong_field_item_text.yaml",
+   "kind": "ossie",
+   "what": "Wrong type: fields written as plain text items.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Invalid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "$.datasets['orders'].fields[0] is text where it should be an object",
+   "findings": [
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
+   ]
+  },
+  {
+   "path": "hostile/wrong_numeric_name.yaml",
+   "kind": "ossie",
+   "what": "Wrong type: a dataset name that is a number.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Invalid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "$.datasets[0].name is a number where it should be text (a name that is a number goes in quotes)",
+   "findings": [
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
+   ],
+   "notes": [
+    "The refusal says a name that is a number goes in quotes."
+   ]
+  },
+  {
+   "path": "hostile/wrong_dialects_object.yaml",
+   "kind": "ossie",
+   "what": "Wrong type: a metric's dialects as one object, not a list.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Invalid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "$.metrics['total'].expression.dialects is an object where it should be a list",
+   "findings": [
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
+   ]
+  },
+  {
+   "path": "hostile/wrong_relationship_columns.yaml",
+   "kind": "ossie",
+   "what": "Wrong type: a relationship's from_columns as text.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Invalid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "$.relationships['orders_customers'].from_columns is text where it should be a list",
+   "findings": [
+    "Fixed in harden: the Semantic View emitter used to leave a wrong-typed part out under excluded, and the view was still Valid; it now runs the converter's shape check and refuses the file by path."
+   ]
+  },
+  {
+   "path": "hostile/wrong_extension_json.yaml",
+   "kind": "ossie",
+   "what": "A POWER_BI extension whose data isn't JSON.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Valid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "valid",
+    "parity_l1": "Test failed"
+   },
+   "says": "POWER_BI custom_extensions data is not valid JSON",
+   "notes": [
+    "The schema check passes it (data is a string); the converter refuses it. The view strips extensions, so it is Valid."
+   ]
+  },
+  {
+   "path": "hostile/wrong_type_huge_name.yaml",
+   "kind": "ossie",
+   "what": "Wrong type under a 2,000-character dataset name: the refusal names it cut short.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Invalid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "... (2000 characters)'].fields is text where it should be a list"
+  },
+  {
+   "path": "hostile/wrong_tables_text.bim",
+   "kind": "tmsl",
+   "what": "Wrong type: text where a model.bim's tables go.",
+   "expect": {
+    "export": "refused",
+    "round_trip": "not run",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "$.model.tables is text where it should be a list",
+   "findings": [
+    "Fixed in harden: tmdl.from_bim and L1 used to skip a wrong-typed model.bim part with a report row or read it as it is, completing where export refuses; both now run export's shape check and refuse it by path (L1 as Test failed)."
+   ]
+  },
+  {
+   "path": "hostile/wrong_column_name_number.bim",
+   "kind": "tmsl",
+   "what": "Wrong type: a column name that is a number.",
+   "expect": {
+    "export": "refused",
+    "round_trip": "not run",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "$.model.tables['orders'].columns[0].name is a number where it should be text",
+   "findings": [
+    "Fixed in harden: tmdl.from_bim and L1 used to skip a wrong-typed model.bim part with a report row or read it as it is, completing where export refuses; both now run export's shape check and refuse it by path (L1 as Test failed)."
+   ]
+  },
+  {
+   "path": "hostile/wrong_role_text.bim",
+   "kind": "tmsl",
+   "what": "Wrong type: a role written as text.",
+   "expect": {
+    "export": "refused",
+    "round_trip": "not run",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "$.model.roles[0] is text where it should be an object",
+   "findings": [
+    "Fixed in harden: tmdl.from_bim and L1 used to skip a wrong-typed model.bim part with a report row or read it as it is, completing where export refuses; both now run export's shape check and refuse it by path (L1 as Test failed)."
+   ]
+  },
+  {
+   "path": "hostile/top_level_list.yaml",
+   "kind": "ossie",
+   "what": "Wrong type at the root: a list, not one object.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Not checked",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "which is one object with version, name and datasets",
+   "findings": [
+    "Fixed in typed-errors: a root that isn't an object used to be a plain TypeError from parse; it is now a ValueError with the same message at every entry point."
+   ]
+  },
+  {
+   "path": "hostile/empty.yaml",
+   "kind": "ossie",
+   "what": "An empty file (reads as null).",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Not checked",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "which is one object with version, name and datasets",
+   "findings": [
+    "Fixed in typed-errors: a root that isn't an object used to be a plain TypeError from parse; it is now a ValueError with the same message at every entry point."
+   ]
+  },
+  {
+   "path": "hostile/not_yaml.yaml",
+   "kind": "ossie",
+   "what": "Not YAML: an unclosed quote and bracket.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Not checked",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "This isn't valid YAML or JSON"
+  },
+  {
+   "path": "hostile/aliases.yaml",
+   "kind": "ossie",
+   "what": "YAML aliases (*name), refused before anything is expanded.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Not checked",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "YAML aliases (line 10)"
+  },
+  {
+   "path": "hostile/duplicate_key.yaml",
+   "kind": "ossie",
+   "what": "A key given twice in one object (a second datasets).",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Not checked",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "gives 'datasets' twice in one object (line 9)"
+  },
+  {
+   "path": "hostile/no_datasets.yaml",
+   "kind": "ossie",
+   "what": "An empty datasets list.",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Invalid",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "needs a name and at least one dataset"
+  },
+  {
+   "path": "hostile/deep_ai_context.yaml",
+   "kind": "ossie",
+   "what": "A value nested 300 levels deep in ai_context (well under secret_scan's ~3,000-level RecursionError).",
+   "expect": {
+    "to_tmsl": "refused",
+    "validate": "Not checked",
+    "round_trip": "refused",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Test failed"
+   },
+   "says": "nested too deeply (more than 64 levels)",
+   "findings": [
+    "Fixed in typed-errors: the depth limit used to apply only in validate. Conversion, the round trip, Ossie to TMDL, TMDL from a model and the view's reading of an Ossie file now refuse nesting past 64 levels too; L1 reports it as Test failed on an Ossie side and still reads a model.bim side without the limit."
+   ]
+  },
+  {
+   "path": "hostile/deep_extended_property.bim",
+   "kind": "tmsl",
+   "what": "A model.bim with a value nested 300 levels deep in a column's extendedProperties.",
+   "expect": {
+    "export": "refused",
+    "round_trip": "not run",
+    "tmdl": "refused",
+    "semantic_view": "refused",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "says": "(more than 64 levels)",
+   "findings": [
+    "Fixed in typed-errors: the depth limit used to apply only in validate. Conversion, the round trip, Ossie to TMDL, TMDL from a model and the view's reading of an Ossie file now refuse nesting past 64 levels too; L1 reports it as Test failed on an Ossie side and still reads a model.bim side without the limit."
+   ]
+  },
+  {
+   "path": "hostile/huge_name.yaml",
+   "kind": "ossie",
+   "what": "A dataset and a field named with 2,000 characters.",
+   "expect": {
+    "to_tmsl": "ok",
+    "validate": "Valid",
+    "round_trip": "same",
+    "tmdl": "ok",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "notes": [
+    "Converts everywhere; reports cut the name short at 1,024 characters."
+   ]
+  },
+  {
+   "path": "hostile/unicode_names.yaml",
+   "kind": "ossie",
+   "what": "Names in German, Japanese, Hebrew, with an emoji and a U+2028 line separator.",
+   "expect": {
+    "to_tmsl": "ok",
+    "validate": "Valid",
+    "round_trip": "same",
+    "tmdl": "refused",
+    "semantic_view": "valid",
+    "parity_l1": "Structurally compatible but behavior unverified"
+   },
+   "says": "its name has a line break",
+   "notes": [
+    "Only TMDL refuses, by name, for the line separator; every other entry point keeps the names."
+   ]
+  }
+ ]
+}

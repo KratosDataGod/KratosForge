@@ -82,10 +82,10 @@ const KNOWN_HIDDEN = new Set([]);
 // measured in the browser with the app's colors. A new undecided item fails until it's judged here.
 const JUDGED = [
   [/^home: color-contrast @ (h1|\.hero-outline|.*\.home-hero-(kicker|title|welcome|text > p|actions\b.*))$/, "Pass: the hero's text and buttons sit on the navy sky: the gradient #01203d to #062e57, and over the picture's empty left quarter, faded into that same sky (its sky runs #10223f to #1b3664; the text always ends before the cape, at 27% of the picture). Worst case, on #1b3664: the title #ffffff 11.9:1, the welcome #e6ecf5 10.1:1, the kicker #f8991c 5.4:1. On the plain gradient (axe names the welcome h1 and the outline button by their short selectors when they sit over the picture): the title #ffffff 13.7:1 at worst, the welcome #e6ecf5 11.5:1, the kicker #f8991c 6.2:1, the outline button's label 13.7:1, and Continue is #0b1420 on its own #f8991c fill, 8.4:1 (axe can't read a picture)."],
-  [/^(create|workspaces|metadata|platform|optimize|academy|sourceControl|settings|settings-integrations|profile|monitor): color-contrast @ (h1|\.hero-outline|\.outline|.*\.home-hero-(title|actions\b.*))$/, "Pass: a page's header (pageHero, art/experience/heroes.js) puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture)."],
+  [/^(create|workspaces|metadata|platform|optimize|academy|sourceControl|settings|settings-integrations|profile|monitor)(\/[\w-]+)?: color-contrast @ (h1|\.hero-outline|\.outline|.*\.home-hero-(title|actions\b.*))$/, "Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture)."],
   // axe names the arrow `.chev` or, when it needs more to tell it apart, `.chev[aria-hidden="true"]`.
   [/^(home|notebooks): color-contrast @ .*\.chev(\[aria-hidden="true"\])?$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named)."],
-  [/^(workspaces|powerbi): color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
+  [/^(workspaces(\/[\w-]+)?|powerbi): color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
   [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
   [/^(notebook|sql): color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
   [/^(notebook|sql): color-contrast @ span\[title="Fold (line|code)"\]/, "Pass: the fold marker is #616161 on white, 6.2:1."],
@@ -96,7 +96,9 @@ const JUDGED = [
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
   [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > (u|\.md-link-off):nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text(\.small)?))$/, "Pass: in both runs the decision pattern's text, links (a link that won't open is plain text with a dotted underline), headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
   [/^monitor: color-contrast @ (\.forge-(title|title > span|sub)|\.forge-more)$/, "Pass: on the Forge band's navy gradient (#000f22 to #0a2a4b, lightest taken), the title is #ffffff, 14.5:1, its state word at least 6.6:1 (#f8991c active, #7fd99b done 8.5:1, #ff9e9e failed 7.4:1, #c9d6ea quiet 9.9:1), the line under it #e6ecf5, 12.2:1, and the link to the table #ffcf8a, 10.1:1 (axe can't measure text on a gradient)."],
-  [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\) > \.learn-more\[href="#"\]$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
+  [/^profile-trees: color-contrast @ (h2|\.tree-sub|\.tree-lore|\.tree-pick|\.tree-achs-head > h3)$/, "Pass: the Skill trees band is a radial gradient from #12264a to #0b1730 (lightest taken): the class name, the line under it and the Class achievements heading are #eef2f8, 13.3:1, and the lore and the Class label #b4c0d4, 8.2:1 (axe can't measure text on a gradient)."],
+  [/^databricks_volumes: color-contrast @ \.small$/, "Pass: the volume's More actions button is the glyph ⋯ in #242424 on the card's white, 15.5:1 (axe can't measure a glyph it takes for an icon); its aria-label names it in words."],
+  [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\)( > \.learn-more\[href="#"\])?$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1, and the line it sits in is #616161, 6.2:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
 ];
 const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];
 
@@ -117,6 +119,9 @@ const EXTRA = [
   }), ready: "#dialog-root .dialog", scope: "#dialog-root" },
   // #1284: Preview screens and the dialogs people meet most, with the real engine where they read data.
   { id: "profile", name: "Profile", open: (p) => p.evaluate(() => { profilePage.tab = "overview"; go("profile"); }), ready: "#view .page.profile" },
+  // Profile > Skill trees (PB-134): the fantasy tree band, its talent buttons and the class achievements row, from the real engine.
+  { id: "profile-trees", name: "Profile > Skill trees", open: (p) => p.evaluate(() => { profilePage.tab = "trees"; go("profile"); }),
+    ready: "#view .tree-canvas .tree-node" },
   { id: "learn-lab", name: "Learn lab", open: (p) => p.evaluate(async () => {
     await rpc("learn_lab_start", { module_id: "LM-01" });  // the lab's data on this PC, as Start the lab makes it
     await learnOpen("LM-01");
@@ -144,6 +149,8 @@ const EXTRA = [
     ready: "#view .page" },
   { id: "lakehouse", name: "A lakehouse", open: (p) => p.evaluate((lh) => openLakehouse(lh), LH), ready: "#view .page" },
   { id: "databricks_sync", name: "Workspaces > Databricks", open: (p) => p.evaluate(() => go("databricks_sync")), ready: "#view .page" },
+  { id: "databricks_volumes", name: "Workspaces > Databricks > Volumes on this PC", open: (p) => p.evaluate(() => go("databricks_volumes")),
+    ready: "#view .dbx-vol-files" },
   { id: "powerbi", name: "Workspaces > Power BI", open: (p) => p.evaluate(() => go("powerbi")), ready: "#view .page" },
   { id: "embedstudio", name: "Embed Studio", open: (p) => p.evaluate(() => openEmbedStudio({ workspace_id: "w1", workspace_name: "Sales Dev",
     item_id: "r1", type: "Report", name: "Sales performance" })), ready: "#view .page" },
@@ -172,7 +179,7 @@ const results = [];
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["app_settings", "profile_get", "learn_catalog", "learn_module", "learn_lab_start", "learn_patterns", "integrations_status",
+    engine: ["app_settings", "profile_get", "profile_mastery", "learn_catalog", "learn_module", "learn_lab_start", "learn_patterns", "integrations_status",
       "integrations_activity", "integrations_pending", "integrations_set_enabled", "editor_status",
       "pipeline_import", "pipeline_run_start", "pipeline_run_status", "pipeline_runs", "appstudio_home", "appstudio_connections",
       "databricks_sync_pairs", "engine_connections", "notebook_listing", "notebook_folders", "notebook_deleted"],
@@ -180,6 +187,12 @@ before(async () => {
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],
       list_lakehouses: () => [{ id: "l1", displayName: "LH_Bronze" }],
+      databricks_volumes: () => ({ root: "C:\\vol\\main", volumes: [{ name: "landing", catalog: "main", database: "sales", owner: "ana",
+        storage_location: "", volume_type: "MANAGED", comment: "raw drops", path: "/Volumes/main/sales/landing",
+        folder: "C:\\Users\\ana\\AppData\\Local\\FabricDesktop\\volumes\\main\\sales\\landing", items: 2, created: 1 }] }),
+      databricks_volume_files: ({ path }) => ({ path, truncated: false, entries: [
+        { path: "dbfs:/Volumes/main/sales/landing/2026-11-22", name: "2026-11-22", size: 0, modification_time: 1, is_dir: true },
+        { path: "dbfs:/Volumes/main/sales/landing/customers.csv", name: "customers.csv", size: 1800000, modification_time: 1, is_dir: false }] }),
       list_notebooks: () => [{ name: "Daily sales" }, { name: "Orders" }],
       list_tables: () => ({ dbo: ["sales", "customers"] }),
       list_files: () => [{ name: "orders.csv", path: "Files/raw/orders.csv", is_dir: false, size: 2048 }],
@@ -484,10 +497,39 @@ async function audit(page, target, scheme) {
   return result;
 }
 
+// A rail page's other tabs (its first tablist's tabs that aren't open when it opens), found at run time. A tab that
+// opens another page (Data products, a tab-jump) isn't a role=tab, so it isn't here.
+const TABS = [];
+async function pageTabs(page, rail) {
+  await page.emulateMedia({ forcedColors: "none", colorScheme: "light", reducedMotion: "reduce" });
+  await page.setViewportSize(VIEWPORT);
+  for (const r of rail) {
+    await page.evaluate((v) => { closeDialog(); go("home"); go(v); }, r.view);
+    await settle(page);
+    const labels = await page.evaluate(() => {
+      const list = document.querySelector("#view [role=tablist]");
+      return list ? [...list.querySelectorAll("[role=tab]")].filter((t) => t.getAttribute("aria-selected") !== "true" && !t.disabled)
+        .map((t) => t.textContent.trim()) : [];
+    });
+    for (const label of labels) {
+      const name = label.replace(/Preview$/, "");
+      TABS.push({ id: `${r.id}/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name: `${r.name} > ${name}`, ready: "#view",
+        open: async (p) => {
+          await p.evaluate((v) => go(v), r.view);
+          await p.waitForSelector("#view [role=tablist] [role=tab]");
+          await p.evaluate((label) => [...document.querySelector("#view [role=tablist]").querySelectorAll("[role=tab]")]
+            .find((t) => t.textContent.trim() === label).click(), label);
+        } });
+    }
+  }
+  return TABS;
+}
+
 async function targets(page) {
   const rail = await page.evaluate(() => [...railFeatures(), ...railFeatures(true)]
     .map((f) => ({ id: f.id, name: f.rail.label || f.id, view: Object.keys(f.views || {})[0] })));
-  return [...rail.map((r) => ({ id: r.id, name: r.name, open: (p) => p.evaluate((v) => go(v), r.view), ready: "#view" })), ...EXTRA];
+  const tabs = await pageTabs(page, rail);
+  return [...rail.map((r) => ({ id: r.id, name: r.name, open: (p) => p.evaluate((v) => go(v), r.view), ready: "#view" })), ...tabs, ...EXTRA];
 }
 
 test("every page passes the WCAG A and AA rules, light, dark, at 200% and in a contrast theme, with no serious or critical violation", { skip }, async () => {
@@ -557,6 +599,12 @@ test("at 200% no page scrolls sideways, and focus is never off screen or under s
   assert.deepStrictEqual(hidden, [], "Tab stops off screen or covered when they have focus, at 200%");
   const found = new Set(zoomed.flatMap((r) => [...r.sideways, ...r.hidden].map((k) => `${r.id}: ${k}`)));
   assert.deepStrictEqual([...KNOWN_SIDEWAYS, ...KNOWN_HIDDEN].filter((k) => !found.has(k)), [], "fixed: remove these from the known lists");
+});
+
+test("every tab of every rail page is audited, not only the one a page opens on", { skip }, async () => {
+  assert.ok(TABS.length >= 20, `found ${TABS.length} tabs: the rail pages' tablists weren't found`);
+  const audited = new Set(results.map((r) => r.id));
+  assert.deepStrictEqual(TABS.filter((t) => !audited.has(t.id)).map((t) => t.name), []);
 });
 
 test("every page features.js registers is audited", { skip }, async () => {

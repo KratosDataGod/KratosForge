@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import __version__, app_settings, policy_watch, secret_redaction, win_paths
+from . import __version__, app_settings, jsonfile, policy_watch, secret_redaction, win_paths
 from .redact import for_support, secret_key
 
 log = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def about(data_dir: Path | None = None) -> dict[str, Any]:
             value = "Microsoft's Fabric sign-in" if value == app_settings.MICROSOFT_CLIENT_ID else "own app registration"
         elif key == "platform":
             value = sorted(value) if isinstance(value, dict) else []
-        elif key in ("support_url", "dbconnect_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
+        elif key in ("support_url", "dbconnect_index_url", "snowpark_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
             value = "set" if value else ""  # an internal help desk or package mirror names the organization by its host
         elif key in ("sql_temp_dir", "notebook_package_folder") and isinstance(value, str) and win_paths.is_share(value):
             value = "a network folder"  # a share's server name is the organization's
@@ -133,9 +133,11 @@ def long_paths_enabled() -> bool | None:
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
-            return bool(winreg.QueryValueEx(key, "LongPathsEnabled")[0])
+            value, kind = winreg.QueryValueEx(key, "LongPathsEnabled")
     except OSError:
         return False  # not set: off
+    # Windows reads only a DWORD; any other type (a REG_SZ "0" or "1" left by a script) is off to it.
+    return kind == winreg.REG_DWORD and value != 0
 
 
 def path_facts(data_dir: Path) -> dict[str, Any]:
@@ -190,7 +192,8 @@ def _has_trace(text: str) -> bool:
 
 def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     """Each file of the bundle by name, already redacted: what create() writes and preview() shows."""
-    files: dict[str, str] = {"about.json": json.dumps(about(data_dir), indent=2)}
+    # Not escaped as \u00eb: redaction reads the text, and an escaped user name in a path was only half taken out.
+    files: dict[str, str] = {"about.json": json.dumps(about(data_dir), indent=2, ensure_ascii=False)}
     logs = {"sidecar.log": data_dir / "sidecar.log"}
     if agent_home:
         logs["agent.log"] = agent_home / "logs" / "agent.log"
@@ -225,7 +228,47 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
     # Values dbutils.secrets read are remembered by the kernel process that read them, which redacts its
     # own output and stderr before sidecar.log gets it (kernel_host.py). This engine remembers only
     # what a kernel running inside it read, so here it is a second pass, not the protection.
-    return {name: secret_redaction.redact(for_support(text)) for name, text in files.items()}
+    return {name: secret_redaction.redact(for_support(_plain(text))) for name, text in files.items()}
+
+
+# A value written escaped: JSON's \u00e9 (a pair for one past \uffff; not after an escaped backslash),
+# a bytes repr's \xc3\xa9 and a URL's %C3%A9 or %40 (twice over, as %25C3).
+_ESCAPED = re.compile(r"(?<!\\)((?:\\\\)*)(\\u[dD][89abAB][0-9a-fA-F]{2}\\u[dD][c-fC-F][0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}"
+                      r"|(?:\\x[0-9a-fA-F]{2})+)|(?:%[0-9a-fA-F]{2})+")
+
+
+def _unescaped(m: re.Match[str]) -> str:
+    text, escape = m.group(0), m.group(2)
+    if escape is None or escape[1] == "x":  # bytes: each character comes out plain or escaped as it was
+        data = bytes.fromhex(re.sub(r"%|\\x", "", escape or text)).decode("utf-8", "surrogateescape")
+        plain = (m.group(1) or "") + "".join(_byte_char(c, "%" if escape is None else "\\x") for c in data)
+        return text if plain.lower() == text.lower() else plain  # nothing to show plainly: as it was
+    try:
+        plain = escape.encode("ascii").decode("unicode_escape").encode("utf-16", "surrogatepass").decode("utf-16")
+    except UnicodeError:  # half a pair
+        return text
+    return m.group(1) + plain if plain.isprintable() and not plain.isascii() else text
+
+
+def _byte_char(c: str, escape: str) -> str:
+    """One character of escaped bytes as a bundle shows it. A quote, a character that isn't printable or a
+    byte that isn't UTF-8 stays escaped, so a JSON string doesn't end early; a URL's backslash reads as /,
+    since a lone one starts an escape in JSON. An ASCII byte a bytes repr escaped stays escaped too."""
+    if c == "\\" and escape == "%":
+        return "/"
+    if c.isprintable() and c != '"' and not "\udc80" <= c <= "\udcff" and (escape == "%" or not c.isascii()):
+        return c
+    return "".join(f"{escape}{b:02X}" for b in c.encode("utf-8", "surrogateescape"))
+
+
+def _plain(text: str) -> str:
+    """``text`` with each value written escaped written plainly, so redaction finds it: an email address,
+    a user name or an organization in a URL's query or a JSON log line is taken out like any other."""
+    for _ in range(4):  # a URL inside a URL is escaped twice, and each round undoes one
+        before, text = text, _ESCAPED.sub(_unescaped, text)
+        if text == before:
+            break
+    return text
 
 
 def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dict[str, Any]:
@@ -239,12 +282,14 @@ def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dic
 
 def create(out_dir: Path, data_dir: Path | None = None, agent_home: Path | None = None) -> Path:
     files = _files(data_dir or _data_dir(), agent_home)
-    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    with jsonfile.long_path_named(out_dir / f"fabric-desktop-support-{stamp}.zip", "written"):
+        out_dir.mkdir(parents=True, exist_ok=True)
     for n in range(1, 100):  # a new file every time: never replaces one, even within the same second
         path = out_dir / f"fabric-desktop-support-{stamp}{'' if n == 1 else f'-{n}'}.zip"
         try:
-            handle = path.open("xb")
+            with jsonfile.long_path_named(path, "written"):  # a path past Windows' 260 without long paths: named
+                handle = path.open("xb")
         except FileExistsError:
             continue
         break

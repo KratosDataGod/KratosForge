@@ -1424,7 +1424,11 @@ class Kernel:
     def _capture(self, args: str, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         """``%%capture [name]``: the cell's output is kept instead of shown; ``name.show()`` shows it.
         An error still shows, so a failing cell isn't silent."""
-        captured = _Run(0)
+        # The cell's own run under another target: its count, debugger and thread, so breakpoint() in
+        # it pauses or carries on with the note as in any cell (count 0 is a watch's run).
+        captured = _Run(run.count if run is not None else 0)
+        if run is not None:
+            captured.debugger, captured.thread = run.debugger, run.thread
         out, err = _routers()
         ident = threading.get_ident()
         before = out.targets.get(ident), err.targets.get(ident), getattr(self._local, "run", None)

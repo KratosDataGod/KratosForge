@@ -568,7 +568,7 @@ def test_redacted_keeps_member_principals_and_filter_text_out_and_shows_counts()
     changed = (f"the filter on table 'dim_customer' changed from {sp._fingerprint(secret_filter)} to "
                f"{sp._fingerprint(new_filter)}")
     assert role["changes"] == [changed, "1 member(s) gone", "1 member(s) added"]
-    assert re.search(r"23 characters, sha256 [0-9a-f]{12}", role["changes"][0])
+    assert re.search(r"23 characters, fingerprint [0-9a-f]{12}", role["changes"][0])
     assert safe["redacted"] is True and "redacted" not in report  # the original is unchanged
     assert _obj(report, "role 'EU only'")["changes"][0].startswith("the filter on table 'dim_customer' changed from '")
 

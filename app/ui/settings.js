@@ -1431,7 +1431,7 @@ function gettingStarted() {
     ["notebook", "notebook", "Run a notebook on this PC", "Python and Spark-style code on your own processor.", "New notebook", () => newNotebook()],
     ["import", "arrowUpload", "Bring your notebooks", "Import from Fabric or Databricks and run them here.", "Import", () => nbfImportDialog()],
     ["lakehouse", "onelake", "Explore OneLake", "Browse lakehouse tables and files, or query them with SQL.", "OneLake catalog", () => go("onelake")],
-    ["project", "metadata", "Build medallion tables", "Describe bronze, silver and gold once; KratosForge builds and runs them.", "Data mesh", () => go("metadata")],
+    ["project", "metadata", "Build medallion tables", "Describe bronze, silver and gold once, and KratosForge builds and runs them.", "Data mesh", () => go("metadata")],
     ["optimize", "gauge", "Spend less Fabric capacity", "See what uses capacity and what could run on this PC.", "Optimize", () => go("optimize")],
     ["platform", "building", "Set up the platform", "For admins: workspaces, environments, access and governance.", "Platform", () => go("platform")],
   ];

@@ -22,7 +22,7 @@ import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, WriterProperties, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
-from . import delta_profile, delta_read, runlog
+from . import delta_profile, delta_read, maintenance, runlog
 from .fabric_api import FabricClient
 from .jobs import Job, run_local
 from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
@@ -169,7 +169,8 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[
             before = table.version() if table is not None else None
             try:
                 write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,  # type: ignore[call-overload]  # mode/how are checked strs, not Literals
-                                writer_properties=writer_properties(), commit_properties=meta, **extra)
+                                writer_properties=writer_properties(), commit_properties=meta,
+                                post_commithook_properties=maintenance.WRITE_HOOKS, **extra)
             except Exception as exc:
                 if write_token_refused(exc):
                     raise _after_refusal(ref, before, token, exc) from exc
@@ -177,6 +178,8 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str | Callable[[
             # A current token for the load after the commit: a long write may have outlasted the first one.
             committed = table if table is not None else DeltaTable(ref.uri, storage_options=storage_options(token()))
             table = committed
+            # Under the lease still: the log cleanup the commit's checkpoint left, keeping what time travel reads.
+            maintenance.after_write(ref.uri, before, committed, storage_options(token()))
     except LeaseLost:
         if committed is None:
             raise

@@ -52,7 +52,7 @@ def test_an_item_not_inspected_says_why():
     off = pf.Profile("custom", "1.0.0", "Custom", dict(pf.get().weights), disabled={"FEA-DE-001": "By design."})
     snap = assess.assess(records, r, scope=SCOPE, assessed_at=AT, profile=off)
     n3 = [c for c in snap["item_coverage"] if c["item"]["id"] == "n3"][0]
-    assert (n3["state"], n3["reason"]) == ("not_inspected", "No control could decide.")
+    assert (n3["state"], n3["reason"]) == ("not_inspected", "No control applies to this item. Turned off in the Custom profile: By design.")
 
 
 WS2 = {"type": "workspace", "id": "ws-2", "name": "Ops"}

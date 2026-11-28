@@ -29,7 +29,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
            "notebook_details", "notebook_batch_start", "notebook_batch", "notebook_batch_stop", "notebook_batch_fabric",
            "list_tables", "list_files", "history",
-           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_symbol", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "cached_schemas", "sql_format", "sql_function_help", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_export", "sql_diagram_export", "sql_start", "sql_status", "sql_page", "sql_column_stats", "sql_pin", "sql_file_info", "sql_file_read", "sql_file_write", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_symbol", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "cached_schemas", "sql_format", "sql_function_help", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_export", "sql_diagram_export", "sql_start", "sql_status", "sql_page", "sql_column_stats", "sql_pin", "sql_file_info", "sql_file_read", "sql_file_write", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "sql_compare", "sql_compare_export", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "mesh_home", "platform_glossary", "platform_save_term", "platform_audit",
@@ -66,7 +66,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_import_delete",
            "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge",
-           "model_bpa_status", "model_bpa_risk", "model_bpa_check",
+           "model_bpa_status", "model_bpa_risk", "model_bpa_check", "model_bpa_share",
            "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_export", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -166,6 +166,11 @@ METHODS |= ENGINE_METHODS
 from .databricks_volumes_service import METHODS as DATABRICKS_VOLUME_METHODS  # noqa: E402
 
 METHODS |= DATABRICKS_VOLUME_METHODS
+
+# Optimize > Cost and savings: Compare platforms for one workload (compare_service.py, Preview).
+from .compare_service import METHODS as COMPARE_METHODS  # noqa: E402
+
+METHODS |= COMPARE_METHODS
 
 # OneLake > Access across every workspace: the access cache (access_cache_service.py).
 from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
@@ -554,8 +559,13 @@ def main() -> None:
     _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
-    rpc_in = _rpc_stdin(sys.stdin)
-    sys.stdin = open(devnull, encoding="utf-8")  # noqa: SIM115 - a cell's pdb or sys.stdin.read gets nothing, never the app's requests
+    # The same for requests: a private handle on fd 0, then fd 0 is the null device, so a cell's pdb,
+    # sys.stdin, sys.__stdin__ or os.read(0) gets nothing, never the app's requests (as kernel_host does).
+    rpc_in = _rpc_stdin(os.fdopen(os.dup(sys.stdin.fileno()), "r", encoding="utf-8"))
+    null = os.open(devnull, os.O_RDONLY)
+    os.dup2(null, sys.stdin.fileno())
+    os.close(null)
+    sys.stdin = open(devnull, encoding="utf-8")  # noqa: SIM115 - kept open for the engine's life
     _log_to_stderr()
     from . import data_format
     try:

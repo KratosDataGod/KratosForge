@@ -201,6 +201,23 @@ def test_a_changed_or_unsafe_backup_is_refused_before_writing(app, tmp_path):
     assert "isn't a zip" in backup.validate(tmp_path / "junk.zip")[1][0]
 
 
+def test_a_backup_holds_no_key_and_a_restore_writes_none(app, tmp_path):
+    (app / "keys").mkdir()
+    (app / "keys" / "fingerprint.key").write_bytes(b"k" * 32)
+    zip_path = backup.create(tmp_path / "out", app, now=NOW)["path"]
+    with zipfile.ZipFile(zip_path) as z:
+        names = z.namelist()
+        manifest = json.loads(z.read("manifest.json"))
+    assert not [n for n in names if n.casefold().startswith("app/keys/")]
+    assert {"path": "app/keys/fingerprint.key", "reason": backup.KEYS_REASON} in manifest["not_included"]
+    evil = b"g" * 32
+    for name in ("app/keys/fingerprint.key", "app/KEYS/fingerprint.key"):
+        entry = {"path": name, "size": len(evil), "sha256": hashlib.sha256(evil).hexdigest()}
+        with pytest.raises(backup.BackupError, match="never restored"):
+            backup.restore(_tamper(zip_path, tmp_path, name, evil, entry), app, apply=True)
+    assert (app / "keys" / "fingerprint.key").read_bytes() == b"k" * 32
+
+
 def test_agent_queue_is_included_when_asked(app, tmp_path):
     home = tmp_path / "agent"
     home.mkdir()

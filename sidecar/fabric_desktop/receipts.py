@@ -119,7 +119,13 @@ class ReceiptStore:
             raise LookupError(f"No receipt {rid[:12]}") from None
         if hashlib.sha256(data).hexdigest() != rid:
             raise ReceiptError(f"Receipt {rid[:12]} has been changed since it was written; it can't be trusted.")
-        return json.loads(data)
+        try:
+            body = json.loads(data)
+        except (ValueError, RecursionError):
+            body = None
+        if not isinstance(body, dict):  # named by its own hash, but not a receipt (written by hand or another program)
+            raise ReceiptError(f"Receipt {rid[:12]} isn't a receipt that can be read.")
+        return body
 
     def verify(self, body: dict[str, Any], rid: str) -> bool:
         """Whether ``body`` (from anywhere: an export, an email) is the receipt ``rid``."""
@@ -137,12 +143,17 @@ class ReceiptStore:
             except (ReceiptError, ValueError) as exc:
                 rows.append({"id": rid, "valid": False, "problem": str(exc), "created_at": ""})
                 continue
-            name = (r.get("notebook") or {}).get("name")
+            except OSError as exc:  # a folder named like a receipt, a file that can't be opened
+                rows.append({"id": rid, "valid": False, "problem": f"Receipt {rid[:12]} can't be read ({exc.strerror or 'error'}).",
+                             "created_at": ""})
+                continue
+            nb, check = r.get("notebook"), r.get("verification")
+            name = nb.get("name") if isinstance(nb, dict) else None
             if notebook and name != notebook:
                 continue
             rows.append({"id": rid, "valid": True, "kind": r.get("kind"), "created_at": r.get("created_at", ""),
-                         "notebook": name, "verdict": (r.get("verification") or {}).get("verdict")})
-        return sorted(rows, key=lambda x: x.get("created_at") or "", reverse=True)[:limit]
+                         "notebook": name, "verdict": check.get("verdict") if isinstance(check, dict) else None})
+        return sorted(rows, key=lambda x: str(x.get("created_at") or ""), reverse=True)[:limit]
 
 
 # ---- exports

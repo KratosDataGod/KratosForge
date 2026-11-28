@@ -340,8 +340,8 @@ def test_scenario_13_a_security_role_is_flagged_and_its_extension_only_life_is_a
     assert fid["flagged"]["roles"] == [{"object": "role 'EU only'", "class": "preserved_through_extensions"}]
     back, report = model_ossie.to_tmsl(out["yaml"])
     imported = model_ossie.fidelity(model_ossie.parse(out["yaml"]), back, report)
-    assert _obj(imported, "role 'EU only'")["class"] == "fully_preserved"
-    assert not any(w["severity"] == "security" for w in imported["warnings"])
+    assert _obj(imported, "role 'EU only'")["class"] == "preserved_through_extensions"  # only Power BI reads it there
+    assert [w["message"] for w in imported["warnings"] if w["severity"] == "security"] == [fid["warnings"][0]["message"]]
 
 
 def test_scenario_13_a_lost_security_role_is_never_unlisted_and_is_the_first_warning():
@@ -379,8 +379,8 @@ def test_scenario_13_an_update_keeps_roles_and_the_report_says_so(svc):
     """The update merge keeps the model's own role; the file's report lists the file's objects only, and none
     of the roles is ever silent."""
     out = svc.meta_model_ossie_preview("test", model_ossie.export(_bim())["yaml"], mode="update")
-    assert _obj(out["fidelity"], "role 'EU only'")["class"] == "fully_preserved"
-    assert out["fidelity"]["flagged"]["roles"] == [{"object": "role 'EU only'", "class": "fully_preserved"}]
+    assert _obj(out["fidelity"], "role 'EU only'")["class"] == "preserved_through_extensions"
+    assert out["fidelity"]["flagged"]["roles"] == [{"object": "role 'EU only'", "class": "preserved_through_extensions"}]
 
 
 def test_fidelity_refuses_two_models_of_the_same_kind():
@@ -424,7 +424,7 @@ def test_a_role_whose_filter_members_or_permission_change_on_import_is_partially
     bim["model"]["roles"][0]["members"] = [{"memberName": "ana@contoso.example"}]
     text = model_ossie.export(bim)["yaml"]
     back, report = model_ossie.to_tmsl(text)
-    assert _obj(model_ossie.fidelity(model_ossie.parse(text), back, report), "role 'EU only'")["class"] == "fully_preserved"
+    assert _obj(model_ossie.fidelity(model_ossie.parse(text), back, report), "role 'EU only'")["class"] == "preserved_through_extensions"
     role = back["model"]["roles"][0]
     role["tablePermissions"][0]["filterExpression"] = ""
     role["members"] = []
@@ -586,7 +586,7 @@ def test_a_role_member_under_another_id_or_provider_is_a_different_principal():
                                             "identityProvider": "AzureAD"}]
     text = model_ossie.export(bim)["yaml"]
     back, report = model_ossie.to_tmsl(text)
-    assert _obj(model_ossie.fidelity(model_ossie.parse(text), back, report), "role 'EU only'")["class"] == "fully_preserved"
+    assert _obj(model_ossie.fidelity(model_ossie.parse(text), back, report), "role 'EU only'")["class"] == "preserved_through_extensions"
     for key, value in (("memberId", "id-2"), ("identityProvider", "External")):
         changed = copy.deepcopy(back)
         changed["model"]["roles"][0]["members"][0][key] = value

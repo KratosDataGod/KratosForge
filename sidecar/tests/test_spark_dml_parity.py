@@ -48,6 +48,7 @@ REASONS = {
     "update_from": r"UPDATE \.\.\. FROM isn't supported on a Delta table\. Use MERGE INTO sales",
     "delete_using": r"DELETE \.\.\. USING isn't supported on a Delta table\. Use MERGE INTO sales",
     "update_missing_column": r"sales has no column price",
+    "merge_without_when": r"MERGE INTO needs at least one WHEN clause",
 }
 
 # Spark answers, and this PC refuses by name on purpose: (reason, why).
@@ -60,10 +61,6 @@ REFUSED = {
 # Spark refuses, and this PC runs the cell or stops without a named reason: a bug, xfail(strict=True) until
 # fixed. When it is, move the case to REASONS.
 BUGS = {
-    "merge_without_when": (
-        "PB-015 bug: a MERGE with no WHEN clause stops in sqlglot's parser (\"Required keyword: 'expressions' "
-        "missing for <class 'sqlglot.expressions.dml.Whens'>\"), not with delta_dml's named \"MERGE INTO needs "
-        "at least one WHEN clause.\" (Spark: There must be at least one WHEN clause in a MERGE statement)"),
     "api_merge_default_alias": (
         "PB-015 bug: DeltaTable.merge without .alias() lets the condition call the source `source` on this PC; "
         "delta-spark 3.2 refuses it with DELTA_MERGE_UNRESOLVED_EXPRESSION (no alias is given), so the cell "

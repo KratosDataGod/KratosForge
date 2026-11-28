@@ -34,6 +34,8 @@ TOO_DEEP = ("The query is nested too deeply to read on this PC, because too many
 def parse_problem(exc: Exception) -> str:
     """A sqlglot parse error as plain text for a person: its message and the excerpt, without the
     terminal escape codes sqlglot puts around the bad token."""
+    if "missing for <class 'sqlglot.expressions" in str(exc) and "Whens'>" in str(exc):  # MERGE ... ON with no WHEN
+        return "MERGE INTO needs at least one WHEN clause, such as WHEN MATCHED THEN UPDATE SET *."
     return _ESCAPES.sub("", str(exc))
 
 

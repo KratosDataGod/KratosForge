@@ -1069,6 +1069,17 @@ CASES: tuple[Case, ...] = (
        "TYPEOF(array_column[3]), TYPEOF(array_column[4])) AS type FROM array_append_examples",
        ["INTEGER", "INTEGER", "INTEGER", "INTEGER", "VARCHAR"], page="array_append"),
     _c("ARRAY_COMPACT", "Semi-structured", "SELECT array_compact(array_construct(10, NULL, 30))", [10, 30]),
+    # SFX-075: the pages' examples, arrays of text and numbers, as written. ARRAY_INSERT's third example (position
+    # 5) isn't checked: the page shows Snowflake's empty element as "undefined", which no value here can match.
+    _c("ARRAY_INSERT (docs example)", "Semi-structured", "SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(0,1,2,3),2,'hello')",
+       [0, 1, "hello", 2, 3], page="array_insert"),
+    _c("ARRAY_INSERT (negative position, docs example)", "Semi-structured",
+       "SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(0,1,2,3),-1,'hello')", [0, 1, 2, "hello", 3], page="array_insert"),
+    _c("ARRAY_PREPEND (docs example)", "Semi-structured", "SELECT ARRAY_PREPEND(ARRAY_CONSTRUCT(0,1,2,3),'hello')",
+       ["hello", 0, 1, 2, 3], page="array_prepend"),
+    _c("ARRAY_CONSTRUCT_COMPACT (docs example)", "Semi-structured",
+       "SELECT ARRAY_CONSTRUCT_COMPACT(null,'hello',3::double,4,5)", ["hello", 3.0, 4, 5],
+       page="array_construct_compact"),
     _c("ARRAY_DISTINCT", "Semi-structured", "SELECT array_distinct(['A', 'A', 'B', NULL, NULL])", ["A", "B", None]),
     _c("ARRAY_DISTINCT (NULL)", "Semi-structured", "SELECT array_distinct(NULL)", None, page="array_distinct"),
     _c("ARRAY_FLATTEN", "Semi-structured", "SELECT array_flatten([[1, 2, 3], [4], [5, 6]])", [1, 2, 3, 4, 5, 6]),

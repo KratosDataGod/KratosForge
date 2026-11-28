@@ -32,7 +32,7 @@ from sqlglot.errors import ParseError, SqlglotError, TokenError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.26"
+RULES_VERSION = "2026.11.28"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -204,16 +204,32 @@ def _scalar_kind(node: exp.Expression | None) -> str:
     return "other"
 
 
-def _mixed_array(node: object) -> bool:
-    """SFN-025: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
-    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one)."""
+def _array_values(node: object) -> list[Any] | None:
     if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
-        values = list(node.expressions)
-    elif isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
-        values = [*node.this.expressions, node.args.get("expression")]
-    else:
+        return list(node.expressions)
+    if isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
+        return [*node.this.expressions, node.args.get("expression")]
+    return None
+
+
+def _mixed_array(node: object) -> bool:
+    """SFX-075: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
+    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one).
+    So is one that holds such an array (made a list of VARIANT values first) beside any other value, which
+    a DuckDB list can't hold either: ARRAY_CONSTRUCT(1, ARRAY_CONSTRUCT('a', 2))."""
+    values = _array_values(node)
+    if values is None:
         return False
-    return {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}
+    if {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}:
+        return True
+    lists = [_is_variant_list(v) for v in values if _scalar_kind(v) != "null"]
+    return any(lists) and not all(lists)
+
+
+def _is_variant_list(node: object) -> bool:
+    """A VARIANT[] cast, as _variant_arrays writes an array of text and numbers."""
+    return (isinstance(node, exp.Cast) and node.to.this == exp.DataType.Type.ARRAY
+            and bool(node.to.expressions) and node.to.expressions[0].this == exp.DataType.Type.VARIANT)
 
 
 def _set_leaves(node: exp.Expr) -> list[exp.Select]:
@@ -555,12 +571,6 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                 isinstance(node, exp.DataType) and node.this == exp.DataType.Type.DECFLOAT):
             return _refuse("SFN-018", "DECFLOAT", "DuckDB has no decimal floating-point type to hold Snowflake's "
                            "DECFLOAT (38 significant digits with an exponent).", f"{_DOCS}/functions/to_decfloat")
-        if _mixed_array(node) and isinstance(node, exp.Func):
-            name = "ARRAY_CONSTRUCT" if isinstance(node, exp.Array) else _function_name(node)
-            return _refuse("SFN-025", f"{name}: text and numbers in one array",
-                           "A DuckDB list holds values of one type, so an array written with both text and numbers "
-                           "can't be made here. Cast them to one type (for example each value ::VARCHAR), or "
-                           "build the array from a column.", f"{_DOCS}/functions/array_construct")
         if _mixed_set_column(node):
             return _refuse("SFN-032", "Text and numbers in one column of a UNION, INTERSECT or MINUS",
                            "Snowflake converts the text to a number (and stops on text that isn't one), and DuckDB "
@@ -576,6 +586,21 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                            "can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE "
                            "run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) "
                            "counts.", f"{_DOCS}/functions-aggregation")
+        if isinstance(node, exp.CurrentVersion):
+            return _refuse("SFN-074", "CURRENT_VERSION", "It gives the version of Snowflake running the query "
+                           "(10.15.100 in Snowflake's example); this PC runs DuckDB, whose own version "
+                           "would come back in its place.", f"{_DOCS}/functions/current_version")
+        if isinstance(node, exp.CurrentSchemas):
+            return _refuse("SFN-075", "CURRENT_SCHEMAS", "It gives the schemas Snowflake's session searches, as "
+                           "JSON text of database.schema names ([\"TEST_DB1.BILLING\", \"TEST_DB1.PUBLIC\"] in "
+                           "Snowflake's example); DuckDB's gives a list of its own search path, with pg_catalog "
+                           "and the same schema more than once. CURRENT_DATABASE and CURRENT_SCHEMA run.",
+                           f"{_DOCS}/functions/current_schemas")
+        if isinstance(node, exp.Rand) and node.this is not None:
+            return _refuse("SFN-076", "RANDOM with a seed", "Snowflake's RANDOM(seed) gives the same series for a "
+                           "seed from its own generator (MT19937-64), which DuckDB's random() doesn't reproduce, "
+                           "so a seeded query would give other numbers here. RANDOM() runs.",
+                           f"{_DOCS}/functions/random")
         if isinstance(node, exp.Func) and _function_name(node) in _ACCOUNT_FUNCTIONS:
             return _refuse("SFN-014", f"{_function_name(node)}: Snowflake account and session",
                            "It reads the Snowflake account, session or client running the query; this PC has none.",
@@ -1019,7 +1044,15 @@ def _binary_valued(node: exp.Expression) -> bool:
 
 def _rewrite_time(statement: exp.Expression) -> None:
     """SFX-017: TIME(x) is TO_TIME(x): the time of a string or of a timestamp. sqlglot writes it as a cast
-    through TIMESTAMPTZ at an empty time zone, which DuckDB can't read."""
+    through TIMESTAMPTZ at an empty time zone, which DuckDB can't read.
+    SFX-076: CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, are the time cut to p digits
+    after the second; DuckDB keeps 6, so 6 to 9 keep them all. sqlglot couldn't write them for DuckDB."""
+    for clock in list(statement.find_all(exp.Localtime)):  # SFX-076
+        digits = clock.this
+        if isinstance(digits, exp.Literal) and digits.is_int and 0 <= int(digits.name) <= 9:
+            step = 10 ** max(6 - int(digits.name), 0)
+            clock.replace(exp.Localtime() if step == 1 else sqlglot.parse_one(
+                f"TIME '00:00:00' + to_microseconds(epoch_us(LOCALTIME) // {step} * {step})", read="duckdb"))
     for node in list(statement.find_all(exp.Time)):
         if node.this is None:  # TIME() with no argument: left for sqlglot, which refuses it (SFX-000)
             continue
@@ -1176,11 +1209,31 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
                 call.replace(_date_literal(epoch))
 
 
+def _variant_arrays(statement: exp.Expression) -> None:
+    """SFX-075: an array written in the query with both text and numbers in it is a list of VARIANT values, as
+    an ARRAY column is (SFX-024), so each element keeps its own type, as in Snowflake's array; a DuckDB list of
+    plain values holds one type. SFN-025, which refused it, is retired."""
+    variant = exp.DataType.build("VARIANT")
+    # deepest first (find_all goes breadth first): an array inside a mixed one is made a VARIANT[] before the
+    # array around it is looked at, which then holds a VARIANT[] beside other values and is made one too
+    for node in reversed(list(statement.find_all(exp.Array, exp.ArrayConstructCompact, exp.ArrayInsert,
+                                                 exp.ArrayPrepend, exp.ArrayAppend))):
+        if not _mixed_array(node):
+            continue
+        array = node if isinstance(node, (exp.Array, exp.ArrayConstructCompact)) else node.this
+        for element in [*array.expressions, *([] if array is node else [node.args["expression"]])]:
+            element.replace(exp.Cast(this=element.copy(), to=variant.copy()))
+        # a VARIANT[] cast marks each list as such a list for TO_JSON (SFX-024)
+        for made in {id(array): array, id(node): node}.values():
+            made.replace(exp.Cast(this=made.copy(), to=exp.DataType.build("VARIANT[]", dialect="duckdb")))
+
+
 def _rewrite_arrays(statement: exp.Expression) -> None:
     """SFX-019: ARRAY_DISTINCT keeps each value's first place and one NULL where the first NULL was, as
     Snowflake's does (DuckDB's LIST_DISTINCT doesn't keep the order). ARRAY_FLATTEN of an array holding
     a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it. ARRAY_INSERT past the
     end fills the gap with NULLs (Snowflake leaves empty elements); DuckDB's slices would close it."""
+    _variant_arrays(statement)
     for distinct in list(statement.find_all(exp.ArrayDistinct)):
         # the array is worked out once (fj_arg0 is read once), then searched for each element's first place
         _put(distinct, "LIST_TRANSFORM([fj_arg0], LAMBDA kf_l: "
@@ -1786,7 +1839,7 @@ def _rewrite_timestamp_parts(statement: exp.Expression) -> None:
                 _put(anonymous, _TIMESTAMP_OF_ANY, [anonymous.expressions[0]])
 
 
-# SFX-075 (2026.11.26): data-types-logical, "Conversion to BOOLEAN": text is TRUE for 'true', 't', 'yes', 'y', 'on'
+# SFX-077 (2026.11.28): data-types-logical, "Conversion to BOOLEAN": text is TRUE for 'true', 't', 'yes', 'y', 'on'
 # and '1', FALSE for 'false', 'f', 'no', 'n', 'off' and '0', case ignored; other text can't be converted. DuckDB's
 # cast takes all of these but 'on' and 'off', and stops with its own message on any other text.
 _TRUE_TEXT, _FALSE_TEXT = ("true", "t", "yes", "y", "on", "1"), ("false", "f", "no", "n", "off", "0")
@@ -1802,12 +1855,12 @@ def _boolean_of_text(text: str, safe: bool) -> str:
             f"WHEN LOWER({text}) IN ({listed(_FALSE_TEXT)}) THEN FALSE ELSE {other} END")
 
 
-_WRITTEN_BOOLEAN = "kf_sf_boolean"  # a conversion to BOOLEAN the query wrote, which SFX-075 rewrites last
-_WRITTEN_EPOCH = "kf_sf_epoch"      # an epoch part the query wrote (its size in microseconds), for SFX-076
+_WRITTEN_BOOLEAN = "kf_sf_boolean"  # a conversion to BOOLEAN the query wrote, which SFX-077 rewrites last
+_WRITTEN_EPOCH = "kf_sf_epoch"      # an epoch part the query wrote (its size in microseconds), for SFX-078
 
 
 def _mark_booleans_and_epochs(statement: exp.Expression) -> None:
-    """SFX-075 and SFX-076, before the rewrites: the conversions to BOOLEAN and the epoch parts the query wrote
+    """SFX-077 and SFX-078, before the rewrites: the conversions to BOOLEAN and the epoch parts the query wrote
     are marked, and rewritten last, so the TYPEOF and the cast to text in their rewrites stay DuckDB's own."""
     for node in statement.find_all(exp.Cast, exp.ToBoolean, exp.Extract):
         if isinstance(node, exp.Extract):
@@ -1820,7 +1873,7 @@ def _mark_booleans_and_epochs(statement: exp.Expression) -> None:
 
 
 def _rewrite_booleans(statement: exp.Expression) -> None:
-    """SFX-075: ::BOOLEAN, CAST, TRY_CAST, TO_BOOLEAN and TRY_TO_BOOLEAN of text read it as Snowflake does. Text
+    """SFX-077: ::BOOLEAN, CAST, TRY_CAST, TO_BOOLEAN and TRY_TO_BOOLEAN of text read it as Snowflake does. Text
     written in the query is read here; any other value is read once, and by its type when the query runs: text by
     Snowflake's words, anything else (a number: 0 is FALSE, any other is TRUE) as before. A JSON value is left
     as it is."""
@@ -1845,7 +1898,7 @@ def _rewrite_booleans(statement: exp.Expression) -> None:
                    f"{_boolean_of_text('CAST(kf_bool AS VARCHAR)', safe)} ELSE fj_arg1 END))[1]", [value, other])
 
 
-# SFX-076 (2026.11.26): functions-date-time, "Supported date and time parts": epoch (also epoch_seconds) is
+# SFX-078 (2026.11.28): functions-date-time, "Supported date and time parts": epoch (also epoch_seconds) is
 # epoch_second; date_part returns NUMBER, and its example gives 1712619560 for 2024-04-08T23:39:20.123-07:00, the
 # whole seconds with the fraction cut off. DuckDB's EXTRACT(epoch) gave a DOUBLE with the fraction, and its
 # epoch_second rounded (1.7 seconds was 2). Each part's size in microseconds; 0 for nanoseconds, read as DuckDB's.
@@ -1853,7 +1906,7 @@ _EPOCH_PARTS = {"EPOCH": 1000000, "EPOCH_SECOND": 1000000, "EPOCH_SECONDS": 1000
                 "EPOCH_MILLISECONDS": 1000, "EPOCH_MICROSECOND": 1, "EPOCH_MICROSECONDS": 1,
                 "EPOCH_NANOSECOND": 0, "EPOCH_NANOSECONDS": 0}
 _EPOCH_BEFORE_1970 = _refuse(
-    "SFN-074", "An epoch part of a time before 1970 with a fraction", "DATE_PART and EXTRACT with epoch_second "
+    "SFN-077", "An epoch part of a time before 1970 with a fraction", "DATE_PART and EXTRACT with epoch_second "
     "(epoch) or epoch_millisecond give a whole number, and Snowflake's example cuts the fraction off a time after "
     "1970. Snowflake doesn't document whether a time before 1970 with a fraction of the unit (1969-12-31 23:59:59.5 "
     "is -0.5 seconds) goes toward 0 or down, so the query stops at that row. A whole number of the unit before 1970 "
@@ -1861,9 +1914,9 @@ _EPOCH_BEFORE_1970 = _refuse(
 
 
 def _rewrite_epoch_parts(statement: exp.Expression) -> None:
-    """SFX-076: DATE_PART and EXTRACT with epoch_second (epoch, epoch_seconds), epoch_millisecond,
+    """SFX-078: DATE_PART and EXTRACT with epoch_second (epoch, epoch_seconds), epoch_millisecond,
     epoch_microsecond and epoch_nanosecond give a whole number, the value read once: the fraction is cut off a time
-    after 1970, and a time before 1970 with a fraction stops by name (SFN-074). date_part: epoch_millisecond,
+    after 1970, and a time before 1970 with a fraction stops by name (SFN-077). date_part: epoch_millisecond,
     epoch_microsecond and epoch_nanosecond aren't supported for a DATE, so a DATE stops there as in Snowflake."""
     for node in reversed(list(statement.find_all(exp.Extract))):  # the innermost first
         part, unit = node.this, node.meta.get(_WRITTEN_EPOCH)
@@ -3294,15 +3347,21 @@ CATALOG = (
                 "with no offset, or the session zone's own, is stored as Snowflake stores it; text with another "
                 "offset stops the query (SFN-071). Any other value, and a column whose Snowflake type isn't known "
                 "here, is SFD-002. INSERT ... SELECT * reads the query's columns by place.")),
-    ("SFX-075", "Rewritten", ("::BOOLEAN, CAST, TRY_CAST, TO_BOOLEAN and TRY_TO_BOOLEAN of text read it as "
+    ("SFX-075", "Rewritten", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
+                "ARRAY_CONSTRUCT_COMPACT, and ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one) "
+                "is a list of VARIANT values, as an ARRAY column is (SFX-024), so each element keeps its own type. "
+                "SFN-025, which refused it, is retired.")),
+    ("SFX-076", "Rewritten", ("CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time "
+                "cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all.")),
+    ("SFX-077", "Rewritten", ("::BOOLEAN, CAST, TRY_CAST, TO_BOOLEAN and TRY_TO_BOOLEAN of text read it as "
                 "Snowflake does, with case ignored: 'true', 't', 'yes', 'y', 'on' and '1' are TRUE, 'false', 'f', "
                 "'no', 'n', 'off' and '0' are FALSE, and other text stops the query (NULL with TRY_CAST and "
                 "TRY_TO_BOOLEAN). A number is FALSE for 0 and TRUE for any other, as before.")),
-    ("SFX-076", "Rewritten", ("DATE_PART and EXTRACT with epoch_second (or epoch, epoch_seconds), "
+    ("SFX-078", "Rewritten", ("DATE_PART and EXTRACT with epoch_second (or epoch, epoch_seconds), "
                 "epoch_millisecond, epoch_microsecond and epoch_nanosecond give a whole number, with the fraction "
                 "of the unit cut off, as Snowflake's DATE_PART example shows. epoch_millisecond, epoch_microsecond "
                 "and epoch_nanosecond of a DATE stop the query, as Snowflake doesn't support them for a DATE. A "
-                "time before 1970 with a fraction of the unit is SFN-074.")),
+                "time before 1970 with a fraction of the unit is SFN-077.")),
     ("SFX-086", "Rewritten", ("$1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM "
                 "VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, "
                 "as in Snowflake.")),
@@ -3360,8 +3419,6 @@ CATALOG = (
     ("SFN-023", "Runs only in Snowflake", ("IDENTIFIER($name) where the same cell doesn't set the variable to a "
                 "string first: its value isn't known here.")),
     ("SFN-024", "Runs only in Snowflake", "PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values."),
-    ("SFN-025", "Runs only in Snowflake", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
-                "ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type.")),
     ("SFN-026", "Runs only in Snowflake", ("INSERT ALL and INSERT FIRST: DuckDB has no multi-table INSERT, and "
                 "separate INSERTs wouldn't be one statement.")),
     ("SFN-027", "Runs only in Snowflake", ("CREATE TABLE ... LIKE: Snowflake copies the other table's defaults and "
@@ -3395,10 +3452,16 @@ CATALOG = (
                 "(the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps "
                 "one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or "
                 "CURRENT_TIMESTAMP runs (SFX-009).")),
-    ("SFN-074", "Runs only in Snowflake", ("DATE_PART and EXTRACT with epoch_second (epoch) or epoch_millisecond "
+    ("SFN-074", "Runs only in Snowflake", ("CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own "
+                "version would come back in its place.")),
+    ("SFN-075", "Runs only in Snowflake", ("CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text "
+                "of database.schema names; DuckDB's is a list of its own search path.")),
+    ("SFN-076", "Runs only in Snowflake", ("RANDOM with a seed: Snowflake's series for a seed comes from its own "
+                "generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs.")),
+    ("SFN-077", "Runs only in Snowflake", ("DATE_PART and EXTRACT with epoch_second (epoch) or epoch_millisecond "
                 "of a time before 1970 with a fraction of the unit (the query stops at that row), because Snowflake "
                 "doesn't document whether the fraction goes toward 0 or down there. A whole number of the unit runs "
-                "(SFX-076).")),
+                "(SFX-078).")),
     ("SFN-085", "Runs only in Snowflake", ("$1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a "
                 "column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position "
                 "of one named table's column, which DuckDB has no way to write.")),

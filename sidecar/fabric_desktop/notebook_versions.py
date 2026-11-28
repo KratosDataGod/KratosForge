@@ -71,12 +71,26 @@ def _write(path: Path, record: dict[str, Any]) -> None:
 def _read(path: Path) -> dict[str, Any] | None:
     try:
         rec = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None  # a torn or unreadable version is skipped, never shown as the notebook
     ok = (isinstance(rec, dict) and isinstance(rec.get("nb"), dict) and isinstance(rec.get("id"), str)
-          and _ID.fullmatch(rec["id"]) and isinstance(rec.get("t"), (int, float)) and rec.get("kind") in KINDS
-          and isinstance(rec.get("hash"), str) and isinstance(rec.get("at"), str))
+          and _ID.fullmatch(rec["id"]) and _ok_time(rec.get("t")) and rec.get("kind") in KINDS
+          and isinstance(rec.get("hash"), str) and isinstance(rec.get("at"), str) and _ok_cells(rec["nb"]))
     return rec if ok else None  # a record missing a field (hand-made, or from another build) is skipped
+
+
+# Times a version can carry: 1970 to 3000. One past that (a hand edit, a clock far off) can't be
+# turned into a date on Windows, and every later save would fail to keep a version.
+_LAST_T = 32503680000.0
+
+
+def _ok_time(t: Any) -> bool:
+    return isinstance(t, (int, float)) and not isinstance(t, bool) and 0 <= t < _LAST_T
+
+
+def _ok_cells(nb: dict[str, Any]) -> bool:
+    cells = nb.get("cells")
+    return cells is None or (isinstance(cells, list) and all(isinstance(c, dict) for c in cells))
 
 
 def _all(root: Path, name: str) -> list[dict[str, Any]]:
@@ -99,7 +113,7 @@ def _entry(rec: dict[str, Any]) -> dict[str, Any]:
 
 def _ok_entry(e: Any) -> bool:
     return (isinstance(e, dict) and isinstance(e.get("id"), str) and bool(_ID.fullmatch(e["id"]))
-            and isinstance(e.get("t"), (int, float)) and e.get("kind") in KINDS and isinstance(e.get("hash"), str)
+            and _ok_time(e.get("t")) and e.get("kind") in KINDS and isinstance(e.get("hash"), str)
             and isinstance(e.get("at"), str) and isinstance(e.get("cells"), int) and isinstance(e.get("code"), int))
 
 
@@ -120,7 +134,7 @@ def _entries(root: Path, name: str) -> list[dict[str, Any]]:
     on_disk = _ids_on_disk(folder)
     try:
         listed = json.loads((folder / INDEX).read_text(encoding="utf-8")).get("versions")
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, RecursionError):
         listed = None
     if (isinstance(listed, list) and all(_ok_entry(e) for e in listed)
             and len(listed) == len(on_disk) and {e["id"] for e in listed} == on_disk):

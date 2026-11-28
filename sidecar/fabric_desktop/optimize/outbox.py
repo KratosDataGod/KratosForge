@@ -158,13 +158,13 @@ class Outbox:
             # The same thing queued twice (a scan shared again, runs shared again while still offline)
             # waits once, so repeats don't fill the cap and push out other results.
             if kind == ANALYSIS:
-                run_id = str((payload.get("run") or {}).get("run_id") or "")
+                run_id = _run_id(payload)
                 for old in self._items(db, lakehouse_id, ANALYSIS):
-                    if run_id and str((old["payload"].get("run") or {}).get("run_id") or "") == run_id:
+                    if run_id and _run_id(old["payload"]) == run_id:
                         db.execute("delete from outbox where id = ?", (old["id"],))
             else:
                 waiting = {r.get("execution_id") for old in self._items(db, lakehouse_id, LOCAL_EXECUTIONS)
-                           for r in old["payload"].get("rows") or []}
+                           for r in _rows(old["payload"])}
                 rows = [r for r in payload.get("rows") or [] if r.get("execution_id") not in waiting]
                 if not rows:
                     return ""
@@ -183,13 +183,14 @@ class Outbox:
     @staticmethod
     def _items(db: sqlite3.Connection, lakehouse_id: str, kind: str) -> list[dict[str, Any]]:
         rows = db.execute("select id, payload from outbox where lakehouse_id = ? and kind = ?", (lakehouse_id, kind))
-        return [{"id": r["id"], "payload": json.loads(r["payload"])} for r in rows.fetchall()]
+        # An item that can't be read (damaged, or not this app's) matches nothing; ``due`` drops it.
+        return [{"id": r["id"], "payload": p} for r in rows.fetchall() if (p := _payload(r["payload"])) is not None]
 
     def waiting_execution_ids(self, lakehouse_id: str) -> set[str]:
         """Runs on this PC already waiting for the lakehouse, so sharing again doesn't count them as new."""
         with self._db() as db:
             return {str(r.get("execution_id")) for old in self._items(db, lakehouse_id, LOCAL_EXECUTIONS)
-                    for r in old["payload"].get("rows") or []}
+                    for r in _rows(old["payload"])}
 
     def due(self, lakehouse_id: str, include_waiting: bool = False) -> list[dict[str, Any]]:
         """Items for the lakehouse, oldest first; only those whose wait is over unless ``include_waiting``."""
@@ -198,8 +199,23 @@ class Outbox:
             self._trim(db, lakehouse_id, now)
             rows = db.execute("select * from outbox where lakehouse_id = ? and (? or next_at <= ?) "
                               "order by created_at, rowid", (lakehouse_id, int(include_waiting), now)).fetchall()
-        return [{"id": r["id"], "kind": r["kind"], "payload": json.loads(r["payload"]), "rows": r["rows"],
-                 "attempts": r["attempts"]} for r in rows]
+            out, unreadable = [], 0
+            for r in rows:
+                payload = _payload(r["payload"])
+                if payload is None:  # it can never be sent: dropped and counted, so it can't hold up the rest
+                    db.execute("delete from outbox where id = ?", (r["id"],))
+                    unreadable += 1
+                    continue
+                out.append({"id": r["id"], "kind": r["kind"], "payload": payload, "rows": r["rows"],
+                            "attempts": r["attempts"]})
+            if unreadable:
+                self._state(db, lakehouse_id)
+                db.execute("update outbox_state set dropped = dropped + ? where lakehouse_id = ?",
+                           (unreadable, lakehouse_id))
+                _log.warning("Dropped %d results waiting for the central lakehouse because they can't be read. "
+                             "Run the X-ray or share the runs again to record them.",
+                             unreadable)
+        return out
 
     def sent(self, item_id: str) -> None:
         with self._tx() as db:
@@ -303,6 +319,25 @@ class Outbox:
                 "syncing_since": _iso(since) if running else None,
                 "last_sync": _iso(state["last_sync"]) if state else None,
                 "dropped": state["dropped"] if state else 0}
+
+
+def _payload(text: Any) -> dict[str, Any] | None:
+    """An item's payload, or None when it isn't one JSON object (damaged, or nested too deep)."""
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError, RecursionError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _run_id(payload: dict[str, Any]) -> str:
+    run = payload.get("run")
+    return str(run.get("run_id") or "") if isinstance(run, dict) else ""
+
+
+def _rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = payload.get("rows")
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
 
 
 def _check_reason(reason: str) -> None:

@@ -47,6 +47,10 @@ MAX_EXPRESSION = 2000  # characters in an expression to evaluate (the panel's bo
 # Describing a frame's variables runs their own code (repr, len): past this, the rest are listed by
 # name and type only, so a frame full of slow values still pauses quickly.
 DESCRIBE_SECONDS = 3.0
+# Before 3.13 (PEP 667), a function's f_locals is a snapshot that each read refreshes from the frame and
+# that Python writes back to it as the trace hook returns: see Debugger._scope.
+_SNAPSHOT_LOCALS = sys.version_info < (3, 13)
+_UNSET = object()
 
 
 def check_breakpoints(lines: Any) -> list[int]:
@@ -217,20 +221,37 @@ class Debugger:
                 for name, value in shown[:MAX_LOCALS]]
         return rows, len(shown)
 
-    def _evaluate(self, frame: types.FrameType, expr: str) -> dict[str, Any]:
+    def _evaluate(self, frame: types.FrameType, expr: str, assigned: dict[str, Any] | None = None) -> dict[str, Any]:
+        frame_had = dict(frame.f_locals) if assigned is not None else {}  # the frame's own values, without the overlay
+        scope = self._scope(frame, assigned)
+        before = dict(scope) if assigned is not None else {}
         try:
-            value = eval(compile(expr, "<debug>", "eval"), frame.f_globals, self._scope(frame))  # noqa: S307 - the person's own notebook code
+            value = eval(compile(expr, "<debug>", "eval"), frame.f_globals, scope)  # noqa: S307 - the person's own notebook code
         except BaseException as exc:  # noqa: BLE001 - exit(), KeyboardInterrupt and the like too: shown next to the expression
             if self.stopping:
                 raise  # Stop's interrupt, landing in an expression that ran on: it ends the cell
             return {"expr": expr, "error": self.redact(f"{type(exc).__name__}: {exc}")}
+        finally:
+            if assigned is not None:  # what the expression assigned itself, (n := 5), kept on top of the frame
+                wrote = {k: v for k, v in scope.items() if k not in before or before[k] is not v}
+                frame_has = frame.f_locals  # refreshed (the same dict as scope): a nonlocal a called function changed
+                for name in [k for k in assigned if frame_has.get(k, _UNSET) is not frame_had.get(k, _UNSET)]:
+                    del assigned[name]  # the frame's newer value wins over an earlier expression's
+                assigned.update(wrote)
+                self._scope(frame, assigned)
         return {"expr": expr, **self._row(expr, value)}
 
-    def _scope(self, frame: types.FrameType) -> dict[str, Any]:
+    def _scope(self, frame: types.FrameType, assigned: dict[str, Any] | None = None) -> dict[str, Any]:
         """The names to show and evaluate in: a function's locals, or a cell's or class body's own namespace
-        (without the variables of an inlined comprehension running in it, see trace)."""
+        (without the variables of an inlined comprehension running in it, see trace).
+        ``assigned``: before 3.13, what this pause's expressions assigned in a function's snapshot of its
+        locals. Each read of f_locals refreshes the snapshot from the frame, which would undo them before
+        Python writes the snapshot back as the pause ends, so they are put back after each read."""
         if frame.f_code.co_flags & inspect.CO_OPTIMIZED:
-            return frame.f_locals
+            scope = frame.f_locals
+            if assigned:
+                scope.update(assigned)
+            return scope
         return self._scopes.get(frame, frame.f_globals)
 
     def _row(self, name: str, value: Any) -> dict[str, Any]:
@@ -240,9 +261,10 @@ class Debugger:
 
     def _pause(self, frame: types.FrameType, reason: str) -> None:
         variables, total = self._variables(frame)
+        assigned: dict[str, Any] | None = {} if _SNAPSHOT_LOCALS and frame.f_code.co_flags & inspect.CO_OPTIMIZED else None
         self.paused = {"line": frame.f_lineno, "reason": reason, "stack": self._stack(frame),
                        "variables": variables,
-                       "watches": [self._evaluate(frame, w) for w in self.watches], "evals": []}
+                       "watches": [self._evaluate(frame, w, assigned) for w in self.watches], "evals": []}
         if total > len(variables):
             self.paused["variables_total"] = total
         if self.skipped:
@@ -261,7 +283,7 @@ class Debugger:
                     raise Stopped()
                 if action == "eval":
                     expr, slot = arg
-                    result = self._evaluate(frame, expr)
+                    result = self._evaluate(frame, expr, assigned)
                     self.paused["evals"] = (self.paused["evals"] + [result])[-MAX_EVALS:]
                     slot["result"] = result
                     slot["done"].set()

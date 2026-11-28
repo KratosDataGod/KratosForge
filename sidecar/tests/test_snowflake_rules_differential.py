@@ -242,7 +242,7 @@ def cases() -> list[tuple[str, str, object]]:
     for _ in range(80):
         # functions-date-time: epoch is a synonym of epoch_second. date_part returns NUMBER, and its example gives
         # 1712619560 for 2024-04-08 23:39:20.123: the fraction is cut off. Only times after 1970 are drawn, as
-        # the page shows no time before it with a fraction (SFN-074).
+        # the page shows no time before it with a fraction (SFN-077).
         micros = logical.randint(0, 60 * 365 * 86400 * 10 ** 6)
         t = dt.datetime(1970, 1, 1) + dt.timedelta(microseconds=micros)
         stamp = f"{q(t.isoformat(sep=' '))}::TIMESTAMP_NTZ"

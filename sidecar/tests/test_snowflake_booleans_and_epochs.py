@@ -1,5 +1,5 @@
-"""Snowflake SQL on this PC, rules 2026.11.26: text cast to BOOLEAN (SFX-075) and the epoch date parts (SFX-076,
-SFN-074). Every expected value is one docs.snowflake.com states; the page is named at each test."""
+"""Snowflake SQL on this PC, rules 2026.11.28: text cast to BOOLEAN (SFX-077) and the epoch date parts (SFX-078,
+SFN-077). Every expected value is one docs.snowflake.com states; the page is named at each test."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _error(code: str) -> str:
     return str(caught.value)
 
 
-# ---------------------------------------------------------------- SFX-075: text to BOOLEAN
+# ---------------------------------------------------------------- SFX-077: text to BOOLEAN
 
 # data-types-logical, "Conversion to BOOLEAN": "Strings converted to TRUE: 'true', 't', 'yes', 'y', 'on', '1'."
 # "Strings converted to FALSE: 'false', 'f', 'no', 'n', 'off', '0'." "Conversion is case-insensitive."
@@ -73,7 +73,7 @@ def test_a_nested_cast_reads_its_value_once():
     assert sizes[3] - sizes[2] <= 2.2 * (sizes[2] - sizes[1]), sizes  # it grows linearly
 
 
-# ---------------------------------------------------------------- SFX-076, SFN-074: the epoch parts
+# ---------------------------------------------------------------- SFX-078, SFN-077: the epoch parts
 
 # functions-date-time, "Supported date and time parts": epoch_second has the synonyms epoch and epoch_seconds.
 # date_part: "Returns a value of NUMBER data type"; its example gives 1712619560 for 2024-04-08 23:39:20.123.
@@ -115,7 +115,7 @@ def test_a_time_before_1970_with_a_fraction_stops_by_name(code):
     translation = sf.translate(code)
     with pytest.raises(duckdb.Error) as caught:
         duckdb.connect().sql(translation.duckdb_sql).fetchall()
-    assert "SFN-074" in str(caught.value) and sf.stopped_by_name(caught.value)
+    assert "SFN-077" in str(caught.value) and sf.stopped_by_name(caught.value)
 
 
 @pytest.mark.parametrize("part", ["epoch_millisecond", "epoch_microsecond", "epoch_nanosecond"])
@@ -129,5 +129,5 @@ def test_the_smaller_epoch_parts_of_a_date_stop_as_in_snowflake(part):
 
 def test_rules_are_in_the_catalog():
     ids = {id for id, _, _ in sf.CATALOG}
-    assert {"SFX-075", "SFX-076", "SFN-074"} <= ids
-    assert sf.RULES_VERSION >= "2026.11.26"
+    assert {"SFX-077", "SFX-078", "SFN-077"} <= ids
+    assert sf.RULES_VERSION >= "2026.11.28"

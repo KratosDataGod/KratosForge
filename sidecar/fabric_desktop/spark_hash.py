@@ -319,13 +319,33 @@ def sha2(data: bytes | None, bits: int | None) -> str | None:
     return hashlib.new(f"sha{bits}", data).hexdigest()
 
 
+def _sha2_chunk(data: Any, bits: Any) -> Any:
+    """sha2 above over a chunk of rows at once (pyarrow arrays in, a pyarrow string array out), so DuckDB
+    calls Python once per chunk, not once per row. 0 and 256 are SHA-256, as Spark's sha2 has them."""
+    import hashlib
+
+    import pyarrow as pa
+    makers = {0: hashlib.sha256, 224: hashlib.sha224, 256: hashlib.sha256, 384: hashlib.sha384,
+              512: hashlib.sha512}
+    values = data.to_pylist()
+    lengths = bits.to_pylist()
+    if lengths and lengths.count(lengths[0]) == len(lengths):  # one length for the chunk, as sha2(x, 512) gives
+        make = makers.get(lengths[0])
+        out = [None] * len(values) if make is None else [None if v is None else make(v).hexdigest() for v in values]
+    else:
+        out = [None if v is None or (m := makers.get(n)) is None else m(v).hexdigest()
+               for v, n in zip(values, lengths, strict=True)]
+    return pa.array(out, pa.string())
+
+
 def register(con: Any) -> None:
-    """Add __kf_sha2 (sha2 above) and __kf_url_decode (databricks_bytes.url_decode, the java.net.URLDecoder
-    Spark's and Databricks' url_decode both use) to DuckDB connection ``con``, as each Spark SQL connection
-    does. A NULL argument gives NULL."""
+    """Add __kf_sha2 (sha2 above, a chunk at a time) and __kf_url_decode (databricks_bytes.url_decode, the
+    java.net.URLDecoder Spark's and Databricks' url_decode both use) to DuckDB connection ``con``, as each Spark
+    SQL connection does. A NULL argument gives NULL."""
     from duckdb.sqltypes import BLOB, BOOLEAN, INTEGER, VARCHAR
 
     from .databricks_bytes import url_decode
-    con.create_function("__kf_sha2", sha2, [BLOB, INTEGER], VARCHAR, null_handling="special", side_effects=False)
+    con.create_function("__kf_sha2", _sha2_chunk, [BLOB, INTEGER], VARCHAR, type="arrow", null_handling="special",
+                        side_effects=False)
     con.create_function("__kf_url_decode", url_decode, [VARCHAR, BOOLEAN], VARCHAR, null_handling="special",
                         side_effects=False)  # try_url_decode gives NULL for bad input

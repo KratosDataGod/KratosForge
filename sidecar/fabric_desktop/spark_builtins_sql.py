@@ -12,6 +12,7 @@ name with a message, so a cell stops before anything runs with another answer.
 from __future__ import annotations
 
 import contextvars
+import decimal
 import functools
 import re
 from typing import Callable, cast
@@ -143,13 +144,20 @@ def _sha2(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression | 
     data = "CASE WHEN TYPEOF(fj_arg0) = 'BLOB' THEN CAST(fj_arg0 AS BLOB) ELSE ENCODE(CAST(fj_arg0 AS VARCHAR)) END"
     bits = args[1]
     if isinstance(bits, exp.Literal) and not bits.is_string:
-        n = int(bits.name) if bits.name.lstrip("-").isdigit() else None
+        # Spark casts the length to an int first, cutting a fraction: sha2('abc', 256.0) is SHA-256. A value
+        # past ten digits, NaN or infinite is no length sha2 knows (NULL), and is never made into an int, as
+        # 1e30000000 would take that many digits.
+        try:
+            d = decimal.Decimal(bits.name)
+            n: int | None = int(d) if d.is_finite() and d.adjusted() < 10 else None
+        except (decimal.InvalidOperation, ValueError):
+            n = None
         if n in (0, 256):
             return _with_args(f"SHA256({data})", args)
         if n in (224, 384, 512):
             return _with_args(f"__kf_sha2({data}, {n})", args)
         return _with_args("CAST(NULL AS VARCHAR)", args)
-    return _with_args(f"(LIST_TRANSFORM([CAST(fj_arg1 AS INTEGER)], kf_n -> CASE WHEN kf_n IN (0, 256) THEN SHA256({data}) "
+    return _with_args(f"(LIST_TRANSFORM([TRY_CAST(TRUNC(TRY_CAST(fj_arg1 AS DOUBLE)) AS INTEGER)], kf_n -> CASE WHEN kf_n IN (0, 256) THEN SHA256({data}) "
                       f"WHEN kf_n IN (224, 384, 512) THEN __kf_sha2({data}, kf_n) END))[1]", args)
 
 

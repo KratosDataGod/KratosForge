@@ -11,20 +11,28 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import math
 import numbers
 import os
 import re
 import stat
+import tempfile
+import threading
 import time
+from contextlib import ExitStack, contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, cast
+from time import monotonic
+from typing import Any, Iterator, cast
 from urllib.parse import unquote
 
-from deltalake import DeltaTable
+from deltalake import CommitProperties, DeltaTable, PostCommitHookProperties
 from deltalake.exceptions import TableNotFoundError
 
 from . import durable, retrying
+
+_log = logging.getLogger(__name__)
 
 SMALL_FILE_BYTES = 32 * 1024 * 1024
 SMALL_FILE_COUNT = 20     # this many files averaging under SMALL_FILE_BYTES is worth compacting
@@ -32,6 +40,25 @@ VERSIONS_BEFORE_VACUUM = 30
 RETENTION_HOURS = 7 * 24 + 1  # Fabric's default retention is 7 days
 MIN_RETENTION_DAYS = 7  # Delta's default; VACUUM with less can delete files a reader or writer still needs
 LOG_RETENTION_DAYS = 30  # Delta's default: older log entries go at the next checkpoint
+# delta-rs cleans the log when a commit writes a checkpoint (every delta.checkpointInterval versions) unless
+# delta.enableExpiredLogCleanup is false: it deletes each commit and checkpoint older than
+# delta.logRetentionDuration that comes before the last checkpoint at or before the oldest log file it keeps.
+# The version current when the history kept starts can be older than that, and is then deleted: it (and its
+# files, which VACUUM keeps) can no longer be loaded, and a time travel to then reads a later version. A
+# RESTORE or a property change on this PC takes KEEP_LOG and cleans no log; OPTIMIZE and VACUUM ignore it
+# (delta-rs 1.6.6), so keep_log comes first.
+# It writes no checkpoint either: one drops the removals older than deletedFileRetentionDuration, and a VACUUM
+# after it no longer knows to delete their files. A later commit at the interval checkpoints.
+KEEP_LOG = PostCommitHookProperties(create_checkpoint=False, cleanup_expired_logs=False)
+# An ordinary write (an append, overwrite, MERGE, UPDATE or DELETE) checkpoints at the interval as usual but
+# cleans no log in its commit: after_write cleans it once keep_log has kept what the history kept reads. Before
+# the commit its version isn't known (another writer can take the one expected, and a write pinned to the
+# version it read would conflict with a property commit made first), after it, it is.
+WRITE_HOOKS = PostCommitHookProperties(create_checkpoint=True, cleanup_expired_logs=False)
+_LOG_FILE = re.compile(r"(\d{20})\.(json|checkpoint(\.\d+\.\d+)?\.parquet)")
+_INTERVAL = re.compile(r"(?:interval\s+)?(\d+(?:\.\d+)?)\s*(millisecond|second|minute|hour|day|week)s?", re.I)
+_UNIT_SECONDS = {"millisecond": 0.001, "second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 7 * 86400}
+_RS_UNIT_SECONDS = {"nanosecond": 1e-9, "microsecond": 1e-6} | _UNIT_SECONDS
 # delta-rs writes each file on this PC as <name>#<n> and then renames (data) or links (log) it into
 # place, so a write stopped part way leaves files under that staging name. One untouched this long
 # belongs to a write that has stopped: a live one finishes a file and publishes it in one go.
@@ -283,56 +310,265 @@ def set_retention(uri: str, days: int, options: dict[str, str] | None = None, al
     table = DeltaTable(uri, storage_options=options)
     wanted = retention_properties(days)
     config = table.metadata().configuration or {}
+    own = str(config.get("delta.logRetentionDuration") or "")
+    if _own_seconds(own) > _interval_seconds(wanted["delta.logRetentionDuration"]):
+        # The table's own longer one stays, in words delta-rs reads as that long too (it reads "INTERVAL 100 DAYS"
+        # as its default 30 days: _delta_rs_seconds).
+        wanted["delta.logRetentionDuration"] = own if _delta_rs_seconds(own) == _own_seconds(own) \
+            else f"interval {math.ceil(_own_seconds(own) / 86400)} days"
     if all(config.get(k) == v for k, v in wanted.items()):
         return False
     # A commit like any other: on Windows it can lose the staged-commit race to a writer (retrying.local_commit).
     retrying.local_commit(lambda: DeltaTable(uri, storage_options=options).alter.set_table_properties(
-        wanted, raise_if_not_exists=False), "this table's next version")
+        wanted, raise_if_not_exists=False, post_commithook_properties=KEEP_LOG), "this table's next version")
     return True
+
+
+def _interval_seconds(text: str) -> float:
+    """``interval 30 days`` (or hours, weeks...) in seconds, read leniently as Spark might (any case, decimals,
+    "interval" left out); 0 for anything else, the shortest there is."""
+    m = _INTERVAL.fullmatch(text.strip())
+    return float(m.group(1)) * _UNIT_SECONDS[m.group(2).lower()] if m else 0.0
+
+
+def _delta_rs_seconds(text: str) -> float | None:
+    """An interval as delta-rs 1.6.6 reads it, in seconds, or None when it can't (it then keeps Delta's default 30
+    days of log, whatever the words meant): whitespace-separated words, the first exactly ``interval``, then a whole
+    number (a leading + allowed) and a lower-case unit, singular or plural; later words are ignored. So
+    ``INTERVAL 100 DAYS``, ``100 days`` and ``interval 1.5 days`` are 30 days to it, and ``interval +100 days``
+    100. Anything it might read otherwise (a control character Python splits on and Rust doesn't, a number past
+    any real duration) counts as unreadable."""
+    if re.search(r"[\x1c-\x1f]", text):
+        return None
+    words = text.split()
+    if len(words) < 3 or words[0] != "interval" or not re.fullmatch(r"\+?[0-9]{1,15}", words[1]):
+        return None
+    unit = words[2][:-1] if words[2].endswith("s") else words[2]
+    return int(words[1]) * _RS_UNIT_SECONDS[unit] if unit in _RS_UNIT_SECONDS else None
+
+
+def _own_seconds(text: str) -> float:
+    """The longest a table's own delta.logRetentionDuration may be meant to keep the log, as delta-rs or Spark
+    reads it: never shortened by a property this app writes."""
+    return max(_delta_rs_seconds(text) or 0.0, _interval_seconds(text))
+
+
+def log_seconds(config: dict[str, str] | None) -> float:
+    """How long delta-rs's log cleanup keeps a log file, in seconds: the table's delta.logRetentionDuration as
+    delta-rs reads it (_delta_rs_seconds), Delta's 30 days when it sets none, and for one delta-rs can't read the
+    shorter of 30 days (its default then) and what it seems to say (0 when that can't be read either); infinite
+    only when delta.enableExpiredLogCleanup is exactly ``false``: delta-rs cleans at any other value ("False" too)."""
+    config = config or {}
+    if config.get("delta.enableExpiredLogCleanup") == "false":
+        return math.inf
+    text = config.get("delta.logRetentionDuration")
+    if text is None:
+        return LOG_RETENTION_DAYS * 86400.0
+    read = _delta_rs_seconds(str(text))
+    return read if read is not None else min(_interval_seconds(str(text)), LOG_RETENTION_DAYS * 86400.0)
+
+
+def keep_log(uri: str, hours: float, options: dict[str, str] | None = None, now: float | None = None) -> bool:
+    """Before an OPTIMIZE or VACUUM commit, which can clean the log (KEEP_LOG): raise the table's
+    delta.logRetentionDuration until every log file is kept that a version current in the last ``hours`` is
+    read from, the last checkpoint at or before the oldest such version on. True when it changed."""
+    from deltalake.fs import DeltaStorageHandler
+    from pyarrow.fs import FileSelector
+
+    table = DeltaTable(uri, storage_options=options)
+    retention = log_seconds(table.metadata().configuration)
+    if math.isinf(retention):
+        return False
+    now = time.time() if now is None else now
+    start = now - hours * 3600
+    commits: dict[int, float] = {}
+    checkpoints: dict[int, float] = {}
+    listing = DeltaStorageHandler(table.table_uri, options).get_file_info_selector(FileSelector("_delta_log"))
+    for info in listing:
+        m = _LOG_FILE.fullmatch(info.base_name)
+        if m and info.mtime is not None:
+            found = commits if m.group(2) == "json" else checkpoints
+            v = int(m.group(1))
+            found[v] = min(found.get(v, math.inf), info.mtime.timestamp())  # a checkpoint in parts: its oldest
+    if not commits:
+        return False
+    # A version's date is the later of its file's and its commitInfo's, so the oldest version inside the history
+    # kept is found by either clock; the one before it was current at its start.
+    dated = dict(commits)
+    for h in table.history():
+        if "version" in h and h.get("timestamp") is not None and int(h["version"]) in dated:
+            dated[int(h["version"])] = max(dated[int(h["version"])], float(h["timestamp"]) / 1000)
+    inside = [v for v, when in dated.items() if when > start]
+    first = min(commits)
+    current = max(first, min(inside) - 1) if inside else max(commits)
+    base = max((v for v in checkpoints if v <= current), default=None)
+    needed = [when for v, when in commits.items() if v >= (first if base is None else base)]
+    if base is not None:
+        needed.append(checkpoints[base])
+    oldest = min(needed)
+    if now - oldest + 86400 < retention:  # a day to spare for the commit that follows
+        return False
+    # Whole multiples of Delta's 30 days, so a table written seldom isn't raised again at every run; never shorter
+    # than the table's own (one delta-rs reads as its 30-day default, like "INTERVAL 100 DAYS", becomes 100 days).
+    days = math.ceil((now - oldest + 86400) / 86400 / LOG_RETENTION_DAYS) * LOG_RETENTION_DAYS
+    days = max(days, math.ceil(_own_seconds(str((table.metadata().configuration or {}).get(
+        "delta.logRetentionDuration") or "")) / 86400))
+    retrying.local_commit(lambda: DeltaTable(uri, storage_options=options).alter.set_table_properties(
+        {"delta.logRetentionDuration": f"interval {days} days"}, post_commithook_properties=KEEP_LOG,
+        # named in the table's history, so a property change nobody typed can be told apart from a person's
+        commit_properties=CommitProperties(custom_metadata={"fabric_desktop.operation": "keep_log"})),
+        "this table's next version")
+    return True
+
+
+def checkpoints_between(config: dict[str, str] | None, before: int | None, after: int) -> bool:
+    """Whether a commit after version ``before`` (None: the table is new) up to ``after`` is one delta-rs writes a
+    checkpoint at: version + 1 a multiple of delta.checkpointInterval (100 when the table sets none). One this
+    can't read, or that isn't over 0, counts as checkpointing: the log is then looked after, never left."""
+    text = (config or {}).get("delta.checkpointInterval")
+    try:
+        interval = 100 if text is None else int(str(text).strip())
+    except ValueError:
+        return True
+    if interval <= 0:
+        return True
+    first = -1 if before is None else int(before)
+    return (int(after) + 1) // interval * interval >= first + 2  # a multiple of it in [first + 2, after + 1]
+
+
+def after_write(uri: str, before: int | None, table: DeltaTable, options: dict[str, str] | None = None,
+                days: int | None = None) -> bool:
+    """After an ordinary write's commit, made with WRITE_HOOKS (a checkpoint as usual, no log cleanup): when it, or
+    a commit since ``before``, is one delta-rs checkpoints at, keep the log a version current in the history kept
+    reads (keep_log), and only then clean the expired log as the commit would have. The history kept is the longest
+    of ``days`` (a layer's Keep history), the table's own delta.deletedFileRetentionDuration and MIN_RETENTION_DAYS.
+    ``table`` is the table as committed; the log is listed only after a checkpoint, so other writes cost nothing
+    more. True when the log was cleaned. Nothing here fails the write, which is in: a step that fails leaves the
+    log as it is until the next checkpoint (with a warning). keep_log runs before cleanup_metadata because the
+    cleanup deletes by the retention keep_log may have to raise first; the other way round the log is already gone."""
+    try:
+        config = table.metadata().configuration or {}
+        if not checkpoints_between(config, before, table.version()) or math.isinf(log_seconds(config)):
+            return False
+        keep_log(uri, retention_hours(max(days or 0, kept_days(config) or 0, MIN_RETENTION_DAYS)), options)
+        DeltaTable(uri, storage_options=options).cleanup_metadata()
+        return True
+    except Exception as exc:  # noqa: BLE001 - the write is committed; the log waits for the next checkpoint
+        from .redact import describe
+        _log.warning("The Delta log of %s is left as it is until its next checkpoint: %s", uri, describe(exc))
+        return False
+
+
+# delta-rs 1.6.6 moves an OPTIMIZE (compaction or Z-Order) onto the table's latest version right before it commits,
+# without checking that the files it rewrote are still there: two at once on one table each commit, and the rows the
+# second rewrote are then in the table twice. Nor can a RESTORE, a VACUUM or the leftover cleanup here tell a file
+# another of them is about to commit or has just named from a leftover. So every one of them on this PC, in any
+# process (the app, a notebook's kernel, a scheduled run), takes this table's compaction lock first and waits for
+# the others. It is a file lock, which the system lets go of when its process ends, so a killed kernel never keeps
+# it. Writers elsewhere (Fabric's own Spark, another PC) don't take it.
+COMPACTION_WAIT = 120.0
+_COMPACTING: ContextVar[frozenset[str]] = ContextVar("compacting", default=frozenset())
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_key(uri: str) -> str:
+    """One name for a table however its address is written: a folder on this PC resolved as the disk compares it,
+    a OneLake address as given (its ids are GUIDs, so case doesn't matter)."""
+    if uri.lower().startswith("file://"):  # the same folder as its plain path, so both share one lock
+        from urllib.request import url2pathname
+        uri = url2pathname(uri[len("file://"):].removeprefix("localhost"))
+    elif "://" in uri:
+        return uri.rstrip("/").lower()
+    return os.path.normcase(os.path.realpath(uri)).rstrip("/\\")
+
+
+def _lock_file(key: str) -> Path:
+    import hashlib
+    name = hashlib.sha256(key.encode("utf-8", "surrogatepass")).hexdigest()[:32]
+    return Path(tempfile.gettempdir()) / "KratosForge" / "table-locks" / f"{name}.lock"
+
+
+@contextmanager
+def compaction_lock(uri: str, name: str = "This table", wait: float | None = None) -> Iterator[None]:
+    """Hold ``uri``'s compaction lock for the block (see COMPACTION_WAIT). Waits up to ``wait`` seconds (default
+    COMPACTION_WAIT) for another holder, then raises LeaseBusy with nothing changed. A holder taking it again
+    (compact_local under the Maintain page's lease, say) goes straight in."""
+    from .leases import LeaseBusy, _file_lock
+
+    wait = COMPACTION_WAIT if wait is None else wait
+    key = _lock_key(uri)
+    if key in _COMPACTING.get():
+        yield
+        return
+    busy = (f"{name} is being optimized, vacuumed or restored by another process on this PC (the Maintain page's "
+            "Optimize, a notebook or a scheduled run), so nothing was changed. Try again once the other run has finished.")
+    with _THREAD_LOCKS_GUARD:
+        local = _THREAD_LOCKS.setdefault(key, threading.Lock())
+    deadline = monotonic() + max(wait, 0.0)  # not time.monotonic: tests stand a clock in for the time module
+    got = local.acquire(timeout=wait) if wait > 0 else local.acquire(blocking=False)
+    if not got:
+        raise LeaseBusy(busy)
+    try:
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(_file_lock(_lock_file(key), timeout=max(deadline - monotonic(), 0.0)))
+            except TimeoutError:
+                raise LeaseBusy(busy) from None
+            token = _COMPACTING.set(_COMPACTING.get() | {key})
+            try:
+                yield
+            finally:
+                _COMPACTING.reset(token)
+    finally:
+        local.release()
 
 
 def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[str, Any]:
     """OPTIMIZE (compaction, no V-Order) and VACUUM for a table on this PC, keeping ``days`` of history.
     Fewer than MIN_RETENTION_DAYS is refused before anything changes, unless ``allow_shorter``. The table's own
-    longer retention wins (and stays), and a version inside it keeps its files whatever a later commit's clock says."""
+    longer retention wins (and stays), and a version inside it keeps its files whatever a later commit's clock says.
+    All of it under the table's compaction_lock, so no other OPTIMIZE, VACUUM or RESTORE of it on this PC overlaps."""
     check_retention(days, allow_shorter)
-    first = DeltaTable(uri)
-    before, files_before = first.version(), len(first.file_uris())
-    days = _with_own(first, days)
-    set_retention(uri, days, allow_shorter=allow_shorter)
-    # On Windows a writer committing the same next version at the same moment makes this commit fail to open
-    # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
-    # so compacting again is safe.
-    # One that still loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
-    metrics = retrying.local_commit(lambda: DeltaTable(uri).optimize.compact(), "this table's next version")
-    table = DeltaTable(uri)
-    present = table_files(uri)
-    keep, _oldest = skewed_versions(table, retention_hours(days))
-    # VACUUM commits too (its start and end), so it can lose the same race; deleting again what is already
-    # gone is a no-op, so it is safe to repeat on the table's latest version. A file it deletes may also be
-    # open for a moment in a virus scanner or the indexer (os error 32 or 33 on Windows); that is waited out
-    # the same way, and a file still held after that gets a plain message rather than delta-rs's.
-    try:
-        listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
-            retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
-            "this table's next version", when=lambda e: retrying.windows_file_held(e) or retrying.windows_log_race(e))
-    except OSError as exc:
-        if not retrying.windows_file_held(exc):
-            raise
-        raise OSError(retrying.held_file_message("Compact")) from exc
-    # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
-    listed = [relative_to_table(uri, p) for p in listed]
-    removed = [p for p in listed if path_key(p) in present and not (Path(uri) / p).exists()]
-    # A data file no commit names (a write stopped before its commit) goes once it's as old as the
-    # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
-    unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
-    staged = _remove(uri, _stale_staged(uri))
-    after = DeltaTable(uri)
-    durable.sync_commits(uri, before + 1, after.version())  # the compacted files and their commits
-    # files_before and files_after are counted from the Delta log, before and after: measured, not estimated.
-    return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
-            "files_before": files_before, "files_after": len(after.file_uris()),
-            "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
+    with compaction_lock(uri):
+        first = DeltaTable(uri)
+        before, files_before = first.version(), len(first.file_uris())
+        days = _with_own(first, days)
+        set_retention(uri, days, allow_shorter=allow_shorter)
+        keep_log(uri, retention_hours(days))  # before OPTIMIZE and VACUUM, whose commits can clean the log
+        # On Windows a writer committing the same next version at the same moment makes this commit fail to open
+        # its staged log file, or another process holds a log file (retrying.windows_log_race); nothing was committed,
+        # so compacting again is safe.
+        # One that still loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
+        metrics = retrying.local_commit(lambda: DeltaTable(uri).optimize.compact(), "this table's next version")
+        table = DeltaTable(uri)
+        present = table_files(uri)
+        keep, _oldest = skewed_versions(table, retention_hours(days))
+        # VACUUM commits too (its start and end), so it can lose the same race; deleting again what is already
+        # gone is a no-op, so it is safe to repeat on the table's latest version. A file it deletes may also be
+        # open for a moment in a virus scanner or the indexer (os error 32 or 33 on Windows); that is waited out
+        # the same way, and a file still held after that gets a plain message rather than delta-rs's.
+        try:
+            listed = retrying.local_commit(lambda: DeltaTable(uri).vacuum(
+                retention_hours=retention_hours(days), dry_run=False, enforce_retention_duration=False, **vacuum_keep(keep)),
+                "this table's next version", when=lambda e: retrying.windows_file_held(e) or retrying.windows_log_race(e))
+        except OSError as exc:
+            if not retrying.windows_file_held(exc):
+                raise
+            raise OSError(retrying.held_file_message("Compact")) from exc
+        # Counted from what this VACUUM actually removed: delta-rs also lists a file already gone meanwhile.
+        listed = [relative_to_table(uri, p) for p in listed]
+        removed = [p for p in listed if path_key(p) in present and not (Path(uri) / p).exists()]
+        # A data file no commit names (a write stopped before its commit) goes once it's as old as the
+        # history kept, the age at which VACUUM removes any file: a write still under way never loses one.
+        unnamed = _remove(uri, _unnamed(uri, table, retention_hours(days)))
+        staged = _remove(uri, _stale_staged(uri))
+        after = DeltaTable(uri)
+        durable.sync_commits(uri, before + 1, after.version())  # the compacted files and their commits
+        # files_before and files_after are counted from the Delta log, before and after: measured, not estimated.
+        return {"files_added": metrics.get("numFilesAdded", 0), "files_removed": metrics.get("numFilesRemoved", 0),
+                "files_before": files_before, "files_after": len(after.file_uris()),
+                "vacuumed": len(removed), "unnamed_removed": unnamed, "staged_removed": staged}
 
 
 def _is_link(entry: os.DirEntry[str]) -> bool:

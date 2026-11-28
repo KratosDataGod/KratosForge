@@ -25,9 +25,13 @@ def iso(t):
 
 @pytest.fixture
 def away_from_utc(monkeypatch):
-    """Run in a zone that isn't UTC, so reading a time with no zone as local time would show."""
+    """Run in a zone that isn't UTC, so reading a time with no zone as local time would show.
+
+    Windows has no time.tzset, so there the test runs in the machine's own zone instead.
+    """
     if not hasattr(time, "tzset"):
-        pytest.skip("needs time.tzset to set this process's time zone")
+        yield
+        return
     monkeypatch.setenv("TZ", "America/Chicago")
     time.tzset()
     yield

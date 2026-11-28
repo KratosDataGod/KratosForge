@@ -769,8 +769,8 @@ def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
         named = _named_anywhere(uri, table)
     except _Unreadable as exc:
         return {"files": [], "bytes": 0,
-                "refused": f"its files can't be told from the table's, because commit {exc} in _delta_log isn't "
-                           "valid Delta JSON. Compact deals with them later"}
+                "refused": f"its files can't be told from the table's own, because commit {exc} in _delta_log "
+                           "isn't valid Delta JSON, so they're left for Compact"}
     if any(_FOREIGN.match(p) for p in named):
         return {"files": [], "bytes": 0,
                 "refused": "a version of the table names a file by its full path, so which files it names "

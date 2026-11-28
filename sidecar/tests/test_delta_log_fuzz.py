@@ -152,5 +152,5 @@ def test_the_stopped_run_dry_run_refuses_when_an_old_commit_cant_be_read(tmp_pat
     time.sleep(0.05)
     found = maintenance.stopped_run_leftovers(uri, time.time())
     assert found["files"] == [] and found["bytes"] == 0
-    assert found["refused"] == (f"its files can't be told from the table's, because commit {COMMIT} in _delta_log "
-                                "isn't valid Delta JSON. Compact deals with them later")
+    assert found["refused"] == (f"its files can't be told from the table's own, because commit {COMMIT} in _delta_log "
+                                "isn't valid Delta JSON, so they're left for Compact")

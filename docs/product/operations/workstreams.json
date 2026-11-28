@@ -1096,6 +1096,37 @@
         "queues.py check fails when a queued story's id is outside its workstream's ranges or reserved by another thread"
       ],
       "agent": "Codebase audit and hardening"
+    },
+    "WR-135": {
+      "title": "Present mode and the Markdown toolbar hold up on 2,000-cell notebooks and odd Markdown",
+      "priority": "P3",
+      "problem": "N23 and N49 shipped as Preview with tests on small notebooks and plain Markdown.",
+      "acceptance": [
+        "Slides start at the same headings the Outline reads, underlined ones included, and never inside code, quotes or HTML",
+        "Present opens a 2,000-cell notebook within a measured budget, and the toolbar edits a Markdown cell near its end",
+        "Toolbar edits on odd selections (spaces at the ends, backticks, fences inside) produce the Markdown they say"
+      ],
+      "agent": "Notebook parity"
+    },
+    "WR-136": {
+      "title": "Notebook metadata survives a save: a fuzzed .ipynb round-trip through merge_saved",
+      "priority": "P3",
+      "problem": "merge_saved keeps the file's own metadata, but the tests use hand-picked notebooks.",
+      "acceptance": [
+        "Generated notebooks with mixed cell, notebook and widget metadata, attachments and slide marks round-trip with only the edit changed",
+        "A failure prints the smallest notebook that shows it"
+      ],
+      "agent": "Notebook parity"
+    },
+    "WR-137": {
+      "title": "Notebook keyboard shortcuts don't collide across Present, the debugger, the Markdown toolbar and the command bar",
+      "priority": "P3",
+      "problem": "Present, the debugger and the Markdown toolbar each add keys on the notebook page.",
+      "acceptance": [
+        "A test lists every notebook key and fails on two owners for one key in the same state",
+        "Each key does one thing while presenting, debugging or editing Markdown"
+      ],
+      "agent": "Notebook parity"
     }
   },
   "side_programs": [

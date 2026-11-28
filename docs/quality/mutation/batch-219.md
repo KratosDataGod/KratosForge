@@ -9,15 +9,15 @@ The run was at `main` ddc89182d (2026-11-20), with the method of batch 218: test
 
 The set is every test file that imports the module. It runs in about 55 seconds on this busy machine, nearly all of it `test_integrations_executions.py`, whose stop and cancel tests are the ones this module most needs, so no file was left out. No `-k` filter or `--deselect` was needed.
 
-One mutant timed out, and it counts as killed: with `and` swapped for `or` in a notebook run's stop (line 383), the stop waits for ever for a kernel that is still running.
+One mutant timed out at the run's 120 s limit, and this page first counted it as killed, saying the stop waited for ever for a kernel still running. That was wrong. Re-run alone at the batch's own commit with a 1500 s limit (2026-11-24), the set passed in 166 s: with `and` swapped for `or` in a notebook run's stop (line 383), the stop sleeps out the whole grace period before it looks at the kernel, which the tests' kernels have already left running, so it is only slower. It was a survivor, not a kill, and the numbers below are corrected. A test was then added in `tests/test_integrations_executions_mutation2.py`: a stop sleeps only while the kernel is running (one 0.1 s sleep for a kernel that reports running once), with this module's clock replaced so another thread's sleep isn't counted. With it, mutant 98 was re-run: `--only 98` timed out again at 120 s, because the set itself takes about 190 s on this loaded machine, so it was applied by hand to a copy of `sidecar/` and the set run without a limit: the new test failed (2,556,184 sleeps instead of 1) and the other 126 passed. It counts as killed by that hand run.
 
-The run already scored over 95%, and every survivor is equivalent or a matter of timing only, so no new tests were written and there was no "after" run.
+The run otherwise scored over 95%, and every other survivor is equivalent or a matter of timing only.
 
 ## Results
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `integrations/executions.py` | test_attach_race, test_integrations_app, test_integrations_executions, test_integrations_executions_boundary, test_integrations_executions_edges, test_integrations_executions_mutation, test_integrations_registry_edges | 163 of 163 (157 + 6), uncapped | 158 / 5 | **96.9%** | 154/157, no change needed | 4/6, no change needed | 158 / 5 | **96.9%** | 2 equivalent, 3 timing only |
+| `integrations/executions.py` | test_attach_race, test_integrations_app, test_integrations_executions, test_integrations_executions_boundary, test_integrations_executions_edges, test_integrations_executions_mutation, test_integrations_registry_edges; after: + test_integrations_executions_mutation2 | 163 of 163 (157 + 6), uncapped | 157 / 6 | **96.3%** | 153 / 157 (97.5%) → 154 / 157 (98.1%) | 4/6, no change needed | 158 / 5 | **96.9%** | 2 equivalent, 3 timing only |
 
 No bugs were found.
 

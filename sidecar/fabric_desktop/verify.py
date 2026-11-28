@@ -151,14 +151,35 @@ def _count(con: Any, sql: str) -> int:
     return int(one_row(con.execute(sql))[0] or 0)
 
 
-def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, offset: int = 0) -> dict[str, Any]:
-    """Compare two pyarrow tables or datasets (this PC's output and Fabric's) under ``given_rules``."""
+STATUSES = ("only_pc", "only_fabric", "changed")
+
+
+class RepeatedKey(ValueError):
+    """The key columns don't name one row on a side (``compare(..., repeated_keys="stop")``)."""
+
+
+def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, offset: int = 0, *,
+            repeated_keys: str = "whole_rows", status: str | None = None, full: bool = False,
+            export: Any = None) -> dict[str, Any]:
+    """Compare two pyarrow tables or datasets (this PC's output and Fabric's) under ``given_rules``.
+
+    The SQL page's Compare data (editor parity S34) asks for more than the default:
+
+    * ``repeated_keys="stop"`` raises RepeatedKey when a key is repeated on either side, instead of
+      matching whole rows: there's no single row to compare.
+    * ``status`` lists only the examples of one kind (``only_pc``, ``only_fabric`` or ``changed``).
+    * ``full``: a changed row's example also gives the columns that are the same (``same``).
+    * ``export`` is called once with an Arrow reader of every differing row (all of them, not a page)."""
     import duckdb
 
     from .side_by_side import fingerprint
     r = rules(given_rules)
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         raise ValueError(f"offset is a whole number of rows to skip, 0 or more, not {offset!r}.")
+    if repeated_keys not in ("whole_rows", "stop"):
+        raise ValueError("repeated_keys is whole_rows or stop.")
+    if status is not None and status not in STATUSES:
+        raise ValueError(f"status is one of {', '.join(STATUSES)}.")
     cols = _columns(pc.schema, fabric.schema, r)
     con = duckdb.connect()
     try:
@@ -192,6 +213,11 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
             kq = [(_q(lower[k.lower()][0]), _q(lower[k.lower()][1])) for k in keys]
             dup_a = _count(con, f"SELECT count(*) FROM (SELECT {', '.join(x for x, _ in kq)} FROM a GROUP BY ALL HAVING count(*) > 1)")
             dup_b = _count(con, f"SELECT count(*) FROM (SELECT {', '.join(y for _, y in kq)} FROM b GROUP BY ALL HAVING count(*) > 1)")
+            if (dup_a or dup_b) and repeated_keys == "stop":
+                where = "both sides" if dup_a and dup_b else "A" if dup_a else "B"
+                raise RepeatedKey(f"The key ({', '.join(keys)}) is repeated in {where}, so there's no single row to "
+                                  f"compare: {dup_a:,} repeated in A, {dup_b:,} in B. Add a column to the key, or "
+                                  "compare without a key.")
             if dup_a or dup_b:
                 out["duplicates"] = {"pc": dup_a, "fabric": dup_b}
                 out["limitations"].append(
@@ -201,11 +227,11 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
                 # Keys of different types (text on one side, numbers on the other) are matched as text;
                 # the type difference already makes the table differ.
                 text = [lower[k.lower()][2] != lower[k.lower()][3] for k in keys]
-                out |= _keyed(con, cols, kq, r, offset, text)
+                out |= _keyed(con, cols, kq, r, offset, text, status, full, export)
                 out["result"] = "match" if schema_same and not (out["counts"]["only_pc"] or out["counts"]["only_fabric"]
                                                                or out["counts"]["changed"]) else "differs"
                 return out
-        out |= _whole_rows(con, cols, r, offset)
+        out |= _whole_rows(con, cols, r, offset, status, export)
         out["result"] = "match" if schema_same and not (out["counts"]["only_pc"] or out["counts"]["only_fabric"]) else "differs"
         return out
     finally:
@@ -213,7 +239,7 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
 
 
 def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[str, Any], offset: int,
-           text: list[bool]) -> dict[str, Any]:
+           text: list[bool], status: str | None = None, full: bool = False, export: Any = None) -> dict[str, Any]:
     key_names = {x for x, _ in kq}
     keys = [(f"CAST(a.{x} AS VARCHAR)", f"CAST(b.{y} AS VARCHAR)") if t else (f"a.{x}", f"b.{y}")
             for (x, y), t in zip(kq, text, strict=True)]
@@ -271,8 +297,17 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
     limit = int(r["examples"])
     key_cols = ", ".join(f'coalesce("k_a{i}", "k_b{i}") AS "key{i}"' for i in range(len(kq)))
     value_cols = "".join(f', "s{i}", "a{i}", "b{i}"' for i in range(len(checks)))
+    differ = {None: f"no_a OR no_b OR ({any_diff})", "only_pc": "no_b", "only_fabric": "no_a",
+              "changed": f"NOT no_a AND NOT no_b AND ({any_diff})"}
+    order = ", ".join(f'"key{i}"' for i in range(len(kq)))
+    if export is not None:
+        _export(con, f"""SELECT CASE WHEN no_b THEN 'only_pc' WHEN no_a THEN 'only_fabric' ELSE 'changed' END AS "status",
+            {', '.join(f'coalesce("k_a{i}", "k_b{i}") AS {_q(r["keys"][i])}' for i in range(len(kq)))}
+            {''.join(f', "a{i}" AS {_q("A: " + name)}, "b{i}" AS {_q("B: " + name)}' for i, (name, *_x) in enumerate(checks))}
+            FROM j WHERE {differ[None]} ORDER BY {', '.join(f'coalesce("k_a{i}", "k_b{i}")' for i in range(len(kq)))} NULLS FIRST""",
+                export)
     rows = con.execute(f"""SELECT no_a, no_b, {key_cols}{value_cols} FROM j
-        WHERE no_a OR no_b OR ({any_diff}) ORDER BY {', '.join(f'"key{i}"' for i in range(len(kq)))} NULLS FIRST
+        WHERE {differ[status]} ORDER BY {order} NULLS FIRST
         LIMIT {limit} OFFSET {int(offset)}""").fetchall()
     examples = []
     key_names_out = [k for k in r["keys"]]
@@ -283,18 +318,27 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
         if no_a or no_b:
             examples.append({"key": key, "status": "only_fabric" if no_a else "only_pc"})
             continue
-        diffs = {}
+        diffs, alike = {}, {}
         for i, (name, *_rest) in enumerate(checks):
             same, va, vb = row[base + 3 * i], row[base + 3 * i + 1], row[base + 3 * i + 2]
             if not same:
                 diffs[name] = {"pc": _json(va), "fabric": _json(vb)}
-        examples.append({"key": key, "status": "changed", "columns": diffs})
+            elif full:
+                alike[name] = {"pc": _json(va), "fabric": _json(vb)}
+        examples.append({"key": key, "status": "changed", "columns": diffs, **({"same": alike} if full else {})})
     return {"level": "complete", "method": "keyed", "keys": r["keys"],
             "counts": {"only_pc": only_pc, "only_fabric": only_fabric, "changed": changed},
             "column_diffs": per_column, "examples": examples, "offset": int(offset)}
 
 
-def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int) -> dict[str, Any]:
+def _export(con: Any, sql: str, export: Any) -> None:
+    """Hand ``export`` an Arrow reader of ``sql``'s rows, a batch at a time (never the whole diff in memory)."""
+    from .duckdb_rows import arrow_reader
+    export(arrow_reader(con.sql(sql), 65_536))  # a relation: DuckDB 2 warns on Arrow from a DB-API result
+
+
+def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int, status: str | None = None,
+                export: Any = None) -> dict[str, Any]:
     """Rows matched as whole rows: each distinct normalized row and how many times each side has it."""
     pairs = cols["common"]
     if not pairs:
@@ -316,7 +360,12 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int) 
         FROM ga FULL OUTER JOIN gb ON {on}""")
     only_pc = _count(con, "SELECT coalesce(sum(na - nb), 0) FROM w WHERE na > nb")
     only_fabric = _count(con, "SELECT coalesce(sum(nb - na), 0) FROM w WHERE nb > na")
-    rows = con.execute(f"SELECT {names}, na, nb FROM w WHERE na <> nb ORDER BY {names} NULLS FIRST "
+    if export is not None:
+        _export(con, f"""SELECT CASE WHEN na > nb THEN 'only_pc' ELSE 'only_fabric' END AS "status", abs(na - nb) AS "times",
+            {', '.join(f'c{i} AS {_q(x)}' for i, (x, *_y) in enumerate(pairs))} FROM w WHERE na <> nb ORDER BY {names} NULLS FIRST""",
+                export)
+    where = {None: "na <> nb", "only_pc": "na > nb", "only_fabric": "nb > na", "changed": "false"}[status]
+    rows = con.execute(f"SELECT {names}, na, nb FROM w WHERE {where} ORDER BY {names} NULLS FIRST "
                        f"LIMIT {int(r['examples'])} OFFSET {int(offset)}").fetchall()
     examples = [{"row": {pairs[i][0]: _json(v) for i, v in enumerate(row[:len(pairs)])},
                  "status": "only_pc" if row[-2] > row[-1] else "only_fabric", "times": abs(row[-2] - row[-1])}

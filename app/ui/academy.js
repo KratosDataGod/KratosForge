@@ -54,8 +54,8 @@ async function renderAcademy() {
   // exercise is a working view and keeps its plain heading.
   const hero = typeof pageHero === "function" ? pageHero("academy", "Academy ", { tag: previewTag() }) : null;
   setView(h("div", { class: hero ? "page academy living-head" : "page academy" },
-    hero ? [hero, h("div", { class: "page-head" }, h("div", {}, intro), h("div", { class: "head-actions" }))]
-      : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Academy ", previewTag()), intro), h("div", { class: "head-actions" })),
+    hero ? [hero, h("div", { class: "page-head" }, h("div", {}, intro), h("div", { class: "head-actions" }, academyHeadActions()))]
+      : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Academy ", previewTag()), intro), h("div", { class: "head-actions" }, academyHeadActions())),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Academy" }, ACADEMY_TABS.map(([id, label]) =>
       h("button", { class: `tab${academyPage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": academyPage.tab === id ? "true" : "false",
         onclick: () => { academyPage.tab = id; render(); } }, label))),
@@ -74,6 +74,17 @@ async function renderAcademy() {
   else if (tab === "readiness") fill(body, ...academyReadiness(data));
   else if (tab === "portfolio") fill(body, ...academyPortfolio(data));
   else fill(body, ...academyHome(data));
+}
+
+// The page's actions follow the tab. Home: Take a diagnostic, which opens the diagnostic screen in
+// Assessments (academy-assessments.js, board 6 of the mockup); a running exam stays where it is.
+function academyHeadActions() {
+  if (academyPage.tab !== "home" || typeof assess === "undefined") return null;
+  return btn("Take a diagnostic", null, () => {
+    if (assess.mode !== "exam") Object.assign(assess, { mode: "home", pick: "diagnostic", fromHome: true });
+    academyPage.tab = "assessments";
+    render();
+  }, "tool outline");
 }
 
 // ---------- Home ----------

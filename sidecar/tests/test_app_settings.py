@@ -199,9 +199,13 @@ def test_editor_settings_default_to_the_editors_as_they_were_and_check_what_is_s
     saved = app_settings.save({"editor_word_wrap": "sql", "editor_font_size": 16, "editor_keys": "vim",
                                "editor_key_overrides": {"format": "Alt-Shift-g", "split_cell": "Mod-Shift--"}})
     assert saved["editor_font_size"]["value"] == 16 and saved["editor_key_overrides"]["value"]["format"] == "Alt-Shift-g"
+    # A notebook's command mode takes a letter on its own, or two keys one after the other (D D).
+    chord = app_settings.save({"editor_key_overrides": {"nb_insert_below": "n", "nb_delete": "Shift-q q"}})
+    assert chord["editor_key_overrides"]["value"] == {"nb_insert_below": "n", "nb_delete": "Shift-q q"}
     for bad, says in [({"editor_word_wrap": "auto"}, "must be one of"), ({"editor_font_size": 9}, "10 to 24"),
                       ({"editor_font_size": True}, "10 to 24"), ({"editor_keys": "emacs"}, "must be one of"),
                       ({"editor_key_overrides": {"format": "<b>"}}, "isn't one"),
+                      ({"editor_key_overrides": {"nb_delete": "d d d"}}, "isn't one"),
                       ({"editor_key_overrides": {"Format!": "F3"}}, "command name"),
                       ({"editor_key_overrides": ["F3"]}, "map of command to key")]:
         with pytest.raises(ValueError, match=says):

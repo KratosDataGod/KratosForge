@@ -271,9 +271,10 @@ USER_KEYS += ("ui_skin", "ui_color_mode")
 CHOICES.update({"editor_word_wrap": ("off", "notebooks", "sql", "both"), "editor_keys": ("default", "vim")})
 EDITOR_FONT_SIZES = (10, 24)  # in px; 0 is each editor's own size
 EDITOR_KEY_OVERRIDES_MAX = 100
-_EDITOR_KEY = re.compile(r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*[A-Za-z0-9\[\]\\;',./`=\-]$|"
-                         r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*(?:F\d{1,2}|Enter|Space|Backspace|Delete|Home|End|PageUp|"
-                         r"PageDown|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Insert)$")
+# One key, or two one after the other with a space between, as a notebook's command mode has (D D).
+_EDITOR_STROKE = (r"(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*(?:[A-Za-z0-9\[\]\\;',./`=\-]|F\d{1,2}|Enter|Space|Backspace|Delete|"
+                  r"Home|End|PageUp|PageDown|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Insert)")
+_EDITOR_KEY = re.compile(rf"^{_EDITOR_STROKE}(?: {_EDITOR_STROKE})?$")
 _EDITOR_COMMAND = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 DEFAULTS.update({"editor_word_wrap": "off", "editor_font_size": 0, "editor_keys": "default", "editor_key_overrides": {}})
 TYPES.update({"editor_word_wrap": str, "editor_font_size": int, "editor_keys": str, "editor_key_overrides": dict})

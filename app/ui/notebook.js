@@ -34,7 +34,6 @@ class CellEditors extends Map {
 const editors = new CellEditors();  // cell id -> CodeMirror view
 const deletedCells = [];       // for Z (undo delete)
 let cellClipboard = null;
-let lastDKey = 0;
 
 const langComp = new CM.Compartment();
 const gutterComp = new CM.Compartment();
@@ -1089,26 +1088,29 @@ document.addEventListener("keydown", (e) => {
     if (next) { e.preventDefault(); next.focus(); }
     return;
   }
+  // The run keys stay as they are; the rest follow Settings > Editor > Change keys (editorprefs.js
+  // notebookCommandFor: "" is the first of two keys, such as the first D of D D).
+  const cmd = notebookCommandFor(e);
   let handled = true;
   if (key === "Enter" && e.shiftKey) runCell(cell).then(() => focusNext(cell, false));
   else if (key === "Enter" && (e.ctrlKey || e.metaKey)) runCell(cell);
   else if (key === "Enter" && e.altKey) runCell(cell).then(() => addCell("code"));
-  else if (key === "Enter" && plain) enterEditMode(cell);
-  else if ((key === "ArrowUp" || key === "k") && plain) selectRelative(-1);
-  else if ((key === "ArrowDown" || key === "j") && plain) selectRelative(1);
-  else if (key === "a" && plain) addCell("code", false, -1);
-  else if (key === "b" && plain) addCell("code");
-  else if (key === "d" && plain) {
-    if (Date.now() - lastDKey < 600) { deleteCell(cell); lastDKey = 0; } else lastDKey = Date.now();
-  } else if (key === "z" && plain) undoDelete();
-  else if (key === "m" && plain && cell.type === "code") setLanguage(cell, "markdown");
-  else if (key === "y" && plain && cell.type === "markdown") setLanguage(cell, "python");
-  else if (key === "c" && plain) copyCell(cell);
-  else if (key === "x" && plain) { copyCell(cell); deleteCell(cell); }
-  else if (key === "v" && plain) pasteCell(cell, 1);
-  else if (key === "V" && e.shiftKey) pasteCell(cell, -1);
-  else if (key === "L" && e.shiftKey) toggleLineNumbers();
-  else if (key === "o" && plain && cell.type === "code") setMeta(cell, "outputs_hidden", !cell.meta?.outputs_hidden);
+  else if (cmd === "nb_edit") enterEditMode(cell);
+  else if ((key === "ArrowUp" && plain) || cmd === "nb_select_above") selectRelative(-1);
+  else if ((key === "ArrowDown" && plain) || cmd === "nb_select_below") selectRelative(1);
+  else if (cmd === "nb_insert_above") addCell("code", false, -1);
+  else if (cmd === "nb_insert_below") addCell("code");
+  else if (cmd === "nb_delete") deleteCell(cell);
+  else if (cmd === "") { /* waiting for the second key */ }
+  else if (cmd === "nb_undo_delete") undoDelete();
+  else if (cmd === "nb_markdown" && cell.type === "code") setLanguage(cell, "markdown");
+  else if (cmd === "nb_code" && cell.type === "markdown") setLanguage(cell, "python");
+  else if (cmd === "nb_copy") copyCell(cell);
+  else if (cmd === "nb_cut") { copyCell(cell); deleteCell(cell); }
+  else if (cmd === "nb_paste_below") pasteCell(cell, 1);
+  else if (cmd === "nb_paste_above") pasteCell(cell, -1);
+  else if (cmd === "nb_line_numbers") toggleLineNumbers();
+  else if (cmd === "nb_output" && cell.type === "code") setMeta(cell, "outputs_hidden", !cell.meta?.outputs_hidden);
   else handled = false;
   if (handled) e.preventDefault();
 });
@@ -1122,17 +1124,18 @@ document.addEventListener("keydown", (e) => {
     { keys: ["Ctrl+Enter"], label: "Run the cell", when: inNotebook },
     { keys: ["Alt+Enter"], label: "Run the cell and add a code cell below", when: inNotebook },
     { keys: ["Esc"], label: "While editing: leave the cell for command mode, where the single-letter keys below work", when: inNotebook },
-    { keys: ["Enter"], label: "In command mode: edit the selected cell", when: inNotebook },
+    // Command-mode keys show as they are now: Settings > Editor > Change keys can change them (editorprefs.js).
+    { get keys() { return [notebookKeyLabel("nb_edit")]; }, label: "In command mode: edit the selected cell", when: inNotebook },
     { keys: ["Tab"], label: "In command mode: move on past the cell", when: inNotebook },
-    { keys: ["Up", "Down", "K", "J"], label: "In command mode: select the cell above or below", when: inNotebook },
-    { keys: ["A", "B"], label: "In command mode: add a code cell above or below", when: inNotebook },
-    { keys: ["DD"], label: "In command mode: delete the cell", when: inNotebook },
-    { keys: ["Z"], label: "In command mode: put the last deleted cell back", when: inNotebook },
-    { keys: ["M", "Y"], label: "In command mode: make the cell Markdown or code", when: inNotebook },
-    { keys: ["C", "X"], label: "In command mode: copy or cut the cell", when: inNotebook },
-    { keys: ["V", "Shift+V"], label: "In command mode: paste below or above", when: inNotebook },
-    { keys: ["O"], label: "In command mode: show or hide the cell's output", when: inNotebook },
-    { keys: ["Shift+L"], label: "In command mode: show or hide line numbers", when: inNotebook },
+    { get keys() { return ["Up", "Down", notebookKeyLabel("nb_select_above"), notebookKeyLabel("nb_select_below")]; }, label: "In command mode: select the cell above or below", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_insert_above"), notebookKeyLabel("nb_insert_below")]; }, label: "In command mode: add a code cell above or below", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_delete")]; }, label: "In command mode: delete the cell", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_undo_delete")]; }, label: "In command mode: put the last deleted cell back", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_markdown"), notebookKeyLabel("nb_code")]; }, label: "In command mode: make the cell Markdown or code", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_copy"), notebookKeyLabel("nb_cut")]; }, label: "In command mode: copy or cut the cell", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_paste_below"), notebookKeyLabel("nb_paste_above")]; }, label: "In command mode: paste below or above", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_output")]; }, label: "In command mode: show or hide the cell's output", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_line_numbers")]; }, label: "In command mode: show or hide line numbers", when: inNotebook },
     { keys: ["Ctrl+Space"], label: "While editing: suggest names, attributes and table names", when: inNotebook },
     { keys: ["Ctrl+/"], label: "While editing: comment or uncomment the selected lines", when: inNotebook },
     { keys: ["Ctrl+Shift+-"], label: "While editing: split the cell at the cursor", when: inNotebook },

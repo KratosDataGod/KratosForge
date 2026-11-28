@@ -118,3 +118,87 @@ test("Change keys moves Format to a new key, refuses a reserved key or another c
   await page().waitForFunction(() => !state.settings.editor_key_overrides.value.format);
   await dialog.getByRole("button", { name: "Done" }).click();
 });
+
+// Command mode (notebook.js, nbselect.js) reads its keys from the same list: B moves to N, the old key no
+// longer adds a cell, a key another command-mode command has (or that starts D D, or that the app keeps)
+// is refused before it saves, the Keyboard shortcuts dialog shows the key now, and Reset puts B back.
+async function commandMode() {
+  await openNotebook();
+  await page().waitForFunction(() => {
+    const cell = state.notebook.cells[0];
+    if (state.selected !== cell.id) selectCell(cell);
+    const on = !!document.activeElement?.closest?.(`[data-cell="${cell.id}"]`) && !document.activeElement.closest(".cm-editor");
+    if (!on) enterCommandMode(cell);
+    return on;
+  }, null, { polling: 50 });
+}
+const cellCount = () => page().evaluate(() => state.notebook.cells.length);
+const openKeys = async () => {
+  await page().evaluate(() => go("settings"));
+  await page().locator(".editor-settings").getByRole("button", { name: "Change keys..." }).click();
+  return page().getByRole("dialog", { name: "Change keys" });
+};
+
+test("Change keys moves a notebook command-mode key from B to N, refuses clashes, and resets", { skip }, async () => {
+  await commandMode();
+  await page().keyboard.press("b");
+  assert.strictEqual(await cellCount(), 3, "B adds a cell below by default");
+
+  const dialog = await openKeys();
+  await dialog.getByPlaceholder("Find a command").fill("insert a cell");
+  assert.strictEqual(await dialog.locator("tr[data-command]").count(), 2);
+  await dialog.getByText("Notebooks, command mode").first().waitFor();
+  const change = () => dialog.getByRole("button", { name: "Change the key for Notebook: insert a cell below (command mode)" }).click();
+  await change();
+  await page().keyboard.press("a");
+  await dialog.getByText('A is already the key for "Notebook: insert a cell above". Change that one first.').waitFor();
+  await page().keyboard.press("Enter");
+  await dialog.getByText("Enter edits the selected cell, so it can't be used here.").waitFor();
+  await page().keyboard.press("d");
+  await dialog.getByText('D and DD (the key for "Notebook: delete the cell or the selected cells") start the same way. Change that one first.').waitFor();
+  assert.strictEqual(await page().evaluate(() => state.settings.editor_key_overrides.value.nb_insert_below), undefined, "nothing saved");
+  await page().keyboard.press("n");
+  await page().waitForFunction(() => state.settings.editor_key_overrides.value.nb_insert_below === "n");
+  await dialog.getByText("Changed").waitFor();
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".dialog"), []);
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  await commandMode();
+  await page().keyboard.press("b");
+  assert.strictEqual(await cellCount(), 2, "B no longer adds a cell");
+  await page().keyboard.press("n");
+  await page().waitForFunction(() => state.notebook.cells.length === 3);
+  const listed = await page().evaluate(() => shortcutGroups().flatMap(([, list]) => list)
+    .find((s) => s.label === "In command mode: add a code cell above or below").keys);
+  assert.deepStrictEqual(listed, ["A", "N"], "the Keyboard shortcuts dialog shows the key now");
+
+  // Two keys one after the other: delete moves from D D to Q Q.
+  const keys = await openKeys();
+  await keys.getByPlaceholder("Find a command").fill("delete the cell");
+  await keys.getByRole("button", { name: "Change the key for Notebook: delete the cell or the selected cells (command mode)" }).click();
+  await page().keyboard.press("q");
+  await page().keyboard.press("q");
+  await page().waitForFunction(() => state.settings.editor_key_overrides.value.nb_delete === "q q");
+  await keys.getByRole("button", { name: "Done" }).click();
+  await commandMode();
+  await page().keyboard.press("d");
+  await page().keyboard.press("d");
+  assert.strictEqual(await cellCount(), 2, "D D no longer deletes");
+  await page().keyboard.press("q");
+  await page().keyboard.press("q");
+  await page().waitForFunction(() => state.notebook.cells.length === 1);
+
+  const again = await openKeys();
+  await again.getByRole("button", { name: "Reset Notebook: insert a cell below (command mode) to B" }).click();
+  await page().waitForFunction(() => !state.settings.editor_key_overrides.value?.nb_insert_below);
+  await again.getByRole("button", { name: "Reset all" }).click();
+  await page().waitForFunction(() => !Object.keys(state.settings.editor_key_overrides.value || {}).length);
+  await again.getByRole("button", { name: "Done" }).click();
+  await commandMode();
+  await page().keyboard.press("b");
+  await page().waitForFunction(() => state.notebook.cells.length === 3);
+  await commandMode();  // the new cell is being edited
+  await page().keyboard.press("d");
+  await page().keyboard.press("d");
+  await page().waitForFunction(() => state.notebook.cells.length === 1);
+});

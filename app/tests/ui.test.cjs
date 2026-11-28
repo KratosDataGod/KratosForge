@@ -5279,7 +5279,7 @@ test("a workload page says whether its actions reached the platform's audit", ()
 });
 
 test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
-  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"], ["nbsymbols.js", "Notebook: names in Python cells", "F12"]]) {
+  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+Down"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"], ["nbsymbols.js", "Notebook: names in Python cells", "F12"]]) {
     const src = fs.readFileSync(path.join(ui, file), "utf8");
     const at = src.indexOf(`registerShortcuts(${JSON.stringify(group)}`);
     assert.ok(at > 0, `${file} registers ${group}`);

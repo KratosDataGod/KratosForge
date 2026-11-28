@@ -4,7 +4,7 @@
 // on all of them. Ctrl+Shift+Enter while editing runs only the selected text, or the line the
 // cursor is on, in the cell's language.
 
-const nbSel = { anchor: null, ids: new Set(), lastD: 0 };
+const nbSel = { anchor: null, ids: new Set() };
 
 // The selected cells in notebook order; one cell when nothing else is selected.
 function selectedCells() {
@@ -275,12 +275,12 @@ function runSelectionText(cell) {
   registerShortcuts("Notebook: several cells", [
     { keys: ["Shift+Click"], label: "Select every cell from the current one to the one you click", when: inNotebook },
     { keys: ["Ctrl+Click"], label: "Add a cell to the selection or take it out", when: inNotebook },
-    { keys: ["Shift+Down", "Shift+Up", "Shift+J", "Shift+K"], label: "In command mode: grow the selection down or up", when: inNotebook },
+    { get keys() { return ["Shift+Down", "Shift+Up", notebookKeyLabel("nb_extend_below"), notebookKeyLabel("nb_extend_above")]; }, label: "In command mode: grow the selection down or up", when: inNotebook },
     { keys: ["Ctrl+A"], label: "In command mode: select every cell (cells in folded sections are left out)", when: inNotebook },
     { keys: ["Ctrl+Enter", "Shift+Enter"], label: "With several cells selected: run them in notebook order, stopping at the first failure", when: inNotebook },
-    { keys: ["C", "X"], label: "With several cells selected: copy or cut them", when: inNotebook },
-    { keys: ["Shift+M"], label: "Merge the selected cells into the first one (with one cell: merge the cell below)", when: inNotebook },
-    { keys: ["DD", "Delete"], label: "With several cells selected: delete them, except frozen ones (Z puts them back)", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_copy"), notebookKeyLabel("nb_cut")]; }, label: "With several cells selected: copy or cut them", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_merge")]; }, label: "Merge the selected cells into the first one (with one cell: merge the cell below)", when: inNotebook },
+    { get keys() { return [notebookKeyLabel("nb_delete"), "Delete"]; }, label: "With several cells selected: delete them, except frozen ones (Z puts them back)", when: inNotebook },
     { keys: ["Alt+Up", "Alt+Down"], label: "With several cells selected: move them up or down", when: inNotebook },
   ]);
   // Works on one cell, so it's listed with the other run keys rather than under several cells.
@@ -304,28 +304,30 @@ document.addEventListener("keydown", (e) => {
   if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;
   const key = e.key;
   const ctrl = e.ctrlKey || e.metaKey;
+  // Keys from Settings > Editor > Change keys (editorprefs.js); "" is the first of two keys (D of D D).
+  const cmd = notebookCommandFor(e);
+  const move = ((key === "ArrowUp" || key === "ArrowDown") && !e.shiftKey) || cmd === "nb_select_above" || cmd === "nb_select_below";
   let handled = true;
-  if (e.shiftKey && !ctrl && !e.altKey && (key === "ArrowUp" || key === "K")) extendSelection(-1);
-  else if (e.shiftKey && !ctrl && !e.altKey && (key === "ArrowDown" || key === "J")) extendSelection(1);
-  else if (e.shiftKey && !ctrl && key === "M") mergeSelected();
+  if ((e.shiftKey && !ctrl && !e.altKey && key === "ArrowUp") || cmd === "nb_extend_above") extendSelection(-1);
+  else if ((e.shiftKey && !ctrl && !e.altKey && key === "ArrowDown") || cmd === "nb_extend_below") extendSelection(1);
+  else if (cmd === "nb_merge") mergeSelected();
   else if (ctrl && !e.shiftKey && key.toLowerCase() === "a") selectAllCells();
   else if (!multiSelected()) {
     // Plain keys with one cell: notebook.js handles them; a plain move ends a range.
-    if ((key === "ArrowUp" || key === "ArrowDown" || key === "j" || key === "k") && !e.shiftKey) nbSel.ids.clear();
+    if (move) nbSel.ids.clear();
     handled = false;
   } else if (key === "Escape") clearSelection();
   else if (key === "Enter" && (ctrl || e.shiftKey)) runSelectedCells();
-  else if (key === "d" && !ctrl && !e.shiftKey) {
-    if (Date.now() - nbSel.lastD < 600) { nbSel.lastD = 0; deleteSelected(); } else nbSel.lastD = Date.now();
-  } else if (key === "Delete") deleteSelected();
-  else if (key === "c" && !e.shiftKey) copySelected();
-  else if (key === "x" && !e.shiftKey && !ctrl) copySelected(true);
+  else if (cmd === "nb_delete" || key === "Delete") deleteSelected();
+  else if (cmd === "") { /* waiting for the second key */ }
+  else if (cmd === "nb_copy" || (ctrl && !e.shiftKey && key.toLowerCase() === "c")) copySelected();
+  else if (cmd === "nb_cut") copySelected(true);
   else if (key === "ArrowUp" && e.altKey) moveSelected(-1);
   else if (key === "ArrowDown" && e.altKey) moveSelected(1);
-  else if ((key === "ArrowUp" || key === "ArrowDown" || key === "j" || key === "k") && !e.shiftKey) {
+  else if (move) {
     clearSelection();
     handled = false;  // and notebook.js moves the current cell
-  } else if (["a", "b", "m", "y", "o", "v", "z", "Enter"].includes(key)) {
+  } else if (key === "Enter" || ["nb_edit", "nb_insert_above", "nb_insert_below", "nb_markdown", "nb_code", "nb_output", "nb_paste_below", "nb_undo_delete"].includes(cmd)) {
     clearSelection();  // these act on the current cell only
     handled = false;
   } else handled = false;

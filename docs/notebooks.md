@@ -330,6 +330,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 - **Markdown cells** show CommonMark with GitHub tables, numbered and nested lists, code blocks, quotes, strikethrough and bare web addresses as links, and LaTeX math between `$...$` (inline) or `$$...$$` (its own line), drawn on this PC with nothing to download. A link opens in your browser (https and mailto only); `[text](#a-heading)` jumps to that heading. Images show when the notebook holds them: pictures pasted in Jupyter or VS Code (`attachment:`) or written as `data:image/...`. A picture from a web address or a file on this PC isn't loaded; its description shows instead. HTML typed into a Markdown cell shows as text.
 - Hide a cell's code or output from its toolbar or the **View** tab.
 - **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, **Tab** moves on to the next cell (a cell's buttons come just before its editor in Tab order, so Tab from the cell above reaches them), and **Enter** goes back to editing.
+  To change these keys, use **Settings > Editor > Change keys...**: the command-mode rows start with *Notebook:*, take a letter on its own or two keys one after the other (as **DD**), and refuse a key another command-mode row or the app (Up, Down, Esc, Tab, the run keys) already uses.
 
 The ribbon has four tabs:
 

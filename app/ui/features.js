@@ -352,7 +352,8 @@ else initAppearance();
 const shortcutRegistry = [];
 
 function registerShortcuts(group, list) {
-  for (const s of list) shortcutRegistry.push({ ...s, group });
+  // Copied with its getters, so keys people can change (a notebook's command mode, editorprefs.js) read as they are now.
+  for (const s of list) shortcutRegistry.push(Object.defineProperties({ group }, Object.getOwnPropertyDescriptors(s)));
 }
 
 // The keys that work everywhere in the window (app.js handles each through isShortcut).

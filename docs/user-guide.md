@@ -789,6 +789,8 @@ open editor and are kept:
   comment, change case, go to a line, bookmarks and more. **Change** waits for the new key (Esc cancels), and
   **Reset** puts one back. A key needs Ctrl or Alt unless it's an F key. Keys the app already uses, such as Ctrl+K
   (the command bar), Ctrl+C or Ctrl+Z, can't be taken, and neither can another command's key in the same editor.
+  The rows that start with *Notebook:* are a notebook's command-mode keys (A, B, DD, M, Y and the rest): they can be a
+  letter on its own, or two keys pressed one after the other, and the Keyboard shortcuts list shows the key you chose.
 
 IT can set any of these for everyone with `editor_word_wrap`, `editor_font_size`, `editor_keys` and
 `editor_key_overrides` ([Push settings to everyone](azure-setup.md)); Settings then shows them locked.

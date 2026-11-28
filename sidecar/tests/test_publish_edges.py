@@ -169,3 +169,85 @@ def test_a_job_cannot_run_without_a_guard(tmp_path, monkeypatch):
     monkeypatch.setattr(P, "run_local", lambda j: pytest.fail("the job ran"))
     with pytest.raises(TypeError, match="guard"):
         P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work")  # type: ignore[call-arg]
+
+
+COMMIT_DROPPED = ("Generic MicrosoftAzure error: Error performing PUT https://onelake.blob.fabric.microsoft.com/ws/lh/"
+                  "Tables/dbo/orders/_delta_log/00000000000000000003.json in 30.1s - HTTP error: error sending request")
+
+
+def test_a_job_whose_commit_connection_dropped_isnt_written_again_and_says_to_check_history(tmp_path, monkeypatch):
+    """Wi-Fi or the VPN went while the Delta log entry was being written: the commit may be in the table.
+    A job (as a notebook cell does) says so in plain words, names the table and is never written again,
+    by itself or by the agent, so an append can't be in the table twice."""
+    from fabric_desktop.retrying import is_retryable
+    lake = tmp_path / "lake" / "orders"
+    monkeypatch.setattr(P, "resolve_target", lambda j, fabric: Ref(lake))
+    real, tries = P.write_deltalake, []
+
+    def drops_commit(target, *a, **k):
+        if str(lake) not in str(getattr(target, "table_uri", target)):
+            return real(target, *a, **k)  # the schema check staged on this PC
+        tries.append(1)
+        raise OSError(COMMIT_DROPPED)
+    monkeypatch.setattr(P, "write_deltalake", drops_commit)
+    with pytest.raises(P.CommitOutcomeUnknown) as err:
+        P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+    text = str(err.value)
+    assert text.startswith("Writing dbo.orders: the connection to OneLake dropped while the commit")
+    assert "may or may not have gone in" in text and "history" in text and "Error performing" not in text
+    assert len(tries) == 1 and not is_retryable(err.value)
+
+
+DATA_DROPPED = ("Failed to parse parquet: External: Generic MicrosoftAzure error: Error performing PUT "
+                "https://onelake.blob.fabric.microsoft.com/ws/lh/Tables/dbo/orders/part-00000-x.zstd.parquet "
+                "in 180.77s, after 5 retries - HTTP error: error sending request")
+
+
+@pytest.mark.parametrize("drops", [1, 99])
+def test_a_job_whose_data_upload_dropped_is_written_again_then_says_so_plainly(tmp_path, monkeypatch, drops):
+    """Nothing is committed until every data file is in, so a job's write is sent again, whole, as a
+    notebook's is. When the line stays down, the error says the table is as it was, in plain words."""
+    from fabric_desktop.retrying import is_retryable
+    lake = tmp_path / "lake" / "orders"
+    monkeypatch.setattr(P, "resolve_target", lambda j, fabric: Ref(lake))
+    monkeypatch.setattr(P, "JOB_UPLOAD_RETRY_WAIT", 0.0, raising=False)  # no wait in the test
+    real, tries = P.publish, []
+
+    def dropping(*a, **k):
+        tries.append(1)
+        if len(tries) <= drops:
+            raise OSError(DATA_DROPPED)
+        return real(*a, **k)
+    monkeypatch.setattr(P, "publish", dropping)
+    if drops == 1:
+        record = P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+        assert len(tries) == 2 and record.delta_version == 0
+        assert DeltaTable(str(lake)).to_pyarrow_table().to_pylist() == [{"id": 1, "name": "a"}]
+        return
+    with pytest.raises(P.DataUploadDropped) as err:
+        P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+    assert str(err.value) == ("Writing dbo.orders: the connection to OneLake kept dropping while its data was uploading "
+                              "(Wi-Fi, a VPN or a proxy), even after trying again. Nothing was committed, so the table "
+                              "is as it was. Write it again once you're connected.")
+    assert len(tries) == P.JOB_UPLOAD_ATTEMPTS and is_retryable(err.value) and not lake.exists()
+
+
+def test_a_refused_token_first_doesnt_use_up_a_jobs_tries_for_a_dropped_upload(tmp_path, monkeypatch):
+    """A refused token is sent again once, with a fresh one, and that try isn't counted against the
+    dropped-upload tries: the job still gets every one of them, with the same waits."""
+    lake = tmp_path / "lake" / "orders"
+    monkeypatch.setattr(P, "resolve_target", lambda j, fabric: Ref(lake))
+    waits: list[float] = []
+    monkeypatch.setattr(P.time, "sleep", waits.append)
+    tries = []
+
+    def refused_then_dropping(*a, **k):
+        tries.append(1)
+        if len(tries) == 1:
+            raise P.WriteTokenExpired("Writing dbo.orders: refused. Nothing was committed.")
+        raise OSError(DATA_DROPPED)
+    monkeypatch.setattr(P, "publish", refused_then_dropping)
+    with pytest.raises(P.DataUploadDropped):
+        P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+    assert len(tries) == 1 + P.JOB_UPLOAD_ATTEMPTS
+    assert waits == [P.JOB_UPLOAD_RETRY_WAIT * n for n in range(1, P.JOB_UPLOAD_ATTEMPTS)]

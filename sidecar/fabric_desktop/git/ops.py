@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..awake_timer import AwakeTimer
+from ..filenames import WINDOWS_DEVICES
 from ..timeutil import now_iso as _now
 from ..winexe import system32
 from . import cli
@@ -72,6 +73,14 @@ class Operations:
         name = (name or repo_name(url)).strip()
         if not re.fullmatch(r"^[A-Za-z0-9._ -]{1,100}$", name) or name in (".", ".."):
             raise GitError("A folder name is letters, numbers, spaces, . _ and -.", kind="invalid")
+        # Windows drops a trailing dot from a folder's name, so the clone would land beside the folder the app
+        # keeps, and CON or nul.git is a device, not a folder (filenames.WINDOWS_DEVICES).
+        if name.endswith("."):
+            raise GitError(f"{name} can't be a folder name on Windows, because it ends with a dot. Pick another name.",
+                           kind="invalid")
+        if name.split(".")[0].strip().upper() in WINDOWS_DEVICES:
+            raise GitError(f"{name} is a name Windows keeps for devices, so it can't be a folder name. "
+                           "Pick another name.", kind="invalid")
         dest = folder / name
         if dest.exists() and any(dest.iterdir()):
             raise GitError(f"{dest} already exists and isn't empty. Choose another folder or name.", kind="exists")

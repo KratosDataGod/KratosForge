@@ -42,7 +42,7 @@ CELL_SECONDS = 2 * 60 * 60       # as the SQL warehouse engine's statement limit
 STOP_SECONDS = 10                # after a cancel, before the process is ended
 # What pip may see of this PC: enough to find a temp folder and a proxy, nothing that changes what it
 # installs (PIP_*, PYTHON*, a config file) or that it could pass on.
-PIP_ENV = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")
+PIP_ENV = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "PYTHONIOENCODING")
 _LINE = re.compile(r"\d{1,2}\.\d{1,2}")
 DRIVE = re.compile(r"[A-Za-z]:[\\/]")
 
@@ -120,8 +120,10 @@ class LockedRuntimes:
         folder = self.folder(line)
         folder.mkdir(parents=True, exist_ok=True)
         env = {k: v for k, v in (os.environ if base is None else base).items() if k.upper() in PIP_ENV}
+        env["PYTHONIOENCODING"] = "utf-8"  # not the ANSI code page, which can't spell every folder (C:\Users\日本)
         try:
-            done = self._run(command, capture_output=True, text=True, timeout=INSTALL_SECONDS, env=env, cwd=str(folder),
+            done = self._run(command, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                             timeout=INSTALL_SECONDS, env=env, cwd=str(folder),
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
         except subprocess.TimeoutExpired:
             return {"ok": False, "log": f"pip didn't finish within {INSTALL_SECONDS // 60} minutes, so it was stopped."}

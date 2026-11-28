@@ -107,7 +107,8 @@ def search(shelf: NotebookShelf, query: str, names_only: bool = False, saved_in:
 
 def free_name(shelf: NotebookShelf, wanted: str) -> str:
     """``wanted`` (made safe), or the first "<wanted> 2", "<wanted> 3"... that isn't taken."""
-    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", wanted or "").strip().rstrip(".").strip()[:80] or "Notebook"
+    # Cut first, then trimmed: a dot or space at the end (also one the cut leaves) is a name Windows can't keep.
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", wanted or "").strip()[:80].rstrip(". ") or "Notebook"
     name, i = base, 2
     while shelf._taken(name):  # noqa: SLF001 - the shelf's own rule for names
         name, i = f"{base} {i}", i + 1

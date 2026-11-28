@@ -128,6 +128,35 @@ pub fn prune_engines(root: &Path, keep: &[&str]) {
     }
 }
 
+/// Moves a checked engine from `staging` to `dest`, the folder named for its build, in one rename.
+/// Whatever was at `dest` goes first. Defender, other antivirus and the search indexer open the
+/// files tar has just unpacked, and Windows refuses to rename a folder while a file in it is open
+/// ("Access is denied"): that is waited out as update_guard::rename_retrying does (about 15 s).
+/// Still held after that, the message says so and what to do; the unpacked engine is kept.
+pub fn put_in_place(staging: &Path, dest: &Path) -> Result<(), String> {
+    put_in_place_with(staging, dest, |from, to| std::fs::rename(from, to), std::time::Duration::from_millis(250))
+}
+
+/// put_in_place with the rename and the pause between tries given, so tests can make the rename fail.
+fn put_in_place_with(
+    staging: &Path,
+    dest: &Path,
+    rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+    pause: std::time::Duration,
+) -> Result<(), String> {
+    let _ = std::fs::remove_dir_all(dest);
+    crate::update_guard::rename_retrying_with(staging, dest, rename, pause).map_err(|e| {
+        if crate::update_guard::is_lock(&e) {
+            "The new engine couldn't be put in place because another program, such as a virus scanner or the \
+             search indexer, still has one of its files open. Wait a minute and try again. If it keeps happening, \
+             ask IT to let your antivirus allow KratosForge's engine folder."
+                .to_string()
+        } else {
+            format!("Could not put the engine in place: {e}")
+        }
+    })
+}
+
 /// What an engine install leaves in `root` when the app is closed, the PC sleeps or the power goes
 /// part way through: the downloaded zips (the whole engine is about 330 MB), the release's
 /// version.json and the half-unpacked `.new` folder. None of it is ever run (an engine runs only
@@ -168,10 +197,36 @@ pub fn check_patched(dir: &Path, commit: &str, runtime: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// `file` as `cmd` should name it: by its path inside `folder`, with `cmd` run in `folder`, for Windows'
+/// own tar.exe and curl.exe. They read their command line in the ANSI code page, so the engine folder
+/// under a profile named outside it (C:\Users\日本 on a PC set to English) reached tar as C:\Users\??,
+/// and the engine never unpacked. The names inside the engine folder (download.zip, .new) are ASCII,
+/// and Windows takes the folder itself as UTF-16. A file outside `folder` keeps its whole path.
+pub fn named_in<'a>(cmd: &mut std::process::Command, folder: &Path, file: &'a Path) -> &'a std::ffi::OsStr {
+    cmd.current_dir(folder);
+    file.strip_prefix(folder).map(Path::as_os_str).unwrap_or(file.as_os_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn tar_and_curl_name_the_engine_files_in_ascii_under_a_profile_named_outside_the_ansi_code_page() {
+        let root = Path::new(r"C:\Users\Jöhn O'Brien 日本\AppData\Local\FabricDesktop\engine");
+        let (zip, staging) = (root.join("download.zip"), root.join(".new"));
+        let mut tar = std::process::Command::new("tar.exe");
+        let (zip_name, into) = (named_in(&mut tar, root, &zip), named_in(&mut tar, root, &staging));
+        tar.arg("-xf").arg(zip_name).arg("-C").arg(into);
+        assert_eq!(tar.get_current_dir(), Some(root));
+        let args: Vec<_> = tar.get_args().map(|a| a.to_str().unwrap().to_string()).collect();
+        assert_eq!(args, ["-xf", "download.zip", "-C", ".new"]);
+        assert!(args.iter().all(|a| a.is_ascii()), "{args:?}");
+
+        let elsewhere = Path::new(r"D:\Spiegel Ünited\engine.zip");
+        assert_eq!(named_in(&mut tar, root, elsewhere), elsewhere.as_os_str(), "a file outside keeps its path");
+    }
 
     const RUNTIME: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const COMMIT: &str = "1111111111111111111111111111111111111111";
@@ -195,6 +250,66 @@ mod tests {
         assert!(engine.join("python.exe").is_file(), "the installed engine was touched");
         assert!(root.join("engine-verified.json").is_file(), "a file that isn't an unfinished install went");
         discard_unfinished(&root); // nothing left to remove is fine
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Windows refusing a folder rename while a virus scanner or the indexer has a file in it open.
+    fn held() -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Access is denied. (os error 5)")
+    }
+
+    fn unpacked(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let root = temp(name);
+        let staging = root.join(".new");
+        write(&staging.join("python.exe"), "MZ");
+        (root.clone(), staging, root.join(COMMIT))
+    }
+
+    #[test]
+    fn an_engine_a_scanner_holds_for_a_moment_is_put_in_place_once_it_lets_go() {
+        let (root, staging, dest) = unpacked("held-moment");
+        let mut tries = 0;
+        let rename = |from: &Path, to: &Path| {
+            tries += 1;
+            if tries <= 3 { Err(held()) } else { std::fs::rename(from, to) }
+        };
+        assert_eq!(put_in_place_with(&staging, &dest, rename, std::time::Duration::ZERO), Ok(()));
+        assert_eq!(tries, 4);
+        assert!(dest.join("python.exe").is_file() && !staging.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_engine_still_held_says_what_holds_it_and_what_to_do() {
+        let (root, staging, dest) = unpacked("held-long");
+        let mut tries = 0;
+        let rename = |_: &Path, _: &Path| {
+            tries += 1;
+            Err(held())
+        };
+        let err = put_in_place_with(&staging, &dest, rename, std::time::Duration::ZERO).unwrap_err();
+        assert_eq!(
+            err,
+            "The new engine couldn't be put in place because another program, such as a virus scanner or the \
+             search indexer, still has one of its files open. Wait a minute and try again. If it keeps happening, \
+             ask IT to let your antivirus allow KratosForge's engine folder."
+        );
+        assert_eq!(tries, 61, "about 15 seconds of tries, then the error");
+        assert!(staging.join("python.exe").is_file(), "a move that failed deletes nothing");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn any_other_failure_to_put_the_engine_in_place_is_said_at_once() {
+        let (root, staging, dest) = unpacked("missing");
+        let mut tries = 0;
+        let rename = |_: &Path, _: &Path| {
+            tries += 1;
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "The system cannot find the path specified."))
+        };
+        let err = put_in_place_with(&staging, &dest, rename, std::time::Duration::ZERO).unwrap_err();
+        assert_eq!(err, "Could not put the engine in place: The system cannot find the path specified.");
+        assert_eq!(tries, 1);
         let _ = std::fs::remove_dir_all(&root);
     }
 

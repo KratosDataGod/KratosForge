@@ -141,7 +141,7 @@ def test_installs_are_hash_pinned_wheels_from_the_lock_file_in_their_own_folder(
     assert cmd[cmd.index("-r") + 1] == str(dbc.LOCKS / "16.4.txt") and "--index-url" not in cmd
     folder = str(tmp_path / "runtimes" / "dbconnect-16.4" / "site-packages")
     assert cmd[cmd.index("--target") + 1] == folder and kw["cwd"] == folder
-    assert kw["env"] == {"PATH": "/bin", "TEMP": "/tmp", "HTTPS_PROXY": "http://proxy:8080"}
+    assert kw["env"] == {"PATH": "/bin", "TEMP": "/tmp", "HTTPS_PROXY": "http://proxy:8080", "PYTHONIOENCODING": "utf-8"}
     assert kw["timeout"] and out["ok"] and out["version"] is None
     with pytest.raises(ValueError):
         r.folder("../16.4")

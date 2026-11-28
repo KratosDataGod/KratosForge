@@ -173,3 +173,100 @@ def test_a_delta_commit_whose_reply_was_lost_is_never_committed_again(error, aga
     """A dropped data file is sent again (nothing is in the table until the log is written); a dropped
     write of the log itself may have committed, so the table write fails and says so instead."""
     assert data_upload_dropped(RuntimeError(error)) is again
+
+
+def test_a_metadata_run_whose_commit_connection_dropped_says_to_check_history(tmp_path):
+    """A metadata run's write whose Delta log entry was cut off: the run fails in plain words naming the
+    table, keeps object_store's text as a step for support, and isn't marked for the agent to retry."""
+    from test_large_tables import DAY1, Setup, rows
+
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1), mode="overwrite")
+    dropped = OSError("Generic MicrosoftAzure error: Error performing PUT https://onelake.blob.fabric.microsoft.com/"
+                      "ws/lh/Tables/bronze/events/_delta_log/00000000000000000001.json in 30s - error sending request")
+
+    def fail(*a, **k):
+        raise dropped
+    for n in ("write", "write_stream", "merge_insert", "upsert"):
+        setattr(s.store, n, fail)
+    res = s.engine(DAY1).run("bronze.events")
+    assert res.status == "failed" and res.retryable is False
+    assert res.message.startswith("The connection to OneLake dropped while the commit to bronze.events was being")
+    assert "may or may not have gone in" in res.message and "history" in res.message
+    assert any(st.name == "error" and "Error performing PUT" in st.detail for st in res.steps)
+
+
+class DroppingADLS(FakeADLS):
+    """FakeADLS whose appends drop the connection ``drops`` times (Wi-Fi gone, a VPN reconnecting)."""
+
+    def __init__(self, drops: int):
+        super().__init__()
+        self.drops, self.appends = drops, 0
+
+    def request(self, method, url, params=None, data=None, headers=None, timeout=None):
+        if (params or {}).get("action") == "append":
+            self.appends += 1
+            if self.drops:
+                self.drops -= 1
+                raise requests.ConnectionError("('Connection aborted.', ConnectionResetError(10054, 'An existing "
+                                               "connection was forcibly closed by the remote host'))")
+        return super().request(method, url, params=params, data=data, headers=headers, timeout=timeout)
+
+
+def test_a_file_upload_whose_connection_drops_for_a_moment_is_finished():
+    """The new file beside the target is written again at the same position: nothing twice, and the upload
+    goes through once the line is back, with growing waits."""
+    fake, slept = DroppingADLS(drops=2), []
+    fs = onelake.FileStore(lambda: "tok", session=fake, sleep=slept.append)
+    fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
+    assert list(fake.files.values()) == [b'{"v": 2}'] and all(k.endswith("Files/config.json") for k in fake.files)
+    assert fake.appends == 3 and slept == [2.0, 4.0]
+
+
+def test_a_file_upload_whose_connection_stays_down_keeps_the_old_file_and_says_so_plainly():
+    fake = DroppingADLS(drops=0)
+    fs = onelake.FileStore(lambda: "tok", session=fake, sleep=lambda s: None)
+    fs.upload(WS, LH, "Files/config.json", b'{"v": 1}')
+    fake.drops = 99
+    with pytest.raises(onelake.UploadDropped) as err:
+        fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
+    assert str(err.value) == (
+        "Uploading Files/config.json to OneLake stopped because the connection dropped (Wi-Fi, a VPN or a proxy), "
+        "even after trying again. Files/config.json wasn't changed. It still has its old content, or isn't there "
+        "if it's new. Upload it again once you're connected.")
+    assert isinstance(err.value, requests.ConnectionError)  # callers that catch requests' errors still do
+    assert fake.appends == 1 + onelake.UPLOAD_STEP_ATTEMPTS
+    assert list(fake.files.values()) == [b'{"v": 1}']  # the old file, and no upload left beside it
+
+
+def test_a_file_upload_whose_rename_reply_was_lost_says_the_file_may_be_either():
+    fake = FakeADLS()
+    fs = onelake.FileStore(lambda: "tok", session=fake, sleep=lambda s: None)
+    fake.lose_rename = True
+    with pytest.raises(onelake.UploadDropped, match="may have its old content or its new one. Upload it again"):
+        fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
+
+
+class LostCreateADLS(FakeADLS):
+    """FakeADLS that makes the upload's new file and then loses every create's reply."""
+
+    def request(self, method, url, params=None, data=None, headers=None, timeout=None):
+        answered = super().request(method, url, params=params, data=data, headers=headers, timeout=timeout)
+        if method == "PUT" and (params or {}).get("resource") == "file":
+            raise requests.ConnectionError("('Connection aborted.', RemoteDisconnected('Remote end closed "
+                                           "connection without response'))")
+        return answered
+
+
+def test_a_file_upload_whose_create_replies_are_all_lost_removes_the_file_it_made():
+    """OneLake made the new file but no create's reply came back: the new file is removed by its own
+    name, so only the old file is left in the lakehouse."""
+    fake = FakeADLS()
+    fs = onelake.FileStore(lambda: "tok", session=fake, sleep=lambda s: None)
+    fs.upload(WS, LH, "Files/config.json", b'{"v": 1}')
+    lost = LostCreateADLS()
+    lost.files = dict(fake.files)
+    fs = onelake.FileStore(lambda: "tok", session=lost, sleep=lambda s: None)
+    with pytest.raises(onelake.UploadDropped, match="wasn't changed"):
+        fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
+    assert list(lost.files.values()) == [b'{"v": 1}']  # the old file, and no upload left beside it

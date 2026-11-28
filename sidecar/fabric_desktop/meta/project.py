@@ -69,8 +69,8 @@ ENVIRONMENTS = ("dev", "test", "prod")
 EXCEPTION_WARN_DAYS = 14
 _LAYER_NAME = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
 # An entity's name is its file's name and, part by part, its table's folders: none may be empty or
-# hold a path separator or a drive colon.
-_PATH_CHARS = re.compile(r"[/\\:]")
+# hold a path separator, a drive colon, or another character Windows refuses in a file name.
+_PATH_CHARS = re.compile(r'[/\\:*?"<>|\x00-\x1f]')
 _IGNORED = {".git", ".local", "__pycache__", ".pytest_cache"}
 # Where each environment writes and runs is deployment settings, not logic: changing it
 # mustn't make an environment look out of date and ask for another promote.
@@ -712,7 +712,8 @@ def entity_name_problem(name: str) -> str | None:
     if len(parts) not in (2, 3):
         return "name must be <layer>.<table> or <layer>.<schema>.<table>"
     if not all(parts) or _PATH_CHARS.search(name):
-        return "each part of the name needs at least one character, and none can hold / \\ or :"
+        return ("each part of the name needs at least one character, and none can hold / \\ : * ? \" < > | "
+                "or a control character")
     return None
 
 _DELTA_LINE = re.compile(r"^(" + "|".join(delta_profile.TABLE_KEYS) + r")\s*=")

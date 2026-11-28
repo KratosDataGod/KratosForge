@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import builtins
 import importlib.metadata
+import os
 import re
 import shutil
 import subprocess
@@ -328,8 +329,11 @@ class Environments:
         for i, cmd in enumerate(commands):
             source = ("your organization's package folder" if "--no-index" in cmd
                       else "PyPI, after your organization's package folder" if folder else "PyPI")
-            done = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=INSTALL_SECONDS,
-                                  creationflags=flags, check=False)
+            # pip writes in UTF-8, and is read so: in the ANSI code page Windows gives a pipe, a folder named
+            # outside it (C:\Users\Jöhn 日本) filled the log with pip's "Logging error" tracebacks instead.
+            done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                  timeout=INSTALL_SECONDS, creationflags=flags, check=False,
+                                  env={**os.environ, "PYTHONIOENCODING": "utf-8"})
             log.append(f"From {source}:\n" + done.stdout + done.stderr)
             if done.returncode == 0:
                 if line := app_control.blocked_line(app_control.blocked_packages(target)):

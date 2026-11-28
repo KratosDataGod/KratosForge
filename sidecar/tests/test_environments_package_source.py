@@ -295,3 +295,17 @@ def test_a_real_pip_keeps_the_folders_version_when_a_newer_one_is_offered(tmp_pa
     asked = subprocess.run(base + ["--target", str(tmp_path / "t2"), "kf-demo==2.0"], capture_output=True, text=True,
                            check=False)
     assert asked.returncode != 0  # a version the folder doesn't have can't come from PyPI either
+
+
+def test_a_package_folder_named_outside_the_ansi_code_page_is_in_the_log_not_a_logging_error(tmp_path, monkeypatch):
+    """Real pip. Windows gives its pipe the ANSI code page unless PYTHONIOENCODING says otherwise (cp1252
+    stands in for it here): "Looking in links: ...Pakete 日本" then couldn't be written, and the log held
+    pip's "--- Logging error ---" tracebacks instead of the line."""
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    folder = tmp_path / "Pakete Ünited 日本"
+    wheel(folder, "approved-pkg")
+    env = Environments(tmp_path / "Jöhn 日本", python=sys.executable)
+    env.create("A")
+    job = wait(env, env.start("A", ["approved-pkg==1.0"], folder=str(folder), pypi=False), timeout=120)
+    assert job["state"] == "done", job["log"]
+    assert f"Looking in links: {folder}" in job["log"] and "Logging error" not in job["log"], job["log"]

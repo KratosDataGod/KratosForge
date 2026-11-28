@@ -276,3 +276,98 @@ def test_a_flow_still_finds_its_target_after_the_head():
     found = ps.Sources()
     ps._sql("\nCREATE FLOW f COMMENT 'c' AS\n  INSERT ONCE INTO t BY NAME SELECT 1;", "f.sql", found)
     assert [(f.name, f.target, f.line) for f in found.flows] == [("f", "t", 2)]
+
+
+# ---------------------------------------------------------------- edges each check depends on
+
+def test_a_file_over_the_size_cap_isnt_read_and_one_at_the_cap_is(tmp_path):
+    big, exact = tmp_path / "big.sql", tmp_path / "exact.sql"
+    big.write_text("CREATE STREAMING TABLE big;", encoding="utf-8")
+    exact.write_text("CREATE STREAMING TABLE ok;", encoding="utf-8")
+    found = ps.read([(big, "big.sql"), (exact, "exact.sql")], max_bytes=exact.stat().st_size)
+    assert [d.name for d in found.datasets] == ["ok"]
+    (p,) = found.problems
+    assert p.file == "big.sql" and p.severity == WARNING and "is over" in p.message
+
+
+def test_a_plain_read_of_a_view_is_fine(tmp_path):
+    write(tmp_path, {"databricks.yml": bundle(), "transformations/a.sql": (
+        "CREATE VIEW recent AS SELECT * FROM raw;\n"
+        "CREATE OR REFRESH MATERIALIZED VIEW m AS SELECT * FROM recent;\n")})
+    assert validate(tmp_path) == []
+
+
+def test_a_streaming_table_defined_twice_is_one_error_not_also_a_reused_flow(tmp_path):
+    write(tmp_path, {"databricks.yml": bundle(), "transformations/a.sql": BRONZE,
+                     "transformations/b.sql": BRONZE})
+    (f,) = validate(tmp_path)
+    assert f.severity == ERROR and "is defined again here" in f.message
+
+
+def test_sql_dataset_kinds():
+    found = ps.Sources()
+    ps._sql("CREATE TEMPORARY VIEW t AS SELECT 1;\nCREATE VIEW v AS SELECT 1;\n"
+            "CREATE OR REFRESH PRIVATE STREAMING TABLE s;\nCREATE TABLE f FLOW INSERT BY NAME SELECT 1;",
+            "k.sql", found)
+    assert [(d.name, d.kind) for d in found.datasets] == [
+        ("t", "temporary view"), ("v", "view"), ("s", "streaming table"), ("f", "table")]
+
+
+def test_an_escaped_quote_keeps_the_string_open():
+    found = ps.Sources()
+    ps._sql("CREATE MATERIALIZED VIEW m AS SELECT 'it\\'s FROM hidden' AS s FROM shown;", "e.sql", found)
+    assert [r.name for r in found.reads] == ["shown"]
+
+
+def test_exactly_25_tags_is_fine(tmp_path):
+    tags = "      tags: {" + ", ".join(f"t{i}: v" for i in range(25)) + "}\n"
+    write(tmp_path, {"databricks.yml": bundle(tags, libraries="")})
+    assert not [f for f in validate(tmp_path) if f.path.endswith(".tags")]
+
+
+ORPHAN_FLOW = "CREATE FLOW f AS INSERT INTO elsewhere BY NAME SELECT 1;"
+
+
+@pytest.mark.parametrize("other", ["nb.ipynb", "job.scala", "job.r"])
+def test_a_source_this_pc_doesnt_read_holds_back_the_unknown_target_check(tmp_path, other):
+    write(tmp_path, {"databricks.yml": bundle(), "transformations/f.sql": ORPHAN_FLOW,
+                     f"transformations/{other}": "x"})
+    assert validate(tmp_path) == []
+    (tmp_path / "transformations" / other).unlink()
+    assert ["which no file of this pipeline defines" in m for m in messages(validate(tmp_path))] == [True]
+
+
+def test_a_linked_folder_holds_back_the_unknown_target_check(tmp_path):
+    write(tmp_path, {"databricks.yml": bundle(), "transformations/f.sql": ORPHAN_FLOW, "elsewhere/g.sql": ""})
+    try:
+        (tmp_path / "transformations" / "linked").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    except OSError:
+        pytest.skip("links can't be made here")
+    (f,) = validate(tmp_path)
+    assert f.severity == WARNING and "link(s), which isn't followed" in f.message
+
+
+def test_too_many_files_holds_back_the_unknown_target_check(tmp_path, monkeypatch):
+    from fabric_desktop.engines import databricks_bundle_check as bc
+
+    monkeypatch.setattr(bc, "MAX_INCLUDE_FILES", 2)
+    write(tmp_path, {"databricks.yml": bundle(),
+                     **{f"transformations/f{i}.sql": ORPHAN_FLOW.replace(" f ", f" f{i} ") for i in range(3)}})
+    (f,) = validate(tmp_path)
+    assert f.severity == WARNING and "holds more than 2 files" in f.message
+
+
+def test_serverless_given_as_text_is_only_a_type_error(tmp_path):
+    # Only serverless: true conflicts with clusters; a string is reported as the wrong type, once.
+    write(tmp_path, {"databricks.yml": bundle("      serverless: 'yes'\n      clusters: [{label: default}]\n",
+                                              libraries="")})
+    paths = [f.path for f in validate(tmp_path) if not f.path.endswith((".schema", ".libraries"))]
+    assert paths == ["resources.pipelines.p.serverless"]
+
+
+def test_a_glob_with_a_dotdot_part_is_refused_even_if_it_comes_back_inside(tmp_path):
+    # The include is refused before anything is globbed, whatever the .. would resolve to.
+    write(tmp_path, {"databricks.yml": bundle(libraries="        - glob: {include: ./src/../src/**}\n"),
+                     "src/a.sql": "CREATE STREAMING TABLE a;"})
+    (f,) = validate(tmp_path)
+    assert f.severity == ERROR and "leads outside the bundle folder" in f.message

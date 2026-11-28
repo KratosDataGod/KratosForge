@@ -1,0 +1,124 @@
+{
+  "_about": "A model of the Claims deployment pipeline. stages lists the stages in order. assignments maps each stage to a workspace. rules lists deployment rules as {stage, item, rule, value}, where rule is data source, parameter or default lakehouse. rule_support says, for each item type, which rule types it takes (true or false). expectations records what you expect to happen.",
+  "needs": [
+    "Four stages: Development, Test, UAT and Production.",
+    "In each later stage, Score claims uses that stage's own lakehouse: ClaimsLH_Test, ClaimsLH_UAT and ClaimsLH_Prod.",
+    "In each later stage, Claims mirror mirrors that stage's own Azure SQL Database: sql-claims-test, sql-claims-uat and sql-claims-prod."
+  ],
+  "items": {
+    "Score claims": "Notebook owned by Priya. Its default lakehouse in Development is ClaimsLH_Dev.",
+    "Claims mirror": "Mirrored database owned by Priya. In Development it mirrors the Azure SQL Database sql-claims-dev.",
+    "ClaimsLH_Dev": "Lakehouse in Development. Every later stage has its own lakehouse."
+  },
+  "workspaces": {
+    "Claims-Dev": "On an F64 capacity. Nora is its admin.",
+    "Claims-Test": "On an F64 capacity. Nora is its admin.",
+    "Claims-UAT-Old": "On an F64 capacity. Already assigned to the Policy deployment pipeline.",
+    "Claims-UAT": "On an F64 capacity. Nora is its admin. Not in any pipeline.",
+    "Claims-Prod-Pro": "On a Pro license, not a Fabric capacity. Nora is its admin.",
+    "Claims-Prod": "On an F64 capacity. Nora is its admin. Omar is a contributor."
+  },
+  "people": {
+    "Nora": "Pipeline admin. Admin of every Claims workspace except Claims-UAT-Old.",
+    "Omar": "Pipeline admin. Contributor in Claims-Test and Claims-Prod. Viewer in Claims-UAT.",
+    "Priya": "Owns Score claims and Claims mirror. Contributor in every Claims workspace."
+  },
+  "stages": [
+    "Development",
+    "Test",
+    "UAT",
+    "Production"
+  ],
+  "assignments": {
+    "Development": "Claims-Dev",
+    "Test": "Claims-Test",
+    "UAT": "Claims-UAT",
+    "Production": "Claims-Prod"
+  },
+  "who_assigns_claims_prod": "Nora",
+  "who_creates_the_rules": "the item's owner",
+  "rules": [
+    {
+      "stage": "Test",
+      "item": "Score claims",
+      "rule": "default lakehouse",
+      "value": "ClaimsLH_Test"
+    },
+    {
+      "stage": "Test",
+      "item": "Claims mirror",
+      "rule": "data source",
+      "value": "sql-claims-test"
+    },
+    {
+      "stage": "UAT",
+      "item": "Score claims",
+      "rule": "default lakehouse",
+      "value": "ClaimsLH_UAT"
+    },
+    {
+      "stage": "UAT",
+      "item": "Claims mirror",
+      "rule": "data source",
+      "value": "sql-claims-uat"
+    },
+    {
+      "stage": "Production",
+      "item": "Score claims",
+      "rule": "default lakehouse",
+      "value": "ClaimsLH_Prod"
+    },
+    {
+      "stage": "Production",
+      "item": "Claims mirror",
+      "rule": "data source",
+      "value": "sql-claims-prod"
+    }
+  ],
+  "rule_support": {
+    "Notebook": {
+      "data source": false,
+      "parameter": false,
+      "default lakehouse": true
+    },
+    "Mirrored database": {
+      "data source": true,
+      "parameter": false,
+      "default lakehouse": false
+    },
+    "Lakehouse": {
+      "data source": false,
+      "parameter": false,
+      "default lakehouse": false
+    }
+  },
+  "expectations": {
+    "rules_take_effect": "the next time you deploy to that stage",
+    "test_rules_after_unassigning_and_reassigning_claims_test": "lost and set up again",
+    "a_score_claims_notebook_added_to_claims_test_later_is_paired": false,
+    "renaming_a_paired_item_unpairs_it": false,
+    "omar_can_deploy_test_to_uat": false,
+    "deploy_copies_the_notebook_definition": true,
+    "deploy_copies_lakehouse_table_data": false,
+    "deploy_copies_workspace_settings": false
+  },
+  "options": {
+    "who_assigns_claims_prod": [
+      "Nora",
+      "Omar"
+    ],
+    "who_creates_the_rules": [
+      "the item's owner",
+      "any pipeline admin",
+      "any contributor in the target workspace"
+    ],
+    "rules_take_effect": [
+      "as soon as they're saved",
+      "the next time you deploy to that stage"
+    ],
+    "test_rules_after_unassigning_and_reassigning_claims_test": [
+      "kept",
+      "lost and set up again"
+    ]
+  }
+}

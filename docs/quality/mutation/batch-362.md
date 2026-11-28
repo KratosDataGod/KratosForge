@@ -1,0 +1,29 @@
+# Mutation testing, batch 362
+
+One module not scored before, run with `--kinds all`:
+- The excellence catalog's evidence text: the names it lists (five, then "and N more"), the singular and plural wording for admins, guests, app admins and direct users, the capacity size note and the peers not seen (`excellence/catalog.py`).
+
+The run was at `main` ea988e99 (2026-11-23), with `sidecar/tools/mutate.py` and the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The per-mutant timeout was raised from 120 to 600 seconds by a wrapper that sets `mutate.TIMEOUT`, with the tool unchanged, because several runs shared the machine; no mutant's run timed out. Each pytest session got a fresh temporary folder, so a mutant can't leave one that breaks later runs. Test files were given as paths relative to `sidecar/`, and they first passed once on the unmutated copy. None of them reads `docs/`, `examples/` or `app/`, so nothing was left out. The module has 116 mutants, so all were run. The container restarted during the batch; runs cut short were resumed with `--only` on the indexes not yet run, which keeps the same numbering.
+
+Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0, and against the module as it is on `main` today. `main` has changed this module since ea988e99 (#3165 registers `catalog_devops`, then #3222, #3227 and #3275); the new tests pass against today's version.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `excellence/catalog.py` | test_excellence_architecture, test_excellence_artifacts, test_excellence_capacity, test_excellence_catalog, test_excellence_models (+ test_excellence_catalog_mutation) | 116 of 116 (112 + 4) | 94 / 22 | **81.0%** | 92/112 → 112/112 | 2/4 → 4/4 | 116 / 0 | **100%** | none |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **excellence/catalog.py**:
+  - Five names are listed in full, and a sixth is counted as "and 1 more"; the cut-off and the count were not checked.
+  - The singular and plural wording of the admin, guest, app admin and direct user lines, with a guest of unknown status counted, and only a user's own write role counting as direct.
+  - The capacity line says the size was not given when it is missing.
+  - Peers not seen: five are named and a sixth is counted.
+  - → `test_excellence_catalog_mutation.py`.
+
+### Left
+
+None.

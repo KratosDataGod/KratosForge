@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..redact import REMOVED, describe, secret_key
+from ..redact import REMOVED, describe, secret_key, user_paths
 from ..redact import secrets as redact_secrets
 from ..retrying import TRANSIENT_STATUS, status_of
 
@@ -110,25 +110,85 @@ def _redact(value: Any, blank: bool) -> Any:
 def _short_os_message(exc: OSError) -> str:
     """An OSError's text with only the last part of each path it names: "[Errno 2] No such file or
     directory: 'C:\\Users\\ann\\AppData\\...\\x.ipynb'" names where the person's data folder is."""
-    names = [ntpath.basename(os.fsdecode(f)) for f in (exc.filename, exc.filename2) if isinstance(f, (str, bytes, os.PathLike))]
+    # The user name is masked before the cut: a path that is the home folder would otherwise be cut to it.
+    names = [ntpath.basename(user_paths(os.fsdecode(f)).rstrip('\\/')) for f in (exc.filename, exc.filename2) if isinstance(f, (str, bytes, os.PathLike))]
     return f"{exc.strerror or type(exc).__name__}: {' -> '.join(repr(n) for n in names)}"
+
+
+# An engine message can carry what a caller outside the app mustn't get or can't use: a native
+# library's backtrace (deltalake prints "  0: <unknown>" frames), terminal colour codes, and the full
+# path of a file in this PC's data folder. A path is cut to its last part, which still names the file.
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_FRAME = re.compile(r"^(\s+\d+: |\s+at \S+:\d+|\s*Stack backtrace:|Traceback \(most recent call last\))")
+_PATH = r"(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|/)"
+_QUOTED_PATH = re.compile(r"""(['"])(""" + _PATH + r"""[^'"\n]*)\1""")
+# Unquoted, a path from the root needs a folder in it ("/home/x", not "/20" as in "rows 10 /20").
+_BARE_PATH = re.compile(r"""(?<![\w.:/\\%])(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|/(?=[^\s/'"]+/))"""
+                        r"""[^\s'"<>|,;()\[\]{}]+""")
+
+
+def _last_part(path: str) -> str:
+    return next((p for p in reversed(re.split(r"[\\/]+", path)) if p), "")
+
+
+def _is_folder(path: Any) -> bool:
+    try:
+        return isinstance(path, (str, bytes, os.PathLike)) and os.path.isdir(path)
+    except (OSError, ValueError):
+        return False
+
+
+_MASK = "\ue000"  # a stand-in for "[user]" that the path patterns read as part of a path
+
+
+def _masked_then_cut(text: str) -> str:
+    """plain_message of ``text`` with the user name in a home folder path masked first."""
+    return plain_message(user_paths(text).replace("[user]", _MASK)).replace(_MASK, "[user]")
+
+
+def plain_message(text: str) -> str:
+    """``text`` without colour codes, a backtrace or the folders of a full path."""
+    lines = []
+    for line in _ANSI.sub("", text).splitlines():
+        if _FRAME.match(line):
+            break
+        lines.append(line.rstrip())
+    text = "\n".join(lines).strip()
+    text = _QUOTED_PATH.sub(lambda m: m.group(1) + _last_part(m.group(2)) + m.group(1), text)
+    return _BARE_PATH.sub(lambda m: _last_part(m.group(0)), text)
 
 
 def error_from(exc: BaseException) -> IntegrationError:
     """The engine's exception as an IntegrationError. The engine's messages are already written for
-    people, so they are kept, without secrets; a file error names the file but not the folders
-    it is in. An IntegrationError is passed on with secrets removed from its message, hint and
-    details too, since a handler may have built it from the engine's text."""
+    people, so they are kept, without secrets, backtraces or the folders of a file's full path. An
+    IntegrationError is passed on with secrets removed from its message, hint and details too, since
+    a handler may have built it from the engine's text."""
     if isinstance(exc, IntegrationError):
         return redacted(exc)
     if isinstance(exc, OSError) and isinstance(exc.filename, (str, bytes, os.PathLike)):
-        message = redact_secrets(_short_os_message(exc))
+        message = _short_os_message(exc)
     else:
         # str() of a KeyError is the repr of its text, with line breaks as \n, which hides a secret on
         # the next line from the patterns; its own text is what the person should read anyway.
-        text = exc.args[0] if isinstance(exc, KeyError) and len(exc.args) == 1 and isinstance(exc.args[0], str) else str(exc)
-        message = redact_secrets(text or type(exc).__name__)
+        message = exc.args[0] if isinstance(exc, KeyError) and len(exc.args) == 1 and isinstance(exc.args[0], str) else str(exc)
+    # A path the cut below misses (inside other text) still mustn't say whose home folder it is.
+    # The user name is masked before paths are cut to their last part, and again after: cut first, a
+    # path that is the home folder would leave the bare name, and one with a space in it its tail.
+    message = user_paths(redact_secrets(_masked_then_cut(message or type(exc).__name__) or type(exc).__name__))
     name = type(exc).__name__
+    if any(c.__name__ == "DeltaError" for c in type(exc).__mro__):  # deltalake's, whose module is "_internal"
+        # A Delta log that can't be read: a commit missing or cut off, a checkpoint that isn't there.
+        # A Rust value printed whole (ParsedLogPath { ... }, Error: Os { ... }) is no use to a caller.
+        message = re.sub(r"(\s*Error)?:?\s*\w+ \{.*", "", message, flags=re.S).strip()
+        if name == "TableNotFoundError":
+            return IntegrationError("not_found", message)
+        return IntegrationError("failed", f"The Delta table's log can't be read: {message}",
+                                hint="The table's _delta_log may be damaged. Open the table in KratosForge to see the problem.")
+    if name == "PanicException":  # a native reader (deltalake, arrow) that gave up on a damaged file
+        return IntegrationError("failed", "A data file can't be read: it may be cut off or damaged.",
+                                hint="Open the project in KratosForge to see which file.")
+    if name == "ReceiptError":  # a receipt that was changed after it was written, or isn't one
+        return IntegrationError("failed", message)
     status = status_of(exc)
     if name == "FabricError" or status is not None or name in ("HTTPError", "ConnectionError", "Timeout"):
         if status in (401, 403) or "Unauthorized" in message or "Forbidden" in message:
@@ -140,10 +200,15 @@ def error_from(exc: BaseException) -> IntegrationError:
         return IntegrationError("upstream", message)
     if hasattr(exc, "errors"):  # a metadata gate: its message lists every reason
         return IntegrationError("failed", message, details={"reasons": [redact_secrets(str(e)) for e in exc.errors]})
+    if isinstance(exc, IsADirectoryError) or (isinstance(exc, PermissionError) and _is_folder(exc.filename)):
+        # A folder where a file should be: Linux says "Is a directory", Windows "Permission denied".
+        return IntegrationError("failed", message)
     if isinstance(exc, PermissionError):
         return IntegrationError("permission_denied", message)
     if isinstance(exc, (FileNotFoundError, LookupError)):  # LookupError covers KeyError
-        return IntegrationError("not_found", message.strip("'\""))
+        # A KeyError's str() is its repr, quoted; a file error's quotes are around the file's name.
+        quoted = len(message) > 1 and message[0] == message[-1] and message[0] in "'\""
+        return IntegrationError("not_found", message[1:-1] if quoted else message)
     if isinstance(exc, TimeoutError):
         return IntegrationError("timeout", message, retryable=True)
     if isinstance(exc, (ValueError, TypeError)):
@@ -152,6 +217,8 @@ def error_from(exc: BaseException) -> IntegrationError:
         # The engine raises RuntimeError for "something else is running" and for failed work alike.
         busy = any(word in message.lower() for word in ("is running", "is already running", "wait for it", "is using"))
         return IntegrationError("conflict" if busy else "failed", message, retryable=busy)
+    if isinstance(exc, OSError):  # a file that is a folder, a folder that is a file, a disk that failed
+        return IntegrationError("failed", message)
     return IntegrationError("internal", f"{name}: {message}")
 
 

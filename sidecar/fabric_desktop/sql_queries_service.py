@@ -13,6 +13,10 @@ repository opened in Source control, where the team gets them by committing and 
 rules hold: a call names a place and a plain file name, never a path; links out of a place are
 refused; a new file never replaces one. ``warehouse`` is the warehouse the query was saved from,
 shown in the list; a query can be opened on any warehouse. Nothing here runs SQL or calls Fabric.
+
+A query saved on a lakehouse's SQL page (S37) has ``-- lakehouse:`` and ``-- lakehouse_id:`` lines in
+place of ``-- warehouse:``. That page lists a query only on the lakehouse whose id it names, and the
+Warehouse page leaves it out. A file without those lines reads as before.
 """
 
 from __future__ import annotations
@@ -29,12 +33,14 @@ FOLDER = "sql-queries"
 MINE = "My queries"
 MAX_TITLE = 100
 MAX_LINE = 200
-_HEADER = re.compile(r"^--\s*(query|title|warehouse|description)\s*:\s*(.*?)\s*$", re.IGNORECASE)
+_HEADER = re.compile(r"^--\s*(query|title|warehouse|lakehouse|lakehouse_id|description)\s*:\s*(.*?)\s*$", re.IGNORECASE)
+_LAKEHOUSE_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
 
 
 def parse(text: str, stem: str = "") -> dict[str, Any]:
-    """{"title", "warehouse", "description", "sql"}. Header lines come first; with no title line the
-    file name is the title, so any .sql file dropped in the folder is a saved query."""
+    """{"title", "warehouse", "description", "sql"}, plus "lakehouse" and "lakehouse_id" when the file
+    has those lines. Header lines come first; with no title line the file name is the title, so any .sql
+    file dropped in the folder is a saved query."""
     meta: dict[str, Any] = {"title": "", "warehouse": "", "description": ""}
     lines = text.replace("\r\n", "\n").split("\n")
     i = 0
@@ -57,10 +63,17 @@ def problem(meta: dict[str, Any]) -> str:
         return "Give the query a name."
     if len(title) > MAX_TITLE or "\n" in title:
         return f"Use a name of up to {MAX_TITLE} characters on one line."
-    for key in ("warehouse", "description"):
+    for key in ("warehouse", "lakehouse", "description"):
         value = str(meta.get(key) or "")
         if len(value) > MAX_LINE or "\n" in value:
             return f"Use a {key} of up to {MAX_LINE} characters on one line."
+    lakehouse_id = str(meta.get("lakehouse_id") or "")
+    if lakehouse_id and not _LAKEHOUSE_ID.fullmatch(lakehouse_id):
+        return "That lakehouse id isn't one Fabric gives."
+    if lakehouse_id and str(meta.get("warehouse") or "").strip():
+        return "A saved query belongs to a warehouse or a lakehouse, not both."
+    if str(meta.get("lakehouse") or "").strip() and not lakehouse_id:
+        return "A query saved on a lakehouse needs the lakehouse's id."
     if not str(meta.get("sql") or "").strip():
         return "There's no SQL to save."
     return ""
@@ -68,7 +81,7 @@ def problem(meta: dict[str, Any]) -> str:
 
 def render(meta: dict[str, Any]) -> str:
     head = [f"-- query: {meta['title'].strip()}"]
-    for key in ("warehouse", "description"):
+    for key in ("warehouse", "lakehouse", "lakehouse_id", "description"):
         if str(meta.get(key) or "").strip():
             head.append(f"-- {key}: {meta[key].strip()}")
     return "\n".join(head) + "\n\n" + str(meta["sql"]).strip("\n") + "\n"
@@ -103,11 +116,14 @@ class SqlQueriesMixin:
                 "places": [{"id": p["id"], "label": p["label"], "folder": str(p["folder"])} for p in places]}
 
     def sql_query_save(self, place: str, title: str, sql: str, warehouse: str = "", description: str = "",
-                       name: str | None = None, expect: str = "") -> dict[str, Any]:
+                       name: str | None = None, expect: str = "", lakehouse: str = "",
+                       lakehouse_id: str = "") -> dict[str, Any]:
         """Writes a saved query. ``name`` replaces that file in the place (Save on a tab opened from
         it); without it the file is new, named after the title, and a name that is taken gets a number.
-        ``expect`` is the version the tab opened: a file that has changed since is left alone."""
-        meta = {"title": title, "warehouse": warehouse, "description": description, "sql": sql}
+        ``expect`` is the version the tab opened: a file that has changed since is left alone.
+        ``lakehouse`` and ``lakehouse_id`` name the lakehouse a query saved on its SQL page is for."""
+        meta = {"title": title, "warehouse": warehouse, "description": description, "sql": sql,
+                "lakehouse": lakehouse, "lakehouse_id": lakehouse_id}
         why = problem(meta)
         if why:
             raise ValueError(why)

@@ -190,6 +190,8 @@ SELECT Region, SUM(Amount) AS Revenue FROM dbo.FactSales GROUP BY Region;
 
 If the file changed after you opened it (a Git pull, or another editor), **Save query** leaves it alone and says so: open it again to see the change, or use **Save as new** to keep yours. The same rules as your own templates keep these files in their place: a folder or file that is a link to somewhere else is skipped, and each place lists up to 200 queries by name, saying so when there are more.
 
+A query saved on a lakehouse's SQL page (see [Saved queries on a lakehouse](sql-execution.md#saved-queries-on-a-lakehouse)) has `-- lakehouse:` and `-- lakehouse_id:` lines in place of `-- warehouse:`. The Warehouse page doesn't list it, and the SQL best practices check leaves it out, since it isn't T-SQL.
+
 ## History and query insights
 
 The explorer's **History** tab has two parts.

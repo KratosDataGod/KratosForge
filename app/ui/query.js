@@ -1701,7 +1701,9 @@ function renderQuery() {
     saveQueryTabs();
     renderQuery();
   };
-  const whSaved = wh ? whQueries(ref, { open: openSaved }) : null;
+  // S37 (Preview): the lakehouse page has saved queries too, listing only the ones saved on this lakehouse.
+  const savedOn = wh || previewShown();
+  const whSaved = savedOn ? whQueries(ref, { open: openSaved }) : null;
   const openInsight = (name, text) => {
     p.whCompareShown = p.whMonitorShown = false;
     p.tabs.push({ name, sql: text, dialect: tab.dialect, autorun: true });
@@ -1828,10 +1830,16 @@ function renderQuery() {
   };
   const whProj = wh && ref.kind === "warehouse" ? (p.whProjectView = whProject(ref, { open: openProjectFile })) : null;
   const saveFile = async () => { if (await whProjectSave(tab)) { saveQueryTabs(); whProj?.refresh(); } };
-  const asideView = wh && ["queries", "history", ...(whProj ? ["project"] : [])].includes(p.whAside) ? p.whAside : "explorer";
+  const lhViews = !wh && savedOn ? ["queries"] : [];  // the lakehouse page's explorer views, besides Explorer
+  const asideView = wh ? (["queries", "history", ...(whProj ? ["project"] : [])].includes(p.whAside) ? p.whAside : "explorer")
+    : lhViews.includes(p.whAside) ? p.whAside : "explorer";
   const asideTab = (id, label) => h("button", { role: "tab", class: `sql-view${asideView === id ? " on" : ""}`, "aria-selected": String(asideView === id),
     onclick: () => { p.whAside = id; renderQuery(); } }, label);
-  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); whProj?.draw(); if (here()) editor.refresh(); } : null;
+  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); whProj?.draw(); if (here()) editor.refresh(); }
+    : savedOn ? () => { whSaved.draw(); if (here()) editor.refresh(); } : null;
+  const lhSaveButtons = () => savedOn ? [
+    btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
+    tab.file ? btn("Save as new", null, () => saveQuery(true), "tool") : null] : [];
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
@@ -1885,14 +1893,21 @@ function renderQuery() {
       btn("New SQL query", "add", addTab),
       btn("New notebook", "notebook", () => newNotebook(ref)),
       btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
+      ...lhSaveButtons(),
       ...fileButtons(),
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity. ", learnMore("sql-queries")))),
     h("div", { class: "nb-body" },
-      sqlExplorerStrip(explorerOpen), h("aside", { class: "explorer sql-explorer", hidden: !explorerOpen }, h("div", { class: "explorer-head" }, "Explorer", sqlExplorerHide()),
-        h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
+      sqlExplorerStrip(explorerOpen), h("aside", { class: "explorer sql-explorer", hidden: !explorerOpen },
+        lhViews.length ? h("div", { class: "explorer-head sql-views-head" },
+          h("div", { class: "sql-views", role: "tablist", "aria-label": "Explorer views" },
+            asideTab("explorer", "Explorer"), lhViews.includes("queries") ? asideTab("queries", "Queries") : null),
+          sqlExplorerHide())
+          : h("div", { class: "explorer-head" }, "Explorer", sqlExplorerHide()),
+        asideView === "queries" ? whSaved.el : null,
+        asideView !== "explorer" ? null : h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
           h("span", { class: "label" }, ref.name)),
-        tablesBox),
+        asideView !== "explorer" ? null : tablesBox),
       h("section", { class: "sql-main" }, tabs,
         h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, gridRow)))));
   drawResults();

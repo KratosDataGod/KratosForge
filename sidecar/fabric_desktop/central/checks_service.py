@@ -280,6 +280,8 @@ class ChecksMixin:
         problems += [f"Saved queries: {n}" for n in saved.get("notes") or []]
         for q in saved["queries"]:
             name = f"{q['place_label']}/{q['name']}"
+            if q.get("lakehouse_id"):
+                continue  # saved on a lakehouse's SQL page (S37): Spark SQL or DuckDB, not T-SQL
             if q.get("problem"):
                 problems.append(f"The saved query {name} wasn't checked: {q['problem']}")
             else:

@@ -7130,3 +7130,20 @@ test("an empty line next to deleted lines keeps its breakpoint", () => {
     assert.deepStrictEqual(ctx.toasts, []);
   }
 });
+
+// S37: a lakehouse lists only its own saved queries; a warehouse lists every query not saved on a lakehouse.
+test("saved queries keep to the lakehouse they were saved on (S37)", () => {
+  const ctx = {};
+  vm.createContext(ctx);
+  const q = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  const s = fs.readFileSync(path.join(ui, "sqlqueries.js"), "utf8");
+  vm.runInContext(/function isWarehouseRef\(ref\) \{[\s\S]*?\n}\n/.exec(q)[0] + /function sqlQueriesFor\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = sqlQueriesFor;", ctx);
+  const qs = [{ name: "wh.sql", warehouse: "WH_Gold" }, { name: "plain.sql" }, { name: "lh1.sql", lakehouse_id: "lh1" }, { name: "lh2.sql", lakehouse_id: "lh2" }];
+  const names = (ref) => ctx.f(ref, qs).map((x) => x.name);
+  assert.deepStrictEqual(names({ workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" }), ["lh1.sql"]);
+  assert.deepStrictEqual(names({ workspace_id: "ws1", lakehouse_id: "lh2", name: "Sales" }), ["lh2.sql"]);
+  assert.deepStrictEqual(names({ workspace_id: "ws1", lakehouse_id: "lh3", name: "Other" }), []);
+  assert.deepStrictEqual(names({ workspace_id: "ws1", name: "No id" }), [], "a lakehouse without an id lists nothing");
+  assert.deepStrictEqual(names({ kind: "warehouse", item_id: "wh1", name: "WH_Gold" }), ["wh.sql", "plain.sql"]);
+  assert.deepStrictEqual(names({ kind: "endpoint", item_id: "lh1", name: "Sales" }), ["wh.sql", "plain.sql"]);
+});

@@ -2,6 +2,14 @@
 // the sql-queries folder of a Git repository opened in Source control, which the team shares by
 // committing (sql_queries_service.py). The explorer's Queries tab lists them; Save query writes the
 // current tab to one. A tab opened from a file keeps it (tab.file), so Save writes back to it.
+// S37 (Preview): a lakehouse's SQL page has them too. A query saved there names the lakehouse by its
+// id, is listed only on that lakehouse, and is left out of the Warehouse page's list.
+
+// The saved queries a page lists: on a lakehouse, its own; on a warehouse, every query not saved on a lakehouse.
+function sqlQueriesFor(ref, queries) {
+  return isWarehouseRef(ref) ? queries.filter((q) => !q.lakehouse_id)
+    : queries.filter((q) => !!ref?.lakehouse_id && q.lakehouse_id === ref.lakehouse_id);
+}
 
 const sqlQueries = { state: "idle", queries: [], places: [{ id: "mine", label: "My queries" }], notes: [], error: "" };
 
@@ -50,7 +58,7 @@ function whQueries(ref, actions) {
     const term = (sqlPage.whQueryFilter || "").trim().toLowerCase();
     const rows = [];
     for (const place of sqlQueries.places) {
-      const qs = sqlQueries.queries.filter((q) => q.place === place.id
+      const qs = sqlQueriesFor(ref, sqlQueries.queries).filter((q) => q.place === place.id
         && (!term || `${q.title} ${q.description} ${q.warehouse}`.toLowerCase().includes(term)));
       if (!qs.length && place.id !== "mine") continue;
       rows.push(h("div", { class: "wh-q-head" }, place.id === "mine" ? "My queries · on this PC" : `${place.label} · shared in Git`));
@@ -78,13 +86,14 @@ function whQueries(ref, actions) {
 // Save query: writes the tab back to the file it came from, or (asNew, or a tab with no file) asks
 // for a name, a description and where to keep it. Resolves to the saved file, or null.
 async function saveSqlQuery(ref, tab, asNew = false) {
+  const lh = !isWarehouseRef(ref);  // S37: on a lakehouse, the query names the lakehouse in place of a warehouse
   const write = (place, title, description, warehouse, file) => rpc("sql_query_save", { place, title, sql: tab.sql, warehouse, description,
-    ...(file ? { name: file.name, expect: file.version || "" } : {}) });
+    ...(file ? { name: file.name, expect: file.version || "" } : {}), ...(lh ? { lakehouse: ref.name, lakehouse_id: ref.lakehouse_id } : {}) });
   if (tab.file && !asNew) {
     // Save keeps the file's own warehouse, and refuses a file that changed since it was opened.
     const f = tab.file;
     try {
-      const out = await write(f.place, f.title || tab.name, f.description || "", f.warehouse ?? ref.name, f);
+      const out = await write(f.place, f.title || tab.name, f.description || "", lh ? "" : f.warehouse ?? ref.name, f);
       toast(`Saved ${f.title || tab.name} to ${f.place === "mine" ? "My queries" : f.place_label}.`);
       return { ...f, version: out.version };
     } catch (err) {
@@ -104,11 +113,11 @@ async function saveSqlQuery(ref, tab, asNew = false) {
     const save = btn("Save", null, async () => {
       save.disabled = true;
       try {
-        const out = await write(place.value, name.value, description.value, ref.name);
+        const out = await write(place.value, name.value, description.value, lh ? "" : ref.name);
         const label = sqlQueries.places.find((p) => p.id === out.place)?.label || "";
         toast(`Saved ${name.value.trim()} to ${out.place === "mine" ? "My queries" : label}.`);
         finish({ place: out.place, name: out.name, place_label: label, title: name.value.trim(), description: description.value.trim(),
-          warehouse: ref.name, version: out.version });
+          warehouse: lh ? "" : ref.name, version: out.version });
         closeDialog();
       } catch (err) { why.textContent = String(err).replace(/^Error: /, ""); save.disabled = false; }
     }, "tool primary");

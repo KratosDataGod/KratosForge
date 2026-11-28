@@ -155,6 +155,21 @@ The **History** view beside **Results** lists the last 20 runs of the tab: when 
 
 The engine keeps the newest 20 results of the whole page, for the retention time in [Limits](#limits). **Pin** keeps a result past both until you unpin it or close its tab, up to 10 pinned results. A result the engine no longer has says it needs running again; opening the history never runs anything.
 
+## Saved queries on a lakehouse
+
+With Preview features shown, a lakehouse's SQL page has **Save query** and an Explorer tab called **Queries**, as on the [Warehouse page](warehouse.md#saved-and-shared-queries). Save query keeps the tab as a `.sql` file in My queries on this PC or in a Git repository's `sql-queries` folder. The file names the lakehouse by its id:
+
+<!-- example: illustrative -->
+```sql
+-- query: Top customers
+-- lakehouse: Sales
+-- lakehouse_id: 0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0
+
+SELECT customer, SUM(amount) AS total FROM sales GROUP BY customer ORDER BY total DESC LIMIT 10;
+```
+
+The Queries tab lists only the queries saved on this lakehouse. A query saved on a warehouse, or on another lakehouse, isn't listed here, and the Warehouse page doesn't list a lakehouse's queries. Open, Save, Save as new and delete work as on the Warehouse page. Saving runs nothing.
+
 ## Compare data (Preview)
 
 With Preview features shown, a lakehouse's Explorer has **Compare data**, and a table's menu (right-click it, or press the menu key or Shift+F10) has **Compare with…**. Compare data puts the rows of **A** beside the rows of **B**. Each is a table of the lakehouse (every row) or a query that only reads.

@@ -149,7 +149,7 @@ The everyday IPython magics that Fabric's and Databricks' notebooks inherit work
 `%lsmagic` lists every magic this PC runs.
 Put a path with spaces in quotes, like `%%writefile "C:\Users\Chris Smith\helpers.py"`. Backslashes are
 kept as they are, as on Windows' own command line: inside double quotes `\"` is a quote
-(`%fs put Files/x.txt "say \"hi\" there"`) unless it closes the quotes (`"C:\My Folder\"`), and a backslash before a space doesn't join two words, so quote the
+(`%fs put Files/x.txt "say \"hi\" there"`), except at the end, where `\"` keeps the backslash and closes the quotes (`"C:\My Folder\"`). A backslash before a space doesn't join two words, so quote the
 name instead. Cells and files saved with Windows line endings or a byte order mark (Notepad's UTF-8) read
 the same as any other.
 

@@ -17,7 +17,7 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from . import model_ossie, ossie_validate, tmdl
+from . import model_ossie, model_ossie_redact, ossie_validate, tmdl
 from .fabric_api import definition_text
 from .jsonfile import write_text
 from .meta.store import OneLakeStore
@@ -299,14 +299,23 @@ class ModelOssieMixin:
 
     def meta_model_ossie_export(self, env: str = "test", name: str = "", translate_dax: bool = True) -> dict[str, Any]:
         """The named model as Ossie YAML with the conversion report. Reads only; nothing is saved."""
+        return self._ossie_export(env, name, translate_dax)[0]
+
+    def ossie_export_roles_withheld(self, env: str = "test", name: str = "", translate_dax: bool = True) -> dict[str, Any]:
+        """``meta_model_ossie_export`` for an AI tool: role filters and members withheld (model_ossie_redact)."""
+        out, bim = self._ossie_export(env, name, translate_dax)
+        return model_ossie_redact.export_result(out, bim)
+
+    def _ossie_export(self, env: str, name: str, translate_dax: bool) -> tuple[dict[str, Any], dict[str, Any]]:
         model_ossie.require()  # before reading from Fabric
         _, cfg = self._ossie_workspace(env)
         model = self._ossie_model(cfg["workspace_id"], name)
         if model is None:
             raise LookupError(f"There's no semantic model named {name} in {cfg.get('workspace_name') or 'the workspace'}")
-        out = model_ossie.export(self._model_bim(cfg["workspace_id"], model), translate_dax=translate_dax, validate=True)
+        bim = self._model_bim(cfg["workspace_id"], model)
+        out = model_ossie.export(bim, translate_dax=translate_dax, validate=True)
         del out["round_trip"]  # its result is in the fidelity report; the Round-trip check card is for folders
-        return out | {"model": name, "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}
+        return out | {"model": name, "path": f"{FOLDER}/{_SAFE.sub('_', name).strip() or 'model'}.ossie.yaml"}, bim
 
     def _model_folders(self, project: Any) -> list[Path]:
         base = Path(project.root, FOLDER)
@@ -405,6 +414,7 @@ class ModelOssieMixin:
                                   report) if mode == "update" else incoming
         final["name"] = name
         return {"final": final, "existing": existing, "cfg": cfg, "name": name, "report": report, "doc": doc,
+                "incoming": incoming,
                 "fidelity": model_ossie.safe_fidelity(doc, incoming, report,
                                                       model_ossie.round_trip_check(incoming)),
                 "changes": model_ossie.plan(current, final),
@@ -421,16 +431,26 @@ class ModelOssieMixin:
 
         A file of a profile the converter can't read yet (Ossie 0.3.0.dev0, Snowflake's 0.1.1) is still checked:
         the answer has ``convertible`` false, ``refused`` (why, by name), the schema check, and no changes."""
+        return self._ossie_preview(env, text, name, mode, remove, layer)[0]
+
+    def ossie_preview_roles_withheld(self, env: str = "test", text: str = "", name: str = "", mode: str = "update",
+                                     remove: list[str] | None = None) -> dict[str, Any]:
+        """``meta_model_ossie_preview`` for an AI tool: role filters and members withheld (model_ossie_redact)."""
+        out, p = self._ossie_preview(env, text, name, mode, remove, None)
+        return model_ossie_redact.preview_result(out, p["doc"], p.get("incoming"))
+
+    def _ossie_preview(self, env: str, text: str, name: str, mode: str, remove: list[str] | None,
+                       layer: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
         p = self._ossie_import_plan(env, text, name, mode, remove, layer)
         if "refused" in p:
             return {"env": env, "name": p["name"], "mode": mode, "exists": None,
                     "workspace_name": p["cfg"].get("workspace_name", ""), "changes": [], "removable": [],
                     "report": [], "fidelity": None, "convertible": False, "refused": p["refused"],
-                    "schema_validation": ossie_validate.validate(p["doc"])}
+                    "schema_validation": ossie_validate.validate(p["doc"])}, p
         return {"convertible": True, "env": env, "name": p["name"], "mode": mode, "exists": p["existing"] is not None,
                 "workspace_name": p["cfg"].get("workspace_name", ""), "changes": p["changes"],
                 "removable": p["removable"], "report": p["report"], "fidelity": p["fidelity"],
-                "schema_validation": ossie_validate.validate(p["doc"])}
+                "schema_validation": ossie_validate.validate(p["doc"])}, p
 
     def meta_model_ossie_import(self, env: str = "test", text: str = "", name: str = "", mode: str = "update",
                                 remove: list[str] | None = None, layer: str | None = None,

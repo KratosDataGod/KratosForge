@@ -58,7 +58,7 @@ def test_type_2_history_columns_only_on_a_type_2_entity_and_only_once():
 def test_a_lookup_names_the_dimension_key_only_when_the_dimension_has_one():
     spec = {"source": {"entity": ["bronze.raw"]}, "lookup": [{"as": "d_sk", "dim": "gold.d", "on": "k"}]}
     fact = entity("gold.f", ["k", "d_sk"], spec=spec)
-    with_key = entity("gold.d", ["k"], surrogate_key="d_sk")
+    with_key = entity("gold.d", ["k"], mode="scd1", mode_columns=("d_sk",), surrogate_key="d_sk")  # a dimension makes its key
     assert lineage.entity_columns(project(raw(), fact, with_key), "gold.f")["d_sk"]["inputs"] == [
         {"entity": "gold.d", "column": "d_sk"}, {"entity": "gold.f", "column": "k"}]
     no_key = entity("gold.d", ["k"], surrogate_key=None)

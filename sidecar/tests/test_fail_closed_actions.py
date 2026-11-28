@@ -82,6 +82,7 @@ ACTIONS: dict[str, str] = {
     "tenant_settings_read": "approve",
     # Confirmations.
     "databricks_billing": "confirmed",
+    "snowflake_query_credits": "confirmed",
     "databricks_sync_push": "confirm_deletes",
     "databricks_volume_delete": "confirm",
     "databricks_volume_download": "overwrite",
@@ -112,6 +113,7 @@ ACTIONS: dict[str, str] = {
     "git_commit": "allow_secrets",
     "meta_optimize": "env risk_ids",
     "model_bpa_check": "env risk_id",
+    "model_bpa_share": "env approve confirm",
     "notebook_validate_start": "allow_uncontained",
     "pipeline_run_start": "allow_uncontained",
     "risk_acknowledge": "env risk_id",
@@ -206,6 +208,7 @@ PREVIEWS: dict[str, str] = {
     "notebook_formats_import_check": "what importing would create; nothing is written",
     "notebook_import_check": "what importing would create; nothing is written",
     "notebook_publish_check": "what publishing would do; publish_notebook makes the change",
+    "optimization_share_preview": "what sharing would add and its confirm; optimization_share writes it",
     "pipeline_import": "reads a pipeline definition; stores nothing",
     "pipeline_run_check": "what a local pipeline run would do; pipeline_run_start runs it (allow_uncontained is checked there too)",
     "wh_project_deploy_plan": "the statements a deploy would run; nothing runs",

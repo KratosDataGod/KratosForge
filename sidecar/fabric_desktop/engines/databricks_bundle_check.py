@@ -39,7 +39,20 @@ Sources (docs.databricks.com, read 2026-11):
   volumes, registered_models and quality_monitors (Unity Catalog types: the catalog table shows bundle-only
   ``grants`` that a create page doesn't list, and their own tables weren't read), dashboards (an alert has a
   bundle-only ``file_path``; the dashboard table wasn't read), secret_scopes (the create request names
-  ``scope`` and ``scope_backend_type``, and how a bundle names them wasn't read), and the rest.
+  ``scope`` and ``scope_backend_type``, and how a bundle names them wasn't read), and the rest. clusters
+  and dashboards were added on 2026-11-28, below.
+- /dev-tools/bundles/resources.md (the page's Markdown copy, read 2026-11-28): its key tables for cluster
+  (38 keys, the ``## cluster`` table up to ``### cluster.libraries``) and dashboard (12 keys, the
+  ``## dashboard`` table up to its example, with the bundle-only ``file_path``) were read whole, and are
+  CLUSTER and DASHBOARD below. That copy, as fetched, ends inside ``## data_quality_monitor``, so the tables
+  after it weren't read. /dev-tools/bundles/permissions (read 2026-11-28) lists the permission levels of
+  clusters, dashboards and secret scopes, but not of model serving endpoints. Left unchecked:
+  model_serving_endpoints (/api/model-serving/v1/create-inference-endpoint.md lists 10 request fields, but
+  its bundle table wasn't read and the permissions page doesn't list it, so its bundle-only keys aren't
+  known), schemas, volumes, registered_models and quality_monitors (Unity Catalog types, whose bundle-only
+  ``grants`` and the rest are in tables after the cut-off; quality monitors' bundle keys come from an older
+  API than /api/data-quality/v1/create-monitor), secret_scopes (the create request names ``scope`` and
+  ``scope_backend_type``; the bundle's table, after the cut-off, wasn't read) and the rest.
 - Types (Jobs API create): a job's ``max_concurrent_runs`` and ``timeout_seconds`` are int32, ``tasks`` an
   array, ``email_notifications`` an object; a task's ``depends_on`` and ``libraries`` are arrays,
   ``timeout_seconds`` and ``max_retries`` int32, ``email_notifications`` an object. Pipelines API create:
@@ -115,6 +128,16 @@ APP = frozenset({"budget_policy_id", "compute_max_instances", "compute_min_insta
 CATALOG = frozenset({"comment", "connection_name", "custom_max_retention_hours", "grants", "lifecycle",
                      "managed_encryption_settings", "name", "options", "properties", "provider_name", "share_name",
                      "storage_root"})
+CLUSTER = frozenset({
+    "apply_policy_default_values", "autoscale", "autotermination_minutes", "aws_attributes", "azure_attributes",
+    "cluster_log_conf", "cluster_name", "custom_tags", "data_security_mode", "dependency_mode", "docker_image",
+    "driver_instance_pool_id", "driver_node_type_flexibility", "driver_node_type_id", "enable_elastic_disk",
+    "enable_local_disk_encryption", "gcp_attributes", "init_scripts", "instance_pool_id", "is_single_node", "kind",
+    "libraries", "lifecycle", "node_type_id", "num_workers", "permissions", "policy_id", "remote_disk_throughput",
+    "runtime_engine", "single_user_name", "spark_conf", "spark_env_vars", "spark_version", "ssh_public_keys",
+    "total_initial_remote_disk_size", "use_ml_runtime", "worker_node_type_flexibility", "workload_type"})
+DASHBOARD = frozenset({"dataset_catalog", "dataset_schema", "display_name", "embed_credentials", "etag", "file_path",
+                       "lifecycle", "parent_path", "path", "permissions", "serialized_dashboard", "warehouse_id"})
 # From the REST API create pages, beside the bundle's own keys.
 EXPERIMENT = _BUNDLE_RESOURCE | frozenset({"artifact_location", "name", "tags"})
 MODEL = _BUNDLE_RESOURCE | frozenset({"description", "name", "tags"})
@@ -123,8 +146,9 @@ SQL_WAREHOUSE = _BUNDLE_RESOURCE | frozenset({
     "instance_profile_arn", "max_num_clusters", "min_num_clusters", "name", "spot_instance_policy",
     "statement_timeout", "tags", "warehouse_type"})
 # Resource types whose keys are checked; the others' fields couldn't all be read (see the module docstring).
-RESOURCE_KEYS = {"alerts": ALERT, "apps": APP, "catalogs": CATALOG, "experiments": EXPERIMENT, "jobs": JOB,
-                 "models": MODEL, "pipelines": PIPELINE, "sql_warehouses": SQL_WAREHOUSE}
+RESOURCE_KEYS = {"alerts": ALERT, "apps": APP, "catalogs": CATALOG, "clusters": CLUSTER, "dashboards": DASHBOARD,
+                 "experiments": EXPERIMENT, "jobs": JOB, "models": MODEL, "pipelines": PIPELINE,
+                 "sql_warehouses": SQL_WAREHOUSE}
 # ${bundle.<key>} and ${workspace.<key>}: the reference's keys and the variables page's substitutions.
 WORKSPACE = frozenset({
     "account_id", "artifact_path", "auth_type", "azure_client_id", "azure_environment", "azure_login_app_id",

@@ -582,6 +582,92 @@ resources:
     assert {f.severity for f in findings} == {WARNING}
 
 
+# The resources page's own examples for clusters and dashboards (resources.md, read 2026-11-28). The first
+# cluster example and the dashboard example are put under one bundle, with the variable warehouse_id
+# declared; the second cluster example is a bundle of its own.
+CLUSTER_AND_DASHBOARD_EXAMPLES = """bundle:
+  name: x
+variables:
+  warehouse_id:
+    default: abc
+resources:
+  clusters:
+    my_cluster:
+      num_workers: 0
+      node_type_id: 'i3.xlarge'
+      driver_node_type_id: 'i3.xlarge'
+      spark_version: '15.4.x-scala2.12'
+      spark_conf:
+        'spark.executor.memory': '2g'
+      autotermination_minutes: 60
+      enable_elastic_disk: true
+      single_user_name: ${workspace.current_user.userName}
+      policy_id: '000128DB309672CA'
+      enable_local_disk_encryption: false
+      data_security_mode: SINGLE_USER
+      runtime_engine: STANDARD
+  dashboards:
+    nyc_taxi_trip_analysis:
+      display_name: 'NYC Taxi Trip Analysis'
+      file_path: ../src/nyc_taxi_trip_analysis.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+"""
+
+CLUSTER_AND_JOB_EXAMPLE = """bundle:
+  name: clusters
+
+resources:
+  clusters:
+    my_cluster:
+      num_workers: 2
+      node_type_id: 'i3.xlarge'
+      autoscale:
+        min_workers: 2
+        max_workers: 7
+      spark_version: '13.3.x-scala2.12'
+      spark_conf:
+        'spark.executor.memory': '2g'
+
+  jobs:
+    my_job:
+      tasks:
+        - task_key: test_task
+          notebook_task:
+            notebook_path: './src/my_notebook.py'
+          existing_cluster_id: ${resources.clusters.my_cluster.id}
+"""
+
+
+def test_cluster_and_dashboard_examples_are_clean(tmp_path):
+    write(tmp_path / "a", {"databricks.yml": CLUSTER_AND_DASHBOARD_EXAMPLES})
+    assert validate(tmp_path / "a") == []
+    write(tmp_path / "b", {"databricks.yml": CLUSTER_AND_JOB_EXAMPLE, "src/my_notebook.py": "# nb\n"})
+    assert validate(tmp_path / "b") == []
+
+
+def test_unknown_keys_in_clusters_and_dashboards(tmp_path):
+    write(tmp_path, {"databricks.yml": """bundle:
+  name: x
+resources:
+  clusters:
+    c:
+      cluster_name: c
+      clone_from: {}
+      permissions: [{level: CAN_RESTART, group_name: users}]
+      lifecycle: {prevent_destroy: true}
+  dashboards:
+    d:
+      display_name: d
+      file_path: ./d.lvdash.json
+      embed_credentials: false
+      grants: []
+"""})
+    findings = validate(tmp_path)
+    assert {f.path: f.line for f in findings} == {"resources.clusters.c.clone_from": 7,
+                                                  "resources.dashboards.d.grants": 15}
+    assert {f.severity for f in findings} == {WARNING}
+
+
 # ---------------------------------------------------------------- duplicate keys
 
 

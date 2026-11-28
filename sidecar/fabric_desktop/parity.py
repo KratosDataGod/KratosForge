@@ -265,7 +265,11 @@ AREAS: tuple[Area, ...] = (
                        "and flags Cortex, external access, stages and pandas on Snowflake. Tested against a fake of "
                        "Snowpark; no result has been compared with Snowflake. Not a Snowflake runtime.")),
     _skinned("snowflake", "loading", "Stages and data loading"),
-    _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
+    _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables",
+       local=Cell("partial", ("test_snowflake_objects_validate.py",),
+                  note="Validation only: CREATE TASK, CREATE STREAM and CREATE DYNAMIC TABLE statements are checked on "
+                       "this PC against Snowflake's documented syntax and rules, with task graphs across statements "
+                       "(Preview, no screen yet). Nothing runs or refreshes here, and nothing is deployed to Snowflake.")),
     _skinned("snowflake", "history", "Query history, profiling and credits",
        cloud_api=Cell("partial", ("test_snowflake_history.py", "test_snowflake_credits.py"),
                       note="The engine reads your own recent queries (QUERY_HISTORY_BY_USER) with their status, run "
@@ -308,7 +312,7 @@ PLANS: dict[tuple[str, str], Plan] = {
     ("snowflake", "objects"): _p("D", "P1", "cloud", "SF-004", owner="Platform parity"),
     ("snowflake", "snowpark"): _p("C", "P2", "simulated", "SF-007"),
     ("snowflake", "loading"): _p("D", "P2", "none", "SF-009"),
-    ("snowflake", "tasks"): _p("E", "P2", "none", "SF-008"),
+    ("snowflake", "tasks"): _p("E", "P2", "simulated", "SF-008"),
     ("snowflake", "history"): _p("G", "P1", "cloud", "SF-005", "SF-006", owner="Platform parity"),
 }
 

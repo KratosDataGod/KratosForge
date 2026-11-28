@@ -6338,7 +6338,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost", "Compare platforms for one workload",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection",
       "Snowflake objects and query history", "Snowflake warehouse credits", "Snowpark API compatibility check",
-      "Snowpark on this PC"],
+      "Snowpark on this PC", "Snowflake tasks, streams and dynamic tables"],
     embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"], sqlCompare: ["Compare data"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
     semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],

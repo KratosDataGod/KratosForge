@@ -102,7 +102,7 @@ Notes:
 | Databases, schemas and object browser | Partial | Missing | Partial | · | · |
 | Snowpark | Partial | Missing | · | Partial | · |
 | Stages and data loading | Partial | Missing | · | · | · |
-| Streams, tasks and dynamic tables | Partial | Missing | · | · | · |
+| Streams, tasks and dynamic tables | Partial | Missing | · | Partial | · |
 | Query history, profiling and credits | Partial | Missing | Partial | · | · |
 
 Notes:
@@ -113,6 +113,7 @@ Notes:
 - **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.
 - **Databases, schemas and object browser, Cloud API integration:** The engine lists databases, schemas, tables and views, and a table's or view's columns, with SHOW as the connection's role and without a warehouse, a capped page at a time (Preview). No screen shows them yet. Against fakes, no live run yet.
 - **Snowpark, Local execution:** Compatibility checks only (Preview). The Snowpark engine on this PC executes cells simulated by Snowflake's local testing framework (Snowpark Python 1.58, its own runtime folder, no network, telemetry off); session.sql and calls the framework doesn't implement are refused. The API compatibility check reads a cell's Snowpark calls, methods and keywords against 1.58.0's signatures and flags Cortex, external access, stages and pandas on Snowflake. Tested against a fake of Snowpark; no result has been compared with Snowflake. Not a Snowflake runtime.
+- **Streams, tasks and dynamic tables, Local execution:** Validation only: CREATE TASK, CREATE STREAM and CREATE DYNAMIC TABLE statements are checked on this PC against Snowflake's documented syntax and rules, with task graphs across statements (Preview, no screen yet). Nothing runs or refreshes here, and nothing is deployed to Snowflake.
 - **Query history, profiling and credits, Cloud API integration:** The engine reads your own recent queries (QUERY_HISTORY_BY_USER) with their status, run time, warehouse and rows, and credits used per warehouse per day from ACCOUNT_USAGE's WAREHOUSE_METERING_HISTORY (up to 3 hours behind), each after a confirm, because each runs on a warehouse (Preview). Credits only, never money. No screen or query profile yet. Against fakes, no live run yet.
 <!-- END GENERATED: parity -->
 
@@ -155,7 +156,7 @@ and it never raises a status. This table is generated from `PLANS` in the same m
 | Snowflake | Databases, schemas and object browser | D Data storage and catalog | P1 | Cloud only | SF-004 | Platform parity |
 | Snowflake | Snowpark | C Notebooks and distributed compute | P2 | Simulated or validated on this PC | SF-007 | unassigned |
 | Snowflake | Stages and data loading | D Data storage and catalog | P2 | Not built yet | SF-009 | unassigned |
-| Snowflake | Streams, tasks and dynamic tables | E Orchestration and transformation | P2 | Not built yet | SF-008 | unassigned |
+| Snowflake | Streams, tasks and dynamic tables | E Orchestration and transformation | P2 | Simulated or validated on this PC | SF-008 | unassigned |
 | Snowflake | Query history, profiling and credits | G Monitoring, cost and optimization | P1 | Cloud only | SF-005, SF-006 | Platform parity |
 <!-- END GENERATED: parity-plan -->
 

@@ -552,6 +552,42 @@ An engine call (`engines/snowflake_credits.py`) reads the credits each warehouse
   role that can't read `ACCOUNT_USAGE` come from Snowflake's usual "does not exist or not authorized"
   and "insufficient privileges" errors, not from a live run.
 
+## Snowflake tasks, streams and dynamic tables (Preview)
+
+CREATE TASK, CREATE STREAM and CREATE DYNAMIC TABLE statements can be checked on this PC before they go
+to Snowflake. This is validation only: nothing runs, refreshes or is scheduled here, nothing is sent to
+Snowflake, and every result is labeled as a local check, not Snowflake's own. No screen offers it yet,
+and deploying the checked statements through the Snowflake SQL warehouse engine, after a confirm,
+comes in a later increment (SF-008).
+
+For each statement the check gives its kind, its name, the properties it sets and its findings. An
+error is something Snowflake's documentation says it refuses, and a warning is something worth a look.
+Each finding is a sentence that says what to do next. What it checks, from Snowflake's reference pages:
+
+- **Names** are valid Snowflake identifiers. An unquoted name starts with a letter or an underscore
+  and holds letters, digits, underscores and dollar signs. A quoted name may hold anything, and each
+  part is at most 255 characters.
+- **Tasks** name a WAREHOUSE or a serverless USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE (up to
+  XXLARGE), not both. A SCHEDULE is 10 to 691,200 seconds, 1 to 11,520 minutes or 1 to 192 hours, or
+  USING CRON with five fields (minute, hour, day of month, month, day of week) and a time zone. A child
+  task (AFTER) has no SCHEDULE, and a finalizer (FINALIZE) has neither. WHEN takes only
+  SYSTEM$STREAM_HAS_DATA, SYSTEM$GET_PREDECESSOR_RETURN_VALUE, SYSTEM$PREDECESSORS_STATE and
+  SYSTEM$TASK_COMPLETION_STATE, with constants, casts, comparisons, AND, OR and NOT. The body after AS
+  is read as Snowflake SQL, one statement or a CALL. A Snowflake Scripting block gets a warning,
+  because it isn't read here.
+- **Task graphs** across the statements. Each AFTER name is found among the statements, or reported as
+  a task that must already exist on Snowflake. A cycle is an error, and so are more than 100
+  predecessors or 100 children for one task, or more than 1,000 tasks in one graph.
+- **Streams** are on a TABLE, VIEW, EXTERNAL TABLE, STAGE, DYNAMIC TABLE or EVENT TABLE, with only the
+  options that source takes. APPEND_ONLY, SHOW_INITIAL_ROWS and AT or BEFORE are for tables and views,
+  and an external table's stream needs INSERT_ONLY = TRUE.
+- **Dynamic tables** name a WAREHOUSE and a TARGET_LAG of at least 60 seconds, or DOWNSTREAM. Their
+  REFRESH_MODE and INITIALIZE take the documented values, and the query after AS is read as Snowflake SQL.
+
+A statement that passes may still be refused by Snowflake. The check doesn't know your objects, roles
+or privileges, nor whether a stream named in SYSTEM$STREAM_HAS_DATA exists. Cron forms Snowflake's
+documentation doesn't list, such as a question mark or a hash, get a warning rather than a verdict.
+
 ## Unity Catalog volumes on this PC (Preview)
 
 Databricks notebooks and Databricks SQL cells that run on this PC can use managed Unity Catalog volumes. A

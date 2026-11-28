@@ -209,14 +209,15 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
             lower = {c[0].lower(): c for c in cols["common"]}
             missing = [k for k in keys if k.lower() not in lower]
             if missing:
-                raise ValueError(f"Key column {', '.join(missing)} isn't in both outputs (or is ignored).")
+                raise ValueError(f"Key column {', '.join(missing)} isn't in both outputs (or is ignored). "
+                                 "Pick a key column that's in both.")
             kq = [(_q(lower[k.lower()][0]), _q(lower[k.lower()][1])) for k in keys]
             dup_a = _count(con, f"SELECT count(*) FROM (SELECT {', '.join(x for x, _ in kq)} FROM a GROUP BY ALL HAVING count(*) > 1)")
             dup_b = _count(con, f"SELECT count(*) FROM (SELECT {', '.join(y for _, y in kq)} FROM b GROUP BY ALL HAVING count(*) > 1)")
             if (dup_a or dup_b) and repeated_keys == "stop":
                 where = "both sides" if dup_a and dup_b else "A" if dup_a else "B"
                 raise RepeatedKey(f"The key ({', '.join(keys)}) is repeated in {where}, so there's no single row to "
-                                  f"compare: {dup_a:,} repeated in A, {dup_b:,} in B. Add a column to the key, or "
+                                  f"compare. {dup_a:,} {'is' if dup_a == 1 else 'are'} repeated in A and {dup_b:,} in B. Add a column to the key, or "
                                   "compare without a key.")
             if dup_a or dup_b:
                 out["duplicates"] = {"pc": dup_a, "fabric": dup_b}

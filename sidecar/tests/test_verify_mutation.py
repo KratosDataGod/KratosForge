@@ -37,7 +37,7 @@ def test_zero_examples_and_the_default_row_limit_are_accepted():
 
 def test_a_key_that_is_not_in_both_outputs_is_refused_by_name():
     t = pa.table({"k": [1], "v": [1]})
-    with pytest.raises(ValueError, match=r"^Key column zz isn't in both outputs \(or is ignored\)\.$"):
+    with pytest.raises(ValueError, match=r"^Key column zz isn't in both outputs \(or is ignored\)\. Pick a key column that's in both\.$"):
         verify.compare(t, t, {"keys": ["zz"]})
 
 

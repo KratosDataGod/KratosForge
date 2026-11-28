@@ -58,7 +58,7 @@ def test_no_key_is_an_empty_key_and_names_are_trimmed():
 
 @pytest.mark.parametrize("keys", [["id", "id"], ["id", "ID"], ["id", " id"]])
 def test_a_key_given_twice_is_refused_whatever_its_case_or_spaces(keys):
-    with pytest.raises(ValueError, match="^A column is in the key twice.$"):
+    with pytest.raises(ValueError, match="^A column is in the key twice. Remove one of them.$"):
         sql_compare._rules(keys, None)
 
 
@@ -116,7 +116,7 @@ def test_a_tolerance_is_for_a_number_column_in_both_a_and_b():
                    "only_b": [1.0]})
     sql_compare._check_tolerances(sql_compare._rules(["id"], {"n": 1, "I": 1, "d": 1}), ta, tb)  # case doesn't matter
     for name in ("s", "only_b", "nope"):
-        with pytest.raises(ValueError, match=f"^A tolerance is for a number column in both A and B, and {name} isn't one.$"):
+        with pytest.raises(ValueError, match=f"^A tolerance is for a number column in both A and B, and {name} isn't one. Remove its tolerance.$"):
             sql_compare._check_tolerances(sql_compare._rules(["id"], {name: 1}), ta, tb)
 
 
@@ -130,7 +130,7 @@ def test_a_number_on_one_side_only_takes_no_tolerance():
 
 def test_a_key_column_takes_no_tolerance_whatever_its_case():
     t = pa.table({"id": [1], "n": [1.0]})
-    with pytest.raises(ValueError, match="^ID matches rows, so it can't have a tolerance.$"):
+    with pytest.raises(ValueError, match="^ID matches rows, so it can't have a tolerance. Remove the tolerance, or take ID out of the key.$"):
         sql_compare._check_tolerances(sql_compare._rules(["id"], {"ID": 1}), t, t)
 
 
@@ -317,7 +317,8 @@ def test_export_refuses_when_nothing_differs_and_leaves_no_file(tmp_path):
 def test_export_refuses_a_checksum_only_compare_and_leaves_no_file(tmp_path, monkeypatch):
     rules = sql_compare._rules
     monkeypatch.setattr(sql_compare, "_rules", lambda keys, tolerance: rules(keys, tolerance) | {"limit_rows": 2})
-    with pytest.raises(ValueError, match="^A or B has too many rows to list the rows that differ"):
+    with pytest.raises(ValueError, match="^A or B has more than 2 rows, so only checksums were compared. Narrow A or B with a WHERE clause "
+                                         "to list the rows that differ.$"):
         sql_compare.export(runs_of(A, B, tmp_path), "a", "b", keys=["id"])
     assert list(tmp_path.iterdir()) == []
     out = sql_compare.compare(runs_of(A, B), "a", "b", keys=["id"])
@@ -391,6 +392,15 @@ def test_repeated_keys_is_whole_rows_or_stop():
 def test_stop_names_the_side_with_the_repeated_key(a, b, where):
     with pytest.raises(verify.RepeatedKey, match=f"is repeated in {where}, so"):
         verify.compare(pa.table({"k": a}), pa.table({"k": b}), {"keys": ["k"]}, repeated_keys="stop")
+
+
+def test_stop_counts_the_repeated_keys_on_each_side():
+    a, b = pa.table({"k": [1, 1, 2, 2]}), pa.table({"k": [1, 1, 3]})
+    with pytest.raises(verify.RepeatedKey, match=r"^The key \(k\) is repeated in both sides, so there's no single row to "
+                       r"compare\. 2 are repeated in A and 1 in B\. Add a column to the key, or compare without a key\.$"):
+        verify.compare(a, b, {"keys": ["k"]}, repeated_keys="stop")
+    with pytest.raises(verify.RepeatedKey, match=r"compare\. 1 is repeated in A and 0 in B\. "):
+        verify.compare(pa.table({"k": [1, 1]}), pa.table({"k": [1]}), {"keys": ["k"]}, repeated_keys="stop")
 
 
 def test_a_repeated_key_matches_whole_rows_unless_told_to_stop():

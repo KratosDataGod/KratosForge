@@ -40,7 +40,7 @@ def _rules(keys: Any, tolerance: Any) -> dict[str, Any]:
     if not isinstance(keys, list) or len(keys) > MAX_KEYS or not all(isinstance(k, str) and k.strip() for k in keys):
         raise ValueError(f"Match rows on up to {MAX_KEYS} columns, each named.")
     if len({k.strip().lower() for k in keys}) != len(keys):
-        raise ValueError("A column is in the key twice.")
+        raise ValueError("A column is in the key twice. Remove one of them.")
     if tolerance is None:
         tolerance = {}
     if not isinstance(tolerance, dict) or len(tolerance) > MAX_TOLERANCES:
@@ -62,7 +62,8 @@ def _read(runs: Any, run_id: Any, side: str) -> tuple[dict[str, Any], pa.Table]:
         raise ValueError(f"Run {side} before comparing.")
     status, table = runs.table(run_id)
     if status.get("change") or status.get("plan") or status.get("profile") or status.get("parts"):
-        raise ValueError(f"Compare data reads the result of one query that only reads, and {side} isn't one.")
+        raise ValueError(f"Compare data reads the result of one query that only reads, and {side} isn't one. "
+                         f"Pick a table, or a query that only reads, for {side}.")
     return status, table
 
 
@@ -81,9 +82,10 @@ def _check_tolerances(rules: dict[str, Any], ta: pa.Table, tb: pa.Table) -> None
     both = _numbers(ta) & _numbers(tb)
     for name in rules["columns"]:
         if name.lower() not in both:
-            raise ValueError(f"A tolerance is for a number column in both A and B, and {name} isn't one.")
+            raise ValueError(f"A tolerance is for a number column in both A and B, and {name} isn't one. Remove its tolerance.")
         if name.lower() in {k.lower() for k in rules["keys"]}:
-            raise ValueError(f"{name} matches rows, so it can't have a tolerance.")
+            raise ValueError(f"{name} matches rows, so it can't have a tolerance. Remove the tolerance, or take {name} out of "
+                             "the key.")
 
 
 def compare(runs: Any, a: Any, b: Any, keys: Any = None, tolerance: Any = None, status: Any = None,
@@ -186,7 +188,9 @@ def export(runs: Any, a: Any, b: Any, keys: Any = None, tolerance: Any = None, n
     try:
         out = verify.compare(ta, tb, rules, 0, repeated_keys="stop", export=write)
         if out.get("counts") is None:
-            raise ValueError("A or B has too many rows to list the rows that differ. Only their checksums were compared.")
+            limit = int(rules.get("limit_rows", verify.DEFAULTS["limit_rows"]))
+            raise ValueError(f"A or B has more than {limit:,} rows, so only checksums were compared. "
+                             "Narrow A or B with a WHERE clause to list the rows that differ.")
         if not written["rows"]:
             raise ValueError("No rows differ, so there are none to export.")
         jsonfile.replace(partial, path)

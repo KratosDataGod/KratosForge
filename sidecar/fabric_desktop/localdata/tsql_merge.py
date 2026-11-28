@@ -24,6 +24,9 @@ From Microsoft's MERGE (Transact-SQL) page, whose second syntax block is the one
   temporary table, a table the script makes, a table-valued function) is placed by :func:`place` too, in engine.py,
   by the columns it has then, before anything is written (WR-257).
 
+- A MERGE after WITH runs with its CTEs moved into USING (WR-259), so it is checked as any other MERGE. A MERGE into
+  a CTE, or one that reads a CTE outside USING, is refused by name.
+
 ``SET t.v = ...``, with the table's alias, runs as ``SET v = ...``: T-SQL allows it, and DuckDB's parser didn't.
 Which clause takes a row (the first whose condition holds) and the check that a table row is changed by one source
 row at most (SQL Server's error 8672) are in engine.py, for a database table and a Delta table alike.
@@ -75,9 +78,11 @@ def check(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | 
     without a column list."""
     if not isinstance(tree, exp.Merge):
         return
-    target, using = tree.this, tree.args.get("using")
+    target = tree.this
     if not isinstance(target, exp.Table):
         return
+    _ctes_into_using(tree, target)
+    using = tree.args.get("using")
     mine = {(target.alias or target.name).lower()}
     theirs = {using.alias.lower()} if using is not None and using.alias else \
         ({using.name.lower()} if isinstance(using, exp.Table) else set())
@@ -108,6 +113,36 @@ def check(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | 
     source = _source_columns(tree, using, columns) if using is not None else None
     if table is not None and source is not None:
         place([(_match(w), _reads(w)) for w in whens], table, source)
+
+
+def _ctes_into_using(tree: exp.Merge, target: exp.Table) -> None:
+    """WR-259: ``WITH d AS (...) MERGE t USING d AS s ...`` runs as ``MERGE t USING (WITH d AS (...) SELECT * FROM d
+    AS s) AS s ...``, so the MERGE starts with MERGE and gets the column checks and error 8672 on any table. A MERGE
+    into a CTE, or one that reads a CTE outside USING, is refused by name."""
+    with_ = tree.args.get("with_")
+    if not isinstance(with_, exp.With):
+        return
+    ctes = {c.alias_or_name.lower(): c.alias_or_name for c in with_.expressions}
+    if not target.args.get("db") and target.name.lower() in ctes:
+        raise ValueError(f"A MERGE into the CTE '{target.name}' can't run on the local engine yet, because a "
+                         "local MERGE changes tables only. Name the table after MERGE, and put the CTE's filter in ON "
+                         "or in a WHEN clause's AND.")
+    using = tree.args.get("using")
+    for key in ("on", "whens"):
+        part = tree.args.get(key)
+        for table in part.find_all(exp.Table) if isinstance(part, exp.Expression) else []:
+            if not table.args.get("db") and table.name.lower() in ctes:
+                raise ValueError(f"This MERGE reads the CTE '{ctes[table.name.lower()]}' outside USING, and the "
+                                 "local engine can't run that yet, because it moves a MERGE's CTEs into USING only."
+                                 " Join what you need into the USING query, or put the CTE's query where it is "
+                                 "read.")
+    alias = using.alias if using is not None else ""
+    if using is None or not (alias or isinstance(using, exp.Table)):
+        return  # no source alias: refused by delta_dml with its own words, as a MERGE without WITH is
+    query = exp.select("*").from_(using.copy())
+    query.set("with_", with_.copy())
+    tree.set("using", exp.Subquery(this=query, alias=exp.TableAlias(this=exp.to_identifier(alias or using.name))))
+    tree.set("with_", None)
 
 
 def _action(when: exp.When) -> str:

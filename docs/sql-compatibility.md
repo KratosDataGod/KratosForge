@@ -493,6 +493,8 @@ When a project runs a T-SQL `MERGE` on this PC, on a database table or on one of
 | `UPDATE SET t.v = ...` with the table's alias | Runs as `SET v = ...`. A column set twice in one clause, or named twice in an `INSERT`, is refused by name (SQL Server's error 264) |
 | `INSERT VALUES (...)` with no column list | A value for each of the table's columns, in order. A different number of values is refused by name |
 | `INSERT DEFAULT VALUES` | Refused by name, because a warehouse's `MERGE` doesn't take it |
+| A `MERGE` after `WITH`, with a CTE as its source | Checked as any other `MERGE`, error 8672 included, on a database table and a Delta table alike. A `MERGE` into a CTE, or one that reads a CTE outside `USING`, is refused by name |
+| A `MERGE` whose clauses a warehouse refuses, such as `WHEN NOT MATCHED BY SOURCE THEN INSERT` or a source without an alias | Refused by name on a database table too, and nothing changes |
 | A `MERGE` without a semicolon after it | Refused by name, as SQL Server's error 10713 does |
 
 What can still differ:

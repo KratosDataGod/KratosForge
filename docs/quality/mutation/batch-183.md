@@ -13,6 +13,8 @@ Before the "after" run, the new tests were run in a copy of `sidecar/` on its ow
 
 Two mutants timed out, and they count as killed. Both are real hangs that batch 14 also found: in `impact`'s loop, negating its test of which entities to add, or swapping `and` for `or` in it (line 863), adds the same entities again on every round.
 
+**Rechecked on 2026-11-24.** On a machine this loaded a mutant can time out without hanging, so both were applied again, alone, to `sidecar/` as it was at the batch's commit and the set run with a 1,500-second limit instead of 120. Both really never end, and the numbers don't change: each was stopped by the test suite's own 300-second limit for one test, with the stack in `impact`'s loop.
+
 ## Results
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |

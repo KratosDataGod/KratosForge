@@ -61,6 +61,7 @@ REMOVED: dict[str, tuple[str, ...]] = {
     "`sidecar.log`, `sidecar.prev.log`, `integrations\\http.log`, `http.prev.log`, agent `logs\\agent.log`": (
         "sidecar.log", "sidecar.prev.log", "integrations/http.log", "integrations/http.prev.log"),
     "`app-crash.log`": ("app-crash.log",),
+    "`keys\\fingerprint.key`": ("keys/fingerprint.key",),
     "`telemetry\\usage.json` (only when usage data is on)": ("telemetry/usage.json",),
     # Rows #3159 adds (IN_REVIEW below).
     "`alerts_outbox.sqlite.sent-not-removed.json` (and the same beside each outbox below)": (

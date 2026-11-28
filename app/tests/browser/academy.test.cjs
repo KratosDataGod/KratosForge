@@ -11,7 +11,8 @@ const skip = !playwright && "Playwright is not installed";
 const noAxe = skip || (!axeSource && "axe-core is not installed");
 const ENGINE = ["app_settings", "save_app_settings", "academy_catalog", "academy_exercise", "academy_start", "academy_save",
   "academy_run", "academy_validate", "academy_hint", "academy_explanation", "academy_reset", "academy_readiness",
-  "profile_get", "learn_catalog"];
+  "profile_get", "learn_catalog", "academy_exam_home", "academy_exam_start", "academy_exam_open", "academy_exam_heartbeat",
+  "academy_exam_pause"];
 const SOLUTION = `CREATE OR REPLACE TABLE silver_orders AS
 SELECT order_id, status, amount, loaded_at
 FROM (
@@ -53,6 +54,19 @@ test("Academy takes Learn's spot in the rail, with six tabs and the next step fi
   assert.match(text, /never read or write OneLake/);
   assert.match(await page().locator(".academy-next").textContent(), /LOCAL VERIFIED/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "academy-home.png") });
+});
+
+test("Home's Take a diagnostic opens the diagnostic screen in Assessments, and Back returns to Home", { skip }, async () => {
+  await openTab("home");
+  await page().locator(".academy-next h2").waitFor();
+  await page().locator(".page.academy .head-actions .tool", { hasText: "Take a diagnostic" }).click();
+  await page().locator(".assess-diag").waitFor();
+  assert.strictEqual(await page().locator(".subtabs [role=tab][aria-selected=true]").textContent(), "Assessments");
+  assert.match(await page().locator(".assess-diag legend").textContent(), /Which part of DP-700\?/);
+  assert.strictEqual(await page().locator(".page.academy .head-actions .tool").count(), 0, "the action belongs to Home");
+  await page().locator(".assess-diag .tool", { hasText: "Back to Home" }).click();
+  await page().locator(".academy-next h2").waitFor();
+  assert.strictEqual(await page().locator(".subtabs [role=tab][aria-selected=true]").textContent(), "Home");
 });
 
 test("Path lists every objective in real tables, and an objective that needs Fabric says so", { skip }, async () => {

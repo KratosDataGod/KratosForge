@@ -25,6 +25,7 @@ If a fixed version exists, open one pull request that moves only that package, a
   - Regenerate every hashed lock that pins it, using the `uv pip compile` command in each file's header: `sidecar/engine-requirements.txt` for shipped packages, and `.github/requirements/test-linux.txt`, `test-windows.txt` and `lint.txt`.
   - `tests/test_toolchain_pins.py` and `tests/test_engine_requirements.py` fail if a lock and `constraints.txt` disagree.
 - **Databricks Connect locks.** Regenerate the affected `sidecar/fabric_desktop/engines/dbconnect_locks/*.txt` with the command in its header.
+- **Snowpark lock.** Regenerate `sidecar/fabric_desktop/engines/snowpark_locks/*.txt` with the command in its header, then re-capture `snowpark_api.json` if Snowpark's own version changes.
 - **npm (UI bundles, VS Code extension).**
   - Move just that package in the lock (`npm update <name> --package-lock-only` in its folder, or an `overrides` entry for a nested dependency).
   - Keep every package's `sha512` integrity; `tests/test_toolchain_pins.py` checks it.

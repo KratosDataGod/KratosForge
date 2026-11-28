@@ -482,3 +482,44 @@ def test_real_read_only_results_name_no_path_outside_the_folders_they_read(engin
             if not any(path == r or r in path.parents for r in roots):
                 found.append((cap_id, p))
     assert found == [], f"paths outside the data folders in results: {found}"
+
+
+@pytest.mark.parametrize("text", [
+    "can't read C:\\Users\\chris\\Documents\\Sales\\orders.csv",
+    "can't read c:/users/chris/Documents/orders.csv",
+    "Permission denied: /home/chris/.local/share/kratosforge/x",
+    "missing /Users/chris/Library/kratosforge/x",
+])
+def test_an_engine_message_naming_a_home_folder_keeps_the_file_but_not_whose(text):
+    """A message that isn't a file error (the engine's own words) can still name a file under the
+    person's home folder: the file's name is kept, its folders (and so the user name) are not."""
+    err = error_from(RuntimeError(text))
+    last = text.replace("\\", "/").rsplit("/", 1)[1]
+    assert "chris" not in err.message and err.message.endswith(last), err.message
+
+
+def test_a_home_folder_path_inside_other_text_still_hides_whose():
+    """A path the folder cut doesn't reach, joined to other text, still loses the user name."""
+    err = error_from(RuntimeError("bad file=C:\\Users\\chris\\x.csv"))
+    assert "chris" not in err.message, err.message
+
+
+@pytest.mark.parametrize("text", [
+    "Permission denied: C:\\Users\\chris",  # the home folder itself: its last part is the name
+    "can't read C:\\Users\\Chris Wagner\\Documents\\x.json now",  # a space in the name, unquoted
+    "Permission denied: C:\\Users\\Chris Wagner",
+    "cannot read /home/chris",
+    "cannot read /Users/chris/",
+    "can't read 'C:\\Users\\Chris Wagner\\Documents\\Q3 payroll.xlsx'",  # quoted, with spaces
+    "cannot read /home/chris/Documents/x.json",
+])
+def test_a_home_folder_path_never_leaves_the_user_name_after_the_cut(text):
+    err = error_from(RuntimeError(text))
+    assert "chris" not in err.message.lower() and "wagner" not in err.message.lower(), err.message
+    assert "Documents" not in err.message, err.message  # the folders after the masked name are cut too
+
+
+@pytest.mark.parametrize("filename", ["C:\\Users\\chris", "/home/chris", "/home/chris/", "C:\\Users\\Chris Wagner"])
+def test_a_file_error_on_the_home_folder_itself_names_no_user(filename):
+    err = error_from(PermissionError(13, "Permission denied", filename))
+    assert err.message == "Permission denied: '[user]'", err.message

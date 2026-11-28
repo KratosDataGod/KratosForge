@@ -13,7 +13,7 @@ const { playwright, openApp, startupReads, axeSource, axeFindings } = require(".
 let app;
 const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
-const READS = ["cost_report", "optimize_status", "engine_connections"];  // optimize_status: the Optimize page's band; engine_connections: Cost's Databricks DBUs section (Preview)
+const READS = ["cost_report", "optimize_status", "engine_connections", "compare_platforms"];  // optimize_status: the Optimize page's band; engine_connections: Cost's Databricks DBUs section; compare_platforms: Compare platforms (both Preview)
 const WRITES = ["usage_import", "usage_import_delete"];
 const LOOKUPS = ["usage_preview"];  // asks the engine without changing anything, once the person picks a file
 

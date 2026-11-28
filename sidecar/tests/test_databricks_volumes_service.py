@@ -386,6 +386,46 @@ def test_delete_refuses_a_folder_holding_a_link_and_a_path_through_one(svc, here
     assert (outside / "secret.txt").exists() and (folder / "day" / "out").exists()
 
 
+
+@pytest.mark.parametrize("order", [("alias", "alias/x.csv"), ("alias/x.csv", "alias")])
+def test_a_link_and_a_file_through_it_are_both_removed_in_either_order(svc, here, order):
+    # the link is removed, not the folder it points at; the file picked through it is removed too
+    folder = here / "sales" / "landing"
+    (folder / "real").mkdir()
+    (folder / "real" / "x.csv").write_text("x", encoding="utf-8")
+    (folder / "real" / "y.csv").write_text("y", encoding="utf-8")
+    _link(folder / "alias", folder / "real")
+    out = svc.databricks_volume_delete([f"{V}/{p}" for p in order], confirm=True)
+    assert sorted(out["deleted"]) == [f"{V}/alias", f"{V}/alias/x.csv"]
+    assert not os.path.lexists(folder / "alias") and not (folder / "real" / "x.csv").exists()
+    assert (folder / "real" / "y.csv").exists()
+
+
+@pytest.mark.parametrize(("order", "kept"), [(("real", "alias/x.csv"), "real"), (("alias/x.csv", "real"), "real"),
+                                             (("real/x.csv", "alias/x.csv"), "real/x.csv")])
+def test_a_path_through_a_link_to_a_picked_folder_or_file_is_removed_once(svc, here, order, kept):
+    # alias/x.csv is the file real/x.csv, so it goes with the folder (or the file) picked beside it
+    folder = here / "sales" / "landing"
+    (folder / "real").mkdir()
+    (folder / "real" / "x.csv").write_text("x", encoding="utf-8")
+    (folder / "keep").mkdir()
+    _link(folder / "alias", folder / "real")
+    out = svc.databricks_volume_delete([f"{V}/{p}" for p in order], confirm=True)
+    assert out["deleted"] == [f"{V}/{kept}"]
+    assert not (folder / "real" / "x.csv").exists() and (folder / "keep").is_dir()
+
+
+def test_a_link_reached_through_another_picked_link_is_removed_first(svc, here):
+    folder = here / "sales" / "landing"
+    (folder / "real").mkdir()
+    (folder / "other").mkdir()
+    _link(folder / "real" / "inner", folder / "other")
+    _link(folder / "alias", folder / "real")
+    out = svc.databricks_volume_delete([f"{V}/alias", f"{V}/alias/inner"], confirm=True)
+    assert sorted(out["deleted"]) == [f"{V}/alias", f"{V}/alias/inner"]
+    assert not os.path.lexists(folder / "alias") and not os.path.lexists(folder / "real" / "inner")
+    assert (folder / "other").is_dir()
+
 # ---- reveal
 
 def test_reveal_shows_a_volume_or_a_file_and_refuses_outside(svc, here, monkeypatch, outside):

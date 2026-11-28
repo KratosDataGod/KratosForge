@@ -238,3 +238,15 @@ def test_a_read_that_missed_a_linked_tag_is_unknown_never_part_shown_as_whole():
     s["read"]["tags"] = ["kf:other"]
     c = card(run(snowflake=s), cmp.SNOWFLAKE)
     assert "didn't include tag kf:daily-sales" in c["figure"]["reason"] and "45 minutes" not in c["figure"]["reason"]
+
+
+def test_several_names_left_out_are_joined_with_and():
+    d = dbx()
+    d["jobs"] += [{"job_id": "8842", "name": "b"}, {"job_id": "8843", "name": "c"}]
+    d["read"]["run_jobs"] = ["8841"]
+    assert card(run(databricks=d), cmp.DATABRICKS)["figure"]["reason"] == \
+        "The last read didn't include jobs 8842 and 8843. Read Databricks billing again."
+    s = snow()
+    s["tags"] += ["kf:b", "kf:c"]
+    assert card(run(snowflake=s), cmp.SNOWFLAKE)["figure"]["reason"] == \
+        "The last read didn't include tags kf:b and kf:c. Read Snowflake query history again."

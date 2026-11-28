@@ -20,6 +20,13 @@ the version in effect when each run happened; always a Scenario figure, never sa
 (time, CU, DBU, credits), never converted into each other. Money only under one pricing version, a
 Scenario figure, and a closing line that compares, never recommends (Preview).
 
+``headroom``: capacity headroom (measure B), always Estimated: per capacity and per imported timepoint,
+used CU against the CU limit of the SKU in effect then, as observed and with the runs' CU avoided added
+back, and peak and p95 of both with the headroom gained. A timepoint with no data is Unknown, never 0 or an
+average; timepoints that don't cover the period make the result Incomplete with the missing windows listed;
+capacities are never mixed. Estimated capacity value (measure C) prices the same CU avoided with
+``pricing.value_runs`` under a named scenario: a Scenario figure, never savings (ESI-402).
+
 ``overhead``: what one run on a PC still cost (transfer seconds, bytes, OneLake read and write
 operations, and its share of the sync that carried it), one measurement per figure, Unknown where
 not recorded, and the Fabric CU overhead the waterfall subtracts for net: Unknown unless a measured
@@ -57,6 +64,18 @@ outcome verified_fixed (FEA-602). Anything else leaves it open. Records hold fin
 never code or evidence text.
 Writing them, version-aware updates and the responsible user and device wait on ESI-301 (ESI-601).
 
+``records``: an optimization record's lifecycle (plan section 4.4, plus reversed and retired) as
+insert-only version rows built on a ``links`` proposal. Every change says the version it was based on;
+a stale one is refused as a conflict, never merged, and a move outside the graph is refused with the
+reason. References are fingerprints, never code. Applying records rollback information (what to restore,
+from which reference). The responsible party is the device (installation id) and, by decision D3, the
+person as the sign-in token's (tid, oid) pair from ``identity`` (pseudonymous labels, not proof); any
+other identity (user, email, UPN, name) is refused. A reversal nets the optimization's accruals to zero through
+``corrections``; a retirement stops accruals and the ``recurring`` projection (ESI-301).
+
+``identity``: the responsible person of decision D3, the (tid, oid) pair kept from the app's own
+Fabric sign-in token and nothing else; ``check`` guards every write and import path (ESI-301).
+
 ``planner_inputs``: optimization demand changes shaped for the capacity planner (OE-040, OE-041), which
 isn't built yet. Per capacity and per workload there are two inputs, verified first, never summed.
 ``verified`` holds Measured accruals of optimizations whose latest validation is Verified. ``estimated``
@@ -71,7 +90,8 @@ readiness), read from the ledger's chains (each layer as its chain's head says) 
 ``realized``, ``pricing``, ``recurring`` and ``baselines``. Every figure has its classification in the
 next column, and different classifications are never added into one cell; Unknown is an empty cell,
 never 0; a price is a Scenario, never savings; text cells that start like a formula get an apostrophe.
-Developer contribution is per device: per-person reporting waits on D3 and D5. Capacity readiness
+Developer contribution is per device: no tenant or object id reaches a report while contributor
+recognition is off (D3, D5). Capacity readiness
 shows evidence and recommends nothing; right-sizing belongs to the planner (OE-040). Text only: the
 download screen waits on the ESI-502 mockup (ESI-507).
 

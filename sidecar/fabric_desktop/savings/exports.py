@@ -28,9 +28,11 @@ rows and never added into one cell. An Unknown figure is an empty cell labelled 
 A price applied to CU avoided is "Capacity value at scenario prices", labelled Scenario, never
 savings. Realized savings come only from ``realized.realize`` results; anything else is refused.
 
-**Who.** No user identity is stored yet: ESI-102 waits on decision D3 (user identity) and the
-leaderboard and names wait on D5. Developer contribution is therefore per installation (device)
-and has no user columns. When one event id reaches the ledger from two devices, the copy written
+**Who.** Decision D3 (2026-11-27) names a person on an optimization record by the sign-in token's
+tenant id and object id (``records``' ``responsible`` pair). Those ids are pseudonymous and stay out
+of every report while contributor recognition is off (D5): each report reads only the named fields
+it shows, so a ``responsible`` pair, ``responsible_tid`` or ``responsible_oid`` in any input never
+reaches a CSV. Developer contribution is therefore per installation (device) and has no user columns. When one event id reaches the ledger from two devices, the copy written
 first (``created_at``, then ``installation_id``) is the one read, so the device is the same
 whatever order rows are read in.
 
@@ -79,8 +81,9 @@ _CLASS = {ms.LABELS[c]: i for c, i in _ORDER.items()}  # the same order, by labe
 _SOURCES = {LOCAL: "This PC", UNATTRIBUTED: "Unattributed"}
 _RESULT_LABEL = {"verified": "Verified", "validating": "Validating", "regressed": "Regressed", "failed": "Failed"}
 
-D3_D5 = ("Per-person reporting waits on decisions D3 (user identity, ESI-102) and D5 (leaderboard and "
-         "names). Until then this report is per installation (device) and has no user columns.")
+D3_D5 = ("Per-person reporting waits on contributor recognition (D5, leaderboard and names); until it is on, "
+         "no tenant or object id (D3) is reported. This report is per installation (device) and has no user "
+         "columns.")
 PLANNER = ("Right-sizing recommendations belong to the capacity planner (OE-040, OE-041), which needs peak, "
            "concurrency and throttling evidence. This report shows the evidence that exists and recommends "
            "nothing.")
@@ -371,8 +374,9 @@ def capacity(events: Iterable[dict[str, Any]], *, realized: Iterable[dict[str, A
 
 def developer_contribution(events: Iterable[dict[str, Any]], *,
                            device_labels: dict[str, str] | None = None) -> dict[str, Any]:
-    """CU avoided per installation (device) and classification. Per-person reporting waits on D3
-    and D5, so there are no user columns. ``device_labels``: optional aliases by installation id."""
+    """CU avoided per installation (device) and classification. Per-person reporting waits on
+    recognition (D5), and no D3 id is reported until then, so there are no user columns.
+    ``device_labels``: optional aliases by installation id."""
     rows_in, problems = layers(events)
     labels = device_labels or {}
     rows = [[k[0] or "", labels.get(k[0] or "", ""), value, _label(cls), runs, n]

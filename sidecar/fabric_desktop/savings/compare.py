@@ -105,6 +105,11 @@ def method_text(method: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+def _and(items: list[str]) -> str:
+    """Names joined as "a, b and c"."""
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
 def _plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
@@ -269,7 +274,7 @@ def _databricks_card(src: dict[str, Any] | None, period: dict[str, Any], start: 
     elif unread:
         # A figure for some linked jobs is never shown as the whole workload's.
         why = (f"The last read didn't include job {unread[0]}. Read Databricks billing again." if len(unread) == 1
-               else f"The last read didn't include jobs {', '.join(unread)}. Read Databricks billing again.")
+               else f"The last read didn't include jobs {_and(unread)}. Read Databricks billing again.")
     else:
         why = ""
     rows = [r for r in read.get("runs") or [] if str(r.get("job_id")) in ids and r.get("job_run_id")
@@ -325,7 +330,7 @@ def _snowflake_card(src: dict[str, Any] | None, pc_runs: list[dict[str, Any]], p
         # A figure for some linked tags is never shown as the whole workload's.
         why = (f"The last read didn't include tag {unread_tags[0]}. Read Snowflake query history again."
                if len(unread_tags) == 1 else
-               f"The last read didn't include tags {', '.join(unread_tags)}. Read Snowflake query history again.")
+               f"The last read didn't include tags {_and(unread_tags)}. Read Snowflake query history again.")
     elif not queries:
         why = "No query with this tag in the period. Query history can be up to 45 minutes late."
     else:

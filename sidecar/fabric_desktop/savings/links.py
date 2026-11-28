@@ -42,9 +42,9 @@ finding is resolved only by a Verified result together with the assessment's own
 keeps it open. Validating, Regressed and Failed always leave the source open. Each answer has a
 plain one-sentence reason.
 
-Not here (ESI-301, which waits on decision D3): the lifecycle writer, version-aware updates,
-conflicts, and the responsible user and device. This module adds no user identity and changes no
-state; it only builds rows and events that ESI-301 can write later. Provenance columns other than
+Not here: version-aware updates, conflicts and the responsible device are ``records`` (ESI-301); the
+writer of those rows is not built, and the responsible person is ``records``' (tid, oid) pair (D3). This module adds no
+user identity and changes no state; it only builds rows and events that ESI-301 can write later. Provenance columns other than
 ``record_id`` (installation, app version, schema version, created at) are left to that writer.
 
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC.

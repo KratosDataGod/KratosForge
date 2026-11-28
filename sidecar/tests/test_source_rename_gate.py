@@ -110,7 +110,7 @@ def test_a_rename_of_a_column_the_source_does_not_have_is_refused_by_name(repo):
 def test_a_rename_onto_a_name_the_source_has_is_refused_because_the_run_fails_on_it(repo, monkeypatch):
     rename_in_fact(repo, 'modified_at = "order_date"')
     errs = repo.errors()
-    assert ("gold.fact_sales: source rename gives two columns the name order_date (modified_at, and "
+    assert ("gold.fact_sales: source rename gives two columns the name order_date (modified_at and "
             "order_date itself), and a table can't hold both; rename order_date too, or pick another new name"
             ) in errs
     # Past the gate, the run fails on the same clash: the gate refuses only what the run can't do.
@@ -209,21 +209,21 @@ def test_a_file_source_rename_is_checked_as_before(repo):
 
 def test_a_watermark_that_is_not_a_contract_column_is_refused(repo):
     repo.edit("silver.orders", 'watermark = "modified_at"', 'watermark = "modified"')
-    assert ("silver.orders: load watermark modified is not a contract column, so no run saves it and every "
+    assert ("silver.orders: load watermark modified isn't a contract column, so no run saves it and every "
             "run reads all the rows again; name a contract column the source gives, like a modified date"
             ) in repo.errors()
 
 
 def test_a_watermark_made_by_the_entity_is_refused(repo):
     repo.edit("silver.orders", 'watermark = "modified_at"', 'watermark = "net_amount"')
-    assert ("silver.orders: load watermark net_amount is not a column the source gives (silver.orders makes "
+    assert ("silver.orders: load watermark net_amount isn't a column the source gives (silver.orders makes "
             "it), so a run can't pick out the new rows and reads them all again; name a contract column the "
             "source gives, like a modified date") in repo.errors()
 
 
 def test_a_watermark_that_is_not_text_is_refused(repo):
     repo.edit("silver.orders", 'watermark = "modified_at"', "watermark = 5")
-    assert 'silver.orders: load watermark names one column, like watermark = "modified_at"' in repo.errors()
+    assert 'silver.orders: load watermark takes one column name, like watermark = "modified_at"' in repo.errors()
 
 
 @pytest.mark.parametrize("field, old, new", [("tracked", '["segment", "city"]', '["segment", "citty"]'),
@@ -231,7 +231,7 @@ def test_a_watermark_that_is_not_text_is_refused(repo):
 def test_scd_column_lists_name_columns_the_dimension_writes(repo, field, old, new):
     repo.edit("gold.dim_customer", f"{field} = {old}", f"{field} = {new}")
     bad = "citty" if field == "tracked" else "nam"
-    assert (f"gold.dim_customer: [scd] {field} lists {bad}, which is not a column gold.dim_customer writes; "
+    assert (f"gold.dim_customer: [scd] {field} lists {bad}, which isn't a column gold.dim_customer writes; "
             f"add it to [contract.columns] or take it out of {field}") in repo.errors()
 
 

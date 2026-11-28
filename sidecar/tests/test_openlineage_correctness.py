@@ -351,3 +351,12 @@ def test_no_planted_value_leaves_in_a_job_dataset_field_or_type_name(tmp_path, s
             # cleaned the same way on both sides, so the edge still meets
             [read] = by_job(out)["gold.g"]["inputs"]
             assert (read["namespace"], read["name"]) in outputs
+
+
+def test_an_object_key_that_looks_like_a_local_path_keeps_the_users_name_on_the_pc():
+    # Security QC: gs://b/C:/Users/jane/x went out as the dataset name, user name and all.
+    ns, name = openlineage._store_dataset("gs://b/C:/Users/jane/x")
+    assert ns == "gs://b" and "jane" not in name
+    ns, name = openlineage._store_dataset("https://onelake.dfs.fabric.microsoft.com/ws1/LH.Lakehouse/Files/C:/Users/bob/x.csv")
+    assert ns == "abfss://ws1@onelake.dfs.fabric.microsoft.com" and "bob" not in name
+    assert openlineage._store_dataset("abfss://ws@acct.dfs.core.windows.net/LH.Lakehouse/Tables/dbo/y")[1] == "LH.Lakehouse/Tables/dbo/y"

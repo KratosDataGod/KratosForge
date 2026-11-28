@@ -96,7 +96,7 @@ def _store_dataset(name: str) -> tuple[str, str] | None:
         if scheme == "https" and host == _ONELAKE_HOST and "/" in path and not u.port:
             ws, path = path.split("/", 1)
             try:  # built by onelake, which checks the id; one that would change the address's shape is no store
-                return workspace_root(_workspace(ws)), path.strip("/")
+                return workspace_root(_workspace(ws)), redact.for_support(path.strip("/"))
             except ValueError:
                 return None
         if scheme not in _STORE_SCHEMES or not host or not path:
@@ -105,7 +105,8 @@ def _store_dataset(name: str) -> tuple[str, str] | None:
     except ValueError:
         return None
     container = f"{_workspace(u.username)}@" if u.username else ""
-    return f"{_STORE_SCHEMES[scheme]}://{container}{host}{port}", path
+    # An object key can look like a local path (gs://b/C:/Users/jane/x): the user's name never leaves the PC.
+    return f"{_STORE_SCHEMES[scheme]}://{container}{host}{port}", redact.for_support(path)
 
 
 class Names:

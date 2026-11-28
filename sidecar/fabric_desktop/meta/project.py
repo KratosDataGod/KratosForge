@@ -663,7 +663,7 @@ def rename_problems(project: Project, e: Entity) -> list[str]:
     for name in sorted({c for c in after if after.count(c) > 1}):
         moved = sorted(k for k, v in rename.items() if v == name and k in have and k != name)
         if name in have and name not in rename:
-            errors.append(f"{e.name}: source rename gives two columns the name {name} ({', '.join(moved)}, and "
+            errors.append(f"{e.name}: source rename gives two columns the name {name} ({', '.join(moved)} and "
                           f"{name} itself), and a table can't hold both; rename {name} too, or pick another new name")
         else:
             errors.append(f"{e.name}: source rename gives two columns the name {name} ({' and '.join(moved)}), "
@@ -747,14 +747,14 @@ def _watermark_problems(e: Entity, available: set[str], wm_renamed: bool) -> lis
     if e.mode != "incremental" or wm is None or not any(k in src for k in ("table", "link", "entity")):
         return []
     if not isinstance(wm, str) or not wm:
-        return [f'{e.name}: load watermark names one column, like watermark = "modified_at"']
+        return [f'{e.name}: load watermark takes one column name, like watermark = "modified_at"']
     if wm_renamed and wm not in e.columns:
         return []  # the source's name for it: that message says which name to use
     if wm not in e.columns:
-        return [(f"{e.name}: load watermark {wm} is not a contract column, so no run saves it and every run "
+        return [(f"{e.name}: load watermark {wm} isn't a contract column, so no run saves it and every run "
                  "reads all the rows again; name a contract column the source gives, like a modified date")]
     if wm not in available:
-        return [(f"{e.name}: load watermark {wm} is not a column the source gives ({e.name} makes it), so a run "
+        return [(f"{e.name}: load watermark {wm} isn't a column the source gives ({e.name} makes it), so a run "
                  "can't pick out the new rows and reads them all again; name a contract column the source "
                  "gives, like a modified date")]
     return []
@@ -774,7 +774,7 @@ def _scd_list_problems(e: Entity, output: set[str]) -> list[str]:
         if not isinstance(cols, list) or not all(isinstance(c, str) for c in cols):
             errors.append(f"{e.name}: [scd] {part} takes a list of contract columns, like {part} = {example}")
             continue
-        errors += [f"{e.name}: [scd] {part} lists {c}, which is not a column {e.name} writes; add it to "
+        errors += [f"{e.name}: [scd] {part} lists {c}, which isn't a column {e.name} writes; add it to "
                    f"[contract.columns] or take it out of {part}" for c in dict.fromkeys(cols) if c not in output]
     return errors
 

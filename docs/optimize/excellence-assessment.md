@@ -175,7 +175,7 @@ each, and caveats. The same finding always gives the same text.
 | FEA-DEVOPS-001 | Notebook parameter cell with a relative `Tables/...` path, or a OneLake path built from names |
 | FEA-REL-001 | Python handler that catches only the expected error and lets anything else fail the run |
 | FEA-REL-002 | `%pip show` then `%pip install <package>==<version>` |
-| FEA-DE-003 | `VACUUM <table>` (Spark SQL) and `DeltaTable.forName(...).vacuum()` (PySpark), with no retention argument: the table keeps its own retention, 7 days by default |
+| FEA-DE-003 | `VACUUM <table>` (Spark SQL) and `DeltaTable.forName(...).vacuum()` (PySpark), with no retention argument, so the table keeps its own retention (7 days by default) |
 | FEA-REL-003 | Pipeline JSON that sets each named deactivated activity's `state` to `Active` |
 | FEA-DEVOPS-002 | Pipeline JSON with a `target_workspace_id` parameter used as each named activity's `workspaceId` |
 | FEA-SM-001 | TMDL that sets each named relationship's `crossFilteringBehavior` to `oneDirection` |
@@ -183,11 +183,11 @@ each, and caveats. The same finding always gives the same text.
 | FEA-SM-006 | TMDL that sets `isHidden` on each named key column |
 
 A template is filled only from names the finding already holds (relationship, column and activity
-names); everything else is a placeholder. Names are quoted for their language: TMDL names in single
+names). Everything else is a placeholder. Names are quoted for their language: TMDL names in single
 quotes with `'` doubled, JSON through a JSON encoder. A name that can't be quoted safely (a line
 break or other control or invisible character, a name cut short, or a relationship whose table and
 column can't be told apart because a name holds a dot) is left out, and the template says how many
-were. No template removes data or objects, none shortens VACUUM retention, and none holds a secret,
+were left out. No template removes data or objects, none shortens VACUUM retention, and none holds a secret,
 a connection string, a token or an id. Advisory findings have no templates. The scorecard doesn't
 show templates yet.
 

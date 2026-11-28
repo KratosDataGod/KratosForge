@@ -33,7 +33,7 @@ from typing import Any, Callable
 KINDS = ("sql", "python", "notebook", "tmdl", "json")
 MAX_NAME = 256  # inspect_models cuts names at this length; a name that long may be cut, so it is left out
 _PLAIN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_PREVIEW = "Proposal only: KratosForge doesn't apply it. Review it, then make the change yourself."
+_PREVIEW = "This is a proposal, and KratosForge doesn't apply it. Review it, then make the change yourself."
 
 
 def _safe(name: Any) -> bool:
@@ -99,9 +99,9 @@ def _count(detail: dict[str, Any]) -> int:
 def _left_out(skipped: int, total: int, shown: int, what: str) -> list[str]:
     out = []
     if skipped:
-        out.append(f"{skipped} {what} left out: the name can't be written safely here. Change those by hand.")
+        out.append(f"{skipped} {what} left out, because their names can't be written safely here. Change those by hand.")
     if total > shown + skipped:
-        out.append(f"The finding lists {shown + skipped} of {total} {what}; change the others the same way.")
+        out.append(f"The finding lists {shown + skipped} of {total} {what}. Change the others the same way.")
     return out
 
 
@@ -132,8 +132,8 @@ def _sm_bidirectional(o: dict[str, Any]) -> list[dict[str, Any]]:
     return [_tpl(o["control_id"], "tmdl", "Filter each relationship in one direction (TMDL)", "\n".join(blocks),
                  [("<relationship id>", ("The relationship's name in the model's relationships.tmdl, usually a "
                                         "GUID. Match it by fromColumn and toColumn."))],
-                 [("Change only the crossFilteringBehavior line of the existing relationship; leave its other "
-                  "properties as they are. Removing the line has the same effect: one direction is the default."),
+                 [("Change only the crossFilteringBehavior line of the existing relationship, and leave its other "
+                  "properties as they are. Removing the line works too, because one direction is the default."),
                   ("A visual or measure that relied on filtering both ways can show different numbers. Use "
                   "CROSSFILTER in that measure instead, and compare report totals before and after."),
                   *_left_out(skipped, _count(d), len(blocks), "relationships")])]
@@ -156,8 +156,8 @@ def _sm_visible_keys(o: dict[str, Any]) -> list[dict[str, Any]]:
     text = "\n".join(f"table {t}\n" + "".join(f"\n\tcolumn {c}\n\t\tisHidden\n" for c in cols)
                      for t, cols in sorted(by_table.items()))
     return [_tpl(o["control_id"], "tmdl", "Hide the relationship keys in the fact tables (TMDL)", text, [],
-                 ["Add the isHidden line to each existing column; leave the column's other properties as they are.",
-                  ("A report that shows the key column directly loses that field; point it at the dimension's "
+                 ["Add the isHidden line to each existing column, and leave the column's other properties as they are.",
+                  ("A report that shows the key column directly loses that field. Point it at the dimension's "
                   "columns instead."),
                   *_left_out(skipped, _count(d), shown, "columns")])]
 
@@ -167,9 +167,9 @@ def _sm_fallback(o: dict[str, Any]) -> list[dict[str, Any]]:
         return []  # DirectQuery only is a choice about the model's design, not a one-line change
     return [_tpl(o["control_id"], "tmdl", "Make the model Direct Lake only (TMDL)",
                  "model Model\n\tdirectLakeBehavior: directLakeOnly\n", [],
-                 ["Add the line to the model object in model.tmdl; leave its other properties as they are.",
+                 ["Add the line to the model object in model.tmdl, and leave its other properties as they are.",
                   ("A query that used to fall back to DirectQuery now fails with an error instead. Open the "
-                  "model's reports once after the change; if one fails, fix its cause (a SQL view, a table past "
+                  "model's reports once after the change. If one fails, fix its cause (a SQL view, a table past "
                   "the guardrails, row-level security in the SQL endpoint) or set Automatic again.")])]
 
 
@@ -194,8 +194,8 @@ def _pl_deactivated(o: dict[str, Any]) -> list[dict[str, Any]]:
                   "\"Active\" and take out its \"onInactiveMarkAs\" property. Leave everything else as it is."),
                   ("An activity that should stay off can instead keep \"state\": \"Inactive\" with "
                   "\"onInactiveMarkAs\": \"Skipped\", so a run no longer reports it as Succeeded."),
-                  ("Run the pipeline once in a test workspace first: an activity that was off may not have run "
-                  "for a while."),
+                  ("Run the pipeline once in a test workspace first, because an activity that was off may not "
+                  "have run for a while."),
                   *_left_out(skipped, _count(d), len(names), "activities")])]
 
 
@@ -232,8 +232,8 @@ def _nb_secret(o: dict[str, Any]) -> list[dict[str, Any]]:
     return [_tpl(o["control_id"], "python", "Read the secret from Key Vault (notebook cell)", text,
                  [("<key vault URL>", "Your vault's URL, like https://<vault name>.vault.azure.net/."),
                   ("<secret name>", "The name of the secret in that vault.")],
-                 [("Rotate the secret at its source: the old value is in the notebook's versions, exports and "
-                  "Git history."),
+                 [("Rotate the secret at its source, because the old value is still in the notebook's versions, "
+                  "exports and Git history."),
                   "Clear any cell output that showed the secret."])]
 
 
@@ -247,7 +247,7 @@ def _nb_fixed_paths(o: dict[str, Any]) -> list[dict[str, Any]]:
             "onelake_path = (f\"abfss://{workspace_name}@onelake.dfs.fabric.microsoft.com/\"\n"
             "                f\"{lakehouse_name}.Lakehouse/Tables/<table name>\")\n")
     return [_tpl(o["control_id"], "notebook", "Parameterize the OneLake path (notebook cells)", text,
-                 [("<workspace name>", "The workspace for this stage; a pipeline or deployment sets it per stage."),
+                 [("<workspace name>", "The workspace for this stage. A pipeline or deployment sets it per stage."),
                   ("<lakehouse name>", "The lakehouse the notebook reads or writes."),
                   ("<table name>", "The table (or Files/... folder) the path pointed at.")],
                  ["Replace each id path named in the finding with relative_path or onelake_path.",
@@ -267,14 +267,14 @@ def _nb_swallowed(o: dict[str, Any]) -> list[dict[str, Any]]:
             "    # Anything else: log it and let the run fail, so it can be alerted on.\n"
             "    log.exception(\"<step name> failed\")\n"
             "    raise\n")
-    return [_tpl(o["control_id"], "python", "Handle the expected error and let others fail the run", text,
+    return [_tpl(o["control_id"], "python", "Handle the expected error and let any other error fail the run", text,
                  [("<notebook name>", "A logger name, such as the notebook's name."),
                   ("<the step that can fail>", "The code the handler wraps today."),
                   ("<ExpectedError>", "The exception type you expect, such as FileNotFoundError."),
                   ("<step name>", "A short name for the step, for the log."),
                   ("<what to do instead>", "The fallback for the expected case, or remove that branch.")],
                  ["Replace the except ...: pass handler at the cell and line named in the finding.",
-                  ("Runs that used to succeed quietly may now fail: that is the point. Tell whoever watches the "
+                  ("Runs that used to succeed quietly may now fail, and that's the point. Tell whoever watches the "
                   "pipeline or schedule before you deploy it.")])]
 
 
@@ -299,11 +299,11 @@ def _nb_short_vacuum(o: dict[str, Any]) -> list[dict[str, Any]]:
           "DeltaTable.forName(spark, \"<table>\").vacuum()\n")
     places = [("<table>", ("The table the VACUUM at the cell and line named in the finding runs on, as "
                           "schema.table (or `schema`.`table` in Spark SQL when a name needs quoting)."))]
-    caveats = [("This keeps the table's own retention, delta.deletedFileRetentionDuration: 7 days unless the "
-                "table sets it. Check it first with SHOW TBLPROPERTIES <table>; if it is under 7 days, set it "
+    caveats = [("This keeps the table's own retention (delta.deletedFileRetentionDuration), which is 7 days unless "
+                "the table sets it. Check it first with SHOW TBLPROPERTIES <table>. If it's under 7 days, set it "
                 "back to at least 7 days, or this VACUUM still removes history that recent."),
-               ("Leave spark.databricks.delta.retentionDurationCheck.enabled on: it stops a RETAIN shorter than "
-                "the table's retention.")]
+               ("Leave spark.databricks.delta.retentionDurationCheck.enabled on, because it stops a RETAIN "
+                "shorter than the table's retention.")]
     return [_tpl(o["control_id"], "sql", "VACUUM with the default retention (Spark SQL)", sql, places, caveats),
             _tpl(o["control_id"], "python", "VACUUM with the default retention (PySpark)", py, places, caveats)]
 

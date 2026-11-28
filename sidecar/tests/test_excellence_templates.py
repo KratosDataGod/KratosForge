@@ -96,7 +96,7 @@ def test_each_control_gives_well_formed_templates(cid):
     for t in got:
         assert set(t) == {"control_id", "kind", "title", "text", "placeholders", "caveats"}
         assert t["control_id"] == cid and t["kind"] in tp.KINDS and t["title"] and t["text"].endswith("\n")
-        assert t["caveats"][0].startswith("Proposal only")
+        assert t["caveats"][0].startswith("This is a proposal, and KratosForge doesn't apply it.")
         for p in t["placeholders"]:
             assert p["token"] in t["text"] and p["meaning"]
 

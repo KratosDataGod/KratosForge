@@ -16,6 +16,9 @@ const COMMON = [{ name: "order_id", kind: "integer", number: true }, { name: "am
 
 let answer = null;  // what sql_compare answers next, from its params
 let exported = null;
+let exportFails = null;  // an Error sql_compare_export throws, or null
+let startAs = null;  // (params, status) -> the status sql_start answers instead, or null
+const held = new Set();  // runs whose sql_status says running until sql_cancel ends them
 
 before(async () => {
   if (skip) return;
@@ -23,10 +26,16 @@ before(async () => {
   app = await openApp({
     engine: ["sql_format", "sql_analyze", "sql_queries_list"],
     mocks: { ...runs,
+      sql_start: (p) => { const st = runs.sql_start(p); return startAs ? startAs(p, st) : st; },
+      sql_status: (p) => (held.has(p.execution) ? { id: p.execution, state: "running", rows: 0, seconds: 0.5 } : runs.sql_status(p)),
+      sql_cancel: ({ execution }) => { held.delete(execution); return { id: execution, state: "cancelling" }; },
       list_tables: () => ({ dbo: ["orders", "orders_rebuilt"] }),
       table_columns: () => [{ name: "order_id", type: "bigint" }, { name: "amount", type: "double" }, { name: "status", type: "string" }],
       sql_compare: (p) => answer(p),
-      sql_compare_export: (p) => { exported = p; return { path: "C:\\Users\\x\\Downloads\\Sales compare.csv", name: "Sales compare.csv", rows: 6, notes: [] }; } },
+      sql_compare_export: (p) => {
+        if (exportFails) throw exportFails;
+        exported = p; return { path: "C:\\Users\\x\\Downloads\\Sales compare.csv", name: "Sales compare.csv", rows: 6, notes: [] };
+      } },
   });
 });
 after(async () => { await app?.close(); });
@@ -226,4 +235,130 @@ test("on a warehouse, a table's menu has Compare with, and a table with no known
   assert.strictEqual(await d.getByRole("button", { name: /^Stop matching on/ }).count(), 0, "no key is guessed");
   await page().keyboard.press("Escape");
   await dialog().waitFor({ state: "detached" });
+});
+
+// When a run fails or is stopped, Export fails, a result was cleaned up, the window is narrow, or only
+// checksums could be compared (the UX Preview-exit sweep). Lakehouse mocks.
+const go = () => page().locator(".dialog-actions").getByRole("button", { name: "Compare" });
+const stopButton = () => page().locator(".dialog-actions").getByRole("button", { name: "Stop" });
+const closeButton = () => page().locator(".dialog-actions").getByRole("button", { name: "Close" });
+async function openDialog() {
+  await openPage();
+  await page().getByRole("button", { name: "Compare data" }).click();
+  await dialog().getByLabel("A: table").waitFor();
+  return dialog();
+}
+const calls = (method) => app.calls.filter((c) => c.method === method).map((c) => c.params);
+async function until(check, what) {
+  for (const end = Date.now() + 5000; !(await check());) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+test("a failed run says which side and why, and Stop ends B while it runs", { skip }, async () => {
+  const d = await openDialog();
+  answer = keyed;
+  const n = compares().length;
+  startAs = (p, st) => (p.query === "SELECT * FROM orders" ? { ...st, state: "failed", error: "Table orders is locked by another job." } : st);
+  await go().click();
+  await d.getByRole("alert").getByText("A: Table orders is locked by another job.").waitFor();
+  assert.strictEqual(compares().length, n, "nothing is compared when A fails");
+
+  let bId = null;
+  startAs = (p, st) => {
+    if (p.query !== "SELECT * FROM orders_rebuilt") return st;
+    bId = st.id;
+    held.add(st.id);
+    return { ...st, state: "running" };
+  };
+  try {
+    await go().click();
+    await d.getByText("Running B on this PC…").waitFor();
+    assert.ok(await go().isDisabled(), "Compare waits while a side runs");
+    await stopButton().click();
+    await until(() => calls("sql_cancel").some((p) => p.execution === bId), "sql_cancel on B");
+    await until(async () => !(await go().isDisabled()), "Compare enabled again");
+    assert.strictEqual(await d.locator(".sql-compare-verdict").count(), 0, "no verdict after Stop");
+    assert.strictEqual(compares().length, n, "nothing is compared after Stop");
+    assert.ok(await stopButton().isHidden(), "Stop goes once nothing runs");
+  } finally {
+    startAs = null;
+    held.clear();
+  }
+  await closeButton().click();
+});
+
+test("a failed Export says so and the dialog stays usable", { skip }, async () => {
+  const d = await openDialog();
+  answer = keyed;
+  await d.getByLabel("Add a key column").selectOption("order_id");
+  await go().click();
+  await d.locator(".sql-compare-verdict").getByText("Differs").waitFor();
+  exportFails = new Error("The disk is full.");
+  try {
+    await d.getByRole("button", { name: "Export" }).click();
+    await page().locator("#toast").getByText(/^Couldn't export the rows that differ/).waitFor();
+  } finally {
+    exportFails = null;
+  }
+  await d.getByRole("button", { name: /15\s*Changed/ }).click();
+  await d.getByText("Showing 1–2 of 15 changed rows.").waitFor();
+  await closeButton().click();
+});
+
+test("a result that was cleaned up says to Compare again, and Compare runs A and B again", { skip }, async () => {
+  const d = await openDialog();
+  answer = whole;
+  await go().click();
+  await d.locator(".sql-compare-verdict").waitFor();
+  const n = starts().length;
+  answer = () => ({ rerun_needed: true, message: "This result was cleaned up. Run the query again to compare them." });
+  await d.getByLabel("Add a key column").selectOption("order_id");
+  await d.getByRole("alert").getByText("This result was cleaned up. Run the query again to compare them. Press Compare to run A and B again.").waitFor();
+  answer = keyed;
+  await go().click();
+  await d.locator(".sql-compare-verdict").getByText("Differs").waitFor();
+  assert.strictEqual(starts().length, n + 2, "A and B run again");
+  await closeButton().click();
+});
+
+test("in a narrow window the page doesn't scroll sideways: the table scrolls inside the dialog", { skip }, async () => {
+  const was = page().viewportSize();
+  try {
+    // Opened first: at 600 px the page folds its Explorer away. Then the window narrows under the dialog.
+    const d = await openDialog();
+    await page().setViewportSize({ width: 600, height: 900 });
+    answer = keyed;
+    await d.getByLabel("Add a key column").selectOption("order_id");
+    await go().click();
+    await d.locator(".sql-compare-verdict").getByText("Differs").waitFor();
+    await d.getByRole("button", { name: "Show all columns" }).click();
+    await d.locator(".sql-compare-table-wrap").waitFor();
+    const m = await page().evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: innerWidth,
+      right: document.querySelector(".sql-compare-dialog").getBoundingClientRect().right,
+      wrap: getComputedStyle(document.querySelector(".sql-compare-table-wrap")).overflowX }));
+    assert.ok(m.scroll <= m.inner, `the page scrolls sideways: ${m.scroll} > ${m.inner}`);
+    assert.ok(m.right <= m.inner, `the dialog's right edge is off the window: ${m.right} > ${m.inner}`);
+    assert.strictEqual(m.wrap, "auto", "the table scrolls inside its own box");
+    await closeButton().click();
+  } finally {
+    await page().setViewportSize(was);
+  }
+});
+
+test("when only checksums can be compared, the verdict says so, with no tiles and no Export", { skip }, async () => {
+  const d = await openDialog();
+  const limit = "More than 5,000,000 rows, so only row counts and a checksum were compared.";
+  answer = (p) => ({ result: "differs", level: "fingerprint", method: "whole rows", keys: [], seconds: 2.1, rows: { a: 6000000, b: 6000001 },
+    common: COMMON, columns: { only_a: [], only_b: [], types: [] }, limitations: [limit], status: p.status, offset: p.offset,
+    counts: null, listed: 0, examples: [] });
+  await go().click();
+  const verdict = d.locator(".sql-compare-verdict");
+  await verdict.waitFor();
+  assert.match(await verdict.innerText(), /6,000,000 rows in A, 6,000,001 in B\. [\s\S]*only checksums were compared/);
+  assert.strictEqual(await d.locator(".sql-compare-tile").count(), 0, "no tiles");
+  assert.strictEqual(await d.getByRole("button", { name: "Export" }).count(), 0, "no Export");
+  await d.locator(".sql-compare-notes li").getByText(limit).waitFor();
+  await closeButton().click();
 });

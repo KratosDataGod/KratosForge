@@ -83,7 +83,8 @@ def test_home_sizes_each_diagnostic_and_remembers_the_last_one(svc):
     svc.academy_exam_finish(v["id"])
     home = svc.academy_exam_home("dp-700")
     last = next(d for d in home["domains"] if d["id"] == "2")["diagnostic"]["last"]
-    assert last["total"] == v["total"] and last["correct"] in (0, 1) and last["finished_at"]
+    # One answered item scores 0 to 1: a multi-part item drawn at random can earn partial credit.
+    assert last["total"] == v["total"] and 0 <= last["correct"] <= 1 and last["finished_at"]
     assert home["diagnostic_all"]["last"] is None and home["finished"][0]["domain"] == "2"
 
 

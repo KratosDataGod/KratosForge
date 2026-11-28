@@ -42,7 +42,7 @@ CELL_SECONDS = 2 * 60 * 60       # as the SQL warehouse engine's statement limit
 STOP_SECONDS = 10                # after a cancel, before the process is ended
 # What pip may see of this PC: enough to find a temp folder and a proxy, nothing that changes what it
 # installs (PIP_*, PYTHON*, a config file) or that it could pass on.
-PIP_ENV = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")
+PIP_ENV = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "PYTHONIOENCODING")
 _LINE = re.compile(r"\d{1,2}\.\d{1,2}")
 DRIVE = re.compile(r"[A-Za-z]:[\\/]")
 

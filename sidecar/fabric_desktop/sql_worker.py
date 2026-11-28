@@ -139,7 +139,8 @@ def run(job: dict[str, Any]) -> None:
             rows, batches, schema = _snapshot(result, Path(job["parts_dir"]) / f"result-{n}.arrow")
             _say("part", statement=n, rows=rows, batches=batches, seconds=round(time.monotonic() - began, 2),
                  columns=[{"name": f.name, "type": str(f.type)} for f in schema])
-        _say("done", rows=rows, batches=batches, columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+        _say("done", rows=rows, batches=batches, columns=[{"name": f.name, "type": str(f.type)} for f in schema],
+             **_versions(views))
         return
     for i, statement in enumerate(statements):
         sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
@@ -152,7 +153,14 @@ def run(job: dict[str, Any]) -> None:
 
     rows, batches, schema = _snapshot(result, Path(job["out"]))
     _say("done", rows=rows, batches=batches,
-         columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+         columns=[{"name": f.name, "type": str(f.type)} for f in schema], **_versions(views))
+
+
+def _versions(views: dict[str, str]) -> dict[str, Any]:
+    """The Delta version each lakehouse table was read at, by its name in the query (Compare data says it).
+    bind_tables keys a latest read as name@uri#version; a time travel read (name@v3) isn't listed."""
+    read = {k.split("@", 1)[0]: int(k.rsplit("#", 1)[1]) for k in views if "#" in k and k.rsplit("#", 1)[1].isdigit()}
+    return {"versions": read} if read else {}
 
 
 def _bound(statement: Any, values: dict[str, Any]) -> dict[str, Any] | None:

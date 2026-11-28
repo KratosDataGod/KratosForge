@@ -216,6 +216,7 @@ class Execution:
     current: int = 0  # S14: the statement running now (1-based), 0 before the first
     failed_statement: int = 0  # S14: the statement that failed (1-based), 0 if none
     pinned: bool = False  # kept past MAX_KEPT and the retention time until unpinned (S27)
+    versions: dict[str, int] = field(default_factory=dict)  # lakehouse target: each table's Delta version read
 
     def __setattr__(self, name: str, value: Any) -> None:
         # started, ended and created stay the wall-clock times the page shows; each is also stamped on the
@@ -259,6 +260,7 @@ class Execution:
                 **({"statements": len(self.units), "statement": self.current, "failed_statement": self.failed_statement,
                     "parts": [_part_status(p) for p in self.parts]} if self.units else {}),
                 **({"pinned": True} if self.pinned else {}),
+                **({"versions": dict(self.versions)} if self.versions else {}),
                 "snapshot": self.state == "completed" and self.snapshot.exists()}
 
     def part_file(self, n: int) -> Path:
@@ -755,6 +757,7 @@ class SqlExecutions:
                 run.offsets = list(itertools.accumulate([0, *run.batches[:-1]])) if run.batches else []
                 run.columns = list(outcome.get("columns") or [])
                 run.affected, run.committed = int(outcome.get("affected") or 0), bool(outcome.get("committed"))
+                run.versions = {str(k): int(v) for k, v in (outcome.get("versions") or {}).items()}
                 if run.units and run.parts:  # the run's own result is its last statement's
                     last = run.parts[-1]
                     run.rows, run.batches, run.offsets, run.columns = last["rows"], last["batches"], last["offsets"], last["columns"]

@@ -930,11 +930,26 @@ function renderQuery() {
   }
   // S34 (Preview): Compare data, A and B each a table of this lakehouse or a query (sqlcompare.js).
   function openCompare(a) {
+    if (wh) { openWarehouseCompare(a); return; }
     if (!runsHere()) { toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to compare data.`, true); return; }
     const tables = Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((n) => sqlTableName(schema, n, tab.dialect)));
     const provider = lakehouseSqlProvider(p, ref, () => {});
     const byName = new Map(Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((n) => [sqlTableName(schema, n, tab.dialect), { schema, name: n }])));
     sqlCompareDialog({ ref, dialect: tab.dialect, tables, a, columns: (name) => byName.has(name) ? provider.columns(byName.get(name)) : Promise.resolve([]) });
+  }
+  // On a warehouse, A and B are its tables, views or queries, each run in Fabric as a read with no allow,
+  // after a confirm (both use capacity). Match rows on starts with a table's primary key when the
+  // Diagram has read the keys; otherwise it starts empty.
+  function openWarehouseCompare(a) {
+    const cat = p.catalog?.key === sqlRefKey(ref) && p.catalog.state === "done" ? p.catalog : null;
+    if (!cat) { toast("List the warehouse's objects first, with List objects in the Explorer."); return; }
+    const list = new Map(sqlCompareWarehouseTables(cat, whName).map((t) => [t.name, t]));
+    const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
+    sqlCompareDialog({ ref, dialect: "tsql", tables: [...list.keys()], a, where: "in Fabric",
+      columns: (name) => Promise.resolve(list.get(name)?.columns || []),
+      keys: (name) => [...(list.get(name)?.keys || [])],
+      start: (query) => rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef }),
+      confirm: () => { const c = sqlCompareFabricConfirm(ref); return confirmDialog(c.title, c.text, "Run both"); } });
   }
   async function toggleColumns(t, name) {
     p.open[name] = !p.open[name];
@@ -1034,7 +1049,11 @@ function renderQuery() {
       openSqlDiagram({ kind: "warehouse", name: ref.name, schemas: [...new Set(tables.map((o) => o.schema))],
         tables: async (schema) => tables.filter((o) => o.schema === schema)
           .map((o) => ({ schema: o.schema, name: o.name, columns: cat.cols[`${o.schema}.${o.name}`] || [] })),
-        keys: async () => diagramKeys((await whCatalogQuery(ref, WH_KEYS_SQL)).rows),
+        keys: async () => {
+          const keys = diagramKeys((await whCatalogQuery(ref, WH_KEYS_SQL)).rows);
+          if (p.catalog === cat) cat.pks = keys.pks;  // kept with the catalog, for Compare data's key
+          return keys;
+        },
         reveal: showInExplorer });
       return;
     }
@@ -1688,6 +1707,7 @@ function renderQuery() {
     insert: (text) => insertAtCursor(text),
     open: (name, text) => openTab(name, text),
     diagram: () => openDiagram(),
+    compare: (name) => openCompare(name),
   }) : null;
   // WH-06: saved and shared queries, on the explorer's Queries tab. A saved query opens in its own
   // tab, or in the tab that already holds it.

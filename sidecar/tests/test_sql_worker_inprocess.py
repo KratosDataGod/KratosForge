@@ -182,3 +182,22 @@ def test_any_other_failure_goes_back_to_the_engine_as_a_message(main_with, capsy
     with pytest.raises(Exited):
         sql_worker.main()
     assert said(capsys) == [{"event": "error", "kind": "sql", "message": "KeyboardInterrupt"}]
+
+
+def test_done_says_the_delta_version_each_table_was_read_at(tmp_path, capsys):
+    # Compare data says "Table, version N" for a lakehouse table side: the version the run read.
+    root = tmp_path / "lake"
+    sql_worker.run(job(tmp_path, "SELECT 1 AS n"))
+    assert "versions" not in said(capsys)[-1], "a query that reads no table lists none"
+    write_deltalake(str(root / "sales"), pa.table({"id": [4], "amount": [4.5]}), mode="append")
+    sql_worker.run(job(tmp_path, "SELECT * FROM sales"))
+    assert said(capsys)[-1]["versions"] == {"sales": 1}
+    sql_worker.run(job(tmp_path, "SELECT 1 AS n; SELECT * FROM sales", statements=["SELECT 1 AS n", "SELECT * FROM sales"],
+                       parts_dir=str(tmp_path)))
+    assert said(capsys)[-1]["versions"] == {"sales": 1}
+
+
+def test_versions_reads_only_latest_reads_from_the_view_keys():
+    views = {"sales@file:///lake/sales#7": "v1", "dbo.orders@abfss://x/orders#212": "v2", "sales@v3": "v3", "odd@x#y": "v4"}
+    assert sql_worker._versions(views) == {"versions": {"sales": 7, "dbo.orders": 212}}
+    assert sql_worker._versions({}) == {}

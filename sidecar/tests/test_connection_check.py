@@ -265,3 +265,26 @@ def test_databricks_sign_in_lost_mid_check_is_a_sign_in_problem_not_an_access_on
     assert not out["signed_in"]
     assert [p["field"] for p in out["problems"]] == ["sign-in"]
     _assert_no_secret(out, DBX_TOKEN)
+
+
+def test_fabric_without_capacities_asked_says_nothing_about_capacity():
+    client = fabric_client(lambda: FABRIC_TOKEN, [Reply(200, {"value": WS})])
+    out = cc.check_fabric("pat@contoso.com", TENANT, client.list_workspaces).as_dict()
+    assert out["ok"] and out["can"] == ["You can see 2 workspaces."]
+    assert not any("capacit" in p["field"] for p in out["problems"])
+
+
+def test_a_cluster_without_a_connect_entry_counts_as_not_usable():
+    out = cc.from_databricks({"signed_in": True, "parts": {
+        "identity": {"ok": True, "value": {"user": "pat@contoso.com"}},
+        "clusters": {"ok": True, "value": [{"cluster_id": "a", "connect": {"usable": True}}, {"cluster_id": "b"},
+                                           {"cluster_id": "c", "connect": None}]}}}).as_dict()
+    assert "See 3 clusters, 1 of which Databricks Connect can use." in out["can"]
+
+
+def test_a_reason_naming_a_file_under_the_users_home_folder_hides_the_user_name():
+    def failing():
+        raise OSError(r"Can't read C:\Users\pat.lee\AppData\Local\FabricDesktop\token.json")
+    out = cc.check_fabric("pat@contoso.com", TENANT, failing).as_dict()
+    shown = json.dumps(out["problems"])
+    assert "pat.lee" not in shown and r"C:\\Users\\[user]" in shown

@@ -77,7 +77,9 @@ class ConnectionCheck:
 
 
 def _line(text: Any) -> str:
-    return redact.one_line(text, 600)
+    """One line of at most 600 characters, with secrets removed and the user name in home folder paths
+    replaced, since an error text often names a file under C:\\Users\\<name>."""
+    return redact.one_line(redact.user_paths("" if text is None else str(text)), 600)
 
 
 def _problem(field_: str, reason: Any, fix: str, code: str = "") -> Problem:
@@ -184,7 +186,7 @@ def from_databricks(result: Mapping[str, Any]) -> ConnectionCheck:
             if name == "warehouses":
                 can.append(f"See {len(value)} SQL warehouse{'s' if len(value) != 1 else ''}.")
             elif name == "clusters":
-                usable = sum(1 for c in value if c["connect"]["usable"])
+                usable = sum(1 for c in value if (c.get("connect") or {}).get("usable"))
                 can.append(f"See {len(value)} cluster{'s' if len(value) != 1 else ''}, "
                            f"{usable} of which Databricks Connect can use.")
             elif name == "metastore":
@@ -305,4 +307,6 @@ def check_fabric(user: str | None, tenant: str | None, list_workspaces: Callable
             raise
 
     rows = readiness.checks(user, workspaces, list_capacities or _no_capacities, {})
+    if list_capacities is None:   # not asked, so the capacity row says nothing about this connection
+        rows = [r for r in rows if r["key"] != "capacity"]
     return from_fabric(rows, user, tenant, failure[0] if failure else None)

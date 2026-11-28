@@ -1027,7 +1027,7 @@ check above. Each one also answers in the same shape, so every platform says the
 Everything else stays as the platform has it: the Snowflake account, role and warehouse, the
 Databricks workspace address, the Fabric tenant. An expired or refused sign-in on any platform names
 that platform's reason and what to do, and a result never holds a token or a secret. There's no
-screen for this yet, so for now it is part of the engine (`fabric_desktop/connection_check.py`).
+screen for this yet, so for now it's part of the engine (`fabric_desktop/connection_check.py`).
 It's tested against fakes of each platform, not against a live account.
 
 Profiles that use only Fabric and Databricks are still saved in the format older versions of

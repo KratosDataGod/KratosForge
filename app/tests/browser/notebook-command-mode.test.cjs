@@ -90,6 +90,30 @@ test("Esc with suggestions on screen closes them first, and a second Esc leaves 
   assert.strictEqual(await editing(false), false);
 });
 
+test("a cell takes more than one cursor: Ctrl+D adds the next match, Esc keeps one, a second Esc leaves", { skip }, async () => {
+  await reset(1);
+  await page().evaluate(() => {
+    const cell = state.notebook.cells[1];
+    cell.source = "x = x + 1";
+    loadIntoState({ name: "Keys", cells: state.notebook.cells.map((c) => ({ type: c.type, cell_id: c.id, source: c.source, meta: {} })) });
+    go("notebook");
+  });
+  const view = () => page().evaluate(() => { const v = editors.get(state.notebook.cells[1].id); return { n: v.state.selection.ranges.length, doc: v.state.doc.toString() }; });
+  await page().evaluate(() => { const v = editors.get(state.notebook.cells[1].id); v.focus(); v.dispatch({ selection: { anchor: 0, head: 1 } }); });
+  assert.strictEqual(await editing(true), true);
+  await page().keyboard.press("Control+d");
+  assert.strictEqual((await view()).n, 2);
+  await page().keyboard.type("y");
+  assert.strictEqual((await view()).doc, "y = y + 1");
+  await page().keyboard.press("Escape");
+  assert.strictEqual((await view()).n, 1, "the first Esc keeps one cursor");
+  assert.strictEqual(await editing(true), true, "and stays in the cell");
+  await page().keyboard.press("Escape");
+  assert.strictEqual(await editing(false), false);
+  assert.strictEqual(await selectedIndex(), 1);
+  assert.deepStrictEqual((await sources())[1], "code:y = y + 1");
+});
+
 test("A and B add a code cell above or below and start editing it", { skip }, async () => {
   await reset(1);
   await page().keyboard.press("a");

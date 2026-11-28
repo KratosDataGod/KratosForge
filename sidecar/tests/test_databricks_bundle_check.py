@@ -495,7 +495,10 @@ resources:
         - file: {path: ./dlt/two.py}
         - glob: {include: ./dlt/**}
 """, "dlt/one.sql": ""})
-    assert found(validate(tmp_path)) == {"resources.pipelines.p.libraries[1].file.path"}
+    findings = validate(tmp_path)
+    assert found(findings, ERROR) == {"resources.pipelines.p.libraries[1].file.path",
+                                      "resources.pipelines.p.libraries[2].glob"}  # glob beside notebook and file
+    assert "can't be used together with notebook or file" in one(findings, "resources.pipelines.p.libraries[2].glob").message
 
 
 # ---------------------------------------------------------------- more resource types' keys

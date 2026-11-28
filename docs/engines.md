@@ -526,7 +526,31 @@ for them in the app yet, so for now they are engine calls only.
   [Snowflake SQL warehouse](#snowflake-sql-warehouse-preview), or your profile's policy.
 - **Not confirmed yet.** Both follow Snowflake's documentation and are tested against a fake of the SQL
   API, not a live account. Whether `LIMIT ... FROM` includes the named row isn't documented, so a row
-  with that exact name is never shown twice either way. Query profiles and credits come later.
+  with that exact name is never shown twice either way. Query profiles come later.
+
+### Snowflake warehouse credits (Preview)
+
+An engine call (`engines/snowflake_credits.py`) reads the credits each warehouse used per day from
+`SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY`. There's no screen for it in the app yet.
+
+- **What you get.** One row per warehouse per UTC day, newest first, with credits used and their
+  compute and cloud services split, and totals. It covers 1 to 31 days, today included (7 unless asked),
+  and up to 5,000 rows (500 unless asked). A cut list says so, and its totals cover the rows shown.
+- **Credits only.** Figures stay Snowflake credits. They are never turned into money, never added to
+  DBUs or Fabric capacity units, and never called savings. They are credits used before Snowflake's
+  daily cloud services adjustment, so they may be more than the credits billed.
+- **Up to 3 hours behind.** Snowflake documents up to 3 hours of latency for the view, and up to 6 hours
+  for its cloud services credits, so the latest hours may be missing or low. Every result says so.
+- **It uses credits.** Reading the view is a query, so it runs on the connection's warehouse, which
+  resumes if it is suspended. It needs the same confirmation, for that account and warehouse, as the
+  [Snowflake SQL warehouse](#snowflake-sql-warehouse-preview), or your profile's policy. Before you
+  confirm, it can show what it would run, without sending anything.
+- **Who can read it.** Your role needs IMPORTED PRIVILEGES on the `SNOWFLAKE` database, or the
+  `SNOWFLAKE.USAGE_VIEWER` database role. Without either, the read is refused, naming your role and
+  those two grants for a Snowflake admin.
+- **Not confirmed yet.** Tested against a fake of the SQL API, not a live account. The error codes for a
+  role that can't read `ACCOUNT_USAGE` come from Snowflake's usual "does not exist or not authorized"
+  and "insufficient privileges" errors, not from a live run.
 
 ## Unity Catalog volumes on this PC (Preview)
 
@@ -773,6 +797,24 @@ Run **Validate** in Source control > Bundles, which runs the CLI, before you dep
   turned into money.
 - **Kept on this PC.** The last read is kept per workspace, so the section shows it again without
   reading.
+
+## Compare platforms for one workload (Preview)
+
+Below the cost panel, **Compare platforms** shows what one workload costs per run on this PC, on
+Fabric, on Databricks and on Snowflake, side by side.
+
+- **You say what counts as the same workload.** A Databricks job counts when you link it to the
+  workload. A Snowflake query counts when it carries a query tag that names the workload. Nothing is
+  matched by name or guessed.
+- **It asks first.** The Databricks per-run DBUs (from `system.billing.usage`, by
+  `usage_metadata.job_run_id`) and the Snowflake credits (from `ACCOUNT_USAGE.QUERY_HISTORY`) each run
+  one query on a warehouse, so each asks before it runs and follows the connection's execution
+  policy. Refresh never reads them; it shows the last read kept on this PC.
+- **Measured, estimated and unknown stay apart.** Databricks DBUs are billed, so they are measured.
+  Snowflake credits are estimated from execution time and warehouse size, and the card lists the
+  assumptions. A figure that wasn't recorded shows as not known, never as zero.
+- **Money only under a pricing scenario.** One scenario version holds the Fabric CU hour rate, the
+  per-DBU rates by SKU and the per-credit rate. Without one, the cards show native units only.
 
 ## Databricks Connect (Preview)
 

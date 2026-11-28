@@ -69,7 +69,8 @@ def _ws_subject(ws: dict[str, Any]) -> dict[str, Any]:
 def workspace(ws: dict[str, Any], items: list[dict[str, Any]] | None, *, collected_at: str,
               info_read: bool = True) -> list[dict[str, Any]]:
     """The workspace's own settings (unless ``info_read`` is false: they couldn't be read), and its
-    items when they could be listed (``None``: they couldn't)."""
+    items when they could be listed (``None``: they couldn't): id, type and name only, each name and
+    type cut at evidence.MAX_NAME characters."""
     subj = _ws_subject(ws)
     out = []
     if items is not None and not isinstance(items, list):

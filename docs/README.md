@@ -225,6 +225,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
+| Incident SLA report | Monitor > KratosForge > Operations > Incidents > Reports: opened, resolved and still open, time to acknowledge and resolve, and SLAs met per priority ([incidents.md](incidents.md#sla-reports-preview)) |
 | Incidents | Monitor > KratosForge > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk, Who's affected; [incidents.md](incidents.md)) |
 | Agents | Monitor > KratosForge > Operations > Agents |
 | Queue | Monitor > KratosForge > Operations > Queue |
@@ -241,6 +242,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Altair charts in notebooks | Notebook > a cell that shows an Altair chart ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
 | Column lineage | Entity page, Lineage card: Columns, and Impact for what a column change breaks ([metadata-guide.md](metadata-guide.md#impact-of-a-column-change-preview)); **Export OpenLineage...** in Impact writes the lineage to Downloads ([metadata-guide.md](metadata-guide.md#export-lineage-as-openlineage-preview)) |
+| Compare data | SQL page on a lakehouse: Explorer › **Compare data**, or a table's menu › **Compare with…** compares the rows of two tables or queries on this PC, read only ([sql-execution.md](sql-execution.md#compare-data-preview)) |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
 | Delta table features at publish | Data mesh > Deploy > Environments and promote, a choice for each table |

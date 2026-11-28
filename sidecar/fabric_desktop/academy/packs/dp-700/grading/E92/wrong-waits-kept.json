@@ -1,0 +1,74 @@
+{
+  "_about": "A cut-down model of the backfill pipeline. Activities are keyed by name. Change the settings, remove activities you don't need, and fix each depends_on. A depends_on entry names an upstream activity and the condition (On success, On failure, On completion or On skip) under which this one runs.",
+  "needs": [
+    "This is a one-time historical load of dbo.orders (1.5 billion rows) from Azure SQL Database into the lakehouse, then 40 small reference tables. It runs on its own, once.",
+    "dbo.orders has a clustered primary key on order_id, which runs from 1 to 1500000000 with no big gaps. order_date is badly skewed. Half the rows fall in the last year. The table isn't partitioned.",
+    "The database team allows at most 16 sessions on the source at a time. Each small-table copy opens one session.",
+    "Nothing else uses the source during the load, so the two 10-minute waits added 'to let the source settle' do nothing useful.",
+    "The small tables must load even if the orders copy fails, but never at the same time as it.",
+    "The small tables take under 5 minutes in all, so they don't need more speed. Spend as little capacity as the named throughput settings allow on them. Keep orders as fast as it can be."
+  ],
+  "properties": {
+    "activities": {
+      "Wait for source": {
+        "type": "Wait",
+        "depends_on": [],
+        "wait_seconds": 600
+      },
+      "Copy orders": {
+        "type": "Copy",
+        "depends_on": [
+          {
+            "activity": "Wait for source",
+            "condition": "On success"
+          }
+        ],
+        "source": {
+          "table": "dbo.orders",
+          "partition_option": "Dynamic range",
+          "partition_column": "order_id",
+          "partition_lower_bound": 1,
+          "partition_upper_bound": 1500000000
+        },
+        "settings": {
+          "intelligent_throughput_optimization": "Maximum",
+          "degree_of_copy_parallelism": 16
+        }
+      },
+      "Rest the source": {
+        "type": "Wait",
+        "depends_on": [
+          {
+            "activity": "Copy orders",
+            "condition": "On completion"
+          }
+        ],
+        "wait_seconds": 600
+      },
+      "Copy small tables": {
+        "type": "ForEach",
+        "depends_on": [
+          {
+            "activity": "Rest the source",
+            "condition": "On success"
+          }
+        ],
+        "items": "@pipeline().parameters.small_tables",
+        "sequential": false,
+        "batch_count": 16,
+        "activities": {
+          "Copy one table": {
+            "type": "Copy",
+            "source": {
+              "partition_option": "None"
+            },
+            "settings": {
+              "intelligent_throughput_optimization": "Standard",
+              "degree_of_copy_parallelism": "Auto"
+            }
+          }
+        }
+      }
+    }
+  }
+}

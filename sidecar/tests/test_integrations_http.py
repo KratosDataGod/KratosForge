@@ -420,10 +420,14 @@ def test_serve_refuses_when_switched_off(tmp_path, monkeypatch):
 
 
 def test_engine_starts_and_stops_the_child_process(tmp_path, monkeypatch):
-    import os
-    import sys
+    from pathlib import Path
+
+    import fabric_desktop
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(sys.path))
+    # The child runs from the service's folder, so it gets the engine's own folder. Not all of sys.path:
+    # other tests add project folders to it (Project.purge_code), and on Windows the variable then passed
+    # 32,767 characters and the child couldn't start.
+    monkeypatch.setenv("PYTHONPATH", str(Path(fabric_desktop.__file__).resolve().parent.parent))
     svc = Service(root=tmp_path / "FabricDesktop")
     port = free_port()
     svc.integrations_set_enabled(True)

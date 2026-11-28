@@ -1,0 +1,64 @@
+{
+  "_about": "A model of OneLake settings for the Claims workspace. tenant holds four tenant settings. workspace holds the OneLake tab of the workspace settings and the one OneLake tenant setting that workspace admins can override. expectations records what you expect to happen.",
+  "needs": [
+    "The data science team reads Claims lakehouse files from Azure Databricks through the ADLS APIs.",
+    "Security wants nobody to sync OneLake to their PC with the OneLake file explorer app.",
+    "A partner app reads one folder with OneLake SAS tokens. The Claims workspace admin decides whether apps may sign in with them in Claims.",
+    "A Google Cloud Storage shortcut in Claims is read many times a day. Keep its files cached for two weeks after they were last read.",
+    "Record who reads what in Claims as diagnostic events in a lakehouse."
+  ],
+  "lakehouses": {
+    "AuditLH": "In the Governance workspace, on the same capacity as Claims.",
+    "AuditLH_EU": "In the Governance EU workspace, on a different capacity."
+  },
+  "tenant": {
+    "users_can_access_data_stored_in_onelake_with_apps_external_to_fabric": true,
+    "users_can_sync_data_in_onelake_with_the_onelake_file_explorer_app": false,
+    "use_short_lived_user_delegated_sas_tokens": true,
+    "include_end_user_identifiers_in_onelake_diagnostic_logs": true
+  },
+  "workspace": {
+    "onelake_tab": {
+      "shortcut_cache": true,
+      "retention_days": 14,
+      "add_diagnostic_events_to_a_lakehouse": true,
+      "diagnostics_lakehouse": "AuditLH"
+    },
+    "authenticate_with_onelake_user_delegated_sas_tokens": {
+      "who_decides_for_claims": "Fabric admin only",
+      "on": true
+    }
+  },
+  "expectations": {
+    "spark_notebooks_still_read_onelake_with_external_apps_off": true,
+    "longest_onelake_sas_token_lifetime_hours": 1,
+    "next_read_after_the_bucket_file_changes": "the newer file from the bucket",
+    "reset_cache_removes": "every cached file in the workspace",
+    "turning_off_file_explorer_while_the_app_runs": "app exits and placeholders stay",
+    "who_turns_on_diagnostics_for_claims": "workspace admin + lakehouse contributor"
+  },
+  "options": {
+    "who_decides_for_claims": [
+      "Fabric admin only",
+      "Claims workspace admin"
+    ],
+    "next_read_after_the_bucket_file_changes": [
+      "the cached copy until retention ends",
+      "the newer file from the bucket"
+    ],
+    "reset_cache_removes": [
+      "the files of one shortcut",
+      "every cached file in the workspace"
+    ],
+    "turning_off_file_explorer_while_the_app_runs": [
+      "app exits and placeholders stay",
+      "app keeps syncing until it restarts",
+      "local copies are deleted"
+    ],
+    "who_turns_on_diagnostics_for_claims": [
+      "workspace admin + lakehouse contributor",
+      "workspace admin + lakehouse viewer",
+      "any workspace member"
+    ]
+  }
+}

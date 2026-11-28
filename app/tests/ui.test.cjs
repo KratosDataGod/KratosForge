@@ -6395,7 +6395,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
     sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
-    incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
+    incidents: ["Incidents and your service desk", "Who's affected", "Incidents"], incidentReports: ["SLA reports"],
     agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"], dataHealth: ["Data health"],
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring", "Table detail"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Local pipeline coverage", "Pipelines",
@@ -6413,10 +6413,11 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Snowflake SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
-      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
+      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost", "Compare platforms for one workload",
       "Databricks workspace sync", "Databricks Asset Bundles in Source control", "Checking a Snowflake connection",
-      "Snowflake objects and query history", "Snowpark API compatibility check", "Snowpark on this PC"],
-    embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"],
+      "Snowflake objects and query history", "Snowflake warehouse credits", "Snowpark API compatibility check",
+      "Snowpark on this PC"],
+    embedStudio: ["Embed Studio"], sqlStatements: ["Several statements in one run"], sqlParams: ["Query parameters"], sqlCompare: ["Compare data"],
     sqlHistory: ["Result history and pinned results"], sqlFiles: [".sql files on this PC"],
     semanticView: ["Semantic View files", "Publish the view in Fabric"], ossie: ["Ossie file to TMDL"],
     kfEnvironment: ["KratosForge Environment"], deltaPerTable: ["Each table's own choice"], ucVolumes: ["Unity Catalog volumes on this PC"],
@@ -6863,6 +6864,7 @@ const FABRIC_WRITES = {
   optimize_create: ["optimize.js", "page", null],
   optimize_connect: ["optimize.js", "page", null],
   optimize_set_recommendation: ["optimize.js", "page", null],
+  optimization_share: ["optimize-assess.js", "page", null, "optimize.js"], // Share on the Preview-only Assessment tab
   capacity_settings_read: ["optimize.js", "page", null], // reads Fabric, writes the central lakehouse
   tenant_settings_read: ["optimize.js", "page", null],
   platform_decide: ["platform.js", "page", null],
@@ -6883,6 +6885,8 @@ const FABRIC_WRITES = {
   set_fabric_schedule_enabled: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
   delete_fabric_schedule: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
   run_fabric_item_now: ["schedules.js", "schedules", null, 'app.js: ["fabric_schedules", ["Schedules", previewTag()]'],
+  // Monitor > Incidents > Reports copies new incident changes to the central lakehouse before it measures
+  incidents_measures: ["incidents.js", "incidentReports", null],
 };
 // Listed as "Fabric or OneLake" because they call Fabric, but they change nothing there.
 const FABRIC_READS = {
@@ -6967,6 +6971,39 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
     "pipeline_run_start is called from Pipelines and the Motion sample only");
   // The access cache's writes are drawn only from the Access tab.
   assert.deepStrictEqual(files.filter((f) => f !== "access-cache.js" && /renderAccessAll\(/.test(text[f])), ["estate.js"], "only the Access tab draws the access cache");
+});
+
+test("Compare data (S34) says its verdict, tiles and the rows listed as the mockup does", () => {
+  const ctx = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlcompare.js"), "utf8")}; Object.assign(this, { sqlCompareSideQuery, sqlCompareTiles, sqlCompareVerdict, sqlCompareShowing, sqlCompareTable, sqlCompareCell });`, ctx);
+  const { sqlCompareSideQuery, sqlCompareTiles, sqlCompareVerdict, sqlCompareShowing, sqlCompareTable, sqlCompareCell } = ctx;
+  assert.strictEqual(sqlCompareSideQuery({ kind: "table", name: "silver.orders" }), "SELECT * FROM silver.orders");
+  assert.strictEqual(sqlCompareSideQuery({ kind: "query", sql: "  SELECT 1;  \n" }), "SELECT 1");
+  assert.strictEqual(sqlCompareSideQuery({ kind: "table", name: "" }), "");
+  const keyed = { result: "differs", method: "keyed", keys: ["order_id"], seconds: 3.4, rows: { a: 48210, b: 48207 }, offset: 0, status: null, listed: 22,
+    counts: { same: 48190, only_a: 5, only_b: 2, changed: 15 },
+    common: [{ name: "order_id" }, { name: "amount" }, { name: "status" }],
+    examples: [{ status: "changed", key: { order_id: 1 }, columns: { amount: { a: 1, b: 2 } }, same: { status: { a: "x", b: "x" } } },
+      { status: "only_b", key: { order_id: 2 } }] };
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sqlCompareVerdict(keyed))), { word: "Differs", text: "48,210 rows in A, 48,207 in B. Compared on this PC in 3.4 s. Read only: nothing was changed." });
+  assert.strictEqual(sqlCompareVerdict({ ...keyed, result: "same", rows: { a: 1, b: 1 }, seconds: 12.6 }).text, "1 row in A, 1 in B. Compared on this PC in 13 s. Read only: nothing was changed.");
+  assert.match(sqlCompareVerdict({ ...keyed, level: "fingerprint" }).text, /only checksums were compared/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sqlCompareTiles(keyed))).map((t) => [t.label, t.count]), [["Same", 48190], ["Only in A", 5], ["Only in B", 2], ["Changed", 15]]);
+  assert.deepStrictEqual([...sqlCompareTiles({ counts: { same: 1, only_a: 1, only_b: 0, changed: null } }).map((t) => t.label)], ["Same", "Only in A", "Only in B"]);
+  assert.strictEqual(sqlCompareTiles({ counts: null }).length, 0, "a checksum-only compare has no tiles");
+  assert.strictEqual(sqlCompareShowing(keyed), "Showing 1–2 of 22 rows that differ.");
+  assert.strictEqual(sqlCompareShowing({ ...keyed, status: "changed", listed: 2 }), "Showing 2 of 2 changed rows.");
+  assert.strictEqual(sqlCompareShowing({ ...keyed, status: "only_a", listed: 1, examples: [{}] }), "Showing 1 of 1 row only in A.");
+  assert.strictEqual(sqlCompareShowing({ ...keyed, status: "only_b", listed: 0, examples: [] }), "No rows only in B.");
+  assert.strictEqual(sqlCompareShowing({ ...keyed, offset: 50, listed: 120, examples: Array(50).fill({}) }), "Showing 51–100 of 120 rows that differ.");
+  const t = sqlCompareTable(keyed, false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify([t.cols, t.hidden])), [["amount"], 1], "only the columns that differ, unless Show all columns");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(t.rows[0].cells)), [{ a: 1, b: 2, changed: true }]);
+  assert.deepStrictEqual([...sqlCompareTable(keyed, true).cols], ["amount", "status"]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sqlCompareTable(keyed, true).rows[0].cells[1])), { a: "x", b: "x", changed: false });
+  const whole = sqlCompareTable({ method: "whole rows", common: [{ name: "a" }], examples: [{ status: "only_a", row: { a: 5 }, times: 2 }] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(whole)), { keyed: false, names: ["a"], rows: [{ status: "only_a", times: 2, values: [5] }] });
+  assert.deepStrictEqual([sqlCompareCell(null), sqlCompareCell(undefined), sqlCompareCell(1240.5), sqlCompareCell("x")], ["NULL", "", "1,240.5", "x"]);
 });
 
 // Academy board 5: an exercise's How this works. Only python_lab names the AppContainer; delta_lab and

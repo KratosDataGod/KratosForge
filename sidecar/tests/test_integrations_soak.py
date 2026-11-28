@@ -540,8 +540,11 @@ def test_mcp_over_http_sessions_come_and_go_without_leaking(api):
         usage.check(f"after {total} MCP calls")
 
     # Abandoned sessions: kept while they might come back, then reaped, and their slots free again.
-    abandoned = [abandon_session(port, tools[n % len(tools)]["token"], with_stream=n % 2 == 0) for n in range(12)]
-    assert set(abandoned) <= set(manager._server_instances)
+    # Each one is checked as soon as it is dropped: on a slow machine, opening all twelve takes longer
+    # than SESSION_IDLE, so the first ones are rightly reaped before the last is open.
+    for n in range(12):
+        sid = abandon_session(port, tools[n % len(tools)]["token"], with_stream=n % 2 == 0)
+        assert sid in manager._server_instances, f"abandoned session {n} reaped at once, not kept while idle"
     assert settle(lambda: not manager._server_instances, SESSION_IDLE + 10), \
         f"{len(manager._server_instances)} abandoned sessions never reaped"
     sessions("legacy", 4, 4)

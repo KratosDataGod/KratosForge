@@ -30,6 +30,7 @@ without regard to case, as Unity Catalog names are."""
 from __future__ import annotations
 
 import ast
+import bisect
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -105,8 +106,10 @@ _QUALIFIED = re.compile(_NAME)
 _CREATE = re.compile(
     r"\bCREATE\s+(?:OR\s+REFRESH\s+)?(?P<scope>PRIVATE\s+|TEMPORARY\s+)?"
     r"(?P<kind>STREAMING\s+TABLE|MATERIALIZED\s+VIEW|VIEW|TABLE)\s+(?P<name>" + _NAME + r")", re.I)
-_FLOW = re.compile(r"\bCREATE\s+FLOW\s+(?P<name>" + _NAME + r")\b.*?\bAS\s+(?:AUTO\s+CDC|INSERT)\s+(?:ONCE\s+)?"
-                   r"INTO\s+(?P<target>" + _NAME + r")", re.I | re.S)
+# The flow's head, then one search from its end for AS ... INTO: a single lazy pattern spanning both would
+# rescan the rest of the statement for every head that has no INTO.
+_FLOW_HEAD = re.compile(r"\bCREATE\s+FLOW\s+(?P<name>" + _NAME + r")\b", re.I)
+_FLOW_INTO = re.compile(r"\bAS\s+(?:AUTO\s+CDC|INSERT)\s+(?:ONCE\s+)?INTO\s+(?P<target>" + _NAME + r")", re.I)
 _OWN_FLOW = re.compile(r"\bFLOW\s+(?:INSERT|AUTO\s+CDC|REPLACE)\b|\bAS\s*(?:\(\s*)?(?:SELECT|WITH|FROM)\b", re.I)
 _STREAM_READ = re.compile(r"\bSTREAM\s*\(\s*(?P<name>" + _NAME + r")\s*\)", re.I)
 _READ = re.compile(r"\b(?:FROM|JOIN)\s+(?P<name>" + _NAME + r")(?P<call>\s*\()?", re.I)
@@ -145,19 +148,20 @@ def _blank_comments_and_strings(text: str) -> str:
 
 def _sql(text: str, file: str, found: Sources) -> None:
     clean = _blank_comments_and_strings(text)
+    newlines = [m.start() for m in re.finditer("\n", clean)]
+
+    def line(at: int) -> int:  # at is an offset into the whole file
+        return bisect.bisect_left(newlines, at) + 1
+
     start = 0
     for statement in re.split(r"(;)", clean) + [""]:
         if statement == ";":
             start += 1
             continue
-        line0 = clean.count("\n", 0, start) + 1
-
-        def line(offset: int, _s: str = statement, _l: int = line0) -> int:
-            return _l + _s.count("\n", 0, offset)
-
-        flow = _FLOW.search(statement)
-        if flow:
-            found.flows.append(Flow(_unquote(flow["name"]), _unquote(flow["target"]), file, line(flow.start())))
+        head = _FLOW_HEAD.search(statement)
+        into = _FLOW_INTO.search(statement, head.end()) if head else None
+        if head and into:
+            found.flows.append(Flow(_unquote(head["name"]), _unquote(into["target"]), file, line(start + head.start())))
         else:
             made = _CREATE.search(statement)
             if made:
@@ -165,17 +169,17 @@ def _sql(text: str, file: str, found: Sources) -> None:
                 kind = re.sub(r"\s+", " ", made["kind"]).lower()
                 kind = TEMPORARY_VIEW if kind == VIEW and scope == "TEMPORARY" else kind
                 name = _unquote(made["name"])
-                found.datasets.append(Defined(name, kind, file, line(made.start())))
+                found.datasets.append(Defined(name, kind, file, line(start + made.start())))
                 if kind in (STREAMING_TABLE, TABLE) and _OWN_FLOW.search(statement, made.end()):
-                    found.flows.append(Flow(name, name, file, line(made.start()), default=True))
+                    found.flows.append(Flow(name, name, file, line(start + made.start()), default=True))
         streamed = set()
         for m in _STREAM_READ.finditer(statement):
             streamed.add(m.start("name"))
-            found.reads.append(Read(_unquote(m["name"]), True, file, line(m.start())))
+            found.reads.append(Read(_unquote(m["name"]), True, file, line(start + m.start())))
         for m in _READ.finditer(statement):
             if m["call"] or m.start("name") in streamed or m["name"].lower() in _NOT_A_TABLE:
                 continue  # a function such as read_files(...), or STREAM(...) already counted
-            found.reads.append(Read(_unquote(m["name"]), False, file, line(m.start())))
+            found.reads.append(Read(_unquote(m["name"]), False, file, line(start + m.start())))
         start += len(statement)
 
 
@@ -222,9 +226,9 @@ def _python(text: str, file: str, found: Sources) -> None:
     # comments, so it parses as Python.
     try:
         tree = ast.parse(text, filename=file)
-    except (SyntaxError, ValueError) as exc:
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:  # very deep nesting is too deep to parse
         found.problems.append(Problem(WARNING, file, getattr(exc, "lineno", None) or 1,
-                                      f"{file} couldn't be read as Python, so its datasets aren't checked "
+                                      f"{file} couldn't be parsed as Python, so its datasets aren't checked "
                                       f"({exc.__class__.__name__})."))
         return
     marks = (len(found.datasets), len(found.flows), len(found.reads))

@@ -157,7 +157,7 @@ def test_python_that_doesnt_parse_is_a_warning_and_holds_back_the_unknown_target
     write(tmp_path, {"databricks.yml": bundle(), "transformations/bad.py": "def (:\n",
                      "transformations/f.sql": "CREATE FLOW f AS INSERT INTO elsewhere BY NAME SELECT 1;"})
     (f,) = validate(tmp_path)
-    assert f.severity == WARNING and "couldn't be read as Python" in f.message
+    assert f.severity == WARNING and "couldn't be parsed as Python" in f.message
 
 
 def test_comments_and_strings_dont_define_or_read_anything():
@@ -240,3 +240,39 @@ def test_the_pipelines_command(tmp_path, capsys):
         folder=str(tmp_path), json=True, databricks_bundle_command="pipelines")) == 0
     shown = json.loads(capsys.readouterr().out)
     assert list(shown["pipelines"]) == ["resources.pipelines.p"] and shown["findings"] == []
+
+
+# Large or deeply nested files are checked in time that grows with their size, and a file too deep to
+# parse is a warning, not a failure of the whole check. Each would take many seconds (or fail) if not.
+
+def test_many_statements_are_scanned_in_linear_time():
+    import time
+
+    found = ps.Sources()
+    started = time.monotonic()
+    ps._sql(";\n" * 200_000 + "CREATE STREAMING TABLE last AS SELECT * FROM src;", "f.sql", found)
+    assert time.monotonic() - started < 3
+    assert [(d.name, d.line) for d in found.datasets] == [("last", 200_001)]
+
+
+def test_flow_heads_without_into_are_scanned_in_linear_time():
+    import time
+
+    found = ps.Sources()
+    started = time.monotonic()
+    ps._sql("CREATE FLOW x " * 15_000, "f.sql", found)
+    assert time.monotonic() - started < 3
+    assert found.flows == []
+
+
+def test_python_too_deep_to_parse_is_a_warning():
+    found = ps.Sources()
+    ps._python("x = a" + ".b" * 200_000 + "\n", "deep.py", found)
+    (p,) = found.problems
+    assert p.severity == WARNING and "couldn't be parsed as Python" in p.message
+
+
+def test_a_flow_still_finds_its_target_after_the_head():
+    found = ps.Sources()
+    ps._sql("\nCREATE FLOW f COMMENT 'c' AS\n  INSERT ONCE INTO t BY NAME SELECT 1;", "f.sql", found)
+    assert [(f.name, f.target, f.line) for f in found.flows] == [("f", "t", 2)]

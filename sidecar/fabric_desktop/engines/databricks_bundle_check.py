@@ -631,10 +631,13 @@ class _Checker:
             for kind in ("notebook", "file"):
                 if isinstance(lib.get(kind), dict):
                     value = lib[kind].get("path")
+                    got = None
                     if self.local_path(doc, f"{lpath}.{kind}.path", value, notebook=kind == "notebook"):
-                        files.append(self.found_file(doc, value, notebook=kind == "notebook"))
-                    else:
+                        got = self.found_file(doc, value, notebook=kind == "notebook")
+                    if got is None:
                         complete = False
+                    else:
+                        files.append(got)
             glob = lib.get("glob")
             if isinstance(glob, dict):
                 if kinds & {"notebook", "file"}:
@@ -688,10 +691,10 @@ class _Checker:
                                        "in /**. Other wildcards aren't read.")
             return False
         if folder == value:  # one file or notebook
-            if self.local_path(doc, path, value, notebook=True):
-                files.append(self.found_file(doc, value, notebook=True))
-                return True
-            return False
+            got = self.found_file(doc, value, notebook=True) if self.local_path(doc, path, value, notebook=True) else None
+            if got is not None:
+                files.append(got)
+            return got is not None
         base = doc.path.parent / folder
         if _leaves_folder(folder) or not self.inside(base):
             self.add(doc, ERROR, path, f"{value!r} leads outside the bundle folder ({_rel(base, self.root)}, "
@@ -714,12 +717,13 @@ class _Checker:
         files.extend((Path(f), _rel(Path(f), self.root)) for f in found[:MAX_INCLUDE_FILES])
         return not links and len(found) <= MAX_INCLUDE_FILES
 
-    def found_file(self, doc: _Doc, value: str, notebook: bool) -> tuple[Path, str]:
-        """The file a local path that local_path found names (with its notebook extension, if left out)."""
+    def found_file(self, doc: _Doc, value: str, notebook: bool) -> tuple[Path, str] | None:
+        """The file a local path that local_path found names (with its notebook extension, if left out).
+        None if it's gone since local_path looked."""
         base = doc.path.parent / value
         tries = NOTEBOOK_EXTENSIONS if notebook else ("",)
-        path = next(c for c in (Path(f"{base}{ext}") for ext in tries) if self.inside(c) and c.is_file())
-        return path, _rel(path, self.root)
+        path = next((c for c in (Path(f"{base}{ext}") for ext in tries) if self.inside(c) and c.is_file()), None)
+        return None if path is None else (path, _rel(path, self.root))
 
     def local_path(self, doc: _Doc, path: str, value: Any, notebook: bool = False) -> bool:
         """A path relative to the YAML file that names it must exist on this PC. Workspace paths (a leading

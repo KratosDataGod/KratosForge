@@ -24,6 +24,12 @@ def _first(item):
     return [o["id"] for o in item["options"]] if item["type"] == "order" else [item["options"][0]["id"]]
 
 
+def _choice_item(view):
+    """An item answered by picking options: an exam is drawn at random, and a matching, yes/no, hot area or code
+    item takes one entry per part instead, so _first can't answer it."""
+    return next(i for i in view["items"] if i["type"] != "order" and i.get("parts") is None and i["options"])
+
+
 # ---- the small helpers
 
 def test_practice_uses_the_published_exam_only_when_its_numbers_are_whole():
@@ -186,7 +192,7 @@ def test_open_an_unfinished_exam_restarts_its_clock(svc):
 
 def test_answer_none_clears_and_choices_become_text(svc):
     v = svc.academy_exam_start("dp-700", "practice", timed=False)
-    it = next(i for i in v["items"] if i["type"] != "order")
+    it = _choice_item(v)
     got = svc.academy_exam_answer(v["id"], it["q"], _first(it))
     assert got["answered"] == 1 and got["title"] == "DP-700 practice exam"
     assert svc.academy_exam_answer(v["id"], it["q"], None)["answered"] == 0
@@ -201,11 +207,12 @@ def test_flag_on_by_default_and_off(svc):
 
 def test_check_is_saved(svc):
     v = svc.academy_exam_start("dp-700", "drill", objectives=["1.1.1"])
-    it = v["items"][0]
+    it = _choice_item(v)
     svc.academy_exam_answer(v["id"], it["q"], _first(it))
     out = svc.academy_exam_check(v["id"], it["q"])
     assert out["view"]["title"] == "Objective drill: 1.1.1"
-    assert Svc(svc.root).academy_exam_open(v["id"])["items"][0]["checked"] is True
+    opened = Svc(svc.root).academy_exam_open(v["id"])["items"]
+    assert next(i for i in opened if i["q"] == it["q"])["checked"] is True
 
 
 def test_heartbeat_and_pause_report_the_clock(svc):

@@ -144,7 +144,9 @@ NOT_MATCHED = {"FEA-ARCH-001", "FEA-ARCH-002", "FEA-ARCH-003", "FEA-ARCH-004", "
                # no optimization engine rule looks at table layout yet, so these are handed nowhere
                "FEA-PERF-003", "FEA-PERF-004", "FEA-PERF-005", "FEA-REL-001", "FEA-REL-002", "FEA-REL-003", "FEA-REL-004", "FEA-REL-005",
                "FEA-REL-006", "FEA-SEC-001", "FEA-SEC-002", "FEA-SEC-003", "FEA-SEC-004", "FEA-SEC-005",
-               "FEA-SM-001", "FEA-SM-002", "FEA-SM-003", "FEA-SM-004", "FEA-SM-005", "FEA-SM-006"}
+               "FEA-SM-001", "FEA-SM-002", "FEA-SM-003", "FEA-SM-004", "FEA-SM-005", "FEA-SM-006",
+               # warehouse and SQL analytics endpoint controls: reliability and architecture, not capacity freed
+               "FEA-WH-001", "FEA-WH-002"}
 
 
 def test_every_registered_control_is_matched_or_deliberately_not():

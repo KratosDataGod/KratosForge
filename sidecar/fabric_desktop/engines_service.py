@@ -24,7 +24,11 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
 - ``databricks_billing`` is Optimize > Cost (Preview): DBUs billed, from system.billing.usage. It runs
   one query on a SQL warehouse, which may start and bill, so it first answers ``needs_confirm`` with the
   warehouse's state, and runs only with ``confirmed`` (a RemoteAuthorization for that warehouse).
-  ``databricks_billing_last`` is the last read kept on this PC.
+  ``databricks_billing_last`` is the last read kept on this PC. With ``job_ids`` (jobs linked to a
+  workload) the same confirmed session also reads those jobs' DBUs per run, for Compare platforms.
+- ``snowflake_query_credits`` is Compare platforms for one workload (Preview): credits of the queries
+  carrying a workload's query tag, worked out from QUERY_HISTORY. It runs one SELECT on a warehouse,
+  which may resume and use credits, so it asks first exactly as ``databricks_billing`` does.
 - ``databricks_sync_*`` is Workspaces > Databricks (Preview): folder pairs between this PC and a
   workspace folder (engines/databricks_workspace_sync.py). Compare only reads; push never overwrites a
   file changed in Databricks since the last sync and deletes only with ``confirm_deletes``.
@@ -35,6 +39,9 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
 - ``snowflake_check`` (Preview, SF-002) checks a Snowflake connection from a profile: sign-in, role,
   database, schema and warehouse, each with what to fix (engines/snowflake_remote.py). It sends no
   warehouse, so nothing resumes and no warehouse credits are used.
+- ``snowpark_api_check`` (Preview, SF-007) is the Snowpark API compatibility check of one Python cell
+  (snowpark_api.py): each Snowpark call, method and keyword it can place, against one pinned Snowpark
+  version's signatures, and the calls that need Snowflake's own servers. It reads the code only.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -65,7 +72,7 @@ METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_sel
            "databricks_sync_pairs", "databricks_sync_pair_save", "databricks_sync_pair_remove", "databricks_sync_compare",
            "databricks_sync_push", "databricks_sync_pull",
            "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy",
-           "snowflake_check"}
+            "snowflake_check", "snowflake_query_credits", "snowpark_api_check"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -295,6 +302,12 @@ class EnginesMixin:
             raise ValueError("That connection isn't a Snowflake connection.")
         return redact.walk(snowflake_remote.check_connection(conn))
 
+    def snowpark_api_check(self, code: str) -> dict[str, Any]:
+        """The Snowpark API compatibility check of one Python cell's code. Reads the code only: nothing
+        is executed and nothing reaches Snowflake."""
+        from . import snowpark_api
+        return snowpark_api.check(str(code))
+
     def _runs_reader(self, connection: str) -> Any:
         from .engines import databricks_jobs
         conn, _, _ = self._connection(connection)
@@ -327,10 +340,11 @@ class EnginesMixin:
         return Path(data_dir()) / "databricks-billing"
 
     def databricks_billing(self, connection: str, warehouse_id: str = "", days: int = 7,
-                           confirmed: bool = False) -> dict[str, Any]:
+                           confirmed: bool = False, job_ids: list[str] | None = None) -> dict[str, Any]:
         """DBUs billed in the last ``days`` days by job, pipeline, warehouse and cluster. Without
         ``confirmed`` nothing runs: the answer says which warehouse would run the query and its state
-        (a GET). With it, the query runs on that warehouse under a confirmed authorization."""
+        (a GET). With it, the query runs on that warehouse under a confirmed authorization. With
+        ``job_ids`` (jobs linked to a workload), the same session also reads those jobs' DBUs per run."""
         from .engines import databricks_auth, databricks_billing, databricks_discovery, databricks_sql
         conn, policy, profile = self._connection(connection)
         warehouse = warehouse_id or str((conn.get("compute") or {}).get("warehouse_id") or "")
@@ -339,6 +353,7 @@ class EnginesMixin:
         if not _COMPUTE_ID.fullmatch(warehouse):
             raise ValueError("That warehouse id isn't one Databricks gives (letters, digits, - . and _).")
         databricks_billing.query(int(days))   # refuses a number of days it doesn't offer
+        jobs = databricks_billing.job_ids(job_ids)   # refuses anything but job ids, before anything runs
         # The profile's execution policy first, as for any remote cell: "never" refuses before anything,
         # "policy" with this engine allowed runs without asking, and otherwise the person confirms.
         try:
@@ -358,11 +373,52 @@ class EnginesMixin:
         authorization = standing or auth.confirmed(registry.DATABRICKS_SQL.id, warehouse, who or "this PC's user")
         try:
             result = databricks_billing.read(self._engine_adapter(registry.DATABRICKS_SQL.id), conn, warehouse,
-                                             int(days), authorization)
+                                             int(days), authorization, jobs or None)
         except databricks_auth.DatabricksAuthError as exc:
             return {"ok": False, "error": redact.secrets(str(exc))}
         if result.get("ok"):
             databricks_billing.save(self._billing_root(), str(conn.get("host") or ""), result)
+        return redact.walk(result)
+
+    def _snowflake_credits_root(self) -> Path:
+        from .service import data_dir
+        return Path(data_dir()) / "snowflake-credits"
+
+    def snowflake_query_credits(self, connection: str, warehouse: str = "", days: int = 30,
+                                tags: list[str] | None = None, confirmed: bool = False) -> dict[str, Any]:
+        """Credits of the queries carrying ``tags`` in the last ``days`` days, worked out from
+        QUERY_HISTORY (engines/snowflake_query_credits.py). The read runs one SELECT on ``warehouse``,
+        which resumes it if it is suspended, so without ``confirmed`` nothing runs: the answer names
+        the warehouse. The profile's execution policy answers first, as for Databricks billing."""
+        from .engines import snowflake_query_credits as sqc
+        from .engines.snowflake_auth import SnowflakeAuthError
+        from .engines.snowflake_warehouse import target_for
+        conn, policy, profile = self._connection(connection)
+        if conn.get("platform") != "snowflake":
+            raise ValueError("That connection isn't a Snowflake connection.")
+        name = warehouse or str(conn.get("warehouse") or "")
+        if not name:
+            raise ValueError("Pick a Snowflake warehouse to read query history with.")
+        if not re.fullmatch(r"[A-Za-z0-9_$]{1,255}", name):
+            raise ValueError("That warehouse name isn't one KratosForge can use (letters, digits, _ and $).")
+        sqc.query(int(days), tags)   # refuses days it doesn't offer and tags that aren't plain text
+        target = target_for(conn, name)
+        try:
+            standing = auth.from_policy(policy, profile, registry.SNOWFLAKE_SQL.id, target)
+        except auth.RemoteNotAuthorized as exc:
+            return {"ok": False, "refused": True, "error": str(exc)}
+        if standing is None and not confirmed:
+            return {"needs_confirm": True, "warehouse": {"name": name, "account": conn.get("account") or ""}}
+        signer = getattr(self, "_auth", None)
+        who = signer.signed_in_user() or "" if signer is not None and hasattr(signer, "signed_in_user") else ""
+        authorization = standing or auth.confirmed(registry.SNOWFLAKE_SQL.id, target, who or "this PC's user")
+        try:
+            result = sqc.read(self._engine_adapter(registry.SNOWFLAKE_SQL.id), conn, name, int(days), tags,
+                              authorization)
+        except SnowflakeAuthError as exc:
+            return {"ok": False, "error": redact.secrets(str(exc))}
+        if result.get("ok"):
+            sqc.save(self._snowflake_credits_root(), str(conn.get("account") or ""), result)
         return redact.walk(result)
 
     def databricks_billing_last(self, connection: str) -> dict[str, Any]:
@@ -634,7 +690,8 @@ class EnginesMixin:
             from . import app_settings
             if not app_settings.value("allow_fabric_runs"):
                 lines.append({"outcome": "warning", "text": "Your organization's policy doesn't allow runs in "
-                                                            "Fabric from KratosForge, so the session will be refused."})
+                                                            "Fabric from KratosForge, so the session will be refused. "
+                                                            + app_settings.ask_it("allow_fabric_runs")})
             lines.append({"outcome": "info", "text": "A Spark session uses Fabric capacity from its start until it "
                                                      "closes or times out."})
         else:

@@ -391,7 +391,7 @@ function dbgMarks(cell) {
   const at = cell.paused?.line ? dbgPausedLine(cell.dbgRan, cell.source, cell.paused.line).line : null;
   if (at) lines.set(at, `${lines.has(at) ? "cm-bp " : ""}cm-paused`);
   if (!lines.size) return [];
-  const view = editors.get(cell.id);
+  const view = editors.peek(cell.id);  // called while the editor is built: never build another (notebook.js)
   const doc = view ? view.state.doc : CM.EditorState.create({ doc: cell.source }).doc;
   const b = new CM.RangeSetBuilder();
   for (const n of [...lines.keys()].sort((x, y) => x - y)) {
@@ -463,7 +463,14 @@ function dbgEdited(cell, u) {
       if (n > before.lines) return null;
       const line = before.line(n);
       const last = n === before.lines;
-      if (dbgSpanGone(last && n > 1 ? line.from - 1 : line.from, last ? line.to : line.to + 1, ranges)) return null;
+      const start = last && n > 1 ? line.from - 1 : line.from;
+      const end = last ? line.to : line.to + 1;
+      // An empty line's span is only a line break, which a neighbour's deletion takes too. Deleted
+      // last lines take the break before them, so a change from this line to the cell's end is theirs;
+      // deleted lines above an empty last line go from a line's start to this one's.
+      const mine = line.length ? ranges : ranges.filter(([a, b]) => !(a === line.from && b === before.length && b > end)
+        && !(last && b === line.from && a < start && before.lineAt(a).from === a));
+      if (dbgSpanGone(start, end, mine)) return null;
       return u.state.doc.lineAt(u.changes.mapPos(line.from, 1)).number;
     };
     moved = dbgBpMap(lines, at, u.state.doc.lines);

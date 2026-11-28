@@ -47,7 +47,7 @@ SCHEMA = "kratosforge/excellence-handoff@1"
 # Control id -> the optimization engine rules (opportunities/analyzers.py) that report the same concern
 # on the same resource. An empty tuple: the control is handed to the planner, but no engine rule covers
 # it yet. A control missing here is not handed off at all (security, governance, DevOps, reliability,
-# architecture and semantic model controls aren't optimization work).
+# architecture, semantic model and warehouse controls aren't optimization work).
 MATCHES: dict[str, tuple[str, ...]] = {
     "FEA-PERF-001": ("OE-DUP-NB", "OE-DUP-NB-SUSPECT"),
     "FEA-PERF-002": ("OE-DUP-COPY", "OE-REPEAT-EXTRACT"),

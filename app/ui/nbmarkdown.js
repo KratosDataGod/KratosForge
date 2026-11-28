@@ -12,19 +12,26 @@ function mdRichOn() {
   return previewShown();
 }
 
+// The View choice's key: the notebook's name in the app's own folder, as before; the repository's folder
+// and the name for a notebook in a notebooks repository, so two notebooks of one name don't share it.
+function mdViewKey(nb) {
+  return nb.place?.root ? `fd.mdview.${JSON.stringify([nb.place.root, nb.name])}` : `fd.mdview.${nb.name}`;
+}
+
 function mdViewOf(nb) {
   let v = null;
-  try { v = localStorage.getItem(`fd.mdview.${nb.name}`); } catch { /* storage off: this session's choice */ }
+  try { v = localStorage.getItem(mdViewKey(nb)); } catch { /* storage off: this session's choice */ }
   return MD_VIEWS.some(([id]) => id === v) ? v : nb.mdView || "split";
 }
 
 function setMdView(nb, v) {
   nb.mdView = v;
-  try { localStorage.setItem(`fd.mdview.${nb.name}`, v); } catch { /* this session only */ }
+  try { localStorage.setItem(mdViewKey(nb), v); } catch { /* this session only */ }
   document.querySelectorAll(".md-rich").forEach((el) => mdShowView(el, v));
 }
 
 function mdShowView(el, v) {
+  const had = el.contains(document.activeElement) ? document.activeElement : null;  // before a narrow cell hides it
   el.dataset.view = v;
   el.querySelectorAll("[data-md-view]").forEach((b) => {
     const on = b.dataset.mdView === v;
@@ -34,6 +41,8 @@ function mdShowView(el, v) {
   el.querySelectorAll(".md-fmt").forEach((b) => { b.disabled = v === "preview"; });
   const bar = el.querySelector(".md-toolbar");
   if (bar) mdStop(bar, "button", [...bar.querySelectorAll("button")].find((b) => b.tabIndex === 0 && !b.disabled));
+  // Split picked on a narrow cell hides the switch it was picked from: focus goes to the tab showing.
+  if (had && !had.getClientRects().length) el.querySelector(".md-tabs [aria-selected='true']")?.focus();
 }
 
 // ---------- edits, all through the editor ----------
@@ -162,17 +171,24 @@ function mdFinish(cell) {
   enterCommandMode(cell);
 }
 
-// Arrow keys move along a toolbar or a tab row, and Tab leaves it: one Tab stop each.
-function mdStop(row, selector, b = null) {
+// Arrow keys move along a toolbar or a tab row, and Tab leaves it: one Tab stop each. Buttons a narrow
+// cell hides (the View switch while Split shows tabs) are skipped once the row is on screen.
+function mdLive(row, selector) {
   const items = [...row.querySelectorAll(selector)].filter((x) => !x.disabled);
-  const on = b || items.find((x) => x.getAttribute("aria-selected") === "true") || items[0];
+  const shown = items.filter((x) => x.getClientRects().length);
+  return shown.length ? shown : items;
+}
+
+function mdStop(row, selector, b = null) {
+  const items = mdLive(row, selector);
+  const on = (items.includes(b) && b) || items.find((x) => x.getAttribute("aria-selected") === "true") || items[0];
   row.querySelectorAll(selector).forEach((x) => { x.tabIndex = x === on ? 0 : -1; });
 }
 
 function mdRoving(row, selector) {
   row.addEventListener("focusin", (e) => { if (e.target.matches(selector)) mdStop(row, selector, e.target); });
   row.addEventListener("keydown", (e) => {
-    const list = [...row.querySelectorAll(selector)].filter((b) => !b.disabled);
+    const list = mdLive(row, selector);
     const i = list.indexOf(e.target);
     if (i < 0) return;
     const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: list.length - 1 }[e.key];

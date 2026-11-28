@@ -480,8 +480,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .md-rich[data-view="edit"] .md-preview, .md-rich[data-view="preview"] .md-edit { display: none; }
 .md-rich[data-view="preview"] .md-preview { border-left: 0; }
 .md-hint { margin: 0; padding: 4px 12px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 12px; }
+/* A narrow cell: Split becomes the Edit and Preview tabs, which take the View switch's place. */
 @container (max-width: 620px) {
   .md-rich[data-view="split"] .md-tabs { display: flex; }
+  .md-rich[data-view="split"] .md-view-pick { display: none; }
   .md-rich[data-view="split"][data-tab="edit"] .md-preview, .md-rich[data-view="split"][data-tab="preview"] .md-edit { display: none; }
   .md-rich[data-view="split"] .md-preview { border-left: 0; }
 }
@@ -4235,44 +4237,55 @@ body[data-skin-cells="rounded"] .cells.editing .cell.selected .cell-box { box-sh
 .nb-report-page th { background: var(--surface-2); }
 .nb-report-page img { max-width: 100%; }
 
-/* Notebook > View > Present (nbpresent.js, Preview): 16:9 slides on a muted stage, full screen or a fixed overlay */
+/* Notebook > View > Present (nbpresent.js, Preview): 16:9 slides on a muted stage, full screen or a fixed overlay.
+   The slide is sized from the stage (a size container) and its text from the slide's width (an inline-size
+   container), between the sizes a wide window shows; the strip of slides is a grid of thumbnails below it. */
 .nb-present { position: fixed; inset: 0; z-index: 900; display: flex; flex-direction: column; background: var(--canvas); color: var(--text); font-family: var(--font-ui); }
 .nb-present:focus { outline: none; }
-.nbp-top, .nbp-bottom { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--surface); border-color: var(--border); border-style: solid; border-width: 0; flex-wrap: wrap; }
+.nbp-top, .nbp-bottom { display: flex; align-items: center; gap: 4px 10px; padding: 8px 16px; background: var(--surface); border-color: var(--border); border-style: solid; border-width: 0; flex-wrap: wrap; }
 .nbp-top { border-bottom-width: 1px; }
 .nbp-bottom { border-top-width: 1px; }
-.nbp-name { font-weight: 600; }
+.nbp-name { font-weight: 600; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nbp-pill { font-weight: 600; }
 .nbp-count { min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; }
 .nbp-dots { display: inline-flex; gap: 6px; }
 .nbp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-input); }
 .nbp-dot.on { background: var(--accent); }
-.nbp-body { flex: 1; min-height: 0; display: flex; }
-.nbp-strip { width: 240px; flex: none; overflow: auto; background: var(--surface); border-right: 1px solid var(--border); padding: 8px; }
+.nbp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.nbp-strip { flex: none; max-height: min(40%, 240px); overflow: auto; background: var(--surface); border-top: 1px solid var(--border); padding: 10px 16px; }
 .nbp-strip[hidden] { display: none; }
-.nbp-strip ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.nbp-strip ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 .nbp-thumb { width: 100%; aspect-ratio: 16 / 9; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 4px;
   padding: 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); color: var(--text); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
 .nbp-thumb:hover { background: var(--hover); }
 .nbp-thumb.current { border: 2px solid var(--accent); background: var(--accent-soft); }
 .nbp-thumb-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .nbp-mark { font-size: 11px; }
-.nbp-stage { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 24px; }
-.nbp-slide { aspect-ratio: 16 / 9; width: min(100%, calc((100vh - 150px) * 16 / 9)); max-height: 100%; overflow: auto; box-sizing: border-box;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 32px 48px; display: flex; flex-direction: column; gap: 16px; font-size: 18px; }
+.nbp-stage { flex: 1 1 0; min-width: 0; min-height: 0; container-type: size; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.nbp-slide { container-type: inline-size; aspect-ratio: 16 / 9; width: min(100cqw, 100cqh * 16 / 9); max-height: 100cqh; overflow: auto; box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: clamp(12px, 2.4cqw, 32px) clamp(16px, 3.6cqw, 48px);
+  display: flex; flex-direction: column; gap: clamp(8px, 1.2cqw, 16px); }
 .nbp-slide:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.nbp-slide .nbp-md { padding: 0; font-size: 18px; }
-.nbp-slide .nbp-md h1 { font-size: 34px; }
-.nbp-slide .nbp-md h2 { font-size: 28px; }
-.nbp-slide .nbp-md h3 { font-size: 22px; }
+.nbp-slide .nbp-md { padding: 0; font-size: clamp(13px, 12px + 0.5cqi, 18px); overflow-wrap: break-word; }
+.nbp-slide .nbp-md h1 { font-size: clamp(20px, 18px + 1.34cqi, 34px); }
+.nbp-slide .nbp-md h2 { font-size: clamp(18px, 16px + 1cqi, 28px); }
+.nbp-slide .nbp-md h3 { font-size: clamp(15px, 14px + 0.67cqi, 22px); }
 .nbp-out { display: flex; flex-direction: column; gap: 8px; }
-.nbp-out pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 15px/1.45 var(--mono); }
+.nbp-out pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: clamp(12px, 11px + 0.34cqi, 15px)/1.45 var(--mono); }
 .nbp-out .nbfp-err { color: var(--danger); }
 .nbp-out .nbfp-skipped { color: var(--muted); font-style: italic; }
-.nbp-out table { border-collapse: collapse; font-size: 15px; }
+.nbp-out table { border-collapse: collapse; font-size: clamp(12px, 11px + 0.34cqi, 15px); }
 .nbp-out th, .nbp-out td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; }
 .nbp-out th { background: var(--surface-2); }
 .nbp-out img { max-width: 100%; }
+/* A small or zoomed window: tighter bars and stage, and the slide takes the whole stage, so its text isn't
+   left a few lines high. */
+@media (max-width: 600px), (max-height: 500px) {
+  .nbp-top, .nbp-bottom { padding: 4px 8px; gap: 2px 8px; }
+  .nbp-stage { padding: 8px; }
+  .nbp-slide { aspect-ratio: auto; width: 100%; height: 100%; max-height: none; }
+  .nbp-strip { padding: 8px; }
+}
 @media (forced-colors: active) { .nbp-slide, .nbp-thumb.current { border: 2px solid CanvasText; } .nbp-dot.on { background: Highlight; } }
 
 /* SQL page > Explorer > Diagram (sqldiagram.js) */

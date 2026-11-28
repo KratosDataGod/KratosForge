@@ -120,7 +120,7 @@ test("arrows and Page keys move, the count is announced politely, and Esc goes b
   await page().getByRole("button", { name: "‹ Previous" }).click();
   assert.strictEqual(await page().locator(".nbp-count").innerText(), "1 / 3");
   assert.strictEqual(await page().locator(".nbp-dots").getAttribute("aria-hidden"), "true");
-  assert.match(await page().locator(".nbp-bottom").innerText(), /← → to move · Esc to leave/);
+  assert.match(await page().locator(".nbp-bottom").innerText(), /← → to move · S for slides · Esc to leave/);
 
   // Tab stays inside while presenting.
   for (let i = 0; i < 12; i++) {

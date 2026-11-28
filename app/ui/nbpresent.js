@@ -9,6 +9,7 @@
 // .ipynb), only the marks start slides. A cell with nothing to show is left out.
 
 const NBP_MAX_DOTS = 20;
+const NBP_FAILED = "Couldn't show the notebook's outputs. Open Present again.";
 const nbPresent = { opening: false, root: null, slides: [], at: 0, from: null, strip: false, fullscreen: false, keys: null, focus: null };
 
 // A Markdown source cut at its # and ## headings (outside fenced code): the text before the first such
@@ -86,10 +87,18 @@ function nbPresentTitle(slide, n) {
   return `Slide ${n}`;
 }
 
-// The line saying which run the outputs are from, or null when the app doesn't know when it was.
+// The line saying which run the outputs are from, or null when the app doesn't know when it was:
+// "today at 2:02 PM", "yesterday at 2:02 PM", or the date and time before that.
 function nbPresentRanLine(cells) {
   const last = Math.max(0, ...cells.map((c) => c.finishedAtMs || 0));
-  return last ? `Outputs from the last run, ${dateTimeText(last)}` : null;
+  if (!last) return null;
+  const day = (d) => new Date(d).toDateString();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const time = timeText(last);  // the app's own time, as on every page
+  const at = day(last) === day(Date.now()) ? `today at ${time}`
+    : day(last) === day(yesterday) ? `yesterday at ${time}` : dateTimeText(last);
+  return `Outputs from the last run, ${at}`;
 }
 
 async function openNotebookPresent() {
@@ -110,7 +119,15 @@ async function nbPresentOpen(nb) {
   const outputs = new Map();
   if (code.length) {
     const payload = nbfExportPayload({ ...nb, cells: code }, "html").cells;
-    const page = await attempt(() => rpc("notebook_print_page", { name: nb.name, cells: payload }), "Could not show the notebook's outputs");
+    let page;
+    try {
+      page = await rpc("notebook_print_page", { name: nb.name, cells: payload });
+    } catch (err) {
+      // The engine's reason goes to Activity; the toast says what to do.
+      const f = friendlyError(err);
+      if (!f.cancelled) toast(NBP_FAILED, true, { title: NBP_FAILED, details: [f.text, f.details].filter(Boolean).join("\n") });
+      return;
+    }
     if (!page) return;
     const boxes = nbfPrintNodes(page.html).filter((n) => n.nodeType === 1 && n.classList.contains("nbfp-cell"));
     code.forEach((c, i) => {
@@ -121,7 +138,7 @@ async function nbPresentOpen(nb) {
   const slides = split.map((s) => ({ ...s, parts: s.parts.filter((p) => !p.code || outputs.has(p.cell)) })).filter((s) => s.parts.length);
   if (state.notebook !== nb || state.view !== "notebook") return;  // left the notebook while the outputs were read
   if (!slides.length) {
-    toast("There's nothing to present, because the notebook has no Markdown and no outputs yet. Add a Markdown cell or run the notebook first.");
+    toast("There's nothing to present yet, because the notebook has no Markdown and no outputs. Run the notebook first.");
     return;
   }
   slides.forEach((s, i) => { s.title = nbPresentTitle(s, i + 1); });
@@ -133,11 +150,12 @@ async function nbPresentOpen(nb) {
       h("span", { class: "pill nbp-pill" }, "Read-only. Nothing runs."),
       ran ? h("span", { class: "muted-text nbp-ran" }, ran) : null,
       h("span", { class: "spacer" }),
-      btn("Slides", "panel", () => nbPresentStrip(!nbPresent.strip), "tool", { "aria-keyshortcuts": "S", "aria-expanded": "false", "data-nbp-strip": true, title: "Show the slides (S)" }),
+      btn("Show slides", "panel", () => nbPresentStrip(!nbPresent.strip), "tool", { "aria-keyshortcuts": "S", "aria-expanded": "false", "aria-controls": "nbp-strip", "data-nbp-strip": true, title: "Show the slides (S)" }),
       btn("Leave", "dismiss", closeNotebookPresent, "tool", { "aria-keyshortcuts": "Escape", title: "Leave Present (Esc)" })),
+    // The strip of slides opens below the slide, a grid of thumbnails, so the slide keeps the window's width.
     h("div", { class: "nbp-body" },
-      h("nav", { class: "nbp-strip", "aria-label": "Slides", hidden: true }),
-      h("div", { class: "nbp-stage" }, h("section", { class: "nbp-slide", tabindex: "-1", "aria-roledescription": "slide" }))),
+      h("div", { class: "nbp-stage" }, h("section", { class: "nbp-slide", tabindex: "-1", "aria-roledescription": "slide" })),
+      h("nav", { class: "nbp-strip", id: "nbp-strip", "aria-label": "Slides", hidden: true })),
     h("div", { class: "nbp-bottom" },
       btn("‹ Previous", null, () => nbPresentGo(nbPresent.at - 1), "tool", { "data-nbp-prev": true, "aria-keyshortcuts": "ArrowLeft PageUp" }),
       h("span", { class: "nbp-count" }),
@@ -145,7 +163,7 @@ async function nbPresentOpen(nb) {
       // A dot per slide while they fit on the bar; a longer deck has the count alone (400 dots ran off it).
       slides.length <= NBP_MAX_DOTS ? h("span", { class: "nbp-dots", "aria-hidden": "true" }, slides.map(() => h("span", { class: "nbp-dot" }))) : null,
       h("span", { class: "spacer" }),
-      h("span", { class: "muted-text nbp-hint" }, "← → to move · Esc to leave")),
+      h("span", { class: "muted-text nbp-hint" }, "← → to move · S for slides · Esc to leave")),
     h("div", { class: "sr-only", role: "status", "aria-live": "polite", "data-nbp-live": true }));
   nbPresent.root = root;
   document.body.append(root);
@@ -190,7 +208,7 @@ function nbPresentGo(i) {
   box.replaceChildren(...slide.parts.map((p) => p.code
     ? h("div", { class: "nbp-out" }, nbPresent.outputs.get(p.cell).map((node) => node.cloneNode(true)))
     : h("div", { class: "nbp-md md-view" }, markdown(p.md, { attachments: p.cell.attachments }))));
-  box.setAttribute("aria-label", `Slide ${nbPresent.at + 1} of ${n}: ${slide.title}`);
+  box.setAttribute("aria-label", `Slide ${nbPresent.at + 1} of ${n}, ${slide.title}`);
   box.scrollTop = 0;
   root.querySelector(".nbp-count").textContent = `${nbPresent.at + 1} / ${n}`;
   root.querySelector("[data-nbp-prev]").disabled = nbPresent.at === 0;
@@ -207,7 +225,7 @@ function nbPresentDrawStrip() {
   strip.replaceChildren(h("ol", {}, nbPresent.slides.map((s, i) => h("li", {},
     h("button", { class: `nbp-thumb${i === nbPresent.at ? " current" : ""}`, "aria-current": i === nbPresent.at ? "true" : null,
       onclick: () => nbPresentGo(i) },
-    h("span", { class: "nbp-thumb-title" }, `${i + 1}. ${s.title}`),
+    h("span", { class: "nbp-thumb-title" }, h("b", { class: "nbp-thumb-n" }, `${i + 1}.`), " ", s.title),
     s.start?.meta?.slide_start ? h("span", { class: "tag nbp-mark" }, "Starts a slide") : null)))));
 }
 
@@ -235,7 +253,9 @@ function nbPresentKey(e) {
   if (!nbPresent.root) return;
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
   let handled = true;
-  if (e.key === "Tab") trapFocus(e, nbPresent.root);
+  // A link on the slide opens with Enter, as in the notebook: its own handler is behind this one.
+  if (e.key === "Enter" && plain && !e.shiftKey && e.target.matches?.(".md-link") && nbPresent.root.contains(e.target)) e.target.click();
+  else if (e.key === "Tab") trapFocus(e, nbPresent.root);
   else if (e.key === "Escape") closeNotebookPresent();
   else if (plain && (e.key === "ArrowRight" || e.key === "PageDown")) nbPresentGo(nbPresent.at + 1);
   else if (plain && (e.key === "ArrowLeft" || e.key === "PageUp")) nbPresentGo(nbPresent.at - 1);
@@ -267,7 +287,7 @@ function nbPresentMenuItems(cell) {
   if (!PREVIEW_FEATURES.nbPresent || !previewShown()) return [];
   const on = !!cell.meta?.slide_start;
   return [btn("Starts a slide", "desktop", () => setMeta(cell, "slide_start", !on), "tool",
-    { "aria-pressed": String(on), title: "In Present, a slide starts at this cell. When any cell is marked, only the marks start slides." })];
+    { "aria-pressed": String(on), title: "Start a new slide at this cell in Present. Once any cell is marked, only marked cells start slides." })];
 }
 
 // The cell header's small mark.

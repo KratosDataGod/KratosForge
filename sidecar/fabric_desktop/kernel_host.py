@@ -248,6 +248,8 @@ def main() -> None:
     channel = Channel(proto_in, proto_out)
 
     def to_engine(value: Any) -> None:
+        if len(value) > secret_redaction.WIRE_CHARS:
+            return  # longer than the engine takes; masked here all the same
         message = secret_redaction.wire(value)
         if message is not None:
             channel.send({"secret": message})

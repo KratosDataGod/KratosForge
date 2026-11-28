@@ -127,18 +127,35 @@ def wire(value: Any) -> dict[str, str] | None:
     return None
 
 
+WIRE_VALUES = 1000  # values the engine takes from kernels' processes; more are dropped
+WIRE_CHARS = 64 * 1024  # the longest value taken that way (characters, or bytes)
+WIRE_LINE = 8 * WIRE_CHARS  # the longest protocol line read as one, before it is decoded
+_wired = 0
+
+
 def remember_wire(message: Any) -> None:
-    """Remember the value a kernel's process sent (``wire``); anything malformed is ignored."""
-    if not isinstance(message, dict):
+    """Remember the value a kernel's process sent (``wire``), with the same rules as ``remember``.
+    Anything malformed, a value longer than ``WIRE_CHARS`` and every value after ``WIRE_VALUES`` are
+    dropped without a word: nothing about them is logged or raised."""
+    global _wired
+    if not isinstance(message, dict) or _wired >= WIRE_VALUES:
         return
     text, data = message.get("text"), message.get("bytes")
+    value: str | bytes
     if isinstance(text, str):
-        remember(text)
-    elif isinstance(data, str):
+        value = text
+    elif isinstance(data, str) and len(data) <= 4 * (WIRE_CHARS // 3 + 1):
         try:
-            remember(base64.b64decode(data, validate=True))
+            value = base64.b64decode(data, validate=True)
         except (binascii.Error, ValueError):
             return
+    else:
+        return
+    if len(value) > WIRE_CHARS or not _forms(value):
+        return
+    with _lock:
+        _wired += 1
+    remember(value)
 
 
 def active() -> bool:
@@ -275,8 +292,9 @@ def redact_output(value: Any) -> Any:
 def forget_all() -> None:
     """For tests, and a kernel restart starts clean anyway. The engine keeps the values a kernel's
     process passed it for as long as it runs."""
-    global _pattern, _longest
+    global _pattern, _longest, _wired
     with _lock:
+        _wired = 0
         _values.clear()
         _starts.clear()
         _longest = 0

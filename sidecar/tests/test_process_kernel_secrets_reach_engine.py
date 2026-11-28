@@ -195,3 +195,62 @@ def test_the_engine_reader_remembers_a_value_message_and_answers_nothing():
     k._read(proc)  # type: ignore[arg-type]
     assert secret_redaction.redact(VALUE) == REDACTED
     assert Pipe.written == ""
+
+
+# ---- limits on what the engine takes from a kernel's process
+
+
+@pytest.mark.parametrize("value", ["1", "a", "abc", "", b"ab"])
+def test_a_value_too_short_to_mask_is_dropped_on_the_wire_as_in_the_kernel(value):
+    secret_redaction.remember_wire(secret_redaction.wire(value))
+    assert not secret_redaction.active()
+    assert secret_redaction.redact_all("1 a abc ab") == "1 a abc ab"
+
+
+def test_a_value_past_the_length_cap_is_dropped():
+    long = "Q" * (secret_redaction.WIRE_CHARS + 1)
+    secret_redaction.remember_wire({"text": long})
+    secret_redaction.remember_wire(secret_redaction.wire(long.encode()))
+    assert not secret_redaction.active()
+    at_cap = "Z" + "Q" * (secret_redaction.WIRE_CHARS - 1)
+    secret_redaction.remember_wire({"text": at_cap})
+    assert secret_redaction.redact(at_cap) == REDACTED
+
+
+def test_values_past_the_count_cap_are_dropped(monkeypatch):
+    monkeypatch.setattr(secret_redaction, "WIRE_VALUES", 3)
+    for n in range(5):
+        secret_redaction.remember_wire({"text": f"made-up-value-{n}"})
+    assert secret_redaction.redact("made-up-value-2") == REDACTED
+    assert secret_redaction.redact("made-up-value-3") == "made-up-value-3"
+    secret_redaction.remember("made-up-value-4")  # the kernel's own values have no such cap
+    assert secret_redaction.redact("made-up-value-4") == REDACTED
+
+
+def test_bad_base64_is_dropped_without_a_word(capsys):
+    secret_redaction.remember_wire({"bytes": "not base64 !!"})
+    secret_redaction.remember_wire({"bytes": "A" * (secret_redaction.WIRE_LINE)})
+    assert not secret_redaction.active()
+    out = capsys.readouterr()
+    assert out.out == out.err == ""
+
+
+def test_the_engine_reader_does_not_decode_a_value_line_past_the_line_cap(monkeypatch):
+    seen = []
+    monkeypatch.setattr(secret_redaction, "remember_wire", seen.append)
+    huge = '{"secret": {"text": "%s"}}\n' % ("Q" * secret_redaction.WIRE_LINE)
+    small = '{"secret": {"text": "%s"}}\n' % VALUE
+
+    class Proc:
+        stdout = io.StringIO(huge + small)
+        stdin = io.StringIO()
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+    ProcessKernel(command=["unused"])._read(Proc())  # type: ignore[arg-type]
+    assert seen == [{"text": VALUE}]
+

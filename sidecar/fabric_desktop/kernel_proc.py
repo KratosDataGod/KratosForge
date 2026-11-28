@@ -270,6 +270,8 @@ class ProcessKernel:
     def _read(self, proc: subprocess.Popen[str]) -> None:
         assert proc.stdout is not None
         for line in proc.stdout:
+            if len(line) > secret_redaction.WIRE_LINE and line.lstrip().startswith('{"secret"'):
+                continue  # a value longer than the engine takes: not decoded at all
             try:
                 message = json.loads(line)
             except ValueError:

@@ -108,7 +108,8 @@ def test_smoke_test_warehouse_flow_connects_with_the_signed_in_token(
             return "wh-token"  # pragma: allowlist secret (a fake token)
 
     connected = []
-    monkeypatch.setattr(app_settings, "value", lambda key: "client-1")
+    # The app ID; every other setting (sign_in_tenant among them) as it is by default.
+    monkeypatch.setattr(app_settings, "value", lambda key: "client-1" if key == "client_id" else app_settings.DEFAULTS[key])
     monkeypatch.setattr(auth, "Authenticator", Cred)
     monkeypatch.setattr(
         fabric_api, "FabricClient", lambda token: SimpleNamespace(token=token)

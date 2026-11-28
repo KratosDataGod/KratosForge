@@ -24,7 +24,7 @@ const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
 const ME = "chris@contoso.com";
 const ENGINE = ["app_settings", "save_app_settings", "telemetry_status", "telemetry_new_install_id"];
-const READS = ["app_settings", "telemetry_status", "local_writes", "platform_notify_settings", "optimize_status", "readiness_check", "list_workspaces", "academy_sandbox_status"];
+const READS = ["app_settings", "organization_status", "telemetry_status", "local_writes", "platform_notify_settings", "optimize_status", "readiness_check", "list_workspaces", "academy_sandbox_status"];
 const WRITES = ["sign_out", "local_writes_clear", "telemetry_new_install_id", "save_app_settings", "local_writes_reveal", "academy_sandbox_remove_grants"];
 const OLD_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const STAGING = "C:\\Users\\chris\\AppData\\Local\\FabricDesktop\\staging";

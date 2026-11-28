@@ -51,6 +51,7 @@ _TEXT: dict[str, tuple[str, str]] = {
     "channel": ("signin", "Which release the app updates to: stable or preview."),
     "auto_update": ("signin", "False stops the app updating itself; IT then rolls out new builds."),
     "allowed_tenants": ("signin", "Microsoft Entra tenant IDs people may sign in to. Any other account is signed out again."),
+    "sign_in_tenant": ("signin", "The organization sign-in goes to, as a tenant ID or a domain like northwind.com, for guest (B2B) accounts working in the company that invited them. Trusted only from an admin-only source."),
     "support_url": ("signin", "Where Report a problem goes: an https link or a mailto: address."),
     "engine_download_url": ("signin", "An https folder the app downloads its engine from instead of GitHub, with auto_update false. Read by the app itself; trusted only when the policy file is admin-only."),
     "register_link_scheme": ("signin", "False stops the app registering kratosforge:// links for the Windows user, and removes a registration it made."),
@@ -265,7 +266,7 @@ def adml() -> str:
     for st in settings():
         if st.kind == "json":
             continue
-        help_text = st.text + (" People can also change it in Settings; this policy fixes it." if st.user else "")
+        help_text = st.text + (" People can change it in Settings unless this policy sets it." if st.user else "")
         if st.kind == "list":
             help_text += " Add one item per line."
         help_text += f" Policy file key: {st.key}."

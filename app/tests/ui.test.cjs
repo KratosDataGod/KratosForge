@@ -6821,6 +6821,7 @@ const FABRIC_READS = {
   meta_model_tmdl_save: "reads the model from Fabric, writes files in the project folder",
   notebook_from_fabric: "reads a Fabric notebook into a file on this PC", shortcut_export: "a CSV in Downloads",
   xray_pause: "pauses this PC's scan",
+  organization_switch: "signs the same account in to another organization (a token there); nothing in Fabric changes",
 };
 // Untested writes still to tag or run live. Taking one out of this list is the goal; adding one needs a reason.
 const NOT_YET = [

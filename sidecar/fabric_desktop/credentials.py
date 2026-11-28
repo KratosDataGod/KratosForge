@@ -230,6 +230,7 @@ def from_config(auth: dict[str, Any]) -> Credential:
     if kind == "user":
         from . import app_settings
         from .auth import Authenticator
+        tenant = app_settings.value("sign_in_tenant")
         return Authenticator(auth.get("client_id", "") or app_settings.value("client_id"),
-                             interactive=False)
+                             interactive=False, **({"tenant": tenant} if tenant else {}))
     raise ValueError('[auth] type is "service_principal", "managed_identity" or "user"')

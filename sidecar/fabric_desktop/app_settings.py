@@ -89,6 +89,11 @@ Keys:
                      (replay.py), so a bundle never holds lakehouse data (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
+    sign_in_tenant   the organization sign-in goes to, as a tenant id or a domain like northwind.com:
+                     a guest (B2B) account working in the company that invited it. Empty (default):
+                     the account's own organization. Set by policy, it is fixed and Settings says IT
+                     chose it; it widens where sign-in goes, so only a policy source only administrators
+                     could have written sets it (LOOSENING)
     audit_retention_days  IT only: days the audit trails on this PC (the app's, external AI tools' and
                      an agent's) are kept; whole months older than this are deleted, each cleanup
                      recorded first. 0 (default) keeps them; otherwise at least 30
@@ -231,6 +236,14 @@ DEFAULTS.update({"motion_level": 1} | {key: True for key in MOTION_SWITCHES})
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
+# The organization sign-in goes to (auth.Authenticator, organizations.py): empty for the account's own.
+# People change it with Switch organization; IT can fix it in the policy file or Group Policy. It widens
+# where sign-in goes, so it is LOOSENING: a policy source the person could have written doesn't set it, and
+# their own choice stands.
+DEFAULTS["sign_in_tenant"] = ""
+TYPES["sign_in_tenant"] = str
+USER_KEYS += ("sign_in_tenant",)
+
 # Schedules on this PC that also run while signed out of Windows (local_schedules, signed_out_tasks).
 # Policy only: the person ticks it per schedule; IT can turn the choice off.
 DEFAULTS["allow_signed_out_schedules"] = True
@@ -313,16 +326,17 @@ SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_downl
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
 # Settings that widen what KratosForge trusts or where it sends or fetches things: sign-in hosts, a
-# package source, the sign-in app, a telemetry or help-desk address, hosts App Studio and integrations
-# may call. Only a source the person using the PC couldn't change may set them (Chris, 2026-11-10):
-# from a policy file or Group Policy key they could change, or the last good copy in their own profile,
-# they are ignored and reported; that source's restrictions still apply, with a warning.
+# package source, the sign-in app, the organization sign-in goes to, a telemetry or help-desk address,
+# hosts App Studio and integrations may call. Only a source the person using the PC couldn't change may
+# set them (Chris, 2026-11-10): from a policy file or Group Policy key they could change, or the last good
+# copy in their own profile, they are ignored and reported; that source's restrictions still apply, with a
+# warning.
 # audit_retention_days and receipt_retention_days: 0 keeps them, otherwise at least this many days.
 RETENTION_MIN_DAYS = 30
 LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "snowpark_index_url", "notebook_package_folder",
              "client_id",
              "telemetry_connection_string", "appstudio_hosts", "integrations_http", "support_url",
-             "audit_retention_days", "receipt_retention_days")
+             "audit_retention_days", "receipt_retention_days", "sign_in_tenant")
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -674,6 +688,9 @@ def policy_problems() -> list[str]:
         elif key == "telemetry_connection_string" and value and not _telemetry_target(value):
             problems.append("telemetry_connection_string isn't an Application Insights connection string "
                             "(InstrumentationKey=...;IngestionEndpoint=https://...)")
+        elif key == "sign_in_tenant" and value and not _sign_in_tenant(value):
+            problems.append("sign_in_tenant must be a tenant id like 11111111-2222-3333-4444-555555555555 or a "
+                            "domain like northwind.com, so sign-in goes to the account's own organization")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
             problems.append("allowed_tenants must list tenant ids, like 11111111-2222-3333-4444-555555555555"
                             + ("; with other values in it, no account can sign in"
@@ -845,11 +862,21 @@ def _in_range(key: str, value: Any) -> bool:
         return value in CHOICES[key]
     if key == "ui_skin":
         return _skin_id(value)
+    if key == "sign_in_tenant":
+        return _sign_in_tenant(value)
     if key == "editor_font_size":
         return value == 0 or EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]
     if key == "editor_key_overrides":
         return _editor_keys_problem(value) is None
     return True
+
+
+def _sign_in_tenant(value: Any) -> bool:
+    from .organizations import normalize
+    try:
+        return isinstance(value, str) and bool(normalize(value))
+    except ValueError:
+        return False
 
 
 def _skin_id(value: Any) -> bool:
@@ -962,6 +989,9 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
         if key in CHOICES and new not in (None, "", *CHOICES[key]):
             raise ValueError(f"{key} must be one of {', '.join(CHOICES[key])}")
+        if key == "sign_in_tenant" and new not in (None, ""):
+            from .organizations import normalize
+            new = normalize(new)
         if key == "ui_skin" and new not in (None, "") and not _skin_id(new):
             raise ValueError("ui_skin must be a skin id: lower-case letters, digits or hyphens")
         if key in SQL_RANGES:

@@ -136,6 +136,11 @@ from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 
 METHODS |= OPTIMIZE_METHODS
 
+# Switch organization: a guest signing in to the company that invited them (organizations_service.py).
+from .organizations_service import METHODS as ORGANIZATION_METHODS  # noqa: E402
+
+METHODS |= ORGANIZATION_METHODS
+
 # The optimization engine's assessment (opportunities_service.py, engine only).
 from .opportunities_service import METHODS as OPPORTUNITY_METHODS  # noqa: E402
 

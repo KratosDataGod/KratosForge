@@ -24,7 +24,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, csv_cells, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_compare, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
+from . import app_settings, csv_cells, jsonfile, lakehouse, net_trust, organizations, schema_cache, sql, sql_compare, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -71,6 +71,7 @@ from .risk_service import RiskMixin
 from .model_bpa_service import ModelBpaMixin
 from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
+from .organizations_service import OrganizationsMixin
 from .controlplane_service import ControlPlaneMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
@@ -147,15 +148,15 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, DatabricksVolumesMixin, CompareMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, DatabricksVolumesMixin, CompareMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin, OrganizationsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
         self._auth_lock = threading.Lock()
-        self._auth_failed: tuple[BaseException, str, float] | None = None  # see auth
-        self._auth_building: tuple[str, Future] | None = None
+        self._auth_failed: tuple[BaseException, tuple[str, str], float] | None = None  # see auth
+        self._auth_building: tuple[tuple[str, str], Future] | None = None  # (app ID, organization)
         self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
                                        max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
                                        idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0),
@@ -170,20 +171,24 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     @property
     def auth(self) -> Authenticator:
         # The app ID can change on the Settings page; a new one needs a new sign-in.
+        # So can the organization sign-in goes to (Switch organization, organizations_service.py).
         client_id = self._client_id or app_settings.value("client_id")
+        tenant = str(app_settings.value("sign_in_tenant") or "").strip().lower()
         # Built once: building it asks Microsoft for its sign-in endpoints (and on Windows starts the
         # sign-in broker), so calls arriving together, as a tool's do, must not each build one.
         with self._auth_lock:
-            if self._auth is not None and getattr(self._auth, "client_id", client_id) == client_id:
+            if (self._auth is not None and getattr(self._auth, "client_id", client_id) == client_id
+                    and getattr(self._auth, "tenant", tenant) == tenant):
                 return self._auth
             # Offline, a build fails or waits out its timeout. The calls queued behind it (a page's
             # loads) get the same answer at once for a while, instead of a wait each.
+            key = (client_id, tenant)
             failed = self._auth_failed
-            if failed and failed[1] == client_id and time.monotonic() < failed[2]:
+            if failed and failed[1] == key and time.monotonic() < failed[2]:
                 raise failed[0].with_traceback(None)
             building = self._auth_building
-            if building is None or building[0] != client_id:
-                building = self._auth_building = (client_id, Future())
+            if building is None or building[0] != key:
+                building = self._auth_building = (key, Future())
                 threading.Thread(target=self._build_auth, args=building, daemon=True, name="sign-in-setup").start()
         try:
             # A network that drops the traffic can take minutes to give up. The app waits a little,
@@ -193,13 +198,15 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             raise requests.exceptions.ConnectTimeout(
                 f"Microsoft's sign-in ({AUTH_HOST}) didn't answer within {AUTH_WAIT_SECONDS} seconds") from None
 
-    def _build_auth(self, client_id: str, done: Future) -> None:
+    def _build_auth(self, key: tuple[str, str], done: Future) -> None:
+        client_id, tenant = key
         try:
-            made = Authenticator(client_id, interactive=not self.headless)
+            more: dict[str, Any] = {"tenant": tenant} if tenant else {}
+            made = Authenticator(client_id, interactive=not self.headless, **more)
         except Exception as exc:  # noqa: BLE001 - handed to every caller waiting for it
             with self._auth_lock:
                 if net_trust.explain(exc):
-                    self._auth_failed = (exc, client_id, time.monotonic() + AUTH_RETRY_SECONDS)
+                    self._auth_failed = (exc, key, time.monotonic() + AUTH_RETRY_SECONDS)
                 self._auth_built(done)
             done.set_exception(exc)
             return
@@ -209,7 +216,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         done.set_result(made)
 
     def _auth_built(self, done: Future) -> None:
-        if self._auth_building is not None and self._auth_building[1] is done:  # not a newer app ID's
+        if self._auth_building is not None and self._auth_building[1] is done:  # not a newer app ID's or organization's
             self._auth_building = None
 
     @property
@@ -300,8 +307,19 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         self._start_usage_send()
         account = self._saved_account()
         home = account.get("home_account_id") or ""
-        return {"python": platform.python_version(), "user": account.get("username"),
-                "tenant": home.split(".", 1)[1] if "." in home else None}
+        home_tenant = home.split(".", 1)[1] if "." in home else None
+        tenant, organization = home_tenant, ""
+        chosen = str(app_settings.value("sign_in_tenant") or "").strip().lower()
+        if chosen and home_tenant:
+            # A guest signed in to the company that invited them: that organization, from what this PC
+            # already knows (organizations_service.py), so start-up still needs no network.
+            org = self._organization_of(chosen)
+            tenant = (org or {}).get("tenant_id") or None
+            if tenant and tenant.lower() != home_tenant.lower():
+                organization = organizations.label(org)
+        guest = bool(organization)
+        return {"python": platform.python_version(), "user": account.get("username"), "tenant": tenant,
+                "guest": guest, "organization": organization}
 
     def _saved_account(self) -> dict[str, Any]:
         """The signed-in account from the saved sign-in, read without the network, so the app starts
@@ -527,7 +545,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             retry()
         self.auth.fabric_token()
         self.auth.storage_token()
-        return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
+        return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant(), "guest": bool(getattr(self.auth, "is_guest", lambda: False)()), "organization": self._guest_label()}
 
     def readiness_check(self) -> list[dict[str, Any]]:
         """Home's Ready to work list. Reads only, and never opens a sign-in window."""

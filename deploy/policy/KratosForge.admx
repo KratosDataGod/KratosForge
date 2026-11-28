@@ -289,6 +289,13 @@
       <enabledValue><decimal value="1" /></enabledValue>
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
+    <policy name="sign_in_tenant" class="Machine" displayName="$(string.sign_in_tenant)" explainText="$(string.sign_in_tenant_Help)" key="Software\Policies\KratosBI\KratosForge" presentation="$(presentation.sign_in_tenant)">
+      <parentCategory ref="cat_signin" />
+      <supportedOn ref="SUPPORTED_KratosForge" />
+      <elements>
+        <text id="sign_in_tenant" valueName="sign_in_tenant" required="true" maxLength="2048" />
+      </elements>
+    </policy>
     <policy name="allow_signed_out_schedules" class="Machine" displayName="$(string.allow_signed_out_schedules)" explainText="$(string.allow_signed_out_schedules_Help)" key="Software\Policies\KratosBI\KratosForge" valueName="allow_signed_out_schedules">
       <parentCategory ref="cat_fabric" />
       <supportedOn ref="SUPPORTED_KratosForge" />

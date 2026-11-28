@@ -167,14 +167,14 @@ now not evaluated, turned off or gone is **never resolved**: missing evidence ca
 it stays listed as an unverified failure until a pass is seen. Each step gives the change in score,
 assured score and coverage, overall and per dimension. When the score moved only because a different
 set of controls could be checked (no control checked both times changed its result), the step says
-so; compare the assured score then. A step whose snapshots used a different profile, rules, scope or
+so, and the assured score is the one to compare. A step whose snapshots used a different profile, rules, scope or
 fixture flag is marked not comparable, with the reasons. Malformed snapshots, scores that aren't
 finite numbers and two snapshots with the same timestamp are refused.
 
 **Capacity scores** (`excellence/portfolio.py`, FEA-503) pool the outcomes that bear on one capacity
 and score them with the same formulas as any assessment. They are **not an average of workspace
-scores**. The outcomes are the capacity's own controls and the Capacity and FinOps and Performance
-controls on the workspaces the caller names as on that capacity, and on their items, each from the
+scores**. The outcomes are the capacity's own controls and the Performance controls and the Capacity and
+FinOps controls on the workspaces the caller names as on that capacity, and on their items, each from the
 latest snapshot that assessed it. A listed workspace, or the capacity, that no snapshot assessed counts
 as not evaluated for each of those controls, so a capacity with little evidence has low coverage and
 no rating rather than a healthy score. The findings shown are the snapshots' own; nothing new is made.

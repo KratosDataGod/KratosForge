@@ -270,9 +270,12 @@ def _one_match_each(change: Change, table: Any, source: Any, names: _Names) -> N
     the rows a WHEN MATCHED clause's condition takes, so a duplicate the condition leaves out, or one
     under WHEN NOT MATCHED BY SOURCE alone, got through."""
     import duckdb
+
+    from . import delta_read
     con = duckdb.connect()
     try:
-        con.register("kf_target", table.to_pyarrow_dataset())
+        # delta_read, not to_pyarrow_dataset: that refuses deletion vectors and reads a column-mapped table as NULLs
+        con.register("kf_target", delta_read.dataset(table))
         con.register("kf_source", source)
         on = names.render(cast(exp.Expression, change.on))
         try:

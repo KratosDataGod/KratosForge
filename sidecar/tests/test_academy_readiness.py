@@ -140,6 +140,17 @@ def test_knowledge_comes_from_assessments(cert):
     assert x["state"] == "practised"      # knowledge alone never shows a practical objective
 
 
+def test_knowledge_adds_partial_credit_from_multi_part_questions(cert):
+    # A matching question with 3 of 4 parts right earns 0.75; two exams' points add without losing the fraction.
+    profile = progress.empty()
+    for n, correct in ((1, 1.75), (2, 0.5)):
+        profile["evidence"].append({"id": f"a{n}", "type": "academy.assessment", "status": "verified",
+                                    "at": f"2026-11-0{n}T10:00:00+00:00", "artifact": {"name": f"dp-700/x{n}"}, "ref": {"id": f"dp-700/x{n}"},
+                                    "detail": {"certification": PACK, "certification_version": cert["version"], "objectives": ["2.2.1"],
+                                               "per_objective": {"2.2.1": {"correct": correct, "answered": 2}}}})
+    assert _state(profile, "2.2.1")["measures"]["knowledge"] == {"correct": 2.25, "answered": 4}
+
+
 def test_the_estimate_is_labelled_and_suggests_what_is_next(cert):
     out = readiness.readiness(progress.empty(), PACK)
     assert out["label"] == "KratosForge readiness estimate" and "isn't Microsoft's score" in out["note"]

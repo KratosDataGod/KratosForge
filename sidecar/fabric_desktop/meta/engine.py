@@ -289,8 +289,7 @@ class HookContext:
         self.notes: list[str] = []
 
     def read_table(self, name: str) -> pl.DataFrame:
-        allowed = self._entity.spec.get("hooks", {}).get("reads", []) + self._entity.spec.get("step", {}).get("reads", [])
-        if name not in allowed:
+        if name not in self._entity.code_reads():
             raise PermissionError(f"{self._entity.name} custom code read {name} without declaring it in reads")
         df = self._engine.read_entity(name)
         if df is None:
@@ -321,6 +320,7 @@ class Engine:
         # Each table's own Delta features choice (delta_features), checked by every write to it.
         if project is not None and store is not None:  # some callers only want its helpers
             store.delta_policies = project.delta_policies()
+            store.history_days = {l.lakehouse: l.retention_days for l in project.layers}
         # Incremental and replayed rows go into the table with a Delta MERGE (or an append), which
         # rewrites only the files they touch. False always reads the whole table and overwrites it,
         # as before 0.20; kept for comparison (examples/benchmark/large_tables.py).

@@ -143,10 +143,15 @@ def _merge(tree: exp.Merge) -> Change:
     source_alias = using.alias or (using.name if isinstance(using, exp.Table) else "")
     if not source_alias:
         raise ValueError("Give the MERGE source an alias: USING (SELECT ...) AS s.")
-    source = using.copy()
-    source.set("alias", None)
-    if isinstance(source, exp.Subquery):
-        source = source.this
+    named = using.args.get("alias")
+    if isinstance(named, exp.TableAlias) and named.columns:
+        # USING (VALUES ...) AS s(k, w): the alias names the columns, so it stays on the rows it names (WR-253)
+        source = exp.select("*").from_(using.copy())
+    else:
+        source = using.copy()
+        source.set("alias", None)
+        if isinstance(source, exp.Subquery):
+            source = source.this
     on = tree.args.get("on")
     if not isinstance(on, exp.Expression):  # sqlglot gives on=False, not None, when ON is left out
         raise ValueError("MERGE INTO needs ON (how a source row finds its row in the table).")
@@ -327,10 +332,11 @@ class _Names:
 
 
 def apply(change: Change, table: Any, source: Any = None, source_names: list[str] | None = None,
-          commit_properties: Any = None, one_match_checked: bool = False) -> dict[str, Any]:
+          commit_properties: Any = None, one_match_checked: bool = False,
+          post_commithook_properties: Any = None) -> dict[str, Any]:
     """Run ``change`` on ``table`` (a deltalake DeltaTable) in one commit; ``source`` is the MERGE's
     rows (an Arrow table, or a stream whose caller ran multiple_match: ``one_match_checked``).
-    Returns what changed."""
+    ``post_commithook_properties`` go to the commit (maintenance.WRITE_HOOKS). Returns what changed."""
     target_names = [f.name for f in table.schema().fields]
     names = _Names(change, target_names, source_names or [])
     for when in change.whens:
@@ -343,13 +349,13 @@ def apply(change: Change, table: Any, source: Any = None, source_names: list[str
             when.sets = list(zip(target_names, when.values, strict=True))
     if change.kind == "delete":
         metrics = table.delete(names.render(change.where) if change.where is not None else None,
-                               commit_properties=commit_properties)
+                               commit_properties=commit_properties, post_commithook_properties=post_commithook_properties)
         return _result(metrics, deleted="num_deleted_rows")
     if change.kind == "update":
         updates = {names.key(col): names.render(value) for col, value in change.sets}
         metrics = table.update(updates=updates,
                                predicate=names.render(change.where) if change.where is not None else None,
-                               commit_properties=commit_properties)
+                               commit_properties=commit_properties, post_commithook_properties=post_commithook_properties)
         return _result(metrics, updated="num_updated_rows")
     if needs_one_match(change) and not one_match_checked:
         if not isinstance(source, pa.Table):
@@ -359,7 +365,7 @@ def apply(change: Change, table: Any, source: Any = None, source_names: list[str
     source = _keeping_values(change, source, names, pa.schema(table.schema().to_arrow()))
     merger = table.merge(source, names.render(cast(exp.Expression, change.on)), source_alias=change.source_alias,
                          target_alias=change.alias, merge_schema=change.schema_evolution,
-                         commit_properties=commit_properties)
+                         commit_properties=commit_properties, post_commithook_properties=post_commithook_properties)
     for when in change.whens:
         condition = names.render(when.condition) if when.condition is not None else None
         sets = {names.key(col): names.render(value) for col, value in when.sets}

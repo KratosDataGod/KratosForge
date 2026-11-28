@@ -21,12 +21,12 @@ the known differences in more detail.
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 388 |
+| Runs | 391 |
 | Differs | 11 |
-| Refused | 91 |
+| Refused | 94 |
 | Fails | 0 |
-| Not checked | 16 |
-| **All** | **506** |
+| Not checked | 11 |
+| **All** | **507** |
 
 ## String and binary
 
@@ -38,7 +38,7 @@ the known differences in more detail.
 | `CHAR` | Runs | 2 value checks |
 | `CONCAT` | Runs | 1 value check |
 | `CONCAT_WS` | Runs | 1 value check |
-| `INSERT` | Runs | 1 value check |
+| `INSERT` | Refused | INSERT (TIMESTAMP_TZ column, text with an offset): Statement 3 runs only in Snowflake: TIMESTAMP_TZ text with an offset. DuckDB can't read an offset written after a space ('2026-01-01 10:00:00 +05:00'): it takes it for a time zone name. |
 | `LENGTH` | Runs | 1 value check |
 | `LEN` | Runs | 1 value check |
 | `LPAD` | Runs | 1 value check |
@@ -256,102 +256,102 @@ the known differences in more detail.
 
 ## Semi-structured
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `CHECK_JSON` | Runs |  | 1 value check |
-| `CHECK_XML` | Refused |  | CHECK_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `JSON_EXTRACT_PATH_TEXT` | Runs |  | 3 value checks |
-| `PARSE_JSON` | Runs |  | 1 value check |
-| `TRY_PARSE_JSON` | Runs |  | 1 value check |
-| `PARSE_XML` | Refused |  | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `STRIP_NULL_VALUE` | Runs |  | 2 value checks |
-| `ARRAY_AGG` | Runs |  | 1 value check |
-| `ARRAY_APPEND` | Runs |  | 3 value checks; labelled SFD-007 TYPEOF can't always name Snowflake's type |
-| `ARRAY_CAT` | Runs |  | 1 value check |
-| `ARRAY_COMPACT` | Runs |  | 1 value check |
-| `ARRAY_CONSTRUCT` | Runs |  | 1 value check |
-| `ARRAY_CONSTRUCT_COMPACT` | Not checked |  | its page's examples put values of different types in one array, which a DuckDB list can't hold |
-| `ARRAY_CONTAINS` | Runs |  | 1 value check |
-| `ARRAY_DISTINCT` | Runs |  | 2 value checks |
-| `ARRAY_EXCEPT` | Runs |  | 4 value checks |
-| `ARRAY_FLATTEN` | Runs |  | 3 value checks |
-| `ARRAY_GENERATE_RANGE` | Runs |  | 3 value checks |
-| `ARRAY_INSERT` | Not checked | `SELECT ARRAY_INSERT(ARRAY_CONSTRUCT(1, 2), 0, 3)` | its page's examples put values of different types in one array, which a DuckDB list can't hold |
-| `ARRAY_INTERSECTION` | Runs |  | 3 value checks |
-| `ARRAY_MAX` | Runs |  | 1 value check |
-| `ARRAY_MIN` | Runs |  | 1 value check |
-| `ARRAY_POSITION` | Runs |  | 3 value checks |
-| `ARRAY_PREPEND` | Not checked |  | its page's examples put values of different types in one array, which a DuckDB list can't hold |
-| `ARRAY_REMOVE` | Runs |  | 1 value check |
-| `ARRAY_REMOVE_AT` | Runs |  | 3 value checks |
-| `ARRAY_REVERSE` | Runs |  | 1 value check |
-| `ARRAY_SIZE` | Runs |  | 1 value check |
-| `ARRAY_SLICE` | Runs |  | 1 value check |
-| `ARRAY_SORT` | Runs |  | 3 value checks |
-| `ARRAY_TO_STRING` | Runs |  | 1 value check |
-| `ARRAY_UNION_AGG` | Refused |  | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
-| `ARRAY_UNIQUE_AGG` | Runs |  | 1 value check |
-| `ARRAYS_OVERLAP` | Runs |  | 3 value checks |
-| `ARRAYS_TO_OBJECT` | Runs |  | 3 value checks |
-| `ARRAYS_ZIP` | Runs |  | 2 value checks |
-| `OBJECT_AGG` | Runs |  | 1 value check |
-| `OBJECT_CONSTRUCT` | Runs |  | 1 value check |
-| `OBJECT_CONSTRUCT_KEEP_NULL` | Runs |  | 1 value check |
-| `OBJECT_DELETE` | Runs |  | 2 value checks |
-| `OBJECT_INSERT` | Runs |  | 3 value checks |
-| `OBJECT_PICK` | Runs |  | 2 value checks |
-| `OBJECT_KEYS` | Runs |  | 1 value check |
-| `FILTER` | Runs |  | 2 value checks |
-| `REDUCE` | Refused |  | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB.. |
-| `TRANSFORM` | Runs |  | 2 value checks |
-| `MAP_CAT` | Runs |  | 2 value checks |
-| `MAP_CONTAINS_KEY` | Runs |  | 1 value check |
-| `MAP_DELETE` | Runs |  | 1 value check |
-| `MAP_ENTRIES` | Runs |  | 2 value checks |
-| `MAP_INSERT` | Refused |  | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB.. |
-| `MAP_KEYS` | Runs |  | 1 value check |
-| `MAP_PICK` | Runs |  | 1 value check |
-| `MAP_SIZE` | Runs |  | 1 value check |
-| `GET` | Runs |  | 1 value check |
-| `GET_IGNORE_CASE` | Refused |  | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
-| `GET_PATH` | Runs |  | 1 value check |
-| `XMLGET` | Refused |  | XMLGET: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `AS_ARRAY` | Runs |  | 1 value check |
-| `AS_BOOLEAN` | Runs |  | 1 value check |
-| `AS_BINARY` | Runs |  | 1 value check |
-| `AS_CHAR` | Runs |  | 1 value check |
-| `AS_VARCHAR` | Runs |  | 2 value checks |
-| `AS_DATE` | Runs |  | 1 value check |
-| `AS_DECIMAL` | Runs |  | 2 value checks |
-| `AS_NUMBER` | Runs |  | 1 value check |
-| `AS_DOUBLE` | Runs |  | 1 value check |
-| `AS_REAL` | Runs |  | 1 value check |
-| `AS_INTEGER` | Runs |  | 3 value checks |
-| `AS_OBJECT` | Runs |  | 2 value checks |
-| `AS_TIME` | Runs |  | 1 value check |
-| `AS_TIMESTAMP_LTZ` | Refused |  | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `AS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
-| `AS_TIMESTAMP_TZ` | Refused |  | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `TO_JSON` | Runs |  | 1 value check |
-| `TO_XML` | Refused |  | TO_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
-| `IS_ARRAY` | Runs |  | 1 value check |
-| `IS_BOOLEAN` | Runs |  | 1 value check |
-| `IS_BINARY` | Runs |  | 1 value check |
-| `IS_CHAR` | Runs |  | 1 value check |
-| `IS_VARCHAR` | Runs |  | 1 value check |
-| `IS_DATE` | Runs |  | 1 value check |
-| `IS_DATE_VALUE` | Runs |  | 1 value check |
-| `IS_DECIMAL` | Refused |  | IS_DECIMAL (vartab): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. Runs only in Snowflake. |
-| `IS_DOUBLE` | Runs |  | 3 value checks |
-| `IS_REAL` | Runs |  | 2 value checks |
-| `IS_INTEGER` | Runs |  | 4 value checks |
-| `IS_NULL_VALUE` | Runs |  | 2 value checks |
-| `IS_OBJECT` | Runs |  | 1 value check |
-| `IS_TIME` | Runs |  | 1 value check |
-| `IS_TIMESTAMP_LTZ` | Refused |  | IS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `IS_TIMESTAMP_NTZ` | Runs |  | 1 value check |
-| `IS_TIMESTAMP_TZ` | Refused |  | IS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
-| `TYPEOF` | Refused |  | TYPEOF (stored value with an exponent): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. Runs only in Snowflake. |
+| Function | Status | Note |
+| --- | --- | --- |
+| `CHECK_JSON` | Runs | 1 value check |
+| `CHECK_XML` | Refused | CHECK_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
+| `JSON_EXTRACT_PATH_TEXT` | Runs | 3 value checks |
+| `PARSE_JSON` | Runs | 1 value check |
+| `TRY_PARSE_JSON` | Runs | 1 value check |
+| `PARSE_XML` | Refused | PARSE_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
+| `STRIP_NULL_VALUE` | Runs | 2 value checks |
+| `ARRAY_AGG` | Runs | 1 value check |
+| `ARRAY_APPEND` | Runs | 3 value checks; labelled SFD-007 TYPEOF can't always name Snowflake's type |
+| `ARRAY_CAT` | Runs | 1 value check |
+| `ARRAY_COMPACT` | Runs | 1 value check |
+| `ARRAY_CONSTRUCT` | Runs | 1 value check |
+| `ARRAY_CONSTRUCT_COMPACT` | Runs | 1 value check |
+| `ARRAY_CONTAINS` | Runs | 1 value check |
+| `ARRAY_DISTINCT` | Runs | 2 value checks |
+| `ARRAY_EXCEPT` | Runs | 4 value checks |
+| `ARRAY_FLATTEN` | Runs | 3 value checks |
+| `ARRAY_GENERATE_RANGE` | Runs | 3 value checks |
+| `ARRAY_INSERT` | Runs | 2 value checks |
+| `ARRAY_INTERSECTION` | Runs | 3 value checks |
+| `ARRAY_MAX` | Runs | 1 value check |
+| `ARRAY_MIN` | Runs | 1 value check |
+| `ARRAY_POSITION` | Runs | 3 value checks |
+| `ARRAY_PREPEND` | Runs | 1 value check |
+| `ARRAY_REMOVE` | Runs | 1 value check |
+| `ARRAY_REMOVE_AT` | Runs | 3 value checks |
+| `ARRAY_REVERSE` | Runs | 1 value check |
+| `ARRAY_SIZE` | Runs | 1 value check |
+| `ARRAY_SLICE` | Runs | 1 value check |
+| `ARRAY_SORT` | Runs | 3 value checks |
+| `ARRAY_TO_STRING` | Runs | 1 value check |
+| `ARRAY_UNION_AGG` | Refused | Not rewritten for DuckDB. ARRAY_UNION_AGG is not supported in DuckDB. |
+| `ARRAY_UNIQUE_AGG` | Runs | 1 value check |
+| `ARRAYS_OVERLAP` | Runs | 3 value checks |
+| `ARRAYS_TO_OBJECT` | Runs | 3 value checks |
+| `ARRAYS_ZIP` | Runs | 2 value checks |
+| `OBJECT_AGG` | Runs | 1 value check |
+| `OBJECT_CONSTRUCT` | Runs | 1 value check |
+| `OBJECT_CONSTRUCT_KEEP_NULL` | Runs | 1 value check |
+| `OBJECT_DELETE` | Runs | 2 value checks |
+| `OBJECT_INSERT` | Runs | 3 value checks |
+| `OBJECT_PICK` | Runs | 2 value checks |
+| `OBJECT_KEYS` | Runs | 1 value check |
+| `FILTER` | Runs | 2 value checks |
+| `REDUCE` | Refused | Not rewritten for DuckDB. Argument 'finish' is not supported for expression 'Reduce' when targeting KfDuckDB. |
+| `TRANSFORM` | Runs | 2 value checks |
+| `MAP_CAT` | Runs | 2 value checks |
+| `MAP_CONTAINS_KEY` | Runs | 1 value check |
+| `MAP_DELETE` | Runs | 1 value check |
+| `MAP_ENTRIES` | Runs | 2 value checks |
+| `MAP_INSERT` | Refused | Not rewritten for DuckDB. Argument 'update_flag' is not supported for expression 'MapInsert' when targeting KfDuckDB. |
+| `MAP_KEYS` | Runs | 1 value check |
+| `MAP_PICK` | Runs | 1 value check |
+| `MAP_SIZE` | Runs | 1 value check |
+| `GET` | Runs | 1 value check |
+| `GET_IGNORE_CASE` | Refused | Not rewritten for DuckDB. DuckDB does not support the GET_IGNORE_CASE() function. |
+| `GET_PATH` | Runs | 1 value check |
+| `XMLGET` | Refused | XMLGET: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
+| `AS_ARRAY` | Runs | 1 value check |
+| `AS_BOOLEAN` | Runs | 1 value check |
+| `AS_BINARY` | Runs | 1 value check |
+| `AS_CHAR` | Runs | 1 value check |
+| `AS_VARCHAR` | Runs | 2 value checks |
+| `AS_DATE` | Runs | 1 value check |
+| `AS_DECIMAL` | Runs | 2 value checks |
+| `AS_NUMBER` | Runs | 1 value check |
+| `AS_DOUBLE` | Runs | 1 value check |
+| `AS_REAL` | Runs | 1 value check |
+| `AS_INTEGER` | Runs | 3 value checks |
+| `AS_OBJECT` | Runs | 2 value checks |
+| `AS_TIME` | Runs | 1 value check |
+| `AS_TIMESTAMP_LTZ` | Refused | AS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `AS_TIMESTAMP_NTZ` | Runs | 1 value check |
+| `AS_TIMESTAMP_TZ` | Refused | AS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `TO_JSON` | Runs | 1 value check |
+| `TO_XML` | Refused | TO_XML: a Snowflake feature DuckDB lacks. DuckDB has no XML type. |
+| `IS_ARRAY` | Runs | 1 value check |
+| `IS_BOOLEAN` | Runs | 1 value check |
+| `IS_BINARY` | Runs | 1 value check |
+| `IS_CHAR` | Runs | 1 value check |
+| `IS_VARCHAR` | Runs | 1 value check |
+| `IS_DATE` | Runs | 1 value check |
+| `IS_DATE_VALUE` | Runs | 1 value check |
+| `IS_DECIMAL` | Refused | IS_DECIMAL (vartab): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. Runs only in Snowflake. |
+| `IS_DOUBLE` | Runs | 3 value checks |
+| `IS_REAL` | Runs | 2 value checks |
+| `IS_INTEGER` | Runs | 4 value checks |
+| `IS_NULL_VALUE` | Runs | 2 value checks |
+| `IS_OBJECT` | Runs | 1 value check |
+| `IS_TIME` | Runs | 1 value check |
+| `IS_TIMESTAMP_LTZ` | Refused | IS_TIMESTAMP_LTZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `IS_TIMESTAMP_NTZ` | Runs | 1 value check |
+| `IS_TIMESTAMP_TZ` | Refused | IS_TIMESTAMP_TZ: VARIANT timestamps with a time zone. DuckDB keeps one kind of timestamp with a time zone, so a VARIANT here can't tell TIMESTAMP_LTZ from TIMESTAMP_TZ. |
+| `TYPEOF` | Refused | TYPEOF (stored value with an exponent): SFN-072 The type of a JSON number with a fraction: Snowflake's PARSE_JSON keeps a number written with a fraction (123.12) as DECIMAL and one written with an exponent (1.912e2) as DOUBLE. DuckDB's JSON keeps neither way of writing it once the value is stored or read from a path, so TYPEOF, IS_DECIMAL, AS_DECIMAL and AS_NUMBER of such a value stop. Of PARSE_JSON(text) itself, of a path into PARSE_JSON of text in the query, or of a TO_VARIANT value, they run. Runs only in Snowflake. |
 
 ## Aggregate
 
@@ -445,15 +445,15 @@ the known differences in more detail.
 | `INTERPOLATE_FFILL` | Runs | 1 value check |
 | `INTERPOLATE_LINEAR` | Runs | 1 value check; labelled SFD-011 INTERPOLATE_LINEAR gives a DOUBLE |
 | `RATIO_TO_REPORT` | Runs | 5 value checks |
-| `CUME_DIST` | Not checked | its page's only example reads a trades table the page doesn't create |
+| `CUME_DIST` | Not checked | its page's only example reads a trades table whose rows the page doesn't give; the CUME_DIST and PERCENT_RANK pages' outputs can't both come from one such table |
 | `DENSE_RANK` | Runs | 1 value check |
 | `FIRST_VALUE` | Runs | 2 value checks |
 | `LAG` | Runs | 2 value checks |
 | `LAST_VALUE` | Runs | 1 value check |
 | `LEAD` | Runs | 2 value checks |
 | `NTH_VALUE` | Runs | 1 value check |
-| `NTILE` | Not checked | its page's only example reads a trades table the page doesn't create |
-| `PERCENT_RANK` | Not checked | its page's only example reads a trades table the page doesn't create |
+| `NTILE` | Not checked | its page's only example reads a trades table whose rows the page doesn't give; the CUME_DIST and PERCENT_RANK pages' outputs can't both come from one such table |
+| `PERCENT_RANK` | Not checked | its page's only example reads a trades table whose rows the page doesn't give; the CUME_DIST and PERCENT_RANK pages' outputs can't both come from one such table |
 | `RANK` | Runs | 1 value check |
 | `ROW_NUMBER` | Runs | 1 value check |
 
@@ -504,21 +504,21 @@ the known differences in more detail.
 | `CURRENT_REGION` | Refused | CURRENT_REGION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_TIME` | Not checked | its value is the clock's, so there's no documented value to compare |
 | `CURRENT_TIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
-| `CURRENT_VERSION` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
+| `CURRENT_VERSION` | Refused | CURRENT_VERSION. It gives the version of Snowflake running the query (10.15.100 in Snowflake's example); this PC runs DuckDB, whose own version would come back in its place. |
 | `CURRENT_ACCOUNT` | Refused | CURRENT_ACCOUNT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_ACCOUNT_NAME` | Refused | CURRENT_ACCOUNT_NAME: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_ORGANIZATION_NAME` | Refused | CURRENT_ORGANIZATION_NAME: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `CURRENT_ROLE` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
+| `CURRENT_ROLE` | Not checked | its value names the session's user, role, database or schema: Snowflake's examples show their own account's, and here it is this PC's DuckDB session's |
 | `CURRENT_AVAILABLE_ROLES` | Refused | CURRENT_AVAILABLE_ROLES: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_SECONDARY_ROLES` | Refused | CURRENT_SECONDARY_ROLES: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_SESSION` | Refused | CURRENT_SESSION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_STATEMENT` | Refused | CURRENT_STATEMENT: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `CURRENT_TRANSACTION` | Refused | CURRENT_TRANSACTION: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `CURRENT_USER` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
-| `CURRENT_DATABASE` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
+| `CURRENT_USER` | Not checked | its value names the session's user, role, database or schema: Snowflake's examples show their own account's, and here it is this PC's DuckDB session's |
+| `CURRENT_DATABASE` | Not checked | its value names the session's user, role, database or schema: Snowflake's examples show their own account's, and here it is this PC's DuckDB session's |
 | `CURRENT_ROLE_TYPE` | Refused | CURRENT_ROLE_TYPE: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `CURRENT_SCHEMA` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
-| `CURRENT_SCHEMAS` | Not checked | its value describes the Snowflake session or account, which this PC doesn't have |
+| `CURRENT_SCHEMA` | Not checked | its value names the session's user, role, database or schema: Snowflake's examples show their own account's, and here it is this PC's DuckDB session's |
+| `CURRENT_SCHEMAS` | Refused | CURRENT_SCHEMAS. It gives the schemas Snowflake's session searches, as JSON text of database.schema names (["TEST_DB1.BILLING", "TEST_DB1.PUBLIC"] in Snowflake's example); DuckDB's gives a list of its own search path, with pg_catalog and the same schema more than once. CURRENT_DATABASE and CURRENT_SCHEMA run. |
 | `CURRENT_WAREHOUSE` | Refused | CURRENT_WAREHOUSE: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
 | `GETDATE` | Differs | SFD-004 Local time zone is this PC's |
 | `LOCALTIME` | Not checked | its value is the clock's, so there's no documented value to compare |
@@ -526,7 +526,7 @@ the known differences in more detail.
 | `SYSDATE` | Differs | SFD-004 Local time zone is this PC's |
 | `SYSTIMESTAMP` | Differs | SFD-004 Local time zone is this PC's |
 | `LAST_QUERY_ID` | Refused | LAST_QUERY_ID: Snowflake account and session. It reads the Snowflake account, session or client running the query; this PC has none. |
-| `RANDOM` | Not checked | its values are random; RANDOM with a seed is refused |
+| `RANDOM` | Not checked | its values are random; RANDOM with a seed is refused (SFN-076) |
 | `UNIFORM` | Runs | 1 value check |
 | `SEQ4` | Runs | 1 value check |
 
@@ -588,6 +588,7 @@ the known differences in more detail.
 | `BEGIN` | Runs |  | 1 value check |
 | `START TRANSACTION` | Runs |  | 1 value check |
 | `DDL INSIDE BEGIN` | Refused |  | DDL INSIDE BEGIN: Statement 4 runs only in Snowflake: CREATE, ALTER or DROP inside a transaction. Snowflake commits the open transaction before a CREATE, ALTER or DROP and runs it as its own transaction, where DuckDB keeps it inside the open one, so a later ROLLBACK would undo different work here. Put COMMIT before the statement. |
+| `VALUES` | Runs |  | 2 value checks |
 | `WITH` | Runs |  | 1 value check |
 | `UNION ALL` | Runs |  | 1 value check |
 | `CREATE STREAM` | Refused | `CREATE STREAM st ON TABLE t` | Streams. A stream tracks changes inside Snowflake; DuckDB has no equivalent. |

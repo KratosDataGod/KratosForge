@@ -13,6 +13,8 @@ Before the "after" run, the new tests were run in a copy of `sidecar/` on its ow
 
 A mutant whose run times out counts as killed, as in earlier batches. Nine timed out, each a loop that no longer moves on: the reader's line counter `+= 1` to `+= 0` (lines 152, 167, 177, 189, 198 and 203), and `file_name`'s loop for a free name, whose test was negated or flipped (line 569) or whose `n += 1` became `+= 0` (line 570).
 
+**Rechecked on 2026-11-24.** On a machine this loaded a mutant can time out without hanging, so each of the nine was applied again, alone, to `sidecar/` as it was at the batch's commit and the set run with a 1,500-second limit instead of 120. All nine really never end, and the numbers don't change: seven were stopped by the test suite's own 300-second limit for one test, with the stack in the loop the mutant breaks (`file_name` for 37, 116 and 219, the reader for 249, 257, 259 and 331), and two (254 and 327) were stopped by the machine as their loops kept growing; run again under a 6 GB memory limit, each failed with a MemoryError in the reader within a minute.
+
 Since the run, #3064 changed `tmdl.py` (its file order now also sorts by a case-folded name), so the score is for `tmdl.py` at ad1ac4cf8. One new test, on the file order, was updated to the new order before this change went up; all the new tests pass on `main` bdf2c1775.
 
 ## Results

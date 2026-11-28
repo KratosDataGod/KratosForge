@@ -22,7 +22,8 @@ else needs ``Authorization: Bearer <token>`` from a pairing (editor_pairing.py).
     GET    /v1/status               the pairing, and the app's version
     POST   /v1/notebook             {"path"}  ->  {"name"}: the notebook a file is
     POST   /v1/run                  {"path", "code"}  ->  the cell's first snapshot
-    GET    /v1/run?path=&version=&wait=   the running (or last) cell, as the app polls it
+    GET    /v1/run?path=&version=&wait=   the running (or last) cell, as the app polls it;
+                                    its status is one of RUN_STATUSES
     POST   /v1/interrupt            {"path"}
     GET    /v1/variables?path=
 
@@ -56,6 +57,9 @@ MAX_WAIT_SECONDS = 25.0
 PORT_FILE = "editor-port"
 API_VERSION = 1  # the channel's routes and replies; raised when an extension must change to keep working
 OLDEST_CLIENT_API = 1  # an extension that speaks an older API is told to update
+# A cell's status in /v1/run replies. The extension reads any other as a reply it can't read
+# (vscode/src/channel.ts STATUSES, which must name these same ones).
+RUN_STATUSES = ("running", "ok", "error", "cancelled", "idle")
 
 
 class Refused(Exception):

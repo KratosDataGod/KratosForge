@@ -8,7 +8,7 @@ import * as http from "node:http";
 import * as path from "node:path";
 
 export interface Snapshot {
-  status: string; // running, ok, error, idle, paused
+  status: string; // running, ok, error, cancelled, idle
   execution_count?: number;
   version?: number;
   seconds?: number;
@@ -62,9 +62,10 @@ function shaped<T>(value: unknown, ok: (v: any) => boolean): T {
 const text = (v: unknown, max = 512): boolean => typeof v === "string" && v.length > 0 && v.length <= max;
 const count = (v: unknown): boolean => v === undefined || v === null || (Number.isSafeInteger(v) && (v as number) >= 0);
 
-// What a cell can be (notebook.py, kernel_proc.py). Any other status would end the run as if it were
-// "ok", so it reads as a reply this window can't read.
-const STATUSES = ["running", "paused", "ok", "error", "cancelled", "idle"];
+// What a cell can be: the app's RUN_STATUSES (editor_channel.py; test_editor_channel.py checks the two
+// match). Any other status would end the run as if it were "ok", so it reads as a reply this window
+// can't read. A cell paused in KratosForge's debugger is still "running".
+export const STATUSES = ["running", "ok", "error", "cancelled", "idle"];
 
 /** A cell's snapshot: a status, and outputs that are each an object (outputs.ts reads each one). */
 function snapshot(value: unknown): Snapshot {
@@ -377,10 +378,10 @@ export class Channel {
   async run(file: string, code: string, progress: (snap: Snapshot) => void, cancelled: () => boolean = () => false): Promise<Snapshot> {
     if (cancelled()) return { status: "cancelled", outputs: [] };
     let snap = await this.start(file, code);
-    if (cancelled() && (snap.status === "running" || snap.status === "paused")) await this.interrupt(file).catch(() => undefined);
+    if (cancelled() && snap.status === "running") await this.interrupt(file).catch(() => undefined);
     progress(snap);
     let version = snap.version ?? -1;
-    while (snap.status === "running" || snap.status === "paused") {
+    while (snap.status === "running") {
       const asked = Date.now();
       const next = await this.pollAgain(file, version);
       // The app holds a poll until the cell changes. One that comes straight back unchanged (an app that

@@ -39,7 +39,7 @@ WINDOWS = "x86_64-pc-windows-msvc"
 # Hashed pip lock files: installed with --require-hashes. constraints.txt and ci-constraints.txt are
 # version constraints, not files pip installs from, so they aren't lock files here.
 PIP_LOCKS = ["sidecar/engine-requirements.txt", ".github/requirements/*.txt",
-             "sidecar/fabric_desktop/engines/dbconnect_locks/*.txt"]
+             "sidecar/fabric_desktop/engines/dbconnect_locks/*.txt", "sidecar/fabric_desktop/engines/snowpark_locks/*.txt"]
 NPM_LOCKS = ["app/ui/vendor/*/package-lock.json", "vscode/package-lock.json"]
 CARGO_LOCKS = ["app/src-tauri/Cargo.lock"]
 OWN_PACKAGE = "fabric-desktop"  # the engine's own package, built from this repository in CI

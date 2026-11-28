@@ -166,7 +166,7 @@ test("a garbled version in the hello is refused, and proves nothing", async () =
 test("a missing or garbled editor-port: the window says the app isn't listening and sends nothing", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kf-port-"));
   const ch = new Channel(dir);
-  ch.token = "kfp_secret";
+  ch.token = "kfp_SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS";
   for (const text of [null, "", "garbled", "0 hello", "70000 hello", "1234", "12.5 hello"]) {
     if (text === null) fs.rmSync(path.join(dir, "editor-port"), { force: true });
     else fs.writeFileSync(path.join(dir, "editor-port"), text);
@@ -190,7 +190,7 @@ test("a garbled answer to the hello: no token is sent, and the window says what 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kf-garbled-"));
   fs.writeFileSync(path.join(dir, "editor-port"), `${server.address().port} the-hello`);
   const ch = new Channel(dir);
-  ch.token = "kfp_secret";
+  ch.token = "kfp_SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS";
   const cases = [
     [() => "not json", "not_kratosforge"],
     [() => ({ ok: true }), "not_kratosforge"],

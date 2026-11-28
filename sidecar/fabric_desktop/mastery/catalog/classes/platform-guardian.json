@@ -51,10 +51,10 @@
    ]}
  ],
  "achievements": [
-  {"id": "gate-raised", "name": "Gate Raised", "criteria": "Reach Journeyman in Least privilege in workspaces."},
-  {"id": "walls-hold", "name": "Walls Hold", "criteria": "Reach Journeyman in Network isolation."},
-  {"id": "watch-fire-lit", "name": "Watch-fire Lit", "criteria": "Reach Journeyman in Audit logs."},
-  {"id": "runbook-ready", "name": "Runbook Ready", "criteria": "Reach Journeyman in Incident runbooks."},
-  {"id": "guardians-shield", "name": "Guardian's Shield", "criteria": "Reach Adept in all ten talents of one Platform Guardian specialization."}
+  {"id": "gate-raised", "name": "Gate Raised", "criteria": "Reach Journeyman in Least privilege in workspaces.", "requires": {"level": 3, "talents": ["identity.01"]}},
+  {"id": "walls-hold", "name": "Walls Hold", "criteria": "Reach Journeyman in Network isolation.", "requires": {"level": 3, "talents": ["identity.06"]}},
+  {"id": "watch-fire-lit", "name": "Watch-fire Lit", "criteria": "Reach Journeyman in Audit logs.", "requires": {"level": 3, "talents": ["audit.02"]}},
+  {"id": "runbook-ready", "name": "Runbook Ready", "criteria": "Reach Journeyman in Incident runbooks.", "requires": {"level": 3, "talents": ["audit.08"]}},
+  {"id": "guardians-shield", "name": "Guardian's Shield", "criteria": "Reach Adept in all ten talents of one Platform Guardian specialization.", "requires": {"level": 4, "any_specialization": true}}
  ]
 }

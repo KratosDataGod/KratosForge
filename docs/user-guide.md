@@ -273,7 +273,7 @@ In a notebook, select lines of a cell's code (or none, for the whole cell) and c
 
 ## Workspaces
 
-Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app. While preview features are shown, two more follow: **Power BI** (Preview), the reports and dashboards you can open in [Embed Studio](embed-studio.md), and **Databricks** (Preview), folders of notebooks on this PC kept in step with a Databricks workspace folder ([Databricks workspace sync](engines.md#databricks-workspace-sync-preview)).
+Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app. While preview features are shown, two more follow: **Power BI** (Preview), the reports and dashboards you can open in [Embed Studio](embed-studio.md), and **Databricks** (Preview), with two views: **Synced folders**, folders of notebooks on this PC kept in step with a Databricks workspace folder ([Databricks workspace sync](engines.md#databricks-workspace-sync-preview)), and **Volumes on this PC** (Preview), the Unity Catalog volumes that Databricks notebooks and SQL cells on this PC read and write, with their files ([Unity Catalog volumes on this PC](engines.md#unity-catalog-volumes-on-this-pc-preview)).
 
 - **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**. The pin on an item's row pins it to Home (Preview, see [Pinned items](home-notebooks.md#pinned-items-preview)).
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
@@ -414,9 +414,9 @@ A data product's page shows its **endorsement** badge (Certified, Promoted or Ma
 
 A data product's page groups what it offers into **Tables**, **Semantic models** and **Reports**; each model and report has its own endorsement badge. The product's owner or a platform admin chooses **Add a model** or **Add a report**, picks a workspace and then the item: the product records only the item's id, type, workspace id and display name, and nothing in Fabric changes. **Remove** asks first. On **Data mesh > Products**, **Has tables**, **Has models** and **Has reports** find products by what they offer, and a product's badge is its semantic model's endorsement. Details in [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview).
 
-### Direct Lake check
+### Direct Lake fallback risk
 
-**Data mesh > Deploy > Semantic model** has a **Direct Lake check** card (Preview). Pick a model and a capacity, then **Check now**: it lists what would make the model fall back to DirectQuery, or fail, before anyone queries it. That covers tables past the capacity's Direct Lake limits, columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique and fact rows whose key has no match. It reads the model's definition from Fabric and each table's Delta log from OneLake and checks on this PC: it starts no Fabric job, though reading from OneLake uses capacity. Every check and the limits per capacity are in [Direct Lake check](direct-lake-check.md).
+**Data mesh > Deploy > Semantic model** has a **Direct Lake fallback risk** card (Preview). Pick a model and a capacity, then **Check now**: it says whether the model will fall back to DirectQuery, might, or is within the capacity's Direct Lake limits, and which table decides it. Each table shows its rows, Parquet files and row groups against the limits, and opens to show each check, its evidence, the fix and a forecast of when it passes a limit at its current growth. Pick another capacity to judge the same numbers again without reading anything. The card also lists columns the Delta table no longer has, types Direct Lake can't read, and, when you tick the box, relationship keys that aren't unique and fact rows whose key has no match. Everything is predicted from metadata on this PC: it reads the model's definition from Fabric and each table's Delta log from OneLake, starts no Fabric job and runs no query, though reading from OneLake uses capacity. Every check, the forecast and the limits per capacity are in [Direct Lake fallback risk](direct-lake-check.md).
 
 ### Data dictionary
 
@@ -612,6 +612,10 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 **Numbers, priorities and SLAs**: how priorities are set, the default SLA targets, and how IT sets its own, are in [Incidents and your service desk](incidents.md).
 
+#### SLA reports (Preview)
+
+**Reports**, beside **Board** on the view row, is the SLA report: pick the environment and the last 7, 30 or 90 days. The summary shows how many incidents opened, were resolved and are still open, and the share that met the acknowledge and resolve SLAs. Below it is one row per priority with time to acknowledge and time to resolve (median and 90th percentile) and SLAs met, missed and breached. Nothing is estimated: an incident without the times a measure needs is left out of it, so counts can differ between columns, and a priority with no target says **No target**. It needs the central lakehouse (**Settings > Optimize lakehouses**) and copies new incident changes there before it measures. The first time, it asks before setting up the incident tables. Details in [SLA reports](incidents.md#sla-reports-preview).
+
 ### Agents (Preview)
 
 An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > KratosForge > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
@@ -722,7 +726,7 @@ Anything your organization has set shows "Set by your organization's policy" and
 - **Status** names the environment, its workspace and lakehouse, and one status with the next step: Connected, Working offline, Synchronizing, Upgrade required, Limited permissions or Connection failed. It also says how many results wait on this PC. **Validate connection** checks again.
 - **Create an environment...** shows what will happen before anything is made: each step with the permission it needs, what it may cost and a note. A step that can't go ahead says why, and **Create environment...** stays off until nothing is blocked. Creating asks you to confirm. In a workspace this PC knows as Prod, you type its name exactly.
 - **Connect to one...** lists the workspaces you can open. **Look inside** shows the environments in one, central lakehouses this PC can adopt, and lakehouses it couldn't read, with the reason. Reading changes nothing.
-- **Adopt this PC's central lakehouse...** turns the lakehouse Optimize already uses into an environment. It shows the manifest first, then writes only that file after you confirm. No table is created or changed.
+- **Adopt this PC's central lakehouse...** turns the lakehouse Optimize already uses into an environment. It shows the manifest first, then writes only that file after you confirm. No table is created or changed. When this PC uses a Platform in Fabric, its Prod database is linked as the environment's operational database, by its ids.
 - **Upgrade...** appears when the shared tables use an older version. It shows a plan and asks you to confirm, as Create does, and keeps every record. KratosForge on other PCs can only read the tables until it's updated.
 - **Switch or disconnect...** lists the environments this PC knows. **Switch to it** makes another one active. **Disconnect...** makes this PC forget one. Nothing in Fabric is changed or deleted, and results waiting on this PC stay there.
 

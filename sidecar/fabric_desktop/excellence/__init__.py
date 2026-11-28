@@ -11,6 +11,7 @@ fixture. The plan is docs/product/fabric-excellence-assessment-plan.md.
 - :mod:`.findings`  the finding record built from a failed control
 - :mod:`.assess`    one assessment run, its snapshot, rescoring and comparison
 - :mod:`.changes`   what changed between two reads (polling) and which controls to assess again
+- :mod:`.exceptions` accepted risk: owner, reason and expiry, shown on a failure, never changing it
 
 Rules every part keeps: a control that couldn't be checked is *not evaluated*, never passed; a pass or
 a fail must cite the evidence it rests on; inferred evidence is advisory unless a control says why it

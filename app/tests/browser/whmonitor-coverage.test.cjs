@@ -114,7 +114,7 @@ test("with building turned off by the organization, built views still open in Fa
   statuses = [on({ build_allowed: false, auto: true, querysets: { WH_Gold_monitoring: "q-gold" } })];
   await openTab();
   const side = page().locator(".wh-mon-card.side");
-  await side.getByText("Your organization turned off building monitoring views.").waitFor();
+  await side.getByText("Your organization has turned off building monitoring views.").waitFor();
   assert.strictEqual(await side.getByRole("button", { name: /views…/ }).count(), 0);
   assert.match(await side.innerText(), /New warehouses in this workspace get theirs without asking/);
   await side.getByRole("button", { name: "Open in Fabric" }).click();

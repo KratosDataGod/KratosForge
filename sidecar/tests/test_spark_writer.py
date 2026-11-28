@@ -261,8 +261,10 @@ def test_read_schema_is_applied_or_refused(tmp_path):
     assert out["outputs"][-1]["text"] == "[Row(key=1, value=2.5), Row(key=2, value=None)]"
     out = k.run("spark.read.schema(s).table('dbo.sales')")
     assert out["status"] == "error" and "cast the columns after reading" in str(out["outputs"])
-    out = k.run(f"spark.read.schema('id INT').csv({str(data)!r})")
-    assert out["status"] == "error" and "StructType" in str(out["outputs"])
+    out = k.run(f"spark.read.schema('key INT, value DOUBLE').csv({str(data)!r}, header=True).collect()")
+    assert out["outputs"][-1]["text"] == "[Row(key=1, value=2.5), Row(key=2, value=None)]"  # a DDL string, as in Spark
+    out = k.run("spark.read.schema(42)")
+    assert out["status"] == "error" and "a StructType or a DDL string" in str(out["outputs"])
 
 
 def test_a_table_written_in_one_cell_is_read_as_it_is_now_in_the_next(lake):

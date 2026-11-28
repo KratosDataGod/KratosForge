@@ -88,6 +88,8 @@ def connect() -> Any:
     from . import databricks_bytes, databricks_ip, databricks_variant
     databricks_ip.register(con)  # as engines.local_sql's DuckDB session does
     databricks_bytes.register(con)
+    from . import spark_hash
+    spark_hash.register(con)  # url_decode
     databricks_variant.register(con)
     return con
 

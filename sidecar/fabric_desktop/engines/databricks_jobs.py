@@ -192,7 +192,11 @@ class Runs:
         if not _RUN_ID.fullmatch(str(run_id)):
             raise ValueError("A run id is a number.")
         run = self.client.get("/api/2.1/jobs/runs/get", {"run_id": str(run_id)})
-        row = self._own_url(run_row(run))
-        return row | {"tasks": [task_row(t) for t in run.get("tasks") or []],
-                      "parameters": {_text(p.get("name")): _text(p.get("value"))
-                                     for p in (run.get("job_parameters") or []) if isinstance(p, dict)}}
+        try:
+            row = self._own_url(run_row(run))
+            return row | {"tasks": [task_row(t) for t in run.get("tasks") or []],
+                          "parameters": {_text(p.get("name")): _text(p.get("value"))
+                                         for p in (run.get("job_parameters") or []) if isinstance(p, dict)}}
+        except (TypeError, AttributeError):   # a string where the API documents an object, say
+            raise OddReply(f"Run {run_id} couldn't be shown because Databricks answered in a shape this screen "
+                           "doesn't know. Try again.") from None

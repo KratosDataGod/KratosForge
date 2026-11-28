@@ -197,3 +197,27 @@ def test_a_profile_and_fidelity_summary_take_odd_input():
     assert summary["counts"]["unsupported"] == 2 and summary["warnings"] == 2 and summary["security_warnings"] == 1
     assert summary["flagged_roles"] == 1 and "role 'A'" not in json.dumps(summary)
     assert yaml.safe_load(_ossie())["version"] == model_ossie.OSSIE_VERSION
+
+
+def test_a_message_never_names_the_windows_user():
+    from fabric_desktop import model_ossie_deployments
+    text = model_ossie_deployments.message(OSError(r"can't open C:\Users\ana.secret\AppData\Local\x.json"))
+    assert "ana.secret" not in text
+
+
+@pytest.mark.parametrize("quoted", ["filter", "measure", "member_name", "member_id"])
+def test_a_failed_imports_message_has_filters_expressions_and_members_removed(signed_in, monkeypatch, quoted):
+    """The error text quotes, up front and short enough that the length cap can't hide it, a role filter, a
+    measure expression or a member of the file: none of it reaches the record."""
+    value = {"filter": FILTER, "measure": MEASURE, "member_name": UPN, "member_id": MEMBER_ID}[quoted]
+    text = _secured_file(signed_in)
+
+    def echo(ws, name, parts, *a, **k):
+        raise ValueError(f"{value} was refused")
+    monkeypatch.setattr(signed_in.fake, "save_semantic_model", echo)
+    with pytest.raises(ValueError):
+        signed_in.meta_model_ossie_import("test", text, "SM_Gold", confirmed=True)
+    raw = _log(signed_in).read_text(encoding="utf-8")
+    assert value not in raw and json.dumps(value)[1:-1] not in raw
+    [record] = signed_in.ossie_deployments("test")
+    assert record["error"]["message"].endswith(" was refused") and "<withheld: " in record["error"]["message"]

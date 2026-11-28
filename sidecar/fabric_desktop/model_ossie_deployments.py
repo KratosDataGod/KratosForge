@@ -22,29 +22,27 @@ from typing import Any
 
 from . import model_ossie as mo
 from . import model_ossie_redact, ossie_profiles, runlog
-from .redact import secrets
+from .redact import secrets, user_paths
 
 FILE = "model_deployments.jsonl"
 TRIM_BYTES = 2 * 1024 * 1024  # a record is well under 2 KB: thousands of imports before the file is trimmed
 KEEP_ROWS = 2_000
 MAX_MESSAGE = 200
-_MEMBER_KEYS = frozenset({"memberName", "memberId"})
-
-
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds")
 
 
 def _texts(value: Any, out: set[str], key: str = "") -> set[str]:
     """Every expression (any key ending ``xpression``: a measure's, a filter's, a format string's, an Ossie
-    dialect's) and every member name and id in ``value``, a whole line and each of its lines."""
+    dialect's) in ``value``, a whole line and each of its lines. Role members come from the roles themselves
+    (``model_ossie_redact._sensitive``) in ``_needles``."""
     if isinstance(value, dict):
         for k, v in value.items():
             _texts(v, out, str(k))
     elif isinstance(value, list) and not (key.endswith("xpression") and all(isinstance(v, str) for v in value)):
         for v in value:
             _texts(v, out, key)
-    elif key.endswith("xpression") or key in _MEMBER_KEYS:
+    elif key.endswith("xpression"):
         text = mo._text(value)
         out |= {text, *text.split("\n")}
     return out
@@ -63,7 +61,7 @@ def _needles(*sources: Any) -> list[tuple[str, str]]:
 
 def message(exc: BaseException, *sources: Any) -> str:
     """``exc``'s message safe for the record: no filter, member or expression of ``sources``, no secret, short."""
-    text = model_ossie_redact._scrub(secrets(str(exc)), _needles(*sources))
+    text = model_ossie_redact._scrub(user_paths(secrets(str(exc))), _needles(*sources))
     return text if len(text) <= MAX_MESSAGE else f"{text[:MAX_MESSAGE]}... ({len(text)} characters)"
 
 

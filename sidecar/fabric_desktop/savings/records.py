@@ -415,6 +415,11 @@ def history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if versions != list(range(FIRST_VERSION, FIRST_VERSION + len(versions))):
         raise ValueError(f"Optimization {next(iter(oids))} has versions {versions}; versions run 1, 2, 3 ... without gaps.")
     out = [by_version[v] for v in versions]
+    unknown = [r for r in out if r.get("state") not in STATES]
+    if unknown:
+        raise ValueError(f"Optimization {unknown[0].get('optimization_id')} is in a state this version doesn't know "
+                         f"({unknown[0].get('state')!r}): a newer KratosForge changed it. Update to read or change it "
+                         "here.")
     if out[0].get("state") not in (PROPOSED, OPEN):
         raise ValueError(f"Optimization {next(iter(oids))} starts as {out[0].get('state')!r}, not proposed or open.")
     for before, after in zip(out, out[1:], strict=False):

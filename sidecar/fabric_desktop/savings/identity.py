@@ -140,5 +140,6 @@ def key(value: Any) -> tuple[str, str] | None:
 
 
 def same(a: Any, b: Any) -> bool:
-    """Whether two responsible values name the same person: the same (tid, oid) pair."""
+    """Whether two responsible values name the same person: the same (tid, oid) pair.
+    Two Nones are the same (no person recorded on either); a pair and None are not."""
     return key(a) == key(b)

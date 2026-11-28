@@ -170,6 +170,13 @@ def test_input_nested_past_the_limit_is_refused_not_a_crash():
         rd.history(rows)
 
 
+def test_a_state_a_newer_version_wrote_says_so():
+    rows = start()
+    rows[0] = rows[0] | {"state": "archived_by_policy"}
+    with pytest.raises(ValueError, match="newer KratosForge"):
+        rd.history(rows)
+
+
 def test_an_edited_proposal_is_refused():
     p = proposal()
     p["record"]["optimization_id"] = "opt-0000"
@@ -553,7 +560,7 @@ def test_a_block_of_text_as_a_reason_or_note_is_refused_and_rollback_targets_are
 
 def test_reasons_and_notes_go_through_the_repos_redaction():
     rows = walk(rd.ACCEPTED)
-    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijk"
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijk"  # pragma: allowlist secret (a made-up token for the redaction test)
     out = rd.transition(rows, change(rows, rd.APPLIED, rollback=dict(ROLLBACK, note=f"Bearer {token}")))
     assert token not in out["record"]["rollback"] and "[removed]" in json.loads(out["record"]["rollback"])["note"]
     rows = rows + [out["record"]]

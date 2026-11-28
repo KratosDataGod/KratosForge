@@ -82,21 +82,23 @@ const KNOWN_HIDDEN = new Set([]);
 // measured in the browser with the app's colors. A new undecided item fails until it's judged here.
 const JUDGED = [
   [/^home: color-contrast @ (h1|\.hero-outline|.*\.home-hero-(kicker|title|welcome|text > p|actions\b.*))$/, "Pass: the hero's text and buttons sit on the navy sky: the gradient #01203d to #062e57, and over the picture's empty left quarter, faded into that same sky (its sky runs #10223f to #1b3664; the text always ends before the cape, at 27% of the picture). Worst case, on #1b3664: the title #ffffff 11.9:1, the welcome #e6ecf5 10.1:1, the kicker #f8991c 5.4:1. On the plain gradient (axe names the welcome h1 and the outline button by their short selectors when they sit over the picture): the title #ffffff 13.7:1 at worst, the welcome #e6ecf5 11.5:1, the kicker #f8991c 6.2:1, the outline button's label 13.7:1, and Continue is #0b1420 on its own #f8991c fill, 8.4:1 (axe can't read a picture)."],
-  [/^(create|workspaces|metadata|platform|optimize|academy|sourceControl|settings|settings-integrations|profile|monitor)(\/[\w-]+)?: color-contrast @ (h1|\.hero-outline|\.outline|.*\.home-hero-(title|actions\b.*))$/, "Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture)."],
+  [/^(create|workspaces|metadata|platform|optimize|academy|sourceControl|settings|settings-integrations|profile|monitor)(\/[\w-]+)*: color-contrast @ (h1|\.hero-outline|\.outline|.*\.home-hero-(title|actions\b.*))$/, "Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture)."],
   // axe names the arrow `.chev` or, when it needs more to tell it apart, `.chev[aria-hidden="true"]`.
-  [/^(home|notebooks): color-contrast @ .*\.chev(\[aria-hidden="true"\])?$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named)."],
+  [/^(home|notebooks|notebook\/resources): color-contrast @ .*\.chev(\[aria-hidden="true"\])?$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named)."],
   [/^(workspaces(\/[\w-]+)?|powerbi): color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
-  [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
-  [/^(notebook|sql): color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
-  [/^(notebook|sql): color-contrast @ span\[title="Fold (line|code)"\]/, "Pass: the fold marker is #616161 on white, 6.2:1."],
+  [/^notebook(\/[\w-]+)?: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
+  [/^(notebook|sql)(\/[\w-]+)?: color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
+  [/^(notebook|sql)(\/[\w-]+)?: color-contrast @ span\[title="Fold (line|code)"\]/, "Pass: the fold marker is #616161 on white, 6.2:1."],
   [/^(entity|data-mesh|mesh\w*): color-contrast @ \.arrow\[aria-hidden="true"\]/, "Pass: the step arrows are #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa, and hidden from assistive tech (the steps' order is in the text)."],
   [/^learn-lab: color-contrast @ \.learn-mark$/, "Pass: an exercise check's mark is #242424 on white, 15.5:1 (passed is #1f7a4a, 5.3:1), and hidden from assistive tech (the check's text says it)."],
+  [/^profile\/[\w-]+: color-contrast @ \.tool$/, "Pass: on Profile's other tabs the header's Edit profile button is the same outline button on the navy sky as on Overview (see the page header's verdict): its #ffffff label is 13.9:1 at worst."],
+  [/^profile\/professional-report: color-contrast @ textarea$/, "Pass: the report summary is #242424 on white, 15.5:1, and its placeholder #757575, 4.6:1."],
   [/^report-problem: color-contrast @ textarea\[rows="3"\]$/, "Pass: What happened is #242424 on white, 15.5:1, and its placeholder #757575, 4.6:1."],
   [/^report-problem: color-contrast @ \.mono$/, "Pass: the diagnostics are #424242 on #fafafa, 9.6:1."],
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
   [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > (u|\.md-link-off):nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text(\.small)?))$/, "Pass: in both runs the decision pattern's text, links (a link that won't open is plain text with a dotted underline), headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
   [/^monitor: color-contrast @ (\.forge-(title|title > span|sub)|\.forge-more)$/, "Pass: on the Forge band's navy gradient (#000f22 to #0a2a4b, lightest taken), the title is #ffffff, 14.5:1, its state word at least 6.6:1 (#f8991c active, #7fd99b done 8.5:1, #ff9e9e failed 7.4:1, #c9d6ea quiet 9.9:1), the line under it #e6ecf5, 12.2:1, and the link to the table #ffcf8a, 10.1:1 (axe can't measure text on a gradient)."],
-  [/^profile-trees: color-contrast @ (h2|\.tree-sub|\.tree-lore|\.tree-pick|\.tree-achs-head > h3)$/, "Pass: the Skill trees band is a radial gradient from #12264a to #0b1730 (lightest taken): the class name, the line under it and the Class achievements heading are #eef2f8, 13.3:1, and the lore and the Class label #b4c0d4, 8.2:1 (axe can't measure text on a gradient)."],
+  [/^profile-trees(\/[\w-]+)?: color-contrast @ (h2|\.tree-sub|\.tree-lore|\.tree-pick|\.tree-achs-head > h3)$/, "Pass: the Skill trees band is a radial gradient from #12264a to #0b1730 (lightest taken): the class name, the line under it and the Class achievements heading are #eef2f8, 13.3:1, and the lore and the Class label #b4c0d4, 8.2:1 (axe can't measure text on a gradient)."],
   [/^databricks_volumes: color-contrast @ \.small$/, "Pass: the volume's More actions button is the glyph ⋯ in #242424 on the card's white, 15.5:1 (axe can't measure a glyph it takes for an icon); its aria-label names it in words."],
   [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\)( > \.learn-more\[href="#"\])?$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1, and the line it sits in is #616161, 6.2:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
 ];
@@ -385,9 +387,14 @@ async function focusNow(scope) {
   const ring = (n) => {
     const cs = getComputedStyle(n);
     const has = (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0) || (cs.boxShadow && cs.boxShadow !== "none");
-    // An element with no baseline (drawn since the walk began) counts its own ring only, not a parent's.
+    // An element with no baseline (drawn since the walk began, as a notebook redraws its cells when the
+    // selection moves) is held against a peer drawn the same way that doesn't hold focus: a parent's ring
+    // counts when it differs from that peer's look. With no such peer, only the element's own ring counts.
     const base = window.__a11yBase?.get(n);
-    return has && (base === undefined ? n === el : base !== window.__a11yLook(n));
+    if (base !== undefined) return has && base !== window.__a11yLook(n);
+    if (n === el) return has;
+    const peer = n.className && [...document.getElementsByClassName(n.className)].find((p) => p !== n && p.tagName === n.tagName && !p.contains(el));
+    return has && !!peer && window.__a11yLook(peer) !== window.__a11yLook(n);
   };
   let shown = false;
   for (let n = el, depth = 0; n && depth < 6 && !shown; n = n.parentElement, depth++) shown = ring(n);
@@ -497,29 +504,57 @@ async function audit(page, target, scheme) {
   return result;
 }
 
-// A rail page's other tabs (its first tablist's tabs that aren't open when it opens), found at run time. A tab that
-// opens another page (Data products, a tab-jump) isn't a role=tab, so it isn't here.
+// Every tab that isn't open when its page opens, found at run time: each tablist on every audited page (a rail page,
+// one in EXTRA, or a tab found here, so a tab's own sub-tabs too). A tab is audited once, by its tablist's name and
+// its own; one a page already opens on (Profile's Skill trees, Databricks' Volumes on this PC) isn't opened again.
+// A tab that opens another page (Data products, a tab-jump) isn't a role=tab, so it isn't here.
 const TABS = [];
-async function pageTabs(page, rail) {
+const tabName = (text) => text.trim().replace(/Preview$/, "");
+const slug = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+async function tablists(page, target) {
+  await page.evaluate(() => { document.getElementById("palette")?.remove(); closeDialog(); go("home"); });
+  await target.open(page);
+  if (target.ready) await page.waitForSelector(target.ready);
+  await settle(page);
+  return page.evaluate((scope) => [...document.querySelectorAll(scope)].flatMap((s) => [...s.querySelectorAll("[role=tablist]")])
+    .map((list) => ({ list: list.getAttribute("aria-label") || "", tabs: [...list.querySelectorAll("[role=tab]")].filter((t) => !t.disabled && t.getClientRects().length)
+      .map((t) => ({ text: t.textContent.trim(), open: t.getAttribute("aria-selected") === "true" })) }))
+    .filter((l) => l.tabs.length), target.scope || "#view");
+}
+function tabTarget(base, list, text) {
+  const name = tabName(text);
+  return { id: `${base.id}/${slug(name)}`, name: `${base.name} > ${name}`, ready: base.scope ? base.ready : "#view", scope: base.scope, list,
+    open: async (p) => {
+      await base.open(p);
+      if (base.ready) await p.waitForSelector(base.ready);
+      const sel = `[role=tablist]${list ? `[aria-label="${list}"]` : ""} [role=tab]`;
+      const tab = await p.waitForFunction(([sel, text]) => [...document.querySelectorAll(sel)]
+        .find((t) => t.textContent.trim() === text && t.getClientRects().length), [sel, text], { timeout: 10000 })
+        .catch((e) => { throw new Error(`${base.name}: no tab "${text}" in the tablist "${list}" (${e.message})`); });
+      await tab.evaluate((t) => t.click());
+    } };
+}
+async function pageTabs(page, bases) {
   await page.emulateMedia({ forcedColors: "none", colorScheme: "light", reducedMotion: "reduce" });
   await page.setViewportSize(VIEWPORT);
-  for (const r of rail) {
-    await page.evaluate((v) => { closeDialog(); go("home"); go(v); }, r.view);
-    await settle(page);
-    const labels = await page.evaluate(() => {
-      const list = document.querySelector("#view [role=tablist]");
-      return list ? [...list.querySelectorAll("[role=tab]")].filter((t) => t.getAttribute("aria-selected") !== "true" && !t.disabled)
-        .map((t) => t.textContent.trim()) : [];
-    });
-    for (const label of labels) {
-      const name = label.replace(/Preview$/, "");
-      TABS.push({ id: `${r.id}/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name: `${r.name} > ${name}`, ready: "#view",
-        open: async (p) => {
-          await p.evaluate((v) => go(v), r.view);
-          await p.waitForSelector("#view [role=tablist] [role=tab]");
-          await p.evaluate((label) => [...document.querySelector("#view [role=tablist]").querySelectorAll("[role=tab]")]
-            .find((t) => t.textContent.trim() === label).click(), label);
-        } });
+  const found = new Map(bases.map((b) => [b, null]));
+  for (const b of bases) found.set(b, await tablists(page, b));
+  const seen = new Set([...found.values()].flatMap((lists) => lists.flatMap((l) => l.tabs.filter((t) => t.open).map((t) => `${l.list}|${tabName(t.text)}`))));
+  const queue = [...bases];
+  while (queue.length) {
+    const base = queue.shift();
+    const lists = found.get(base) || await tablists(page, base);
+    // A sub-tab its tab opens on is that tab's own audit.
+    for (const l of lists) l.tabs.filter((t) => t.open).forEach((t) => seen.add(`${l.list}|${tabName(t.text)}`));
+    for (const l of lists) {
+      for (const t of l.tabs) {
+        const key = `${l.list}|${tabName(t.text)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const tab = tabTarget(base, l.list, t.text);
+        TABS.push(tab);
+        queue.push(tab);
+      }
     }
   }
   return TABS;
@@ -528,8 +563,8 @@ async function pageTabs(page, rail) {
 async function targets(page) {
   const rail = await page.evaluate(() => [...railFeatures(), ...railFeatures(true)]
     .map((f) => ({ id: f.id, name: f.rail.label || f.id, view: Object.keys(f.views || {})[0] })));
-  const tabs = await pageTabs(page, rail);
-  return [...rail.map((r) => ({ id: r.id, name: r.name, open: (p) => p.evaluate((v) => go(v), r.view), ready: "#view" })), ...tabs, ...EXTRA];
+  const bases = [...rail.map((r) => ({ id: r.id, name: r.name, open: (p) => p.evaluate((v) => go(v), r.view), ready: "#view" })), ...EXTRA];
+  return [...bases, ...await pageTabs(page, bases)];
 }
 
 test("every page passes the WCAG A and AA rules, light, dark, at 200% and in a contrast theme, with no serious or critical violation", { skip }, async () => {
@@ -601,8 +636,11 @@ test("at 200% no page scrolls sideways, and focus is never off screen or under s
   assert.deepStrictEqual([...KNOWN_SIDEWAYS, ...KNOWN_HIDDEN].filter((k) => !found.has(k)), [], "fixed: remove these from the known lists");
 });
 
-test("every tab of every rail page is audited, not only the one a page opens on", { skip }, async () => {
-  assert.ok(TABS.length >= 20, `found ${TABS.length} tabs: the rail pages' tablists weren't found`);
+test("every tab of every page is audited, sub-tabs too, not only the one a page opens on", { skip }, async () => {
+  assert.ok(TABS.length >= 50, `found ${TABS.length} tabs: the pages' tablists weren't found`);
+  for (const [list, tab] of [["Profile", "Achievements"], ["Assessment views", "Gaps"], ["Data Factory", "Copy jobs"], ["Learn", "Labs"]]) {
+    assert.ok(TABS.some((t) => t.list === list && t.name.endsWith(` > ${tab}`)), `${list} > ${tab} is found`);
+  }
   const audited = new Set(results.map((r) => r.id));
   assert.deepStrictEqual(TABS.filter((t) => !audited.has(t.id)).map((t) => t.name), []);
 });
@@ -705,7 +743,7 @@ function report(rows) {
       "it shortens them on purpose with an ellipsis or a line clamp. Dialogs opened from buttons are checked the " +
       "same way in `a11y-dialogs.test.cjs`.",
     "",
-    "The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows " +
+    "Each tab a page has is audited as a page of its own (Profile > Journey), sub-tabs too (Optimize > Assessment > Gaps): every tablist on every page, found when the audit runs. The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows " +
       "where they can. Screens that need a live tenant to fill are audited in their empty or signed-in state. " +
       "Part 2 (Narrator and keyboard on Windows) is a separate pass.",
     "",

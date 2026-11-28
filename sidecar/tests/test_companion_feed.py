@@ -212,22 +212,23 @@ def test_changes_by_version(svc: FakeService) -> None:
     first = f.list()
     assert first["version"] == 1
     svc.sql.runs = [{"id": "e1", "state": "running", "started": NOW, "seconds": 7.0}]  # only the clock moved
-    same = f.changes(first["version"])
+    same = f.changes(first["version"], first["epoch"])
     assert same["runs"] == [] and same["version"] == 1 and same["reset"] is False
     svc.sql.runs = [{"id": "e1", "state": "completed", "started": NOW, "ended": NOW + 9, "seconds": 9.0},
                     {"id": "e2", "state": "queued"}]
-    moved = f.changes(first["version"])
+    moved = f.changes(first["version"], first["epoch"])
     assert [r["id"] for r in moved["runs"]] == ["sql:e2", "sql:e1"] and moved["version"] == 3
     svc.sql.runs = [{"id": "e2", "state": "queued"}]
-    gone = f.changes(moved["version"])
+    gone = f.changes(moved["version"], f.epoch)
     assert gone["removed"] == ["sql:e1"] and gone["runs"] == [] and gone["version"] == 4
-    assert f.changes(0)["removed"] == ["sql:e1"]
+    assert f.changes(0, f.epoch)["removed"] == ["sql:e1"]
 
 
 @pytest.mark.parametrize("since", [99, -1, "3", True, None])
 def test_a_version_the_feed_never_gave_reads_everything(svc: FakeService, since: Any) -> None:
     svc.sql.runs = [{"id": "e1", "state": "running", "started": NOW}]
-    out = make(svc).changes(since)
+    f = make(svc)
+    out = f.changes(since, f.epoch)
     assert out["reset"] is True and [r["id"] for r in out["runs"]] == ["sql:e1"]
 
 
@@ -242,7 +243,7 @@ def test_a_source_that_fails_doesnt_tombstone_its_runs(svc: FakeService) -> None
     f = feed.RunFeed(svc, sources={"pipeline": flaky}, clock=lambda: NOW)
     v = f.list()["version"]
     state["fail"] = True
-    assert f.changes(v)["removed"] == []
+    assert f.changes(v, f.epoch)["removed"] == []
 
 
 def test_get(svc: FakeService) -> None:
@@ -269,3 +270,45 @@ def test_with_the_real_service_sources_exist() -> None:
     for name in ("sql_runs", "_batch_dir", "notebook_batch", "pipeline_runs", "prove_list", "side_by_side_list",
                  "fabric_runs"):
         assert hasattr(Service, name), name
+
+
+def test_a_restarted_engine_is_noticed_even_past_the_phones_version(svc: FakeService) -> None:
+    """A new feed (the engine restarted) may already be past the phone's version: the epoch tells."""
+    svc.sql.runs = [{"id": f"old{i}", "state": "completed", "started": NOW} for i in range(3)]
+    before = make(svc).list()
+    svc.sql.runs = [{"id": f"new{i}", "state": "completed", "started": NOW} for i in range(10)]
+    after = make(svc)
+    after.list()
+    out = after.changes(before["version"], before["epoch"])
+    assert out["reset"] is True and len(out["runs"]) == 10
+    assert out["epoch"] != before["epoch"]
+
+
+def test_forgotten_removals_mean_reset(svc: FakeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(feed, "MAX_TOMBSTONES", 2)
+    f = make(svc)
+    svc.sql.runs = [{"id": f"e{i}", "state": "completed", "started": NOW} for i in range(4)]
+    start = f.list()
+    svc.sql.runs = []
+    f.list()  # four removals; only two remembered
+    out = f.changes(start["version"], start["epoch"])
+    assert out["reset"] is True
+    latest = f.list()
+    assert f.changes(latest["version"], latest["epoch"])["reset"] is False
+
+
+def test_messages_hide_the_windows_user_name(svc: FakeService) -> None:
+    svc.sql.runs = [{"id": "e1", "state": "failed", "created": NOW, "error": "Can't read C:\\Users\\chris\\data.csv"}]
+    message = make(svc).list()["runs"][0]["message"]
+    assert "chris" not in message and "[user]" in message
+
+
+def test_a_damaged_batch_file_is_skipped(svc: FakeService) -> None:
+    class Broken(FakeService):
+        def notebook_batch(self, id: str) -> dict[str, Any]:  # noqa: A002
+            raise TypeError("items is None")
+
+    b = Broken(svc.root)
+    b.add_batch({"id": "d" * 12, "state": "running", "items": []})
+    out = feed.RunFeed(b, clock=lambda: NOW).list()
+    assert out["runs"] == [] and out["sources"]["notebooks"] == "ok"

@@ -20,9 +20,11 @@ A source that fails (a file that can't be read, a service that isn't there) is r
 Metadata runs aren't listed yet: reading their run log can mean reading OneLake, too slow for a
 feed the phone polls, and they can't be cancelled (meta_service has no stop).
 
-``changes(since)`` gives only the runs that changed after a version, for the phone's long poll.
-Versions live in memory: after the engine restarts they start again from 1, and the phone,
-seeing a version lower than its own, reads the whole list.
+``changes(since, epoch)`` gives only the runs that changed after a version, for the phone's long
+poll. Versions live in memory, so each feed has a random ``epoch``: after the engine restarts the
+epoch differs and the phone is told to ``reset`` and read the whole list, even when the new feed's
+version has already passed the phone's. Removals are remembered for MAX_TOMBSTONES runs; a
+``since`` older than the oldest removal forgotten is answered with ``reset`` too.
 """
 
 from __future__ import annotations
@@ -31,11 +33,13 @@ import datetime as dt
 import hashlib
 import json
 import re
+import secrets
 import threading
 from collections.abc import Callable, Iterable
 from typing import Any
 
 from ..redact import secrets as redact_secrets
+from ..redact import user_paths
 
 STATES = ("queued", "running", "cancelling", "succeeded", "failed", "cancelled", "unknown")
 ACTIVE = ("queued", "running", "cancelling")
@@ -60,7 +64,7 @@ FABRIC_STATES = {"NotStarted": "queued", "InProgress": "running", "Completed": "
 def _text(value: Any, limit: int) -> str:
     """Text for the phone: printable, credential-shaped parts removed, cut to ``limit``."""
     text = value if isinstance(value, str) else ""
-    return redact_secrets("".join(c for c in text if c.isprintable()))[:limit]
+    return user_paths(redact_secrets("".join(c for c in text if c.isprintable())))[:limit]
 
 
 def _when(value: Any) -> float | None:
@@ -151,7 +155,7 @@ def notebook_batches(service: Any, now: float) -> list[dict[str, Any]]:
             continue
         try:
             batch = service.notebook_batch(match.group(1))
-        except (LookupError, ValueError, OSError):
+        except (LookupError, ValueError, OSError, TypeError, KeyError):
             continue  # written half-way, or removed as it was read: the next poll sees it
         items = batch.get("items") or []
         names = [str(i.get("name")) for i in items]
@@ -253,6 +257,8 @@ class RunFeed:
         self._version = 0
         self._seen: dict[str, tuple[str, int]] = {}  # run id -> (fingerprint, version it last changed)
         self._gone: dict[str, int] = {}  # run id -> version it left the feed
+        self._pruned = 0  # the highest version of a removal no longer remembered
+        self.epoch = secrets.token_hex(8)
 
     def _read(self) -> tuple[list[dict[str, Any]], dict[str, str]]:
         now = self.clock()
@@ -286,7 +292,8 @@ class RunFeed:
             del self._seen[rid]
             self._gone[rid] = self._version
         while len(self._gone) > MAX_TOMBSTONES:
-            self._gone.pop(next(iter(self._gone)))
+            oldest = next(iter(self._gone))
+            self._pruned = max(self._pruned, self._gone.pop(oldest))
 
     def list(self, limit: int = 50, active_only: bool = False) -> dict[str, Any]:
         limit = max(1, min(200, int(limit)))
@@ -296,21 +303,24 @@ class RunFeed:
             version = self._version
         if active_only:
             rows = [r for r in rows if r["state"] in ACTIVE]
-        return {"version": version, "runs": _order(rows)[:limit], "sources": status}
+        return {"epoch": self.epoch, "version": version, "runs": _order(rows)[:limit], "sources": status}
 
-    def changes(self, since: int) -> dict[str, Any]:
-        """Runs that changed after version ``since`` and ids that left the feed. A ``since`` ahead of
-        this feed (the engine restarted) answers ``reset`` so the phone reads the whole list."""
+    def changes(self, since: int, epoch: str) -> dict[str, Any]:
+        """Runs that changed after version ``since`` of feed ``epoch``, and ids that left the feed.
+        Another epoch (the engine restarted), a version this feed never gave, or one older than a
+        removal it has forgotten answers ``reset``, with every run, so the phone replaces its list."""
         rows, status = self._read()
         with self._lock:
             self._track(rows, status)
             version = self._version
-            if not isinstance(since, int) or isinstance(since, bool) or since < 0 or since > version:
-                return {"version": version, "reset": True, "runs": _order(rows), "removed": [], "sources": status}
+            if (epoch != self.epoch or not isinstance(since, int) or isinstance(since, bool) or since < 0
+                    or since > version or since < self._pruned):
+                return {"epoch": self.epoch, "version": version, "reset": True, "runs": _order(rows), "removed": [],
+                        "sources": status}
             changed = {rid for rid, (_, v) in self._seen.items() if v > since}
             removed = sorted(rid for rid, v in self._gone.items() if v > since)
-        return {"version": version, "reset": False, "runs": _order(r for r in rows if r["id"] in changed),
-                "removed": removed, "sources": status}
+        return {"epoch": self.epoch, "version": version, "reset": False,
+                "runs": _order(r for r in rows if r["id"] in changed), "removed": removed, "sources": status}
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         if not isinstance(run_id, str) or ":" not in run_id or run_id.split(":", 1)[0] not in KINDS:

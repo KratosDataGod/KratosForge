@@ -236,6 +236,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     notes: list[str] = []
     tree = tsql_routines.statement(tree)  # WR-224: procedures, functions, sp_rename, sp_help ...
     _refuse(tree)
+    _ordered_windows(tree)  # WR-732
     tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
     notes += _collations(tree)
     _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
@@ -262,6 +263,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     _big_integers(tree)
     _regexps(tree)
     notes += _types(tree, schema)
+    _count_is_int(tree)  # WR-734: after the types are read, which take COUNT as DuckDB's BIGINT
     _percentiles(tree)
     notes += _likes(tree)
     _patindex(tree)
@@ -1266,10 +1268,12 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: it divides as DuckDB does, "
                              "and T-SQL divides two integers as integers.")
         elif isinstance(node, exp.Avg):
+            if _is(info.this.type, _BITS):
+                raise ValueError(_BIT_OPERAND.format(op="avg"))  # WR-735
             if _is(info.this.type, _INTEGERS):
                 # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
                 whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
-                whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
+                _avg_of_integers(whole, node, _is(info.this.type, {exp.DataType.Type.BIGINT}))
         elif isinstance(node, exp.Mod):
             if _is(info.this.type, _NUMBERS) and _is(info.expression.type, _NUMBERS):
                 _by_zero(node, "%")
@@ -1349,8 +1353,6 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                              "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
             written = None if isinstance(node.this, exp.TimeToStr) else node.meta.get("kf_written")  # not styled
             source = _numeric_style(node, info) or written or info.this.type
-            if (unchecked := node.meta.pop("tsql_unchecked_style", None)) is not None:
-                notes.append(_unchecked_style(unchecked))
             _empty_text(node, info.this.type)
             _date_text(node, info.this.type)
             _truncated(node, info.this.type)
@@ -1521,9 +1523,88 @@ def _sized_ints(tree: exp.Expression) -> list[exp.Expression]:
             and not any(isinstance(up, (exp.Order, exp.Pivot)) for up in _ancestors(n))]
 
 
+# WR-735: Database Engine error 8117's words ("Operand data type %ls is invalid for %ls operator."), for SUM and AVG
+# of a bit, which their pages leave out ("except for the bit data type"); DuckDB summed it, or stopped on AVG
+_BIT_OPERAND = "Operand data type bit is invalid for {op} operator."
+# WR-732: the window functions whose page says "The order_by_clause is required", and error 4112's words
+_NEEDS_ORDER = {exp.RowNumber: "ROW_NUMBER", exp.Rank: "RANK", exp.DenseRank: "DENSE_RANK", exp.Ntile: "NTILE",
+                exp.Lag: "LAG", exp.Lead: "LEAD", exp.FirstValue: "FIRST_VALUE", exp.LastValue: "LAST_VALUE",
+                exp.CumeDist: "CUME_DIST", exp.PercentRank: "PERCENT_RANK"}
+
+
+# WR-736: the functions whose syntax takes no ROWS or RANGE (select-over-clause-transact-sql: "ranking functions
+# can't accept ROWS or RANGE"), and Database Engine errors 10752, 10756 and 10759 in their words
+_NO_FRAME = {"ROW_NUMBER", "RANK", "DENSE_RANK", "NTILE", "LAG", "LEAD", "CUME_DIST", "PERCENT_RANK"}
+
+
+def _ordered_windows(tree: exp.Expression) -> None:
+    """WR-732: ROW_NUMBER, RANK, DENSE_RANK, NTILE, LAG, LEAD, FIRST_VALUE, LAST_VALUE, CUME_DIST and PERCENT_RANK need
+    ORDER BY in their OVER (functions/row-number-transact-sql: "It is required"), and T-SQL stops with error 4112,
+    "The function '%.*ls' must have an OVER clause with ORDER BY." (Database Engine errors 4000 to 4999). DuckDB
+    ran ``ROW_NUMBER() OVER ()`` in whatever order it read the rows. A window named in a WINDOW clause is read
+    there."""
+    named: dict[str, exp.Expression] = {}
+    for select in tree.find_all(exp.Select):
+        for window in select.args.get("windows") or []:
+            named[window.alias_or_name.lower()] = window
+    for window in tree.find_all(exp.Window):
+        if isinstance(window.this, exp.AggFunc) and isinstance(window.this.this, exp.Distinct):
+            raise ValueError("Use of DISTINCT is not allowed with the OVER clause.")  # WR-736: error 10759
+        name = next((n for kind, n in _NEEDS_ORDER.items() if type(window.this) is kind), None)
+        if window.args.get("spec") is not None:
+            if name in _NO_FRAME:
+                raise ValueError(f"The function '{name}' may not have a window frame.")  # WR-736: error 10752
+            if window.args.get("order") is None and window.args.get("alias") is None:
+                raise ValueError("Window frame with ROWS or RANGE must have an ORDER BY clause.")  # 10756
+        if name is None or window.args.get("order") is not None:
+            continue
+        base = window.args.get("alias")
+        defined = named.get(str(base.name if isinstance(base, exp.Expression) else base or "").lower())
+        if defined is not None and defined.args.get("order") is not None:
+            continue
+        raise ValueError(f"The function '{name}' must have an OVER clause with ORDER BY.")
+
+
+def _count_is_int(tree: exp.Expression) -> None:
+    """WR-734: COUNT is an int in T-SQL ("COUNT always returns an int data type value. COUNT_BIG always returns a
+    bigint data type value", functions/count-transact-sql), and a count past an int's range stops with "Arithmetic
+    overflow error converting expression to data type int." DuckDB's COUNT is a BIGINT, so SELECT COUNT(*) INTO made
+    a bigint column."""
+    for count in list(tree.find_all(exp.Count)):
+        if count.args.get("big_int") or any(isinstance(up, exp.Pivot) for up in _ancestors(count)):
+            continue
+        whole = count.parent if isinstance(count.parent, exp.Window) and count.parent.this is count else count
+        _checked(whole, "CASE WHEN kf_value > 2147483647 THEN CAST(error('Arithmetic overflow error converting "
+                        "expression to data type int.') AS INT) ELSE CAST(kf_value AS INT) END")
+
+
+def _avg_of_integers(whole: exp.Expression, avg: exp.Avg, big: bool) -> None:
+    """AVG of an integer is cut toward zero, and is an int, or a bigint for a bigint (functions/avg-transact-sql,
+    "Return types"; it was a bigint for each here, WR-733). "If the sum exceeds the maximum value for the data type of
+    the return value, AVG() returns an error"; the page doesn't give its words, so that stops by name."""
+    to = "BIGINT" if big else "INT"
+    average = exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build(to))
+    if big:
+        whole.replace(average)
+        return
+    summed = exp.Anonymous(this="SUM", expressions=[avg.this.copy()])
+    total: exp.Expression = summed
+    if isinstance(whole, exp.Window):
+        total = whole.copy()
+        total.set("this", summed)
+    past = exp.and_(exp.Not(this=exp.Is(this=total, expression=exp.Null())), exp.Is(this=exp.TryCast(
+        this=total.copy(), to=exp.DataType.build("INT")), expression=exp.Null()))
+    stop = exp.Cast(this=exp.func("ERROR", exp.Literal.string(
+        _NOT_YET + "AVG of an int whose sum is past an int's range stops in T-SQL, and its reference doesn't give the "
+        "words. The statement stopped there. AVG(CAST(x AS BIGINT)) gives the average.")), to=exp.DataType.build("INT"))
+    whole.replace(exp.Case(ifs=[exp.If(this=past, true=stop)], default=average))
+
+
 def _sum_keeps_type(node: exp.Sum, info: exp.Expression) -> None:
     """WR-247: ``SUM`` of an int, smallint or tinyint is an int in T-SQL, and of a bigint a bigint, so a total past
     it stops with error 8115; DuckDB's total is a HUGEINT, which gave 4294967294 where a warehouse stops."""
+    if _is(info.this.type, _BITS):
+        raise ValueError(_BIT_OPERAND.format(op="sum"))  # WR-735
     kind = _int_kind(info.this)
     if not _is(kind, _SUMMED_AS_INT | {exp.DataType.Type.BIGINT}):
         return
@@ -2381,9 +2462,11 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
         return None
     kind = info.this.this.type
     if not _is(kind, _NUMBERS):
-        _date_style(node.this, node.meta.get("kf_written") or kind, style)
-        if style not in CHECKED_DATE_STYLES:
-            node.meta["tsql_unchecked_style"] = style
+        written = node.meta.get("kf_written") or kind
+        if _STYLE_ALIASES.get(style, style) in CHECKED_DATE_STYLES:
+            _date_style(node.this, written, _STYLE_ALIASES.get(style, style))
+        else:
+            node.set("this", _styled_text(node.this.this, written, style))  # WR-731
         return None
     if style != "0" and _is(kind, _FLOATS):
         raise ValueError(f"This T-SQL can't be run on the local engine: CONVERT style {style} for a float isn't "
@@ -2543,10 +2626,51 @@ def _fraction_text(stamp: exp.Expression, shape: str, digits: int) -> exp.Expr:
 CHECKED_DATE_STYLES = ("0", "101", "103", "112", "120", "121", "126")
 
 
-def _unchecked_style(style: str) -> str:
-    return (f"CONVERT style {style} runs as a translation that hasn't been checked against T-SQL's answers; "
-            f"styles {', '.join(CHECKED_DATE_STYLES[1:-1])} and {CHECKED_DATE_STYLES[-1]} have been. "
-            "Compare its values in Fabric if they matter.")
+# The same styles under another number in Learn's table (functions/cast-and-convert-transact-sql)
+_STYLE_ALIASES = {"100": "0", "20": "120", "21": "121", "25": "121"}
+# WR-731: the other date styles as Learn's table writes them, as DuckDB STRFTIME patterns (%g: milliseconds)
+_DATE_ONLY_STYLES = {
+    "1": "%m/%d/%y", "2": "%y.%m.%d", "102": "%Y.%m.%d", "3": "%d/%m/%y", "4": "%d.%m.%y", "104": "%d.%m.%Y",
+    "5": "%d-%m-%y", "105": "%d-%m-%Y", "6": "%d %b %y", "106": "%d %b %Y", "7": "%b %d, %y", "107": "%b %d, %Y",
+    "10": "%m-%d-%y", "110": "%m-%d-%Y", "11": "%y/%m/%d", "111": "%Y/%m/%d", "12": "%y%m%d", "23": "%Y-%m-%d"}
+_TIME_ONLY_STYLES = {"8": "%H:%M:%S", "24": "%H:%M:%S", "108": "%H:%M:%S"}
+_MILLISECOND_STYLES = {"13": "%d %b %Y %H:%M:%S:%g", "113": "%d %b %Y %H:%M:%S:%g", "14": "%H:%M:%S:%g",
+                       "114": "%H:%M:%S:%g"}
+
+
+def _styled_text(value: exp.Expression, kind: exp.DataType | None, style: str) -> exp.Expression:
+    """WR-731: a date or time written as text with a CONVERT style, as Learn's "Date and time styles" table writes
+    it (functions/cast-and-convert-transact-sql). sqlglot's patterns were wrong for several (style 114 wrote six
+    digits, ``14:23:44:500000``; 10, 11 and 12 wrote the letters ``mm-dd-yy``; 13 wrote ``ss``), and they ran with a
+    note. A date-only style takes any type with a date, and 8, 24 and 108 any type with a time. The table's
+    ``fff`` is three digits, which settles 13, 113, 14 and 114 for a datetime and a smalldatetime (whose
+    "styles that include seconds or milliseconds show zeros in these positions") but not for a datetime2 or a time
+    with more digits. 9, 109 and 22 write a 12-hour clock whose padding the table doesn't show, 127 is "only
+    supported when casting from character data", and 130 and 131 are Hijri dates; those, and any other pair the
+    table doesn't settle, are refused by name."""
+    rounded = _is(kind, {exp.DataType.Type.DATETIME, exp.DataType.Type.SMALLDATETIME}) or tsql_types.is_rounded(value)
+    is_time = _is(kind, {exp.DataType.Type.TIME})
+    is_date = _is(kind, {exp.DataType.Type.DATE})
+    known = rounded or is_time or is_date or _is(kind, {exp.DataType.Type.DATETIME2, exp.DataType.Type.TIMESTAMP,
+                                                        exp.DataType.Type.TIMESTAMPNTZ})
+    pattern = None
+    if known and style in _DATE_ONLY_STYLES and not is_time:
+        pattern = _DATE_ONLY_STYLES[style]
+    elif known and style in _TIME_ONLY_STYLES and not is_date:
+        pattern = _TIME_ONLY_STYLES[style]
+    elif rounded and style in _MILLISECOND_STYLES:
+        pattern = _MILLISECOND_STYLES[style]
+    if pattern is None:
+        name = "datetime" if rounded and not _is(kind, {exp.DataType.Type.SMALLDATETIME}) else \
+            kind.sql(dialect="tsql").lower() if kind is not None and known else "value of this type"
+        raise ValueError(f"{_NOT_YET}CONVERT style {style} of a {name} isn't mapped yet, because T-SQL's style table "
+                         "doesn't settle how it's written. Nothing ran. Styles 0, 101, 103, 112, 120, 121 and 126, "
+                         "and the other styles of that table that it writes exactly, run here.")
+    stamp: exp.Expression = value.copy()
+    if is_time:
+        stamp = exp.Add(this=exp.cast(exp.Literal.string("1900-01-01"), "DATE"), expression=stamp)
+    stamp = exp.Cast(this=stamp, to=exp.DataType.build("TIMESTAMP"))
+    return exp.Anonymous(this="STRFTIME", expressions=[stamp, exp.Literal.string(pattern)])
 
 
 # T-SQL's datetime runs from 1753-01-01 to 9999-12-31: as days from 1900-01-01, these.
@@ -2593,8 +2717,9 @@ def _number_dates(tree: exp.Expression) -> None:
 
 def _converts(tree: exp.Expression) -> list[str]:
     """``CONVERT`` fails on a value it can't convert, as ``CAST`` does; sqlglot writes it as TRY_CAST,
-    which gives NULL instead. Write it as sqlglot does, then make the outer conversion strict. A date
-    style that hasn't been checked against T-SQL runs as sqlglot maps it, and the notes say so."""
+    which gives NULL instead. Write it as sqlglot does, then make the outer conversion strict. Text read with a
+    date style that hasn't been checked against T-SQL is refused by name (WR-731); a date written as text with a
+    style is written in _numeric_style."""
     notes: list[str] = []
     for node in list(tree.find_all(exp.Convert)):
         try:
@@ -2626,8 +2751,13 @@ def _converts(tree: exp.Expression) -> list[str]:
                 raise ValueError(f"{_NOT_YET}CONVERT's style has to be a number written in the query. A style "
                                  f"from {style.sql('tsql')} isn't carried yet. Write the style as a number, such as 101.")
             if isinstance(new.this, exp.StrToTime) and isinstance(style, exp.Literal) \
-                    and style.name not in CHECKED_DATE_STYLES:
-                notes.append(_unchecked_style(style.name))  # text read as a date; a date written as text: _types
+                    and _STYLE_ALIASES.get(style.name, style.name) not in CHECKED_DATE_STYLES:
+                # WR-731: text read with a style is read as its pattern only for the checked styles; Learn's table
+                # gives each pattern but not how strictly a warehouse reads it (one digit, other separators)
+                raise ValueError(f"{_NOT_YET}CONVERT of text to a date with style {style.name} isn't mapped yet, "
+                                 "because T-SQL's reference doesn't say how strictly that style reads text. Nothing ran. "
+                                 "Styles 101, 103, 112, 120, 121 and 126 read text here, and so does CAST of "
+                                 "'yyyy-mm-dd' or 'yyyymmdd'.")
             if isinstance(new.this, exp.TimeToStr) and isinstance(style, exp.Literal):
                 new.meta["tsql_style"] = style.name  # a date style, unless _types finds a number (_numeric_style)
         node.replace(new)

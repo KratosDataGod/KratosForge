@@ -125,12 +125,18 @@ def test_datediff_past_an_int_says_so_as_tsql_does(engine):
     assert big["columns"][0]["type"] == "int64"
 
 
-@pytest.mark.parametrize("sql", ["CONVERT(VARCHAR(30), ts, 104)", "CONVERT(DATE, '29.02.2024', 104)",
-                                 "TRY_CONVERT(VARCHAR(30), leap, 107)"])
-def test_a_style_that_hasnt_been_checked_runs_with_a_note(engine, sql):
-    notes = (tsql(engine, sql).get("translation") or {}).get("notes") or []
-    assert any(f"style {sql.split(', ')[-1].rstrip(')')} runs as a translation that hasn't been checked" in n
-               for n in notes), notes
+# WR-731: these ran with an "unchecked style" note; now each is written as Learn's style table shows, with no note,
+# and text read with a style other than the checked ones is refused by name.
+@pytest.mark.parametrize("sql, want", [("CONVERT(VARCHAR(30), ts, 104)", "29.02.2024"),
+                                       ("TRY_CONVERT(VARCHAR(30), leap, 107)", "Feb 29, 2024")])
+def test_a_style_from_learns_table_runs_without_a_note(engine, sql, want):
+    r = tsql(engine, sql)
+    assert r["rows"] == [[want]] and not (r.get("translation") or {}).get("notes")
+
+
+def test_text_read_with_an_unchecked_style_is_refused(engine):
+    with pytest.raises(ValueError, match="CONVERT of text to a date with style 104 isn't mapped yet"):
+        tsql(engine, "CONVERT(DATE, '29.02.2024', 104)")
 
 
 def test_a_number_with_a_style_gets_no_date_note(engine):

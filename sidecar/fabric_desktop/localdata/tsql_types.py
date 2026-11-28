@@ -203,6 +203,7 @@ _ROUND = {T.DATETIME: f"{_DAY} + TO_MILLISECONDS(CAST(FLOOR({_TICKS} * 10.0 / 3.
 _RANGE = {T.DATETIME: ("1753-01-01 00:00:00", "9999-12-31 23:59:59.997"),
           T.SMALLDATETIME: ("1900-01-01 00:00:00", "2079-06-06 23:59:00")}
 _TOO_PRECISE = re.compile(r"\.\d{4,}")
+_ISO_STYLES = {"20", "21", "25", "120", "121", "126"}  # styles whose text is ISO, so a dot starts a fraction
 
 
 def round_datetimes(tree: exp.Expression) -> None:
@@ -254,7 +255,10 @@ def round_datetimes(tree: exp.Expression) -> None:
             continue
         if kind.this not in _ROUNDED:
             continue
-        if text is not None and _TOO_PRECISE.search(text):
+        style = node.args.get("style") if isinstance(node, exp.Convert) else None
+        iso = style is None or (isinstance(style, exp.Literal) and style.name in _ISO_STYLES)
+        if text is not None and iso and _TOO_PRECISE.search(text):
+            # Only for ISO text: with another style (such as 104's dd.mm.yyyy) a dot isn't a fraction (WR-731)
             node.replace(exp.null() if safe else _fail("Conversion failed when converting date and/or time from "
                                                          "character string."))
             continue

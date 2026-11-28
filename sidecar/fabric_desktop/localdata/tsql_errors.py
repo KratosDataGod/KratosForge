@@ -69,12 +69,20 @@ _NUMBERS = [
     (re.compile(r"^Cannot construct data type date, some of the arguments have values which are not valid\.$"), 289),
     (re.compile(r"^Adding a value to a '(?:date|datetime2)' column caused an overflow\.$"), 517),
     (re.compile(r"^Invalid length parameter passed to the (?:LEFT|RIGHT) function\.$"), 536),
+    # WR-732, WR-735: Database Engine errors 4112 and 8117, in their words
+    (re.compile(r"^The function '\w+' must have an OVER clause with ORDER BY\.$"), 4112),
+    (re.compile(r"^Operand data type bit is invalid for (?:sum|avg) operator\.$"), 8117),
+    # WR-736: Database Engine errors 10752, 10756 and 10759, severity 15 (_LEVELS)
+    (re.compile(r"^The function '\w+' may not have a window frame\.$"), 10752),
+    (re.compile(r"^Window frame with ROWS or RANGE must have an ORDER BY clause\.$"), 10756),
+    (re.compile(r"^Use of DISTINCT is not allowed with the OVER clause\.$"), 10759),
     # WR-730: functions/datetrunc-transact-sql shows it for a date part of a time
     (re.compile(r"^The datepart \w+ is not supported by date function datetrunc for data type time\.$"), 9810),
     (re.compile(r"^The conversion of a varchar data type to a (?:small)?datetime data type resulted in an "
                 r"out-of-range value\.$"), 242),
 ]
 LEVEL = 16  # each of these is a user error that stops the statement, as SQL Server grades it
+_LEVELS = {10752: 15, 10756: 15, 10759: 15}  # the ones Database Engine errors 10000 to 10999 grade 15
 # A suggestion of one of DuckDB's own catalog tables: a warehouse project has none of them.
 _SYSTEM_HINT = re.compile(r'\n?Did you mean "(?:pg_catalog\.|pg_|information_schema\.|duckdb_|sqlite_|system\.|temp\.)'
                           r'[^"]*"\?', re.IGNORECASE)
@@ -149,5 +157,5 @@ def numbered(message: str) -> str:
     the messages above; otherwise as it is."""
     for pattern, number in _NUMBERS:
         if pattern.match(message):
-            return f"Msg {number}, Level {LEVEL}: {message}"
+            return f"Msg {number}, Level {_LEVELS.get(number, LEVEL)}: {message}"
     return message

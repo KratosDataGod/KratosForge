@@ -513,6 +513,13 @@ When a project runs T-SQL on this PC, NULLs, ties and window functions give a wa
 | `LAG`, `LEAD` with `IGNORE NULLS` | Runs with an offset of 1, and is refused by name with any other offset. T-SQL goes back that many rows and then on to the nearest value that isn't `NULL` (Microsoft's example C), and the local engine counts only the rows that aren't `NULL`. Microsoft's page doesn't list Fabric for `IGNORE NULLS` |
 | `SUM`, `COUNT`, `MAX` and the other aggregates `OVER (ORDER BY ...)` | The default frame is `RANGE`, so rows that tie share a running total. Write `ROWS UNBOUNDED PRECEDING` for one total per row |
 | `RANGE` with a number of rows, such as `RANGE BETWEEN 1 PRECEDING AND CURRENT ROW` | Refused by name, as a warehouse refuses it, because T-SQL takes `RANGE` only with `UNBOUNDED` and `CURRENT ROW`. Use `ROWS` |
+| `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `NTILE`, `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE`, `CUME_DIST`, `PERCENT_RANK` with no `ORDER BY` in `OVER` | SQL Server's error 4112, as their pages require `ORDER BY`: `Msg 4112, Level 16: The function 'ROW_NUMBER' must have an OVER clause with ORDER BY.` It ran here in whatever order the rows were read. An `ORDER BY` in a named `WINDOW` counts |
+| A `ROWS` or `RANGE` frame on a ranking function, `LAG`, `LEAD`, `CUME_DIST` or `PERCENT_RANK`; a frame with no `ORDER BY`; `DISTINCT` in an aggregate with `OVER` | SQL Server's errors 10752 ("The function 'RANK' may not have a window frame."), 10756 ("Window frame with ROWS or RANGE must have an ORDER BY clause.") and 10759 ("Use of DISTINCT is not allowed with the OVER clause."), at level 15. They ran here |
+| `COUNT`, `COUNT_BIG` | `COUNT` is an `int`, and a count past an `int` is `Msg 8115` ("Arithmetic overflow error converting expression to data type int."), as its page says; `COUNT_BIG` is a `bigint`. `COUNT` was a `bigint` here, so `SELECT COUNT(*) AS n INTO` made a `bigint` column |
+| `AVG` of an integer | An `int` for `tinyint`, `smallint` and `int`, and a `bigint` for a `bigint`, as its page's table gives, cut toward zero. It was a `bigint` for each here. An `int` whose sum is past an `int`'s range stops by name, since the page says `AVG` "returns an error" without its words |
+| `SUM`, `AVG` of a `bit` | SQL Server's error 8117, `Operand data type bit is invalid for sum operator.` (or `avg`), as their pages leave `bit` out. `SUM` added the bits here, and `AVG` stopped with DuckDB's binder error |
+| `STDEV`, `STDEVP`, `VAR`, `VARP` | A `float`. Over one row `STDEV` and `VAR` are `NULL` and `STDEVP` and `VARP` are `0`, and over no rows each is `NULL` |
+| `CUME_DIST`, `PERCENT_RANK`, `APPROX_COUNT_DISTINCT`, `ROW_NUMBER` and the ranks | A `float` for the first two, and a `bigint` for the rest |
 | `PERCENTILE_CONT` | A `float`, with `NULL`s left out, for a decimal column too: 0.25 of `1.25`, `2.50` and `4.00` is `1.875` |
 | `PERCENTILE_CONT` and `PERCENTILE_DISC` with `ORDER BY ... DESC` | p counts from the largest value: 0.25 of 1 to 5 descending is `4`. `PERCENTILE_DISC` keeps its value's type |
 
@@ -520,6 +527,7 @@ What can still differ:
 
 - `PERCENTILE_DISC` with `ORDER BY ... DESC` on a date or text column is refused by name. Run it in a Fabric Warehouse.
 - Rows that tie in an `ORDER BY` can come back in any order, in a warehouse as here. Add a column that tells them apart when the order matters.
+- `STRING_AGG` with no `WITHIN GROUP` joins the values in the order the rows are read here. T-SQL doesn't define that order either: add `WITHIN GROUP (ORDER BY ...)` when it matters.
 
 ## Local T-SQL dates and times
 
@@ -540,6 +548,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 | `EOMONTH` | The month's last day, with or without months to add: `EOMONTH('2024-01-31', 1)` is `2024-02-29` |
 | `DATEFROMPARTS` | A date, an error for a day that doesn't exist (`2023, 2, 29`), `NULL` for a `NULL` part |
 | `FORMAT` | .NET's date formats in `en-US`, `en-GB` or `de-DE`, on a `date` or a date-and-time column. See [Local T-SQL formatting](#local-t-sql-formatting) |
+| `CONVERT` to text, the other styles of Learn's table (WR-731) | As that table writes them: `1` and `101` `MM/dd/yy[yy]`, `2` and `102` `yy[yy].MM.dd`, `3` `dd/MM/yy`, `4` and `104` `dd.MM.yy[yy]`, `5` and `105` `dd-MM-yy[yy]`, `6` and `106` `dd MMM yy[yy]`, `7` and `107` `MMM dd, yy[yy]`, `10` and `110` `MM-dd-yy[yy]`, `11` and `111` `yy[yy]/MM/dd`, `12` `yyMMdd`, `23` `yyyy-MM-dd`, for any type with a date; `8`, `24` and `108` `HH:mm:ss` for any type with a time; `13`, `113`, `14` and `114` with three digits of a second (`14:23:44:500`), for a `datetime` or `smalldatetime`. `100`, `20`, `21` and `25` are `0`, `120` and `121`. These ran before with a note, and some were wrong: 114 wrote six digits, and 10, 11 and 12 wrote the letters `mm-dd-yy`. Any other style and type the table doesn't settle is refused by name: `9`, `109` and `22` (a 12-hour clock whose padding the table doesn't show), `127` (only read, never written), `130` and `131` (Hijri), a time style for a `date`, a date style for a `time`, and the millisecond styles for a `datetime2` or `time` |
 | `CONVERT` to text, styles 101, 103, 112, 120, 121, 126 | `02/29/2024`, `29/02/2024`, `20240229`, `2024-02-29 13:04:05`, `2024-02-29 13:04:05.123000`, `2024-02-29T13:04:05.123000` for a `datetime2(6)`. 121 and 126 write a `datetime2(n)` or `time(n)` with its `n` digits, as `CAST` does, and a `datetime` to the millisecond. A `date` gives only its date in 120, 121 and 126, and 126 leaves off a fraction of zero |
 | `CAST` of a `datetime2(n)` or `time(n)` to text | Its `n` digits of a second, zeros too: a `datetime2(6)` is `2024-02-29 13:04:05.000000`, as a Fabric Warehouse gave it in live run 11, and `datetime2` or `time` with no precision is `(7)`, so seven digits (`.1200000`) |
 | `CAST` of a `datetime` or `smalldatetime` to text, and style 0 or 100 | T-SQL's default for them, `mon dd yyyy hh:miAM`, where the day and the hour take two places, as in `Jan  2 2024  3:04PM` |
@@ -551,7 +560,7 @@ When a project runs T-SQL on this PC, these date and time functions are checked 
 What can still differ:
 
 - A date-and-time here is a warehouse's `datetime2(6)`: six digits of fraction (`.123000`), which is also the most a Fabric Warehouse column keeps. T-SQL's default `datetime2` has seven: written as text it has a 7th digit of `0` here, text whose 7th digit isn't `0` is refused by name in `CAST` and `CONVERT` to `datetime2`, `datetime2(6)`, `datetime2(7)` or `time` (T-SQL keeps or rounds on it), and text with more than seven digits is T-SQL's conversion error (`NULL` with `TRY_CAST`).
-- Any other `CONVERT` date style runs as translated, but its values haven't been checked. The run's `translation.notes` says so ("CONVERT style 104 runs as a translation that hasn't been checked ...").
+- Text read with a `CONVERT` style other than 0, 101, 103, 112, 120, 121 and 126 (and 100, 20, 21, 25 and 23, which read the same patterns as 0, 120, 121 and ISO text) is refused by name: Learn's table gives each style's pattern but not how strictly a warehouse reads text with it.
 - `nanosecond` in `DATEADD`, `DATEDIFF` and `DATETRUNC`: see [Local data](local-data.md#t-sql).
 - Text with a month name or `AM`/`PM` from a column, or written as m.d.y (`'01.02.2024'`), or a month name with a two-digit year, is refused by name where it's read as a date: SQL Server reads it by its language and `DATEFORMAT`, which aren't followed for it here.
 - `ISDATE`, `DATE_BUCKET`, `DATETIME2FROMPARTS` and `TODATETIMEOFFSET` are refused by name, and so is `SWITCHOFFSET`, since `datetimeoffset` isn't mapped.

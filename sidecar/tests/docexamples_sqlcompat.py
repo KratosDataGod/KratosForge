@@ -203,6 +203,8 @@ ILLUSTRATIVE: dict[tuple[str, str], str] = {
     (P, "SELECT *"): "a fragment: a view made with SELECT *, not a statement",
     (P, "SELECT 2147483647 + 1"): "an error example: it stops with Msg 8115 (test_tsql_arithmetic_errors)",
     (P, "regexp_replace('aaa', 'a*', 'X')"): "Spark's answer; this PC refuses that pattern by name (WR-257)",
+    (P, "SELECT COUNT(*) AS n INTO"): "a fragment of SELECT ... INTO; the int column is checked in "
+                                       "test_tsql_silent_sweep_wr731 (WR-734)",
 }
 
 # Inline `SELECT ...` statements run as written (see Statement)

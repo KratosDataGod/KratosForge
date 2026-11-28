@@ -60,3 +60,26 @@ test("a notebook with no modified time still ticks, with no errors", { skip }, a
   await p.waitForSelector('.get-started .gs-tile.done:has-text("Run a notebook on this PC")');
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("once this PC has a notebook, the next Home folds it below Recent notebooks", { skip }, async () => {
+  const notebooks = [{ name: "Orders", modified: 1760000000 }];
+  const p = await home({}, notebooks);
+  assert.ok(await p.isVisible(".get-started .gs-grid"), "still open on the visit that finds the first notebook");
+  await p.waitForFunction(() => localStorage.getItem("fd.done.notebook") === "1");
+  const again = await home({ "fd.done.notebook": "1" }, notebooks);
+  assert.ok(!(await again.isVisible(".get-started .gs-grid")));
+  assert.strictEqual(await again.getAttribute(".get-started .fold-toggle", "aria-expanded"), "false");
+  assert.ok(await again.isVisible(".get-started .gs-again"));
+  const below = await again.evaluate(() => {
+    const recent = [...document.querySelectorAll("h2")].find((e) => e.textContent === "Recent notebooks");
+    const gs = document.querySelector(".get-started");
+    return !!(recent.compareDocumentPosition(gs) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  assert.ok(below, "Getting started comes after Recent notebooks");
+});
+
+test("the lessons link opens Academy", { skip }, async () => {
+  const p = await home();
+  await p.click('.get-started button:has-text("Try the lessons in Academy")');
+  await p.waitForFunction(() => state.view === "academy");
+});

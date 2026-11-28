@@ -7130,3 +7130,32 @@ test("an empty line next to deleted lines keeps its breakpoint", () => {
     assert.deepStrictEqual(ctx.toasts, []);
   }
 });
+
+// S10: a lakehouse's templates only read, name their dialect in the title, and quote names in that dialect.
+test("a lakehouse's SQL templates are read-only Spark SQL and DuckDB, never T-SQL (S10)", () => {
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`${fs.readFileSync(path.join(ui, "sqltemplates.js"), "utf8")}\nObject.assign(this, { SQL_TEMPLATES, SQL_LAKEHOUSE_TEMPLATES, SQL_LAKEHOUSE_TEMPLATE_GROUPS, sqlTemplateFill, sqlTemplateProblem, sqlTemplateParams });`, ctx);
+  const { SQL_TEMPLATES, SQL_LAKEHOUSE_TEMPLATES: lh, SQL_LAKEHOUSE_TEMPLATE_GROUPS: groups, sqlTemplateFill: fill, sqlTemplateProblem: problem } = ctx;
+  assert.strictEqual(lh.length, 10);
+  const label = { spark: "Spark SQL", duckdb: "DuckDB" };
+  for (const t of lh) {
+    assert.ok(label[t.dialect], `${t.id} has a lakehouse dialect`);
+    assert.ok(t.title.endsWith(`(${label[t.dialect]})`) && t.group === label[t.dialect], `${t.id} names its dialect`);
+    assert.match(t.sql, /^(SELECT|WITH)\b/, `${t.id} reads`);
+    assert.doesNotMatch(t.sql, /\b(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|COPY|ATTACH|INSTALL|LOAD|SET)\b/i, `${t.id} only reads`);
+    assert.doesNotMatch(fill(t.sql, {}, t.dialect), /[[\]]|\bTOP\b|<\w+\s*,/, `${t.id} has no T-SQL quoting or placeholder left`);
+  }
+  assert.deepStrictEqual([...new Set(lh.map((t) => t.group))], [...groups]);
+  assert.ok(SQL_TEMPLATES.every((t) => !t.dialect), "the warehouse templates are T-SQL");
+  assert.ok(!SQL_TEMPLATES.some((t) => lh.some((x) => x.id === t.id)), "no template is in both lists");
+  const cols = "SELECT [<k, columns, a>] FROM t";
+  assert.strictEqual(fill(cols, { k: "a, b" }), "SELECT [a], [b] FROM t");
+  assert.strictEqual(fill("SELECT `<k, columns, a>`", { k: "a, b" }, "spark"), "SELECT `a`, `b`");
+  assert.strictEqual(fill("SELECT \"<k, columns, a>\"", { k: "a, b" }, "duckdb"), "SELECT \"a\", \"b\"");
+  assert.strictEqual(problem("sysname", "a]b"), "Use a name of up to 128 characters without ] or a line break.");
+  assert.strictEqual(problem("sysname", "a]b", "spark"), "");
+  assert.strictEqual(problem("sysname", "a`b", "spark"), "Use a name of up to 128 characters without ` or a line break.");
+  assert.strictEqual(problem("columns", "a, b\"c", "duckdb"), "List names separated by commas, without \".");
+  assert.strictEqual(fill("FROM `<t, sysname, sales>`", { t: "x` ; DROP TABLE y; --" }, "spark"), "FROM `<t, sysname, sales>`", "a value that breaks out stays a placeholder");
+});

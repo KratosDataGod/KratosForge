@@ -4,7 +4,8 @@
 // value is checked and written: sysname (an identifier, written inside [ ]), columns (a comma list
 // of identifiers, written [a], [b]), string (inside ' ', with ' doubled), int, datatype, and
 // datetime (yyyy-mm-ddThh:mm:ss). Opening a template runs nothing. Every template is checked against
-// the Fabric Warehouse rules in app/tests/browser/sql-templates.test.cjs.
+// the Fabric Warehouse rules in app/tests/browser/sql-templates.test.cjs. A lakehouse's templates (S10,
+// below) are checked against their own dialect's rules in lakehouse-sql-templates.test.cjs.
 
 const SQL_TEMPLATE_GROUPS = ["Tables", "Load data", "Views and functions", "Stored procedures", "Time travel and clone",
   "Security", "Statistics", "Accelerators"];
@@ -163,6 +164,72 @@ WHERE NOT EXISTS (
     WHERE d.[<key_column, sysname, CustomerKey>] = f.[<key_column, sysname, CustomerKey>]);` },
 ];
 
+// S10 (Preview): the templates a lakehouse's SQL page offers. They only read, and each is written for
+// one of the dialects that run on this PC, named in its title. A T-SQL template is never offered there,
+// and these are never offered on a warehouse. A name is written inside the dialect's own quotes:
+// `name` in Spark SQL, "name" in DuckDB.
+const SQL_LAKEHOUSE_TEMPLATE_GROUPS = ["Spark SQL", "DuckDB"];
+const SQL_TEMPLATE_DIALECT_GROUP = { spark: "Spark SQL", duckdb: "DuckDB" };
+
+const SQL_LAKEHOUSE_TEMPLATES = [
+  { id: "spark-top-n", dialect: "spark", group: "Spark SQL", title: "Top N rows (Spark SQL)", description: "The first rows of a table, by one column",
+    sql: `SELECT *
+FROM \`<table_name, sysname, sales>\`
+ORDER BY \`<order_column, sysname, amount>\` DESC
+LIMIT <row_count, int, 100>;` },
+  { id: "spark-count-by-group", dialect: "spark", group: "Spark SQL", title: "Row count by group (Spark SQL)", description: "How many rows each value of a column has",
+    sql: `SELECT \`<group_column, sysname, region>\`, COUNT(*) AS row_count
+FROM \`<table_name, sysname, sales>\`
+GROUP BY \`<group_column, sysname, region>\`
+ORDER BY row_count DESC;` },
+  { id: "spark-duplicates", dialect: "spark", group: "Spark SQL", title: "Find duplicates on a key (Spark SQL)", description: "Key values that more than one row has",
+    sql: `SELECT \`<key_columns, columns, order_id>\`, COUNT(*) AS copies
+FROM \`<table_name, sysname, sales>\`
+GROUP BY \`<key_columns, columns, order_id>\`
+HAVING COUNT(*) > 1
+ORDER BY copies DESC;` },
+  { id: "spark-null-counts", dialect: "spark", group: "Spark SQL", title: "Null counts per column (Spark SQL)", description: "How many rows have no value, for three columns",
+    sql: `SELECT
+    COUNT(*) AS row_count,
+    COUNT(*) - COUNT(\`<column_1, sysname, customer>\`) AS \`<column_1, sysname, customer>_nulls\`,
+    COUNT(*) - COUNT(\`<column_2, sysname, region>\`) AS \`<column_2, sysname, region>_nulls\`,
+    COUNT(*) - COUNT(\`<column_3, sysname, amount>\`) AS \`<column_3, sysname, amount>_nulls\`
+FROM \`<table_name, sysname, sales>\`;` },
+  { id: "spark-latest-per-key", dialect: "spark", group: "Spark SQL", title: "Latest row per key (Spark SQL)", description: "The newest row for each key value",
+    sql: `SELECT *
+FROM (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY \`<key_columns, columns, customer_id>\` ORDER BY \`<order_column, sysname, updated_at>\` DESC) AS row_rank
+    FROM \`<table_name, sysname, sales>\`
+) AS ranked
+WHERE row_rank = 1;` },
+  { id: "duckdb-top-n", dialect: "duckdb", group: "DuckDB", title: "Top N rows (DuckDB)", description: "The first rows of a table, by one column",
+    sql: `SELECT *
+FROM "<table_name, sysname, sales>"
+ORDER BY "<order_column, sysname, amount>" DESC
+LIMIT <row_count, int, 100>;` },
+  { id: "duckdb-count-by-group", dialect: "duckdb", group: "DuckDB", title: "Row count by group (DuckDB)", description: "How many rows each value of a column has",
+    sql: `SELECT "<group_column, sysname, region>", COUNT(*) AS row_count
+FROM "<table_name, sysname, sales>"
+GROUP BY "<group_column, sysname, region>"
+ORDER BY row_count DESC;` },
+  { id: "duckdb-duplicates", dialect: "duckdb", group: "DuckDB", title: "Find duplicates on a key (DuckDB)", description: "Key values that more than one row has",
+    sql: `SELECT "<key_columns, columns, order_id>", COUNT(*) AS copies
+FROM "<table_name, sysname, sales>"
+GROUP BY "<key_columns, columns, order_id>"
+HAVING COUNT(*) > 1
+ORDER BY copies DESC;` },
+  { id: "duckdb-null-counts", dialect: "duckdb", group: "DuckDB", title: "Null counts per column (DuckDB)", description: "How many rows have no value, for every column",
+    sql: `SELECT COUNT(*) - COUNT(COLUMNS(*))
+FROM "<table_name, sysname, sales>";` },
+  { id: "duckdb-latest-per-key", dialect: "duckdb", group: "DuckDB", title: "Latest row per key (DuckDB)", description: "The newest row for each key value",
+    sql: `SELECT *
+FROM "<table_name, sysname, sales>"
+QUALIFY ROW_NUMBER() OVER (PARTITION BY "<key_columns, columns, customer_id>" ORDER BY "<order_column, sysname, updated_at>" DESC) = 1;` },
+];
+
+// The quote that closes a name in a template's dialect: ] in T-SQL, ` in Spark SQL, " in DuckDB.
+const sqlTemplateQuote = (dialect) => ({ spark: "`", duckdb: '"' })[dialect] || "]";
+
 // <name, kind, default> placeholders. A '<' or '>' inside one isn't allowed, so a <> b never matches.
 const SQL_TEMPLATE_KINDS = ["sysname", "columns", "string", "int", "datatype", "datetime"];
 const SQL_PARAM_RE = /<([A-Za-z_]\w*)\s*,\s*(\w+)\s*,\s*([^<>\n]*?)\s*>/g;
@@ -174,12 +241,15 @@ function sqlTemplateParams(sql) {
   return [...seen.values()];
 }
 
-// Why a value can't be used for its kind, or "".
-function sqlTemplateProblem(kind, value) {
+// Why a value can't be used for its kind, or "". dialect is the template's (T-SQL when it has none),
+// which says which quote a name can't hold.
+function sqlTemplateProblem(kind, value, dialect) {
   const v = String(value ?? "").trim();
   if (!v) return "Fill this in.";
-  if (kind === "sysname") return /[\]\n]/.test(v) || v.length > 128 ? "Use a name of up to 128 characters without ] or a line break." : "";
-  if (kind === "columns") return v.split(",").some((c) => !c.trim() || /[\]\n]/.test(c) || c.trim().length > 128) ? "List names separated by commas, without ]." : "";
+  const q = sqlTemplateQuote(dialect);
+  const bad = (s) => s.includes(q) || s.includes("\n");
+  if (kind === "sysname") return bad(v) || v.length > 128 ? `Use a name of up to 128 characters without ${q} or a line break.` : "";
+  if (kind === "columns") return v.split(",").some((c) => !c.trim() || bad(c) || c.trim().length > 128) ? `List names separated by commas, without ${q}.` : "";
   if (kind === "int") return /^-?\d+$/.test(v) ? "" : "Use a whole number.";
   if (kind === "datatype") return /^[A-Za-z0-9_]+(\s*\(\s*(\d+|max)(\s*,\s*\d+)?\s*\))?$/i.test(v) ? "" : "Use a type such as int, varchar(50) or decimal(18,2).";
   if (kind === "datetime") return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,7})?)?)?$/.test(v) ? "" : "Use yyyy-mm-dd or yyyy-mm-ddThh:mm:ss.";
@@ -189,11 +259,13 @@ function sqlTemplateProblem(kind, value) {
 
 // The template with each placeholder replaced by its value, written for its kind. A value with a
 // problem leaves its placeholder in place, so nothing half-checked reaches the editor.
-function sqlTemplateFill(sql, values) {
+function sqlTemplateFill(sql, values, dialect) {
+  const q = sqlTemplateQuote(dialect);
+  const between = q === "]" ? "], [" : `${q}, ${q}`;
   return sql.replace(SQL_PARAM_RE, (whole, name, kind, def) => {
     const v = String(values[name] ?? def).trim();
-    if (sqlTemplateProblem(kind, v)) return whole;
-    if (kind === "columns") return v.split(",").map((c) => c.trim()).join("], [");
+    if (sqlTemplateProblem(kind, v, dialect)) return whole;
+    if (kind === "columns") return v.split(",").map((c) => c.trim()).join(between);
     if (kind === "string") return v.replace(/'/g, "''");
     return v;
   });
@@ -219,11 +291,14 @@ function sqlTemplateDraftProblem(d) {
 // opts.draft() gives the current tab's SQL, offered when you write a new template.
 function openSqlTemplates(ref, open, opts = {}) {
   let own = [], places = [{ id: "mine", label: "My templates" }], ownNote = "Reading your templates...";
+  // S10: a lakehouse is offered only its own read-only templates, for Spark SQL and DuckDB, opening on
+  // the tab's dialect (opts.dialect). Your own templates are T-SQL, so they stay on a warehouse.
+  const lh = !isWarehouseRef(ref);
   const fits = (t) => ref.kind !== "endpoint" || t.endpoint;
-  const list = () => [...SQL_TEMPLATES, ...own].filter(fits);
-  const groupNames = () => [...new Set([...SQL_TEMPLATE_GROUPS, ...own.filter(fits).map((t) => t.group)])]
+  const list = () => lh ? SQL_LAKEHOUSE_TEMPLATES : [...SQL_TEMPLATES, ...own].filter(fits);
+  const groupNames = () => (lh ? SQL_LAKEHOUSE_TEMPLATE_GROUPS : [...new Set([...SQL_TEMPLATE_GROUPS, ...own.filter(fits).map((t) => t.group)])])
     .filter((g) => list().some((t) => t.group === g));
-  const sel = { group: opts.group || list()[0].group, id: opts.id || null, term: "", values: {} };
+  const sel = { group: opts.group || (lh && SQL_TEMPLATE_DIALECT_GROUP[opts.dialect]) || list()[0].group, id: opts.id || null, term: "", values: {} };
   const groups = h("nav", { class: "sqlt-groups", "aria-label": "Template groups" });
   const cards = h("div", { class: "sqlt-list" });
   const detail = h("div", { class: "sqlt-detail" });
@@ -263,6 +338,11 @@ function openSqlTemplates(ref, open, opts = {}) {
     if (redraw) drawCards();
   }
   async function load(id) {
+    if (lh) {
+      ownNote = "Your own templates are T-SQL, so they're offered on a warehouse only.";
+      drawCards();
+      return;
+    }
     try {
       const r = await rpc("sql_templates_list");
       own = r.templates.map(sqlOwnTemplate);
@@ -298,7 +378,7 @@ function openSqlTemplates(ref, open, opts = {}) {
     const t = list().find((x) => x.id === sel.id);
     if (!t) { detail.replaceChildren(); return; }
     const head = [h("h3", {}, t.title), h("p", { class: "muted-text" }, t.description || (t.own ? "Your template." : "")),
-      !t.own ? h("div", { class: "sqlt-own" }, h("span", { class: "spacer" }), btn("Make a copy", null, () => edit(t, true), "tool small", { title: "Start a template of your own from this one" })) : null,
+      !t.own && !lh ? h("div", { class: "sqlt-own" }, h("span", { class: "spacer" }), btn("Make a copy", null, () => edit(t, true), "tool small", { title: "Start a template of your own from this one" })) : null,
       t.own ? h("div", { class: "sqlt-own" }, h("span", { class: "muted-text" }, `${t.place === "mine" ? "My templates, on this PC" : `${t.place_label}, in Git`} · ${t.name}`), h("span", { class: "spacer" }), ...ownActions(t)) : null].filter(Boolean);
     if (t.problem) {
       detail.replaceChildren(...head, h("p", { class: "error-text", role: "alert" }, `This template can't be used: ${t.problem} Edit it, or fix its file.`));
@@ -306,22 +386,22 @@ function openSqlTemplates(ref, open, opts = {}) {
     }
     const params = sqlTemplateParams(t.sql);
     const script = h("pre", { class: "sqlt-preview", tabindex: "0", "aria-label": "Script" });  // scrolls: arrow keys reach its long lines
-    const problems = () => params.filter((p) => sqlTemplateProblem(p.kind, sel.values[p.name] ?? p.value));
-    const openBtn = btn("Open in a new tab", null, () => { closeDialog(); open(t.title, `${sqlTemplateFill(t.sql, sel.values)}\n`); }, "tool primary");
+    const problems = () => params.filter((p) => sqlTemplateProblem(p.kind, sel.values[p.name] ?? p.value, t.dialect));
+    const openBtn = btn("Open in a new tab", null, () => { closeDialog(); open(t.title, `${sqlTemplateFill(t.sql, sel.values, t.dialect)}\n`, t.dialect); }, "tool primary");
     const refresh = () => {
-      script.textContent = sqlTemplateFill(t.sql, sel.values);
+      script.textContent = sqlTemplateFill(t.sql, sel.values, t.dialect);
       openBtn.disabled = problems().length > 0;
     };
     const fields = params.map((p) => {
-      const why = h("span", { class: "error-text sqlt-why", role: "alert" }, sqlTemplateProblem(p.kind, sel.values[p.name] ?? p.value));
+      const why = h("span", { class: "error-text sqlt-why", role: "alert" }, sqlTemplateProblem(p.kind, sel.values[p.name] ?? p.value, t.dialect));
       const input = h("input", { value: sel.values[p.name] ?? p.value, "aria-label": p.name.replace(/_/g, " "),
-        oninput: (e) => { sel.values[p.name] = e.target.value; why.textContent = sqlTemplateProblem(p.kind, e.target.value); refresh(); } });
+        oninput: (e) => { sel.values[p.name] = e.target.value; why.textContent = sqlTemplateProblem(p.kind, e.target.value, t.dialect); refresh(); } });
       return h("label", { class: "field sqlt-field" }, h("span", {}, p.name.replace(/_/g, " "), h("span", { class: "hint" }, ` ${p.kind}`)), input, why);
     });
     refresh();
     detail.replaceChildren(...head,
       fields.length ? h("div", { class: "sqlt-fields" }, fields) : null, script,
-      h("div", { class: "sqlt-actions" }, h("span", { class: "muted-text" }, "Opening a template runs nothing. A template that changes the warehouse runs only with Allow changes ticked, after you confirm."), h("span", { class: "spacer" }), openBtn));
+      h("div", { class: "sqlt-actions" }, h("span", { class: "muted-text" }, lh ? "Opening a template runs nothing. These templates only read." : "Opening a template runs nothing. A template that changes the warehouse runs only with Allow changes ticked, after you confirm."), h("span", { class: "spacer" }), openBtn));
   }
   // Write a new template, edit one of yours (t), or start one from a copy of any template (copy), in
   // place of the gallery.
@@ -381,8 +461,8 @@ function openSqlTemplates(ref, open, opts = {}) {
   }
   drawCards();
   const overlay = showDialog("SQL from a template", h("div", { class: "sqlt" },
-    h("div", { class: "sqlt-top" }, h("span", { class: "muted-text" }, `For ${ref.name} · T-SQL for Fabric ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse"}`),
-      search, btn("New template", "add", () => edit(), "tool small"), btn("Import", null, () => picker.click(), "tool small", { title: "Add a .sql template file to My templates" }), picker),
+    h("div", { class: "sqlt-top" }, h("span", { class: "muted-text" }, lh ? `For ${ref.name} · Spark SQL and DuckDB, read only` : `For ${ref.name} · T-SQL for Fabric ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "Warehouse"}`),
+      search, ...(lh ? [] : [btn("New template", "add", () => edit(), "tool small"), btn("Import", null, () => picker.click(), "tool small", { title: "Add a .sql template file to My templates" }), picker])),
     body, note));
   overlay.querySelector(".dialog").classList.add("wide", "sqlt-dialog");
   search.focus();

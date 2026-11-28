@@ -1668,9 +1668,9 @@ function renderQuery() {
   const edit = h("div", { class: "sql-edit" });
   edit.append(editor.view.dom);
   // A new tab holding text from the explorer's Script as or a template (WH-03, WH-04).
-  const openTab = (name, text) => {
+  const openTab = (name, text, dialect) => {  // dialect: a lakehouse template's own (S10), else this tab's
     p.whCompareShown = p.whMonitorShown = false;
-    p.tabs.push({ name, sql: text, dialect: tab.dialect });
+    p.tabs.push({ name, sql: text, dialect: dialect || tab.dialect });
     p.active = p.tabs.length - 1;
     saveQueryTabs();
     renderQuery();
@@ -1882,7 +1882,12 @@ function renderQuery() {
           : h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, gridRow))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
-      btn("New SQL query", "add", addTab),
+      // S10 (Preview): SQL from a template, for Spark SQL and DuckDB, as on the Warehouse page.
+      previewShown() ? h("div", { class: "split" }, btn("New SQL query", "add", addTab),
+        h("button", { class: "tool split-more", "aria-label": "More ways to start a query", title: "More ways to start a query",
+          onclick: (e) => showMenu(e.currentTarget, [{ label: "SQL from a template", icon: "document",
+            action: () => openSqlTemplates(ref, openTab, { dialect: tab.dialect }) }]) }, icon("chevronDown", 14)))
+        : btn("New SQL query", "add", addTab),
       btn("New notebook", "notebook", () => newNotebook(ref)),
       btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
       ...fileButtons(),

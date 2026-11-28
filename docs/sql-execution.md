@@ -155,6 +155,20 @@ The **History** view beside **Results** lists the last 20 runs of the tab: when 
 
 The engine keeps the newest 20 results of the whole page, for the retention time in [Limits](#limits). **Pin** keeps a result past both until you unpin it or close its tab, up to 10 pinned results. A result the engine no longer has says it needs running again; opening the history never runs anything.
 
+## SQL from a template on a lakehouse
+
+With Preview features shown, the arrow beside **New SQL query** on a lakehouse's SQL page has **SQL from a template**, as on the [Warehouse page](warehouse.md#sql-from-a-template). The gallery here has two groups, **Spark SQL** and **DuckDB**, and starts on the current tab's dialect. Each title names its dialect. Every template only reads:
+
+| Template | What it reads |
+| --- | --- |
+| Top N rows | The first rows of a table, by one column |
+| Row count by group | How many rows each value of a column has |
+| Find duplicates on a key | Key values that more than one row has |
+| Null counts per column | How many rows have no value: three columns you name in Spark SQL, every column in DuckDB |
+| Latest row per key | The newest row for each key value |
+
+Fill in the fields and **Open in a new tab** puts the script in a new tab of the template's own dialect. Opening a template runs nothing. A name is written inside the dialect's quotes, `` `name` `` in Spark SQL and `"name"` in DuckDB, so a name can't hold that quote or a line break. A T-SQL template is never offered here. Your own templates are T-SQL, so the lakehouse gallery doesn't list them and has no **New template** or **Import**. Every lakehouse template is checked against its own dialect's rules of the [compatibility check](sql-compatibility.md) by the app's tests.
+
 ## Compare data (Preview)
 
 With Preview features shown, a lakehouse's Explorer has **Compare data**, and a table's menu (right-click it, or press the menu key or Shift+F10) has **Compare with…**. Compare data puts the rows of **A** beside the rows of **B**. Each is a table of the lakehouse (every row) or a query that only reads.

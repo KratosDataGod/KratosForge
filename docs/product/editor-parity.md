@@ -125,7 +125,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S07 | Hover a table, column or function for its details | P | Y | Y | Y | Y | Have | hover cards for tables, columns and functions in Spark SQL, T-SQL and DuckDB (#2598) |
 | S08 | Go to (peek) definition of a table, view or procedure | Y | Y | Y | Y | N | Have | F12 opens a table, view, procedure or function in the Explorer (#2610, #2915); Alt+F12 peeks at its definition and opens it as a script (#2915) |
 | S09 | Rename an alias everywhere | N | N | Y | N | N | Not counted | one product |
-| S10 | Snippets and templates | Y | Y | Y | Y | P | Have | `sqltemplates.js` |
+| S10 | Snippets and templates | Y | Y | Y | Y | P | Have | `sqltemplates.js`; now covers the lakehouse SQL page too, with read-only Spark SQL and DuckDB templates and no T-SQL (Preview) |
 | S11 | Signature help for functions | P | Y | Y | P | P | Have | signature help for functions (#2598) |
 | S12 | Run all or the selection; F5 and Ctrl+Enter | Y | Y | Y | Y | Y | Have | #2406 |
 | S13 | Run the statement under the cursor | N | P | Y | Y | Y | Have | Ctrl+Shift+Enter runs the statement at the cursor (#2582) |

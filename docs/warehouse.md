@@ -144,6 +144,7 @@ Pick a template, fill in its fields (schema, table, columns and the like) and wa
 - **On a SQL analytics endpoint**, which only reads, the gallery offers only the templates that work there: views, functions, procedures, security and data quality checks.
 - **A template that changes the warehouse runs only through Allow changes.** Most templates create or change objects or data. Run refuses them until you tick **Allow changes**, then shows what the script changes and asks you to confirm (typing the warehouse's name in Prod). See [Changing the warehouse](#changing-the-warehouse).
 - Every template is checked against the Fabric Warehouse rules of the [compatibility check](sql-compatibility.md) by the app's tests. Two say *Review* (Truncate and reload, Dynamic data masking) and two *Not verified* (time travel's `OPTION (FOR TIMESTAMP AS OF ...)` and `CREATE SECURITY POLICY`, which the checker can't read).
+- A lakehouse's SQL page has a gallery of its own, with Spark SQL and DuckDB templates only. It never offers these T-SQL templates. See [SQL from a template on a lakehouse](sql-execution.md#sql-from-a-template-on-a-lakehouse).
 
 ### Your own templates
 

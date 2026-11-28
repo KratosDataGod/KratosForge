@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-26",
+  "updated": "2026-11-28",
   "about": "Ledger of WR story ids: each lane (a lead thread or a long-running member thread) owns blocks of ids, so two lanes never give two stories the same id. A lane takes its next id from its own block; where a lane lists next, that is the next id to use. A smaller block inside a larger one belongs to its own lane. queues.py check fails when a queued story's id is outside its workstream's lanes, or when one id names two stories. Exceptions record past collisions, which keep their ids: never rename a merged story's id.",
   "lanes": [
     {
@@ -50,7 +50,7 @@
       "thread": "Finish governance follow-ups",
       "workstream": "enterprise",
       "blocks": [{"first": "WR-400", "last": "WR-499"}],
-      "next": "WR-419"
+      "next": "WR-427"
     },
     {
       "key": "devex",

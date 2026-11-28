@@ -159,6 +159,35 @@ def ceiling(skill: dict[str, Any], rows: list[dict[str, Any]] | None = None) -> 
     return 6, "Grandmaster needs reviewer verification, which KratosForge doesn't offer yet."
 
 
+def reach(skill: dict[str, Any], sources: dict[str, dict[str, set[str]]] | None = None) -> tuple[int, str]:
+    """The highest level the skill's published content can take anyone to today, below ceiling()'s cap.
+    Only published content counts; Journeyman needs practice checked on this PC (a simulated exercise
+    counts only for a cloud-only skill), and Adept two different such sources. A hook ``sources``
+    (catalog.hook_sources) doesn't know isn't capped."""
+    sources = catalog.hook_sources() if sources is None else sources
+    ev = skill.get("evidence") or {}
+    hooks = [*(ev.get("learn") or []), *(ev.get("academy") or []), *(ev.get("objectives") or [])]
+    if not hooks:
+        # Notebook work alone (Validate, checked fixes, Prove) counts, but level() needs a lesson or exercise
+        # before Apprentice. With no hooks at all, ceiling() already says the skill is planned content.
+        if not any(ev.values()):
+            return 6, ""
+        return 1, ("Checked work in your own notebooks counts toward this skill, but going past Initiate also "
+                   "needs a lesson or exercise that checks it, and none does yet.")
+    if any(h not in sources for h in hooks):
+        return 6, ""
+    real_kinds = ("practice", "simulated") if skill.get("cloud") else ("practice",)
+    real = {src for h in hooks for k in real_kinds for src in sources[h].get(k, ())}
+    if len(real) >= ADEPT_SOURCES:
+        return 6, ""
+    if real:
+        return 3, "Adept needs two different lessons or exercises that check this skill, and one does so far."
+    if any(sources[h].get("simulated") or sources[h].get("knowledge") for h in hooks):
+        return 2, ("So far only simulated exercises or reading check this skill on this PC, and they reach "
+                   "Apprentice. Journeyman needs an exercise that checks the work here.")
+    return 0, "The lessons and exercises that check this skill aren't published yet."
+
+
 def level(skill: dict[str, Any], rows: list[dict[str, Any]]) -> int:
     """The skill's mastery level from its counted rows (each: the row's ``at`` plus ``counts()``)."""
     if not rows:
@@ -209,7 +238,8 @@ def evaluate(profile: dict[str, Any], cat: dict[str, Any] | None = None) -> dict
         lv = level(skill, ev[sid])
         top, why = ceiling(skill, ev[sid])
         skills[sid] = {"id": sid, "title": skill["title"], "competency": skill["competency"], "level": lv,
-                       "level_name": LEVELS[lv], "ceiling": top, "ceiling_reason": why, "evidence": ev[sid]}
+                       "level_name": LEVELS[lv], "ceiling": top, "ceiling_reason": why, "evidence": ev[sid],
+                       "reach": reach(skill)}
     classes = {cid: class_view(c, skills) for cid, c in cat["classes"].items()}
     return {"rules_version": RULES_VERSION, "catalog_version": cat["version"], "skills": skills, "classes": classes}
 
@@ -274,9 +304,13 @@ def achievements(cls: dict[str, Any], view: dict[str, Any], skills: dict[str, di
         earned = bool(met)
         # Reachable today: some group whose talents' ceilings (planned content is 0, cloud-only work on this
         # PC stops at Journeyman) all reach the level. An unreachable one says why instead of showing progress.
-        reach = [g for g in groups if all(skills[t["skill"]]["ceiling"] >= need for t in g)]
+        # The content can take someone there too: simulated-only practice stops at Apprentice and Adept
+        # needs two sources (reach()). Skills without a "reach" (a bare evaluation) aren't capped.
+        top = {t["skill"]: min((skills[t["skill"]]["ceiling"], skills[t["skill"]]["ceiling_reason"]),
+                               tuple(skills[t["skill"]].get("reach") or (6, "")), key=lambda x: x[0]) for g in groups for t in g}
+        reach = [g for g in groups if all(t["level"] >= need or top[t["skill"]][0] >= need for t in g)]
         why = "" if earned or reach else next(
-            (skills[t["skill"]]["ceiling_reason"] for g in groups for t in g if skills[t["skill"]]["ceiling"] < need), "")
+            (top[t["skill"]][1] for g in groups for t in g if t["level"] < need and top[t["skill"]][0] < need), "")
         best = max((sum(min(t["level"], need) for t in g) / (need * len(g)) for g in groups), default=0.0)
         out.append({"id": a["id"], "name": a["name"], "criteria": a["criteria"], "earned": earned,
                     "level": need, "level_name": LEVELS[need], "progress": 1.0 if earned else round(min(best, 0.99), 2),

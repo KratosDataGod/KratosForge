@@ -394,6 +394,7 @@ function achievementRing(fraction) {
 
 function classAchievements(c) {
   const list = c.achievements || [];
+  if (!list.length) return null;   // a class with no achievements shows no row
   const card = (a, i) => {
     // "going", not "progress": the app's .progress is a 6px progress bar that clips what it holds.
     const state = a.earned ? "earned" : a.available ? "going" : "unavailable";

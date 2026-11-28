@@ -44,6 +44,7 @@ NO_UI_CALLER: dict[str, str] = {
     # SF-007: the Snowpark API compatibility check of a cell (Preview); no screen is part of SF-007.
     "snowpark_api_check": "SF-007 engine call; the Snowpark API compatibility check has no screen yet (docs/engines.md)",
     # Best practices check (semantic-link-labs in Fabric).
+    "model_bpa_share": "adds a model's best practices findings to Optimize > Opportunities; its button waits on a mockup",
     # Local data projects.
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
@@ -146,6 +147,7 @@ NO_SCREEN_GATE: dict[str, str] = {
     "local_query": "confirm",                  # DROP, TRUNCATE, CREATE OR REPLACE, INSERT OVERWRITE
     "local_query_start": "confirm",
     "local_write_delta": "confirm",            # mode overwrite, like INSERT OVERWRITE
+    "model_bpa_share": "confirm",
     "optimize_share_local_runs": "confirm",
 }
 NOT_DESTRUCTIVE: dict[str, str] = {

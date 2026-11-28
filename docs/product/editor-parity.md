@@ -151,7 +151,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S33 | Schema compare and deploy | Y | Y | Y | Y | N | Have | `whproject.js` |
 | S34 | Data compare between two tables | Y | N | Y | Y | N | Have | Explorer › Compare data, or a table's menu › Compare with: two tables or queries, rows matched on key columns, number tolerances, read only, on this PC, Preview (`sqlcompare.js`, `sql_compare.py`) |
 | S35 | Edit rows in the result grid | Y | N | Y | Y | N | Gap | writes to lakehouse tables are guarded; needs a decision |
-| S36 | Query history with search | P | Y | Y | Y | Y | Have | `sqlhistory.js:82` |
+| S36 | Query history with search | P | Y | Y | Y | Y | Have | `sqlhistory.js:82`; now covers the lakehouse SQL page too, as its Explorer's Query history tab (Preview) |
 | S37 | Saved and shared queries | Y | Y | Y | Y | Y | Have | `sqlqueries.js` |
 | S38 | Open and save .sql files on disk | Y | Y | Y | Y | P | Have | open and save `.sql` files on this PC, Preview (#2799) |
 | S39 | Estimated plan, drawn | Y | Y | Y | Y | P | Have | warehouse (`sqlplan.js`); lakehouse queries on this PC through DuckDB EXPLAIN, Preview (#2604) |

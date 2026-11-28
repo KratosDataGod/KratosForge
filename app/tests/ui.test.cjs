@@ -7130,3 +7130,16 @@ test("an empty line next to deleted lines keeps its breakpoint", () => {
     assert.deepStrictEqual(ctx.toasts, []);
   }
 });
+
+// S36: a lakehouse keeps its query history apart from a warehouse's and from its own SQL analytics endpoint's.
+test("a lakehouse's query history has a key of its own (S36)", () => {
+  const ctx = {};
+  vm.createContext(ctx);
+  const q = fs.readFileSync(path.join(ui, "query.js"), "utf8");
+  const s = fs.readFileSync(path.join(ui, "sqlhistory.js"), "utf8");
+  vm.runInContext(/function isWarehouseRef\(ref\) \{[\s\S]*?\n}\n/.exec(q)[0] + /function sqlRefKey\(ref\) \{[\s\S]*?\n}\n/.exec(q)[0] +
+    /const SQL_HISTORY_PREFIX = .*\n/.exec(s)[0] + /const sqlHistoryKey = .*\n/.exec(s)[0] + "\nthis.f = sqlHistoryKey;", ctx);
+  assert.strictEqual(ctx.f({ workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" }), "fabric-desktop.sqlhistory.lh1");
+  assert.strictEqual(ctx.f({ kind: "endpoint", workspace_id: "ws1", item_id: "lh1", name: "Sales" }), "fabric-desktop.sqlhistory.endpoint.lh1");
+  assert.strictEqual(ctx.f({ kind: "warehouse", workspace_id: "ws1", item_id: "wh1", name: "WH_Gold" }), "fabric-desktop.sqlhistory.warehouse.wh1");
+});

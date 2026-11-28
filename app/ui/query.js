@@ -515,8 +515,9 @@ function renderQuery() {
       sqlResultHistoryAdd(tab, { id: status.id, at: startedAt, sql: query, rows: status.rows ?? 0, seconds: status.seconds ?? null,
         multi: tab.multi ? { units: tab.multi.units, change: tab.multi.change } : null, params: used, pinned: false });
     }
-    // WH-07: each run that reached the engine goes into this PC's history for the warehouse.
-    if (wh && status?.state) {
+    // WH-07: each run that reached the engine goes into this PC's history for the warehouse. S36
+    // (Preview): a lakehouse's runs go into its own, with Preview features shown.
+    if ((wh || previewShown()) && status?.state) {
       sqlHistoryAdd(ref, { at: startedAt, sql: query, state: status.state, seconds: status.seconds ?? null, rows: status.rows ?? null,
         change: change || undefined, affected: change ? status.affected ?? null : undefined,
         error: status.state === "completed" ? undefined : sqlHistoryError(status.error),
@@ -1709,7 +1710,10 @@ function renderQuery() {
     saveQueryTabs();
     renderQuery();
   };
-  const whRuns = wh ? whHistory(ref, { open: (name, text) => openTab(name, text), insight: openInsight }) : null;
+  // S36 (Preview): the lakehouse page's Query history: this PC's runs on this lakehouse, with a filter.
+  // It sits in the Explorer, apart from the result pane's History, which keeps one tab's results.
+  const runsOn = wh || previewShown();
+  const whRuns = runsOn ? whHistory(ref, { open: (name, text) => openTab(name, text), insight: openInsight }) : null;
   const saveQuery = async (asNew) => {
     const file = await saveSqlQuery(ref, tab, asNew);
     if (!file) return;
@@ -1828,10 +1832,13 @@ function renderQuery() {
   };
   const whProj = wh && ref.kind === "warehouse" ? (p.whProjectView = whProject(ref, { open: openProjectFile })) : null;
   const saveFile = async () => { if (await whProjectSave(tab)) { saveQueryTabs(); whProj?.refresh(); } };
-  const asideView = wh && ["queries", "history", ...(whProj ? ["project"] : [])].includes(p.whAside) ? p.whAside : "explorer";
+  const lhViews = !wh && runsOn ? ["history"] : [];  // the lakehouse page's explorer views, besides Explorer
+  const asideView = wh ? (["queries", "history", ...(whProj ? ["project"] : [])].includes(p.whAside) ? p.whAside : "explorer")
+    : lhViews.includes(p.whAside) ? p.whAside : "explorer";
   const asideTab = (id, label) => h("button", { role: "tab", class: `sql-view${asideView === id ? " on" : ""}`, "aria-selected": String(asideView === id),
     onclick: () => { p.whAside = id; renderQuery(); } }, label);
-  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); whProj?.draw(); if (here()) editor.refresh(); } : null;
+  p.whRedraw = wh ? () => { whTree.draw(); whSaved.draw(); whRuns.draw(); whProj?.draw(); if (here()) editor.refresh(); }
+    : runsOn ? () => { whRuns.draw(); if (here()) editor.refresh(); } : null;
   const fabricLink = wh ? fabricItemLink({ type: ref.kind === "endpoint" ? "Lakehouse" : "Warehouse", workspace_id: ref.workspace_id, item_id: ref.item_id }) : null;
   setView(wh ? h("div", { class: "sql-page warehouse-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
@@ -1889,10 +1896,16 @@ function renderQuery() {
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity. ", learnMore("sql-queries")))),
     h("div", { class: "nb-body" },
-      sqlExplorerStrip(explorerOpen), h("aside", { class: "explorer sql-explorer", hidden: !explorerOpen }, h("div", { class: "explorer-head" }, "Explorer", sqlExplorerHide()),
-        h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
+      sqlExplorerStrip(explorerOpen), h("aside", { class: "explorer sql-explorer", hidden: !explorerOpen },
+        lhViews.length ? h("div", { class: "explorer-head sql-views-head" },
+          h("div", { class: "sql-views", role: "tablist", "aria-label": "Explorer views" },
+            asideTab("explorer", "Explorer"), lhViews.includes("history") ? asideTab("history", "Query history") : null),
+          sqlExplorerHide())
+          : h("div", { class: "explorer-head" }, "Explorer", sqlExplorerHide()),
+        asideView === "history" ? whRuns.el : null,
+        asideView !== "explorer" ? null : h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
           h("span", { class: "label" }, ref.name)),
-        tablesBox),
+        asideView !== "explorer" ? null : tablesBox),
       h("section", { class: "sql-main" }, tabs,
         h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, gridRow)))));
   drawResults();

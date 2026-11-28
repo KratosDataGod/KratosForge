@@ -155,6 +155,14 @@ The **History** view beside **Results** lists the last 20 runs of the tab: when 
 
 The engine keeps the newest 20 results of the whole page, for the retention time in [Limits](#limits). **Pin** keeps a result past both until you unpin it or close its tab, up to 10 pinned results. A result the engine no longer has says it needs running again; opening the history never runs anything.
 
+## Query history on a lakehouse
+
+With Preview features shown, a lakehouse's SQL page has an Explorer tab called **Query history**. It is the warehouse page's [history of this PC's runs](warehouse.md#history-and-query-insights), for this lakehouse: every query you ran here from the app, newest first, with when it ran, how it ended, how long it took and how many rows it returned. **Filter by text or table** narrows the list. Click a run to open its SQL in a new tab; it doesn't run again until you press **Run**. **Clear history** removes the lakehouse's runs after asking.
+
+The SQL is kept in the app's storage on this PC only, with the same limits as a warehouse's: up to 200 runs per lakehouse, and about 1 MB across all warehouses and lakehouses. A failed run keeps only the first line of its error, with quoted text and numbers taken out. There are no query insights here, since a lakehouse's SQL page runs on this PC.
+
+Query history is not the result pane's **History** view (see [Result history and pinned results](#result-history-and-pinned-results-preview)). Query history keeps every run's SQL on this lakehouse until you clear it, across tabs and app restarts, and has no results. History keeps one tab's last 20 results, until the tab closes.
+
 ## Compare data (Preview)
 
 With Preview features shown, a lakehouse's Explorer has **Compare data**, and a table's menu (right-click it, or press the menu key or Shift+F10) has **Compare with…**. Compare data puts the rows of **A** beside the rows of **B**. Each is a table of the lakehouse (every row) or a query that only reads.

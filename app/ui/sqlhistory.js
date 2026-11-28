@@ -1,4 +1,6 @@
 // Query history and Fabric query insights on the Warehouse page (WH-07): the explorer's History tab.
+// S36 (Preview): a lakehouse's SQL page has the same history of this PC's runs, as its Query history
+// tab, without the query insights, which only a warehouse or SQL analytics endpoint has.
 
 // This PC's own runs on a warehouse, newest first, kept in the app's storage on this PC with their
 // SQL so they can be opened again. The engine never keeps the SQL (sql_executions has states and
@@ -111,8 +113,9 @@ function whHistory(ref, actions) {
       sqlHistoryClear(ref);
       sqlPage.whRedraw?.();
     }, "tool outline small wh-h-clear"));
-    rows.push(h("p", { class: "muted-text wh-note" }, `Up to ${SQL_HISTORY_MAX} runs, with their SQL, kept in the app on this PC only.`),
-      h("div", { class: "wh-q-head" }, "Query insights from Fabric"),
+    rows.push(h("p", { class: "muted-text wh-note" }, `Up to ${SQL_HISTORY_MAX} runs, with their SQL, kept in the app on this PC only.`));
+    if (!isWarehouseRef(ref)) { list.replaceChildren(...rows); return; }  // a lakehouse has no queryinsights views
+    rows.push(h("div", { class: "wh-q-head" }, "Query insights from Fabric"),
       h("p", { class: "muted-text wh-note" }, `Everyone's queries on ${ref.name}, from its queryinsights views. Each opens in a new tab and runs a query in Fabric (uses capacity).`),
       ...SQL_INSIGHTS.map(([name, about, sql]) => h("button", { class: "tree-row", title: about, onclick: () => actions.insight(name, sql) },
         icon("history", 14), h("span", { class: "label" }, name))));

@@ -598,9 +598,30 @@ def _ident(name: str) -> str:
     return name
 
 
+def _watermark(name: str) -> Callable[..., Any]:
+    def refuse(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
+        raise NotImplementedError(f"{name} runs in Fabric: a stream on this PC runs each batch on its own, with no "
+                                  "event-time watermark or state kept between batches.")
+    refuse.__name__ = name
+    return refuse
+
+
+def _with_watermark(self: DataFrame, eventTime: str, delayThreshold: str) -> DataFrame:  # noqa: N803
+    """On a batch DataFrame Spark drops the watermark (EliminateEventTimeWatermark), so the frame comes back as
+    it was; on a stream it is refused by name, as a stream here keeps no state between batches."""
+    if is_streaming(self):
+        return _watermark("withWatermark")(self)
+    if not isinstance(eventTime, str) or not isinstance(delayThreshold, str):
+        raise TypeError("withWatermark takes the event time column's name and a delay such as '10 minutes'.")
+    return self
+
+
 def install() -> None:
-    """``spark.readStream``, ``df.writeStream`` and ``df.isStreaming``."""
+    """``spark.readStream``, ``df.writeStream`` and ``df.isStreaming``; ``withWatermark`` on a stream and
+    ``dropDuplicatesWithinWatermark`` refused by name."""
     from .spark_local import LocalSparkSession
     setattr(LocalSparkSession, "readStream", property(lambda self: StreamReader(self)))  # noqa: B010 - a patch mypy refuses as an assignment
     DataFrame.writeStream = property(lambda self: StreamWriter(self))  # type: ignore[attr-defined]
     DataFrame.isStreaming = property(is_streaming)  # type: ignore[attr-defined]
+    DataFrame.withWatermark = _with_watermark  # type: ignore[attr-defined]
+    DataFrame.dropDuplicatesWithinWatermark = _watermark("dropDuplicatesWithinWatermark")  # type: ignore[attr-defined]

@@ -20,11 +20,11 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 143 |
-| Differs | 7 |
-| Refused | 13 |
+| Runs | 154 |
+| Differs | 10 |
+| Refused | 23 |
 | Fails | 0 |
-| Not checked | 24 |
+| Not checked | 0 |
 | **All** | **187** |
 
 ## DataFrame
@@ -33,7 +33,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | --- | --- | --- |
 | `agg` | Runs |  |
 | `alias` | Runs |  |
-| `approxQuantile` | Not checked |  |
+| `approxQuantile` | Runs |  |
 | `cache` | Runs |  |
 | `checkpoint` | Runs |  |
 | `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
@@ -54,12 +54,12 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `distinct` | Runs |  |
 | `drop` | Runs |  |
 | `dropDuplicates` | Runs |  |
-| `dropDuplicatesWithinWatermark` | Not checked |  |
-| `drop_duplicates` | Not checked |  |
+| `dropDuplicatesWithinWatermark` | Refused | `query = (stream.withWatermark("time", "10 minutes").dropD...`: NotImplementedError: withWatermark runs in Fabric: a stream on this PC runs each batch on its own, with no event-time watermark or state kept between batches. |
+| `drop_duplicates` | Runs |  |
 | `dropna` | Runs |  |
 | `dtypes` | Runs |  |
 | `exceptAll` | Runs |  |
-| `explain` | Not checked |  |
+| `explain` | Differs | `[line for line in plan.getvalue().splitlines() if line.st...`: {"value": []} here, {"value": ["== Parsed Logical Plan ==", "== Analyzed Logical Plan ==", in Spark |
 | `fillna` | Runs |  |
 | `filter` | Runs |  |
 | `first` | Runs |  |
@@ -67,9 +67,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `foreachPartition` | Differs | `df.foreachPartition(func)`: {"printed": "Tom\nAlice\nBob"} here, {} in Spark |
 | `freqItems` | Runs |  |
 | `groupBy` | Runs |  |
-| `groupby` | Not checked |  |
+| `groupby` | Runs |  |
 | `head` | Runs |  |
-| `hint` | Not checked |  |
+| `hint` | Runs |  |
 | `inputFiles` | Runs |  |
 | `intersect` | Runs |  |
 | `intersectAll` | Runs |  |
@@ -81,12 +81,12 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `localCheckpoint` | Runs |  |
 | `mapInArrow` | Runs |  |
 | `mapInPandas` | Runs |  |
-| `melt` | Not checked |  |
+| `melt` | Runs |  |
 | `na` | Runs |  |
 | `observe` | Refused | `spark.streams.addListener(MyErrorListener())`: NotImplementedError: spark.streams.addListener runs in Fabric: stream listeners and the query manager aren't on this PC. A stream started here is managed by the |
 | `offset` | Runs |  |
 | `orderBy` | Runs |  |
-| `pandas_api` | Runs |  |
+| `pandas_api` | Refused | `print(df.pandas_api())`: NotImplementedError: pandas-on-Spark (pandas_api) runs in Fabric. On this PC use toPandas() for a pandas DataFrame. |
 | `persist` | Runs |  |
 | `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
@@ -102,41 +102,41 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `schema` | Runs |  |
 | `select` | Runs |  |
 | `selectExpr` | Runs |  |
-| `semanticHash` | Not checked |  |
+| `semanticHash` | Runs |  |
 | `show` | Runs |  |
 | `sort` | Runs |  |
 | `sortWithinPartitions` | Runs |  |
 | `sparkSession` | Runs |  |
-| `sql_ctx` | Not checked |  |
+| `sql_ctx` | Refused | `with warnings.catch_warnings(): warnings.simplefilter("ig...`: NotImplementedError: DataFrame.sql_ctx is PySpark's internal SQLContext, which this PC doesn't have (Spark warns it will be removed). Use df.sparkSession. |
 | `stat` | Runs |  |
 | `storageLevel` | Runs |  |
 | `subtract` | Runs |  |
 | `summary` | Runs |  |
 | `tail` | Runs |  |
 | `take` | Runs |  |
-| `to` | Not checked |  |
+| `to` | Runs |  |
 | `toDF` | Runs |  |
 | `toJSON` | Runs |  |
 | `toLocalIterator` | Runs |  |
-| `toPandas` | Not checked |  |
-| `to_koalas` | Not checked |  |
-| `to_pandas_on_spark` | Not checked |  |
+| `toPandas` | Runs |  |
+| `to_koalas` | Refused | `print(df.to_koalas())`: NotImplementedError: pandas-on-Spark (pandas_api) runs in Fabric. On this PC use toPandas() for a pandas DataFrame. |
+| `to_pandas_on_spark` | Refused | `with warnings.catch_warnings(): warnings.simplefilter("ig...`: NotImplementedError: pandas-on-Spark (pandas_api) runs in Fabric. On this PC use toPandas() for a pandas DataFrame. |
 | `transform` | Runs |  |
 | `union` | Runs |  |
-| `unionAll` | Not checked |  |
+| `unionAll` | Runs |  |
 | `unionByName` | Runs |  |
 | `unpersist` | Runs |  |
 | `unpivot` | Runs |  |
-| `where` | Not checked |  |
+| `where` | Runs |  |
 | `withColumn` | Runs |  |
 | `withColumnRenamed` | Runs |  |
 | `withColumns` | Runs |  |
 | `withColumnsRenamed` | Runs |  |
 | `withMetadata` | Runs |  |
-| `withWatermark` | Not checked |  |
+| `withWatermark` | Runs |  |
 | `write` | Differs | `df.write.saveAsTable("tab2")`: {"printed": "Wrote 2 rows to dbo.tab2 (Delta version 0). New table: re here, {} in Spark |
-| `writeStream` | Not checked |  |
-| `writeTo` | Runs |  |
+| `writeStream` | Differs | `query = df.writeStream.toTable("streamed", checkpointLoca...`: {"printed": "Wrote 2 rows to dbo.streamed (Delta version 0). New table here, {} in Spark |
+| `writeTo` | Differs | `df.writeTo("written_to").create()`: {"printed": "Wrote 3 rows to dbo.written_to (Delta version 0). New tab here, {} in Spark |
 
 ## Column
 
@@ -146,7 +146,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `asc` | Runs |  |
 | `asc_nulls_first` | Runs |  |
 | `asc_nulls_last` | Runs |  |
-| `astype` | Not checked |  |
+| `astype` | Runs |  |
 | `between` | Runs |  |
 | `bitwiseAND` | Runs |  |
 | `bitwiseOR` | Runs |  |
@@ -166,7 +166,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `isNull` | Runs |  |
 | `isin` | Runs |  |
 | `like` | Runs |  |
-| `name` | Not checked |  |
+| `name` | Runs |  |
 | `otherwise` | Runs |  |
 | `over` | Runs |  |
 | `rlike` | Runs |  |
@@ -180,14 +180,14 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | Method | Status | Note |
 | --- | --- | --- |
 | `agg` | Runs |  |
-| `apply` | Runs |  |
-| `applyInPandas` | Runs |  |
-| `applyInPandasWithState` | Runs |  |
+| `apply` | Refused | `with warnings.catch_warnings(): warnings.simplefilter("ig...`: NotImplementedError: A GROUPED_MAP pandas_udf is Spark 2's groupBy().apply. Use df.groupBy(...).applyInPandas(function, schema) instead. |
+| `applyInPandas` | Refused | `df.groupby(df.id, ceil(df.v / 2)).applyInPandas( sum_func...`: ValueError: applyInPandas on this PC groups by column names, and ceil((v / "nullif"(2, 0))) isn't a column. Add it as a column first, for example df.withColumn( |
+| `applyInPandasWithState` | Refused | `query = (stream.groupby("id").applyInPandasWithState( cou...`: NotImplementedError: applyInPandasWithState keeps each group's state across a stream's micro-batches, which runs in Fabric. On this PC, use applyInPandas on the |
 | `avg` | Runs |  |
-| `cogroup` | Not checked |  |
+| `cogroup` | Runs |  |
 | `count` | Runs |  |
 | `max` | Runs |  |
-| `mean` | Not checked |  |
+| `mean` | Runs |  |
 | `min` | Runs |  |
 | `pivot` | Runs |  |
 | `sum` | Runs |  |
@@ -198,7 +198,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | --- | --- | --- |
 | `csv` | Runs |  |
 | `format` | Runs |  |
-| `jdbc` | Not checked |  |
+| `jdbc` | Refused | `spark.read.jdbc(url, "SYSIBM.SYSDUMMY1")`: NotImplementedError: JDBC runs in Fabric, because this PC's Spark has no Java database drivers. Read or write the database table in Fabric, or copy it into the  |
 | `json` | Runs |  |
 | `load` | Runs |  |
 | `option` | Runs |  |
@@ -217,7 +217,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `csv` | Runs |  |
 | `format` | Runs |  |
 | `insertInto` | Differs | `df.write.saveAsTable("tblA")`: {"printed": "Wrote 3 rows to dbo.tblA (Delta version 0). New table: re here, {} in Spark |
-| `jdbc` | Not checked |  |
+| `jdbc` | Refused | `df.write.jdbc(url, "people")`: NotImplementedError: JDBC runs in Fabric, because this PC's Spark has no Java database drivers. Read or write the database table in Fabric, or copy it into the  |
 | `json` | Runs |  |
 | `mode` | Runs |  |
 | `option` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing csv files on this PC. Leave it out, or run the cell in Fabric. |
@@ -242,7 +242,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `approxQuantile` | Not checked |  |
+| `approxQuantile` | Runs |  |
 | `corr` | Runs |  |
 | `cov` | Runs |  |
 | `crosstab` | Runs |  |

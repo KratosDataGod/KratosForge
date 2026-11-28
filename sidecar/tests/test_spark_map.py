@@ -133,3 +133,24 @@ def test_apply_in_pandas_by_an_expression_says_to_group_by_a_column(kernel):
     out = kernel.run("from pyspark.sql import functions as F\nspark.range(4).groupBy(F.col('id') % 2).applyInPandas(lambda p: p, 'id long')")
     assert out["status"] == "error"
     assert "groups by column names" in out["outputs"][-1]["evalue"]
+
+
+def test_cogroup_calls_the_function_for_each_key_either_side_has(kernel):
+    """As in Spark: a key one side lacks comes with that side as an empty frame of its own columns,
+    and a function of three arguments gets the key first."""
+    out = run(kernel, """
+import pandas as pd
+left = spark.createDataFrame([(1, 10), (1, 11), (2, 20)], ["id", "a"])
+right = spark.createDataFrame([(2, "x"), (3, "y")], ["id", "b"])
+def sizes(key, l, r):
+    return pd.DataFrame({"id": [key[0]], "n_left": [len(l)], "n_right": [len(r)], "cols": [",".join([*l.columns, *r.columns])]})
+print([tuple(r) for r in left.groupBy("id").cogroup(right.groupBy("id")).applyInPandas(
+    sizes, "id long, n_left long, n_right long, cols string").orderBy("id").collect()])
+print(left.groupBy("id").cogroup(right.groupBy("id")).applyInPandas(lambda l, r: l.iloc[0:0], "id long, a long").count())
+""")
+    assert out.splitlines() == ["[(1, 2, 0, 'id,a,id,b'), (2, 1, 1, 'id,a,id,b'), (3, 0, 1, 'id,a,id,b')]", "0"]
+
+
+def test_cogroup_takes_another_group_by(kernel):
+    out = kernel.run("spark.range(2).groupBy('id').cogroup(spark.range(2))")
+    assert out["status"] == "error" and "groupBy" in out["outputs"][-1]["evalue"]

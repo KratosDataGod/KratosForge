@@ -45,6 +45,23 @@ def test_a_method_marked_as_running_has_examples_with_spark_s_results(rows):
         assert method["examples"] and any("outcome" in e for e in method["examples"]), r
 
 
+# Methods PySpark documents only through another call: dropna and fillna with df.na.drop and df.na.fill.
+_DOCUMENTED_THROUGH = {("DataFrame", "dropna"), ("DataFrame", "fillna")}
+
+
+def test_a_method_marked_as_running_is_called_by_an_example_whose_result_compares(rows):
+    """A method's examples that only set up (the capture leaves out those marked +SKIP) check nothing:
+    one of them must call the method, and one must give a result to compare."""
+    data = {(m["class"], m["name"]): m for m in spark_api_coverage.load()}
+    for r in rows:
+        key = (r["class"], r["name"])
+        if r["status"] != "runs" or key in _DOCUMENTED_THROUGH:
+            continue
+        examples = data[key]["examples"]
+        assert any(re.search(rf"\b{r['name']}\b", e["source"]) for e in examples), key
+        assert any(e.get("outcome") for e in examples), key
+
+
 def test_an_api_object_is_told_by_what_it_does_not_its_class_name():
     assert spark_api_coverage.outcome(None, "  x  \n") == {"printed": "  x"}
     assert spark_api_coverage.outcome(3, "") == {"value": 3}
@@ -101,3 +118,58 @@ def test_the_readme_counts_match_spark_api_coverage():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert (f"Of PySpark's {sum(frame.values())} DataFrame methods, {listed}. "
             f"{session.get('works', 0)} of SparkSession's {sum(session.values())} work.") in readme
+
+
+def test_an_alias_is_checked_with_its_method_s_examples_each_call_renamed():
+    data = {(m["class"], m["name"]): m for m in spark_api_coverage.load()}
+    for (cls, name), target in spark_api_coverage.ALIASES.items():
+        examples, source = data[(cls, name)]["examples"], data[(cls, target)]["examples"]
+        assert [e.get("outcome") for e in examples] == [e.get("outcome") for e in source]
+        assert any(f".{name}(" in e["source"] and f".{target}(" not in e["source"] for e in examples), name
+
+
+def test_a_written_example_replaces_one_spark_could_not_compare():
+    data = {(m["class"], m["name"]): m for m in spark_api_coverage.load()}
+    for key, examples in spark_api_coverage.WRITTEN.items():
+        method = data[key]
+        assert method["examples"] == examples and "varying" not in method and "spark_error" not in method
+        assert any(re.search(rf"\b{key[1]}\b", e["source"]) for e in examples), key
+
+
+def test_pandas_on_spark_is_refused_by_name():
+    from fabric_desktop.notebook import Kernel
+    result = Kernel().run("spark.range(1).to_pandas_on_spark()")
+    assert result["status"] != "ok"
+    error = next(o for o in result["outputs"] if o.get("type") == "error")
+    assert error["ename"] == "NotImplementedError" and "toPandas()" in error["evalue"]
+
+
+@pytest.mark.parametrize(("code", "words"), [
+    ("spark.range(1).to_koalas()", "toPandas()"),
+    ("spark.range(1).sql_ctx", "df.sparkSession"),
+    ("spark.range(1).dropDuplicatesWithinWatermark()", "watermark"),
+    ("spark.read.jdbc('jdbc:sqlserver://db', 'dbo.t')", "JDBC"),
+    ("spark.range(1).write.jdbc('jdbc:sqlserver://db', 'dbo.t')", "JDBC"),
+])
+def test_what_runs_only_in_fabric_is_refused_by_name(code, words):
+    from fabric_desktop.notebook import Kernel
+    result = Kernel().run(code)
+    error = next(o for o in result["outputs"] if o.get("type") == "error")
+    assert error["ename"] == "NotImplementedError" and words in error["evalue"], error
+
+
+def test_a_watermark_on_a_batch_frame_is_dropped_and_on_a_stream_refused(tmp_path):
+    """As Spark: EliminateEventTimeWatermark drops a batch frame's watermark; a stream here keeps no state."""
+    from fabric_desktop.notebook import Kernel
+    k = Kernel()
+    result = k.run("from pyspark.sql import functions as F\n"
+                   "df = spark.range(3).withColumn('t', F.current_timestamp())\n"
+                   "print(df.withWatermark('t', '10 minutes').count())")
+    assert result["status"] == "ok" and any("3" in o.get("text", "") for o in result["outputs"]), result
+    folder = (tmp_path / "in").as_posix()
+    result = k.run(f"spark.range(2).write.parquet({folder!r})\n"
+                   "from pyspark.sql.types import StructType, StructField, LongType\n"
+                   f"s = spark.readStream.schema(StructType([StructField('id', LongType())])).parquet({folder!r})\n"
+                   "s.withWatermark('id', '1 minute')")
+    error = next(o for o in result["outputs"] if o.get("type") == "error")
+    assert error["ename"] == "NotImplementedError" and "withWatermark runs in Fabric" in error["evalue"], error

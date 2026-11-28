@@ -96,7 +96,8 @@ def hook_sources() -> dict[str, dict[str, set[str]]]:
     (work checked on this PC), ``simulated`` (a configuration checked, not a service), ``knowledge``
     (reading or a quiz) or ``draft`` (not published, so nothing counts yet: levels only count published
     content). A Learn module with an exercise, or a lab, is practice. An exam objective is every published
-    exercise that carries it, each its own source. A hook this doesn't list isn't known here."""
+    exercise that carries it, each its own source, and nothing when none does. A hook this doesn't list
+    isn't known here."""
     from ..academy import exercises, registry
     from ..learn import content
 
@@ -107,6 +108,8 @@ def hook_sources() -> dict[str, dict[str, set[str]]]:
         kind = "draft" if m.get("status") != "live" else "practice" if m.get("exercises") or mid.startswith("LAB-") else "knowledge"
         out[mid] = {kind: {mid}}
     for pack in registry.pack_ids():
+        for o in registry.objectives(registry.certification(pack)):   # one no exercise carries yet counts as nothing
+            out[f"{pack}:{o['id']}"] = {}
         for ex in exercises.exercises(pack, include_drafts=True):
             ref = f"{pack}/{ex['id']}"
             kind = "draft" if ex.get("status") != "live" else kind_of.get(ex["class"], "practice")

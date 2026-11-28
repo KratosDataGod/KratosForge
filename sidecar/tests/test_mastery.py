@@ -530,6 +530,9 @@ def test_an_achievement_is_available_only_when_published_content_can_take_someon
     assert reach({"academy": ["p/E02"]}) == (0, "The lessons and exercises that check this skill aren't published yet.")
     assert reach({"events": ["validate.pass"]})[0] == 1      # notebook work alone stops at Initiate (level())
     assert reach({"learn": ["LM-unknown"]}) == (6, "")       # content it doesn't know isn't capped
+    src["p:9.9"] = {}                                        # an objective no exercise carries yet adds nothing
+    assert reach({"learn": ["LM-A"], "objectives": ["p:9.9"]})[0] == 3
+    assert catalog.hook_sources()["dp-700:1.1.1"] is not None  # every registry objective is known, carried or not
     assert reach({}) == (6, "")                              # planned content: ceiling() says so
 
 
@@ -551,6 +554,13 @@ def test_an_unreachable_talent_names_why_unless_it_is_already_there():
     skill["evidence"] = {"academy": ["dp-700/E10"]}         # a draft, simulated exercise today
     a = awards(progress.empty(), cat)["a0"]
     assert not a["available"] and a["unavailable_reason"] == levels.reach(skill)[1] != ""
+
+
+def test_an_objective_no_exercise_carries_caps_the_skill():
+    sources = catalog.hook_sources()
+    bare = [k for k, v in sources.items() if ":" in k and not v]
+    assert bare, "the registry has objectives no exercise carries yet"
+    assert levels.reach({"evidence": {"objectives": bare[:1]}, "cloud": False})[0] == 0
 
 
 def test_every_unavailable_shipped_achievement_says_why():

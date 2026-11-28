@@ -454,14 +454,17 @@ def test_a_pipeline_run_that_checks_out_is_recorded_as_verified(setup):
     assert done["pipeline_run"]["verified"] is True and done["pipeline_run"]["status"] == "InProgress"
 
 
-@pytest.mark.parametrize("job, says", [
-    ({"jobType": "RunNotebook", "itemId": ITEM, "startTimeUtc": fabric_time(60)}, "not a pipeline run"),
-    ({"jobType": "Pipeline", "itemId": "0a1b2c3d-0000-4000-8000-0000000000ff", "startTimeUtc": fabric_time(60)},
-     "different item"),
-    ({"jobType": "Pipeline", "itemId": ITEM, "startTimeUtc": fabric_time(3 * 86400)}, "started 72 hours ago"),
-    ({"jobType": "Pipeline", "itemId": ITEM}, "no start time"),
+# Each case gives its start time as seconds ago, turned into a time when the test runs: a time taken when
+# the module is collected is stale by however long the suite ran before this test (72 hours became 73).
+@pytest.mark.parametrize("job, ago, says", [
+    ({"jobType": "RunNotebook", "itemId": ITEM}, 60, "not a pipeline run"),
+    ({"jobType": "Pipeline", "itemId": "0a1b2c3d-0000-4000-8000-0000000000ff"}, 60, "different item"),
+    ({"jobType": "Pipeline", "itemId": ITEM}, 3 * 86400, "started 72 hours ago"),
+    ({"jobType": "Pipeline", "itemId": ITEM}, None, "no start time"),
 ])
-def test_a_run_that_doesnt_check_out_is_recorded_and_still_runs_unless_required(setup, job, says):
+def test_a_run_that_doesnt_check_out_is_recorded_and_still_runs_unless_required(setup, job, ago, says):
+    if ago is not None:
+        job = {**job, "startTimeUtc": fabric_time(ago)}
     done, _ = checked(setup, job)
     assert done["state"] == "succeeded" and done["pipeline_run"]["verified"] is False
     assert says in done["pipeline_run"]["detail"]

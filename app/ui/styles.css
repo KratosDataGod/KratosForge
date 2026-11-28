@@ -303,6 +303,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tool.outline { border-color: var(--border-input); }
 .tool.primary { background: var(--accent); color: var(--on-accent); }
 .tool.primary:hover:not(:disabled) { background: var(--accent-dark); }
+/* A primary button that can't be pressed looks like it: no accent, muted text, no hover. */
+.tool.primary:disabled { background: var(--border); border-color: var(--border); color: var(--muted); }
 /* A button with a chevron for its options (Publish to OneLake). */
 .split { display: inline-flex; gap: 1px; }
 .split > .tool:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }

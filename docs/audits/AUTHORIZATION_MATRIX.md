@@ -128,7 +128,7 @@ Every call passes PermissionAuthorizer.check (integrations/permissions.py) befor
 | `fabric_desktop_start_pipeline_run` | `sidecar/fabric_desktop/integrations/services.py:388` | EXECUTE_LOCAL_CODE | yes | always |  |
 | `fabric_desktop_start_proof` | `sidecar/fabric_desktop/integrations/services.py:568` | MODIFY_FABRIC_ARTIFACTS | no (refused) | always |  |
 
-## 3. Engine methods that change something (447)
+## 3. Engine methods that change something (448)
 
 Reached only by the app window, over the engine's own pipe. "What it changes" and "Check" are found by reading the method and the methods it calls; "platform's check per operation" points at section 1.
 
@@ -141,11 +141,12 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `academy_exam_open` | `sidecar/fabric_desktop/academy_exam_service.py:154` | this PC | the signed-in Windows user's own files |
 | `academy_exam_pause` | `sidecar/fabric_desktop/academy_exam_service.py:195` | this PC | the signed-in Windows user's own files |
 | `academy_exam_start` | `sidecar/fabric_desktop/academy_exam_service.py:121` | this PC | the signed-in Windows user's own files |
-| `academy_explanation` | `sidecar/fabric_desktop/academy_service.py:99` | this PC | the signed-in Windows user's own files |
-| `academy_reset` | `sidecar/fabric_desktop/academy_service.py:102` | this PC | the signed-in Windows user's own files |
-| `academy_sandbox_remove_grants` | `sidecar/fabric_desktop/academy_service.py:117` | this PC | the signed-in Windows user's own files |
-| `academy_save` | `sidecar/fabric_desktop/academy_service.py:70` | this PC | the signed-in Windows user's own files |
-| `academy_start` | `sidecar/fabric_desktop/academy_service.py:66` | this PC | the signed-in Windows user's own files |
+| `academy_explanation` | `sidecar/fabric_desktop/academy_service.py:101` | this PC | the signed-in Windows user's own files |
+| `academy_readiness_export` | `sidecar/fabric_desktop/academy_service.py:113` | this PC | the signed-in Windows user's own files |
+| `academy_reset` | `sidecar/fabric_desktop/academy_service.py:104` | this PC | the signed-in Windows user's own files |
+| `academy_sandbox_remove_grants` | `sidecar/fabric_desktop/academy_service.py:141` | this PC | the signed-in Windows user's own files |
+| `academy_save` | `sidecar/fabric_desktop/academy_service.py:72` | this PC | the signed-in Windows user's own files |
+| `academy_start` | `sidecar/fabric_desktop/academy_service.py:68` | this PC | the signed-in Windows user's own files |
 | `access_cache_protect` | `sidecar/fabric_desktop/access_cache_service.py:99` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument |
 | `access_cache_refresh` | `sidecar/fabric_desktop/access_cache_service.py:54` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `access_delete_role` | `sidecar/fabric_desktop/estate_service.py:528` | Fabric or OneLake | Fabric's own rights |

@@ -192,6 +192,18 @@ def test_the_dashboard_counts_each_measure_by_domain_with_fixed_rules(cert):
     assert sum(dash["todo"]["by_domain"].values()) == dash["todo"]["objectives"]
 
 
+def test_the_dashboard_rules_hold_at_their_edges(cert):
+    profile = progress.empty()
+    _assessed(profile, cert, "2.1.1", 2, 4)           # exactly half right: not a weakness
+    _assessed(profile, cert, "2.1.2", 1.5, 4)         # just under half: a weakness
+    _assessed(profile, cert, "1.1.1", 3, 4)           # Knowledge met, nothing else: one measure, not a strength
+    dash = readiness.readiness(profile, PACK)["dashboard"]
+    assert [w["id"] for w in dash["weaknesses"] if "question points" in w["why"]] == ["2.1.2"]
+    assert "1.1.1" not in {s["id"] for s in dash["strengths"]}
+    empty = readiness.readiness(progress.empty(), PACK)
+    assert empty["dashboard"]["todo"]["need_platform"] == sum(d["need_platform"] for d in empty["domains"]) == 36
+
+
 def test_the_report_is_labelled_an_estimate_and_page_text_cant_break_its_tables(cert):
     profile = progress.empty()
     progress.add(profile, _row("E37", cert))

@@ -15,7 +15,7 @@ import time
 import pytest
 
 from fabric_desktop.meta import change_impact, lineage, openlineage
-from fabric_desktop.meta.project import Project
+from fabric_desktop.meta.project import Project, impact as entity_impact
 from tests.test_openlineage import _all_facets, spec  # noqa: F401 - the fixture is used by name
 
 SIDECAR = Path(__file__).resolve().parent.parent
@@ -350,5 +350,8 @@ def test_graph_invariants_on_random_projects(tmp_path, seed):
             looks_up = {n for n, e in project.entities.items()
                         if any(isinstance(c, dict) and c.get("exists_in") == f"{name}.{col}" for c in e.spec.get("check", []))}
             tables = {i["name"] for i in res["items"] if i["kind"] == "table"}
-            # never the changed column's upstream (unless a cycle brings it back downstream too)
-            assert tables <= {name} | down | looks_up, (x, change, tables - {name} - down)
+            # never the changed column's upstream (unless a cycle brings it back downstream too). Beyond its
+            # column lineage, a table that reads it may be listed: a lookup matches on the dimension's column,
+            # and an expression lineage can't read may use any column.
+            reads_it = set(entity_impact(project, name))
+            assert tables <= {name} | down | looks_up | reads_it, (x, change, tables - {name} - down - reads_it)

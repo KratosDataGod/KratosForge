@@ -40,9 +40,11 @@ from .project import (
     Entity,
     GateError,
     Project,
+    entity_output,
     impact,
     load_python,
     parse_lookback,
+    renamed,
     run_order,
     validate,
 )
@@ -1274,9 +1276,8 @@ class Engine:
         """The source columns the contract expects, and those this entity uses."""
         own = set(e.columns) | set(e.derived) | set(e.hook_adds)
         src = e.spec.get("source", {})
-        if "entity" in src:
-            up = self.project.entities[src["entity"]]
-            expected = set(up.columns) | set(up.derived) | set(up.hook_adds) | up.mode_columns()
+        if "entity" in src:  # by the names [source] rename gives them, as the rows have them once read
+            expected = set(renamed(entity_output(self.project.entities[src["entity"]]), src.get("rename")))
         else:
             expected = own
         lookups = {c for lk in e.spec.get("lookup", []) for c in (lk.get("on"), lk.get("at")) if c}

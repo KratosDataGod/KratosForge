@@ -81,9 +81,9 @@ def test_a_column_reached_twice_further_on_is_listed_once(svc):
     fact = next(i for i in res["items"] if i["name"] == "gold.fact_sales")
     assert fact["severity"] == "breaks"   # x reads amount by name
     assert "its expression for x uses amount; once it's dropped, building gold.fact_sales fails" in fact["why"]
-    assert "net_amount is built from silver.orders.net_amount, which breaks first" in fact["why"]
-    # x is also built from fact_sales.net_amount, but it was already reached directly.
-    assert not any("x is built from" in w for w in fact["why"])
+    # silver.orders' net_amount still finds amount in bronze.orders, so it (and gold's copy of it) still builds;
+    # x was reached directly, so it is never listed again as built from something further on.
+    assert not any("net_amount is built from" in w or "x is built from" in w for w in fact["why"])
 
 
 def test_a_new_type_stops_at_columns_that_dont_copy_it(svc):
@@ -166,7 +166,10 @@ def test_edit_impact_refuses_columns_that_arent_tables(svc):
 def test_edit_impact_skips_changes_that_touch_nothing_and_columns_lineage_doesnt_know(svc, monkeypatch):
     project = svc._project()
     old = dict(project.entities["silver.orders"].spec["contract"]["columns"])
-    # status is read by nothing downstream, and silver.orders has no hooks: a new type touches nothing.
+    # Without its check expression, status is read by nothing, and silver.orders has no hooks: a new type
+    # touches nothing.
+    spec = project.entities["silver.orders"].spec
+    spec["check"] = [c for c in spec["check"] if "expr" not in c]
     assert change_impact.edit_impact(project, "silver.orders",
                                      {"contract": {"columns": {**old, "status": "int64"}}}) == []
     real = change_impact.lineage.entity_columns

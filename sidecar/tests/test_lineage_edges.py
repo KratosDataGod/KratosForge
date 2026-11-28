@@ -282,8 +282,10 @@ def items(res):
 
 def test_dropping_a_silver_column_lists_only_what_comes_after(svc):
     project = svc._project()
+    # net_amount still reads discount from bronze.orders once silver's contract leaves it out: a check, and
+    # nothing further on breaks
     res = change_impact.column_impact(project, "silver.orders", "discount", "drop")
-    assert items(res) == {("table", "silver.orders", "breaks"), ("table", "gold.fact_sales", "check")}
+    assert items(res) == {("table", "silver.orders", "check")}
     res = change_impact.column_impact(project, "silver.orders", "order_date", "drop")
     assert items(res) == {("table", "gold.fact_sales", "breaks"), ("model", "SM_Gold", "check")}
     res = change_impact.column_impact(project, "silver.orders", "net_amount", "drop")
@@ -330,7 +332,9 @@ def test_a_column_renamed_in_the_middle_by_source_rename(svc):
     assert items(res) == {("table", "gold.fact_sales", "breaks"), ("table", "silver.orders", "breaks"),
                           ("model", "SM_Gold", "check")}
     assert [i["why"] for i in res["items"] if i["name"] == "silver.orders"] == [
-        ["a [[clean]] step names order_status; the save gate refuses the change until you update it"]]
+        ["a [[clean]] step names order_status; the save gate refuses the change until you update it",
+         ("a [[check]] expression (returns_are_negative) uses order_status; the save gate refuses the change until "
+          "you update it")]]
     res = change_impact.column_impact(project, "silver.orders", "order_status", "rename", "st")
     assert items(res) == {("table", "gold.fact_sales", "breaks"), ("table", "silver.orders", "breaks")}
 
